@@ -27093,6 +27093,7 @@ const WFS_PROJECT = "verify-workflow-scan";
 const WFS_LENS = (kind) => `document.querySelector('[data-workflow-lens="${kind}"]')`;
 const WFS_SCAN_BUTTON = `document.querySelector('[data-workflow-scan-button]')`;
 const WFS_SEND = `document.querySelector('[data-workflow-send]')`;
+const WFS_DETAIL = (kind) => `document.querySelector('[data-workflow-detail="${kind}"]')`;
 const WFS_CARD = (id) => `document.querySelector('[data-workflow-card="${id}"]')`;
 const WFS_COUNT = (sel) => `document.querySelectorAll(${JSON.stringify(sel)}).length`;
 const WFS_DAY_MS = 24 * 60 * 60 * 1000;
@@ -27209,6 +27210,38 @@ async function wfsHeaderEnabled(h) {
     return h.ev(`${WFS_SCAN_BUTTON} ? !${WFS_SCAN_BUTTON}.disabled : null`);
 }
 
+// the stage column as [label, phase, fact]
+const WFS_STAGES = `[...document.querySelectorAll('[data-workflow-stage]')].map((s) => [
+    s.getAttribute('data-workflow-stage'),
+    s.getAttribute('data-phase'),
+    s.querySelector('[data-workflow-stage-fact]')?.textContent.trim() ?? null,
+])`;
+const WFS_ELAPSED = `document.querySelector('[data-workflow-elapsed]')?.textContent.trim() ?? null`;
+const WFS_ELAPSED_FORMAT = /^\d+s$|^\d+m \d{2}s$/;
+
+const wfsPhases = (stages) => JSON.stringify((stages ?? []).map((s) => s[1]));
+const wfsFact = (stages, label) => (stages ?? []).find((s) => s[0] === label)?.[2] ?? null;
+
+// the head row and its status: text of the status element for the view kind, null when absent
+async function wfsHead(h, kind) {
+    return h.ev(`({
+        head: !!document.querySelector('[data-workflow-head]'),
+        headText: document.querySelector('[data-workflow-head]')?.innerText ?? null,
+        status: document.querySelector('[data-workflow-status="${kind}"]')?.innerText ?? null,
+        elapsed: ${WFS_ELAPSED},
+    })`);
+}
+
+// a scan at the given stage; the lens kind stays scanning across stages, so the wait is on the stage's own pane
+async function wfsSeedScanning(h, ctx, stage, extra) {
+    const seeded = await wfsSeed(h, ctx, "scanning", (run) => ({
+        ...run,
+        workflowscan: wfsScan(ctx, { state: "scanning", stage, ...extra }),
+    }));
+    const pane = await polishWaitFor(h, `!!${WFS_DETAIL(stage)}`, 10000);
+    return seeded && pane;
+}
+
 const workflowScan = {
     name: "workflow-scan",
     surface: "usage",
@@ -27269,24 +27302,78 @@ const workflowScan = {
             JSON.stringify({ idle, header: idleHeader })
         );
 
-        // 2. scanning at the recount stage
-        const scanning = await wfsSeed(h, ctx, "scanning", (run) => ({
-            ...run,
-            workflowscan: wfsScan(ctx, { state: "scanning", stage: "recount", survivors: [], underfloor: [], verdicts: [], kept: 0 }),
-        }));
-        const stages = await h.ev(
-            `[...document.querySelectorAll('[data-workflow-stage]')].map((s) => [s.getAttribute('data-workflow-stage'), s.getAttribute('data-phase')])`
-        );
+        // 2. scanning at the checking stage: the kept patterns under the Opus pane, a ticking clock
+        const scanning = await wfsSeedScanning(h, ctx, "checking", { verdicts: [], kept: 5 });
+        const stages = await h.ev(WFS_STAGES);
+        const scanningHead = await wfsHead(h, "scanning");
         const scanningHeader = await wfsHeaderEnabled(h);
+        const keptView = await h.ev(`(() => {
+            const pane = ${WFS_DETAIL("checking")};
+            const kept = (id) => pane?.querySelector('[data-workflow-kept="' + id + '"]')?.innerText ?? '';
+            return {
+                rows: pane ? pane.querySelectorAll('[data-workflow-kept]').length : 0,
+                p1: kept("p1"),
+                p2: kept("p2"),
+                text: pane?.innerText ?? '',
+            };
+        })()`);
+        await polishNap(2200);
+        const elapsedLater = await h.ev(WFS_ELAPSED);
         await shot("scanning");
         rec(
-            "2. scanning: five stage rows with Recount now, and the header button disabled",
+            "2. scanning at Opus checks files: three stages done, the head row with a ticking clock, five kept rows, the header button disabled",
             scanning &&
                 stages?.length === 5 &&
-                JSON.stringify(stages.map((s) => s[1])) === JSON.stringify(["done", "done", "now", "todo", "todo"]) &&
-                stages[2][0] === "Recount" &&
+                wfsPhases(stages) === JSON.stringify(["done", "done", "done", "now", "todo"]) &&
+                stages[3][0] === "Opus checks files" &&
+                scanningHead.head &&
+                scanningHead.status != null &&
+                WFS_ELAPSED_FORMAT.test(scanningHead.elapsed ?? "") &&
+                WFS_ELAPSED_FORMAT.test(elapsedLater ?? "") &&
+                elapsedLater !== scanningHead.elapsed &&
+                keptView.rows === 5 &&
+                keptView.p1.includes("#verify-workflow-scan") &&
+                keptView.p2.includes("3 projects") &&
+                keptView.text.includes("2 under 3 runs set aside") &&
+                wfsFact(stages, "Sonnet patterns") === "7 named" &&
                 scanningHeader === false,
-            JSON.stringify({ scanning, stages, header: scanningHeader })
+            JSON.stringify({ scanning, stages, head: scanningHead, elapsedLater, keptView, header: scanningHeader })
+        );
+
+        // 2a. scanning at the patterns stage
+        const early = await wfsSeedScanning(h, ctx, "patterns");
+        const earlyStages = await h.ev(WFS_STAGES);
+        const earlyText = await h.ev(`${WFS_DETAIL("patterns")}?.innerText ?? ''`);
+        await shot("scanning-early");
+        rec(
+            "2a. scanning at Sonnet patterns: the first stage done, the pane says what Sonnet reads",
+            early &&
+                wfsPhases(earlyStages) === JSON.stringify(["done", "now", "todo", "todo", "todo"]) &&
+                earlyText.includes("Sonnet reads 47 runs from 4 projects"),
+            JSON.stringify({ early, earlyStages, earlyText })
+        );
+
+        // 2b. scanning at the read stage, before the counts exist
+        const reading = await wfsSeedScanning(h, ctx, "read", { runs: 0, projects: 0 });
+        const readHead = await wfsHead(h, "scanning");
+        await shot("scanning-read");
+        rec(
+            "2b. scanning at the read stage: the head row shows no run count, the read pane shows",
+            reading && readHead.head && !(readHead.headText ?? "").includes("runs"),
+            JSON.stringify({ reading, head: readHead })
+        );
+
+        // 2c. scanning at the recount stage
+        const recounting = await wfsSeedScanning(h, ctx, "recount");
+        const recountStages = await h.ev(WFS_STAGES);
+        const recountText = await h.ev(`${WFS_DETAIL("recount")}?.innerText ?? ''`);
+        await shot("scanning-recount");
+        rec(
+            "2c. scanning at Recount: two stages done, the pane names the pattern count",
+            recounting &&
+                wfsPhases(recountStages) === JSON.stringify(["done", "done", "now", "todo", "todo"]) &&
+                recountText.includes("Recounting 7 patterns"),
+            JSON.stringify({ recounting, recountStages, recountText })
         );
 
         // 3. picking: three suggestions, one raised again, one with its fix in another project
@@ -27299,11 +27386,20 @@ const workflowScan = {
             send: ${WFS_SEND}?.textContent ?? null,
         })`);
         const pickingHeader = await wfsHeaderEnabled(h);
+        const pickingHead = await wfsHead(h, "picking");
         await shot("picking");
         rec(
-            "3. picking: three cards, one raised again, Copy for #project instead of Apply on the other project's fix; header disabled",
-            picking && cards.cards === 3 && cards.raised === 1 && cards.copy === 1 && !cards.applyOnElsewhere && pickingHeader === false,
-            JSON.stringify({ picking, cards, header: pickingHeader })
+            "3. picking: head row with 3 to decide and no clock, three cards, one raised again, Copy for #project instead of Apply on the other project's fix; header disabled",
+            picking &&
+                pickingHead.head &&
+                (pickingHead.status ?? "").includes("3 to decide") &&
+                pickingHead.elapsed == null &&
+                cards.cards === 3 &&
+                cards.raised === 1 &&
+                cards.copy === 1 &&
+                !cards.applyOnElsewhere &&
+                pickingHeader === false,
+            JSON.stringify({ picking, cards, head: pickingHead, header: pickingHeader })
         );
         await h.ev(`document.querySelector('[data-workflow-covered-toggle]')?.click()`);
         const covered = await polishWaitFor(h, `${WFS_COUNT('[data-workflow-filed="covered"]')} === 2`, 3000);
@@ -27350,18 +27446,29 @@ const workflowScan = {
         const deliveryError = await polishWaitFor(h, `!!${WFS_LENS("applying")}?.querySelector('[data-workflow-send-error]')`, 10000);
         const errorText = await h.ev(`document.querySelector('[data-workflow-send-error]')?.textContent ?? null`);
         const applyingHeader = await wfsHeaderEnabled(h);
+        const applyingHead = await wfsHead(h, "applying");
+        const applyingStages = await h.ev(WFS_STAGES);
+        const applyingPane = await h.ev(`({
+            text: ${WFS_DETAIL("applying")}?.innerText ?? '',
+            error: !!${WFS_DETAIL("applying")}?.querySelector('[data-workflow-send-error]'),
+        })`);
         await shot("applying");
         const wantPicks = [
             { id: "p1", pick: "drop", reason: "covered by the Final store notes" },
             { id: "p3", pick: "apply" },
         ];
         rec(
-            "6. sent: the record holds the picks and applying, the delivery error shows inline, the header stays disabled",
+            "6. sent: the record holds the picks and applying, the applying pane holds the delivery error and the sent line, the head reads applying your picks, the header stays disabled",
             stored?.state === "applying" &&
                 JSON.stringify(stored.picks) === JSON.stringify(wantPicks) &&
                 deliveryError &&
+                applyingPane.error &&
+                applyingPane.text.includes("Apply 1, decline 1 sent") &&
+                wfsPhases(applyingStages) === JSON.stringify(["done", "done", "done", "done", "now"]) &&
+                (applyingHead.status ?? "").includes("applying your picks") &&
+                applyingHead.elapsed == null &&
                 applyingHeader === false,
-            JSON.stringify({ stored, deliveryError, errorText, header: applyingHeader })
+            JSON.stringify({ stored, deliveryError, errorText, head: applyingHead, applyingStages, applyingPane, header: applyingHeader })
         );
 
         // 7. done, with a commit and a row per pick
@@ -27384,14 +27491,23 @@ const workflowScan = {
             rows: [...document.querySelectorAll('[data-workflow-done-row]')].map((r) => r.getAttribute('data-workflow-done-row')),
         })`);
         const doneHeader = await wfsHeaderEnabled(h);
+        const doneHead = await wfsHead(h, "done");
+        const doneStages = await h.ev(WFS_STAGES);
+        const doneInPane = await h.ev(`!!${WFS_DETAIL("done")}?.querySelector('[data-workflow-commit]')`);
         await shot("done");
         rec(
-            "7. done: the commit and three rows, and the header button enabled",
+            "7. done: all five stages done with their facts, the commit and three rows in the pane, the head reads done, and the header button enabled",
             done &&
                 doneView.commit === commit.slice(0, 8) &&
                 JSON.stringify(doneView.rows) === JSON.stringify(["applied", "applied", "declined"]) &&
+                doneInPane &&
+                wfsPhases(doneStages) === JSON.stringify(["done", "done", "done", "done", "done"]) &&
+                wfsFact(doneStages, "Opus checks files") === "3 suggested · 2 covered" &&
+                wfsFact(doneStages, "Your picks") === "2 applied · 1 declined" &&
+                (doneHead.status ?? "").includes("done") &&
+                doneHead.elapsed == null &&
                 doneHeader === true,
-            JSON.stringify({ done, doneView, header: doneHeader })
+            JSON.stringify({ done, doneView, doneInPane, doneStages, head: doneHead, header: doneHeader })
         );
         const runSheetOpen = `(() => {
             const sheet = document.querySelector('[data-run-sheet]');
@@ -27434,18 +27550,29 @@ const workflowScan = {
                 ],
             }),
         }));
-        const notRaised = await h.ev(`({
-            title: (${WFS_LENS("nothing")}?.innerText || '').includes('Nothing to suggest'),
-            rows: [...document.querySelectorAll('[data-workflow-filed]')].map((r) => r.getAttribute('data-workflow-filed')),
-        })`);
+        const notRaised = await h.ev(`(() => {
+            const pane = ${WFS_DETAIL("nothing")};
+            return {
+                title: (${WFS_LENS("nothing")}?.innerText || '').includes('Nothing to suggest'),
+                rows: [...document.querySelectorAll('[data-workflow-filed]')].map((r) => r.getAttribute('data-workflow-filed')),
+                inPane: pane ? pane.querySelectorAll('[data-workflow-filed]').length : 0,
+                heading: (pane?.innerText || '').includes('Not raised'),
+            };
+        })()`);
+        const nothingHead = await wfsHead(h, "nothing");
+        const nothingStages = await h.ev(WFS_STAGES);
         await shot("nothing");
         rec(
-            "8. nothing to suggest, with the Not raised list of covered, declined and under-floor rows",
+            "8. nothing to suggest: one pane holds the Not raised heading and the covered, declined and under-floor rows, the head reads done",
             nothing &&
                 notRaised.title &&
                 JSON.stringify(notRaised.rows) ===
-                    JSON.stringify(["covered", "covered", "covered", "covered", "declined", "under", "under"]),
-            JSON.stringify({ nothing, notRaised })
+                    JSON.stringify(["covered", "covered", "covered", "covered", "declined", "under", "under"]) &&
+                notRaised.inPane === notRaised.rows.length &&
+                notRaised.heading &&
+                wfsFact(nothingStages, "Your picks") === "none to pick" &&
+                (nothingHead.status ?? "").includes("done"),
+            JSON.stringify({ nothing, notRaised, nothingStages, head: nothingHead })
         );
 
         // 9. a cancelled run left in scanning blocks nothing
@@ -27456,11 +27583,16 @@ const workflowScan = {
         }));
         const cancelledLast = await h.ev(`document.querySelector('[data-workflow-last="cancelled"]')?.textContent.trim() ?? null`);
         const cancelledHeader = await wfsHeaderEnabled(h);
+        const cancelledChrome = await h.ev(`({ head: ${WFS_COUNT("[data-workflow-head]")}, stage: ${WFS_COUNT("[data-workflow-stage]")} })`);
         await shot("cancelled");
         rec(
-            "9. a cancelled run left scanning shows as idle with its last: line, and the header button is enabled",
-            cancelled && /^last: \d\d-\d\d · cancelled$/.test(cancelledLast ?? "") && cancelledHeader === true,
-            JSON.stringify({ cancelled, cancelledLast, header: cancelledHeader })
+            "9. a cancelled run left scanning shows as idle with its last: line, no head row or stage rows, and the header button is enabled",
+            cancelled &&
+                /^last: \d\d-\d\d · cancelled$/.test(cancelledLast ?? "") &&
+                cancelledChrome.head === 0 &&
+                cancelledChrome.stage === 0 &&
+                cancelledHeader === true,
+            JSON.stringify({ cancelled, cancelledLast, chrome: cancelledChrome, header: cancelledHeader })
         );
 
         // 10. failed: idle, with the last: line and the error
@@ -27471,11 +27603,17 @@ const workflowScan = {
         }));
         const failedLast = await h.ev(`document.querySelector('[data-workflow-last="failed"]')?.textContent.trim() ?? null`);
         const failedHeader = await wfsHeaderEnabled(h);
+        const failedChrome = await h.ev(`({ head: ${WFS_COUNT("[data-workflow-head]")}, stage: ${WFS_COUNT("[data-workflow-stage]")} })`);
         await shot("failed");
         rec(
-            "10. failed shows as idle with its last: line and the error",
-            failed && (failedLast ?? "").includes("failed") && (failedLast ?? "").includes(failure) && failedHeader === true,
-            JSON.stringify({ failed, failedLast, header: failedHeader })
+            "10. failed shows as idle with its last: line and the error, no head row or stage rows",
+            failed &&
+                (failedLast ?? "").includes("failed") &&
+                (failedLast ?? "").includes(failure) &&
+                failedChrome.head === 0 &&
+                failedChrome.stage === 0 &&
+                failedHeader === true,
+            JSON.stringify({ failed, failedLast, chrome: failedChrome, header: failedHeader })
         );
         return steps;
     },
