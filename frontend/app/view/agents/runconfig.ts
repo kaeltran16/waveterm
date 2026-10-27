@@ -117,8 +117,8 @@ export function runLauncherFace(shape: RunShape): RunLauncherFace {
 
 export function approvalsNote(autonomous: boolean): string {
     return autonomous
-        ? "No questions: the lead decides the spec, plan review and product calls itself, and records why. You can switch this on the run sheet."
-        : "The lead waits for you at the spec review and whenever a call is yours.";
+        ? "No questions: the lead makes the plan review and product calls itself, and records why. You can switch this on the run sheet."
+        : "The lead waits for you whenever a call is yours.";
 }
 
 // PlanPreview is the launcher's last reading of a plan path: its parsed shape, or the parser's refusal.

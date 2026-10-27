@@ -126,9 +126,9 @@ describe("effectiveStart", () => {
 describe("approvalsNote", () => {
     it("says each choice in the board's words", () => {
         expect(approvalsNote(true)).toBe(
-            "No questions: the lead decides the spec, plan review and product calls itself, and records why. You can switch this on the run sheet."
+            "No questions: the lead makes the plan review and product calls itself, and records why. You can switch this on the run sheet."
         );
-        expect(approvalsNote(false)).toBe("The lead waits for you at the spec review and whenever a call is yours.");
+        expect(approvalsNote(false)).toBe("The lead waits for you whenever a call is yours.");
     });
 });
 
