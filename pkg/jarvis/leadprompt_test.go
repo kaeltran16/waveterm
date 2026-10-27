@@ -4,6 +4,7 @@
 package jarvis
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -29,14 +30,13 @@ func TestEngineLaunchPromptCarriesTheGoalRunProtocol(t *testing.T) {
 		p := BuildOrchestratePrompt(&waveobj.Run{Goal: "ship auth", Runtime: runtime})
 		for _, want := range []string{
 			"Goal: ship auth",
-			"superpowers:brainstorming",
 			tool,
 			"- spike:",
 			"- bounded:",
 			"- architectural:",
 			"superpowers:writing-plans",
-			"header `Spec review`",
-			"wsh jarvis dag submit --plan <plan path> --spec <spec path>",
+			"header `Needs a design`",
+			"run `wsh jarvis dag submit --plan <plan path>` with an absolute path and stop.",
 			// a complete with no report seals the line the lead wrote before it
 			"then `wsh jarvis complete --report <that file>`.",
 			"wsh jarvis complete --commit $(git rev-parse HEAD) --report <that file>",
@@ -54,10 +54,6 @@ func TestEngineLaunchPromptCarriesTheGoalRunProtocol(t *testing.T) {
 // change request and never proceeds.
 func TestLeadPromptApprovalWithNotes(t *testing.T) {
 	const applied = "its `> ` quoted notes are applied before proceeding; any other text is a change request."
-	launch := BuildOrchestratePrompt(&waveobj.Run{Goal: "ship auth", Runtime: "claude"})
-	if want := "an answer that starts with `Approve` is an approval, and " + applied; !strings.Contains(launch, want) {
-		t.Fatalf("launch prompt's Spec review missing %q:\n%s", want, launch)
-	}
 	rules := OrchestrationRules("r1", "", "", "", false)
 	if want := "an answer that starts with `Accept all and proceed` is an approval, and " + applied; !strings.Contains(rules, want) {
 		t.Fatalf("rules' Plan review missing %q:\n%s", want, rules)
@@ -231,15 +227,13 @@ func TestOrchestrationRulesCompleteOnTheirOwn(t *testing.T) {
 }
 
 // the launch prompt cuts the ceremony run b2d7fab1 went through (findings 4 to 7): the path is stated, not
-// asked; the design goes into the spec file with one approval; the engine commits the files and reviews the plan.
+// asked; the engine commits the files and reviews the plan.
 func TestEngineLaunchPromptCutsTheCeremony(t *testing.T) {
 	for _, runtime := range []string{"claude", "pi"} {
 		p := BuildOrchestratePrompt(&waveobj.Run{Goal: "ship auth", Runtime: runtime})
 		for _, want := range []string{
 			"State the path you take",
 			"only when it is genuinely unclear",
-			"write the design straight into the spec file",
-			"Don't ask for approval section by section",
 			"Any approval of something longer than its question carries the file's absolute path on its first line",
 			"the engine commits the spec and plan to the run's branch at submit",
 			"don't ask the human to review the plan or pick an execution mode: the engine reviews the plan",
@@ -274,19 +268,85 @@ func TestEngineLaunchPromptPlansCarryDecisionsNotCode(t *testing.T) {
 	}
 }
 
-// a mockup-driven run still wrote a 9 to 19 KB spec restating the mockup; the mockup is the design, and the
-// human's one approval moves to the decisions made beyond it
-func TestEngineLaunchPromptSkipsTheSpecWhenAMockupSettlesTheDesign(t *testing.T) {
+// a run carrying an approved design plans from it (spec decision 2): the design was settled upstream, so the
+// lead neither brainstorms nor classifies nor puts it up for review again, and submits the spec only when there is one
+func TestPlanFromDesignPrompt(t *testing.T) {
+	const spec, proto = "C:/p/docs/spec.md", "C:/p/.superpowers/design/x/canvas.dc.html"
+	designs := map[string]waveobj.Run{
+		"spec only":      {Spec: spec},
+		"prototype only": {Prototype: proto},
+		"both":           {Spec: spec, Prototype: proto},
+	}
+	for _, runtime := range []string{"claude", "pi"} {
+		for name, d := range designs {
+			for _, autonomous := range []bool{false, true} {
+				p := BuildOrchestratePrompt(&waveobj.Run{Goal: "ship auth", Runtime: runtime, Autonomous: autonomous, Spec: d.Spec, Prototype: d.Prototype})
+				label := fmt.Sprintf("%s %s autonomous=%v", runtime, name, autonomous)
+				for _, gone := range []string{"brainstorming", "Spec review", "- spike:", "- bounded:", "- architectural:", "Needs a design"} {
+					if strings.Contains(p, gone) {
+						t.Errorf("%s: plan-from-design prompt carries %q:\n%s", label, gone, p)
+					}
+				}
+				for _, want := range []string{
+					"Goal: ship auth",
+					"The design for this goal is approved",
+					"Read the design and the code it touches",
+					"into the plan's header",
+					"superpowers:writing-plans",
+					strings.TrimRight(PlanFormat, "\n"),
+				} {
+					if !strings.Contains(p, want) {
+						t.Errorf("%s: plan-from-design prompt missing %q:\n%s", label, want, p)
+					}
+				}
+				for _, path := range []string{d.Spec, d.Prototype} {
+					if path != "" && !strings.Contains(p, path) {
+						t.Errorf("%s: plan-from-design prompt does not name %q:\n%s", label, path, p)
+					}
+				}
+				if d.Spec != "" {
+					if want := "`wsh jarvis dag submit --plan <plan path> --spec " + spec + "`"; !strings.Contains(p, want) {
+						t.Errorf("%s: plan-from-design prompt missing %q:\n%s", label, want, p)
+					}
+				} else if strings.Contains(p, "--spec ") || !strings.Contains(p, "submit without `--spec`") {
+					t.Errorf("%s: a prototype-only design submits without --spec:\n%s", label, p)
+				}
+				if d.Prototype != "" && !strings.Contains(p, "`**Prototype:**` line") {
+					t.Errorf("%s: plan-from-design prompt does not put the prototype on the plan's Prototype line:\n%s", label, p)
+				}
+				if autonomous != strings.Contains(p, AutonomousRules) {
+					t.Errorf("%s: AutonomousRules present = %v:\n%s", label, !autonomous, p)
+				}
+				if autonomous && strings.Contains(p, AskTool(runtime)) {
+					t.Errorf("%s: an autonomous plan-from-design prompt names the ask tool:\n%s", label, p)
+				}
+			}
+		}
+	}
+}
+
+// a feature goal with no design hands the design conversation to a linked session, or plans from the goal on the
+// human's word; the lead itself no longer brainstorms (spec decision 2)
+func TestGoalPromptNeedsADesign(t *testing.T) {
 	for _, runtime := range []string{"claude", "pi"} {
 		p := BuildOrchestratePrompt(&waveobj.Run{Goal: "ship auth", Runtime: runtime})
+		for _, gone := range []string{"superpowers:brainstorming", "Spec review", "--spec"} {
+			if strings.Contains(p, gone) {
+				t.Errorf("%s goal prompt carries %q:\n%s", runtime, gone, p)
+			}
+		}
 		for _, want := range []string{
-			"When the goal names a mockup or design canvas that settles the design, write no spec file",
-			"the `Spec review` question is the mockup's absolute path on its first line, then one `- ` line per decision you make beyond it",
-			"its absolute path on the plan's `**Prototype:**` line",
-			"submit without `--spec`",
+			"the human is at this terminal",
+			"ask once with " + AskTool(runtime) + ", header `Needs a design`",
+			"`Brainstorm it`",
+			"`Mock it up`",
+			"`Plan from the goal`",
+			"wsh jarvis design --kind brainstorm",
+			"wsh jarvis design --kind canvas",
+			"record each with why in the plan's header",
 		} {
 			if !strings.Contains(p, want) {
-				t.Fatalf("%s launch prompt missing %q:\n%s", runtime, want, p)
+				t.Errorf("%s goal prompt missing %q:\n%s", runtime, want, p)
 			}
 		}
 	}
