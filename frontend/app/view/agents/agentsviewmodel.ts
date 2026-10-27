@@ -113,6 +113,7 @@ export interface AgentVM {
     brainstormJudge?: BuilderCheckRecord; // brainstorm:judge* on the tab: Arc's record of the brainstorm's judge
     atPrompt?: boolean; // the raw status was waiting or idle, whatever state it folds to: a lead between wakes
     runDone?: boolean; // its own quick run is done, so at its prompt it is finished rather than idle
+    pinned?: boolean; // session:pinned on the tab: the Agent tree lists it first in its project
 }
 
 const STATE_RANK: Record<AgentState, number> = { asking: 0, working: 1, idle: 2 };
@@ -500,6 +501,7 @@ export interface LiveAgentInput {
     brainstormFile?: string; // session:brainstorm on the tab
     builderCheck?: BuilderCheckRecord; // brainstorm:check* on the tab
     brainstormJudge?: BuilderCheckRecord; // brainstorm:judge* on the tab
+    pinned?: boolean; // session:pinned on the tab
 }
 
 /** Pure: one live row -> an AgentVM. `asking` (a pending AskUserQuestion) maps straight to asking so
@@ -541,6 +543,9 @@ export function agentVMFromInput(input: LiveAgentInput, now: number): AgentVM {
     }
     if (input.brainstormJudge) {
         vm.brainstormJudge = input.brainstormJudge;
+    }
+    if (input.pinned) {
+        vm.pinned = true;
     }
     if (input.status === "waiting" || input.status === "idle") {
         vm.atPrompt = true;

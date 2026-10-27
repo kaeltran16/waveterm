@@ -140,7 +140,6 @@ export interface SessionGroupVM {
 }
 
 export interface SidebarViewModel {
-    pinned: SessionRowVM[];
     groups: SessionGroupVM[];
 }
 
@@ -186,21 +185,20 @@ export function labelChanged(draft: string, current: string | undefined): boolea
     return draft.trim() !== (current ?? "").trim();
 }
 
-function rowLabel(s: SessionInput, includeService: boolean): string {
+function rowLabel(s: SessionInput): string {
     const custom = s.customLabel && s.customLabel.length > 0 ? s.customLabel : undefined;
     const title = s.title && s.title.trim().length > 0 ? s.title.trim() : undefined;
     const project = s.projectLabel && s.projectLabel.trim().length > 0 ? s.projectLabel.trim() : undefined;
     const agent = s.agent && s.agent.length > 0 ? s.agent : s.name;
-    const base = custom ?? title ?? project ?? (agent && agent.length > 0 ? agent : "session");
-    return includeService && !s.isAgentsTab ? `${base} · ${s.serviceLabel}` : base;
+    return custom ?? title ?? project ?? (agent && agent.length > 0 ? agent : "session");
 }
 
-function toRow(s: SessionInput, includeService: boolean): SessionRowVM {
+function toRow(s: SessionInput): SessionRowVM {
     const subagents = s.subagents ?? [];
     const status = rollUpStatus(s.status, subagents);
     return {
         tabId: s.tabId,
-        label: rowLabel(s, includeService),
+        label: rowLabel(s),
         customLabel: s.customLabel,
         projectLabel: s.projectLabel,
         cwd: s.cwd,
@@ -223,17 +221,13 @@ function toRow(s: SessionInput, includeService: boolean): SessionRowVM {
     };
 }
 
-/** Pure: ordered session inputs -> pinned group + service groups (first-appearance order). */
+/** Pure: ordered session inputs -> service groups (first-appearance order). A pinned session stays in
+ *  its group; the Agent tree lifts it to the top of its project. */
 export function buildSessionViewModel(sessions: SessionInput[]): SidebarViewModel {
-    const pinned: SessionRowVM[] = [];
     const groupOrder: string[] = [];
     const groupMap = new Map<string, SessionInput[]>();
 
     for (const s of sessions) {
-        if (s.pinned) {
-            pinned.push(toRow(s, true));
-            continue;
-        }
         const label = s.serviceLabel;
         if (!groupMap.has(label)) {
             groupMap.set(label, []);
@@ -243,11 +237,11 @@ export function buildSessionViewModel(sessions: SessionInput[]): SidebarViewMode
     }
 
     const groups: SessionGroupVM[] = groupOrder.map((label) => {
-        const rows = groupMap.get(label)!.map((s) => toRow(s, false));
+        const rows = groupMap.get(label)!.map((s) => toRow(s));
         return { label, sessions: rows, aggregateStatus: aggregateStatus(rows.map((r) => r.status)) };
     });
 
-    return { pinned, groups };
+    return { groups };
 }
 
 /** Phase 1 grouping: the last path segment of the terminal cwd (Phase 2 replaces this with the marker walk-up RPC). */
@@ -261,9 +255,9 @@ export function cwdToServiceLabel(cwd?: string): string {
     return last && last.length > 0 ? last : NO_CWD_LABEL;
 }
 
-/** Sidebar visual order: pinned rows first, then each group's rows top-to-bottom. */
+/** Sidebar visual order: each group's rows top-to-bottom. */
 export function flattenVisualOrder(vm: SidebarViewModel): SessionRowVM[] {
-    return [...vm.pinned, ...vm.groups.flatMap((g) => g.sessions)];
+    return vm.groups.flatMap((g) => g.sessions);
 }
 
 /** Pure: move draggedId before/after targetId within a single group, rewriting only the slots the

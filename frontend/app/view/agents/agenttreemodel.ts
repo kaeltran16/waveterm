@@ -256,9 +256,9 @@ function runRows(
 }
 
 /** Pure: roster + anchored order -> [group, ...rows] per project. Projects appear in the first-seen order
- *  of `order`; top-level rows within a group follow `order` (ids absent from `order` sort last). A run's
- *  workers follow its lead in plan order, and a run with no lead in the roster takes the place of its first
- *  worker. `count` is the group's visible agents, done workers aside; `attn` is how many wait on the human. */
+ *  of `order`; top-level rows within a group follow `order` (ids absent from `order` sort last), pinned
+ *  agents first. A run's workers follow its lead in plan order, and a run with no lead in the roster takes
+ *  the place of its first worker. `count` is the group's visible agents, done workers aside; `attn` is how many wait on the human. */
 export function buildAgentTree(
     agents: AgentVM[],
     order: string[],
@@ -352,12 +352,13 @@ export function buildAgentTree(
         }
     }
 
+    const isPinned = (item: TopItem) => item.kind !== "run" && item.agent.pinned === true;
     const rows: AgentTreeRow[] = [];
     for (const g of groups) {
         const body: AgentTreeRow[] = [];
         let count = 0;
         let attn = 0;
-        for (const item of g.items) {
+        for (const item of [...g.items.filter(isPinned), ...g.items.filter((i) => !isPinned(i))]) {
             if (item.kind === "parent") {
                 const nested = checks.get(item.agent.id) ?? [];
                 body.push(item, ...nested.map((n) => ({ kind: "check" as const, project: g.project, ...n })));

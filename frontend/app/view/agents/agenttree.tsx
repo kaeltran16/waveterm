@@ -19,6 +19,8 @@ import {
     CopyPlus,
     ExternalLink,
     Pencil,
+    Pin,
+    PinOff,
     SquareTerminal,
     Workflow,
     X,
@@ -37,7 +39,7 @@ import { canvasStateAtom, setCanvasMode } from "./canvasstore";
 import { nextSnap, type AgentSnap } from "./cockpitevents";
 import { CommitTick, useCommitDone } from "./committick";
 import { renamingRowAtom } from "./rowrenameatom";
-import { duplicateSession, renameSession, sessionCustomLabel } from "./session-models/sessionsidebarmodel";
+import { duplicateSession, renameSession, sessionCustomLabel, togglePin } from "./session-models/sessionsidebarmodel";
 import { agentRunDone, displayAgeMs, formatAgeShort, type AgentVM } from "./agentsviewmodel";
 import { docReviewAtom, parseDocReview } from "./docreview";
 import { finalRowFocusId, type FinalTone } from "./finalstage";
@@ -565,6 +567,11 @@ function ParentRow({
     const onContextMenu = (e: React.MouseEvent) => {
         const items: ContextMenuItem[] = [
             { label: "Rename", icon: <Pencil size={15} />, click: () => startRowRename(agent.id) },
+            {
+                label: agent.pinned ? "Unpin" : "Pin",
+                icon: agent.pinned ? <PinOff size={15} /> : <Pin size={15} />,
+                click: () => togglePin(agent.id, agent.pinned === true),
+            },
             { label: "Duplicate", icon: <CopyPlus size={15} />, click: () => duplicateSession(model, agent.id) },
             {
                 label: "Copy name",
@@ -645,6 +652,9 @@ function ParentRow({
                             <div className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink-hi">
                                 {agent.name}
                             </div>
+                            {agent.pinned ? (
+                                <Pin size={11} aria-label="Pinned" className="flex-none text-muted" />
+                            ) : null}
                             {/* a lead's second line holds its workers chip and progress, which need its full width */}
                             {lead ? subsChip : null}
                             {lead ? tasksChip : null}

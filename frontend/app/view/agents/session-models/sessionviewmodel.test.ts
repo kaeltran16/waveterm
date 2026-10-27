@@ -104,13 +104,12 @@ describe("buildSessionViewModel", () => {
         expect(vm.groups[0].sessions[0].effortORef).toBe("effort:e1");
     });
 
-    it("routes pinned sessions into the pinned group with service in the label", () => {
+    it("keeps a pinned session in its service group, flagged, with its plain label", () => {
         const vm = buildSessionViewModel([
             input({ tabId: "t1", agent: "claude", cwd: "/src/CorrelationEngine", pinned: true }),
         ]);
-        expect(vm.pinned).toHaveLength(1);
-        expect(vm.pinned[0].label).toBe("claude · CorrelationEngine");
-        expect(vm.groups).toHaveLength(0);
+        expect(vm.groups.map((g) => g.label)).toEqual(["CorrelationEngine"]);
+        expect(vm.groups[0].sessions[0]).toMatchObject({ label: "claude", pinned: true });
     });
 
     it("groups non-pinned sessions by service label", () => {
@@ -158,19 +157,6 @@ describe("buildSessionViewModel", () => {
         expect(row.customLabel).toBe("auth refactor");
     });
 
-    it("keeps the service suffix on a renamed pinned row", () => {
-        const vm = buildSessionViewModel([
-            input({
-                tabId: "t1",
-                agent: "claude",
-                customLabel: "auth refactor",
-                cwd: "/src/CorrelationEngine",
-                pinned: true,
-            }),
-        ]);
-        expect(vm.pinned[0].label).toBe("auth refactor · CorrelationEngine");
-    });
-
     it("ignores an empty custom label and falls back to agent", () => {
         const vm = buildSessionViewModel([input({ tabId: "t1", agent: "claude", customLabel: "", cwd: "/src/X" })]);
         expect(vm.groups[0].sessions[0].label).toBe("claude");
@@ -200,7 +186,7 @@ describe("buildSessionViewModel", () => {
 });
 
 describe("buildSessionViewModel — agents tab", () => {
-    it("agents tab is pinned with no service suffix and is flagged", () => {
+    it("flags the agents tab", () => {
         const out = buildSessionViewModel([
             {
                 tabId: "t1",
@@ -212,23 +198,7 @@ describe("buildSessionViewModel — agents tab", () => {
                 isAgentsTab: true,
             } as SessionInput,
         ]);
-        expect(out.pinned).toHaveLength(1);
-        expect(out.pinned[0].label).toBe("Agents");
-        expect(out.pinned[0].isAgentsTab).toBe(true);
-    });
-
-    it("a normal pinned row still gets the service suffix", () => {
-        const out = buildSessionViewModel([
-            {
-                tabId: "t2",
-                name: "loom",
-                pinned: true,
-                serviceLabel: "waveterm",
-                status: "idle",
-                active: false,
-            } as SessionInput,
-        ]);
-        expect(out.pinned[0].label).toBe("loom · waveterm");
+        expect(out.groups[0].sessions[0]).toMatchObject({ label: "Agents", isAgentsTab: true });
     });
 });
 
@@ -275,18 +245,6 @@ describe("buildSessionViewModel — title (task summary)", () => {
             input({ tabId: "t1", agent: "claude", title: "  Refactor auth  ", cwd: "/src/X" }),
         ]);
         expect(vm.groups[0].sessions[0].label).toBe("Refactor auth");
-    });
-    it("keeps the service suffix on a pinned row labeled by its task summary", () => {
-        const vm = buildSessionViewModel([
-            input({
-                tabId: "t1",
-                agent: "claude",
-                title: "Refactor auth",
-                cwd: "/src/CorrelationEngine",
-                pinned: true,
-            }),
-        ]);
-        expect(vm.pinned[0].label).toBe("Refactor auth · CorrelationEngine");
     });
 });
 
@@ -420,13 +378,13 @@ describe("buildSessionViewModel — project label (launch default)", () => {
 });
 
 describe("flattenVisualOrder", () => {
-    it("lists pinned rows first, then group rows in order", () => {
+    it("lists each group's rows in order, a pinned row where its group puts it", () => {
         const vm = buildSessionViewModel([
+            input({ tabId: "g1", cwd: "/src/A" }),
+            input({ tabId: "g2", cwd: "/src/B" }),
             input({ tabId: "p1", cwd: "/src/A", pinned: true }),
-            input({ tabId: "g1", cwd: "/src/B" }),
-            input({ tabId: "g2", cwd: "/src/C" }),
         ]);
-        expect(flattenVisualOrder(vm).map((r) => r.tabId)).toEqual(["p1", "g1", "g2"]);
+        expect(flattenVisualOrder(vm).map((r) => r.tabId)).toEqual(["g1", "p1", "g2"]);
     });
 });
 

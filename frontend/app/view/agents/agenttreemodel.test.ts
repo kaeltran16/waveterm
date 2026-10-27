@@ -66,6 +66,25 @@ describe("buildAgentTree", () => {
         const rows = buildAgentTree([vm("a", "idle")], ["a"]);
         expect(rows[0]).toMatchObject({ kind: "group", project: UNGROUPED_PROJECT });
     });
+
+    it("lists pinned agents first in their own project, leaving the project order to `order`", () => {
+        const pinned = (a: AgentVM): AgentVM => ({ ...a, pinned: true });
+        const agents = [
+            vm("l", "working", LOOM),
+            vm("a", "working", WAVE),
+            pinned(vm("b", "working", WAVE)),
+            pinned(vm("c", "working", WAVE)),
+        ];
+        const rows = buildAgentTree(agents, ["l", "a", "c", "b"]);
+        expect(rows.map((r: any) => (r.kind === "group" ? r.project : r.agent.id))).toEqual([
+            "loom",
+            "l",
+            "waveterm",
+            "c",
+            "b",
+            "a",
+        ]);
+    });
 });
 
 describe("buildAgentTree with a builder check", () => {
@@ -247,6 +266,19 @@ describe("buildAgentTree with run lineage", () => {
                     return `${r.kind}:${r.run.runId}:${r.live}`;
             }
         });
+
+    it("lifts a pinned lead to the top of its project with its workers under it", () => {
+        const r = run("run-1", [task("t-1", "running")]);
+        const rows = buildAgentTree(
+            [agent("solo", "idle"), { ...agent("lead", "working"), pinned: true }, agent("w1", "working", "")],
+            ["solo", "lead", "w1"],
+            lineage([r], {
+                lead: { kind: "lead", runId: "run-1" },
+                w1: { kind: "worker", leadRunId: "run-1", taskId: "t-1" },
+            })
+        );
+        expect(shape(rows)).toEqual(["group:waveterm:3:0", "lead:run-1:1", "worker:t-1:w1", "parent:solo"]);
+    });
 
     it("keeps a row for a task whose worker's tab was reaped while its merge verifies", () => {
         const r = run("run-1", [
