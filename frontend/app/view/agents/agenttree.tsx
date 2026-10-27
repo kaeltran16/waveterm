@@ -21,7 +21,9 @@ import {
     Pencil,
     Pin,
     PinOff,
+    Radio,
     SquareTerminal,
+    Terminal,
     Workflow,
     X,
 } from "lucide-react";
@@ -81,7 +83,15 @@ import {
     visibleSubagents,
     type SubagentState,
 } from "./session-models/sessionviewmodel";
-import { isStandingBy, shellTasksLabel, shellTasksNoun, type ShellTask } from "./shelltasks";
+import {
+    isStandingBy,
+    monitorExpiresAt,
+    monitorSubline,
+    monitorTimeLeft,
+    shellTasksLabel,
+    shellTasksNoun,
+    type ShellTask,
+} from "./shelltasks";
 import { ShellTaskPeek } from "./shelltaskpeek";
 import {
     killShellTask,
@@ -416,9 +426,19 @@ function RunSubline({ run, open, live, leadless }: { run: RunInfo; open: boolean
     );
 }
 
-// A parent's background shell tasks under it, nested like its subagents. A row with an output file opens
-// that output in a peek beside the tree (a second click closes it); one without has nothing to show, so it
-// is not a click target. A task of an agent with a terminal block can be killed from its X or right-click.
+function clockTime(ms: number): string {
+    return new Date(ms).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+    });
+}
+
+// A parent's background shell tasks and monitors under it, nested like its subagents. A monitor, or a shell
+// task with an output file, opens a peek beside the tree (a second click closes it); a shell task without
+// one has nothing to show, so it is not a click target. A task of an agent with a terminal block can be
+// killed from its X or right-click, except a monitor with no command (ws:), which nothing can match.
 function ShellTaskRows({
     model,
     parentId,
@@ -441,13 +461,21 @@ function ShellTaskRows({
             fireAndForget(() => killShellTask(parentId, blockId, t));
         }
     };
+    // a monitor's peek has an Events tab that needs no output file; a ws: monitor has no command to kill by
+    const peekable = (t: ShellTask) => t.kind === "monitor" || !!t.outputPath;
+    const killable = (t: ShellTask) => !!blockId && (t.kind === "shell" || !!t.command);
     const onContextMenu = (e: React.MouseEvent, t: ShellTask) => {
         const items: ContextMenuItem[] = [];
-        if (t.outputPath) {
+        if (peekable(t)) {
             items.push({ label: peekTask?.id === t.id ? "Hide output" : "Show output", click: () => togglePeek(t) });
         }
-        if (blockId) {
-            items.push({ label: "Kill task", icon: <X size={15} />, danger: true, click: () => kill(t) });
+        if (killable(t)) {
+            items.push({
+                label: t.kind === "monitor" ? "Stop monitor" : "Kill task",
+                icon: <X size={15} />,
+                danger: true,
+                click: () => kill(t),
+            });
         }
         if (items.length > 0) {
             ContextMenuModel.getInstance().showContextMenu(items, e);
@@ -457,36 +485,57 @@ function ShellTaskRows({
         <>
             {tasks.map((t) => {
                 const open = peekTask?.id === t.id;
+                const monitor = t.kind === "monitor";
+                const canPeek = peekable(t);
+                const left = monitor ? monitorTimeLeft(t, now) : null;
+                const expires = monitor ? monitorExpiresAt(t) : null;
                 return (
                     <div
                         key={t.id}
                         ref={open ? setAnchor : undefined}
                         data-shell-task={t.id}
+                        data-task-kind={t.kind}
+                        title={t.command}
                         onClick={() => {
-                            if (t.outputPath) {
+                            if (canPeek) {
                                 togglePeek(t);
                             }
                         }}
                         onContextMenu={(e) => onContextMenu(e, t)}
                         className={cn(
                             "group relative flex items-center gap-[9px] rounded-[9px] py-[6px] pl-[28px] pr-[11px]",
-                            t.outputPath && "cursor-pointer",
-                            open ? "bg-accentbg" : t.outputPath && "hover:bg-surface-hover"
+                            canPeek && "cursor-pointer",
+                            open ? "bg-accentbg" : canPeek && "hover:bg-surface-hover"
                         )}
                     >
                         <Guides depth={1} />
                         <Slot>
-                            <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-accent" />
+                            {monitor ? (
+                                <Radio size={12} aria-label="Monitor" className="shrink-0 text-accent" />
+                            ) : (
+                                <Terminal size={12} aria-label="Shell task" className="shrink-0 text-accent" />
+                            )}
                         </Slot>
                         <div className="min-w-0 flex-1">
                             <div className="truncate font-mono text-[11.5px] font-medium text-secondary">
                                 {t.description}
                             </div>
-                            <div className="mt-[3px] truncate font-mono text-[10.5px] text-muted">
-                                {`running · ${formatAgeShort(t.startedTs != null ? Math.max(0, now - t.startedTs) : undefined)}`}
+                            <div data-task-sub className="mt-[3px] truncate font-mono text-[10.5px] text-muted">
+                                {monitor
+                                    ? monitorSubline(t, now)
+                                    : `running · ${formatAgeShort(t.startedTs != null ? Math.max(0, now - t.startedTs) : undefined)}`}
                             </div>
                         </div>
-                        {blockId ? (
+                        {left != null && expires != null ? (
+                            <span
+                                data-monitor-left
+                                title={`expires ${clockTime(expires)}`}
+                                className="shrink-0 font-mono text-[10.5px] text-muted"
+                            >
+                                {left}
+                            </span>
+                        ) : null}
+                        {killable(t) ? (
                             <button
                                 type="button"
                                 data-shell-task-kill
@@ -494,8 +543,8 @@ function ShellTaskRows({
                                     e.stopPropagation();
                                     kill(t);
                                 }}
-                                aria-label={`Kill ${t.description}`}
-                                title="Kill task"
+                                aria-label={`${monitor ? "Stop" : "Kill"} ${t.description}`}
+                                title={monitor ? "Stop monitor" : "Kill task"}
                                 className="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded-[5px] text-muted opacity-0 hover:bg-error/15 hover:text-error focus-visible:opacity-100 group-hover:opacity-100"
                             >
                                 <X size={13} aria-hidden />
