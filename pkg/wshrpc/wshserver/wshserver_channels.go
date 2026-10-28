@@ -76,7 +76,7 @@ func (ws *WshServer) GetChannelRunsCommand(ctx context.Context, data wshrpc.Comm
 	if err != nil {
 		return nil, fmt.Errorf("getting channel runs: %w", err)
 	}
-	runs, _ = withoutBuilderChecks(runs)
+	runs, _ = withoutBrainstormSessions(runs)
 	return &wshrpc.CommandGetChannelRunsRtnData{Runs: runs}, nil
 }
 
@@ -85,18 +85,18 @@ func (ws *WshServer) GetChannelRunChangesCommand(ctx context.Context, data wshrp
 	if err != nil {
 		return nil, fmt.Errorf("getting channel run changes: %w", err)
 	}
-	// a builder-check run is never in the caller's known map, so it is always among the returned rows and its id
-	// is found here
-	runs, dropped := withoutBuilderChecks(runs)
+	// a brainstorm session's run (builder check, judge) is never in the caller's known map, so it is always among the
+	// returned rows and its id is found here
+	runs, dropped := withoutBrainstormSessions(runs)
 	if len(dropped) > 0 {
 		ids = slices.DeleteFunc(ids, func(id string) bool { return dropped[id] })
 	}
 	return &wshrpc.CommandGetChannelRunChangesRtnData{RunIds: ids, Runs: runs}, nil
 }
 
-// withoutBuilderChecks drops the brainstorm sessions' runs (builder check, approach judge), which no run list
+// withoutBrainstormSessions drops the brainstorm sessions' runs (builder check, approach judge), which no run list
 // shows, and returns the ids it dropped.
-func withoutBuilderChecks(runs []*waveobj.Run) ([]*waveobj.Run, map[string]bool) {
+func withoutBrainstormSessions(runs []*waveobj.Run) ([]*waveobj.Run, map[string]bool) {
 	var dropped map[string]bool
 	kept := make([]*waveobj.Run, 0, len(runs))
 	for _, r := range runs {
