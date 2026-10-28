@@ -316,6 +316,10 @@ svg [aria-label="tip"] g path {
 .monaco-editor .diff-comment-range {
     box-shadow: inset 3px 0 0 var(--color-accent);
 }
+/* Code surface review comments (codeviewer.tsx): a bar in the line-decorations gutter. */
+.monaco-editor .code-comment-marker {
+    box-shadow: inset 3px 0 0 var(--color-accent);
+}
 
 .ellipsis {
     display: block;

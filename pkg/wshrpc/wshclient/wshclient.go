@@ -217,6 +217,12 @@ func ClaudeModSetOptionCommand(w *wshutil.WshRpc, data wshrpc.CommandClaudeModSe
 	return err
 }
 
+// command "codereviewwrite", wshserver.CodeReviewWriteCommand
+func CodeReviewWriteCommand(w *wshutil.WshRpc, data wshrpc.CommandCodeReviewWriteData, opts *wshrpc.RpcOpts) (*wshrpc.CommandCodeReviewWriteRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandCodeReviewWriteRtnData](w, "codereviewwrite", data, opts)
+	return resp, err
+}
+
 // command "consult", wshserver.ConsultCommand
 func ConsultCommand(w *wshutil.WshRpc, data wshrpc.CommandConsultData, opts *wshrpc.RpcOpts) chan wshrpc.RespOrErrorUnion[wshrpc.ConsultChunk] {
 	return sendRpcRequestResponseStreamHelper[wshrpc.ConsultChunk](w, "consult", data, opts)
@@ -627,6 +633,12 @@ func GetWindowTokensCommand(w *wshutil.WshRpc, data wshrpc.CommandGetWindowToken
 // command "getworkflowscan", wshserver.GetWorkflowScanCommand
 func GetWorkflowScanCommand(w *wshutil.WshRpc, data wshrpc.CommandGetWorkflowScanData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGetWorkflowScanRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGetWorkflowScanRtnData](w, "getworkflowscan", data, opts)
+	return resp, err
+}
+
+// command "gitblame", wshserver.GitBlameCommand
+func GitBlameCommand(w *wshutil.WshRpc, data wshrpc.CommandGitBlameData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGitBlameRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGitBlameRtnData](w, "gitblame", data, opts)
 	return resp, err
 }
 

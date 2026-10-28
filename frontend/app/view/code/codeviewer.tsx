@@ -17,20 +17,31 @@ import { SurfaceEmptyState } from "@/app/view/agents/surfacescaffold";
 import { CodeEditor } from "@/app/view/codeeditor/codeeditor";
 import { joinRepoPath, splitRepoPath } from "@/util/paths";
 import { fireAndForget } from "@/util/util";
-import { useAtomValue } from "jotai";
+import { atom, useAtomValue, type PrimitiveAtom } from "jotai";
 import type * as MonacoTypes from "monaco-editor";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CodeBlameColumn, type EditorLineLayout } from "./codeblamecolumn";
+import { codeBlameOnAtom } from "./codeblamestore";
 import { isMarkdownPath } from "./codeclassify";
 import { CodeDiffView } from "./codediffview";
 import { remember } from "./codeeditorcache";
 import { langOf, type Lang } from "./codelang";
 import { resolveDocLink } from "./codelink";
 import { previewHeadingFor } from "./codeoutline";
+import { fileComments, reanchor } from "./codereview";
+import {
+    cancelComment,
+    codeCommentDraftAtom,
+    codeReviewsAtom,
+    saveComment,
+    setCommentSelectionReader,
+} from "./codereviewstore";
 import {
     codeDraftsAtom,
     codeFileAtom,
     codeOutlineAtom,
     codePendingLineAtom,
+    codePlainAtom,
     codeProjectAtom,
     codeViewModeAtom,
     draftKey,
@@ -52,6 +63,15 @@ function sizeLabel(bytes: number): string {
 // Module-scoped rather than a ref: the path bar's handoff control needs the same instance, and the
 // surface unmounts on every nav switch. Cleared by the cleanup CodeEditor invokes on unmount.
 let editor: MonacoTypes.editor.IStandaloneCodeEditor | null = null;
+// the same instance as an atom, for the one consumer that must re-render when it changes: the line layout
+const editorAtom = atom<MonacoTypes.editor.IStandaloneCodeEditor | null>(
+    null
+) as PrimitiveAtom<MonacoTypes.editor.IStandaloneCodeEditor | null>;
+
+function setEditor(ed: MonacoTypes.editor.IStandaloneCodeEditor | null): void {
+    editor = ed;
+    globalStore.set(editorAtom, ed);
+}
 
 setCaretLineReader(() => editor?.getPosition()?.lineNumber ?? null);
 setCaretWordReader(codeEditorWordAtCursor);
@@ -68,13 +88,22 @@ interface KeptEditor {
 
 const kept = new Map<string, KeptEditor>();
 
-export function codeEditorSelection(): { startLine: number; endLine: number } | null {
+export function codeEditorSelection(): { startLine: number; endLine: number; endColumn: number } | null {
     const sel = editor?.getSelection();
     if (sel == null || sel.isEmpty()) {
         return null;
     }
-    return { startLine: sel.startLineNumber, endLine: sel.endLineNumber };
+    return { startLine: sel.startLineNumber, endLine: sel.endLineNumber, endColumn: sel.endColumn };
 }
+
+// a comment with nothing selected is on the caret's line
+setCommentSelectionReader(() => {
+    const pos = editor?.getPosition();
+    return (
+        codeEditorSelection() ??
+        (pos == null ? null : { startLine: pos.lineNumber, endLine: pos.lineNumber, endColumn: pos.column })
+    );
+});
 
 // The identifier at the caret and the open file's language. The word is cut by wordAt rather than
 // Monaco's getWordAtPosition, whose per-language word rules (CSS's leading ".") would hand the
@@ -193,12 +222,127 @@ function MarkdownPreview({
     );
 }
 
+// Where the open editor draws a line, in pixels from its top edge, so a column beside it can line up with
+// the code. `version` changes on every scroll, layout and content change, which is when those answers move.
+export function useEditorLineLayout(): EditorLineLayout | null {
+    const ed = useAtomValue(editorAtom);
+    const [version, setVersion] = useState(0);
+    useEffect(() => {
+        if (ed == null) {
+            return;
+        }
+        const bump = () => setVersion((v) => v + 1);
+        const subs = [
+            ed.onDidScrollChange(bump),
+            ed.onDidLayoutChange(bump),
+            ed.onDidChangeModelContent(bump),
+            ed.onDidChangeHiddenAreas(bump),
+            ed.onDidChangeModel(bump),
+        ];
+        return () => subs.forEach((d) => d.dispose());
+    }, [ed]);
+    return useMemo(() => {
+        if (ed == null) {
+            return null;
+        }
+        const top = (line: number) => ed.getTopForLineNumber(line) - ed.getScrollTop();
+        return {
+            top,
+            // bottom of the last line rather than top of the next, which Monaco clamps at the file's end
+            height: (start: number, lines: number) =>
+                ed.getBottomForLineNumber(start + lines - 1) - ed.getTopForLineNumber(start),
+            version,
+        };
+    }, [ed, version]);
+}
+
+// Its own component so a scroll re-renders the column, not the editor beside it.
+function BlameGutter(props: { model: AgentsViewModel; path: string; modtime: number; text: string }) {
+    const layout = useEditorLineLayout();
+    return <CodeBlameColumn {...props} layout={layout} />;
+}
+
+// Bars in the line-decorations gutter for the open file's comments, where their anchors sit now; the
+// note shows on hover. Recomputed from the buffer, so an edit above a comment carries it along.
+function CommentMarkers({ path, text }: { path: string; text: string }) {
+    const ed = useAtomValue(editorAtom);
+    const reviews = useAtomValue(codeReviewsAtom);
+    const project = useAtomValue(codeProjectAtom);
+    useEffect(() => {
+        if (ed == null || project == null) {
+            return;
+        }
+        const lines = text.split(/\r?\n/);
+        const markers = ed.createDecorationsCollection(
+            fileComments(reviews, project.path, path).map((c) => {
+                const at = reanchor(c, lines);
+                return {
+                    range: { startLineNumber: at.startLine, startColumn: 1, endLineNumber: at.endLine, endColumn: 1 },
+                    options: {
+                        isWholeLine: true,
+                        linesDecorationsClassName: "code-comment-marker",
+                        hoverMessage: { value: c.note },
+                    },
+                };
+            })
+        );
+        return () => markers.clear();
+    }, [ed, reviews, project, path, text]);
+    return null;
+}
+
+// The note being written, drawn under the draft's last line. Enter and Escape are the input's own and
+// stop here; the window's Escape (back to Cockpit) already stands down while a field holds focus.
+function CommentInput({ path }: { path: string }) {
+    const draft = useAtomValue(codeCommentDraftAtom);
+    const layout = useEditorLineLayout();
+    const [note, setNote] = useState("");
+    if (draft == null || draft.path !== path || layout == null) {
+        return null;
+    }
+    const close = (save: boolean) => {
+        if (save) {
+            saveComment(note);
+        } else {
+            cancelComment();
+        }
+        setNote("");
+        editor?.focus();
+    };
+    const range = draft.endLine === draft.startLine ? `${draft.startLine}` : `${draft.startLine}-${draft.endLine}`;
+    return (
+        <div
+            style={{ top: layout.top(draft.endLine) + layout.height(draft.endLine, 1) }}
+            className="absolute inset-x-3 z-10 rounded-[8px] border border-border bg-surface p-1.5 shadow-popover-md"
+        >
+            <input
+                autoFocus
+                value={note}
+                data-code-comment-input
+                aria-label={`Comment on line ${range}`}
+                placeholder={`Comment on line ${range} (Enter saves, Esc cancels)`}
+                onChange={(e) => setNote(e.target.value)}
+                onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === "Escape") {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        close(e.key === "Enter");
+                    }
+                }}
+                className="w-full rounded-[6px] border border-border bg-surface px-2 py-1 text-[12px] text-primary outline-none placeholder:text-muted"
+            />
+        </div>
+    );
+}
+
 export function CodeViewer({ model }: { model: AgentsViewModel }) {
     const file = useAtomValue(codeFileAtom);
     const project = useAtomValue(codeProjectAtom);
     const drafts = useAtomValue(codeDraftsAtom);
     const pendingLine = useAtomValue(codePendingLineAtom);
     const mode = useAtomValue(codeViewModeAtom);
+    const blameOn = useAtomValue(codeBlameOnAtom);
+    const plain = useAtomValue(codePlainAtom);
     const previewRef = useRef<HTMLDivElement>(null);
 
     // Two paths, both needed. Monaco is keyed by file path, so opening a DIFFERENT file remounts it
@@ -283,7 +427,7 @@ export function CodeViewer({ model }: { model: AgentsViewModel }) {
                     </div>
                 );
             }
-            return (
+            const source = (
                 // keyed and named by absolute path: kept models outlive a project switch, so two
                 // projects' same relative path must not share a model URI
                 <CodeEditor
@@ -295,17 +439,30 @@ export function CodeViewer({ model }: { model: AgentsViewModel }) {
                     keepModel
                     onChange={editDraft}
                     onMount={(ed) => {
-                        editor = ed;
+                        setEditor(ed);
                         restoreKept(ed, abs);
                         applyPendingLine(ed);
                         return () => {
                             if (editor === ed) {
-                                editor = null;
+                                setEditor(null);
                             }
                             keepEditor(ed, abs);
                         };
                     }}
                 />
+            );
+            // one tree shape whether blame is on or off, so toggling it never remounts the editor
+            return (
+                <div className="flex h-full">
+                    {blameOn && !plain ? (
+                        <BlameGutter model={model} path={file.path} modtime={file.modtime} text={file.text} />
+                    ) : null}
+                    <div className="relative h-full min-w-0 flex-1 overflow-hidden">
+                        {source}
+                        <CommentMarkers path={file.path} text={draft?.text ?? file.text} />
+                        <CommentInput path={file.path} />
+                    </div>
+                </div>
             );
         }
     }

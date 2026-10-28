@@ -25,10 +25,12 @@ import {
     gitHistory,
 } from "./scenarios-files.mjs";
 import {
+    codeBlame,
     codeDiff,
     codeGitStatus,
     codeMarkdown,
     codePlainDir,
+    codeReview,
     codeSearch,
     codeSidebar,
     codeStaleBarLook,
@@ -191,6 +193,8 @@ export const SCENARIOS = [
     codeGitStatus,
     codePlainDir,
     codeDiff,
+    codeBlame,
+    codeReview,
     codeMarkdown,
     elementPrimitives,
     jarvisAvatar,

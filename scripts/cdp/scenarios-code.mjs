@@ -56,6 +56,20 @@ const chooseProjectRow = (h) =>
         return true;
     })()`);
 
+// the picker row of one registered project, by name
+const chooseProjectNamed = (h, name) =>
+    h.ev(`(() => {
+        const chip = document.querySelector('[data-code-project-picker]');
+        const scope = chip && chip.parentElement;
+        if (!scope) return false;
+        const row = [...scope.querySelectorAll('button')].find(
+            (b) => b !== chip && (b.textContent || '').includes(${JSON.stringify(name)})
+        );
+        if (!row) return false;
+        row.click();
+        return true;
+    })()`);
+
 const setSearchQuery = (h, text) =>
     h.ev(`(() => {
         const input = document.querySelector('input[placeholder="Search file contents"]');
@@ -813,6 +827,15 @@ export const codePlainDir = {
         rec("opening a file mounts the editor", editor === true, `editor=${editor}`);
         const diff = await h.ev(`document.querySelector('[data-code-view-mode="diff"]')?.disabled ?? null`);
         rec("the Diff toggle is disabled", diff === true, `disabled=${diff}`);
+        const blame = await h.ev(`(() => {
+            const b = document.querySelector('[data-code-blame-toggle]');
+            return b ? { disabled: b.disabled, title: b.title } : null;
+        })()`);
+        rec(
+            "the Blame toggle is disabled with its reason",
+            blame?.disabled === true && /no change tracking/.test(blame?.title ?? ""),
+            JSON.stringify(blame)
+        );
         await h.shot("cdp-shots/code-plain-dir.png");
 
         // the path bar's send popover and the project picker sit on the popover shadow scale
@@ -891,6 +914,13 @@ export const codePlainDir = {
     },
 };
 
+const POLICY_GO = (budget) => `package retry
+
+func Budget() int {
+    return ${budget}
+}
+`;
+
 export const codeDiff = {
     name: "code-diff",
     surface: "code",
@@ -898,26 +928,10 @@ export const codeDiff = {
     async arrange(h) {
         const dir = mkdtempSync(join(tmpdir(), "verify-code-diff-"));
         git(dir, "init", "-q", "--initial-branch=main");
-        writeFileSync(
-            join(dir, "policy.go"),
-            `package retry
-
-func Budget() int {
-    return 3
-}
-`
-        );
+        writeFileSync(join(dir, "policy.go"), POLICY_GO(3));
         git(dir, "add", ".");
         git(dir, "commit", "-q", "-m", "seed the retry package");
-        writeFileSync(
-            join(dir, "policy.go"),
-            `package retry
-
-func Budget() int {
-    return 8
-}
-`
-        );
+        writeFileSync(join(dir, "policy.go"), POLICY_GO(8));
         const name = "verify-code-diff";
         await h.rpc("createproject", { name, path: dir });
         await waitForProjectInConfig(h, name);
@@ -942,17 +956,7 @@ func Budget() int {
         if ((await openProjectPicker(h)) === true) {
             await sleep(300);
             // not chooseProjectRow: rows[0] may be any registered project, and the step-1 check pins policy.go
-            await h.ev(`(() => {
-                const chip = document.querySelector('[data-code-project-picker]');
-                const scope = chip && chip.parentElement;
-                if (!scope) return false;
-                const row = [...scope.querySelectorAll('button')].find(
-                    (b) => b !== chip && (b.textContent || '').includes(${JSON.stringify(ctx.name)})
-                );
-                if (!row) return false;
-                row.click();
-                return true;
-            })()`);
+            await chooseProjectNamed(h, ctx.name);
             await sleep(1200);
         }
 
@@ -991,10 +995,11 @@ func Budget() int {
         })()`);
         await sleep(1500); // monaco is lazy, and the HEAD read is one git call
         const mounted = await h.ev(`(() => !!document.querySelector('.monaco-diff-editor'))()`);
+        const onHead = await h.ev(`!!document.querySelector('[data-code-diff-target="head"]')`);
         steps.push({
-            step: "Diff mounts the Monaco diff editor",
-            ok: toDiff === true && mounted === true,
-            detail: `toggled=${toDiff} mounted=${mounted}`,
+            step: "Diff mounts the Monaco diff editor, headed against HEAD",
+            ok: toDiff === true && mounted === true && onHead === true,
+            detail: `toggled=${toDiff} mounted=${mounted} head=${onHead}`,
         });
         await h.shot("cdp-shots/code-diff.png");
         steps.push(await floorStep(h, `no visible text on the Code surface's diff is under ${MIN_FONT_PX}px`, SURFACE_ROOT));
@@ -1008,22 +1013,119 @@ func Budget() int {
             detail: JSON.stringify({ ...toggle, ring: toggle.ring ? "rings" : "no ring" }),
         });
 
-        // `d` is gated on !editable, so focus has to leave Monaco first
+        // `d` and `r` are gated on !editable, so focus has to leave Monaco first
+        const press = async (key) => {
+            await h.ev(`(() => {
+                const t = document.querySelector('[data-code-tree]');
+                if (t) t.focus();
+                return true;
+            })()`);
+            await h.ev(
+                `document.dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(key)}, code: ${JSON.stringify(`Key${key.toUpperCase()}`)}, bubbles: true }))`
+            );
+        };
+        const view = () =>
+            h.ev(`(() => {
+                const d = document.querySelector('.monaco-diff-editor');
+                const o = d && (d.querySelector('.editor.original .view-lines') || d);
+                const t = document.querySelector('[data-code-diff-target]');
+                return {
+                    diff: !!d,
+                    plain: !!document.querySelector('.monaco-editor'),
+                    target: t ? t.getAttribute('data-code-diff-target') : '',
+                    label: t ? t.textContent : '',
+                    original: o ? (o.textContent || '').replace(/\\s+/g, ' ') : '',
+                };
+            })()`);
+        const single = `(() => !document.querySelector('.monaco-diff-editor') && !!document.querySelector('.monaco-editor'))()`;
+        // the buffer is what was read, so after an on-disk change the file is re-read the way a reader would
+        const reopen = async () => {
+            await press("r");
+            await sleep(1200);
+            await h.ev(`(() => {
+                const t = document.querySelector('[data-code-column-tab="changed"]');
+                if (t) t.click();
+                return true;
+            })()`);
+            await polishWaitFor(h, `!!document.querySelector('[data-code-changed-row="policy.go"]')`, 8000);
+            await h.ev(`(() => {
+                const r = document.querySelector('[data-code-changed-row="policy.go"]');
+                if (r) r.click();
+                return true;
+            })()`);
+            await sleep(900);
+        };
+
+        // on main, HEAD is the merge-base, so the base step would repeat the HEAD diff under another name
         await h.ev(`(() => {
-            const t = document.querySelector('[data-code-tree]');
-            if (t) t.focus();
+            window.__codeDiffSawBase = false;
+            const mark = () => {
+                if (document.querySelector('[data-code-diff-target="base"]')) window.__codeDiffSawBase = true;
+            };
+            window.__codeDiffBaseWatch = new MutationObserver(mark);
+            window.__codeDiffBaseWatch.observe(document.body, { subtree: true, childList: true, attributes: true });
             return true;
         })()`);
-        await h.ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', code: 'KeyD', bubbles: true }))`);
-        await sleep(800);
-        const back = await h.ev(
-            `(() => ({ diff: !!document.querySelector('.monaco-diff-editor'), plain: !!document.querySelector('.monaco-editor') }))()`
-        );
+        await press("d");
+        const skipped = await polishWaitFor(h, single, 6000);
+        const sawBase = await h.ev(`(() => {
+            window.__codeDiffBaseWatch && window.__codeDiffBaseWatch.disconnect();
+            return window.__codeDiffSawBase === true;
+        })()`);
         steps.push({
-            step: "pressing d again returns to the single editor",
-            ok: back.diff === false && back.plain === true,
-            detail: `diff=${back.diff} plain=${back.plain}`,
+            step: "on the default branch, d skips the base and returns to the single editor",
+            ok: skipped === true && sawBase === false,
+            detail: `single=${skipped} sawBase=${sawBase}`,
         });
+
+        git(ctx.dir, "checkout", "-q", "-b", "feature");
+        git(ctx.dir, "commit", "-q", "-am", "raise the retry budget");
+        writeFileSync(join(ctx.dir, "policy.go"), POLICY_GO(9));
+        await reopen();
+        await press("d");
+        const head = await polishWaitFor(
+            h,
+            `!!document.querySelector('[data-code-diff-target="head"]') && !!document.querySelector('.monaco-diff-editor')`,
+            6000
+        );
+        await press("d");
+        const based = await polishWaitFor(
+            h,
+            `(() => {
+                const d = document.querySelector('.monaco-diff-editor');
+                const o = d && (d.querySelector('.editor.original .view-lines') || d);
+                return !!document.querySelector('[data-code-diff-target="base"]') && !!o && /return\\s3/.test(o.textContent || '');
+            })()`,
+            8000
+        );
+        const baseView = await view();
+        steps.push({
+            step: "on a feature branch, d goes HEAD then base, and the base side holds main's return 3",
+            ok: head === true && based === true,
+            detail: `head=${head} base=${based} label=${JSON.stringify(baseView.label)} original=${JSON.stringify(baseView.original.slice(0, 80))}`,
+        });
+        await h.shot("cdp-shots/code-diff-base.png");
+        await press("d");
+        const off = await polishWaitFor(h, single, 6000);
+        steps.push({ step: "d from the base returns to the single editor", ok: off === true, detail: `single=${off}` });
+
+        // DefaultBranch now answers origin/gone, which GetDivergence cannot resolve, so the RPC throws
+        git(ctx.dir, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/gone");
+        await press("d");
+        await polishWaitFor(h, `!!document.querySelector('[data-code-diff-target="head"]')`, 6000);
+        await press("d");
+        const failed = await polishWaitFor(
+            h,
+            `(() => !!document.querySelector('[data-code-diff-target="base"]') && (document.body.textContent || '').includes('Cannot diff against the branch base'))()`,
+            8000
+        );
+        const errView = await view();
+        steps.push({
+            step: "a base that cannot resolve shows the error state, not a HEAD diff",
+            ok: failed === true && errView.diff === false,
+            detail: `error=${failed} diff=${errView.diff} target=${errView.target}`,
+        });
+        await h.shot("cdp-shots/code-diff-base-error.png");
         return steps;
     },
     async teardown(h, ctx) {
@@ -1038,6 +1140,368 @@ func Budget() int {
         } catch {
             /* a leftover temp repo is cheaper than a failed teardown */
         }
+    },
+};
+
+// --- code: blame -------------------------------------------------------------------------------
+// A deferred orchestrator run gives a real run id, a BaseCommit and a live wave/<runId> landing tree, which is
+// what the backend credits a branch's commits to. The tree is the Code project: one commit on main, one on the
+// run's branch, one uncommitted line, so the column shows a seed row, a credited run row and "not committed".
+const BLAME_FILE = "blame.txt";
+const BLAME_SEED = "seed the file";
+const BLAME_RUN_COMMIT = "run commit";
+const BLAME_GOAL = "verify code-blame: do nothing, make no file changes, stop immediately";
+const blameLines = (edits = {}) =>
+    ["one", "two", "three", "four", "five", "six"].map((l, i) => edits[i + 1] ?? l).join("\n") + "\n";
+const BLAME_ENTRIES = `[...document.querySelectorAll('[data-code-blame-column] [data-code-blame-entry]')]`;
+const BLAME_ROWS = `${BLAME_ENTRIES}.map((r) => ({
+    sha: r.getAttribute('data-code-blame-entry'),
+    run: r.getAttribute('data-code-blame-run'),
+    title: r.getAttribute('title') || '',
+    text: (r.textContent || '').trim(),
+}))`;
+const blameRow = (subject) =>
+    `${BLAME_ENTRIES}.find((r) => (r.getAttribute('title') || '').startsWith(${JSON.stringify(subject)}))`;
+
+export const codeBlame = {
+    name: "code-blame",
+    surface: "code",
+    async arrange(h) {
+        const cwd = mkdtempSync(join(tmpdir(), "verify-code-blame-"));
+        const name = "verify-code-blame";
+        const ctx = { cwd, name };
+        try {
+            git(cwd, "init", "-q", "--initial-branch=main");
+            writeFileSync(join(cwd, BLAME_FILE), blameLines());
+            git(cwd, "add", ".");
+            git(cwd, "commit", "-q", "-m", BLAME_SEED);
+            const wslist = await h.rpc("workspacelist", null);
+            const ch = await h.rpc("createchannel", { name, projectpath: cwd });
+            ctx.channelId = ch.oid;
+            const created = await h.rpc("createrun", {
+                channelid: ctx.channelId,
+                workspaceid: wslist[0].workspacedata.oid,
+                goal: BLAME_GOAL,
+                runtime: "claude",
+                mode: "orchestrator",
+                deferstart: true,
+            });
+            ctx.runId = created.run.id;
+            // createrun already checked wave/<runId> out here, at BaseCommit
+            ctx.landPath = created.run.landpath;
+            if (!ctx.landPath) throw new Error("createrun made no landing tree");
+            writeFileSync(join(ctx.landPath, BLAME_FILE), blameLines({ 3: "THREE", 4: "FOUR" }));
+            git(ctx.landPath, "commit", "-q", "-am", BLAME_RUN_COMMIT);
+            writeFileSync(join(ctx.landPath, BLAME_FILE), blameLines({ 3: "THREE", 4: "FOUR", 6: "six, edited" }));
+            await h.rpc("createproject", { name, path: ctx.landPath });
+            ctx.project = true;
+            await waitForProjectInConfig(h, name);
+            await h.reload();
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        if (ctx.arrangeError) return [{ step: "arrange the run's landing tree", ok: false, detail: ctx.arrangeError }];
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        await h.goto("code");
+        if ((await openProjectPicker(h)) === true) {
+            await sleep(300);
+            await chooseProjectNamed(h, ctx.name);
+        }
+        const TREE_ROW = `[...document.querySelectorAll('[data-code-tree] [role="treeitem"]')].find((r) => r.textContent.includes(${JSON.stringify(BLAME_FILE)}))`;
+        await polishWaitFor(h, `!!${TREE_ROW}`, 10000);
+        await h.ev(`${TREE_ROW}?.click()`);
+        const editor = await polishWaitFor(
+            h,
+            `document.querySelector('[data-code-path]')?.getAttribute('data-code-path') === ${JSON.stringify(BLAME_FILE)} && !!document.querySelector('.monaco-editor')`,
+            10000
+        );
+        rec("open the file in the run's landing tree", editor === true, `editor=${editor}`);
+
+        await h.ev(`document.querySelector('[data-code-blame-toggle]')?.click()`);
+        // the first blame after launch reads every landed run's commits to credit them
+        await polishWaitFor(h, `${BLAME_ENTRIES}.length >= 3`, 40000);
+        const rows = (await h.ev(BLAME_ROWS)) ?? [];
+        rec(
+            "the toggle mounts the column with three or more entries, one not committed",
+            rows.length >= 3 && rows.some((r) => r.text === "not committed"),
+            JSON.stringify(rows.map((r) => r.text))
+        );
+        await h.shot("cdp-shots/code-blame.png");
+
+        const seed = rows.find((r) => r.title.startsWith(BLAME_SEED));
+        const ran = rows.find((r) => r.title.startsWith(BLAME_RUN_COMMIT));
+        rec(
+            "a committed row's title names its commit subject and author",
+            seed != null && seed.title.endsWith(" — dana k"),
+            `title=${JSON.stringify(seed?.title)}`
+        );
+        rec(
+            "the run commit's row links the run and shows its goal",
+            ran?.run === ctx.runId && ran.text.includes(BLAME_GOAL),
+            JSON.stringify(ran)
+        );
+        rec("the seed row has no run link", seed != null && seed.run == null, JSON.stringify(seed));
+
+        // the clipboard is stubbed: a CDP session does not give the page the focus a real write needs
+        const copied = await h.ev(`(async () => {
+            const clip = navigator.clipboard;
+            let wrote = null;
+            Object.defineProperty(clip, 'writeText', { configurable: true, value: (t) => { wrote = t; return Promise.resolve(); } });
+            ${blameRow(BLAME_SEED)}?.click();
+            let state = null;
+            for (let i = 0; i < 20 && state == null; i++) {
+                await new Promise((r) => setTimeout(r, 50));
+                state = ${blameRow(BLAME_SEED)}?.getAttribute('data-code-blame-copied') ?? null;
+            }
+            delete clip.writeText;
+            return { state, wrote };
+        })()`);
+        rec(
+            "clicking the seed row copies its sha and says so on the row",
+            copied?.state === "copied" && copied.wrote === seed?.sha,
+            JSON.stringify(copied)
+        );
+
+        await h.ev(`${blameRow(BLAME_RUN_COMMIT)}?.click()`);
+        const opened = await polishWaitFor(
+            h,
+            `document.querySelector('[data-jarvis-brief-sheet] [data-run-id]')?.getAttribute('data-run-id') === ${JSON.stringify(ctx.runId)}`,
+            10000
+        );
+        const surface = await h.activeSurfaceLabel();
+        rec(
+            "clicking the run row leaves Code and opens that run",
+            opened === true && surface !== SURFACE_LABEL.code,
+            `surface=${surface} opened=${opened}`
+        );
+        await h.shot("cdp-shots/code-blame-run.png");
+
+        await h.goto("code");
+        await polishWaitFor(h, `!!document.querySelector('[data-code-blame-column]')`, 5000);
+        await h.ev(`document.querySelector('[data-code-tree]')?.focus()`);
+        await h.ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'b', code: 'KeyB', bubbles: true }))`);
+        const gone = await polishWaitFor(h, `!document.querySelector('[data-code-blame-column]')`, 5000);
+        rec("b with the tree focused hides the column", gone === true, `gone=${gone}`);
+        return steps;
+    },
+    // the run first, which ends its hold on the landing tree, then the project and channel, then the dirs
+    async teardown(h, ctx) {
+        const step = async (what, fn) => {
+            try {
+                await fn();
+            } catch (e) {
+                console.error(`code-blame teardown: ${what} failed: ${e?.message ?? e}`);
+            }
+        };
+        await step("leave Code", () => h.goto("cockpit"));
+        if (ctx?.runId) await step("cancel the run", () => h.rpc("cancelrun", { channelid: ctx.channelId, runid: ctx.runId }));
+        if (ctx?.project) await step("delete the project", () => h.rpc("deleteproject", { name: ctx.name }));
+        if (ctx?.channelId) await step("delete the channel", () => h.rpc("deletechannel", { channelid: ctx.channelId }));
+        for (const dir of [ctx?.landPath, ctx?.cwd].filter(Boolean)) {
+            await step(`remove ${dir}`, () => rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 500 }));
+        }
+    },
+};
+
+// --- code: review comments ---------------------------------------------------------------------
+// The repo is opened by path, so it is outside the registry and no agent can match it: Send review takes the
+// clipboard path. Sending to a live agent is pinned by codereviewstore.test.ts instead.
+const REVIEW_FILE = "review.txt";
+const reviewLine = (n) => `alpha-${String(n).padStart(2, "0")}`;
+const REVIEW_INPUT = `document.querySelector('[data-code-comment-input]')`;
+const REVIEW_MARKERS = `document.querySelectorAll('.monaco-editor .code-comment-marker').length`;
+const REVIEW_COUNT = `document.querySelector('[data-code-review-count]')`;
+// the dispatcher listens on window capture; Input.dispatchKeyEvent often never reaches the WebView
+const windowKey = (key, code, mods = {}) =>
+    `window.dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(key)}, code: ${JSON.stringify(code)}, altKey: true, shiftKey: ${!!mods.shift}, bubbles: true, cancelable: true }))`;
+
+export const codeReview = {
+    name: "code-review",
+    surface: "code",
+    async arrange() {
+        const dir = mkdtempSync(join(tmpdir(), "verify-code-review-"));
+        try {
+            git(dir, "init", "-q", "--initial-branch=main");
+            writeFileSync(join(dir, REVIEW_FILE), Array.from({ length: 20 }, (_, i) => reviewLine(i + 1)).join("\n") + "\n");
+            git(dir, "add", ".");
+            git(dir, "commit", "-q", "-m", "seed the review file");
+        } catch (e) {
+            return { dir, arrangeError: String(e?.message ?? e) };
+        }
+        return { dir };
+    },
+    async assert(h, ctx) {
+        if (ctx.arrangeError) return [{ step: "arrange the temp repo", ok: false, detail: ctx.arrangeError }];
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        await h.goto("code");
+
+        await h.ev(`document.querySelector('[data-code-project-picker]')?.click()`);
+        await polishWaitFor(h, `!!document.querySelector('[data-code-picker-path] input')`, 5000);
+        await h.ev(`(() => {
+            const input = document.querySelector('[data-code-picker-path] input');
+            Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, ${JSON.stringify(ctx.dir)});
+            input.dispatchEvent(new Event("input", { bubbles: true }));
+        })()`);
+        await sleep(100); // let React commit the typed value before the submit reads it
+        await h.ev(`document.querySelector('[data-code-picker-path]')?.requestSubmit()`);
+        const TREE_ROW = `[...document.querySelectorAll('[data-code-tree] [role="treeitem"]')].find((r) => r.textContent.includes(${JSON.stringify(REVIEW_FILE)}))`;
+        await polishWaitFor(h, `!!${TREE_ROW}`, 10000);
+        await h.ev(`${TREE_ROW}?.click()`);
+        const opened = await polishWaitFor(
+            h,
+            `document.querySelector('[data-code-path]')?.getAttribute('data-code-path') === ${JSON.stringify(REVIEW_FILE)} && !!document.querySelector('.monaco-editor .view-line')`,
+            10000
+        );
+        rec("open the 20-line file in the temp repo", opened === true, `opened=${opened}`);
+
+        // a real click on a rendered line puts Monaco's caret there
+        const clickLine = async (n) => {
+            const pt = await h.ev(`(() => {
+                const line = [...document.querySelectorAll(".monaco-editor .view-line")].find((l) => l.textContent.trim() === ${JSON.stringify(reviewLine(n))});
+                const b = line?.getBoundingClientRect();
+                return b ? { x: b.left + 20, y: b.top + b.height / 2 } : null;
+            })()`);
+            if (pt == null) return false;
+            for (const type of ["mousePressed", "mouseReleased"]) {
+                await h.cdp("Input.dispatchMouseEvent", { type, x: pt.x, y: pt.y, button: "left", clickCount: 1 });
+            }
+            await sleep(200);
+            return true;
+        };
+        // types into the open input and presses a key on it, with the input focused as typing leaves it
+        const answer = (note, key) =>
+            h.ev(`(() => {
+                const input = ${REVIEW_INPUT};
+                if (!input) return false;
+                input.focus();
+                Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, ${JSON.stringify(note)});
+                input.dispatchEvent(new Event("input", { bubbles: true }));
+                return true;
+            })()`).then(async (ok) => {
+                await sleep(100);
+                await h.ev(`${REVIEW_INPUT}?.dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(key)}, code: ${JSON.stringify(key)}, bubbles: true, cancelable: true }))`);
+                await sleep(200);
+                return ok;
+            });
+        const comment = async (n, note) => {
+            const clicked = await clickLine(n);
+            await h.ev(windowKey("m", "KeyM"));
+            const shown = await polishWaitFor(h, `!!${REVIEW_INPUT}`, 3000);
+            const typed = shown ? await answer(note, "Enter") : false;
+            return { clicked, shown, typed };
+        };
+
+        const firstNote = "line three needs a name";
+        const first = await comment(3, firstNote);
+        rec("Alt+M on line 3 opens the inline comment input", first.clicked && first.shown, JSON.stringify(first));
+        const one = await polishWaitFor(h, `${REVIEW_MARKERS} === 1 && !${REVIEW_INPUT}`, 3000);
+        rec("Enter saves the note as one gutter marker", one === true, `markers=${await h.ev(REVIEW_MARKERS)}`);
+        const second = await comment(10, "and line ten");
+        const two = await polishWaitFor(h, `${REVIEW_MARKERS} === 2`, 3000);
+        rec("a second comment on line 10 makes two markers", two === true, JSON.stringify({ ...second, markers: await h.ev(REVIEW_MARKERS) }));
+        const count = await h.ev(`${REVIEW_COUNT}?.getAttribute('data-code-review-count') ?? null`);
+        rec("the toolbar counts 2 comments", count === "2", `count=${count}`);
+        await h.shot("cdp-shots/code-review.png");
+
+        // the editor holding the markers is the Code viewer's; its hover widget renders inside it
+        const REVIEW_EDITOR = `document.querySelector('.code-comment-marker')?.closest('.monaco-editor')`;
+        const lineMiddle = () =>
+            h.ev(`(() => {
+                const ed = ${REVIEW_EDITOR};
+                const line = [...(ed?.querySelectorAll(".view-lines .view-line") ?? [])].find((l) => l.textContent.trim() === ${JSON.stringify(reviewLine(3))});
+                const text = line?.querySelector("span > span") ?? line;
+                const b = text?.getBoundingClientRect();
+                const e = ed?.getBoundingClientRect();
+                const inView = b && e && b.top >= e.top && b.bottom <= e.bottom;
+                return inView ? { x: b.left + b.width / 2, y: b.top + b.height / 2 } : e ? { x: e.left + e.width / 2, y: e.top + e.height / 2, scroll: true } : null;
+            })()`);
+        let at = await lineMiddle();
+        if (at?.scroll) {
+            await h.cdp("Input.dispatchMouseEvent", { type: "mouseWheel", x: at.x, y: at.y, deltaX: 0, deltaY: -2000 });
+            await sleep(300);
+            at = await lineMiddle();
+        }
+        const HOVER_SHOWN = `[...((${REVIEW_EDITOR})?.querySelectorAll('.monaco-hover') ?? [])].some((el) => !el.classList.contains('hidden') && el.getBoundingClientRect().height > 0 && el.textContent.includes(${JSON.stringify(firstNote)}))`;
+        let hovered = false;
+        if (at != null && !at.scroll) {
+            // two moves: Monaco starts its hover from a move within the line, not from entering it
+            await h.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", x: at.x - 2, y: at.y });
+            await h.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", x: at.x, y: at.y });
+            hovered = (await polishWaitFor(h, HOVER_SHOWN, 3000)) === true;
+        }
+        await h.shot("cdp-shots/code-review-hover.png");
+        rec(
+            "hovering commented line 3 shows its note in the Monaco hover",
+            hovered,
+            hovered ? `note="${firstNote}"` : `no visible .monaco-hover containing "${firstNote}" within 3000 ms (line at ${JSON.stringify(at)})`
+        );
+        await h.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", x: 0, y: 0 });
+        await polishWaitFor(h, `!(${HOVER_SHOWN})`, 2000);
+
+        const surfaceBefore = await h.activeSurfaceLabel();
+        await clickLine(15);
+        await h.ev(windowKey("m", "KeyM"));
+        const third = await polishWaitFor(h, `!!${REVIEW_INPUT}`, 3000);
+        await answer("never saved", "Escape");
+        const cancelled = await polishWaitFor(h, `!${REVIEW_INPUT}`, 3000);
+        const surfaceAfter = await h.activeSurfaceLabel();
+        const still = await h.ev(`${REVIEW_COUNT}?.getAttribute('data-code-review-count') ?? null`);
+        rec(
+            "Escape on a third input cancels it: still 2, and the surface did not change",
+            third && cancelled && still === "2" && (await h.ev(REVIEW_MARKERS)) === 2 && surfaceAfter === surfaceBefore,
+            JSON.stringify({ third, cancelled, still, surfaceBefore, surfaceAfter })
+        );
+
+        await h.ev(`document.querySelector('[data-code-review-clear]')?.click()`);
+        // the confirm button carries its key hint after the label
+        const CONFIRM = `[...document.querySelectorAll('[role="dialog"] button')].find((b) => (b.textContent || "").trim().startsWith("Clear"))`;
+        const asked = await polishWaitFor(h, `!!${CONFIRM}`, 3000);
+        rec("Clear asks first", asked === true, `confirm=${asked}`);
+        await h.ev(`${CONFIRM}?.click()`);
+        const cleared = await polishWaitFor(h, `!${REVIEW_COUNT} && ${REVIEW_MARKERS} === 0`, 3000);
+        rec("confirming removes the count and every marker", cleared === true, `markers=${await h.ev(REVIEW_MARKERS)}`);
+
+        await comment(4, "four");
+        await comment(12, "twelve");
+        const again = await polishWaitFor(h, `${REVIEW_COUNT}?.getAttribute('data-code-review-count') === "2"`, 3000);
+        await h.ev(windowKey("M", "KeyM", { shift: true }));
+        const COPY = `document.querySelector('[data-code-review-send]')?.parentElement?.querySelector('[data-code-agent-picker-empty]')`;
+        const popover = await polishWaitFor(h, `(${COPY})?.textContent?.trim() === "Copy review"`, 3000);
+        rec("Alt+Shift+M opens Send review with the no-agent copy action", again && popover, JSON.stringify({ again, popover }));
+        // the clipboard is stubbed: a CDP session does not give the page the focus a real write needs
+        const copied = await h.ev(`(async () => {
+            const clip = navigator.clipboard;
+            let wrote = null;
+            Object.defineProperty(clip, 'writeText', { configurable: true, value: (t) => { wrote = t; return Promise.resolve(); } });
+            (${COPY})?.click();
+            for (let i = 0; i < 20 && ${REVIEW_COUNT}; i++) await new Promise((r) => setTimeout(r, 50));
+            delete clip.writeText;
+            return { wrote, gone: !${REVIEW_COUNT} };
+        })()`);
+        rec(
+            "Copy review puts both comments on the clipboard and clears the count",
+            copied?.gone === true && /L4\b/.test(copied.wrote ?? "") && /L12\b/.test(copied.wrote ?? ""),
+            JSON.stringify(copied)
+        );
+        await h.shot("cdp-shots/code-review-sent.png");
+
+        await h.ev(`document.querySelector('[data-code-send-to-agent]')?.click()`);
+        const SEND_COPY = `document.querySelector('[data-code-send-to-agent]')?.parentElement?.querySelector('[data-code-agent-picker-empty]')`;
+        const picker = await polishWaitFor(h, `(${SEND_COPY})?.textContent?.trim() === "Copy reference"`, 3000);
+        rec("the path bar's Send to agent popover, drawn by AgentPicker, offers Copy reference", picker === true, `picker=${picker}`);
+        await h.ev(`document.querySelector('[data-code-send-to-agent]')?.click()`);
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await h.goto("cockpit");
+        if (ctx?.dir) rmSync(ctx.dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 500 });
     },
 };
 

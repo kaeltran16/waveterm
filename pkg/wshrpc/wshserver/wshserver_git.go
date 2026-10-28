@@ -6,6 +6,8 @@ package wshserver
 
 import (
 	"context"
+	"log"
+	"strings"
 
 	"github.com/wavetermdev/waveterm/pkg/gitinfo"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -117,4 +119,34 @@ func (ws *WshServer) GitFetchCommand(ctx context.Context, data wshrpc.CommandGit
 		return nil, err
 	}
 	return &wshrpc.CommandGitFetchRtnData{FetchedAt: r.FetchedAt, Failure: r.Failure, IsRepo: r.IsRepo}, nil
+}
+
+func (ws *WshServer) GitBlameCommand(ctx context.Context, data wshrpc.CommandGitBlameData) (*wshrpc.CommandGitBlameRtnData, error) {
+	b, err := gitinfo.Blame(ctx, data.Cwd, data.Path)
+	if err != nil {
+		return nil, err
+	}
+	hunks := make([]wshrpc.GitBlameHunk, 0, len(b.Hunks))
+	var shas []string
+	seen := map[string]bool{}
+	for _, h := range b.Hunks {
+		hunks = append(hunks, wshrpc.GitBlameHunk{
+			Start: h.Start, Lines: h.Lines, Sha: h.Sha,
+			Author: h.Author, AuthorTime: h.AuthorTime, Subject: h.Subject,
+		})
+		if !seen[h.Sha] && strings.Trim(h.Sha, "0") != "" {
+			seen[h.Sha] = true
+			shas = append(shas, h.Sha)
+		}
+	}
+	rtn := &wshrpc.CommandGitBlameRtnData{Hunks: hunks, IsRepo: b.IsRepo, Untracked: b.Untracked}
+	if len(shas) > 0 {
+		// blame without a run link is still a full answer
+		runs, err := runsForCommits(ctx, data.Cwd, shas)
+		if err != nil {
+			log.Printf("blame %s: crediting runs: %v", data.Path, err)
+		}
+		rtn.Runs = runs
+	}
+	return rtn, nil
 }

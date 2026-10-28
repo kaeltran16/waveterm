@@ -36,6 +36,7 @@ type WshRpcInterface interface {
 	BlockCommands
 	ProjectCommands
 	GitCommands
+	CodeCommands
 	AgentCommands
 	AgentSyncCommands
 	ChannelCommands

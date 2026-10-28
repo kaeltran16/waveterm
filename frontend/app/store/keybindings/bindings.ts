@@ -70,14 +70,19 @@ import { renamingRowAtom } from "@/app/view/agents/rowrenameatom";
 import { resolveActiveRunId } from "@/app/view/agents/runmodel";
 import { shellTaskPeekAtom } from "@/app/view/agents/shelltasksstore";
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
+import { toggleBlame } from "@/app/view/code/codeblamestore";
+import { projectComments } from "@/app/view/code/codereview";
+import { codeReviewsAtom, codeReviewSendOpenAtom, startComment } from "@/app/view/code/codereviewstore";
 import { codeSearchModeAtom } from "@/app/view/code/codesearchstore";
 import {
     caretWord,
     codeCursorAtom,
+    codePlainAtom,
+    codeProjectAtom,
     codeRowsAtom,
     codeTreeFocusedAtom,
-    codeViewModeAtom,
     confirmDelete,
+    cycleDiff,
     findReferences,
     goBack,
     goForward,
@@ -1531,11 +1536,46 @@ export function buildCodeBindings(model: AgentsViewModel): Binding[] {
             id: "code:diff",
             keys: "d",
             group: "Code",
-            label: "Toggle the diff against HEAD",
+            label: "Cycle the diff: HEAD, branch base, off",
             when: on,
             run: () => {
-                const mode = globalStore.get(codeViewModeAtom);
-                globalStore.set(codeViewModeAtom, mode === "diff" ? "source" : "diff");
+                void cycleDiff();
+            },
+        },
+        {
+            id: "code:blame",
+            keys: "b",
+            group: "Code",
+            label: "Toggle the blame column",
+            when: on,
+            run: () => {
+                // a plain directory has no history, as its disabled Blame button says
+                if (!globalStore.get(codePlainAtom)) {
+                    toggleBlame();
+                }
+            },
+        },
+        {
+            id: "code:comment",
+            keys: "Alt:m",
+            group: "Code",
+            label: "Comment on the selection",
+            // from the editor too: a comment is on what the editor has selected
+            when: (ctx) => ctx.surface === "code" && !ctx.modalOpen,
+            run: () => startComment(),
+        },
+        {
+            id: "code:send-review",
+            keys: "Alt:Shift:m",
+            group: "Code",
+            label: "Send the review",
+            when: (ctx) => ctx.surface === "code" && !ctx.modalOpen,
+            run: () => {
+                const project = globalStore.get(codeProjectAtom);
+                if (project == null || projectComments(globalStore.get(codeReviewsAtom), project.path).length === 0) {
+                    return false; // no review to send, and so no toolbar to open it in
+                }
+                globalStore.set(codeReviewSendOpenAtom, true);
             },
         },
         {
