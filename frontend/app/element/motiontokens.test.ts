@@ -9,6 +9,7 @@ import {
     computeEntrances,
     easeFluidCss,
     initialEntranceState,
+    indicatorSlide,
     microFade,
     modalBackdrop,
     modalPanel,
@@ -143,6 +144,13 @@ describe("paneReveal", () => {
 
     it("leaves a touch quicker than it arrives, like every other exit", () => {
         expect((paneReveal.exit as any).transition.duration).toBe(MOTION.durExit);
+    });
+});
+
+describe("indicatorSlide", () => {
+    it("moves a shared-layout indicator on the macro duration and the fluid ease", () => {
+        expect(indicatorSlide).toEqual({ duration: MOTION.durMacro, ease: MOTION.easeFluid });
+        expect(indicatorSlide.duration).toBeCloseTo(0.36);
     });
 });
 

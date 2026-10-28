@@ -4,8 +4,10 @@
 // The universal search's frame around its rows: the search bar, the scope tabs, the error band and the footer.
 // Presentational only: command-palette.tsx owns the state and hands each piece what it shows.
 
+import { indicatorSlide } from "@/app/element/motiontokens";
 import { cn } from "@/util/util";
 import { Search } from "lucide-react";
+import { LayoutGroup, motion } from "motion/react";
 import type { RefObject } from "react";
 import type { FooterLine } from "./palette-items";
 import { FooterKeyLine } from "./palette-rows";
@@ -116,10 +118,14 @@ export function PaletteSearchBar({
 export function PaletteScopeTabs({
     scope,
     needsCount,
+    openGen,
     onPick,
 }: {
     scope: ScopeId;
     needsCount: number;
+    // bumped per open. the key remounts the group, since LayoutGroup reads its id only on mount; the fresh id
+    // has no snapshot, so an open draws the bar in place
+    openGen: number;
     onPick: (scope: ScopeId) => void;
 }) {
     return (
@@ -128,31 +134,40 @@ export function PaletteScopeTabs({
             aria-label="Scope"
             className="flex shrink-0 items-stretch gap-1 border-b border-border px-2.5"
         >
-            {SCOPES.map((s) => {
-                const on = s.id === scope;
-                const count = s.id === "needs" ? needsCount : 0;
-                return (
-                    <button
-                        key={s.id}
-                        type="button"
-                        aria-pressed={on}
-                        data-palette-scope={s.id}
-                        tabIndex={-1}
-                        onClick={() => onPick(s.id)}
-                        className={cn(
-                            "flex cursor-pointer items-center gap-1.5 px-[7px] pb-[9px] pt-2 text-[12.5px] font-medium",
-                            on
-                                ? "text-primary shadow-[inset_0_-2px_0_var(--color-accent)]"
-                                : "text-muted hover:text-secondary"
-                        )}
-                    >
-                        <span>{s.label}</span>
-                        {count > 0 ? (
-                            <span className="font-mono text-[10.5px] font-bold text-asking">{count}</span>
-                        ) : null}
-                    </button>
-                );
-            })}
+            <LayoutGroup key={openGen} id={`palette-scope-${openGen}`}>
+                {SCOPES.map((s) => {
+                    const on = s.id === scope;
+                    const count = s.id === "needs" ? needsCount : 0;
+                    return (
+                        <button
+                            key={s.id}
+                            type="button"
+                            aria-pressed={on}
+                            data-palette-scope={s.id}
+                            tabIndex={-1}
+                            onClick={() => onPick(s.id)}
+                            className={cn(
+                                "relative flex cursor-pointer items-center gap-1.5 px-[7px] pb-[9px] pt-2 text-[12.5px] font-medium",
+                                on ? "text-primary" : "text-muted hover:text-secondary"
+                            )}
+                        >
+                            <span>{s.label}</span>
+                            {count > 0 ? (
+                                <span className="font-mono text-[10.5px] font-bold text-asking">{count}</span>
+                            ) : null}
+                            {on ? (
+                                <motion.span
+                                    layoutId="palette-scope-indicator"
+                                    data-palette-scope-indicator
+                                    aria-hidden
+                                    transition={indicatorSlide}
+                                    className="absolute inset-x-0 bottom-0 h-[2px] bg-accent"
+                                />
+                            ) : null}
+                        </button>
+                    );
+                })}
+            </LayoutGroup>
         </div>
     );
 }

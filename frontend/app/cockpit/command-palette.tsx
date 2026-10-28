@@ -22,7 +22,7 @@ import { buildBriefIndex } from "@/app/view/jarvis/briefpalette";
 import { taskListAtom } from "@/app/view/jarvis/tasksstore";
 import { fireAndForget } from "@/util/util";
 import { atom, useAtomValue } from "jotai";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { THING_KINDS } from "./actions";
 import { SESSION_KIND } from "./actions/session";
 import { verbRows } from "./actions/types";
@@ -118,6 +118,9 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     const [nav, setNavState] = useState<NavState>(() => initialNav(surface));
     const [sel, setSel] = useState(0);
     const [paletteError, setPaletteError] = useState<string | undefined>(undefined);
+    // nav outlives a close, so the first render after an open shows the last open's scope; a new scope-tab group
+    // per open keeps that stale render from sliding the indicator
+    const [openGen, setOpenGen] = useState(0);
     const inputRef = useRef<HTMLInputElement>(null);
     const listRef = useRef<HTMLDivElement>(null);
     const previewRef = useRef<HTMLDivElement>(null);
@@ -166,14 +169,16 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     // the active project, else the one last used, else the only one
     const homeChannel = palettePickChannel(channel, projectRows, recentProjects[0] ?? null);
 
-    // Each open starts fresh on the surface's own scope, and focuses the input after paint.
-    useEffect(() => {
+    // Each open starts fresh on the surface's own scope, and focuses the input after paint. a layout effect, so
+    // the reset nav and the new openGen commit before the open's first paint: no frame shows the last open's scope.
+    useLayoutEffect(() => {
         if (!open) {
             return;
         }
         const seed = globalStore.get(model.paletteSeedAtom);
         globalStore.set(model.paletteSeedAtom, null);
         setNav({ ...initialNav(globalStore.get(model.surfaceAtom)), query: seed ?? "" });
+        setOpenGen((g) => g + 1);
         const raf = requestAnimationFrame(() => inputRef.current?.focus());
         return () => cancelAnimationFrame(raf);
     }, [open]);
@@ -504,6 +509,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                     <PaletteScopeTabs
                         scope={nav.scope}
                         needsCount={needs.length}
+                        openGen={openGen}
                         onPick={(scope) => {
                             setNav(pickScope(nav, scope));
                             inputRef.current?.focus();

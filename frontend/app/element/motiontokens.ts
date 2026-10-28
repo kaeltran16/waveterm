@@ -4,7 +4,7 @@
 // Single source of truth for cockpit motion. Feel = "Fluid" (calm): macro moments
 // ~360ms on a gentle ease-out; micro-interactions stay fast. See
 // docs/superpowers/specs/2026-07-03-cockpit-motion-system-design.md.
-import type { Variants } from "motion/react";
+import type { Transition, Variants } from "motion/react";
 
 export const MOTION = {
     durMacro: 0.36, // entrances, reflow
@@ -61,6 +61,11 @@ export const paneReveal: Variants = {
     animate: { opacity: 1, height: "auto", transition: { duration: MOTION.durMacro, ease: MOTION.easeFluid } },
     exit: { opacity: 0, height: 0, transition: { duration: MOTION.durExit, ease: MOTION.easeFluid } },
 };
+
+// Indicator slide: a shared-layout (layoutId) bar moving between sibling tabs. durMacro because easeFluid
+// front-loads the travel, so the bar arrives in the first frames and the rest is settle; durMicro over a long
+// jump reads as a snap. Named for the pattern so another tab strip can reuse it.
+export const indicatorSlide: Transition = { duration: MOTION.durMacro, ease: MOTION.easeFluid };
 
 // View swap: a pane trading what it shows (the next question, the design, another step). Opacity only, since a
 // whole pane scaling reads as a zoom; no exit, so the old view leaves at once and two never stack in the flow.
