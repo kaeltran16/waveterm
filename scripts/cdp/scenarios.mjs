@@ -14549,6 +14549,173 @@ async function dagPeekMouse(h, type, pt, buttons = 0) {
     });
 }
 
+// --- dag-motion: a task finishing settles its card, and only live lifecycle rows fade in ----------------------
+// t-1 dispatches; t-3 is seeded done before the DAG opens, so its card mounts finished and must stay still. With the
+// modal open t-2 is seeded done (its card settles and its glyph cross-fades) and a run event is published (its new
+// row fades in, no other row does). One in-page sampler watches every frame, since a CDP round trip per sample is
+// slower than the micro fade it measures.
+const DAG_MOTION_TASKS = [
+    { id: "t-1", label: "noop", description: "do nothing, stop immediately", deps: [], state: "" },
+    { id: "t-2", label: "noop 2", description: "do nothing, stop immediately", deps: ["t-1"], state: "" },
+    { id: "t-3", label: "noop 3", description: "do nothing, stop immediately", deps: ["t-1"], state: "" },
+];
+const DAG_MOTION_LIVE_EVENT = [["task-verify-started", { taskid: "t-3" }, 0]];
+const dagMotionPrint = (dag) => JSON.stringify((dag?.tasks ?? []).map((t) => [t.id, t.state]));
+const dagMotionSeed = (doneIds) => (dag) => ({
+    ...dag,
+    tasks: dag.tasks.map((t) => (doneIds.includes(t.id) ? { ...t, state: "done" } : t)),
+});
+// every frame: which cards wore the settle class, which glyphs were caught mid-fade, which rows were seen below
+// full opacity. A row's motion root is its button's grandparent (GroupRow).
+const DAG_MOTION_SAMPLER = `(() => {
+    const obs = { settle: {}, glyphFade: {}, rowFade: {}, frames: 0, on: true };
+    window.__dagMotion = obs;
+    const tick = () => {
+        obs.frames++;
+        for (const n of document.querySelectorAll('[data-dag-modal-kind] [data-dag-node]')) {
+            const id = n.getAttribute('data-dag-node');
+            if (/animate-\\[settle/.test(n.className)) obs.settle[id] = true;
+            for (const s of n.querySelectorAll('[data-crossfade]')) {
+                const o = parseFloat(getComputedStyle(s).opacity);
+                if (o > 0.01 && o < 0.99) obs.glyphFade[id] = s.getAttribute('data-crossfade');
+            }
+        }
+        for (const b of document.querySelectorAll('[data-dag-modal-kind] [data-timeline-row]')) {
+            const root = b.parentElement?.parentElement;
+            if (root && parseFloat(getComputedStyle(root).opacity) < 0.99) {
+                obs.rowFade[(b.innerText || '').split('\\n')[0].trim()] = true;
+            }
+        }
+        if (obs.on) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+    return true;
+})()`;
+const DAG_MOTION_READ = `(() => {
+    const o = window.__dagMotion;
+    return o ? { settle: o.settle, glyphFade: o.glyphFade, rowFade: o.rowFade, frames: o.frames } : null;
+})()`;
+const DAG_MOTION_RESET = `(() => {
+    const o = window.__dagMotion;
+    if (o) { o.settle = {}; o.glyphFade = {}; o.rowFade = {}; }
+    return !!o;
+})()`;
+const DAG_MOTION_ROWS = `[...document.querySelectorAll('[data-dag-modal-kind] [data-timeline-row]')].map((b) => (b.innerText || '').split('\\n')[0].trim())`;
+// the glyph a card shows now: during a swap the leaving copy is popped out of flow ahead of the new one
+const dagMotionGlyph = (id) =>
+    `[...document.querySelectorAll('[data-dag-modal-kind] [data-dag-node="${id}"] [data-crossfade]')].at(-1)?.getAttribute('data-crossfade') ?? null`;
+
+const dagMotionScenario = {
+    name: "dag-motion",
+    surface: "jarvis",
+    async arrange(h) {
+        await h.cdp("Emulation.setDeviceMetricsOverride", DAG_PEEK_VIEWPORT);
+        const ctx = await arrangeSheetDagRun(h, "dag-motion", DAG_MOTION_TASKS);
+        if (ctx.arrangeError != null) return ctx;
+        try {
+            await waitForDispatch(h, ctx, "t-1");
+            ctx.dagId = (await h.rpc("dagstatus", { channelid: ctx.channelId, runid: ctx.runId })).group.id;
+            await seedDag(h, ctx, dagMotionSeed(["t-3"]), dagMotionPrint);
+            ctx.seeded = true;
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail: JSON.stringify(detail) });
+
+        // the sampler starts before Open DAG, so the open itself is watched
+        await h.ev(DAG_MOTION_SAMPLER);
+        const openDag = `[...(document.querySelector("[data-run-sheet]")?.querySelectorAll("button") ?? [])].find((b) => b.textContent.trim() === "Open DAG")`;
+        const sheet = await polishWaitFor(h, `!!${openDag}`, 15000);
+        if (sheet) await h.ev(`${openDag}.click()`);
+        const graph = await polishWaitFor(
+            h,
+            `document.querySelectorAll('[data-dag-modal-kind] [data-dag-node]').length >= 3 && document.querySelectorAll('[data-dag-modal-kind] [data-timeline-row]').length > 0`,
+            15000
+        );
+        await polishNap(1500);
+        const opened = await h.ev(DAG_MOTION_READ);
+        const t3Glyph = await h.ev(dagMotionGlyph("t-3"));
+        rec(
+            "1. opening the DAG plays nothing: t-3, mounted done, does not settle, and no lifecycle row fades in",
+            ctx.arrangeError == null &&
+                ctx.seeded &&
+                graph &&
+                t3Glyph === "done" &&
+                opened != null &&
+                opened.frames > 10 &&
+                Object.keys(opened.settle).length === 0 &&
+                Object.keys(opened.glyphFade).length === 0 &&
+                Object.keys(opened.rowFade).length === 0,
+            ctx.arrangeError ?? { sheet, graph, t3Glyph, opened }
+        );
+        if (!graph) return steps;
+        await h.shot("cdp-shots/dag-motion-open.png");
+
+        // 2. t-2 finishes while the DAG is open
+        await h.ev(DAG_MOTION_RESET);
+        await seedDag(h, ctx, dagMotionSeed(["t-2", "t-3"]), dagMotionPrint);
+        const t2Done = await polishWaitFor(h, `${dagMotionGlyph("t-2")} === "done"`, 10000);
+        await polishNap(700);
+        const flipped = await h.ev(DAG_MOTION_READ);
+        const settleGone = await h.ev(
+            `!/animate-\\[settle/.test(document.querySelector('[data-dag-modal-kind] [data-dag-node="t-2"]')?.className ?? '')`
+        );
+        rec(
+            "2. t-2 turning done settles its card once and cross-fades its glyph; no other card moves",
+            t2Done &&
+                flipped?.settle["t-2"] === true &&
+                flipped.glyphFade["t-2"] != null &&
+                Object.keys(flipped.settle).every((id) => id === "t-2") &&
+                settleGone,
+            { t2Done, flipped, settleGone }
+        );
+        await h.shot("cdp-shots/dag-motion-settled.png");
+
+        // 3. a lifecycle event arriving live
+        const rowsBefore = await h.ev(DAG_MOTION_ROWS);
+        await h.ev(DAG_MOTION_RESET);
+        await dagPeekPublish(h, ctx, DAG_MOTION_LIVE_EVENT);
+        const grew = await polishWaitFor(h, `${DAG_MOTION_ROWS}.length > ${rowsBefore.length}`, 10000);
+        await polishNap(800);
+        const live = await h.ev(DAG_MOTION_READ);
+        const rowsAfter = await h.ev(DAG_MOTION_ROWS);
+        const added = rowsAfter.filter((r) => !rowsBefore.includes(r));
+        const faded = Object.keys(live?.rowFade ?? {});
+        rec(
+            "3. a live lifecycle event's new row fades in, and none of the rows already there does",
+            grew && added.length > 0 && faded.length > 0 && faded.every((r) => added.includes(r)),
+            { rowsBefore, rowsAfter, added, faded }
+        );
+        await h.shot("cdp-shots/dag-motion-live-row.png");
+
+        // 4. switching the filter away and back re-renders every row without a cascade
+        await h.ev(DAG_MOTION_RESET);
+        await h.ev(`(async () => {
+            const pick = (label) => [...document.querySelectorAll('[data-dag-modal-kind] [data-timeline-rail] button[aria-pressed]')]
+                .find((b) => b.textContent.trim().startsWith(label))?.click();
+            pick("Attention");
+            await new Promise((r) => setTimeout(r, 400));
+            pick("All");
+            await new Promise((r) => setTimeout(r, 800));
+        })()`);
+        const refiltered = await h.ev(DAG_MOTION_READ);
+        rec(
+            "4. a filter change brings rows back without fading any in",
+            refiltered != null && Object.keys(refiltered.rowFade).length === 0,
+            refiltered
+        );
+        await h.ev(`window.__dagMotion && (window.__dagMotion.on = false)`);
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await teardownFixtureRun(h, ctx, "dag-motion");
+    },
+};
+
 const dagPeekScenario = {
     name: "dag-peek",
     surface: "jarvis",
@@ -19790,15 +19957,12 @@ async function waitDagTask(h, ctx, id, ok) {
 const taskFacts = (t) =>
     t && { state: t.state, modelsource: t.modelsource ?? "", runtime: t.runspec?.runtime ?? "", model: t.runspec?.model ?? "" };
 
-// the plan review's reviewers are real sessions; haiku keeps the five of a round cheap
+// the plan review's reviewers are real sessions; haiku keeps a round's two cheap
 const HAIKU_ROUTE = { runtime: "claude", model: "haiku" };
-const ROUND_ONE_LENSES = ["full", "spec", "order", "tests", "final"];
+const ROUND_ONE_LENSES = ["full", "second"];
 const LENS_TITLE = {
     full: "Full review",
-    spec: "Spec coverage",
-    order: "Task order and files",
-    tests: "Tests and commands",
-    final: "Final coverage",
+    second: "Second pass",
     followup: "Round-2 follow-up",
 };
 const PLAN_REVIEWER_WAIT_MS = 90000;
@@ -19903,14 +20067,11 @@ const modelPicks = {
                 { channelid: ctx.channelId, runid: ctx.runId, parallelism: 1, planpath: MODELS_PLAN },
                 MODELS_RPC
             );
-            // the five reviewers are real sessions, spawned after the submit returns: a pass from each lens, then
+            // the two reviewers are real sessions, spawned after the submit returns: the second pass's pass, then
             // the full reviewer's with the picks
             const pass = { verdict: "pass", notes: "verify model-picks: three noops" };
             await recordPlanReviewRound(h, ctx, 1, {
-                spec: pass,
-                order: pass,
-                tests: pass,
-                final: pass,
+                second: pass,
                 full: { ...pass, picks: MODEL_PICKS },
             });
             // the Brief reads a boot-primed snapshot, so the RPC-created channel needs a reload
@@ -20039,7 +20200,7 @@ const modelPicks = {
         const chips = await h.ev(PLAN_REVIEWER_CHIPS);
         await h.shot("cdp-shots/model-picks-3-reviewers.png");
         rec(
-            "6. the graph's stage line shows five plan reviewers, each passed",
+            "6. the graph's stage line shows two plan reviewers, each passed",
             sameSet(
                 chips.map((c) => c.lens),
                 ROUND_ONE_LENSES
@@ -20050,7 +20211,7 @@ const modelPicks = {
         const reviewed = await h.ev(railGroupExpr("Plan reviewed"));
         await h.shot("cdp-shots/model-picks-4-plan-reviewed.png");
         rec(
-            "7. the timeline's Plan reviewed row lists five reviewers",
+            "7. the timeline's Plan reviewed row lists two reviewers",
             reviewed.found &&
                 sameSet(
                     reviewed.reviewers.map((r) => r.lens),
@@ -20067,7 +20228,7 @@ const modelPicks = {
     },
 };
 
-// --- plan-review-rounds: round 1's five reviewers, one failing, then round 2's follow-up on a resubmit
+// --- plan-review-rounds: round 1's two reviewers, the second pass failing, then round 2's follow-up on a resubmit
 // (docs/superpowers/specs/2026-10-14-wider-plan-review-design.md). The failed round launches a real lead: its run
 // is on haiku, and the finding it is woken with tells it to leave the plan alone, so the scenario's resubmit is the
 // only one.
@@ -20088,11 +20249,11 @@ const PLAN_REVIEW_TREE_ROWS = `(async () => {
     const titles = () => [...(tree()?.querySelectorAll('div') ?? [])].filter(
         (d) => d.children.length === 0 && flat(d).startsWith(${JSON.stringify(PLAN_REVIEW_TITLE)})
     );
-    for (let i = 0; i < 40 && folds().length === 0 && titles().length < 5; i++) {
+    for (let i = 0; i < 40 && folds().length === 0 && titles().length < ${ROUND_ONE_LENSES.length}; i++) {
         await new Promise((r) => setTimeout(r, 250));
     }
     folds().forEach((f) => f.click());
-    for (let i = 0; i < 20 && titles().length < 5; i++) await new Promise((r) => setTimeout(r, 250));
+    for (let i = 0; i < 20 && titles().length < ${ROUND_ONE_LENSES.length}; i++) await new Promise((r) => setTimeout(r, 250));
     return {
         tree: tree() != null,
         rows: titles().map((t) => ({ title: flat(t), sub: flat(t.nextElementSibling) })),
@@ -20157,10 +20318,7 @@ const planReviewRounds = {
             );
             const pass = { verdict: "pass", notes: "verify plan-review-rounds: three noops" };
             await recordPlanReviewRound(h, ctx, 1, {
-                spec: pass,
-                order: pass,
-                final: pass,
-                tests: { verdict: "fail", notes: ROUNDS_FINDING },
+                second: { verdict: "fail", notes: ROUNDS_FINDING },
                 full: pass,
             });
             ctx.graph = await openRunGraph(h, ctx);
@@ -20173,21 +20331,21 @@ const planReviewRounds = {
         const steps = [];
         const rec = (step, ok, detail) => steps.push({ step, ok, detail });
         if (ctx.arrangeError != null) {
-            rec("0. round 1's five reviewers recorded their verdicts, tests failing", false, ctx.arrangeError);
+            rec("0. round 1's two reviewers recorded their verdicts, the second pass failing", false, ctx.arrangeError);
             return steps;
         }
         rec("0. the run's graph opened with its 3 tasks", ctx.graph.ok, JSON.stringify({ runId: ctx.runId, ...ctx.graph }));
         if (!ctx.graph.ok) return steps;
 
-        await polishWaitFor(h, `${PLAN_REVIEWER_CHIPS}.filter((c) => c.state !== 'reviewing').length === 5`, 5000);
+        await polishWaitFor(h, `${PLAN_REVIEWER_CHIPS}.filter((c) => c.state !== 'reviewing').length === ${ROUND_ONE_LENSES.length}`, 5000);
         const chips = await h.ev(PLAN_REVIEWER_CHIPS);
         await h.shot("cdp-shots/plan-review-rounds-1-chips.png");
         rec(
-            "1. round 1: five chips, four passed and tests failed",
+            "1. round 1: two chips, full passed and the second pass failed",
             sameSet(
                 chips.map((c) => c.lens),
                 ROUND_ONE_LENSES
-            ) && chips.every((c) => c.state === (c.lens === "tests" ? "failed" : "passed")),
+            ) && chips.every((c) => c.state === (c.lens === "second" ? "failed" : "passed")),
             JSON.stringify(chips)
         );
 
@@ -20195,14 +20353,14 @@ const planReviewRounds = {
         const findings = (await planReviewOf(h, ctx))?.findings ?? "";
         await h.shot("cdp-shots/plan-review-rounds-2-plan-reviewed.png");
         rec(
-            "2. the Plan reviewed row lists five reviewers, and the findings begin with [Tests and commands]",
+            "2. the Plan reviewed row lists two reviewers, and the findings begin with [Second pass]",
             reviewed.found &&
                 sameSet(
                     reviewed.reviewers.map((r) => r.lens),
                     ROUND_ONE_LENSES
                 ) &&
-                reviewed.reviewers.every((r) => r.text === `${LENS_TITLE[r.lens]} · ${r.lens === "tests" ? "failed" : "passed"}`) &&
-                findings.startsWith("[Tests and commands]"),
+                reviewed.reviewers.every((r) => r.text === `${LENS_TITLE[r.lens]} · ${r.lens === "second" ? "failed" : "passed"}`) &&
+                findings.startsWith("[Second pass]"),
             JSON.stringify({ ...reviewed, findings: findings.slice(0, 200) })
         );
 
@@ -20220,11 +20378,11 @@ const planReviewRounds = {
         await h.shot("cdp-shots/plan-review-rounds-4-tree.png");
         const wantRows = ROUND_ONE_LENSES.map((l) => ({
             title: `${PLAN_REVIEW_TITLE}${LENS_TITLE[l]}`,
-            verdict: l === "tests" ? "failed" : "passed",
+            verdict: l === "second" ? "failed" : "passed",
         }));
         rec(
             "4. the agent tree's plan-reviewer rows name their lens and verdict",
-            tree.rows.length === 5 &&
+            tree.rows.length === ROUND_ONE_LENSES.length &&
                 wantRows.every((w) => tree.rows.some((r) => r.title === w.title && r.sub.split(" · ")[0] === w.verdict)),
             tree.rows.length === 0
                 ? `no plan-reviewer rows in the tree: the run's reviewer tabs were reaped or never joined the roster (${JSON.stringify(tree)})`
@@ -24442,6 +24600,192 @@ const remotePhone = {
             await exited;
         }
         rmSync(ctx.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    },
+};
+
+// --- motion-controls: a chevron turns instead of flipping, and a copy cross-fades to its outcome ---------------
+// The route picker's chevron stands for every disclosure chevron (they share turnTransition), and the Code path
+// bar's copy for every copy affordance (they share useCopyFeedback and CrossFade). Samplers run in-page on every
+// frame; the clipboard is stubbed so the copied and failed outcomes are both driven on purpose. The last step
+// turns the chevron under prefers-reduced-motion, where it must snap.
+const MOTION_CONTROLS_CHEVRON = `document.querySelector('[data-testid="route-picker"] svg.lucide-chevron-down')`;
+const MOTION_CONTROLS_COPY = `document.querySelector('button[aria-label="Copy absolute path"]')`;
+// COPY_HOLD_MS in frontend/app/element/copyfeedback.ts
+const MOTION_CONTROLS_HOLD_MS = 1400;
+// each distinct rotation seen over the frames (Tailwind 4 turns with the `rotate` property, not `transform`), plus
+// the transition the chevron is styled with
+const motionControlsTurn = `(async () => {
+    const svg = ${MOTION_CONTROLS_CHEVRON};
+    if (!svg) return null;
+    const cs = getComputedStyle(svg);
+    const out = { duration: cs.transitionDuration, property: cs.transitionProperty, transforms: [] };
+    document.querySelector('[data-testid="route-picker"]').click();
+    const t0 = performance.now();
+    await new Promise((done) => {
+        const tick = () => {
+            const t = getComputedStyle(svg).rotate;
+            if (out.transforms.at(-1) !== t) out.transforms.push(t);
+            if (performance.now() - t0 < 500) requestAnimationFrame(tick); else done();
+        };
+        requestAnimationFrame(tick);
+    });
+    return out;
+})()`;
+const motionControlsCloseRoute = `(async () => {
+    const b = document.querySelector('[data-testid="route-picker"]');
+    if (b?.getAttribute('aria-expanded') === 'true') b.click();
+    await new Promise((r) => setTimeout(r, 400));
+    return b?.getAttribute('aria-expanded') ?? null;
+})()`;
+// clicks copy with writeText stubbed to `outcome`, and samples the button's cross-fade spans for `ms`
+const motionControlsCopy = (outcome, ms) => `(async () => {
+    const btn = ${MOTION_CONTROLS_COPY};
+    if (!btn) return null;
+    const clip = navigator.clipboard;
+    const orig = clip.writeText;
+    Object.defineProperty(clip, 'writeText', {
+        configurable: true,
+        value: () => ${outcome === "copied" ? "Promise.resolve()" : 'Promise.reject(new Error("motion-controls: refused"))'},
+    });
+    const out = { labels: [], midFade: [] };
+    btn.click();
+    const t0 = performance.now();
+    await new Promise((done) => {
+        const tick = () => {
+            const label = (btn.innerText || '').trim();
+            if (out.labels.at(-1) !== label) out.labels.push(label);
+            for (const s of btn.querySelectorAll('[data-crossfade]')) {
+                const o = parseFloat(getComputedStyle(s).opacity);
+                const key = s.getAttribute('data-crossfade');
+                if (o > 0.01 && o < 0.99 && !out.midFade.includes(key)) out.midFade.push(key);
+            }
+            if (performance.now() - t0 < ${ms}) requestAnimationFrame(tick); else done();
+        };
+        requestAnimationFrame(tick);
+    });
+    delete clip.writeText;
+    if (clip.writeText !== orig) Object.defineProperty(clip, 'writeText', { configurable: true, value: orig });
+    out.end = (btn.innerText || '').trim();
+    return out;
+})()`;
+const motionControlsReduce = (on) => ({
+    features: [{ name: "prefers-reduced-motion", value: on ? "reduce" : "no-preference" }],
+});
+
+const MOTION_CONTROLS_PROJECT = "verify-motion-controls";
+
+const motionControls = {
+    name: "motion-controls",
+    surface: "settings",
+    // Final runs on a fresh, empty store, so the copy steps register their own repo holding a README
+    async arrange(h) {
+        await h.cdp("Emulation.setDeviceMetricsOverride", { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false });
+        const ctx = { name: MOTION_CONTROLS_PROJECT };
+        try {
+            ctx.dir = mkdtempSync(join(tmpdir(), "verify-motion-controls-"));
+            git(ctx.dir, "init", "-q", "--initial-branch=main");
+            writeFileSync(join(ctx.dir, "README.md"), "# motion controls\n");
+            git(ctx.dir, "add", ".");
+            git(ctx.dir, "commit", "-q", "-m", "seed the copy fixture");
+            await h.rpc("createproject", { name: ctx.name, path: ctx.dir });
+            ctx.madeProject = true;
+            await waitForProjectInConfig(h, ctx.name);
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail: JSON.stringify(detail) });
+        const openRouteSection = async () => {
+            await h.goto("settings");
+            await h.ev(`document.querySelector('[data-section="run"]')?.click()`);
+            await polishWaitFor(h, `!!${MOTION_CONTROLS_CHEVRON}`, 8000);
+            await h.ev(`document.querySelector('[data-testid="route-picker"]')?.scrollIntoView({ block: "center" })`);
+            await polishNap(300);
+        };
+        const openCodeFile = async () => {
+            if (ctx.arrangeError != null) return false;
+            await h.goto("code");
+            const row = `document.querySelector('[data-code-picker-row=${JSON.stringify(ctx.name)}]')`;
+            if (!(await h.ev(`!!${row}`))) await h.ev(`document.querySelector('[data-code-project-picker]')?.click()`);
+            if (!(await polishWaitFor(h, `!!${row}`, 5000))) return false;
+            await h.ev(`${row}.click()`);
+            await polishNap(1200);
+            await h.ev(
+                `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', code: 'KeyP', ctrlKey: true, bubbles: true }))`
+            );
+            await polishNap(300);
+            await setFinderQuery(h, "README.md");
+            return polishWaitFor(h, `!!${MOTION_CONTROLS_COPY}`, 8000);
+        };
+        // a turn shows at least one frame between the start and end rotations
+        const turned = (t) => t != null && t.transforms.length >= 3 && t.transforms[0] !== t.transforms.at(-1);
+
+        // 1. the chevron turns on the token timing
+        await openRouteSection();
+        const turn = await h.ev(motionControlsTurn);
+        await h.shot("cdp-shots/motion-controls-chevron-open.png");
+        await h.ev(motionControlsCloseRoute);
+        rec(
+            "1. opening the route picker turns its chevron over frames, on the micro token (0.14s)",
+            turned(turn) && turn.duration === "0.14s" && turn.property.includes("rotate"),
+            turn
+        );
+
+        // 2. copy -> Copied cross-fades in, then returns to Copy path after the hold
+        const fileOpen = await openCodeFile();
+        const copied = fileOpen ? await h.ev(motionControlsCopy("copied", 600)) : null;
+        await h.shot("cdp-shots/motion-controls-copied.png");
+        await polishNap(MOTION_CONTROLS_HOLD_MS);
+        const back = await h.ev(`(${MOTION_CONTROLS_COPY}?.innerText || '').trim()`);
+        rec(
+            "2. the path bar's copy cross-fades to Copied and returns to Copy path after the hold",
+            fileOpen &&
+                copied?.labels.includes("Copied") &&
+                copied.midFade.includes("copied") &&
+                copied.end === "Copied" &&
+                back === "Copy path",
+            ctx.arrangeError ?? { fileOpen, copied, back }
+        );
+
+        // 3. a refused write reads as a failure, never as Copied
+        const failed = fileOpen ? await h.ev(motionControlsCopy("failed", 500)) : null;
+        await h.shot("cdp-shots/motion-controls-copy-failed.png");
+        await polishNap(MOTION_CONTROLS_HOLD_MS);
+        rec(
+            "3. a refused clipboard write shows Copy failed and never Copied",
+            failed?.end === "Copy failed" && !failed.labels.includes("Copied"),
+            failed
+        );
+
+        // 4. reduced motion: the turn snaps. The cross-fade is opacity only, which MotionConfig reducedMotion="user" keeps.
+        await h.cdp("Emulation.setEmulatedMedia", motionControlsReduce(true));
+        await openRouteSection();
+        const snapTurn = await h.ev(motionControlsTurn);
+        await h.ev(motionControlsCloseRoute);
+        rec(
+            "4. under reduced motion the chevron flips with no in-between frame",
+            snapTurn != null &&
+                snapTurn.property === "none" &&
+                snapTurn.transforms.at(-1) === "180deg" &&
+                snapTurn.transforms.every((r) => r === "0deg" || r === "180deg"),
+            snapTurn
+        );
+        await h.cdp("Emulation.setEmulatedMedia", motionControlsReduce(false));
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await h.cdp("Emulation.setEmulatedMedia", motionControlsReduce(false)).catch(() => {});
+        if (ctx.madeProject) {
+            try {
+                await h.rpc("deleteproject", { name: ctx.name });
+            } catch (e) {
+                console.error(`motion-controls teardown: delete the project failed: ${e?.message ?? e}`);
+            }
+        }
+        if (ctx.dir) rmSync(ctx.dir, { recursive: true, force: true });
     },
 };
 
@@ -29032,6 +29376,7 @@ export const SCENARIOS = [
     resourceLinking,
     uiApi,
     motionGaps,
+    motionControls,
     narrationFeed,
     notesWsh,
     agentTreeRail,
@@ -29047,6 +29392,7 @@ export const SCENARIOS = [
     runCost,
     dagObservability,
     dagPeekScenario,
+    dagMotionScenario,
     dagReviewerSession,
     recordBandDetachRestore,
     agentRailFileLink,

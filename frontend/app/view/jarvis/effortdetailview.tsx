@@ -11,6 +11,7 @@
 // hatch the inline tracker links to as "initiative activity": every note on every chunk, in one stream,
 // which the per-chunk sidebar deliberately does not show.
 
+import { turnTransition } from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
 import { Skeleton } from "@/app/element/skeleton";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
@@ -309,7 +310,11 @@ function FeedGroupLine({
                             size={11}
                             strokeWidth={2.4}
                             aria-hidden
-                            className={cn("flex-none self-center text-muted", open && "rotate-90")}
+                            style={turnTransition}
+                            className={cn(
+                                "flex-none self-center text-muted transition-transform motion-reduce:transition-none",
+                                open && "rotate-90"
+                            )}
                         />
                     </button>
                     <PaneReveal open={open}>

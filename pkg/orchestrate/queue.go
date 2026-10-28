@@ -251,7 +251,7 @@ func reviewFailedWake(taskID, note string) string {
 const planReviewFindingsCmd = "wsh jarvis dag planreview findings"
 
 // planReviewFailedWake carries the round's merged findings, the lead revises the plan from them, up to
-// reportSectionMaxLen: five reviewers at their note cap would fill the lead's composer, so past it the wake names
+// reportSectionMaxLen: both reviewers at their note cap would fill the lead's composer, so past it the wake names
 // planReviewFindingsCmd. After the last round the call is the human's, or on an autonomous run the lead's.
 func planReviewFailedWake(round int, findings string, last, autonomous bool) string {
 	findings = capText(findings, reportSectionMaxLen, planReviewFindingsCmd)

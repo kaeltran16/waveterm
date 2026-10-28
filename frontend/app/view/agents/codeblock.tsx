@@ -1,23 +1,15 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { useState } from "react";
+import { useCopyFeedback, type CopyState } from "@/app/element/copyfeedback";
+import { CrossFade } from "@/app/element/crossfade";
 import { highlightLine } from "./highlight";
 
 // Styled fenced-code block for transcript prose (Wave-transcript-feed.dc.html code block).
 // lang label + optional path + copy affordance + line-number gutter + tokenized source.
 export function CodeBlock({ code, lang, path }: { code: string; lang?: string; path?: string }) {
-    const [copied, setCopied] = useState(false);
+    const { state, copy } = useCopyFeedback();
     const lines = code.replace(/\n$/, "").split("\n");
-    const copy = () => {
-        try {
-            void navigator.clipboard?.writeText(code);
-        } catch {
-            // clipboard unavailable — no-op
-        }
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1400);
-    };
     return (
         <div className="my-1.5 overflow-hidden rounded-[10px] border border-border bg-surface-code">
             <div
@@ -31,8 +23,8 @@ export function CodeBlock({ code, lang, path }: { code: string; lang?: string; p
                 ) : null}
                 {path ? <span className="font-mono text-[10.5px] text-muted">{path}</span> : null}
                 <div className="flex-1" />
-                <button type="button" onClick={copy} className={cnCopy(copied)}>
-                    {copied ? "Copied" : "Copy"}
+                <button type="button" onClick={() => copy(code)} className={cnCopy(state)}>
+                    <CrossFade swapKey={state}>{COPY_LABEL[state]}</CrossFade>
                 </button>
             </div>
             <div className="overflow-x-auto">
@@ -57,10 +49,13 @@ export function CodeBlock({ code, lang, path }: { code: string; lang?: string; p
     );
 }
 
-function cnCopy(copied: boolean): string {
+const COPY_LABEL: Record<CopyState, string> = { idle: "Copy", copied: "Copied", failed: "Copy failed" };
+const COPY_TONE: Record<CopyState, string> = { idle: "text-muted", copied: "text-success", failed: "text-error" };
+
+function cnCopy(state: CopyState): string {
     return (
         "flex items-center gap-[5px] rounded-sm border border-edge-mid px-2 py-[3px] font-mono " +
         "text-[10.5px] tracking-[0.03em] hover:border-edge-strong " +
-        (copied ? "text-success" : "text-muted")
+        COPY_TONE[state]
     );
 }

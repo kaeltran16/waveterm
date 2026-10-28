@@ -10,12 +10,15 @@ import {
     easeFluidCss,
     initialEntranceState,
     indicatorSlide,
+    microFade,
     modalBackdrop,
     modalPanel,
     paneReveal,
     popoverReveal,
+    settleClass,
     sheetPanel,
     shouldFadeEntry,
+    turnTransition,
     viewFade,
 } from "./motiontokens";
 
@@ -148,5 +151,33 @@ describe("indicatorSlide", () => {
     it("moves a shared-layout indicator on the macro duration and the fluid ease", () => {
         expect(indicatorSlide).toEqual({ duration: MOTION.durMacro, ease: MOTION.easeFluid });
         expect(indicatorSlide.duration).toBeCloseTo(0.36);
+    });
+});
+
+describe("microFade", () => {
+    it("swaps a mark on opacity alone, micro in and out on the fluid ease", () => {
+        expect(microFade.initial).toEqual({ opacity: 0 });
+        expect(microFade.animate).toMatchObject({ opacity: 1 });
+        expect(microFade.exit).toMatchObject({ opacity: 0 });
+        expect((microFade.animate as any).transition).toEqual({ duration: MOTION.durMicro, ease: MOTION.easeFluid });
+        expect((microFade.exit as any).transition).toEqual({ duration: MOTION.durMicro, ease: MOTION.easeFluid });
+    });
+});
+
+describe("turnTransition", () => {
+    it("times a chevron turn from the tokens and leaves the property to the reducible class", () => {
+        expect(turnTransition).toEqual({
+            transitionDuration: `${MOTION.durMicro}s`,
+            transitionTimingFunction: easeFluidCss,
+        });
+        expect(turnTransition).not.toHaveProperty("transition");
+        expect(turnTransition).not.toHaveProperty("transitionProperty");
+    });
+});
+
+describe("settleClass", () => {
+    it("plays the settle keyframe once and is dropped under reduced motion", () => {
+        expect(settleClass).toContain("animate-[settle_");
+        expect(settleClass).toContain("motion-reduce:animate-none");
     });
 });

@@ -150,12 +150,6 @@ const CodeBlock = ({ children, onClickExecute }: CodeBlockProps) => {
         return "";
     };
 
-    const handleCopy = async (e: React.MouseEvent) => {
-        let textToCopy = getTextContent(children);
-        textToCopy = textToCopy.replace(/\n$/, ""); // remove trailing newline
-        await navigator.clipboard.writeText(textToCopy);
-    };
-
     const handleExecute = (e: React.MouseEvent) => {
         let textToCopy = getTextContent(children);
         textToCopy = textToCopy.replace(/\n$/, ""); // remove trailing newline
@@ -169,7 +163,7 @@ const CodeBlock = ({ children, onClickExecute }: CodeBlockProps) => {
         <pre className="codeblock">
             {children}
             <div className="codeblock-actions">
-                <CopyButton onClick={handleCopy} title="Copy" />
+                <CopyButton text={getTextContent(children).replace(/\n$/, "")} title="Copy" />
                 {onClickExecute && (
                     <IconButton
                         decl={{
