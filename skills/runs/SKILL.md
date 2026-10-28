@@ -1,6 +1,6 @@
 ---
 name: runs
-description: Use when you need to start an Arc run (quick, or orchestrator from a goal or a plan file), check on or cancel a run, or see what is waiting on the user — via `wsh runs`; or message a live agent tab and read its answer — via `wsh agents`.
+description: Use when you need to start an Arc run (quick, or orchestrator from a goal or a plan file), check on or cancel a run, or see what is waiting on the user — via `wsh runs`; or message a live agent tab and read its answer — via `wsh agents`; or clean up what runs left on disk (run trees, wave/* branches, Final outputs) — via `wsh storage`.
 ---
 
 # Arc runs from the command line
@@ -39,3 +39,16 @@ Rules:
 - Starting a run does not call for showing it: the user sees it in the cockpit already, and a reveal
   takes them off the surface they are working on. Run `wsh ui reveal run:<id>` only when the user asks
   to see the run.
+
+Clean up what runs left on disk with `wsh storage` (the Settings > Storage section):
+
+- `wsh storage scan --wait` scans afresh and prints the report; `wsh storage report` prints the last scan
+  (`--json` for every row's facts). Rows are grouped left over, in use and kept; only left over rows are
+  ever deleted.
+- `wsh storage clear --all --wait`, or `clear <id...> --wait`, deletes the left over rows marked
+  clearable: they lose nothing, and each is re-checked right before it goes.
+- A left over row with unmerged commits or uncommitted files is skipped by clear. Check whether its work
+  reached main another way (squash-merged, cherry-picked: compare its commit subjects and diffs with
+  `git log main`), then show the user the row, its commits or files, and what you found, and ask.
+  Only for a row the user approved, run `wsh storage delete <id> --tip <tip> --wait` with the tip the
+  report printed. That work is gone afterwards.
