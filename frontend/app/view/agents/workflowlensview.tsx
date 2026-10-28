@@ -6,6 +6,8 @@
 // The model is workflowlens.ts; this file only draws it and sends what the owner does.
 
 import { palettePickChannel } from "@/app/cockpit/palette-data";
+import { useCopyFeedback } from "@/app/element/copyfeedback";
+import { CrossFade } from "@/app/element/crossfade";
 import * as WOS from "@/app/store/wos";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
@@ -415,21 +417,12 @@ function EditBlock({ card }: { card: WorkflowCard }) {
 }
 
 function CopyButton({ card }: { card: WorkflowCard }) {
-    const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
-    const copy = async () => {
-        try {
-            await navigator.clipboard.writeText(copyText(card));
-            setState("copied");
-        } catch (e) {
-            console.warn("workflow lens: copy failed", e);
-            setState("failed");
-        }
-    };
+    const { state, copy } = useCopyFeedback();
     return (
         <button
             type="button"
             data-workflow-copy={card.id}
-            onClick={() => void copy()}
+            onClick={() => copy(copyText(card))}
             className="flex cursor-pointer items-center gap-1.5 rounded border border-accent-700 bg-accentbg px-3 py-1.5 text-[12px] font-semibold text-accent-soft hover:text-accenthover"
         >
             <svg
@@ -446,7 +439,9 @@ function CopyButton({ card }: { card: WorkflowCard }) {
                 <rect x="9" y="9" width="13" height="13" rx="2" />
                 <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
             </svg>
-            {state === "copied" ? "Copied" : state === "failed" ? "Copy failed" : `Copy for #${card.elsewhere}`}
+            <CrossFade swapKey={state}>
+                {state === "copied" ? "Copied" : state === "failed" ? "Copy failed" : `Copy for #${card.elsewhere}`}
+            </CrossFade>
         </button>
     );
 }

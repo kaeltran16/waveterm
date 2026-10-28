@@ -9,6 +9,8 @@
 // Save status stays in the surface toolbar. Splitting identity from save state is a real cost, but moving
 // working controls for tidiness is churn.
 
+import { useCopyFeedback, type CopyState } from "@/app/element/copyfeedback";
+import { CrossFade } from "@/app/element/crossfade";
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
@@ -18,7 +20,7 @@ import { projectsAtom } from "@/app/view/agents/projectsstore";
 import { joinRepoPath } from "@/util/paths";
 import { cn, stringToBase64 } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
-import { Check, Copy, Send } from "lucide-react";
+import { Check, Copy, Send, X } from "lucide-react";
 import { useState } from "react";
 import { isMarkdownPath } from "./codeclassify";
 import { handoffLine, handoffProjectName, liveAgentsForProject } from "./codehandoff";
@@ -35,13 +37,20 @@ import {
 } from "./codestore";
 import { codeEditorSelection } from "./codeviewer";
 
+const COPY_PATH_LABEL: Record<CopyState, string> = { idle: "Copy path", copied: "Copied", failed: "Copy failed" };
+const COPY_PATH_TONE: Record<CopyState, string> = {
+    idle: "text-muted hover:text-primary",
+    copied: "text-accent-soft",
+    failed: "text-error",
+};
+
 export function CodePathBar({ model }: { model: AgentsViewModel }) {
     const project = useAtomValue(codeProjectAtom);
     const file = useAtomValue(codeFileAtom);
     const drafts = useAtomValue(codeDraftsAtom);
     const registry = useAtomValue(projectsAtom);
     const worktrees = useAtomValue(codeWorktreesAtom);
-    const [copied, setCopied] = useState(false);
+    const { state: copyState, copy } = useCopyFeedback();
 
     if (project == null || file.kind === "none") {
         return null;
@@ -67,18 +76,22 @@ export function CodePathBar({ model }: { model: AgentsViewModel }) {
                 type="button"
                 aria-label="Copy absolute path"
                 title={abs}
-                onClick={() => {
-                    void navigator.clipboard?.writeText(abs);
-                    setCopied(true);
-                    window.setTimeout(() => setCopied(false), 1200);
-                }}
+                onClick={() => copy(abs)}
                 className={cn(
-                    "flex flex-none cursor-pointer items-center gap-1 rounded-[6px] border border-border px-2 py-[3px] text-[11px]",
-                    copied ? "text-accent-soft" : "text-muted hover:text-primary"
+                    "flex flex-none cursor-pointer items-center rounded-[6px] border border-border px-2 py-[3px] text-[11px]",
+                    COPY_PATH_TONE[copyState]
                 )}
             >
-                {copied ? <Check size={11} strokeWidth={2} /> : <Copy size={11} strokeWidth={1.8} />}
-                <span>{copied ? "Copied" : "Copy path"}</span>
+                <CrossFade swapKey={copyState} className="gap-1">
+                    {copyState === "copied" ? (
+                        <Check size={11} strokeWidth={2} />
+                    ) : copyState === "failed" ? (
+                        <X size={11} strokeWidth={2} />
+                    ) : (
+                        <Copy size={11} strokeWidth={1.8} />
+                    )}
+                    <span>{COPY_PATH_LABEL[copyState]}</span>
+                </CrossFade>
             </button>
             <SendToAgent
                 model={model}
