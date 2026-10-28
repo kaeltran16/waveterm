@@ -1398,7 +1398,8 @@ export const codeReview = {
             return { clicked, shown, typed };
         };
 
-        const first = await comment(3, "line three needs a name");
+        const firstNote = "line three needs a name";
+        const first = await comment(3, firstNote);
         rec("Alt+M on line 3 opens the inline comment input", first.clicked && first.shown, JSON.stringify(first));
         const one = await polishWaitFor(h, `${REVIEW_MARKERS} === 1 && !${REVIEW_INPUT}`, 3000);
         rec("Enter saves the note as one gutter marker", one === true, `markers=${await h.ev(REVIEW_MARKERS)}`);
@@ -1408,6 +1409,41 @@ export const codeReview = {
         const count = await h.ev(`${REVIEW_COUNT}?.getAttribute('data-code-review-count') ?? null`);
         rec("the toolbar counts 2 comments", count === "2", `count=${count}`);
         await h.shot("cdp-shots/code-review.png");
+
+        // the editor holding the markers is the Code viewer's; its hover widget renders inside it
+        const REVIEW_EDITOR = `document.querySelector('.code-comment-marker')?.closest('.monaco-editor')`;
+        const lineMiddle = () =>
+            h.ev(`(() => {
+                const ed = ${REVIEW_EDITOR};
+                const line = [...(ed?.querySelectorAll(".view-lines .view-line") ?? [])].find((l) => l.textContent.trim() === ${JSON.stringify(reviewLine(3))});
+                const text = line?.querySelector("span > span") ?? line;
+                const b = text?.getBoundingClientRect();
+                const e = ed?.getBoundingClientRect();
+                const inView = b && e && b.top >= e.top && b.bottom <= e.bottom;
+                return inView ? { x: b.left + b.width / 2, y: b.top + b.height / 2 } : e ? { x: e.left + e.width / 2, y: e.top + e.height / 2, scroll: true } : null;
+            })()`);
+        let at = await lineMiddle();
+        if (at?.scroll) {
+            await h.cdp("Input.dispatchMouseEvent", { type: "mouseWheel", x: at.x, y: at.y, deltaX: 0, deltaY: -2000 });
+            await sleep(300);
+            at = await lineMiddle();
+        }
+        const HOVER_SHOWN = `[...((${REVIEW_EDITOR})?.querySelectorAll('.monaco-hover') ?? [])].some((el) => !el.classList.contains('hidden') && el.getBoundingClientRect().height > 0 && el.textContent.includes(${JSON.stringify(firstNote)}))`;
+        let hovered = false;
+        if (at != null && !at.scroll) {
+            // two moves: Monaco starts its hover from a move within the line, not from entering it
+            await h.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", x: at.x - 2, y: at.y });
+            await h.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", x: at.x, y: at.y });
+            hovered = (await polishWaitFor(h, HOVER_SHOWN, 3000)) === true;
+        }
+        await h.shot("cdp-shots/code-review-hover.png");
+        rec(
+            "hovering commented line 3 shows its note in the Monaco hover",
+            hovered,
+            hovered ? `note="${firstNote}"` : `no visible .monaco-hover containing "${firstNote}" within 3000 ms (line at ${JSON.stringify(at)})`
+        );
+        await h.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", x: 0, y: 0 });
+        await polishWaitFor(h, `!(${HOVER_SHOWN})`, 2000);
 
         const surfaceBefore = await h.activeSurfaceLabel();
         await clickLine(15);
