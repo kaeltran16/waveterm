@@ -270,7 +270,7 @@ export const register: Register = (on) => {
 
     on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
         const notice = await read($, cacheMiss);
-        return notice && !e.hasSurvey ? drawCacheMiss($.ui.resolve(e), notice) : next(e);
+        return notice && !e.props.hasSurvey ? drawCacheMiss($.ui.resolve(e), notice) : next(e);
     });
 
     // refused in code: a prompt's rule is one the model can talk itself out of
