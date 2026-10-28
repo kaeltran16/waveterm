@@ -67,7 +67,7 @@ func reviewerOf(t *testing.T, ctx context.Context, dagID, lens string) waveobj.P
 	return waveobj.PlanReviewer{}
 }
 
-// passLenses records a pass from every reviewer still reviewing but the full one.
+// passLenses records a pass from every reviewer still reviewing but the full one: the second pass.
 func passLenses(t *testing.T, ctx context.Context, dagID string) {
 	t.Helper()
 	for _, r := range loadDag(t, ctx, dagID).PlanReview.Reviewers {
@@ -79,7 +79,7 @@ func passLenses(t *testing.T, ctx context.Context, dagID string) {
 	}
 }
 
-// startPlanReview runs the first tick, which spawns the round's reviewers, passes the four lenses, and returns the
+// startPlanReview runs the first tick, which spawns the round's reviewers, passes the second pass, and returns the
 // full reviewer's run id: the round then settles on its verdict alone.
 func startPlanReview(t *testing.T, ctx context.Context, dagID string) string {
 	t.Helper()
@@ -431,8 +431,8 @@ func TestADagWithNoPlanReviewDispatchesAtOnce(t *testing.T) {
 	}
 }
 
-// five failing lenses at their note cap would put ~10k characters in the lead's composer: the wake keeps whole
-// findings up to the cap and names the command that prints the rest
+// long findings would fill the lead's composer: the wake keeps whole findings up to the cap and names the command
+// that prints the rest
 func TestAPlanReviewFailedWakeCapsLongFindings(t *testing.T) {
 	var blocks []string
 	for i := 0; i < 5; i++ {

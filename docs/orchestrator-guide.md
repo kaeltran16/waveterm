@@ -147,7 +147,7 @@ exactly as before. A reviewer pick of the lead's model stores no pin, so it fall
 **The reviewer route** is where the engine's judging sessions run: each task's reviewer, the plan review's full
 reviewer and the final verifier. It is the lead's route unless you pick one. Only you set it (the launcher, the
 profile, `wsh runs start`); a lead has no command that writes it. **The Light reviewers route** runs the plan
-review's lens reviewers and its round-2 follow-up ([The plan review](#the-plan-review)). Unset, it is Claude Code ·
+review's second pass and its round-2 follow-up ([The plan review](#the-plan-review)). Unset, it is Claude Code ·
 `sonnet` on every runtime. You set it in the launcher, the profile or the run sheet; `wsh runs start` has no flag
 for it.
 
@@ -195,7 +195,7 @@ sealed.
 | **Lead model** | The lead's route. It reads the approved design (or the goal) and the code, writes the plan, and later judges wakes, so this is the model whose judgment a retry cannot recover. A design session started for the run uses it too. |
 | **Workers model** | The workers setting ([Routes](#4-routes)): Same as lead, Reviewer picks, or a route. Changeable on a live run for tasks not yet dispatched. |
 | **Reviewers model** | The reviewer route: task reviews, the plan review's full reviewer and the final verify. "Same as lead" unless set. |
-| **Light reviewers model** | The Light reviewers route: the plan review's four lens reviewers and round 2's follow-up. "Sonnet (default)" (Claude Code · `sonnet`) unless set. Changeable on a live run. |
+| **Light reviewers model** | The Light reviewers route: the plan review's second pass and round 2's follow-up. "Sonnet (default)" (Claude Code · `sonnet`) unless set. Changeable on a live run. |
 | **Goal** | What the lead starts from. |
 
 The route picker filters by harness (**All / Pi / Claude Code**) and accepts a custom model id:
@@ -600,33 +600,28 @@ A reviewer also reports gaps in the spec and places where the spec and plan cont
 and ends with `wsh jarvis dag planreview pass "<summary>"` or `wsh jarvis dag planreview fail "<findings>"`. A
 reviewer that ends without a verdict, or runs past 20 minutes, is replaced once; one that is lost twice is **lost**.
 
-**Round 1 runs five reviewers at the same time.** The **Full review** runs the whole checklist on the reviewer
-route, and is the only one that picks models ([Model picks](#model-picks)). Four lens reviewers run on the Light
-reviewers route, each checking only its own part of the checklist:
+**Round 1 runs two reviewers at the same time,** each on the whole checklist, neither seeing the other's work. The
+**Full review** runs on the reviewer route and is the only one that picks models ([Model picks](#model-picks)). The
+**Second pass** runs on the Light reviewers route. A second independent pass catches what one reviewer misses;
+splitting the checklist into narrower lenses, as an earlier build did, cost as much as the full reviewer and rarely
+changed the outcome, so it was dropped. Rounds stored by that build still show their lens titles.
 
-| Lens | Checks |
-|---|---|
-| **Spec coverage** | every requirement has a task; spec gaps and spec/plan contradictions |
-| **Task order and files** | Files/Depends overlaps; Depends reasons hold; names consistent across tasks |
-| **Tests and commands** | acceptance criteria and named tests; the named commands exist and none needs a path a later task creates |
-| **Final coverage** | each UI change has a Final scenario step; with a Prototype, each board has one |
+The round settles once no reviewer is still reviewing: one `plan-reviewed` event, one wake. It passes when both
+reviewers passed, or the full reviewer passed and the second pass was lost. A lost second pass does not fail the
+round, since the full reviewer ran the same checklist; the round's text says `Did not finish: Second pass (<why>).`
+A lost full reviewer fails the round. When nothing failed and only the full reviewer was lost, the lead is told to
+submit the same plan again.
 
-The round settles once no reviewer is still reviewing: one `plan-reviewed` event, one wake. It passes when the full
-reviewer passed and every lens passed or was lost. A lost lens does not fail the round, since the full reviewer
-covers its area; the round is judged on the others and its text says `Did not finish: <lens> (<why>).` A lost full
-reviewer fails the round. When nothing failed and only the full reviewer was lost, the lead is told to submit the
-same plan again.
-
-**The merged findings** are every failed reviewer's text, whole and attributed, in the table's order, separated by a
+**The merged findings** are every failed reviewer's text, whole and attributed, full review first, separated by a
 blank line:
 
 ```
 [Full review] <its findings>
 
-[Tests and commands] <its findings>
-
-Passed: Spec coverage, Task order and files, Final coverage.
+[Second pass] <its findings>
 ```
+
+A reviewer that passed is named on a closing `Passed: …` line.
 
 The engine does not dedup across reviewers; the lead does.
 
@@ -672,7 +667,7 @@ The shape is `t-N=<sonnet|lead>: <reason>`. `wsh` refuses anything else before s
 `t-2 sonnet`, a missing reason). The server refuses the pass, naming the task,
 for a missing pick, a pick for a task with a Model line, an unknown or repeated task, an empty reason, a reason of
 more than one line or over 200 characters, and a `sonnet` pick when the claude harness cannot run a worker here
-(it says to pick `lead`). The reviewer then resends. A run not on Reviewer picks refuses any pick, and a lens reviewer's verdict with a pick
+(it says to pick `lead`). The reviewer then resends. A run not on Reviewer picks refuses any pick, and a second pass's verdict with a pick
 is refused on any run.
 
 A fail carries picks the same way, and may leave tasks out; those stay on the lead's route. The picks are applied
