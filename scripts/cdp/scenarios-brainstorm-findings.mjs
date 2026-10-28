@@ -1,5 +1,5 @@
 // What the agent finds while a question stays open: notes and recon it adds then are out of sight behind the question,
-// so they read as new, and the question links to them. kit holds scenarios.mjs's brainstorm helpers.
+// so they read as new, and the question links to them. kit is scenarios-brainstorm.mjs's BS_KIT.
 //
 // The fixture plays a mid-brainstorm report: the user asked for current trends, and the agent kept question 2 open
 // with a summary in its why and the findings as notes. The pane's first read is what the user has seen.

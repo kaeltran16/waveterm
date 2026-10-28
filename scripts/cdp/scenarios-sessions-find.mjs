@@ -1,5 +1,5 @@
 // Opening a session at a search hit: the find bar over the transcript and the highlighted activity event.
-// kit holds scenarios.mjs's sessions helpers (SESSIONS_KIT); the fixtures are in sessions-search-fixtures.mjs.
+// kit holds scenarios-shared.mjs's sessions helpers (SESSIONS_KIT); the fixtures are in sessions-search-fixtures.mjs.
 //
 // The hits come from the real searchsessions RPC and open through openSessionHit, imported from the URL the app
 // loaded it from so it acts on the app's own model, not through the list or the palette.

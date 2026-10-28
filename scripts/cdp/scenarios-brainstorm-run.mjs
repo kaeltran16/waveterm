@@ -1,4 +1,4 @@
-// The brainstorm's Run step (the Run-Blocked and Run-Landed boards). kit holds scenarios.mjs's brainstorm helpers.
+// The brainstorm's Run step (the Run-Blocked and Run-Landed boards). kit is scenarios-brainstorm.mjs's BS_KIT.
 //
 // Each run scenario pairs a brainstorm terminal (bsArrangeAgent) with a deferred fixture run whose dag is seeded
 // into a settled state (docs/reference/cdp-run-fixtures.md, "A state the engine has not reached"): every task done

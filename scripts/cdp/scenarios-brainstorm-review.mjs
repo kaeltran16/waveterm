@@ -1,4 +1,4 @@
-// The builder check's review of what it changed (the Check-Review board). kit holds scenarios.mjs's brainstorm helpers.
+// The builder check's review of what it changed (the Check-Review board). kit is scenarios-brainstorm.mjs's BS_KIT.
 
 // the board's copy: detector-engine-models after its builder check, with question 16 still open
 const CR_TOPIC = "detector-engine-models";
@@ -156,7 +156,7 @@ function crFile(kept = []) {
     };
 }
 
-// a helper the kit does not carry, copied from scenarios.mjs: records every line the page sends an agent
+// a helper the kit does not carry, copied from scenarios-brainstorm.mjs: records every line the page sends an agent
 const CR_TYPED_INSTALL = `(() => {
     const c = window.TabRpcClient;
     if (!c) return false;

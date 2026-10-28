@@ -1,7 +1,8 @@
 # CDP run and DAG fixtures
 
-How a `scripts/cdp/scenarios.mjs` scenario gets a run with a DAG on screen. The helpers already exist in that
-file; reuse them instead of working the setup out again. The runner is `scripts/cdp/verify.mjs`
+How a CDP scenario (`scripts/cdp/scenarios-<area>.mjs`, listed in `scenarios.mjs`) gets a run with a DAG on
+screen. The helpers already exist in `scripts/cdp/scenarios-shared.mjs`; import them instead of working the setup
+out again. The runner is `scripts/cdp/verify.mjs`
 (arrange → goto → shot → assert → teardown).
 
 ## The recipe

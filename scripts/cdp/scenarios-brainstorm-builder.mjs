@@ -1,4 +1,4 @@
-// The brainstorm's builder check while it asks (the Main board). kit holds scenarios.mjs's brainstorm helpers.
+// The brainstorm's builder check while it asks (the Main board). kit is scenarios-brainstorm.mjs's BS_KIT.
 //
 // The fixture is detector-engine-models' check with the Main board's copy and labels. The agent's terminal is a
 // shell, so each line the pane sends is typed there and read back from its scrollback, as brainstorm-mode does.
@@ -924,7 +924,7 @@ export default function (kit) {
     ];
 }
 
-// records every line the page sends an agent, as scenarios.mjs's BS_TYPED_INSTALL does
+// records every line the page sends an agent, as scenarios-brainstorm.mjs's BS_TYPED_INSTALL does
 const TYPED_INSTALL = `(() => {
     const c = window.TabRpcClient;
     if (!c) return false;

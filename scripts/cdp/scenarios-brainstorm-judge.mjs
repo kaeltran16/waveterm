@@ -1,7 +1,7 @@
 // A question the judge weighed (.superpowers/design/brainstorm-judge): the read and pick are labelled the judge's, one
 // line under the answers says how it got there, and what it dropped sits behind a toggle that starts closed. A failed
 // judge keeps the agent's labels and says why; once answered, the rail row keeps the judge's pick. kit holds
-// scenarios.mjs's brainstorm helpers.
+// scenarios-brainstorm.mjs's brainstorm helpers.
 
 const TOPIC = "agent-messages-judge";
 const NAME = "brainstorm-judged-question";
@@ -161,7 +161,7 @@ const WAIT_IN_CHECK = waitFile({ check: { yours: [], calls: [], answered: [], to
 const WAIT_NO_APPROACHES = waitFile({ question: { ...WAIT_Q, approaches: undefined } });
 const WAIT_STOP_ERROR = "verify: the stop failed";
 
-// records every line the page sends an agent, as scenarios.mjs's BS_TYPED_INSTALL does
+// records every line the page sends an agent, as scenarios-brainstorm.mjs's BS_TYPED_INSTALL does
 const WAIT_TYPED_INSTALL = `(() => {
     const c = window.TabRpcClient;
     if (!c) return false;
