@@ -338,12 +338,14 @@ The Code surface (`Ctrl`+`9`, or `g` `b`) has its own diff, and it answers a dif
 | Question | "What changed in this commit / range?" | "What am I about to commit in this file?" |
 | Renderer | Monaco diff editor | Monaco diff editor |
 | Right-hand side | The committed content | **Your unsaved draft**, so in-progress edits appear |
-| Compares against | Any commit, or two refs | `HEAD` only |
+| Compares against | Any commit, or two refs | `HEAD`, or the branch base (its merge base with the default branch) |
 | Split view | Yes, `Shift`+`D` | Yes, when the pane measures ≥ 900px |
 | Scope | Whole repository | The one open file |
 
-Press `d` in the Code surface to toggle it (the mode toggle in the path bar reads
-`preview` / `source` / `diff`; **preview** is markdown-only).
+Press `d` in the Code surface to cycle it: against `HEAD`, against the branch base, then off. The
+base step is skipped when nothing is ahead of the default branch, and the diff header names the
+target. The mode toggle in the path bar reads `preview` / `source` / `diff`; **preview** is
+markdown-only.
 
 Practical rule: use the Code surface's diff while writing, the Diff surface while reviewing.
 
