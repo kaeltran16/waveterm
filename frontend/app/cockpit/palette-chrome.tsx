@@ -123,7 +123,9 @@ export function PaletteScopeTabs({
 }: {
     scope: ScopeId;
     needsCount: number;
-    openGen: number; // bumped per open: a fresh group id has no snapshot, so an open draws the bar in place
+    // bumped per open. the key remounts the group, since LayoutGroup reads its id only on mount; the fresh id
+    // has no snapshot, so an open draws the bar in place
+    openGen: number;
     onPick: (scope: ScopeId) => void;
 }) {
     return (
@@ -132,7 +134,7 @@ export function PaletteScopeTabs({
             aria-label="Scope"
             className="flex shrink-0 items-stretch gap-1 border-b border-border px-2.5"
         >
-            <LayoutGroup id={`palette-scope-${openGen}`}>
+            <LayoutGroup key={openGen} id={`palette-scope-${openGen}`}>
                 {SCOPES.map((s) => {
                     const on = s.id === scope;
                     const count = s.id === "needs" ? needsCount : 0;

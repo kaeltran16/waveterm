@@ -22,7 +22,7 @@ import { buildBriefIndex } from "@/app/view/jarvis/briefpalette";
 import { taskListAtom } from "@/app/view/jarvis/tasksstore";
 import { fireAndForget } from "@/util/util";
 import { atom, useAtomValue } from "jotai";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { THING_KINDS } from "./actions";
 import { SESSION_KIND } from "./actions/session";
 import { verbRows } from "./actions/types";
@@ -169,8 +169,9 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     // the active project, else the one last used, else the only one
     const homeChannel = palettePickChannel(channel, projectRows, recentProjects[0] ?? null);
 
-    // Each open starts fresh on the surface's own scope, and focuses the input after paint.
-    useEffect(() => {
+    // Each open starts fresh on the surface's own scope, and focuses the input after paint. a layout effect, so
+    // the reset nav and the new openGen commit before the open's first paint: no frame shows the last open's scope.
+    useLayoutEffect(() => {
         if (!open) {
             return;
         }
