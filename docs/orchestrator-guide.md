@@ -73,6 +73,12 @@ submitted, or the project's `.arc/setup` when the plan has no Setup line. For th
 hold the run's merges. When the run completes, the engine merges the branch back into the base itself (see
 [Landing back](#landing-back)).
 
+**A run started from a linked worktree** (`wsh runs start` run inside one, without `--channel`) works in that
+worktree instead of the project's checkout. It still belongs to the project, and its base is the worktree's
+branch and head. Its trees branch from there, and it lands back into the worktree, so an agent on a feature
+branch can hand a plan to the engine and get the result on its own branch, with the main checkout untouched.
+A monorepo project at a subfolder maps to the same subfolder of the worktree.
+
 **Where engine trees live.** Every tree the engine makes (the run's, each lane's `-t-N`, and the detached
 `-final`, `-base` and `-bisect` trees) sits under one short root outside the project, `os.UserCacheDir()/arc-wt`:
 `%LOCALAPPDATA%\arc-wt` on Windows, `~/.cache/arc-wt` on Linux, `~/Library/Caches/arc-wt` on macOS. A tree is

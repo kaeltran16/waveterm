@@ -647,6 +647,7 @@ declare global {
         spec?: string;
         designfirst?: string;
         autonomous?: boolean;
+        worktree?: string;
     };
 
     // wshrpc.CommandCreateRunRtnData

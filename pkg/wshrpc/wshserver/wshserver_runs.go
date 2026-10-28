@@ -397,6 +397,12 @@ func (ws *WshServer) createRun(ctx context.Context, data wshrpc.CommandCreateRun
 	if err != nil {
 		return nil, fmt.Errorf("loading channel: %w", err)
 	}
+	projectPath := ch.ProjectPath
+	if data.Worktree != "" {
+		if projectPath, err = gitinfo.ProjectInCheckout(ctx, ch.ProjectPath, data.Worktree); err != nil {
+			return nil, fmt.Errorf("worktree: %w", err)
+		}
+	}
 	global := jarvis.LoadGlobalProfile()
 	resolved := jarvis.ResolveProfile(global, jarvis.OverrideFromMeta(ch))
 	// Shape first, then machine: the engine dials exist only on an engine launch, so a profile's stored
@@ -459,7 +465,7 @@ func (ws *WshServer) createRun(ctx context.Context, data wshrpc.CommandCreateRun
 	if err := validateRoute("lightReviewerRoute", data.LightReviewerRoute, true); err != nil {
 		return nil, err
 	}
-	run := jarvis.NewRun(data.Goal, data.WorkspaceId, ch.ProjectPath, resolved.Principles, mode, playbook, time.Now().UnixMilli())
+	run := jarvis.NewRun(data.Goal, data.WorkspaceId, projectPath, resolved.Principles, mode, playbook, time.Now().UnixMilli())
 	if data.DeferStart || data.DesignFirst != "" {
 		run.Status = jarvis.RunStatus_Planning
 	}
@@ -481,10 +487,10 @@ func (ws *WshServer) createRun(ctx context.Context, data wshrpc.CommandCreateRun
 	run.Spec = data.Spec
 	// capture the repo baseline so the evidence diff survives the worker committing its changes;
 	// non-fatal — an unborn/absent repo just leaves BaseCommit "" and the diff falls back to HEAD.
-	if head, herr := gitinfo.HeadCommit(ctx, ch.ProjectPath); herr == nil {
+	if head, herr := gitinfo.HeadCommit(ctx, projectPath); herr == nil {
 		run.BaseCommit = head
 		// the branch the run merges back into; a detached head has none, so its run is never merged back
-		run.BaseBranch, _ = gitinfo.CurrentBranch(ctx, ch.ProjectPath)
+		run.BaseBranch, _ = gitinfo.CurrentBranch(ctx, projectPath)
 	}
 	run.EffortRef = effortRef
 	run.WorkflowScan = scan
