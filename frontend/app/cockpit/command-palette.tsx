@@ -118,6 +118,9 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     const [nav, setNavState] = useState<NavState>(() => initialNav(surface));
     const [sel, setSel] = useState(0);
     const [paletteError, setPaletteError] = useState<string | undefined>(undefined);
+    // nav outlives a close, so the first render after an open shows the last open's scope; a new scope-tab group
+    // per open keeps that stale render from sliding the indicator
+    const [openGen, setOpenGen] = useState(0);
     const inputRef = useRef<HTMLInputElement>(null);
     const listRef = useRef<HTMLDivElement>(null);
     const previewRef = useRef<HTMLDivElement>(null);
@@ -174,6 +177,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
         const seed = globalStore.get(model.paletteSeedAtom);
         globalStore.set(model.paletteSeedAtom, null);
         setNav({ ...initialNav(globalStore.get(model.surfaceAtom)), query: seed ?? "" });
+        setOpenGen((g) => g + 1);
         const raf = requestAnimationFrame(() => inputRef.current?.focus());
         return () => cancelAnimationFrame(raf);
     }, [open]);
@@ -504,6 +508,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                     <PaletteScopeTabs
                         scope={nav.scope}
                         needsCount={needs.length}
+                        openGen={openGen}
                         onPick={(scope) => {
                             setNav(pickScope(nav, scope));
                             inputRef.current?.focus();
