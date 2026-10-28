@@ -28,6 +28,14 @@ import { remember } from "./codeeditorcache";
 import { langOf, type Lang } from "./codelang";
 import { resolveDocLink } from "./codelink";
 import { previewHeadingFor } from "./codeoutline";
+import { fileComments, reanchor } from "./codereview";
+import {
+    cancelComment,
+    codeCommentDraftAtom,
+    codeReviewsAtom,
+    saveComment,
+    setCommentSelectionReader,
+} from "./codereviewstore";
 import {
     codeDraftsAtom,
     codeFileAtom,
@@ -80,13 +88,22 @@ interface KeptEditor {
 
 const kept = new Map<string, KeptEditor>();
 
-export function codeEditorSelection(): { startLine: number; endLine: number } | null {
+export function codeEditorSelection(): { startLine: number; endLine: number; endColumn: number } | null {
     const sel = editor?.getSelection();
     if (sel == null || sel.isEmpty()) {
         return null;
     }
-    return { startLine: sel.startLineNumber, endLine: sel.endLineNumber };
+    return { startLine: sel.startLineNumber, endLine: sel.endLineNumber, endColumn: sel.endColumn };
 }
+
+// a comment with nothing selected is on the caret's line
+setCommentSelectionReader(() => {
+    const pos = editor?.getPosition();
+    return (
+        codeEditorSelection() ??
+        (pos == null ? null : { startLine: pos.lineNumber, endLine: pos.lineNumber, endColumn: pos.column })
+    );
+});
 
 // The identifier at the caret and the open file's language. The word is cut by wordAt rather than
 // Monaco's getWordAtPosition, whose per-language word rules (CSS's leading ".") would hand the
@@ -245,6 +262,79 @@ function BlameGutter(props: { model: AgentsViewModel; path: string; modtime: num
     return <CodeBlameColumn {...props} layout={layout} />;
 }
 
+// Bars in the line-decorations gutter for the open file's comments, where their anchors sit now; the
+// note shows on hover. Recomputed from the buffer, so an edit above a comment carries it along.
+function CommentMarkers({ path, text }: { path: string; text: string }) {
+    const ed = useAtomValue(editorAtom);
+    const reviews = useAtomValue(codeReviewsAtom);
+    const project = useAtomValue(codeProjectAtom);
+    useEffect(() => {
+        if (ed == null || project == null) {
+            return;
+        }
+        const lines = text.split(/\r?\n/);
+        const markers = ed.createDecorationsCollection(
+            fileComments(reviews, project.path, path).map((c) => {
+                const at = reanchor(c, lines);
+                return {
+                    range: { startLineNumber: at.startLine, startColumn: 1, endLineNumber: at.endLine, endColumn: 1 },
+                    options: {
+                        isWholeLine: true,
+                        linesDecorationsClassName: "code-comment-marker",
+                        hoverMessage: { value: c.note },
+                    },
+                };
+            })
+        );
+        return () => markers.clear();
+    }, [ed, reviews, project, path, text]);
+    return null;
+}
+
+// The note being written, drawn under the draft's last line. Enter and Escape are the input's own and
+// stop here; the window's Escape (back to Cockpit) already stands down while a field holds focus.
+function CommentInput({ path }: { path: string }) {
+    const draft = useAtomValue(codeCommentDraftAtom);
+    const layout = useEditorLineLayout();
+    const [note, setNote] = useState("");
+    if (draft == null || draft.path !== path || layout == null) {
+        return null;
+    }
+    const close = (save: boolean) => {
+        if (save) {
+            saveComment(note);
+        } else {
+            cancelComment();
+        }
+        setNote("");
+        editor?.focus();
+    };
+    const range = draft.endLine === draft.startLine ? `${draft.startLine}` : `${draft.startLine}-${draft.endLine}`;
+    return (
+        <div
+            style={{ top: layout.top(draft.endLine) + layout.height(draft.endLine, 1) }}
+            className="absolute inset-x-3 z-10 rounded-[8px] border border-border bg-surface p-1.5 shadow-popover-md"
+        >
+            <input
+                autoFocus
+                value={note}
+                data-code-comment-input
+                aria-label={`Comment on line ${range}`}
+                placeholder={`Comment on line ${range} (Enter saves, Esc cancels)`}
+                onChange={(e) => setNote(e.target.value)}
+                onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === "Escape") {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        close(e.key === "Enter");
+                    }
+                }}
+                className="w-full rounded-[6px] border border-border bg-surface px-2 py-1 text-[12px] text-primary outline-none placeholder:text-muted"
+            />
+        </div>
+    );
+}
+
 export function CodeViewer({ model }: { model: AgentsViewModel }) {
     const file = useAtomValue(codeFileAtom);
     const project = useAtomValue(codeProjectAtom);
@@ -367,7 +457,11 @@ export function CodeViewer({ model }: { model: AgentsViewModel }) {
                     {blameOn && !plain ? (
                         <BlameGutter model={model} path={file.path} modtime={file.modtime} text={file.text} />
                     ) : null}
-                    <div className="h-full min-w-0 flex-1">{source}</div>
+                    <div className="relative h-full min-w-0 flex-1 overflow-hidden">
+                        {source}
+                        <CommentMarkers path={file.path} text={draft?.text ?? file.text} />
+                        <CommentInput path={file.path} />
+                    </div>
                 </div>
             );
         }

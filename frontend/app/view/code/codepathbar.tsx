@@ -22,9 +22,11 @@ import { cn, stringToBase64 } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
 import { Check, Copy, Send, X } from "lucide-react";
 import { useState } from "react";
+import { AgentPicker } from "./codeagentpicker";
 import { codeBlameOnAtom, toggleBlame } from "./codeblamestore";
 import { isMarkdownPath } from "./codeclassify";
 import { handoffLine, handoffProjectName, liveAgentsForProject } from "./codehandoff";
+import { selectionLines } from "./codereview";
 import {
     codeDraftsAtom,
     codeFileAtom,
@@ -172,7 +174,8 @@ function SendToAgent({ model, rel, projectName }: { model: AgentsViewModel; rel:
 
     const compose = () => {
         const sel = codeEditorSelection();
-        return handoffLine({ rel, startLine: sel?.startLine, endLine: sel?.endLine, note });
+        const lines = sel != null ? selectionLines(sel) : null;
+        return handoffLine({ rel, startLine: lines?.startLine, endLine: lines?.endLine, note });
     };
 
     const send = (target: AgentVM) => {
@@ -201,6 +204,7 @@ function SendToAgent({ model, rel, projectName }: { model: AgentsViewModel; rel:
         <div className="relative flex-none">
             <button
                 type="button"
+                data-code-send-to-agent
                 onClick={() => setOpen((v) => !v)}
                 className="flex cursor-pointer items-center gap-1 rounded-[6px] border border-border px-2 py-[3px] text-[11px] text-muted hover:text-primary"
             >
@@ -219,32 +223,7 @@ function SendToAgent({ model, rel, projectName }: { model: AgentsViewModel; rel:
                     onChange={(e) => setNote(e.target.value)}
                     className="mb-1.5 w-full rounded-[6px] border border-border bg-surface px-2 py-1 text-[11.5px] text-primary outline-none placeholder:text-muted"
                 />
-                {targets.length === 0 ? (
-                    <>
-                        <p className="px-1 pb-1 text-[11px] text-muted">
-                            No agent is running in this project. Copy the reference instead.
-                        </p>
-                        <button
-                            type="button"
-                            onClick={copyInstead}
-                            className="w-full cursor-pointer rounded-[6px] border border-border px-2 py-1 text-[11.5px] text-secondary hover:text-primary"
-                        >
-                            Copy reference
-                        </button>
-                    </>
-                ) : (
-                    targets.map((t) => (
-                        <button
-                            key={t.id}
-                            type="button"
-                            onClick={() => send(t)}
-                            className="flex w-full cursor-pointer items-center justify-between rounded-[6px] px-2 py-1 text-left text-[11.5px] text-secondary hover:bg-accent/10 hover:text-primary"
-                        >
-                            <span className="min-w-0 truncate">{t.name}</span>
-                            <span className="flex-none pl-2 font-mono text-[10.5px] text-muted">{t.state}</span>
-                        </button>
-                    ))
-                )}
+                <AgentPicker targets={targets} onPick={send} emptyLabel="Copy reference" onEmpty={copyInstead} />
             </PopoverReveal>
         </div>
     );

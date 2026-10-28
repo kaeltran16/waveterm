@@ -234,6 +234,8 @@ outside it. The tree keys work while the file tree holds focus.
 | `r` | Refresh the file index |
 | `d` | Cycle the diff: HEAD, branch base, off |
 | `b` | Toggle the blame column; a click on an entry opens the run that landed it, or copies the sha |
+| `Alt`+`M` | Comment on the selection, or the caret's line: `Enter` saves the note, `Esc` cancels (from the editor) |
+| `Alt`+`Shift`+`M` | Send the review: every comment in the project, to an agent or the clipboard (from the editor) |
 | `Ctrl`+`S` | Save the open file (from the editor) |
 | `Ctrl`+`Shift`+`F` | Search file contents (from the editor) |
 | `Ctrl`+`Shift`+`O` | Go to a symbol in the open file: opens Search seeded with `@` (from the editor) |

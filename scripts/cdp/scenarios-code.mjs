@@ -1308,6 +1308,167 @@ export const codeBlame = {
     },
 };
 
+// --- code: review comments ---------------------------------------------------------------------
+// The repo is opened by path, so it is outside the registry and no agent can match it: Send review takes the
+// clipboard path. Sending to a live agent is pinned by codereviewstore.test.ts instead.
+const REVIEW_FILE = "review.txt";
+const reviewLine = (n) => `alpha-${String(n).padStart(2, "0")}`;
+const REVIEW_INPUT = `document.querySelector('[data-code-comment-input]')`;
+const REVIEW_MARKERS = `document.querySelectorAll('.monaco-editor .code-comment-marker').length`;
+const REVIEW_COUNT = `document.querySelector('[data-code-review-count]')`;
+// the dispatcher listens on window capture; Input.dispatchKeyEvent often never reaches the WebView
+const windowKey = (key, code, mods = {}) =>
+    `window.dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(key)}, code: ${JSON.stringify(code)}, altKey: true, shiftKey: ${!!mods.shift}, bubbles: true, cancelable: true }))`;
+
+export const codeReview = {
+    name: "code-review",
+    surface: "code",
+    async arrange() {
+        const dir = mkdtempSync(join(tmpdir(), "verify-code-review-"));
+        try {
+            git(dir, "init", "-q", "--initial-branch=main");
+            writeFileSync(join(dir, REVIEW_FILE), Array.from({ length: 20 }, (_, i) => reviewLine(i + 1)).join("\n") + "\n");
+            git(dir, "add", ".");
+            git(dir, "commit", "-q", "-m", "seed the review file");
+        } catch (e) {
+            return { dir, arrangeError: String(e?.message ?? e) };
+        }
+        return { dir };
+    },
+    async assert(h, ctx) {
+        if (ctx.arrangeError) return [{ step: "arrange the temp repo", ok: false, detail: ctx.arrangeError }];
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        await h.goto("code");
+
+        await h.ev(`document.querySelector('[data-code-project-picker]')?.click()`);
+        await polishWaitFor(h, `!!document.querySelector('[data-code-picker-path] input')`, 5000);
+        await h.ev(`(() => {
+            const input = document.querySelector('[data-code-picker-path] input');
+            Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, ${JSON.stringify(ctx.dir)});
+            input.dispatchEvent(new Event("input", { bubbles: true }));
+        })()`);
+        await sleep(100); // let React commit the typed value before the submit reads it
+        await h.ev(`document.querySelector('[data-code-picker-path]')?.requestSubmit()`);
+        const TREE_ROW = `[...document.querySelectorAll('[data-code-tree] [role="treeitem"]')].find((r) => r.textContent.includes(${JSON.stringify(REVIEW_FILE)}))`;
+        await polishWaitFor(h, `!!${TREE_ROW}`, 10000);
+        await h.ev(`${TREE_ROW}?.click()`);
+        const opened = await polishWaitFor(
+            h,
+            `document.querySelector('[data-code-path]')?.getAttribute('data-code-path') === ${JSON.stringify(REVIEW_FILE)} && !!document.querySelector('.monaco-editor .view-line')`,
+            10000
+        );
+        rec("open the 20-line file in the temp repo", opened === true, `opened=${opened}`);
+
+        // a real click on a rendered line puts Monaco's caret there
+        const clickLine = async (n) => {
+            const pt = await h.ev(`(() => {
+                const line = [...document.querySelectorAll(".monaco-editor .view-line")].find((l) => l.textContent.trim() === ${JSON.stringify(reviewLine(n))});
+                const b = line?.getBoundingClientRect();
+                return b ? { x: b.left + 20, y: b.top + b.height / 2 } : null;
+            })()`);
+            if (pt == null) return false;
+            for (const type of ["mousePressed", "mouseReleased"]) {
+                await h.cdp("Input.dispatchMouseEvent", { type, x: pt.x, y: pt.y, button: "left", clickCount: 1 });
+            }
+            await sleep(200);
+            return true;
+        };
+        // types into the open input and presses a key on it, with the input focused as typing leaves it
+        const answer = (note, key) =>
+            h.ev(`(() => {
+                const input = ${REVIEW_INPUT};
+                if (!input) return false;
+                input.focus();
+                Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, ${JSON.stringify(note)});
+                input.dispatchEvent(new Event("input", { bubbles: true }));
+                return true;
+            })()`).then(async (ok) => {
+                await sleep(100);
+                await h.ev(`${REVIEW_INPUT}?.dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(key)}, code: ${JSON.stringify(key)}, bubbles: true, cancelable: true }))`);
+                await sleep(200);
+                return ok;
+            });
+        const comment = async (n, note) => {
+            const clicked = await clickLine(n);
+            await h.ev(windowKey("m", "KeyM"));
+            const shown = await polishWaitFor(h, `!!${REVIEW_INPUT}`, 3000);
+            const typed = shown ? await answer(note, "Enter") : false;
+            return { clicked, shown, typed };
+        };
+
+        const first = await comment(3, "line three needs a name");
+        rec("Alt+M on line 3 opens the inline comment input", first.clicked && first.shown, JSON.stringify(first));
+        const one = await polishWaitFor(h, `${REVIEW_MARKERS} === 1 && !${REVIEW_INPUT}`, 3000);
+        rec("Enter saves the note as one gutter marker", one === true, `markers=${await h.ev(REVIEW_MARKERS)}`);
+        const second = await comment(10, "and line ten");
+        const two = await polishWaitFor(h, `${REVIEW_MARKERS} === 2`, 3000);
+        rec("a second comment on line 10 makes two markers", two === true, JSON.stringify({ ...second, markers: await h.ev(REVIEW_MARKERS) }));
+        const count = await h.ev(`${REVIEW_COUNT}?.getAttribute('data-code-review-count') ?? null`);
+        rec("the toolbar counts 2 comments", count === "2", `count=${count}`);
+        await h.shot("cdp-shots/code-review.png");
+
+        const surfaceBefore = await h.activeSurfaceLabel();
+        await clickLine(15);
+        await h.ev(windowKey("m", "KeyM"));
+        const third = await polishWaitFor(h, `!!${REVIEW_INPUT}`, 3000);
+        await answer("never saved", "Escape");
+        const cancelled = await polishWaitFor(h, `!${REVIEW_INPUT}`, 3000);
+        const surfaceAfter = await h.activeSurfaceLabel();
+        const still = await h.ev(`${REVIEW_COUNT}?.getAttribute('data-code-review-count') ?? null`);
+        rec(
+            "Escape on a third input cancels it: still 2, and the surface did not change",
+            third && cancelled && still === "2" && (await h.ev(REVIEW_MARKERS)) === 2 && surfaceAfter === surfaceBefore,
+            JSON.stringify({ third, cancelled, still, surfaceBefore, surfaceAfter })
+        );
+
+        await h.ev(`document.querySelector('[data-code-review-clear]')?.click()`);
+        // the confirm button carries its key hint after the label
+        const CONFIRM = `[...document.querySelectorAll('[role="dialog"] button')].find((b) => (b.textContent || "").trim().startsWith("Clear"))`;
+        const asked = await polishWaitFor(h, `!!${CONFIRM}`, 3000);
+        rec("Clear asks first", asked === true, `confirm=${asked}`);
+        await h.ev(`${CONFIRM}?.click()`);
+        const cleared = await polishWaitFor(h, `!${REVIEW_COUNT} && ${REVIEW_MARKERS} === 0`, 3000);
+        rec("confirming removes the count and every marker", cleared === true, `markers=${await h.ev(REVIEW_MARKERS)}`);
+
+        await comment(4, "four");
+        await comment(12, "twelve");
+        const again = await polishWaitFor(h, `${REVIEW_COUNT}?.getAttribute('data-code-review-count') === "2"`, 3000);
+        await h.ev(windowKey("M", "KeyM", { shift: true }));
+        const COPY = `document.querySelector('[data-code-review-send]')?.parentElement?.querySelector('[data-code-agent-picker-empty]')`;
+        const popover = await polishWaitFor(h, `(${COPY})?.textContent?.trim() === "Copy review"`, 3000);
+        rec("Alt+Shift+M opens Send review with the no-agent copy action", again && popover, JSON.stringify({ again, popover }));
+        // the clipboard is stubbed: a CDP session does not give the page the focus a real write needs
+        const copied = await h.ev(`(async () => {
+            const clip = navigator.clipboard;
+            let wrote = null;
+            Object.defineProperty(clip, 'writeText', { configurable: true, value: (t) => { wrote = t; return Promise.resolve(); } });
+            (${COPY})?.click();
+            for (let i = 0; i < 20 && ${REVIEW_COUNT}; i++) await new Promise((r) => setTimeout(r, 50));
+            delete clip.writeText;
+            return { wrote, gone: !${REVIEW_COUNT} };
+        })()`);
+        rec(
+            "Copy review puts both comments on the clipboard and clears the count",
+            copied?.gone === true && /L4\b/.test(copied.wrote ?? "") && /L12\b/.test(copied.wrote ?? ""),
+            JSON.stringify(copied)
+        );
+        await h.shot("cdp-shots/code-review-sent.png");
+
+        await h.ev(`document.querySelector('[data-code-send-to-agent]')?.click()`);
+        const SEND_COPY = `document.querySelector('[data-code-send-to-agent]')?.parentElement?.querySelector('[data-code-agent-picker-empty]')`;
+        const picker = await polishWaitFor(h, `(${SEND_COPY})?.textContent?.trim() === "Copy reference"`, 3000);
+        rec("the path bar's Send to agent popover, drawn by AgentPicker, offers Copy reference", picker === true, `picker=${picker}`);
+        await h.ev(`document.querySelector('[data-code-send-to-agent]')?.click()`);
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await h.goto("cockpit");
+        if (ctx?.dir) rmSync(ctx.dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 500 });
+    },
+};
+
 export const codeMarkdown = {
     name: "code-markdown",
     surface: "code",
