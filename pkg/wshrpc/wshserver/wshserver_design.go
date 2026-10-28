@@ -13,6 +13,7 @@ import (
 
 	"github.com/wavetermdev/waveterm/pkg/harness"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
+	"github.com/wavetermdev/waveterm/pkg/orchestrate"
 	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
@@ -139,16 +140,6 @@ func (ws *WshServer) RunDesignAttachCommand(ctx context.Context, data wshrpc.Com
 	if data.Spec == "" && data.Prototype == "" {
 		return nil, fmt.Errorf("a design attaches a spec, a prototype or both")
 	}
-	if data.Spec != "" {
-		if err := checkDesignFile("spec", data.Spec); err != nil {
-			return nil, err
-		}
-	}
-	if data.Prototype != "" {
-		if err := checkDesignFile("prototype", data.Prototype); err != nil {
-			return nil, err
-		}
-	}
 	// the block id names the session in Design or DesignSession, so the rows that hold it are the candidates
 	runs, err := wstore.GetRunCandidatesByWorker(ctx, data.BlockId)
 	if err != nil {
@@ -169,7 +160,19 @@ func (ws *WshServer) RunDesignAttachCommand(ctx context.Context, data wshrpc.Com
 		}
 		return &wshrpc.CommandRunDesignAttachRtnData{}, nil
 	}
+	// only a run's lead opens the files: a normal session's approve goes to the launcher whatever they hold
+	if data.Spec != "" {
+		if err := checkDesignFile("spec", data.Spec); err != nil {
+			return nil, err
+		}
+	}
+	if data.Prototype != "" {
+		if err := checkDesignFile("prototype", data.Prototype); err != nil {
+			return nil, err
+		}
+	}
 	channelId, runId := waiting.ChannelOID, waiting.ID
+	design, spec, prototype := waiting.Design, waiting.Spec, waiting.Prototype
 	if err := wstore.UpdateRun(ctx, channelId, runId, func(r *waveobj.Run) error {
 		// decided under the update: a second Approve racing this one finds the design already taken
 		if r.Design == nil || r.Design.BlockId != data.BlockId {
@@ -191,16 +194,27 @@ func (ws *WshServer) RunDesignAttachCommand(ctx context.Context, data wshrpc.Com
 	}); err != nil {
 		return nil, err
 	}
-	appendRunEvent(ctx, channelId, runId, waveobj.RunEventKindDesignAttached, nil, map[string]any{"spec": data.Spec, "prototype": data.Prototype})
 	ch, err := wstore.DBMustGet[*waveobj.Channel](ctx, channelId)
-	if err != nil {
-		return nil, fmt.Errorf("loading channel: %w", err)
+	if err == nil {
+		// the run's prompt is the plan-from-design one now that it holds the design
+		err = spawnRunWorkersWithPrompt(ctx, channelId, runId, ch.Name, "")
 	}
-	// the run's prompt is the plan-from-design one now that it holds the design
-	if err := spawnRunWorkersWithPrompt(ctx, channelId, runId, ch.Name, ""); err != nil {
+	if err != nil {
+		// with no lead recorded the run waits on the session again, so a retried Approve can take it
+		if rerr := wstore.UpdateRun(ctx, channelId, runId, func(r *waveobj.Run) error {
+			if r.DesignSession != data.BlockId || orchestrate.RunTabID(r) != "" {
+				return nil
+			}
+			r.Design, r.DesignSession, r.Spec, r.Prototype = design, "", spec, prototype
+			r.Status = jarvis.RunStatus_Planning
+			return nil
+		}); rerr != nil {
+			log.Printf("RunDesignAttach: returning run %s to its design: %v", runId, rerr)
+		}
 		publishRunUpdate(channelId, runId)
 		return nil, fmt.Errorf("starting the lead: %w", err)
 	}
+	appendRunEvent(ctx, channelId, runId, waveobj.RunEventKindDesignAttached, nil, map[string]any{"spec": data.Spec, "prototype": data.Prototype})
 	publishRunUpdate(channelId, runId)
 	return &wshrpc.CommandRunDesignAttachRtnData{ChannelId: channelId, RunId: runId}, nil
 }

@@ -5,6 +5,7 @@ package wshserver
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -132,6 +133,81 @@ func TestRunDesignAttachNoWaitingRun(t *testing.T) {
 	}
 	if rtn == nil || rtn.RunId != "" || rtn.ChannelId != "" {
 		t.Fatalf("want an empty reply, got %+v", rtn)
+	}
+}
+
+func TestDesignFirstRunStartsPhaseZero(t *testing.T) {
+	ctx := context.Background()
+	stubDesignSpawn(t)
+	ch := designChannel(t, "design-phase-zero")
+	run := createDesignFirstRun(t, ch, waveobj.RunDesignKind_Brainstorm)
+	events, err := wstore.QueryRunEventsByKind(ctx, ch.OID, run.ID, []string{waveobj.RunEventKindPhaseStarted}, 10)
+	if err != nil || len(events) != 1 || events[0].PhaseIdx == nil || *events[0].PhaseIdx != 0 {
+		t.Fatalf("phase-started events = %+v, %v; want one for phase 0", events, err)
+	}
+}
+
+func TestRunDesignAttachNormalSessionMissingFile(t *testing.T) {
+	stubDesignSpawn(t)
+	rtn, err := (&WshServer{}).RunDesignAttachCommand(context.Background(), wshrpc.CommandRunDesignAttachData{
+		BlockId: uuid.NewString(), Spec: filepath.Join(t.TempDir(), "gone.md"),
+	})
+	if err != nil {
+		t.Fatalf("a normal session's approve goes to the launcher whatever its files: %v", err)
+	}
+	if rtn == nil || rtn.RunId != "" {
+		t.Fatalf("want an empty reply, got %+v", rtn)
+	}
+}
+
+func TestRunDesignAttachMissingFileForWaitingRun(t *testing.T) {
+	spawns := stubDesignSpawn(t)
+	ch := designChannel(t, "design-missing-file")
+	createDesignFirstRun(t, ch, waveobj.RunDesignKind_Brainstorm)
+	_, err := (&WshServer{}).RunDesignAttachCommand(context.Background(), wshrpc.CommandRunDesignAttachData{
+		BlockId: (*spawns)[0].blockId, Spec: filepath.Join(t.TempDir(), "gone.md"),
+	})
+	if err == nil || !strings.Contains(err.Error(), "gone.md") {
+		t.Fatalf("a waiting run's missing spec: %v", err)
+	}
+}
+
+func TestRunDesignAttachFailedLeadSpawnCanRetry(t *testing.T) {
+	ctx := context.Background()
+	spawns := stubDesignSpawn(t)
+	ch := designChannel(t, "design-retry")
+	run := createDesignFirstRun(t, ch, waveobj.RunDesignKind_Canvas)
+	session := (*spawns)[0].blockId
+	ok := jarvis.SpawnRunWorker
+	jarvis.SpawnRunWorker = func(context.Context, runroute.Capability, string, string, string, string, jarvis.RunWorkerOptions) (string, error) {
+		return "", errors.New("spawn refused")
+	}
+	attach := wshrpc.CommandRunDesignAttachData{BlockId: session, Prototype: writeDesignFile(t, "Main.dc.html")}
+	if _, err := (&WshServer{}).RunDesignAttachCommand(ctx, attach); err == nil || !strings.Contains(err.Error(), "spawn refused") {
+		t.Fatalf("a failed lead spawn: %v", err)
+	}
+	got, err := wstore.GetRun(ctx, ch.OID, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Design == nil || got.Design.BlockId != session || got.DesignSession != "" || got.Prototype != "" || got.Status != jarvis.RunStatus_Planning {
+		t.Fatalf("after a failed spawn: design %+v, session %q, prototype %q, status %q", got.Design, got.DesignSession, got.Prototype, got.Status)
+	}
+
+	jarvis.SpawnRunWorker = ok
+	if _, err := (&WshServer{}).RunDesignAttachCommand(ctx, attach); err != nil {
+		t.Fatalf("retried approve: %v", err)
+	}
+	got, err = wstore.GetRun(ctx, ch.OID, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != jarvis.RunStatus_Executing || len(got.Phases[0].WorkerOrefs) != 1 {
+		t.Fatalf("after the retry: status %q, phase 0 workers %v", got.Status, got.Phases[0].WorkerOrefs)
+	}
+	events, err := wstore.QueryRunEventsByKind(ctx, ch.OID, run.ID, []string{waveobj.RunEventKindDesignAttached}, 10)
+	if err != nil || len(events) != 1 {
+		t.Fatalf("design-attached events = %+v, %v; want one, from the retry", events, err)
 	}
 }
 

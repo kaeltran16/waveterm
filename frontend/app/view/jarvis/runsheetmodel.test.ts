@@ -1178,10 +1178,6 @@ describe("autonomousResolvedNote", () => {
     const FROM_HERE = "It answers everything from here on; each call it makes goes in its report.";
 
     it("says what the lead does with the question it was handed back", () => {
-        expect(autonomousResolvedNote("Spec review")).toEqual({
-            title: "Spec review: the lead decided",
-            body: `The lead approved its spec and is writing the plan. ${FROM_HERE}`,
-        });
         expect(autonomousResolvedNote("Plan review")).toEqual({
             title: "Plan review: the lead decided",
             body: `The lead is carrying the plan review's findings into the tasks and going on. ${FROM_HERE}`,

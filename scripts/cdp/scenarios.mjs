@@ -18089,19 +18089,19 @@ const paletteActions = {
 
 // --- autonomous-runs: the Approvals setting on each of its boards (docs/orchestrator-guide.md, Autonomous runs)
 // One project with one orchestrator run held by deferstart. Its lead is a seeded tab, linked as the lead by a tab oref
-// on the running phase, whose block runs a stdin sink: the server's switch finds the lead's Spec review question
+// on the running phase, whose block runs a stdin sink: the server's switch finds the lead's Plan review question
 // there deterministically, and the answer it types lands somewhere harmless. The fixture roster names that tab as the
-// lead asking Spec review, which is how the sheet and the palette learn of the question; no live agent runs.
+// lead asking Plan review, which is how the sheet and the palette learn of the question; no live agent runs.
 const AUTONOMOUS_PROJECT = "verify-autonomous-runs";
-const AUTONOMOUS_SPEC_ASK = {
-    header: "Spec review",
-    question: "The spec is written. Approve it so I can write the plan?",
-    options: [{ label: "Approve" }, { label: "Revise" }],
+const AUTONOMOUS_LEAD_ASK = {
+    header: "Plan review",
+    question: "The plan review failed twice. Proceed with the plan as it stands?",
+    options: [{ label: "Accept all and proceed" }, { label: "Request changes" }],
 };
 const AUTONOMOUS_PROFILE_NOTE =
     "The lead takes the option it would recommend at each of those points and records why in its report. If the final stage still fails after the last round, the land stays held for you.";
 const AUTONOMOUS_RESOLVED =
-    "The lead approved its spec and is writing the plan. It answers everything from here on; each call it makes goes in its report.";
+    "The lead is carrying the plan review's findings into the tasks and going on. It answers everything from here on; each call it makes goes in its report.";
 const AUTONOMOUS_BACK_TO_ASK = "The lead asks you again from its next decision. Calls it already made stand.";
 // typing the ON answer takes 60ms a rune, so the question leaves the registry well inside this
 const AUTONOMOUS_ANSWER_WAIT_MS = 20_000;
@@ -18146,17 +18146,17 @@ async function autonomousLeadAsk(h, ctx) {
     return (await h.rpc("runasks", { channelid: ctx.channelId, runid: ctx.runId }))?.asks?.[0] ?? null;
 }
 
-async function raiseSpecReview(h, ctx) {
-    await h.rpc("ask", { oref: `block:${ctx.leadBlockId}`, questions: [AUTONOMOUS_SPEC_ASK] });
+async function raiseLeadAsk(h, ctx) {
+    await h.rpc("ask", { oref: `block:${ctx.leadBlockId}`, questions: [AUTONOMOUS_LEAD_ASK] });
     ctx.askRaised = true;
 }
 
-// the fixture lead's face: asking Spec review, or working once its question is answered
+// the fixture lead's face: asking Plan review, or working once its question is answered
 const patchFixtureLead = (h, ctx, asking) =>
     h.ev(
         `window.__cockpitRosterFixture?.patch(${JSON.stringify(ctx.leadTabId)}, ${
             asking
-                ? JSON.stringify({ state: "asking", ask: { questions: [AUTONOMOUS_SPEC_ASK], oref: `block:${ctx.leadBlockId}` } })
+                ? JSON.stringify({ state: "asking", ask: { questions: [AUTONOMOUS_LEAD_ASK], oref: `block:${ctx.leadBlockId}` } })
                 : "{ state: 'working', ask: undefined }"
         })`
     );
@@ -18201,7 +18201,7 @@ async function seedAutonomousLead(h, ctx) {
                     blockedMs: 60_000,
                     runId: ctx.runId,
                     blockId: ctx.leadBlockId,
-                    ask: { questions: [AUTONOMOUS_SPEC_ASK], oref: `block:${ctx.leadBlockId}` },
+                    ask: { questions: [AUTONOMOUS_LEAD_ASK], oref: `block:${ctx.leadBlockId}` },
                 },
             ],
             null,
@@ -18361,7 +18361,7 @@ const autonomousRuns = {
         await polishWaitFor(h, `!${NEW_RUN}`, 3000);
 
         // --- run-sheet (RunSheet board)
-        await raiseSpecReview(h, ctx);
+        await raiseLeadAsk(h, ctx);
         const askBefore = await autonomousLeadAsk(h, ctx);
         const sheetOpen = await h.ev(`(async () => {
             for (let i = 0; i < 20 && typeof window.__openAddress !== "function"; i++) {
@@ -18376,10 +18376,10 @@ const autonomousRuns = {
         await polishNap(200);
         const warned = await h.ev(SHEET_STATE);
         rec(
-            "run-sheet 1. picking Autonomous while the lead waits on Spec review warns that saving hands it back",
-            askBefore?.questions?.[0]?.header === "Spec review" &&
+            "run-sheet 1. picking Autonomous while the lead waits on Plan review warns that saving hands it back",
+            askBefore?.questions?.[0]?.header === "Plan review" &&
                 warned?.pressed.join(",") === "Autonomous" &&
-                warned.line === "Saving hands the waiting Spec review back to the lead, and it answers everything from then on.",
+                warned.line === "Saving hands the waiting Plan review back to the lead, and it answers everything from then on.",
             JSON.stringify({ opened: sheetOpen, ask: askBefore?.questions?.[0]?.header ?? null, ...warned })
         );
 
@@ -18387,9 +18387,9 @@ const autonomousRuns = {
         await polishWaitFor(h, `${flatOf(`${RUN_SHEET}?.querySelector('[data-jarvis-brief-sheet-state="saved"]')`)} === 'Saved. The run is autonomous from now on.'`, 8000);
         const on = await h.ev(SHEET_STATE);
         rec(
-            "run-sheet 2. Save: the saved line, the Spec review note that the lead decided, and the config reading autonomous",
+            "run-sheet 2. Save: the saved line, the Plan review note that the lead decided, and the config reading autonomous",
             on?.saved === "Saved. The run is autonomous from now on." &&
-                on.resolved.startsWith("Spec review: the lead decided") &&
+                on.resolved.startsWith("Plan review: the lead decided") &&
                 on.resolved.endsWith(AUTONOMOUS_RESOLVED) &&
                 on.word === "autonomous",
             JSON.stringify(on)
@@ -18402,7 +18402,7 @@ const autonomousRuns = {
         }
         const runOn = (await channelRuns(h, ctx.channelId)).find((r) => r.id === ctx.runId);
         rec(
-            "run-sheet 3. the lead's Spec review is answered, and the run is stored autonomous",
+            "run-sheet 3. the lead's Plan review is answered, and the run is stored autonomous",
             askBefore != null && askAfter == null && runOn?.autonomous === true,
             JSON.stringify({ pending: askAfter?.questions?.[0]?.header ?? null, autonomous: runOn?.autonomous ?? null })
         );
@@ -18427,8 +18427,8 @@ const autonomousRuns = {
             JSON.stringify({ backToAsk, off })
         );
 
-        // --- palette (RunActions board): the lead asks Spec review again, now that it asks the human
-        await raiseSpecReview(h, ctx);
+        // --- palette (RunActions board): the lead asks Plan review again, now that it asks the human
+        await raiseLeadAsk(h, ctx);
         await patchFixtureLead(h, ctx, true);
         const offToggle = await openRunToggle(h, ctx, "Go autonomous");
         const offState = offToggle.state;
@@ -18440,7 +18440,7 @@ const autonomousRuns = {
                 (steer?.rows ?? []).some((r) => r.startsWith("Go autonomous")) &&
                 (offState.selected ?? "").startsWith("Go autonomousasks you") &&
                 (offState.selected ?? "").includes("Go ⏎") &&
-                offState.text.includes("The lead answers everything from now on, starting with the Spec review it is waiting on."),
+                offState.text.includes("The lead answers everything from now on, starting with the Plan review it is waiting on."),
             JSON.stringify({ opened: offToggle.opened, selected: offState?.selected, steer, footer: offState?.text.slice(-200) })
         );
 

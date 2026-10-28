@@ -545,7 +545,9 @@ func (ws *WshServer) createRun(ctx context.Context, data wshrpc.CommandCreateRun
 			return nil, fmt.Errorf("submitting plan: %w", err)
 		}
 	case data.DesignFirst != "":
-		// the session takes the lead's place until its design attaches
+		// the session takes the lead's place until its design attaches, so phase 0 starts with it
+		phaseZero := 0
+		appendRunEvent(ctx, data.ChannelId, run.ID, waveobj.RunEventKindPhaseStarted, &phaseZero, map[string]any{})
 		if _, err := startDesignSession(ctx, data.ChannelId, &run, data.DesignFirst); err != nil {
 			if cerr := ws.CancelRunCommand(ctx, wshrpc.CommandCancelRunData{ChannelId: data.ChannelId, RunId: run.ID}); cerr != nil {
 				log.Printf("CreateRun: cancelling run %s after its design session failed to start: %v", run.ID, cerr)

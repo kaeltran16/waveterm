@@ -724,7 +724,7 @@ func readLeadState(ctx context.Context, channelId, runId string) leadState {
 	if err != nil || run == nil {
 		return leadState{}
 	}
-	tabId := runTabID(run)
+	tabId := RunTabID(run)
 	if tabId == "" {
 		// a run submitted with a plan and no lead has never had one: its first judgment event starts it
 		return leadState{NoLead: run.DagORef != ""}

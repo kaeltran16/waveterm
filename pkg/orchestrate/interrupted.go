@@ -104,7 +104,7 @@ func ResumeInterruptedLeads(ctx context.Context) {
 		if run.Mode != jarvis.RunMode_Orchestrator || run.DagORef == "" || run.SessionId == "" || !workerControllerGone(ctx, run) {
 			continue
 		}
-		if err := jarvis.ResumeRunWorker(ctx, "tab:"+runTabID(run), run.Runtime, run.SessionId, leadResumeNudge); err != nil {
+		if err := jarvis.ResumeRunWorker(ctx, "tab:"+RunTabID(run), run.Runtime, run.SessionId, leadResumeNudge); err != nil {
 			log.Printf("resuming run %s's lead: %v", run.ID, err)
 			continue
 		}

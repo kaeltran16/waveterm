@@ -191,10 +191,10 @@ describe("run actions", () => {
             const asking = agent("lead", {
                 runId: "r1",
                 state: "asking",
-                ask: { questions: [{ question: "Approve the spec?", header: "Spec review" }] },
+                ask: { questions: [{ question: "Proceed with the plan?", header: "Plan review" }] },
             });
             expect(autonomous.echo(thing(engine({ dagoref: undefined }), [asking]))).toBe(
-                "The lead answers everything from now on, starting with the Spec review it is waiting on."
+                "The lead answers everything from now on, starting with the Plan review it is waiting on."
             );
         });
 

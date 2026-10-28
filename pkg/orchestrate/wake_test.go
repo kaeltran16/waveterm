@@ -728,8 +728,8 @@ func TestRelaunchLeadRefusesWhileTheLeadIsAlive(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "still running") {
 		t.Fatalf("a live lead must not be replaced, got %v", err)
 	}
-	if f.spawns != 0 || runTabID(f.owner(t)) != "lead-tab" {
-		t.Fatalf("a refused relaunch changes nothing, got %d spawns, tab %q", f.spawns, runTabID(f.owner(t)))
+	if f.spawns != 0 || RunTabID(f.owner(t)) != "lead-tab" {
+		t.Fatalf("a refused relaunch changes nothing, got %d spawns, tab %q", f.spawns, RunTabID(f.owner(t)))
 	}
 }
 
@@ -1070,8 +1070,8 @@ func TestRelaunchRevivesALeadGivenUpOnWhoseProcessStillRuns(t *testing.T) {
 		t.Fatalf("a live lead given up on is taken back, got %v", err)
 	}
 
-	if f.spawns != 0 || runTabID(f.owner(t)) != "lead-tab" {
-		t.Fatalf("a live lead is not replaced, got %d spawns, tab %q", f.spawns, runTabID(f.owner(t)))
+	if f.spawns != 0 || RunTabID(f.owner(t)) != "lead-tab" {
+		t.Fatalf("a live lead is not replaced, got %d spawns, tab %q", f.spawns, RunTabID(f.owner(t)))
 	}
 	if len(f.fake.sends) != 1 || f.fake.sends[0] != failedLine {
 		t.Fatalf("the lead is woken with what it missed, got %q", f.fake.sends)

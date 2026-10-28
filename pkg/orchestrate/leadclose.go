@@ -33,9 +33,9 @@ var deleteLeadTab = func(ctx context.Context, workspaceId, tabId string) error {
 	return err
 }
 
-// runTabID extracts the tab running a run's worker (an orchestrator's lead, a dag child's worker) from
+// RunTabID extracts the tab running a run's worker (an orchestrator's lead, a dag child's worker) from
 // the run's first worker oref.
-func runTabID(run *waveobj.Run) string {
+func RunTabID(run *waveobj.Run) string {
 	for _, p := range run.Phases {
 		for _, oref := range p.WorkerOrefs {
 			if strings.HasPrefix(oref, "tab:") {
@@ -56,7 +56,7 @@ func MaybeCloseOrchestratorLead(ctx context.Context, run *waveobj.Run, dag *wave
 	// `wsh jarvis complete` returns into a dead block, so it never sees the result and the human never
 	// gets the report (run 5d361309). A terminal run says the work is done, not that the turn is over —
 	// only the process says that. The lead's exit closes what this skips, via CloseOrchestratorLeadOnExit.
-	if leadProcessAlive(runTabID(run)) {
+	if leadProcessAlive(RunTabID(run)) {
 		return false, nil
 	}
 	return closeLeadTab(ctx, run)
@@ -80,7 +80,7 @@ func CloseOrchestratorLeadOnExit(ctx context.Context, run *waveobj.Run, dag *wav
 // closeLeadTab deletes the tab running run's lead. Shared by the two entry points above, which differ
 // only in how they establish that the lead is no longer mid-turn.
 func closeLeadTab(ctx context.Context, run *waveobj.Run) (bool, error) {
-	tabId := runTabID(run)
+	tabId := RunTabID(run)
 	if tabId == "" || run.WorkspaceId == "" {
 		return false, nil
 	}
@@ -154,7 +154,7 @@ func MaybeCompleteLeadFreeRun(ctx context.Context, run *waveobj.Run, dag *waveob
 	}
 	// a lead's process, not its tab, is what owes the human a summary after the last task lands. a tab
 	// outlives its process, so one whose controller is gone reports nothing and must not keep the run open.
-	if tabId := runTabID(run); tabId != "" && leadProcessAlive(tabId) {
+	if tabId := RunTabID(run); tabId != "" && leadProcessAlive(tabId) {
 		return false
 	}
 	idx := jarvis.RunningPhaseIndex(*run)

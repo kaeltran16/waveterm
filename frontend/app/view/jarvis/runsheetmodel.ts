@@ -706,11 +706,9 @@ const AUTONOMOUS_FROM_HERE = "It answers everything from here on; each call it m
 // sentence says what the lead does with that question, as far as its header tells.
 export function autonomousResolvedNote(header: string): { title: string; body: string } {
     const doing =
-        header === "Spec review"
-            ? "The lead approved its spec and is writing the plan."
-            : header === "Plan review"
-              ? "The lead is carrying the plan review's findings into the tasks and going on."
-              : "The lead is deciding it as it would recommend.";
+        header === "Plan review"
+            ? "The lead is carrying the plan review's findings into the tasks and going on."
+            : "The lead is deciding it as it would recommend.";
     return { title: `${header}: the lead decided`, body: `${doing} ${AUTONOMOUS_FROM_HERE}` };
 }
 

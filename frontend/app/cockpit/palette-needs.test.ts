@@ -57,9 +57,9 @@ describe("palette-needs", () => {
         const review = {
             questions: [
                 {
-                    header: "Spec review",
-                    question: "/abs/spec.md\n- one",
-                    options: [{ label: "Approve" }, { label: "Request changes" }],
+                    header: "Plan review",
+                    question: "/abs/plan.md\n- one",
+                    options: [{ label: "Accept all and proceed" }, { label: "Request changes" }],
                 },
             ],
         };

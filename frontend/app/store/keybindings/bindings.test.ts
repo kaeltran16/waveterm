@@ -995,7 +995,9 @@ describe("leader reachability and the fullscreen chord", () => {
 describe("agent:review", () => {
     const reviewAsk = {
         askId: "a1",
-        questions: [{ header: "Spec review", question: "/r/spec.md\n- one", options: [{ label: "Approve" }] }],
+        questions: [
+            { header: "Plan review", question: "/r/plan.md\n- one", options: [{ label: "Accept all and proceed" }] },
+        ],
     };
     const plainAsk = { askId: "a2", questions: [{ header: "Flake fix", question: "Retry?", options: [] }] };
     const modelFocusing = (id: string) =>
