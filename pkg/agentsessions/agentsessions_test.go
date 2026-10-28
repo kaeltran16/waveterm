@@ -503,7 +503,7 @@ func TestScanProviders_mergesByGlobalRecency(t *testing.T) {
 
 	// limit 2 across both providers: the newer codex session must outrank the older claude one, and
 	// only the global top-2 candidates may be read (claude-old never parsed).
-	got := scanProviders([]provider{claudeProvider(claudeDir), codexProvider(codexDir)}, 0, 2)
+	got, _ := scanProviders([]provider{claudeProvider(claudeDir), codexProvider(codexDir)}, 0, 2)
 	if len(got) != 2 {
 		t.Fatalf("want 2 sessions, got %d", len(got))
 	}
@@ -536,5 +536,6 @@ func extractClaudeEvents(lines []string) sessionEvents {
 // scanProvider returns up to limit sessions from one provider's root, newest-first (single-provider
 // form of the scan; ScanSessions merges providers first so the limit applies globally).
 func scanProvider(p provider, windowDays, limit int) []SessionInfo {
-	return parseCandidates(walkCandidates(p, windowDays), limit)
+	out, _ := parseCandidates(walkCandidates(p, windowDays), limit)
+	return out
 }

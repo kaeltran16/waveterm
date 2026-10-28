@@ -1113,14 +1113,6 @@ func parseCandidate(c candidate) scanCacheEntry {
 	return e
 }
 
-// scanSessionCached derives one candidate's session, reusing the cache while the file is unchanged.
-func scanSessionCached(c candidate) scanCacheEntry {
-	if e, ok := cachedEntry(c); ok {
-		return e
-	}
-	return parseCandidate(c)
-}
-
 // sessionOf is a cached session as callers see it, stamped with its candidate's runtime, file and time.
 func sessionOf(c candidate, e scanCacheEntry) SessionInfo {
 	// value copy: the cache holds the canonical entry; callers may not mutate it
@@ -1138,19 +1130,19 @@ func sessionOf(c candidate, e scanCacheEntry) SessionInfo {
 
 // parseCandidates derives sessions from candidates in mtime order until limit sessions are found
 // (nil candidates do not count, so the parse set can exceed limit when subagent files interleave).
-func parseCandidates(cands []candidate, limit int) []SessionInfo {
-	var out []SessionInfo
+func parseCandidates(cands []candidate, limit int) (out []SessionInfo, complete bool) {
+	var budget syncBudget
 	for _, c := range cands {
 		if limit > 0 && len(out) >= limit {
 			break
 		}
-		e := scanSessionCached(c)
+		e := budget.entry(c)
 		if e.info == nil {
 			continue
 		}
 		out = append(out, sessionOf(c, e))
 	}
-	return out
+	return out, !budget.skipped
 }
 
 // ExtractSession folds a single transcript file into a SessionInfo, selecting the parser by runtime.
@@ -1188,15 +1180,20 @@ func ExtractSession(path, runtime string) (*SessionInfo, error) {
 }
 
 // ScanSessions lists recent resumable sessions across runtime providers, newest-first.
-// windowDays<=0 and limit<=0 fall back to the package defaults.
-func ScanSessions(windowDays, limit int) ([]SessionInfo, error) {
+// windowDays<=0 and limit<=0 fall back to the package defaults. Like Indexed it parses within one syncBudget;
+// complete is false when it skipped a transcript, and it then starts the warm-up.
+func ScanSessions(windowDays, limit int) (sessions []SessionInfo, complete bool) {
 	if windowDays <= 0 {
 		windowDays = defaultWindowDays
 	}
 	if limit <= 0 {
 		limit = defaultLimit
 	}
-	return scanProviders(allProviders(), windowDays, limit), nil
+	sessions, complete = scanProviders(allProviders(), windowDays, limit)
+	if !complete {
+		StartWarmup()
+	}
+	return sessions, complete
 }
 
 // allProviders lists the four runtime transcript roots under the home dir.
@@ -1256,10 +1253,10 @@ func TranscriptForSession(root, runtime, cwd, sessionId string) string {
 // scanProviders merges every provider's candidates before parsing, so the limit is the global newest
 // sessions across runtimes — a provider that writes many files cannot crowd other runtimes' recent
 // sessions out of the parse set by quota alone.
-func scanProviders(providers []provider, windowDays, limit int) []SessionInfo {
-	out := parseCandidates(walkProviders(providers, windowDays), limit)
+func scanProviders(providers []provider, windowDays, limit int) ([]SessionInfo, bool) {
+	out, complete := parseCandidates(walkProviders(providers, windowDays), limit)
 	sort.Slice(out, func(i, j int) bool { return out[i].LastActiveTs > out[j].LastActiveTs })
-	return out
+	return out, complete
 }
 
 // walkProviders is every provider's candidates within the window, newest first.

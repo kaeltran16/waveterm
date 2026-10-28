@@ -72,10 +72,7 @@ func (ws *WshServer) GetUsageStatsCommand(ctx context.Context, data wshrpc.Comma
 }
 
 func (ws *WshServer) GetRecentSessionsCommand(ctx context.Context, data wshrpc.CommandGetRecentSessionsData) (*wshrpc.CommandGetRecentSessionsRtnData, error) {
-	sessions, err := agentsessions.ScanSessions(data.WindowDays, data.Limit)
-	if err != nil {
-		return nil, fmt.Errorf("scanning sessions: %w", err)
-	}
+	sessions, _ := agentsessions.ScanSessions(data.WindowDays, data.Limit)
 	out := make([]wshrpc.SessionInfo, len(sessions))
 	for i, s := range sessions {
 		out[i] = wshrpc.SessionInfo{
@@ -116,10 +113,7 @@ func (ws *WshServer) GetSessionsActivityCommand(ctx context.Context, data wshrpc
 			sessions = append(sessions, s.Info)
 		}
 	} else {
-		var err error
-		if sessions, err = agentsessions.ScanSessions(data.WindowDays, data.Limit); err != nil {
-			return nil, fmt.Errorf("scanning sessions: %w", err)
-		}
+		sessions, complete = agentsessions.ScanSessions(data.WindowDays, data.Limit)
 	}
 	out := make([]wshrpc.SessionActivity, len(sessions))
 	for i, s := range sessions {

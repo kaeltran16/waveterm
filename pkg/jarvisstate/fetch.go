@@ -30,7 +30,7 @@ const (
 type fetchSeams struct {
 	getChannels     func(ctx context.Context) ([]*waveobj.Channel, error)
 	getChannelRuns  func(ctx context.Context, channelId string) ([]*waveobj.Run, error)
-	scanSessions    func(days, limit int) ([]agentsessions.SessionInfo, error)
+	scanSessions    func(days, limit int) ([]agentsessions.SessionInfo, bool)
 	gatherAttention func(ctx context.Context, chans []*waveobj.Channel, runsByChannel map[string][]*waveobj.Run) ([]wshrpc.AttentionItem, error)
 	openVault       func(ctx context.Context) (*wavevault.Vault, error)
 	loadDossier     func(r *wavevault.Retriever, id string) (*jarvisdossier.Dossier, error)
@@ -83,11 +83,10 @@ func FetchWorkState(ctx context.Context, projectFilter string, sinceMs int64) (w
 	}
 	st.Sources.Runs = runsHealthy
 
-	var sessions []agentsessions.SessionInfo
-	if s, serr := defaultSeams.scanSessions(sessionWindowDays, sessionLimit); serr == nil {
-		sessions = s
-		st.Sources.Sessions = true
-	}
+	// a cold scan answers from what it could read in budget, like a bad channel read: the rest is kept, the
+	// leg reports incomplete, and the warm-up fills it for a later load
+	sessions, sessionsComplete := defaultSeams.scanSessions(sessionWindowDays, sessionLimit)
+	st.Sources.Sessions = sessionsComplete
 
 	var attention []wshrpc.AttentionItem
 	// attention reads the same channels+runs this query already loaded; a failed channel leg voids it too.
