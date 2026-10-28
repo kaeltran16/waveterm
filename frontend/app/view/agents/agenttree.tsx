@@ -730,7 +730,7 @@ function ParentRow({
                             e.stopPropagation();
                             globalStore.set(docReviewAtom, agent.id);
                         }}
-                        title={`Open the ${review.kind} review`}
+                        title="Open the plan review"
                         className="flex cursor-pointer items-center gap-1 rounded-[5px] border border-warning/45 bg-askingbg px-[6px] py-[1px] font-mono text-[10.5px] font-semibold text-warning hover:border-warning"
                     >
                         review

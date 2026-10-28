@@ -29,7 +29,7 @@ import { isUnseen } from "./canvasmodel";
 import { canvasStateAtom, setCanvasMode } from "./canvasstore";
 import { nextSnap, type AgentSnap } from "./cockpitevents";
 import { CommitTick } from "./committick";
-import { DOC_REVIEW_HEADERS, docReviewAtom, parseDocReview } from "./docreview";
+import { PLAN_REVIEW_HEADER, docReviewAtom, parseDocReview } from "./docreview";
 import { isFinalStageId } from "./finalstage";
 import { railVisibleAtom, terminalFullscreenAtom } from "./railstore";
 import { agentProject, isEndedWorkerId, leadAgentOf } from "./runlineage";
@@ -299,7 +299,7 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                         className="flex cursor-pointer items-center gap-[7px] rounded-[7px] border border-warning/45 bg-askingbg px-[11px] py-[6px] font-mono text-[11px] font-semibold text-warning hover:border-warning"
                     >
                         <span className="h-[6px] w-[6px] rounded-full bg-warning" aria-hidden />
-                        {DOC_REVIEW_HEADERS[review.kind]}
+                        {PLAN_REVIEW_HEADER}
                         <ChevronLeft size={12} strokeWidth={2} aria-hidden />
                     </button>
                 ) : null}

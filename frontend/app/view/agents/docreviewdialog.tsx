@@ -1,12 +1,10 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// A lead's Spec review / Plan review ask as one dialog: the document (or, for a mockup-settled spec, the canvas)
-// on the left, what the lead asks you to accept on the right, the answer at the bottom. Mounted once in
-// CockpitShell so it opens over any surface; docReviewAtom names the asking agent. Hiding it leaves the ask open, and it closes itself once the ask is
+// A lead's Plan review ask as one dialog: the plan on the left, what the lead asks you to accept on the right,
+// the answer at the bottom. Mounted once in CockpitShell so it opens over any surface; docReviewAtom names the asking agent. Hiding it leaves the ask open, and it closes itself once the ask is
 // answered or cleared.
 
-import { pushToast } from "@/app/cockpit/notificationstore";
 import { openFileInCode } from "@/app/cockpit/openfilestore";
 import { SkeletonLine } from "@/app/element/skeleton";
 import { ModalShell } from "@/app/modals/modalshell";
@@ -14,16 +12,13 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { formatChordString } from "@/util/keysym";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { ArrowUpRight, Check, FileText, SquareDashed, X, type LucideIcon } from "lucide-react";
+import { ArrowUpRight, Check, FileText, X } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { openTarget } from "../jarvis/openref";
 import { ICON_BTN } from "./agentheader";
 import type { AgentsViewModel } from "./agents";
 import { askSentKey, type AgentVM } from "./agentsviewmodel";
 import { cleanLabel } from "./answerbar";
-import { parseCanvasPath } from "./canvasmodel";
-import { canvasOwner } from "./canvasstore";
-import { docReviewAtom, parseDocReview, type DocReview, type DocReviewKind } from "./docreview";
+import { docReviewAtom, parseDocReview, type DocReview } from "./docreview";
 import {
     addNote,
     composeAnswer,
@@ -42,24 +37,12 @@ import { useFileText } from "./usefiletext";
 // a doc review is always the ask's only question
 const QI = 0;
 
-const COPY: Record<
-    DocReviewKind,
-    { eyebrow: string; title: string; list: string; approve: string; placeholder: string }
-> = {
-    spec: {
-        eyebrow: "Spec review",
-        title: "Review the spec before I write the plan",
-        list: "Decisions in it",
-        approve: "Approve",
-        placeholder: "What to change in the spec",
-    },
-    plan: {
-        eyebrow: "Plan review · round 2 failed",
-        title: "The plan review failed twice. Proceed with these fixes?",
-        list: "Findings",
-        approve: "Accept all and proceed",
-        placeholder: "Which finding to handle differently, and how",
-    },
+const COPY = {
+    eyebrow: "Plan review · round 2 failed",
+    title: "The plan review failed twice. Proceed with these fixes?",
+    list: "Findings",
+    approve: "Accept all and proceed",
+    placeholder: "Which finding to handle differently, and how",
 };
 
 const REQUEST_SENT = "Request changes, with your note";
@@ -78,7 +61,7 @@ function patchNotes(askId: string, patch: Partial<DocNotesState>) {
     globalStore.set(docNotesAtom, { ...all, [askId]: { notes: NO_NOTES, ...all[askId], ...patch } });
 }
 
-// what the document pane needs to quote passages; the canvas pane has nothing to quote
+// what the document pane needs to quote passages
 interface Quoting {
     notes: DocNote[];
     pending: PendingPassage | null;
@@ -87,24 +70,6 @@ interface Quoting {
     onDraft: (v: string) => void;
     onAdd: () => void;
     onCancel: () => void;
-}
-
-// Lands on the agent that already shows the canvas. When none does, the lead's terminal attaches it first, as
-// the lead's own `wsh ui reveal` would, so the open has an agent to land on.
-async function openCanvasBoard(model: AgentsViewModel, lead: AgentVM, path: string): Promise<void> {
-    const canvas = parseCanvasPath(path);
-    if (canvas == null) {
-        pushToast({ title: `Not a design canvas board: ${path}`, message: "", level: "warn" });
-        return;
-    }
-    const target = { kind: "canvas", topic: canvas.topic, board: canvas.board } as const;
-    if (canvasOwner(canvas.topic) == null && lead.blockId != null) {
-        const attached = await openTarget(model, target, undefined, { blockId: lead.blockId, cwd: canvas.cwd });
-        if ("reason" in attached) {
-            return;
-        }
-    }
-    await openTarget(model, target);
 }
 
 export function DocReviewDialog({ model }: { model: AgentsViewModel }) {
@@ -147,13 +112,12 @@ export function DocReviewDialog({ model }: { model: AgentsViewModel }) {
 
     const sent = agent != null && sentIds.has(askSentKey(agent) ?? "");
     const approveLabel = cleanLabel(
-        agent?.ask?.questions?.[QI]?.options?.[review?.approveIndex ?? -1]?.label ??
-            (review ? COPY[review.kind].approve : "")
+        agent?.ask?.questions?.[QI]?.options?.[review?.approveIndex ?? -1]?.label ?? (review ? COPY.approve : "")
     );
     const copy = notesCopy({
         count: notes.length,
         approveLabel,
-        placeholder: review ? COPY[review.kind].placeholder : "",
+        placeholder: review ? COPY.placeholder : "",
     });
 
     // the passage still in the note field joins the notes, so adding it and sending both keep its draft
@@ -239,28 +203,18 @@ export function DocReviewDialog({ model }: { model: AgentsViewModel }) {
         >
             {agent && review ? (
                 <>
-                    <Header agent={agent} review={review} />
+                    <Header agent={agent} />
                     <div className="flex min-h-0 flex-1">
-                        {review.doc === "canvas" ? (
-                            <CanvasPane
-                                path={review.path}
-                                onOpen={() => {
-                                    closeDialog();
-                                    fireAndForget(() => openCanvasBoard(model, agent, review.path));
-                                }}
-                            />
-                        ) : (
-                            <DocumentPane
-                                path={review.path}
-                                quoting={quoting}
-                                onOpen={() => {
-                                    closeDialog();
-                                    fireAndForget(() => openFileInCode(model, review.path));
-                                }}
-                            />
-                        )}
+                        <DocumentPane
+                            path={review.path}
+                            quoting={quoting}
+                            onOpen={() => {
+                                closeDialog();
+                                fireAndForget(() => openFileInCode(model, review.path));
+                            }}
+                        />
                         <AskPane review={review}>
-                            {review.doc === "canvas" || askId == null ? null : (
+                            {askId == null ? null : (
                                 <NotesSection
                                     notes={notes}
                                     openId={openId}
@@ -297,17 +251,13 @@ export function DocReviewDialog({ model }: { model: AgentsViewModel }) {
     );
 }
 
-function Header({ agent, review }: { agent: AgentVM; review: DocReview }) {
-    const copy = COPY[review.kind];
+function Header({ agent }: { agent: AgentVM }) {
     return (
-        <div
-            data-doc-review={review.kind}
-            className="flex flex-none flex-col gap-2 border-b border-edge-mid px-[22px] pb-3.5 pt-4"
-        >
+        <div data-doc-review className="flex flex-none flex-col gap-2 border-b border-edge-mid px-[22px] pb-3.5 pt-4">
             <div className="flex items-center gap-2">
                 <span className="h-[7px] w-[7px] rounded-full bg-warning" aria-hidden />
                 <span className="font-mono text-[10.5px] font-bold uppercase tracking-[0.1em] text-warning">
-                    {copy.eyebrow}
+                    {COPY.eyebrow}
                 </span>
                 <span className="truncate font-mono text-[10.5px] text-muted">· waiting on you · {agent.name}</span>
                 <div className="flex-1" />
@@ -321,7 +271,7 @@ function Header({ agent, review }: { agent: AgentVM; review: DocReview }) {
                     <X size={14} aria-hidden />
                 </button>
             </div>
-            <div className="text-[18px] font-semibold leading-[1.35] text-primary">{copy.title}</div>
+            <div className="text-[18px] font-semibold leading-[1.35] text-primary">{COPY.title}</div>
         </div>
     );
 }
@@ -331,12 +281,12 @@ function splitPath(path: string): { file: string; dir: string } {
     return { file: path.slice(cut + 1), dir: cut > 0 ? path.slice(0, cut) : "" };
 }
 
-function FileCard(p: { path: string; icon: LucideIcon; action: string; onOpen: () => void }) {
+function FileCard(p: { path: string; onOpen: () => void }) {
     const { file, dir } = splitPath(p.path);
     return (
         <div className="flex-none border-b border-edge-faint px-[22px] py-3">
             <div className="flex items-center gap-2.5 rounded-[7px] border border-edge-mid bg-background px-2.5 py-2">
-                <p.icon size={15} strokeWidth={1.8} aria-hidden className="flex-none text-ink-mid" />
+                <FileText size={15} strokeWidth={1.8} aria-hidden className="flex-none text-ink-mid" />
                 <div className="min-w-0 flex-1">
                     <div className="truncate font-mono text-[12px] font-semibold text-primary">{file}</div>
                     <div className="truncate font-mono text-[10.5px] text-muted">{dir}</div>
@@ -346,25 +296,9 @@ function FileCard(p: { path: string; icon: LucideIcon; action: string; onOpen: (
                     onClick={p.onOpen}
                     className="inline-flex h-[25px] shrink-0 cursor-pointer items-center gap-[5px] rounded-[6px] border border-accent/45 bg-transparent px-2.5 text-[11.5px] font-semibold text-accent-soft hover:bg-accent/10"
                 >
-                    {p.action}
+                    Open in Code
                     <ArrowUpRight size={11} aria-hidden />
                 </button>
-            </div>
-        </div>
-    );
-}
-
-// a mockup's board is a live canvas: its HTML source rendered as markdown would be noise
-function CanvasPane({ path, onOpen }: { path: string; onOpen: () => void }) {
-    return (
-        <div data-doc-review-canvas className="flex min-w-0 flex-1 flex-col border-r border-edge-mid">
-            <FileCard path={path} icon={SquareDashed} action="Open canvas" onOpen={onOpen} />
-            <div className="flex flex-col gap-1.5 px-7 pt-[18px]">
-                <span className="text-[14px] leading-[1.65] text-secondary">
-                    The mockup settles this design, so there is no spec document: the decisions on the right are the
-                    ones made beyond it. Open the canvas to review its boards.
-                </span>
-                <span className="break-all font-mono text-[11px] text-muted">{path}</span>
             </div>
         </div>
     );
@@ -384,7 +318,7 @@ function DocumentPane({ path, quoting, onOpen }: { path: string; quoting: Quotin
     };
     return (
         <div className="flex min-w-0 flex-1 flex-col border-r border-edge-mid">
-            <FileCard path={path} icon={FileText} action="Open in Code" onOpen={onOpen} />
+            <FileCard path={path} onOpen={onOpen} />
             <div
                 ref={scrollRef}
                 onMouseUp={onMouseUp}
@@ -426,12 +360,11 @@ function DocumentPane({ path, quoting, onOpen }: { path: string; quoting: Quotin
 
 // children is the notes section, pinned under the decisions, which keep their own scroll
 function AskPane({ review, children }: { review: DocReview; children?: ReactNode }) {
-    const numbered = review.kind === "spec";
     return (
         <div className="flex w-[460px] flex-none flex-col bg-surface-raised">
             <div className="sc flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-5 pb-5 pt-4">
                 <div className="font-mono text-[10.5px] font-bold uppercase tracking-[0.1em] text-muted">
-                    {COPY[review.kind].list} · {review.items.length}
+                    {COPY.list} · {review.items.length}
                 </div>
                 {review.intro.length > 0 ? (
                     <MarkdownMessage
@@ -439,10 +372,9 @@ function AskPane({ review, children }: { review: DocReview; children?: ReactNode
                         className="text-[12.5px] leading-[1.5] text-secondary"
                     />
                 ) : null}
-                <ol className={cn("m-0 flex list-none flex-col p-0", numbered ? "gap-2.5" : "gap-3")}>
+                <ol className="m-0 flex list-none flex-col gap-3 p-0">
                     {review.items.map((item, i) => (
-                        <li key={i} className={cn(numbered && "grid grid-cols-[22px_minmax(0,1fr)]")}>
-                            {numbered ? <span className="pt-0.5 font-mono text-[11px] text-muted">{i + 1}</span> : null}
+                        <li key={i}>
                             <MarkdownMessage text={item} className="text-[13px] leading-[1.5] text-secondary" />
                         </li>
                     ))}

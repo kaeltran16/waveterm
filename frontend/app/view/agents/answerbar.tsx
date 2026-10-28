@@ -7,7 +7,7 @@ import { ArrowUpRight, Check, FileText, X } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { answerHint, nextUnansweredQuestion, type AgentAskQuestion, type AgentVM } from "./agentsviewmodel";
 import { activePreview, previewBody, previewMode } from "./answerbarpreview";
-import { DOC_REVIEW_HEADERS, docReviewAtom, parseDocReview, type DocReview, type DocReviewKind } from "./docreview";
+import { PLAN_REVIEW_HEADER, docReviewAtom, parseDocReview, type DocReview } from "./docreview";
 
 // The answer surface tracks the agent's status, mirroring the handoff (Wave-answer.dc.html: the
 // cockpit passes accent = stateColor — asking → amber, else → periwinkle). So an asking agent's
@@ -46,25 +46,17 @@ const ACCENT_DEFAULT: Accent = {
 const isRec = (label: string) => /\(recommended\)/i.test(label);
 export const cleanLabel = (label: string) => label.replace(/\s*\(recommended\)\s*/i, " ").trim();
 
-const REVIEW_ITEM_NOUN: Record<DocReviewKind, [string, string]> = {
-    spec: ["decision", "decisions"],
-    plan: ["finding", "findings"],
-};
-
 // A doc-review ask in a card, in place of its question text: the document's full text belongs in the dialog.
 export function DocReviewSummary({ agentId, review }: { agentId: string; review: DocReview }) {
     const file = review.path.split(/[\\/]/).pop() ?? review.path;
     const n = review.items.length;
-    const [one, many] = REVIEW_ITEM_NOUN[review.kind];
     return (
         <div className="flex items-center gap-2.5 rounded-[7px] border border-edge-mid bg-background px-2.5 py-2">
             <FileText size={15} strokeWidth={1.8} aria-hidden className="flex-none text-ink-mid" />
             <div className="min-w-0 flex-1">
                 <div className="truncate font-mono text-[10.5px] text-muted">
-                    <span className="font-bold uppercase tracking-[0.1em] text-warning">
-                        {DOC_REVIEW_HEADERS[review.kind]}
-                    </span>{" "}
-                    · {n} {n === 1 ? one : many}
+                    <span className="font-bold uppercase tracking-[0.1em] text-warning">{PLAN_REVIEW_HEADER}</span> ·{" "}
+                    {n} {n === 1 ? "finding" : "findings"}
                 </div>
                 <div title={review.path} className="truncate font-mono text-[12px] font-semibold text-primary">
                     {file}

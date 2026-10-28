@@ -1,25 +1,17 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The lead asks for approval of its spec, and of its round-2 plan, as an ordinary ask under a known header
-// (pkg/jarvis/leadprompt.go): one question whose first line is the document's path, before "- " lines that
-// each name a decision or finding; a Spec review settled by a mockup names the mockup's .dc.html board instead.
-// That ask opens as a review dialog; an ask that misses the convention stays an ordinary question.
+// After a plan fails its review twice, the lead asks the human to accept it as an ordinary ask under a known header
+// (pkg/jarvis/leadprompt.go): one question whose first line is the plan's path, before "- " lines that each name a
+// finding. That ask opens as a review dialog; an ask that misses the convention stays an ordinary question.
 
 import { atom, type PrimitiveAtom } from "jotai";
 import type { AgentAsk, AgentVM } from "./agentsviewmodel";
 
-export const DOC_REVIEW_HEADERS = { spec: "Spec review", plan: "Plan review" } as const;
-
-export type DocReviewKind = keyof typeof DOC_REVIEW_HEADERS;
-
-// what the path names: a markdown document, or a design canvas board (.dc.html)
-export type DocReviewDoc = "markdown" | "canvas";
+export const PLAN_REVIEW_HEADER = "Plan review";
 
 export interface DocReview {
-    kind: DocReviewKind;
     path: string;
-    doc: DocReviewDoc;
     intro: string[];
     items: string[];
     approveIndex: number;
@@ -29,26 +21,11 @@ export interface DocReview {
 const ITEM_PREFIX = "- ";
 const REQUEST_LABEL = "request changes";
 const RECOMMENDED = /\s*\(recommended\)\s*/i;
-const DOC_PATH: [RegExp, DocReviewDoc][] = [
-    [/\.md$/i, "markdown"],
-    [/\.dc\.html$/i, "canvas"],
-];
-
-const kindOf = (header: string | undefined): DocReviewKind | null => {
-    const h = header?.trim().toLowerCase();
-    return (
-        (Object.keys(DOC_REVIEW_HEADERS) as DocReviewKind[]).find((k) => DOC_REVIEW_HEADERS[k].toLowerCase() === h) ??
-        null
-    );
-};
+const DOC_PATH = /\.md$/i;
 
 export function parseDocReview(ask: AgentAsk | undefined): DocReview | null {
     const qs = ask?.questions ?? [];
-    if (qs.length !== 1) {
-        return null;
-    }
-    const kind = kindOf(qs[0].header);
-    if (!kind) {
+    if (qs.length !== 1 || qs[0].header?.trim().toLowerCase() !== PLAN_REVIEW_HEADER.toLowerCase()) {
         return null;
     }
     const lines = qs[0].question
@@ -56,8 +33,7 @@ export function parseDocReview(ask: AgentAsk | undefined): DocReview | null {
         .map((l) => l.trim())
         .filter(Boolean);
     const path = (lines[0] ?? "").replace(/^`|`$/g, "");
-    const doc = DOC_PATH.find(([re]) => re.test(path))?.[1];
-    if (!doc) {
+    if (!DOC_PATH.test(path)) {
         return null;
     }
     const rest = lines.slice(1);
@@ -67,7 +43,7 @@ export function parseDocReview(ask: AgentAsk | undefined): DocReview | null {
     const labels = (qs[0].options ?? []).map((o) => o.label.replace(RECOMMENDED, " ").trim().toLowerCase());
     const requestIndex = labels.findIndex((l) => l.startsWith(REQUEST_LABEL));
     const approveIndex = labels.findIndex((_, i) => i !== requestIndex);
-    return { kind, path, doc, intro: introLines, items, approveIndex, requestIndex };
+    return { path, intro: introLines, items, approveIndex, requestIndex };
 }
 
 // the id of the agent whose doc-review ask the dialog shows; null = closed

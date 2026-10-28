@@ -70,7 +70,7 @@ func returnUserAsksToLead(channelId, runId string) bool {
 	return returned
 }
 
-// answerLeadQuestion answers the lead's own waiting question (Spec review, Plan review, the land question)
+// answerLeadQuestion answers the lead's own waiting question (Plan review, the land question)
 // with AutonomousOnAnswer. Typing takes KeystrokeDelay per rune, past the RPC budget, so it runs in the
 // background once the answer is known to fit the picker.
 func answerLeadQuestion(ctx context.Context, channelId, runId, blockId string) error {
