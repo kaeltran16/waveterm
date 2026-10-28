@@ -76,8 +76,8 @@ import {
     codeCursorAtom,
     codeRowsAtom,
     codeTreeFocusedAtom,
-    codeViewModeAtom,
     confirmDelete,
+    cycleDiff,
     findReferences,
     goBack,
     goForward,
@@ -1531,11 +1531,10 @@ export function buildCodeBindings(model: AgentsViewModel): Binding[] {
             id: "code:diff",
             keys: "d",
             group: "Code",
-            label: "Toggle the diff against HEAD",
+            label: "Cycle the diff: HEAD, branch base, off",
             when: on,
             run: () => {
-                const mode = globalStore.get(codeViewModeAtom);
-                globalStore.set(codeViewModeAtom, mode === "diff" ? "source" : "diff");
+                void cycleDiff();
             },
         },
         {

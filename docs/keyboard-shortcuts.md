@@ -232,7 +232,7 @@ outside it. The tree keys work while the file tree holds focus.
 |---|---|
 | `Alt`+`←` / `Alt`+`→` | Back / forward through opened files and jumps |
 | `r` | Refresh the file index |
-| `d` | Toggle the diff against HEAD |
+| `d` | Cycle the diff: HEAD, branch base, off |
 | `Ctrl`+`S` | Save the open file (from the editor) |
 | `Ctrl`+`Shift`+`F` | Search file contents (from the editor) |
 | `Ctrl`+`Shift`+`O` | Go to a symbol in the open file: opens Search seeded with `@` (from the editor) |

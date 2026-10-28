@@ -891,6 +891,13 @@ export const codePlainDir = {
     },
 };
 
+const POLICY_GO = (budget) => `package retry
+
+func Budget() int {
+    return ${budget}
+}
+`;
+
 export const codeDiff = {
     name: "code-diff",
     surface: "code",
@@ -898,26 +905,10 @@ export const codeDiff = {
     async arrange(h) {
         const dir = mkdtempSync(join(tmpdir(), "verify-code-diff-"));
         git(dir, "init", "-q", "--initial-branch=main");
-        writeFileSync(
-            join(dir, "policy.go"),
-            `package retry
-
-func Budget() int {
-    return 3
-}
-`
-        );
+        writeFileSync(join(dir, "policy.go"), POLICY_GO(3));
         git(dir, "add", ".");
         git(dir, "commit", "-q", "-m", "seed the retry package");
-        writeFileSync(
-            join(dir, "policy.go"),
-            `package retry
-
-func Budget() int {
-    return 8
-}
-`
-        );
+        writeFileSync(join(dir, "policy.go"), POLICY_GO(8));
         const name = "verify-code-diff";
         await h.rpc("createproject", { name, path: dir });
         await waitForProjectInConfig(h, name);
@@ -991,10 +982,11 @@ func Budget() int {
         })()`);
         await sleep(1500); // monaco is lazy, and the HEAD read is one git call
         const mounted = await h.ev(`(() => !!document.querySelector('.monaco-diff-editor'))()`);
+        const onHead = await h.ev(`!!document.querySelector('[data-code-diff-target="head"]')`);
         steps.push({
-            step: "Diff mounts the Monaco diff editor",
-            ok: toDiff === true && mounted === true,
-            detail: `toggled=${toDiff} mounted=${mounted}`,
+            step: "Diff mounts the Monaco diff editor, headed against HEAD",
+            ok: toDiff === true && mounted === true && onHead === true,
+            detail: `toggled=${toDiff} mounted=${mounted} head=${onHead}`,
         });
         await h.shot("cdp-shots/code-diff.png");
         steps.push(await floorStep(h, `no visible text on the Code surface's diff is under ${MIN_FONT_PX}px`, SURFACE_ROOT));
@@ -1008,22 +1000,119 @@ func Budget() int {
             detail: JSON.stringify({ ...toggle, ring: toggle.ring ? "rings" : "no ring" }),
         });
 
-        // `d` is gated on !editable, so focus has to leave Monaco first
+        // `d` and `r` are gated on !editable, so focus has to leave Monaco first
+        const press = async (key) => {
+            await h.ev(`(() => {
+                const t = document.querySelector('[data-code-tree]');
+                if (t) t.focus();
+                return true;
+            })()`);
+            await h.ev(
+                `document.dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(key)}, code: ${JSON.stringify(`Key${key.toUpperCase()}`)}, bubbles: true }))`
+            );
+        };
+        const view = () =>
+            h.ev(`(() => {
+                const d = document.querySelector('.monaco-diff-editor');
+                const o = d && (d.querySelector('.editor.original .view-lines') || d);
+                const t = document.querySelector('[data-code-diff-target]');
+                return {
+                    diff: !!d,
+                    plain: !!document.querySelector('.monaco-editor'),
+                    target: t ? t.getAttribute('data-code-diff-target') : '',
+                    label: t ? t.textContent : '',
+                    original: o ? (o.textContent || '').replace(/\\s+/g, ' ') : '',
+                };
+            })()`);
+        const single = `(() => !document.querySelector('.monaco-diff-editor') && !!document.querySelector('.monaco-editor'))()`;
+        // the buffer is what was read, so after an on-disk change the file is re-read the way a reader would
+        const reopen = async () => {
+            await press("r");
+            await sleep(1200);
+            await h.ev(`(() => {
+                const t = document.querySelector('[data-code-column-tab="changed"]');
+                if (t) t.click();
+                return true;
+            })()`);
+            await polishWaitFor(h, `!!document.querySelector('[data-code-changed-row="policy.go"]')`, 8000);
+            await h.ev(`(() => {
+                const r = document.querySelector('[data-code-changed-row="policy.go"]');
+                if (r) r.click();
+                return true;
+            })()`);
+            await sleep(900);
+        };
+
+        // on main, HEAD is the merge-base, so the base step would repeat the HEAD diff under another name
         await h.ev(`(() => {
-            const t = document.querySelector('[data-code-tree]');
-            if (t) t.focus();
+            window.__codeDiffSawBase = false;
+            const mark = () => {
+                if (document.querySelector('[data-code-diff-target="base"]')) window.__codeDiffSawBase = true;
+            };
+            window.__codeDiffBaseWatch = new MutationObserver(mark);
+            window.__codeDiffBaseWatch.observe(document.body, { subtree: true, childList: true, attributes: true });
             return true;
         })()`);
-        await h.ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', code: 'KeyD', bubbles: true }))`);
-        await sleep(800);
-        const back = await h.ev(
-            `(() => ({ diff: !!document.querySelector('.monaco-diff-editor'), plain: !!document.querySelector('.monaco-editor') }))()`
-        );
+        await press("d");
+        const skipped = await polishWaitFor(h, single, 6000);
+        const sawBase = await h.ev(`(() => {
+            window.__codeDiffBaseWatch && window.__codeDiffBaseWatch.disconnect();
+            return window.__codeDiffSawBase === true;
+        })()`);
         steps.push({
-            step: "pressing d again returns to the single editor",
-            ok: back.diff === false && back.plain === true,
-            detail: `diff=${back.diff} plain=${back.plain}`,
+            step: "on the default branch, d skips the base and returns to the single editor",
+            ok: skipped === true && sawBase === false,
+            detail: `single=${skipped} sawBase=${sawBase}`,
         });
+
+        git(ctx.dir, "checkout", "-q", "-b", "feature");
+        git(ctx.dir, "commit", "-q", "-am", "raise the retry budget");
+        writeFileSync(join(ctx.dir, "policy.go"), POLICY_GO(9));
+        await reopen();
+        await press("d");
+        const head = await polishWaitFor(
+            h,
+            `!!document.querySelector('[data-code-diff-target="head"]') && !!document.querySelector('.monaco-diff-editor')`,
+            6000
+        );
+        await press("d");
+        const based = await polishWaitFor(
+            h,
+            `(() => {
+                const d = document.querySelector('.monaco-diff-editor');
+                const o = d && (d.querySelector('.editor.original .view-lines') || d);
+                return !!document.querySelector('[data-code-diff-target="base"]') && !!o && /return\\s3/.test(o.textContent || '');
+            })()`,
+            8000
+        );
+        const baseView = await view();
+        steps.push({
+            step: "on a feature branch, d goes HEAD then base, and the base side holds main's return 3",
+            ok: head === true && based === true,
+            detail: `head=${head} base=${based} label=${JSON.stringify(baseView.label)} original=${JSON.stringify(baseView.original.slice(0, 80))}`,
+        });
+        await h.shot("cdp-shots/code-diff-base.png");
+        await press("d");
+        const off = await polishWaitFor(h, single, 6000);
+        steps.push({ step: "d from the base returns to the single editor", ok: off === true, detail: `single=${off}` });
+
+        // DefaultBranch now answers origin/gone, which GetDivergence cannot resolve, so the RPC throws
+        git(ctx.dir, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/gone");
+        await press("d");
+        await polishWaitFor(h, `!!document.querySelector('[data-code-diff-target="head"]')`, 6000);
+        await press("d");
+        const failed = await polishWaitFor(
+            h,
+            `(() => !!document.querySelector('[data-code-diff-target="base"]') && (document.body.textContent || '').includes('Cannot diff against the branch base'))()`,
+            8000
+        );
+        const errView = await view();
+        steps.push({
+            step: "a base that cannot resolve shows the error state, not a HEAD diff",
+            ok: failed === true && errView.diff === false,
+            detail: `error=${failed} diff=${errView.diff} target=${errView.target}`,
+        });
+        await h.shot("cdp-shots/code-diff-base-error.png");
         return steps;
     },
     async teardown(h, ctx) {
