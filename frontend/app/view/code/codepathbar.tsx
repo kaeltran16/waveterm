@@ -22,6 +22,7 @@ import { cn, stringToBase64 } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
 import { Check, Copy, Send, X } from "lucide-react";
 import { useState } from "react";
+import { codeBlameOnAtom, toggleBlame } from "./codeblamestore";
 import { isMarkdownPath } from "./codeclassify";
 import { handoffLine, handoffProjectName, liveAgentsForProject } from "./codehandoff";
 import {
@@ -72,6 +73,7 @@ export function CodePathBar({ model }: { model: AgentsViewModel }) {
                 />
             ) : null}
             {file.kind === "text" ? <ViewModeToggle markdown={isMarkdownPath(file.path)} /> : null}
+            {file.kind === "text" ? <BlameToggle /> : null}
             <div className="flex-1" />
             <button
                 type="button"
@@ -133,6 +135,28 @@ function ViewModeToggle({ markdown }: { markdown: boolean }) {
                 </button>
             ))}
         </div>
+    );
+}
+
+// Blame draws beside the source editor only; in a plain directory there is no history to blame.
+function BlameToggle() {
+    const on = useAtomValue(codeBlameOnAtom);
+    const plain = useAtomValue(codePlainAtom);
+    return (
+        <button
+            type="button"
+            data-code-blame-toggle
+            aria-pressed={on}
+            disabled={plain}
+            title={plain ? NOT_TRACKED : "Toggle the blame column (b)"}
+            onClick={toggleBlame}
+            className={cn(
+                "flex-none cursor-pointer rounded-[6px] border border-border px-2 py-[3px] text-[11px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-default disabled:opacity-40",
+                on && !plain ? "bg-accent/10 text-accent-soft" : "text-muted hover:text-primary"
+            )}
+        >
+            Blame
+        </button>
     );
 }
 

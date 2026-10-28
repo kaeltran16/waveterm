@@ -70,10 +70,12 @@ import { renamingRowAtom } from "@/app/view/agents/rowrenameatom";
 import { resolveActiveRunId } from "@/app/view/agents/runmodel";
 import { shellTaskPeekAtom } from "@/app/view/agents/shelltasksstore";
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
+import { toggleBlame } from "@/app/view/code/codeblamestore";
 import { codeSearchModeAtom } from "@/app/view/code/codesearchstore";
 import {
     caretWord,
     codeCursorAtom,
+    codePlainAtom,
     codeRowsAtom,
     codeTreeFocusedAtom,
     confirmDelete,
@@ -1535,6 +1537,19 @@ export function buildCodeBindings(model: AgentsViewModel): Binding[] {
             when: on,
             run: () => {
                 void cycleDiff();
+            },
+        },
+        {
+            id: "code:blame",
+            keys: "b",
+            group: "Code",
+            label: "Toggle the blame column",
+            when: on,
+            run: () => {
+                // a plain directory has no history, as its disabled Blame button says
+                if (!globalStore.get(codePlainAtom)) {
+                    toggleBlame();
+                }
             },
         },
         {
