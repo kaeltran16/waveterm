@@ -118,3 +118,18 @@ func (ws *WshServer) GitFetchCommand(ctx context.Context, data wshrpc.CommandGit
 	}
 	return &wshrpc.CommandGitFetchRtnData{FetchedAt: r.FetchedAt, Failure: r.Failure, IsRepo: r.IsRepo}, nil
 }
+
+func (ws *WshServer) GitBlameCommand(ctx context.Context, data wshrpc.CommandGitBlameData) (*wshrpc.CommandGitBlameRtnData, error) {
+	b, err := gitinfo.Blame(ctx, data.Cwd, data.Path)
+	if err != nil {
+		return nil, err
+	}
+	hunks := make([]wshrpc.GitBlameHunk, 0, len(b.Hunks))
+	for _, h := range b.Hunks {
+		hunks = append(hunks, wshrpc.GitBlameHunk{
+			Start: h.Start, Lines: h.Lines, Sha: h.Sha,
+			Author: h.Author, AuthorTime: h.AuthorTime, Subject: h.Subject,
+		})
+	}
+	return &wshrpc.CommandGitBlameRtnData{Hunks: hunks, IsRepo: b.IsRepo, Untracked: b.Untracked}, nil
+}

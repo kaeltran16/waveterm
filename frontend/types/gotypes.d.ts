@@ -570,6 +570,17 @@ declare global {
         value: boolean;
     };
 
+    // wshrpc.CommandCodeReviewWriteData
+    type CommandCodeReviewWriteData = {
+        project: string;
+        markdown: string;
+    };
+
+    // wshrpc.CommandCodeReviewWriteRtnData
+    type CommandCodeReviewWriteRtnData = {
+        path: string;
+    };
+
     // wshrpc.CommandConsultData
     type CommandConsultData = {
         channelid: string;
@@ -1074,6 +1085,20 @@ declare global {
         channelid: string;
         runid: string;
         scan: WorkflowScan;
+    };
+
+    // wshrpc.CommandGitBlameData
+    type CommandGitBlameData = {
+        cwd: string;
+        path: string;
+    };
+
+    // wshrpc.CommandGitBlameRtnData
+    type CommandGitBlameRtnData = {
+        hunks: GitBlameHunk[];
+        runs?: {[key: string]: GitBlameRun};
+        isrepo: boolean;
+        untracked?: boolean;
     };
 
     // wshrpc.CommandGitChangesData
@@ -2205,6 +2230,22 @@ declare global {
         configerrors: ConfigError[];
         version: string;
         buildtime: string;
+    };
+
+    // wshrpc.GitBlameHunk
+    type GitBlameHunk = {
+        start: number;
+        lines: number;
+        sha: string;
+        author: string;
+        authortime: number;
+        subject: string;
+    };
+
+    // wshrpc.GitBlameRun
+    type GitBlameRun = {
+        runid: string;
+        goal: string;
     };
 
     // gitinfo.GitFailure
