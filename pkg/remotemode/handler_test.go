@@ -40,8 +40,10 @@ func handlerNewFake() *handlerFake {
 func (f *handlerFake) handler() http.Handler {
 	return NewHandler(Deps{
 		Static: fstest.MapFS{
-			"index.html": {Data: []byte("<html>phone</html>")},
-			"phone.js":   {Data: []byte("export {}")},
+			"index.html":           {Data: []byte("<html>phone</html>")},
+			"phone.js":             {Data: []byte("export {}")},
+			"manifest.webmanifest": {Data: []byte(`{"name":"Arc"}`)},
+			"fonts/a.woff2":        {Data: []byte("not really a font")},
 		},
 		Verify:      func(*http.Request) error { return f.verifyErr },
 		Origin:      handlerTestOrigin,
@@ -121,6 +123,20 @@ func TestHandlerServesStatic(t *testing.T) {
 		rec := handlerDo(t, h, http.MethodGet, path, "", nil)
 		if rec.Code != http.StatusOK || rec.Body.String() != want {
 			t.Errorf("GET %s: got %d %q", path, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+func TestHandlerStaticContentTypes(t *testing.T) {
+	h := handlerNewFake().handler()
+	for path, want := range map[string]string{
+		"/manifest.webmanifest": "application/manifest+json",
+		"/fonts/a.woff2":        "font/woff2",
+		"/phone.js":             "text/javascript; charset=utf-8",
+	} {
+		rec := handlerDo(t, h, http.MethodGet, path, "", nil)
+		if got := rec.Header().Get("Content-Type"); rec.Code != http.StatusOK || got != want {
+			t.Errorf("GET %s: got %d %q, want %q", path, rec.Code, got, want)
 		}
 	}
 }

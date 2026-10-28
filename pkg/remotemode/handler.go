@@ -12,6 +12,7 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
+	"path"
 	"strconv"
 
 	"github.com/wavetermdev/waveterm/pkg/baseds"
@@ -24,6 +25,13 @@ var ErrAskGone = errors.New("ask is gone")
 const handlerMaxBody = 64 << 10
 
 const handlerJSONType = "application/json"
+
+// go's mime table has neither and the windows registry rarely does, so without these the manifest
+// is sniffed as text/plain and a font's type depends on the machine
+var handlerStaticTypes = map[string]string{
+	".webmanifest": "application/manifest+json",
+	".woff2":       "font/woff2",
+}
 
 // Deps is everything the phone handler calls out to, so it can be tested and previewed with fakes.
 type Deps struct {
@@ -53,7 +61,13 @@ func NewHandler(d Deps) http.Handler {
 	mux.Handle("POST /api/answer", d.handlerPost(d.handleAnswer))
 	mux.Handle("POST /api/off", d.handlerPost(d.handleOff))
 	mux.Handle("POST /api/subscribe", d.handlerPost(d.handleSubscribe))
-	mux.Handle("/", http.FileServerFS(d.Static))
+	static := http.FileServerFS(d.Static)
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if ct, ok := handlerStaticTypes[path.Ext(r.URL.Path)]; ok {
+			w.Header().Set("Content-Type", ct)
+		}
+		static.ServeHTTP(w, r)
+	})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := d.Verify(r); err != nil {
 			log.Printf("remote mode: refused %s %s: %v\n", r.Method, r.URL.Path, err)
