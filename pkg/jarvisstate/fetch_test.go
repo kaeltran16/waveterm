@@ -23,7 +23,7 @@ func emptyLegs() fetchSeams {
 	return fetchSeams{
 		getChannels:     func(ctx context.Context) ([]*waveobj.Channel, error) { return nil, nil },
 		getChannelRuns:  func(ctx context.Context, id string) ([]*waveobj.Run, error) { return nil, nil },
-		scanSessions:    func(days, limit int) ([]agentsessions.SessionInfo, error) { return nil, nil },
+		scanSessions:    func(days, limit int) ([]agentsessions.SessionInfo, bool) { return nil, true },
 		gatherAttention: func(ctx context.Context, chans []*waveobj.Channel, runsByChannel map[string][]*waveobj.Run) ([]wshrpc.AttentionItem, error) {
 			return nil, nil
 		},
@@ -133,6 +133,25 @@ func TestFetchWorkStateMarksRunsUnhealthyOnChannelReadFailure(t *testing.T) {
 	}
 	if !shippedFound {
 		t.Fatalf("state=%+v want partial run data kept despite the failed channel read", st)
+	}
+}
+
+func TestFetchWorkStateKeepsPartialSessionScan(t *testing.T) {
+	seams := emptyLegs()
+	seams.scanSessions = func(days, limit int) ([]agentsessions.SessionInfo, bool) {
+		return []agentsessions.SessionInfo{{ID: "s1", ProjectPath: "/p/s", Task: "read so far", Status: "working"}}, false
+	}
+	restore := SetFetchSeamsForTest(seams)
+	defer restore()
+	st, err := FetchWorkState(context.Background(), "", 0)
+	if err != nil {
+		t.Fatalf("FetchWorkState: %v", err)
+	}
+	if st.Sources.Sessions {
+		t.Fatalf("sources=%+v want Sessions incomplete", st.Sources)
+	}
+	if len(st.Projects) != 1 || len(st.Projects[0].Active) != 1 || st.Projects[0].Active[0].Title != "read so far" {
+		t.Fatalf("projects=%+v want the scanned session kept", st.Projects)
 	}
 }
 

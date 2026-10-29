@@ -140,6 +140,67 @@ func TestIndexedParsesAtMost100Uncached(t *testing.T) {
 	}
 }
 
+// shrinkByteBudget lets one call read a single transcript before its byte budget is spent.
+func shrinkByteBudget(t *testing.T) {
+	t.Helper()
+	orig := syncParseBytes
+	syncParseBytes = 1
+	t.Cleanup(func() { syncParseBytes = orig })
+}
+
+func TestScanSessionsStopsAtByteBudget(t *testing.T) {
+	dir := indexHome(t)
+	writeSessions(t, dir, 5)
+	shrinkByteBudget(t)
+	reads := countReads(t)
+	warming.Store(true)
+	got, complete := ScanSessions(IndexWindowDays, 10)
+	warming.Store(false)
+	if n := total(reads()); n != 1 {
+		t.Errorf("read %d files, want 1", n)
+	}
+	if complete {
+		t.Error("complete must be false while candidates were skipped")
+	}
+	if len(got) != 1 || got[0].ID != "s000" {
+		t.Errorf("want only the newest session, got %+v", got)
+	}
+}
+
+func TestScanSessionsKeepsStaleEntryPastBudget(t *testing.T) {
+	dir := indexHome(t)
+	writeSession(t, dir, "new", "the newest one", time.Hour)
+	older := writeSession(t, dir, "old", "the older one", 2*time.Hour)
+	if _, complete := ScanSessions(IndexWindowDays, 10); !complete {
+		t.Fatal("two sessions fit in one synchronous pass")
+	}
+	f, err := os.OpenFile(older, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = f.WriteString("\n" + `{"type":"assistant","message":{"content":[{"type":"text","text":"more"}]}}`)
+	f.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// newer than the grown one, so the single read the budget allows goes to it
+	newer := filepath.Join(dir, "new.jsonl")
+	ts := time.Now().Add(time.Minute)
+	if err := os.Chtimes(newer, ts, ts); err != nil {
+		t.Fatal(err)
+	}
+	shrinkByteBudget(t)
+	warming.Store(true)
+	got, complete := ScanSessions(IndexWindowDays, 10)
+	warming.Store(false)
+	if complete {
+		t.Error("complete must be false while the grown transcript was not re-read")
+	}
+	if len(got) != 2 || got[1].ID != "old" || got[1].Task != "the older one" {
+		t.Errorf("the grown transcript must stay listed from its stale entry, got %+v", got)
+	}
+}
+
 func TestIndexedSecondPassReadsNothing(t *testing.T) {
 	dir := indexHome(t)
 	writeSessions(t, dir, 150)
