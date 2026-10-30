@@ -163,7 +163,8 @@ list is "AI tells to design past", below):
 
 Run and task lists, dashboards, settings, inboxes: screens a person
 works in every day rather than reads once. Adapted from taste-skill's
-app-screens chapter.
+app-screens chapter; the motion rules from Emil Kowalski's
+design-engineering skill (github.com/emilkowalski/skills).
 
 Before drawing, write the screen's one question in a line ("Which run
 is waiting on me?", "What did this task change?"). It decides three
@@ -201,8 +202,18 @@ The defaults a model reaches for on an app screen:
 - The title is a noun ("Runs"), not a greeting.
 - Export, share and filter controls appear only where they are real.
 - Motion confirms a change that already happened, beside a static
-  sign of it (label, colour, position). It is never decorative, and
-  outside a screen change it ends within 500 ms.
+  sign of it (label, colour, position), and is never decorative.
+  How often it plays decides whether it exists: a keyboard action or
+  anything seen a hundred times a day does not animate; a modal,
+  drawer or toast does.
+- Motion values, where the design system names none: enter and exit
+  ease out (a strong curve such as `cubic-bezier(0.23,1,0.32,1)`),
+  never ease in; press 100–160 ms, tooltip or menu 150–250 ms, modal
+  or drawer up to 400 ms; exits faster than entrances. Transition
+  named properties (`transform`, `opacity`), never `all`. An entering
+  element starts at `scale(0.95)` and transparent, never `scale(0)`;
+  a popover grows from its trigger, a modal from the centre. Reduced
+  motion keeps fades and drops movement.
 
 States on an app screen, beyond the "States" list under "AI tells":
 
