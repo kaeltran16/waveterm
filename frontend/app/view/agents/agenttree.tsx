@@ -686,21 +686,46 @@ function ParentRow({
                     )}
                 </Slot>
                 <div className="min-w-0 flex-1">
-                    {renaming ? (
-                        <RenameBox tabId={agent.id} />
-                    ) : (
-                        <div className="flex min-w-0 items-center gap-[6px]">
-                            <div className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink-hi">
-                                {agent.name}
+                    {/* the pane chip and state take their width from the title, which truncates, not from the
+                        second line, whose chips cannot shrink */}
+                    <div className="flex min-w-0 items-center gap-[6px]">
+                        {renaming ? (
+                            <div className="min-w-0 flex-1">
+                                <RenameBox tabId={agent.id} />
                             </div>
-                            {agent.pinned ? (
-                                <Pin size={11} aria-label="Pinned" className="flex-none text-muted" />
-                            ) : null}
-                            {/* a lead's second line holds its workers chip and progress, which need its full width */}
-                            {lead ? subsChip : null}
-                            {lead ? tasksChip : null}
-                        </div>
-                    )}
+                        ) : (
+                            <>
+                                <div className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink-hi">
+                                    {agent.name}
+                                </div>
+                                {agent.pinned ? (
+                                    <Pin size={11} aria-label="Pinned" className="flex-none text-muted" />
+                                ) : null}
+                                {/* a lead's second line holds its workers chip and progress, which need its full width */}
+                                {lead ? subsChip : null}
+                                {lead ? tasksChip : null}
+                            </>
+                        )}
+                        <PaneTag model={model} id={agent.id} />
+                        {/* a row names its state only when it wants something; the dot already says working or idle */}
+                        {review ? (
+                            // opens the dialog over whatever agent is focused, so the click must not reach the row
+                            <button
+                                type="button"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    globalStore.set(docReviewAtom, agent.id);
+                                }}
+                                title="Open the plan review"
+                                className="flex flex-none cursor-pointer items-center gap-1 rounded-[5px] border border-warning/45 bg-askingbg px-[6px] py-[1px] font-mono text-[10.5px] font-semibold text-warning hover:border-warning"
+                            >
+                                review
+                                <ArrowUpRight size={10} strokeWidth={2.2} aria-hidden />
+                            </button>
+                        ) : asking ? (
+                            <span className="flex-none font-mono text-[10.5px] font-semibold text-warning">asking</span>
+                        ) : null}
+                    </div>
                     {lead ? (
                         <RunSubline run={lead.run} open={lead.open} live={lead.live} />
                     ) : (
@@ -720,25 +745,6 @@ function ParentRow({
                         </div>
                     )}
                 </div>
-                <PaneTag model={model} id={agent.id} />
-                {/* a row names its state only when it wants something; the dot already says working or idle */}
-                {review ? (
-                    // opens the dialog over whatever agent is focused, so the click must not reach the row
-                    <button
-                        type="button"
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            globalStore.set(docReviewAtom, agent.id);
-                        }}
-                        title="Open the plan review"
-                        className="flex cursor-pointer items-center gap-1 rounded-[5px] border border-warning/45 bg-askingbg px-[6px] py-[1px] font-mono text-[10.5px] font-semibold text-warning hover:border-warning"
-                    >
-                        review
-                        <ArrowUpRight size={10} strokeWidth={2.2} aria-hidden />
-                    </button>
-                ) : asking ? (
-                    <span className="font-mono text-[10.5px] font-semibold text-warning">asking</span>
-                ) : null}
             </div>
             {/* subagent reveal: the children block expands/collapses via composerReveal (height+opacity).
                 It is not a layout node itself, so its height animation and the row-list reflow don't fight. */}
