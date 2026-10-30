@@ -177,6 +177,8 @@ so **Open in Agent ↗** is where you watch it.
 
 The worker is told that if the goal turns out to be more than one change or needs a design decision, it
 should stop and ask instead of pushing on. That question arrives in **Waiting on you** like any other.
+A goal that tells the worker to get its plan approved before building gets a **Plan approval** ask, which
+opens as the review dialog ([Answering the lead](#answering-the-lead)) with the plan's key decisions in place of findings.
 Settings are fixed for a Quick run: there is no scheduler to reconfigure.
 
 This run appended one line to `README.md` and committed it; the sheet went to **Done** with its evidence
@@ -281,7 +283,7 @@ on you** on the Brief instead of scrolling past in a terminal. The Jarvis nav ic
 - **✕** dismisses the question.
 
 **The review dialog.** The lead's round-2 **Plan review**
-([The plan review](#the-plan-review)) opens as a dialog over whatever surface you are on: the document
+([The plan review](#the-plan-review)), and a Quick run worker's **Plan approval**, opens as a dialog over whatever surface you are on: the document
 rendered on the left, the decisions (or findings) it asks you to accept on the right, and **Approve** (the
 plan's is **Accept all and proceed**, `Ctrl Enter`) or **Request changes** at the bottom. Request changes
 takes a note and sends it to the lead as your answer. Select text in the document to quote it: a note field

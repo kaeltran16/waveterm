@@ -17,6 +17,7 @@ describe("parseDocReview", () => {
         const q =
             "C:/repo/docs/plans/2026-09-30-x.md\nThe reviewer found four problems; the plan now fixes them.\n- Task 3 depended on Task 5\n- Verify line missed the wsh package\n- Task 2 had no test\n- Setup was absent";
         expect(parseDocReview(ask("Plan review", q))).toEqual({
+            kind: "review",
             path: "C:/repo/docs/plans/2026-09-30-x.md",
             intro: ["The reviewer found four problems; the plan now fixes them."],
             items: [
@@ -28,6 +29,21 @@ describe("parseDocReview", () => {
             approveIndex: 0,
             requestIndex: 1,
         });
+    });
+    // a quick run's worker asks this one when its goal says to get the plan approved (BuildQuickPrompt)
+    it("reads a Plan approval ask as the approval kind", () => {
+        const q =
+            "C:/wt/opal-watch/docs/superpowers/plans/2026-10-30-watch-workout-remote.md\nBuild the Watch remote on the phone's session.\n- HR and kcal in two new columns\n- distance into distance_km";
+        const opts = [{ label: "Approve and proceed (Recommended)" }, { label: "Request changes" }];
+        expect(parseDocReview(ask("Plan approval", q, opts))).toEqual({
+            kind: "approval",
+            path: "C:/wt/opal-watch/docs/superpowers/plans/2026-10-30-watch-workout-remote.md",
+            intro: ["Build the Watch remote on the phone's session."],
+            items: ["HR and kcal in two new columns", "distance into distance_km"],
+            approveIndex: 0,
+            requestIndex: 1,
+        });
+        expect(parseDocReview(ask(" plan APPROVAL", "/r/plan.md"))?.kind).toBe("approval");
     });
     it("tolerates a backticked path, CRLF, and header case and spacing", () => {
         expect(parseDocReview(ask("plan Review ", "`/r/plan.md`\r\n- one"))?.path).toBe("/r/plan.md");
@@ -59,6 +75,13 @@ describe("parseDocReview", () => {
     });
     it("falls back to an ordinary question when the convention is not met", () => {
         expect(parseDocReview(ask("Flake fix", "/r/plan.md"))).toBeNull();
+        // the bare header a worker used before it was told the convention (run 3e019630, 2026-10-30)
+        expect(parseDocReview(ask("Plan", "/r/plan.md"))).toBeNull();
+        expect(
+            parseDocReview(
+                ask("Plan approval", "Chunk 17 plan is at docs/superpowers/plans/x.md. Approve building it?")
+            )
+        ).toBeNull();
         // the lead no longer asks a Spec review: the design session's Approve is the spec's approval
         expect(parseDocReview(ask("Spec review", "/r/spec.md\n- one"))).toBeNull();
         expect(parseDocReview(ask("Plan review", "Does the plan look right?"))).toBeNull();

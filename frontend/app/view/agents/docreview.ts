@@ -1,16 +1,51 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// After a plan fails its review twice, the lead asks the human to accept it as an ordinary ask under a known header
-// (pkg/jarvis/leadprompt.go): one question whose first line is the plan's path, before "- " lines that each name a
-// finding. That ask opens as a review dialog; an ask that misses the convention stays an ordinary question.
+// Two asks open as a review dialog, each an ordinary ask under a known header: one question whose first line is
+// the document's path, before "- " lines that each name a finding or decision. After a plan fails its review
+// twice, the lead asks the human to accept it as a Plan review (pkg/jarvis/leadprompt.go); a quick run's worker
+// told to get its plan approved asks a Plan approval (BuildQuickPrompt). An ask that misses the convention stays
+// an ordinary question.
 
 import { atom, type PrimitiveAtom } from "jotai";
 import type { AgentAsk, AgentVM } from "./agentsviewmodel";
 
-export const PLAN_REVIEW_HEADER = "Plan review";
+export type DocReviewKind = "review" | "approval";
+
+export const DOC_REVIEW_COPY: Record<
+    DocReviewKind,
+    { header: string; eyebrow: string; title: string; list: string; item: string; approve: string; placeholder: string }
+> = {
+    review: {
+        header: "Plan review",
+        eyebrow: "Plan review · round 2 failed",
+        title: "The plan review failed twice. Proceed with these fixes?",
+        list: "Findings",
+        item: "finding",
+        approve: "Accept all and proceed",
+        placeholder: "Which finding to handle differently, and how",
+    },
+    approval: {
+        header: "Plan approval",
+        eyebrow: "Plan approval",
+        title: "Approve this plan?",
+        list: "Key decisions",
+        item: "decision",
+        approve: "Approve and proceed",
+        placeholder: "What to change in the plan, and how",
+    },
+};
+
+const kindOf = (header: string | undefined): DocReviewKind | null => {
+    const h = header?.trim().toLowerCase();
+    return (
+        (Object.keys(DOC_REVIEW_COPY) as DocReviewKind[]).find((k) => DOC_REVIEW_COPY[k].header.toLowerCase() === h) ??
+        null
+    );
+};
 
 export interface DocReview {
+    kind: DocReviewKind;
     path: string;
     intro: string[];
     items: string[];
@@ -25,7 +60,8 @@ const DOC_PATH = /\.md$/i;
 
 export function parseDocReview(ask: AgentAsk | undefined): DocReview | null {
     const qs = ask?.questions ?? [];
-    if (qs.length !== 1 || qs[0].header?.trim().toLowerCase() !== PLAN_REVIEW_HEADER.toLowerCase()) {
+    const kind = qs.length === 1 ? kindOf(qs[0].header) : null;
+    if (!kind) {
         return null;
     }
     const lines = qs[0].question
@@ -43,7 +79,7 @@ export function parseDocReview(ask: AgentAsk | undefined): DocReview | null {
     const labels = (qs[0].options ?? []).map((o) => o.label.replace(RECOMMENDED, " ").trim().toLowerCase());
     const requestIndex = labels.findIndex((l) => l.startsWith(REQUEST_LABEL));
     const approveIndex = labels.findIndex((_, i) => i !== requestIndex);
-    return { path, intro: introLines, items, approveIndex, requestIndex };
+    return { kind, path, intro: introLines, items, approveIndex, requestIndex };
 }
 
 // the id of the agent whose doc-review ask the dialog shows; null = closed

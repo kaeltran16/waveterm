@@ -261,6 +261,8 @@ func CancelRun(run waveobj.Run) waveobj.Run {
 	return run
 }
 
+const planApproveLabel = "Approve and proceed"
+
 // BuildQuickPrompt is the worker prompt for a quick run: headless guidance and no skill directive — just
 // do the goal directly and report completion. A quick goal that turns
 // out to need a plan stops and asks rather than improvising one, and runtime names the tool it asks with.
@@ -272,6 +274,8 @@ func BuildQuickPrompt(goal string, principles waveobj.PrincipleList, runtime str
 	}
 	fmt.Fprintf(&b, "You are running headless with no human at your terminal. Make reasonable assumptions for low-stakes or easily-reversible choices and keep going — do not ask about them. Only when a decision is genuinely consequential and a wrong assumption would waste real work, pause and use the %s tool (it reaches the human in the cockpit); otherwise proceed to the deliverable.\n", tool)
 	fmt.Fprintf(&b, "If this turns out to be more than one change or needs a design decision, stop and ask with %s instead of pushing on.\n", tool)
+	// the cockpit opens this ask as its review dialog (frontend docreview.ts); a free-form approval ask stays a plain question
+	fmt.Fprintf(&b, "If the goal tells you to get a plan or spec you wrote approved, put it to the human with %s as one ask with the header `Plan approval`, the document's absolute path as the question's first line, one line saying what you propose, then one `- ` line per key decision, and the options `%s` and `Request changes`. %s\n", tool, planApproveLabel, QuotedNotesRule(planApproveLabel))
 	fmt.Fprintf(&b, "Goal: %s\n", goal)
 	// the report goes in with complete: the seal runs then, and with none it takes the last line written before it
 	b.WriteString("When the goal is fully accomplished, commit your work, then write your final report (what you did, and what you could not verify and why) with your file-writing tool to a file in the system temp directory, not in the repository. Then run `wsh jarvis complete --commit $(git rev-parse HEAD) --report <that file>` from your working tree (the SHA of your own final commit), so the run's evidence reflects exactly your changes and its summary is your report.\n")

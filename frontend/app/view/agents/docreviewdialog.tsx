@@ -1,7 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// A lead's Plan review ask as one dialog: the plan on the left, what the lead asks you to accept on the right,
+// A Plan review or Plan approval ask as one dialog: the plan on the left, what the agent asks you to accept on the right,
 // the answer at the bottom. Mounted once in CockpitShell so it opens over any surface; docReviewAtom names the asking agent. Hiding it leaves the ask open, and it closes itself once the ask is
 // answered or cleared.
 
@@ -18,7 +18,7 @@ import { ICON_BTN } from "./agentheader";
 import type { AgentsViewModel } from "./agents";
 import { askSentKey, type AgentVM } from "./agentsviewmodel";
 import { cleanLabel } from "./answerbar";
-import { docReviewAtom, parseDocReview, type DocReview } from "./docreview";
+import { DOC_REVIEW_COPY, docReviewAtom, parseDocReview, type DocReview } from "./docreview";
 import {
     addNote,
     composeAnswer,
@@ -36,14 +36,6 @@ import { useFileText } from "./usefiletext";
 
 // a doc review is always the ask's only question
 const QI = 0;
-
-const COPY = {
-    eyebrow: "Plan review · round 2 failed",
-    title: "The plan review failed twice. Proceed with these fixes?",
-    list: "Findings",
-    approve: "Accept all and proceed",
-    placeholder: "Which finding to handle differently, and how",
-};
 
 const REQUEST_SENT = "Request changes, with your note";
 
@@ -112,12 +104,13 @@ export function DocReviewDialog({ model }: { model: AgentsViewModel }) {
 
     const sent = agent != null && sentIds.has(askSentKey(agent) ?? "");
     const approveLabel = cleanLabel(
-        agent?.ask?.questions?.[QI]?.options?.[review?.approveIndex ?? -1]?.label ?? (review ? COPY.approve : "")
+        agent?.ask?.questions?.[QI]?.options?.[review?.approveIndex ?? -1]?.label ??
+            (review ? DOC_REVIEW_COPY[review.kind].approve : "")
     );
     const copy = notesCopy({
         count: notes.length,
         approveLabel,
-        placeholder: review ? COPY.placeholder : "",
+        placeholder: review ? DOC_REVIEW_COPY[review.kind].placeholder : "",
     });
 
     // the passage still in the note field joins the notes, so adding it and sending both keep its draft
@@ -203,7 +196,7 @@ export function DocReviewDialog({ model }: { model: AgentsViewModel }) {
         >
             {agent && review ? (
                 <>
-                    <Header agent={agent} />
+                    <Header agent={agent} review={review} />
                     <div className="flex min-h-0 flex-1">
                         <DocumentPane
                             path={review.path}
@@ -251,13 +244,14 @@ export function DocReviewDialog({ model }: { model: AgentsViewModel }) {
     );
 }
 
-function Header({ agent }: { agent: AgentVM }) {
+function Header({ agent, review }: { agent: AgentVM; review: DocReview }) {
+    const copy = DOC_REVIEW_COPY[review.kind];
     return (
         <div data-doc-review className="flex flex-none flex-col gap-2 border-b border-edge-mid px-[22px] pb-3.5 pt-4">
             <div className="flex items-center gap-2">
                 <span className="h-[7px] w-[7px] rounded-full bg-warning" aria-hidden />
                 <span className="font-mono text-[10.5px] font-bold uppercase tracking-[0.1em] text-warning">
-                    {COPY.eyebrow}
+                    {copy.eyebrow}
                 </span>
                 <span className="truncate font-mono text-[10.5px] text-muted">· waiting on you · {agent.name}</span>
                 <div className="flex-1" />
@@ -271,7 +265,7 @@ function Header({ agent }: { agent: AgentVM }) {
                     <X size={14} aria-hidden />
                 </button>
             </div>
-            <div className="text-[18px] font-semibold leading-[1.35] text-primary">{COPY.title}</div>
+            <div className="text-[18px] font-semibold leading-[1.35] text-primary">{copy.title}</div>
         </div>
     );
 }
@@ -364,7 +358,7 @@ function AskPane({ review, children }: { review: DocReview; children?: ReactNode
         <div className="flex w-[460px] flex-none flex-col bg-surface-raised">
             <div className="sc flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-5 pb-5 pt-4">
                 <div className="font-mono text-[10.5px] font-bold uppercase tracking-[0.1em] text-muted">
-                    {COPY.list} · {review.items.length}
+                    {DOC_REVIEW_COPY[review.kind].list} · {review.items.length}
                 </div>
                 {review.intro.length > 0 ? (
                     <MarkdownMessage

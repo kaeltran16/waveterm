@@ -179,6 +179,23 @@ func TestBuildQuickPrompt(t *testing.T) {
 	}
 }
 
+// a worker told to get its plan approved asks in the shape the cockpit opens as a review dialog (docreview.ts);
+// run 3e019630 asked under a bare `Plan` header with prose for a first line, and no dialog opened
+func TestBuildQuickPromptGivesThePlanApprovalAsk(t *testing.T) {
+	p := BuildQuickPrompt("write the plan and get my approval", nil, "claude")
+	for _, want := range []string{
+		"with AskUserQuestion as one ask with the header `Plan approval`",
+		"the document's absolute path as the question's first line",
+		"one `- ` line per key decision",
+		"the options `Approve and proceed` and `Request changes`",
+		QuotedNotesRule("Approve and proceed"),
+	} {
+		if !strings.Contains(p, want) {
+			t.Errorf("prompt missing %q:\n%s", want, p)
+		}
+	}
+}
+
 // a pi worker told to call Claude's tool asks in plain text, which never reaches the cockpit
 func TestBuildQuickPromptNamesTheRuntimeAskTool(t *testing.T) {
 	p := BuildQuickPrompt("add a spinner", nil, "pi")

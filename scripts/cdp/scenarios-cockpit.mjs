@@ -440,7 +440,7 @@ const DOC_REVIEW_TAG_TITLE = "Open the plan review";
 const DOC_REVIEW_CHIP = "Plan review";
 const DOC_REVIEW_PANEL = `document.querySelector("[data-doc-review]")?.closest('[role="dialog"]')`;
 
-function docReviewRoster(runId, docPath, decisions = DOC_REVIEW_DECISIONS) {
+function docReviewRoster(runId, docPath, decisions = DOC_REVIEW_DECISIONS, header = DOC_REVIEW_CHIP) {
     return [
         {
             id: DOC_REVIEW_WORKER_ID,
@@ -471,7 +471,7 @@ function docReviewRoster(runId, docPath, decisions = DOC_REVIEW_DECISIONS) {
                 oref: "block:fx-blk-doc-lead",
                 questions: [
                     {
-                        header: DOC_REVIEW_CHIP,
+                        header,
                         question: [docPath, ...decisions.map((d) => `- ${d}`)].join("\n"),
                         options: [{ label: "Approve" }, { label: "Request changes" }],
                     },
@@ -524,38 +524,44 @@ const docReviewFocusRow = (h, name) =>
         return true;
     })()`);
 
+// the doc-review roster with its lead asking under header, on a plan this writes; the cockpit shows the worker's card
+async function arrangeDocReview(h, name, header) {
+    const cwd = mkdtempSync(join(tmpdir(), `verify-${name}-`));
+    const ctx = { cwd };
+    try {
+        await arrangeFixtureRun(h, ctx, name, DOC_REVIEW_LEAD);
+        ctx.specPath = join(cwd, "doc-review-plan.md");
+        writeFileSync(
+            ctx.specPath,
+            `# ${DOC_REVIEW_HEADING}\n\nA small plan the doc-review scenario writes for the dialog to render.\n`
+        );
+        writeFileSync(
+            TREE_RAIL_FIXTURE,
+            JSON.stringify(docReviewRoster(ctx.runId, ctx.specPath, DOC_REVIEW_DECISIONS, header), null, 2)
+        );
+        // the fixture roster is read once at boot
+        await h.ev("location.reload()");
+        await h.ev(`(async () => {
+            for (let i = 0; i < 60 && !document.querySelector("nav button"); i++) {
+                await new Promise((r) => setTimeout(r, 500));
+            }
+        })()`);
+        await h.goto("cockpit");
+        ctx.rosterLoaded = await docReviewWait(
+            h,
+            `document.querySelector('[data-cockpit-surface] [data-agent-id="${DOC_REVIEW_WORKER_ID}"]')`,
+            15000
+        );
+    } catch (e) {
+        ctx.arrangeError = String(e?.message ?? e);
+    }
+    return ctx;
+}
+
 export const docReview = {
     name: "doc-review",
     surface: "cockpit",
-    async arrange(h) {
-        const cwd = mkdtempSync(join(tmpdir(), "verify-doc-review-"));
-        const ctx = { cwd };
-        try {
-            await arrangeFixtureRun(h, ctx, "doc-review", DOC_REVIEW_LEAD);
-            ctx.specPath = join(cwd, "doc-review-plan.md");
-            writeFileSync(
-                ctx.specPath,
-                `# ${DOC_REVIEW_HEADING}\n\nA small plan the doc-review scenario writes for the dialog to render.\n`
-            );
-            writeFileSync(TREE_RAIL_FIXTURE, JSON.stringify(docReviewRoster(ctx.runId, ctx.specPath), null, 2));
-            // the fixture roster is read once at boot
-            await h.ev("location.reload()");
-            await h.ev(`(async () => {
-                for (let i = 0; i < 60 && !document.querySelector("nav button"); i++) {
-                    await new Promise((r) => setTimeout(r, 500));
-                }
-            })()`);
-            await h.goto("cockpit");
-            ctx.rosterLoaded = await docReviewWait(
-                h,
-                `document.querySelector('[data-cockpit-surface] [data-agent-id="${DOC_REVIEW_WORKER_ID}"]')`,
-                15000
-            );
-        } catch (e) {
-            ctx.arrangeError = String(e?.message ?? e);
-        }
-        return ctx;
-    },
+    arrange: (h) => arrangeDocReview(h, "doc-review", DOC_REVIEW_CHIP),
     async assert(h, ctx) {
         const steps = [];
         const rec = (step, ok, detail) => steps.push({ step, ok, detail });
@@ -659,6 +665,63 @@ export const docReview = {
     },
     async teardown(h, ctx) {
         await teardownFixtureRun(h, ctx, "doc-review");
+    },
+};
+
+// A quick run's worker asks a Plan approval (BuildQuickPrompt), not the lead's round-2 Plan review: the same dialog
+// opens on it, with the approval's own words. Same roster as doc-review, its lead asking under the other header.
+const DOC_APPROVAL_CHIP = "Plan approval";
+const DOC_APPROVAL_TITLE = "Approve this plan?";
+
+export const docReviewApproval = {
+    name: "doc-review-approval",
+    surface: "cockpit",
+    arrange: (h) => arrangeDocReview(h, "doc-review-approval", DOC_APPROVAL_CHIP),
+    async assert(h, ctx) {
+        if (ctx.arrangeError != null || !ctx.rosterLoaded) {
+            return [{ step: "0. the fixture roster loaded", ok: false, detail: ctx.arrangeError ?? "no worker card" }];
+        }
+        // auto-open fires only on the Agent surface, which the worker card's terminal button switches to
+        await h.ev(`document.querySelector(
+            '[data-cockpit-surface] [data-agent-id="${DOC_REVIEW_WORKER_ID}"] button[title="Open terminal (T)"]'
+        )?.click()`);
+        await docReviewWait(h, docReviewTreeRow(DOC_REVIEW_LEAD));
+        const clicked = await docReviewFocusRow(h, DOC_REVIEW_LEAD);
+        const open = await docReviewWait(h, DOC_REVIEW_PANEL);
+        await docReviewWait(h, `${DOC_REVIEW_PANEL}?.querySelector("h1")`);
+        const panel = await h.ev(`(() => {
+            const p = ${DOC_REVIEW_PANEL};
+            if (!p) return null;
+            const head = p.querySelector("[data-doc-review]")?.textContent ?? "";
+            return {
+                eyebrow: head.includes(${JSON.stringify(DOC_APPROVAL_CHIP)}) && !head.includes("round 2 failed"),
+                title: head.includes(${JSON.stringify(DOC_APPROVAL_TITLE)}),
+                list: p.textContent.includes("Key decisions"),
+                items: p.querySelectorAll("ol > li").length,
+            };
+        })()`);
+        await h.shot("cdp-shots/doc-review-approval.png");
+        await docReviewEscape(h);
+        await docReviewWait(h, `!${DOC_REVIEW_PANEL}`, 3000);
+        const chip = await h.ev(`[...(document.querySelector("[data-agent-header]")?.querySelectorAll("button") ?? [])]
+            .some((x) => x.textContent.trim() === ${JSON.stringify(DOC_APPROVAL_CHIP)})`);
+        return [
+            {
+                step: "1. focusing the lead opens its Plan approval with the approval's eyebrow, title and decisions",
+                ok:
+                    clicked &&
+                    open &&
+                    panel?.eyebrow &&
+                    panel?.title &&
+                    panel?.list &&
+                    panel?.items === DOC_REVIEW_DECISIONS.length,
+                detail: JSON.stringify({ clicked, open, panel }),
+            },
+            { step: "2. the header chip reads Plan approval", ok: chip, detail: JSON.stringify({ chip }) },
+        ];
+    },
+    async teardown(h, ctx) {
+        await teardownFixtureRun(h, ctx, "doc-review-approval");
     },
 };
 
