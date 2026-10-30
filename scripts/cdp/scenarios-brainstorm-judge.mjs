@@ -329,7 +329,7 @@ function judgeWaitScenario(kit) {
                 treeLine: flat(${BS_TREE_LINE}),
             };
         })()`);
-    const rowText = (a, i) => `${i < 4 ? String.fromCharCode(65 + i) + " " : ""}${a.name} ${a.description} ${a.facts.length} ${a.facts.length === 1 ? "fact" : "facts"}`;
+    const rowText = (a, i) => `${String.fromCharCode(65 + i)} ${a.name} ${a.description} ${a.facts.length} ${a.facts.length === 1 ? "fact" : "facts"}`;
     const wantRows = WAIT_APPROACHES.map((a, i) => ({ option: String(i), text: rowText(a, i) }));
     const drawn = (w) => w.judging && w.status === WAIT_WORKING && eqJson(w.rows, wantRows);
     const ROW = (i) => `${BS_PANE}?.querySelector('[data-brainstorm-approach][data-brainstorm-option="${i}"]')`;
@@ -387,7 +387,7 @@ function judgeWaitScenario(kit) {
             const w1 = await waitFor(h, drawn);
             await h.shot("cdp-shots/brainstorm-judge-wait-1.png");
             rec(
-                "1. the wait: the question and its why, the status line, What the judge is weighing · 7, the 7 approaches in file order with their facts counts and letters on the first four, the box open with its placeholder, no Guess for me, and the agent's tree line names the judge",
+                "1. the wait: the question and its why, the status line, What the judge is weighing · 7, the 7 approaches in file order with their facts counts and a letter on each, the box open with its placeholder, no Guess for me, and the agent's tree line names the judge",
                 s1.ok &&
                     w1.ok &&
                     w1.treeLine === `judge weighing question ${WAIT_Q.n}` &&

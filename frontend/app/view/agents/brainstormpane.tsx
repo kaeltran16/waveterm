@@ -22,6 +22,7 @@ import { projectOf, type AgentVM } from "./agentsviewmodel";
 import { Check } from "./brainstormcheck";
 import {
     boardBackLabel,
+    bodyBeyondGist,
     builderCheckView,
     checkClock,
     checkSpan,
@@ -719,11 +720,14 @@ function PartRow({
                         >
                             {partGist(f, part)}
                         </span>
-                        {said != null ? <SaidLine said={said} open={open} /> : null}
-                    </span>
-                    {/* the answer line under the gist names the answer, so the column would only repeat it */}
-                    <span title={part.from} className="w-[120px] flex-none truncate font-mono text-[10.5px] text-muted">
-                        {said != null ? null : part.from}
+                        {/* the answer line names where the part came from, so the from line would only repeat it */}
+                        {said != null ? (
+                            <SaidLine said={said} open={open} />
+                        ) : part.from ? (
+                            <span title={part.from} className="truncate font-mono text-[10.5px] text-muted">
+                                {part.from}
+                            </span>
+                        ) : null}
                     </span>
                 </button>
                 <span className="flex h-[20px] min-w-[150px] flex-none items-center justify-end gap-[8px]">
@@ -776,7 +780,7 @@ function PartRow({
                             {view === "changed" && !note ? (
                                 <span className="text-[11.5px] text-accent-soft">Changed since you confirmed it</span>
                             ) : null}
-                            {part.body ? (
+                            {bodyBeyondGist(f, part) ? (
                                 <div
                                     className={cn(
                                         "whitespace-pre-line rounded-[8px] bg-surface px-[14px] py-[10px] leading-[1.6]",

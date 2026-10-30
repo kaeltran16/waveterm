@@ -13,7 +13,6 @@ import {
     designLabel,
     hasProsCons,
     judgeWork,
-    OPTION_KEYS,
     optionLetter,
     partBoards,
     partSpikes,
@@ -268,11 +267,14 @@ export function Track({ segments }: { segments: TrackSegment[] }) {
     );
 }
 
-// centred while it fits, scrolled from its top once it does not
+// a third of the way down while it fits, where the eye lands rather than mid-pane; scrolled from its top once it does
+// not, when the spacers have nothing left to take
 export function MainBody({ children }: { children: ReactNode }) {
     return (
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-[7%] py-[24px]">
-            <div className="my-auto flex flex-col gap-[26px]">{children}</div>
+            <div aria-hidden="true" className="flex-[1]" />
+            <div className="flex flex-none flex-col gap-[26px]">{children}</div>
+            <div aria-hidden="true" className="flex-[2]" />
         </div>
     );
 }
@@ -791,13 +793,9 @@ export function JudgingMain({
                                     onClick={() => void ans.sendText(a.name)}
                                     className={cn(OPTION_BTN, "gap-[14px] px-[12px] py-[9px]")}
                                 >
-                                    {i < OPTION_KEYS.length ? (
-                                        <span className={cn(OPTION_LETTER, "h-[24px] w-[24px] text-[11.5px]")}>
-                                            {optionLetter(i)}
-                                        </span>
-                                    ) : (
-                                        <span aria-hidden="true" className="h-[24px] w-[24px] flex-none" />
-                                    )}
+                                    <span className={cn(OPTION_LETTER, "h-[24px] w-[24px] text-[11.5px]")}>
+                                        {optionLetter(i)}
+                                    </span>
                                     <span className="w-[190px] flex-none text-[13.5px] font-semibold leading-[1.4] text-primary">
                                         {a.name}
                                     </span>
