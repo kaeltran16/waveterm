@@ -1,9 +1,11 @@
 package orchestrate
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -963,5 +965,27 @@ func TestEffectiveTaskRouteModel(t *testing.T) {
 	inherited := effectiveTaskRoute(&waveobj.TaskNode{}, ownerWithModel, nil)
 	if inherited.Model != "opencode/deepseek-v4-pro" || inherited.Runtime != "pi" {
 		t.Fatalf("owner model must flow to tasks without a route: %+v", inherited)
+	}
+}
+
+func TestSlowLockLogNamesItsCaller(t *testing.T) {
+	var logged bytes.Buffer
+	log.SetOutput(&logged)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	under := slowDagLock - time.Millisecond
+	logSlowDagLock("fast", under, under)
+	logSlowDagLock("held", 0, slowDagLock)
+	logSlowDagLock("waited", slowDagLock, 0)
+	out := logged.String()
+	if strings.Contains(out, "dag fast") {
+		t.Errorf("a wait and hold under the rpc budget must not log:\n%s", out)
+	}
+	for _, id := range []string{"held", "waited"} {
+		if !strings.Contains(out, "dag "+id+" lock") {
+			t.Errorf("dag %s must log:\n%s", id, out)
+		}
+	}
+	if !strings.Contains(out, "by orchestrate.TestSlowLockLogNamesItsCaller (mutation_test.go:") {
+		t.Errorf("the log must name the caller, not the lock's own frames:\n%s", out)
 	}
 }
