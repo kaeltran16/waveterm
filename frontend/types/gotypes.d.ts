@@ -65,6 +65,8 @@ declare global {
         runid: string;
         harness: string;
         state: string;
+        cwd?: string;
+        title?: string;
     };
 
     // baseds.AgentStatusData

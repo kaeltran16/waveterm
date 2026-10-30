@@ -47,6 +47,8 @@ type AgentInfo struct {
 	RunId       string `json:"runid"`
 	Harness     string `json:"harness"`
 	State       string `json:"state"`
+	Cwd         string `json:"cwd,omitempty"`   // the session's own directory: a worktree's, when it works in one
+	Title       string `json:"title,omitempty"` // the harness's summary of the session's task, the cockpit's label
 }
 
 type CommandAgentsListRtnData struct {
