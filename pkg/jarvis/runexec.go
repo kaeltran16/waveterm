@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
+	"github.com/wavetermdev/waveterm/pkg/consult"
 	"github.com/wavetermdev/waveterm/pkg/harness"
 	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
@@ -143,6 +144,9 @@ type RunWorkerOptions struct {
 	// DesignSession spawns a design session a run waits on, not a run's agent: without RunAgentEnv the
 	// brainstorm pane and its hook context apply to it. Its caller sets no RunId or TaskId.
 	DesignSession bool
+	// ShortCache gives the session claude's 5-minute prompt cache: for an engine session that works its turns
+	// back to back and exits, never one a person may pause in (consult.PromptCacheTTLEnv).
+	ShortCache bool
 }
 
 // createWorkerTab is the tab-creation seam, so tests make a tab without a layout or a live workspace.
@@ -289,6 +293,9 @@ var SpawnRunWorker = func(ctx context.Context, cap runroute.Capability, workspac
 	blockMeta := makeWorkerBlockMeta(spec, cwd, opts.KeepOnExit)
 	if opts.DesignSession {
 		delete(blockMeta[waveobj.MetaKey_CmdEnv].(map[string]any), RunAgentEnv)
+	}
+	if opts.ShortCache {
+		blockMeta[waveobj.MetaKey_CmdEnv].(map[string]any)[consult.PromptCacheTTLEnv] = consult.ShortSessionCacheTTL
 	}
 	if opts.RunId != "" {
 		blockMeta["agent:runid"] = opts.RunId

@@ -95,7 +95,7 @@ func LaunchJudgingSession(ctx context.Context, s JudgingSession) (string, error)
 	}
 	runID, sessionId := uuid.NewString(), uuid.NewString()
 	oref, err := spawnWorker(ctx, capability, s.WorkspaceId, "", s.Tree, s.Prompt,
-		jarvis.RunWorkerOptions{SessionId: sessionId, RunId: runID, Label: s.Label})
+		jarvis.RunWorkerOptions{SessionId: sessionId, RunId: runID, Label: s.Label, ShortCache: true})
 	if err != nil {
 		return "", err
 	}
