@@ -89,7 +89,10 @@ has exited back to its shell. A refused hand-over says why and does not turn rem
 A hand-over ends when:
 
 - you take the agent back (`taken`);
-- its session exits, or its tab closes (`exited`): the phone shows "Back at the desk";
+- its session exits, or its tab closes (`exited`): the phone shows "Back at the desk". This lands about
+  15 seconds later: an agent that drops out for less (seen once on a live claude session) keeps its
+  hand-over, and the phone's sends and presses are refused until it is back. wavesrv logs each drop-out
+  with its reason (`remote mode: hand-over of tab ...` in `waveapp.log`);
 - remote mode turns off (`off`): the phone page goes offline, and every hand-over is cleared.
 
 Hand-overs live in memory only. An Arc restart ends them all, even when remote mode itself comes back

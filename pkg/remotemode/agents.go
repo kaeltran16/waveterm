@@ -158,6 +158,9 @@ func remoteAct(ctx context.Context, tab string, act AgentAction) error {
 	if state := PhoneState(a); !slices.Contains(allowed, state) {
 		return fmt.Errorf("%w: it is %s", ErrWrongState, state)
 	}
+	if handAway(tab) {
+		return fmt.Errorf("%w: it is not answering Arc right now", ErrWrongState)
+	}
 	switch act.Kind {
 	case ActionSend:
 		return typeMessage(a.BlockId, act.Text)

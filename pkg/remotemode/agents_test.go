@@ -320,6 +320,9 @@ func TestStreamEndsWhenAgentExits(t *testing.T) {
 	a := handTestClaude("tab-a")
 	a.TranscriptPath = "C:/t/session.jsonl"
 	_, roster := handTestEnv(t, a)
+	prevGrace := handAwayGraceMs
+	handAwayGraceMs = 0
+	t.Cleanup(func() { handAwayGraceMs = prevGrace })
 	handTestHand(t, "tab-a")
 	const poll = 100 * time.Millisecond
 	agentsTestPoll(t, poll)

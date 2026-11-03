@@ -225,11 +225,30 @@ func TestTakeBackRecordsTaken(t *testing.T) {
 	}
 }
 
+// handTestClock pins handNow at handTestTs and returns a function that moves it by ms.
+func handTestClock(t *testing.T) func(ms int64) {
+	t.Helper()
+	now := handTestTs
+	handNow = func() int64 { return now }
+	return func(ms int64) { now += ms }
+}
+
+// handTestPastGrace fails the check once, so the grace starts, then moves the clock past it.
+func handTestPastGrace(t *testing.T, step func(int64)) {
+	t.Helper()
+	if _, _, err := ListHanded(context.Background()); err != nil {
+		t.Fatalf("ListHanded: %v", err)
+	}
+	step(handAwayGraceMs)
+}
+
 func TestExitedIsPruned(t *testing.T) {
 	_, roster := handTestEnv(t, handTestClaude("tab-a"), handTestClaude("tab-b"))
+	step := handTestClock(t)
 	handTestHand(t, "tab-a")
 	handTestHand(t, "tab-b")
 	roster.set(handTestClaude("tab-b"))
+	handTestPastGrace(t, step)
 	agents, _, err := ListHanded(context.Background())
 	if err != nil {
 		t.Fatalf("ListHanded: %v", err)
@@ -244,13 +263,53 @@ func TestExitedIsPruned(t *testing.T) {
 
 func TestExitedToShellIsPruned(t *testing.T) {
 	_, roster := handTestEnv(t, handTestClaude("tab-a"))
+	step := handTestClock(t)
 	handTestHand(t, "tab-a")
 	roster.edit("tab-a", func(a *Agent) { a.HasStream = false })
+	handTestPastGrace(t, step)
 	if got := handTestGoneReason(t, "tab-a"); got != EndExited {
 		t.Errorf("claude exited to its shell: reason %q, want %q", got, EndExited)
 	}
 	if got := Status().Handed; len(got) != 0 {
 		t.Errorf("Status().Handed = %v, want none", got)
+	}
+}
+
+func TestBriefAbsenceKeepsHandover(t *testing.T) {
+	cases := []struct {
+		name string
+		away func(*handTestRoster)
+	}{
+		{"stream gap", func(r *handTestRoster) { r.edit("tab-a", func(a *Agent) { a.HasStream = false }) }},
+		{"roster miss", func(r *handTestRoster) { r.set() }},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, roster := handTestEnv(t, handTestClaude("tab-a"))
+			step := handTestClock(t)
+			handTestHand(t, "tab-a")
+			c.away(roster)
+			agents, _, err := ListHanded(context.Background())
+			if err != nil || len(agents) != 1 || agents[0].TabId != "tab-a" {
+				t.Fatalf("in its grace: ListHanded = %v, %v; want tab-a still listed", agents, err)
+			}
+			rec := agentsTestRecordInput(t)
+			if err := remoteAct(context.Background(), "tab-a", AgentAction{Kind: ActionSend, Text: "ls"}); !errors.Is(err, ErrWrongState) {
+				t.Errorf("a send in the grace = %v, want ErrWrongState", err)
+			}
+			if _, got := rec.get(); len(got) != 0 {
+				t.Errorf("a send in the grace typed %q, want nothing", got)
+			}
+			step(handAwayGraceMs - 1)
+			roster.set(handTestClaude("tab-a"))
+			step(handAwayGraceMs)
+			if _, _, err := LookupHanded(context.Background(), "tab-a"); err != nil {
+				t.Fatalf("back within the grace, then past it: LookupHanded = %v, want still handed", err)
+			}
+			if err := remoteAct(context.Background(), "tab-a", AgentAction{Kind: ActionSend, Text: "ls"}); err != nil {
+				t.Errorf("a send once back = %v, want nil", err)
+			}
+		})
 	}
 }
 

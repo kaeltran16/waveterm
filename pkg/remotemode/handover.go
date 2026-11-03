@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"maps"
 	"slices"
 	"strings"
@@ -63,6 +64,11 @@ const (
 	handStatusTimeout = 5 * time.Second
 )
 
+// handAwayGraceMs is how long a handed-over tab may fail the roster or eligibility check before its
+// hand-over ends as exited. A live claude session was once dropped on a single failed check and was
+// eligible again moments later. A var so tests can end a hand-over at once.
+var handAwayGraceMs int64 = 15_000
+
 // GoneError is a tab that is not handed over, with why.
 type GoneError struct{ Reason string }
 
@@ -70,10 +76,13 @@ func (e *GoneError) Error() string {
 	return fmt.Sprintf("agent is not handed over (%s)", e.Reason)
 }
 
-// handover is one handed-over tab: its phone state and when the listener first saw it in that state.
+// handover is one handed-over tab: its phone state, when the listener first saw it in that state, the
+// agent as last seen eligible, and since when it has failed the check (0 while it passes).
 type handover struct {
-	state string
-	since int64
+	state     string
+	since     int64
+	agent     Agent
+	awaySince int64
 }
 
 var (
@@ -233,8 +242,9 @@ func handPruneAndPublish(ctx context.Context) ([]handLive, error) {
 	return live, err
 }
 
-// handPrune drops every hand-over whose agent is no longer eligible, with reason exited, and moves each
-// live one's since when its phone state changed. It returns the live ones sorted by tab id.
+// handPrune drops every hand-over whose agent has failed the eligibility check for longer than
+// handAwayGraceMs, with reason exited, and moves each live one's since when its phone state changed. One
+// still in its grace stays listed as last seen. It returns the live ones sorted by tab id.
 func handPrune(ctx context.Context) (live []handLive, dropped bool, err error) {
 	handMu.Lock()
 	empty := len(handed) == 0
@@ -250,23 +260,58 @@ func handPrune(ctx context.Context) (live []handLive, dropped bool, err error) {
 	for _, a := range agents {
 		byTab[a.TabId] = a
 	}
+	now := handNow()
 	handMu.Lock()
 	defer handMu.Unlock()
 	for tab, h := range handed {
 		a, ok := byTab[tab]
-		if !ok || Eligible(a) != nil {
+		if why := handAwayReason(a, ok); why != "" {
+			if h.awaySince == 0 {
+				h.awaySince = now
+				log.Printf("remote mode: hand-over of tab %s: %s; it ends unless the agent is back within %dms\n", tab, why, handAwayGraceMs)
+			}
+			if now-h.awaySince < handAwayGraceMs {
+				live = append(live, handLive{agent: h.agent, since: h.since})
+				continue
+			}
+			log.Printf("remote mode: hand-over of tab %s ended: %s\n", tab, why)
 			delete(handed, tab)
 			handEnded[tab] = EndExited
 			dropped = true
 			continue
 		}
+		if h.awaySince != 0 {
+			log.Printf("remote mode: hand-over of tab %s: the agent is back after %dms\n", tab, now-h.awaySince)
+			h.awaySince = 0
+		}
+		h.agent = a
 		if state := PhoneState(a); state != h.state {
-			h.state, h.since = state, handNow()
+			h.state, h.since = state, now
 		}
 		live = append(live, handLive{agent: a, since: h.since})
 	}
 	slices.SortFunc(live, func(x, y handLive) int { return strings.Compare(x.agent.TabId, y.agent.TabId) })
 	return live, dropped, nil
+}
+
+// handAwayReason says why a handed-over tab fails the check, "" when it passes.
+func handAwayReason(a Agent, inRoster bool) string {
+	if !inRoster {
+		return "its tab left the agent roster"
+	}
+	if err := Eligible(a); err != nil {
+		return err.Error()
+	}
+	return ""
+}
+
+// handAway reports whether a handed-over tab is failing the check and in its grace, so nothing is typed
+// into a terminal whose agent may have exited to its shell.
+func handAway(tab string) bool {
+	handMu.Lock()
+	defer handMu.Unlock()
+	h := handed[tab]
+	return h != nil && h.awaySince != 0
 }
 
 // handStatusTabs is Status's view of the hand-overs: pruned silently, since Status runs inside
@@ -295,7 +340,7 @@ func handAdd(a Agent) {
 	if _, ok := handed[a.TabId]; ok {
 		return
 	}
-	handed[a.TabId] = &handover{state: PhoneState(a), since: a.Status.Ts}
+	handed[a.TabId] = &handover{state: PhoneState(a), since: a.Status.Ts, agent: a}
 }
 
 // handClearOff ends every hand-over with reason off; reasons from before are dropped with them.
