@@ -3053,8 +3053,7 @@ async function fstDag(h, ctx, ok, opts) {
         await h.ev(`window.__openAddress(${JSON.stringify(`run:${ctx.runId}`)})`);
         const openDag = fstButton(FST_SHEET, "Open DAG");
         await polishWaitFor(h, `!!${openDag}`, 10_000);
-        // a modal the last visit left open comes back with the surface
-        if (!(await h.ev(`${FST_MODAL} != null`))) await finalShotsClick(h, openDag);
+        await finalShotsClick(h, openDag);
     }
     await polishWaitFor(h, `!!${FST_NODE}`, 10_000);
     await h.ev(`(() => {
