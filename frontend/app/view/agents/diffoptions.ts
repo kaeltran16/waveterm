@@ -41,6 +41,8 @@ export function paneOptions(split: boolean, ignoreWs: boolean): MonacoTypes.edit
         glyphMargin: true,
         fontSize: 12.5,
         fontFamily: "var(--font-mono)",
+        // monaco defaults this off, which hides the joined glyphs Fira Code is picked for
+        fontLigatures: true,
         smoothScrolling: true,
         scrollbar: { useShadows: false, verticalScrollbarSize: 6, horizontalScrollbarSize: 6 },
     };
