@@ -1462,9 +1462,6 @@ export const attentionCrossChannel = {
 const POPUP_URL = "popup.html";
 const POPUP_LABEL = "attention-popup";
 const POPUP_CARD = `document.querySelector("button[data-attention-popup]")`;
-const POPUP_AVATAR = `document.querySelector("canvas[data-attention-popup-avatar]")`;
-// POPUP_AVATAR_PX in frontend/app/view/agents/attentionpopup.ts
-const POPUP_AVATAR_PX = 96;
 // a dag the engine's tick leaves alone and the attention list holds nothing for
 const POPUP_LIFTED_STATUS = "cancelled";
 // DEV_ATTENTION_ITEMS_KEY in frontend/app/view/agents/attentionstore.ts
@@ -1597,8 +1594,8 @@ const POPUP_DETAIL = `(async () => {
           )
         : [];
     const name = card?.querySelector("[data-attention-popup-agent-name]");
-    // the visible card is the marked button's parent: it carries the border, the background and the shadow.
-    // Its parent is the row (card and avatar) the window places in the corner.
+    // the visible card is the marked button's parent: it carries the border, the background and the shadow,
+    // and is what the window places in the corner
     const box = (el) => {
         const r = el?.getBoundingClientRect();
         return r ? { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height } : null;
@@ -1609,9 +1606,7 @@ const POPUP_DETAIL = `(async () => {
         hasFocus: document.hasFocus(),
         position,
         size,
-        rowRect: box(card?.parentElement.parentElement),
         cardRect: box(card?.parentElement),
-        avatarRect: box(${POPUP_AVATAR}),
         monitor,
         label: text(plain[0]),
         name: text(name),
@@ -1637,49 +1632,19 @@ async function popupUntil(popup, want, ms) {
     return { ...state, ok: false, ms: Date.now() - start };
 }
 
-// how far, in physical px, the row's right and bottom edges are from where the 16px rule puts them. The row's
+// how far, in physical px, the card's right and bottom edges are from where the 16px rule puts them. The card's
 // rect is in the popup page's logical px, from the window's corner; the window's shadow room reaches past it.
 function popupEdgeError(d) {
     const scale = d?.monitor?.scaleFactor;
     const area = d?.monitor?.workArea;
-    if (!scale || !area || !d.position || !d.rowRect) return null;
-    const right = d.position.x + d.rowRect.right * scale;
-    const bottom = d.position.y + d.rowRect.bottom * scale;
+    if (!scale || !area || !d.position || !d.cardRect) return null;
+    const right = d.position.x + d.cardRect.right * scale;
+    const bottom = d.position.y + d.cardRect.bottom * scale;
     return {
         right: area.position.x + area.size.width - right - POPUP_MARGIN * scale,
         bottom: area.position.y + area.size.height - bottom - POPUP_MARGIN * scale,
     };
 }
-
-// both avatars' scenes once each wears posture. The popup's scene outlives its card, so a stale one from an earlier
-// bubble is waited out rather than read; the last pair read either way.
-const POPUP_FACE_WAIT_MS = 2000;
-async function popupFaces(h, popup, posture) {
-    const read = async (ev) => JSON.parse((await ev("JSON.stringify(window.__jarvisAvatarScene ?? null)")) ?? "null");
-    const start = Date.now();
-    let faces;
-    do {
-        faces = { popup: await read(popup.ev), main: await read(h.ev) };
-        if (faces.popup?.posture === posture && faces.main?.posture === posture) break;
-        await popupSleep(150);
-    } while (Date.now() - start < POPUP_FACE_WAIT_MS);
-    const pick = (s) => s && { expression: s.expression, posture: s.posture, renderer: s.renderer };
-    return { popup: pick(faces.popup), main: pick(faces.main) };
-}
-
-// postureFor (frontend/app/view/jarvis/petcondition.ts) over the whole attention list, as petsignals.ts counts it:
-// an escalation another run left in the dev store outranks the fixture's own ask
-const POPUP_POSTURE_RANK = [
-    ["escalation", "escalation"],
-    ["ask", "blocked-worker"],
-];
-const popupPostureFor = (items) => POPUP_POSTURE_RANK.find(([kind]) => items.some((i) => i.kind === kind))?.[1] ?? "none";
-
-const popupSameFace = (f, posture) =>
-    f.popup?.renderer === "canvas" &&
-    f.popup.posture === posture &&
-    f.main?.posture === posture &&
-    f.popup.expression === f.main.expression;
 
 // polls the main page until a popup click has brought it to the run's sheet on Jarvis, focused
 async function popupLanded(h, ctx, since) {
@@ -1698,9 +1663,6 @@ const popupLandedOk = (before, landed, ctx) =>
     landed.surface === SURFACE_LABEL.jarvis &&
     landed.sheet === ctx.runId &&
     landed.focused === true;
-
-// the whole list the page holds now: the server's items and the seam's
-const popupAttention = async (h, ctx) => [...((await h.rpc("getattention", null)).items || []), ...(ctx.raised ?? [])];
 
 // the block of the fixture run's one dispatched worker. Its tab is read as an object: no wshrpc command returns a tab.
 async function popupWorkerBlock(h, ctx) {
@@ -1736,7 +1698,7 @@ export const attentionPopup = {
             if (!ctx.dispatched) throw new Error(`${POPUP_TASK_IDS[0]} did not dispatch in ${ctx.dispatchMs}ms`);
             ctx.dagId = (await h.rpc("dagstatus", { channelid: ctx.channelId, runid: ctx.runId })).group?.oid;
             if (!ctx.dagId) throw new Error("the run has no dag");
-            // the task lets go of its run, so the worker's ask (steps 12 to 14) is the human's, not the lead's
+            // the task lets go of its run, so the worker's ask (steps 9 and 10) is the human's, not the lead's
             await seedDag(
                 h,
                 ctx,
@@ -1804,16 +1766,11 @@ export const attentionPopup = {
         await popupRaise(h, ctx, [first]);
         const raised = await popupUntil(popup, popupShown, POPUP_RAISE_WAIT_MS);
 
-        // steps 3 to 7 read and click inside the bubble's lifetime, and are judged after
+        // steps 3 to 5 read and click inside the bubble's lifetime, and are judged after
         let gate = null;
-        let gateFaces = null;
-        let gatePosture = null;
         if (raised.ok) {
             await popup.shot("cdp-shots/attention-popup-gate.png");
             gate = await popup.ev(POPUP_DETAIL);
-            gatePosture = popupPostureFor(await popupAttention(h, ctx));
-            gateFaces = await popupFaces(h, popup, gatePosture);
-            await popup.shot("cdp-shots/attention-popup-avatar.png");
             await popup.ev(`${POPUP_CARD}?.click()`);
         }
         const clickedAt = Date.now();
@@ -1835,7 +1792,7 @@ export const attentionPopup = {
 
         const edges = popupEdgeError(gate);
         rec(
-            "3. the popup reads Review, the item's source and its text, themed, its row 16px inside the work area's corner",
+            "3. the popup reads Review, the item's source and its text, themed, its card 16px inside the work area's corner",
             gate.label === "Review" &&
                 gate.name === gateItem?.source &&
                 gate.text === gateItem?.text &&
@@ -1856,7 +1813,7 @@ export const attentionPopup = {
                 edgeErrorPx: edges,
                 position: gate.position,
                 size: gate.size,
-                rowRect: gate.rowRect,
+                cardRect: gate.cardRect,
                 workArea: gate.monitor?.workArea,
                 scale: gate.monitor?.scaleFactor,
             })
@@ -1866,35 +1823,17 @@ export const attentionPopup = {
             gate.visible === true && gate.card === true && gate.hasFocus === false,
             JSON.stringify({ visible: gate.visible, hasFocus: gate.hasFocus })
         );
-        rec(
-            "5. the popup's avatar wears the main window's face while the item stands, drawn on the 2D canvas",
-            gateFaces != null && popupSameFace(gateFaces, gatePosture),
-            JSON.stringify({ expected: gatePosture, faces: gateFaces })
-        );
-        const card = gate.cardRect;
-        const avatar = gate.avatarRect;
-        rec(
-            "6. the avatar is 96px, right of the card, its bottom edge level with the card's",
-            card != null &&
-                avatar != null &&
-                Math.abs(avatar.width - POPUP_AVATAR_PX) <= 0.5 &&
-                Math.abs(avatar.height - POPUP_AVATAR_PX) <= 0.5 &&
-                avatar.left > card.right &&
-                Math.abs(avatar.bottom - card.bottom) <= 1,
-            JSON.stringify({ card, avatar })
-        );
-
         const landed = await popupLanded(h, ctx, clickedAt);
         rec(
-            "7. a click on the card opens the run's sheet on Jarvis and brings the main window forward",
+            "5. a click on the card opens the run's sheet on Jarvis and brings the main window forward",
             popupLandedOk(before, landed, ctx),
             JSON.stringify({ before, landed, runId: ctx.runId })
         );
 
         const closed = await popupUntil(popup, popupGone, POPUP_HIDE_WAIT_MS);
-        rec("8. after the click the popup holds no card and its window is hidden", closed.ok, JSON.stringify(closed));
+        rec("6. after the click the popup holds no card and its window is hidden", closed.ok, JSON.stringify(closed));
 
-        // 9. the override is still on this document: no reload since step 2. Two items new in one poll make one bubble.
+        // 7. the override is still on this document: no reload since step 2. Two items new in one poll make one bubble.
         const stillUnfocused = await h.ev("document.hasFocus()");
         await popupNextPoll(h);
         await popupRaise(h, ctx, [first, second, third]);
@@ -1908,7 +1847,7 @@ export const attentionPopup = {
         // the list is in rank order, so the first of the two is the one the bubble names
         const fresh = ctx.raised.filter((i) => [second, third].includes(i.taskid));
         rec(
-            "9. two items new in one poll raise one popup naming the first, with +1 more waiting",
+            "7. two items new in one poll raise one popup naming the first, with +1 more waiting",
             stillUnfocused === false &&
                 more.ok &&
                 fresh.length === 2 &&
@@ -1929,51 +1868,17 @@ export const attentionPopup = {
             ? await popupUntil(popup, popupGone, Math.max(0, moreAt + leaveBy - Date.now()))
             : { ok: false, why: "no popup to leave" };
         rec(
-            "10. with nothing clicked, the popup leaves by itself within BUBBLE_MS plus 3s",
+            "8. with nothing clicked, the popup leaves by itself within BUBBLE_MS plus 3s",
             left.ok,
             JSON.stringify({ ...left, sinceShownMs: Date.now() - moreAt, limitMs: leaveBy })
         );
 
-        // 11. a fresh popup, raised the way step 9's was, for the last item; its avatar is clicked instead of its card
-        await h.goto("usage");
-        const avatarBefore = { surface: await h.activeSurfaceLabel(), ...(await h.ev(POPUP_MAIN_STATE)) };
-        await popupNextPoll(h);
-        await popupRaise(h, ctx, POPUP_TASK_IDS);
-        const avatarRaised = await popupUntil(popup, popupShown, POPUP_RAISE_WAIT_MS);
-        const avatarClickedAt = Date.now();
-        let avatarClicked = false;
-        if (avatarRaised.ok) {
-            avatarClicked = await popup.ev(`(() => {
-                const avatar = ${POPUP_AVATAR};
-                avatar?.click();
-                return avatar != null;
-            })()`);
-        }
-        const avatarLanded = avatarRaised.ok ? await popupLanded(h, ctx, avatarClickedAt) : null;
-        const avatarClosed = avatarRaised.ok
-            ? await popupUntil(popup, popupGone, POPUP_HIDE_WAIT_MS)
-            : { ok: false, why: "no popup to click" };
-        rec(
-            "11. a click on the avatar lands where a card click does, and the popup hides",
-            avatarRaised.ok && avatarClicked && popupLandedOk(avatarBefore, avatarLanded, ctx) && avatarClosed.ok,
-            JSON.stringify({
-                raised: avatarRaised,
-                clicked: avatarClicked,
-                before: avatarBefore,
-                landed: avatarLanded,
-                closed: avatarClosed,
-            })
-        );
-
-        // 12 to 14. an ask on the fixture run's worker block, raised with the seam's items lifted so the ask is the only
+        // 9 and 10. an ask on the fixture run's worker block, raised with the seam's items lifted so the ask is the only
         // waiting kind; Arc gaining focus hides the bubble well inside BUBBLE_MS
-        const askStep = "12. an ask raises a popup reading Asking you, the worker's name and the question";
-        const askFaceStep =
-            "13. the ask popup's avatar wears the main window's face, blocked-worker unless another run's waiting outranks it, drawn on the 2D canvas";
-        const focusStep = "14. the popup leaves when Arc gains focus";
+        const askStep = "9. an ask raises a popup reading Asking you, the worker's name and the question";
+        const focusStep = "10. the popup leaves when Arc gains focus";
         if (!ctx.workerBlockId) {
             rec(askStep, false, `the fixture run has no worker block to raise an ask on: ${JSON.stringify(ctx.workerSeen)}`);
-            rec(askFaceStep, false, "no popup to read");
             rec(focusStep, false, "no popup to hide");
         } else {
             const askORef = `block:${ctx.workerBlockId}`;
@@ -1987,20 +1892,10 @@ export const attentionPopup = {
             const asked = await popupUntil(popup, popupShown, POPUP_RAISE_WAIT_MS);
             const askedAt = Date.now();
             let askCard = null;
-            let askFaces = null;
-            let askPosture = null;
-            let askOthers = null;
             let hidden = { ok: false, why: "no popup to hide" };
             if (asked.ok) {
                 await popup.shot("cdp-shots/attention-popup-ask.png");
                 askCard = await popup.ev(POPUP_DETAIL);
-                const waiting = (await h.rpc("getattention", null)).items || [];
-                askPosture = popupPostureFor(waiting);
-                askOthers = waiting
-                    .filter((i) => i.runid !== ctx.runId && i.kind === "escalation")
-                    .map((i) => [i.kind, i.runid]);
-                askFaces = await popupFaces(h, popup, askPosture);
-                await popup.shot("cdp-shots/attention-popup-avatar-ask.png");
                 await h.ev(`window.dispatchEvent(new Event("focus"))`);
                 hidden = await popupUntil(popup, popupGone, POPUP_FOCUS_HIDE_MS);
             }
@@ -2022,18 +1917,13 @@ export const attentionPopup = {
                 })
             );
             rec(
-                askFaceStep,
-                askFaces != null && askPosture !== "none" && popupSameFace(askFaces, askPosture),
-                JSON.stringify({ expected: askPosture, outrankedBy: askOthers, faces: askFaces })
-            );
-            rec(
                 focusStep,
                 hidden.ok && sinceShownMs < POPUP_BUBBLE_MS,
                 JSON.stringify({ ...hidden, sinceShownMs, bubbleMs: POPUP_BUBBLE_MS })
             );
         }
 
-        // 15. focused again, a new item raises nothing: the items, lifted for the ask, stand again
+        // 11. focused again, a new item raises nothing: the items, lifted for the ask, stand again
         await h.cdp("Page.removeScriptToEvaluateOnNewDocument", { identifier: ctx.unfocusScript });
         ctx.unfocusScript = null;
         await h.ev("delete document.hasFocus");
@@ -2056,7 +1946,7 @@ export const attentionPopup = {
             else await popupSleep(500);
         }
         rec(
-            "15. with Arc focused, a new item raises no popup within one poll",
+            "11. with Arc focused, a new item raises no popup within one poll",
             focused === true && reported && noise == null,
             JSON.stringify({ focused, emulated: ctx.focusEmulated === true, reported, noise, watchedMs: Date.now() - quietFrom })
         );
@@ -2065,7 +1955,7 @@ export const attentionPopup = {
             ctx.focusEmulated = false;
         }
 
-        // 16. the flash shares the popup's condition, so every popup above also asked for one
+        // 12. the flash shares the popup's condition, so every popup above also asked for one
         const errors = (await h.ev("window.__popupErrors")) ?? null;
         const refused = (errors ?? []).filter((line) => POPUP_FLASH_REFUSED.test(line));
         const direct = await h.ev(`(async () => {
@@ -2079,7 +1969,7 @@ export const attentionPopup = {
             }
         })()`);
         rec(
-            "16. the taskbar flash request is accepted in the dev app",
+            "12. the taskbar flash request is accepted in the dev app",
             Array.isArray(errors) && refused.length === 0 && direct === "accepted",
             `CDP cannot see the taskbar button itself: this checks only that the request is accepted. ${JSON.stringify({
                 direct,

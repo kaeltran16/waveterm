@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { newAttention, POPUP_AT_REST, popupBubble, popupFace, popupPlacement, type PopupFace } from "./attentionpopup";
+import { newAttention, popupBubble, popupPlacement } from "./attentionpopup";
 import { taskbarSignal } from "./attentionstore";
 
 const item = (over: Partial<AttentionItem>): AttentionItem =>
@@ -88,7 +88,6 @@ describe("popupBubble for a brainstorm question", () => {
             text: "Who reads the page first?",
             detail: "For “What on-call sees” · question 5",
             more: 0,
-            face: undefined,
         });
     });
     it("is null while focused", () => {
@@ -96,21 +95,6 @@ describe("popupBubble for a brainstorm question", () => {
     });
     it("is null for a question already seen", () => {
         expect(popupBubble([question], [question], false)).toBeNull();
-    });
-});
-
-describe("popupFace", () => {
-    const gate: PopupFace = { expression: { kind: "tired", provider: "claude", pct: 92 }, posture: "escalation" };
-
-    it("carries the face it was given", () => {
-        const bubble = popupBubble([], [item({ key: "a" })], false, gate);
-        expect(bubble.face).toEqual(gate);
-        expect(popupFace(bubble)).toEqual(gate);
-    });
-    it("is at rest with no posture when the payload has no face", () => {
-        const bubble = popupBubble([], [item({ key: "a" })], false);
-        expect(popupFace(bubble)).toEqual({ expression: { kind: "at-rest" }, posture: "none" });
-        expect(popupFace(bubble)).toBe(POPUP_AT_REST);
     });
 });
 
