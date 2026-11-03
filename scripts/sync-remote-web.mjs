@@ -91,10 +91,12 @@ function writeIcon() {
 }
 
 // absWorkingDir pins the path comments esbuild writes into the output, so a bundle does not depend on
-// the caller's cwd.
+// the caller's cwd; preserveSymlinks keeps them the same in a worktree whose node_modules is a junction
+// to the main checkout's, where the real path would read ../../node_modules.
 function bundleBuildOptions(entry, outfile) {
     return {
         absWorkingDir: ROOT,
+        preserveSymlinks: true,
         entryPoints: [entry],
         outfile,
         bundle: true,

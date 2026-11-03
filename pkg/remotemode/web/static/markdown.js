@@ -5,7 +5,7 @@ var __export = (target, all2) => {
     __defProp(target, name, { get: all2[name], enumerable: true });
 };
 
-// ../../node_modules/mdast-util-to-string/lib/index.js
+// node_modules/mdast-util-to-string/lib/index.js
 var emptyOptions = {};
 function toString(value, options) {
   const settings = options || emptyOptions;
@@ -42,7 +42,7 @@ function node(value) {
   return Boolean(value && typeof value === "object");
 }
 
-// ../../node_modules/character-entities/index.js
+// node_modules/character-entities/index.js
 var characterEntities = {
   AElig: "\xC6",
   AMP: "&",
@@ -2171,13 +2171,13 @@ var characterEntities = {
   zwnj: "\u200C"
 };
 
-// ../../node_modules/decode-named-character-reference/index.js
+// node_modules/decode-named-character-reference/index.js
 var own = {}.hasOwnProperty;
 function decodeNamedCharacterReference(value) {
   return own.call(characterEntities, value) ? characterEntities[value] : false;
 }
 
-// ../../node_modules/micromark-util-chunked/index.js
+// node_modules/micromark-util-chunked/index.js
 function splice(list2, start, remove, items) {
   const end = list2.length;
   let chunkStart = 0;
@@ -2211,7 +2211,7 @@ function push(list2, items) {
   return items;
 }
 
-// ../../node_modules/micromark-util-combine-extensions/index.js
+// node_modules/micromark-util-combine-extensions/index.js
 var hasOwnProperty = {}.hasOwnProperty;
 function combineExtensions(extensions) {
   const all2 = {};
@@ -2251,7 +2251,7 @@ function constructs(existing, list2) {
   splice(existing, 0, 0, before);
 }
 
-// ../../node_modules/micromark-util-decode-numeric-character-reference/index.js
+// node_modules/micromark-util-decode-numeric-character-reference/index.js
 function decodeNumericCharacterReference(value, base) {
   const code2 = Number.parseInt(value, base);
   if (
@@ -2269,12 +2269,12 @@ function decodeNumericCharacterReference(value, base) {
   return String.fromCodePoint(code2);
 }
 
-// ../../node_modules/micromark-util-normalize-identifier/index.js
+// node_modules/micromark-util-normalize-identifier/index.js
 function normalizeIdentifier(value) {
   return value.replace(/[\t\n\r ]+/g, " ").replace(/^ | $/g, "").toLowerCase().toUpperCase();
 }
 
-// ../../node_modules/micromark/node_modules/micromark-util-character/index.js
+// node_modules/micromark/node_modules/micromark-util-character/index.js
 var asciiAlpha = regexCheck(/[A-Za-z]/);
 var asciiAlphanumeric = regexCheck(/[\dA-Za-z]/);
 var asciiAtext = regexCheck(/[#-'*+\--9=?A-Z^-~]/);
@@ -2296,7 +2296,7 @@ function regexCheck(regex) {
   }
 }
 
-// ../../node_modules/micromark/node_modules/micromark-factory-space/index.js
+// node_modules/micromark/node_modules/micromark-factory-space/index.js
 function factorySpace(effects, ok3, type, max) {
   const limit = max ? max - 1 : Number.POSITIVE_INFINITY;
   let size = 0;
@@ -2318,7 +2318,7 @@ function factorySpace(effects, ok3, type, max) {
   }
 }
 
-// ../../node_modules/micromark/lib/initialize/content.js
+// node_modules/micromark/lib/initialize/content.js
 var content = {
   tokenize: initializeContent
 };
@@ -2368,7 +2368,7 @@ function initializeContent(effects) {
   }
 }
 
-// ../../node_modules/micromark/lib/initialize/document.js
+// node_modules/micromark/lib/initialize/document.js
 var document = {
   tokenize: initializeDocument
 };
@@ -2550,7 +2550,7 @@ function tokenizeContainer(effects, ok3, nok) {
   return factorySpace(effects, effects.attempt(this.parser.constructs.document, ok3, nok), "linePrefix", this.parser.constructs.disable.null.includes("codeIndented") ? void 0 : 4);
 }
 
-// ../../node_modules/micromark-util-classify-character/node_modules/micromark-util-character/index.js
+// node_modules/micromark-util-classify-character/node_modules/micromark-util-character/index.js
 var asciiAlpha2 = regexCheck2(/[A-Za-z]/);
 var asciiAlphanumeric2 = regexCheck2(/[\dA-Za-z]/);
 var asciiAtext2 = regexCheck2(/[#-'*+\--9=?A-Z^-~]/);
@@ -2569,7 +2569,7 @@ function regexCheck2(regex) {
   }
 }
 
-// ../../node_modules/micromark-util-classify-character/index.js
+// node_modules/micromark-util-classify-character/index.js
 function classifyCharacter(code2) {
   if (code2 === null || markdownLineEndingOrSpace(code2) || unicodeWhitespace2(code2)) {
     return 1;
@@ -2579,7 +2579,7 @@ function classifyCharacter(code2) {
   }
 }
 
-// ../../node_modules/micromark-util-resolve-all/index.js
+// node_modules/micromark-util-resolve-all/index.js
 function resolveAll(constructs2, events, context) {
   const called = [];
   let index2 = -1;
@@ -2593,7 +2593,7 @@ function resolveAll(constructs2, events, context) {
   return events;
 }
 
-// ../../node_modules/micromark-core-commonmark/lib/attention.js
+// node_modules/micromark-core-commonmark/lib/attention.js
 var attention = {
   name: "attention",
   resolveAll: resolveAllAttention,
@@ -2724,7 +2724,7 @@ function movePoint(point3, offset) {
   point3._bufferIndex += offset;
 }
 
-// ../../node_modules/micromark-core-commonmark/node_modules/micromark-util-character/index.js
+// node_modules/micromark-core-commonmark/node_modules/micromark-util-character/index.js
 var asciiAlpha3 = regexCheck3(/[A-Za-z]/);
 var asciiAlphanumeric3 = regexCheck3(/[\dA-Za-z]/);
 var asciiAtext3 = regexCheck3(/[#-'*+\--9=?A-Z^-~]/);
@@ -2756,7 +2756,7 @@ function regexCheck3(regex) {
   }
 }
 
-// ../../node_modules/micromark-core-commonmark/lib/autolink.js
+// node_modules/micromark-core-commonmark/lib/autolink.js
 var autolink = {
   name: "autolink",
   tokenize: tokenizeAutolink
@@ -2857,7 +2857,7 @@ function tokenizeAutolink(effects, ok3, nok) {
   }
 }
 
-// ../../node_modules/micromark-core-commonmark/node_modules/micromark-factory-space/index.js
+// node_modules/micromark-core-commonmark/node_modules/micromark-factory-space/index.js
 function factorySpace2(effects, ok3, type, max) {
   const limit = max ? max - 1 : Number.POSITIVE_INFINITY;
   let size = 0;
@@ -2879,7 +2879,7 @@ function factorySpace2(effects, ok3, type, max) {
   }
 }
 
-// ../../node_modules/micromark-core-commonmark/lib/blank-line.js
+// node_modules/micromark-core-commonmark/lib/blank-line.js
 var blankLine = {
   partial: true,
   tokenize: tokenizeBlankLine
@@ -2894,7 +2894,7 @@ function tokenizeBlankLine(effects, ok3, nok) {
   }
 }
 
-// ../../node_modules/micromark-core-commonmark/lib/block-quote.js
+// node_modules/micromark-core-commonmark/lib/block-quote.js
 var blockQuote = {
   continuation: {
     tokenize: tokenizeBlockQuoteContinuation
@@ -2952,7 +2952,7 @@ function exit(effects) {
   effects.exit("blockQuote");
 }
 
-// ../../node_modules/micromark-core-commonmark/lib/character-escape.js
+// node_modules/micromark-core-commonmark/lib/character-escape.js
 var characterEscape = {
   name: "characterEscape",
   tokenize: tokenizeCharacterEscape
@@ -2978,7 +2978,7 @@ function tokenizeCharacterEscape(effects, ok3, nok) {
   }
 }
 
-// ../../node_modules/micromark-core-commonmark/lib/character-reference.js
+// node_modules/micromark-core-commonmark/lib/character-reference.js
 var characterReference = {
   name: "characterReference",
   tokenize: tokenizeCharacterReference
@@ -3043,7 +3043,7 @@ function tokenizeCharacterReference(effects, ok3, nok) {
   }
 }
 
-// ../../node_modules/micromark-core-commonmark/lib/code-fenced.js
+// node_modules/micromark-core-commonmark/lib/code-fenced.js
 var nonLazyContinuation = {
   partial: true,
   tokenize: tokenizeNonLazyContinuation
@@ -3226,7 +3226,7 @@ function tokenizeNonLazyContinuation(effects, ok3, nok) {
   }
 }
 
-// ../../node_modules/micromark-core-commonmark/lib/code-indented.js
+// node_modules/micromark-core-commonmark/lib/code-indented.js
 var codeIndented = {
   name: "codeIndented",
   tokenize: tokenizeCodeIndented
@@ -3290,7 +3290,7 @@ function tokenizeFurtherStart(effects, ok3, nok) {
   }
 }
 
-// ../../node_modules/micromark-core-commonmark/lib/code-text.js
+// node_modules/micromark-core-commonmark/lib/code-text.js
 var codeText = {
   name: "codeText",
   previous,
@@ -3405,7 +3405,7 @@ function tokenizeCodeText(effects, ok3, nok) {
   }
 }
 
-// ../../node_modules/micromark-util-subtokenize/lib/splice-buffer.js
+// node_modules/micromark-util-subtokenize/lib/splice-buffer.js
 var SpliceBuffer = class {
   /**
    * @param {ReadonlyArray<T> | null | undefined} [initial]
@@ -3598,7 +3598,7 @@ function chunkedPush(list2, right) {
   }
 }
 
-// ../../node_modules/micromark-util-subtokenize/index.js
+// node_modules/micromark-util-subtokenize/index.js
 function subtokenize(eventsArray) {
   const jumps = {};
   let index2 = -1;
@@ -3751,7 +3751,7 @@ function subcontent(events, eventIndex) {
   return gaps;
 }
 
-// ../../node_modules/micromark-core-commonmark/lib/content.js
+// node_modules/micromark-core-commonmark/lib/content.js
 var content2 = {
   resolve: resolveContent,
   tokenize: tokenizeContent
@@ -3822,7 +3822,7 @@ function tokenizeContinuation(effects, ok3, nok) {
   }
 }
 
-// ../../node_modules/micromark-factory-destination/node_modules/micromark-util-character/index.js
+// node_modules/micromark-factory-destination/node_modules/micromark-util-character/index.js
 var asciiAlpha4 = regexCheck4(/[A-Za-z]/);
 var asciiAlphanumeric4 = regexCheck4(/[\dA-Za-z]/);
 var asciiAtext4 = regexCheck4(/[#-'*+\--9=?A-Z^-~]/);
@@ -3851,7 +3851,7 @@ function regexCheck4(regex) {
   }
 }
 
-// ../../node_modules/micromark-factory-destination/index.js
+// node_modules/micromark-factory-destination/index.js
 function factoryDestination(effects, ok3, nok, type, literalType, literalMarkerType, rawType, stringType, max) {
   const limit = max || Number.POSITIVE_INFINITY;
   let balance = 0;
@@ -3943,7 +3943,7 @@ function factoryDestination(effects, ok3, nok, type, literalType, literalMarkerT
   }
 }
 
-// ../../node_modules/micromark-factory-label/node_modules/micromark-util-character/index.js
+// node_modules/micromark-factory-label/node_modules/micromark-util-character/index.js
 var asciiAlpha5 = regexCheck5(/[A-Za-z]/);
 var asciiAlphanumeric5 = regexCheck5(/[\dA-Za-z]/);
 var asciiAtext5 = regexCheck5(/[#-'*+\--9=?A-Z^-~]/);
@@ -3965,7 +3965,7 @@ function regexCheck5(regex) {
   }
 }
 
-// ../../node_modules/micromark-factory-label/index.js
+// node_modules/micromark-factory-label/index.js
 function factoryLabel(effects, ok3, nok, type, markerType, stringType) {
   const self = this;
   let size = 0;
@@ -4026,7 +4026,7 @@ function factoryLabel(effects, ok3, nok, type, markerType, stringType) {
   }
 }
 
-// ../../node_modules/micromark-factory-title/node_modules/micromark-util-character/index.js
+// node_modules/micromark-factory-title/node_modules/micromark-util-character/index.js
 var asciiAlpha6 = regexCheck6(/[A-Za-z]/);
 var asciiAlphanumeric6 = regexCheck6(/[\dA-Za-z]/);
 var asciiAtext6 = regexCheck6(/[#-'*+\--9=?A-Z^-~]/);
@@ -4048,7 +4048,7 @@ function regexCheck6(regex) {
   }
 }
 
-// ../../node_modules/micromark-factory-title/node_modules/micromark-factory-space/index.js
+// node_modules/micromark-factory-title/node_modules/micromark-factory-space/index.js
 function factorySpace3(effects, ok3, type, max) {
   const limit = max ? max - 1 : Number.POSITIVE_INFINITY;
   let size = 0;
@@ -4070,7 +4070,7 @@ function factorySpace3(effects, ok3, type, max) {
   }
 }
 
-// ../../node_modules/micromark-factory-title/index.js
+// node_modules/micromark-factory-title/index.js
 function factoryTitle(effects, ok3, nok, type, markerType, stringType) {
   let marker;
   return start;
@@ -4132,7 +4132,7 @@ function factoryTitle(effects, ok3, nok, type, markerType, stringType) {
   }
 }
 
-// ../../node_modules/micromark-factory-whitespace/node_modules/micromark-util-character/index.js
+// node_modules/micromark-factory-whitespace/node_modules/micromark-util-character/index.js
 var asciiAlpha7 = regexCheck7(/[A-Za-z]/);
 var asciiAlphanumeric7 = regexCheck7(/[\dA-Za-z]/);
 var asciiAtext7 = regexCheck7(/[#-'*+\--9=?A-Z^-~]/);
@@ -4154,7 +4154,7 @@ function regexCheck7(regex) {
   }
 }
 
-// ../../node_modules/micromark-factory-whitespace/node_modules/micromark-factory-space/index.js
+// node_modules/micromark-factory-whitespace/node_modules/micromark-factory-space/index.js
 function factorySpace4(effects, ok3, type, max) {
   const limit = max ? max - 1 : Number.POSITIVE_INFINITY;
   let size = 0;
@@ -4176,7 +4176,7 @@ function factorySpace4(effects, ok3, type, max) {
   }
 }
 
-// ../../node_modules/micromark-factory-whitespace/index.js
+// node_modules/micromark-factory-whitespace/index.js
 function factoryWhitespace(effects, ok3) {
   let seen;
   return start;
@@ -4195,7 +4195,7 @@ function factoryWhitespace(effects, ok3) {
   }
 }
 
-// ../../node_modules/micromark-core-commonmark/lib/definition.js
+// node_modules/micromark-core-commonmark/lib/definition.js
 var definition = {
   name: "definition",
   tokenize: tokenizeDefinition
@@ -4281,7 +4281,7 @@ function tokenizeTitleBefore(effects, ok3, nok) {
   }
 }
 
-// ../../node_modules/micromark-core-commonmark/lib/hard-break-escape.js
+// node_modules/micromark-core-commonmark/lib/hard-break-escape.js
 var hardBreakEscape = {
   name: "hardBreakEscape",
   tokenize: tokenizeHardBreakEscape
@@ -4302,7 +4302,7 @@ function tokenizeHardBreakEscape(effects, ok3, nok) {
   }
 }
 
-// ../../node_modules/micromark-core-commonmark/lib/heading-atx.js
+// node_modules/micromark-core-commonmark/lib/heading-atx.js
 var headingAtx = {
   name: "headingAtx",
   resolve: resolveHeadingAtx,
@@ -4393,7 +4393,7 @@ function tokenizeHeadingAtx(effects, ok3, nok) {
   }
 }
 
-// ../../node_modules/micromark-util-html-tag-name/index.js
+// node_modules/micromark-util-html-tag-name/index.js
 var htmlBlockNames = [
   "address",
   "article",
@@ -4460,7 +4460,7 @@ var htmlBlockNames = [
 ];
 var htmlRawNames = ["pre", "script", "style", "textarea"];
 
-// ../../node_modules/micromark-core-commonmark/lib/html-flow.js
+// node_modules/micromark-core-commonmark/lib/html-flow.js
 var htmlFlow = {
   concrete: true,
   name: "htmlFlow",
@@ -4839,7 +4839,7 @@ function tokenizeBlankLineBefore(effects, ok3, nok) {
   }
 }
 
-// ../../node_modules/micromark-core-commonmark/lib/html-text.js
+// node_modules/micromark-core-commonmark/lib/html-text.js
 var htmlText = {
   name: "htmlText",
   tokenize: tokenizeHtmlText
@@ -5145,7 +5145,7 @@ function tokenizeHtmlText(effects, ok3, nok) {
   }
 }
 
-// ../../node_modules/micromark-core-commonmark/lib/label-end.js
+// node_modules/micromark-core-commonmark/lib/label-end.js
 var labelEnd = {
   name: "labelEnd",
   resolveAll: resolveAllLabelEnd,
@@ -5371,7 +5371,7 @@ function tokenizeReferenceCollapsed(effects, ok3, nok) {
   }
 }
 
-// ../../node_modules/micromark-core-commonmark/lib/label-start-image.js
+// node_modules/micromark-core-commonmark/lib/label-start-image.js
 var labelStartImage = {
   name: "labelStartImage",
   resolveAll: labelEnd.resolveAll,
@@ -5402,7 +5402,7 @@ function tokenizeLabelStartImage(effects, ok3, nok) {
   }
 }
 
-// ../../node_modules/micromark-core-commonmark/lib/label-start-link.js
+// node_modules/micromark-core-commonmark/lib/label-start-link.js
 var labelStartLink = {
   name: "labelStartLink",
   resolveAll: labelEnd.resolveAll,
@@ -5424,7 +5424,7 @@ function tokenizeLabelStartLink(effects, ok3, nok) {
   }
 }
 
-// ../../node_modules/micromark-core-commonmark/lib/line-ending.js
+// node_modules/micromark-core-commonmark/lib/line-ending.js
 var lineEnding = {
   name: "lineEnding",
   tokenize: tokenizeLineEnding
@@ -5439,7 +5439,7 @@ function tokenizeLineEnding(effects, ok3) {
   }
 }
 
-// ../../node_modules/micromark-core-commonmark/lib/thematic-break.js
+// node_modules/micromark-core-commonmark/lib/thematic-break.js
 var thematicBreak = {
   name: "thematicBreak",
   tokenize: tokenizeThematicBreak
@@ -5478,7 +5478,7 @@ function tokenizeThematicBreak(effects, ok3, nok) {
   }
 }
 
-// ../../node_modules/micromark-core-commonmark/lib/list.js
+// node_modules/micromark-core-commonmark/lib/list.js
 var list = {
   continuation: {
     tokenize: tokenizeListContinuation
@@ -5608,7 +5608,7 @@ function tokenizeListItemPrefixWhitespace(effects, ok3, nok) {
   }
 }
 
-// ../../node_modules/micromark-core-commonmark/lib/setext-underline.js
+// node_modules/micromark-core-commonmark/lib/setext-underline.js
 var setextUnderline = {
   name: "setextUnderline",
   resolveTo: resolveToSetextUnderline,
@@ -5700,7 +5700,7 @@ function tokenizeSetextUnderline(effects, ok3, nok) {
   }
 }
 
-// ../../node_modules/micromark/lib/initialize/flow.js
+// node_modules/micromark/lib/initialize/flow.js
 var flow = {
   tokenize: initializeFlow
 };
@@ -5738,7 +5738,7 @@ function initializeFlow(effects) {
   }
 }
 
-// ../../node_modules/micromark/lib/initialize/text.js
+// node_modules/micromark/lib/initialize/text.js
 var resolver = {
   resolveAll: createResolver()
 };
@@ -5877,7 +5877,7 @@ function resolveAllLineSuffixes(events, context) {
   return events;
 }
 
-// ../../node_modules/micromark/lib/constructs.js
+// node_modules/micromark/lib/constructs.js
 var constructs_exports = {};
 __export(constructs_exports, {
   attentionMarkers: () => attentionMarkers,
@@ -5952,7 +5952,7 @@ var disable = {
   null: []
 };
 
-// ../../node_modules/micromark/lib/create-tokenizer.js
+// node_modules/micromark/lib/create-tokenizer.js
 function createTokenizer(parser, initialize, from) {
   let point3 = {
     _bufferIndex: -1,
@@ -6275,7 +6275,7 @@ function serializeChunks(chunks, expandTabs) {
   return result.join("");
 }
 
-// ../../node_modules/micromark/lib/parse.js
+// node_modules/micromark/lib/parse.js
 function parse(options) {
   const settings = options || {};
   const constructs2 = (
@@ -6301,14 +6301,14 @@ function parse(options) {
   }
 }
 
-// ../../node_modules/micromark/lib/postprocess.js
+// node_modules/micromark/lib/postprocess.js
 function postprocess(events) {
   while (!subtokenize(events)) {
   }
   return events;
 }
 
-// ../../node_modules/micromark/lib/preprocess.js
+// node_modules/micromark/lib/preprocess.js
 var search = /[\0\t\n\r]/g;
 function preprocess() {
   let column = 1;
@@ -6387,7 +6387,7 @@ function preprocess() {
   }
 }
 
-// ../../node_modules/micromark-util-decode-string/index.js
+// node_modules/micromark-util-decode-string/index.js
 var characterEscapeOrReference = /\\([!-/:-@[-`{-~])|&(#(?:\d{1,7}|x[\da-f]{1,6})|[\da-z]{1,31});/gi;
 function decodeString(value) {
   return value.replace(characterEscapeOrReference, decode);
@@ -6405,7 +6405,7 @@ function decode($0, $1, $2) {
   return decodeNamedCharacterReference($2) || $0;
 }
 
-// ../../node_modules/unist-util-stringify-position/lib/index.js
+// node_modules/unist-util-stringify-position/lib/index.js
 function stringifyPosition(value) {
   if (!value || typeof value !== "object") {
     return "";
@@ -6431,7 +6431,7 @@ function index(value) {
   return value && typeof value === "number" ? value : 1;
 }
 
-// ../../node_modules/mdast-util-from-markdown/lib/index.js
+// node_modules/mdast-util-from-markdown/lib/index.js
 var own2 = {}.hasOwnProperty;
 function fromMarkdown(value, encoding, options) {
   if (typeof encoding !== "string") {
@@ -7140,7 +7140,7 @@ function defaultOnError(left, right) {
   }
 }
 
-// ../../node_modules/ccount/index.js
+// node_modules/ccount/index.js
 function ccount(value, character) {
   const source = String(value);
   if (typeof character !== "string") {
@@ -7155,11 +7155,11 @@ function ccount(value, character) {
   return count;
 }
 
-// ../../node_modules/devlop/lib/default.js
+// node_modules/devlop/lib/default.js
 function ok() {
 }
 
-// ../../node_modules/mdast-util-gfm-autolink-literal/node_modules/micromark-util-character/index.js
+// node_modules/mdast-util-gfm-autolink-literal/node_modules/micromark-util-character/index.js
 var asciiAlpha8 = regexCheck8(/[A-Za-z]/);
 var asciiAlphanumeric8 = regexCheck8(/[\dA-Za-z]/);
 var asciiAtext8 = regexCheck8(/[#-'*+\--9=?A-Z^-~]/);
@@ -7175,7 +7175,7 @@ function regexCheck8(regex) {
   }
 }
 
-// ../../node_modules/mdast-util-find-and-replace/node_modules/escape-string-regexp/index.js
+// node_modules/mdast-util-find-and-replace/node_modules/escape-string-regexp/index.js
 function escapeStringRegexp(string3) {
   if (typeof string3 !== "string") {
     throw new TypeError("Expected a string");
@@ -7183,7 +7183,7 @@ function escapeStringRegexp(string3) {
   return string3.replace(/[|\\{}()[\]^$+*?.]/g, "\\$&").replace(/-/g, "\\x2d");
 }
 
-// ../../node_modules/unist-util-is/lib/index.js
+// node_modules/unist-util-is/lib/index.js
 var convert = (
   // Note: overloads in JSDoc can’t yet use different `@template`s.
   /**
@@ -7275,12 +7275,12 @@ function looksLikeANode(value) {
   return value !== null && typeof value === "object" && "type" in value;
 }
 
-// ../../node_modules/unist-util-visit-parents/lib/color.js
+// node_modules/unist-util-visit-parents/lib/color.js
 function color(d) {
   return d;
 }
 
-// ../../node_modules/unist-util-visit-parents/lib/index.js
+// node_modules/unist-util-visit-parents/lib/index.js
 var empty = [];
 var CONTINUE = true;
 var EXIT = false;
@@ -7357,7 +7357,7 @@ function toResult(value) {
   return value === null || value === void 0 ? empty : [value];
 }
 
-// ../../node_modules/mdast-util-find-and-replace/lib/index.js
+// node_modules/mdast-util-find-and-replace/lib/index.js
 function findAndReplace(tree, list2, options) {
   const settings = options || {};
   const ignored = convert(settings.ignore || []);
@@ -7462,7 +7462,7 @@ function toFunction(replace2) {
   };
 }
 
-// ../../node_modules/mdast-util-gfm-autolink-literal/lib/index.js
+// node_modules/mdast-util-gfm-autolink-literal/lib/index.js
 function gfmAutolinkLiteralFromMarkdown() {
   return {
     transforms: [transformGfmAutolinkLiterals],
@@ -7583,7 +7583,7 @@ function previous2(match, email) {
   (!email || code2 !== 47);
 }
 
-// ../../node_modules/mdast-util-gfm-footnote/lib/index.js
+// node_modules/mdast-util-gfm-footnote/lib/index.js
 footnoteReference.peek = footnoteReferencePeek;
 function enterFootnoteCallString() {
   this.buffer();
@@ -7657,7 +7657,7 @@ function gfmFootnoteFromMarkdown() {
   };
 }
 
-// ../../node_modules/mdast-util-gfm-strikethrough/lib/index.js
+// node_modules/mdast-util-gfm-strikethrough/lib/index.js
 handleDelete.peek = peekDelete;
 function gfmStrikethroughFromMarkdown() {
   return {
@@ -7689,7 +7689,7 @@ function peekDelete() {
   return "~";
 }
 
-// ../../node_modules/mdast-util-gfm-table/lib/index.js
+// node_modules/mdast-util-gfm-table/lib/index.js
 function gfmTableFromMarkdown() {
   return {
     enter: {
@@ -7749,7 +7749,7 @@ function replace($0, $1) {
   return $1 === "|" ? $1 : $0;
 }
 
-// ../../node_modules/mdast-util-gfm-task-list-item/lib/index.js
+// node_modules/mdast-util-gfm-task-list-item/lib/index.js
 function gfmTaskListItemFromMarkdown() {
   return {
     exit: {
@@ -7796,7 +7796,7 @@ function exitParagraphWithTaskListItem(token) {
   this.exit(token);
 }
 
-// ../../node_modules/mdast-util-gfm/lib/index.js
+// node_modules/mdast-util-gfm/lib/index.js
 function gfmFromMarkdown() {
   return [
     gfmAutolinkLiteralFromMarkdown(),
@@ -7807,7 +7807,7 @@ function gfmFromMarkdown() {
   ];
 }
 
-// ../../node_modules/micromark-extension-gfm-autolink-literal/node_modules/micromark-util-character/index.js
+// node_modules/micromark-extension-gfm-autolink-literal/node_modules/micromark-util-character/index.js
 var asciiAlpha9 = regexCheck9(/[A-Za-z]/);
 var asciiAlphanumeric9 = regexCheck9(/[\dA-Za-z]/);
 var asciiAtext9 = regexCheck9(/[#-'*+\--9=?A-Z^-~]/);
@@ -7833,7 +7833,7 @@ function regexCheck9(regex) {
   }
 }
 
-// ../../node_modules/micromark-extension-gfm-autolink-literal/lib/syntax.js
+// node_modules/micromark-extension-gfm-autolink-literal/lib/syntax.js
 var wwwPrefix = {
   tokenize: tokenizeWwwPrefix,
   partial: true
@@ -8175,7 +8175,7 @@ function previousUnbalanced(events) {
   return result;
 }
 
-// ../../node_modules/micromark-extension-gfm-footnote/node_modules/micromark-util-character/index.js
+// node_modules/micromark-extension-gfm-footnote/node_modules/micromark-util-character/index.js
 var asciiAlpha10 = regexCheck10(/[A-Za-z]/);
 var asciiAlphanumeric10 = regexCheck10(/[\dA-Za-z]/);
 var asciiAtext10 = regexCheck10(/[#-'*+\--9=?A-Z^-~]/);
@@ -8197,7 +8197,7 @@ function regexCheck10(regex) {
   }
 }
 
-// ../../node_modules/micromark-extension-gfm-footnote/node_modules/micromark-factory-space/index.js
+// node_modules/micromark-extension-gfm-footnote/node_modules/micromark-factory-space/index.js
 function factorySpace5(effects, ok3, type, max) {
   const limit = max ? max - 1 : Number.POSITIVE_INFINITY;
   let size = 0;
@@ -8219,7 +8219,7 @@ function factorySpace5(effects, ok3, type, max) {
   }
 }
 
-// ../../node_modules/micromark-extension-gfm-footnote/lib/syntax.js
+// node_modules/micromark-extension-gfm-footnote/lib/syntax.js
 var indent = {
   tokenize: tokenizeIndent2,
   partial: true
@@ -8494,7 +8494,7 @@ function tokenizeIndent2(effects, ok3, nok) {
   }
 }
 
-// ../../node_modules/micromark-extension-gfm-strikethrough/lib/syntax.js
+// node_modules/micromark-extension-gfm-strikethrough/lib/syntax.js
 function gfmStrikethrough(options) {
   const options_ = options || {};
   let single = options_.singleTilde;
@@ -8588,7 +8588,7 @@ function gfmStrikethrough(options) {
   }
 }
 
-// ../../node_modules/micromark-extension-gfm-table/node_modules/micromark-util-character/index.js
+// node_modules/micromark-extension-gfm-table/node_modules/micromark-util-character/index.js
 var asciiAlpha11 = regexCheck11(/[A-Za-z]/);
 var asciiAlphanumeric11 = regexCheck11(/[\dA-Za-z]/);
 var asciiAtext11 = regexCheck11(/[#-'*+\--9=?A-Z^-~]/);
@@ -8613,7 +8613,7 @@ function regexCheck11(regex) {
   }
 }
 
-// ../../node_modules/micromark-extension-gfm-table/node_modules/micromark-factory-space/index.js
+// node_modules/micromark-extension-gfm-table/node_modules/micromark-factory-space/index.js
 function factorySpace6(effects, ok3, type, max) {
   const limit = max ? max - 1 : Number.POSITIVE_INFINITY;
   let size = 0;
@@ -8635,7 +8635,7 @@ function factorySpace6(effects, ok3, type, max) {
   }
 }
 
-// ../../node_modules/micromark-extension-gfm-table/lib/edit-map.js
+// node_modules/micromark-extension-gfm-table/lib/edit-map.js
 var EditMap = class {
   /**
    * Create a new edit map.
@@ -8714,7 +8714,7 @@ function addImplementation(editMap, at, remove, add) {
   editMap.map.push([at, remove, add]);
 }
 
-// ../../node_modules/micromark-extension-gfm-table/lib/infer.js
+// node_modules/micromark-extension-gfm-table/lib/infer.js
 function gfmTableAlign(events, index2) {
   let inDelimiterRow = false;
   const align = [];
@@ -8741,7 +8741,7 @@ function gfmTableAlign(events, index2) {
   return align;
 }
 
-// ../../node_modules/micromark-extension-gfm-table/lib/syntax.js
+// node_modules/micromark-extension-gfm-table/lib/syntax.js
 function gfmTable() {
   return {
     flow: {
@@ -9127,7 +9127,7 @@ function getPoint(events, index2) {
   return event[1][side];
 }
 
-// ../../node_modules/micromark-extension-gfm-task-list-item/node_modules/micromark-util-character/index.js
+// node_modules/micromark-extension-gfm-task-list-item/node_modules/micromark-util-character/index.js
 var asciiAlpha12 = regexCheck12(/[A-Za-z]/);
 var asciiAlphanumeric12 = regexCheck12(/[\dA-Za-z]/);
 var asciiAtext12 = regexCheck12(/[#-'*+\--9=?A-Z^-~]/);
@@ -9152,7 +9152,7 @@ function regexCheck12(regex) {
   }
 }
 
-// ../../node_modules/micromark-extension-gfm-task-list-item/node_modules/micromark-factory-space/index.js
+// node_modules/micromark-extension-gfm-task-list-item/node_modules/micromark-factory-space/index.js
 function factorySpace7(effects, ok3, type, max) {
   const limit = max ? max - 1 : Number.POSITIVE_INFINITY;
   let size = 0;
@@ -9174,7 +9174,7 @@ function factorySpace7(effects, ok3, type, max) {
   }
 }
 
-// ../../node_modules/micromark-extension-gfm-task-list-item/lib/syntax.js
+// node_modules/micromark-extension-gfm-task-list-item/lib/syntax.js
 var tasklistCheck = {
   name: "tasklistCheck",
   tokenize: tokenizeTasklistCheck
@@ -9248,7 +9248,7 @@ function spaceThenNonSpace(effects, ok3, nok) {
   }
 }
 
-// ../../node_modules/micromark-extension-gfm/index.js
+// node_modules/micromark-extension-gfm/index.js
 function gfm(options) {
   return combineExtensions([
     gfmAutolinkLiteral(),
