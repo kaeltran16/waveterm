@@ -778,11 +778,21 @@ export const brainstormMode = {
         const via = (await bsKeysArrive(h)) ? "keys" : "set";
         await bsKey(h, BS_EDIT, "Escape", via);
         const escClosed = await h.ev(`!${BS_EDIT}`);
+        // the box's absence alone also reads true when Escape closes the whole design
+        const designOpen = await h.ev(`!!${BS_PANE}?.querySelector("[data-brainstorm-back]")`);
+        const partOpen = await h.ev(
+            `${bsPartSel("constraints")}?.querySelector("[data-brainstorm-row-toggle]")?.getAttribute("aria-expanded") === "true"`
+        );
         const escQuiet = await bsNothingTyped(h, mark);
         rec(
             "2f. Edit on Constraints opens prefilled with its body; Escape closes it and sends nothing",
-            editOpened === "clicked" && prefill === BS_PART.constraints.body && escClosed && escQuiet.ok,
-            { editOpened, prefill, escClosed, typed: escQuiet.sent, keys: via }
+            editOpened === "clicked" &&
+                prefill === BS_PART.constraints.body &&
+                escClosed &&
+                designOpen &&
+                partOpen &&
+                escQuiet.ok,
+            { editOpened, prefill, escClosed, designOpen, partOpen, typed: escQuiet.sent, keys: via }
         );
         await bsClick(h, bsPartSel("constraints"), "Edit");
         await polishWaitFor(h, `!!${BS_EDIT}`, 2000);
