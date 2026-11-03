@@ -77,6 +77,8 @@ export type FileLinkHandler = {
 };
 
 const FileLinkAccentVar = "--color-accent-soft";
+// longer than xterm takes to drop and re-hover a link after a render, short enough not to show after a real leave
+const FileLinkAccentReleaseMs = 50;
 
 // xterm decorations take only #rrggbb, and the theme token is read at hover time so themes apply.
 function fileLinkAccentHex(): string | undefined {
@@ -118,6 +120,10 @@ export class TermWrap {
     hoveredLinkUri: string | null = null;
     onLinkHover?: (uri: string | null, mouseX: number, mouseY: number) => void;
     fileLinkHandler: FileLinkHandler | null = null;
+    private fileLinkAccent: { key: string; deco: TermTypes.IDisposable; releaseTimer?: number } | null = null;
+    // the modifier as the last key event left it, cleared by a pointer move: a re-hover after a render carries
+    // xterm's last mouse event, whose modifier state can predate a press or release
+    private peekKeyHeld: boolean | null = null;
 
     // Paste deduplication
     // xterm.js paste() method triggers onData event, which can cause duplicate sends
@@ -192,6 +198,15 @@ export class TermWrap {
         this.toDispose.push(
             this.terminal.registerLinkProvider({ provideLinks: (y, callback) => callback(this.provideFileLinks(y)) })
         );
+        // capture, so it runs before xterm's own move handling starts a hover
+        const clearPeekKey = () => (this.peekKeyHeld = null);
+        connectElem.addEventListener("mousemove", clearPeekKey, true);
+        this.toDispose.push({
+            dispose: () => {
+                connectElem.removeEventListener("mousemove", clearPeekKey, true);
+                this.dropFileLinkAccent();
+            },
+        });
         this.setTermRenderer(WebGLSupported && waveOptions.useWebGl ? "webgl" : "dom");
         // Register OSC handlers
         this.terminal.parser.registerOscHandler(7, (data: string) => {
@@ -536,24 +551,20 @@ export class TermWrap {
     ): TermTypes.IDisposable {
         let clientX = e.clientX;
         let held = false;
-        let accent: TermTypes.IMarker | undefined;
-        const clearAccent = () => {
-            accent?.dispose();
-            accent = undefined;
-        };
         const apply = (nowHeld: boolean) => {
             held = nowHeld;
             link.decorations.underline = held;
             link.decorations.pointerCursor = held;
-            if (held && accent == null) {
-                accent = this.accentFileLink(match, bufferLine);
-            } else if (!held) {
-                clearAccent();
+            if (held) {
+                this.holdFileLinkAccent(match, bufferLine);
+            } else {
+                this.dropFileLinkAccent();
             }
             this.fileLinkHandler?.hint(held ? this.belowRow(bufferLine, clientX) : null);
         };
         const onKey = (ke: KeyboardEvent) => {
             const nowHeld = isPeekModifier(ke, isMacOS());
+            this.peekKeyHeld = nowHeld;
             if (nowHeld !== held) {
                 apply(nowHeld);
             }
@@ -572,7 +583,7 @@ export class TermWrap {
         let disposed = false;
         queueMicrotask(() => {
             if (!disposed) {
-                apply(isPeekModifier(e, isMacOS()));
+                apply(this.peekKeyHeld ?? isPeekModifier(e, isMacOS()));
             }
         });
         return {
@@ -581,7 +592,7 @@ export class TermWrap {
                 window.removeEventListener("keydown", onKey, true);
                 window.removeEventListener("keyup", onKey, true);
                 this.terminal.element?.removeEventListener("mousemove", onMove);
-                clearAccent();
+                this.releaseFileLinkAccent();
                 if (held) {
                     this.fileLinkHandler?.hint(null);
                 }
@@ -589,8 +600,48 @@ export class TermWrap {
         };
     }
 
-    // recolors the link's cells; the decoration is disposed with its marker.
-    private accentFileLink(match: FileLinkMatch, bufferLine: number): TermTypes.IMarker | undefined {
+    // The accent outlives a leave by a moment: registering it re-renders the viewport, and xterm then drops the link
+    // under the pointer and hovers it again, so releasing it at once would re-register it on every frame.
+    private holdFileLinkAccent(match: FileLinkMatch, bufferLine: number) {
+        const key = `${bufferLine}:${match.start}:${match.end}`;
+        const cur = this.fileLinkAccent;
+        if (cur?.key === key) {
+            window.clearTimeout(cur.releaseTimer);
+            cur.releaseTimer = undefined;
+            return;
+        }
+        this.dropFileLinkAccent();
+        const deco = this.accentFileLink(match, bufferLine);
+        if (deco != null) {
+            this.fileLinkAccent = { key, deco };
+        }
+    }
+
+    private releaseFileLinkAccent() {
+        const cur = this.fileLinkAccent;
+        if (cur == null || cur.releaseTimer != null) {
+            return;
+        }
+        cur.releaseTimer = window.setTimeout(() => {
+            if (this.fileLinkAccent === cur) {
+                this.dropFileLinkAccent();
+            }
+        }, FileLinkAccentReleaseMs);
+    }
+
+    private dropFileLinkAccent() {
+        const cur = this.fileLinkAccent;
+        this.fileLinkAccent = null;
+        if (cur != null) {
+            window.clearTimeout(cur.releaseTimer);
+            cur.deco.dispose();
+        }
+    }
+
+    // recolors the link's cells. The decoration goes before its marker: xterm finds a decoration to remove by its
+    // marker's line, which a disposed marker has lost, so disposing the marker first strands the decoration in
+    // xterm's sorted list and later decorations stop rendering.
+    private accentFileLink(match: FileLinkMatch, bufferLine: number): TermTypes.IDisposable | undefined {
         const color = fileLinkAccentHex();
         const marker = color ? this.markLine(bufferLine) : undefined;
         if (marker == null) {
@@ -607,7 +658,12 @@ export class TermWrap {
             marker.dispose();
             return undefined;
         }
-        return marker;
+        return {
+            dispose: () => {
+                deco.dispose();
+                marker.dispose();
+            },
+        };
     }
 
     private belowRow(bufferLine: number, clientX: number): { x: number; y: number } | null {

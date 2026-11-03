@@ -21,6 +21,7 @@ import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { MotionConfig } from "motion/react";
 import { useEffect, useMemo, useRef } from "react";
+import { CodePeekContext } from "../code/codepeekhost";
 import type { AgentsViewModel } from "./agents";
 import { AgentDetailsRail } from "./agentdetailsrail";
 import { AgentHeader } from "./agentheader";
@@ -199,7 +200,9 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
                                         a.id === agent.id && !paneMode ? "flex flex-col" : "hidden"
                                     )}
                                 >
-                                    <CockpitFocusPane blockId={a.blockId!} tabId={tabId} />
+                                    <CodePeekContext.Provider value={{ model, transcriptPath: a.transcriptPath }}>
+                                        <CockpitFocusPane blockId={a.blockId!} tabId={tabId} />
+                                    </CodePeekContext.Provider>
                                 </div>
                             ))}
                         {isEndedWorkerId(agent.id) ? (
