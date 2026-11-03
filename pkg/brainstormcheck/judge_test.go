@@ -3,6 +3,7 @@ package brainstormcheck
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -246,7 +247,7 @@ func TestJudgePromptOnARerun(t *testing.T) {
 func TestJudgePromptSaysWhatTheJudgeMustDo(t *testing.T) {
 	report := filepath.Join("tmp", "judge-report.json")
 	got := JudgePrompt(JudgeInput{Approaches: judgeApproaches}, "", report, keep)
-	for _, w := range []string{".superpowers/", "Change no file", "Verify", "would beat every listed", "Ground every pro and con",
+	for _, w := range []string{".superpowers/", "Change no file", "Verify", "would beat every listed", "Ground every pro and con", "`from`",
 		"Write only the JSON object to " + report} {
 		if !strings.Contains(got, w) {
 			t.Errorf("prompt lacks %q", w)
@@ -314,7 +315,7 @@ func TestDecideJudge(t *testing.T) {
 	}
 	for _, tt := range unusable {
 		t.Run(tt.name, func(t *testing.T) {
-			got, out := DecideJudge(done(tt.report), "")
+			got, out := DecideJudge(done(tt.report), "", nil)
 			if got.Kind != Fail || !strings.HasPrefix(got.Reason, "The judge's result is not usable: ") {
 				t.Fatalf("DecideJudge = %+v, want Fail naming the unusable result", got)
 			}
@@ -339,7 +340,7 @@ func TestDecideJudge(t *testing.T) {
 	}
 	for _, tt := range plain {
 		t.Run(tt.name, func(t *testing.T) {
-			got, out := DecideJudge(tt.run, tt.lost)
+			got, out := DecideJudge(tt.run, tt.lost, nil)
 			if got != tt.want || out != nil {
 				t.Fatalf("DecideJudge = %+v, %s; want %+v and no bytes", got, out, tt.want)
 			}
@@ -348,7 +349,7 @@ func TestDecideJudge(t *testing.T) {
 
 	t.Run("a good report delivers judge.json", func(t *testing.T) {
 		for _, lost := range []string{"", "worker exited"} {
-			got, out := DecideJudge(done("\n"+good+"\n"), lost)
+			got, out := DecideJudge(done("\n"+good+"\n"), lost, nil)
 			if got != (Action{Kind: Deliver}) {
 				t.Fatalf("DecideJudge(lost %q) = %+v, want Deliver", lost, got)
 			}
@@ -400,7 +401,7 @@ func TestDecideJudge(t *testing.T) {
 		got, out := DecideJudge(done(judgeReport(t, func(r map[string]any) {
 			delete(r, "added")
 			r["dropped"] = nil
-		})), "")
+		})), "", nil)
 		if got.Kind != Deliver {
 			t.Fatalf("DecideJudge = %+v, want Deliver", got)
 		}
@@ -408,6 +409,110 @@ func TestDecideJudge(t *testing.T) {
 			t.Fatalf("judge.json = %s, want added and dropped as empty lists", out)
 		}
 	})
+}
+
+var boardApproaches = []Approach{
+	{Name: "Left rail", Boards: BoardList{"Left-rail.dc.html", "Shared.dc.html"}},
+	{Name: "Top strip", Boards: BoardList{"Shared.dc.html", "Top-strip.dc.html"}},
+	{Name: "No boards"},
+}
+
+func TestJudgeFileBoardsFromApproaches(t *testing.T) {
+	opt := func(label string, extra map[string]any) map[string]any {
+		o := map[string]any{"label": label, "detail": "d"}
+		maps.Copy(o, extra)
+		return o
+	}
+	tests := []struct {
+		name       string
+		options    []any
+		approaches []Approach
+		want       [][]string
+		wantFrom   [][]string
+	}{
+		{"one source approach", []any{opt("A", map[string]any{"pick": true, "from": []any{"Left rail"}}), opt("B", nil)},
+			boardApproaches, [][]string{{"Left-rail.dc.html", "Shared.dc.html"}, nil}, [][]string{{"Left rail"}, nil}},
+		{"a merged option holds the union once, in from order",
+			[]any{opt("A", map[string]any{"pick": true, "from": []any{"Top strip", "Left rail"}}), opt("B", nil)},
+			boardApproaches, [][]string{{"Shared.dc.html", "Top-strip.dc.html", "Left-rail.dc.html"}, nil},
+			[][]string{{"Top strip", "Left rail"}, nil}},
+		{"from names match after trimming",
+			[]any{opt("A", map[string]any{"pick": true, "from": []any{" Left rail "}}), opt("B", nil)},
+			boardApproaches, [][]string{{"Left-rail.dc.html", "Shared.dc.html"}, nil}, [][]string{{" Left rail "}, nil}},
+		{"an approach the judge added and a near match get none",
+			[]any{opt("A", map[string]any{"pick": true, "from": []any{"Ask the hook", "left rail"}}), opt("B", nil)},
+			boardApproaches, [][]string{nil, nil}, [][]string{{"Ask the hook", "left rail"}, nil}},
+		{"boards the judge wrote itself are discarded",
+			[]any{opt("A", map[string]any{"pick": true, "boards": []any{"X.dc.html"}}),
+				opt("B", map[string]any{"boards": []any{"Y.dc.html"}, "from": []any{"No boards"}})},
+			boardApproaches, [][]string{nil, nil}, [][]string{nil, {"No boards"}}},
+		{"no approaches leaves every option without boards",
+			[]any{opt("A", map[string]any{"pick": true, "from": []any{"Left rail"}}), opt("B", nil)},
+			nil, [][]string{nil, nil}, [][]string{{"Left rail"}, nil}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			report := judgeReport(t, func(r map[string]any) { r["options"] = tt.options })
+			out, err := judgeFileBytes(report, tt.approaches)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got struct {
+				Options []struct {
+					Boards []string `json:"boards"`
+					From   []string `json:"from"`
+				} `json:"options"`
+			}
+			if err := json.Unmarshal(out, &got); err != nil {
+				t.Fatal(err)
+			}
+			for i, o := range got.Options {
+				if !slices.Equal(o.Boards, tt.want[i]) {
+					t.Errorf("option %d boards = %v, want %v", i, o.Boards, tt.want[i])
+				}
+				if !slices.Equal(o.From, tt.wantFrom[i]) {
+					t.Errorf("option %d from = %v, want %v", i, o.From, tt.wantFrom[i])
+				}
+			}
+		})
+	}
+}
+
+func TestJudgePromptListsApproachBoards(t *testing.T) {
+	in := JudgeInput{Approaches: []Approach{
+		{Name: "Left rail", Description: "d", Boards: BoardList{"Left-rail.dc.html", "Left-rail-failed.dc.html"}},
+		{Name: "Plain", Description: "d"},
+	}}
+	got := JudgePrompt(in, "", filepath.Join("tmp", "r.json"), keep)
+	if want := "1. Left rail: d\n   Boards: Left-rail.dc.html, Left-rail-failed.dc.html\n"; !strings.Contains(got, want) {
+		t.Errorf("prompt lacks %q under the approach", want)
+	}
+	if n := strings.Count(got, "Boards:"); n != 1 {
+		t.Errorf("prompt holds %d Boards lines, want 1: an approach with none gets no line", n)
+	}
+}
+
+func TestReadJudgeInputToleratesMalformedBoards(t *testing.T) {
+	var approaches []string
+	for i, n := range []string{"A", "B", "C", "D", "E"} {
+		boards := ""
+		if i == 0 {
+			boards = `,"boards":"X.dc.html"`
+		}
+		approaches = append(approaches, fmt.Sprintf(`{"name":%q,"description":"d","facts":["f"]%s}`, n, boards))
+	}
+	raw := `{"question":{"text":"q","approaches":[` + strings.Join(approaches, ",") + `],` +
+		`"options":[{"label":"A","detail":"d","boards":[1," ","A.dc.html"]}],"judge":{"added":[],"dropped":[]}}}`
+	in, err := ReadJudgeInput([]byte(raw))
+	if err != nil {
+		t.Fatalf("malformed boards refused the judge: %v", err)
+	}
+	if len(in.Approaches[0].Boards) != 0 {
+		t.Errorf("approach boards = %v, want none for a string", in.Approaches[0].Boards)
+	}
+	if len(in.Earlier) != 1 || !slices.Equal(in.Earlier[0].Boards, []string{"A.dc.html"}) {
+		t.Errorf("option boards = %+v, want [A.dc.html]", in.Earlier)
+	}
 }
 
 func sortedKeys(m map[string]json.RawMessage) []string {

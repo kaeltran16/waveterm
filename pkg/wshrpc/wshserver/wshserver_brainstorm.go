@@ -81,7 +81,7 @@ type sessionKind struct {
 	route      func(ch *waveobj.Channel, agent string) waveobj.RoutePin
 	prompt     func(s brainstormSession, reportPath string) (string, error)
 	// decide judges the run; on Deliver it returns the bytes to write to resultPath
-	decide      func(run *waveobj.Run, lostReason string) (brainstormcheck.Action, []byte)
+	decide      func(s brainstormSession, run *waveobj.Run, lostReason string) (brainstormcheck.Action, []byte)
 	resultPath  func(brainstormFile string) string
 	line        func(path string) string
 	failLine    func(reason string) string // nil when the pane shows the failure on its own card
@@ -104,7 +104,7 @@ var builderCheckKind = &sessionKind{
 	prompt: func(s brainstormSession, reportPath string) (string, error) {
 		return brainstormcheck.Prompt(s.Spec, reportPath), nil
 	},
-	decide: func(run *waveobj.Run, lostReason string) (brainstormcheck.Action, []byte) {
+	decide: func(_ brainstormSession, run *waveobj.Run, lostReason string) (brainstormcheck.Action, []byte) {
 		action := brainstormcheck.Decide(run, lostReason)
 		if action.Kind != brainstormcheck.Deliver {
 			return action, nil
@@ -133,11 +133,11 @@ var judgeKind = &sessionKind{
 		return waveobj.RoutePin{Runtime: "claude", Model: "opus"}
 	},
 	prompt: judgePrompt,
-	decide: func(run *waveobj.Run, lostReason string) (brainstormcheck.Action, []byte) {
+	decide: func(s brainstormSession, run *waveobj.Run, lostReason string) (brainstormcheck.Action, []byte) {
 		if lostReason != "" {
 			lostReason = judgeLostHead + lostReason
 		}
-		return brainstormcheck.DecideJudge(run, lostReason)
+		return brainstormcheck.DecideJudge(run, lostReason, judgeApproaches(s.File))
 	},
 	resultPath:  brainstormcheck.JudgeResultPath,
 	line:        brainstormcheck.JudgedLine,
@@ -348,6 +348,22 @@ func judgePrompt(s brainstormSession, reportPath string) (string, error) {
 	return brainstormcheck.JudgePrompt(in, s.Line, reportPath, rand.Shuffle), nil
 }
 
+// judgeApproaches reads the open question's approaches from the brainstorm file as it stands when the judge is
+// decided: the session is rebuilt from tab meta after a restart, so a launch-time snapshot would be lost. A file
+// that cannot be read leaves the options without boards, which the pane shows unlettered, rather than losing the
+// question.
+func judgeApproaches(file string) []brainstormcheck.Approach {
+	raw, err := os.ReadFile(file)
+	if err == nil {
+		var in brainstormcheck.JudgeInput
+		if in, err = brainstormcheck.ReadJudgeInput(raw); err == nil {
+			return in.Approaches
+		}
+	}
+	log.Printf("judge: reading approaches from %s: %v", file, err)
+	return nil
+}
+
 // setBrainstormRecord writes k's record on the agent's tab, all five keys at once, clearing the empty ones, and
 // broadcasts the tab.
 func setBrainstormRecord(ctx context.Context, k *sessionKind, tabId, state string, ts int64, run, channel, reason string) error {
@@ -480,7 +496,7 @@ func tickBrainstormSession(ctx context.Context, s brainstormSession, now int64) 
 	if run == nil || run.Status != jarvis.RunStatus_Done {
 		lost, _ = orchestrate.JudgingSessionLost(ctx, s.ChannelId, s.RunId, s.StartedTs, now)
 	}
-	action, out := k.decide(run, lost)
+	action, out := k.decide(s, run, lost)
 	switch action.Kind {
 	case brainstormcheck.Deliver:
 		path := k.resultPath(s.File)
