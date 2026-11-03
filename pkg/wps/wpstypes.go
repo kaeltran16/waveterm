@@ -38,6 +38,7 @@ const (
 
 	Event_MemHygieneUpdate = "memhygiene:update" // type: none (the setup memory tab re-lists on it)
 	Event_RemoteStatus     = "remote:status"     // type: *wshrpc.RemoteStatusData
+	Event_EffortUpdate     = "effort:update"     // type: none (the cockpit re-reads its initiatives on it)
 )
 
 var AllEvents []string = []string{
@@ -62,6 +63,7 @@ var AllEvents []string = []string{
 	Event_RunEvent,
 	Event_MemHygieneUpdate,
 	Event_RemoteStatus,
+	Event_EffortUpdate,
 }
 
 type WaveEvent struct {

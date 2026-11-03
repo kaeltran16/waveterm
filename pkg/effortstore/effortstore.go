@@ -23,6 +23,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/memroots"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wavevault"
+	"github.com/wavetermdev/waveterm/pkg/wps"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
@@ -137,6 +138,12 @@ func load(path, oid string) (*waveobj.Effort, error) {
 	return e, nil
 }
 
+// the cockpit holds no effort objects of its own to watch, so a change made outside it (`wsh effort`, an
+// agent's tick, the engine's chunk marks) reaches the Brief only through this event
+func publishUpdate() {
+	wps.Broker.Publish(wps.WaveEvent{Event: wps.Event_EffortUpdate})
+}
+
 func dropCache(path string) {
 	stateMu.Lock()
 	delete(cache, path)
@@ -202,7 +209,11 @@ func Create(ctx context.Context, e *waveobj.Effort) error {
 	if _, err := os.Stat(path); err == nil {
 		return fmt.Errorf("effort %s already exists", e.OID)
 	}
-	return write(root, path, clone(e))
+	if err := write(root, path, clone(e)); err != nil {
+		return err
+	}
+	publishUpdate()
+	return nil
 }
 
 func Get(ctx context.Context, oid string) (*waveobj.Effort, error) {
@@ -280,7 +291,11 @@ func Update(ctx context.Context, oid string, fn func(*waveobj.Effort) error) err
 	}
 	e.Version++
 	e.UpdatedTs = time.Now().UnixMilli()
-	return write(root, path, e)
+	if err := write(root, path, e); err != nil {
+		return err
+	}
+	publishUpdate()
+	return nil
 }
 
 // Delete removes the effort's file. A missing effort is not an error, as with wstore.DBDelete.
@@ -303,6 +318,7 @@ func Delete(ctx context.Context, oid string) error {
 		return fmt.Errorf("delete effort %s: %w", oid, err)
 	}
 	wavevault.Poke()
+	publishUpdate()
 	return nil
 }
 

@@ -23,6 +23,7 @@ import { NewAgentModal } from "@/app/view/agents/newagentmodal";
 import { NewInitiativeHost } from "@/app/view/jarvis/newinitiativecontrol";
 import { NewRunModalHost } from "@/app/view/jarvis/newruncontrol";
 import { NewProjectModal } from "@/app/view/agents/newprojectmodal";
+import { subscribeEffortUpdates } from "@/app/view/jarvis/effortstore";
 import { PetSources } from "@/app/view/jarvis/petsources";
 import { PetView } from "@/app/view/jarvis/petview";
 import { WaveEnv, WaveEnvContext } from "@/app/waveenv/waveenv";
@@ -81,6 +82,7 @@ function CockpitBody({ waveEnv }: { waveEnv: WaveEnv }) {
         setupOpenFileSubscription(model);
     }, [model]);
     useEffect(() => setupUiClient(model), [model]);
+    useEffect(() => subscribeEffortUpdates(model), [model]);
     useEffect(() => startResMonPolling(), []);
     // Kill the native browser context menu app-wide so it never leaks on elements without a themed
     // handler (e.g. navrail items). Themed menus (ContextMenuModel) render via portal and are
