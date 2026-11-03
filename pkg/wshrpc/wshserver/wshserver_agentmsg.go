@@ -52,6 +52,7 @@ type agentRow struct {
 	blockId   string
 	status    baseds.AgentStatusData
 	hasStream bool
+	openAsk   bool
 }
 
 // loadAgentRosterFacts gathers every tab and what the roster needs to judge it. A var so tests script it
@@ -156,6 +157,7 @@ func buildAgentRoster(facts *agentRosterFacts) []agentRow {
 			blockId:   tf.BlockId,
 			status:    tf.Status,
 			hasStream: tf.HasStream,
+			openAsk:   tf.OpenAsk,
 		}
 		if run := ownerRun(facts.Runs, tf.Tab.OID); run != nil {
 			row.RunId = run.OID
