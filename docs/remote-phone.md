@@ -1,9 +1,11 @@
 # Answer Arc from your phone
 
 Remote mode puts what waits on you (an agent's question, a lead's approval, a held or blocked run)
-on an installed iPhone web app, and lets you answer agent questions from it. It runs only while you
-turn it on: off means the tunnel and the phone listener are both stopped. Design:
-`docs/superpowers/specs/2026-10-27-answer-arc-from-phone-design.md`.
+on an installed iPhone web app, and lets you answer agent questions from it. Agents you hand over can
+also be driven from it (see Hand an agent to the phone below). It runs only while you turn it on: off
+means the tunnel and the phone listener are both stopped. Designs:
+`docs/superpowers/specs/2026-10-27-answer-arc-from-phone-design.md` and
+`docs/superpowers/specs/2026-11-03-arc-pwa-more-design.md`.
 
 The phone reaches Arc through a Cloudflare named tunnel behind Cloudflare Access. Arc never holds a
 Cloudflare API token; it holds only the tunnel token, in its secret store.
