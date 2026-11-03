@@ -177,6 +177,23 @@ describe("togglePeek", () => {
         expect(rpc.FileInfoCommand).not.toHaveBeenCalled();
     });
 
+    it("expands a ~ path against home, stating home only once", async () => {
+        rpc.FileInfoCommand.mockImplementation(async (_client: unknown, { info }: { info: { path: string } }) =>
+            info.path === "~" ? { path: "~", dir: "C:/Users", name: "me" } : fileInfo()
+        );
+
+        await togglePeek({ ...anchor, raw: "~\\repo\\a.ts" });
+        expect(globalStore.get(codePeekAtom)).toMatchObject({
+            abs: "C:\\Users\\me\\repo\\a.ts",
+            file: { kind: "text" },
+        });
+        await togglePeek({ ...anchor, bufferLine: 11, raw: "~/repo/b.ts" });
+        expect(globalStore.get(codePeekAtom)).toMatchObject({ abs: "C:\\Users\\me\\repo\\b.ts" });
+
+        const homeStats = rpc.FileInfoCommand.mock.calls.filter(([, d]) => d.info.path === "~");
+        expect(homeStats).toHaveLength(1);
+    });
+
     it("closes on the same anchor and moves on a different one", async () => {
         await togglePeek({ ...anchor, raw: "a.ts" });
         await togglePeek({ ...anchor, raw: "a.ts" });

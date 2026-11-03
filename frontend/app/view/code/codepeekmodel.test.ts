@@ -29,46 +29,56 @@ function repo(head: PeekHead, change: { adds: number; dels: number } | null): Pe
 const fifteenLines = Array.from({ length: 15 }, (_, i) => `line ${i}`).join("\n") + "\n";
 
 describe("resolvePeekPath", () => {
+    const HOME = "C:/Users/me";
     it("joins a relative path onto a drive cwd with backslashes", () => {
-        expect(resolvePeekPath("docs/a.md", "C:\\repo")).toBe("C:\\repo\\docs\\a.md");
+        expect(resolvePeekPath("docs/a.md", "C:\\repo", "")).toBe("C:\\repo\\docs\\a.md");
     });
     it("normalizes .. against a drive cwd", () => {
-        expect(resolvePeekPath("..\\b.ts", "C:\\repo\\sub")).toBe("C:\\repo\\b.ts");
+        expect(resolvePeekPath("..\\b.ts", "C:\\repo\\sub", "")).toBe("C:\\repo\\b.ts");
     });
     it("normalizes . segments", () => {
-        expect(resolvePeekPath("./x/./y.ts", "C:\\repo")).toBe("C:\\repo\\x\\y.ts");
+        expect(resolvePeekPath("./x/./y.ts", "C:\\repo", "")).toBe("C:\\repo\\x\\y.ts");
     });
     it("takes a forward-slash drive path as absolute", () => {
-        expect(resolvePeekPath("D:/other/x.ts", "C:\\repo")).toBe("D:\\other\\x.ts");
+        expect(resolvePeekPath("D:/other/x.ts", "C:\\repo", "")).toBe("D:\\other\\x.ts");
     });
     it("takes a backslash drive path as absolute", () => {
-        expect(resolvePeekPath("D:\\other\\x.ts", null)).toBe("D:\\other\\x.ts");
+        expect(resolvePeekPath("D:\\other\\x.ts", null, "")).toBe("D:\\other\\x.ts");
     });
     it("joins under a UNC cwd with backslashes", () => {
-        expect(resolvePeekPath("a/b.ts", "\\\\srv\\share\\repo")).toBe("\\\\srv\\share\\repo\\a\\b.ts");
+        expect(resolvePeekPath("a/b.ts", "\\\\srv\\share\\repo", "")).toBe("\\\\srv\\share\\repo\\a\\b.ts");
     });
     it("keeps a UNC root when .. climbs past it", () => {
-        expect(resolvePeekPath("..\\..\\x.ts", "\\\\srv\\share\\repo")).toBe("\\\\srv\\share\\x.ts");
+        expect(resolvePeekPath("..\\..\\x.ts", "\\\\srv\\share\\repo", "")).toBe("\\\\srv\\share\\x.ts");
     });
     it("keeps a POSIX absolute path", () => {
-        expect(resolvePeekPath("/x/y", "/home/me")).toBe("/x/y");
+        expect(resolvePeekPath("/x/y", "/home/me", "")).toBe("/x/y");
     });
     it("joins under a POSIX cwd with forward slashes", () => {
-        expect(resolvePeekPath("src/../a.ts", "/home/me")).toBe("/home/me/a.ts");
+        expect(resolvePeekPath("src/../a.ts", "/home/me", "")).toBe("/home/me/a.ts");
     });
     it("never climbs above a drive root", () => {
-        expect(resolvePeekPath("..\\..\\a.ts", "C:\\repo")).toBe("C:\\a.ts");
+        expect(resolvePeekPath("..\\..\\a.ts", "C:\\repo", "")).toBe("C:\\a.ts");
     });
     it("gives null for a relative path with no cwd", () => {
-        expect(resolvePeekPath("docs/a.md", null)).toBeNull();
-        expect(resolvePeekPath("docs/a.md", "")).toBeNull();
+        expect(resolvePeekPath("docs/a.md", null, HOME)).toBeNull();
+        expect(resolvePeekPath("docs/a.md", "", HOME)).toBeNull();
     });
-    it("gives null for a ~ path", () => {
-        expect(resolvePeekPath("~/a.md", "C:\\repo")).toBeNull();
+    it("expands a ~ path against home, with either separator", () => {
+        expect(resolvePeekPath("~/a.md", "C:\\repo", HOME)).toBe("C:\\Users\\me\\a.md");
+        expect(resolvePeekPath("~\\src\\B.java", null, HOME)).toBe("C:\\Users\\me\\src\\B.java");
+        expect(resolvePeekPath("~/a.md", null, "/home/me")).toBe("/home/me/a.md");
     });
-    it("gives null for a relative path against a ~ cwd", () => {
-        expect(resolvePeekPath("a.md", "~")).toBeNull();
-        expect(resolvePeekPath("a.md", "~/repo")).toBeNull();
+    it("joins a relative path onto a ~ cwd expanded against home", () => {
+        expect(resolvePeekPath("a.md", "~", HOME)).toBe("C:\\Users\\me\\a.md");
+        expect(resolvePeekPath("a.md", "~/repo", HOME)).toBe("C:\\Users\\me\\repo\\a.md");
+    });
+    it("gives null for a ~ path or ~ cwd when home is unknown", () => {
+        expect(resolvePeekPath("~/a.md", "C:\\repo", "")).toBeNull();
+        expect(resolvePeekPath("a.md", "~/repo", "")).toBeNull();
+    });
+    it("gives null for a ~user path, which names another user's home", () => {
+        expect(resolvePeekPath("~bob/a.md", "C:\\repo", HOME)).toBeNull();
     });
 });
 

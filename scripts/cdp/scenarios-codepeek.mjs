@@ -6,7 +6,7 @@
 // while the card covers the rest of the row.
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { SURFACE_LABEL } from "./attach.mjs";
 import {
@@ -485,8 +485,8 @@ export const codePeek = {
 
         // 11. ~
         const tilde = await peekAt(h, "tilde");
-        rec("~/x.md shows no working directory", tilde.info.state === "nocwd" && tilde.info.message === "No working directory to resolve ~/x.md against", tilde.info);
-        await h.shot(shotName("11-nocwd"));
+        rec("~/x.md resolves against home", tilde.info.state === "missing" && tilde.info.message === `No such file: ${join(homedir(), "x.md")}`, tilde.info);
+        await h.shot(shotName("11-tilde"));
 
         // 12. error
         await peekEval(h, `

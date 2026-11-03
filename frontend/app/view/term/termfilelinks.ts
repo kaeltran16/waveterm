@@ -17,13 +17,15 @@ export interface FileLinkMatch {
 const TokenRe = /[^\s()[\]{}<>"'`|]+/g;
 const UrlRe = /[a-z][a-z0-9+.-]*:\/\/\S*/gi;
 const TrailingPunctRe = /[.,:;]+$/;
+// tools like claude code shorten a long path in the middle with it, so no such file exists
+const Elision = "…";
 const LineColSuffixRe = /:(\d+)(?::(\d+))?$/;
 const SeparatorRe = /[/\\]/;
 // an extension starts with a letter, so "and/or" and "1.2.3" stay plain text.
 const LastSegmentExtRe = /\.[a-z][a-z0-9]*$/i;
 const BareNameRe = /^[\w.-]*\w\.[a-z][a-z0-9]+$/i;
 // a path rooted at a drive, /, ~/, ./ or ../ is a path even with no extension.
-const AnchoredRe = /^(?:[a-z]:[/\\]|~\/|\.{1,2}[/\\]|\/)/i;
+const AnchoredRe = /^(?:[a-z]:[/\\]|~[/\\]|\.{1,2}[/\\]|\/)/i;
 // two segments, so a lone slash command like "/compact" stays plain text.
 const MinAnchoredSegments = 2;
 const ExtensionlessNames = new Set([
@@ -67,6 +69,9 @@ export function findFileLinks(text: string): FileLinkMatch[] {
             continue;
         }
         const token = m[0].replace(TrailingPunctRe, "");
+        if (token.includes(Elision)) {
+            continue;
+        }
         const suffix = LineColSuffixRe.exec(token);
         const path = suffix ? token.slice(0, suffix.index) : token;
         if (!isFilePath(path)) {

@@ -61,20 +61,33 @@ function joinNormalized(base: Rooted, ...parts: string[]): string {
     return base.root + out.join(base.sep);
 }
 
-// the frontend has no home directory to expand ~ against, so a ~ path or cwd resolves to nothing
-export function resolvePeekPath(raw: string, cwd: string | null): string | null {
-    if (raw.startsWith("~")) {
+// null for a ~ path home cannot expand: home unknown (""), or a ~user path
+function expandHome(p: string, home: string): string | null {
+    if (!p.startsWith("~")) {
+        return p;
+    }
+    if (home === "" || !/^~(?:$|[\\/])/.test(p)) {
         return null;
     }
-    const abs = splitRoot(raw);
+    return home + p.slice(1);
+}
+
+export function resolvePeekPath(raw: string, cwd: string | null, home: string): string | null {
+    const path = expandHome(raw, home);
+    if (path == null) {
+        return null;
+    }
+    const abs = splitRoot(path);
     if (abs) {
         return joinNormalized(abs, abs.rest);
     }
-    if (!cwd || cwd.startsWith("~")) {
-        return null;
-    }
-    const base = splitRoot(cwd);
-    return base ? joinNormalized(base, base.rest, raw) : null;
+    const dir = cwd ? expandHome(cwd, home) : null;
+    const base = dir ? splitRoot(dir) : null;
+    return base ? joinNormalized(base, base.rest, path) : null;
+}
+
+export function needsHome(raw: string, cwd: string | null): boolean {
+    return raw.startsWith("~") || (cwd?.startsWith("~") ?? false);
 }
 
 export function initialPeekMode(path: string): PeekMode {

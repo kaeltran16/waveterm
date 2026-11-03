@@ -9,6 +9,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { openTarget } from "@/app/view/jarvis/openref";
+import { homeFromInfo } from "@/app/view/jarvis/projectpicker";
 import { base64ToString } from "@/util/util";
 import { atom, type PrimitiveAtom } from "jotai";
 import type { AgentsViewModel } from "../agents/agents";
@@ -16,6 +17,7 @@ import { parseGitChanges } from "../agents/gitstatus";
 import { classifyFile, hasNulByte, HEAD_BINARY, HEAD_TOOLARGE, MAX_VIEW_BYTES } from "./codeclassify";
 import {
     initialPeekMode,
+    needsHome,
     peekModes,
     resolvePeekPath,
     type PeekFile,
@@ -55,6 +57,18 @@ type Anchor = Pick<CodePeek, "blockId" | "bufferLine" | "start">;
 
 function sameAnchor(p: Anchor, req: Anchor): boolean {
     return p.blockId === req.blockId && p.bufferLine === req.bufferLine && p.start === req.start;
+}
+
+// home is fixed for the app's life, so one stat serves every peek; a failed stat is retried next time
+let homePromise: Promise<string> | null = null;
+
+function homeDir(): Promise<string> {
+    homePromise ??= RpcApi.FileInfoCommand(TabRpcClient, { info: { path: "~" } }).then(homeFromInfo, (e) => {
+        console.error("code peek: could not read the home folder, so ~ paths stay unresolved", e);
+        homePromise = null;
+        return "";
+    });
+    return homePromise;
 }
 
 function splitAbs(abs: string): { dir: string; base: string } {
@@ -141,7 +155,11 @@ export async function togglePeek(req: PeekRequest): Promise<void> {
     }
     const token = ++loadToken;
     const current = () => loadToken === token;
-    const abs = resolvePeekPath(req.raw, req.cwd);
+    const home = needsHome(req.raw, req.cwd) ? await homeDir() : "";
+    if (!current()) {
+        return;
+    }
+    const abs = resolvePeekPath(req.raw, req.cwd, home);
     const { cwd: _cwd, ...anchor } = req;
     const peek: CodePeek = {
         ...anchor,

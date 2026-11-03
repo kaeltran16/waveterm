@@ -47,6 +47,7 @@ describe("findFileLinks", () => {
         ["./gradlew"],
         ["../tools/run"],
         ["~/bin/deploy"],
+        ["~\\bin\\deploy"],
         ["C:\\Windows\\System32\\drivers\\etc\\hosts"],
     ])("finds the anchored extensionless path %s", (path) => {
         expectOne(`run ${path} now`, path, path);
@@ -73,6 +74,11 @@ describe("findFileLinks", () => {
         ["a lone / here"],
         ["the makefile and the license"],
     ])("finds nothing in %s", (text) => {
+        expect(findFileLinks(text)).toEqual([]);
+    });
+
+    it("leaves a path shortened with … unlinked, since no such file exists", () => {
+        const text = "Read ~\\IdeaProjects\\SIEM\\src\\test\\java\\com\\futuredata\\servic…\\QueryTest.java";
         expect(findFileLinks(text)).toEqual([]);
     });
 

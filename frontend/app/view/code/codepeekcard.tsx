@@ -65,7 +65,9 @@ function stateMessage(peek: CodePeek): string | null {
         case "error":
             return file.message;
         case "nocwd":
-            return `No working directory to resolve ${peek.raw} against`;
+            return peek.raw.startsWith("~")
+                ? `No home folder to resolve ${peek.raw} against`
+                : `No working directory to resolve ${peek.raw} against`;
         case "text":
             return null;
     }
