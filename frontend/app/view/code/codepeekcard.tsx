@@ -17,6 +17,9 @@ import { peekModes, peekStat, type PeekFile, type PeekMode } from "./codepeekmod
 import { closePeek, codePeekFocusedAtom, openPeekInCode, setPeekMode, type CodePeek } from "./codepeekstore";
 
 const MonacoDiffViewer = lazy(() => import("@/app/monaco/monaco-react").then((m) => ({ default: m.MonacoDiffViewer })));
+const MonacoInsertedText = lazy(() =>
+    import("@/app/monaco/monaco-react").then((m) => ({ default: m.MonacoInsertedText }))
+);
 
 const MODES: { mode: PeekMode; label: string }[] = [
     { mode: "preview", label: "Preview" },
@@ -26,6 +29,8 @@ const MODES: { mode: PeekMode; label: string }[] = [
 
 // keeps the peek's editor models out of the Code surface's kept-model namespace
 const MODEL_PREFIX = "peek/";
+// its own model uri, apart from the Source view's editor model for the same file
+const INSERTED_PREFIX = "peek-new/";
 
 const DIFF_OPTIONS: MonacoTypes.editor.IDiffEditorOptions = {
     readOnly: true,
@@ -125,12 +130,20 @@ function DiffView({ peek, text }: { peek: CodePeek; text: string }) {
             ) : null}
             <div className="min-h-0 flex-1">
                 <Suspense fallback={null}>
-                    <MonacoDiffViewer
-                        path={MODEL_PREFIX + (peek.abs ?? peek.raw)}
-                        original={git.head.kind === "text" ? git.head.text : ""}
-                        modified={text}
-                        options={DIFF_OPTIONS}
-                    />
+                    {absent ? (
+                        <MonacoInsertedText
+                            path={INSERTED_PREFIX + (peek.abs ?? peek.raw)}
+                            text={text}
+                            options={DIFF_OPTIONS}
+                        />
+                    ) : (
+                        <MonacoDiffViewer
+                            path={MODEL_PREFIX + (peek.abs ?? peek.raw)}
+                            original={git.head.kind === "text" ? git.head.text : ""}
+                            modified={text}
+                            options={DIFF_OPTIONS}
+                        />
+                    )}
                 </Suspense>
             </div>
         </div>

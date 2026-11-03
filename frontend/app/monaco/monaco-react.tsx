@@ -139,6 +139,47 @@ export function MonacoCodeEditor({
     return <div className="flex flex-col h-full w-full" ref={divRef} />;
 }
 
+// a diff against nothing (a file not yet committed). monaco special-cases an empty original as
+// "replace line 1 with everything", which draws an empty removed line above the inserts, so this
+// draws the text in a plain editor with every line in the diff editor's inserted style instead.
+export function MonacoInsertedText({
+    text,
+    path,
+    options,
+}: {
+    text: string;
+    path: string;
+    options: MonacoTypes.editor.IEditorOptions;
+}) {
+    return (
+        <MonacoCodeEditor
+            text={text}
+            readonly
+            path={path}
+            options={options}
+            onMount={(editor) => {
+                const lines = editor.createDecorationsCollection();
+                const mark = () => {
+                    const model = editor.getModel();
+                    if (model == null) return;
+                    lines.set([
+                        {
+                            range: new monaco.Range(1, 1, model.getLineCount(), 1),
+                            options: { isWholeLine: true, className: "line-insert", marginClassName: "gutter-insert" },
+                        },
+                    ]);
+                };
+                mark();
+                const sub = editor.onDidChangeModelContent(mark);
+                return () => {
+                    sub.dispose();
+                    lines.clear();
+                };
+            }}
+        />
+    );
+}
+
 type DiffViewerProps = {
     original: string;
     modified: string;

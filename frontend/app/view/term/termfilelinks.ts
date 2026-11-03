@@ -22,12 +22,36 @@ const SeparatorRe = /[/\\]/;
 // an extension starts with a letter, so "and/or" and "1.2.3" stay plain text.
 const LastSegmentExtRe = /\.[a-z][a-z0-9]*$/i;
 const BareNameRe = /^[\w.-]*\w\.[a-z][a-z0-9]+$/i;
+// a path rooted at a drive, /, ~/, ./ or ../ is a path even with no extension.
+const AnchoredRe = /^(?:[a-z]:[/\\]|~\/|\.{1,2}[/\\]|\/)/i;
+// two segments, so a lone slash command like "/compact" stays plain text.
+const MinAnchoredSegments = 2;
+const ExtensionlessNames = new Set([
+    "Makefile",
+    "Dockerfile",
+    "Containerfile",
+    "Jenkinsfile",
+    "Gemfile",
+    "Rakefile",
+    "Procfile",
+    "Vagrantfile",
+    "LICENSE",
+    "CODEOWNERS",
+]);
 
 function isFilePath(path: string): boolean {
-    if (SeparatorRe.test(path)) {
-        return LastSegmentExtRe.test(path.split(SeparatorRe).pop());
+    const segments = path.split(SeparatorRe);
+    const last = segments[segments.length - 1];
+    if (ExtensionlessNames.has(last)) {
+        return true;
     }
-    return BareNameRe.test(path);
+    if (segments.length === 1) {
+        return BareNameRe.test(path);
+    }
+    if (AnchoredRe.test(path) && segments.filter(Boolean).length >= MinAnchoredSegments) {
+        return true;
+    }
+    return LastSegmentExtRe.test(last);
 }
 
 function urlSpans(text: string): Array<[number, number]> {

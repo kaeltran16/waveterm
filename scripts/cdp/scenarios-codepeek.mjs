@@ -412,12 +412,24 @@ export const codePeek = {
         // 5. [PeekPanel Diff]
         const diff = await peekEval(h, `
             card()?.querySelector('[data-peek-mode="diff"]')?.click();
-            await until(() => card()?.querySelector(".monaco-diff-editor") != null, 6000);
+            await until(() => card()?.querySelector(".monaco-editor .line-insert") != null, 6000);
             await nap(400);
-            return { pressed: peekInfo().modes.diff?.pressed, caption: /New file, not in HEAD/.test(flat(card())), diff: card()?.querySelector(".monaco-diff-editor") != null };
+            const ed = card()?.querySelector(".monaco-editor");
+            return {
+                pressed: peekInfo().modes.diff?.pressed,
+                caption: /New file, not in HEAD/.test(flat(card())),
+                lines: ed?.querySelectorAll(".view-line").length ?? 0,
+                inserted: ed?.querySelectorAll(".view-overlays .line-insert").length ?? 0,
+                removed: card()?.querySelectorAll(".line-delete, .inline-deleted-margin-view-zone").length ?? 0,
+            };
         `);
         await h.shot(shotName("5-diff"));
-        rec("Diff shows New file, not in HEAD and the inline diff", diff.pressed && diff.caption && diff.diff, diff);
+        // a file not in HEAD has nothing removed: monaco's diff against "" drew an empty removed line 1
+        rec(
+            "Diff shows New file, not in HEAD, every line inserted and no removed line",
+            diff.pressed && diff.caption && diff.lines > 0 && diff.inserted === diff.lines && diff.removed === 0,
+            diff
+        );
 
         // 6. toggle
         await ctrlClick(h, await cellOf(h, "md"));

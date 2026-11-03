@@ -42,12 +42,39 @@ describe("findFileLinks", () => {
         expectOne("edit README.md please", "README.md", "README.md");
     });
 
-    it.each([["e.g."], ["1.2.3"], ["and/or"], ["version 1.2.3, e.g. this and/or that"]])(
-        "finds nothing in %s",
-        (text) => {
-            expect(findFileLinks(text)).toEqual([]);
+    it.each([
+        ["/usr/bin/env"],
+        ["./gradlew"],
+        ["../tools/run"],
+        ["~/bin/deploy"],
+        ["C:\\Windows\\System32\\drivers\\etc\\hosts"],
+    ])("finds the anchored extensionless path %s", (path) => {
+        expectOne(`run ${path} now`, path, path);
+    });
+
+    it.each([["cmd/Makefile"], ["Dockerfile"], ["build/docker/Dockerfile"], ["LICENSE"]])(
+        "finds the well-known extensionless file %s",
+        (path) => {
+            expectOne(`edit ${path} now`, path, path);
         }
     );
+
+    it("parses a :line suffix on a well-known extensionless file", () => {
+        expectOne("cmd/Makefile:12: missing separator", "cmd/Makefile:12", "cmd/Makefile", 12);
+    });
+
+    it.each([
+        ["e.g."],
+        ["1.2.3"],
+        ["and/or"],
+        ["version 1.2.3, e.g. this and/or that"],
+        ["TCP/IP and yes/no"],
+        ["type /compact to shrink"],
+        ["a lone / here"],
+        ["the makefile and the license"],
+    ])("finds nothing in %s", (text) => {
+        expect(findFileLinks(text)).toEqual([]);
+    });
 
     it.each([["https://github.com/a/b/README.md"], ["file:///C:/x/y.ts"], ["(see https://x.dev/docs/a.md)"]])(
         "leaves the URL %s to the web-link addon",

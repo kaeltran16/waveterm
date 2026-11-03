@@ -19,6 +19,9 @@ import { diffTargetLabel, headMatches } from "./codedifftarget";
 import { codeDiffBaseAtom, codeDiffTargetAtom, codeHeadAtom, loadCommitted } from "./codestore";
 
 const MonacoDiffViewer = lazy(() => import("@/app/monaco/monaco-react").then((m) => ({ default: m.MonacoDiffViewer })));
+const MonacoInsertedText = lazy(() =>
+    import("@/app/monaco/monaco-react").then((m) => ({ default: m.MonacoInsertedText }))
+);
 
 const SPLIT_MIN_PX = 900;
 
@@ -62,14 +65,20 @@ export function CodeDiffView({ path, text }: { path: string; text: string }) {
         body = <SurfaceEmptyState title={failTitle} body={base.message} />;
     } else if (matched?.kind === "error") {
         body = <SurfaceEmptyState title={failTitle} body={`${path} — ${matched.message}`} />;
-    } else if (matched?.kind === "text" || matched?.kind === "absent") {
+    } else if (matched?.kind === "absent") {
+        body = (
+            <Suspense fallback={null}>
+                <MonacoInsertedText path={`code-new/${path}`} text={text} options={options} />
+            </Suspense>
+        );
+    } else if (matched?.kind === "text") {
         body = (
             <Suspense fallback={null}>
                 <MonacoDiffViewer
                     // "code/" keeps these model URIs out of the Diff surface's namespace, and the
                     // extension stays last so Monaco still picks the language
                     path={`code/${path}`}
-                    original={matched.kind === "absent" ? "" : matched.text}
+                    original={matched.text}
                     modified={text}
                     options={options}
                 />
