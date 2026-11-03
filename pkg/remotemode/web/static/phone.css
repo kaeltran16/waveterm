@@ -776,6 +776,7 @@ input {
     color: var(--color-secondary);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+    tab-size: 4;
 }
 
 /* a permission wait */
