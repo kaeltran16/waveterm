@@ -7,6 +7,9 @@
 
 export const MAX_VIEW_BYTES = 2 * 1024 * 1024;
 
+// the reason a git-only affordance gives for being disabled in a plain directory
+export const NOT_TRACKED = "Not a git repository — no change tracking";
+
 // READMEs and other prose read as documents; the viewer renders them with the app's markdown
 // component. Extension-only: the backend maps unknown extensions to an empty mimetype (how Go and
 // Rust files pass the text gate), so MIME would misclassify .md reliably.
