@@ -2843,3 +2843,158 @@ export const remoteHand = {
         await h.goto("cockpit");
     },
 };
+
+// Leaving the Agent surface and coming back must keep the agent's terminal as it was: the same TermWrap, and its
+// buffer starting at the same row. A shell tab is made a working agent by the agent:status event, prints numbered
+// rows, and each leg (Cockpit and Code by the nav, Code by the open router, a renderer round trip) compares the
+// buffer before and after.
+const REPLAY_TAB_LABEL = "term return";
+const REPLAY_ROWS = 150;
+const REPLAY_WAIT_MS = 15_000;
+const REPLAY_LIB = `
+    const replayWrap = () => {
+        const view = [...document.querySelectorAll("[data-term-view]")].find((v) => v.checkVisibility());
+        if (!view) return null;
+        const key = Object.keys(view).find((k) => k.startsWith("__reactFiber$"));
+        for (let f = view[key]; f; f = f.return) {
+            const tw = f.memoizedProps?.model?.termRef?.current;
+            if (tw?.terminal) return tw;
+        }
+        return null;
+    };
+    const replayLines = () => {
+        const b = replayWrap()?.terminal.buffer.active;
+        const out = [];
+        for (let y = 0; b && y < b.length; y++) out.push(b.getLine(y)?.translateToString(true) ?? "");
+        return out;
+    };
+    const replaySnap = () => {
+        const tw = replayWrap();
+        const lines = replayLines();
+        const rows = lines.filter((l) => /^row \\d+$/.test(l));
+        return {
+            tag: tw?.__replayTag ?? null,
+            length: lines.length,
+            firstRow: rows[0] ?? null,
+            lastRow: rows[rows.length - 1] ?? null,
+            rowCount: rows.length,
+            head: lines.slice(0, 4),
+        };
+    };
+`;
+const replayEval = (h, body) => h.ev(`(async () => { ${REPLAY_LIB} ${body} })()`);
+const replayType = (h, ctx, text) =>
+    h.rpc("controllerinput", { blockid: ctx.blockId, inputdata64: Buffer.from(text + "\r").toString("base64") });
+
+export const termReturnReplay = {
+    name: "term-return-replay",
+    surface: "agent",
+    async arrange(h) {
+        const ctx = {};
+        try {
+            ctx.cwd = mkdtempSync(join(tmpdir(), "verify-replay-"));
+            const bootTab = String(await h.ev("window.TabRpcClient.routeId")).replace(/^tab:/, "");
+            const wslist = await h.rpc("workspacelist", null);
+            const ws = wslist.find((w) => (w.workspacedata?.tabids ?? []).includes(bootTab)) ?? wslist[0];
+            ctx.workspaceId = ws.workspacedata.oid;
+            ctx.tabId = await waveService(h, "workspace", "CreateTab", [ctx.workspaceId, REPLAY_TAB_LABEL, false]);
+            const tab = await waveService(h, "object", "GetObject", [`tab:${ctx.tabId}`]);
+            ctx.blockId = tab?.blockids?.[0];
+            if (!ctx.blockId) throw new Error("the new tab has no block");
+            await h.rpc("setmeta", { oref: `block:${ctx.blockId}`, meta: { view: "term", controller: "shell", "cmd:cwd": ctx.cwd } });
+            await h.rpc("eventpublish", {
+                event: "agent:status",
+                scopes: [`block:${ctx.blockId}`],
+                persist: 1,
+                data: { oref: `block:${ctx.blockId}`, state: "working", agent: "claude", cwd: ctx.cwd, ts: Date.now() },
+            });
+        } catch (e) {
+            ctx.launchError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const first = "the terminal prints the numbered rows";
+        if (ctx.launchError != null) return [skipStep(first, `could not verify: the arrange failed: ${ctx.launchError}`)];
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok: !!ok, detail: JSON.stringify(detail) });
+        const row = `document.querySelector('[data-agent-tree] [data-tree-agent="${ctx.tabId}"]')`;
+        const select = async () => {
+            await h.goto("agent");
+            await polishWaitFor(h, `!!${row}`, REPLAY_WAIT_MS);
+            await h.ev(`${row}?.click()`);
+            await polishWaitFor(h, `(() => { ${REPLAY_LIB} return replayWrap() != null; })()`, REPLAY_WAIT_MS);
+            await polishNap(1500);
+        };
+        await lookOpen(h, "agent");
+        if (!(await polishWaitFor(h, `!!${row}`, REPLAY_WAIT_MS))) {
+            return [skipStep(first, "could not verify: the shell tab never joined the roster as an agent")];
+        }
+        await select();
+        // the shell's banner and first prompt land before the cls
+        await polishNap(2500);
+        await replayType(h, ctx, `cls; 1..${REPLAY_ROWS} | % { "row $_" }`);
+        const printed = await polishWaitFor(h, `(() => { ${REPLAY_LIB} return replayLines().includes("row ${REPLAY_ROWS}"); })()`, REPLAY_WAIT_MS);
+        await replayEval(h, `const tw = replayWrap(); if (tw) tw.__replayTag = "first";`);
+        const before = await replayEval(h, `return replaySnap();`);
+        rec(first, printed && before.firstRow === "row 1" && before.rowCount === REPLAY_ROWS, before);
+        if (!printed) return steps;
+
+        writeFileSync(join(ctx.cwd, "a.ts"), "export const a = 1;\n");
+        const legs = [
+            ["Cockpit by the nav", () => h.goto("cockpit")],
+            ["Code by the nav", () => h.goto("code")],
+            [
+                "Code by the open router",
+                () =>
+                    lookEval(
+                        h,
+                        `${REPLAY_LIB}
+                        const view = [...document.querySelectorAll("[data-term-view]")].find((v) => v.checkVisibility());
+                        const key = Object.keys(view).find((k) => k.startsWith("__reactFiber$"));
+                        let model = null;
+                        for (let f = view[key]; f && !model; f = f.return) if (f.memoizedProps?.model?.surfaceAtom) model = f.memoizedProps.model;
+                        const { openTarget } = await mod("app/view/jarvis/openref.ts");
+                        return openTarget(model, { kind: "code", projectPath: ${JSON.stringify(ctx.cwd)}, rel: "a.ts" });`
+                    ),
+            ],
+            [
+                "a DOM renderer round trip, then Cockpit",
+                async () => {
+                    await replayEval(h, `replayWrap().setTermRenderer("dom"); await new Promise((r) => setTimeout(r, 1500)); replayWrap().setTermRenderer("webgl"); await new Promise((r) => setTimeout(r, 1500));`);
+                    await h.goto("cockpit");
+                },
+            ],
+        ];
+        for (const [label, leave] of legs) {
+            await leave();
+            await polishNap(800);
+            await select();
+            const after = await replayEval(h, `return replaySnap();`);
+            rec(
+                `back from ${label}: the same terminal, its buffer still from row 1 to row ${REPLAY_ROWS}`,
+                after.tag === "first" && after.firstRow === "row 1" && after.rowCount === REPLAY_ROWS,
+                { before: { length: before.length, firstRow: before.firstRow }, after }
+            );
+        }
+        return steps;
+    },
+    async teardown(h, ctx) {
+        if (ctx.tabId) {
+            try {
+                await waveService(h, "workspace", "CloseTab", [ctx.workspaceId, ctx.tabId, false]);
+            } catch (e) {
+                console.error(`term-return-replay teardown: closing ${ctx.tabId} failed: ${e?.message ?? e}`);
+            }
+        }
+        if (ctx.cwd) {
+            await polishNap(800);
+            try {
+                rmSync(ctx.cwd, { recursive: true, force: true });
+            } catch (e) {
+                console.error(`term-return-replay teardown: removing ${ctx.cwd} failed: ${e?.message ?? e}`);
+            }
+        }
+        await h.goto("cockpit");
+    },
+};
