@@ -7,8 +7,9 @@ import {
     headerStateLabel,
     liveElapsed,
     permissionCard,
+    replyTree,
     rowStateLabel,
-    splitReply,
+    webHref,
 } from "./static/chatmodel.js";
 
 const MIN = 60 * 1000;
@@ -31,42 +32,141 @@ const editDetail = {
     ],
 };
 
-describe("splitReply", () => {
-    it("keeps plain text whole, line breaks included", () => {
-        expect(splitReply("one\ntwo\n\nthree")).toEqual([{ kind: "text", text: "one\ntwo\n\nthree" }]);
+const text = (value) => ({ type: "text", value });
+const para = (...children) => ({ type: "paragraph", children });
+// a reply's blocks, or the inline nodes of its one paragraph
+const blocks = (md) => replyTree(md).children;
+const inline = (md) => blocks(md)[0].children;
+
+describe("replyTree", () => {
+    it("keeps a paragraph's line breaks and splits paragraphs on a blank line", () => {
+        expect(blocks("one\ntwo\n\nthree")).toEqual([para(text("one\ntwo")), para(text("three"))]);
     });
 
-    it("splits a fenced block with its language", () => {
-        expect(splitReply("Run this:\n```bash\ngo test ./pkg/x\n```\nThen commit.")).toEqual([
-            { kind: "text", text: "Run this:" },
-            { kind: "code", lang: "bash", text: "go test ./pkg/x" },
-            { kind: "text", text: "Then commit." },
+    it("reads a fenced block with its language, as before", () => {
+        expect(blocks("Run this:\n```bash\ngo test ./pkg/x\n```\nThen commit.")).toEqual([
+            para(text("Run this:")),
+            { type: "code", lang: "bash", meta: null, value: "go test ./pkg/x" },
+            para(text("Then commit.")),
         ]);
-    });
-
-    it("splits two fences, one without a language", () => {
-        expect(splitReply("```go\na := 1\nb := 2\n```\nand\n```\nplain\n```")).toEqual([
-            { kind: "code", lang: "go", text: "a := 1\nb := 2" },
-            { kind: "text", text: "and" },
-            { kind: "code", lang: "", text: "plain" },
-        ]);
+        expect(blocks("```\nplain\n```")).toEqual([{ type: "code", lang: null, meta: null, value: "plain" }]);
     });
 
     it("runs an unclosed fence to the end as code", () => {
-        expect(splitReply("Start:\n```js\nconst a = 1;\nconst b = 2;")).toEqual([
-            { kind: "text", text: "Start:" },
-            { kind: "code", lang: "js", text: "const a = 1;\nconst b = 2;" },
+        expect(blocks("Start:\n```js\nconst a = 1;\nconst b = 2;")).toEqual([
+            para(text("Start:")),
+            { type: "code", lang: "js", meta: null, value: "const a = 1;\nconst b = 2;" },
         ]);
     });
 
-    it("gives markup back as the exact text it was", () => {
+    it("reads bold, italic, inline code and struck text", () => {
+        expect(inline("**Deny** it, *then* run `go vet` ~~twice~~")).toEqual([
+            { type: "strong", children: [text("Deny")] },
+            text(" it, "),
+            { type: "emphasis", children: [text("then")] },
+            text(" run "),
+            { type: "inlineCode", value: "go vet" },
+            text(" "),
+            { type: "delete", children: [text("twice")] },
+        ]);
+    });
+
+    it("reads headings, a quote and a rule", () => {
+        expect(blocks("## Plan\n\n> careful\n\n---")).toMatchObject([
+            { type: "heading", depth: 2, children: [text("Plan")] },
+            { type: "blockquote", children: [para(text("careful"))] },
+            { type: "thematicBreak" },
+        ]);
+    });
+
+    it("reads bulleted and numbered lists, one nested in the other, and task boxes", () => {
+        const [list] = blocks("- one\n  1. first\n  2. second\n- [x] done");
+        expect(list).toMatchObject({ type: "list", ordered: false });
+        const [one, done] = list.children;
+        expect(one.children[0]).toEqual(para(text("one")));
+        expect(one.children[1]).toMatchObject({ type: "list", ordered: true, start: 1 });
+        expect(one.children[1].children.map((li) => li.children[0])).toEqual([
+            para(text("first")),
+            para(text("second")),
+        ]);
+        expect(done).toMatchObject({ type: "listItem", checked: true, children: [para(text("done"))] });
+        expect(blocks("3. third")[0]).toMatchObject({ type: "list", ordered: true, start: 3 });
+    });
+
+    it("reads a pipe table with its alignment", () => {
+        expect(blocks("| a | b |\n|:-|-:|\n| `c` | d |")).toEqual([
+            {
+                type: "table",
+                align: ["left", "right"],
+                children: [
+                    {
+                        type: "tableRow",
+                        children: [
+                            { type: "tableCell", children: [text("a")] },
+                            { type: "tableCell", children: [text("b")] },
+                        ],
+                    },
+                    {
+                        type: "tableRow",
+                        children: [
+                            { type: "tableCell", children: [{ type: "inlineCode", value: "c" }] },
+                            { type: "tableCell", children: [text("d")] },
+                        ],
+                    },
+                ],
+            },
+        ]);
+    });
+
+    it("links only http(s) addresses; any other link is its text", () => {
+        expect(inline("[docs](https://ex.com/a) and www.ex.com")).toEqual([
+            { type: "link", url: "https://ex.com/a", children: [text("docs")] },
+            text(" and "),
+            { type: "link", url: "http://www.ex.com/", children: [text("www.ex.com")] },
+        ]);
+        expect(inline("[x](javascript:alert(1)) [y](pkg/x.go) [z](data:text/html,hi)")).toEqual([text("x y z")]);
+    });
+
+    it("webHref passes only http and https", () => {
+        expect(webHref("https://ex.com")).toBe("https://ex.com/");
+        expect(webHref("HTTP://ex.com/a?b")).toBe("http://ex.com/a?b");
+        expect(webHref("javascript:alert(1)")).toBeNull();
+        expect(webHref("mailto:a@b.c")).toBeNull();
+        expect(webHref("/relative")).toBeNull();
+    });
+
+    it("gives markup back as the exact text it was, and an image as its alt text", () => {
         const reply = "<img src=x onerror=alert(1)>";
-        expect(splitReply(reply)).toEqual([{ kind: "text", text: reply }]);
+        expect(blocks(reply)).toEqual([para(text(reply))]);
+        expect(inline("a <b>bold</b> ![logo](https://ex.com/l.png)")).toEqual([text("a <b>bold</b> logo")]);
+    });
+
+    it("draws ==...== as a highlight, across inline marks", () => {
+        expect(inline("Read ==this **now**==, then go.")).toEqual([
+            text("Read "),
+            { type: "highlight", children: [text("this "), { type: "strong", children: [text("now")] }] },
+            text(", then go."),
+        ]);
+        expect(blocks("- ==one==")[0].children[0].children[0].children).toEqual([
+            { type: "highlight", children: [text("one")] },
+        ]);
+    });
+
+    it("leaves == as written where it marks nothing", () => {
+        expect(inline("if x == y and z == w")).toEqual([text("if x == y and z == w")]);
+        expect(inline("==open only")).toEqual([text("==open only")]);
+        expect(inline("a ==== b")).toEqual([text("a ==== b")]);
+        expect(inline("`a == b` ==c==")).toEqual([
+            { type: "inlineCode", value: "a == b" },
+            text(" "),
+            { type: "highlight", children: [text("c")] },
+        ]);
+        expect(blocks("```\n==x==\n```")[0].value).toBe("==x==");
     });
 
     it("gives nothing for an empty reply", () => {
-        expect(splitReply("")).toEqual([]);
-        expect(splitReply(undefined)).toEqual([]);
+        expect(blocks("")).toEqual([]);
+        expect(blocks(undefined)).toEqual([]);
     });
 });
 
@@ -85,7 +185,7 @@ describe("chatItems", () => {
             { kind: "action", mark: "pending", verb: "Read", target: "handler.go", summary: "193 lines" },
             { kind: "action", mark: "ok", verb: "Ran", target: "go test ./pkg/remotemode", summary: "31 passing" },
             { kind: "action", mark: "fail", verb: "Ran", target: "go vet", summary: "" },
-            { kind: "reply", parts: [{ kind: "text", text: "Done." }] },
+            { kind: "reply", tree: { type: "root", children: [para(text("Done."))] } },
         ]);
     });
 

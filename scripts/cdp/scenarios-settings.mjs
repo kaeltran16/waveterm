@@ -995,6 +995,19 @@ const PHONE_CHAT_READ = `(() => {
             live: a.classList.contains("live"),
         })),
         replies: [...document.querySelectorAll("[data-chat-reply]")].map(text),
+        md: [...document.querySelectorAll("[data-chat-reply]")].map((r) => {
+            const prose = r.cloneNode(true);
+            prose.querySelectorAll("pre").forEach((p) => p.remove());
+            return {
+                strong: [...r.querySelectorAll("strong")].map(text),
+                em: [...r.querySelectorAll("em")].map(text),
+                code: [...r.querySelectorAll(":not(pre) > code")].map((c) => ({ text: text(c), mono: /mono/i.test(getComputedStyle(c).fontFamily) })),
+                items: [...r.querySelectorAll("ul > li")].map(text),
+                links: [...r.querySelectorAll("a")].map((a) => ({ text: text(a), href: a.getAttribute("href"), target: a.target, rel: a.rel })),
+                marks: [...r.querySelectorAll("mark")].map(text),
+                prose: prose.textContent,
+            };
+        }),
         code: [...document.querySelectorAll("[data-chat-reply] pre.reply-code")].map((p) => ({
             text: p.textContent,
             mono: /mono/i.test(getComputedStyle(p).fontFamily),
@@ -1290,13 +1303,27 @@ export const remotePhone = {
         await openChat("fx-vault-sync");
         await shot("8-chat");
         const chat = await chatRead();
+        // the first reply's markdown (vault-sync.jsonl a3) draws as elements, with no mark left as text
+        const md = chat.md[0] ?? {};
+        const mdOk =
+            JSON.stringify(md.strong) === JSON.stringify(["stale"]) &&
+            JSON.stringify(md.em) === JSON.stringify(["why"]) &&
+            md.code?.length === 4 &&
+            md.code[0].text === "git mv" &&
+            md.code.every((c) => c.mono) &&
+            md.items?.length === 3 &&
+            md.items[0] === "inbox/2026-08-12 tunnel notes.md" &&
+            JSON.stringify(md.links) ===
+                JSON.stringify([{ text: "git mv", href: "https://git-scm.com/docs/git-mv", target: "_blank", rel: "noopener noreferrer" }]) &&
+            JSON.stringify(md.marks) === JSON.stringify(["Moving them with git mv keeps their history."]) &&
+            !/\*\*|`|==|\[git mv\]/.test(md.prose ?? "*");
         await page.ev(phoneType("archive the drafts folder too"));
         await page.ev(phoneClick("[data-chat-send]"));
         const sentOk = await recorded("input", 1);
         const cleared = await polishWaitFor(page, `document.querySelector("#chat-msg")?.value === ""`, PHONE_WAIT_MS);
         await shot("8-chat-sent");
         rec(
-            "8. Chat (vault-sync, idle): the user bubble, the action lines, the reply and its mono code block, Message vault-sync; Send is recorded",
+            "8. Chat (vault-sync, idle): the user bubble, the action lines, the reply's markdown (bold, italic, inline code, list, link, highlight; no raw marks) and its mono code block, Message vault-sync; Send is recorded",
             chat.name === "vault-sync" &&
                 chat.state.startsWith("idle") &&
                 JSON.stringify(chat.users) === JSON.stringify(["archive the inbox notes marked stale and push"]) &&
@@ -1308,6 +1335,7 @@ export const remotePhone = {
                 chat.code.length === 1 &&
                 chat.code[0].text.startsWith("git mv") &&
                 chat.code[0].mono &&
+                mdOk &&
                 chat.label === "Message vault-sync" &&
                 chat.placeholder === "Message vault-sync" &&
                 chat.boxDisabled === false &&

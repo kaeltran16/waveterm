@@ -760,9 +760,95 @@ input {
     line-height: 1.55;
     color: var(--color-ink-hi);
 }
-.reply-text {
+/* a reply's markdown (chat.js mdNode), sized like the cockpit's .agent-md: 14px text, 12px mono */
+.reply :is(p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, hr) {
+    margin: 0;
+}
+.reply :is(p, li, blockquote, h1, h2, h3, h4, h5, h6) {
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+}
+.reply :is(h1, h2, h3, h4) {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--color-primary);
+}
+.reply :is(h5, h6) {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-secondary);
+}
+.reply :is(ul, ol) {
+    padding-left: 20px;
+}
+.reply li > :is(ul, ol),
+.reply li + li,
+.reply :is(li, blockquote) > * + * {
+    margin-top: 4px;
+}
+.reply code {
+    padding: 0 4px;
+    border-radius: 4px;
+    background: var(--color-pill);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--color-secondary);
+}
+.reply a {
+    color: var(--color-accent);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+.reply mark {
+    padding: 0 2px;
+    border-radius: 2px;
+    background: var(--color-accentbg);
+    color: inherit;
+}
+.reply blockquote {
+    padding-left: 12px;
+    border-left: 3px solid var(--color-edge-strong);
+    color: var(--color-secondary);
+}
+.reply hr {
+    border: none;
+    border-top: 1px solid var(--color-edge-mid);
+}
+.reply-task {
+    margin-right: 6px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--color-ink-mid);
+}
+.reply-table {
+    overflow-x: auto;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+}
+.reply-table table {
+    border-collapse: collapse;
+    font-size: 13px;
+    white-space: nowrap;
+}
+.reply-table th {
+    padding: 6px 10px;
+    text-align: left;
+    font-weight: 600;
+    background: var(--color-pill);
+    border-bottom: 1px solid var(--color-edge-strong);
+}
+.reply-table td {
+    padding: 5px 10px;
+    border-top: 1px solid var(--color-border);
+}
+.reply-table tr:first-child td {
+    border-top: none;
+}
+.reply-table [data-align="center"] {
+    text-align: center;
+}
+.reply-table [data-align="right"] {
+    text-align: right;
 }
 .reply-code {
     margin: 0;

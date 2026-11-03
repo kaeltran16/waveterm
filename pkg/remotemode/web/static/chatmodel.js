@@ -1,9 +1,9 @@
 // Pure logic of the phone page's chat with a handed-over agent, with no DOM, so chatmodel.test.js can cover
 // it; chat.js draws from it. Entries are the cockpit projectors' AgentEntry values (projectors.js).
 
+import { parseMarkdown } from "./markdown.js";
 import { formatAge } from "./model.js";
 
-const FENCE = /^\s*```\s*([^`\s]*)/;
 const EDIT_VERBS = new Set(["edited", "wrote"]);
 const SECOND = 1000;
 const HOUR_S = 3600;
@@ -16,41 +16,135 @@ const ENDED = {
 
 const capitalize = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 
-// blank lines around a fence belong to neither side
-const trimBlankLines = (s) => s.replace(/^(\s*\n)+/, "").replace(/(\n\s*)+$/, "");
+// the mdast nodes a reply keeps (chat.js draws exactly these) and highlight, for the ==...== marks
+// agents put around the sentences to read; any other node gives way to its children or its text
+const KEPT = new Set([
+    "root",
+    "paragraph",
+    "heading",
+    "thematicBreak",
+    "blockquote",
+    "list",
+    "listItem",
+    "table",
+    "tableRow",
+    "tableCell",
+    "code",
+    "text",
+    "emphasis",
+    "strong",
+    "delete",
+    "inlineCode",
+    "break",
+    "link",
+]);
+// nodes whose children are blocks, where block-level HTML (now text) needs a paragraph of its own
+const BLOCK_PARENTS = new Set(["root", "blockquote", "listItem"]);
+const HIGHLIGHT = "==";
+const DELIM = { type: "delim" };
+const WEB_PROTOCOLS = new Set(["http:", "https:"]);
 
-/**
- * A reply as text and fenced code parts. Text keeps its line breaks; there is no other markdown, and every
- * part is drawn as text, so a reply that holds markup shows that markup. An unclosed fence runs to the end.
- */
-export function splitReply(text) {
-    const parts = [];
-    let buf = [];
-    let code = null; // { lang } while inside a fence
-    const flush = () => {
-        if (code) {
-            parts.push({ kind: "code", lang: code.lang, text: buf.join("\n") });
-        } else {
-            const t = trimBlankLines(buf.join("\n"));
-            if (t) {
-                parts.push({ kind: "text", text: t });
-            }
+const textNode = (value) => ({ type: "text", value });
+
+/** The http(s) address a link may open, or null: any other scheme or a relative path stays text. */
+export function webHref(url) {
+    try {
+        const u = new URL(url);
+        return WEB_PROTOCOLS.has(u.protocol) ? u.href : null;
+    } catch {
+        return null;
+    }
+}
+
+function mergeText(nodes) {
+    const out = [];
+    for (const n of nodes) {
+        const prev = out[out.length - 1];
+        if (n.type === "text" && prev?.type === "text") {
+            out[out.length - 1] = textNode(prev.value + n.value);
+        } else if (n.type !== "text" || n.value) {
+            out.push(n);
         }
-        buf = [];
-    };
-    for (const line of (text ?? "").split("\n")) {
-        const fence = FENCE.exec(line);
-        if (!fence) {
-            buf.push(line);
+    }
+    return out;
+}
+
+// A run between two == marks becomes a highlight node. As with ** in markdown, a mark that opens has no
+// space after it and one that closes none before it, so "x == y" stays as written; a mark with no
+// partner stays text. Code spans hold no marks: they are not text nodes.
+function markHighlights(children) {
+    const seq = [];
+    for (const c of children) {
+        if (c.type !== "text") {
+            seq.push(c);
             continue;
         }
-        flush();
-        code = code ? null : { lang: fence[1] };
+        c.value.split(HIGHLIGHT).forEach((v, i) => {
+            if (i) {
+                seq.push(DELIM);
+            }
+            if (v) {
+                seq.push(textNode(v));
+            }
+        });
     }
-    if (code || buf.length) {
-        flush();
+    const blankAt = (n, last) => !n || (n.type === "text" && /\s/.test(last ? n.value.at(-1) : n.value[0]));
+    const out = [];
+    let open = -1;
+    seq.forEach((n, i) => {
+        if (n !== DELIM) {
+            out.push(n);
+        } else if (open >= 0 && seq[i - 1] !== DELIM && !blankAt(seq[i - 1], true)) {
+            const inner = out.splice(open).slice(1);
+            out.push({ type: "highlight", children: inner });
+            open = -1;
+        } else if (open < 0 && seq[i + 1] !== DELIM && !blankAt(seq[i + 1], false)) {
+            open = out.length;
+            out.push(DELIM);
+        } else {
+            out.push(textNode(HIGHLIGHT));
+        }
+    });
+    return mergeText(out.map((n) => (n === DELIM ? textNode(HIGHLIGHT) : n)));
+}
+
+// One mdast node as the nodes the reply draws: positions dropped, raw HTML and images as their text,
+// links only to http(s) addresses, and the rest of what GFM parses as its children or its text.
+function keep(node) {
+    const { position: _position, children, ...rest } = node;
+    if (node.type === "html") {
+        return [textNode(node.value)];
     }
-    return parts;
+    if (node.type === "image" || node.type === "imageReference") {
+        return node.alt ? [textNode(node.alt)] : [];
+    }
+    if (node.type === "footnoteReference") {
+        return [textNode(`[^${node.label ?? node.identifier}]`)];
+    }
+    let kids = children?.flatMap(keep);
+    if (BLOCK_PARENTS.has(node.type)) {
+        kids = kids.map((k) => (k.type === "text" ? { type: "paragraph", children: [k] } : k));
+    }
+    if (kids?.some((k) => k.type === "text")) {
+        kids = markHighlights(mergeText(kids));
+    }
+    if (node.type === "link") {
+        const href = webHref(node.url);
+        return href ? [{ type: "link", url: href, children: kids }] : kids;
+    }
+    if (!KEPT.has(node.type)) {
+        return kids ?? (typeof node.value === "string" ? [textNode(node.value)] : []);
+    }
+    return [kids ? { ...rest, children: kids } : rest];
+}
+
+/**
+ * A reply as the markdown tree the phone draws: the cockpit's own parser (markdown.js, GFM included),
+ * cut down to the nodes chat.js knows. Every value in it is drawn as text, so markup an agent writes
+ * shows as the text it is. An unclosed fence runs to the end as code.
+ */
+export function replyTree(text) {
+    return keep(parseMarkdown(text ?? ""))[0];
 }
 
 function duration(ms) {
@@ -99,9 +193,9 @@ export function chatItems(entries) {
         } else if (e.kind === "action") {
             items.push(actionItem(e));
         } else if (e.kind === "message") {
-            const parts = splitReply(e.text);
-            if (parts.length) {
-                items.push({ kind: "reply", parts });
+            const tree = replyTree(e.text);
+            if (tree.children.length) {
+                items.push({ kind: "reply", tree });
             }
         }
     }

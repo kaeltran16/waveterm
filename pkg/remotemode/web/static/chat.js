@@ -185,16 +185,76 @@ export function openChat(root, tab, ui) {
         );
     }
 
-    function replyBlock(parts) {
-        return h(
-            "div",
-            { class: "reply", "data-chat-reply": true },
-            parts.map((p) =>
-                p.kind === "code"
-                    ? h("pre", { class: "reply-code", "data-lang": p.lang || null }, p.text)
-                    : h("div", { class: "reply-text" }, p.text)
-            )
+    function replyBlock(tree) {
+        return h("div", { class: "reply", "data-chat-reply": true }, tree.children.map(mdNode));
+    }
+
+    // one node of a reply's tree (chatmodel.js replyTree) as an element, every value as a text node.
+    function mdNode(n) {
+        const kids = () => (n.children ?? []).flatMap(mdNode);
+        switch (n.type) {
+            case "text":
+                return n.value;
+            case "paragraph":
+                return h("p", null, kids());
+            case "heading":
+                return h(`h${n.depth}`, null, kids());
+            case "thematicBreak":
+                return h("hr");
+            case "blockquote":
+                return h("blockquote", null, kids());
+            case "list":
+                return h(n.ordered ? "ol" : "ul", { start: n.ordered && n.start !== 1 ? n.start : null }, kids());
+            case "listItem":
+                return listItem(n);
+            case "table":
+                return table(n);
+            case "code":
+                return h("pre", { class: "reply-code", "data-lang": n.lang || null }, n.value);
+            case "emphasis":
+                return h("em", null, kids());
+            case "strong":
+                return h("strong", null, kids());
+            case "delete":
+                return h("del", null, kids());
+            case "highlight":
+                return h("mark", null, kids());
+            case "inlineCode":
+                return h("code", null, n.value);
+            case "break":
+                return h("br");
+            case "link":
+                return h("a", { href: n.url, target: "_blank", rel: "noopener noreferrer" }, kids());
+            default:
+                return n.value ?? kids();
+        }
+    }
+
+    // a tight item's paragraph is its text, as the cockpit draws it; a task item leads with its box as written
+    function listItem(n) {
+        const kids = n.children.flatMap((c) =>
+            c.type === "paragraph" && !n.spread ? c.children.flatMap(mdNode) : mdNode(c)
         );
+        const task = n.checked == null ? null : h("span", { class: "reply-task" }, n.checked ? "[x]" : "[ ]");
+        return h("li", null, task, kids);
+    }
+
+    function table(n) {
+        const row = (r, tag) =>
+            h(
+                "tr",
+                null,
+                r.children.map((c, i) => h(tag, { "data-align": n.align?.[i] }, c.children.flatMap(mdNode)))
+            );
+        const [head, ...body] = n.children;
+        const tbody = body.length
+            ? h(
+                  "tbody",
+                  null,
+                  body.map((r) => row(r, "td"))
+              )
+            : null;
+        return h("div", { class: "reply-table" }, h("table", null, h("thead", null, row(head, "th")), tbody));
     }
 
     function permissionBlock(entries) {
@@ -258,7 +318,7 @@ export function openChat(root, tab, ui) {
             if (item.kind === "action") {
                 return actionRow(item, item === st.live);
             }
-            return replyBlock(item.parts);
+            return replyBlock(item.tree);
         });
         if (state === "permission") {
             rows.push(permissionBlock(entries));

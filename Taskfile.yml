@@ -282,7 +282,7 @@ tasks:
             - cmd/wsh/cmd/pi-simplify-gate-core-extension.ts
 
     sync:remoteweb:
-        desc: Write the phone page's generated assets under pkg/remotemode/web/static (tokens.css from the @theme block, the woff2 fonts, the 256 px icon, projectors.js bundled from the cockpit's claude and pi projectors) from their single sources (generated, never hand-edited).
+        desc: Write the phone page's generated assets under pkg/remotemode/web/static (tokens.css from the @theme block, the woff2 fonts, the 256 px icon, projectors.js bundled from the cockpit's claude and pi projectors, markdown.js bundled from the cockpit's markdown parser) from their single sources (generated, never hand-edited).
         cmds:
             - cmd: node scripts/sync-remote-web.mjs
         sources:
@@ -297,11 +297,13 @@ tasks:
             - frontend/app/view/agents/pitranscriptprojection.ts
             - frontend/app/view/agents/tooldetail.ts
             - frontend/app/view/agents/agentsviewmodel.ts
+            - frontend/app/view/agents/remotemarkdown.ts
         generates:
             - pkg/remotemode/web/static/tokens.css
             - pkg/remotemode/web/static/fonts/*.woff2
             - pkg/remotemode/web/static/icon.png
             - pkg/remotemode/web/static/projectors.js
+            - pkg/remotemode/web/static/markdown.js
 
     sync:claudemod:
         desc: Copy the authored Claude mods (claude/arc-mod, claude/arc-view-mod, claude/arc-skim-mod) into their go:embed locations cmd/wsh/cmd/claude-mod, claude-view-mod and claude-skim-mod (generated, never hand-edited), without their tests or engine-written types. Arc's shipped skills (skills/) go into the arc mod's skills/, so Claude Code lists them as arc:<skill>.
