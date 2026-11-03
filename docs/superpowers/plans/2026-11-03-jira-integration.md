@@ -65,7 +65,7 @@
 
 ### Task 1: Wire types, settings keys, shared helpers and CDP fixtures
 **Depends on:** none
-**Files:** `pkg/waveobj/wtype.go`, `pkg/wshrpc/wshrpctypes_jira.go`, `pkg/wshrpc/wshrpctypes.go`, `pkg/wshrpc/wshrpctypes_effort.go`, `pkg/wconfig/settingsconfig.go`, `pkg/wconfig/metaconsts.go`, `pkg/wshrpc/wshclient/wshclient.go`, `frontend/app/store/wshclientapi.ts`, `frontend/types/gotypes.d.ts`, `pkg/jira/jira.go`, `pkg/jira/jira_test.go`, `pkg/wshrpc/wshserver/wshserver_jira.go`, `frontend/app/view/jarvis/jiraticket.ts`, `frontend/app/view/jarvis/jiraticket.test.ts`, `frontend/app/view/jarvis/jiraactions.ts`, `frontend/app/view/jarvis/briefrows.ts`, `frontend/app/view/jarvis/briefsurface.tsx`, `scripts/cdp/jira-fixtures.mjs`, `scripts/cdp/scenarios.mjs`, `scripts/cdp/scenarios-jira-settings.mjs`, `scripts/cdp/scenarios-jira-check.mjs`, `scripts/cdp/scenarios-jira-initiative.mjs`, `scripts/cdp/scenarios-jira-post.mjs`, `scripts/cdp/scenarios-jira-sidebar.mjs`, `scripts/cdp/scenarios-jira-details.mjs`, `scripts/cdp/scenarios-jira-wsh.mjs`
+**Files:** `pkg/waveobj/wtype.go`, `pkg/wshrpc/wshrpctypes_jira.go`, `pkg/wshrpc/wshrpctypes.go`, `pkg/wshrpc/wshrpctypes_effort.go`, `pkg/wconfig/settingsconfig.go`, `pkg/wconfig/metaconsts.go`, `pkg/wshrpc/wshclient/wshclient.go`, `frontend/app/store/wshclientapi.ts`, `frontend/types/gotypes.d.ts`, `pkg/jira/jira.go`, `pkg/jira/jira_test.go`, `pkg/wshrpc/wshserver/wshserver_jira.go`, `frontend/app/view/jarvis/jiraticket.ts`, `frontend/app/view/jarvis/jiraticket.test.ts`, `frontend/app/view/jarvis/jiraactions.ts`, `frontend/app/view/jarvis/briefrows.ts`, `frontend/app/view/jarvis/briefrows.test.ts`, `frontend/app/view/jarvis/briefsurface.tsx`, `scripts/cdp/jira-fixtures.mjs`, `scripts/cdp/scenarios.mjs`, `scripts/cdp/scenarios-jira-settings.mjs`, `scripts/cdp/scenarios-jira-check.mjs`, `scripts/cdp/scenarios-jira-initiative.mjs`, `scripts/cdp/scenarios-jira-post.mjs`, `scripts/cdp/scenarios-jira-sidebar.mjs`, `scripts/cdp/scenarios-jira-details.mjs`, `scripts/cdp/scenarios-jira-wsh.mjs`
 
 The interface every other task builds on. Keep implementations to stubs except the pure helpers and the fixtures.
 
@@ -85,7 +85,7 @@ The interface every other task builds on. Keep implementations to stubs except t
   JiraPostSummariesCommand(ctx, CommandJiraPostDraftData) (*CommandJiraPostSummariesRtnData, error)
   JiraPostCommand(ctx, CommandJiraPostData{EffortOID, Comment, TransitionID string; DoneChunks []string}) (*CommandJiraPostRtnData, error)
 
-  JiraConnection{Configured bool; Missing []string /* site | email | token */; Site string; Ok bool; DisplayName string; CheckedTs int64; Error string}
+  JiraConnection{Configured bool; Missing []string /* site | email | token */; Site string; Ok bool; DisplayName string; CheckedTs int64 /* last attempt */; LastOkTs int64 /* last successful call */; Error string}
   JiraTicket{Key, Summary, Type, Status, StatusCategory, Description string; Acceptance []string; URL string; UpdatedTs int64}
   JiraTicketRow{JiraTicket; Project, Evidence string; Sure bool}            // embed or flatten; tsgen must emit flat fields
   CommandJiraCheckRtnData{Site string; CheckedTs int64; Tickets []JiraTicketRow; Covered int}
@@ -95,7 +95,7 @@ The interface every other task builds on. Keep implementations to stubs except t
   CommandJiraPostSummariesRtnData{Comment string; Rewritten bool; Reason string}
   CommandJiraPostRtnData{CommentURL string; PostedTs int64; From, MovedTo, MoveError, Status string}
   ```
-  If tsgen does not flatten an embedded struct, give `JiraTicketRow` the fields of `JiraTicket` directly rather than nesting them. Settings keys: `JiraSite string \`json:"jira:site,omitempty"\``, `JiraEmail string \`json:"jira:email,omitempty"\`` in `settingsconfig.go`. Run `task generate`.
+  Every new wshrpc Jira type gets lowercase json tags like its neighbours (`rewritten`, `commenturl`, `lastokts`, …); the frontend reads those names. If tsgen does not flatten an embedded struct, give `JiraTicketRow` the fields of `JiraTicket` directly rather than nesting them. Settings keys: `JiraSite string \`json:"jira:site,omitempty"\``, `JiraEmail string \`json:"jira:email,omitempty"\`` in `settingsconfig.go`. Run `task generate`.
 - [ ] **Step 3: `pkg/jira/jira.go`.** Constants: `SecretName = "JIRA_API_TOKEN"`, `CodeNotConfigured = "EC-JIRA-NOTCONFIGURED"`, `CodeHTTP = "EC-JIRA-HTTP"`, `CodeUnreachable = "EC-JIRA-UNREACHABLE"`. Error types and messages:
   - `type NotConfiguredError struct{ Missing []string }`, with `Error()` = `EC-JIRA-NOTCONFIGURED: Jira isn't set up: add your <site, account email and API token> in Settings > Jira.` (it names only what is missing).
   - `type HTTPError struct{ Status int; Message string }`, with `Error()` = `EC-JIRA-HTTP <status>: <message>`.
@@ -115,7 +115,7 @@ The interface every other task builds on. Keep implementations to stubs except t
   
   Tests cover every branch, including `parseJiraError(new Error("EC-JIRA-HTTP 401: Client must be authenticated"))` → `{kind:"refused", status:401, message:"Client must be authenticated"}`.
 - [ ] **Step 6: `jiraactions.ts`:** `openJiraSettings(): void` sets `pendingSettingsSectionAtom` to `"jira"` and switches to the Settings surface, the way `frontend/app/cockpit/app-bar.tsx` opens `"remote"`.
-- [ ] **Step 7: Effort index ticket.** `EffortRef` in `briefrows.ts` gains `ticket: string`; `briefsurface.tsx`'s `briefEffortIndexAtom` fill passes `e.ticket ?? ""`.
+- [ ] **Step 7: Effort index ticket.** `EffortRef` in `briefrows.ts` gains `ticket: string`; `briefsurface.tsx`'s `briefEffortIndexAtom` fill passes `e.ticket ?? ""`. Add `ticket: ""` to the `EffortRef`-shaped literal in `briefrows.test.ts` (the `runRowFace` test near line 565), or `task check:ts` fails.
 - [ ] **Step 8: `scripts/cdp/jira-fixtures.mjs`.**
   - `startFakeJira(opts?) → { url, state, close() }`. It is a `node:http` server on `127.0.0.1:0` that checks basic auth against `state.token` and serves exactly:
     - `GET /rest/api/3/myself` → `{displayName}`
@@ -132,7 +132,7 @@ The interface every other task builds on. Keep implementations to stubs except t
   - `seedTicketedInitiative(h, {title, project, key, chunks}) → effortoid` runs `effortcreate` with `ticket`, then `jirashow {key, via:"show"}` so the copy lands.
   - `motionSamples(h, {selector, props, ms, trigger}) → frames[]` samples computed styles once per animation frame while `trigger` (a page-side expression) runs.
   - `withReducedMotion(h, fn)` wraps `fn` in `Emulation.setEmulatedMedia` `prefers-reduced-motion: reduce` and always clears it.
-- [ ] **Step 9: Scenario stubs.** Create the seven `scenarios-jira-<area>.mjs` files, each exporting one scenario named `jira-settings`, `jira-check`, `jira-initiative`, `jira-post`, `jira-sidebar`, `jira-details`, `jira-wsh` whose single step is `skip` with detail "not built yet". List them in `SCENARIOS` in `scenarios.mjs`. The owning tasks replace the bodies.
+- [ ] **Step 9: Scenario stubs.** Create the seven `scenarios-jira-<area>.mjs` files, each exporting one scenario named `jira-settings`, `jira-check`, `jira-initiative`, `jira-post`, `jira-sidebar`, `jira-details`, `jira-wsh` whose single step is `skip` with detail "not built yet". List them in `SCENARIOS` in `scenarios.mjs`. The owning tasks replace the bodies. Tasks 5-11 depend only on this task, not on Task 4's real handlers, so in their own trees their scenarios meet the `not built yet` stubs: a worker there proves the scenario file loads and its arrange runs, and the scenario's first real run is Final, on the merged result.
 - [ ] **Step 10: Verify.**
   - Run `go test ./pkg/jira -run 'TestError|TestNormalizeKey|TestProjectKey'` and `npx vitest run frontend/app/view/jarvis/jiraticket.test.ts`: they pass.
   - `task check:ts` exits 0.
@@ -221,7 +221,7 @@ func DraftWithSummaries(e *waveobj.Effort, fin map[string]Finisher, sums map[str
   - `func RecordSeen(ctx, t wshrpc.JiraTicket, via string, now int64) error` writes the copy (keeping `LastPost`) onto every effort whose `Ticket` matches `t.Key` case-insensitively (via `effortstore.Update`), and stores `t` in an in-memory cache.
   - `func Cached(key string) (wshrpc.JiraTicket, int64, bool)`.
   - `func CopyOf(t wshrpc.JiraTicket, via string, now int64, prev *waveobj.EffortJira) *waveobj.EffortJira`.
-  - Connection memory: `func NoteConnection(displayName string, err error, now int64)`, and `func LastConnection() wshrpc.JiraConnection` for the fields a call can know.
+  - Connection memory: `func NoteConnection(displayName string, err error, now int64)`, and `func LastConnection() wshrpc.JiraConnection` for the fields a call can know. Every call sets `CheckedTs` (the last attempt) and `Error`; only a successful call sets `LastOkTs` and `DisplayName`, so a refusal keeps when Jira last answered (the CheckJiraStates refused board's "Last checked …").
 - [ ] **Step 2: `setTicket` in `effortops.go`.** When the key changes, it clears `e.Jira`. On `EffortCreate` and on a `setTicket` op, `wshserver_effort.go` then attaches `jira.Cached(key)` as `CopyOf(..., "make", ...)` (via `make` on create, `lookup` on setTicket). `EffortSummaryOf` fills `TicketSeen` from `e.Jira`.
 - [ ] **Step 3: Handlers in `wshserver_jira.go`.** Every handler that calls Jira reports the outcome through `NoteConnection`.
   - `JiraConnection`: with `Test`, it calls `Myself`. It always returns `Configured` and `Missing` from `LoadConfig`.
@@ -246,9 +246,10 @@ func DraftWithSummaries(e *waveobj.Effort, fin map[string]Finisher, sums map[str
   - `TestJiraPostCommentFailsRecordsNothing`.
   - `TestJiraPostSummariesFallsBack`: with no headless runtime, `Rewritten=false` and the comment is the code draft.
   - `TestNotConfiguredMessage`: every handler returns the `EC-JIRA-NOTCONFIGURED` text with nothing set.
+  - `TestRecordSeenKeepsLastPost`, `TestRecordSeenMatchesKeyCaseInsensitively`, `TestRecordSeenCaches` (then `Cached` returns it), `TestCopyOf`, and `TestNoteConnectionKeepsLastOk` (a failure after a success keeps `LastOkTs` and `DisplayName`, and moves `CheckedTs` and `Error`) in `seen_test.go`.
   - `TestEffortSummaryTicketSeen` in `jarvisstate_test.go`.
   - `TestSetTicketChangeClearsJira` in `effortops_test.go`.
-- [ ] **Step 5:** `go test ./pkg/wshrpc/wshserver -run 'TestJira|TestSetTicketClearsStaleCopy|TestCreateWithTicketAttachesCachedCopy|TestNotConfiguredMessage'`, `go test ./pkg/jira -run TestRecordSeen`, `go test ./pkg/jarvis -run TestSetTicketChangeClearsJira` and `go test ./pkg/jarvisstate -run TestEffortSummaryTicketSeen` all pass.
+- [ ] **Step 5:** `go test ./pkg/wshrpc/wshserver -run 'TestJira|TestSetTicketClearsStaleCopy|TestCreateWithTicketAttachesCachedCopy|TestNotConfiguredMessage'`, `go test ./pkg/jira -run 'TestRecordSeen|TestCopyOf|TestNoteConnection'`, `go test ./pkg/jarvis -run TestSetTicketChangeClearsJira` and `go test ./pkg/jarvisstate -run TestEffortSummaryTicketSeen` all pass.
 
 ### Task 5: `wsh jira`, `wsh effort show/list` with the ticket, and the initiatives skill
 **Depends on:** Task 1 (uses the generated `wshclient` Jira commands and `EffortJira`/`TicketSeen`)
@@ -261,9 +262,9 @@ func DraftWithSummaries(e *waveobj.Effort, fin map[string]Finisher, sums map[str
   - `TestFormatEffortShowNoTicket`: unchanged apart from the project line.
   - `TestEffortListTicketColumn`.
 - [ ] **Step 2: Implement.**
-  - `wsh jira check [--json]` and `wsh jira show <KEY> [--json]` (the key goes through `jira.NormalizeKey`; a non-key argument is an error naming the expected shape, with no RPC call). Both call `JiraShowCommand` / `JiraCheckCommand` with `Via:"show"`.
+  - `wsh jira check [--json]` and `wsh jira show <KEY> [--json]` (the key goes through `jira.NormalizeKey`; a non-key argument is an error naming the expected shape, with no RPC call). `show` calls `JiraShowCommand` with `Via:"show"`; `check` calls `JiraCheckCommand`, which takes no data.
   - The effort show/list lines per decision 19.
-  - In `skills/initiatives/SKILL.md`, a short "From a Jira ticket" section: run `wsh jira show <KEY>`, and when it says the project is unsure, ask the human which project. Then `wsh effort create "<ticket title>" --ticket <KEY> --project <p> --chunk …`, planning chunks from the description and acceptance criteria (not sub-tasks), and then `wsh effort note <oid> "Made from <KEY>: <how you planned the chunks>"`. Copy it with `task sync:claudemod` (never hand-edit the claude-mod copy).
+  - In `skills/initiatives/SKILL.md`, a short "From a Jira ticket" section: run `wsh jira show <KEY>`, and when it says the project is unsure, ask the human which project. Then `wsh effort create "<ticket title>" --ticket <KEY> --project <p> --chunk …`, planning chunks from the description and acceptance criteria (not sub-tasks), and then `wsh effort note <oid> "<first chunk label>" --note "Made from <KEY>: <how you planned the chunks>"` (the command is `note <effort> <chunk> --note`; the ChunkSidebar board shows this note on chunk 1). Copy it with `task sync:claudemod` (never hand-edit the claude-mod copy).
 - [ ] **Step 3: Scenario `jira-wsh`** (board Elsewhere, terminal half). Extract the driver in `notes-wsh.mjs` into an exported `runWsh(h, argvList) → [{code, stdout, stderr}]` and keep `notesWsh` working on it. The scenario does `startFakeJira` + `connectFakeJira` + `seedTicketedInitiative(PAY-318…)`, then runs `wsh effort show <oid>`, `wsh jira show PAY-318`, `wsh jira check` and `wsh jira show pay-318`. Steps assert:
   - the `ticket PAY-318 Story · To Do (seen …)` and `read it: wsh jira show PAY-318` lines;
   - the show output's criteria;
@@ -271,6 +272,8 @@ func DraftWithSummaries(e *waveobj.Effort, fin map[string]Finisher, sums map[str
   - the lowercase key normalized.
   
   A `disconnectJira` step asserts `wsh jira check` exits nonzero with the `Settings > Jira` message.
+  
+  Final judges screenshots only, so after the asserts the scenario draws the `wsh effort show` and `wsh jira show PAY-318` stdout into a temporary `<pre data-jira-wsh-output>` overlay in the page (the terminal font and `@theme` tokens), takes a shot (Elsewhere, terminal half), and removes the overlay in teardown.
 - [ ] **Step 4:** `go test ./cmd/wsh/cmd -run 'TestFormatJira|TestFormatEffortShow|TestEffortListTicketColumn'` passes. `claude plugin validate claude/arc-mod` is unchanged (no mod files touched beyond the synced skill).
 
 ### Task 6: Settings > Jira
@@ -337,7 +340,7 @@ export async function makeInitiative(model: AgentsViewModel, row: JiraTicketRow)
   - **Loading:** the list layout with bars where text lands (three placeholder rows at the board's widths), crossfaded to rows with `AnimatePresence mode="popLayout"`/`microFade` on a fixed-height body, so nothing shifts.
   - **Row:** the key opens Jira (`ticketUrl`); summary; `type · status · updated <age>`; the project with its evidence, or `Agent will ask` in the warning token; `Make initiative`; an Open in Jira icon.
   - **Make initiative (motion moment 3):** it crossfades in place to `Building in Agent` (same box size; it links to the tab through `openTarget`), with building state keyed by ticket in the dialog's own state. Rows leave through `visibleRows` with the Brief index's tickets, in `AnimatePresence mode="popLayout"`, where each row is a `motion.div` direct child with `layout` and exit opacity/scale.
-  - **Empty, off and refused states:** the board's copy, with `Connect Jira` → `openJiraSettings()` and `Replace token` → `openJiraSettings()`.
+  - **Empty, off and refused states:** the board's copy, with `Connect Jira` → `openJiraSettings()` and `Replace token` → `openJiraSettings()`. The refused state's `lastChecked` comes from `JiraConnectionCommand{Test:false}`'s `LastOkTs`, read when the check fails; with `0` the "Last checked" line is left out.
   - **Launch failure:** a toast with the error, and the row returns to Make initiative.
 - [ ] **Step 3: Scenario `jira-check`.** Fake Jira connected; `seedTicketedInitiative` for PAY-290, so `Covered` is 1.
   1. With `holdRpc(JiraCheckCommand)`: press Check Jira (the toolbar button); assert the dialog, the three bars and `Checking…`, then shot (CheckJiraStates "Loading").
@@ -347,9 +350,9 @@ export async function makeInitiative(model: AgentsViewModel, row: JiraTicketRow)
   5. Repeat step 4's removal under `withReducedMotion`: no intermediate transform frames.
   6. Close: assert the dialog's exit.
   7. `fake.state.issues = []`: Check again gives Nothing new (shot).
-  8. `disconnectJira`: Not connected, and Connect Jira lands on Settings > Jira.
+  8. `disconnectJira`: Not connected (shot, CheckJiraStates), and Connect Jira lands on Settings > Jira.
   9. Refused 401: Jira's status and message, and Replace token (shot).
-  10. Palette: open it, type `Check Jira`, assert the `Check Jira for my tickets` row in the Jarvis group, Enter, and the dialog opens. Also type `PAY-29` and assert the ticketed initiative row (Elsewhere board, palette half).
+  10. Palette: open it, type `Check Jira`, assert the `Check Jira for my tickets` row in the Jarvis group, Enter, and the dialog opens. Shot. Also type `PAY-29` and assert the ticketed initiative row; shot (Elsewhere board, palette half).
 - [ ] **Step 4:** `npx vitest run frontend/app/view/jarvis/jiracheck.test.ts frontend/app/view/jarvis/jiramake.test.ts frontend/app/store/keybindings` passes (the keybinding tests guard chord conflicts).
 
 ### Task 8: The ticket on the initiative: Brief row and ticket bar
@@ -403,7 +406,7 @@ export function footerPosted(lp, now): string;                  // "Posted 2h ag
 - [ ] **Step 2: Implement.**
   - **Footer:** in `inlinetrackerview.tsx`, `post to Jira` between activity and pause, accent-styled per the board, shown only when the effort has a ticket. Read the effort from `effortDetailAtom` by the plan's oref; don't add props to `InitiativeDetail`'s callers. It is followed by the `footerPosted` line linking to `LastPost.CommentURL`, which fades in with `microFade` when it appears.
   - **Chunk tag:** each `posted` chunk row shows a quiet `posted to Jira` that fades in the same way.
-  - **Dialog (`ModalShell`, `onSubmit` = ctrl+⏎):**
+  - **Dialog (`ModalShell`, `onSubmit` = ctrl+⏎):** `JiraPostDialog` mounts in `inlinetrackerview.tsx` while `jiraPostOpenAtom` is set (not in `briefsurface.tsx`, which Task 7 owns).
     - On open, it calls `JiraPostDraftCommand`, then `JiraPostSummariesCommand` without awaiting it before rendering.
     - Header: `Post progress to <KEY>`, and `Currently <status> in Jira.` + `lastPostedLine`.
     - Comment textarea: greyed with `Drafting summaries…` while `drafting`; the drafted text crossfades over the code draft (`AnimatePresence mode="popLayout"` keyed on the text version, opacity only); the board's helper line.
@@ -421,7 +424,7 @@ export function footerPosted(lp, now): string;                  // "Posted 2h ag
 
 ### Task 10: The ticket in the chunk sidebar and the run sheet
 **Depends on:** Task 8 (shares `briefinitiatives.tsx`, which mounts the sidebar)
-**Files:** `frontend/app/view/jarvis/chunksidebar.tsx`, `frontend/app/view/jarvis/sidebarnotes.ts`, `frontend/app/view/jarvis/sidebarnotes.test.ts`, `frontend/app/view/jarvis/effortfeed.ts`, `frontend/app/view/jarvis/effortfeed.test.ts`, `frontend/app/view/jarvis/briefinitiatives.tsx`, `frontend/app/view/jarvis/runsheet.tsx`, `scripts/cdp/scenarios-jira-sidebar.mjs`
+**Files:** `frontend/app/view/jarvis/chunksidebar.tsx`, `frontend/app/view/jarvis/sidebarnotes.ts`, `frontend/app/view/jarvis/sidebarnotes.test.ts`, `frontend/app/view/jarvis/effortfeed.ts`, `frontend/app/view/jarvis/effortfeed.test.ts`, `frontend/app/view/jarvis/effortdetailview.tsx`, `frontend/app/view/jarvis/briefinitiatives.tsx`, `frontend/app/view/jarvis/runsheet.tsx`, `scripts/cdp/scenarios-jira-sidebar.mjs`
 
 Boards: ChunkSidebar and RunSheetPosted (run half).
 
@@ -430,10 +433,12 @@ Boards: ChunkSidebar and RunSheetPosted (run half).
   - `sidebarNotes` gives a jira-post note `who` = `""`, a new `heading` = `In a post to <KEY>`, `by` = `you`, and `link = { label: "View comment ↗", url }`; other notes are unchanged. `sidebarNotes` takes the key as a new trailing parameter.
 - [ ] **Step 2: Implement.**
   - **Sidebar:** `ChunkSidebar` gains a `ticket: { key: string; url: string | null } | null` prop, passed from `briefinitiatives.tsx` (from the effort detail and `jira:site`). The breadcrumb ends with the key as a link (`BUILD / DONE / PAY-318 ↗`), and jira-post note cards draw their heading and comment link per the board.
+  - **Activity view:** `NotesFeed` in `effortdetailview.tsx` draws a `View comment ↗` link to the note's `jirapost` URL on a jira-post note, so the initiative-level `Posted progress to <KEY>. Moved <From> to <To>.` note carries the comment link and the move (spec: the post is recorded in the initiative's activity feed).
   - **Run sheet:** the initiative line in `runsheet.tsx` (the only place it is drawn) leads with the ticket from `briefEffortIndexAtom` (`↳ PAY-318 · <initiative> · <stage> · <chunk>`), still opening the chunk, and has no Post to Jira anywhere.
 - [ ] **Step 3: Scenario `jira-sidebar`.** `seedTicketedInitiative(PAY-318)`; chunk 1 done; post once through `jirapost` RPC against the fake.
   1. Open chunk 1's sidebar and assert the crumb ends `PAY-318 ↗` linking to the ticket, plus the note `In a post to PAY-318 · you · <time>` with `View comment ↗` to the comment URL. Shot (ChunkSidebar).
   2. Use `arrangeFixtureRun` (see `docs/reference/cdp-run-fixtures.md`) for a run with `effortref` to PAY-318's chunk 1, open its sheet, and assert the line starts `↳ PAY-318 ·` and that no `post to Jira` text appears in the sheet. Shot (RunSheetPosted, run half). Teardown removes the run.
+  3. Open the initiative's activity view and assert the `Posted progress to PAY-318.` note with `View comment ↗` linking to the comment URL. Shot.
 
 ### Task 11: The Ticket field looked up in initiative details
 **Depends on:** Task 1 (uses `JiraShowCommand`, `normalizeKey`, `parseJiraError`, `openJiraSettings`)
@@ -463,7 +468,7 @@ export function fromLookupError(key: string, err: unknown): LookupState;     // 
   5. Edit initiative on a seeded PAY-318 initiative shows the field filled and a lookup on blur only after a change.
 
 ### Task 12: Records use the initiative's ticket
-**Depends on:** none
+**Depends on:** Task 1 (the run's Check vets `./pkg/jira/...`, which Task 1 creates)
 **Files:** `pkg/jarviscapture/capture.go`, `pkg/jarviscapture/capture_test.go`
 
 - [ ] **Step 1: Tests.**
