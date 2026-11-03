@@ -80,6 +80,10 @@ type AgentStatusData struct {
 	Usage          *AgentUsage `json:"usage,omitempty"`
 	// Hook is the Claude Code hook event behind a report (AgentHook_*), empty from any other reporter
 	Hook string `json:"hook,omitempty"`
+	// NotificationType is the notification_type of Claude Code's Notification hook; only that hook sets it
+	NotificationType string `json:"notificationtype,omitempty"`
+	// Ended is set by pi's shutdown report: pi exited back to its shell, which keeps running
+	Ended bool `json:"ended,omitempty"`
 }
 
 // VolunteerData is the payload of Event_JarvisVolunteer: one thing Jarvis chose to say unprompted.

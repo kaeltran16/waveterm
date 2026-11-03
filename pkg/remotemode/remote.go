@@ -196,6 +196,7 @@ func Status() *wshrpc.RemoteStatusData {
 	remoteStateMu.Lock()
 	st := &wshrpc.RemoteStatusData{On: remoteOn, Tunnel: remoteTunnelState, TunnelError: remoteTunnelErr}
 	remoteStateMu.Unlock()
+	st.Handed = handStatusTabs()
 	cfg, err := LoadConfig()
 	if err != nil {
 		st.TunnelError = err.Error()
@@ -231,10 +232,13 @@ func Off() (*wshrpc.RemoteStatusData, error) {
 	return Status(), nil
 }
 
+// remoteTurnOff is the one off path (desk, wsh, phone), so it alone ends the hand-overs; remoteStopLocked
+// leaves them, so a re-setup's restart keeps them.
 func remoteTurnOff() error {
 	remoteMu.Lock()
 	defer remoteMu.Unlock()
 	remoteStopLocked()
+	handClearOff()
 	err := remoteSaveOn(false)
 	publishStatus()
 	return err

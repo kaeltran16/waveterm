@@ -84,6 +84,8 @@ declare global {
         ts: number;
         usage?: AgentUsage;
         hook?: string;
+        notificationtype?: string;
+        ended?: boolean;
     };
 
     // wshrpc.AgentSyncAction
@@ -1417,6 +1419,12 @@ declare global {
         streammeta: StreamMeta;
     };
 
+    // wshrpc.CommandRemoteHandData
+    type CommandRemoteHandData = {
+        tab?: string;
+        fromoref?: string;
+    };
+
     // wshrpc.CommandRemoteListEntriesData
     type CommandRemoteListEntriesData = {
         path: string;
@@ -2693,6 +2701,7 @@ declare global {
         tunnelerror?: string;
         subscriptions: number;
         cloudflaredmissing?: boolean;
+        handed?: string[];
     };
 
     // wshrpc.ResMonGroup
