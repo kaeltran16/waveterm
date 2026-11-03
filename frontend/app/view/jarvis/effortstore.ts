@@ -5,11 +5,14 @@
 // refresh the briefing's summary leg.
 
 import { globalStore } from "@/app/store/jotaiStore";
+import { waveEventSubscribeSingle } from "@/app/store/wps";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
+import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { atom, type PrimitiveAtom } from "jotai";
 import { loadBriefingAsync, stateRpcTimeoutMs } from "./briefingstore";
 import { chunkTone, type ChunkTone } from "./effortmodel";
+import { createEffortSync } from "./effortsync";
 import { chunkRef, type EditChunk } from "./trackeredit";
 
 export const effortDetailAtom = atom<Map<string, Effort>>(new Map()) as PrimitiveAtom<Map<string, Effort>>;
@@ -61,12 +64,15 @@ async function mutateEffort(oref: string, ops: EffortOp[]): Promise<void> {
 // the archived initiatives the Brief can reveal (design L251, "Show N archived"); the briefing leg drops
 // archived efforts server-side, so these come from the effort list with includearchived.
 export const archivedEffortsAtom = atom<EffortSummary[]>([]) as PrimitiveAtom<EffortSummary[]>;
-export async function loadArchivedEfforts(): Promise<void> {
+// resolves with the whole list, archived included, for a caller that needs more than the archived half
+export async function loadArchivedEfforts(): Promise<EffortSummary[]> {
     const rtn = await RpcApi.EffortListCommand(TabRpcClient, { includearchived: true }, { timeout: stateRpcTimeoutMs });
+    const all = rtn.efforts ?? [];
     globalStore.set(
         archivedEffortsAtom,
-        (rtn.efforts ?? []).filter((e) => e.status === "archived")
+        all.filter((e) => e.status === "archived")
     );
+    return all;
 }
 
 // The cache was fetch-once, and only a mutate made THROUGH this store replaced an entry. An effort
@@ -94,6 +100,28 @@ export async function loadEffortDetail(oref: string, freshTs?: number): Promise<
     const cache = new Map(globalStore.get(effortDetailAtom));
     cache.set(oref, rtn.effort);
     globalStore.set(effortDetailAtom, cache);
+}
+
+// wavesrv publishes effort:update on every effort write and delete, including the ones made outside this
+// store (`wsh effort`, an agent's tick, the engine's chunk marks). Called once from the always-mounted shell.
+export function subscribeEffortUpdates(model: AgentsViewModel): () => void {
+    const sync = createEffortSync({
+        surface: () => globalStore.get(model.surfaceAtom),
+        cachedORefs: () => [...globalStore.get(effortDetailAtom).keys()],
+        listEfforts: loadArchivedEfforts,
+        reloadBriefing: loadBriefingAsync,
+        refreshDetail: loadEffortDetail,
+        dropDetails: (orefs) => {
+            const cache = new Map(globalStore.get(effortDetailAtom));
+            orefs.forEach((oref) => cache.delete(oref));
+            globalStore.set(effortDetailAtom, cache);
+        },
+    });
+    const unsubscribe = waveEventSubscribeSingle({ eventType: "effort:update", handler: sync.poke });
+    return () => {
+        unsubscribe();
+        sync.cancel();
+    };
 }
 
 export async function advanceChunk(oref: string, note?: string): Promise<void> {

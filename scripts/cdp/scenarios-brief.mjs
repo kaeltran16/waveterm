@@ -4161,3 +4161,155 @@ export const briefPeeksPolish = {
         if (ctx.cwd != null) await teardownFixtureRun(h, ctx, "brief-peeks-polish");
     },
 };
+
+// brief-live-initiative: the Brief follows initiatives changed out of band. Every change is a raw TabRpcClient call,
+// the way `wsh effort` or an agent's tick reaches wavesrv, never the cockpit's effort store, so only wavesrv's
+// effort:update event can bring it to the open Brief, which is never left or remounted.
+const LIVE_TITLE = "verify brief-live-initiative: made out of band";
+const LIVE_WAIT_MS = 60000; // a briefing reload is a FetchWorkState, ~14s warm
+const LIVE_BURST = 5;
+const LIVE_BURST_MAX_LOADS = 2; // a burst may straddle one window edge
+const LIVE_SETTLE_MS = 3000;
+const LIVE_ROW = `[...document.querySelectorAll('[data-jarvis-brief-row="initiative"]')].find((r) => r.textContent.includes(${JSON.stringify(LIVE_TITLE)}))`;
+const LIVE_BRIEF = `document.querySelector('[data-jarvis-region="brief"]')`;
+const liveSettled = (h) =>
+    lookEval(h, `
+        const { globalStore } = await mod("app/store/jotaiStore.ts");
+        const { briefingStateAtom } = await mod("app/view/jarvis/briefingstore.ts");
+        const st = globalStore.get(briefingStateAtom);
+        return !st.loading && st.snapshot != null;
+    `);
+async function liveWaitSettled(h, ms) {
+    for (let waited = 0; waited < ms; waited += 250) {
+        if (await liveSettled(h).catch(() => false)) return true;
+        await polishNap(250);
+    }
+    return false;
+}
+// the Brief region node carries a mark set once: a remount or a surface switch drops it
+const liveStillOpen = (h) => h.ev(`${LIVE_BRIEF}?.__liveMark === true`);
+const liveLoads = (h) => h.ev(`window.__liveBriefLoads ?? -1`);
+const liveCached = (h, oref) =>
+    lookEval(h, `
+        const { globalStore } = await mod("app/store/jotaiStore.ts");
+        const { effortDetailAtom } = await mod("app/view/jarvis/effortstore.ts");
+        const e = globalStore.get(effortDetailAtom).get(${JSON.stringify(oref)});
+        if (!e) return null;
+        const chunks = e.chunks ?? [];
+        return { chunks: chunks.map((c) => c.label + ":" + c.status), notes: chunks.reduce((n, c) => n + (c.notes?.length ?? 0), 0) };
+    `);
+const liveRowText = (h) => h.ev(`((${LIVE_ROW})?.textContent ?? '').replace(/\\s+/g, ' ').trim()`);
+
+export const briefLiveInitiative = {
+    name: "brief-live-initiative",
+    surface: "jarvis",
+    async arrange(h) {
+        const ctx = {};
+        try {
+            const efforts = (await h.rpc("effortlist", { includearchived: true }))?.efforts ?? [];
+            for (const e of efforts.filter((x) => x.title === LIVE_TITLE)) {
+                await h.rpc("effortdelete", { effortoid: e.oref.replace(/^effort:/, "") });
+            }
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok: !!ok, detail: typeof detail === "string" ? detail : JSON.stringify(detail) });
+        await h.goto("jarvis");
+        const settled = await liveWaitSettled(h, LIVE_WAIT_MS);
+        await h.ev(`(() => { const b = ${LIVE_BRIEF}; if (b) b.__liveMark = true; })()`);
+        // counts the briefing's reloads from here on; none can come from entering the Brief, which never happens again
+        await lookEval(h, `
+            const { RpcApi } = await mod("app/store/wshclientapi.ts");
+            const real = (window.__liveBriefReal ??= RpcApi.JarvisStateCommand);
+            window.__liveBriefLoads = 0;
+            RpcApi.JarvisStateCommand = (...args) => { window.__liveBriefLoads++; return real.apply(RpcApi, args); };
+        `);
+        const absent = (await h.ev(`!(${LIVE_ROW})`)) === true;
+        const marked = await liveStillOpen(h);
+        rec("0. the Brief settles from its entry load, without the initiative", ctx.arrangeError == null && settled && absent && marked, {
+            arrangeError: ctx.arrangeError,
+            settled,
+            absent,
+            marked,
+        });
+
+        // 1. made by a raw rpc while the Brief stays open
+        ctx.effortoid = (await h.rpc("effortcreate", { title: LIVE_TITLE, chunks: [{ label: "One" }, { label: "Two" }] }))?.effortoid;
+        const oref = `effort:${ctx.effortoid}`;
+        const appeared = await polishWaitFor(h, `!!(${LIVE_ROW})`, LIVE_WAIT_MS);
+        await polishNap(400);
+        const row1 = await liveRowText(h);
+        await h.shot("cdp-shots/brief-live-initiative-1-created.png");
+        const open1 = await liveStillOpen(h);
+        const loads1 = await liveLoads(h);
+        rec("1. an initiative made out of band appears on the open Brief, with no navigation", appeared && open1 && loads1 >= 1 && row1.includes("0/2"), {
+            appeared,
+            open1,
+            loads1,
+            row1,
+        });
+
+        // 2. a chunk ticked out of band: the row's count moves, and the cached detail (filled here, as an open sheet
+        // fills it) refreshes with it
+        await lookEval(h, `
+            const { loadEffortDetail } = await mod("app/view/jarvis/effortstore.ts");
+            await loadEffortDetail(${JSON.stringify(oref)});
+        `);
+        await h.rpc("effortmutate", { effortoid: ctx.effortoid, author: "you", ops: [{ op: "setChunkStatus", chunk: "One", status: "done" }] });
+        const ticked = await polishWaitFor(h, `((${LIVE_ROW})?.textContent ?? '').includes('1/2')`, LIVE_WAIT_MS);
+        await polishNap(400);
+        const cached2 = await liveCached(h, oref);
+        await h.shot("cdp-shots/brief-live-initiative-2-ticked.png");
+        const open2 = await liveStillOpen(h);
+        rec("2. a chunk ticked out of band moves the row to 1/2 and refreshes the cached detail", ticked && open2 && cached2?.chunks?.[0] === "One:done", {
+            ticked,
+            open2,
+            cached2,
+            row: await liveRowText(h),
+        });
+
+        // 3. a burst of ticks is one reload (two across a window edge), and the cache ends holding all of them
+        await liveWaitSettled(h, LIVE_WAIT_MS);
+        const notesBefore = (await liveCached(h, oref))?.notes ?? 0;
+        await h.ev(`window.__liveBriefLoads = 0`);
+        const note = (i) => ({ effortoid: ctx.effortoid, author: "you", ops: [{ op: "appendNote", chunk: "Two", note: `burst ${i}` }] });
+        const burst = Array.from({ length: LIVE_BURST }, (_, i) => `window.TabRpcClient.wshRpcCall("effortmutate", ${JSON.stringify(note(i))}, {})`);
+        await h.ev(`Promise.all([${burst.join(", ")}]).then(() => true)`);
+        await polishNap(LIVE_SETTLE_MS);
+        await liveWaitSettled(h, LIVE_WAIT_MS);
+        const loads3 = await liveLoads(h);
+        const cached3 = await liveCached(h, oref);
+        rec(
+            `3. ${LIVE_BURST} out-of-band ticks at once cost at most ${LIVE_BURST_MAX_LOADS} briefing reloads, and the cache holds all of them`,
+            loads3 >= 1 && loads3 <= LIVE_BURST_MAX_LOADS && cached3?.notes === notesBefore + LIVE_BURST,
+            { loads3, notesBefore, cached3 }
+        );
+
+        // 4. deleted out of band: the row leaves and the cached detail goes with it
+        await h.rpc("effortdelete", { effortoid: ctx.effortoid });
+        const gone = await polishWaitFor(h, `!(${LIVE_ROW})`, LIVE_WAIT_MS);
+        let cached4 = await liveCached(h, oref);
+        for (let waited = 0; cached4 != null && waited < LIVE_WAIT_MS; waited += 250) {
+            await polishNap(250);
+            cached4 = await liveCached(h, oref);
+        }
+        await h.shot("cdp-shots/brief-live-initiative-4-deleted.png");
+        const open4 = await liveStillOpen(h);
+        if (gone) ctx.effortoid = null;
+        rec("4. an initiative deleted out of band leaves the open Brief and the detail cache", gone && cached4 == null && open4, { gone, cached4, open4 });
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await lookEval(h, `
+            const { RpcApi } = await mod("app/store/wshclientapi.ts");
+            if (window.__liveBriefReal) RpcApi.JarvisStateCommand = window.__liveBriefReal;
+            delete window.__liveBriefReal;
+            delete window.__liveBriefLoads;
+        `).catch(() => {});
+        if (ctx?.effortoid) await h.rpc("effortdelete", { effortoid: ctx.effortoid }).catch(() => {});
+    },
+};

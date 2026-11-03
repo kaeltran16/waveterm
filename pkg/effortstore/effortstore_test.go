@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wavevault"
+	"github.com/wavetermdev/waveterm/pkg/wps"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
@@ -360,5 +362,83 @@ func TestWritesPokeSync(t *testing.T) {
 	}
 	if !wavevault.PokedForTest() {
 		t.Fatal("Delete did not poke sync")
+	}
+}
+
+type eventRecorder struct {
+	mu     sync.Mutex
+	events []string
+}
+
+func (r *eventRecorder) SendEvent(_ string, event wps.WaveEvent) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.events = append(r.events, event.Event)
+}
+
+func (r *eventRecorder) take() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := r.events
+	r.events = nil
+	return out
+}
+
+func recordEffortEvents(t *testing.T) *eventRecorder {
+	t.Helper()
+	const route = "effortstore-test"
+	rec := &eventRecorder{}
+	prev := wps.Broker.GetClient()
+	wps.Broker.SetClient(rec)
+	wps.Broker.Subscribe(route, wps.SubscriptionRequest{Event: wps.Event_EffortUpdate, AllScopes: true})
+	t.Cleanup(func() {
+		wps.Broker.UnsubscribeAll(route)
+		wps.Broker.SetClient(prev)
+	})
+	return rec
+}
+
+func TestWritesAndDeletePublishEffortUpdate(t *testing.T) {
+	useTempRoot(t)
+	rec := recordEffortEvents(t)
+	ctx := context.Background()
+	want := []string{wps.Event_EffortUpdate}
+
+	e := mustCreate(t, &waveobj.Effort{Title: "published"})
+	if got := rec.take(); !slices.Equal(got, want) {
+		t.Fatalf("create published %v, want %v", got, want)
+	}
+	if err := Update(ctx, e.OID, func(e *waveobj.Effort) error { e.Title = "renamed"; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if got := rec.take(); !slices.Equal(got, want) {
+		t.Fatalf("update published %v, want %v", got, want)
+	}
+	if err := Delete(ctx, e.OID); err != nil {
+		t.Fatal(err)
+	}
+	if got := rec.take(); !slices.Equal(got, want) {
+		t.Fatalf("delete published %v, want %v", got, want)
+	}
+}
+
+func TestFailedOrNoopChangesPublishNothing(t *testing.T) {
+	useTempRoot(t)
+	rec := recordEffortEvents(t)
+	ctx := context.Background()
+	e := mustCreate(t, &waveobj.Effort{Title: "quiet"})
+	rec.take()
+
+	if err := Update(ctx, e.OID, func(*waveobj.Effort) error { return errors.New("refused") }); err == nil {
+		t.Fatal("update with a failing fn succeeded")
+	}
+	if err := Create(ctx, &waveobj.Effort{OID: e.OID, Title: "dup"}); err == nil {
+		t.Fatal("duplicate create succeeded")
+	}
+	if err := Delete(ctx, "00000000-0000-0000-0000-000000000000"); err != nil {
+		t.Fatal(err)
+	}
+	if got := rec.take(); len(got) != 0 {
+		t.Fatalf("published %v for changes that wrote nothing", got)
 	}
 }
