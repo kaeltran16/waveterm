@@ -11,6 +11,7 @@ const SHELL = [
     "/chat.js",
     "/chatmodel.js",
     "/projectors.js",
+    "/markdown.js",
     "/manifest.webmanifest",
     "/icon.png",
     "/fonts/hanken-grotesk-variable.woff2",
