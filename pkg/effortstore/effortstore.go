@@ -316,6 +316,7 @@ func clone(e *waveobj.Effort) *waveobj.Effort {
 	}
 	c.Notes = slices.Clone(e.Notes)
 	c.Events = slices.Clone(e.Events)
+	c.Jira = e.Jira.Clone()
 	if e.Meta != nil {
 		c.Meta = cloneJSON(map[string]any(e.Meta)).(map[string]any)
 	}

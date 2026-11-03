@@ -249,3 +249,30 @@ describe("trackerRows on a flat plan", () => {
         expect(nav).toEqual(["initiatives:" + OREF, ...FLAT.map((c) => chunkRowId("initiatives:" + OREF, c.label))]);
     });
 });
+
+describe("posted to Jira", () => {
+    const note = (text: string, jirapost?: string): EffortNote => ({ ts: 1, text, jirapost });
+
+    it("marks a chunk posted when any of its notes came from a post", () => {
+        const chunks = [
+            {
+                ...chunk("Retry with backoff", "done", ""),
+                trail: [
+                    note("landed"),
+                    note(
+                        "Reported as done in the progress comment.",
+                        "https://x.atlassian.net/browse/PAY-318?focusedCommentId=10000"
+                    ),
+                ],
+            },
+            { ...chunk("Give up after 6 attempts", "active", ""), trail: [note("halfway")] },
+            chunk("Failed state on the partner dashboard", "pending", ""),
+        ];
+        const rows = trackerRows({ ...base, chunks });
+        expect(rows.flatMap((r) => (r.kind === "chunk" ? [[r.row.label, r.posted]] : []))).toEqual([
+            ["Retry with backoff", true],
+            ["Give up after 6 attempts", false],
+            ["Failed state on the partner dashboard", false],
+        ]);
+    });
+});

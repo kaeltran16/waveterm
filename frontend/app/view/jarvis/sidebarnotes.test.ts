@@ -96,4 +96,26 @@ describe("sidebarNotes", () => {
         expect(cards[1].editable).toBe(true);
         expect(cards[2].editable).toBe(true);
     });
+    it("words a Jira post note as a post by you with a link to the comment, and leaves other notes alone", () => {
+        const url = "https://x.atlassian.net/browse/PAY-318?focusedCommentId=10000";
+        const cards = sidebarNotes(
+            [e(2, "Reported as done in the progress comment.", { author: "you", jirapost: url }), e(1, "plain")],
+            "N1",
+            5000,
+            new Set(),
+            "PAY-318"
+        );
+        expect(cards[0]).toMatchObject({
+            who: "",
+            heading: "In a post to PAY-318",
+            by: "you",
+            link: { label: "View comment ↗", url },
+            editable: false,
+        });
+        expect(cards[1]).toMatchObject({ heading: "", by: "", link: null });
+    });
+    it("names Jira when the initiative no longer has a ticket", () => {
+        const [card] = sidebarNotes([e(1, "x", { jirapost: "u" })], "N1", 5000, new Set(), "");
+        expect(card.heading).toBe("In a post to Jira");
+    });
 });

@@ -65,6 +65,7 @@ func MergeEffort(base, ours, theirs *waveobj.Effort) *waveobj.Effort {
 		Ticket:    newer.Ticket,
 		Status:    newer.Status,
 		ParentOID: newer.ParentOID,
+		Jira:      newer.Jira.Clone(),
 		Chunks:    mergeChunks(base.Chunks, ours.Chunks, theirs.Chunks, newer.Chunks, other.Chunks),
 		Notes:     unionByTs(ours.Notes, theirs.Notes, func(n waveobj.EffortNote) int64 { return n.Ts }),
 		Events:    unionByTs(ours.Events, theirs.Events, func(ev waveobj.EffortEvent) int64 { return ev.Ts }),

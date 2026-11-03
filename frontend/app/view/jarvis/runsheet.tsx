@@ -11,6 +11,7 @@
 
 import { PaneReveal } from "@/app/element/panereveal";
 import { Skeleton } from "@/app/element/skeleton";
+import { getSettingsKeyAtom } from "@/app/store/global";
 import * as WOS from "@/app/store/wos";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
@@ -58,6 +59,7 @@ import {
 import { finalCheckEntry, shotPath, shotRounds, type FinalCheckEntry, type ShotRound } from "./finalshotsmodel";
 import { FinalShotsViewer, VERDICT_DOT } from "./finalshotsviewer";
 import { briefEffortIndexAtom, briefProfileAtom, briefRevealChunkAtom } from "./jarvisstore";
+import { ticketUrl } from "./jiraticket";
 import { useLocalImage } from "./localimage";
 import { openTarget } from "./openref";
 import { RunReportView } from "./runreportview";
@@ -81,6 +83,7 @@ import {
 } from "./runsheetmodel";
 import { RunTimingSection } from "./runtimingview";
 import { STAGE_PROSE } from "./stagemeasure";
+import { TicketKeyLink } from "./ticketbarview";
 
 const LINK =
     "cursor-pointer font-mono text-[10.5px] text-accent-soft hover:text-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent";
@@ -372,6 +375,7 @@ function Reading({
     const [goalOpen, setGoalOpen] = useState(false);
     const index = useAtomValue(briefEffortIndexAtom);
     const revealChunk = useAtomValue(briefRevealChunkAtom);
+    const site = useAtomValue(getSettingsKeyAtom("jira:site"));
     const spent = summarizeUsage(useRunUsage(run.channeloid, run.id)?.rows);
     const ref = run.effortref;
     const effort = ref != null ? index.get(ref.effortoid) : undefined;
@@ -449,17 +453,27 @@ function Reading({
                 )}
             </div>
             {ref != null && effort != null ? (
-                <button
-                    type="button"
-                    title="Open this chunk"
-                    onClick={() => revealChunk?.(effort.oref, ref.chunklabel)}
-                    className="inline-flex max-w-full cursor-pointer items-center gap-1 self-start font-mono text-[10.5px] text-ink-mid hover:text-accent-soft focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+                // the key links out to Jira, which a button cannot hold, so it sits beside the one that opens the chunk
+                <div
+                    data-run-sheet-effort-line
+                    className="inline-flex max-w-full items-center gap-1 self-start font-mono text-[10.5px] text-ink-mid"
                 >
                     <CornerDownRight size={11} aria-hidden className="flex-none text-muted" />
-                    <span className="truncate">
+                    {effort.ticket !== "" ? (
+                        <>
+                            <TicketKeyLink ticketKey={effort.ticket} url={ticketUrl(site, effort.ticket)} />
+                            <span>·</span>
+                        </>
+                    ) : null}
+                    <button
+                        type="button"
+                        title="Open this chunk"
+                        onClick={() => revealChunk?.(effort.oref, ref.chunklabel)}
+                        className="min-w-0 cursor-pointer truncate text-left hover:text-accent-soft focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+                    >
                         {effort.title} · {effort.chunkStages[ref.chunklabel] || "unstaged"} · {ref.chunklabel}
-                    </span>
-                </button>
+                    </button>
+                </div>
             ) : null}
         </div>
     );

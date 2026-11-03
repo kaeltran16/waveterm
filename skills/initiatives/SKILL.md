@@ -27,6 +27,26 @@ paste-and-tick list. Ticked lines become `done`; chunks you plan but have not st
 The project defaults to the Arc project holding the current directory; pass `--project` only when
 the initiative belongs to another one.
 
+## From a Jira ticket
+
+When the human points you at a ticket (or you were started with Make initiative), read it first:
+
+```bash
+wsh jira show <KEY>
+```
+
+It prints the summary, status, description and acceptance criteria, and ends on the project Arc
+infers. When it says `project unsure`, ask the human which project before creating anything. Then:
+
+```bash
+wsh effort create "<ticket title>" --ticket <KEY> --project <p> --chunk "<phase 1>" --chunk "<phase 2>"
+wsh effort chunk note <oid> "<first chunk label>" --note "Made from <KEY>: <how you planned the chunks>"
+```
+
+Plan the chunks from the description and the acceptance criteria, not from the ticket's sub-tasks.
+`wsh effort show` on a ticketed initiative prints the ticket line and `read it: wsh jira show <KEY>`;
+`wsh jira check` lists your assigned tickets that have no initiative yet.
+
 ## When the route is still unclear
 
 An initiative too foggy to name its phases gets a chunk list of decisions first, not build steps:

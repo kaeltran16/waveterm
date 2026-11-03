@@ -10,10 +10,11 @@
 
 import { formatBuildTime, versionInfoAtom } from "@/app/cockpit/versioninfo";
 import { MOTION } from "@/app/element/motiontokens";
-import { atoms, getSettingsKeyAtom } from "@/app/store/global";
+import { atoms, getApi, getSettingsKeyAtom } from "@/app/store/global";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
+import { parseJiraError } from "@/app/view/jarvis/jiraticket";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtom, useAtomValue } from "jotai";
 import { Check, Folder, RefreshCw, Search } from "lucide-react";
@@ -57,6 +58,9 @@ import {
     flagRowId,
     groupSections,
     isModOptionOn,
+    JIRA_SECRET_NAME,
+    jiraConnectionLine,
+    jiraSiteError,
     OPENROUTER_SECRET_NAME,
     resolveSelection,
     rowKeys,
@@ -768,6 +772,8 @@ function SectionBody({
             return <MemorySection />;
         case "headless":
             return <HeadlessAISection />;
+        case "jira":
+            return <JiraSection />;
         case "storage":
             return <StorageSection model={model} />;
         case "about":
@@ -1684,6 +1690,182 @@ function HeadlessAISection() {
                 <Note>OpenRouter key not set — background AI features stay off until a key is stored.</Note>
             ) : null}
             {error ? <Note tone="error">{error}</Note> : null}
+        </div>
+    );
+}
+
+const JIRA_TOKEN_URL = "https://id.atlassian.com/manage-profile/security/api-tokens";
+
+const JIRA_BUTTON =
+    "flex-none cursor-pointer rounded border border-edge-mid px-3 py-[5px] text-[12px] font-semibold text-secondary transition-colors hover:border-edge-strong hover:text-primary disabled:cursor-default disabled:opacity-60";
+
+const JIRA_DOT: Record<"idle" | "ok" | "error", string> = {
+    idle: "bg-ink-faint",
+    ok: "bg-success",
+    error: "bg-error",
+};
+
+// Site and email are settings; the token is write-only in the secret store, so the UI only ever learns
+// whether one exists. The Connection row shows what wavesrv last saw and calls Jira only on Test again.
+function JiraSection() {
+    const reduce = useReducedMotion();
+    const site = (useAtomValue(getSettingsKeyAtom("jira:site")) as string) ?? "";
+    const email = (useAtomValue(getSettingsKeyAtom("jira:email")) as string) ?? "";
+
+    const [hasToken, setHasToken] = useState(false);
+    const [replacing, setReplacing] = useState(false);
+    const [siteError, setSiteError] = useState<string | null>(null);
+    const [tokenError, setTokenError] = useState<string | null>(null);
+    const [conn, setConn] = useState<JiraConnection | null>(null);
+    const [connError, setConnError] = useState<string | null>(null);
+    const [testing, setTesting] = useState(false);
+
+    useEffect(() => {
+        fireAndForget(async () => {
+            try {
+                const names = await RpcApi.GetSecretsNamesCommand(TabRpcClient);
+                setHasToken((names ?? []).includes(JIRA_SECRET_NAME));
+            } catch (_) {
+                // best-effort probe; the row stays on its input when the names cannot be read
+            }
+        });
+    }, []);
+
+    const readConnection = async (test: boolean) => {
+        try {
+            setConn(await RpcApi.JiraConnectionCommand(TabRpcClient, { test }));
+            setConnError(null);
+        } catch (e) {
+            setConnError(parseJiraError(e).message);
+        }
+    };
+
+    // a changed site, email or token changes what is missing, so the line is read again (never a Jira call)
+    useEffect(() => {
+        fireAndForget(() => readConnection(false));
+    }, [site, email, hasToken]);
+
+    const testAgain = () =>
+        fireAndForget(async () => {
+            setTesting(true);
+            try {
+                await readConnection(true);
+            } finally {
+                setTesting(false);
+            }
+        });
+
+    const commitSite = (v: string) => {
+        const err = jiraSiteError(v);
+        setSiteError(err);
+        if (err == null) {
+            writeConfig({ "jira:site": v.replace(/\/+$/, "") });
+        }
+    };
+
+    const saveToken = async (token: string): Promise<boolean> => {
+        setTokenError(null);
+        try {
+            await RpcApi.SetSecretsCommand(TabRpcClient, { [JIRA_SECRET_NAME]: token });
+            setHasToken(true);
+            setReplacing(false);
+            return true;
+        } catch (e) {
+            setTokenError(String(e));
+            return false;
+        }
+    };
+
+    const line =
+        connError != null
+            ? { tone: "error" as const, text: connError, checked: undefined }
+            : conn != null
+              ? jiraConnectionLine(conn, Date.now())
+              : null;
+    const fade = {
+        initial: reduce ? (false as const) : { opacity: 0 },
+        animate: { opacity: 1 },
+        transition: { duration: MOTION.durMicro, ease: MOTION.easeFluid },
+    };
+
+    return (
+        <div>
+            <SettingRow id="jira.site">
+                <div className="flex flex-col items-end gap-1.5">
+                    <CommitText value={site} placeholder="https://[site].atlassian.net" onCommit={commitSite} />
+                    {siteError != null ? (
+                        <motion.span data-jira-site-error {...fade} className="text-[11.5px] text-error">
+                            {siteError}
+                        </motion.span>
+                    ) : null}
+                </div>
+            </SettingRow>
+            <SettingRow id="jira.email">
+                <CommitText
+                    value={email}
+                    placeholder="you@example.com"
+                    onCommit={(v) => writeConfig({ "jira:email": v })}
+                />
+            </SettingRow>
+            <SettingRow id="jira.token">
+                <div className="flex flex-col items-end gap-1.5">
+                    {hasToken && !replacing ? (
+                        <span data-jira-token-saved className="flex items-center gap-2">
+                            <span className="flex items-center gap-1.5 text-[12px] text-secondary">
+                                <Check size={12} className="text-success" />
+                                Saved
+                            </span>
+                            <button type="button" onClick={() => setReplacing(true)} className={JIRA_BUTTON}>
+                                Replace token
+                            </button>
+                        </span>
+                    ) : (
+                        <SecretInput placeholder="API token" onCommit={saveToken} />
+                    )}
+                    <button
+                        type="button"
+                        onClick={() => getApi().openExternal(JIRA_TOKEN_URL)}
+                        className="cursor-pointer text-[11.5px] text-accent-soft transition-colors hover:text-accent"
+                    >
+                        Create a token at id.atlassian.com ↗
+                    </button>
+                    {tokenError != null ? <span className="text-[11.5px] text-error">{tokenError}</span> : null}
+                </div>
+            </SettingRow>
+            <SettingRow id="jira.connection">
+                <div className="flex flex-col items-end gap-1.5">
+                    <div className="flex items-center gap-2.5">
+                        {line != null ? (
+                            <motion.span
+                                key={`${line.tone}:${line.text}`}
+                                data-jira-connection-line={line.tone}
+                                {...fade}
+                                className={cn(
+                                    "flex max-w-[260px] items-center gap-1.5 text-[12px]",
+                                    line.tone === "error" ? "text-error" : "text-secondary"
+                                )}
+                            >
+                                <span className={cn("h-[7px] w-[7px] flex-none rounded-full", JIRA_DOT[line.tone])} />
+                                {line.text}
+                            </motion.span>
+                        ) : null}
+                        <button
+                            type="button"
+                            data-jira-test
+                            disabled={testing}
+                            onClick={testAgain}
+                            className={cn(JIRA_BUTTON, "w-[92px]")}
+                        >
+                            {testing ? "Testing…" : "Test again"}
+                        </button>
+                    </div>
+                    {line?.checked != null ? (
+                        <span data-jira-checked className="text-[11.5px] text-muted">
+                            {line.checked}
+                        </span>
+                    ) : null}
+                </div>
+            </SettingRow>
         </div>
     );
 }

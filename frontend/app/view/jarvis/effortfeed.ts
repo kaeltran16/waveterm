@@ -40,15 +40,36 @@ export type FeedEntry = {
     author?: string;
     session?: string;
     run?: string;
+    // the Jira comment a post wrote this note for: the mark of "posted to Jira"
+    jirapost?: string;
 };
 
 type LocatedNote = EffortNote & { chunk: EffortChunk; at: number };
+
+// A Jira post's record as a feed entry. The initiative-level note has no chunk to be located on (chunk ""),
+// and a post note may have no event naming it, so both are listed from the note itself.
+function postEntry(seq: number, n: EffortNote, chunk?: EffortChunk, at?: number): FeedEntry {
+    return {
+        seq,
+        ts: n.ts,
+        kind: "effort-note",
+        chunk: chunk?.label ?? "",
+        status: chunk?.status ?? "",
+        marked: "",
+        text: n.text,
+        ...(at != null ? { noteAt: at, edited: n.edited === true } : {}),
+        ...(n.author ? { author: n.author } : {}),
+        jirapost: n.jirapost,
+    };
+}
 
 export function effortFeed(effort: Effort): FeedEntry[] {
     const chunks = effort.chunks ?? [];
     const notes: LocatedNote[] = chunks.flatMap((chunk) =>
         (chunk.notes ?? []).map((n, i) => ({ ...n, chunk, at: i + 1 }))
     );
+    const topNotes = (effort.notes ?? []).filter((n) => n.jirapost);
+    const usedTop = new Set<EffortNote>();
     const used = new Set<LocatedNote>();
     const suffix = (n: LocatedNote) => STATUS_NOTE.exec(n.text)?.[2] ?? "";
 
@@ -77,6 +98,14 @@ export function effortFeed(effort: Effort): FeedEntry[] {
             return [];
         }
         const label = ev.label ?? "";
+        const top =
+            ev.kind === "effort-note" && label === ""
+                ? topNotes.find((n) => !usedTop.has(n) && n.ts === ev.ts && n.text === ev.text)
+                : undefined;
+        if (top != null) {
+            usedTop.add(top);
+            return [postEntry(seq, top)];
+        }
         const note = ev.kind === "chunk-added" ? undefined : locate(ev);
         if (note != null) {
             used.add(note);
@@ -106,9 +135,16 @@ export function effortFeed(effort: Effort): FeedEntry[] {
                 ...(note?.author ? { author: note.author } : {}),
                 ...(note?.session ? { session: note.session } : {}),
                 ...(note?.run ? { run: note.run } : {}),
+                ...(note?.jirapost ? { jirapost: note.jirapost } : {}),
             },
         ];
     });
+    // a post note no event names still belongs in the feed; a negative seq keys it without meeting an event's
+    const unnamed = [
+        ...notes.filter((n) => n.jirapost && !used.has(n)).map((n) => ({ note: n, chunk: n.chunk, at: n.at })),
+        ...topNotes.filter((n) => !usedTop.has(n)).map((n) => ({ note: n, chunk: undefined, at: undefined })),
+    ];
+    unnamed.forEach((u, i) => entries.push(postEntry(-(i + 1), u.note, u.chunk, u.at)));
     // reversed first so a batch sharing one timestamp still reads newest-written first
     return entries.reverse().sort((a, b) => b.ts - a.ts);
 }
@@ -239,7 +275,8 @@ export function feedGroups(
         rows.push({ kind: "day", key: "day:" + day, label: dayLabel(inDay[0].ts, opts.now) });
         for (const chunk of [...new Set(inDay.map((e) => e.chunk))]) {
             let items = inDay.filter((e) => e.chunk === chunk);
-            if (opts.only == null) {
+            // chunk "" is the initiative itself: its entries sit under the day with no heading
+            if (opts.only == null && chunk !== "") {
                 const added = items.find((e) => e.kind === "chunk-added");
                 items = items.filter((e) => e.kind !== "chunk-added");
                 const status = (items[0] ?? added).status;

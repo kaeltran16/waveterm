@@ -1,6 +1,7 @@
 // notes-wsh: `wsh note add|list|show|delete` (cmd/wsh/cmd/wshcmd-note.go) run as the real binary against the dev
-// app's wavesrv. wsh needs a WAVETERM_JWT only wavesrv mints, so node cannot run it: a cmd block with cmd:jwt runs a
-// driver script the scenario writes, which calls the wsh this tree built and leaves each command's result in a file.
+// app's wavesrv. wsh needs a WAVETERM_JWT only wavesrv mints, so node cannot run it: runWsh puts a cmd block with
+// cmd:jwt in a tab of its own, running a driver script that calls the wsh this tree built and leaves each command's
+// result in a file. Other scenarios (jira-wsh) run their own wsh commands through runWsh.
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -36,32 +37,18 @@ export function vaultRemote(root) {
     return execFileSync("git", ["-C", root, "remote"], { encoding: "utf8" }).trim();
 }
 
-// the driver stops after show until the scenario has read the app's own list, then deletes
+// runs each command in order, one result file per command, then marks done
 const driverSource = (cfg) => `import { spawnSync } from "node:child_process";
-import { existsSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const cfg = ${JSON.stringify(cfg)};
-const mark = (name) => writeFileSync(join(cfg.dir, name), "");
-const run = (name, args, input) => {
-    const r = spawnSync(cfg.wsh, ["note", ...args], { input, encoding: "utf8" });
+cfg.commands.forEach((c, i) => {
+    const r = spawnSync(cfg.wsh, c.args, { input: c.input, encoding: "utf8" });
     const result = { code: r.status, stdout: r.stdout, stderr: r.stderr, error: r.error?.message };
-    writeFileSync(join(cfg.dir, name + ".json"), JSON.stringify(result));
-    return result;
-};
-
-const added = run("add", ["add", cfg.title, "--body", "-"], cfg.body);
-const id = added.code === 0 ? added.stdout.trim().split(" ").pop() : "";
-if (id) {
-    run("list", ["list"]);
-    run("show", ["show", id]);
-    mark("listed");
-    const deadline = Date.now() + cfg.waitMs;
-    while (!existsSync(join(cfg.dir, "continue")) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
-    run("delete", ["delete", id]);
-    run("show-after", ["show", id]);
-}
-mark("done");
+    writeFileSync(join(cfg.dir, i + ".json"), JSON.stringify(result));
+});
+writeFileSync(join(cfg.dir, "done"), "");
 `;
 
 async function waveService(h, service, method, args) {
@@ -103,9 +90,40 @@ async function waitForFile(path, ms) {
     return existsSync(path);
 }
 
-function result(ctx, name) {
-    const path = join(ctx.dir, `${name}.json`);
-    return existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : null;
+// Runs wsh once per entry of argvList (an args array, or { args, input } for stdin) in a tab of its own, and returns
+// each command's { code, stdout, stderr }. The tab and the temp dir are gone when it returns, or throws.
+export async function runWsh(h, argvList) {
+    const wsh = builtWsh();
+    if (!existsSync(wsh)) throw new Error(`no built wsh at ${wsh}`);
+    const ctx = { dir: mkdtempSync(join(tmpdir(), "verify-wsh-")) };
+    let results;
+    let failure = null;
+    try {
+        ctx.script = join(ctx.dir, "driver.mjs");
+        const commands = argvList.map((c) => (Array.isArray(c) ? { args: c } : c));
+        writeFileSync(ctx.script, driverSource({ wsh, dir: ctx.dir, commands }));
+        await startDriver(h, ctx);
+        if (!(await waitForFile(join(ctx.dir, "done"), DRIVER_WAIT_MS))) {
+            throw new Error(`the wsh driver did not finish within ${DRIVER_WAIT_MS}ms`);
+        }
+        results = commands.map((_, i) => JSON.parse(readFileSync(join(ctx.dir, `${i}.json`), "utf8")));
+    } catch (e) {
+        failure = e;
+    }
+    const cleanup = [];
+    if (ctx.tabId) {
+        await waveService(h, "workspace", "CloseTab", [ctx.workspaceId, ctx.tabId, false]).catch((e) =>
+            cleanup.push(`close the driver's tab: ${e?.message ?? e}`)
+        );
+    }
+    try {
+        rmSync(ctx.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    } catch (e) {
+        cleanup.push(`remove the temp dir: ${e?.message ?? e}`);
+    }
+    if (failure != null) throw failure;
+    if (cleanup.length > 0) throw new Error(cleanup.join("; "));
+    return results;
 }
 
 const lines = (text) => (text ?? "").replace(/\r\n/g, "\n");
@@ -116,20 +134,11 @@ export const notesWsh = {
     surface: "cockpit",
     async arrange(h) {
         const stamp = Date.now().toString(36);
-        const ctx = { stamp, title: `verify notes-wsh ${stamp}`, dir: mkdtempSync(join(tmpdir(), "verify-notes-wsh-")) };
-        // a throw past this point still returns ctx, so teardown removes whatever was already made
+        const ctx = { stamp, title: `verify notes-wsh ${stamp}` };
         try {
             ctx.vault = await vaultRoot(h);
             const remote = vaultRemote(ctx.vault);
             if (remote) throw new Error(`the vault ${ctx.vault} has a git remote (${remote}): not writing a fixture note into it`);
-            ctx.wsh = builtWsh();
-            if (!existsSync(ctx.wsh)) throw new Error(`no built wsh at ${ctx.wsh}`);
-            ctx.script = join(ctx.dir, "driver.mjs");
-            writeFileSync(
-                ctx.script,
-                driverSource({ wsh: ctx.wsh, dir: ctx.dir, title: ctx.title, body: BODY_LINES.join("\n") + "\n", waitMs: DRIVER_WAIT_MS })
-            );
-            await startDriver(h, ctx);
         } catch (e) {
             ctx.launchError = String(e?.message ?? e);
         }
@@ -138,69 +147,45 @@ export const notesWsh = {
     async assert(h, ctx) {
         if (ctx.launchError != null) return [{ step: "the driver started", ok: false, detail: ctx.launchError }];
         const steps = [];
-        const listed = await waitForFile(join(ctx.dir, "listed"), DRIVER_WAIT_MS);
-        const add = result(ctx, "add");
-        const id = /^added note (\d{4}-\d{2}-\d{2}-\S+)\r?\n$/.exec(add?.stdout ?? "")?.[1];
-        steps.push({ step: "1. wsh note add prints the new note's id", ok: add?.code === 0 && id != null, detail: show(add) });
+        const note = (...args) => ["note", ...args];
+        const body = BODY_LINES.join("\n");
+        const [add] = await runWsh(h, [{ args: note("add", ctx.title, "--body", "-"), input: body + "\n" }]);
+        const id = /^added note (\d{4}-\d{2}-\d{2}-\S+)\r?\n$/.exec(add.stdout ?? "")?.[1];
+        steps.push({ step: "1. wsh note add prints the new note's id", ok: add.code === 0 && id != null, detail: show(add) });
+        if (id == null) return steps;
 
-        const list = result(ctx, "list");
+        const [list, shown] = await runWsh(h, [note("list"), note("show", id)]);
         steps.push({
             step: "2. wsh note list shows it, id then title",
-            ok: id != null && list?.code === 0 && lines(list.stdout).split("\n").includes(`${id}\t${ctx.title}`),
+            ok: list.code === 0 && lines(list.stdout).split("\n").includes(`${id}\t${ctx.title}`),
             detail: `want "${id}\\t${ctx.title}" in ${show(list)}`,
         });
-
-        const shown = result(ctx, "show");
         steps.push({
             step: "3. wsh note show prints the title heading and the body",
-            ok: shown?.code === 0 && lines(shown.stdout) === `# ${ctx.title}\n\n${BODY_LINES.join("\n")}\n`,
+            ok: shown.code === 0 && lines(shown.stdout) === `# ${ctx.title}\n\n${body}\n`,
             detail: show(shown),
         });
 
-        const inApp = listed ? ((await h.rpc("notelist", null)) ?? []).find((n) => n.id === id) : null;
+        const inApp = ((await h.rpc("notelist", null)) ?? []).find((n) => n.id === id);
         steps.push({
             step: "4. the note the command wrote is the one the app lists",
-            ok: inApp != null && inApp.title === ctx.title && inApp.body === BODY_LINES.join("\n"),
+            ok: inApp != null && inApp.title === ctx.title && inApp.body === body,
             detail: `vault ${ctx.vault}: ${show(inApp ?? null)}`,
         });
 
-        writeFileSync(join(ctx.dir, "continue"), "");
-        const done = await waitForFile(join(ctx.dir, "done"), DRIVER_WAIT_MS);
-        const del = result(ctx, "delete");
-        const after = result(ctx, "show-after");
-        const left = done ? ((await h.rpc("notelist", null)) ?? []).some((n) => n.id === id) : null;
+        const [del, after] = await runWsh(h, [note("delete", id), note("show", id)]);
+        const left = ((await h.rpc("notelist", null)) ?? []).some((n) => n.id === id);
         steps.push({
             step: "5. wsh note delete removes it",
-            ok:
-                del?.code === 0 &&
-                left === false &&
-                after != null &&
-                after.code !== 0 &&
-                `${after.stdout}${after.stderr}`.includes("not found"),
+            ok: del.code === 0 && !left && after.code !== 0 && `${after.stdout}${after.stderr}`.includes("not found"),
             detail: `still listed=${left} delete=${show(del)} show=${show(after)}`,
         });
         return steps;
     },
     async teardown(h, ctx) {
-        const failed = [];
-        const step = async (what, fn) => {
-            try {
-                await fn();
-            } catch (e) {
-                failed.push(`${what}: ${e?.message ?? e}`);
-            }
-        };
-        // lets a driver still waiting run on to its exit before its tab closes
-        await step("release the driver", () => writeFileSync(join(ctx.dir, "continue"), ""));
-        if (ctx.tabId) {
-            await step("close the driver's tab", () => waveService(h, "workspace", "CloseTab", [ctx.workspaceId, ctx.tabId, false]));
+        // a failed step can leave the note behind
+        for (const n of (await h.rpc("notelist", null)) ?? []) {
+            if (n.title.includes(ctx.stamp)) await h.rpc("notedelete", { id: n.id });
         }
-        await step("delete the notes this run left", async () => {
-            for (const n of (await h.rpc("notelist", null)) ?? []) {
-                if (n.title.includes(ctx.stamp)) await h.rpc("notedelete", { id: n.id });
-            }
-        });
-        await step("remove the temp dir", () => rmSync(ctx.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }));
-        if (failed.length > 0) throw new Error(failed.join("; "));
     },
 };

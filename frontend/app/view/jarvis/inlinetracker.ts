@@ -38,7 +38,8 @@ export type TrackerRow =
           at: number;
           first: boolean;
       }
-    | { kind: "chunk"; id: string; oref: string; row: ChunkRowModel; notes: number; next: boolean }
+    // posted: a note on the chunk came from a Jira post, which is how Arc knows it already reported it
+    | { kind: "chunk"; id: string; oref: string; row: ChunkRowModel; notes: number; next: boolean; posted: boolean }
     | { kind: "pending"; id: string; oref: string; message: string };
 
 // The rows that make up an expanded initiative's block — every TrackerRow except the Brief lines the
@@ -125,6 +126,7 @@ export function trackerRows(args: {
                 row,
                 notes: noteCounts.get(row.label) ?? 0,
                 next: next != null && row.label === next.label,
+                posted: row.trail.some((n) => !!n.jirapost),
             });
         if (isFlatPlan(chunks)) {
             chunks.forEach(pushChunk);

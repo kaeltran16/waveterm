@@ -109,7 +109,14 @@ type EffortSummary struct {
 	Total       int                  `json:"total"`
 	ActiveChunk string               `json:"activechunk,omitempty"` // first chunk with status active, else first non-done label
 	UpdatedTs   int64                `json:"updatedts"`
-	LastNote    *EffortLastNote      `json:"lastnote,omitempty"` // the newest note on the effort or any chunk
+	LastNote    *EffortLastNote      `json:"lastnote,omitempty"`   // the newest note on the effort or any chunk
+	TicketSeen  *EffortTicketSeen    `json:"ticketseen,omitempty"` // from Effort.Jira; nil before Arc has read the ticket
+}
+
+type EffortTicketSeen struct {
+	Type   string `json:"type"`
+	Status string `json:"status"`
+	SeenTs int64  `json:"seents"`
 }
 
 // EffortLastNote is where an initiative was left: its newest note, cut to its first line so the ledger does

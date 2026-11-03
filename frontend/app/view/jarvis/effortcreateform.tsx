@@ -4,6 +4,7 @@
 // Paste-and-tick effort creation: one line per chunk in the textarea, live checkbox rows below,
 // ticked lines become status=done at save (two RPCs — the chunk seed carries no status field).
 
+import { microFade } from "@/app/element/motiontokens";
 import { ModalShell } from "@/app/modals/modalshell";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
@@ -11,10 +12,15 @@ import { projectListAtom } from "@/app/view/agents/projectsstore";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { Check } from "lucide-react";
-import { Fragment, useEffect, useState } from "react";
+import { AnimatePresence, MotionConfig, motion } from "motion/react";
+import { Fragment, useEffect, useRef, useState } from "react";
+import type { AgentsViewModel } from "../agents/agents";
 import { loadBriefingAsync, stateRpcTimeoutMs } from "./briefingstore";
 import { briefUndo } from "./briefundo";
 import { setEffortDetails, type EffortDetails } from "./effortstore";
+import { openJiraSettings } from "./jiraactions";
+import { fromLookupError, lookupLine, shouldLookUp, type LookupState } from "./jiralookup";
+import { normalizeKey } from "./jiraticket";
 import { ProjectChips } from "./projectchips";
 
 export interface ParsedChunkLine {
@@ -45,10 +51,14 @@ const inputCls =
     "w-full rounded-[7px] border border-edge-mid bg-background px-2.5 py-1.5 text-[12px] text-primary placeholder:text-muted outline-none focus:border-accent/60";
 const fieldLabel = "font-mono text-[10.5px] font-bold uppercase tracking-[.09em] text-ink-mid";
 
+const LINE_TONE = { muted: "text-ink-mid", error: "text-error", faint: "text-muted", ok: "text-success" } as const;
+
 export function EffortCreateForm({
+    model,
     onClose,
     edit,
 }: {
+    model: AgentsViewModel;
     onClose: () => void;
     // details mode: the same fields over an existing initiative; its chunks are edited in the plan
     edit?: { oref: string; details: EffortDetails };
@@ -63,6 +73,10 @@ export function EffortCreateForm({
     const [error, setError] = useState<string | null>(null);
     const [titleError, setTitleError] = useState<string | null>(null);
     const projects = useAtomValue(projectListAtom);
+    const [lookup, setLookup] = useState<LookupState>({ kind: "idle" });
+    // the key last looked up (the saved one, in details mode) and a counter so only the newest lookup lands
+    const lookedUp = useRef(normalizeKey(edit?.details.ticket ?? ""));
+    const lookupSeq = useRef(0);
 
     // re-parse on text change, keeping ticks by label so a tick survives edits elsewhere in the list
     useEffect(() => {
@@ -77,6 +91,40 @@ export function EffortCreateForm({
     const dupes = lines.some(isDupe);
     const stages = new Set(lines.map((l) => l.stage)).size;
     const canSubmit = !submitting && title.trim() !== "" && (edit != null || !dupes);
+
+    // saving never waits on this or depends on it: the field is plain text either way
+    const lookUpTicket = (): void => {
+        const key = shouldLookUp(lookedUp.current, ticket);
+        if (key == null) {
+            if (normalizeKey(ticket) === "" && lookedUp.current !== "") {
+                lookupSeq.current++;
+                lookedUp.current = "";
+                setLookup({ kind: "idle" });
+            }
+            return;
+        }
+        const mine = ++lookupSeq.current;
+        lookedUp.current = key;
+        setTicket(key);
+        setLookup({ kind: "looking", key });
+        RpcApi.JiraShowCommand(TabRpcClient, { key, via: "lookup" }, { timeout: stateRpcTimeoutMs })
+            .then(
+                (r): LookupState => ({
+                    kind: "found",
+                    key,
+                    summary: r.ticket.summary,
+                    type: r.ticket.type,
+                    status: r.ticket.status,
+                }),
+                (e): LookupState => fromLookupError(key, e)
+            )
+            .then((next) => {
+                if (mine === lookupSeq.current) {
+                    setLookup(next);
+                }
+            });
+    };
+    const line = lookupLine(lookup);
 
     const submit = async (): Promise<void> => {
         setTitleError(title.trim() === "" ? "Title is required" : null);
@@ -176,10 +224,12 @@ export function EffortCreateForm({
                     <div className="flex flex-col gap-1">
                         <span className={fieldLabel}>Ticket</span>
                         <input
+                            data-effort-field="ticket"
                             value={ticket}
                             onChange={(e) => setTicket(e.target.value)}
+                            onBlur={lookUpTicket}
                             placeholder="optional"
-                            className={cn(inputCls, "font-mono")}
+                            className={cn(inputCls, "font-mono", line?.fieldError && "border-error/60")}
                         />
                     </div>
                     <div className="flex flex-col gap-1">
@@ -192,6 +242,57 @@ export function EffortCreateForm({
                         />
                     </div>
                 </div>
+                <MotionConfig reducedMotion="user">
+                    <AnimatePresence mode="wait" initial={false}>
+                        {lookup.kind === "idle" ? null : (
+                            <motion.div
+                                key={lookup.kind}
+                                data-jira-lookup={lookup.kind}
+                                variants={microFade}
+                                initial="initial"
+                                animate="animate"
+                                exit="exit"
+                                className="-mt-1"
+                            >
+                                {lookup.kind === "found" ? (
+                                    <div className="flex items-center gap-[9px] rounded-[7px] bg-surface px-[11px] py-[9px]">
+                                        <Check
+                                            className="h-[13px] w-[13px] flex-none text-success"
+                                            strokeWidth={2.4}
+                                            aria-hidden
+                                        />
+                                        <span className="min-w-0 flex-1 truncate text-[12.5px] text-secondary">
+                                            {lookup.summary}
+                                        </span>
+                                        <span className="flex-none text-[11.5px] text-muted">
+                                            {lookup.type} · {lookup.status}
+                                        </span>
+                                    </div>
+                                ) : line != null ? (
+                                    <span className={cn("text-[12px] leading-normal", LINE_TONE[line.tone])}>
+                                        {line.text}
+                                        {line.connect ? (
+                                            <>
+                                                {" "}
+                                                <button
+                                                    type="button"
+                                                    data-jira-connect
+                                                    onClick={() => {
+                                                        onClose();
+                                                        openJiraSettings(model);
+                                                    }}
+                                                    className="cursor-pointer text-accent-soft hover:text-accent"
+                                                >
+                                                    Connect Jira
+                                                </button>
+                                            </>
+                                        ) : null}
+                                    </span>
+                                ) : null}
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                </MotionConfig>
                 {edit == null ? (
                     <div className="flex flex-col gap-1.5">
                         <div className="flex items-baseline gap-2">

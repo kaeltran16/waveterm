@@ -150,6 +150,7 @@ import {
     readingNoteAtom,
 } from "./jarvisstore";
 import { clearSubject, persistedSubjectAtom, stageRunAtom } from "./jarvissubjectstore";
+import { JiraCheckDialog } from "./jiracheckdialog";
 import { openOrPeek, openOrPeekAddress } from "./openref";
 import { forgetOrigin } from "./returnsurface";
 import { loadTaskList, taskListAtom } from "./tasksstore";
@@ -552,6 +553,9 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                 onRename: (title) => setRenamingTitle(title),
                 onDetails: () => setDetailsOpen(true),
                 onActivity: (e) => fireAndForget(() => openOrPeekAddress(model, oref, e)),
+                // lazy, so this file gains no import line beside the one the Check Jira toolbar adds
+                onConnectJira: () =>
+                    fireAndForget(() => import("./jiraactions").then((m) => m.openJiraSettings(model))),
             },
         });
     }, [model, openEffortORef, openEffort, planChunks, pendingDeletes, mutationDeps]);
@@ -701,7 +705,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
             new Map(
                 [...efforts, ...archivedCards].map((e) => [
                     e.oref.replace(/^effort:/, ""),
-                    { oref: e.oref, title: e.title, chunkStages: e.chunkStages },
+                    { oref: e.oref, title: e.title, chunkStages: e.chunkStages, ticket: e.ticket ?? "" },
                 ])
             )
         );
@@ -1083,8 +1087,10 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                 initialChannelId={profileTarget ?? ""}
                 onClose={() => setProfileTarget(null)}
             />
+            <JiraCheckDialog model={model} />
             {detailsOpen && openEffort != null && openEffortORef != null ? (
                 <EffortCreateForm
+                    model={model}
                     onClose={() => setDetailsOpen(false)}
                     edit={{
                         oref: openEffortORef,

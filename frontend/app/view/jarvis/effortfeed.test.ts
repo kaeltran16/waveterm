@@ -528,3 +528,55 @@ describe("effortFeed locating", () => {
         expect(effortFeed(e).map((x) => x.text)).toEqual(["second", "later in the same instant", "middle", "first"]);
     });
 });
+
+describe("effortFeed Jira posts", () => {
+    const URL = "https://x.atlassian.net/browse/PAY-318?focusedCommentId=10000";
+    const withNotes = (e: Effort, notes: EffortNote[]) => ({ ...e, notes }) as Effort;
+
+    it("carries the comment url of a post note located by its event", () => {
+        const e = effort(
+            [{ label: "A", status: "done", notes: [{ ts: T, text: "Reported", author: "you", jirapost: URL }] }],
+            [{ ts: T, kind: "effort-note", label: "A", text: "Reported" }]
+        );
+        expect(effortFeed(e)).toMatchObject([{ chunk: "A", jirapost: URL }]);
+    });
+
+    it("leaves jirapost off an ordinary note", () => {
+        const e = effort(
+            [{ label: "A", notes: [{ ts: T, text: "plain" }] }],
+            [{ ts: T, kind: "effort-note", label: "A", text: "plain" }]
+        );
+        expect("jirapost" in effortFeed(e)[0]).toBe(false);
+    });
+
+    it("still lists a post note that no event names, on its chunk", () => {
+        const e = effort([{ label: "A", status: "done", notes: [{ ts: T, text: "Reported", jirapost: URL }] }], []);
+        const [entry] = effortFeed(e);
+        expect(entry).toMatchObject({ chunk: "A", status: "done", text: "Reported", jirapost: URL, noteAt: 1 });
+    });
+
+    it("lists the initiative's own post note under no chunk, once whether or not an event names it", () => {
+        const note = { ts: T, text: "Posted progress to PAY-318. Moved To Do to In Progress.", jirapost: URL };
+        const quiet = withNotes(effort([{ label: "A" }], []), [note]);
+        const named = withNotes(
+            effort([{ label: "A" }], [{ ts: T, kind: "effort-note", label: "", text: note.text }]),
+            [note]
+        );
+        for (const e of [quiet, named]) {
+            expect(effortFeed(e)).toMatchObject([{ chunk: "", text: note.text, jirapost: URL }]);
+        }
+    });
+
+    it("ignores initiative notes that are not Jira posts", () => {
+        const e = withNotes(effort([{ label: "A" }], []), [{ ts: T, text: "effort created" }]);
+        expect(effortFeed(e)).toEqual([]);
+    });
+
+    it("draws an initiative-level entry with no chunk heading", () => {
+        const e = withNotes(effort([{ label: "A" }], []), [
+            { ts: T, text: "Posted progress to PAY-318.", jirapost: URL },
+        ]);
+        const { rows } = feedGroups(effortFeed(e), { only: null, limit: 25, now: T });
+        expect(rows.map((r) => r.kind)).toEqual(["day", "note"]);
+    });
+});

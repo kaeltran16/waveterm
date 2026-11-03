@@ -7,6 +7,13 @@
 // order.
 import { narrationFeed } from "./narrationfeed.mjs";
 import { codePeek } from "./scenarios-codepeek.mjs";
+import { jiraSettings } from "./scenarios-jira-settings.mjs";
+import { jiraCheck } from "./scenarios-jira-check.mjs";
+import { jiraInitiative } from "./scenarios-jira-initiative.mjs";
+import { jiraPost } from "./scenarios-jira-post.mjs";
+import { jiraSidebar } from "./scenarios-jira-sidebar.mjs";
+import { jiraDetails } from "./scenarios-jira-details.mjs";
+import { jiraWsh } from "./scenarios-jira-wsh.mjs";
 import { notesWsh } from "./notes-wsh.mjs";
 import builder from "./scenarios-brainstorm-builder.mjs";
 import findings from "./scenarios-brainstorm-findings.mjs";
@@ -314,6 +321,13 @@ export const SCENARIOS = [
     uiDrift,
     workflowScan,
     workflowScanEntry,
+    jiraSettings,
+    jiraCheck,
+    jiraInitiative,
+    jiraPost,
+    jiraSidebar,
+    jiraDetails,
+    jiraWsh,
     // last: its fixture roster stands in for the live one until its teardown reloads
     agentComposer,
 ];

@@ -588,3 +588,27 @@ func TestApplyOpsLeavesTheAuthorEmpty(t *testing.T) {
 		t.Fatalf("note = %+v, want no author", n)
 	}
 }
+
+func TestSetTicketChangeClearsJira(t *testing.T) {
+	copyOf := func() *waveobj.EffortJira { return &waveobj.EffortJira{Summary: "Refund flow", SeenTs: 1} }
+	cases := []struct {
+		name, to string
+		kept     bool
+	}{
+		{"another key", "PAY-2", false},
+		{"cleared", "", false},
+		{"same key in another case", " pay-1 ", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e := mkEffort()
+			e.Ticket, e.Jira = "PAY-1", copyOf()
+			if err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "setTicket", Ticket: tc.to}}, "", effortNow); err != nil {
+				t.Fatal(err)
+			}
+			if kept := e.Jira != nil; kept != tc.kept {
+				t.Fatalf("setTicket %q: copy kept = %v, want %v", tc.to, kept, tc.kept)
+			}
+		})
+	}
+}

@@ -5,8 +5,10 @@
 // its title), plus the chunk sidebar that the plan's selected chunk opens beside the regions.
 
 import { cardVariants, MOTION, paneReveal } from "@/app/element/motiontokens";
+import { getSettingsKeyAtom } from "@/app/store/global";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { cn, fireAndForget } from "@/util/util";
+import { useAtomValue } from "jotai";
 import { AnimatePresence, motion, MotionConfig, type Variants } from "motion/react";
 import type { RunMutation } from "./briefmutations";
 import { filterSlot, keyOf, MoreControl, NoMatch, Region, REGIONS } from "./briefprimitives";
@@ -16,11 +18,13 @@ import { LINK_BTN } from "./briefstyle";
 import { briefUndo, noteKey } from "./briefundo";
 import { ChunkSidebar } from "./chunksidebar";
 import type { FeedEntry } from "./effortfeed";
-import { appendChunkNote, editNote, removeNote, type ChunkRowModel } from "./effortstore";
+import { appendChunkNote, editNote, effortDetailAtom, removeNote, type ChunkRowModel } from "./effortstore";
 import type { InitiativeResume } from "./initiativework";
 import { isFlatPlan, type DetailRow, type TrackerRow } from "./inlinetracker";
 import { InitiativeDetail, type TrackerEdits } from "./inlinetrackerview";
+import { ticketUrl } from "./jiraticket";
 import { openOrPeek, openOrPeekAddress } from "./openref";
+import { TicketBar } from "./ticketbarview";
 import { chunkRef } from "./trackeredit";
 
 // The plan reveal clips only while its height animates: left clipped, it cut off the chunk and stage menus
@@ -211,13 +215,18 @@ export function InitiativesRegion({
                                             exit="exit"
                                         >
                                             {edits != null ? (
-                                                <InitiativeDetail
-                                                    rows={detail}
-                                                    cursor={cursor}
-                                                    edits={edits}
-                                                    onSelectChunk={onSelectChunk}
-                                                    onToggleStage={onToggleStage}
-                                                />
+                                                <>
+                                                    {l.target != null && "oref" in l.target ? (
+                                                        <TicketBar oref={l.target.oref} />
+                                                    ) : null}
+                                                    <InitiativeDetail
+                                                        rows={detail}
+                                                        cursor={cursor}
+                                                        edits={edits}
+                                                        onSelectChunk={onSelectChunk}
+                                                        onToggleStage={onToggleStage}
+                                                    />
+                                                </>
                                             ) : (
                                                 <p
                                                     data-jarvis-initiative-detail="loading"
@@ -284,6 +293,10 @@ export function BriefChunkPane({
     runMutation: RunMutation;
     edits: TrackerEdits | null;
 }) {
+    const efforts = useAtomValue(effortDetailAtom);
+    const site = useAtomValue(getSettingsKeyAtom("jira:site"));
+    const key = (selectedChunk != null ? efforts.get(selectedChunk.oref)?.ticket : undefined)?.trim() ?? "";
+    const ticket = key !== "" ? { key, url: ticketUrl(site, key) } : null;
     return (
         <AnimatePresence initial={false}>
             {selectedChunk != null ? (
@@ -303,6 +316,7 @@ export function BriefChunkPane({
                     expanded={readingNote}
                     now={Date.now()}
                     handle={`wsh effort note ${selectedChunk.oref.replace(/^effort:/, "")} "${selectedChunk.row.label}"`}
+                    ticket={ticket}
                     error={error}
                     onPrev={onPrev}
                     onNext={onNext}

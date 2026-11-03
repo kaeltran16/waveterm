@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"slices"
 )
 
 type UpdatesRtnType = []WaveObjUpdate
@@ -852,12 +853,49 @@ type Effort struct {
 	Chunks    []EffortChunk `json:"chunks"` // ordered; may be empty (agents create first, plan chunks after)
 	Notes     []EffortNote  `json:"notes,omitempty"`
 	Events    []EffortEvent `json:"events,omitempty"` // delta-source event log (six kinds)
-	CreatedTs int64         `json:"createdts"`
-	UpdatedTs int64         `json:"updatedts"`
-	Meta      MetaMapType   `json:"meta"`
+	// Jira is the last-seen copy of the Ticket's Jira issue; nil until Arc has read it. Changing the
+	// ticket clears it, so it never describes a different key.
+	Jira      *EffortJira `json:"jira,omitempty"`
+	CreatedTs int64       `json:"createdts"`
+	UpdatedTs int64       `json:"updatedts"`
+	Meta      MetaMapType `json:"meta"`
 }
 
 func (*Effort) GetOType() string { return OType_Effort }
+
+type EffortJira struct {
+	Summary        string          `json:"summary"`
+	Type           string          `json:"type"`
+	Status         string          `json:"status"`
+	StatusCategory string          `json:"statuscategory"` // new | indeterminate | done
+	Description    string          `json:"description,omitempty"`
+	Acceptance     []string        `json:"acceptance,omitempty"`
+	SeenTs         int64           `json:"seents"`
+	SeenVia        string          `json:"seenvia"` // check | show | refresh | post | lookup | make
+	LastPost       *EffortJiraPost `json:"lastpost,omitempty"`
+}
+
+type EffortJiraPost struct {
+	Ts         int64  `json:"ts"`
+	CommentURL string `json:"commenturl"`
+	From       string `json:"from"`
+	MovedTo    string `json:"movedto,omitempty"`
+	MoveError  string `json:"moveerror,omitempty"`
+}
+
+// Clone deep-copies j (nil stays nil), so the effort cache and vault merges never share one.
+func (j *EffortJira) Clone() *EffortJira {
+	if j == nil {
+		return nil
+	}
+	c := *j
+	c.Acceptance = slices.Clone(j.Acceptance)
+	if j.LastPost != nil {
+		post := *j.LastPost
+		c.LastPost = &post
+	}
+	return &c
+}
 
 type EffortChunk struct {
 	Label  string `json:"label"`  // unique within the effort; reference key
@@ -890,6 +928,9 @@ type EffortNote struct {
 	// came from, when they resolve. They back "open agent session ↗" and the run report on the card.
 	Session string `json:"session,omitempty"`
 	Run     string `json:"run,omitempty"`
+	// JiraPost is the comment URL of the Jira post that wrote this note; a chunk carrying one is
+	// "posted to Jira".
+	JiraPost string `json:"jirapost,omitempty"`
 }
 
 type EffortEvent struct {

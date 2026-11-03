@@ -53,6 +53,8 @@ export type BriefLine = {
     fresh?: boolean;
     runType?: RunType;
     group?: "delta" | "shipped";
+    // an initiative's Jira key, "" with none: the meta draws it as a link
+    ticket?: string;
 };
 
 export type LineGroup = { label: string; lines: BriefLine[] };
@@ -120,6 +122,7 @@ export function initiativeLine(card: EffortCardModel): BriefLine {
         // chunk labels run long as "<name> - <detail>"; the name is what fits beside a title
         note: card.activeChunk?.split(" - ")[0] ?? "",
         meta: joined([card.ticket, card.project || "no project"]),
+        ticket: card.ticket ?? "",
         state,
         stateTone,
         progress: { done: card.done, total: card.done + card.remaining, pct: card.progressPct },
@@ -176,7 +179,7 @@ export type RunRowFace = {
     chunk: string;
 };
 
-export type EffortRef = { oref: string; title: string; chunkStages: Record<string, string> };
+export type EffortRef = { oref: string; title: string; chunkStages: Record<string, string>; ticket: string };
 // keyed by effort oid, the way a run's effortref names its effort
 export type EffortIndex = Map<string, EffortRef>;
 

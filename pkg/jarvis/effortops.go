@@ -284,6 +284,10 @@ func ApplyEffortOpsAs(e *waveobj.Effort, ops []wshrpc.EffortOp, cmdNote string, 
 			e.Project = op.Project
 			effortNote(e, "project set to "+orNone(op.Project)+noteSuffix(cmdNote), now)
 		case "setTicket":
+			// the copy describes the old key; drawn for the new one it would show another ticket
+			if !strings.EqualFold(strings.TrimSpace(op.Ticket), strings.TrimSpace(e.Ticket)) {
+				e.Jira = nil
+			}
 			e.Ticket = op.Ticket
 			effortNote(e, "ticket set to "+orNone(op.Ticket)+noteSuffix(cmdNote), now)
 		case "setStatus":

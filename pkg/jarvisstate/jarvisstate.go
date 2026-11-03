@@ -264,6 +264,9 @@ func EffortSummaryOf(e *waveobj.Effort) wshrpc.EffortSummary {
 		}
 	}
 	s.LastNote = lastNoteOf(e)
+	if e.Jira != nil {
+		s.TicketSeen = &wshrpc.EffortTicketSeen{Type: e.Jira.Type, Status: e.Jira.Status, SeenTs: e.Jira.SeenTs}
+	}
 	return s
 }
 

@@ -274,3 +274,15 @@ func TestTimelineLeavesOutDagWorkers(t *testing.T) {
 		}
 	}
 }
+
+func TestEffortSummaryTicketSeen(t *testing.T) {
+	e := &waveobj.Effort{Title: "t", Ticket: "PAY-318", Status: "active"}
+	if s := EffortSummaryOf(e); s.TicketSeen != nil {
+		t.Fatalf("TicketSeen before any copy: %+v", s.TicketSeen)
+	}
+	e.Jira = &waveobj.EffortJira{Summary: "Refund flow", Type: "Story", Status: "To Do", SeenTs: 42}
+	s := EffortSummaryOf(e)
+	if s.TicketSeen == nil || *s.TicketSeen != (wshrpc.EffortTicketSeen{Type: "Story", Status: "To Do", SeenTs: 42}) {
+		t.Fatalf("TicketSeen = %+v", s.TicketSeen)
+	}
+}

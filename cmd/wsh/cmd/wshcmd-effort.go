@@ -110,7 +110,7 @@ var effortListCmd = &cobra.Command{
 			return jsonOut(rtn)
 		}
 		for _, s := range rtn.Efforts {
-			fmt.Printf("%s\t%s\t%s\t%d/%d\t%s\n", s.ORef, s.Title, s.Status, s.Done, s.Total, s.ActiveChunk)
+			fmt.Println(effortListLine(s))
 		}
 		return nil
 	},
@@ -450,6 +450,10 @@ func parseAt(s string) (int, error) {
 func formatEffortShow(e *waveobj.Effort) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# %s (%s) — %d/%d\n", e.Title, e.Status, countDone(e), len(e.Chunks))
+	if e.Project != "" {
+		fmt.Fprintf(&b, "project  %s\n", e.Project)
+	}
+	b.WriteString(formatEffortTicket(e))
 	stage := ""
 	for i, c := range e.Chunks {
 		if c.Stage != stage {
@@ -464,6 +468,32 @@ func formatEffortShow(e *waveobj.Effort) string {
 		}
 	}
 	return b.String()
+}
+
+// formatEffortTicket is the ticket line and the pointer to the full ticket, which an agent started with
+// Work on reads first. Before Arc has read the ticket there is only the key.
+func formatEffortTicket(e *waveobj.Effort) string {
+	if e.Ticket == "" {
+		return ""
+	}
+	line := "ticket   " + e.Ticket
+	if j := e.Jira; j != nil {
+		line += fmt.Sprintf("  %s (seen %s)", jiraTypeStatus(j.Type, j.Status), timeStr(j.SeenTs))
+	}
+	return line + "\n         read it: wsh jira show " + e.Ticket + "\n"
+}
+
+// effortListLine is one `effort list` row: the ticket, once there is one, is a trailing column.
+func effortListLine(s wshrpc.EffortSummary) string {
+	line := fmt.Sprintf("%s\t%s\t%s\t%d/%d\t%s", s.ORef, s.Title, s.Status, s.Done, s.Total, s.ActiveChunk)
+	if s.Ticket == "" {
+		return line
+	}
+	line += "\t" + s.Ticket
+	if s.TicketSeen != nil {
+		line += " " + jiraTypeStatus(s.TicketSeen.Type, s.TicketSeen.Status)
+	}
+	return line
 }
 
 func countDone(e *waveobj.Effort) int {

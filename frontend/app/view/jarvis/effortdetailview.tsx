@@ -38,6 +38,7 @@ import { TONE_FG, ToneIcon } from "./inlinetrackerview";
 import { activeSubjectAtom } from "./jarvissubjectstore";
 import { openOrPeekAddress } from "./openref";
 import { STAGE_SCROLLER } from "./stagemeasure";
+import { JiraCommentLink } from "./ticketbarview";
 
 const FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
 const TIME = cn("w-[38px] flex-none", MONO_FAINT);
@@ -284,39 +285,44 @@ function FeedGroupLine({
             return (
                 <div className="relative pl-[22px]">
                     <Rail />
-                    <button
-                        type="button"
-                        onClick={onToggle}
-                        aria-expanded={open}
-                        data-jarvis-effort-note={row.key}
-                        className={cn(
-                            "flex w-full min-w-0 cursor-pointer items-baseline gap-2.5 py-[3px] pr-1.5 text-left",
-                            ROW_HOVER,
-                            open && "bg-surface-hover",
-                            FOCUS
-                        )}
-                    >
-                        <span className={TIME}>{row.time}</span>
-                        <span
+                    <div className="flex items-baseline">
+                        <button
+                            type="button"
+                            onClick={onToggle}
+                            aria-expanded={open}
+                            data-jarvis-effort-note={row.key}
                             className={cn(
-                                "line-clamp-2 min-w-0 flex-1 text-[12.5px] leading-[1.5]",
-                                open ? "text-ink-hi" : "text-ink-mid"
+                                "flex w-full min-w-0 cursor-pointer items-baseline gap-2.5 py-[3px] pr-1.5 text-left",
+                                ROW_HOVER,
+                                open && "bg-surface-hover",
+                                FOCUS
                             )}
                         >
-                            {row.mark != null ? <MarkPill tone={row.mark} /> : null}
-                            <Segments text={row.head} />
-                        </span>
-                        <ChevronRight
-                            size={11}
-                            strokeWidth={2.4}
-                            aria-hidden
-                            style={turnTransition}
-                            className={cn(
-                                "flex-none self-center text-muted transition-transform motion-reduce:transition-none",
-                                open && "rotate-90"
-                            )}
-                        />
-                    </button>
+                            <span className={TIME}>{row.time}</span>
+                            <span
+                                className={cn(
+                                    "line-clamp-2 min-w-0 flex-1 text-[12.5px] leading-[1.5]",
+                                    open ? "text-ink-hi" : "text-ink-mid"
+                                )}
+                            >
+                                {row.mark != null ? <MarkPill tone={row.mark} /> : null}
+                                <Segments text={row.head} />
+                            </span>
+                            <ChevronRight
+                                size={11}
+                                strokeWidth={2.4}
+                                aria-hidden
+                                style={turnTransition}
+                                className={cn(
+                                    "flex-none self-center text-muted transition-transform motion-reduce:transition-none",
+                                    open && "rotate-90"
+                                )}
+                            />
+                        </button>
+                        {row.entry.jirapost != null ? (
+                            <JiraCommentLink url={row.entry.jirapost} className={cn("flex-none pr-1.5", MONO_FAINT)} />
+                        ) : null}
+                    </div>
                     <PaneReveal open={open}>
                         <div className="mb-2 ml-[48px] mt-0.5 flex flex-col gap-1.5 rounded-lg border border-edge-faint bg-surface px-3 py-2.5 text-[12.5px] leading-[1.65] text-secondary">
                             <NoteParagraphs body={row.body} />

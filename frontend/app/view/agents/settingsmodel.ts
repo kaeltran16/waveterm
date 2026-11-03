@@ -6,6 +6,7 @@
 // what lets the left pane count and search rows it does not render, and it is the single source of
 // each row's prose so the index and the detail pane cannot disagree.
 
+import { parseJiraError } from "@/app/view/jarvis/jiraticket";
 import { formatAgo } from "./agentsviewmodel";
 import { RUNTIME_FLAGS, type Runtime } from "./launch";
 
@@ -47,6 +48,9 @@ export const GROUP_ORDER = ["Cockpit", "Agents", "Data", "Build"] as const;
 // stays because renaming it would orphan every key already stored. Never read back into the UI.
 // Underscore, not colon: SetSecret validates against the shell env-var charset and rejects colons.
 export const OPENROUTER_SECRET_NAME = "jarvis_embedapikey";
+
+// The secret pkg/jira reads the API token from. Written with SetSecretsCommand, never read back.
+export const JIRA_SECRET_NAME = "JIRA_API_TOKEN";
 
 // The skim mod (claude/arc-skim-mod) and the userConfig fields its plugin.json declares; pkg/claudemod writes only these
 export const SKIM_PLUGIN = "arc-skim";
@@ -368,6 +372,42 @@ export function settingsSections(flagRuntime: Runtime): SettingSectionDef[] {
             ],
         },
         {
+            id: "jira",
+            name: "Jira",
+            blurb: "Your Jira Cloud site, for Check Jira, Make initiative and Post to Jira. Arc talks to Jira only when you use one of them.",
+            group: "Data",
+            rows: [
+                {
+                    id: "jira.site",
+                    title: "Site",
+                    desc: "Your Jira Cloud address.",
+                    key: "jira:site",
+                    scope: "synced",
+                    config: true,
+                },
+                {
+                    id: "jira.email",
+                    title: "Account email",
+                    desc: "The Atlassian account the API token belongs to.",
+                    key: "jira:email",
+                    scope: "synced",
+                    config: true,
+                },
+                {
+                    id: "jira.token",
+                    title: "API token",
+                    desc: "Kept in Arc's encrypted secret store, never in settings.json. Agents reach Jira through wsh and never see it.",
+                    key: `secretstore · ${JIRA_SECRET_NAME}`,
+                    scope: "local",
+                },
+                {
+                    id: "jira.connection",
+                    title: "Connection",
+                    desc: "Arc signs in to your site with the email and token above.",
+                },
+            ],
+        },
+        {
             id: "storage",
             name: "Storage",
             blurb: "What Arc and its agents keep on this machine, which run left it, and whether anything still needs it.",
@@ -467,6 +507,49 @@ export function vaultSyncFailureNote(err: string, reloaded: VaultStatusRtnData |
         return err;
     }
     return null;
+}
+
+const JIRA_SITE_RE = /^https:\/\/[a-z0-9-]+\.atlassian\.net\/?$/i;
+
+// null when the site may be saved: empty disconnects, otherwise only a Jira Cloud address is accepted
+export function jiraSiteError(site: string): string | null {
+    const s = site.trim();
+    if (s === "" || JIRA_SITE_RE.test(s)) {
+        return null;
+    }
+    return "Use your Jira Cloud address: https://<name>.atlassian.net";
+}
+
+export type JiraConnectionLine = {
+    tone: "idle" | "ok" | "error";
+    text: string;
+    // set once Arc has tried the site at least once
+    checked?: string;
+};
+
+// the names pkg/jira's not-configured message uses for each missing piece
+const JIRA_MISSING_NAME: Record<string, string> = { site: "site", email: "account email", token: "API token" };
+
+function joinAnd(items: string[]): string {
+    return items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+
+// the Connection row's state line. Reads the status wavesrv keeps in memory; it never calls Jira.
+export function jiraConnectionLine(conn: JiraConnection, now: number): JiraConnectionLine {
+    if (!conn.configured) {
+        return {
+            tone: "idle",
+            text: `Add your ${joinAnd((conn.missing ?? []).map((m) => JIRA_MISSING_NAME[m] ?? m))} to connect.`,
+        };
+    }
+    if (conn.checkedts == null && !conn.error) {
+        return { tone: "idle", text: "Not checked yet" };
+    }
+    const checked = conn.checkedts != null ? `Checked ${formatAgo(now - conn.checkedts)}` : undefined;
+    if (conn.ok) {
+        return { tone: "ok", text: `Connected as ${conn.displayname ?? "you"}`, checked };
+    }
+    return { tone: "error", text: parseJiraError(conn.error ?? "").message, checked };
 }
 
 // Sections with non-matching rows dropped, then empty sections dropped. An empty query returns the

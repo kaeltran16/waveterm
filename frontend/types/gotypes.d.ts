@@ -1311,6 +1311,74 @@ declare global {
         status: CaptureStatus;
     };
 
+    // wshrpc.CommandJiraCheckRtnData
+    type CommandJiraCheckRtnData = {
+        site: string;
+        checkedts: number;
+        tickets: JiraTicketRow[];
+        covered: number;
+    };
+
+    // wshrpc.CommandJiraConnectionData
+    type CommandJiraConnectionData = {
+        test?: boolean;
+    };
+
+    // wshrpc.CommandJiraPostData
+    type CommandJiraPostData = {
+        effortoid: string;
+        comment: string;
+        transitionid?: string;
+        donechunks?: string[];
+    };
+
+    // wshrpc.CommandJiraPostDraftData
+    type CommandJiraPostDraftData = {
+        effortoid: string;
+    };
+
+    // wshrpc.CommandJiraPostDraftRtnData
+    type CommandJiraPostDraftRtnData = {
+        key: string;
+        status: string;
+        lastpost?: EffortJiraPost;
+        comment: string;
+        donechunks?: string[];
+        transitions?: JiraTransition[];
+    };
+
+    // wshrpc.CommandJiraPostRtnData
+    type CommandJiraPostRtnData = {
+        commenturl: string;
+        postedts: number;
+        from: string;
+        movedto?: string;
+        moveerror?: string;
+        status: string;
+    };
+
+    // wshrpc.CommandJiraPostSummariesRtnData
+    type CommandJiraPostSummariesRtnData = {
+        comment: string;
+        rewritten: boolean;
+        reason?: string;
+    };
+
+    // wshrpc.CommandJiraShowData
+    type CommandJiraShowData = {
+        key: string;
+        via: string;
+    };
+
+    // wshrpc.CommandJiraShowRtnData
+    type CommandJiraShowRtnData = {
+        ticket: JiraTicket;
+        project?: string;
+        evidence?: string;
+        sure: boolean;
+        seents: number;
+    };
+
     // wshrpc.CommandLandRunData
     type CommandLandRunData = {
         channelid: string;
@@ -2006,6 +2074,7 @@ declare global {
         chunks: EffortChunk[];
         notes?: EffortNote[];
         events?: EffortEvent[];
+        jira?: EffortJira;
         createdts: number;
         updatedts: number;
     };
@@ -2038,6 +2107,28 @@ declare global {
         text?: string;
     };
 
+    // waveobj.EffortJira
+    type EffortJira = {
+        summary: string;
+        type: string;
+        status: string;
+        statuscategory: string;
+        description?: string;
+        acceptance?: string[];
+        seents: number;
+        seenvia: string;
+        lastpost?: EffortJiraPost;
+    };
+
+    // waveobj.EffortJiraPost
+    type EffortJiraPost = {
+        ts: number;
+        commenturl: string;
+        from: string;
+        movedto?: string;
+        moveerror?: string;
+    };
+
     // wshrpc.EffortLastNote
     type EffortLastNote = {
         ts: number;
@@ -2055,6 +2146,7 @@ declare global {
         author?: string;
         session?: string;
         run?: string;
+        jirapost?: string;
     };
 
     // wshrpc.EffortOp
@@ -2090,6 +2182,14 @@ declare global {
         activechunk?: string;
         updatedts: number;
         lastnote?: EffortLastNote;
+        ticketseen?: EffortTicketSeen;
+    };
+
+    // wshrpc.EffortTicketSeen
+    type EffortTicketSeen = {
+        type: string;
+        status: string;
+        seents: number;
     };
 
     // waveobj.EvidenceArtifact
@@ -2343,6 +2443,54 @@ declare global {
         lightreviewerroute?: RoutePin;
         landing?: string;
         autonomous?: boolean;
+    };
+
+    // wshrpc.JiraConnection
+    type JiraConnection = {
+        configured: boolean;
+        missing?: string[];
+        site?: string;
+        ok: boolean;
+        displayname?: string;
+        checkedts?: number;
+        lastokts?: number;
+        error?: string;
+    };
+
+    // wshrpc.JiraTicket
+    type JiraTicket = {
+        key: string;
+        summary: string;
+        type: string;
+        status: string;
+        statuscategory: string;
+        description?: string;
+        acceptance?: string[];
+        url: string;
+        updatedts?: number;
+    };
+
+    // wshrpc.JiraTicketRow
+    type JiraTicketRow = {
+        key: string;
+        summary: string;
+        type: string;
+        status: string;
+        statuscategory: string;
+        description?: string;
+        acceptance?: string[];
+        url: string;
+        updatedts?: number;
+        project?: string;
+        evidence?: string;
+        sure: boolean;
+    };
+
+    // wshrpc.JiraTransition
+    type JiraTransition = {
+        id: string;
+        name: string;
+        to: string;
     };
 
     // wshrpc.MemChange
@@ -3051,6 +3199,8 @@ declare global {
         "debug:webglstatus"?: boolean;
         "harness:preferredruntime"?: string;
         "harness:preferredmodel"?: string;
+        "jira:site"?: string;
+        "jira:email"?: string;
     };
 
     // wshrpc.ShippedItem
