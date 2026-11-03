@@ -8,6 +8,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { SURFACE_LABEL } from "./attach.mjs";
 import {
     lookEval,
     lookOpen,
@@ -132,6 +133,7 @@ const PEEK_LIB = `
         return { bufferLine: r.y, row, x: Math.round(s.left + 1.5 * cw), y: Math.round(s.top + (row + 0.5) * ch), top: s.top + row * ch, bottom: s.top + (row + 1) * ch, ch };
     };
     const card = () => document.querySelector("[data-code-peek]");
+    const visibleTextarea = () => [...document.querySelectorAll(".xterm-helper-textarea")].find((x) => x.checkVisibility()) ?? null;
     const rectOf = (el) => { const r = el?.getBoundingClientRect(); return r ? { top: r.top, bottom: r.bottom, left: r.left, right: r.right } : null; };
     const peekInfo = () => {
         const c = card();
@@ -196,6 +198,40 @@ async function peekAt(h, tag, until = `peekInfo().count > 0 && peekInfo().state 
     await peekEval(h, `await until(() => ${until}, 5000);`);
     await polishNap(250);
     return { at, info: await peekInfo(h) };
+}
+
+const ESCAPE = { key: "Escape", code: "Escape", keyCode: 27 };
+const ENTER = { key: "Enter", code: "Enter", keyCode: 13 };
+
+// as tui-leader does: a window capture probe added after the keybinding dispatcher sees only the keys it left alone
+async function pressKey(h, { key, code, keyCode }) {
+    await h.ev(`(() => {
+        window.__peekSeen = [];
+        if (!window.__peekProbe) {
+            window.__peekProbe = (e) => window.__peekSeen.push(e.key);
+            window.addEventListener("keydown", window.__peekProbe, true);
+        }
+    })()`);
+    for (const type of ["keyDown", "keyUp"]) {
+        await h.cdp("Input.dispatchKeyEvent", { type, key, code, windowsVirtualKeyCode: keyCode });
+    }
+    await polishNap(450);
+    return JSON.parse(await h.ev("JSON.stringify(window.__peekSeen || [])"));
+}
+
+// a plain click left of the card, which xterm answers by focusing its textarea
+async function focusTerminal(h) {
+    await moveOff(h);
+    const at = await peekEval(h, `
+        const t = termWrap()?.terminal;
+        const s = screenEl()?.getBoundingClientRect();
+        return t && s ? { x: Math.round(s.left + 2.5 * (s.width / t.cols)), y: Math.round(s.top + 12.5 * (s.height / t.rows)) } : null;
+    `);
+    if (at) {
+        await mouse(h, "mousePressed", at.x, at.y, 0);
+        await mouse(h, "mouseReleased", at.x, at.y, 0);
+    }
+    await polishNap(200);
 }
 
 const closePeekByButton = (h) =>
@@ -547,10 +583,63 @@ export const codePeek = {
         await polishNap(600);
         const url = await peekEval(h, `const r = { cards: document.querySelectorAll("[data-code-peek]").length, opened: window.__opened }; window.api.openExternal = window.__openExternal; return r;`);
         rec("Ctrl+click on a URL opens no card (the web link takes it)", urlAt != null && url.cards === 0, url);
+
+        // 20. Esc closes the focused card; Esc in the terminal goes to the agent
+        await peekAt(h, "md");
+        const escCard = await peekInfo(h);
+        const escSeen = await pressKey(h, ESCAPE);
+        const escClosed = await peekEval(h, `
+            const gone = await until(() => card() == null, 3000);
+            await nap(150);
+            return { gone, focused: document.activeElement === visibleTextarea() };
+        `);
+        await peekAt(h, "md");
+        await focusTerminal(h);
+        const termFocused = await peekEval(h, `return document.activeElement === visibleTextarea();`);
+        const termSeen = await pressKey(h, ESCAPE);
+        const stays = await peekInfo(h);
+        await h.shot(shotName("20-esc"));
+        rec(
+            "Esc in the focused card closes it and focuses the terminal; Esc in the terminal reaches the agent and leaves the card open",
+            escCard.focused && escClosed.gone && escClosed.focused && termFocused && stays.count === 1 && termSeen.includes("Escape"),
+            { cardFocused: escCard.focused, cardEscSeen: escSeen, escClosed, termFocused, termEscSeen: termSeen, stays: stays.count }
+        );
+        await closePeekByButton(h);
+        // the Esc typed into the terminal scrolled it to the bottom, past the rows the next step clicks
+        await peekEval(h, `termWrap().terminal.scrollToTop(); await nap(300);`);
+
+        // 21. Enter opens the file in Code
+        const enterAt = await peekAt(h, "line");
+        const enterSeen = await pressKey(h, ENTER);
+        const entered = await peekEval(h, `
+            const { codeFileAtom, codePendingLineAtom } = await mod("app/view/code/codestore.ts");
+            const { globalStore } = await mod("app/store/jotaiStore.ts");
+            await until(() => globalStore.get(codeFileAtom)?.path === "src/committed.ts" && globalStore.get(codeFileAtom)?.kind === "text", 8000);
+            await until(() => flat(document.querySelector(".line-numbers.active-line-number")) === "30" || globalStore.get(codePendingLineAtom) === 30, 4000);
+            await until(() => card() == null, 3000);
+            return {
+                file: globalStore.get(codeFileAtom)?.path ?? null,
+                pending: globalStore.get(codePendingLineAtom),
+                caret: flat(document.querySelector(".line-numbers.active-line-number")),
+                peekClosed: card() == null,
+            };
+        `);
+        const surface = await h.activeSurfaceLabel();
+        await h.shot(shotName("21-enter"));
+        rec(
+            "Enter in the card opens src/committed.ts in Code at line 30 and closes the peek",
+            enterAt.info.focused &&
+                surface === SURFACE_LABEL.code &&
+                entered.file === "src/committed.ts" &&
+                (entered.pending === 30 || entered.caret === "30") &&
+                entered.peekClosed,
+            { cardFocused: enterAt.info.focused, enterSeen, surface, ...entered }
+        );
         return steps;
     },
     async teardown(h, ctx) {
         await mouse(h, "mouseMoved", 1, 1, 0).catch(() => {});
+        await h.ev(`window.__peekProbe && (window.removeEventListener("keydown", window.__peekProbe, true), delete window.__peekProbe)`).catch(() => {});
         await releaseRpc(h, "FileInfoCommand").catch(() => {});
         await releaseRpc(h, "FileReadCommand").catch(() => {});
         await h.ev(`window.__openExternal && (window.api.openExternal = window.__openExternal)`).catch(() => {});
