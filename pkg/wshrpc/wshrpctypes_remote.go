@@ -37,6 +37,9 @@ type CommandRemoteSetupData struct {
 type RemoteStatusData struct {
 	On                 bool     `json:"on"`
 	Missing            []string `json:"missing,omitempty"`
+	Team               string   `json:"team,omitempty"`
+	Aud                string   `json:"aud,omitempty"`
+	Email              string   `json:"email,omitempty"`
 	Hostname           string   `json:"hostname,omitempty"`
 	Port               int      `json:"port,omitempty"`
 	Tunnel             string   `json:"tunnel"`

@@ -2845,6 +2845,9 @@ declare global {
     type RemoteStatusData = {
         on: boolean;
         missing?: string[];
+        team?: string;
+        aud?: string;
+        email?: string;
         hostname?: string;
         port?: number;
         tunnel: string;

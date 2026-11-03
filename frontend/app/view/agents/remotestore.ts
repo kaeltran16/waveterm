@@ -47,6 +47,12 @@ export async function setRemoteOn(on: boolean): Promise<void> {
     globalStore.set(remoteStatusAtom, status);
 }
 
+// while on, a setup change restarts remote mode, so it shares the switch's timeout; throws the RPC's error
+export async function saveRemoteSetup(data: CommandRemoteSetupData): Promise<void> {
+    const status = await RpcApi.RemoteSetupCommand(TabRpcClient, data, { timeout: REMOTE_SWITCH_TIMEOUT_MS });
+    globalStore.set(remoteStatusAtom, status);
+}
+
 // handing over turns remote mode on, so it shares the switch's timeout; throws the RPC's error
 export async function handToPhone(tabId: string): Promise<void> {
     const status = await RpcApi.RemoteHandCommand(TabRpcClient, { tab: tabId }, { timeout: REMOTE_SWITCH_TIMEOUT_MS });

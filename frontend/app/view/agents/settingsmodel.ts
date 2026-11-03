@@ -177,7 +177,7 @@ export function settingsSections(flagRuntime: Runtime): SettingSectionDef[] {
         {
             id: "remote",
             name: "Remote",
-            blurb: "Answer agent questions from your phone through your Cloudflare tunnel, while you turn it on. Setup is a CLI step: wsh remote setup.",
+            blurb: "Answer agent questions from your phone through your Cloudflare tunnel, while you turn it on. Set it up with the tunnel and Access details below, or with wsh remote setup.",
             group: "Cockpit",
             rows: [
                 {
@@ -191,6 +191,36 @@ export function settingsSections(flagRuntime: Runtime): SettingSectionDef[] {
                     id: "remote.status",
                     title: "Status",
                     desc: "Setup, the tunnel, the public address, and whether a phone has subscribed.",
+                },
+                {
+                    id: "remote.tunneltoken",
+                    title: "Tunnel token",
+                    desc: "The named tunnel's connector token, from Zero Trust > Networks > Tunnels. Write-only: Arc never shows it again. Paste a refreshed one to replace it.",
+                },
+                {
+                    id: "remote.hostname",
+                    title: "Hostname",
+                    desc: "The tunnel's public hostname, e.g. arc.example.com. Its service must be http://localhost on the port below.",
+                },
+                {
+                    id: "remote.port",
+                    title: "Local port",
+                    desc: "Where the phone listener binds on this machine.",
+                },
+                {
+                    id: "remote.team",
+                    title: "Access team",
+                    desc: "Your Zero Trust team name: acme for acme.cloudflareaccess.com.",
+                },
+                {
+                    id: "remote.aud",
+                    title: "Access audience tag",
+                    desc: "The AUD tag of the Access application that guards the hostname.",
+                },
+                {
+                    id: "remote.email",
+                    title: "Owner email",
+                    desc: "The only Access identity Arc lets in, whatever the Access policy allows.",
                 },
             ],
         },

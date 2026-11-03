@@ -691,12 +691,32 @@ export const settingsStorage = {
 // --- remote-switch: Settings > Remote and the footer's remote chip ----------------------------------------------
 // Step 1 reads the dev store's real status (no remote setup). The rest are fixtures set into remoteStatusAtom
 // through the app's own store module; nothing reaches wavesrv but step 7's switch click, which the real
-// RemoteOnCommand refuses because the dev store has no setup. Teardown reloads the real status.
+// RemoteOnCommand refuses because the dev store has no setup, and step 9's bad team, which the real
+// RemoteSetupCommand refuses before storing anything. Teardown reloads the real status.
 const REMOTE_PANE = `document.querySelector('[data-settings-section="remote"]')`;
 const REMOTE_PILL = `document.querySelector('[data-remote-pill]')`;
 const REMOTE_HOST = "arc.example.com";
 const REMOTE_TUNNEL_ERROR = "failed to dial edge: connection refused";
-const REMOTE_SET_UP = { on: false, hostname: REMOTE_HOST, port: 8765, tunnel: "off", subscriptions: 0 };
+const REMOTE_SET_UP = {
+    on: false,
+    team: "acme",
+    aud: "aud-tag",
+    email: "me@example.com",
+    hostname: REMOTE_HOST,
+    port: 8765,
+    tunnel: "off",
+    subscriptions: 0,
+};
+// a full host name where Setup wants the bare team name, so the real RemoteSetupCommand refuses it and stores nothing
+const REMOTE_BAD_TEAM = "acme.cloudflareaccess.com";
+const REMOTE_FIELDS = `(() => {
+    const pane = ${REMOTE_PANE};
+    const input = (id) => pane?.querySelector(\`[data-setting-row="remote.\${id}"] input\`);
+    return {
+        ...Object.fromEntries(["hostname", "port", "team", "aud", "email"].map((id) => [id, input(id)?.value ?? null])),
+        token: input("tunneltoken")?.getAttribute("placeholder") ?? null,
+    };
+})()`;
 const REMOTE_FIXTURES = {
     up: { ...REMOTE_SET_UP, on: true, tunnel: "up", subscriptions: 1 },
     down: { ...REMOTE_SET_UP, on: true, tunnel: "down", tunnelerror: REMOTE_TUNNEL_ERROR, subscriptions: 1 },
@@ -813,6 +833,41 @@ export const remoteSwitchScenario = {
             "7. set up and off: the switch's real RemoteOnCommand refuses, and the section shows the error inline",
             refused.error !== "" && !refused.switchOn && !refused.pill,
             JSON.stringify(refused)
+        );
+
+        // step 7's refusal published the dev store's real status, so the set-up fixture goes back in
+        await remoteSetStatus(h, "off");
+        await settle();
+        await shot("8-fields");
+        const fields = await h.ev(REMOTE_FIELDS);
+        rec(
+            "8. set up: the setup rows show the stored values, and the token row says one is stored without showing it",
+            fields.hostname === REMOTE_HOST && fields.port === "8765" && fields.team === "acme" && fields.aud === "aud-tag" && fields.email === "me@example.com" && /^Stored/.test(fields.token ?? ""),
+            JSON.stringify(fields)
+        );
+
+        await h.ev(`(() => {
+            const input = ${REMOTE_PANE}?.querySelector('[data-setting-row="remote.team"] input');
+            if (!input) return false;
+            Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(input, ${JSON.stringify(REMOTE_BAD_TEAM)});
+            input.dispatchEvent(new Event("input", { bubbles: true }));
+            input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true }));
+            return true;
+        })()`);
+        await polishWaitFor(h, `/bare team name/.test(${REMOTE_PANE}?.querySelector('[data-testid="remote-error"]')?.textContent || "")`, 10000);
+        await settle();
+        await shot("9-bad-team");
+        const bad = await h.ev(REMOTE_READ);
+        // the field keeps the refused text for correcting, so what got stored is read from wavesrv
+        const stored = await lookEval(h, `
+            const { RpcApi } = await mod("app/store/wshclientapi.ts");
+            const { TabRpcClient } = await mod("app/store/wshrpcutil.ts");
+            return (await RpcApi.RemoteStatusCommand(TabRpcClient)).team ?? "";
+        `);
+        rec(
+            "9. a bad team goes to the real RemoteSetupCommand, which refuses it inline and stores nothing",
+            /bare team name/.test(bad.error) && stored === "",
+            JSON.stringify({ error: bad.error, storedTeam: stored })
         );
         return steps;
     },

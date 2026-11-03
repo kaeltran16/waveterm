@@ -2,7 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { REMOTE_CLOUDFLARED_NOTE, REMOTE_SETUP_NOTE, remoteChip, remoteStatusLines, remoteSwitch } from "./remotemodel";
+import {
+    REMOTE_CLOUDFLARED_NOTE,
+    REMOTE_SETUP_NOTE,
+    remoteChip,
+    remoteSetupPatch,
+    remoteStatusLines,
+    remoteSwitch,
+} from "./remotemodel";
 
 const UNSET: RemoteStatusData = {
     on: false,
@@ -119,5 +126,28 @@ describe("remoteChip", () => {
 
     it("stays reachable when on even if setup has since gone missing", () => {
         expect(remoteChip({ ...UP, cloudflaredmissing: true })).toMatchObject({ tone: "on" });
+    });
+});
+
+describe("remoteSetupPatch", () => {
+    const EMPTY = { tunneltoken: "", team: "", aud: "", email: "", hostname: "" };
+
+    it("sends only the edited field, so Setup keeps every other stored value", () => {
+        expect(remoteSetupPatch("team", " acme ")).toEqual({ ...EMPTY, team: "acme" });
+        expect(remoteSetupPatch("tunneltoken", "eyJh")).toEqual({ ...EMPTY, tunneltoken: "eyJh" });
+    });
+
+    it("sends the port as a number", () => {
+        expect(remoteSetupPatch("port", "8765")).toEqual({ ...EMPTY, port: 8765 });
+    });
+
+    it("refuses a port that is not a whole number", () => {
+        for (const bad of ["80a", "1.5", "-1"]) {
+            expect(remoteSetupPatch("port", bad)).toHaveProperty("error");
+        }
+    });
+
+    it("refuses an empty value, since Setup would keep the stored one", () => {
+        expect(remoteSetupPatch("email", "  ")).toEqual({ error: "email can't be empty" });
     });
 });

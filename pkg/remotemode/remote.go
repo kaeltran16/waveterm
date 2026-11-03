@@ -205,8 +205,9 @@ func Status() *wshrpc.RemoteStatusData {
 		return st
 	}
 	st.Missing = cfg.Missing()
+	st.Team, st.Aud, st.Email = cfg.Team, cfg.Aud, cfg.Email
 	st.Hostname = cfg.Hostname
-	st.Port = cfg.Port
+	st.Port = cfg.ListenPort()
 	st.Subscriptions = len(cfg.Subscriptions)
 	_, findErr := remoteFindCloudflared()
 	st.CloudflaredMissing = findErr != nil
@@ -298,10 +299,7 @@ func remoteStartLocked() (err error) {
 	if err != nil {
 		return fmt.Errorf("remote mode needs cloudflared: install it with `%s`", remoteWingetLine)
 	}
-	port := cfg.Port
-	if port == 0 {
-		port = DefaultPort
-	}
+	port := cfg.ListenPort()
 	addr := net.JoinHostPort(remoteHost, strconv.Itoa(port))
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {

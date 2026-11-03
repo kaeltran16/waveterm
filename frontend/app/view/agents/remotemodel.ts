@@ -4,7 +4,7 @@
 // What Settings > Remote and the footer's remote chip show for a remote mode status. Pure; the atom and
 // the RPCs are in remotestore.ts. null is "not loaded yet".
 
-export const REMOTE_SETUP_NOTE = "Run wsh remote setup first";
+export const REMOTE_SETUP_NOTE = "Fill in the setup below, or run wsh remote setup";
 // the line pkg/remotemode prints when cloudflared is not found
 export const REMOTE_CLOUDFLARED_NOTE = "Install cloudflared first: winget install --id Cloudflare.cloudflared";
 
@@ -19,7 +19,29 @@ const MISSING_LABEL: Record<string, string> = {
     aud: "audience tag",
     email: "email",
     hostname: "hostname",
+    port: "port",
 };
+
+export type RemoteSetupField = "tunneltoken" | "team" | "aud" | "email" | "hostname" | "port";
+
+// One Settings field's edit as a RemoteSetup call. Setup keeps every field sent empty, so the others stay as
+// stored; for the same reason an emptied field is refused rather than sent, since it would change nothing.
+export function remoteSetupPatch(field: RemoteSetupField, value: string): CommandRemoteSetupData | { error: string } {
+    const v = value.trim();
+    if (v === "") {
+        return { error: `${MISSING_LABEL[field]} can't be empty` };
+    }
+    const data: CommandRemoteSetupData = { tunneltoken: "", team: "", aud: "", email: "", hostname: "" };
+    if (field !== "port") {
+        data[field] = v;
+        return data;
+    }
+    if (!/^\d+$/.test(v)) {
+        return { error: "port must be a whole number" };
+    }
+    data.port = Number(v);
+    return data;
+}
 
 const TUNNEL_LABEL: Record<string, string> = {
     off: "Tunnel off",

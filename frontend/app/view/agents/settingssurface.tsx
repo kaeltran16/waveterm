@@ -48,8 +48,8 @@ import { DEFAULT_REMEMBER_FLAGS, naFlagsAtom, naRememberFlagsAtom } from "./nafl
 import { ITEMS } from "./navrail";
 import { DEFAULT_RAIL_VISIBLE, railVisibleAtom } from "./railstore";
 import { forgetRateLimit } from "./ratelimitstore";
-import { remoteStatusLines, remoteSwitch } from "./remotemodel";
-import { remoteStatusAtom, setRemoteOn } from "./remotestore";
+import { remoteSetupPatch, remoteStatusLines, remoteSwitch, type RemoteSetupField } from "./remotemodel";
+import { remoteStatusAtom, saveRemoteSetup, setRemoteOn } from "./remotestore";
 import { RoutePicker } from "./routepicker";
 import {
     changedCount,
@@ -973,6 +973,35 @@ function RemoteSection() {
                 setBusy(false);
             }
         });
+    const save = async (field: RemoteSetupField, value: string): Promise<boolean> => {
+        setError(null);
+        const patch = remoteSetupPatch(field, value);
+        if ("error" in patch) {
+            setError(patch.error);
+            return false;
+        }
+        setBusy(true);
+        try {
+            await saveRemoteSetup(patch);
+            return true;
+        } catch (e) {
+            setError(String(e));
+            return false;
+        } finally {
+            setBusy(false);
+        }
+    };
+    const field = (id: Exclude<RemoteSetupField, "tunneltoken">, value: string, placeholder: string) => (
+        <SettingRow id={`remote.${id}`}>
+            <CommitText
+                value={value}
+                placeholder={placeholder}
+                disabled={busy}
+                onCommit={(v) => fireAndForget(() => save(id, v))}
+            />
+        </SettingRow>
+    );
+    const tokenStored = status != null && !(status.missing ?? []).includes("tunneltoken");
     return (
         <div>
             <SettingRow id="remote.mode">
@@ -997,6 +1026,17 @@ function RemoteSection() {
                     ))}
                 </div>
             </SettingRow>
+            <SettingRow id="remote.tunneltoken">
+                <SecretInput
+                    placeholder={tokenStored ? "Stored. Paste a new token to replace it" : "Paste the tunnel token"}
+                    onCommit={(v) => save("tunneltoken", v)}
+                />
+            </SettingRow>
+            {field("hostname", status?.hostname ?? "", "arc.example.com")}
+            {field("port", String(status?.port ?? ""), "")}
+            {field("team", status?.team ?? "", "acme")}
+            {field("aud", status?.aud ?? "", "Access application AUD tag")}
+            {field("email", status?.email ?? "", "you@example.com")}
         </div>
     );
 }

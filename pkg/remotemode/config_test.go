@@ -194,6 +194,21 @@ func TestStatusOmitsToken(t *testing.T) {
 	}
 }
 
+// Settings > Remote pre-fills its setup fields from the status
+func TestStatusReportsSetupFields(t *testing.T) {
+	configUseTempDir(t)
+	if got := Status().Port; got != DefaultPort {
+		t.Fatalf("port before setup %d, want the default %d it would listen on", got, DefaultPort)
+	}
+	if _, err := Setup(configValidSetup()); err != nil {
+		t.Fatal(err)
+	}
+	st := Status()
+	if st.Team != "acme" || st.Aud != "aud-tag" || st.Email != "me@example.com" || st.Hostname != "arc.example.com" || st.Port != DefaultPort {
+		t.Fatalf("status %+v", st)
+	}
+}
+
 func TestStatusReportsCloudflaredAndSubscriptions(t *testing.T) {
 	configUseTempDir(t)
 	remoteFindCloudflared = func() (string, error) { return "", errors.New("not found") }

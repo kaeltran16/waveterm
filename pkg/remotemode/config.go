@@ -90,6 +90,14 @@ func (c Config) Missing() []string {
 	return missing
 }
 
+// ListenPort is the port the phone listener binds: the stored one, or DefaultPort while none is stored.
+func (c Config) ListenPort() int {
+	if c.Port == 0 {
+		return DefaultPort
+	}
+	return c.Port
+}
+
 // FindCloudflared looks on PATH first, then where winget installs it, since a fresh install is not on
 // the PATH of an already running Arc.
 func FindCloudflared() (string, error) {
