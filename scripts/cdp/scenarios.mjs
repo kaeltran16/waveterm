@@ -50,6 +50,7 @@ import {
     canvasTabsScenario,
     elementPrimitives,
     quickRunDone,
+    remoteHand,
     resmonFooter,
     resmonLive,
     resmonMain,
@@ -223,6 +224,7 @@ export const SCENARIOS = [
     settingsStorage,
     remoteSwitchScenario,
     remotePhone,
+    remoteHand,
     jarvisMotion,
     // before brief-inline-tracker, which leaves a briefing fixture on over the seeded data
     briefDesignParity,
