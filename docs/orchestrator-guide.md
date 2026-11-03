@@ -595,6 +595,7 @@ design canvas), the plan and the files they name. The full checklist is that:
 - no two tasks edit the same file without a Depends between them;
 - each reason a Depends line gives holds: the dependent task really uses what it names;
 - types, functions and flags have the same names in every task that mentions them;
+- each claim the plan makes about existing code (what calls what, what a test asserts) holds in the tree;
 - no task waits for another's long implementation when it needs only its interface: the interface lands first
   as its own small task;
 - each task states its acceptance criteria and names the tests that prove them;
