@@ -17,12 +17,10 @@ import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { ArrowUpRight, Check, CircleAlert, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useMemo, useRef } from "react";
-import { loadBriefingAsync } from "./briefingstore";
+import { useEffect, useMemo } from "react";
 import { briefEffortIndexAtom } from "./jarvisstore";
 import { openJiraSettings } from "./jiraactions";
 import {
-    buildingAgentsKey,
     checkFailure,
     checkJiraOpenAtom,
     checkJiraStateAtom,
@@ -121,19 +119,6 @@ export function JiraCheckDialog({ model }: { model: AgentsViewModel }) {
             void runJiraCheck();
         }
     }, [open]);
-
-    // an agent's turn ending is the nearest signal that it ran `wsh effort create`; the Brief's own load on mount
-    // covers coming back from the Agent surface, so only a change after mount re-reads
-    const building = useAtomValue(jiraBuildingAtom);
-    const agents = useAtomValue(model.agentsAtom);
-    const agentsKey = buildingAgentsKey(building, agents);
-    const seenKey = useRef(agentsKey);
-    useEffect(() => {
-        if (agentsKey !== seenKey.current) {
-            seenKey.current = agentsKey;
-            void loadBriefingAsync();
-        }
-    }, [agentsKey]);
 
     const onInitiative = useMemo(() => new Set([...index.values()].map((e) => e.ticket).filter(Boolean)), [index]);
     const rows = state?.kind === "list" ? visibleRows(state.data, onInitiative) : [];

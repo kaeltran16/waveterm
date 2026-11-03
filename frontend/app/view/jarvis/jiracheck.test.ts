@@ -4,7 +4,6 @@
 import { describe, expect, it } from "vitest";
 import { noteStamp } from "./initiativework";
 import {
-    buildingAgentsKey,
     checkFailure,
     checkSubtitle,
     emptyDetail,
@@ -172,28 +171,5 @@ describe("ticketMeta", () => {
 
     it("leaves the age out without an update time", () => {
         expect(ticketMeta(ticket("OPS-77"), NOW)).toBe("Story · To Do");
-    });
-});
-
-describe("buildingAgentsKey", () => {
-    const agents = [
-        { id: "t-2", state: "working" },
-        { id: "t-1", state: "idle" },
-        { id: "t-9", state: "asking" },
-    ];
-
-    it("names only the building agents, with their state", () => {
-        expect(buildingAgentsKey({ "PAY-311": "t-2", "OPS-77": "t-1" }, agents)).toBe("t-1:idle,t-2:working");
-    });
-
-    it("changes when a building agent's state does", () => {
-        const before = buildingAgentsKey({ "PAY-311": "t-2" }, agents);
-        const after = buildingAgentsKey({ "PAY-311": "t-2" }, [{ id: "t-2", state: "idle" }]);
-        expect(after).not.toBe(before);
-    });
-
-    it("is empty while a launch is in flight or nothing is building", () => {
-        expect(buildingAgentsKey({ "PAY-311": "" }, agents)).toBe("");
-        expect(buildingAgentsKey({}, agents)).toBe("");
     });
 });

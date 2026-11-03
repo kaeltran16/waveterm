@@ -1,8 +1,8 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The effort store: an on-demand full-effort cache, and the mutate helpers that write through and
-// refresh the briefing's summary leg.
+// The effort store: an on-demand full-effort cache, and the mutate helpers that write through it. The
+// briefing refreshes from the effort:update event every write publishes (subscribeEffortUpdates).
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { waveEventSubscribeSingle } from "@/app/store/wps";
@@ -56,9 +56,7 @@ async function mutateEffort(oref: string, ops: EffortOp[]): Promise<void> {
     const cache = new Map(globalStore.get(effortDetailAtom));
     cache.set(oref, rtn.effort);
     globalStore.set(effortDetailAtom, cache);
-    void loadBriefingAsync(); // summary leg refresh; failure degrades to the next load
-    // archive and unarchive move a row between the Brief's two initiative lists
-    void loadArchivedEfforts().catch(() => {});
+    // the briefing and archived lists refresh from the effort:update event this write publishes
 }
 
 // the archived initiatives the Brief can reveal (design L251, "Show N archived"); the briefing leg drops
@@ -165,7 +163,6 @@ export async function deleteEffort(oref: string): Promise<void> {
     const cache = new Map(globalStore.get(effortDetailAtom));
     cache.delete(oref);
     globalStore.set(effortDetailAtom, cache);
-    void loadBriefingAsync();
 }
 
 export type EffortDetails = { title: string; project: string; ticket: string; parent: string };

@@ -15,7 +15,7 @@ import { Check } from "lucide-react";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { Fragment, useEffect, useRef, useState } from "react";
 import type { AgentsViewModel } from "../agents/agents";
-import { loadBriefingAsync, stateRpcTimeoutMs } from "./briefingstore";
+import { stateRpcTimeoutMs } from "./briefingstore";
 import { briefUndo } from "./briefundo";
 import { setEffortDetails, type EffortDetails } from "./effortstore";
 import { openJiraSettings } from "./jiraactions";
@@ -173,7 +173,6 @@ export function EffortCreateForm({
                     { timeout: stateRpcTimeoutMs }
                 );
             }
-            void loadBriefingAsync();
             briefUndo.notify(`Created “${title.trim()}” · ${lines.length} chunks`);
             onClose();
         } catch (e) {

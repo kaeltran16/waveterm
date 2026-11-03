@@ -100,17 +100,6 @@ export function footerLine(covered: number): string {
         : `${covered} more assigned tickets already have an initiative.`;
 }
 
-// No event says an initiative was created, so the dialog watches the building agents instead: a change in this
-// key (an agent starting, going idle after its turn, asking) is when the Brief re-reads its initiatives.
-export function buildingAgentsKey(building: Record<string, string>, agents: { id: string; state: string }[]): string {
-    const tabs = new Set(Object.values(building).filter(Boolean));
-    return agents
-        .filter((a) => tabs.has(a.id))
-        .map((a) => `${a.id}:${a.state}`)
-        .sort()
-        .join(",");
-}
-
 export function emptyDetail(checked: number): string {
     return `${checked} open ${checked === 1 ? "ticket" : "tickets"} checked. New assignments show here the next time you check.`;
 }
