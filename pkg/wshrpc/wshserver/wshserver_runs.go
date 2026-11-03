@@ -328,10 +328,24 @@ func landRunOnBranch(ctx context.Context, channelId string, run *waveobj.Run) er
 		return err
 	}
 	run.LandPath = wt
+	run.Spec = specInLandTree(ctx, run, run.Spec)
 	return wstore.UpdateRun(ctx, channelId, run.ID, func(r *waveobj.Run) error {
-		r.LandPath = wt
+		r.LandPath, r.Spec = wt, run.Spec
 		return nil
 	})
+}
+
+// specInLandTree moves an untracked spec into the run's landing tree (orchestrate.MoveSpecIntoTree) and returns
+// the path the run should name. A failed move leaves the spec in the checkout, where the land deals with it.
+func specInLandTree(ctx context.Context, run *waveobj.Run, spec string) string {
+	if run.LandPath == "" || spec == "" {
+		return spec
+	}
+	moved, err := orchestrate.MoveSpecIntoTree(ctx, run.LandPath, spec)
+	if err != nil {
+		log.Printf("run %s: moving the spec %s into its landing tree: %v", run.ID, spec, err)
+	}
+	return moved
 }
 
 // readCreatedRun reads a just-created run back for the reply. A var so a test can fail the read.

@@ -98,7 +98,7 @@ func writeAutonomousPaths(b *strings.Builder) {
 	b.WriteString("Classify the path yourself (spike, bounded or architectural), state it, and proceed.\n")
 	b.WriteString(spikePath)
 	b.WriteString("- bounded: implement it here, get the tests passing, commit, write your final report (what you did, the calls you made and why, and what you could not verify and why) to a temp file the same way, then `wsh jarvis complete --commit $(git rev-parse HEAD) --report <that file>`.\n")
-	b.WriteString("- architectural: make the design decisions yourself and write the design straight into the spec file, with each decision and why. When the goal names a mockup or design canvas that settles the design, write no spec file: write the decisions you make beyond it, with why, into the plan's header, put its absolute path on the plan's `**Prototype:**` line, and submit without `--spec`. Then " + writePlanAndSubmit(specPlaceholder) + " The engine reviews the plan after `dag submit`, and wakes you when something needs judgment.\n")
+	b.WriteString("- architectural: make the design decisions yourself and write the design straight into a spec file in your working directory, never in the project's main checkout, with each decision and why. When the goal names a mockup or design canvas that settles the design, write no spec file: write the decisions you make beyond it, with why, into the plan's header, put its absolute path on the plan's `**Prototype:**` line, and submit without `--spec`. Then " + writePlanAndSubmit(specPlaceholder) + " The engine reviews the plan after `dag submit`, and wakes you when something needs judgment.\n")
 	b.WriteString(AutonomousRules + "\n")
 }
 

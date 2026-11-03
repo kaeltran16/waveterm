@@ -316,6 +316,11 @@ and the plan reviewer reads the canvas as the spec). At submit the run's spec an
 `--spec` and the plan's line. After `dag submit` it does not ask you to review the plan or pick an execution
 mode, since the engine reviews the plan.
 
+On a branch-landed run the spec moves into the run's landing tree when the run starts or the design attaches, at
+the same repo-relative path, if git does not track it in the checkout. The run names the moved copy, so the lead
+revises the one copy that lands, and the checkout keeps no draft for the land to find. To read or edit the spec
+mid-run, open it in the run's tree. A tracked or ignored spec, or one from another repository, stays where it is.
+
 **A run with no design** gets the goal prompt. You are at the lead's terminal and every question goes through its
 ask tool, but it does not brainstorm. It states which path it takes and proceeds, asking about the path only when
 it is genuinely unclear, and finishes accordingly:
