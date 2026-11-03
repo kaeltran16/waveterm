@@ -50,7 +50,7 @@ export function openChat(root, tab, ui) {
         "button",
         { type: "button", class: "btn btn-danger stop", "data-chat-stop": true, onclick: () => act("stop", {}) },
         h("span", { class: "stop-mark", "aria-hidden": "true" }),
-        "Stop this turn"
+        "Stop"
     );
     const note = h("div", { class: "chat-note", "data-chat-note": true });
     const errorLine = h("div", { class: "send-error", role: "alert" });
@@ -59,7 +59,6 @@ export function openChat(root, tab, ui) {
         { class: "foot chat-foot" },
         note,
         h("div", { class: "composer" }, boxLabel, box, send),
-        stop,
         errorLine
     );
 
@@ -139,6 +138,8 @@ export function openChat(root, tab, ui) {
                       )
                     : null
             ),
+            // in the header, away from the composer, so a thumb aiming for Send never stops the turn
+            stop,
             h(
                 "button",
                 { type: "button", class: "take-back", "data-chat-takeback": true, onclick: takeBack },

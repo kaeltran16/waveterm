@@ -1417,7 +1417,7 @@ export const remotePhone = {
         const stopped = await recorded("input", 2);
         const live = working.actions.at(-1);
         rec(
-            "9. ChatWorking (phone-chat): working, the live Running line with its elapsed, Add to this turn and Stop this turn; Stop is recorded",
+            "9. ChatWorking (phone-chat): working, the live Running line with its elapsed, Add to this turn and Stop in the header; Stop is recorded",
             working.state.startsWith("working") &&
                 live?.live === true &&
                 live.verb === "Running" &&
@@ -1425,7 +1425,7 @@ export const remotePhone = {
                 /^\d+[hms]/.test(live.tail) &&
                 working.label === "Add to this turn" &&
                 working.placeholder === "Add to this turn" &&
-                working.stop === "Stop this turn" &&
+                working.stop === "Stop" &&
                 working.code.length === 1 &&
                 stopped &&
                 JSON.stringify(inputs()[1]) === JSON.stringify({ tab: "fx-phone-chat", action: "stop", text: "" }),

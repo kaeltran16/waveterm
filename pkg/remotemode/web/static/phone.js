@@ -44,6 +44,8 @@ const state = {
     subscribing: false,
     subscribed: false,
     chat: null, // { tab, close } while a chat is open
+    // keys of shown rows whose reason the owner expanded; the 10s refresh redraws every row
+    expanded: new Set(),
 };
 
 function h(tag, props, ...children) {
@@ -308,12 +310,42 @@ function shownRow(s) {
             s.waitingsince > 0 ? h("span", { class: "meta-age quiet" }, age(s.waitingsince)) : null
         ),
         h("div", { class: "shown-title" }, s.title),
-        s.reason ? h("div", { class: "shown-reason" }, s.reason) : null,
+        s.reason ? reasonBlock(s) : null,
         h("div", { class: "desk" }, icon(ICON_DESK, 13, 1.8), "Clear it at the desk")
     );
 }
 
-function offFooter() {
+// a long reason (a held land's git output) shows three lines until the owner asks for the rest
+function reasonBlock(s) {
+    const open = state.expanded.has(s.key);
+    const toggle = () => {
+        if (open) {
+            state.expanded.delete(s.key);
+        } else {
+            state.expanded.add(s.key);
+        }
+        render();
+    };
+    return [
+        h("div", { class: open ? "shown-reason" : "shown-reason clamped" }, s.reason),
+        h(
+            "button",
+            { type: "button", class: "link", "data-reason-toggle": true, onclick: toggle },
+            open ? "Show less" : "Show all"
+        ),
+    ];
+}
+
+// a toggle shows only where the clamp cut something; that needs layout, so it runs after the draw
+function hideNeedlessToggles() {
+    for (const el of app.querySelectorAll(".shown-reason.clamped")) {
+        if (el.scrollHeight <= el.clientHeight + 1) {
+            el.nextElementSibling.hidden = true;
+        }
+    }
+}
+
+function offFooter(end = false) {
     const controls = state.confirmOff
         ? h(
               "div",
@@ -346,7 +378,7 @@ function offFooter() {
           );
     return h(
         "footer",
-        { class: "foot" },
+        { class: end ? "foot foot-end" : "foot" },
         controls,
         h(
             "div",
@@ -412,9 +444,9 @@ function mainView() {
                       h("h2", null, allHeld ? "Held runs" : "Waiting at the desk"),
                       shown.map(shownRow)
                   )
-                : null
+                : null,
+            offFooter(true)
         ),
-        offFooter(),
     ];
 }
 
@@ -673,6 +705,7 @@ function render() {
         view = which === "main" ? mainView() : which === "empty" ? emptyView() : unreachableView();
     }
     app.replaceChildren(...view);
+    hideNeedlessToggles();
 }
 
 // the chat lives in the hash, so a reload or a push tap keeps it
