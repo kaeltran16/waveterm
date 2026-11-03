@@ -62,6 +62,9 @@ type agentEmission struct {
 	State            string
 	Detail           string
 	AttachModelTitle bool
+	// NotificationType is set for the waiting Notification cases only, so the phone can tell a permission
+	// prompt from any other wait
+	NotificationType string
 }
 
 func planEmission(ev ccHookEvent) agentEmission {
@@ -75,7 +78,7 @@ func planEmission(ev ccHookEvent) agentEmission {
 		case "idle_prompt":
 			return agentEmission{State: baseds.AgentState_Idle}
 		case "permission_prompt", "elicitation_dialog", "elicitation_url_dialog", "agent_needs_input", "":
-			return agentEmission{State: baseds.AgentState_Waiting}
+			return agentEmission{State: baseds.AgentState_Waiting, NotificationType: ev.NotificationType}
 		default:
 			return agentEmission{}
 		}
@@ -599,14 +602,15 @@ func agentHookRun(cmd *cobra.Command, args []string) error {
 		_ = wshclient.SetMetaCommand(RpcClient, wshrpc.CommandSetMetaData{ORef: *oref, Meta: meta}, &wshrpc.RpcOpts{Timeout: 2000})
 	}
 	data := baseds.AgentStatusData{
-		ORef:           oref.String(),
-		State:          em.State,
-		Detail:         em.Detail,
-		Agent:          agentHookAgent,
-		Cwd:            ev.Cwd,
-		TranscriptPath: transcriptPath,
-		Ts:             startedTs,
-		Hook:           ev.HookEventName,
+		ORef:             oref.String(),
+		State:            em.State,
+		Detail:           em.Detail,
+		Agent:            agentHookAgent,
+		Cwd:              ev.Cwd,
+		TranscriptPath:   transcriptPath,
+		Ts:               startedTs,
+		Hook:             ev.HookEventName,
+		NotificationType: em.NotificationType,
 	}
 	if em.AttachModelTitle && transcriptPath != "" {
 		if agentHookShadow != "" {

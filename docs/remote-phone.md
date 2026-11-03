@@ -67,6 +67,32 @@ If the login cannot be completed inside the installed app, report what you saw i
 loosening anything. The Access check on every request and the owner-email lock stay as they are;
 nothing is bypassed to make the login work.
 
+## Hand an agent to the phone
+
+A handed-over claude or pi agent shows on the phone page under **Handed over**. There you read its
+transcript, send the next prompt, stop a turn, and approve or deny a Claude Code permission prompt.
+What you type reaches the session as your own input.
+
+- **From the cockpit:** the **Hand to phone** button in the agent's header, or `p` with the agent
+  focused. Handing an agent over turns remote mode on if it is off. **On phone · Take back** (or `p`
+  again) returns it.
+- **From a terminal:** `wsh remote hand [tab]` and `wsh remote take-back [tab]`. The tab is an id or a
+  unique prefix. With no tab, `wsh` acts on the agent in the terminal it runs in, so an agent can hand
+  itself over.
+
+Only a live claude or pi session in a terminal can be handed over: a run's task worker, reviewer,
+stage session or lead-started child cannot, nor can a codex session, a closed tab, or a session that
+has exited back to its shell. A refused hand-over says why and does not turn remote mode on.
+
+A hand-over ends when:
+
+- you take the agent back (`taken`);
+- its session exits, or its tab closes (`exited`): the phone shows "Back at the desk";
+- remote mode turns off (`off`): the phone page goes offline, and every hand-over is cleared.
+
+Hand-overs live in memory only. An Arc restart ends them all, even when remote mode itself comes back
+on at start. Re-running `wsh remote setup` restarts the listener but keeps them.
+
 ## Turning it off
 
 `wsh remote off`, the cockpit's remote switch, or **Turn off remote mode** at the foot of the phone

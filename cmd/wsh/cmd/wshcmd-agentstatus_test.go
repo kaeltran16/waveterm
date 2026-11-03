@@ -96,7 +96,7 @@ func TestBuildAgentStatusData_piPayload(t *testing.T) {
 	oref := &waveobj.ORef{OType: waveobj.OType_Block, OID: "abc"}
 	transcript := `C:\Users\Jane Doe\.pi\agent\sessions\s.jsonl`
 	data := buildAgentStatusData(oref, "working", "running a tool", "pi",
-		`C:\Users\Jane Doe\proj`, transcript, "session-1", "fix the bug", "openai-codex", "gpt-5.5", 12345)
+		`C:\Users\Jane Doe\proj`, transcript, "session-1", "fix the bug", "openai-codex", "gpt-5.5", false, 12345)
 
 	if data.ORef != "block:abc" {
 		t.Fatalf("ORef = %q, want block:abc", data.ORef)
@@ -134,5 +134,16 @@ func TestBuildAgentStatusData_piPayload(t *testing.T) {
 	}
 	if data.Usage != nil {
 		t.Fatalf("Usage = %#v, want nil", data.Usage)
+	}
+	if data.Ended {
+		t.Fatal("Ended = true, want false when --ended is not given")
+	}
+}
+
+func TestBuildAgentStatusData_ended(t *testing.T) {
+	oref := &waveobj.ORef{OType: waveobj.OType_Block, OID: "abc"}
+	data := buildAgentStatusData(oref, "idle", "", "pi", "", "", "", "", "", "", true, 1)
+	if !data.Ended {
+		t.Fatal("Ended = false, want true when --ended is given")
 	}
 }

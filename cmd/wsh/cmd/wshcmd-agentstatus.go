@@ -34,6 +34,7 @@ var (
 	agentStatusCwd        string
 	agentStatusSessionID  string
 	agentStatusProvider   string
+	agentStatusEnded      bool
 
 	agentUsageFlag       bool
 	agentUsageContext    float64
@@ -56,6 +57,7 @@ func init() {
 	agentStatusCmd.Flags().StringVar(&agentStatusCwd, "cwd", "", "current working directory of the agent session")
 	agentStatusCmd.Flags().StringVar(&agentStatusSessionID, "session-id", "", "agent session id")
 	agentStatusCmd.Flags().StringVar(&agentStatusProvider, "provider", "", "model provider (e.g. openai-codex)")
+	agentStatusCmd.Flags().BoolVar(&agentStatusEnded, "ended", false, "the agent session ended and its shell keeps running (pi's shutdown report)")
 	agentStatusCmd.Flags().BoolVar(&agentUsageFlag, "usage", false, "report a usage-only delta from the statusLine JSON (no --state)")
 	agentStatusCmd.Flags().Float64Var(&agentUsageContext, "context-pct", 0, "context window used percentage")
 	agentStatusCmd.Flags().IntVar(&agentUsageContextMax, "context-max", 0, "context window size in tokens (200000 | 1000000)")
@@ -75,6 +77,7 @@ func validAgentState(s string) bool {
 func buildAgentStatusData(
 	oref *waveobj.ORef,
 	state, detail, agent, cwd, transcriptPath, sessionID, title, provider, model string,
+	ended bool,
 	ts int64,
 ) baseds.AgentStatusData {
 	return baseds.AgentStatusData{
@@ -88,6 +91,7 @@ func buildAgentStatusData(
 		Title:          title,
 		Provider:       provider,
 		Model:          model,
+		Ended:          ended,
 		Ts:             ts,
 	}
 }
@@ -130,7 +134,7 @@ func agentStatusRun(cmd *cobra.Command, args []string) (rtnErr error) {
 
 	eventData := buildAgentStatusData(oref, agentStatusState, agentStatusDetail, agentStatusAgent,
 		agentStatusCwd, agentStatusTranscript, agentStatusSessionID, agentStatusTitle, agentStatusProvider,
-		agentStatusModel, time.Now().UnixMilli())
+		agentStatusModel, agentStatusEnded, time.Now().UnixMilli())
 
 	err = publishAgentStatusData(oref, eventData, 1)
 	if err != nil {

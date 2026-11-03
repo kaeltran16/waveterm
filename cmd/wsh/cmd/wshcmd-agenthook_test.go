@@ -60,6 +60,31 @@ func TestPlanEmission(t *testing.T) {
 	}
 }
 
+func TestPlanEmissionNotificationType(t *testing.T) {
+	tests := []struct {
+		name      string
+		ev        ccHookEvent
+		wantState string
+		wantType  string
+	}{
+		{"permission_prompt", ccHookEvent{HookEventName: "Notification", NotificationType: "permission_prompt"}, baseds.AgentState_Waiting, "permission_prompt"},
+		{"elicitation_dialog", ccHookEvent{HookEventName: "Notification", NotificationType: "elicitation_dialog"}, baseds.AgentState_Waiting, "elicitation_dialog"},
+		{"elicitation_url_dialog", ccHookEvent{HookEventName: "Notification", NotificationType: "elicitation_url_dialog"}, baseds.AgentState_Waiting, "elicitation_url_dialog"},
+		{"agent_needs_input", ccHookEvent{HookEventName: "Notification", NotificationType: "agent_needs_input"}, baseds.AgentState_Waiting, "agent_needs_input"},
+		{"empty type", ccHookEvent{HookEventName: "Notification"}, baseds.AgentState_Waiting, ""},
+		{"idle_prompt carries no type", ccHookEvent{HookEventName: "Notification", NotificationType: "idle_prompt"}, baseds.AgentState_Idle, ""},
+		{"pre bash carries no type", ccHookEvent{HookEventName: "PreToolUse", ToolName: "Bash", ToolInput: json.RawMessage(`{"command":"ls"}`)}, baseds.AgentState_Working, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			em := planEmission(tt.ev)
+			if em.State != tt.wantState || em.NotificationType != tt.wantType {
+				t.Fatalf("emission = state %q type %q, want state %q type %q", em.State, em.NotificationType, tt.wantState, tt.wantType)
+			}
+		})
+	}
+}
+
 func TestDetailForTool(t *testing.T) {
 	tests := []struct {
 		name, tool, input, want string
