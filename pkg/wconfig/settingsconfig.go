@@ -88,6 +88,10 @@ type SettingsType struct {
 
 	HarnessPreferredRuntime string `json:"harness:preferredruntime,omitempty"`
 	HarnessPreferredModel   string `json:"harness:preferredmodel,omitempty"`
+
+	// the api token is the JIRA_API_TOKEN secret, never a settings key
+	JiraSite  string `json:"jira:site,omitempty"`
+	JiraEmail string `json:"jira:email,omitempty"`
 }
 
 type ConfigError struct {

@@ -566,6 +566,7 @@ describe("runRowFace", () => {
         oref: "effort:e1",
         title: "Scenario gate clearance",
         chunkStages: { "N1 box upgrade": "Phase 2 · upgrade" },
+        ticket: "",
     };
     it("reads an orchestrator run as the design does", () => {
         const f = runRowFace({ line, run, asking: false, project: "arc-infra", effort });

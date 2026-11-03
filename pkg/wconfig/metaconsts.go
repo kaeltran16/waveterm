@@ -57,5 +57,8 @@ const (
 
 	ConfigKey_HarnessPreferredRuntime        = "harness:preferredruntime"
 	ConfigKey_HarnessPreferredModel          = "harness:preferredmodel"
+
+	ConfigKey_JiraSite                       = "jira:site"
+	ConfigKey_JiraEmail                      = "jira:email"
 )
 

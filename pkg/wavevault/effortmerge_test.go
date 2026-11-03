@@ -222,6 +222,21 @@ func wantNotes(t *testing.T, notes []waveobj.EffortNote, want ...string) {
 	}
 }
 
+// the last-seen Jira copy is one value, taken whole from the newer side like the other scalars
+func TestMergeEffortKeepsNewerJiraCopy(t *testing.T) {
+	ours, theirs := effort(5), effort(9)
+	ours.Jira = &waveobj.EffortJira{Summary: "ours", Status: "To Do"}
+	theirs.Jira = &waveobj.EffortJira{Summary: "theirs", Status: "In Progress", LastPost: &waveobj.EffortJiraPost{CommentURL: "u"}}
+	got := MergeEffort(nil, ours, theirs)
+	if got.Jira == nil || got.Jira.Summary != "theirs" || got.Jira.LastPost == nil || got.Jira.LastPost.CommentURL != "u" {
+		t.Fatalf("want theirs' copy, got %+v", got.Jira)
+	}
+	theirs.Jira = nil
+	if got := MergeEffort(nil, ours, theirs); got.Jira != nil {
+		t.Fatalf("newer side has no copy (ticket changed or cleared), want nil, got %+v", got.Jira)
+	}
+}
+
 func TestMergeEffortDoesNotMutateInputs(t *testing.T) {
 	mk := func(ts int64, text string) *waveobj.Effort {
 		c := chunk("a", ts, note(ts, text))
@@ -230,6 +245,7 @@ func TestMergeEffortDoesNotMutateInputs(t *testing.T) {
 		e.Notes = []waveobj.EffortNote{note(ts, text)}
 		e.Events = []waveobj.EffortEvent{{Ts: ts, Kind: "effort-note", Text: text}}
 		e.Meta = waveobj.MetaMapType{"nested": map[string]any{"k": text}}
+		e.Jira = &waveobj.EffortJira{Summary: text, Acceptance: []string{text}, LastPost: &waveobj.EffortJiraPost{From: text}}
 		return e
 	}
 	base, ours, theirs := mk(1, "base"), mk(5, "ours"), mk(9, "theirs")
@@ -239,6 +255,8 @@ func TestMergeEffortDoesNotMutateInputs(t *testing.T) {
 	got.Chunks[0].Notes[0].Text = "mutated"
 	got.Notes[0].Text = "mutated"
 	got.Meta["nested"].(map[string]any)["k"] = "mutated"
+	got.Jira.Acceptance[0] = "mutated"
+	got.Jira.LastPost.From = "mutated"
 
 	for _, c := range []struct {
 		name      string

@@ -738,6 +738,42 @@ export class RpcApiType {
         return client.wshRpcCall("jarvisstatus", data, opts);
     }
 
+    // command "jiracheck" [call]
+    JiraCheckCommand(client: WshClient, opts?: RpcOpts): Promise<CommandJiraCheckRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "jiracheck", null, opts);
+        return client.wshRpcCall("jiracheck", null, opts);
+    }
+
+    // command "jiraconnection" [call]
+    JiraConnectionCommand(client: WshClient, data: CommandJiraConnectionData, opts?: RpcOpts): Promise<JiraConnection> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "jiraconnection", data, opts);
+        return client.wshRpcCall("jiraconnection", data, opts);
+    }
+
+    // command "jirapost" [call]
+    JiraPostCommand(client: WshClient, data: CommandJiraPostData, opts?: RpcOpts): Promise<CommandJiraPostRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "jirapost", data, opts);
+        return client.wshRpcCall("jirapost", data, opts);
+    }
+
+    // command "jirapostdraft" [call]
+    JiraPostDraftCommand(client: WshClient, data: CommandJiraPostDraftData, opts?: RpcOpts): Promise<CommandJiraPostDraftRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "jirapostdraft", data, opts);
+        return client.wshRpcCall("jirapostdraft", data, opts);
+    }
+
+    // command "jirapostsummaries" [call]
+    JiraPostSummariesCommand(client: WshClient, data: CommandJiraPostDraftData, opts?: RpcOpts): Promise<CommandJiraPostSummariesRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "jirapostsummaries", data, opts);
+        return client.wshRpcCall("jirapostsummaries", data, opts);
+    }
+
+    // command "jirashow" [call]
+    JiraShowCommand(client: WshClient, data: CommandJiraShowData, opts?: RpcOpts): Promise<CommandJiraShowRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "jirashow", data, opts);
+        return client.wshRpcCall("jirashow", data, opts);
+    }
+
     // command "landrun" [call]
     LandRunCommand(client: WshClient, data: CommandLandRunData, opts?: RpcOpts): Promise<RunLand> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "landrun", data, opts);

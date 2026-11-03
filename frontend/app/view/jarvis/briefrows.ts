@@ -176,7 +176,7 @@ export type RunRowFace = {
     chunk: string;
 };
 
-export type EffortRef = { oref: string; title: string; chunkStages: Record<string, string> };
+export type EffortRef = { oref: string; title: string; chunkStages: Record<string, string>; ticket: string };
 // keyed by effort oid, the way a run's effortref names its effort
 export type EffortIndex = Map<string, EffortRef>;
 

@@ -44,6 +44,7 @@ type WshRpcInterface interface {
 	DagCommands
 	JarvisCommands
 	EffortCommands
+	JiraCommands
 	NoteCommands
 	SecretCommands
 	AskCommands

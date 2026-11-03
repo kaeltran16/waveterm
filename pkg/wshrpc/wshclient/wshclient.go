@@ -732,6 +732,42 @@ func JarvisStatusCommand(w *wshutil.WshRpc, data wshrpc.CommandJarvisStatusData,
 	return resp, err
 }
 
+// command "jiracheck", wshserver.JiraCheckCommand
+func JiraCheckCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandJiraCheckRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandJiraCheckRtnData](w, "jiracheck", nil, opts)
+	return resp, err
+}
+
+// command "jiraconnection", wshserver.JiraConnectionCommand
+func JiraConnectionCommand(w *wshutil.WshRpc, data wshrpc.CommandJiraConnectionData, opts *wshrpc.RpcOpts) (*wshrpc.JiraConnection, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.JiraConnection](w, "jiraconnection", data, opts)
+	return resp, err
+}
+
+// command "jirapost", wshserver.JiraPostCommand
+func JiraPostCommand(w *wshutil.WshRpc, data wshrpc.CommandJiraPostData, opts *wshrpc.RpcOpts) (*wshrpc.CommandJiraPostRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandJiraPostRtnData](w, "jirapost", data, opts)
+	return resp, err
+}
+
+// command "jirapostdraft", wshserver.JiraPostDraftCommand
+func JiraPostDraftCommand(w *wshutil.WshRpc, data wshrpc.CommandJiraPostDraftData, opts *wshrpc.RpcOpts) (*wshrpc.CommandJiraPostDraftRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandJiraPostDraftRtnData](w, "jirapostdraft", data, opts)
+	return resp, err
+}
+
+// command "jirapostsummaries", wshserver.JiraPostSummariesCommand
+func JiraPostSummariesCommand(w *wshutil.WshRpc, data wshrpc.CommandJiraPostDraftData, opts *wshrpc.RpcOpts) (*wshrpc.CommandJiraPostSummariesRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandJiraPostSummariesRtnData](w, "jirapostsummaries", data, opts)
+	return resp, err
+}
+
+// command "jirashow", wshserver.JiraShowCommand
+func JiraShowCommand(w *wshutil.WshRpc, data wshrpc.CommandJiraShowData, opts *wshrpc.RpcOpts) (*wshrpc.CommandJiraShowRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandJiraShowRtnData](w, "jirashow", data, opts)
+	return resp, err
+}
+
 // command "landrun", wshserver.LandRunCommand
 func LandRunCommand(w *wshutil.WshRpc, data wshrpc.CommandLandRunData, opts *wshrpc.RpcOpts) (*waveobj.RunLand, error) {
 	resp, err := sendRpcRequestCallHelper[*waveobj.RunLand](w, "landrun", data, opts)

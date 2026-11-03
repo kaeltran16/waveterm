@@ -221,7 +221,9 @@ func TestGetReturnsIndependentCopy(t *testing.T) {
 			WorkRefs: []waveobj.ChunkWorkRef{{Kind: "run", ORef: "run:x"}}}},
 		Notes:  []waveobj.EffortNote{{Ts: 1, Text: "n"}},
 		Events: []waveobj.EffortEvent{{Ts: 1, Kind: "effort-created"}},
-		Meta:   waveobj.MetaMapType{"nested": map[string]any{"k": "v"}, "list": []any{"x"}}})
+		Jira: &waveobj.EffortJira{Summary: "s", Acceptance: []string{"c"},
+			LastPost: &waveobj.EffortJiraPost{From: "To Do"}},
+		Meta: waveobj.MetaMapType{"nested": map[string]any{"k": "v"}, "list": []any{"x"}}})
 	mutate := func(x *waveobj.Effort) {
 		x.Title = "mutated"
 		x.Chunks[0].Label = "mutated"
@@ -229,6 +231,9 @@ func TestGetReturnsIndependentCopy(t *testing.T) {
 		x.Chunks[0].WorkRefs[0].ORef = "mutated"
 		x.Notes[0].Text = "mutated"
 		x.Events[0].Kind = "mutated"
+		x.Jira.Summary = "mutated"
+		x.Jira.Acceptance[0] = "mutated"
+		x.Jira.LastPost.From = "mutated"
 		x.Meta["nested"].(map[string]any)["k"] = "mutated"
 		x.Meta["list"].([]any)[0] = "mutated"
 		x.Meta["added"] = true
@@ -259,6 +264,7 @@ func TestGetReturnsIndependentCopy(t *testing.T) {
 		}
 		if x.Title != "orig" || x.Chunks[0].Label != "a" || x.Chunks[0].Notes[0].Text != "n" ||
 			x.Chunks[0].WorkRefs[0].ORef != "run:x" || x.Notes[0].Text != "n" || x.Events[0].Kind != "effort-created" ||
+			x.Jira.Summary != "s" || x.Jira.Acceptance[0] != "c" || x.Jira.LastPost.From != "To Do" ||
 			x.Meta["nested"].(map[string]any)["k"] != "v" || x.Meta["list"].([]any)[0] != "x" || x.Meta.HasKey("added") {
 			t.Fatalf("cache corrupted by a caller's mutation: %+v", x)
 		}

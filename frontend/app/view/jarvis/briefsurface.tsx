@@ -701,7 +701,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
             new Map(
                 [...efforts, ...archivedCards].map((e) => [
                     e.oref.replace(/^effort:/, ""),
-                    { oref: e.oref, title: e.title, chunkStages: e.chunkStages },
+                    { oref: e.oref, title: e.title, chunkStages: e.chunkStages, ticket: e.ticket ?? "" },
                 ])
             )
         );

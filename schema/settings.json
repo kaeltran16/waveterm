@@ -137,6 +137,12 @@
         },
         "harness:preferredmodel": {
           "type": "string"
+        },
+        "jira:site": {
+          "type": "string"
+        },
+        "jira:email": {
+          "type": "string"
         }
       },
       "additionalProperties": false,
