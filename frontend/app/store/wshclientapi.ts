@@ -738,6 +738,18 @@ export class RpcApiType {
         return client.wshRpcCall("jarvisstatus", data, opts);
     }
 
+    // command "jiraattachmentread" [call]
+    JiraAttachmentReadCommand(client: WshClient, data: CommandJiraAttachmentReadData, opts?: RpcOpts): Promise<CommandJiraAttachmentReadRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "jiraattachmentread", data, opts);
+        return client.wshRpcCall("jiraattachmentread", data, opts);
+    }
+
+    // command "jiraattachments" [call]
+    JiraAttachmentsCommand(client: WshClient, data: CommandJiraAttachmentsData, opts?: RpcOpts): Promise<CommandJiraAttachmentsRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "jiraattachments", data, opts);
+        return client.wshRpcCall("jiraattachments", data, opts);
+    }
+
     // command "jiracheck" [call]
     JiraCheckCommand(client: WshClient, opts?: RpcOpts): Promise<CommandJiraCheckRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "jiracheck", null, opts);

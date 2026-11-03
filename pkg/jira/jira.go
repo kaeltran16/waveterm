@@ -16,6 +16,7 @@ const (
 	CodeNotConfigured = "EC-JIRA-NOTCONFIGURED"
 	CodeHTTP          = "EC-JIRA-HTTP"
 	CodeUnreachable   = "EC-JIRA-UNREACHABLE"
+	CodeTooLarge      = "EC-JIRA-TOOLARGE"
 )
 
 // what each missing piece of setup is called in the not-configured message

@@ -5,10 +5,12 @@ package wshserver
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"log"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -179,7 +181,7 @@ func (ws *WshServer) JiraShowCommand(ctx context.Context, data wshrpc.CommandJir
 	if err != nil {
 		return nil, err
 	}
-	t, err := client.Issue(ctx, data.Key)
+	t, err := client.IssueDetail(ctx, data.Key)
 	if noteJira("", err) != nil {
 		return nil, err
 	}
@@ -193,6 +195,47 @@ func (ws *WshServer) JiraShowCommand(ctx context.Context, data wshrpc.CommandJir
 	}
 	inf := jiraInference(ctx, efforts, []string{t.Key})[jira.ProjectKey(t.Key)]
 	return &wshrpc.CommandJiraShowRtnData{Ticket: t, Project: inf.Project, Evidence: inf.Evidence, Sure: inf.Sure, SeenTs: now}, nil
+}
+
+func (ws *WshServer) JiraAttachmentsCommand(ctx context.Context, data wshrpc.CommandJiraAttachmentsData) (*wshrpc.CommandJiraAttachmentsRtnData, error) {
+	client, _, err := jiraClient()
+	if err != nil {
+		return nil, err
+	}
+	atts, err := client.Attachments(ctx, data.Key)
+	if noteJira("", err) != nil {
+		return nil, err
+	}
+	if atts == nil {
+		atts = []wshrpc.JiraAttachment{}
+	}
+	return &wshrpc.CommandJiraAttachmentsRtnData{Key: jira.NormalizeKey(data.Key), Attachments: atts}, nil
+}
+
+// JiraAttachmentReadCommand hands wsh one attachment's bytes, so the token never leaves wavesrv. It
+// reads only an attachment of the named ticket, and refuses one over the cap before downloading it.
+func (ws *WshServer) JiraAttachmentReadCommand(ctx context.Context, data wshrpc.CommandJiraAttachmentReadData) (*wshrpc.CommandJiraAttachmentReadRtnData, error) {
+	client, _, err := jiraClient()
+	if err != nil {
+		return nil, err
+	}
+	atts, err := client.Attachments(ctx, data.Key)
+	if noteJira("", err) != nil {
+		return nil, err
+	}
+	i := slices.IndexFunc(atts, func(a wshrpc.JiraAttachment) bool { return a.ID == data.ID })
+	if i < 0 {
+		return nil, fmt.Errorf("EC-INVALID: %s has no attachment %q", jira.NormalizeKey(data.Key), data.ID)
+	}
+	att := atts[i]
+	if att.Size > jira.AttachmentMaxBytes {
+		return nil, jira.TooLarge(att.ID)
+	}
+	raw, err := client.AttachmentContent(ctx, data.Key, att.ID)
+	if noteJira("", err) != nil {
+		return nil, err
+	}
+	return &wshrpc.CommandJiraAttachmentReadRtnData{Attachment: att, Data64: base64.StdEncoding.EncodeToString(raw)}, nil
 }
 
 // ticketedEffort reads the initiative a post is for, refusing one with no ticket.

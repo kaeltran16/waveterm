@@ -1311,6 +1311,29 @@ declare global {
         status: CaptureStatus;
     };
 
+    // wshrpc.CommandJiraAttachmentReadData
+    type CommandJiraAttachmentReadData = {
+        key: string;
+        id: string;
+    };
+
+    // wshrpc.CommandJiraAttachmentReadRtnData
+    type CommandJiraAttachmentReadRtnData = {
+        attachment: JiraAttachment;
+        data64: string;
+    };
+
+    // wshrpc.CommandJiraAttachmentsData
+    type CommandJiraAttachmentsData = {
+        key: string;
+    };
+
+    // wshrpc.CommandJiraAttachmentsRtnData
+    type CommandJiraAttachmentsRtnData = {
+        key: string;
+        attachments: JiraAttachment[];
+    };
+
     // wshrpc.CommandJiraCheckRtnData
     type CommandJiraCheckRtnData = {
         site: string;
@@ -2445,6 +2468,24 @@ declare global {
         autonomous?: boolean;
     };
 
+    // wshrpc.JiraAttachment
+    type JiraAttachment = {
+        id: string;
+        filename: string;
+        mimetype?: string;
+        size: number;
+        author?: string;
+        createdts?: number;
+    };
+
+    // wshrpc.JiraComment
+    type JiraComment = {
+        id: string;
+        author?: string;
+        createdts?: number;
+        body: string;
+    };
+
     // wshrpc.JiraConnection
     type JiraConnection = {
         configured: boolean;
@@ -2468,6 +2509,8 @@ declare global {
         acceptance?: string[];
         url: string;
         updatedts?: number;
+        attachments?: JiraAttachment[];
+        comments?: JiraComment[];
     };
 
     // wshrpc.JiraTicketRow
@@ -2481,6 +2524,8 @@ declare global {
         acceptance?: string[];
         url: string;
         updatedts?: number;
+        attachments?: JiraAttachment[];
+        comments?: JiraComment[];
         project?: string;
         evidence?: string;
         sure: boolean;

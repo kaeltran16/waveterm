@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -26,10 +27,14 @@ const (
 	openJQL        = "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC"
 	acFieldName    = "acceptance criteria"
 	// cap on an error body read when it isn't Jira's JSON
-	errBodyLimit = 512
+	errBodyLimit    = 512
+	commentPageSize = 100
 )
 
 var baseFields = []string{"summary", "issuetype", "status", "updated", "description"}
+
+// what a full read (show) asks for on top of baseFields
+var detailFields = []string{"attachment", "comment"}
 
 // Jira's own timestamp shape, then RFC 3339 for anything that speaks it
 var timeLayouts = []string{"2006-01-02T15:04:05.000-0700", time.RFC3339Nano}
@@ -53,23 +58,31 @@ var acFieldCache = struct {
 	ids map[string]string
 }{ids: map[string]string{}}
 
-func (c *Client) do(ctx context.Context, method, path string, body, out any) error {
+func (c *Client) newRequest(ctx context.Context, method, path string, body any) (*http.Request, error) {
 	var reader io.Reader
 	if body != nil {
 		raw, err := json.Marshal(body)
 		if err != nil {
-			return fmt.Errorf("encoding Jira request: %w", err)
+			return nil, fmt.Errorf("encoding Jira request: %w", err)
 		}
 		reader = bytes.NewReader(raw)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, c.cfg.Site+apiBase+path, reader)
 	if err != nil {
-		return fmt.Errorf("building Jira request: %w", err)
+		return nil, fmt.Errorf("building Jira request: %w", err)
 	}
 	req.SetBasicAuth(c.cfg.Email, c.cfg.Token)
 	req.Header.Set("Accept", "application/json")
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	return req, nil
+}
+
+func (c *Client) do(ctx context.Context, method, path string, body, out any) error {
+	req, err := c.newRequest(ctx, method, path, body)
+	if err != nil {
+		return err
 	}
 	resp, err := c.hc.Do(req)
 	if err != nil {
@@ -202,22 +215,97 @@ func issuePath(key, sub string) (string, error) {
 }
 
 func (c *Client) Issue(ctx context.Context, key string) (wshrpc.JiraTicket, error) {
-	path, err := issuePath(key, "")
+	is, acID, err := c.rawIssue(ctx, key, nil)
 	if err != nil {
-		return wshrpc.JiraTicket{}, err
-	}
-	fields, acID, err := c.issueFields(ctx)
-	if err != nil {
-		return wshrpc.JiraTicket{}, err
-	}
-	var is rawIssue
-	if err := c.do(ctx, http.MethodGet, path+"?fields="+url.QueryEscape(strings.Join(fields, ",")), nil, &is); err != nil {
 		return wshrpc.JiraTicket{}, err
 	}
 	return c.ticket(is, acID), nil
 }
 
+// IssueDetail is Issue plus the ticket's attachments and every comment, for a full read.
+func (c *Client) IssueDetail(ctx context.Context, key string) (wshrpc.JiraTicket, error) {
+	is, acID, err := c.rawIssue(ctx, key, detailFields)
+	if err != nil {
+		return wshrpc.JiraTicket{}, err
+	}
+	t := c.ticket(is, acID)
+	var page commentPage
+	json.Unmarshal(is.Fields["comment"], &page)
+	raw := page.Comments
+	if len(raw) < page.Total {
+		rest, err := c.commentsFrom(ctx, key, len(raw))
+		if err != nil {
+			return wshrpc.JiraTicket{}, err
+		}
+		raw = append(raw, rest...)
+	}
+	t.Comments = make([]wshrpc.JiraComment, 0, len(raw))
+	for _, rc := range raw {
+		t.Comments = append(t.Comments, wshrpc.JiraComment{
+			ID:        rc.ID,
+			Author:    rc.Author.DisplayName,
+			CreatedTs: parseJiraTime(rc.Created),
+			Body:      ADFToPlain(rc.Body, t.Attachments),
+		})
+	}
+	return t, nil
+}
+
+func (c *Client) rawIssue(ctx context.Context, key string, extra []string) (rawIssue, string, error) {
+	path, err := issuePath(key, "")
+	if err != nil {
+		return rawIssue{}, "", err
+	}
+	fields, acID, err := c.issueFields(ctx)
+	if err != nil {
+		return rawIssue{}, "", err
+	}
+	fields = append(fields, extra...)
+	var is rawIssue
+	if err := c.do(ctx, http.MethodGet, path+"?fields="+url.QueryEscape(strings.Join(fields, ",")), nil, &is); err != nil {
+		return rawIssue{}, "", err
+	}
+	return is, acID, nil
+}
+
+type rawComment struct {
+	ID     string `json:"id"`
+	Author struct {
+		DisplayName string `json:"displayName"`
+	} `json:"author"`
+	Created string          `json:"created"`
+	Body    json.RawMessage `json:"body"`
+}
+
+// commentPage is both the issue's embedded comment field and one page of /issue/{key}/comment.
+type commentPage struct {
+	Comments []rawComment `json:"comments"`
+	Total    int          `json:"total"`
+}
+
+// commentsFrom pages the issue's comments from start on, oldest first.
+func (c *Client) commentsFrom(ctx context.Context, key string, start int) ([]rawComment, error) {
+	path, err := issuePath(key, "/comment")
+	if err != nil {
+		return nil, err
+	}
+	var out []rawComment
+	for {
+		q := url.Values{"startAt": {strconv.Itoa(start)}, "maxResults": {strconv.Itoa(commentPageSize)}, "orderBy": {"created"}}
+		var page commentPage
+		if err := c.do(ctx, http.MethodGet, path+"?"+q.Encode(), nil, &page); err != nil {
+			return nil, err
+		}
+		out = append(out, page.Comments...)
+		start += len(page.Comments)
+		if len(page.Comments) == 0 || start >= page.Total {
+			return out, nil
+		}
+	}
+}
+
 func (c *Client) ticket(is rawIssue, acID string) wshrpc.JiraTicket {
+	atts := parseAttachments(is.Fields["attachment"])
 	var named struct {
 		Name string `json:"name"`
 	}
@@ -238,10 +326,11 @@ func (c *Client) ticket(is rawIssue, acID string) wshrpc.JiraTicket {
 		Type:           named.Name,
 		Status:         status.Name,
 		StatusCategory: status.StatusCategory.Key,
-		Description:    ADFToPlain(is.Fields["description"]),
-		Acceptance:     acceptance(is.Fields[acID], is.Fields["description"], acID != ""),
+		Description:    ADFToPlain(is.Fields["description"], atts),
+		Acceptance:     acceptance(is.Fields[acID], is.Fields["description"], acID != "", atts),
 		URL:            c.cfg.Site + "/browse/" + is.Key,
 		UpdatedTs:      parseJiraTime(updated),
+		Attachments:    atts,
 	}
 }
 
@@ -256,13 +345,13 @@ func parseJiraTime(s string) int64 {
 
 // acceptance reads the site's Acceptance Criteria field, else the list under a description line
 // reading "Acceptance criteria".
-func acceptance(field, description json.RawMessage, hasField bool) []string {
+func acceptance(field, description json.RawMessage, hasField bool, atts []wshrpc.JiraAttachment) []string {
 	if hasField {
-		if items := fieldItems(field); len(items) > 0 {
+		if items := fieldItems(field, atts); len(items) > 0 {
 			return items
 		}
 	}
-	doc, ok := parseADF(description)
+	doc, ok := parseADF(description, atts)
 	if !ok {
 		return nil
 	}
@@ -279,14 +368,14 @@ func acceptance(field, description json.RawMessage, hasField bool) []string {
 }
 
 // fieldItems takes a field's list items, or its non-blank lines when it holds no list.
-func fieldItems(field json.RawMessage) []string {
-	if doc, ok := parseADF(field); ok {
+func fieldItems(field json.RawMessage, atts []wshrpc.JiraAttachment) []string {
+	if doc, ok := parseADF(field, atts); ok {
 		if items := listItems(doc.Content, 0); len(items) > 0 {
 			return items
 		}
 	}
 	var items []string
-	for _, line := range strings.Split(ADFToPlain(field), "\n") {
+	for _, line := range strings.Split(ADFToPlain(field, atts), "\n") {
 		line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), bulletMarker))
 		if line != "" {
 			items = append(items, line)
