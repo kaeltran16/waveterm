@@ -118,7 +118,7 @@ const gatePost = (h) =>
         const real = ((window.__heldRpc ??= {})[${JSON.stringify(POST)}] ??= RpcApi[${JSON.stringify(POST)}]);
         RpcApi[${JSON.stringify(POST)}] = (...args) =>
             new Promise((resolve, reject) => {
-                window.__releasePost = () => real(...args).then(resolve, reject);
+                window.__releasePost = () => real.apply(RpcApi, args).then(resolve, reject);
             });
     `);
 

@@ -7,7 +7,7 @@
 
 import { formatAgeShort } from "@/app/view/agents/agentsviewmodel";
 import { atom, type PrimitiveAtom } from "jotai";
-import type { JiraFailure } from "./jiraticket";
+import { parseJiraError, type JiraFailure } from "./jiraticket";
 
 // the effort oref the dialog is open on
 export const jiraPostOpenAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
@@ -61,11 +61,12 @@ export function footerPosted(lp: EffortJiraPost, now: number): string {
     return lp.movedto ? `${posted}, moved to ${lp.movedto}` : posted;
 }
 
-// the comment posted but the move did not: what the dialog says, with Jira's real status after the attempt
+// the comment posted but the move did not: what the dialog says, with Jira's real status after the attempt.
+// moveerror arrives as the coded string, so the line carries only Jira's own message
 export function moveFailedLines(picked: string, rtn: CommandJiraPostRtnData): { failed: string; jira: string } {
     return {
         failed: `Couldn't move it to ${picked}, so it is still ${rtn.status}.`,
-        jira: `Jira: ${rtn.moveerror}`,
+        jira: `Jira: ${parseJiraError(rtn.moveerror).message}`,
     };
 }
 

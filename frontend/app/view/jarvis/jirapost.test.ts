@@ -154,7 +154,7 @@ describe("moveFailedLines", () => {
             commenturl: "u",
             postedts: NOW,
             from: "To Do",
-            moveerror: "Field 'Reviewer' is required for this transition.",
+            moveerror: "EC-JIRA-HTTP 400: Field 'Reviewer' is required for this transition.",
             status: "To Do",
         };
         expect(moveFailedLines("In Review", rtn)).toEqual({
