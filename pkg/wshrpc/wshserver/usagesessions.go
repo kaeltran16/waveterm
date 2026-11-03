@@ -121,6 +121,9 @@ func linkUsageSession(ctx context.Context, s *wshrpc.UsageSession, run *waveobj.
 	s.RunGoal = strings.TrimSpace(goal)
 	if consulted {
 		s.Role = consultRole
+	} else if jarvis.IsBrainstormSession(run) {
+		// a brainstorm's builder check or judge has no dag, so its own stage role is the only part it played
+		s.Role = run.StageRole
 	}
 	if placed {
 		s.Role = jarvis.UsageRole(run)

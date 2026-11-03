@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/usagestats"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -141,6 +142,18 @@ func TestUsageSessionsQuickRun(t *testing.T) {
 	}
 	if got != want {
 		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}
+
+func TestUsageSessionsBrainstormSession(t *testing.T) {
+	for _, role := range []string{jarvis.UsageRole_BrainstormJudge, jarvis.UsageRole_BuilderCheck} {
+		run := seedUsageRun(t, "", waveobj.Run{
+			Mode: "quick", Goal: "weigh it", ProjectPath: usageTestRepo, SessionId: uuid.NewString(), StageRole: role,
+		})
+		got := usageSessionsOf(t, claudeMeta(run.SessionId))[0]
+		if got.RunId != run.ID || got.RunMode != "quick" || got.Role != role {
+			t.Fatalf("a brainstorm session reads as %s on its own run, got %+v", role, got)
+		}
 	}
 }
 
