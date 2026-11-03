@@ -938,6 +938,11 @@ type FileContent struct {
 	TooLarge bool   `json:"toolarge"`
 	Size     int64  `json:"size"`
 	IsRepo   bool   `json:"isrepo"`
+	// Root is the repo's top-level directory as git prints it, and Prefix is cwd's path inside the
+	// repo ("" at the root, else ending in "/"), so root-relative path = Prefix + the cwd-relative
+	// path. Both are set whenever IsRepo is, so a caller never does path arithmetic to find them.
+	Root   string `json:"root,omitempty"`
+	Prefix string `json:"prefix,omitempty"`
 }
 
 // FileAtRef returns one file's full content at a ref. The path is cwd-relative like every other
@@ -948,31 +953,34 @@ type FileContent struct {
 func FileAtRef(ctx context.Context, cwd, ref, path string, maxBytes int64) (*FileContent, error) {
 	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
 	defer cancel()
-	inside, err := run(ctx, cwd, "rev-parse", "--is-inside-work-tree")
-	if err != nil || strings.TrimSpace(inside) != "true" {
+	// one process answers all three: lines are is-inside-work-tree, toplevel, prefix (blank at the root)
+	where, err := run(ctx, cwd, "rev-parse", "--is-inside-work-tree", "--show-toplevel", "--show-prefix")
+	lines := strings.Split(where, "\n")
+	if err != nil || len(lines) < 3 || strings.TrimSpace(lines[0]) != "true" {
 		return &FileContent{IsRepo: false}, nil
 	}
+	root, prefix := strings.TrimRight(lines[1], "\r"), strings.TrimRight(lines[2], "\r")
 	spec := ref + ":./" + path
 	sizeOut, err := run(ctx, cwd, "cat-file", "-s", spec)
 	if err != nil {
 		// the blob does not exist at this ref: an add on one side, a delete on the other
-		return &FileContent{IsRepo: true, Missing: true}, nil
+		return &FileContent{IsRepo: true, Missing: true, Root: root, Prefix: prefix}, nil
 	}
 	size, err := strconv.ParseInt(strings.TrimSpace(sizeOut), 10, 64)
 	if err != nil {
 		return nil, fmt.Errorf("git cat-file -s %s: unparsable size %q", spec, strings.TrimSpace(sizeOut))
 	}
 	if maxBytes > 0 && size > maxBytes {
-		return &FileContent{IsRepo: true, TooLarge: true, Size: size}, nil
+		return &FileContent{IsRepo: true, TooLarge: true, Size: size, Root: root, Prefix: prefix}, nil
 	}
 	out, err := run(ctx, cwd, "show", spec)
 	if err != nil {
 		return nil, err
 	}
 	if !utf8.ValidString(out) {
-		return &FileContent{IsRepo: true, Binary: true, Size: size}, nil
+		return &FileContent{IsRepo: true, Binary: true, Size: size, Root: root, Prefix: prefix}, nil
 	}
-	return &FileContent{IsRepo: true, Content: out, Size: size}, nil
+	return &FileContent{IsRepo: true, Content: out, Size: size, Root: root, Prefix: prefix}, nil
 }
 
 // DefaultBranch resolves the repo's default branch as the ref the compare picker should open on:
