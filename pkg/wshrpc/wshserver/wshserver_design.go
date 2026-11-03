@@ -173,6 +173,17 @@ func (ws *WshServer) RunDesignAttachCommand(ctx context.Context, data wshrpc.Com
 	}
 	channelId, runId := waiting.ChannelOID, waiting.ID
 	design, spec, prototype := waiting.Design, waiting.Spec, waiting.Prototype
+	// the session wrote the spec in the checkout; the run's copy is the one its lead revises and lands
+	attached := specInLandTree(ctx, waiting, data.Spec)
+	// a refused attach puts the spec back where it was sent from, so a retried Approve finds it
+	restoreSpec := func() {
+		if attached == data.Spec {
+			return
+		}
+		if err := orchestrate.MoveFile(attached, data.Spec); err != nil {
+			log.Printf("RunDesignAttach: returning run %s's spec to %s: %v", runId, data.Spec, err)
+		}
+	}
 	if err := wstore.UpdateRun(ctx, channelId, runId, func(r *waveobj.Run) error {
 		// decided under the update: a second Approve racing this one finds the design already taken
 		if r.Design == nil || r.Design.BlockId != data.BlockId {
@@ -181,8 +192,8 @@ func (ws *WshServer) RunDesignAttachCommand(ctx context.Context, data wshrpc.Com
 			}
 			return fmt.Errorf("run %s is not waiting on this session's design", runId)
 		}
-		if data.Spec != "" {
-			r.Spec = data.Spec
+		if attached != "" {
+			r.Spec = attached
 		}
 		if data.Prototype != "" {
 			r.Prototype = data.Prototype
@@ -192,6 +203,7 @@ func (ws *WshServer) RunDesignAttachCommand(ctx context.Context, data wshrpc.Com
 		r.Status = jarvis.RunStatus_Executing
 		return nil
 	}); err != nil {
+		restoreSpec()
 		return nil, err
 	}
 	ch, err := wstore.DBMustGet[*waveobj.Channel](ctx, channelId)
@@ -201,6 +213,7 @@ func (ws *WshServer) RunDesignAttachCommand(ctx context.Context, data wshrpc.Com
 	}
 	if err != nil {
 		// with no lead recorded the run waits on the session again, so a retried Approve can take it
+		restoreSpec()
 		if rerr := wstore.UpdateRun(ctx, channelId, runId, func(r *waveobj.Run) error {
 			if r.DesignSession != data.BlockId || orchestrate.RunTabID(r) != "" {
 				return nil
@@ -214,7 +227,7 @@ func (ws *WshServer) RunDesignAttachCommand(ctx context.Context, data wshrpc.Com
 		publishRunUpdate(channelId, runId)
 		return nil, fmt.Errorf("starting the lead: %w", err)
 	}
-	appendRunEvent(ctx, channelId, runId, waveobj.RunEventKindDesignAttached, nil, map[string]any{"spec": data.Spec, "prototype": data.Prototype})
+	appendRunEvent(ctx, channelId, runId, waveobj.RunEventKindDesignAttached, nil, map[string]any{"spec": attached, "prototype": data.Prototype})
 	publishRunUpdate(channelId, runId)
 	return &wshrpc.CommandRunDesignAttachRtnData{ChannelId: channelId, RunId: runId}, nil
 }

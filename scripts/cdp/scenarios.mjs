@@ -6,6 +6,7 @@
 // scenarios-shared.mjs. A new scenario goes in its area's module and into SCENARIOS below, whose order is the run
 // order.
 import { narrationFeed } from "./narrationfeed.mjs";
+import { codePeek } from "./scenarios-codepeek.mjs";
 import { notesWsh } from "./notes-wsh.mjs";
 import builder from "./scenarios-brainstorm-builder.mjs";
 import findings from "./scenarios-brainstorm-findings.mjs";
@@ -303,6 +304,7 @@ export const SCENARIOS = [
     contextMenu,
     cockpitRailTooltip,
     termLinkTooltip,
+    codePeek,
     titleTooltip,
     taskDetail,
     runSheetDoneLook,

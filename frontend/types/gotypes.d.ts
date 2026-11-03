@@ -1196,6 +1196,8 @@ declare global {
         toolarge?: boolean;
         size?: number;
         isrepo: boolean;
+        root?: string;
+        prefix?: string;
     };
 
     // wshrpc.CommandGitGrepData

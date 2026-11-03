@@ -17,6 +17,7 @@ import { NO_FILTERS } from "@/app/view/agents/historyquery";
 import { renamingRowAtom } from "@/app/view/agents/rowrenameatom";
 import { shellTaskPeekAtom } from "@/app/view/agents/shelltasksstore";
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
+import { codePeekFocusedAtom } from "@/app/view/code/codepeekstore";
 import { codeTreeFocusedAtom } from "@/app/view/code/codestore";
 import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
 import { graphPeekOpenAtom } from "@/app/view/jarvis/jarvisstore";
@@ -133,6 +134,13 @@ describe("whenVersionAtom", () => {
         globalStore.set(shellTaskPeekAtom, { parentId: "p1", taskId: "t1" });
         expect(globalStore.get(whenVersionAtom)).toBeGreaterThan(before);
         globalStore.set(shellTaskPeekAtom, null);
+    });
+
+    it("bumps when codePeekFocusedAtom changes", () => {
+        const before = globalStore.get(whenVersionAtom);
+        globalStore.set(codePeekFocusedAtom, true);
+        expect(globalStore.get(whenVersionAtom)).toBeGreaterThan(before);
+        globalStore.set(codePeekFocusedAtom, false);
     });
 });
 

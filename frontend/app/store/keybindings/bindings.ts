@@ -73,6 +73,7 @@ import { resolveActiveRunId } from "@/app/view/agents/runmodel";
 import { shellTaskPeekAtom } from "@/app/view/agents/shelltasksstore";
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
 import { toggleBlame } from "@/app/view/code/codeblamestore";
+import { closePeek, codePeekFocusedAtom, openPeekInCode } from "@/app/view/code/codepeekstore";
 import { projectComments } from "@/app/view/code/codereview";
 import { codeReviewsAtom, codeReviewSendOpenAtom, startComment } from "@/app/view/code/codereviewstore";
 import { codeSearchModeAtom } from "@/app/view/code/codesearchstore";
@@ -899,6 +900,7 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
     const inCanvas = (ctx: KeyContext) => agentNav(ctx) && canvas()?.mode === "canvas";
     const boardReady = (ctx: KeyContext) => inCanvas(ctx) && !canvas()!.marking && paneState(canvas()!) === "board";
     const focusId = () => globalStore.get(model.focusIdAtom);
+    const codePeekFocused = () => globalStore.get(codePeekFocusedAtom);
     // the step the brainstorm pane's back control takes, which Esc takes too. A drawn mark's note owns Esc on the
     // board (it drops the mark there), so the board's step waits for it even while the note's field is unfocused
     const paneStep = () => {
@@ -927,6 +929,7 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             when: (ctx) =>
                 ctx.surface === "agent" &&
                 !ctx.modalOpen &&
+                !codePeekFocused() &&
                 globalStore.get(renamingRowAtom) == null &&
                 noEscapeMenuOpen() &&
                 globalStore.get(focusSubagentAtom) != null,
@@ -941,10 +944,32 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             when: (ctx) =>
                 ctx.surface === "agent" &&
                 !ctx.modalOpen &&
+                !codePeekFocused() &&
                 globalStore.get(renamingRowAtom) == null &&
                 noEscapeMenuOpen() &&
                 globalStore.get(shellTaskPeekAtom) != null,
             run: () => globalStore.set(shellTaskPeekAtom, null),
+        },
+        {
+            // Esc in the terminal interrupts the agent, so the peek takes the key only while focus is inside its
+            // card (codePeekFocusedAtom). It is not gated on editable: the card's Monaco textarea is editable. The
+            // Escapes around it stand down for it, so it is the one claim on the key then.
+            id: "codepeek:close",
+            keys: "Escape",
+            group: "Agent",
+            label: "Close the code peek",
+            when: (ctx) => ctx.surface === "agent" && codePeekFocused() && !ctx.modalOpen && noEscapeMenuOpen(),
+            run: () => closePeek(),
+        },
+        {
+            id: "codepeek:open",
+            keys: "Enter",
+            group: "Agent",
+            label: "Open the peeked file in Code",
+            when: (ctx) => ctx.surface === "agent" && codePeekFocused() && !ctx.modalOpen,
+            run: () => {
+                openPeekInCode(model).catch((e) => console.warn("code peek: open in Code failed", e));
+            },
         },
         {
             id: "agent:back",
@@ -954,6 +979,7 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             when: (ctx) =>
                 agentNavStrict(ctx) &&
                 noEscapeMenuOpen() &&
+                !codePeekFocused() &&
                 globalStore.get(focusSubagentAtom) == null &&
                 globalStore.get(shellTaskPeekAtom) == null &&
                 noCanvas(),
@@ -976,6 +1002,7 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             when: (ctx) =>
                 agentNavStrict(ctx) &&
                 noEscapeMenuOpen() &&
+                !codePeekFocused() &&
                 globalStore.get(focusSubagentAtom) == null &&
                 globalStore.get(shellTaskPeekAtom) == null &&
                 paneStep() != null,
@@ -1045,7 +1072,7 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             keys: "Enter",
             group: "Agent",
             label: "Show what the review's decision was",
-            when: inReview,
+            when: (ctx) => !codePeekFocused() && inReview(ctx),
             // a focused button's Enter is its own press
             run: () => {
                 const row = reviewRow();

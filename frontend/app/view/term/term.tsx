@@ -8,6 +8,7 @@ import { useTabModel } from "@/app/store/tab-model";
 import type { TermViewModel } from "@/app/view/term/term-model";
 import { activePalette, deriveTermTheme } from "@/app/view/agents/themes";
 import { themeOverridesAtom, themePresetAtom } from "@/app/view/agents/themestore";
+import { CodePeekHost } from "@/app/view/code/codepeekhost";
 import { atoms, getOverrideConfigAtom, getSettingsPrefixAtom, WOS } from "@/store/global";
 import { fireAndForget } from "@/util/util";
 import debug from "debug";
@@ -126,6 +127,9 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
             />
             <NullErrorBoundary debugName="TermLinkTooltip">
                 <TermLinkTooltip termWrap={termWrapInst} />
+            </NullErrorBoundary>
+            <NullErrorBoundary debugName="CodePeekHost">
+                <CodePeekHost termWrap={termWrapInst} blockId={blockId} />
             </NullErrorBoundary>
         </div>
     );

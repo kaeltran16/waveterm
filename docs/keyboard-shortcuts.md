@@ -144,6 +144,8 @@ A link inside an item view does a full open, even with `Ctrl` held.
 | `p` | Hand the agent to the phone, or take it back |
 | `Esc` | Close an open shell task output peek, or an open subagent (back to the agent's terminal), else back to where you jumped from, else to Cockpit; exits fullscreen first |
 | `Shift`+`Esc` | Return focus to the nav (from inside the terminal) |
+| `Enter` | With focus inside an open code peek card: open the peeked file in Code, at the clicked line |
+| `Esc` | With focus inside an open code peek card: close it. With focus in the terminal, `Esc` still reaches the agent and leaves the card open |
 
 ### Agent: canvas mode
 

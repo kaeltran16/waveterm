@@ -49,6 +49,7 @@ export function CodeDiffView({ path, text }: { path: string; text: string }) {
             scrollBeyondLastLine: false,
             fontSize: 12,
             fontFamily: "var(--font-mono)",
+            fontLigatures: true,
             minimap: { enabled: false },
             scrollbar: { useShadows: false, verticalScrollbarSize: 5, horizontalScrollbarSize: 5 },
         }),

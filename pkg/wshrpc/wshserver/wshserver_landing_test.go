@@ -618,6 +618,80 @@ func TestCreateRunLandsOnItsOwnBranch(t *testing.T) {
 	}
 }
 
+// the spec moves into the run's tree at dispatch, so the checkout holds no draft for the land to trip on
+func TestCreateRunMovesItsSpecIntoTheLandingTree(t *testing.T) {
+	ctx := context.Background()
+	projectDir, execGit := newLandingRepo(t)
+	stubRunServer(t, "pi", nil)
+	ch, err := wstore.CreateChannel(ctx, "landing-spec", projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedProfileMeta(t, ctx, ch.OID, &waveobj.ProfileOverride{Landing: strPtr(jarvis.Landing_Branch)})
+	spec := filepath.Join(projectDir, "docs", "specs", "coupons.md")
+	if err := os.MkdirAll(filepath.Dir(spec), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(spec, []byte("# spec\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rtn, err := (&WshServer{}).CreateRunCommand(ctx, wshrpc.CommandCreateRunData{
+		ChannelId: ch.OID, WorkspaceId: "ws", Goal: "g", Runtime: "pi", Mode: jarvis.RunMode_Orchestrator, DeferStart: true, Spec: spec,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := wstore.GetRun(ctx, ch.OID, rtn.Run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(got.LandPath, "docs", "specs", "coupons.md"); got.Spec != want {
+		t.Fatalf("run spec = %q, want the landing tree's %q", got.Spec, want)
+	}
+	if text, err := os.ReadFile(got.Spec); err != nil || string(text) != "# spec\n" {
+		t.Fatalf("the tree's spec = %q, %v", text, err)
+	}
+	if status := execGit("status", "--porcelain", "--untracked-files=all"); status != "" {
+		t.Fatalf("the checkout is not clean after dispatch:\n%s", status)
+	}
+}
+
+// a design session writes its spec in the checkout; attaching it moves it into the run's tree like a launch's
+func TestRunDesignAttachMovesTheSpecIntoTheLandingTree(t *testing.T) {
+	ctx := context.Background()
+	projectDir, execGit := newLandingRepo(t)
+	spawns := stubDesignSpawn(t)
+	ch, err := wstore.CreateChannel(ctx, "landing-design-spec", projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedProfileMeta(t, ctx, ch.OID, &waveobj.ProfileOverride{Landing: strPtr(jarvis.Landing_Branch)})
+	run := createDesignFirstRun(t, ch, waveobj.RunDesignKind_Brainstorm)
+	spec := filepath.Join(projectDir, "docs", "specs", "auth.md")
+	if err := os.MkdirAll(filepath.Dir(spec), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(spec, []byte("# auth\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (&WshServer{}).RunDesignAttachCommand(ctx, wshrpc.CommandRunDesignAttachData{BlockId: (*spawns)[0].blockId, Spec: spec}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := wstore.GetRun(ctx, ch.OID, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(got.LandPath, "docs", "specs", "auth.md"); got.Spec != want {
+		t.Fatalf("run spec = %q, want the landing tree's %q", got.Spec, want)
+	}
+	if !strings.Contains((*spawns)[1].prompt, got.Spec) {
+		t.Fatalf("the lead's prompt does not name the tree's spec %s:\n%s", got.Spec, (*spawns)[1].prompt)
+	}
+	if status := execGit("status", "--porcelain", "--untracked-files=all"); status != "" {
+		t.Fatalf("the checkout is not clean after the attach:\n%s", status)
+	}
+}
+
 // an agent fanning out from its own worktree gets a run that branches from that worktree's branch and lands
 // back into it, while the project's main checkout is left alone
 func TestCreateRunFromAWorktree(t *testing.T) {
