@@ -243,7 +243,7 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                         <>
                             <span
                                 className={cn(
-                                    "inline-flex items-center gap-[5px] whitespace-nowrap rounded-[5px] border px-[8px] py-[2px] font-mono text-[10.5px] font-semibold",
+                                    "inline-flex shrink-0 items-center gap-[5px] whitespace-nowrap rounded-[5px] border px-[8px] py-[2px] font-mono text-[10.5px] font-semibold",
                                     rt.text,
                                     rt.softBg,
                                     rt.line
@@ -254,7 +254,7 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                             </span>
                             <span
                                 className={cn(
-                                    "rounded-[5px] border px-[7px] py-[1px] font-mono text-[10.5px] font-medium opacity-85 transition-colors duration-[140ms]",
+                                    "shrink-0 whitespace-nowrap rounded-[5px] border px-[7px] py-[1px] font-mono text-[10.5px] font-medium opacity-85 transition-colors duration-[140ms]",
                                     settling && "animate-[settle_0.5s_ease-out] motion-reduce:animate-none"
                                 )}
                                 style={{ color: stateColor, borderColor: stateColor }}
@@ -265,7 +265,7 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                         </>
                     )}
                     {agent.model ? (
-                        <span className="rounded-[5px] border border-edge-mid px-[7px] py-[1px] font-mono text-[10.5px] font-medium text-muted">
+                        <span className="shrink-0 whitespace-nowrap rounded-[5px] border border-edge-mid px-[7px] py-[1px] font-mono text-[10.5px] font-medium text-muted">
                             {agent.model}
                         </span>
                     ) : null}
@@ -273,7 +273,7 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                         <span
                             title={`context: ${Math.round(agent.usage.contextpct)}% of the window`}
                             className={cn(
-                                "font-mono text-[10.5px] font-semibold",
+                                "shrink-0 whitespace-nowrap font-mono text-[10.5px] font-semibold",
                                 CTX_TEXT[contextLevel(agent.usage.contextpct, agent.usage.contextmax)]
                             )}
                         >
@@ -294,7 +294,7 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                 ) : null}
             </div>
             <div className="flex-1" />
-            <div className="flex items-center gap-[7px]">
+            <div className="flex shrink-0 items-center gap-[7px]">
                 {review && !reviewOpen ? (
                     <button
                         type="button"
@@ -368,16 +368,23 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                                 title={
                                     handed ? "Take back from the phone (p)" : "Hand to phone: turns remote mode on (p)"
                                 }
+                                aria-label={handed ? undefined : "Hand to phone"}
                                 aria-pressed={handed}
-                                className={cn(
-                                    "flex cursor-pointer items-center gap-[7px] rounded-[7px] border px-[11px] py-[6px] font-mono text-[11px] font-semibold",
+                                className={
+                                    // idle it is one of the window controls; the label only earns its width while handed
                                     handed
-                                        ? "border-accent bg-accentbg text-accent"
-                                        : "border-edge-mid bg-surface-raised text-secondary hover:border-edge-strong"
-                                )}
+                                        ? "flex cursor-pointer items-center gap-[7px] whitespace-nowrap rounded-[7px] border border-accent bg-accentbg px-[11px] py-[6px] font-mono text-[11px] font-semibold text-accent"
+                                        : cn(ICON_BTN, "hover:border-edge-strong")
+                                }
                             >
-                                <Smartphone size={13} strokeWidth={1.9} aria-hidden />
-                                {handed ? "On phone · Take back" : "Hand to phone"}
+                                {handed ? (
+                                    <>
+                                        <Smartphone size={13} strokeWidth={1.9} aria-hidden />
+                                        On phone · Take back
+                                    </>
+                                ) : (
+                                    <Smartphone size={16} strokeWidth={1.8} aria-hidden />
+                                )}
                             </button>
                         ) : null}
                         <motion.button

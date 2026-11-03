@@ -75,9 +75,9 @@ A handed-over claude or pi agent shows on the phone page under **Handed over**. 
 transcript, send the next prompt, stop a turn, and approve or deny a Claude Code permission prompt.
 What you type reaches the session as your own input.
 
-- **From the cockpit:** the **Hand to phone** button in the agent's header, or `p` with the agent
-  focused. Handing an agent over turns remote mode on if it is off. **On phone · Take back** (or `p`
-  again) returns it.
+- **From the cockpit:** the phone icon (**Hand to phone**) beside the fullscreen button in the agent's
+  header, or `p` with the agent focused. Handing an agent over turns remote mode on if it is off.
+  **On phone · Take back** (or `p` again) returns it.
 - **From a terminal:** `wsh remote hand [tab]` and `wsh remote take-back [tab]`. The tab is an id or a
   unique prefix. With no tab, `wsh` acts on the agent in the terminal it runs in, so an agent can hand
   itself over.

@@ -2695,7 +2695,8 @@ export const quickRunDone = {
 // remoteStatusAtom through the app's store module, as remote-switch does; step 3 clicks the button against the
 // real RemoteHandCommand, which refuses: the dev store has no remote setup, and the fixture tab is no live agent.
 const REMOTE_HAND_ID = "fx-remote-hand";
-const REMOTE_HAND_NAME = "phone candidate";
+// long enough to truncate, so the pills beside it are under pressure and must keep their own width
+const REMOTE_HAND_NAME = "phone candidate reviewing the council multi-agent expert panel design and every report it attaches";
 const REMOTE_HAND_BTN = `document.querySelector('[data-agent-header] [data-hand-to-phone]')`;
 const REMOTE_HAND_TOAST = `document.querySelector('[data-notification-toast="error"]')`;
 // the hand-over waits up to the switch's 15 s timeout before it fails
@@ -2703,6 +2704,8 @@ const REMOTE_HAND_REFUSE_MS = 20000;
 const REMOTE_HAND_READ = `(() => {
     const btn = ${REMOTE_HAND_BTN};
     const full = btn?.nextElementSibling;
+    const nameRow = document.querySelector('[data-agent-header] [data-agent-state-pill]')?.parentElement;
+    const [nameEl, ...pills] = nameRow ? [...nameRow.children] : [];
     const probe = document.createElement("span");
     probe.className = "text-accent";
     document.body.appendChild(probe);
@@ -2712,12 +2715,18 @@ const REMOTE_HAND_READ = `(() => {
     return {
         btn: btn != null,
         text: (btn?.textContent || "").trim(),
+        label: btn?.getAttribute("aria-label") ?? null,
+        iconOnly: btn != null && btn.querySelector("svg") != null && (btn.textContent || "").trim() === "",
         title: btn?.title ?? null,
         pressed: btn?.getAttribute("aria-pressed") ?? null,
         leftOfFullscreen: (full?.title || "").startsWith("Fullscreen terminal") && btn.getBoundingClientRect().right <= full.getBoundingClientRect().left,
         accentText: cs != null && cs.color === accent,
         accentEdge: cs != null && cs.borderTopColor === accent,
         pill: document.querySelector('[data-remote-pill]') != null,
+        nameTruncated: nameEl != null && nameEl.scrollWidth > nameEl.clientWidth,
+        // one line: no taller than the fullscreen button beside it
+        oneLine: btn != null && full != null && btn.getBoundingClientRect().height <= full.getBoundingClientRect().height + 1,
+        pillsFit: pills.length >= 2 && pills.every((p) => p.scrollWidth <= p.clientWidth + 1),
     };
 })()`;
 const remoteHandStatus = (h, status) =>
@@ -2796,8 +2805,8 @@ export const remoteHand = {
         const idle = await h.ev(REMOTE_HAND_READ);
         await shot("1-hand");
         rec(
-            "1. a plain claude agent's header shows Hand to phone left of the fullscreen button",
-            ctx.arrangeError == null && ctx.focused === true && idle.text === "Hand to phone" && idle.title === "Hand to phone: turns remote mode on (p)" && idle.pressed === "false" && idle.leftOfFullscreen && !idle.accentText,
+            "1. a plain claude agent's header shows the icon-only Hand to phone button left of the fullscreen button, and its long name truncates without squeezing the pills",
+            ctx.arrangeError == null && ctx.focused === true && idle.nameTruncated && idle.pillsFit && idle.iconOnly && idle.label === "Hand to phone" && idle.title === "Hand to phone: turns remote mode on (p)" && idle.pressed === "false" && idle.leftOfFullscreen && !idle.accentText,
             ctx.arrangeError ?? JSON.stringify({ focused: ctx.focused, ...idle })
         );
 
@@ -2807,13 +2816,13 @@ export const remoteHand = {
         const handed = await h.ev(REMOTE_HAND_READ);
         await shot("2-on-phone");
         rec(
-            "2. handed over: the button reads On phone · Take back in the accent style, and the Remote on pill shows",
-            handed.text === "On phone · Take back" && handed.title === "Take back from the phone (p)" && handed.pressed === "true" && handed.accentText && handed.accentEdge && handed.pill,
+            "2. handed over: the button reads On phone · Take back on one line in the accent style, and the Remote on pill shows",
+            handed.text === "On phone · Take back" && handed.oneLine && handed.pillsFit && handed.title === "Take back from the phone (p)" && handed.pressed === "true" && handed.accentText && handed.accentEdge && handed.pill,
             JSON.stringify(handed)
         );
 
         await remoteHandReload(h);
-        await polishWaitFor(h, `(${REMOTE_HAND_BTN}?.textContent || "").trim() === "Hand to phone"`, 3000);
+        await polishWaitFor(h, `${REMOTE_HAND_BTN}?.getAttribute("aria-pressed") === "false"`, 3000);
         await h.ev(`${REMOTE_HAND_BTN}?.click()`);
         const toasted = await polishWaitFor(h, `${REMOTE_HAND_TOAST} != null`, REMOTE_HAND_REFUSE_MS);
         await polishNap(300);
@@ -2821,8 +2830,8 @@ export const remoteHand = {
         const toast = await h.ev(`(${REMOTE_HAND_TOAST}?.textContent || "").trim()`);
         await shot("3-refused");
         rec(
-            "3. the real hand-over refuses: an error toast says why, and the button still reads Hand to phone",
-            toasted && toast.startsWith("Couldn't hand the agent to the phone") && toast.length > "Couldn't hand the agent to the phone".length && refused.text === "Hand to phone",
+            "3. the real hand-over refuses: an error toast says why, and the button is back to the Hand to phone icon",
+            toasted && toast.startsWith("Couldn't hand the agent to the phone") && toast.length > "Couldn't hand the agent to the phone".length && refused.iconOnly && refused.pressed === "false",
             JSON.stringify({ toasted, toast, ...refused })
         );
         return steps;
