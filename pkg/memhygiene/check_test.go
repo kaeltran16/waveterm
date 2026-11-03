@@ -435,6 +435,33 @@ func TestDecideApplyConflict(t *testing.T) {
 	}
 }
 
+func TestCheckRebuildsConflictedChange(t *testing.T) {
+	env := checkTestSetup(t)
+	_, shared, own := checkTestSharing(t, env)
+	checkTestRun(t, env, "ca")
+	move := checkTestFind(t, checkTestLoad(t, "ca"), "move-here")
+	// another session rewrites the index line the move removes
+	writeFile(t, filepath.Join(shared, "MEMORY.md"), "- [HK](hk.md) — turn latency, shorter\n- [Det](det.md) — detector\n")
+	checkTestDecide(t, "ca", move.Id, "apply")
+	if got := checkTestFind(t, checkTestLoad(t, "ca"), "move-here"); got.Status != "conflict" {
+		t.Fatalf("the edited index should conflict: status %q", got.Status)
+	}
+
+	checkTestRun(t, env, "ca")
+
+	rebuilt := checkTestFind(t, checkTestLoad(t, "ca"), "move-here")
+	if rebuilt.Status != "open" || rebuilt.ConflictFile != "" {
+		t.Fatalf("the re-check kept the stale conflict: status %q, conflict %q", rebuilt.Status, rebuilt.ConflictFile)
+	}
+	checkTestDecide(t, "ca", rebuilt.Id, "apply")
+	if got := checkTestFind(t, checkTestLoad(t, "ca"), "move-here"); got.Status != "applied" {
+		t.Fatalf("the rebuilt move didn't apply: status %q, conflict %q", got.Status, got.ConflictFile)
+	}
+	if data, err := os.ReadFile(filepath.Join(own, "MEMORY.md")); err != nil || !strings.Contains(string(data), "turn latency, shorter") {
+		t.Fatalf("own index lacks the current line: %q, %v", data, err)
+	}
+}
+
 func TestDecideSettingsGated(t *testing.T) {
 	env := checkTestSetup(t)
 	repo, shared, _ := checkTestSharing(t, env)

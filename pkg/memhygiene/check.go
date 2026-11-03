@@ -385,7 +385,8 @@ func checkMeasureIndex(folder string) (wshrpc.MemIndexStats, error) {
 
 // checkMerge combines a check's proposals with the changes in the state as it is now. A verdict on a
 // proposal survives the re-check, and a decision made while the check ran wins over its proposal for
-// the same memories. An earlier change no proposal replaces stays while its files are unchanged, and
+// the same memories. A conflict is no verdict: the fresh proposal, built from the files as they are
+// now, replaces it. An earlier change no proposal replaces stays while its files are unchanged, and
 // an applied one stays until its backup expires.
 func checkMerge(cur, fresh []wshrpc.MemChange, startedAt int64, now time.Time) []wshrpc.MemChange {
 	byID := map[string]wshrpc.MemChange{}
@@ -402,7 +403,7 @@ func checkMerge(cur, fresh []wshrpc.MemChange, startedAt int64, now time.Time) [
 	var out []wshrpc.MemChange
 	listed := map[string]bool{}
 	for _, c := range fresh {
-		if old, ok := byID[c.Id]; ok && old.Status != splitStatusOpen && old.Status != "" {
+		if old, ok := byID[c.Id]; ok && !Pending(old) {
 			c = old
 		} else if checkAnyIn(checkMemoryPaths(c), decided) {
 			continue
