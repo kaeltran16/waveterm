@@ -991,6 +991,7 @@ const PHONE_CHAT_READ = `(() => {
             mark: a.dataset.mark,
             verb: text(a.querySelector(".act-verb")),
             target: text(a.querySelector(".act-target")),
+            tail: text(a.querySelector(".act-tail")),
             live: a.classList.contains("live"),
         })),
         replies: [...document.querySelectorAll("[data-chat-reply]")].map(text),
@@ -1328,11 +1329,12 @@ export const remotePhone = {
         const stopped = await recorded("input", 2);
         const live = working.actions.at(-1);
         rec(
-            "9. ChatWorking (phone-chat): working, the live Running line, Add to this turn and Stop this turn; Stop is recorded",
+            "9. ChatWorking (phone-chat): working, the live Running line with its elapsed, Add to this turn and Stop this turn; Stop is recorded",
             working.state.startsWith("working") &&
                 live?.live === true &&
                 live.verb === "Running" &&
                 live.target === "node scripts/cdp/verify.mjs remote-phone" &&
+                /^\d+[hms]/.test(live.tail) &&
                 working.label === "Add to this turn" &&
                 working.placeholder === "Add to this turn" &&
                 working.stop === "Stop this turn" &&

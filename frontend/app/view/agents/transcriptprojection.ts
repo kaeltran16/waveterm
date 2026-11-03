@@ -278,6 +278,10 @@ export function projectTranscript(lines: string[]): AgentEntry[] {
     // strip private scratch fields so they never leak into the AgentEntry contract
     for (const e of entries) {
         if (e.kind === "action") {
+            const useTs = (e as any)._useTs as number;
+            if (!e.outcome && Number.isFinite(useTs)) {
+                e.startedTs = useTs;
+            }
             delete (e as any)._useTs;
             delete (e as any)._tool;
             delete (e as any)._command;

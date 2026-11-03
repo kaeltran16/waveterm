@@ -2,11 +2,12 @@
 // draws it with the cockpit's projectors, and sends, stops, approves, denies and takes back through the
 // action routes. Every string from the server or the agent goes in as text, never as markup.
 
-import { chatItems, composerFor, endedText, headerStateLabel, permissionCard } from "./chatmodel.js";
+import { chatItems, composerFor, endedText, headerStateLabel, liveElapsed, permissionCard } from "./chatmodel.js";
 import { projectFor } from "./projectors.js";
 
 const MAX_LINES = 2000;
 const HEADER_TICK_MS = 30 * 1000;
+const ELAPSED_TICK_MS = 1000;
 // a little slack so a list a pixel short of the end still follows new lines
 const STICK_PX = 48;
 const MOVED_ON = "The agent moved on; showing it as it is now.";
@@ -20,7 +21,15 @@ const MARKS = { ok: "✓", fail: "✗", pending: "·" };
  */
 export function openChat(root, tab, ui) {
     const { h, icon, post } = ui;
-    const st = { agent: ui.initial ?? null, lines: [], notice: "", error: "", sending: false, closed: false };
+    const st = {
+        agent: ui.initial ?? null,
+        lines: [],
+        notice: "",
+        error: "",
+        sending: false,
+        closed: false,
+        live: null,
+    };
     const base = `/api/agents/${encodeURIComponent(tab)}`;
 
     const header = h("header", { class: "back-head chat-head" });
@@ -81,11 +90,13 @@ export function openChat(root, tab, ui) {
         }
     });
     const tick = setInterval(drawHeader, HEADER_TICK_MS);
+    const elapsedTick = setInterval(drawElapsed, ELAPSED_TICK_MS);
 
     function close() {
         st.closed = true;
         es.close();
         clearInterval(tick);
+        clearInterval(elapsedTick);
     }
 
     function name() {
@@ -136,20 +147,30 @@ export function openChat(root, tab, ui) {
         );
     }
 
+    // the running call's elapsed ticks on its own, without redrawing the body
+    function drawElapsed() {
+        const el = body.querySelector("[data-chat-elapsed]");
+        if (el && st.live) {
+            el.textContent = liveElapsed(st.live, Date.now());
+        }
+    }
+
     function actionRow(item, live) {
         const verb = live && item.verb === "Ran" ? "Running" : item.verb;
-        const tail =
-            item.adds != null
-                ? h(
-                      "span",
-                      { class: "act-tail" },
-                      h("span", { class: "adds" }, `+${item.adds}`),
-                      " ",
-                      h("span", { class: "dels" }, `−${item.dels}`)
-                  )
-                : item.summary
-                  ? h("span", { class: "act-tail" }, item.summary)
-                  : null;
+        const elapsed = live ? liveElapsed(item, Date.now()) : "";
+        const tail = elapsed
+            ? h("span", { class: "act-tail", "data-chat-elapsed": true }, elapsed)
+            : item.adds != null
+              ? h(
+                    "span",
+                    { class: "act-tail" },
+                    h("span", { class: "adds" }, `+${item.adds}`),
+                    " ",
+                    h("span", { class: "dels" }, `−${item.dels}`)
+                )
+              : item.summary
+                ? h("span", { class: "act-tail" }, item.summary)
+                : null;
         return h(
             "div",
             { class: live ? "act live" : "act", "data-mark": item.mark, "data-chat-action": true },
@@ -225,6 +246,7 @@ export function openChat(root, tab, ui) {
         const state = st.agent?.state;
         const last = items[items.length - 1];
         const pendingLast = last?.kind === "action" && last.mark === "pending";
+        st.live = state === "working" && pendingLast ? last : null;
         // the permission card shows the call it waits on in full
         if (state === "permission" && pendingLast) {
             items.pop();
@@ -234,7 +256,7 @@ export function openChat(root, tab, ui) {
                 return h("div", { class: "bubble", "data-chat-user": true }, item.text);
             }
             if (item.kind === "action") {
-                return actionRow(item, state === "working" && pendingLast && item === last);
+                return actionRow(item, item === st.live);
             }
             return replyBlock(item.parts);
         });

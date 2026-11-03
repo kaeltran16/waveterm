@@ -555,6 +555,18 @@ describe("projectTranscript detail", () => {
             }),
         ]);
         expect((out[0] as any).durationMs).toBe(3200);
+        expect((out[0] as any).startedTs).toBeUndefined();
+    });
+
+    it("keeps a still-running call's start time", () => {
+        const out = projectTranscript([
+            L({
+                type: "assistant",
+                timestamp: "2026-07-08T00:00:00.000Z",
+                message: { content: [{ type: "tool_use", id: "b2", name: "Bash", input: { command: "x" } }] },
+            }),
+        ]);
+        expect((out[0] as any).startedTs).toBe(Date.parse("2026-07-08T00:00:00.000Z"));
     });
 
     it("does not leak private scratch fields (_useTs/_tool)", () => {

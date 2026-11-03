@@ -60,6 +60,7 @@ export type AgentEntry =
           note?: string;
           summary?: string; // e.g. "14 matches", "80 lines", "24 passing"
           durationMs?: number; // tool_use → tool_result wall time, when timestamps present
+          startedTs?: number; // tool_use time while the call has no outcome yet, so a live call can show its elapsed
           detail?: ActionDetail; // rich, expandable detail; absent = bare line
       };
 

@@ -231,6 +231,18 @@ describe("projectPiTranscript", () => {
         expect(bash.detail).toEqual({ kind: "bash", command: "npm test", output: "12 passing\n3 failing", exit: 0 });
         expect(bash.outcome).toBe("ok");
         expect(bash.durationMs).toBe(6500);
+        expect(bash.startedTs).toBeUndefined();
+    });
+
+    it("keeps a still-running call's start time", () => {
+        const lines = [
+            session,
+            user("u", "run tests"),
+            toolCall("b1", "bash", { command: "npm test" }, "2026-08-11T03:00:10.000Z"),
+        ];
+        const bash = projectPiTranscript(lines).find((e) => e.kind === "action") as any;
+        expect(bash.outcome).toBeUndefined();
+        expect(bash.startedTs).toBe(Date.parse("2026-08-11T03:00:10.000Z"));
     });
 
     it("maps the task/subagent tool family to descriptive verbs and targets", () => {
@@ -722,11 +734,13 @@ describe("projectPiTranscript edit details", () => {
             kind: "action",
             verb: "edited",
             target: "a.ts",
+            startedTs: Date.parse("2026-08-11T03:00:00.000Z"),
         });
         expect(detailOf("edit", { path: "a.ts", edits: [{ oldText: "a" }] })).toStrictEqual({
             kind: "action",
             verb: "edited",
             target: "a.ts",
+            startedTs: Date.parse("2026-08-11T03:00:00.000Z"),
         });
     });
 });

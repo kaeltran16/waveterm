@@ -373,6 +373,10 @@ function projectPiTranscript(lines) {
   }
   for (const e of entries) {
     if (e.kind === "action") {
+      const useTs = e._useTs;
+      if (!e.outcome && Number.isFinite(useTs)) {
+        e.startedTs = useTs;
+      }
       delete e._useTs;
       delete e._tool;
       delete e._command;
@@ -617,6 +621,10 @@ function projectTranscript(lines) {
   }
   for (const e of entries) {
     if (e.kind === "action") {
+      const useTs = e._useTs;
+      if (!e.outcome && Number.isFinite(useTs)) {
+        e.startedTs = useTs;
+      }
       delete e._useTs;
       delete e._tool;
       delete e._command;

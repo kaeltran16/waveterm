@@ -6,6 +6,7 @@ import { formatAge } from "./model.js";
 const FENCE = /^\s*```\s*([^`\s]*)/;
 const EDIT_VERBS = new Set(["edited", "wrote"]);
 const SECOND = 1000;
+const HOUR_S = 3600;
 
 const ENDED = {
     taken: (name) =>
@@ -60,6 +61,10 @@ function duration(ms) {
     if (s < 60) {
         return `${s}s`;
     }
+    if (s >= HOUR_S) {
+        const m = Math.floor((s % HOUR_S) / 60);
+        return m ? `${Math.floor(s / HOUR_S)}h ${m}m` : `${Math.floor(s / HOUR_S)}h`;
+    }
     const rest = s % 60;
     return rest ? `${Math.floor(s / 60)}m ${rest}s` : `${Math.floor(s / 60)}m`;
 }
@@ -71,12 +76,18 @@ function actionItem(e) {
         verb: capitalize(e.verb),
         target: e.target ?? "",
         summary: e.summary || duration(e.durationMs),
+        startedTs: e.startedTs,
     };
     if (e.detail?.kind === "edit") {
         item.adds = e.detail.files.reduce((n, f) => n + (f.adds ?? 0), 0);
         item.dels = e.detail.files.reduce((n, f) => n + (f.dels ?? 0), 0);
     }
     return item;
+}
+
+/** How long a call still running has run, or "" when its start is unknown. */
+export function liveElapsed(item, now) {
+    return item.startedTs > 0 ? duration(Math.max(SECOND, now - item.startedTs)) : "";
 }
 
 /** The chat's rows: the owner's messages, one-line tool calls and replies. Other entries are left out. */

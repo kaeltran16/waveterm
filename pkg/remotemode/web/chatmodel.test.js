@@ -5,6 +5,7 @@ import {
     composerFor,
     endedText,
     headerStateLabel,
+    liveElapsed,
     permissionCard,
     rowStateLabel,
     splitReply,
@@ -103,6 +104,27 @@ describe("chatItems", () => {
             { kind: "action", verb: "ran", target: "docker build", outcome: "ok", durationMs: 130_000 },
         ]);
         expect(item.summary).toBe("2m 10s");
+    });
+});
+
+describe("liveElapsed", () => {
+    const START = Date.parse("2026-11-03T12:00:00Z");
+
+    it("counts a running call from its start", () => {
+        const [item] = chatItems([{ kind: "action", verb: "ran", target: "go test", startedTs: START }]);
+        expect(liveElapsed(item, START + 48_000)).toBe("48s");
+        expect(liveElapsed(item, START + 130_000)).toBe("2m 10s");
+        expect(liveElapsed(item, START + 3_900_000)).toBe("1h 5m");
+    });
+
+    it("shows at least a second when the phone's clock is behind", () => {
+        const [item] = chatItems([{ kind: "action", verb: "ran", target: "go test", startedTs: START }]);
+        expect(liveElapsed(item, START - 5_000)).toBe("1s");
+    });
+
+    it("is empty when the start is unknown", () => {
+        const [item] = chatItems([{ kind: "action", verb: "ran", target: "go test" }]);
+        expect(liveElapsed(item, START)).toBe("");
     });
 });
 
