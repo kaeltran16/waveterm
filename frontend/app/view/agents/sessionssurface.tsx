@@ -57,6 +57,7 @@ import {
     sessionKey,
     sessionLabel,
     sessionSelection,
+    withoutBrainstormSessions,
     type RunMember,
     type RunView,
     type Status,
@@ -161,10 +162,13 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
         return () => clearInterval(t);
     }, [incomplete]);
 
-    const live = useMemo(
-        () => (base == null ? [] : overlayLive(results ? mergeResultSessions(base, results) : base, roster, now)),
-        [base, results, roster, now]
-    );
+    const live = useMemo(() => {
+        if (base == null) {
+            return [];
+        }
+        const listed = withoutBrainstormSessions(base);
+        return overlayLive(results ? mergeResultSessions(listed, results) : listed, roster, now);
+    }, [base, results, roster, now]);
     const matches = useMemo(() => (results ? foldHits(results) : null), [results]);
     const { runs: runGroups, solos } = useMemo(() => groupRunSessions(live), [live]);
 

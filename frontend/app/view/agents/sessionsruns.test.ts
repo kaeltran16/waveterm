@@ -16,6 +16,7 @@ import {
     sessionPrimary,
     sessionSelection,
     taskStatus,
+    withoutBrainstormSessions,
 } from "./sessionsruns";
 
 const HOUR = 3_600_000;
@@ -85,6 +86,16 @@ describe("groupRunSessions", () => {
         expect(solos.map((s) => s.id)).toEqual(["bc", "bj"]);
         expect(runs.map((r) => r.runId)).toEqual(["r1"]);
         expect(runs[0].stages["plan-reviewer"].map((s) => s.id)).toEqual(["pr"]);
+    });
+
+    it("leaves a brainstorm's builder-check and judge sessions out of the list", () => {
+        const listed = withoutBrainstormSessions([
+            mk({ id: "bc", runid: "rb", role: "builder-check" }),
+            mk({ id: "bj", runid: "rj", role: "brainstorm-judge" }),
+            mk({ id: "pr", runid: "r1", role: "plan-reviewer" }),
+            mk({ id: "solo" }),
+        ]);
+        expect(listed.map((s) => s.id)).toEqual(["pr", "solo"]);
     });
 });
 

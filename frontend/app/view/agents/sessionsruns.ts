@@ -44,10 +44,20 @@ export function runIdOfSel(sel: string): string | undefined {
 
 const newestFirst = (a: LiveSession, b: LiveSession) => b.lastactivets - a.lastactivets;
 
-// a builder check's or judge's run is its own, but the brainstorm pane is its only face: its session stays a
-// solo, so the user can still open it
+function isBrainstormSession(s: Pick<SessionActivity, "role">): boolean {
+    return s.role === BUILDER_CHECK_ROLE || s.role === BRAINSTORM_JUDGE_ROLE;
+}
+
+// a builder check or judge is bookkeeping of the brainstorm pane, not the user's work: the list leaves it out, as
+// search does unless run agents are on
+export function withoutBrainstormSessions<T extends Pick<SessionActivity, "role">>(list: T[]): T[] {
+    return list.some(isBrainstormSession) ? list.filter((s) => !isBrainstormSession(s)) : list;
+}
+
+// a builder check's or judge's run is its own, but the brainstorm pane is its only face: a search with run agents
+// on shows its session as a solo, so the user can still open it
 export function isSoloSession(s: Pick<SessionActivity, "runid" | "role">): boolean {
-    return !s.runid || s.role === BUILDER_CHECK_ROLE || s.role === BRAINSTORM_JUDGE_ROLE;
+    return !s.runid || isBrainstormSession(s);
 }
 
 // groupRunSessions folds each run's sessions into one entry and leaves every other session on its own.
