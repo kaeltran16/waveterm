@@ -6,13 +6,13 @@
 // talks to Jira only when you press refresh.
 
 import { paneReveal, turnTransition } from "@/app/element/motiontokens";
-import { getSettingsKeyAtom, openLink } from "@/app/store/global";
+import { atoms, getSettingsKeyAtom, openLink } from "@/app/store/global";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { cn } from "@/util/util";
 import { atom, useAtom, useAtomValue, type PrimitiveAtom } from "jotai";
 import { ArrowUpRight, ChevronRight, RefreshCw } from "lucide-react";
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, motion, type Variants } from "motion/react";
 import { useState, type ReactNode } from "react";
 import { stateRpcTimeoutMs } from "./briefingstore";
 import { effortDetailAtom, loadEffortDetail } from "./effortstore";
@@ -23,6 +23,15 @@ import { ticketBarModel } from "./ticketbar";
 const ticketOpenAtom = atom<Set<string>>(new Set<string>()) as PrimitiveAtom<Set<string>>;
 // the refresh just wrote a newer copy, so the cached effort is stale whatever its updatedts says
 const ALWAYS_REFETCH = Number.MAX_SAFE_INTEGER;
+// MotionConfig reducedMotion only drops transform and layout animations, and height is neither, so under reduced
+// motion the fold gets its own zero-duration variants (the variant's transition outranks a transition prop). The
+// atom, unlike motion's useReducedMotion, follows a preference that changes while the bar is mounted
+const SNAP = { duration: 0 };
+const paneSnap: Variants = {
+    initial: paneReveal.initial,
+    animate: { ...(paneReveal.animate as object), transition: SNAP },
+    exit: { ...(paneReveal.exit as object), transition: SNAP },
+};
 
 // the key drawn as a link to the ticket in Jira, plain text without a site; it never opens the row under it
 export function TicketKeyLink({
@@ -92,6 +101,7 @@ export function TicketBar({ oref }: { oref: string }) {
     const [openSet, setOpenSet] = useAtom(ticketOpenAtom);
     const [refreshing, setRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const reduceMotion = useAtomValue(atoms.prefersReducedMotionAtom);
     const m = effort != null ? ticketBarModel(effort, site, Date.now()) : null;
     if (m == null) {
         return null;
@@ -229,7 +239,7 @@ export function TicketBar({ oref }: { oref: string }) {
                         <motion.div
                             key="body"
                             data-jarvis-ticket-body
-                            variants={paneReveal}
+                            variants={reduceMotion ? paneSnap : paneReveal}
                             initial="initial"
                             animate="animate"
                             exit="exit"
