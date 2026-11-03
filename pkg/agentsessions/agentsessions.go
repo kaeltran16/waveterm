@@ -31,8 +31,9 @@ const (
 )
 
 // A session's first message is frequently scaffolding rather than anything a person wrote: the CLI
-// wraps messages produced while a local command runs, a slash command arrives as a tag envelope, and a
-// dispatched worker's prompt opens with the operator's principles. Titling a session with any of that
+// wraps messages produced while a local command runs and a long or pasted message in a pasted_content tag,
+// a slash command arrives as a tag envelope, and a dispatched worker's prompt opens with the operator's
+// principles. Titling a session with any of that
 // tells the reader nothing, so sessionTitle unwraps to the text they would recognize.
 const (
 	caveatOpenTag        = "<local-command-caveat>"
@@ -51,7 +52,7 @@ var (
 // The slash-command shape mirrors parseCommand in frontend/app/view/agents/transcriptprojection.ts so
 // one session is not named two different things in two places.
 func sessionTitle(raw string) string {
-	t := strings.TrimSpace(raw)
+	t := strings.TrimSpace(pastedContentRe.ReplaceAllString(raw, "$1"))
 	if t == "" {
 		return ""
 	}

@@ -75,6 +75,16 @@ func TestSessionTitle(t *testing.T) {
 			"Work by these principles:\n- Keep it simple.",
 			"Work by these principles:\n- Keep it simple.",
 		},
+		{
+			"a pasted block is titled by what was pasted, not the tag claude code wraps it in",
+			"what do you think of this \n\n<pasted_content id=\"05c3\">\nCouncil is a panel of AI expert agents.\n</pasted_content id=\"05c3\">",
+			"what do you think of this \n\nCouncil is a panel of AI expert agents.",
+		},
+		{
+			"a message that is only a pasted block is titled by its text",
+			"<pasted_content id=\"be41\">\nfix the flaky merge test\n</pasted_content id=\"be41\">",
+			"fix the flaky merge test",
+		},
 		{"empty stays empty", "   ", ""},
 	}
 	for _, c := range cases {
