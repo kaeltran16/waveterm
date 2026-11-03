@@ -740,8 +740,17 @@ func TestStaleJudgeWatcherLeavesNewJudge(t *testing.T) {
 func TestBrainstormJudgeDelivers(t *testing.T) {
 	ctx := context.Background()
 	_, file := seedJudgeBrainstorm(t, 5)
+	approaches := []string{`{"name":"Approach A","description":"one way","facts":["a fact"],"boards":["A-board.dc.html"]}`}
+	for _, n := range []string{"B", "C", "D", "E"} {
+		approaches = append(approaches, `{"name":"Approach `+n+`","description":"one way","facts":["a fact"]}`)
+	}
+	body := `{"title":"Lag alerts","question":{"text":"How should a lagging consumer alert?","approaches":[` + strings.Join(approaches, ",") + `]}}`
+	if err := os.WriteFile(file, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	tabId, blockId := seedAgentTab(t, ctx, readingJudge(1))
-	run := &waveobj.Run{ID: "run-1", Status: jarvis.RunStatus_Done, Report: goodJudgeReport}
+	report := strings.Replace(goodJudgeReport, `"detail":"Page the on-call.",`, `"detail":"Page the on-call.","from":["Approach A"],`, 1)
+	run := &waveobj.Run{ID: "run-1", Status: jarvis.RunStatus_Done, Report: report}
 	stubReadBrainstormRun(t, run)
 	delivered := stubDeliver(t)
 
@@ -749,10 +758,14 @@ func TestBrainstormJudgeDelivers(t *testing.T) {
 	if !tickBrainstormSession(ctx, c, time.Now().UnixMilli()) {
 		t.Fatal("a done run with a good result did not settle the judge")
 	}
-	_, want := brainstormcheck.DecideJudge(run, "")
+	_, want := brainstormcheck.DecideJudge(run, "", judgeApproaches(file))
 	path := brainstormcheck.JudgeResultPath(file)
-	if got, err := os.ReadFile(path); err != nil || len(want) == 0 || string(got) != string(want) {
+	got, err := os.ReadFile(path)
+	if err != nil || len(want) == 0 || string(got) != string(want) {
 		t.Fatalf("judge.json = %q, %v, want %q", got, err, want)
+	}
+	if !strings.Contains(string(got), `"boards":["A-board.dc.html"],"from":["Approach A"]`) {
+		t.Fatalf("judge.json = %s, want the first option to carry Approach A's board", got)
 	}
 	if filepath.Dir(path) != filepath.Dir(file) {
 		t.Fatalf("judge.json at %s, want it beside %s", path, file)

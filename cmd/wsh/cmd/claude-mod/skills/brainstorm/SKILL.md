@@ -46,14 +46,14 @@ gitignored.
     "options": [
       { "label": "Owning team first, platform after 15 minutes", "detail": "The owning team is paged; platform hears if nobody acks.", "pick": true,
         "pros": ["Pages go to who can fix it.", "Needs no new config: every group already names its team."],
-        "cons": ["Needs every team to keep a rota."] },
+        "cons": ["Needs every team to keep a rota."], "boards": ["Page.dc.html"] },
       { "label": "Platform on-call first", "detail": "Platform is paged and hands off what it can't fix.",
         "pros": ["One rota to keep."], "cons": ["Platform wakes for lag it can't fix."] },
       { "label": "Both at once", "detail": "Owner and platform are paged together.",
         "pros": ["Nothing waits on a hand-off."], "cons": ["Every page wakes two people."] }
     ],
     "approaches": [
-      { "name": "Owning team first", "description": "Page the group's owning team; platform hears after 15 minutes without an ack.", "facts": ["Every consumer group names its owning team in services/*/kafka.yaml."] },
+      { "name": "Owning team first", "description": "Page the group's owning team; platform hears after 15 minutes without an ack.", "facts": ["Every consumer group names its owning team in services/*/kafka.yaml."], "boards": ["Page.dc.html"] },
       { "name": "Platform on-call first", "description": "Page platform, which hands off what it can't fix.", "facts": ["Platform keeps the one rota Alertmanager routes to today (alertmanager/routes.yml)."] },
       { "name": "Both at once", "description": "Page the owning team and platform together.", "facts": ["An Alertmanager route with continue: true reaches two receivers."] },
       { "name": "By how far behind", "description": "Page the owner below a second, higher threshold, platform above it.", "facts": ["No group has a second threshold; thresholds is still asked."] },
@@ -274,7 +274,12 @@ whether it fits what is there today). Mark your recommendation with `"pick": tru
 option, and say how the options compare in `read`: one line, the reason for your pick included. Arc
 shows the options as lettered rows the user picks from, each with its pros and cons under it, and
 `read` above them; the free-text box stays for any other answer. Write pros and cons whenever the
-choice is a trade-off; a question whose answers need no weighing leaves them and `read` out. An open question (a story, a moment, a number only the user knows) has no
+choice is a trade-off; a question whose answers need no weighing leaves them and `read` out.
+
+An option may also carry `boards`: the file names of the mockups that show this answer, as on a part
+(under the canvas's `project/`). Arc draws them inside that answer's row, so the user sees what they
+would pick. Leave `boards` out of an answer with no mockup, and never pair a board with an answer by
+order or by count: only the names you write on the option count. An open question (a story, a moment, a number only the user knows) has no
 `options`. An approach question is the exception: the judge writes its options, pick and `read`
 (below).
 
@@ -288,9 +293,10 @@ process steps, plain choices and the builder's questions are not approach questi
 For an approach question, in one write:
 
 - List at least five distinct approaches in `approaches`, unconventional ones included, each
-  `{ "name", "description", "facts" }`: a name of a few words, one or two sentences on what it is,
+  `{ "name", "description", "facts", "boards" }`: a name of a few words, one or two sentences on what it is,
   and the facts you found in the code that bear on it (the code it touches, what already exists that
-  it would reuse, the constraints that rule it in or out), naming files and functions. Finding facts
+  it would reuse, the constraints that rule it in or out), naming files and functions. `boards` is
+  optional: the file names of the mockups that show this approach. Finding facts
   is your job; ask the user only for what you cannot look up. An approach with no `name` does not
   count toward the five. A fact the design stands on also goes in a note part.
 - Write no odds, no pick, no ranking and no pros and cons for them, in `approaches` or in a note.
@@ -315,7 +321,10 @@ node -e "const fs=require('fs'),[f,j]=process.argv.slice(1),b=JSON.parse(fs.read
 ```
 
 `<path>` is `judge.json` beside `brainstorm.json`: `{ "options", "read", "judge": { "added",
-"dropped" } }`. `approaches` stays in the question for a rerun.
+"dropped" } }`. `approaches` stays in the question for a rerun. Each judged option names the
+approaches it came from in `from`, and Arc sets the option's `boards` from those approaches' `boards`
+itself, so copy `options` exactly as they are, `from` and `boards` included, and never write or edit
+an option's `boards` on a judged question.
 
 **While the judge weighs.** Arc shows the question, the approach list and an open answer box while
 the judge runs, and stops the judge itself before it sends an answer or Skip; you never stop it. A
@@ -365,6 +374,10 @@ make it a `guess`. It stays a guess until they keep or restore it.
 `canvas`, and list each board's file name in `boards` on the part it illustrates. Arc draws it as a
 thumbnail in the part, under its body when the user opens it, in the talk and in the builder check's
 review alike. The run's prototype is the first board any part lists.
+
+A board that shows one answer is also named in `boards` on that answer's option (or on its approach),
+and still listed on the part: the part's `boards` stays the full set. A board that is for every
+answer goes on the part only.
 
 A spike is a throwaway live page for what a board cannot show, such as motion or a drag: a plain
 HTML file under the canvas folder, e.g. `.superpowers/design/<canvas>/spike/motion.html`. List its

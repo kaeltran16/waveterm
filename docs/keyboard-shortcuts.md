@@ -169,6 +169,7 @@ A link inside an item view does a full open, even with `Ctrl` held.
 | `Ctrl`+`Shift`+`B` | The same switch, and it also works while typing in the terminal or while `b` picks an answer |
 | `a` / `b` / `c` / `d` | While the brainstorm asks a question with answers to pick from: focus that answer; `Enter` sends it |
 | `Esc` | Back one level, as the pane's back control does: from a full-size board to the question or design it was opened from; from the design opened over the question (or over the agent writing) back to it. A focused field keeps its own `Esc`, and on a board with a drawn mark `Esc` stays the mark note's |
+| `[` / `]` | On a full-size board: previous / next board (the global surface switch stands down there) |
 | `j` / `k` | In the builder check's review: next / previous decision |
 | `Enter` | In the review: show or hide what the cursor decision was (a focused button keeps its own `Enter`) |
 | `y` | In the review: keep the cursor decision's change; on a guess, confirm it |

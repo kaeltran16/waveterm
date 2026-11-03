@@ -6,7 +6,7 @@
 
 import type { NewRunPrefill } from "@/app/view/jarvis/newrun";
 import type { AgentVM } from "./agentsviewmodel";
-import { canvasDir, canvasProjectDir, join } from "./canvasmodel";
+import { boardLabel, canvasDir, canvasProjectDir, join } from "./canvasmodel";
 
 export const BRAINSTORM_POLL_MS = 3000;
 export const BUILDER_PART = "builder";
@@ -32,8 +32,16 @@ export type BrainstormPart = {
     was?: string;
     why?: string;
 };
-// an answer the agent offers; pick marks the one it recommends, pros and cons are its reasons for and against
-export type AnswerOption = { label: string; detail: string; pick?: boolean; pros?: string[]; cons?: string[] };
+// an answer the agent offers; pick marks the one it recommends, pros and cons are its reasons for and against, boards
+// are the mockups (file names under the canvas's project/) that show this answer
+export type AnswerOption = {
+    label: string;
+    detail: string;
+    pick?: boolean;
+    pros?: string[];
+    cons?: string[];
+    boards?: string[];
+};
 // what the agent lists for the judge on an approach question: facts only, no odds or pick
 export type Approach = { name: string; description: string; facts: string[] };
 // Arc's account of the judge's work: what it added and dropped, or why it failed and left the agent's options standing
@@ -162,12 +170,14 @@ function parseOptions(raw: unknown): AnswerOption[] {
         .map((o) => {
             const pros = lines(o.pros);
             const cons = lines(o.cons);
+            const boards = [...new Set(lines(o.boards))];
             return {
                 label: o.label as string,
                 detail: str(o.detail) ?? "",
                 ...(o.pick === true ? { pick: true } : {}),
                 ...(pros.length > 0 ? { pros } : {}),
                 ...(cons.length > 0 ? { cons } : {}),
+                ...(boards.length > 0 ? { boards } : {}),
             };
         });
 }
@@ -617,11 +627,58 @@ export function spikeUrl(base: string, canvas: string, path: string): string {
     return `${base}/${encodeURIComponent(canvas)}/${path.split("/").map(encodeURIComponent).join("/")}`;
 }
 
-// the asked part's mockups, beside the answers, so a question between layouts shows them
-export function questionBoards(f: BrainstormFile, base: string | null): string[] | null {
+export type QuestionBoardLayout = {
+    // rows[i] is option i's boards to draw
+    rows: string[][];
+    // the asked part's boards that no option names
+    shared: string[];
+};
+
+const SHARED_TAB = "Every answer";
+
+function askedPartBoards(f: BrainstormFile): string[] {
     const id = f.question?.part;
-    const p = id ? f.parts.find((x) => x.id === id) : undefined;
-    return partBoards(f, p, base);
+    return [...new Set((id ? f.parts.find((x) => x.id === id)?.boards : undefined) ?? [])];
+}
+
+// only an option's own boards put a board in its row; the rest of the asked part's boards are shared. onCanvas is the
+// canvas's board names: a board an answer names that is not on disk draws nothing. null when nothing would draw
+export function questionBoardLayout(
+    f: BrainstormFile,
+    base: string | null,
+    onCanvas: string[]
+): QuestionBoardLayout | null {
+    const q = f.question;
+    if (q == null || f.canvas == null || base == null) {
+        return null;
+    }
+    const options = q.options ?? [];
+    const named = new Set(options.flatMap((o) => o.boards ?? []));
+    const rows = options.map((o) => [...new Set(o.boards ?? [])].filter((b) => onCanvas.includes(b)));
+    const shared = askedPartBoards(f).filter((b) => !named.has(b));
+    return rows.every((r) => r.length === 0) && shared.length === 0 ? null : { rows, shared };
+}
+
+// the canvas tab of each board an answer names or the asked part shares; a board not in the map keeps its plain name
+export function boardTabLabels(f: BrainstormFile): Record<string, string> | null {
+    const options = f.question?.options;
+    if (options == null || options.length === 0) {
+        return null;
+    }
+    const letters: Record<string, string[]> = {};
+    options.forEach((o, i) => {
+        for (const b of o.boards ?? []) {
+            (letters[b] ??= []).push(optionLetter(i));
+        }
+    });
+    const labels: Record<string, string> = {};
+    for (const [b, ls] of Object.entries(letters)) {
+        labels[b] = `${[...new Set(ls)].join(", ")} · ${boardLabel(b)}`;
+    }
+    for (const b of askedPartBoards(f)) {
+        labels[b] ??= `${SHARED_TAB} · ${boardLabel(b)}`;
+    }
+    return labels;
 }
 
 export type HistoryRow = {

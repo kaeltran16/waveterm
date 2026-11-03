@@ -33,10 +33,12 @@ How to weigh them:
 
 Write only the JSON object to [REPORT_PATH], with no prose and no code fence around it:
 
-{"options":[{"label":"...","detail":"one sentence","pros":["..."],"cons":["..."],"pick":true}],"read":"...","added":["..."],"dropped":[{"name":"...","reason":"..."}]}
+{"options":[{"label":"...","detail":"one sentence","pros":["..."],"cons":["..."],"from":["..."],"pick":true}],"read":"...","added":["..."],"dropped":[{"name":"...","reason":"..."}]}
 
 - `options`: 2 to 4, each with a short `label`, a one-sentence `detail`, and its `pros` and `cons`, in plain words
   for the user. Exactly one has `"pick": true`: the one you recommend.
+- `from`: on every option, the names, as listed, of the approaches it offers or combines, or `[]` for an option
+  you added.
 - `read`: one line on how the options compare, naming the fact your pick rests on.
 - `added`: the name of each approach you added to the list, or `[]`.
 - `dropped`: every listed approach that no option offers, each as `{"name": <its name as listed>, "reason": <one

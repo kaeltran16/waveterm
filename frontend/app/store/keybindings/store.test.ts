@@ -9,10 +9,12 @@ import {
     attachBrainstorm,
     brainstormAtom,
     detachBrainstorm,
+    openBrainstormBoard,
     openBrainstormDesign,
     setBrainstormMode,
     updateBrainstorm,
 } from "@/app/view/agents/brainstormstore";
+import { currentTab } from "@/app/view/agents/canvasmodel";
 import {
     attachCanvas,
     canvasStateAtom,
@@ -235,6 +237,44 @@ describe("keybinding conflict invariant", () => {
             expect(() => assertNoConflicts(all)).not.toThrow();
             detachBrainstorm("a1");
             expect(open.when!(agentCtx) || close.when!(agentCtx)).toBe(false);
+        } finally {
+            detachBrainstorm("a1");
+            detachCanvas("a1");
+        }
+    });
+
+    // the board a brainstorm opens full size steps with [ and ], so the surface switch stands down for it
+    it("[ and ] step a brainstorm's full-size board, and switch surfaces again once it is closed", () => {
+        const model = withCanvas();
+        attachBrainstorm("a1", { topic: "bs", cwd: "/p" }, 0);
+        globalStore.set(listNavAtom, null);
+        const all = [...buildGlobalBindings(model), ...buildListNavBindings(model), ...buildAgentBindings(model)];
+        const agentCtx: KeyContext = { surface: "agent", editable: false, modalOpen: false, leader: null };
+        const live = (id: string) => all.find((x) => x.id === id)!.when!(agentCtx);
+        try {
+            setBrainstormMode("a1", "brainstorm", 1);
+            expect(live("agent:canvas-next")).toBe(false);
+            expect(live("surface:next")).toBe(true);
+            openBrainstormBoard("a1", "Main.dc.html");
+            expect([live("agent:canvas-prev"), live("agent:canvas-next")]).toEqual([true, true]);
+            expect([live("surface:prev"), live("surface:next")]).toEqual([false, false]);
+            expect(() => assertNoConflicts(all)).not.toThrow();
+            // stepping moves the canvas's tab
+            const tab = () => currentTab(globalStore.get(canvasStateAtom("a1"))!);
+            const before = tab();
+            all.find((x) => x.id === "agent:canvas-next")!.run(agentCtx);
+            expect(tab()).not.toBe(before);
+            setMarking("a1", true);
+            expect(live("agent:canvas-next")).toBe(false);
+            setMarking("a1", false);
+            // the terminal shown in its place: the board is not on screen
+            setBrainstormMode("a1", "terminal", 2);
+            expect(live("agent:canvas-next")).toBe(false);
+            expect(live("surface:next")).toBe(true);
+            setBrainstormMode("a1", "brainstorm", 3);
+            openBrainstormBoard("a1", null);
+            expect(live("agent:canvas-next")).toBe(false);
+            expect(live("surface:next")).toBe(true);
         } finally {
             detachBrainstorm("a1");
             detachCanvas("a1");

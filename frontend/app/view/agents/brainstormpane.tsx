@@ -22,6 +22,7 @@ import { projectOf, type AgentVM } from "./agentsviewmodel";
 import { Check } from "./brainstormcheck";
 import {
     boardBackLabel,
+    boardTabLabels,
     bodyBeyondGist,
     builderCheckView,
     checkClock,
@@ -161,6 +162,7 @@ export function BrainstormPane({ model, agent }: { model: AgentsViewModel; agent
                     agent={agent}
                     onBack={() => openBrainstormBoard(agent.id, null)}
                     backLabel={boardBackLabel(f, s.designOpen, s.sent != null)}
+                    tabLabels={f != null ? (boardTabLabels(f) ?? undefined) : undefined}
                 />
             ) : view === "run" ? (
                 <RunStep model={model} agent={agent} s={s} f={f!} />
