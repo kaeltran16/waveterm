@@ -1088,6 +1088,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
             />
             {detailsOpen && openEffort != null && openEffortORef != null ? (
                 <EffortCreateForm
+                    model={model}
                     onClose={() => setDetailsOpen(false)}
                     edit={{
                         oref: openEffortORef,

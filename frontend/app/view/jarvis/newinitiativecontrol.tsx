@@ -34,5 +34,7 @@ export function NewInitiativeControl({ model }: { model: AgentsViewModel }) {
 
 export function NewInitiativeHost({ model }: { model: AgentsViewModel }) {
     const open = useAtomValue(model.newInitiativeOpenAtom);
-    return open ? <EffortCreateForm onClose={() => globalStore.set(model.newInitiativeOpenAtom, false)} /> : null;
+    return open ? (
+        <EffortCreateForm model={model} onClose={() => globalStore.set(model.newInitiativeOpenAtom, false)} />
+    ) : null;
 }
