@@ -7,12 +7,14 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/effortstore"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/jarvisstate"
+	"github.com/wavetermdev/waveterm/pkg/jira"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -65,11 +67,23 @@ func (ws *WshServer) EffortCreateCommand(ctx context.Context, data wshrpc.Comman
 	if err := effortstore.Update(ctx, e.OID, func(store *waveobj.Effort) error {
 		store.Notes = e.Notes
 		store.Events = e.Events
+		attachSeenTicket(store, "make")
 		return nil
 	}); err != nil {
 		return nil, err
 	}
 	return &wshrpc.CommandEffortCreateRtnData{EffortOID: e.OID}, nil
+}
+
+// attachSeenTicket gives an initiative with no copy of its ticket the one Arc saw this run, if any: the
+// agent making an initiative reads the ticket with `wsh jira show` just before it creates it.
+func attachSeenTicket(e *waveobj.Effort, via string) {
+	if e.Jira != nil || e.Ticket == "" {
+		return
+	}
+	if t, seenTs, ok := jira.Cached(e.Ticket); ok {
+		e.Jira = jira.CopyOf(t, via, seenTs, nil)
+	}
 }
 
 func (ws *WshServer) EffortMutateCommand(ctx context.Context, data wshrpc.CommandEffortMutateData) (*wshrpc.CommandEffortMutateRtnData, error) {
@@ -99,6 +113,9 @@ func (ws *WshServer) EffortMutateCommand(ctx context.Context, data wshrpc.Comman
 	err := effortstore.Update(ctx, data.EffortOID, func(e *waveobj.Effort) error {
 		if err := jarvis.ApplyEffortOpsAs(e, data.Ops, data.Note, time.Now().UnixMilli(), author); err != nil {
 			return err
+		}
+		if slices.ContainsFunc(data.Ops, func(op wshrpc.EffortOp) bool { return op.Op == "setTicket" }) {
+			attachSeenTicket(e, "lookup")
 		}
 		updated = e
 		return nil
