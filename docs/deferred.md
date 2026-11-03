@@ -37,6 +37,11 @@ The brainstorm judge (`docs/superpowers/specs/2026-10-23-unbiased-approach-quest
 `docs/agents/brainstorm.md` "How Arc runs the judge") launches a one-shot claude + Opus session that weighs
 an approach question's list. No test or scenario runs a live judge in a real brainstorm.
 
+- **Done once by hand, claude only:** run 2d30d871 (10-28) passed steps 1-5 below with claude as the
+  brainstorming agent; its one defect, the Usage list showing a judge session with no role, is fixed in
+  17759a7c. A scan of 35 judge transcripts (10-26 to 11-03) found none reading `.superpowers/` (spec D3).
+  Pi as the brainstorming agent was never run; on 11-03 the user settled for claude only.
+
 - **Why:** a live judge costs a real session and about a minute, and its options differ on every run, so no
   CDP scenario can assert on them. The judge's path is proved in pieces instead.
 - **What stands in for it:**
