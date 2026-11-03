@@ -1689,6 +1689,7 @@ async function setupMemoryAssert(h, ctx) {
                 line: await checkLine(),
                 rows: await h.ev(`document.querySelectorAll("[data-memory-change]").length`),
                 checkNow: await disabled("[data-memory-check]"),
+                checkLabel: await h.ev(`(document.querySelector("[data-memory-check]")?.textContent ?? "").trim()`),
             };
             await h.shot(`cdp-shots/setup-memory-${key}.png`);
         }
@@ -1701,7 +1702,9 @@ async function setupMemoryAssert(h, ctx) {
                 got.failed.rows === 1 &&
                 got.checking.rail === "Checking…" &&
                 got.checking.line === "Checking…" &&
-                got.checking.checkNow === true,
+                got.checking.checkNow === true &&
+                got.checking.checkLabel === "Checking…" &&
+                got.fresh.checkLabel === "Check now",
             detail: JSON.stringify(got),
         };
     });
@@ -1781,6 +1784,30 @@ async function setupMemoryAssert(h, ctx) {
         };
         await h.shot("cdp-shots/setup-memory-landing.png");
         return { ok: got.surface === SURFACE_LABEL.setup && got.tab === "true" && landed, detail: JSON.stringify(got) };
+    });
+
+    // the fresh project has no memory folder, so its check ends at once with no model call
+    await run("11. Check now: a check that ends at once says what it found beside the button", async () => {
+        await h.goto("setup");
+        await click("#setup-tab-memory");
+        await selectProject(MEMORY_PROJECTS.fresh);
+        await click("[data-memory-check]");
+        const shown = await polishWaitFor(h, `!!document.querySelector("[data-memory-check-result]")`, 10000);
+        const got = {
+            result: await text("[data-memory-check-result]"),
+            line: await checkLine(),
+            label: await h.ev(`(document.querySelector("[data-memory-check]")?.textContent ?? "").trim()`),
+            error: await text("[data-memory-error]"),
+        };
+        await h.shot("cdp-shots/setup-memory-check-result.png");
+        return {
+            ok:
+                shown &&
+                got.result === "Checked · nothing to review" &&
+                got.line.startsWith("Checked ") &&
+                got.label === "Check now",
+            detail: JSON.stringify(got),
+        };
     });
     return steps;
 }

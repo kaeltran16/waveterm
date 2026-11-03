@@ -9,7 +9,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { TriangleAlert } from "lucide-react";
+import { RefreshCw, TriangleAlert } from "lucide-react";
 import { useEffect, type KeyboardEvent } from "react";
 import {
     changeGroups,
@@ -33,6 +33,7 @@ import {
     decideMemory,
     loadMemory,
     memoryBusyAtom,
+    memoryCheckResultAtom,
     memoryErrorAtom,
     memoryProjectsAtom,
     memorySelectedChangeAtom,
@@ -272,8 +273,37 @@ function ChangeTable({ p, selected }: { p: MemHygieneProject; selected: string |
     );
 }
 
-function ProjectPane({ p, selected }: { p: MemHygieneProject; selected: string | null }) {
+// Check now and Check again: the spin and label carry a running check, which the disabled state alone did
+// not. a check with nothing new ends before a list can read it running; the result note covers that one.
+function CheckButton({
+    p,
+    label,
+    className,
+    marked,
+}: {
+    p: MemHygieneProject;
+    label: string;
+    className?: string;
+    marked?: boolean;
+}) {
+    // busy also covers a decision in flight, which disables the button but is not a check
     const busy = useAtomValue(memoryBusyAtom);
+    return (
+        <button
+            type="button"
+            data-memory-check={marked || undefined}
+            disabled={busy || p.checking}
+            onClick={() => fireAndForget(() => checkMemory(p.project))}
+            className={cn(BTN_SECONDARY, "inline-flex items-center gap-1.5", className)}
+        >
+            <RefreshCw size={13} className={cn(p.checking && "animate-spin motion-reduce:animate-none")} />
+            {p.checking ? "Checking…" : label}
+        </button>
+    );
+}
+
+function ProjectPane({ p, selected }: { p: MemHygieneProject; selected: string | null }) {
+    const result = useAtomValue(memoryCheckResultAtom);
     const cards = indexCards(p);
     const split = splitText(p);
     return (
@@ -284,15 +314,17 @@ function ProjectPane({ p, selected }: { p: MemHygieneProject; selected: string |
                     <div className="text-[12px] text-muted">{checkLine(p, Date.now())}</div>
                 </div>
                 <span className="flex-1" />
-                <button
-                    type="button"
-                    data-memory-check
-                    disabled={busy || p.checking}
-                    onClick={() => fireAndForget(() => checkMemory(p.project))}
-                    className={BTN_SECONDARY}
-                >
-                    Check now
-                </button>
+                {result?.project === p.project ? (
+                    <span
+                        role="status"
+                        data-memory-check-result
+                        className={cn("flex items-center gap-1.5 text-[12px]", TONE_TEXT[result.tone])}
+                    >
+                        <Dot tone={result.tone} />
+                        {result.text}
+                    </span>
+                ) : null}
+                <CheckButton p={p} label="Check now" marked />
             </div>
             {split ? <p className="m-0 text-[12.5px] leading-[1.5] text-secondary">{split}</p> : null}
             <section
@@ -311,7 +343,6 @@ function ProjectPane({ p, selected }: { p: MemHygieneProject; selected: string |
 // ---- detail rail ----
 
 function ConflictAlert({ p, change }: { p: MemHygieneProject; change: MemChange }) {
-    const busy = useAtomValue(memoryBusyAtom);
     const what = change.conflictfile ? baseName(change.conflictfile) : "A file this change touches";
     return (
         <div
@@ -327,14 +358,7 @@ function ConflictAlert({ p, change }: { p: MemHygieneProject; change: MemChange 
                 </span>
             </span>
             <span>
-                <button
-                    type="button"
-                    disabled={busy || p.checking}
-                    onClick={() => fireAndForget(() => checkMemory(p.project))}
-                    className={cn(BTN_SECONDARY, "h-[30px] text-[12.5px]")}
-                >
-                    Check again
-                </button>
+                <CheckButton p={p} label="Check again" className="h-[30px] text-[12.5px]" />
             </span>
         </div>
     );
