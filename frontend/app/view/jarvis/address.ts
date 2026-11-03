@@ -16,7 +16,9 @@ export type OpenTarget =
     | { kind: "canvas"; topic: string; board?: string }
     | { kind: "brainstorm"; topic: string }
     | { kind: "memhygiene"; project: string }
-    | { kind: "workflowscan"; runId: string };
+    | { kind: "workflowscan"; runId: string }
+    // built in code only (a terminal path peek's Open in Code); parseAddress never produces it
+    | { kind: "code"; projectPath: string; rel: string; line?: number };
 
 export type Unsupported = { kind: "unsupported"; message: string };
 

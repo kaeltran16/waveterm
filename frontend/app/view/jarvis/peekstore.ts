@@ -17,6 +17,7 @@ export type PeekTarget = Exclude<
     | { kind: "brainstorm" }
     | { kind: "memhygiene" }
     | { kind: "workflowscan" }
+    | { kind: "code" }
 >;
 
 export type PeekItem = { target: PeekTarget; status: "loading" | "ready" };

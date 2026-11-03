@@ -14,6 +14,7 @@ import { globalStore } from "@/app/store/global";
 import * as WOS from "@/app/store/wos";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
+import { joinRepoPath } from "@/util/paths";
 import type { AgentsViewModel } from "../agents/agents";
 import { brainstormFilePath } from "../agents/brainstormmodel";
 import { pollBrainstormNow } from "../agents/brainstormpoller";
@@ -26,6 +27,7 @@ import { selectMemoryProject } from "../agents/memorystore";
 import { setupTabAtom } from "../agents/setupstore";
 import { usageLensAtom } from "../agents/usagestore";
 import { workflowScanRunAtom } from "../agents/workflowscanstart";
+import { openInCode } from "../code/codestore";
 import { isCanvasSegment, parseAddress, type AddressHint, type OpenTarget } from "./address";
 import { effortDetailAtom, loadEffortDetail } from "./effortstore";
 import { briefPeekRecordAtom, briefSheetOpenAtom } from "./jarvisstore";
@@ -54,6 +56,7 @@ type BrainstormTarget = Extract<OpenTarget, { kind: "brainstorm" }>;
 type NoteTarget = Extract<OpenTarget, { kind: "note" }>;
 type MemHygieneTarget = Extract<OpenTarget, { kind: "memhygiene" }>;
 type WorkflowScanTarget = Extract<OpenTarget, { kind: "workflowscan" }>;
+type CodeTarget = Extract<OpenTarget, { kind: "code" }>;
 type Caller = AddressHint["caller"];
 
 const OK: OpenResult = { ok: true };
@@ -93,6 +96,8 @@ function targetName(target: OpenTarget): string {
             return `memory of ${target.project}`;
         case "workflowscan":
             return `workflow scan ${target.runId}`;
+        case "code":
+            return `file ${target.rel}`;
     }
 }
 
@@ -150,7 +155,8 @@ export function isPeekable(target: OpenTarget): boolean {
         target.kind !== "canvas" &&
         target.kind !== "brainstorm" &&
         target.kind !== "memhygiene" &&
-        target.kind !== "workflowscan"
+        target.kind !== "workflowscan" &&
+        target.kind !== "code"
     );
 }
 
@@ -171,7 +177,8 @@ export async function peekTarget(
         target.kind === "canvas" ||
         target.kind === "brainstorm" ||
         target.kind === "memhygiene" ||
-        target.kind === "workflowscan"
+        target.kind === "workflowscan" ||
+        target.kind === "code"
     ) {
         return openTarget(model, target, report);
     }
@@ -281,7 +288,24 @@ async function land(
         // the lens follows the run's own object, so there is nothing to load first
         case "workflowscan":
             return selectWorkflowScan(model, target.runId);
+        case "code":
+            return landCode(model, target, current);
     }
+}
+
+// Code stats before it jumps: openInCode on a missing file lands the user on an empty editor, which says nothing.
+async function landCode(model: AgentsViewModel, target: CodeTarget, current: () => boolean): Promise<OpenResult> {
+    const info = await RpcApi.FileInfoCommand(TabRpcClient, {
+        info: { path: joinRepoPath(target.projectPath, target.rel) },
+    });
+    if (!current()) {
+        return SUPERSEDED;
+    }
+    if (info == null || info.notfound) {
+        return unavailable(`No such file: ${target.rel}`);
+    }
+    await openInCode(model, { projectPath: target.projectPath, rel: target.rel, line: target.line });
+    return OK;
 }
 
 async function select<T>(load: Loaded<T>, write: (facts: T) => OpenResult | Promise<OpenResult>): Promise<OpenResult> {
@@ -294,7 +318,7 @@ async function select<T>(load: Loaded<T>, write: (facts: T) => OpenResult | Prom
 
 async function peek(
     model: AgentsViewModel,
-    target: Exclude<OpenTarget, CanvasTarget | BrainstormTarget | MemHygieneTarget | WorkflowScanTarget>,
+    target: Exclude<OpenTarget, CanvasTarget | BrainstormTarget | MemHygieneTarget | WorkflowScanTarget | CodeTarget>,
     current: () => boolean
 ): Promise<OpenResult> {
     const resolved = target.kind === "channel" ? await channelRun(target, current) : loaded<PeekTarget>(target);

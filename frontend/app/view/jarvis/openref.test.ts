@@ -19,6 +19,10 @@ const rpc = vi.hoisted(() => ({
 }));
 const loadAndPin = vi.hoisted(() => vi.fn());
 const pushToast = vi.hoisted(() => vi.fn());
+const openInCode = vi.hoisted(() => vi.fn());
+
+// the Code surface's own landing is tested with it; here only that the router hands a code target to it
+vi.mock("@/app/view/code/codestore", () => ({ openInCode: (...a: unknown[]) => openInCode(...a) }));
 
 vi.mock("@/app/store/wshclientapi", () => ({ RpcApi: rpc }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
@@ -980,6 +984,39 @@ describe("peek", () => {
         expect(globalStore.get(model.surfaceAtom)).toBe("agent");
         expect(globalStore.get(peekItemAtom)).toBeNull();
         detachCanvas("a1");
+    });
+});
+
+describe("a code target", () => {
+    const target: OpenTarget = { kind: "code", projectPath: "C:\\repo", rel: "src/a.ts", line: 12 };
+
+    it("lands on the Code surface at its line", async () => {
+        const model = makeModel();
+        rpc.FileInfoCommand.mockResolvedValue({ path: "x" });
+        expect(await openTarget(model, target)).toEqual({ ok: true });
+        expect(rpc.FileInfoCommand).toHaveBeenCalledWith(expect.anything(), { info: { path: "C:\\repo\\src\\a.ts" } });
+        expect(openInCode).toHaveBeenCalledWith(model, { projectPath: "C:\\repo", rel: "src/a.ts", line: 12 });
+    });
+
+    it("reports a file that is gone and stays put", async () => {
+        const model = makeModel();
+        rpc.FileInfoCommand.mockResolvedValue({ notfound: true });
+        expect(await openTarget(model, target)).toEqual({
+            ok: false,
+            reason: "unavailable",
+            message: "No such file: src/a.ts",
+        });
+        expect(openInCode).not.toHaveBeenCalled();
+        expect(globalStore.get(model.surfaceAtom)).toBe("cockpit");
+    });
+
+    it("is never peeked: a peek opens it", async () => {
+        const model = makeModel();
+        rpc.FileInfoCommand.mockResolvedValue({ path: "x" });
+        expect(isPeekable(target)).toBe(false);
+        expect(await peekTarget(model, target)).toEqual({ ok: true });
+        expect(openInCode).toHaveBeenCalledTimes(1);
+        expect(globalStore.get(peekItemAtom)).toBeNull();
     });
 });
 
