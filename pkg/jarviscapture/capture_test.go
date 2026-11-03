@@ -8,8 +8,9 @@ import (
 	"os/exec"
 	"testing"
 
-	"github.com/wavetermdev/waveterm/pkg/wavevault"
+	"github.com/wavetermdev/waveterm/pkg/effortstore"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/wavevault"
 )
 
 func TestExtractTicket(t *testing.T) {
@@ -24,6 +25,60 @@ func TestExtractTicket(t *testing.T) {
 			t.Errorf("extractTicket(%q)=%q want %q", goal, got, want)
 		}
 	}
+}
+
+// dossierTicket captures run into a fresh vault and returns the ticket id on the one dossier.
+func dossierTicket(t *testing.T, run *waveobj.Run, want string) {
+	t.Helper()
+	ctx := context.Background()
+	v, err := wavevault.OpenVaultAtForTest(ctx, t.TempDir())
+	if err != nil {
+		t.Fatalf("open vault: %v", err)
+	}
+	if _, err := captureRunDossier(ctx, v, run); err != nil {
+		t.Fatalf("captureRunDossier: %v", err)
+	}
+	hits, err := v.Retriever(wavevault.AllScope()).Query(wavevault.Filter{FrontmatterEquals: map[string]string{"ticket": want}})
+	if err != nil || len(hits) != 1 {
+		t.Fatalf("dossier with ticket %q: err=%v hits=%d (want 1)", want, err, len(hits))
+	}
+}
+
+func newTicketedEffort(t *testing.T, ticket string) string {
+	t.Helper()
+	t.Cleanup(effortstore.UseRootForTest(t.TempDir()))
+	e := &waveobj.Effort{Title: "initiative", Ticket: ticket}
+	if err := effortstore.Create(context.Background(), e); err != nil {
+		t.Fatalf("create effort: %v", err)
+	}
+	return e.OID
+}
+
+func TestCaptureUsesInitiativeTicket(t *testing.T) {
+	oid := newTicketedEffort(t, "PAY-318")
+	run := &waveobj.Run{OID: "aaaaaaaa-0000-0000-0000-000000000002", Goal: "fix OPS-77 too",
+		EffortRef: &waveobj.RunEffortRef{EffortOID: oid, ChunkLabel: "one"}}
+	dossierTicket(t, run, "PAY-318")
+}
+
+func TestCaptureFallsBackToGoal(t *testing.T) {
+	t.Run("no effort ref", func(t *testing.T) {
+		t.Cleanup(effortstore.UseRootForTest(t.TempDir()))
+		dossierTicket(t, &waveobj.Run{OID: "aaaaaaaa-0000-0000-0000-000000000003", Goal: "fix OPS-77"}, "OPS-77")
+	})
+	t.Run("effort without ticket", func(t *testing.T) {
+		oid := newTicketedEffort(t, "")
+		run := &waveobj.Run{OID: "aaaaaaaa-0000-0000-0000-000000000004", Goal: "fix OPS-77",
+			EffortRef: &waveobj.RunEffortRef{EffortOID: oid, ChunkLabel: "one"}}
+		dossierTicket(t, run, "OPS-77")
+	})
+}
+
+func TestCaptureMissingEffortFallsBack(t *testing.T) {
+	t.Cleanup(effortstore.UseRootForTest(t.TempDir()))
+	run := &waveobj.Run{OID: "aaaaaaaa-0000-0000-0000-000000000005", Goal: "fix OPS-77",
+		EffortRef: &waveobj.RunEffortRef{EffortOID: "bbbbbbbb-0000-0000-0000-000000000000", ChunkLabel: "one"}}
+	dossierTicket(t, run, "OPS-77")
 }
 
 func TestCaptureRunDossierLinksRunAndCommits(t *testing.T) {
