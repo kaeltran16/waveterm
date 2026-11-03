@@ -10,6 +10,7 @@ import {
     approveBlocker,
     asksUser,
     boardBackLabel,
+    boardTabLabels,
     bodyBeyondGist,
     brainstormAttention,
     brainstormCounts,
@@ -59,7 +60,7 @@ import {
     phaseSteps,
     pickableOptions,
     progressView,
-    questionBoards,
+    questionBoardLayout,
     questionTrack,
     resumePrompt,
     reviewHead,
@@ -1883,11 +1884,10 @@ describe("paneBack", () => {
     });
 });
 
-describe("partBoards and questionBoards", () => {
+describe("partBoards", () => {
     const BASE = "http://127.0.0.1:1234";
     const boards = ["A.dc.html", "B.dc.html"];
     const parts = [part("layout", "asked", { boards }), part("copy", "open")];
-    const q = (p: string) => ({ n: 3, text: "Which layout?", part: p });
 
     it("a part's boards show once the canvas is named and served", () => {
         const f = file({ canvas: "topic", parts });
@@ -1897,22 +1897,141 @@ describe("partBoards and questionBoards", () => {
         expect(partBoards(f, parts[1], BASE)).toBeNull();
         expect(partBoards(f, undefined, BASE)).toBeNull();
     });
+});
 
-    it("the question shows its part's boards", () => {
-        expect(questionBoards(file({ canvas: "topic", parts, question: q("layout") }), BASE)).toEqual(boards);
+describe("questionBoardLayout and boardTabLabels", () => {
+    const BASE = "http://127.0.0.1:1234";
+    const opt = (label: string, boards?: string[]) => ({ label, detail: "", ...(boards ? { boards } : {}) });
+    const asked = (options: BrainstormQuestion["options"], partBoards: string[], onCanvas = partBoards, extra = {}) => {
+        const f = file({
+            canvas: "topic",
+            parts: [part("layout", "asked", { boards: partBoards })],
+            question: { n: 1, text: "Which layout?", part: "layout", options },
+            ...extra,
+        });
+        return { f, layout: questionBoardLayout(f, BASE, onCanvas), labels: boardTabLabels(f) };
+    };
+
+    it("one board for three answers, named by none, is shared", () => {
+        const { layout, labels } = asked([opt("A"), opt("B"), opt("C")], ["Page.dc.html"]);
+        expect(layout).toEqual({ rows: [[], [], []], shared: ["Page.dc.html"] });
+        expect(labels).toEqual({ "Page.dc.html": "Every answer · Page" });
     });
 
-    it("none for a part with no boards, an unknown part, no part, or no question", () => {
-        const f = (question: BrainstormFile["question"]) => file({ canvas: "topic", parts, question });
-        expect(questionBoards(f(q("copy")), BASE)).toBeNull();
-        expect(questionBoards(f(q("ghost")), BASE)).toBeNull();
-        expect(questionBoards(f(q("")), BASE)).toBeNull();
-        expect(questionBoards(f(null), BASE)).toBeNull();
+    it("two boards on one answer both draw in its row, in its order", () => {
+        const { layout, labels } = asked(
+            [opt("A", ["Two.dc.html", "One.dc.html"]), opt("B")],
+            ["One.dc.html", "Two.dc.html"]
+        );
+        expect(layout).toEqual({ rows: [["Two.dc.html", "One.dc.html"], []], shared: [] });
+        expect(labels).toEqual({ "Two.dc.html": "A · Two", "One.dc.html": "A · One" });
     });
 
-    it("none until the canvas is named and served", () => {
-        expect(questionBoards(file({ parts, question: q("layout") }), BASE)).toBeNull();
-        expect(questionBoards(file({ canvas: "topic", parts, question: q("layout") }), null)).toBeNull();
+    it("an answer with no boards has an empty row", () => {
+        const { layout } = asked([opt("A", ["One.dc.html"]), opt("B")], ["One.dc.html"]);
+        expect(layout?.rows).toEqual([["One.dc.html"], []]);
+    });
+
+    it("a named board missing on disk is left out of its row and the rest of the row kept", () => {
+        const { layout } = asked(
+            [opt("A", ["Gone.dc.html", "One.dc.html"]), opt("B")],
+            ["One.dc.html"],
+            ["One.dc.html"]
+        );
+        expect(layout).toEqual({ rows: [["One.dc.html"], []], shared: [] });
+    });
+
+    it("an old file with no boards on its options shares every part board", () => {
+        const { layout, labels } = asked([opt("A"), opt("B")], ["One.dc.html", "Two.dc.html"]);
+        expect(layout).toEqual({ rows: [[], []], shared: ["One.dc.html", "Two.dc.html"] });
+        expect(labels).toEqual({ "One.dc.html": "Every answer · One", "Two.dc.html": "Every answer · Two" });
+    });
+
+    it("a board two answers name draws in both rows and its tab lists both letters", () => {
+        const { layout, labels } = asked(
+            [opt("A", ["Left-rail.dc.html"]), opt("B"), opt("C", ["Left-rail.dc.html"])],
+            ["Left-rail.dc.html"]
+        );
+        expect(layout).toEqual({ rows: [["Left-rail.dc.html"], [], ["Left-rail.dc.html"]], shared: [] });
+        expect(labels).toEqual({ "Left-rail.dc.html": "A, C · Left-rail" });
+    });
+
+    it("a board an answer names that is not on the part draws in its row, labeled, not shared", () => {
+        const { layout, labels } = asked(
+            [opt("A", ["Extra.dc.html"]), opt("B")],
+            ["Other.dc.html"],
+            ["Extra.dc.html", "Other.dc.html"]
+        );
+        expect(layout).toEqual({ rows: [["Extra.dc.html"], []], shared: ["Other.dc.html"] });
+        expect(labels).toEqual({ "Extra.dc.html": "A · Extra", "Other.dc.html": "Every answer · Other" });
+    });
+
+    it("a canvas.json not loaded yet draws no row thumbnail, the shared boards still draw, and nothing throws", () => {
+        const { layout } = asked([opt("A", ["One.dc.html"]), opt("B")], ["One.dc.html", "Two.dc.html"], []);
+        expect(layout).toEqual({ rows: [[], []], shared: ["Two.dc.html"] });
+    });
+
+    it("a board named twice in one option draws once", () => {
+        const { layout } = asked([opt("A", ["One.dc.html", "One.dc.html"])], ["One.dc.html"]);
+        expect(layout?.rows).toEqual([["One.dc.html"]]);
+    });
+
+    it("a question with no options shares the part's boards and has no labels", () => {
+        const { layout, labels } = asked(undefined, ["One.dc.html"]);
+        expect(layout).toEqual({ rows: [], shared: ["One.dc.html"] });
+        expect(labels).toBeNull();
+    });
+
+    it("no layout without a question, a canvas, a served canvas, or anything to draw", () => {
+        const { f } = asked([opt("A")], ["One.dc.html"]);
+        expect(questionBoardLayout({ ...f, question: null }, BASE, ["One.dc.html"])).toBeNull();
+        expect(questionBoardLayout({ ...f, canvas: undefined }, BASE, ["One.dc.html"])).toBeNull();
+        expect(questionBoardLayout(f, null, ["One.dc.html"])).toBeNull();
+        expect(asked([opt("A")], []).layout).toBeNull();
+        expect(asked([opt("A", ["Gone.dc.html"])], [], []).layout).toBeNull();
+        expect(asked([opt("A")], ["One.dc.html"]).layout).not.toBeNull();
+    });
+
+    it("no labels without a question", () => {
+        expect(boardTabLabels(file())).toBeNull();
+    });
+
+    describe("parse", () => {
+        const optionBoards = (boards: unknown) => {
+            const r = parseBrainstorm(
+                raw({
+                    question: {
+                        n: 1,
+                        text: "Which?",
+                        part: "layout",
+                        options: [{ label: "A", detail: "", boards, from: ["X"] }],
+                    },
+                })
+            );
+            if ("error" in r) {
+                throw new Error(r.error);
+            }
+            return r.file.question?.options?.[0];
+        };
+
+        it("keeps an option's boards, non-blank and once", () => {
+            expect(optionBoards(["A.dc.html", " ", "A.dc.html", 1, "B.dc.html"])?.boards).toEqual([
+                "A.dc.html",
+                "B.dc.html",
+            ]);
+        });
+
+        it("reads a boards that is no list as none, and the question still arrives", () => {
+            for (const bad of ["A.dc.html", 5, { a: 1 }, [1, " "], []]) {
+                const o = optionBoards(bad);
+                expect(o?.label).toBe("A");
+                expect(o?.boards).toBeUndefined();
+            }
+        });
+
+        it("does not keep from", () => {
+            expect(optionBoards(["A.dc.html"])).not.toHaveProperty("from");
+        });
     });
 });
 

@@ -49,7 +49,8 @@ export type BrainstormIO = {
 };
 
 function listsBoards(f: BrainstormFile): boolean {
-    return f.parts.some((p) => p.boards != null && p.boards.length > 0);
+    const named = (f.question?.options ?? []).some((o) => o.boards != null && o.boards.length > 0);
+    return named || f.parts.some((p) => p.boards != null && p.boards.length > 0);
 }
 
 // the thumbnails take their sizes from the canvas's canvas.json, re-read on each change of the brainstorm file

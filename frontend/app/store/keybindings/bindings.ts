@@ -189,11 +189,24 @@ const clickThrough = (selector: string): boolean | void => {
     el.click();
 };
 
-// `[` `]` belong to the boards in canvas mode, so the surface switch stands down while the focused agent shows
-// its canvas (never for an agent with a brainstorm). The agent switches stay live: the tree stays on screen
-// beside the canvas.
+// the canvas of the board the focused agent's brainstorm pane shows full size; null while the pane shows anything
+// else, the exited card included
+function brainstormBoard(model: AgentsViewModel): ReturnType<typeof focusedCanvas> {
+    const s = focusedBrainstorm(model);
+    if (s?.mode !== "brainstorm") {
+        return null;
+    }
+    const id = globalStore.get(model.focusIdAtom);
+    const agent = globalStore.get(model.agentsAtom).find((a) => a.id === id);
+    const exited = agent != null && globalStore.get(getProcExitAtom(agent.blockId ?? "")) != null;
+    return paneView({ ...s, exited }) === "board" ? focusedCanvas(model) : null;
+}
+
+// `[` `]` belong to the boards in canvas mode and on a brainstorm's full-size board, so the surface switch stands
+// down while the focused agent shows either. The agent switches stay live: the tree stays on screen beside the canvas.
 const inAgentCanvas = (model: AgentsViewModel, ctx: KeyContext) =>
-    ctx.surface === "agent" && focusedCanvasMode(model) != null && focusedBrainstorm(model) == null;
+    ctx.surface === "agent" &&
+    ((focusedCanvasMode(model) != null && focusedBrainstorm(model) == null) || brainstormBoard(model) != null);
 
 // Spec §5 (agent-tab-fixes): the second Ctrl+C closes the *focused* session — agent or plain
 // terminal alike (the UI labels both "terminal": "Close terminal — ends the agent"). Returns null
@@ -908,6 +921,11 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
     const nav = (ctx: KeyContext) => agentNav(ctx) && noCanvas();
     const inCanvas = (ctx: KeyContext) => agentNav(ctx) && canvas()?.mode === "canvas";
     const boardReady = (ctx: KeyContext) => inCanvas(ctx) && !canvas()!.marking && paneState(canvas()!) === "board";
+    // a brainstorm's board opened full size steps with [ and ] as the canvas does
+    const stepReady = (ctx: KeyContext) => {
+        const c = agentNav(ctx) ? brainstormBoard(model) : null;
+        return boardReady(ctx) || (c != null && !c.marking && paneState(c) === "board");
+    };
     const focusId = () => globalStore.get(model.focusIdAtom);
     const codePeekFocused = () => globalStore.get(codePeekFocusedAtom);
     // the step the brainstorm pane's back control takes, which Esc takes too. A drawn mark's note owns Esc on the
@@ -1271,7 +1289,7 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             keys: "[",
             group: "Agent",
             label: "Previous board",
-            when: boardReady,
+            when: stepReady,
             run: () => stepCanvasBoard(focusId(), -1),
         },
         {
@@ -1279,7 +1297,7 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             keys: "]",
             group: "Agent",
             label: "Next board",
-            when: boardReady,
+            when: stepReady,
             run: () => stepCanvasBoard(focusId(), 1),
         },
         {

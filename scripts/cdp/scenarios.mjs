@@ -148,6 +148,7 @@ import {
 } from "./scenarios-palette.mjs";
 import {
     BS_KIT,
+    brainstormAnswerBoards,
     brainstormMainBoard,
     brainstormMode,
     brainstormQuestionReasons,
@@ -284,6 +285,7 @@ export const SCENARIOS = [
     planReviewRounds,
     canvasSwap,
     brainstormMode,
+    brainstormAnswerBoards,
     brainstormMainBoard,
     brainstormQuestionReasons,
     brainstormReviewSkim,

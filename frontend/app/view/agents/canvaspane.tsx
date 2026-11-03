@@ -101,17 +101,20 @@ async function openBuildRun(model: AgentsViewModel, agent: AgentVM, s: CanvasSta
     }
 }
 
-// onBack: shown inside a brainstorm, which owns the way back (backLabel says where to) and the run launch
+// onBack: shown inside a brainstorm, which owns the way back (backLabel says where to) and the run launch. tabLabels
+// names a board's tab in place of its plain label, as a brainstorm's open question letters its answers' boards
 export function CanvasPane({
     model,
     agent,
     onBack,
     backLabel,
+    tabLabels,
 }: {
     model: AgentsViewModel;
     agent: AgentVM;
     onBack?: () => void;
     backLabel?: string;
+    tabLabels?: Record<string, string>;
 }) {
     const s = useAtomValue(canvasStateAtom(agent.id));
     const now = useAtomValue(model.nowAtom);
@@ -158,7 +161,7 @@ export function CanvasPane({
                         value={currentTab(s)}
                         options={canvasTabs(s.boards).map((t) => ({
                             key: t,
-                            label: t === ALL_TAB ? "All" : boardLabel(t),
+                            label: t === ALL_TAB ? "All" : (tabLabels?.[t] ?? boardLabel(t)),
                         }))}
                         onChange={(tab) => selectCanvasTab(agent.id, tab)}
                     />

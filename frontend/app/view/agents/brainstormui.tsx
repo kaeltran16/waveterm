@@ -20,7 +20,7 @@ import {
     phaseSteps,
     plural,
     progressView,
-    questionBoards,
+    questionBoardLayout,
     questionTrack,
     sentenceDiff,
     spikeUrl,
@@ -38,12 +38,14 @@ import {
 } from "./brainstormmodel";
 import { sendBrainstorm } from "./brainstormsend";
 import { openBrainstormBoard, type BrainstormState } from "./brainstormstore";
-import { boardUrl, canvasDir, DEFAULT_BOARD_H, DEFAULT_BOARD_W, type CanvasBoard } from "./canvasmodel";
+import { boardLabel, boardUrl, canvasDir, DEFAULT_BOARD_H, DEFAULT_BOARD_W, type CanvasBoard } from "./canvasmodel";
 import { attachCanvas } from "./canvasstore";
 
 const THUMB_W = 300;
-// beside a question's answers, where the label goes under the board so both fit the main column
-const THUMB_W_COMPACT = 220;
+// in a question, an answer's only board and each board every answer shares
+const THUMB_W_QUESTION = 200;
+// several boards side by side in one answer's row, which still fits beside a long pros and cons grid
+const THUMB_W_ROW_SEVERAL = 150;
 const THUMB_MAX_H = 200;
 
 export const WORKING_TITLE = "The agent is writing; this opens when it asks again";
@@ -310,7 +312,17 @@ export type Answer = ReturnType<typeof useAnswer>;
 
 // the read over the answers, with the one toggle for every answer's pros and cons, shown until hidden. On a question
 // the judge weighed, the read and pick are the judge's; the judge's work goes under the answers
-export function QuestionAnswers({ q, ans, compact }: { q: BrainstormQuestion; ans: Answer; compact: boolean }) {
+export function QuestionAnswers({
+    q,
+    ans,
+    compact,
+    rowBoards,
+}: {
+    q: BrainstormQuestion;
+    ans: Answer;
+    compact: boolean;
+    rowBoards?: (i: number) => ReactNode;
+}) {
     const [shown, setShown] = useState(true);
     if (q.options == null) {
         return null;
@@ -319,7 +331,14 @@ export function QuestionAnswers({ q, ans, compact }: { q: BrainstormQuestion; an
     const work = judgeWork(q);
     const who = work?.judged ? "Judge’s" : "Agent’s";
     const options = (
-        <Options options={q.options} ans={ans} compact={compact} reasons={reasons && shown} pickLabel={`${who} pick`} />
+        <Options
+            options={q.options}
+            ans={ans}
+            compact={compact}
+            reasons={reasons && shown}
+            pickLabel={`${who} pick`}
+            rowBoards={rowBoards}
+        />
     );
     if (!q.read && !reasons && work == null) {
         return options;
@@ -417,78 +436,99 @@ function JudgeWorkLine({ work, compact, lineText }: { work: JudgeWork; compact: 
     );
 }
 
-// a letter key focuses its row (bindings.ts), so Enter, the row's own key, sends it
+// a letter key focuses its row (bindings.ts), so Enter, the row's own key, sends it. rowBoards draws a row's mockups on
+// its right, beside its pros and cons and outside its button, so opening one never sends the answer
 export function Options({
     options,
     ans,
     compact,
     reasons,
     pickLabel,
+    rowBoards,
 }: {
     options: AnswerOption[];
     ans: Answer;
     compact: boolean;
     reasons: boolean;
     pickLabel: string;
+    rowBoards?: (i: number) => ReactNode;
 }) {
     return (
         <div role="group" aria-label="Answers" className={cn("flex flex-col", compact ? "gap-[6px]" : "gap-[10px]")}>
-            {options.map((o, i) => (
-                <div
-                    key={i}
-                    className={cn(
-                        OPTION_ROW,
-                        o.pick
-                            ? "border-accent/55 bg-accent/8 has-[>button:enabled:hover]:bg-accentbg"
-                            : OPTION_ROW_PLAIN
-                    )}
-                >
-                    <button
-                        type="button"
-                        data-brainstorm-option={i}
-                        data-pick={o.pick ? "" : undefined}
-                        disabled={ans.act.busy}
-                        onClick={() => void ans.sendText(o.label)}
+            {options.map((o, i) => {
+                const side = rowBoards?.(i);
+                return (
+                    <div
+                        key={i}
                         className={cn(
-                            OPTION_BTN,
-                            compact ? "gap-[12px] px-[12px] py-[9px]" : "gap-[18px] px-[20px] py-[16px]"
+                            OPTION_ROW,
+                            // the second row takes the boards' extra height, so the button keeps its own
+                            side != null && "grid grid-cols-[minmax(0,1fr)_auto] grid-rows-[auto_1fr]",
+                            o.pick
+                                ? "border-accent/55 bg-accent/8 has-[>button:enabled:hover]:bg-accentbg"
+                                : OPTION_ROW_PLAIN
                         )}
                     >
-                        <span
+                        <button
+                            type="button"
+                            data-brainstorm-option={i}
+                            data-pick={o.pick ? "" : undefined}
+                            disabled={ans.act.busy}
+                            onClick={() => void ans.sendText(o.label)}
                             className={cn(
-                                OPTION_LETTER,
-                                compact ? "h-[24px] w-[24px] text-[11.5px]" : "h-[30px] w-[30px] text-[13px]"
+                                OPTION_BTN,
+                                compact ? "gap-[12px] px-[12px] py-[9px]" : "gap-[18px] px-[20px] py-[16px]"
                             )}
                         >
-                            {optionLetter(i)}
-                        </span>
-                        <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
                             <span
                                 className={cn(
-                                    "font-semibold text-primary",
-                                    compact ? "text-[13.5px] leading-[1.4]" : "text-[17px] leading-[1.35]"
+                                    OPTION_LETTER,
+                                    compact ? "h-[24px] w-[24px] text-[11.5px]" : "h-[30px] w-[30px] text-[13px]"
                                 )}
                             >
-                                {o.label}
+                                {optionLetter(i)}
                             </span>
-                            {o.detail ? (
+                            <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
                                 <span
                                     className={cn(
-                                        "text-ink-mid",
-                                        compact ? "text-[12.5px] leading-[1.45]" : "text-[14px]"
+                                        "font-semibold text-primary",
+                                        compact ? "text-[13.5px] leading-[1.4]" : "text-[17px] leading-[1.35]"
                                     )}
                                 >
-                                    {o.detail}
+                                    {o.label}
+                                </span>
+                                {o.detail ? (
+                                    <span
+                                        className={cn(
+                                            "text-ink-mid",
+                                            compact ? "text-[12.5px] leading-[1.45]" : "text-[14px]"
+                                        )}
+                                    >
+                                        {o.detail}
+                                    </span>
+                                ) : null}
+                            </span>
+                            {o.pick ? (
+                                <span className="flex-none text-[12px] font-semibold text-accent-soft">
+                                    {pickLabel}
                                 </span>
                             ) : null}
-                        </span>
-                        {o.pick ? (
-                            <span className="flex-none text-[12px] font-semibold text-accent-soft">{pickLabel}</span>
+                        </button>
+                        {reasons && (o.pros != null || o.cons != null) ? <ProsCons o={o} compact={compact} /> : null}
+                        {side != null ? (
+                            <div
+                                data-brainstorm-row-boards
+                                className={cn(
+                                    "col-start-2 row-span-2 row-start-1",
+                                    compact ? "py-[9px] pr-[12px]" : "py-[16px] pr-[20px]"
+                                )}
+                            >
+                                {side}
+                            </div>
                         ) : null}
-                    </button>
-                    {reasons && (o.pros != null || o.cons != null) ? <ProsCons o={o} compact={compact} /> : null}
-                </div>
-            ))}
+                    </div>
+                );
+            })}
         </div>
     );
 }
@@ -634,8 +674,34 @@ export function QuestionMain({
     // guessing or skipping means something only for a question about a part of the design
     const chips = q.part !== "";
     const ans = useAnswer(agent);
-    const boards = questionBoards(f, s.base);
-    const answers = <QuestionAnswers key={q.n} q={q} ans={ans} compact={false} />;
+    const offers = (q.options?.length ?? 0) > 0;
+    const layout = questionBoardLayout(
+        f,
+        s.base,
+        s.boards.map((b) => b.name)
+    );
+    const thumbs = (boards: string[], width: number, caption?: ((name: string) => string) | null) => (
+        <Thumbnails
+            agentId={agent.id}
+            s={s}
+            canvas={f.canvas!}
+            base={s.base!}
+            boards={boards}
+            width={width}
+            caption={caption}
+            compact
+        />
+    );
+    // a row with no board has no slot; an only board needs no caption, since the row's label names it
+    const rowBoards = (i: number) => {
+        const boards = layout?.rows[i] ?? [];
+        if (boards.length === 0) {
+            return null;
+        }
+        return boards.length === 1
+            ? thumbs(boards, THUMB_W_QUESTION, null)
+            : thumbs(boards, THUMB_W_ROW_SEVERAL, boardLabel);
+    };
     return (
         <div data-brainstorm-question className="flex min-h-0 flex-1 flex-col">
             <Track segments={questionTrack(f)} />
@@ -653,21 +719,13 @@ export function QuestionMain({
                         </button>
                     ) : null}
                 </QuestionHead>
-                {boards != null ? (
-                    <div data-brainstorm-question-boards className="flex flex-wrap items-start gap-[24px]">
-                        {q.options != null ? <div className="min-w-[360px] flex-1">{answers}</div> : null}
-                        <Thumbnails
-                            agentId={agent.id}
-                            s={s}
-                            canvas={f.canvas!}
-                            base={s.base!}
-                            boards={boards}
-                            compact
-                        />
+                {layout != null && layout.shared.length > 0 ? (
+                    <div data-brainstorm-shared-boards className="flex flex-col gap-[10px]">
+                        {offers ? <h2 className={SECTION_HEAD}>For every answer</h2> : null}
+                        {thumbs(layout.shared, THUMB_W_QUESTION)}
                     </div>
-                ) : (
-                    answers
-                )}
+                ) : null}
+                <QuestionAnswers key={q.n} q={q} ans={ans} compact={false} rowBoards={rowBoards} />
                 <AnswerBox ans={ans} options={q.options != null} />
                 <div className="flex flex-col gap-[10px]">
                     <div className="flex items-center gap-[10px]">
@@ -852,7 +910,7 @@ export function PartMockups({
     return (
         <>
             {boards != null ? (
-                <Thumbnails agentId={agentId} s={s} canvas={f.canvas!} base={s.base!} boards={boards} />
+                <Thumbnails agentId={agentId} s={s} canvas={f.canvas!} base={s.base!} boards={boards} width={THUMB_W} />
             ) : null}
             {spikes != null ? <Spikes base={s.base!} canvas={f.canvas!} spikes={spikes} /> : null}
         </>
@@ -880,13 +938,16 @@ function Spikes({ base, canvas, spikes }: { base: string; canvas: string; spikes
     );
 }
 
-// a part's boards, each as a scaled live thumbnail with its option letter and a way to open it full size
+// boards, each as a scaled live thumbnail with its caption (the file name unless the caller says otherwise; null for
+// none) and a way to open it full size. compact puts the caption under the board and the boards side by side
 export function Thumbnails({
     agentId,
     s,
     canvas,
     base,
     boards,
+    width,
+    caption = (name) => name,
     compact = false,
 }: {
     agentId: string;
@@ -894,26 +955,31 @@ export function Thumbnails({
     canvas: string;
     base: string;
     boards: string[];
+    width: number;
+    caption?: ((name: string) => string) | null;
     compact?: boolean;
 }) {
-    const thumbW = compact ? THUMB_W_COMPACT : THUMB_W;
     const open = (board: string) => {
         attachCanvas(agentId, { topic: canvas, dir: canvasDir(s.cwd, canvas), projectDir: s.cwd, board }, Date.now());
         openBrainstormBoard(agentId, board);
     };
     return (
-        <div className={cn("flex flex-none flex-col", compact ? "gap-[14px]" : "gap-[10px]")}>
-            {boards.map((name, i) => {
+        <div className={cn("flex flex-none", compact ? "flex-wrap items-start gap-[14px]" : "flex-col gap-[10px]")}>
+            {boards.map((name) => {
                 const b: CanvasBoard | undefined = s.boards.find((x) => x.name === name);
                 const w = b?.w ?? DEFAULT_BOARD_W;
                 const h = b?.h ?? DEFAULT_BOARD_H;
-                const scale = thumbW / w;
+                const scale = width / w;
                 return (
-                    <div key={name} className={cn("flex", compact ? "flex-col gap-[6px]" : "items-start gap-[12px]")}>
+                    <div
+                        key={name}
+                        className={cn("flex", compact ? "flex-col gap-[6px]" : "items-start gap-[12px]")}
+                        style={compact ? { width } : undefined}
+                    >
                         <div
                             data-brainstorm-thumb={name}
                             className="pointer-events-none relative flex-none overflow-hidden rounded-[8px] border border-edge-mid bg-background"
-                            style={{ width: thumbW, height: Math.min(THUMB_MAX_H, Math.round(h * scale)) }}
+                            style={{ width, height: Math.min(THUMB_MAX_H, Math.round(h * scale)) }}
                         >
                             <iframe
                                 src={boardUrl(base, canvas, name)}
@@ -924,12 +990,16 @@ export function Thumbnails({
                                 style={{ width: w, height: h, transform: `scale(${scale})`, transformOrigin: "0 0" }}
                             />
                         </div>
-                        <div className={cn("flex flex-col", compact ? "gap-[2px]" : "gap-[6px] pt-[2px]")}>
-                            <span className="font-mono text-[10.5px] text-muted">
-                                {boards.length > 1
-                                    ? `${name} · option ${String.fromCharCode(65 + i)} of ${boards.length}`
-                                    : name}
-                            </span>
+                        <div className={cn("flex flex-col", compact ? "min-w-0 gap-[2px]" : "gap-[6px] pt-[2px]")}>
+                            {caption != null ? (
+                                <span
+                                    data-brainstorm-thumb-caption
+                                    title={name}
+                                    className={cn("font-mono text-[10.5px] text-muted", compact && "truncate")}
+                                >
+                                    {caption(name)}
+                                </span>
+                            ) : null}
                             <button
                                 type="button"
                                 data-brainstorm-open-board

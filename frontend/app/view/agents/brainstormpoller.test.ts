@@ -153,6 +153,19 @@ describe("pollBrainstormOnce", () => {
         expect(calls2.serves).toEqual([]);
     });
 
+    it("reads canvas.json for a file whose only boards are on a question's answer", async () => {
+        const question = {
+            n: 1,
+            text: "Which?",
+            part: "who",
+            options: [{ label: "A", detail: "", boards: ["Main.dc.html"] }],
+        };
+        const { io, calls } = fakeIO({ modifiedMs: 10, text: fileText({ canvas: "lag", question }) });
+        const patch = await pollBrainstormOnce(state(), io);
+        expect(calls.canvasJson).toEqual([`${BASE}/lag/project/canvas.json`]);
+        expect(patch.boards).toEqual([expect.objectContaining({ name: "Main.dc.html" })]);
+    });
+
     it("asks nothing of wavesrv for a file with no canvas", async () => {
         const { io, calls } = fakeIO({ modifiedMs: 10, text: fileText() });
         const patch = await pollBrainstormOnce(state(), io);

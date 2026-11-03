@@ -89,7 +89,7 @@ const BS_KEY_DEF = {
 const BS_ADDED = "The recording rules need Prometheus 2.45 or later for the new lag functions; staging runs 2.41.";
 const BS_WHY = "your answer 4 named the lag growth rate, which needs those functions.";
 const BS_Q5 = { n: 5, text: "If on-call could read only one number in the page, which would it be?", part: "page" };
-// the same part asked between its two mockups: the question shows them beside the answers
+// the same part asked between its two mockups, which no answer names: the question shows them above the answers
 const BS_Q5_LAYOUT = {
     n: 5,
     text: "Which layout should the page use?",
@@ -210,15 +210,23 @@ const bsRead = (h, ctx) =>
             rail: flat(pane?.querySelector("[data-brainstorm-rail] h2")),
             railText: flat(pane?.querySelector("[data-brainstorm-rail]")),
             why: flat(pane?.querySelector("[data-brainstorm-why]")),
-            // the asked part's mockups in the question view: each thumbnail, its label, and whether it sits right of the answers
+            // the question view's mockups: each thumbnail, its caption, whether it sits above the answers (the first
+            // answer row, or the answer box on a question with none), the shared block's heading, and the row holding it
             qBoards: [...(pane?.querySelectorAll("[data-brainstorm-question] [data-brainstorm-thumb]") ?? [])].map((t) => {
-                const answers = pane.querySelector("[data-brainstorm-question-boards] [data-brainstorm-option]")?.parentElement;
+                const first =
+                    pane.querySelector("[data-brainstorm-question] [data-brainstorm-option]") ??
+                    pane.querySelector("[data-brainstorm-question] [data-brainstorm-answer]");
+                const shared = t.closest("[data-brainstorm-shared-boards]");
+                const row = t.closest("[data-brainstorm-row-boards]")?.parentElement?.querySelector("[data-brainstorm-option]");
                 return {
                     name: t.getAttribute("data-brainstorm-thumb"),
                     frame: !!t.querySelector("iframe"),
-                    label: flat(t.nextElementSibling?.firstElementChild),
-                    open: flat(t.nextElementSibling?.querySelector("[data-brainstorm-open-board]")),
-                    besideAnswers: answers ? answers.getBoundingClientRect().right <= t.getBoundingClientRect().left : null,
+                    label: flat(t.parentElement?.querySelector("[data-brainstorm-thumb-caption]")),
+                    open: flat(t.parentElement?.querySelector("[data-brainstorm-open-board]")),
+                    aboveAnswers: first ? t.getBoundingClientRect().bottom <= first.getBoundingClientRect().top : null,
+                    shared: shared != null,
+                    head: flat(shared?.querySelector("h2")),
+                    row: row ? Number(row.getAttribute("data-brainstorm-option")) : null,
                 };
             }),
             options: [...(pane?.querySelectorAll("[data-brainstorm-option]") ?? [])].map((o) => ({
@@ -712,8 +720,8 @@ export const brainstormMode = {
             { states: states2c, want: BS_MID_STATES }
         );
         rec(
-            "2d. the page part, opened, shows both mockups, the first labelled option A of 2",
-            pageOpened && thumbs.frames === 2 && thumbs.labels[0] === "Page.dc.html · option A of 2",
+            "2d. the page part, opened, shows both mockups, the first labelled with its plain file name",
+            pageOpened && thumbs.frames === 2 && thumbs.labels[0] === "Page.dc.html",
             { pageOpened, ...thumbs }
         );
 
@@ -886,13 +894,14 @@ export const brainstormMode = {
         await polishWaitFor(h, QB, BS_POLL_WAIT_MS);
         const s2q = await bsRead(h, ctx);
         await h.shot("cdp-shots/brainstorm-mode-2-question-boards.png");
-        const boardLabels = BS_BOARDS.map((b, i) => `${b} · option ${"AB"[i]} of ${BS_BOARDS.length}`);
+        // no option names a board (a file from before answers named them), so every board is shared and unlettered
+        const sharedOnce = (boards) =>
+            JSON.stringify(boards.map((b) => b.name)) === JSON.stringify(BS_BOARDS) &&
+            JSON.stringify(boards.map((b) => b.label)) === JSON.stringify(BS_BOARDS) &&
+            boards.every((b) => b.frame && b.open === "Open full size" && b.shared && b.row == null && b.aboveAnswers === true);
         rec(
-            "2l2. a question whose part lists boards shows them: question 5 for What on-call sees draws both thumbnails, option A and B of 2, each with Open full size; question 4, whose part lists none, drew none",
-            s2.qBoards.length === 0 &&
-                JSON.stringify(s2q.qBoards.map((b) => b.name)) === JSON.stringify(BS_BOARDS) &&
-                s2q.qBoards.every((b) => b.frame && b.open === "Open full size") &&
-                JSON.stringify(s2q.qBoards.map((b) => b.label)) === JSON.stringify(boardLabels),
+            "2l2. a question whose part lists boards shows them: question 5 for What on-call sees, which offers no answers, draws both thumbnails once, above the answer box, unlettered and with no For every answer heading, each with Open full size; question 4, whose part lists none, drew none",
+            s2.qBoards.length === 0 && sharedOnce(s2q.qBoards) && s2q.qBoards.every((b) => b.head === ""),
             { q4: s2.qBoards, q5: s2q.qBoards }
         );
         bsWrite(ctx, BS_FILES.layout);
@@ -903,11 +912,11 @@ export const brainstormMode = {
         );
         await h.shot("cdp-shots/brainstorm-mode-2-layout-question.png");
         rec(
-            "2l3. a question between the part's layouts: the two answers, and beside them, to their right, the two boards to compare",
+            "2l3. a question between the part's layouts whose answers name no board: the two answers, and above them, once, under For every answer, the two boards unlettered",
             s2o.ok &&
                 JSON.stringify(s2o.options.map((o) => o.text)) === JSON.stringify(BS_Q5_LAYOUT.options.map(optionText)) &&
-                JSON.stringify(s2o.qBoards.map((b) => b.label)) === JSON.stringify(boardLabels) &&
-                s2o.qBoards.every((b) => b.besideAnswers === true),
+                sharedOnce(s2o.qBoards) &&
+                s2o.qBoards.every((b) => b.head === "For every answer"),
             { ...bsBrief(s2o), options: s2o.options, boards: s2o.qBoards }
         );
         await h.ev(`${BS_PANE}?.querySelector("[data-brainstorm-question] [data-brainstorm-open-board]")?.click()`);
@@ -1812,6 +1821,236 @@ export const brainstormRailReasons = bsBoardScenario("brainstorm-rail-reasons", 
         { q3: o3, q2: o2 }
     );
 });
+
+// --- brainstorm answer boards: an answer's mockups inside its row, the part's other boards once above the rows, and
+// the full-size canvas's tabs lettered by answer. The question mirrors the A-mismatch board of
+// .superpowers/design/brainstorm-canvas-connection: A names a board not on the part and has long reasons
+// (Long-A-rows), B names one not on disk, C names none ---------------------------------------------------------------
+const BSAB_TOPIC = "run-sheet-status";
+const BSAB_RAIL = "Left-rail.dc.html";
+const BSAB_RAIL_FAILED = "Left-rail-failed.dc.html";
+const BSAB_STRIP = "Top-strip.dc.html";
+const BSAB_TODAY = "Run-sheet-today.dc.html";
+// canvas order, which the full-size tabs follow
+const BSAB_BOARDS = [BSAB_RAIL, BSAB_RAIL_FAILED, BSAB_STRIP, BSAB_TODAY];
+const BSAB_FILE = bsFile({
+    title: "Run sheet status",
+    canvas: BSAB_TOPIC,
+    question: {
+        n: 2,
+        text: "Where should a run's status sit on the run sheet?",
+        part: "status",
+        why: "Status today is a pill in the title row, easy to miss once the timeline scrolls.",
+        options: [
+            {
+                label: "Status in a left rail",
+                detail: "A narrow rail holds status, cost and time beside the timeline.",
+                pick: true,
+                boards: [BSAB_RAIL, BSAB_RAIL_FAILED],
+                pros: [
+                    "Status stays put however far the timeline scrolls, so a failed run reads as failed from any point in its history without scrolling back to the title row first.",
+                    "Cost and elapsed time sit beside the status in the same rail, so the three numbers people check together during a long run are read in one glance instead of three places.",
+                ],
+                cons: [
+                    "Takes 180px of width from the timeline, which on a laptop screen pushes the longest task titles into truncation and hides the tail of each task's last log line.",
+                    "A second column is one more place a reader's eye has to visit, and on a short run with three tasks the rail is mostly empty space beside a timeline that never scrolls.",
+                ],
+            },
+            {
+                label: "Status strip across the top",
+                detail: "One full-width strip above the timeline, pinned while it scrolls.",
+                boards: [BSAB_STRIP, "Gone.dc.html"],
+            },
+            { label: "Leave it in the title row", detail: "Nothing moves; the pill gets a stronger color." },
+        ],
+    },
+    parts: [{ id: "status", title: "Run sheet status", state: "asked", body: "", boards: [BSAB_TODAY, BSAB_RAIL, BSAB_STRIP] }],
+});
+const BSAB_TABS_WANT = ["All", "A · Left-rail", "A · Left-rail-failed", "B · Top-strip", "Every answer · Run-sheet-today"];
+
+// the question's rows and the boards in and above them, with where each thumbnail sits
+const BSAB_READ = `(() => {
+    const flat = (el) => (el?.innerText ?? "").replace(/\\s+/g, " ").trim();
+    const box = (el) => el.getBoundingClientRect();
+    const pane = ${BS_PANE};
+    const q = pane?.querySelector("[data-brainstorm-question]");
+    const thumb = (t) => {
+        const r = box(t);
+        return {
+            name: t.getAttribute("data-brainstorm-thumb"),
+            frame: !!t.querySelector("iframe"),
+            caption: flat(t.parentElement?.querySelector("[data-brainstorm-thumb-caption]")),
+            open: flat(t.parentElement?.querySelector("[data-brainstorm-open-board]")),
+            top: Math.round(r.top),
+            bottom: Math.round(r.bottom),
+            left: Math.round(r.left),
+            right: Math.round(r.right),
+        };
+    };
+    const answers = q?.querySelector('[role="group"][aria-label="Answers"]');
+    const rows = [...(answers?.children ?? [])].map((row) => {
+        const btn = row.querySelector("[data-brainstorm-option]");
+        const reasons = row.querySelector("[data-brainstorm-proscons]");
+        const thumbs = [...row.querySelectorAll("[data-brainstorm-row-boards] [data-brainstorm-thumb]")].map(thumb);
+        const rr = box(row);
+        return {
+            slot: !!row.querySelector("[data-brainstorm-row-boards]"),
+            thumbs,
+            inRow: thumbs.every((t) => t.left >= rr.left && t.right <= rr.right && t.top >= rr.top && t.bottom <= rr.bottom),
+            rightOfLabel: btn != null && thumbs.every((t) => t.left >= box(btn).right - 1),
+            rightOfReasons: reasons ? thumbs.every((t) => t.left >= box(reasons).right - 1) : null,
+            overflow: row.scrollWidth > row.clientWidth,
+        };
+    });
+    const shared = q?.querySelector("[data-brainstorm-shared-boards]");
+    const paneRight = pane ? box(pane).right : 0;
+    const scrollers = [...(q?.querySelectorAll("*") ?? [])].filter((el) => ["auto", "scroll"].includes(getComputedStyle(el).overflowX));
+    return {
+        view: pane?.getAttribute("data-brainstorm-view") ?? null,
+        question: !!q,
+        rows,
+        shared: [...(shared?.querySelectorAll("[data-brainstorm-thumb]") ?? [])].map(thumb),
+        sharedHead: flat(shared?.querySelector("h2")),
+        sharedAbove: shared != null && answers != null && box(shared).bottom <= box(answers).top,
+        thumbCount: q?.querySelectorAll("[data-brainstorm-thumb]").length ?? 0,
+        overflow:
+            rows.some((r) => r.overflow || r.thumbs.some((t) => t.right > paneRight)) ||
+            scrollers.some((el) => el.scrollWidth > el.clientWidth),
+    };
+})()`;
+
+const BSAB_TABS = `(() => {
+    const tabs = [...(${BS_PANE}?.querySelectorAll('[data-canvas-pane] [role="tab"]') ?? [])];
+    return {
+        canvas: !!${BS_PANE}?.querySelector("[data-canvas-pane]"),
+        labels: tabs.map((t) => (t.textContent ?? "").trim()),
+        selected: (tabs.find((t) => t.getAttribute("aria-selected") === "true")?.textContent ?? "").trim(),
+    };
+})()`;
+
+// ] as the user presses it; a keydown on the document when CDP keys do not reach the page
+async function bsabNextBoard(h) {
+    if (await bsKeysArrive(h)) {
+        await h.cdp("Input.dispatchKeyEvent", { type: "keyDown", key: "]", code: "BracketRight", text: "]", windowsVirtualKeyCode: 221 });
+        await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", key: "]", code: "BracketRight", windowsVirtualKeyCode: 221 });
+        await polishNap(300);
+        return "keys";
+    }
+    await h.ev(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "]", code: "BracketRight", bubbles: true, cancelable: true }))`);
+    await polishNap(300);
+    return "event";
+}
+
+export const brainstormAnswerBoards = {
+    name: "brainstorm-answer-boards",
+    surface: "agent",
+    async arrange(h) {
+        const ctx = await bsArrangeAgent(h, BSAB_TOPIC, BSAB_FILE);
+        if (ctx.launchError != null || ctx.cwd == null) return ctx;
+        // the canvas is on disk before the reveal, so the poller's first read finds it
+        try {
+            const project = join(ctx.cwd, ".superpowers", "design", BSAB_TOPIC, "project");
+            mkdirSync(project, { recursive: true });
+            writeFileSync(
+                join(project, "canvas.json"),
+                JSON.stringify({ boards: Object.fromEntries(BSAB_BOARDS.map((b) => [b, { w: 1440 }])), order: BSAB_BOARDS })
+            );
+            for (const b of BSAB_BOARDS) {
+                writeFileSync(join(project, b), `<!doctype html><title>${b}</title><h1 style="font:64px sans-serif">${b}</h1>`);
+            }
+        } catch (e) {
+            ctx.launchError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const name = "brainstorm-answer-boards";
+        const missing = await bsShowFile(h, ctx);
+        if (missing != null) return [skipStep(name, `could not verify: ${missing}`)];
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail: typeof detail === "string" ? detail : JSON.stringify(detail) });
+        // every thumbnail waits on canvas.json: the answer rows draw only boards it lists
+        await polishWaitFor(h, `${BS_PANE}?.querySelectorAll("[data-brainstorm-question] [data-brainstorm-thumb] iframe").length === 4`, BS_POLL_WAIT_MS);
+        const r = await h.ev(BSAB_READ);
+        const [a, b, c] = r.rows;
+        const names = (row) => row?.thumbs.map((t) => t.name) ?? [];
+        const aRail = a?.thumbs.find((t) => t.name === BSAB_RAIL);
+
+        await h.shot("cdp-shots/brainstorm-answer-boards-1-in-row.png");
+        rec(
+            "1. (In-row) A's row holds the Left-rail thumbnail with Open full size, inside the row and right of its label; B's row holds Top-strip only, Gone.dc.html (not on disk) left out",
+            r.rows.length === 3 &&
+                aRail != null &&
+                aRail.frame &&
+                aRail.open === "Open full size" &&
+                a.inRow &&
+                a.rightOfLabel &&
+                JSON.stringify(names(b)) === JSON.stringify([BSAB_STRIP]) &&
+                b.thumbs[0].frame &&
+                b.thumbs[0].open === "Open full size" &&
+                b.thumbs[0].caption === "" &&
+                b.inRow &&
+                b.rightOfLabel,
+            { a, b }
+        );
+
+        await h.shot("cdp-shots/brainstorm-answer-boards-2-mismatch.png");
+        const [rail, failed] = a?.thumbs ?? [];
+        rec(
+            "2. (A-mismatch) A's row holds two thumbnails side by side, captioned Left-rail and Left-rail-failed; C's row has no thumbnail and no slot; Run-sheet-today shows once, above the rows, under For every answer, unlettered",
+            JSON.stringify(names(a)) === JSON.stringify([BSAB_RAIL, BSAB_RAIL_FAILED]) &&
+                Math.abs(rail.top - failed.top) <= 1 &&
+                failed.left >= rail.right &&
+                JSON.stringify(a.thumbs.map((t) => t.caption)) === JSON.stringify(["Left-rail", "Left-rail-failed"]) &&
+                c != null &&
+                !c.slot &&
+                c.thumbs.length === 0 &&
+                JSON.stringify(r.shared.map((t) => t.name)) === JSON.stringify([BSAB_TODAY]) &&
+                r.shared[0].caption === BSAB_TODAY &&
+                r.shared[0].open === "Open full size" &&
+                r.sharedHead === "For every answer" &&
+                r.sharedAbove &&
+                r.thumbCount === 4,
+            { a: a?.thumbs, c, shared: r.shared, sharedHead: r.sharedHead, sharedAbove: r.sharedAbove, thumbCount: r.thumbCount }
+        );
+
+        rec(
+            "3. (Long-A-rows) A's thumbnails sit right of its pros and cons, and nothing overflows the pane's width",
+            a?.rightOfReasons === true && !r.overflow,
+            { rightOfReasons: a?.rightOfReasons, overflow: r.overflow }
+        );
+
+        await h.ev(
+            `${BS_PANE}?.querySelector('[data-brainstorm-row-boards] [data-brainstorm-thumb="${BSAB_RAIL}"]')?.parentElement?.querySelector("[data-brainstorm-open-board]")?.click()`
+        );
+        await polishWaitFor(h, `${BS_PANE}?.querySelectorAll('[data-canvas-pane] [role="tab"]').length === ${BSAB_TABS_WANT.length}`, BS_POLL_WAIT_MS);
+        const opened = await h.ev(BSAB_TABS);
+        await h.shot("cdp-shots/brainstorm-answer-boards-4-full-size.png");
+        const via = await bsabNextBoard(h);
+        const stepped = await h.ev(BSAB_TABS);
+        await h.ev(`[...(${BS_PANE}?.querySelectorAll('[data-canvas-pane] [role="tab"]') ?? [])].find((t) => t.textContent.trim() === "All")?.click()`);
+        await polishNap(300);
+        const all = await h.ev(BSAB_TABS);
+        const backed = await bsClick(h, BS_PANE, "Back to the question");
+        const back = await polishWaitFor(h, `!!${BS_PANE}?.querySelector("[data-brainstorm-question] [data-brainstorm-row-boards]")`, 3000);
+        const tabsHold = (t) => JSON.stringify(t.labels) === JSON.stringify(BSAB_TABS_WANT);
+        rec(
+            `4. (Open-full-answer) Open full size on A's Left-rail shows it, the tabs lettered by answer in canvas order; ] steps to the next board and All keeps the labels; Back returns to the question (${via === "keys" ? "a real ] key" : "a keydown on the document: CDP keys did not reach the page"})`,
+            opened.canvas &&
+                tabsHold(opened) &&
+                opened.selected === "A · Left-rail" &&
+                tabsHold(stepped) &&
+                stepped.selected === "A · Left-rail-failed" &&
+                tabsHold(all) &&
+                all.selected === "All" &&
+                backed === "clicked" &&
+                back,
+            { opened, stepped, all, backed, back }
+        );
+        return steps;
+    },
+    teardown: (h, ctx) => bsTeardownAgent(h, ctx, "brainstorm-answer-boards"),
+};
 
 // the brainstorm helpers the scenarios-brainstorm-*.mjs modules build on, which scenarios.mjs hands them
 export const BS_KIT = {
