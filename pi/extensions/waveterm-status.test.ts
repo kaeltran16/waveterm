@@ -59,6 +59,28 @@ describe("detailForTool", () => {
     });
 });
 
+describe("pi's end report", () => {
+    const ctx = {
+        cwd: "proj",
+        sessionManager: { getSessionFile: () => "s.jsonl", getSessionId: () => "s1", getSessionName: () => "" },
+        model: { provider: "p", id: "m" },
+    };
+    const argsOf = async (event: string) => {
+        process.env.WAVETERM_BLOCKID = "block:test";
+        const exec = vi.fn(async () => {});
+        const handlers = new Map<string, (e: any, c: any) => unknown>();
+        registerWavetermStatus({ on: (e: string, fn: any) => handlers.set(e, fn), exec }, "wsh");
+        await handlers.get(event)!({}, ctx);
+        return exec.mock.calls.at(-1)![1] as string[];
+    };
+
+    it("flags only the session_shutdown report as ended", async () => {
+        expect(await argsOf("session_shutdown")).toContain("--ended");
+        expect(await argsOf("session_start")).not.toContain("--ended");
+        expect(await argsOf("agent_settled")).not.toContain("--ended");
+    });
+});
+
 describe("registerWavetermStatus", () => {
     it("registers nothing outside a Wave block", () => {
         delete process.env.WAVETERM_BLOCKID;

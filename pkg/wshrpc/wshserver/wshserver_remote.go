@@ -25,3 +25,11 @@ func (ws *WshServer) RemoteOnCommand(ctx context.Context) (*wshrpc.RemoteStatusD
 func (ws *WshServer) RemoteOffCommand(ctx context.Context) (*wshrpc.RemoteStatusData, error) {
 	return remotemode.Off()
 }
+
+func (ws *WshServer) RemoteHandCommand(ctx context.Context, data wshrpc.CommandRemoteHandData) (*wshrpc.RemoteStatusData, error) {
+	return remotemode.Hand(ctx, data)
+}
+
+func (ws *WshServer) RemoteTakeBackCommand(ctx context.Context, data wshrpc.CommandRemoteHandData) (*wshrpc.RemoteStatusData, error) {
+	return remotemode.TakeBack(ctx, data)
+}

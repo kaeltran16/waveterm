@@ -16,7 +16,7 @@ import { openOrPeek } from "@/app/view/jarvis/openref";
 import { formatChordString } from "@/util/keysym";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { ChevronLeft, CircleStop, Maximize2, Minimize2, PanelRight, Workflow, X } from "lucide-react";
+import { ChevronLeft, CircleStop, Maximize2, Minimize2, PanelRight, Smartphone, Workflow, X } from "lucide-react";
 import { motion } from "motion/react";
 import { Fragment, useEffect, useRef } from "react";
 import { confirmCloseSession, interruptAgent } from "./agentactions";
@@ -31,7 +31,9 @@ import { nextSnap, type AgentSnap } from "./cockpitevents";
 import { CommitTick } from "./committick";
 import { DOC_REVIEW_COPY, docReviewAtom, parseDocReview } from "./docreview";
 import { isFinalStageId } from "./finalstage";
+import { canHandToPhone, isHandedOver } from "./handtophone";
 import { railVisibleAtom, terminalFullscreenAtom } from "./railstore";
+import { remoteStatusAtom, toggleHandToPhone } from "./remotestore";
 import { agentProject, isEndedWorkerId, leadAgentOf } from "./runlineage";
 import { RuntimeMark } from "./runtimemark";
 import { runtimeMeta } from "./runtimemeta";
@@ -116,7 +118,9 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
     const brainstormFile = shownBrainstormFile(brainstorm);
     const brainstormAsking = brainstormFile != null && isAsking(brainstormFile) && agent.state === "asking";
     const lineage = useRunLineage(model, agent);
-    const project = agentProject(useAtomValue(model.lineageAtom), useAtomValue(model.agentsAtom), agent);
+    const lineageState = useAtomValue(model.lineageAtom);
+    const project = agentProject(lineageState, useAtomValue(model.agentsAtom), agent);
+    const handed = isHandedOver(useAtomValue(remoteStatusAtom), agent.id);
     const name =
         lineage?.kind === "worker" && lineage.task
             ? `${lineage.task.id} · ${lineage.task.label || lineage.task.id}`
@@ -356,6 +360,26 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                 ) : null}
                 {blockId != null ? (
                     <>
+                        {canHandToPhone(agent, lineageState.roles[agent.id]) ? (
+                            <button
+                                type="button"
+                                data-hand-to-phone
+                                onClick={() => toggleHandToPhone(agent.id)}
+                                title={
+                                    handed ? "Take back from the phone (p)" : "Hand to phone: turns remote mode on (p)"
+                                }
+                                aria-pressed={handed}
+                                className={cn(
+                                    "flex cursor-pointer items-center gap-[7px] rounded-[7px] border px-[11px] py-[6px] font-mono text-[11px] font-semibold",
+                                    handed
+                                        ? "border-accent bg-accentbg text-accent"
+                                        : "border-edge-mid bg-surface-raised text-secondary hover:border-edge-strong"
+                                )}
+                            >
+                                <Smartphone size={13} strokeWidth={1.9} aria-hidden />
+                                {handed ? "On phone · Take back" : "Hand to phone"}
+                            </button>
+                        ) : null}
                         <motion.button
                             type="button"
                             onClick={() => globalStore.set(terminalFullscreenAtom, !fullscreen)}

@@ -76,6 +76,8 @@ var remoteConfigMu sync.Mutex
 
 // remoteRun is what remote mode holds while on.
 type remoteRun struct {
+	// cancel ends every open stream; stopping calls it first, so Shutdown is not left waiting on them
+	cancel     context.CancelFunc
 	ln         net.Listener
 	srv        *http.Server
 	tunnel     remoteTunnel
@@ -196,6 +198,7 @@ func Status() *wshrpc.RemoteStatusData {
 	remoteStateMu.Lock()
 	st := &wshrpc.RemoteStatusData{On: remoteOn, Tunnel: remoteTunnelState, TunnelError: remoteTunnelErr}
 	remoteStateMu.Unlock()
+	st.Handed = handStatusTabs()
 	cfg, err := LoadConfig()
 	if err != nil {
 		st.TunnelError = err.Error()
@@ -231,10 +234,13 @@ func Off() (*wshrpc.RemoteStatusData, error) {
 	return Status(), nil
 }
 
+// remoteTurnOff is the one off path (desk, wsh, phone), so it alone ends the hand-overs; remoteStopLocked
+// leaves them, so a re-setup's restart keeps them.
 func remoteTurnOff() error {
 	remoteMu.Lock()
 	defer remoteMu.Unlock()
 	remoteStopLocked()
+	handClearOff()
 	err := remoteSaveOn(false)
 	publishStatus()
 	return err
@@ -301,10 +307,13 @@ func remoteStartLocked() (err error) {
 	if err != nil {
 		return fmt.Errorf("remote mode cannot listen on %s, is another program using port %d? %w", addr, port, err)
 	}
-	run := &remoteRun{ln: ln, srv: &http.Server{Handler: NewHandler(remoteDeps(cfg)), ReadHeaderTimeout: remoteReadHeaderTimeout}}
+	runCtx, cancel := context.WithCancel(context.Background())
+	run := &remoteRun{cancel: cancel, ln: ln}
+	run.srv = &http.Server{Handler: NewHandler(remoteDeps(cfg, runCtx)), ReadHeaderTimeout: remoteReadHeaderTimeout}
 	go remoteServe(run.srv, ln)
 	run.tunnel, err = remoteStartTunnel(path, cfg.TunnelToken, remoteOnTunnelState)
 	if err != nil {
+		cancel()
 		run.srv.Close()
 		return fmt.Errorf("remote mode: %w", err)
 	}
@@ -333,6 +342,7 @@ func remoteStopLocked() {
 }
 
 func remoteStopRun(run *remoteRun) {
+	run.cancel()
 	run.stopPusher()
 	run.tunnel.Stop()
 	ctx, cancel := context.WithTimeout(context.Background(), remoteShutdownTimeout)
@@ -360,7 +370,7 @@ func remoteSetTunnel(state, lastErr string) {
 	remoteTunnelState, remoteTunnelErr = state, lastErr
 }
 
-func remoteDeps(cfg Config) Deps {
+func remoteDeps(cfg Config, runCtx context.Context) Deps {
 	verifier := NewAccessVerifier(TeamCertsURL(cfg.Team), TeamIssuer(cfg.Team), cfg.Aud, cfg.Email, remoteAccessClient)
 	return Deps{
 		Static:      web.FS,
@@ -373,6 +383,15 @@ func remoteDeps(cfg Config) Deps {
 		Subscribe: func(_ context.Context, sub PushSubscription) error {
 			return remoteSubscribe(sub)
 		},
+		Handed: remoteHanded,
+		Stream: func(ctx context.Context, tab string, sink StreamSink) error {
+			ctx, cancel := context.WithCancel(ctx)
+			defer cancel()
+			defer context.AfterFunc(runCtx, cancel)()
+			return remoteStream(ctx, tab, sink)
+		},
+		Act:      remoteAct,
+		TakeBack: remoteTakeBack,
 	}
 }
 

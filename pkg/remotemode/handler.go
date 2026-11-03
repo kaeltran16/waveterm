@@ -7,6 +7,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"mime"
@@ -14,6 +16,9 @@ import (
 	"net/url"
 	"path"
 	"strconv"
+	"strings"
+	"sync"
+	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 )
@@ -44,6 +49,19 @@ type Deps struct {
 	Answer      func(ctx context.Context, oref, askID string, answers []baseds.AgentAnswerItem) error
 	Off         func(context.Context) error
 	Subscribe   func(context.Context, PushSubscription) error
+	Handed      func(context.Context) ([]HandedAgent, error)
+	// Stream returns a *GoneError when it ends for a reason, and nil when ctx ends
+	Stream func(ctx context.Context, tab string, sink StreamSink) error
+	// Act and TakeBack return a *GoneError for a tab not handed over; Act wraps ErrWrongState
+	Act      func(ctx context.Context, tab string, act AgentAction) error
+	TakeBack func(ctx context.Context, tab string) error
+}
+
+// keeps an open stream under cloudflared's 100 s idle cut; a var so tests can shorten it
+var remoteStreamHeartbeat = 25 * time.Second
+
+type handlerTextBody struct {
+	Text string `json:"text"`
 }
 
 type handlerAnswerBody struct {
@@ -61,6 +79,11 @@ func NewHandler(d Deps) http.Handler {
 	mux.Handle("POST /api/answer", d.handlerPost(d.handleAnswer))
 	mux.Handle("POST /api/off", d.handlerPost(d.handleOff))
 	mux.Handle("POST /api/subscribe", d.handlerPost(d.handleSubscribe))
+	mux.HandleFunc("GET /api/agents/{tab}/stream", d.handleStream)
+	for _, kind := range []string{ActionSend, ActionStop, ActionApprove, ActionDeny} {
+		mux.Handle("POST /api/agents/{tab}/"+kind, d.handlerPost(d.handleAct(kind)))
+	}
+	mux.Handle("POST /api/agents/{tab}/takeback", d.handlerPost(d.handleTakeBack))
 	static := http.FileServerFS(d.Static)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if ct, ok := handlerStaticTypes[path.Ext(r.URL.Path)]; ok {
@@ -108,7 +131,132 @@ func (d Deps) handleWaiting(w http.ResponseWriter, r *http.Request) {
 	if list.Shown == nil {
 		list.Shown = []WaitingShown{}
 	}
+	if d.Handed != nil {
+		if list.Handed, err = d.Handed(r.Context()); err != nil {
+			log.Printf("remote mode: handed-over list: %v\n", err)
+			handlerWriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+	}
+	if list.Handed == nil {
+		list.Handed = []HandedAgent{}
+	}
 	handlerWriteJSON(w, http.StatusOK, list)
+}
+
+// sseSink writes SSE frames; the stream's goroutines and the heartbeat share it.
+type sseSink struct {
+	mu sync.Mutex
+	w  http.ResponseWriter
+	rc *http.ResponseController
+}
+
+func (s *sseSink) Agent(a HandedAgent) error { return s.event("agent", a) }
+
+func (s *sseSink) Lines(lines []string) error {
+	if lines == nil {
+		lines = []string{}
+	}
+	return s.event("lines", map[string][]string{"lines": lines})
+}
+
+// event's data is one line: json.Marshal escapes every newline
+func (s *sseSink) event(name string, v any) error {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Errorf("encode %s event: %w", name, err)
+	}
+	return s.write("event: " + name + "\ndata: " + string(data) + "\n\n")
+}
+
+func (s *sseSink) write(frame string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, err := io.WriteString(s.w, frame); err != nil {
+		return err
+	}
+	return s.rc.Flush()
+}
+
+// handleStream answers 200 even for a tab not handed over, with one ended event, since EventSource cannot
+// read a 4xx body. A stream that ends without a reason (the phone left, or remote mode stopped) closes
+// without an ended event, so the page's EventSource reconnects. It returns only once Stream has, so no
+// write reaches the sink after the response is done.
+func (d Deps) handleStream(w http.ResponseWriter, r *http.Request) {
+	h := w.Header()
+	h.Set("Content-Type", "text/event-stream")
+	h.Set("Cache-Control", "no-store")
+	h.Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	sink := &sseSink{w: w, rc: http.NewResponseController(w)}
+	if err := sink.write(""); err != nil {
+		return
+	}
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	tab := r.PathValue("tab")
+	done := make(chan error, 1)
+	go func() { done <- d.Stream(ctx, tab, sink) }()
+	beat := time.NewTicker(remoteStreamHeartbeat)
+	defer beat.Stop()
+	for {
+		select {
+		case err := <-done:
+			var gone *GoneError
+			switch {
+			case errors.As(err, &gone):
+				sink.event("ended", map[string]string{"reason": gone.Reason})
+			case err != nil && ctx.Err() == nil:
+				log.Printf("remote mode: stream of tab %s: %v\n", tab, err)
+			}
+			return
+		case <-beat.C:
+			if err := sink.write(": ping\n\n"); err != nil {
+				cancel()
+				<-done
+				return
+			}
+		}
+	}
+}
+
+func (d Deps) handleAct(kind string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body handlerTextBody
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+			handlerBadRequest(w, "malformed body")
+			return
+		}
+		act := AgentAction{Kind: kind}
+		switch kind {
+		case ActionSend, ActionDeny:
+			act.Text = strings.TrimSpace(body.Text)
+		}
+		if kind == ActionSend && act.Text == "" {
+			handlerBadRequest(w, "text is required")
+			return
+		}
+		handlerAgentResult(w, r, d.Act(r.Context(), r.PathValue("tab"), act))
+	}
+}
+
+func (d Deps) handleTakeBack(w http.ResponseWriter, r *http.Request) {
+	handlerAgentResult(w, r, d.TakeBack(r.Context(), r.PathValue("tab")))
+}
+
+func handlerAgentResult(w http.ResponseWriter, r *http.Request, err error) {
+	var gone *GoneError
+	switch {
+	case err == nil:
+		handlerOK(w)
+	case errors.As(err, &gone):
+		handlerWriteJSON(w, http.StatusGone, map[string]string{"error": "gone", "reason": gone.Reason})
+	case errors.Is(err, ErrWrongState):
+		handlerWriteJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+	default:
+		log.Printf("remote mode: %s: %v\n", r.URL.Path, err)
+		handlerWriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
 }
 
 func (d Deps) handleAnswer(w http.ResponseWriter, r *http.Request) {

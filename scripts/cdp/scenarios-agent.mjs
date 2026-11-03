@@ -2689,3 +2689,148 @@ export const quickRunDone = {
         await teardownFixtureRun(h, { ...ctx, runId: undefined }, "quick-run-done");
     },
 };
+
+// --- remote-hand: the Agent header's Hand to phone button -------------------------------------------------------
+// A fixture roster holds one plain claude agent with a terminal block. Step 2 sets a handed-over status into
+// remoteStatusAtom through the app's store module, as remote-switch does; step 3 clicks the button against the
+// real RemoteHandCommand, which refuses: the dev store has no remote setup, and the fixture tab is no live agent.
+const REMOTE_HAND_ID = "fx-remote-hand";
+const REMOTE_HAND_NAME = "phone candidate";
+const REMOTE_HAND_BTN = `document.querySelector('[data-agent-header] [data-hand-to-phone]')`;
+const REMOTE_HAND_TOAST = `document.querySelector('[data-notification-toast="error"]')`;
+// the hand-over waits up to the switch's 15 s timeout before it fails
+const REMOTE_HAND_REFUSE_MS = 20000;
+const REMOTE_HAND_READ = `(() => {
+    const btn = ${REMOTE_HAND_BTN};
+    const full = btn?.nextElementSibling;
+    const probe = document.createElement("span");
+    probe.className = "text-accent";
+    document.body.appendChild(probe);
+    const accent = getComputedStyle(probe).color;
+    probe.remove();
+    const cs = btn ? getComputedStyle(btn) : null;
+    return {
+        btn: btn != null,
+        text: (btn?.textContent || "").trim(),
+        title: btn?.title ?? null,
+        pressed: btn?.getAttribute("aria-pressed") ?? null,
+        leftOfFullscreen: (full?.title || "").startsWith("Fullscreen terminal") && btn.getBoundingClientRect().right <= full.getBoundingClientRect().left,
+        accentText: cs != null && cs.color === accent,
+        accentEdge: cs != null && cs.borderTopColor === accent,
+        pill: document.querySelector('[data-remote-pill]') != null,
+    };
+})()`;
+const remoteHandStatus = (h, status) =>
+    lookEval(h, `
+        const { globalStore } = await mod("app/store/jotaiStore.ts");
+        const { remoteStatusAtom } = await mod("app/view/agents/remotestore.ts");
+        globalStore.set(remoteStatusAtom, ${JSON.stringify(status)});
+        return true;
+    `);
+const remoteHandReload = (h) =>
+    lookEval(h, `
+        await (await mod("app/view/agents/remotestore.ts")).loadRemoteStatus();
+        return true;
+    `);
+
+export const remoteHand = {
+    name: "remote-hand",
+    surface: "agent",
+    async arrange(h) {
+        const ctx = {};
+        try {
+            mkdirSync(new URL(".", TREE_RAIL_FIXTURE), { recursive: true });
+            writeFileSync(
+                TREE_RAIL_FIXTURE,
+                JSON.stringify(
+                    [
+                        {
+                            id: REMOTE_HAND_ID,
+                            name: REMOTE_HAND_NAME,
+                            project: "waveterm",
+                            task: REMOTE_HAND_NAME,
+                            state: "idle",
+                            agent: "claude",
+                            model: "opus",
+                            idleSince: Date.now() - 60_000,
+                            blockId: `${REMOTE_HAND_ID}-blk`,
+                        },
+                    ],
+                    null,
+                    2
+                )
+            );
+            ctx.wroteFixture = true;
+            // the fixture roster is read once at boot
+            await h.reload();
+            await h.cdp("Emulation.setDeviceMetricsOverride", MODELS_VIEWPORT);
+            await h.goto("agent");
+            ctx.focused = await h.ev(`(async () => {
+                for (let i = 0; i < 40; i++) {
+                    const tree = document.querySelector("[data-agent-tree]");
+                    const label = tree && [...tree.querySelectorAll("div")].find(
+                        (d) => d.textContent.trim() === ${JSON.stringify(REMOTE_HAND_NAME)} && d.children.length === 0
+                    );
+                    const row = label && label.closest(".cursor-pointer");
+                    if (row) {
+                        row.click();
+                        return true;
+                    }
+                    await new Promise((r) => setTimeout(r, 250));
+                }
+                return false;
+            })()`);
+            await remoteHandReload(h);
+            await polishWaitFor(h, `${REMOTE_HAND_BTN} != null`, 5000);
+            await polishNap(500);
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const shot = (n) => h.shot(`cdp-shots/remote-hand-${n}.png`);
+
+        const idle = await h.ev(REMOTE_HAND_READ);
+        await shot("1-hand");
+        rec(
+            "1. a plain claude agent's header shows Hand to phone left of the fullscreen button",
+            ctx.arrangeError == null && ctx.focused === true && idle.text === "Hand to phone" && idle.title === "Hand to phone: turns remote mode on (p)" && idle.pressed === "false" && idle.leftOfFullscreen && !idle.accentText,
+            ctx.arrangeError ?? JSON.stringify({ focused: ctx.focused, ...idle })
+        );
+
+        await remoteHandStatus(h, { on: true, tunnel: "up", subscriptions: 0, handed: [REMOTE_HAND_ID] });
+        await polishWaitFor(h, `(${REMOTE_HAND_BTN}?.textContent || "").includes("On phone")`, 3000);
+        await polishNap(300);
+        const handed = await h.ev(REMOTE_HAND_READ);
+        await shot("2-on-phone");
+        rec(
+            "2. handed over: the button reads On phone · Take back in the accent style, and the Remote on pill shows",
+            handed.text === "On phone · Take back" && handed.title === "Take back from the phone (p)" && handed.pressed === "true" && handed.accentText && handed.accentEdge && handed.pill,
+            JSON.stringify(handed)
+        );
+
+        await remoteHandReload(h);
+        await polishWaitFor(h, `(${REMOTE_HAND_BTN}?.textContent || "").trim() === "Hand to phone"`, 3000);
+        await h.ev(`${REMOTE_HAND_BTN}?.click()`);
+        const toasted = await polishWaitFor(h, `${REMOTE_HAND_TOAST} != null`, REMOTE_HAND_REFUSE_MS);
+        await polishNap(300);
+        const refused = await h.ev(REMOTE_HAND_READ);
+        const toast = await h.ev(`(${REMOTE_HAND_TOAST}?.textContent || "").trim()`);
+        await shot("3-refused");
+        rec(
+            "3. the real hand-over refuses: an error toast says why, and the button still reads Hand to phone",
+            toasted && toast.startsWith("Couldn't hand the agent to the phone") && toast.length > "Couldn't hand the agent to the phone".length && refused.text === "Hand to phone",
+            JSON.stringify({ toasted, toast, ...refused })
+        );
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await remoteHandReload(h).catch(() => {});
+        if (ctx.wroteFixture) rmSync(TREE_RAIL_FIXTURE, { force: true });
+        await h.reload();
+        await h.goto("cockpit");
+    },
+};

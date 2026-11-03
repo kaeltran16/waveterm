@@ -4,25 +4,13 @@
 import { launchPiTab } from "@/app/cockpit/cockpit-actions";
 import { RESMON_UI_INITIAL } from "@/app/cockpit/resmon";
 import { resmonOpenAtom, resmonSnapshotAtom, resmonUiAtom } from "@/app/cockpit/resmonstore";
-import { globalStore } from "@/app/store/jotaiStore";
-import { SURFACE_ORDER, type SurfaceKey } from "@/app/view/agents/agents";
 import { cheatsheetOpenAtom } from "@/app/cockpit/shortcuts-cheatsheet";
 import { escapeMenusOpenAtom } from "@/app/hook/useEscapeClose";
-import { atom, type PrimitiveAtom } from "jotai";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { shellTaskPeekAtom } from "@/app/view/agents/shelltasksstore";
-import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
-import { codePeekFocusedAtom, openPeekInCode } from "@/app/view/code/codepeekstore";
-import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
-import {
-    attachCanvas,
-    detachCanvas,
-    getCanvas,
-    setCanvasMode,
-    setMark,
-    setMarking,
-    updateCanvas,
-} from "@/app/view/agents/canvasstore";
+import { globalStore } from "@/app/store/jotaiStore";
+import { getProcExitAtom } from "@/app/view/agents/agentcontrollerstore";
+import { SURFACE_ORDER, type SurfaceKey } from "@/app/view/agents/agents";
+import type { BrainstormFile } from "@/app/view/agents/brainstormmodel";
+import { sendBrainstorm } from "@/app/view/agents/brainstormsend";
 import {
     attachBrainstorm,
     detachBrainstorm,
@@ -33,9 +21,16 @@ import {
     setReviewCursor,
     updateBrainstorm,
 } from "@/app/view/agents/brainstormstore";
-import { getProcExitAtom } from "@/app/view/agents/agentcontrollerstore";
-import { sendBrainstorm } from "@/app/view/agents/brainstormsend";
-import type { BrainstormFile } from "@/app/view/agents/brainstormmodel";
+import {
+    attachCanvas,
+    detachCanvas,
+    getCanvas,
+    setCanvasMode,
+    setMark,
+    setMarking,
+    updateCanvas,
+} from "@/app/view/agents/canvasstore";
+import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
 import { registerCommentSend } from "@/app/view/agents/commentsend";
 import { commentOnSelection } from "@/app/view/agents/diffcommentlayer";
 import { gotoChange } from "@/app/view/agents/diffnav";
@@ -44,34 +39,39 @@ import { diffScopeAtom } from "@/app/view/agents/diffscopeatom";
 import { docReviewAtom } from "@/app/view/agents/docreview";
 import { graphOnAtom, historyFiltersAtom, historyScrollAtom } from "@/app/view/agents/githistorystore";
 import { NO_FILTERS } from "@/app/view/agents/historyquery";
-import { activeReviewAtom } from "@/app/view/agents/reviewmarks";
 import { railVisibleAtom, terminalFullscreenAtom } from "@/app/view/agents/railstore";
+import { activeReviewAtom } from "@/app/view/agents/reviewmarks";
 import { renamingRowAtom } from "@/app/view/agents/rowrenameatom";
-import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
-import { finalShotsViewerOpenAtom } from "@/app/view/jarvis/finalshotsstore";
+import { shellTaskPeekAtom } from "@/app/view/agents/shelltasksstore";
+import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
+import { codePeekFocusedAtom, openPeekInCode } from "@/app/view/code/codepeekstore";
+import { codeSearchModeAtom } from "@/app/view/code/codesearchstore";
 import {
-    graphPeekOpenAtom,
-    briefPeekRecordAtom,
-    chunkMoveAtom,
-    noteChunkAtom,
-    trackerMenuAtom,
-} from "@/app/view/jarvis/jarvisstore";
-import { activeRunIdAtom, activeSubjectAtom } from "@/app/view/jarvis/jarvissubjectstore";
-import { peekTarget } from "@/app/view/jarvis/openref";
-import { itemKeyCommand } from "@/app/view/jarvis/peekitemmodel";
-import { petPeekOpenAtom } from "@/app/view/jarvis/petstore";
-import { peekKeyCommand } from "@/app/view/jarvis/petpeekmodel";
-import { dagModalStateAtom } from "@/app/view/orchestrate/dagmodalstate";
-import {
-    codeCursorAtom,
     caretWord,
+    codeCursorAtom,
     codeIndexAtom,
     codeTreeFocusedAtom,
     findReferences,
     goToDefinition,
     startCreate,
 } from "@/app/view/code/codestore";
-import { codeSearchModeAtom } from "@/app/view/code/codesearchstore";
+import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
+import { finalShotsViewerOpenAtom } from "@/app/view/jarvis/finalshotsstore";
+import {
+    briefPeekRecordAtom,
+    chunkMoveAtom,
+    graphPeekOpenAtom,
+    noteChunkAtom,
+    trackerMenuAtom,
+} from "@/app/view/jarvis/jarvisstore";
+import { activeRunIdAtom, activeSubjectAtom } from "@/app/view/jarvis/jarvissubjectstore";
+import { peekTarget } from "@/app/view/jarvis/openref";
+import { itemKeyCommand } from "@/app/view/jarvis/peekitemmodel";
+import { peekKeyCommand } from "@/app/view/jarvis/petpeekmodel";
+import { petPeekOpenAtom } from "@/app/view/jarvis/petstore";
+import { dagModalStateAtom } from "@/app/view/orchestrate/dagmodalstate";
+import { atom, type PrimitiveAtom } from "jotai";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
     buildAgentBindings,
     buildChannelsAskBindings,
@@ -376,6 +376,15 @@ describe("Escape bindings yield to an open useEscapeClose menu", () => {
     });
 });
 
+describe("agent:hand-to-phone", () => {
+    it("is on p, and no other Agent binding uses p", () => {
+        const agentBindings = buildAgentBindings(stubModel());
+        const hand = agentBindings.find((b) => b.id === "agent:hand-to-phone");
+        expect(hand?.keys).toBe("p");
+        expect(agentBindings.filter((b) => b.keys === "p").map((b) => b.id)).toEqual(["agent:hand-to-phone"]);
+    });
+});
+
 describe("list-nav bindings", () => {
     const chanCtx: KeyContext = { surface: "jarvis", editable: false, modalOpen: false, leader: null };
 
@@ -412,8 +421,15 @@ describe("list-nav bindings", () => {
 
     it("first press from an empty/absent cursor lands on the first id", () => {
         const seen: string[] = [];
-        globalStore.set(listNavAtom, { surface: "jarvis", navigableIds: ["a", "b"], cursorId: undefined, setCursor: (id) => seen.push(id) });
-        buildListNavBindings(stubModel()).find((b) => b.id === "list:next-j")!.run(chanCtx);
+        globalStore.set(listNavAtom, {
+            surface: "jarvis",
+            navigableIds: ["a", "b"],
+            cursorId: undefined,
+            setCursor: (id) => seen.push(id),
+        });
+        buildListNavBindings(stubModel())
+            .find((b) => b.id === "list:next-j")!
+            .run(chanCtx);
         expect(seen).toEqual(["a"]);
         globalStore.set(listNavAtom, null);
     });
@@ -1778,10 +1794,7 @@ describe("Jarvis keys, the surface's own controls", () => {
     describe("run switching", () => {
         const channel = () => globalStore.set(activeSubjectAtom, { kind: "channel", id: "ch1" });
         const runs = (...rows: [string, string][]) =>
-            globalStore.set(
-                activeChannelRunsAtom,
-                rows.map(([id, status]) => ({ id, status })) as any
-            );
+            globalStore.set(activeChannelRunsAtom, rows.map(([id, status]) => ({ id, status })) as any);
 
         it("passes the key when the subject is not a channel, even if runs are loaded", () => {
             globalStore.set(activeSubjectAtom, { kind: "dossier", id: "d1" });
@@ -2093,16 +2106,20 @@ describe("Code keys, posture and the tree", () => {
         expect(b.when!({ ...ctx("cockpit"), editable: true })).toBe(false);
     });
 
-    it.each(["code:search", "code:focus-tree", "code:focus-editor", "code:definition", "code:references", "code:symbols"])(
-        "%s is live on the Code surface, from the editor too, but not under a modal",
-        (id) => {
-            const b = find(id);
-            expect(b.when!(code)).toBe(true);
-            expect(b.when!({ ...code, editable: true })).toBe(true);
-            expect(b.when!({ ...code, surface: "cockpit" })).toBe(false);
-            expect(b.when!({ ...code, modalOpen: true })).toBe(false);
-        }
-    );
+    it.each([
+        "code:search",
+        "code:focus-tree",
+        "code:focus-editor",
+        "code:definition",
+        "code:references",
+        "code:symbols",
+    ])("%s is live on the Code surface, from the editor too, but not under a modal", (id) => {
+        const b = find(id);
+        expect(b.when!(code)).toBe(true);
+        expect(b.when!({ ...code, editable: true })).toBe(true);
+        expect(b.when!({ ...code, surface: "cockpit" })).toBe(false);
+        expect(b.when!({ ...code, modalOpen: true })).toBe(false);
+    });
 
     it("moves the tree cursor on j and lets the key pass at the last row", () => {
         globalStore.set(codeIndexAtom, { paths: ["a.ts", "b.ts"], isRepo: true, truncated: false });

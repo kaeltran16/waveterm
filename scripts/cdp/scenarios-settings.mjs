@@ -958,8 +958,70 @@ const PHONE_READ = `(() => {
         off: buttons.includes("Turn off remote mode"),
         answering: document.querySelector(".qblock") != null,
         sent: text(document.querySelector(".sent")),
+        handed: [...document.querySelectorAll("[data-handed-row]")].map((r) => ({
+            tab: r.dataset.handedRow,
+            name: text(r.querySelector(".meta-agent")),
+            state: r.querySelector(".state-chip")?.dataset.state ?? "",
+            chip: text(r.querySelector(".state-chip")),
+            line: text(r.querySelector(".agent-line")),
+        })),
+        foot: text(document.querySelector(".foot-text")),
     };
 })()`;
+
+// the boards' copy, verbatim
+const PHONE_OFF_FOOT = "This page goes offline, every handed-over agent goes back to the desk, and the PC may sleep again.";
+const PHONE_TAKEN_TEXT =
+    "phone-chat was taken back, here or at the desk, so it no longer takes messages from the phone. Hand it over again from the Agent surface.";
+// fx-exited is on no list, so the page has no name for it
+const PHONE_EXITED_TEXT = "The agent exited, so it is off the phone.";
+const PHONE_EXITED_TAB = "fx-exited";
+
+const PHONE_CHAT_READ = `(() => {
+    const text = (el) => (el?.textContent || "").trim();
+    const q = (s) => document.querySelector(s);
+    const box = q("#chat-msg");
+    const stop = q("[data-chat-stop]");
+    const note = q("[data-chat-note]");
+    return {
+        name: text(q(".chat-name")),
+        state: text(q("[data-chat-state]")),
+        users: [...document.querySelectorAll("[data-chat-user]")].map(text),
+        actions: [...document.querySelectorAll("[data-chat-action]")].map((a) => ({
+            mark: a.dataset.mark,
+            verb: text(a.querySelector(".act-verb")),
+            target: text(a.querySelector(".act-target")),
+            live: a.classList.contains("live"),
+        })),
+        replies: [...document.querySelectorAll("[data-chat-reply]")].map(text),
+        code: [...document.querySelectorAll("[data-chat-reply] pre.reply-code")].map((p) => ({
+            text: p.textContent,
+            mono: /mono/i.test(getComputedStyle(p).fontFamily),
+        })),
+        label: text(q('label[for="chat-msg"]')),
+        placeholder: box?.placeholder ?? "",
+        boxDisabled: box?.disabled ?? null,
+        stop: stop && !stop.hidden ? text(stop) : "",
+        note: note && !note.hidden ? text(note) : "",
+        permission: q("[data-chat-permission]")
+            ? { tool: text(q(".perm-tool")), ask: text(q(".perm-ask")), target: text(q(".perm-target")), note: text(q(".perm-note")) }
+            : null,
+        approve: q("[data-chat-approve]") != null,
+        deny: q("[data-chat-deny]") != null,
+        error: text(q(".send-error")),
+        ended: q("[data-chat-ended]")?.dataset.chatEnded ?? "",
+        endedTitle: text(q("[data-chat-ended] .blank-title")),
+        endedText: text(q("[data-chat-ended] .blank-text")),
+    };
+})()`;
+
+// Send stays disabled until an input event says the box holds text
+const phoneType = (text) =>
+    `(() => { const b = document.querySelector("#chat-msg"); if (!b) return false; b.value = ${JSON.stringify(text)}; b.dispatchEvent(new Event("input", { bubbles: true })); return true; })()`;
+const phoneClick = (selector) => `(() => { const b = document.querySelector(${JSON.stringify(selector)}); b?.click(); return !!b; })()`;
+const phoneOpenChat = (tab) => phoneClick(`[data-handed-row="${tab}"]`);
+// the stream's backlog has drawn once the transcript's first message shows
+const PHONE_CHAT_DRAWN = `document.querySelector("[data-chat-user]") != null`;
 
 const phoneClickButton = (label) =>
     `(() => { const b = [...document.querySelectorAll("button")].find((x) => (x.textContent || "").trim() === ${JSON.stringify(label)}); b?.click(); return !!b; })()`;
@@ -1009,17 +1071,37 @@ export const remotePhone = {
             new Promise((r) => setTimeout(() => r(false), ${PHONE_WAIT_MS})),
         ])`);
         await polishNap(300);
+        // the Handed over section sits under the three questions, below a phone's fold
+        await page.ev(`document.querySelector('section[aria-label="Handed over"]')?.scrollIntoView({ block: "end" })`);
+        await polishNap(200);
         await shot("1-main");
+        await page.ev(`document.querySelector(".main")?.scrollTo(0, 0)`);
         await shotScrolled("1-main-held");
         const main = await read();
+        const rowOf = (a) => ({ tab: a.tab, name: a.name, state: a.state, line: a.line });
+        const wantHanded = list.handed.map(rowOf);
+        const chipsOk =
+            main.handed.length === 3 &&
+            main.handed[0].chip === "needs approval" &&
+            main.handed[1].chip.startsWith("working ") &&
+            main.handed[2].chip.startsWith("idle ");
         rec(
-            "1. Main: questions then held runs, the counts line, the off button and Turn on notifications",
+            "1. Main: questions, the three hand-overs with their state chips, held runs, the counts line, the off footer and Turn on notifications",
             main.chip === "Remote on" &&
-                main.sub === "3 questions to answer · 2 runs held" &&
-                JSON.stringify(main.sections) === JSON.stringify(["Questions", "Held runs"]) &&
+                main.sub === "3 questions to answer · 3 agents handed over · 2 runs held" &&
+                JSON.stringify(main.sections) === JSON.stringify(["Questions", "Handed over", "Held runs"]) &&
                 JSON.stringify(main.cards) === JSON.stringify(list.questions.map((q) => q.source)) &&
+                JSON.stringify(main.handed.map(rowOf)) === JSON.stringify(wantHanded) &&
+                JSON.stringify(wantHanded.map((a) => [a.name, a.state])) ===
+                    JSON.stringify([
+                        ["siem-deploy", "permission"],
+                        ["phone-chat", "working"],
+                        ["vault-sync", "idle"],
+                    ]) &&
+                chipsOk &&
                 main.held === 2 &&
                 main.off &&
+                main.foot === PHONE_OFF_FOOT &&
                 main.notifications &&
                 sw === true,
             JSON.stringify({ ...main, sw })
@@ -1185,6 +1267,168 @@ export const remotePhone = {
             "7. Turn off remote mode, confirmed: the preview recorded Off and the page shows Unreachable",
             off && after.chip === "Not reachable" && after.blank === "Arc is not reachable.",
             JSON.stringify({ ...after, offRecords: records("off").length })
+        );
+
+        // the chats: a fresh main fixture, each chat opened from its Handed over row
+        const inputs = () => records("input").map((r) => r.data);
+        const chatRead = () => page.ev(PHONE_CHAT_READ);
+        const restartOn = async (fixture) => {
+            await phoneStopPreview(ctx);
+            await phoneStartPreview(ctx, fixture);
+            await phoneLoad(page, ctx.url);
+            await polishWaitFor(page, `document.querySelectorAll("[data-handed-row]").length > 0`, PHONE_WAIT_MS);
+        };
+        const openChat = async (tab) => {
+            await page.ev(phoneOpenChat(tab));
+            await polishWaitFor(page, PHONE_CHAT_DRAWN, PHONE_WAIT_MS);
+            await polishNap(300);
+        };
+
+        // 8. Chat: vault-sync, idle
+        await restartOn("main");
+        await openChat("fx-vault-sync");
+        await shot("8-chat");
+        const chat = await chatRead();
+        await page.ev(phoneType("archive the drafts folder too"));
+        await page.ev(phoneClick("[data-chat-send]"));
+        const sentOk = await recorded("input", 1);
+        const cleared = await polishWaitFor(page, `document.querySelector("#chat-msg")?.value === ""`, PHONE_WAIT_MS);
+        await shot("8-chat-sent");
+        rec(
+            "8. Chat (vault-sync, idle): the user bubble, the action lines, the reply and its mono code block, Message vault-sync; Send is recorded",
+            chat.name === "vault-sync" &&
+                chat.state.startsWith("idle") &&
+                JSON.stringify(chat.users) === JSON.stringify(["archive the inbox notes marked stale and push"]) &&
+                JSON.stringify(chat.actions.map((a) => a.verb)) === JSON.stringify(["Grep", "Read", "Ran", "Ran"]) &&
+                chat.actions[3]?.target === "git push" &&
+                chat.actions[3]?.mark === "ok" &&
+                chat.replies.length === 2 &&
+                chat.replies[1] === "Moved the 3 stale notes to archive/ and pushed. Anything else?" &&
+                chat.code.length === 1 &&
+                chat.code[0].text.startsWith("git mv") &&
+                chat.code[0].mono &&
+                chat.label === "Message vault-sync" &&
+                chat.placeholder === "Message vault-sync" &&
+                chat.boxDisabled === false &&
+                chat.stop === "" &&
+                chat.permission === null &&
+                sentOk &&
+                cleared &&
+                JSON.stringify(inputs()[0]) === JSON.stringify({ tab: "fx-vault-sync", action: "send", text: "archive the drafts folder too" }),
+            JSON.stringify({ chat, cleared, inputs: inputs() })
+        );
+
+        // 9. ChatWorking: phone-chat
+        await page.ev(`(location.hash = "#agent/fx-phone-chat", true)`);
+        await polishWaitFor(page, `document.querySelector(".chat-name")?.textContent === "phone-chat" && ${PHONE_CHAT_DRAWN}`, PHONE_WAIT_MS);
+        await polishNap(300);
+        await shot("9-chat-working");
+        const working = await chatRead();
+        await page.ev(phoneClick("[data-chat-stop]"));
+        const stopped = await recorded("input", 2);
+        const live = working.actions.at(-1);
+        rec(
+            "9. ChatWorking (phone-chat): working, the live Running line, Add to this turn and Stop this turn; Stop is recorded",
+            working.state.startsWith("working") &&
+                live?.live === true &&
+                live.verb === "Running" &&
+                live.target === "node scripts/cdp/verify.mjs remote-phone" &&
+                working.label === "Add to this turn" &&
+                working.placeholder === "Add to this turn" &&
+                working.stop === "Stop this turn" &&
+                working.code.length === 1 &&
+                stopped &&
+                JSON.stringify(inputs()[1]) === JSON.stringify({ tab: "fx-phone-chat", action: "stop", text: "" }),
+            JSON.stringify({ working, inputs: inputs() })
+        );
+
+        // 10. ChatPermission: siem-deploy
+        await page.ev(`(location.hash = "#agent/fx-siem-deploy", true)`);
+        await polishWaitFor(page, `document.querySelector("[data-chat-permission]") != null`, PHONE_WAIT_MS);
+        await polishNap(300);
+        await shot("10-chat-permission");
+        const perm = await chatRead();
+        await page.ev(phoneClick("[data-chat-approve]"));
+        const approved = await recorded("input", 3);
+        await polishWaitFor(page, `document.querySelector("[data-chat-approve]")?.disabled === false`, PHONE_WAIT_MS);
+        const reason = "restart it after 18:00, the night shift is still ingesting";
+        await page.ev(phoneType(reason));
+        await page.ev(phoneClick("[data-chat-send]"));
+        const denied = await recorded("input", 4);
+        await polishNap(200);
+        await shot("10-chat-denied");
+        const restartCmd = "ssh deploy@siem-236 'sudo systemctl restart ingest'";
+        rec(
+            "10. ChatPermission (siem-deploy): the card with Bash, the whole command, Approve and Deny, the deny box; Approve then a typed deny are recorded",
+            perm.permission?.tool === "Bash" &&
+                perm.permission.ask === "Wants to run a command" &&
+                perm.permission.target === restartCmd &&
+                perm.permission.note === "The agent is paused until you choose." &&
+                perm.approve &&
+                perm.deny &&
+                !perm.actions.some((a) => a.target === restartCmd) &&
+                perm.placeholder === "Deny and say what to do instead" &&
+                perm.label === "Deny and tell siem-deploy why" &&
+                approved &&
+                denied &&
+                JSON.stringify(inputs().slice(2)) ===
+                    JSON.stringify([
+                        { tab: "fx-siem-deploy", action: "approve", text: "" },
+                        { tab: "fx-siem-deploy", action: "deny", text: reason },
+                    ]),
+            JSON.stringify({ perm, inputs: inputs() })
+        );
+
+        // 11. Needs input: docs-worker, alone in the input fixture
+        await restartOn("input");
+        await openChat("fx-docs-worker");
+        await shot("11-needs-input");
+        const needs = await chatRead();
+        rec(
+            "11. Needs input (docs-worker): the desk note, the box disabled, no Approve or Deny, no Stop",
+            needs.name === "docs-worker" &&
+                needs.note === "Needs input · answer it at the desk" &&
+                needs.boxDisabled === true &&
+                !needs.approve &&
+                !needs.deny &&
+                needs.stop === "" &&
+                needs.replies.length === 1,
+            JSON.stringify(needs)
+        );
+
+        // 12. ChatEnded taken: Take back on phone-chat
+        await restartOn("main");
+        await openChat("fx-phone-chat");
+        await page.ev(phoneClick("[data-chat-takeback]"));
+        const tookBack = await recorded("takeback", 1);
+        await polishWaitFor(page, `document.querySelector('[data-chat-ended="taken"]') != null`, PHONE_WAIT_MS);
+        await polishNap(300);
+        await shot("12-ended-taken");
+        const taken = await chatRead();
+        await page.ev(phoneClickButton("Back to the list"));
+        await polishWaitFor(page, `document.querySelectorAll("[data-handed-row]").length === 2`, PHONE_WAIT_MS);
+        const afterTake = await read();
+        rec(
+            "12. ChatEnded taken: Take back is recorded, Back at the desk with the taken string, and the list drops phone-chat",
+            tookBack &&
+                JSON.stringify(records("takeback")[0].data) === JSON.stringify({ tab: "fx-phone-chat" }) &&
+                taken.ended === "taken" &&
+                taken.endedTitle === "Back at the desk" &&
+                taken.endedText === PHONE_TAKEN_TEXT &&
+                JSON.stringify(afterTake.handed.map((a) => a.name)) === JSON.stringify(["siem-deploy", "vault-sync"]),
+            JSON.stringify({ taken, handed: afterTake.handed.map((a) => a.name) })
+        );
+
+        // 12b. ChatEnded exited: a tab whose agent exited, opened by its address
+        await page.ev(`(location.hash = "#agent/${PHONE_EXITED_TAB}", true)`);
+        await polishWaitFor(page, `document.querySelector('[data-chat-ended="exited"]') != null`, PHONE_WAIT_MS);
+        await polishNap(300);
+        await shot("12b-ended-exited");
+        const exited = await chatRead();
+        rec(
+            "12b. ChatEnded exited: #agent/fx-exited draws Back at the desk with the exited string",
+            exited.ended === "exited" && exited.endedTitle === "Back at the desk" && exited.endedText === PHONE_EXITED_TEXT,
+            JSON.stringify(exited)
         );
         return steps;
     },

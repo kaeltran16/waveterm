@@ -64,6 +64,22 @@ var remoteStatusCmd = &cobra.Command{
 	PreRunE: preRunSetupRpcClient,
 }
 
+var remoteHandCmd = &cobra.Command{
+	Use:     "hand [tab]",
+	Short:   "hand an agent to the phone; with no tab, the agent in this terminal",
+	Args:    cobra.MaximumNArgs(1),
+	RunE:    remoteHandRun,
+	PreRunE: preRunSetupRpcClient,
+}
+
+var remoteTakeBackCmd = &cobra.Command{
+	Use:     "take-back [tab]",
+	Short:   "take an agent back from the phone; with no tab, the agent in this terminal",
+	Args:    cobra.MaximumNArgs(1),
+	RunE:    remoteTakeBackRun,
+	PreRunE: preRunSetupRpcClient,
+}
+
 func init() {
 	remoteSetupCmd.Flags().StringVar(&remoteSetupTeam, "team", "", "Cloudflare Access team name (the part before .cloudflareaccess.com)")
 	remoteSetupCmd.Flags().StringVar(&remoteSetupAud, "aud", "", "the Access application's AUD tag")
@@ -73,7 +89,7 @@ func init() {
 	for _, f := range []string{"team", "aud", "email", "hostname"} {
 		remoteSetupCmd.MarkFlagRequired(f)
 	}
-	remoteCmd.AddCommand(remoteSetupCmd, remoteOnCmd, remoteOffCmd, remoteStatusCmd)
+	remoteCmd.AddCommand(remoteSetupCmd, remoteOnCmd, remoteOffCmd, remoteStatusCmd, remoteHandCmd, remoteTakeBackCmd)
 	rootCmd.AddCommand(remoteCmd)
 }
 
@@ -124,6 +140,55 @@ func remoteStatusRun(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+func remoteHandRun(cmd *cobra.Command, args []string) error {
+	data, err := remoteHandData(args, callingBlockORef)
+	if err != nil {
+		return fmt.Errorf("remote hand: %w", err)
+	}
+	st, err := wshclient.RemoteHandCommand(RpcClient, data, &wshrpc.RpcOpts{Timeout: remoteRpcTimeoutMs})
+	if err != nil {
+		return fmt.Errorf("remote hand: %w", err)
+	}
+	WriteStdout("%s", remoteStatusText(st))
+	return nil
+}
+
+func remoteTakeBackRun(cmd *cobra.Command, args []string) error {
+	data, err := remoteHandData(args, callingBlockORef)
+	if err != nil {
+		return fmt.Errorf("remote take-back: %w", err)
+	}
+	st, err := wshclient.RemoteTakeBackCommand(RpcClient, data, &wshrpc.RpcOpts{Timeout: remoteRpcTimeoutMs})
+	if err != nil {
+		return fmt.Errorf("remote take-back: %w", err)
+	}
+	WriteStdout("%s", remoteStatusText(st))
+	return nil
+}
+
+// remoteHandData names the tab by its argument, or by the block wsh runs in so an agent can hand itself
+// over. resolve is only called when there is no argument, since outside a terminal it fails.
+func remoteHandData(args []string, resolve func() (string, error)) (wshrpc.CommandRemoteHandData, error) {
+	if len(args) > 0 {
+		if tab := strings.TrimSpace(args[0]); tab != "" {
+			return wshrpc.CommandRemoteHandData{Tab: tab}, nil
+		}
+	}
+	from, err := resolve()
+	if err != nil {
+		return wshrpc.CommandRemoteHandData{}, fmt.Errorf("name an agent's tab, there is no calling terminal: %w", err)
+	}
+	return wshrpc.CommandRemoteHandData{FromORef: from}, nil
+}
+
+func callingBlockORef() (string, error) {
+	oref, err := resolveBlockArg()
+	if err != nil {
+		return "", err
+	}
+	return oref.String(), nil
+}
+
 func stdinIsTerminal() bool {
 	fi, err := os.Stdin.Stat()
 	return err == nil && fi.Mode()&os.ModeCharDevice != 0
@@ -170,6 +235,9 @@ func remoteStatusText(st *wshrpc.RemoteStatusData) string {
 		fmt.Fprintf(&b, "Phone: subscribed (%d)\n", st.Subscriptions)
 	} else {
 		b.WriteString("Phone: not subscribed yet\n")
+	}
+	if len(st.Handed) > 0 {
+		fmt.Fprintf(&b, "Handed to phone: %s\n", strings.Join(st.Handed, ", "))
 	}
 	if len(st.Missing) > 0 {
 		fmt.Fprintf(&b, "Setup: missing %s, run wsh remote setup\n", strings.Join(st.Missing, ", "))

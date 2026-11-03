@@ -876,6 +876,12 @@ func RemoteFileStreamCommand(w *wshutil.WshRpc, data wshrpc.CommandRemoteFileStr
 	return resp, err
 }
 
+// command "remotehand", wshserver.RemoteHandCommand
+func RemoteHandCommand(w *wshutil.WshRpc, data wshrpc.CommandRemoteHandData, opts *wshrpc.RpcOpts) (*wshrpc.RemoteStatusData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.RemoteStatusData](w, "remotehand", data, opts)
+	return resp, err
+}
+
 // command "remotelistentries", wshserver.RemoteListEntriesCommand
 func RemoteListEntriesCommand(w *wshutil.WshRpc, data wshrpc.CommandRemoteListEntriesData, opts *wshrpc.RpcOpts) chan wshrpc.RespOrErrorUnion[wshrpc.CommandRemoteListEntriesRtnData] {
 	return sendRpcRequestResponseStreamHelper[wshrpc.CommandRemoteListEntriesRtnData](w, "remotelistentries", data, opts)
@@ -908,6 +914,12 @@ func RemoteSetupCommand(w *wshutil.WshRpc, data wshrpc.CommandRemoteSetupData, o
 // command "remotestatus", wshserver.RemoteStatusCommand
 func RemoteStatusCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.RemoteStatusData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.RemoteStatusData](w, "remotestatus", nil, opts)
+	return resp, err
+}
+
+// command "remotetakeback", wshserver.RemoteTakeBackCommand
+func RemoteTakeBackCommand(w *wshutil.WshRpc, data wshrpc.CommandRemoteHandData, opts *wshrpc.RpcOpts) (*wshrpc.RemoteStatusData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.RemoteStatusData](w, "remotetakeback", data, opts)
 	return resp, err
 }
 
