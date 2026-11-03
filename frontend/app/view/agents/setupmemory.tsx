@@ -5,11 +5,14 @@
 // weekly check proposes, and the selected change's evidence and diff with its verdict buttons. All
 // derivation is in memorymodel.ts, the atoms and RPCs in memorystore.ts.
 
+import { widthTween } from "@/app/element/meter";
+import { microFade, viewFade } from "@/app/element/motiontokens";
 import { globalStore } from "@/app/store/jotaiStore";
 import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { RefreshCw, TriangleAlert } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, type KeyboardEvent } from "react";
 import {
     changeGroups,
@@ -71,9 +74,10 @@ function Dot({ tone, className }: { tone: Tone; className?: string }) {
 }
 
 function Meter({ pct }: { pct: number }) {
+    const reduce = useReducedMotion();
     return (
         <span className="block h-1 overflow-hidden rounded-full bg-edge-mid">
-            <span className="block h-1 bg-success" style={{ width: `${pct}%` }} />
+            <span className="block h-1 bg-success" style={{ width: `${pct}%`, transition: widthTween(reduce) }} />
         </span>
     );
 }
@@ -253,7 +257,11 @@ function ChangeTable({ p, selected }: { p: MemHygieneProject; selected: string |
                                     <span role="cell" className="font-mono text-[11px] text-ink-mid">
                                         {c.effect}
                                     </span>
-                                    <span
+                                    <motion.span
+                                        key={status.text}
+                                        variants={microFade}
+                                        initial="initial"
+                                        animate="animate"
                                         role="cell"
                                         className={cn(
                                             "flex items-center gap-1.5 text-[11.5px]",
@@ -262,7 +270,7 @@ function ChangeTable({ p, selected }: { p: MemHygieneProject; selected: string |
                                     >
                                         <Dot tone={status.tone} />
                                         {status.text}
-                                    </span>
+                                    </motion.span>
                                 </div>
                             );
                         })}
@@ -307,23 +315,36 @@ function ProjectPane({ p, selected }: { p: MemHygieneProject; selected: string |
     const cards = indexCards(p);
     const split = splitText(p);
     return (
-        <main className="flex min-w-0 flex-1 flex-col gap-3.5 px-5 pb-[18px] pt-4">
+        <motion.main
+            key={p.project}
+            variants={viewFade}
+            initial="initial"
+            animate="animate"
+            className="flex min-w-0 flex-1 flex-col gap-3.5 px-5 pb-[18px] pt-4"
+        >
             <div className="flex items-center gap-3.5">
                 <div className="flex min-w-0 flex-col gap-[3px]">
                     <div className="text-[15px] font-semibold text-primary">{p.project}</div>
                     <div className="text-[12px] text-muted">{checkLine(p, Date.now())}</div>
                 </div>
                 <span className="flex-1" />
-                {result?.project === p.project ? (
-                    <span
-                        role="status"
-                        data-memory-check-result
-                        className={cn("flex items-center gap-1.5 text-[12px]", TONE_TEXT[result.tone])}
-                    >
-                        <Dot tone={result.tone} />
-                        {result.text}
-                    </span>
-                ) : null}
+                <AnimatePresence>
+                    {result?.project === p.project ? (
+                        <motion.span
+                            key="result"
+                            variants={microFade}
+                            initial="initial"
+                            animate="animate"
+                            exit="exit"
+                            role="status"
+                            data-memory-check-result
+                            className={cn("flex items-center gap-1.5 text-[12px]", TONE_TEXT[result.tone])}
+                        >
+                            <Dot tone={result.tone} />
+                            {result.text}
+                        </motion.span>
+                    ) : null}
+                </AnimatePresence>
                 <CheckButton p={p} label="Check now" marked />
             </div>
             {split ? <p className="m-0 text-[12.5px] leading-[1.5] text-secondary">{split}</p> : null}
@@ -336,7 +357,7 @@ function ProjectPane({ p, selected }: { p: MemHygieneProject; selected: string |
                 ))}
             </section>
             <ChangeTable p={p} selected={selected} />
-        </main>
+        </motion.main>
     );
 }
 
@@ -455,7 +476,11 @@ function ChangeDetail({ p, change }: { p: MemHygieneProject; change: MemChange }
     // sits over the rail's foot
     const gate = switchGate(p, change);
     return (
-        <aside
+        <motion.aside
+            key={change.id}
+            variants={viewFade}
+            initial="initial"
+            animate="animate"
             aria-label="Change detail"
             data-memory-detail
             className="flex w-[400px] flex-none flex-col gap-3.5 overflow-y-auto border-l border-border bg-surface p-4"
@@ -498,7 +523,7 @@ function ChangeDetail({ p, change }: { p: MemHygieneProject; change: MemChange }
             ) : null}
             <span className="flex-1" />
             <Verdict p={p} change={change} />
-        </aside>
+        </motion.aside>
     );
 }
 
