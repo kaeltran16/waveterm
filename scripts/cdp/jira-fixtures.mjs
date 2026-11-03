@@ -198,19 +198,37 @@ async function restoreJira(h, prev) {
     }
 }
 
-// Points the dev app at the fake: jira:site, jira:email and the token. Returns the restore.
+const CONFIG_POLL_MS = 250;
+const CONFIG_WAIT_MS = 10_000;
+
+// setconfig returns before wavesrv's config watcher reloads the file, so a Jira call straight after it can still see
+// the old settings. test: false reads the config without calling Jira, so the fake's call log stays empty.
+async function waitJiraConfig(h, settled, want) {
+    let last = null;
+    for (let waited = 0; waited < CONFIG_WAIT_MS; waited += CONFIG_POLL_MS) {
+        last = await h.rpc("jiraconnection", { test: false }).catch((e) => ({ error: String(e?.message ?? e) }));
+        if (settled(last)) return;
+        await new Promise((resolve) => setTimeout(resolve, CONFIG_POLL_MS));
+    }
+    throw new Error(`Jira never became ${want} after ${CONFIG_WAIT_MS} ms: ${JSON.stringify(last)}`);
+}
+
+// Points the dev app at the fake: jira:site, jira:email and the token, and waits until wavesrv reads them. Returns
+// the restore.
 export async function connectFakeJira(h, fake) {
     const prev = await rememberJira(h);
     await h.rpc("setconfig", { [SITE_KEY]: fake.url, [EMAIL_KEY]: fake.state.email });
     await h.rpc("setsecrets", { [JIRA_SECRET]: fake.state.token });
+    await waitJiraConfig(h, (c) => c?.configured === true && c.site === fake.url, `configured for ${fake.url}`);
     return () => restoreJira(h, prev);
 }
 
-// Clears all three, for the not-set-up states. Returns the restore.
+// Clears all three, for the not-set-up states, and waits until wavesrv reads them. Returns the restore.
 export async function disconnectJira(h) {
     const prev = await rememberJira(h);
     await h.rpc("setconfig", { [SITE_KEY]: null, [EMAIL_KEY]: null });
     await h.rpc("setsecrets", { [JIRA_SECRET]: null });
+    await waitJiraConfig(h, (c) => c?.configured === false, "unconfigured");
     return () => restoreJira(h, prev);
 }
 
@@ -224,13 +242,21 @@ export async function seedTicketedInitiative(h, { title, project, key, chunks = 
         ticket: key,
         chunks: seeds.map((c) => ({ label: c.label })),
     });
-    const ops = seeds
-        .filter((c) => c.status != null && c.status !== "pending")
-        .map((c) => ({ op: "setChunkStatus", chunk: c.label, status: c.status, ...(c.note ? { note: c.note } : {}) }));
-    if (ops.length > 0) {
-        await h.rpc("effortmutate", { effortoid, author: "you", ops });
+    // a seed that fails partway must not leave an initiative on a board key behind: later runs count them
+    try {
+        const ops = seeds
+            .filter((c) => c.status != null && c.status !== "pending")
+            .map((c) => ({ op: "setChunkStatus", chunk: c.label, status: c.status, ...(c.note ? { note: c.note } : {}) }));
+        if (ops.length > 0) {
+            await h.rpc("effortmutate", { effortoid, author: "you", ops });
+        }
+        await h.rpc("jirashow", { key, via: "show" });
+    } catch (e) {
+        await h.rpc("effortdelete", { effortoid }).catch((de) => {
+            console.error(`jira fixtures: could not delete the half-seeded initiative ${effortoid}: ${de?.message ?? de}`);
+        });
+        throw e;
     }
-    await h.rpc("jirashow", { key, via: "show" });
     return effortoid;
 }
 
