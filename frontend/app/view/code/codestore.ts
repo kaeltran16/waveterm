@@ -19,7 +19,7 @@ import { base64ToString, fireAndForget, stringToBase64 } from "@/util/util";
 import { atom, type PrimitiveAtom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import { debounce } from "throttle-debounce";
-import { classifyFile, hasNulByte, MAX_VIEW_BYTES } from "./codeclassify";
+import { classifyFile, hasNulByte, HEAD_BINARY, HEAD_TOOLARGE, MAX_VIEW_BYTES } from "./codeclassify";
 import { diffBaseOf, nextDiffStep, type DiffBase, type DiffStep } from "./codedifftarget";
 import {
     conflictMessage,
@@ -504,7 +504,7 @@ export async function loadCommitted(rel: string, ref: string): Promise<void> {
                 kind: "error",
                 path: rel,
                 ref,
-                message: "The committed copy is a binary blob.",
+                message: HEAD_BINARY,
             });
             return;
         }
@@ -513,7 +513,7 @@ export async function loadCommitted(rel: string, ref: string): Promise<void> {
                 kind: "error",
                 path: rel,
                 ref,
-                message: "The committed copy is larger than the 2 MB view limit.",
+                message: HEAD_TOOLARGE,
             });
             return;
         }
