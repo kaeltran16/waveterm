@@ -552,6 +552,9 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                 onRename: (title) => setRenamingTitle(title),
                 onDetails: () => setDetailsOpen(true),
                 onActivity: (e) => fireAndForget(() => openOrPeekAddress(model, oref, e)),
+                // lazy, so this file gains no import line beside the one the Check Jira toolbar adds
+                onConnectJira: () =>
+                    fireAndForget(() => import("./jiraactions").then((m) => m.openJiraSettings(model))),
             },
         });
     }, [model, openEffortORef, openEffort, planChunks, pendingDeletes, mutationDeps]);

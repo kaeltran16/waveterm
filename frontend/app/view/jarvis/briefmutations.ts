@@ -91,7 +91,7 @@ export function trackerEdits(
         effort: { title: string; status: string };
         chunks: ChunkRowModel[];
         pendingDeletes: Set<string>;
-        ui: Pick<TrackerEdits, "onRename" | "onDetails" | "onActivity">;
+        ui: Pick<TrackerEdits, "onRename" | "onDetails" | "onActivity" | "onConnectJira">;
     }
 ): TrackerEdits {
     const { store, undo, run } = deps;
@@ -158,6 +158,7 @@ export function trackerEdits(
         onRename: input.ui.onRename,
         onDetails: input.ui.onDetails,
         onActivity: input.ui.onActivity,
+        onConnectJira: input.ui.onConnectJira,
         onTogglePause: ops.togglePause,
         onArchive: ops.archive,
         onUnarchive: ops.unarchive,

@@ -74,6 +74,7 @@ describe("cursorAction", () => {
             row: { label: "a", status: "pending", stage: "", tone: "pending", trail: [], workrefs: [] },
             notes: 0,
             next: false,
+            posted: false,
         };
         expect(cursorAction(row)).toEqual({ kind: "select-chunk", id: row.id });
     });

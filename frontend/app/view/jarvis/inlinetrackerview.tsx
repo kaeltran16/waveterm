@@ -7,13 +7,16 @@
 // to the Chunk sidebar (chunksidebar.tsx), because an initiative's notes here average ~1.1k characters and
 // the sheet this replaces could not hold plan and prose at 640px.
 
+import { microFade } from "@/app/element/motiontokens";
 import { PopoverReveal } from "@/app/element/popoverreveal";
+import { getApi } from "@/app/store/global";
 import { cn } from "@/util/util";
-import { useAtom } from "jotai";
+import { useAtom, useAtomValue } from "jotai";
 import {
     ArrowDown,
     ArrowRight,
     ArrowUp,
+    ArrowUpRight,
     Check,
     ChevronDown,
     ChevronRight,
@@ -26,10 +29,14 @@ import {
     Plus,
     type LucideIcon,
 } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import { Fragment, useEffect, useState } from "react";
 import { chunkTone, type ChunkTone } from "./effortmodel";
+import { effortDetailAtom } from "./effortstore";
 import type { DetailRow } from "./inlinetracker";
 import { trackerMenuAtom } from "./jarvisstore";
+import { footerPosted, jiraPostOpenAtom } from "./jirapost";
+import { JiraPostDialog } from "./jirapostdialog";
 
 const FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
 
@@ -96,6 +103,7 @@ export type TrackerEdits = {
     onRename: (title: string) => void;
     onDetails: () => void;
     onActivity: (e: React.MouseEvent) => void;
+    onConnectJira?: () => void; // the Post progress dialog offers it when Jira is not set up
     onTogglePause: () => void;
     onArchive: () => void;
     onUnarchive: () => void;
@@ -123,8 +131,13 @@ export function InitiativeDetail({
     const [editing, setEditing] = useState<Editing>(null);
     const [confirming, setConfirming] = useState(false);
     const [newStage, setNewStage] = useState<{ name: string; chunk: string | null } | null>(null);
+    const oref = "effort:" + edits.oid;
+    const effort = useAtomValue(effortDetailAtom).get(oref);
+    const [postOpen, setPostOpen] = useAtom(jiraPostOpenAtom);
     // a menu left open when the plan unmounts would hold Escape away from the surface
     useEffect(() => () => setMenu(null), [setMenu]);
+    // and a dialog left open would come back the next time any plan opens
+    useEffect(() => () => setPostOpen(null), [setPostOpen]);
     useEffect(() => {
         if (menu == null) {
             return;
@@ -353,6 +366,22 @@ export function InitiativeDetail({
                                         {label}
                                     </span>
                                 )}
+                                <AnimatePresence initial={false}>
+                                    {row.posted ? (
+                                        <motion.span
+                                            key="posted"
+                                            data-jarvis-chunk-posted
+                                            variants={microFade}
+                                            initial="initial"
+                                            animate="animate"
+                                            exit="exit"
+                                            className="flex flex-none items-center gap-1 text-[11.5px] text-muted"
+                                        >
+                                            <ArrowUpRight size={10} strokeWidth={2.2} aria-hidden />
+                                            posted to Jira
+                                        </motion.span>
+                                    ) : null}
+                                </AnimatePresence>
                                 {row.notes > 0 ? (
                                     <span className="flex-none font-mono text-[10.5px] text-ink-mid">
                                         {row.notes} {row.notes === 1 ? "note" : "notes"}
@@ -483,9 +512,20 @@ export function InitiativeDetail({
             <TrackerFooter
                 facts={rows.find((r): r is Extract<DetailRow, { kind: "facts" }> => r.kind === "facts") ?? null}
                 edits={edits}
+                jira={effort?.ticket ? effort.jira : null}
+                onPost={effort?.ticket ? () => setPostOpen(oref) : null}
                 confirming={confirming}
                 onConfirm={setConfirming}
             />
+            {effort?.ticket ? (
+                <JiraPostDialog
+                    oref={oref}
+                    open={postOpen === oref}
+                    ticket={effort.ticket}
+                    onClose={() => setPostOpen(null)}
+                    onConnectJira={edits.onConnectJira}
+                />
+            ) : null}
         </div>
     );
 }
@@ -681,15 +721,20 @@ function NewStageRow({
 function TrackerFooter({
     facts,
     edits,
+    jira,
+    onPost,
     confirming,
     onConfirm,
 }: {
     facts: Extract<DetailRow, { kind: "facts" }> | null;
     edits: TrackerEdits;
+    jira: EffortJira | null | undefined;
+    onPost: (() => void) | null; // null: the initiative has no ticket, so there is nothing to post to
     confirming: boolean;
     onConfirm: (on: boolean) => void;
 }) {
     const archived = edits.effortStatus === "archived";
+    const lastPost = jira?.lastpost;
     const action = (name: string, label: string, run: (e: React.MouseEvent) => void, danger = false, peek = false) => (
         <button
             type="button"
@@ -714,6 +759,29 @@ function TrackerFooter({
                 {edits.oid.slice(0, 8)}
             </button>
             {facts != null ? <span>{facts.count}</span> : null}
+            {/* wait: a later post trades the line in place rather than drawing two for a frame */}
+            <AnimatePresence initial={false} mode="wait">
+                {lastPost != null ? (
+                    <motion.button
+                        key={lastPost.ts}
+                        type="button"
+                        data-jarvis-jira-posted
+                        title="Open the comment in Jira"
+                        variants={microFade}
+                        initial="initial"
+                        animate="animate"
+                        exit="exit"
+                        onClick={() => getApi().openExternal(lastPost.commenturl)}
+                        className={cn(
+                            "flex cursor-pointer items-center gap-[5px] font-sans text-[11.5px] text-secondary hover:text-primary",
+                            FOCUS
+                        )}
+                    >
+                        <Check size={11} strokeWidth={2.4} aria-hidden className="text-success" />
+                        {footerPosted(lastPost, Date.now())}
+                    </motion.button>
+                ) : null}
+            </AnimatePresence>
             {confirming ? (
                 <span
                     data-jarvis-delete-confirm
@@ -751,6 +819,19 @@ function TrackerFooter({
                     {action("rename", "rename", () => edits.onRename(edits.title))}
                     {action("details", "details", edits.onDetails)}
                     {action("activity", "activity", edits.onActivity, false, true)}
+                    {onPost != null ? (
+                        <button
+                            type="button"
+                            data-jarvis-initiative-action="post-to-jira"
+                            onClick={onPost}
+                            className={cn(
+                                "cursor-pointer rounded-[6px] border border-accent/50 px-2 py-[3px] font-mono text-[10.5px] text-accent-soft hover:border-accent hover:text-accent",
+                                FOCUS
+                            )}
+                        >
+                            post to Jira
+                        </button>
+                    ) : null}
                     {archived
                         ? action("unarchive", "unarchive", edits.onUnarchive)
                         : action("pause", edits.effortStatus === "paused" ? "resume" : "pause", edits.onTogglePause)}
