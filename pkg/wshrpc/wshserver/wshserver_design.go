@@ -67,6 +67,24 @@ func checkDesignFile(field, path string) error {
 	return nil
 }
 
+// checkSpecFile is checkDesignFile for a run's spec, which the engine also commits with the plan: an ignored
+// spec is refused here, before the lead plans, rather than at submit. A spec git cannot place is let through:
+// the submit names that failure itself.
+func checkSpecFile(ctx context.Context, path string) error {
+	if err := checkDesignFile("spec", path); err != nil {
+		return err
+	}
+	ignored, err := orchestrate.SpecIgnored(ctx, path)
+	if err != nil {
+		log.Printf("spec %s: %v", path, err)
+		return nil
+	}
+	if ignored {
+		return fmt.Errorf("spec %q is ignored by git, so the run cannot commit it with its plan: move it to a tracked folder such as docs/superpowers/specs/ and try again", path)
+	}
+	return nil
+}
+
 // startDesignSession starts the design session run waits on, in place of a lead: a normal interactive session
 // on the run's lead route, in the main checkout (where .superpowers/ and the specs live). The run reads
 // planning with Design set until the session's design attaches. Both entry points, CreateRun's Design first
@@ -162,7 +180,7 @@ func (ws *WshServer) RunDesignAttachCommand(ctx context.Context, data wshrpc.Com
 	}
 	// only a run's lead opens the files: a normal session's approve goes to the launcher whatever they hold
 	if data.Spec != "" {
-		if err := checkDesignFile("spec", data.Spec); err != nil {
+		if err := checkSpecFile(ctx, data.Spec); err != nil {
 			return nil, err
 		}
 	}

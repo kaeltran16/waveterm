@@ -96,6 +96,17 @@ func MoveSpecIntoTree(ctx context.Context, tree, spec string) (string, error) {
 	return target, nil
 }
 
+// SpecIgnored reports whether git ignores spec. SnapshotDocs commits a run's spec with its plan, and git add
+// refuses an ignored path, so such a spec fails only at submit, after the lead has planned the whole run. A
+// spec outside any repository is an error here: it is treeTarget's to refuse.
+func SpecIgnored(ctx context.Context, spec string) (bool, error) {
+	out, err := git(ctx, filepath.Dir(spec), "ls-files", "--others", "--ignored", "--exclude-standard", "--", filepath.Base(spec))
+	if err != nil {
+		return false, fmt.Errorf("checking whether git ignores %s: %w", spec, err)
+	}
+	return out != "", nil
+}
+
 // MoveFile moves from to to, creating to's directory. It copies rather than renames, since the landing tree
 // can sit on another volume than the checkout.
 func MoveFile(from, to string) error {

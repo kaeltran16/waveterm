@@ -319,7 +319,9 @@ mode, since the engine reviews the plan.
 On a branch-landed run the spec moves into the run's landing tree when the run starts or the design attaches, at
 the same repo-relative path, if git does not track it in the checkout. The run names the moved copy, so the lead
 revises the one copy that lands, and the checkout keeps no draft for the land to find. To read or edit the spec
-mid-run, open it in the run's tree. A tracked or ignored spec, or one from another repository, stays where it is.
+mid-run, open it in the run's tree. A tracked spec, or one from another repository, stays where it is. A spec git
+ignores (such as one under `.superpowers/`) is refused when the run starts or the design is approved, since the run
+commits its spec with the plan and git will not add an ignored path; move it to `docs/superpowers/specs/` and retry.
 
 **A run with no design** gets the goal prompt. You are at the lead's terminal and every question goes through its
 ask tool, but it does not brainstorm. It states which path it takes and proceeds, asking about the path only when

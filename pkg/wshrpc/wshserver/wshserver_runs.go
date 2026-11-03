@@ -431,7 +431,7 @@ func (ws *WshServer) createRun(ctx context.Context, data wshrpc.CommandCreateRun
 		if !engineLaunch {
 			return nil, fmt.Errorf("spec needs an orchestrator run: only its lead plans from a design")
 		}
-		if err := checkDesignFile("spec", data.Spec); err != nil {
+		if err := checkSpecFile(ctx, data.Spec); err != nil {
 			return nil, err
 		}
 	}

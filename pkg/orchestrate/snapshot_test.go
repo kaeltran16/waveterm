@@ -257,6 +257,23 @@ func TestMoveSpecIntoTreeLeavesWhatItDoesNotOwn(t *testing.T) {
 	})
 }
 
+func TestSpecIgnored(t *testing.T) {
+	ctx := context.Background()
+	_, spec, _ := snapshotFixture(t)
+	if ignored, err := SpecIgnored(ctx, spec); err != nil || ignored {
+		t.Fatalf("an untracked spec: ignored = %v, %v", ignored, err)
+	}
+	writeDoc(t, filepath.Join(filepath.Dir(spec), ".gitignore"), "s.md\n")
+	if ignored, err := SpecIgnored(ctx, spec); err != nil || !ignored {
+		t.Fatalf("an ignored spec: ignored = %v, %v", ignored, err)
+	}
+	outside := filepath.Join(t.TempDir(), "spec.md")
+	writeDoc(t, outside, "# spec\n")
+	if _, err := SpecIgnored(ctx, outside); err == nil {
+		t.Fatal("a spec outside any repository reported no error")
+	}
+}
+
 func assertSpecStays(t *testing.T, ctx context.Context, tree, spec string) {
 	t.Helper()
 	moved, err := MoveSpecIntoTree(ctx, tree, spec)

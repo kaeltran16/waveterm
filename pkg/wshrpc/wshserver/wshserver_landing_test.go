@@ -692,6 +692,60 @@ func TestRunDesignAttachMovesTheSpecIntoTheLandingTree(t *testing.T) {
 	}
 }
 
+// an ignored spec can never be committed with the plan, so it is refused before the lead plans, not at submit
+func TestIgnoredSpecIsRefusedBeforePlanning(t *testing.T) {
+	ctx := context.Background()
+	ignoredSpec := func(t *testing.T, projectDir string) string {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(projectDir, ".gitignore"), []byte(".superpowers\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		spec := filepath.Join(projectDir, ".superpowers", "brainstorm", "auth", "spec.md")
+		if err := os.MkdirAll(filepath.Dir(spec), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(spec, []byte("# auth\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return spec
+	}
+	t.Run("run start", func(t *testing.T) {
+		projectDir, _ := newLandingRepo(t)
+		stubRunServer(t, "pi", nil)
+		ch, err := wstore.CreateChannel(ctx, "ignored-spec-start", projectDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = (&WshServer{}).CreateRunCommand(ctx, wshrpc.CommandCreateRunData{
+			ChannelId: ch.OID, WorkspaceId: "ws", Goal: "g", Runtime: "pi", Mode: jarvis.RunMode_Orchestrator, DeferStart: true, Spec: ignoredSpec(t, projectDir),
+		})
+		if err == nil || !strings.Contains(err.Error(), "ignored by git") {
+			t.Fatalf("an ignored spec at start: %v", err)
+		}
+	})
+	t.Run("design approve", func(t *testing.T) {
+		projectDir, _ := newLandingRepo(t)
+		spawns := stubDesignSpawn(t)
+		ch, err := wstore.CreateChannel(ctx, "ignored-spec-approve", projectDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		run := createDesignFirstRun(t, ch, waveobj.RunDesignKind_Brainstorm)
+		spec := ignoredSpec(t, projectDir)
+		_, err = (&WshServer{}).RunDesignAttachCommand(ctx, wshrpc.CommandRunDesignAttachData{BlockId: (*spawns)[0].blockId, Spec: spec})
+		if err == nil || !strings.Contains(err.Error(), "ignored by git") {
+			t.Fatalf("an ignored spec at approve: %v", err)
+		}
+		got, err := wstore.GetRun(ctx, ch.OID, run.ID)
+		if err != nil || got.Design == nil {
+			t.Fatalf("the run no longer waits on its design: %+v, %v", got, err)
+		}
+		if _, err := os.Stat(spec); err != nil {
+			t.Fatalf("the refused spec moved: %v", err)
+		}
+	})
+}
+
 // an agent fanning out from its own worktree gets a run that branches from that worktree's branch and lands
 // back into it, while the project's main checkout is left alone
 func TestCreateRunFromAWorktree(t *testing.T) {
