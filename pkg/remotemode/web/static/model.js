@@ -23,19 +23,25 @@ export function viewState(list, error) {
     if (error) {
         return "unreachable";
     }
-    const empty = !list || ((list.questions ?? []).length === 0 && (list.shown ?? []).length === 0);
+    const empty =
+        !list ||
+        ((list.questions ?? []).length === 0 && (list.handed ?? []).length === 0 && (list.shown ?? []).length === 0);
     return empty ? "empty" : "main";
 }
 
-/** The header's counts, e.g. "2 questions to answer · 2 runs held · 1 other". */
+/** The header's counts, e.g. "2 questions to answer · 3 agents handed over · 2 runs held · 1 other". */
 export function countsLine(list) {
     const questions = (list?.questions ?? []).length;
+    const handed = (list?.handed ?? []).length;
     const shown = list?.shown ?? [];
     const held = shown.filter((s) => s.kind === HELD_KIND).length;
     const other = shown.length - held;
     const parts = [];
     if (questions) {
         parts.push(plural(questions, "question to answer", "questions to answer"));
+    }
+    if (handed) {
+        parts.push(plural(handed, "agent handed over", "agents handed over"));
     }
     if (held) {
         parts.push(plural(held, "run held", "runs held"));

@@ -35,6 +35,10 @@ describe("viewState", () => {
         expect(viewState({ questions: [{ key: "ask:a" }], shown: [] }, null)).toBe("main");
         expect(viewState({ questions: [], shown: [held("h")] }, null)).toBe("main");
     });
+
+    it("is main with only hand-overs", () => {
+        expect(viewState({ questions: [], handed: [{ tab: "t" }], shown: [] }, null)).toBe("main");
+    });
 });
 
 describe("countsLine", () => {
@@ -50,6 +54,15 @@ describe("countsLine", () => {
     it("counts other shown kinds as other and leaves out zero parts", () => {
         const list = { questions: [], shown: [{ kind: "dag-blocked" }, { kind: "escalation" }, held("a")] };
         expect(countsLine(list)).toBe("1 run held · 2 other");
+    });
+
+    it("puts hand-overs between questions and held runs", () => {
+        const list = { questions: [{}], handed: [{}, {}, {}], shown: [held("a")] };
+        expect(countsLine(list)).toBe("1 question to answer · 3 agents handed over · 1 run held");
+    });
+
+    it("counts one hand-over in the singular", () => {
+        expect(countsLine({ questions: [], handed: [{}], shown: [] })).toBe("1 agent handed over");
     });
 
     it("says nothing is waiting for an empty list", () => {

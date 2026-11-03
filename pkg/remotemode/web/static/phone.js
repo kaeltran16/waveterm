@@ -1,6 +1,9 @@
-// The phone page: draws what waits on the owner from /api/waiting, answers questions, turns remote mode
-// off and subscribes to pushes. Every string from the server goes in as text, never as markup.
+// The phone page: draws what waits on the owner from /api/waiting, answers questions, opens the chat with
+// a handed-over agent (#agent/<tab>), turns remote mode off and subscribes to pushes. Every string from
+// the server goes in as text, never as markup.
 
+import { openChat } from "./chat.js";
+import { chatTab, rowStateLabel } from "./chatmodel.js";
 import {
     answerText,
     base64UrlToBytes,
@@ -40,6 +43,7 @@ const state = {
     turnedOff: false,
     subscribing: false,
     subscribed: false,
+    chat: null, // { tab, close } while a chat is open
 };
 
 function h(tag, props, ...children) {
@@ -132,8 +136,9 @@ async function refresh() {
     state.loaded = true;
     state.list = list;
     state.error = error;
-    // an open answer keeps its picks and typing; the list redraws when the owner goes back to it
-    if (!state.answering && !state.sent) {
+    // an open answer keeps its picks and typing, and a chat draws from its own stream; the list redraws
+    // when the owner goes back to it
+    if (!state.answering && !state.sent && !state.chat) {
         render();
     }
 }
@@ -258,6 +263,34 @@ function metaRow(q) {
     );
 }
 
+function handedRow(a) {
+    return h(
+        "button",
+        {
+            type: "button",
+            class: "agent-row",
+            "data-handed-row": a.tab,
+            onclick: () => {
+                location.hash = `#agent/${encodeURIComponent(a.tab)}`;
+            },
+        },
+        h(
+            "span",
+            { class: "meta" },
+            h("span", { class: "rt-dot", "data-rt": a.runtime || "none", "aria-hidden": "true" }),
+            h("span", { class: "meta-agent" }, a.name),
+            a.project ? h("span", { class: "meta-project" }, a.project) : null,
+            h(
+                "span",
+                { class: "state-chip", "data-state": a.state },
+                h("span", { class: "state-dot", "aria-hidden": "true" }),
+                rowStateLabel(a, Date.now())
+            )
+        ),
+        h("span", { class: "agent-line-row" }, h("span", { class: "agent-line" }, a.line), icon(ICON_CHEVRON_RIGHT, 14))
+    );
+}
+
 function shownRow(s) {
     return h(
         "div",
@@ -318,7 +351,7 @@ function offFooter() {
         h(
             "div",
             { class: "foot-text" },
-            "This page goes offline and the PC may sleep again. Turn it back on at the desk."
+            "This page goes offline, every handed-over agent goes back to the desk, and the PC may sleep again."
         )
     );
 }
@@ -346,6 +379,7 @@ async function turnOff() {
 
 function mainView() {
     const questions = state.list.questions ?? [];
+    const handed = state.list.handed ?? [];
     const shown = state.list.shown ?? [];
     const allHeld = shown.every((s) => s.kind === HELD_KIND);
     return [
@@ -361,6 +395,14 @@ function mainView() {
                       { class: "section", "aria-label": "Questions" },
                       h("h2", null, "Questions"),
                       questions.map(questionCard)
+                  )
+                : null,
+            handed.length
+                ? h(
+                      "section",
+                      { class: "section", "aria-label": "Handed over" },
+                      h("h2", null, "Handed over"),
+                      handed.map(handedRow)
                   )
                 : null,
             shown.length
@@ -618,7 +660,7 @@ function sentView() {
 }
 
 function render() {
-    if (!state.loaded) {
+    if (!state.loaded || state.chat) {
         return;
     }
     let view;
@@ -633,6 +675,28 @@ function render() {
     app.replaceChildren(...view);
 }
 
+// the chat lives in the hash, so a reload or a push tap keeps it
+function route() {
+    const tab = chatTab(location.hash);
+    if ((state.chat?.tab ?? null) === tab) {
+        return;
+    }
+    state.chat?.close();
+    state.chat = null;
+    if (tab) {
+        const initial = (state.list?.handed ?? []).find((a) => a.tab === tab) ?? null;
+        state.chat = { tab, close: openChat(app, tab, { h, icon, post, initial, onBack: leaveChat }) };
+        return;
+    }
+    render();
+    refresh();
+}
+
+function leaveChat() {
+    history.replaceState(null, "", location.pathname + location.search);
+    route();
+}
+
 if ("serviceWorker" in navigator) {
     navigator.serviceWorker
         .register("sw.js")
@@ -644,5 +708,7 @@ document.addEventListener("visibilitychange", () => {
         refresh();
     }
 });
+window.addEventListener("hashchange", route);
 setInterval(refresh, REFRESH_MS);
+route();
 refresh();
