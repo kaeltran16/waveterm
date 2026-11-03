@@ -35,8 +35,16 @@ When the human points you at a ticket (or you were started with Make initiative)
 wsh jira show <KEY>
 ```
 
-It prints the summary, status, description and acceptance criteria, and ends on the project Arc
-infers. When it says `project unsure`, ask the human which project before creating anything. Then:
+It prints the summary, status, description, acceptance criteria, attachments and comments, and ends
+on the project Arc infers. Where the description or a comment embedded a screenshot it reads
+`[image: <file> (attachment <id>)]`; when one matters, save it and open the image:
+
+```bash
+wsh jira attachments <KEY> [--only <name|id>] [--out <dir>]
+```
+
+It prints each saved path (by default under a new temp directory). When `show` says
+`project unsure`, ask the human which project before creating anything. Then:
 
 ```bash
 wsh effort create "<ticket title>" --ticket <KEY> --project <p> --chunk "<phase 1>" --chunk "<phase 2>"

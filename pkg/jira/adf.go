@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 )
 
 // adfNode is one node of an Atlassian Document Format tree.
@@ -29,19 +31,63 @@ var inlineTypes = map[string]bool{
 	"date": true, "status": true, "mediaInline": true,
 }
 
-func parseADF(doc json.RawMessage) (adfNode, bool) {
+// parseADF reads an ADF doc, turning each embedded media node into a text marker that names the
+// attachment it shows (see mediaMarker).
+func parseADF(doc json.RawMessage, atts []wshrpc.JiraAttachment) (adfNode, bool) {
 	var n adfNode
 	if len(doc) == 0 || json.Unmarshal(doc, &n) != nil || n.Type == "" {
 		return adfNode{}, false
 	}
+	markMedia(&n, atts)
 	return n, true
 }
 
-// ADFToPlain renders an ADF document as readable plain text. A node type it doesn't know yields its
-// text children, so a new Jira node never hides content or fails the read. A JSON string (a plain
-// text field) comes back as is.
-func ADFToPlain(doc json.RawMessage) string {
-	n, ok := parseADF(doc)
+func markMedia(n *adfNode, atts []wshrpc.JiraAttachment) {
+	if n.Type == "media" || n.Type == "mediaInline" {
+		*n = adfNode{Type: "text", Text: mediaMarker(*n, atts)}
+		return
+	}
+	for i := range n.Content {
+		markMedia(&n.Content[i], atts)
+	}
+}
+
+// mediaMarker says where a doc embedded a file: "[image: shot.png (attachment 10001)]". Jira sets a
+// media node's alt to the file's name; its id is a Media Services id that REST never maps to an
+// attachment id, so the name is the only link. Two attachments sharing the name are both listed.
+func mediaMarker(n adfNode, atts []wshrpc.JiraAttachment) string {
+	if attrString(n, "type") == "external" {
+		if u := attrString(n, "url"); u != "" {
+			return "[image: " + u + "]"
+		}
+		return "[image]"
+	}
+	alt := strings.TrimSpace(attrString(n, "alt"))
+	if alt == "" {
+		return "[image]"
+	}
+	kind := "image"
+	var ids []string
+	for _, a := range atts {
+		if a.Filename != alt {
+			continue
+		}
+		ids = append(ids, a.ID)
+		if a.MimeType != "" && !strings.HasPrefix(a.MimeType, "image/") {
+			kind = "file"
+		}
+	}
+	if len(ids) == 0 {
+		return "[" + kind + ": " + alt + "]"
+	}
+	return fmt.Sprintf("[%s: %s (attachment %s)]", kind, alt, strings.Join(ids, " or "))
+}
+
+// ADFToPlain renders an ADF document as readable plain text, marking embedded media with the
+// attachment from atts it shows. A node type it doesn't know yields its text children, so a new Jira
+// node never hides content or fails the read. A JSON string (a plain text field) comes back as is.
+func ADFToPlain(doc json.RawMessage, atts []wshrpc.JiraAttachment) string {
+	n, ok := parseADF(doc, atts)
 	if !ok {
 		var s string
 		if json.Unmarshal(doc, &s) == nil {
@@ -66,8 +112,8 @@ func blockText(n adfNode, indent string) string {
 		return joinBlocks(n.Content, indent, " | ")
 	case "tableCell", "tableHeader", "listItem":
 		return joinBlocks(n.Content, indent, " ")
-	case "media", "mediaSingle", "mediaGroup":
-		return ""
+	case "mediaSingle", "mediaGroup":
+		return joinBlocks(n.Content, indent, "\n")
 	}
 	if inlineTypes[n.Type] {
 		return inlineText([]adfNode{n})

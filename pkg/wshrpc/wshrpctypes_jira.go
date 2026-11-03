@@ -18,6 +18,8 @@ type JiraCommands interface {
 	JiraPostDraftCommand(ctx context.Context, data CommandJiraPostDraftData) (*CommandJiraPostDraftRtnData, error)
 	JiraPostSummariesCommand(ctx context.Context, data CommandJiraPostDraftData) (*CommandJiraPostSummariesRtnData, error)
 	JiraPostCommand(ctx context.Context, data CommandJiraPostData) (*CommandJiraPostRtnData, error)
+	JiraAttachmentsCommand(ctx context.Context, data CommandJiraAttachmentsData) (*CommandJiraAttachmentsRtnData, error)
+	JiraAttachmentReadCommand(ctx context.Context, data CommandJiraAttachmentReadData) (*CommandJiraAttachmentReadRtnData, error)
 }
 
 type CommandJiraConnectionData struct {
@@ -45,6 +47,25 @@ type JiraTicket struct {
 	Acceptance     []string `json:"acceptance,omitempty"`
 	URL            string   `json:"url"`
 	UpdatedTs      int64    `json:"updatedts,omitempty"`
+	// only a full read (show) fills these two
+	Attachments []JiraAttachment `json:"attachments,omitempty"`
+	Comments    []JiraComment    `json:"comments,omitempty"`
+}
+
+type JiraAttachment struct {
+	ID        string `json:"id"`
+	Filename  string `json:"filename"`
+	MimeType  string `json:"mimetype,omitempty"`
+	Size      int64  `json:"size"`
+	Author    string `json:"author,omitempty"`
+	CreatedTs int64  `json:"createdts,omitempty"`
+}
+
+type JiraComment struct {
+	ID        string `json:"id"`
+	Author    string `json:"author,omitempty"`
+	CreatedTs int64  `json:"createdts,omitempty"`
+	Body      string `json:"body"` // plain text, embedded media marked as [image: ...]
 }
 
 // JiraTicketRow is one Check Jira result with its inferred project; the embedded ticket's fields
@@ -115,4 +136,23 @@ type CommandJiraPostRtnData struct {
 	MovedTo    string `json:"movedto,omitempty"`
 	MoveError  string `json:"moveerror,omitempty"`
 	Status     string `json:"status"`
+}
+
+type CommandJiraAttachmentsData struct {
+	Key string `json:"key"`
+}
+
+type CommandJiraAttachmentsRtnData struct {
+	Key         string           `json:"key"`
+	Attachments []JiraAttachment `json:"attachments"`
+}
+
+type CommandJiraAttachmentReadData struct {
+	Key string `json:"key"`
+	ID  string `json:"id"`
+}
+
+type CommandJiraAttachmentReadRtnData struct {
+	Attachment JiraAttachment `json:"attachment"`
+	Data64     string         `json:"data64"`
 }

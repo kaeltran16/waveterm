@@ -5,6 +5,7 @@ package wshserver
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -28,6 +29,7 @@ type fakeJira struct {
 	comments    []string // plain text of each posted comment
 	failComment int      // status to answer a comment with; 0 posts it
 	failMove    string   // Jira's message refusing every move; "" allows it
+	attachments []any    // every issue's attachment field
 }
 
 var fakeStatusIDs = map[string]string{"To Do": "11", "In Progress": "21", "Done": "41"}
@@ -37,10 +39,11 @@ var fakeCategories = map[string]string{"To Do": "new", "In Progress": "indetermi
 func (f *fakeJira) issueJSON(key string) map[string]any {
 	st := f.status[key]
 	return map[string]any{"key": key, "fields": map[string]any{
-		"summary":   "Summary of " + key,
-		"issuetype": map[string]any{"name": "Story"},
-		"status":    map[string]any{"name": st, "statusCategory": map[string]any{"key": fakeCategories[st]}},
-		"updated":   "2026-11-01T10:00:00.000+0000",
+		"summary":    "Summary of " + key,
+		"issuetype":  map[string]any{"name": "Story"},
+		"status":     map[string]any{"name": st, "statusCategory": map[string]any{"key": fakeCategories[st]}},
+		"updated":    "2026-11-01T10:00:00.000+0000",
+		"attachment": f.attachments,
 	}}
 }
 
@@ -80,6 +83,8 @@ func (f *fakeJira) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		reply(200, map[string]any{"displayName": "Fixture User"})
 	case path == "/field":
 		reply(200, []any{})
+	case strings.HasPrefix(path, "/attachment/content/"):
+		w.Write([]byte("DATA-" + strings.TrimPrefix(path, "/attachment/content/")))
 	case path == "/search/jql":
 		var issues []any
 		for key, st := range f.status {
@@ -259,6 +264,46 @@ func TestJiraShowNotFoundKeepsJirasMessage(t *testing.T) {
 	_, err := (&WshServer{}).JiraShowCommand(context.Background(), wshrpc.CommandJiraShowData{Key: "PAY-9", Via: "lookup"})
 	if err == nil || !strings.HasPrefix(err.Error(), "EC-JIRA-HTTP 404: Issue does not exist") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestJiraAttachmentReadOnlyTheTicketsUnderTheCap(t *testing.T) {
+	f, _ := useFakeJira(t, map[string]string{"PAY-1": "To Do"})
+	f.attachments = []any{
+		map[string]any{"id": "10001", "filename": "a.png", "mimeType": "image/png", "size": 10},
+		map[string]any{"id": "10002", "filename": "big.mov", "mimeType": "video/quicktime", "size": jira.AttachmentMaxBytes + 1},
+	}
+	ws := &WshServer{}
+	ctx := context.Background()
+	got, err := ws.JiraAttachmentReadCommand(ctx, wshrpc.CommandJiraAttachmentReadData{Key: "pay-1", ID: "10001"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := base64.StdEncoding.DecodeString(got.Data64); string(data) != "DATA-10001" || got.Attachment.Filename != "a.png" {
+		t.Fatalf("read = %+v (data %q)", got.Attachment, data)
+	}
+	contentCalls := func() int {
+		n := 0
+		for _, c := range f.calls {
+			if strings.Contains(c, "/attachment/content/") {
+				n++
+			}
+		}
+		return n
+	}
+	before := contentCalls()
+	if _, err := ws.JiraAttachmentReadCommand(ctx, wshrpc.CommandJiraAttachmentReadData{Key: "PAY-1", ID: "99"}); err == nil || !strings.Contains(err.Error(), `PAY-1 has no attachment "99"`) {
+		t.Errorf("foreign id: err = %v", err)
+	}
+	if _, err := ws.JiraAttachmentReadCommand(ctx, wshrpc.CommandJiraAttachmentReadData{Key: "PAY-1", ID: "10002"}); err == nil || !strings.HasPrefix(err.Error(), jira.CodeTooLarge) {
+		t.Errorf("over the cap: err = %v", err)
+	}
+	if n := contentCalls(); n != before {
+		t.Errorf("%d downloads for refused reads", n-before)
+	}
+	list, err := ws.JiraAttachmentsCommand(ctx, wshrpc.CommandJiraAttachmentsData{Key: "pay-1"})
+	if err != nil || list.Key != "PAY-1" || len(list.Attachments) != 2 {
+		t.Fatalf("list = %+v, %v", list, err)
 	}
 }
 

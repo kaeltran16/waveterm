@@ -732,6 +732,18 @@ func JarvisStatusCommand(w *wshutil.WshRpc, data wshrpc.CommandJarvisStatusData,
 	return resp, err
 }
 
+// command "jiraattachmentread", wshserver.JiraAttachmentReadCommand
+func JiraAttachmentReadCommand(w *wshutil.WshRpc, data wshrpc.CommandJiraAttachmentReadData, opts *wshrpc.RpcOpts) (*wshrpc.CommandJiraAttachmentReadRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandJiraAttachmentReadRtnData](w, "jiraattachmentread", data, opts)
+	return resp, err
+}
+
+// command "jiraattachments", wshserver.JiraAttachmentsCommand
+func JiraAttachmentsCommand(w *wshutil.WshRpc, data wshrpc.CommandJiraAttachmentsData, opts *wshrpc.RpcOpts) (*wshrpc.CommandJiraAttachmentsRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandJiraAttachmentsRtnData](w, "jiraattachments", data, opts)
+	return resp, err
+}
+
 // command "jiracheck", wshserver.JiraCheckCommand
 func JiraCheckCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandJiraCheckRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandJiraCheckRtnData](w, "jiracheck", nil, opts)
