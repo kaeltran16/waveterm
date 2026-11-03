@@ -12,6 +12,7 @@ import { atom, type PrimitiveAtom } from "jotai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { shellTaskPeekAtom } from "@/app/view/agents/shelltasksstore";
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
+import { codePeekFocusedAtom, openPeekInCode } from "@/app/view/code/codepeekstore";
 import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
 import {
     attachCanvas,
@@ -112,6 +113,10 @@ vi.mock("@/app/view/agents/diffcommentlayer", async (orig) => {
 vi.mock("@/app/view/agents/diffnav", async (orig) => ({
     ...(await orig<typeof import("@/app/view/agents/diffnav")>()),
     gotoChange: vi.fn(() => true),
+}));
+vi.mock("@/app/view/code/codepeekstore", async (orig) => ({
+    ...(await orig<typeof import("@/app/view/code/codepeekstore")>()),
+    openPeekInCode: vi.fn(async () => {}),
 }));
 vi.mock("@/app/view/code/codestore", async (orig) => ({
     ...(await orig<typeof import("@/app/view/code/codestore")>()),
@@ -615,6 +620,119 @@ describe("shell task peek vs agent Escape", () => {
 
         globalStore.set(renamingRowAtom, null);
         globalStore.set(shellTaskPeekAtom, null);
+    });
+});
+
+describe("code peek Enter and Escape", () => {
+    const nav: KeyContext = { surface: "agent", editable: false, modalOpen: false, leader: null };
+    // the card's Monaco textarea counts as editable, and the terminal's does too
+    const typing: KeyContext = { ...nav, editable: true };
+    let model: any;
+    const all = () => [...buildGlobalBindings(model), ...buildListNavBindings(model), ...buildAgentBindings(model)];
+    const claiming = (key: string, c: KeyContext = nav) =>
+        all()
+            .filter((b) => b.keys === key && b.when?.(c) !== false)
+            .map((b) => b.id);
+
+    beforeEach(() => {
+        vi.stubGlobal("document", { activeElement: null });
+        model = {
+            ...stubModel("a1"),
+            surfaceAtom: atom<SurfaceKey>("agent"),
+            agentsAtom: atom<any[]>([{ id: "a1", name: "Agent", blockId: "b1" }]),
+        };
+        vi.mocked(openPeekInCode).mockClear();
+    });
+
+    afterEach(() => {
+        globalStore.set(codePeekFocusedAtom, false);
+        globalStore.set(focusSubagentAtom, null);
+        globalStore.set(shellTaskPeekAtom, null);
+        globalStore.set(escapeMenusOpenAtom, 0);
+        vi.unstubAllGlobals();
+    });
+
+    it("with focus inside the card, Escape closes the peek and Enter opens it in Code, whether or not a field holds focus", () => {
+        globalStore.set(codePeekFocusedAtom, true);
+        for (const c of [nav, typing]) {
+            expect(claiming("Escape", c)).toEqual(["codepeek:close"]);
+            expect(claiming("Enter", c)).toEqual(["codepeek:open"]);
+        }
+    });
+
+    it("with focus in the terminal, neither key is the peek's, so Escape reaches the agent", () => {
+        globalStore.set(codePeekFocusedAtom, false);
+        const byId = (id: string) => all().find((b) => b.id === id)!;
+        expect(byId("codepeek:close").when!(nav)).toBe(false);
+        expect(byId("codepeek:close").when!(typing)).toBe(false);
+        expect(byId("codepeek:open").when!(nav)).toBe(false);
+        expect(byId("codepeek:open").when!(typing)).toBe(false);
+        expect(claiming("Escape")).toEqual(["agent:back"]);
+    });
+
+    it("stands down on other surfaces, under a modal and under an open escape menu", () => {
+        globalStore.set(codePeekFocusedAtom, true);
+        const byId = (id: string) => all().find((b) => b.id === id)!;
+        expect(byId("codepeek:close").when!({ ...nav, surface: "cockpit" })).toBe(false);
+        expect(byId("codepeek:open").when!({ ...nav, surface: "cockpit" })).toBe(false);
+        expect(byId("codepeek:close").when!({ ...nav, modalOpen: true })).toBe(false);
+        expect(byId("codepeek:open").when!({ ...nav, modalOpen: true })).toBe(false);
+        globalStore.set(escapeMenusOpenAtom, 1);
+        expect(byId("codepeek:close").when!(nav)).toBe(false);
+        expect(byId("codepeek:open").when!(nav)).toBe(true);
+    });
+
+    it("takes Escape from every other Agent Escape, even while a subagent or shell task peek is open", () => {
+        globalStore.set(codePeekFocusedAtom, true);
+        globalStore.set(focusSubagentAtom, { parentId: "a1", agentId: "s" } as any);
+        expect(claiming("Escape")).toEqual(["codepeek:close"]);
+        globalStore.set(focusSubagentAtom, null);
+        globalStore.set(shellTaskPeekAtom, { parentId: "a1", taskId: "t" });
+        expect(claiming("Escape")).toEqual(["codepeek:close"]);
+        expect(claiming("Escape", typing)).toEqual(["codepeek:close"]);
+    });
+
+    it("takes Enter from the brainstorm review's open key", () => {
+        const file: BrainstormFile = {
+            v: 1,
+            title: "Forecast",
+            spec: "docs/spec.md",
+            question: null,
+            working: null,
+            parts: [
+                { id: "grain", title: "Forecast grain", state: "guess", was: "Daily.", body: "Hourly.", why: "q1" },
+            ],
+            history: [],
+            done: true,
+            check: {
+                yours: [{ q: "Act on?", a: "event_count", into: ["grain"] }],
+                calls: [],
+                answered: [],
+                touched: ["grain"],
+            },
+            run: null,
+        };
+        attachBrainstorm("a1", { topic: "forecast", cwd: "C:\\p" }, 0);
+        updateBrainstorm("a1", (s) => ({ ...s, file }));
+        setBrainstormMode("a1", "brainstorm", 1);
+        try {
+            const review = all().find((b) => b.id === "agent:brainstorm-review-open")!;
+            expect(review.when!(nav)).toBe(true);
+            globalStore.set(codePeekFocusedAtom, true);
+            expect(review.when!(nav)).toBe(false);
+            expect(claiming("Enter")).toEqual(["codepeek:open"]);
+        } finally {
+            detachBrainstorm("a1");
+        }
+    });
+
+    it("runs Open in Code for the focused agent's model, and Close clears the peek", () => {
+        globalStore.set(codePeekFocusedAtom, true);
+        const byId = (id: string) => all().find((b) => b.id === id)!;
+        byId("codepeek:open").run(nav);
+        expect(openPeekInCode).toHaveBeenCalledWith(model);
+        byId("codepeek:close").run(nav);
+        expect(globalStore.get(codePeekFocusedAtom)).toBe(false);
     });
 });
 

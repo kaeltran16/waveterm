@@ -167,6 +167,8 @@ type CommandGitFileAtRefRtnData struct {
 	TooLarge bool   `json:"toolarge,omitempty"`
 	Size     int64  `json:"size,omitempty"`
 	IsRepo   bool   `json:"isrepo"`
+	Root     string `json:"root,omitempty"`
+	Prefix   string `json:"prefix,omitempty"`
 }
 
 type CommandGitFetchData struct {

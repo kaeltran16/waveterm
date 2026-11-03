@@ -1792,6 +1792,40 @@ func TestFileAtRefMissingIsNotAnError(t *testing.T) {
 	if !got.Missing || got.Content != "" {
 		t.Errorf("got %+v, want Missing with no content", got)
 	}
+	if got.Root == "" {
+		t.Errorf("Root is empty, want it set for a Missing answer in a repo")
+	}
+}
+
+func TestFileAtRefReportsRootAndPrefix(t *testing.T) {
+	dir := t.TempDir()
+	git(t, dir, "init", "-b", "main")
+	writeAt(t, dir, "sub/c.txt", "deep\n")
+	writeAt(t, dir, "top.txt", "top\n")
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-m", "init")
+
+	fromSub, err := FileAtRef(context.Background(), filepath.Join(dir, "sub"), "HEAD", "c.txt", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sameDir(t, fromSub.Root, dir) {
+		t.Errorf("Root = %q, want the repo dir %q", fromSub.Root, dir)
+	}
+	if fromSub.Prefix != "sub/" {
+		t.Errorf("Prefix = %q, want %q", fromSub.Prefix, "sub/")
+	}
+
+	fromRoot, err := FileAtRef(context.Background(), dir, "HEAD", "top.txt", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sameDir(t, fromRoot.Root, dir) {
+		t.Errorf("Root = %q, want the repo dir %q", fromRoot.Root, dir)
+	}
+	if fromRoot.Prefix != "" {
+		t.Errorf("Prefix = %q, want empty at the repo root", fromRoot.Prefix)
+	}
 }
 
 func TestFileAtRefPathWithASpace(t *testing.T) {
@@ -1849,6 +1883,9 @@ func TestFileAtRefNotARepo(t *testing.T) {
 	}
 	if got.IsRepo {
 		t.Errorf("IsRepo = true, want false")
+	}
+	if got.Root != "" || got.Prefix != "" {
+		t.Errorf("Root/Prefix = %q/%q, want both empty outside a repo", got.Root, got.Prefix)
 	}
 }
 

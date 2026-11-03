@@ -17,7 +17,7 @@ import {
     WOS,
 } from "@/store/global";
 import * as services from "@/store/services";
-import { PLATFORM, PlatformMacOS } from "@/util/platformutil";
+import { isMacOS, PLATFORM, PlatformMacOS } from "@/util/platformutil";
 import { base64ToArray, fireAndForget } from "@/util/util";
 import { FitAddon } from "@xterm/addon-fit";
 import { SerializeAddon } from "@xterm/addon-serialize";
@@ -25,6 +25,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import * as TermTypes from "@xterm/xterm";
 import { Terminal } from "@xterm/xterm";
+import { colord } from "colord";
 import debug from "debug";
 import * as jotai from "jotai";
 import { debounce } from "throttle-debounce";
@@ -34,6 +35,7 @@ import {
     handleOsc7Command,
     type ShellIntegrationStatus,
 } from "./osc-handlers";
+import { fileLinkRange, findFileLinks, isPeekModifier, type FileLinkMatch } from "./termfilelinks";
 import {
     bufferLinesToText,
     createTempFileFromBlob,
@@ -65,6 +67,25 @@ function detectWebGLSupport(): boolean {
 
 export const WebGLSupported = detectWebGLSupport();
 let loggedWebGL = false;
+
+export type FileLinkHit = { match: FileLinkMatch; bufferLine: number };
+
+export type FileLinkHandler = {
+    activate(hit: FileLinkHit): void;
+    // client coords just below the hovered row; null hides
+    hint(at: { x: number; y: number } | null): void;
+};
+
+const FileLinkAccentVar = "--color-accent-soft";
+// longer than xterm takes to drop and re-hover a link after a render, short enough not to show after a real leave
+const FileLinkAccentReleaseMs = 50;
+
+// xterm decorations take only #rrggbb, and the theme token is read at hover time so themes apply.
+function fileLinkAccentHex(): string | undefined {
+    const value = getComputedStyle(document.documentElement).getPropertyValue(FileLinkAccentVar).trim();
+    const color = colord(value);
+    return color.isValid() ? color.alpha(1).toHex() : undefined;
+}
 
 type TermWrapOptions = {
     keydownHandler?: (e: KeyboardEvent) => boolean;
@@ -98,6 +119,11 @@ export class TermWrap {
     nodeModel: BlockNodeModel; // this can be null
     hoveredLinkUri: string | null = null;
     onLinkHover?: (uri: string | null, mouseX: number, mouseY: number) => void;
+    fileLinkHandler: FileLinkHandler | null = null;
+    private fileLinkAccent: { key: string; deco: TermTypes.IDisposable; releaseTimer?: number } | null = null;
+    // the modifier as the last key event left it, cleared by a pointer move: a re-hover after a render carries
+    // xterm's last mouse event, whose modifier state can predate a press or release
+    private peekKeyHeld: boolean | null = null;
 
     // Paste deduplication
     // xterm.js paste() method triggers onData event, which can cause duplicate sends
@@ -134,7 +160,8 @@ export class TermWrap {
         this.promptMarkers = [];
         this.shellIntegrationStatusAtom = jotai.atom(null) as jotai.PrimitiveAtom<ShellIntegrationStatus | null>;
         this.webglEnabledAtom = jotai.atom(false) as jotai.PrimitiveAtom<boolean>;
-        this.terminal = new Terminal(options);
+        // registerDecoration (the file-link accent) is proposed api in xterm 6 and throws without this
+        this.terminal = new Terminal({ ...options, allowProposedApi: true });
         this.fitAddon = new FitAddon();
         this.serializeAddon = new SerializeAddon();
         this.terminal.loadAddon(this.fitAddon);
@@ -168,6 +195,18 @@ export class TermWrap {
                 }
             )
         );
+        this.toDispose.push(
+            this.terminal.registerLinkProvider({ provideLinks: (y, callback) => callback(this.provideFileLinks(y)) })
+        );
+        // capture, so it runs before xterm's own move handling starts a hover
+        const clearPeekKey = () => (this.peekKeyHeld = null);
+        connectElem.addEventListener("mousemove", clearPeekKey, true);
+        this.toDispose.push({
+            dispose: () => {
+                connectElem.removeEventListener("mousemove", clearPeekKey, true);
+                this.dropFileLinkAccent();
+            },
+        });
         this.setTermRenderer(WebGLSupported && waveOptions.useWebGl ? "webgl" : "dom");
         // Register OSC handlers
         this.terminal.parser.registerOscHandler(7, (data: string) => {
@@ -445,6 +484,197 @@ export class TermWrap {
 
     addFocusListener(focusFn: () => void) {
         this.terminal.textarea.addEventListener("focus", focusFn);
+    }
+
+    setFileLinkHandler(handler: FileLinkHandler | null) {
+        this.fileLinkHandler = handler;
+    }
+
+    markLine(bufferLine: number): TermTypes.IMarker | undefined {
+        const buf = this.terminal.buffer.active;
+        return this.terminal.registerMarker(bufferLine - (buf.baseY + buf.cursorY));
+    }
+
+    // 1-based buffer row in, as xterm's link provider passes it; no handler means no file links.
+    private provideFileLinks(bufferLineNumber: number): TermTypes.ILink[] | undefined {
+        if (this.fileLinkHandler == null) {
+            return undefined;
+        }
+        const bufferLine = bufferLineNumber - 1;
+        const row = this.terminal.buffer.active.getLine(bufferLine);
+        if (row == null) {
+            return undefined;
+        }
+        const links = findFileLinks(row.translateToString(true)).map((m) => this.makeFileLink(m, bufferLine));
+        return links.length > 0 ? links : undefined;
+    }
+
+    private makeFileLink(match: FileLinkMatch, bufferLine: number): TermTypes.ILink {
+        let hover: TermTypes.IDisposable | null = null;
+        const endHover = () => {
+            hover?.dispose();
+            hover = null;
+        };
+        const link: TermTypes.ILink = {
+            range: fileLinkRange(match, bufferLine),
+            text: match.path,
+            decorations: { underline: false, pointerCursor: false },
+            activate: (e) => {
+                if (!isPeekModifier(e, isMacOS())) {
+                    return;
+                }
+                e.preventDefault();
+                this.fileLinkHandler?.activate({ match, bufferLine });
+            },
+            hover: (e) => {
+                endHover();
+                hover = this.hoverFileLink(link, match, bufferLine, e);
+            },
+            leave: () => {
+                // xterm still tracks this link during leave, so this clears its underline and cursor
+                link.decorations.underline = false;
+                link.decorations.pointerCursor = false;
+                endHover();
+            },
+            dispose: endHover,
+        };
+        return link;
+    }
+
+    // underline, accent and hint follow the modifier for as long as the pointer is on the link,
+    // including a press or release mid-hover.
+    private hoverFileLink(
+        link: TermTypes.ILink,
+        match: FileLinkMatch,
+        bufferLine: number,
+        e: MouseEvent
+    ): TermTypes.IDisposable {
+        let clientX = e.clientX;
+        let held = false;
+        const apply = (nowHeld: boolean) => {
+            held = nowHeld;
+            link.decorations.underline = held;
+            link.decorations.pointerCursor = held;
+            if (held) {
+                this.holdFileLinkAccent(match, bufferLine);
+            } else {
+                this.dropFileLinkAccent();
+            }
+            this.fileLinkHandler?.hint(held ? this.belowRow(bufferLine, clientX) : null);
+        };
+        const onKey = (ke: KeyboardEvent) => {
+            const nowHeld = isPeekModifier(ke, isMacOS());
+            this.peekKeyHeld = nowHeld;
+            if (nowHeld !== held) {
+                apply(nowHeld);
+            }
+        };
+        const onMove = (me: MouseEvent) => {
+            clientX = me.clientX;
+            if (held) {
+                this.fileLinkHandler?.hint(this.belowRow(bufferLine, clientX));
+            }
+        };
+        // capture: a focused xterm stops key events from bubbling to window
+        window.addEventListener("keydown", onKey, true);
+        window.addEventListener("keyup", onKey, true);
+        this.terminal.element?.addEventListener("mousemove", onMove);
+        // xterm calls hover before it starts tracking the link's decorations, so a write made now is lost
+        let disposed = false;
+        queueMicrotask(() => {
+            if (!disposed) {
+                apply(this.peekKeyHeld ?? isPeekModifier(e, isMacOS()));
+            }
+        });
+        return {
+            dispose: () => {
+                disposed = true;
+                window.removeEventListener("keydown", onKey, true);
+                window.removeEventListener("keyup", onKey, true);
+                this.terminal.element?.removeEventListener("mousemove", onMove);
+                this.releaseFileLinkAccent();
+                if (held) {
+                    this.fileLinkHandler?.hint(null);
+                }
+            },
+        };
+    }
+
+    // The accent outlives a leave by a moment: registering it re-renders the viewport, and xterm then drops the link
+    // under the pointer and hovers it again, so releasing it at once would re-register it on every frame.
+    private holdFileLinkAccent(match: FileLinkMatch, bufferLine: number) {
+        const key = `${bufferLine}:${match.start}:${match.end}`;
+        const cur = this.fileLinkAccent;
+        if (cur?.key === key) {
+            window.clearTimeout(cur.releaseTimer);
+            cur.releaseTimer = undefined;
+            return;
+        }
+        this.dropFileLinkAccent();
+        const deco = this.accentFileLink(match, bufferLine);
+        if (deco != null) {
+            this.fileLinkAccent = { key, deco };
+        }
+    }
+
+    private releaseFileLinkAccent() {
+        const cur = this.fileLinkAccent;
+        if (cur == null || cur.releaseTimer != null) {
+            return;
+        }
+        cur.releaseTimer = window.setTimeout(() => {
+            if (this.fileLinkAccent === cur) {
+                this.dropFileLinkAccent();
+            }
+        }, FileLinkAccentReleaseMs);
+    }
+
+    private dropFileLinkAccent() {
+        const cur = this.fileLinkAccent;
+        this.fileLinkAccent = null;
+        if (cur != null) {
+            window.clearTimeout(cur.releaseTimer);
+            cur.deco.dispose();
+        }
+    }
+
+    // recolors the link's cells. The decoration goes before its marker: xterm finds a decoration to remove by its
+    // marker's line, which a disposed marker has lost, so disposing the marker first strands the decoration in
+    // xterm's sorted list and later decorations stop rendering.
+    private accentFileLink(match: FileLinkMatch, bufferLine: number): TermTypes.IDisposable | undefined {
+        const color = fileLinkAccentHex();
+        const marker = color ? this.markLine(bufferLine) : undefined;
+        if (marker == null) {
+            return undefined;
+        }
+        const deco = this.terminal.registerDecoration({
+            marker,
+            x: match.start,
+            width: match.end - match.start,
+            foregroundColor: color,
+            layer: "top",
+        });
+        if (deco == null) {
+            marker.dispose();
+            return undefined;
+        }
+        return {
+            dispose: () => {
+                deco.dispose();
+                marker.dispose();
+            },
+        };
+    }
+
+    private belowRow(bufferLine: number, clientX: number): { x: number; y: number } | null {
+        const screen = this.terminal.element?.querySelector(".xterm-screen");
+        if (screen == null) {
+            return null;
+        }
+        const rect = screen.getBoundingClientRect();
+        const rowHeight = rect.height / this.terminal.rows;
+        const viewRow = bufferLine - this.terminal.buffer.active.viewportY;
+        return { x: clientX, y: rect.top + (viewRow + 1) * rowHeight };
     }
 
     handleNewFileSubjectData(msg: WSFileEventData) {

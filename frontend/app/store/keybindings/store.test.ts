@@ -25,6 +25,8 @@ import { diffScopeAtom } from "@/app/view/agents/diffscopeatom";
 import { historyFiltersAtom } from "@/app/view/agents/githistorystore";
 import { NO_FILTERS } from "@/app/view/agents/historyquery";
 import { renamingRowAtom } from "@/app/view/agents/rowrenameatom";
+import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
+import { codePeekFocusedAtom } from "@/app/view/code/codepeekstore";
 import { codeTreeFocusedAtom } from "@/app/view/code/codestore";
 import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
 import { graphPeekOpenAtom } from "@/app/view/jarvis/jarvisstore";
@@ -142,6 +144,23 @@ describe("keybinding conflict invariant", () => {
     it("global + agent-surface bindings do not conflict", () => {
         const model = stubModel();
         expect(() => assertNoConflicts([...buildGlobalBindings(model), ...buildAgentBindings(model)])).not.toThrow();
+    });
+
+    // Escape and Enter each carry another meaning on the agent surface; the peek's two are live only while focus is
+    // inside the card, and the ones they would clash with stand down for it
+    it("global + list-nav + agent bindings do not conflict while focus is inside the code peek", () => {
+        const model = withCanvas();
+        const all = [...buildGlobalBindings(model), ...buildListNavBindings(model), ...buildAgentBindings(model)];
+        globalStore.set(codePeekFocusedAtom, true);
+        try {
+            expect(() => assertNoConflicts(all)).not.toThrow();
+            globalStore.set(focusSubagentAtom, { parentId: "p", agentId: "s" } as any);
+            expect(() => assertNoConflicts(all)).not.toThrow();
+        } finally {
+            globalStore.set(focusSubagentAtom, null);
+            globalStore.set(codePeekFocusedAtom, false);
+            detachCanvas("a1");
+        }
     });
 
     // c, m, [ and ] each carry two meanings on the agent surface, split by the canvas's state

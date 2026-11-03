@@ -19,7 +19,7 @@ import { base64ToString, fireAndForget, stringToBase64 } from "@/util/util";
 import { atom, type PrimitiveAtom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import { debounce } from "throttle-debounce";
-import { classifyFile, hasNulByte, MAX_VIEW_BYTES } from "./codeclassify";
+import { classifyFile, hasNulByte, HEAD_BINARY, HEAD_TOOLARGE, MAX_VIEW_BYTES } from "./codeclassify";
 import { diffBaseOf, nextDiffStep, type DiffBase, type DiffStep } from "./codedifftarget";
 import {
     conflictMessage,
@@ -108,8 +108,8 @@ export const codeIndexErrorAtom = atom<string | null>(null) as PrimitiveAtom<str
 // A directory that is not a repository: browsable, but with no change tracking. Derived from the one
 // index so nothing else has to be told; false while the index loads.
 export const codePlainAtom = atom((get) => get(codeIndexAtom)?.isRepo === false);
-// the reason a git-only affordance gives for being disabled in a plain directory
-export const NOT_TRACKED = "Not a git repository — no change tracking";
+// moved to the pure classifier so the peek model can use it without the store; importers stay put
+export { NOT_TRACKED } from "./codeclassify";
 export const codeExpandedAtom = atom<Set<string>>(new Set<string>()) as PrimitiveAtom<Set<string>>;
 export const codeFileAtom = atom<CodeFile>({ kind: "none" }) as PrimitiveAtom<CodeFile>;
 export const codeHistoryAtom = atom<History>(EMPTY_HISTORY) as PrimitiveAtom<History>;
@@ -504,7 +504,7 @@ export async function loadCommitted(rel: string, ref: string): Promise<void> {
                 kind: "error",
                 path: rel,
                 ref,
-                message: "The committed copy is a binary blob.",
+                message: HEAD_BINARY,
             });
             return;
         }
@@ -513,7 +513,7 @@ export async function loadCommitted(rel: string, ref: string): Promise<void> {
                 kind: "error",
                 path: rel,
                 ref,
-                message: "The committed copy is larger than the 2 MB view limit.",
+                message: HEAD_TOOLARGE,
             });
             return;
         }

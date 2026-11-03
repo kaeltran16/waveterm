@@ -109,7 +109,7 @@ func (ws *WshServer) GitFileAtRefCommand(ctx context.Context, data wshrpc.Comman
 	}
 	return &wshrpc.CommandGitFileAtRefRtnData{
 		Content: fc.Content, Binary: fc.Binary, Missing: fc.Missing,
-		TooLarge: fc.TooLarge, Size: fc.Size, IsRepo: fc.IsRepo,
+		TooLarge: fc.TooLarge, Size: fc.Size, IsRepo: fc.IsRepo, Root: fc.Root, Prefix: fc.Prefix,
 	}, nil
 }
 
