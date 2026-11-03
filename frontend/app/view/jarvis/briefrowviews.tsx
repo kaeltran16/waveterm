@@ -6,14 +6,18 @@
 // design gives them different anatomies: Waiting acts in place, Runs is two lines under a type badge,
 // Behind you is two lines under a wording column.
 
+import { getSettingsKeyAtom } from "@/app/store/global";
 import { cn } from "@/util/util";
+import { useAtomValue } from "jotai";
 import { ChevronDown, ChevronRight, CornerDownRight } from "lucide-react";
 import type { ReactNode } from "react";
 import type { QueueAct } from "./briefingmodel";
 import type { BriefLine, RunRowFace } from "./briefrows";
 import { CURSOR_RING, cursorAttrs, MONO_FAINT, ROW_BORDER, SMALL_BTN, TONE_TEXT } from "./briefstyle";
 import type { InitiativeResume } from "./initiativework";
+import { ticketUrl } from "./jiraticket";
 import { ProgressBar } from "./progressbar";
+import { TicketKeyLink } from "./ticketbarview";
 
 const PULSE = "pulse-dot-slow";
 
@@ -135,6 +139,8 @@ export function InitiativeRow({
     onContextMenu?: (e: React.MouseEvent) => void;
 }) {
     const p = line.progress ?? { done: 0, total: 0, pct: 0 };
+    const site = useAtomValue(getSettingsKeyAtom("jira:site"));
+    const ticket = line.ticket ?? "";
     return (
         <div
             role="button"
@@ -174,8 +180,18 @@ export function InitiativeRow({
                         {line.note ? <span className="text-ink-mid"> — {line.note}</span> : null}
                     </span>
                 )}
-                <span className="w-[190px] flex-none truncate text-right font-mono text-[11px] text-ink-mid">
-                    {line.meta}
+                <span
+                    data-jarvis-brief-meta
+                    className="w-[190px] flex-none truncate text-right font-mono text-[11px] text-ink-mid"
+                >
+                    {ticket !== "" && line.meta.startsWith(ticket) ? (
+                        <>
+                            <TicketKeyLink ticketKey={ticket} url={ticketUrl(site, ticket)} />
+                            {line.meta.slice(ticket.length)}
+                        </>
+                    ) : (
+                        line.meta
+                    )}
                 </span>
                 <span
                     className={cn(

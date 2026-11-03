@@ -24,6 +24,7 @@ import { STATUSES, TONE_FG, ToneIcon } from "./inlinetrackerview";
 import { runRecordRows } from "./runrecord";
 import { RunReportView } from "./runreportview";
 import { sidebarNotes, type NoteCard } from "./sidebarnotes";
+import { JiraCommentLink, TicketKeyLink } from "./ticketbarview";
 
 const FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
 const NAV_BUTTON =
@@ -96,6 +97,7 @@ export function ChunkSidebar({
     expanded,
     now,
     handle,
+    ticket,
     error,
     onPrev,
     onNext,
@@ -120,6 +122,8 @@ export function ChunkSidebar({
     expanded: Set<string>;
     now: number;
     handle: string;
+    // the initiative's Jira ticket: its key ends the breadcrumb; url is null until a site is set
+    ticket: { key: string; url: string | null } | null;
     error: string | null;
     onPrev: (() => void) | null;
     onNext: (() => void) | null;
@@ -132,7 +136,7 @@ export function ChunkSidebar({
     onDeleteNote: (entry: FeedEntry) => void;
     onOpenSession: (card: NoteCard, e: React.MouseEvent) => void;
 }) {
-    const cards = sidebarNotes(feed, label, now, expanded);
+    const cards = sidebarNotes(feed, label, now, expanded, ticket?.key);
     const [draft, setDraft] = useState("");
     const [editing, setEditing] = useState<{ key: string; text: string } | null>(null);
     const submit = () => {
@@ -206,6 +210,16 @@ export function ChunkSidebar({
                                     <span>{stage || "unstaged"}</span>
                                 </>
                             )}
+                            {ticket != null ? (
+                                <TicketKeyLink
+                                    ticketKey={ticket.key}
+                                    url={ticket.url}
+                                    className="ml-auto font-bold normal-case tracking-normal"
+                                    plainClassName="ml-auto font-bold normal-case tracking-normal"
+                                >
+                                    {" ↗"}
+                                </TicketKeyLink>
+                            ) : null}
                         </div>
                         <div className="text-pretty text-[16px] font-semibold leading-[1.35] text-primary">{label}</div>
                         <div className="flex items-center gap-2.5">
@@ -305,6 +319,10 @@ export function ChunkSidebar({
                                             )}
                                         >
                                             <span className="flex w-full items-center gap-[7px] font-mono text-[10.5px] text-ink-mid">
+                                                {c.heading !== "" ? (
+                                                    <span className="font-semibold text-ink-hi">{c.heading}</span>
+                                                ) : null}
+                                                {c.by !== "" ? <span className="text-accent-soft">{c.by}</span> : null}
                                                 {c.who !== "" ? (
                                                     <span
                                                         className={
@@ -340,6 +358,15 @@ export function ChunkSidebar({
                                                 </span>
                                             )}
                                         </button>
+                                        {c.link != null && !isEditing ? (
+                                            <div className="flex gap-3 border-t border-edge-faint px-[11px] py-1.5">
+                                                <JiraCommentLink
+                                                    url={c.link.url}
+                                                    label={c.link.label}
+                                                    className={cn("font-mono text-[10.5px]", FOCUS)}
+                                                />
+                                            </div>
+                                        ) : null}
                                         {c.open && c.runOid !== "" && !isEditing ? (
                                             <div className="border-t border-edge-faint px-[11px] py-2.5">
                                                 <NoteRun model={model} runOid={c.runOid} />

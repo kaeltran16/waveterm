@@ -102,6 +102,7 @@ describe("initiativeLine", () => {
             title: "SIEM",
             note: "S8 item #2 deep-dive",
             meta: "SIEM-1707 · cad",
+            ticket: "SIEM-1707",
             state: "active",
             stateTone: "ok",
             progress: { done: 1, total: 3, pct: 33 },
@@ -119,7 +120,12 @@ describe("initiativeLine", () => {
                 { project: undefined, ticket: undefined }
             )
         );
-        expect(initiativeLine(card)).toMatchObject({ state: "deferred", stateTone: "muted", meta: "no project" });
+        expect(initiativeLine(card)).toMatchObject({
+            state: "deferred",
+            stateTone: "muted",
+            meta: "no project",
+            ticket: "",
+        });
     });
 
     it("puts a blocked chunk ahead of everything else it could say", () => {
