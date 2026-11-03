@@ -10,6 +10,9 @@ import {
     flagRowId,
     groupSections,
     isModOptionOn,
+    JIRA_SECRET_NAME,
+    jiraConnectionLine,
+    jiraSiteError,
     OPENROUTER_SECRET_NAME,
     resolveSelection,
     rowKeys,
@@ -190,6 +193,8 @@ describe("settingsSections", () => {
             "memory:vaultpath",
             "headless:runtime",
             "headless:openroutercheapmodel",
+            "jira:site",
+            "jira:email",
         ]);
     });
 
@@ -365,5 +370,108 @@ describe("skim rows", () => {
         expect(isModOptionOn({ dim: true }, "dim")).toBe(true);
         expect(isModOptionOn({ dim: false }, "dim")).toBe(false);
         expect(isModOptionOn({ dim: false }, "highlight")).toBe(true);
+    });
+});
+
+describe("jira section", () => {
+    const jira = () => sections().find((s) => s.id === "jira")!;
+
+    it("sits in Data between Headless AI and Storage", () => {
+        const data = groupSections(sections()).find((g) => g.label === "Data")!;
+        const ids = data.sections.map((s) => s.id);
+        expect(ids.indexOf("jira")).toBe(ids.indexOf("headless") + 1);
+        expect(ids.indexOf("storage")).toBe(ids.indexOf("jira") + 1);
+    });
+
+    it("has the board's four rows", () => {
+        expect(jira().name).toBe("Jira");
+        expect(jira().rows.map((r) => [r.id, r.title, r.key, r.scope])).toEqual([
+            ["jira.site", "Site", "jira:site", "synced"],
+            ["jira.email", "Account email", "jira:email", "synced"],
+            ["jira.token", "API token", "secretstore · JIRA_API_TOKEN", "local"],
+            ["jira.connection", "Connection", undefined, undefined],
+        ]);
+        expect(jira().rows[0].desc).toBe("Your Jira Cloud address.");
+        expect(jira().rows[2].desc).toContain("never in settings.json");
+    });
+
+    it("stores the token under the secret pkg/jira reads", () => {
+        expect(JIRA_SECRET_NAME).toBe("JIRA_API_TOKEN");
+    });
+});
+
+describe("jiraSiteError", () => {
+    it("asks for the https address when the scheme is missing", () => {
+        expect(jiraSiteError("acme.atlassian.net")).toMatch(/https:\/\/<name>\.atlassian\.net/);
+    });
+
+    it("accepts a Jira Cloud address, with or without a trailing slash", () => {
+        expect(jiraSiteError("https://acme.atlassian.net")).toBeNull();
+        expect(jiraSiteError("https://acme.atlassian.net/")).toBeNull();
+    });
+
+    it("rejects other hosts, paths and plain http", () => {
+        expect(jiraSiteError("http://acme.atlassian.net")).not.toBeNull();
+        expect(jiraSiteError("https://acme.example.com")).not.toBeNull();
+        expect(jiraSiteError("https://acme.atlassian.net/jira")).not.toBeNull();
+    });
+
+    it("lets an empty site through, which disconnects", () => {
+        expect(jiraSiteError("")).toBeNull();
+    });
+});
+
+describe("jiraConnectionLine", () => {
+    const NOW = 1_000_000_000_000;
+
+    it("names what is missing", () => {
+        expect(jiraConnectionLine({ configured: false, ok: false, missing: ["token"] }, NOW)).toEqual({
+            tone: "idle",
+            text: "Add your API token to connect.",
+        });
+        expect(jiraConnectionLine({ configured: false, ok: false, missing: ["site", "email"] }, NOW).text).toBe(
+            "Add your site and account email to connect."
+        );
+        expect(
+            jiraConnectionLine({ configured: false, ok: false, missing: ["site", "email", "token"] }, NOW).text
+        ).toBe("Add your site, account email and API token to connect.");
+    });
+
+    it("says not checked yet before any attempt", () => {
+        expect(jiraConnectionLine({ configured: true, ok: false }, NOW)).toEqual({
+            tone: "idle",
+            text: "Not checked yet",
+        });
+    });
+
+    it("reports who is connected and when it was checked", () => {
+        const line = jiraConnectionLine(
+            { configured: true, ok: true, displayname: "Fixture User", checkedts: NOW - 3 * 60_000 },
+            NOW
+        );
+        expect(line).toEqual({ tone: "ok", text: "Connected as Fixture User", checked: "Checked 3m ago" });
+    });
+
+    it("shows Jira's own message when the last call failed", () => {
+        const line = jiraConnectionLine(
+            {
+                configured: true,
+                ok: false,
+                checkedts: NOW - 60_000,
+                error: "EC-JIRA-HTTP 401: Client must be authenticated.",
+            },
+            NOW
+        );
+        expect(line.tone).toBe("error");
+        expect(line.text).toBe("Client must be authenticated.");
+        expect(line.checked).toBe("Checked 1m ago");
+    });
+
+    it("shows the unreachable cause as it is", () => {
+        const line = jiraConnectionLine(
+            { configured: true, ok: false, checkedts: NOW, error: "EC-JIRA-UNREACHABLE: dial tcp: no such host" },
+            NOW
+        );
+        expect(line.text).toBe("dial tcp: no such host");
     });
 });
