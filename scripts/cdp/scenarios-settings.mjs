@@ -1799,13 +1799,32 @@ async function setupMemoryAssert(h, ctx) {
         );
     };
     // teardown removes each apply's backup by its id
-    const recordApplyId = async (changeId) => {
+    const recordApplyId = async (changeId, project = MEMORY_PROJECTS.own) => {
         const listed = await h.rpc("listmemoryhygiene", null);
         const id = listed.projects
-            .find((p) => p.project === MEMORY_PROJECTS.own)
+            .find((p) => p.project === project)
             ?.changes.find((c) => c.id === changeId)?.applyid;
         if (id) ctx.applyIds.push(id);
         return id;
+    };
+    // the tab's keys run off a window capture listener, which a keydown dispatched on the document reaches
+    const press = (key) =>
+        h.ev(
+            `document.dispatchEvent(new KeyboardEvent("keydown", { key: ${q(key)}, code: ${q(`Key${key.toUpperCase()}`)}, bubbles: true }))`
+        );
+    const selectedChange = () =>
+        h.ev(`document.querySelector('[data-memory-change][aria-selected="true"]')?.getAttribute("data-memory-change") ?? null`);
+    const waitSelected = (id) =>
+        polishWaitFor(h, `document.querySelector(${q(changeSel(id))})?.getAttribute("aria-selected") === "true"`, 5000);
+    // a verdict moves the selection on, so its closed state is read by going back to the row
+    const reselectWhen = async (id, status) => {
+        const decided = await polishWaitFor(
+            h,
+            `(document.querySelector(${q(changeSel(id))})?.lastElementChild?.textContent ?? "").trim() === ${q(status)}`,
+            10000
+        );
+        await selectChange(id);
+        return decided;
     };
     const bytes = (path) => (existsSync(path) ? readFileSync(path) : null);
     const same = (a, b) => a != null && b != null && Buffer.compare(a, b) === 0;
@@ -1914,13 +1933,15 @@ async function setupMemoryAssert(h, ctx) {
     });
 
     await run(
-        "4. Applied with Undo: the trim writes the trimmed bytes, reads Applied, and Undo restores the original",
+        "4. Applied with Undo: the trim writes the trimmed bytes, reads Applied and moves on to the next change, and Undo restores the original",
         async () => {
             const original = bytes(fx.paths.trim);
             const trimmed = Buffer.from(original.toString("utf8").replace(fx.trim.old, fx.trim.new), "utf8");
             await selectProject(MEMORY_PROJECTS.own);
             await selectChange(own.trim.id);
             await click("[data-memory-apply]");
+            const advanced = await waitSelected(own.delete.id);
+            await reselectWhen(own.trim.id, "Applied");
             const appliedShown = await polishWaitFor(h, `!!document.querySelector("[data-memory-undo]")`, 10000);
             await recordApplyId(own.trim.id);
             const applied = {
@@ -1936,6 +1957,7 @@ async function setupMemoryAssert(h, ctx) {
             const row = await rowStatus(own.trim.id);
             return {
                 ok:
+                    advanced &&
                     appliedShown &&
                     applied.file &&
                     /Applied at \d/.test(applied.detail) &&
@@ -1945,6 +1967,7 @@ async function setupMemoryAssert(h, ctx) {
                     restored &&
                     row === "To review",
                 detail: JSON.stringify({
+                    advanced,
                     ...applied,
                     detail: applied.detail.slice(-160),
                     reopened,
@@ -1988,6 +2011,7 @@ async function setupMemoryAssert(h, ctx) {
     await run("6. Keep / Review again: a kept change reads Kept as is, and Review again opens it again", async () => {
         await selectChange(own.merge.id);
         await click("[data-memory-keep]");
+        await reselectWhen(own.merge.id, "Kept");
         const kept = await polishWaitFor(h, `!!document.querySelector("[data-memory-undo]")`, 10000);
         const got = {
             detail: await text("[data-memory-detail]"),
@@ -2050,6 +2074,7 @@ async function setupMemoryAssert(h, ctx) {
             await selectProject(MEMORY_PROJECTS.own);
             await selectChange(own.addToIndex.id);
             await click("[data-memory-apply]");
+            await reselectWhen(own.addToIndex.id, "Applied");
             if (!(await polishWaitFor(h, `!!document.querySelector("[data-memory-undo]")`, 10000))) {
                 return { ok: false, detail: `the add-to-index did not apply: ${await text("[data-memory-error]")}` };
             }
@@ -2079,7 +2104,83 @@ async function setupMemoryAssert(h, ctx) {
         }
     );
 
-    await run("9. Every project checked: with no change left open the toolbar says so", async () => {
+    await run(
+        "9. Keys and Apply all: projects to review lead the rail, j k x u drive the table, and Apply all clears a split group",
+        async () => {
+            // a row's status is its last line; no project with nothing to review may sit above one with some
+            const railOrdered = await h.ev(`(() => {
+                const toReview = [...document.querySelectorAll("[data-memory-project]")].map((b) =>
+                    /to review$/.test((b.lastElementChild?.textContent ?? "").trim())
+                );
+                return toReview.indexOf(false) < 0 || !toReview.slice(toReview.indexOf(false)).includes(true);
+            })()`);
+            await selectProject(MEMORY_PROJECTS.own);
+            await selectChange(own.trim.id);
+            await press("j");
+            const down = await waitSelected(own.delete.id);
+            await press("k");
+            const up = await waitSelected(own.trim.id);
+            await press("x");
+            const keptMoved = await waitSelected(own.delete.id);
+            const kept = await reselectWhen(own.trim.id, "Kept");
+            await press("u");
+            const reopened = await polishWaitFor(
+                h,
+                `(document.querySelector(${q(changeSel(own.trim.id))})?.lastElementChild?.textContent ?? "").trim() === "To review"`,
+                10000
+            );
+
+            await selectProject(MEMORY_PROJECTS.splitA);
+            const ids = [split.moveBuild.id, split.moveDeploy.id, split.copyLint.id];
+            const allSel = `[data-memory-apply-all="shared"]`;
+            const offered = await text(allSel);
+            await click(allSel);
+            const armed = await text(allSel);
+            await h.shot("cdp-shots/setup-memory-apply-all.png");
+            await click(allSel);
+            const allApplied = await polishWaitFor(
+                h,
+                `${JSON.stringify(ids.map(changeSel))}.every((s) => (document.querySelector(s)?.lastElementChild?.textContent ?? "").trim() === "Applied")`,
+                20000
+            );
+            for (const id of ids) await recordApplyId(id, MEMORY_PROJECTS.splitA);
+            await selectChange(split.settings.id);
+            const got = {
+                railOrdered,
+                down,
+                up,
+                keptMoved,
+                kept,
+                reopened,
+                offered,
+                armed,
+                allApplied,
+                gone: await h.ev(`!document.querySelector(${q(allSel)})`),
+                switchOpen: (await disabled("[data-memory-apply]")) === false,
+                selected: await selectedChange(),
+                error: await text("[data-memory-error]"),
+            };
+            await h.shot("cdp-shots/setup-memory-applied-all.png");
+            return {
+                ok:
+                    railOrdered &&
+                    down &&
+                    up &&
+                    keptMoved &&
+                    kept &&
+                    reopened &&
+                    offered === "Apply all 3" &&
+                    armed === "Apply 3 changes" &&
+                    allApplied &&
+                    got.gone &&
+                    got.switchOpen &&
+                    got.error === "",
+                detail: JSON.stringify(got),
+            };
+        }
+    );
+
+    await run("10. Every project checked: with no change left open the toolbar says so", async () => {
         writeMemoryStates(ctx.dataDir, settleMemoryStates(fx.states));
         await polishReload(h);
         await h.goto("setup");
@@ -2102,7 +2203,7 @@ async function setupMemoryAssert(h, ctx) {
         return { ok: toolbar === "Every project checked", detail: `toolbar="${toolbar}"` };
     });
 
-    await run("10. Landing: memhygiene:<project> opens Setup → Memory with the project selected", async () => {
+    await run("11. Landing: memhygiene:<project> opens Setup → Memory with the project selected", async () => {
         await h.goto("cockpit");
         await polishWaitFor(h, `typeof window.__openAddress === "function"`, 5000);
         await h.ev(`window.__openAddress(${q(`memhygiene:${MEMORY_PROJECTS.splitA}`)})`);
@@ -2121,7 +2222,7 @@ async function setupMemoryAssert(h, ctx) {
     });
 
     // the fresh project has no memory folder, so its check ends at once with no model call
-    await run("11. Check now: a check that ends at once says what it found beside the button", async () => {
+    await run("12. Check now: a check that ends at once says what it found beside the button", async () => {
         await h.goto("setup");
         await click("#setup-tab-memory");
         await selectProject(MEMORY_PROJECTS.fresh);
@@ -2132,11 +2233,18 @@ async function setupMemoryAssert(h, ctx) {
             line: await checkLine(),
             label: await h.ev(`(document.querySelector("[data-memory-check]")?.textContent ?? "").trim()`),
             error: await text("[data-memory-error]"),
+            // checked with no memory folder, so the rail draws it on one line
+            empty: await polishWaitFor(
+                h,
+                `document.querySelector(${q(projectSel(MEMORY_PROJECTS.fresh))})?.hasAttribute("data-memory-empty") === true`,
+                5000
+            ),
         };
         await h.shot("cdp-shots/setup-memory-check-result.png");
         return {
             ok:
                 shown &&
+                got.empty &&
                 got.result === "Checked · nothing to review" &&
                 got.line.startsWith("Checked ") &&
                 got.label === "Check now",

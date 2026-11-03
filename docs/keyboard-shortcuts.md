@@ -262,6 +262,15 @@ A session opened from a search hit shows a find bar over its transcript, with th
 | `Esc` in the find bar | Close the find bar |
 | `Esc` in the list's search field | Clear the query |
 
+### Setup: Memory tab
+
+| Keys | Action |
+|---|---|
+| `j` / `k` (or `↓` / `↑`) | Next / previous change in the table |
+| `a` | Apply the selected change (when its Apply button is enabled), then move to the next change to review |
+| `x` | Keep the selected change as is, then move to the next change to review |
+| `u` | Undo an applied change, or review a kept one again |
+
 ### Route DAG (the orchestrator run's graph)
 
 | Keys | Action |

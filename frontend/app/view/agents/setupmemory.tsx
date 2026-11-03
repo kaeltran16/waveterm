@@ -5,16 +5,21 @@
 // weekly check proposes, and the selected change's evidence and diff with its verdict buttons. All
 // derivation is in memorymodel.ts, the atoms and RPCs in memorystore.ts.
 
+import { KeyCap } from "@/app/element/keycap";
 import { widthTween } from "@/app/element/meter";
 import { microFade, viewFade } from "@/app/element/motiontokens";
 import { globalStore } from "@/app/store/jotaiStore";
+import { buildMemoryBindings } from "@/app/store/keybindings/bindings";
+import { useKeybindings } from "@/app/store/keybindings/store";
 import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { RefreshCw, TriangleAlert } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { useEffect, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import {
+    applyAllIds,
+    canApply,
     changeGroups,
     checkLine,
     closedText,
@@ -22,19 +27,26 @@ import {
     indexCards,
     isPending,
     kindLabel,
+    kindTone,
     LIMIT_BYTES,
     LIMIT_LINES,
+    railOrder,
     railRow,
+    resolveSelection,
     splitText,
     statusOf,
     switchGate,
     toolbarStatus,
+    type ChangeGroup,
     type IndexCard,
+    type KindTone,
 } from "./memorymodel";
 import {
+    applyMemoryGroup,
     checkMemory,
     decideMemory,
     loadMemory,
+    memoryBulkAtom,
     memoryBusyAtom,
     memoryCheckResultAtom,
     memoryErrorAtom,
@@ -45,6 +57,7 @@ import {
     selectMemoryProject,
     subscribeMemory,
 } from "./memorystore";
+import { PathTail } from "./pathtail";
 import { fmtClock } from "./runcompletion";
 import type { Tone } from "./setupmodel";
 
@@ -54,7 +67,13 @@ const BTN_SECONDARY =
 const BTN_PRIMARY =
     "h-8 cursor-pointer rounded border-0 bg-accent px-[14px] text-[13px] font-bold text-background shadow-inset-highlight hover:bg-accenthover disabled:cursor-default disabled:opacity-40 disabled:hover:bg-accent";
 const KIND_CHIP =
-    "inline-flex h-[22px] items-center whitespace-nowrap rounded-md border border-edge-mid bg-surface-hover px-2 text-[11px] font-semibold text-ink-mid";
+    "inline-flex h-[22px] items-center whitespace-nowrap rounded-md border px-2 text-[11px] font-semibold";
+// a removal reads apart from what comes in and from an edit in place
+const KIND_TONE: Record<KindTone, string> = {
+    remove: "border-error/30 bg-error/10 text-error-soft",
+    add: "border-accent/30 bg-accentbg text-accent-soft",
+    edit: "border-edge-mid bg-surface-hover text-ink-mid",
+};
 const TABLE_GRID = "grid grid-cols-[148px_minmax(0,1fr)_128px_92px] items-center px-3";
 
 const TONE_DOT: Record<Tone, string> = { ok: "bg-success", warn: "bg-warning", none: "bg-ink-faint" };
@@ -80,6 +99,10 @@ function Meter({ pct }: { pct: number }) {
             <span className="block h-1 bg-success" style={{ width: `${pct}%`, transition: widthTween(reduce) }} />
         </span>
     );
+}
+
+function KindChip({ p, change }: { p: MemHygieneProject; change: MemChange }) {
+    return <span className={cn(KIND_CHIP, KIND_TONE[kindTone(change.kind)])}>{kindLabel(p, change)}</span>;
 }
 
 function baseName(path: string): string {
@@ -109,16 +132,38 @@ function ProjectRail({ projects, selected }: { projects: MemHygieneProject[]; se
             className="flex w-[264px] flex-none flex-col gap-1 overflow-y-auto border-r border-border bg-surface px-2.5 py-3.5"
         >
             <div className={cn(SECTION_HEAD, "px-2 pb-1.5")}>Projects</div>
-            {projects.map((p) => {
+            {railOrder(projects).map((p) => {
                 const row = railRow(p);
                 const on = row.name === selected;
+                const pick = () => selectMemoryProject(row.name);
+                if (row.empty) {
+                    return (
+                        <button
+                            key={row.name}
+                            type="button"
+                            data-memory-project={row.name}
+                            data-memory-empty
+                            aria-pressed={on}
+                            onClick={pick}
+                            className={cn(
+                                "flex w-full cursor-pointer items-center gap-2 rounded border-0 px-2.5 py-1.5 text-left",
+                                on
+                                    ? "bg-surface-selected ring-1 ring-edge-strong ring-inset"
+                                    : "bg-transparent hover:bg-surface-hover"
+                            )}
+                        >
+                            <span className="min-w-0 flex-1 truncate text-[12.5px] text-ink-mid">{row.name}</span>
+                            <span className="flex-none text-[11px] text-muted">No memory yet</span>
+                        </button>
+                    );
+                }
                 return (
                     <button
                         key={row.name}
                         type="button"
                         data-memory-project={row.name}
                         aria-pressed={on}
-                        onClick={() => selectMemoryProject(row.name)}
+                        onClick={pick}
                         className={cn(
                             "flex w-full cursor-pointer flex-col gap-[5px] rounded border-0 px-2.5 py-[9px] text-left text-secondary",
                             on
@@ -180,8 +225,61 @@ function IndexCardView({ card }: { card: IndexCard }) {
     );
 }
 
+// first click arms, second applies: a split group runs to dozens of changes, each undone on its own
+function ApplyAll({ p, group }: { p: MemHygieneProject; group: ChangeGroup }) {
+    const busy = useAtomValue(memoryBusyAtom);
+    const bulk = useAtomValue(memoryBulkAtom);
+    const [armed, setArmed] = useState(false);
+    const ids = applyAllIds(group);
+    const running = bulk?.project === p.project && bulk.group === group.key;
+    if (ids.length === 0 && !running) {
+        return null;
+    }
+    if (running) {
+        return (
+            <span role="status" className="ml-auto text-[11.5px] text-ink-mid">
+                Applying {bulk.done + 1} of {bulk.total}…
+            </span>
+        );
+    }
+    const apply = () => {
+        setArmed(false);
+        fireAndForget(() => applyMemoryGroup(p.project, group.key, ids));
+    };
+    return (
+        <span className="ml-auto flex items-center gap-1.5">
+            {armed ? (
+                <button
+                    type="button"
+                    onClick={() => setArmed(false)}
+                    className={cn(BTN_SECONDARY, "h-[26px] px-2.5 text-[12px]")}
+                >
+                    Cancel
+                </button>
+            ) : null}
+            <button
+                type="button"
+                data-memory-apply-all={group.key}
+                disabled={busy}
+                onClick={armed ? apply : () => setArmed(true)}
+                className={cn(armed ? BTN_PRIMARY : BTN_SECONDARY, "h-[26px] px-2.5 text-[12px]")}
+            >
+                {armed ? `Apply ${ids.length} changes` : `Apply all ${ids.length}`}
+            </button>
+        </span>
+    );
+}
+
 function ChangeTable({ p, selected }: { p: MemHygieneProject; selected: string | null }) {
     const groups = changeGroups(p);
+    // j and k, and the move to the next change after a verdict, can land on a row scrolled out of view
+    useEffect(() => {
+        if (selected != null) {
+            document
+                .querySelector(`[data-memory-change="${CSS.escape(selected)}"]`)
+                ?.scrollIntoView({ block: "nearest" });
+        }
+    }, [selected]);
     const onKey = (e: KeyboardEvent, id: string) => {
         if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
@@ -213,9 +311,10 @@ function ChangeTable({ p, selected }: { p: MemHygieneProject; selected: string |
                 {groups.map((g) => (
                     <div key={g.key} role="rowgroup" aria-label={g.label || undefined}>
                         {g.label ? (
-                            <div className="flex items-baseline gap-2.5 border-b border-edge-faint px-3 pb-1.5 pt-3">
-                                <span className={SECTION_HEAD}>{g.label}</span>
-                                <span className="text-[11.5px] text-muted">{g.hint}</span>
+                            <div className="flex items-center gap-2.5 border-b border-edge-faint px-3 pb-1.5 pt-3">
+                                <span className={cn(SECTION_HEAD, "flex-none")}>{g.label}</span>
+                                <span className="min-w-0 truncate text-[11.5px] text-muted">{g.hint}</span>
+                                <ApplyAll p={p} group={g} />
                             </div>
                         ) : null}
                         {g.changes.map((c) => {
@@ -239,7 +338,7 @@ function ChangeTable({ p, selected }: { p: MemHygieneProject; selected: string |
                                     )}
                                 >
                                     <span role="cell">
-                                        <span className={KIND_CHIP}>{kindLabel(p, c)}</span>
+                                        <KindChip p={p} change={c} />
                                     </span>
                                     <span role="cell" className="flex min-w-0 flex-col gap-[3px] pr-3">
                                         <span
@@ -250,9 +349,7 @@ function ChangeTable({ p, selected }: { p: MemHygieneProject; selected: string |
                                         >
                                             {c.title}
                                         </span>
-                                        <span className="truncate font-mono text-[10.5px] text-muted">
-                                            {fileLabel(c)}
-                                        </span>
+                                        <PathTail path={fileLabel(c)} />
                                     </span>
                                     <span role="cell" className="font-mono text-[11px] text-ink-mid">
                                         {c.effect}
@@ -389,9 +486,7 @@ function DiffBlock({ diff }: { diff: MemDiff }) {
     return (
         <div className="overflow-hidden rounded border border-edge-mid bg-surface-code">
             <div className="flex h-7 items-center gap-2.5 border-b border-edge-faint px-2.5 font-mono text-[11px] text-muted">
-                <span title={diff.path} className="min-w-0 truncate">
-                    {diff.path}
-                </span>
+                <PathTail path={diff.path} className="text-[11px]" />
                 <span className="flex-1" />
                 <span className="flex-none">{diff.note}</span>
             </div>
@@ -446,27 +541,38 @@ function Verdict({ p, change }: { p: MemHygieneProject; change: MemChange }) {
             </div>
         );
     }
-    const blocked = switchGate(p, change).blocked || change.status === "conflict";
     return (
-        <div className="flex justify-end gap-2">
-            <button
-                type="button"
-                data-memory-keep
-                disabled={busy}
-                onClick={() => decide("keep")}
-                className={BTN_SECONDARY}
-            >
-                Keep as is
-            </button>
-            <button
-                type="button"
-                data-memory-apply
-                disabled={busy || blocked}
-                onClick={() => decide("apply")}
-                className={BTN_PRIMARY}
-            >
-                {change.applylabel || kindLabel(p, change)}
-            </button>
+        <div className="flex flex-col items-end gap-2">
+            {/* left, clear of the avatar over the rail's bottom-right corner */}
+            <span aria-hidden className="flex items-center gap-1.5 self-start text-[11px] text-muted">
+                <KeyCap chord="a" variant="inline" />
+                apply
+                <KeyCap chord="x" variant="inline" />
+                keep
+                <KeyCap chord="j" variant="inline" />
+                <KeyCap chord="k" variant="inline" />
+                move
+            </span>
+            <div className="flex gap-2">
+                <button
+                    type="button"
+                    data-memory-keep
+                    disabled={busy}
+                    onClick={() => decide("keep")}
+                    className={BTN_SECONDARY}
+                >
+                    Keep as is
+                </button>
+                <button
+                    type="button"
+                    data-memory-apply
+                    disabled={busy || !canApply(p, change)}
+                    onClick={() => decide("apply")}
+                    className={BTN_PRIMARY}
+                >
+                    {change.applylabel || kindLabel(p, change)}
+                </button>
+            </div>
         </div>
     );
 }
@@ -487,7 +593,7 @@ function ChangeDetail({ p, change }: { p: MemHygieneProject; change: MemChange }
         >
             <div className="flex flex-col gap-1.5">
                 <span>
-                    <span className={KIND_CHIP}>{kindLabel(p, change)}</span>
+                    <KindChip p={p} change={change} />
                 </span>
                 <div className="text-[14px] font-semibold text-primary">{change.title}</div>
                 <div className="break-all font-mono text-[10.5px] text-muted">{fileLabel(change)}</div>
@@ -529,11 +635,6 @@ function ChangeDetail({ p, change }: { p: MemHygieneProject; change: MemChange }
 
 // ---- tab ----
 
-// with nothing chosen yet, open the first change still to review
-function pickChange(p: MemHygieneProject, id: string | null): MemChange | null {
-    return p.changes.find((c) => c.id === id) ?? p.changes.find(isPending) ?? p.changes[0] ?? null;
-}
-
 export function MemoryTab() {
     const projects = useAtomValue(memoryProjectsAtom);
     const selectedName = useAtomValue(memorySelectedProjectAtom);
@@ -546,8 +647,9 @@ export function MemoryTab() {
         fireAndForget(loadMemory);
         return subscribeMemory();
     }, []);
-    const p = projects?.find((x) => x.project === selectedName) ?? projects?.[0] ?? null;
-    const change = p == null ? null : pickChange(p, selectedChange);
+    const bindings = useMemo(() => buildMemoryBindings(), []);
+    useKeybindings(bindings);
+    const { project: p, change } = resolveSelection(projects, selectedName, selectedChange);
     return (
         <div className="flex min-w-0 flex-1 flex-col">
             {error ? (

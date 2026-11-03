@@ -42,6 +42,7 @@ import {
     buildGlobalBindings,
     buildJarvisBindings,
     buildListNavBindings,
+    buildMemoryBindings,
 } from "./bindings";
 import { listNavAtom } from "./listnav";
 import { bindingsAtom, registerBindings, unregisterBindings } from "./store";
@@ -75,7 +76,17 @@ function b(id: string, keys = "j"): Binding {
 }
 
 // A representative sample of contexts the dispatcher can be in.
-const SURFACES: SurfaceKey[] = ["cockpit", "agent", "jarvis", "sessions", "files", "usage", "code", "settings"];
+const SURFACES: SurfaceKey[] = [
+    "cockpit",
+    "agent",
+    "jarvis",
+    "sessions",
+    "files",
+    "usage",
+    "code",
+    "settings",
+    "setup",
+];
 function contexts(): KeyContext[] {
     const out: KeyContext[] = [];
     for (const surface of SURFACES) {
@@ -310,6 +321,15 @@ describe("keybinding conflict invariant", () => {
                 ...buildListNavBindings(model),
                 ...buildAgentBindings(model),
             ])
+        ).not.toThrow();
+    });
+
+    // j, k and the arrows also move a list-nav cursor, which the Setup surface never sets
+    it("global + list-nav + memory-tab bindings do not conflict", () => {
+        const model = { ...stubModel(), surfaceAtom: {}, paletteOpenAtom: {}, newAgentOpenAtom: {} };
+        globalStore.set(listNavAtom, null);
+        expect(() =>
+            assertNoConflicts([...buildGlobalBindings(model), ...buildListNavBindings(model), ...buildMemoryBindings()])
         ).not.toThrow();
     });
 

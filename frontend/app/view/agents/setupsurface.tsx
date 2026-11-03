@@ -17,6 +17,7 @@ import { motion, MotionConfig } from "motion/react";
 import { Fragment, useEffect, type KeyboardEvent } from "react";
 import type { AgentsViewModel } from "./agents";
 import { formatAgo } from "./agentsviewmodel";
+import { PathTail } from "./pathtail";
 import { RuntimeMark } from "./runtimemark";
 import { runtimeMeta } from "./runtimemeta";
 import { MemoryHeader, MemoryTab } from "./setupmemory";
@@ -115,18 +116,6 @@ function HarnessMark({ runtime }: { runtime: string }) {
             )}
         >
             <RuntimeMark runtime={runtime} imageClassName="h-3 w-3" />
-        </span>
-    );
-}
-
-// the folder truncates and the file name never does: every path here starts with the same home prefix,
-// so a plain tail ellipsis hid the one part that tells two rows apart
-function PathTail({ path }: { path: string }) {
-    const cut = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\")) + 1;
-    return (
-        <span title={path} className="flex min-w-0 font-mono text-[10.5px] text-muted">
-            <span className="truncate">{path.slice(0, cut)}</span>
-            <span className="flex-none">{path.slice(cut)}</span>
         </span>
     );
 }
