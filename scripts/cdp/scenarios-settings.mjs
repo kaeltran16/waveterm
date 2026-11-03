@@ -688,9 +688,9 @@ export const settingsStorage = {
     },
 };
 
-// --- remote-switch: Settings > Remote and the app bar's Remote on pill ------------------------------------------
+// --- remote-switch: Settings > Remote and the footer's remote chip ----------------------------------------------
 // Step 1 reads the dev store's real status (no remote setup). The rest are fixtures set into remoteStatusAtom
-// through the app's own store module; nothing reaches wavesrv but step 6's switch click, which the real
+// through the app's own store module; nothing reaches wavesrv but step 7's switch click, which the real
 // RemoteOnCommand refuses because the dev store has no setup. Teardown reloads the real status.
 const REMOTE_PANE = `document.querySelector('[data-settings-section="remote"]')`;
 const REMOTE_PILL = `document.querySelector('[data-remote-pill]')`;
@@ -722,6 +722,8 @@ const REMOTE_READ = `(() => {
     return {
         pane: pane != null,
         pill: ${REMOTE_PILL} != null,
+        pillTone: ${REMOTE_PILL}?.getAttribute("data-remote-pill") ?? null,
+        pillText: (${REMOTE_PILL}?.textContent || "").trim(),
         switchOn: sw?.getAttribute("aria-checked") === "true",
         switchDisabled: sw?.disabled ?? null,
         note: text(pane?.querySelector('[data-testid="remote-switch-note"]')),
@@ -782,8 +784,8 @@ export const remoteSwitchScenario = {
         await shot("4-down");
         const down = await h.ev(REMOTE_READ);
         rec(
-            "4. on with the tunnel down: the section shows the down line with its error",
-            down.lines.tunnel === `Tunnel down: ${REMOTE_TUNNEL_ERROR}` && down.switchOn && down.pill,
+            "4. on with the tunnel down: the section shows the down line with its error, and the chip reads down",
+            down.lines.tunnel === `Tunnel down: ${REMOTE_TUNNEL_ERROR}` && down.switchOn && down.pillTone === "down",
             JSON.stringify(down)
         );
 
@@ -799,13 +801,16 @@ export const remoteSwitchScenario = {
 
         await remoteSetStatus(h, "off");
         await settle();
+        await shot("6-off");
+        const off = await h.ev(REMOTE_READ);
+        rec("6. set up and off: the chip reads Remote off", off.pillTone === "off" && off.pillText === "Remote off", JSON.stringify(off));
         await h.ev(`${REMOTE_PANE}?.querySelector('[role="switch"]')?.click()`);
         await polishWaitFor(h, `${REMOTE_PANE}?.querySelector('[data-testid="remote-error"]') != null`, 20000);
         await settle();
-        await shot("6-refused");
+        await shot("7-refused");
         const refused = await h.ev(REMOTE_READ);
         rec(
-            "6. set up and off: the switch's real RemoteOnCommand refuses, and the section shows the error inline",
+            "7. set up and off: the switch's real RemoteOnCommand refuses, and the section shows the error inline",
             refused.error !== "" && !refused.switchOn && !refused.pill,
             JSON.stringify(refused)
         );

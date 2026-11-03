@@ -2,13 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import {
-    REMOTE_CLOUDFLARED_NOTE,
-    REMOTE_SETUP_NOTE,
-    remoteStatusLines,
-    remoteSwitch,
-    showRemotePill,
-} from "./remotemodel";
+import { REMOTE_CLOUDFLARED_NOTE, REMOTE_SETUP_NOTE, remoteChip, remoteStatusLines, remoteSwitch } from "./remotemodel";
 
 const UNSET: RemoteStatusData = {
     on: false,
@@ -92,13 +86,38 @@ describe("remoteStatusLines", () => {
     });
 });
 
-describe("showRemotePill", () => {
-    it("shows only while on", () => {
-        expect(showRemotePill(null)).toBe(false);
-        expect(showRemotePill(UNSET)).toBe(false);
-        expect(showRemotePill(OFF)).toBe(false);
-        expect(showRemotePill(NO_CLOUDFLARED)).toBe(false);
-        expect(showRemotePill(UP)).toBe(true);
-        expect(showRemotePill(DOWN)).toBe(true);
+describe("remoteChip", () => {
+    it("is hidden until remote mode can be switched on", () => {
+        expect(remoteChip(null)).toBeNull();
+        expect(remoteChip(UNSET)).toBeNull();
+        expect(remoteChip(NO_CLOUDFLARED)).toBeNull();
+    });
+
+    it("shows off once set up", () => {
+        expect(remoteChip(OFF)).toMatchObject({ tone: "off", label: "Remote off" });
+    });
+
+    it("shows on with the phone address while the tunnel is up", () => {
+        expect(remoteChip(UP)).toEqual({
+            tone: "on",
+            label: "Remote on",
+            title: "Reachable from your phone at https://arc.example.com",
+        });
+    });
+
+    it("shows down with the tunnel error", () => {
+        expect(remoteChip(DOWN)).toEqual({
+            tone: "down",
+            label: "Remote down",
+            title: "Tunnel down: connection refused",
+        });
+    });
+
+    it("shows starting while on and the tunnel is not up yet", () => {
+        expect(remoteChip({ ...UP, tunnel: "starting" })).toMatchObject({ tone: "starting" });
+    });
+
+    it("stays reachable when on even if setup has since gone missing", () => {
+        expect(remoteChip({ ...UP, cloudflaredmissing: true })).toMatchObject({ tone: "on" });
     });
 });

@@ -1,7 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// What Settings > Remote and the app bar's Remote on pill show for a remote mode status. Pure; the atom and
+// What Settings > Remote and the footer's remote chip show for a remote mode status. Pure; the atom and
 // the RPCs are in remotestore.ts. null is "not loaded yet".
 
 export const REMOTE_SETUP_NOTE = "Run wsh remote setup first";
@@ -76,6 +76,26 @@ export function remoteStatusLines(status: RemoteStatusData | null): RemoteStatus
     return lines;
 }
 
-export function showRemotePill(status: RemoteStatusData | null): boolean {
-    return status?.on === true;
+export type RemoteChip = { tone: "off" | "starting" | "on" | "down"; label: string; title: string };
+
+// The footer chip. Hidden until remote mode can be switched on, so an unconfigured install shows nothing.
+export function remoteChip(status: RemoteStatusData | null): RemoteChip | null {
+    if (status == null) {
+        return null;
+    }
+    if (!status.on) {
+        if (!remoteSwitch(status).enabled) {
+            return null;
+        }
+        return { tone: "off", label: "Remote off", title: "Remote is off. Open Settings > Remote to turn it on" };
+    }
+    if (status.tunnel === "up") {
+        const title = status.hostname ? `Reachable from your phone at https://${status.hostname}` : "Tunnel up";
+        return { tone: "on", label: "Remote on", title };
+    }
+    if (status.tunnel === "down") {
+        const title = status.tunnelerror ? `Tunnel down: ${status.tunnelerror}` : "Tunnel down";
+        return { tone: "down", label: "Remote down", title };
+    }
+    return { tone: "starting", label: "Remote starting…", title: "Tunnel starting…" };
 }

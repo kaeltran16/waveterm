@@ -19,17 +19,31 @@ import { useEffect, useState } from "react";
 import { ctrlHeldAtom } from "./ctrlheld";
 import { visibleHints } from "./footer-visible";
 import { GLOBAL_HINTS, SURFACE_HINTS } from "./footerhints";
+import { RemoteReadout } from "./remotereadout";
 import { ResMonReadout } from "./resmonreadout";
 
-// the readout closes every posture on the right; it is data, not a key hint, so it never dims with the chips
-function FooterBar({ children, readout = true }: { children?: React.ReactNode; readout?: boolean }) {
+// the readouts close every posture on the right; they are data, not key hints, so they never dim with the chips
+function FooterBar({
+    model,
+    children,
+    readout = true,
+}: {
+    model: AgentsViewModel;
+    children?: React.ReactNode;
+    readout?: boolean;
+}) {
     return (
         <div
             data-hints-footer=""
             className="flex h-7 shrink-0 items-center gap-4 border-t border-edge-strong bg-modalbg px-4"
         >
             {children}
-            {readout ? <ResMonReadout className="ml-auto" /> : null}
+            {readout ? (
+                <div className="ml-auto flex items-center gap-2">
+                    <RemoteReadout model={model} />
+                    <ResMonReadout />
+                </div>
+            ) : null}
         </div>
     );
 }
@@ -79,7 +93,7 @@ export function HintsFooter({ model }: { model: AgentsViewModel }) {
             .map((b) => ({ next: b.keys.split(" ")[1], label: b.label }));
         // the cockpit's hints bar always carries a readout, so on that surface the footer yields its own
         return (
-            <FooterBar readout={surface !== "cockpit"}>
+            <FooterBar model={model} readout={surface !== "cockpit"}>
                 <span className="shrink-0 font-mono text-[11px] text-accent-soft">{leader} →</span>
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
                     {items.map((it) => (
@@ -101,7 +115,7 @@ export function HintsFooter({ model }: { model: AgentsViewModel }) {
     const ctx = deriveKeyContext();
     const chips = visibleHints(ctx, bindings, SURFACE_HINTS[surface] ?? [], GLOBAL_HINTS);
     return (
-        <FooterBar>
+        <FooterBar model={model}>
             <div
                 data-footer-chips=""
                 className={cn("flex flex-wrap items-center gap-x-4 gap-y-1", ctx.editable && "opacity-60")}

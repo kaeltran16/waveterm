@@ -37,6 +37,7 @@ import { ctrlHeldAtom, nextCtrlHeld } from "./ctrlheld";
 import { ShortcutsCheatSheet } from "./shortcuts-cheatsheet";
 import { makeSyntheticNodeModel } from "./synthetic-node-model";
 import { HintsFooter } from "./hints-footer";
+import { RemoteStatusPoller } from "./remotereadout";
 import { setupOpenFileSubscription } from "./openfilestore";
 import { setupUiClient } from "./uiclient";
 import { NotificationToasts } from "./notificationtoasts";
@@ -127,6 +128,7 @@ function CockpitBody({ waveEnv }: { waveEnv: WaveEnv }) {
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <NowTicker model={model} />
             <BackgroundAgentsPoller />
+            <RemoteStatusPoller />
             <AttentionPoller model={model} />
             <BrainstormPoller model={model} />
             <PulseDriver />
