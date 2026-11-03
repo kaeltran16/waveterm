@@ -246,7 +246,7 @@ of starting a second one. What it does **not** do is capture where a session was
 - **Deferred:** the close dialog (header ✕, tree "Close agent", double ctrl+c — all `confirmCloseSession`)
   offering **Save place and close** for a session linked to an initiative. Arc would type a "record where
   we are as one left-off note" prompt into the agent, wait for a note from that session with a new
-  `--left-off` flag on `wsh effort note`, then close the tab; ctrl+c in the dialog closes without saving.
+  `--left-off` flag on `wsh effort chunk note`, then close the tab; ctrl+c in the dialog closes without saving.
 - **Why:** agents already write where they are. Since note authorship shipped (2026-09-23), 23 sessions
   wrote 185 notes to initiatives, including explicit "END-OF-DAY STATE (resume here)" notes, so the newest
   note is usually the resume point. Losing mid-conversation state ("I was at question 10+") showed up once

@@ -371,6 +371,11 @@ async function main() {
     unlinkBuildJunctions(process.cwd());
     const store = storeDir(out, slot);
     sweepStaleStores(slotPath("stores", slot));
+    // the vault otherwise defaults to ~/.waveterm/vault, shared by every dev app on the machine: parallel stages
+    // collided there on the initiatives a Jira scenario holds on a board key. Inside the store, it goes with it.
+    const storeConfig = join(store, "config");
+    mkdirSync(storeConfig, { recursive: true });
+    writeFileSync(join(storeConfig, "settings.json"), JSON.stringify({ "memory:vaultpath": join(store, "vault") }));
 
     const port = await pickPort(DEFAULT_PORT + portOffset);
     // inside the store, so it goes with it: nothing reads it after the run, and kept in ARC_FINAL_OUT it was ~76 MB

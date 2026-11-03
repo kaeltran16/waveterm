@@ -94,7 +94,7 @@ export function EffortCreateForm({
 
     // saving never waits on this or depends on it: the field is plain text either way
     const lookUpTicket = (): void => {
-        const key = shouldLookUp(lookedUp.current, ticket);
+        const key = shouldLookUp(lookedUp.current, ticket, lookup);
         if (key == null) {
             if (normalizeKey(ticket) === "" && lookedUp.current !== "") {
                 lookupSeq.current++;

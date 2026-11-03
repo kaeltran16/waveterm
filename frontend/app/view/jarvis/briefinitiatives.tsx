@@ -315,7 +315,7 @@ export function BriefChunkPane({
                     feed={feed}
                     expanded={readingNote}
                     now={Date.now()}
-                    handle={`wsh effort note ${selectedChunk.oref.replace(/^effort:/, "")} "${selectedChunk.row.label}"`}
+                    handle={`wsh effort chunk note ${selectedChunk.oref.replace(/^effort:/, "")} "${selectedChunk.row.label}" --note ""`}
                     ticket={ticket}
                     error={error}
                     onPrev={onPrev}

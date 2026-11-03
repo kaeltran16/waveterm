@@ -183,10 +183,10 @@ A link inside an item view does a full open, even with `Ctrl` held.
 | `Enter` | Open the row under the cursor |
 | `w` | Work on the initiative under the cursor in a new agent, or go to the agent already open on it |
 | `Alt`+`↑` / `Alt`+`↓` | Move the chunk under the cursor up / down within its stage |
-| `d` | Toggle the context rail |
 | `e` | Expand / collapse the record band |
 | `Shift`+`C` | Check Jira for your open tickets without an initiative |
-| `c` | New channel |
+| `r` | New run |
+| `Shift`+`N` | New initiative |
 | `Shift`+`G` | Graph peek (`Esc` closes) |
 | `Shift`+`J` / `Shift`+`K` | Next / previous run in this channel |
 | `j` / `k` | With a run sheet open: next / previous run in the list it counts (Runs, or Shipped for a finished run) |

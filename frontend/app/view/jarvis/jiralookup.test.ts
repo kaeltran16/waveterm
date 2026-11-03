@@ -5,23 +5,44 @@ import { describe, expect, it } from "vitest";
 import { fromLookupError, lookupLine, shouldLookUp, type LookupState } from "./jiralookup";
 
 describe("shouldLookUp", () => {
+    const idle: LookupState = { kind: "idle" };
+
     it("gives the normalized key when the field changed to a key-shaped value", () => {
-        expect(shouldLookUp("", " pay-318 ")).toBe("PAY-318");
+        expect(shouldLookUp("", " pay-318 ", idle)).toBe("PAY-318");
     });
 
     it("is null for the key it already looked up, however it is typed", () => {
-        expect(shouldLookUp("PAY-318", "PAY-318")).toBeNull();
-        expect(shouldLookUp("PAY-318", " pay-318 ")).toBeNull();
+        expect(shouldLookUp("PAY-318", "PAY-318", idle)).toBeNull();
+        expect(shouldLookUp("PAY-318", " pay-318 ", idle)).toBeNull();
     });
 
     it("is null for text that is not key-shaped", () => {
-        expect(shouldLookUp("", "pay")).toBeNull();
-        expect(shouldLookUp("", "")).toBeNull();
-        expect(shouldLookUp("PAY-318", "PAY-")).toBeNull();
+        expect(shouldLookUp("", "pay", idle)).toBeNull();
+        expect(shouldLookUp("", "", idle)).toBeNull();
+        expect(shouldLookUp("PAY-318", "PAY-", idle)).toBeNull();
     });
 
     it("looks up a different key", () => {
-        expect(shouldLookUp("PAY-318", "PAY-381")).toBe("PAY-381");
+        expect(shouldLookUp("PAY-318", "PAY-381", idle)).toBe("PAY-381");
+    });
+
+    it("retries the same key after an off or error outcome", () => {
+        expect(shouldLookUp("PAY-318", "PAY-318", { kind: "off" })).toBe("PAY-318");
+        expect(shouldLookUp("PAY-318", "pay-318", { kind: "error", message: "network" })).toBe("PAY-318");
+    });
+
+    it("does not retry the same key once Jira answered or a lookup is in flight", () => {
+        expect(shouldLookUp("PAY-318", "PAY-318", { kind: "notfound", key: "PAY-318" })).toBeNull();
+        expect(
+            shouldLookUp("PAY-318", "PAY-318", {
+                kind: "found",
+                key: "PAY-318",
+                summary: "s",
+                type: "Task",
+                status: "To Do",
+            })
+        ).toBeNull();
+        expect(shouldLookUp("PAY-318", "PAY-318", { kind: "looking", key: "PAY-318" })).toBeNull();
     });
 });
 

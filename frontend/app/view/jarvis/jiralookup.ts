@@ -16,10 +16,17 @@ export type LookupState =
     | { kind: "off" }
     | { kind: "error"; message: string };
 
-// the normalized key when the field changed to a key-shaped value, else null: one call per changed key
-export function shouldLookUp(prevKey: string, raw: string): string | null {
+// off and error are no answer about the key (Jira connected since, a network blip), so the same key may look again
+const RETRYABLE: ReadonlySet<LookupState["kind"]> = new Set(["off", "error"]);
+
+// the normalized key when the field holds a key-shaped value worth looking up, else null: one call per changed
+// key, plus a retry of the same key after an off or error outcome
+export function shouldLookUp(prevKey: string, raw: string, last: LookupState): string | null {
     const key = normalizeKey(raw);
-    return key !== "" && key !== prevKey ? key : null;
+    if (key === "") {
+        return null;
+    }
+    return key !== prevKey || RETRYABLE.has(last.kind) ? key : null;
 }
 
 export type LookupLine = {
