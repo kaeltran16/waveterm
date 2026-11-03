@@ -40,7 +40,7 @@ infers. When it says `project unsure`, ask the human which project before creati
 
 ```bash
 wsh effort create "<ticket title>" --ticket <KEY> --project <p> --chunk "<phase 1>" --chunk "<phase 2>"
-wsh effort note <oid> "<first chunk label>" --note "Made from <KEY>: <how you planned the chunks>"
+wsh effort chunk note <oid> "<first chunk label>" --note "Made from <KEY>: <how you planned the chunks>"
 ```
 
 Plan the chunks from the description and the acceptance criteria, not from the ticket's sub-tasks.
