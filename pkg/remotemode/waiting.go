@@ -21,6 +21,8 @@ type WaitingList struct {
 	VapidPublic string            `json:"vapidpublic"`
 	Questions   []WaitingQuestion `json:"questions"`
 	Shown       []WaitingShown    `json:"shown"`
+	// Handed is filled by the handler from Deps.Handed
+	Handed []HandedAgent `json:"handed"`
 }
 
 // WaitingQuestion is an agent question the phone can answer.

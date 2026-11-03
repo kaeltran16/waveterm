@@ -44,6 +44,13 @@ func (r *handTestRoster) edit(tab string, fn func(*Agent)) {
 func handTestEnv(t *testing.T, agents ...Agent) (*remoteTestFakes, *handTestRoster) {
 	t.Helper()
 	fakes, _ := remoteTestEnv(t, configValidSetup())
+	return fakes, handTestScript(t, agents...)
+}
+
+// handTestScript scripts AgentsHook with a roster and empties the hand-overs, restoring both when the
+// test ends.
+func handTestScript(t *testing.T, agents ...Agent) *handTestRoster {
+	t.Helper()
 	roster := &handTestRoster{}
 	roster.set(agents...)
 	prevHook, prevNow := AgentsHook, handNow
@@ -57,7 +64,7 @@ func handTestEnv(t *testing.T, agents ...Agent) (*remoteTestFakes, *handTestRost
 		AgentsHook, handNow = prevHook, prevNow
 		handReset()
 	})
-	return fakes, roster
+	return roster
 }
 
 func handTestClaude(tab string) Agent {
