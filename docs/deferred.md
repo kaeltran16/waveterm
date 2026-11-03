@@ -14,6 +14,23 @@ where it would plug in, and how to pick it back up. Append new entries at the to
 > with no trigger moved to "Declined 2026-10-16" below, and history paragraphs were cut to their recovery
 > lines. The full pre-prune text of every entry: `git show db067efe:docs/deferred.md`.
 
+## Collision guard for chats sharing one checkout (deferred 2026-11-03)
+
+Collision guard (nateherkai/claude-code-mods, MIT) records the files each chat edits and asks before an
+Edit or Write to a file another open chat edited in the last 30 minutes. It was parked as its own brainstorm
+by `docs/superpowers/specs/2026-10-27-goalpost-guard-design.md`. Run workers each get a worktree, so only
+interactive chats in one checkout can collide.
+
+- **Why held:** measured over the main checkout's Claude Code transcripts from 2026-10-03 to 11-03 (1,424
+  Edit/Write calls, 177 chats, worktree paths excluded): 31 edits hit a file another chat had edited in the
+  previous 30 minutes, from 10 chat pairs on 5 days. 26 of the 31 were `scripts/cdp/scenarios.mjs`, which
+  `085e43c8` split into one module per area.
+- **Revive when** a collision on a file other than the scenario modules costs lost or clobbered work.
+  Re-measure first: per Edit/Write `tool_use` in `~/.claude/projects/C--Users-kael02-IdeaProjects-waveterm/*.jsonl`
+  (not sidechain), flag one whose `file_path` another `sessionId` edited within 30 minutes.
+- **Plug-in point:** arc-mod's `tool.call` guard beside goalpost guard (`claude/arc-mod/`); Arc already knows
+  every live agent's checkout, so the record could come from the cockpit rather than the mod's own file store.
+
 ## Brainstorm judge end to end, in a real brainstorm (deferred 2026-10-23)
 
 The brainstorm judge (`docs/superpowers/specs/2026-10-23-unbiased-approach-questions-design.md`,

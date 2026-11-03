@@ -64,6 +64,9 @@ Cockpit and surfaces:
   result check changes, or a judge hangs, fails its check, or returns options the agent retypes.
 - **Sessions "All activity" feed peek** (2026-10-01) — revive when the feed rows carry a run, agent or
   effort target.
+- **Collision guard for chats sharing one checkout** (2026-11-03) — revive when a collision on a file other
+  than the scenario modules costs lost work; 10 chat pairs in a month, 26 of 31 hits on the since-split
+  `scenarios.mjs`.
 - **Incremental stateful transcript projection** — only if the capped re-project profiles hot (CDP /
   React-DevTools pass against a populated cockpit first).
 
