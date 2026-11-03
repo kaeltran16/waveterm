@@ -150,6 +150,7 @@ import {
     readingNoteAtom,
 } from "./jarvisstore";
 import { clearSubject, persistedSubjectAtom, stageRunAtom } from "./jarvissubjectstore";
+import { JiraCheckDialog } from "./jiracheckdialog";
 import { openOrPeek, openOrPeekAddress } from "./openref";
 import { forgetOrigin } from "./returnsurface";
 import { loadTaskList, taskListAtom } from "./tasksstore";
@@ -1086,6 +1087,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                 initialChannelId={profileTarget ?? ""}
                 onClose={() => setProfileTarget(null)}
             />
+            <JiraCheckDialog model={model} />
             {detailsOpen && openEffort != null && openEffortORef != null ? (
                 <EffortCreateForm
                     model={model}

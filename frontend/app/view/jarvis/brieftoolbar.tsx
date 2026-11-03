@@ -4,12 +4,14 @@
 // The Brief's toolbar: the filter field, the autonomy ladder, the profile and new-initiative controls, and
 // the facts beside the title.
 
+import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { RollingCount } from "@/app/view/agents/rollingcount";
 import { SurfaceToolbar, ToolbarFact } from "@/app/view/agents/surfacescaffold";
 import { cn } from "@/util/util";
 import { Search, SlidersHorizontal, X } from "lucide-react";
 import { AutonomyLadder } from "./autonomyladderview";
+import { checkJiraOpenAtom } from "./jiracheck";
 import { NewInitiativeControl } from "./newinitiativecontrol";
 
 export function BriefToolbar({
@@ -101,6 +103,15 @@ export function BriefToolbar({
                         className="flex h-[28px] w-[28px] flex-none cursor-pointer items-center justify-center rounded-[8px] border border-edge-mid bg-surface-raised text-ink-mid hover:border-edge-strong hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                     >
                         <SlidersHorizontal aria-hidden size={14} strokeWidth={1.8} />
+                    </button>
+                    <button
+                        type="button"
+                        data-jarvis-check-jira
+                        aria-haspopup="dialog"
+                        onClick={() => globalStore.set(checkJiraOpenAtom, true)}
+                        className="flex h-[28px] flex-none cursor-pointer items-center whitespace-nowrap rounded-[8px] border border-accent/60 bg-accentbg px-2.5 text-[12px] font-semibold text-accent-soft hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    >
+                        Check Jira
                     </button>
                     <NewInitiativeControl model={model} />
                 </>

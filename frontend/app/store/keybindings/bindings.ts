@@ -107,6 +107,7 @@ import {
     trackerMenuAtom,
 } from "@/app/view/jarvis/jarvisstore";
 import { activeRunIdAtom, activeSubjectAtom, setActiveRunId } from "@/app/view/jarvis/jarvissubjectstore";
+import { checkJiraOpenAtom } from "@/app/view/jarvis/jiracheck";
 import { peekTarget } from "@/app/view/jarvis/openref";
 import { petPeekOpenAtom } from "@/app/view/jarvis/petstore";
 import { backToOrigin } from "@/app/view/jarvis/returnsurface";
@@ -690,6 +691,14 @@ export function buildJarvisBindings(): Binding[] {
             label: "New initiative",
             when: onStage,
             run: () => clickThrough("[data-jarvis-new-initiative]"),
+        },
+        {
+            id: "jarvis:check-jira",
+            keys: "Shift:c",
+            group: "Jarvis",
+            label: "Check Jira for my tickets",
+            when: onStage,
+            run: () => globalStore.set(checkJiraOpenAtom, true),
         },
         {
             id: "jarvis:work-on",

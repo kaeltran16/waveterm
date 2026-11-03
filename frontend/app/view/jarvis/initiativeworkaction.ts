@@ -26,6 +26,21 @@ export interface WorkOnTarget {
     lastnote?: EffortLastNote;
 }
 
+// the harness a Brief launch starts (the preferred one, else the catalog's default) and its command, with the
+// flags New Agent remembers (e.g. skip permissions); Work on and Make initiative share it
+export function briefLaunchCommand(): { runtime: Runtime; startupCommand: string } {
+    const pref = globalStore.get(harnessPreferenceAtom).route?.runtime ?? "";
+    const runtime = (resolveDefaultRuntime(pref, globalStore.get(harnessesAtom)) || FALLBACK_RUNTIME) as Runtime;
+    return {
+        runtime,
+        startupCommand: composeStartupCommand(
+            runtimeStartupCommand(runtime),
+            runtime,
+            globalStore.get(naFlagsAtom)[runtime] ?? {}
+        ),
+    };
+}
+
 export async function workOnInitiative(model: AgentsViewModel, e: WorkOnTarget): Promise<void> {
     const oid = e.oref.replace(/^effort:/, "");
     const open = openAgentFor(oid, globalStore.get(model.agentsAtom));
@@ -44,17 +59,9 @@ export async function workOnInitiative(model: AgentsViewModel, e: WorkOnTarget):
         });
         return;
     }
-    const pref = globalStore.get(harnessPreferenceAtom).route?.runtime ?? "";
-    const runtime = (resolveDefaultRuntime(pref, globalStore.get(harnessesAtom)) || FALLBACK_RUNTIME) as Runtime;
     try {
         await launchAgent(model, {
-            runtime,
-            // the flags New Agent remembers (e.g. skip permissions) apply here too
-            startupCommand: composeStartupCommand(
-                runtimeStartupCommand(runtime),
-                runtime,
-                globalStore.get(naFlagsAtom)[runtime] ?? {}
-            ),
+            ...briefLaunchCommand(),
             task: workOnPrompt(e.title, oid, e.lastnote),
             projectPath,
             projectName: e.project!,

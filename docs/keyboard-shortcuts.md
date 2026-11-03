@@ -184,6 +184,7 @@ A link inside an item view does a full open, even with `Ctrl` held.
 | `Alt`+`↑` / `Alt`+`↓` | Move the chunk under the cursor up / down within its stage |
 | `d` | Toggle the context rail |
 | `e` | Expand / collapse the record band |
+| `Shift`+`C` | Check Jira for your open tickets without an initiative |
 | `c` | New channel |
 | `Shift`+`G` | Graph peek (`Esc` closes) |
 | `Shift`+`J` / `Shift`+`K` | Next / previous run in this channel |
