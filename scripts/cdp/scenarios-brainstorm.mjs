@@ -75,6 +75,8 @@ const BS_ERROR_WAIT_MS = 10000;
 const BS_TYPED_WAIT_MS = 5000;
 const BS_ROSTER_WAIT_MS = 10000;
 const BS_NOTHING_TYPED_MS = 800;
+const BS_CLICK_SETTLE_MS = 2000;
+const BS_CLICK_POLL_MS = 100;
 const BS_SCROLLBACK_LINES = 400;
 // the shell's prompt ends its last row: pwsh and cmd end in >, bash and zsh in $, # or %
 const BS_PROMPT = /[>$#%]$/;
@@ -268,14 +270,30 @@ const bsStates = (s) => Object.fromEntries((s?.parts ?? []).map((p) => [p.id, p.
 const bsPart = (s, id) => s?.parts?.find((p) => p.id === id);
 const bsBrief = (s) => ({ ok: s.ok, ms: s.ms, view: s.view, error: s.error, text: (s.text ?? "").slice(0, 300) });
 
-// a real click, which puts the page in focus: CDP key and text input reach nothing without it
+// the element's centre, scrolled into view, and whether a click there reaches the element itself
+const bsClickBox = (elExpr) => `(() => {
+    const el = ${elExpr};
+    el?.scrollIntoView({ block: "center" });
+    const r = el?.getBoundingClientRect();
+    if (!r || r.width === 0) return null;
+    const x = Math.round(r.x + r.width / 2);
+    const y = Math.round(r.y + r.height / 2);
+    const hit = document.elementFromPoint(x, y);
+    return { x, y, hits: hit != null && el.contains(hit) };
+})()`;
+
+// a real click, which puts the page in focus: CDP key and text input reach nothing without it. A box that has just
+// opened is still growing in its PaneReveal, so a click at once lands on the row below it and takes focus there;
+// it waits until the centre holds still and reaches the element, and after the wait clicks wherever it last was
 async function bsMouseClick(h, elExpr) {
-    const box = await h.ev(`(() => {
-        const el = ${elExpr};
-        el?.scrollIntoView({ block: "center" });
-        const r = el?.getBoundingClientRect();
-        return r && r.width > 0 ? { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) } : null;
-    })()`);
+    let box = await h.ev(bsClickBox(elExpr));
+    for (let waited = 0; box && waited < BS_CLICK_SETTLE_MS; waited += BS_CLICK_POLL_MS) {
+        await polishNap(BS_CLICK_POLL_MS);
+        const next = await h.ev(bsClickBox(elExpr));
+        const settled = next && next.hits && next.x === box.x && next.y === box.y;
+        box = next;
+        if (settled) break;
+    }
     if (!box) return false;
     for (const type of ["mousePressed", "mouseReleased"]) {
         await h.cdp("Input.dispatchMouseEvent", { type, x: box.x, y: box.y, button: "left", clickCount: 1 });
@@ -311,6 +329,7 @@ const bsSetValue = (elExpr, value) => `(() => {
 // types into a textarea the way a user does; "set" when the text had to go through bsSetValue instead
 async function bsFill(h, elExpr, text) {
     await bsMouseClick(h, elExpr);
+    await polishWaitFor(h, `!!${elExpr} && document.activeElement === ${elExpr}`, BS_CLICK_SETTLE_MS);
     await h.ev(bsSetValue(elExpr, ""));
     await h.cdp("Input.insertText", { text });
     if ((await h.ev(`${elExpr}?.value ?? null`)) === text) return "keys";
