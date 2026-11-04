@@ -605,13 +605,13 @@ describe("brainstorm landing", () => {
         expect(rpc.SetMetaCommand).not.toHaveBeenCalled();
     });
 
-    it("attaches the caller's brainstorm in terminal mode without moving the user, and records it on the tab", async () => {
+    it("attaches the caller's brainstorm with its pane open, without moving the user, and records it on the tab", async () => {
         const model = makeModel(["a1", "a2"]);
         globalStore.set(model.focusIdAtom, "a2");
         rpc.FileInfoCommand.mockResolvedValue({ path: PATH });
         rpc.SetMetaCommand.mockResolvedValue(undefined);
         expect(await openAddress(model, "brainstorm:lag", { caller }, noReport)).toEqual({ ok: true });
-        expect(getBrainstorm("a1")).toMatchObject({ topic: "lag", path: PATH, cwd: CWD, mode: "terminal" });
+        expect(getBrainstorm("a1")).toMatchObject({ topic: "lag", path: PATH, cwd: CWD, mode: "brainstorm" });
         expect(globalStore.get(model.focusIdAtom)).toBe("a2");
         expect(globalStore.get(model.surfaceAtom)).toBe("cockpit");
         expect(rpc.SetMetaCommand).toHaveBeenCalledWith(expect.anything(), {
