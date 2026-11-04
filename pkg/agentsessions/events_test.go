@@ -6,6 +6,7 @@ package agentsessions
 import (
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestClipText(t *testing.T) {
@@ -156,19 +157,20 @@ func TestExtractClaudeEvents_timeline(t *testing.T) {
 	}
 }
 
-// records out of timestamp order: status comes from the latest event, and the duration never goes negative
+// records out of timestamp order: events sort by time, the pending ask follows transcript order (the ask is
+// the last assistant record though the commit is the latest event), and the duration never goes negative
 func TestExtractClaudeEvents_outOfOrder(t *testing.T) {
 	lines := []string{
 		`{"type":"user","timestamp":"2026-07-10T12:00:10.000Z","message":{"content":"Plan the migration"}}`,
-		`{"type":"assistant","timestamp":"2026-07-10T12:00:20.000Z","message":{"content":[{"type":"tool_use","id":"t1","name":"AskUserQuestion","input":{"questions":[{"question":"Proceed?"}]}}]}}`,
-		`{"type":"assistant","timestamp":"2026-07-10T12:00:05.000Z","message":{"content":[{"type":"tool_use","id":"t2","name":"Bash","input":{"command":"git commit -m \"early\""}}]}}`,
+		`{"type":"assistant","timestamp":"2026-07-10T12:00:20.000Z","message":{"content":[{"type":"tool_use","id":"t2","name":"Bash","input":{"command":"git commit -m \"late\""}}]}}`,
+		`{"type":"assistant","timestamp":"2026-07-10T12:00:05.000Z","message":{"content":[{"type":"tool_use","id":"t1","name":"AskUserQuestion","input":{"questions":[{"question":"Proceed?"}]}}]}}`,
 	}
 	got := extractClaudeEvents(lines)
 	want := sessionEvents{
 		Events: []SessionEvent{
-			{Type: "committed", Ts: 1783684805000, Text: "early"},
+			{Type: "asked", Ts: 1783684805000, Text: "Proceed?"},
 			{Type: "started", Ts: 1783684810000, Text: "Plan the migration"},
-			{Type: "asked", Ts: 1783684820000, Text: "Proceed?"},
+			{Type: "committed", Ts: 1783684820000, Text: "late"},
 		},
 		Status:     "waiting",
 		StartedTs:  1783684810000,
@@ -179,7 +181,8 @@ func TestExtractClaudeEvents_outOfOrder(t *testing.T) {
 	}
 }
 
-// events at the same time keep transcript order, so a commit after an ask in one message leaves the session done
+// events at the same time keep transcript order; a commit beside an ask in one message does not answer it,
+// so the session still waits
 func TestExtractClaudeEvents_sameTimeKeepsOrder(t *testing.T) {
 	lines := []string{
 		`{"type":"user","timestamp":"2026-07-10T12:00:00.000Z","message":{"content":"Ship it"}}`,
@@ -191,9 +194,8 @@ func TestExtractClaudeEvents_sameTimeKeepsOrder(t *testing.T) {
 			{Type: "started", Ts: 1783684800000, Text: "Ship it"},
 			{Type: "asked", Ts: 1783684805000, Text: "Proceed?"},
 			{Type: "committed", Ts: 1783684805000, Text: "ship"},
-			{Type: "finished", Ts: 1783684805000, Text: "finished"},
 		},
-		Status:     "done",
+		Status:     "waiting",
 		StartedTs:  1783684800000,
 		DurationMs: 5000,
 	}
@@ -315,5 +317,81 @@ func TestScanProvider_populatesEventsAndStatus(t *testing.T) {
 	}
 	if s.StartedTs != 1783684800000 {
 		t.Errorf("startedTs = %d", s.StartedTs)
+	}
+}
+
+const (
+	waitUser     = `{"type":"user","timestamp":"2026-07-10T12:00:00.000Z","message":{"content":"Plan the migration"}}`
+	waitAsk1     = `{"type":"assistant","timestamp":"2026-07-10T12:00:05.000Z","message":{"content":[{"type":"tool_use","id":"ask1","name":"AskUserQuestion","input":{"questions":[{"question":"Proceed?"}]}}]}}`
+	waitAnswer1  = `{"type":"user","timestamp":"2026-07-10T12:00:20.000Z","message":{"content":[{"type":"tool_result","tool_use_id":"ask1","content":"yes"}]}}`
+	waitReadCall = `{"type":"assistant","timestamp":"2026-07-10T12:00:25.000Z","message":{"content":[{"type":"tool_use","id":"r1","name":"Read","input":{}}]}}`
+	waitAsk2     = `{"type":"assistant","timestamp":"2026-07-10T12:00:30.000Z","message":{"content":[{"type":"tool_use","id":"ask2","name":"AskUserQuestion","input":{"questions":[{"question":"Which table first?"}]}}]}}`
+)
+
+func lastEventType(se sessionEvents) string {
+	if len(se.Events) == 0 {
+		return ""
+	}
+	return se.Events[len(se.Events)-1].Type
+}
+
+func TestClaudeWaitingUnansweredAsk(t *testing.T) {
+	got := extractClaudeEvents([]string{waitUser, waitAsk1})
+	if got.Status != "waiting" {
+		t.Errorf("status = %q, want waiting for an unanswered ask", got.Status)
+	}
+	if lastEventType(got) == "finished" {
+		t.Error("a waiting session has no finished event")
+	}
+}
+
+func TestClaudeWaitingClearedByToolResult(t *testing.T) {
+	got := extractClaudeEvents([]string{waitUser, waitAsk1, waitAnswer1})
+	if got.Status != "done" {
+		t.Errorf("status = %q, want done once the ask has its tool_result", got.Status)
+	}
+	if lastEventType(got) != "finished" {
+		t.Errorf("last event = %q, want finished", lastEventType(got))
+	}
+}
+
+// the review's case: the ask was answered and the agent went on with a commit-less tool call, so the
+// last real event is still the ask, yet nothing waits on the user
+func TestClaudeWaitingClearedByLaterAssistant(t *testing.T) {
+	for name, lines := range map[string][]string{
+		"answered then a tool call":    {waitUser, waitAsk1, waitAnswer1, waitReadCall},
+		"a later assistant, no result": {waitUser, waitAsk1, waitReadCall},
+	} {
+		if got := extractClaudeEvents(lines); got.Status != "done" {
+			t.Errorf("%s: status = %q, want done", name, got.Status)
+		}
+	}
+}
+
+func TestClaudeWaitingSecondAskPending(t *testing.T) {
+	got := extractClaudeEvents([]string{waitUser, waitAsk1, waitAnswer1, waitReadCall, waitAsk2})
+	if got.Status != "waiting" {
+		t.Errorf("status = %q, want waiting on the second ask", got.Status)
+	}
+}
+
+func TestWithoutRecentFinish(t *testing.T) {
+	now := time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)
+	events := []SessionEvent{{Type: "started", Ts: 1}, {Type: "committed", Ts: 2}, {Type: "finished", Ts: 3}}
+	orig := append([]SessionEvent(nil), events...)
+
+	fresh := withoutRecentFinish(events, now.Add(-4*time.Minute), now)
+	if want := events[:2]; !reflect.DeepEqual(fresh, want) {
+		t.Errorf("4 min old: got %+v, want the finished event dropped %+v", fresh, want)
+	}
+	if !reflect.DeepEqual(events, orig) {
+		t.Errorf("input slice changed: %+v", events)
+	}
+	if quiet := withoutRecentFinish(events, now.Add(-6*time.Minute), now); !reflect.DeepEqual(quiet, orig) {
+		t.Errorf("6 min old: got %+v, want it kept", quiet)
+	}
+	noFinish := events[:2]
+	if got := withoutRecentFinish(noFinish, now.Add(-time.Minute), now); !reflect.DeepEqual(got, noFinish) {
+		t.Errorf("no finished event: got %+v, want unchanged", got)
 	}
 }

@@ -25,9 +25,12 @@ import (
 )
 
 const (
-	defaultWindowDays = 14
-	defaultLimit      = 20
-	maxTaskLen        = 120
+	defaultWindowDays  = 14
+	defaultLimit       = 20
+	maxTaskLen         = 120
+	claudeSubagentsDir = "subagents"
+	// a transcript written this recently may be a session pausing between turns, not one that finished
+	finishedQuietFor = 5 * time.Minute
 )
 
 // A session's first message is frequently scaffolding rather than anything a person wrote: the CLI
@@ -40,11 +43,18 @@ const (
 	caveatCloseTag       = "</local-command-caveat>"
 	dispatchPreambleLead = "Work by these principles"
 	dispatchGoalPrefix   = "Goal: "
+	dispatchBulletPrefix = "- "
+	dispatchConflictLead = "Where a principle above conflicts"
 )
+
+// local command output (/status, /context) is echoed back as a user record but is nothing the user asked
+var localCommandOutputTags = []string{"<local-command-stdout>", "<local-command-stderr>"}
 
 var (
 	commandNameRe = regexp.MustCompile(`(?s)<command-name>(.*?)</command-name>`)
 	commandArgsRe = regexp.MustCompile(`(?s)<command-args>(.*?)</command-args>`)
+	// an initiative ref typed into a run goal; the Go index has no store to name it, so it is dropped
+	effortRefRe = regexp.MustCompile(`\(\s*effort:[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}\s*\)|effort:[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}`)
 )
 
 // sessionTitle unwraps a first user message into a human-recognizable title, returning "" when the
@@ -52,14 +62,27 @@ var (
 // The slash-command shape mirrors parseCommand in frontend/app/view/agents/transcriptprojection.ts so
 // one session is not named two different things in two places.
 func sessionTitle(raw string) string {
+	t := unwrapTitle(raw)
+	if !effortRefRe.MatchString(t) {
+		return t
+	}
+	return strings.TrimSpace(wsRe.ReplaceAllString(effortRefRe.ReplaceAllString(t, " "), " "))
+}
+
+func unwrapTitle(raw string) string {
 	t := strings.TrimSpace(pastedContentRe.ReplaceAllString(raw, "$1"))
 	if t == "" {
 		return ""
 	}
+	for _, tag := range localCommandOutputTags {
+		if strings.HasPrefix(t, tag) {
+			return ""
+		}
+	}
 	if strings.HasPrefix(t, caveatOpenTag) {
 		// the caveat is boilerplate the CLI adds; the real message, if any, follows the closing tag
 		if i := strings.Index(t, caveatCloseTag); i >= 0 {
-			return sessionTitle(t[i+len(caveatCloseTag):])
+			return unwrapTitle(t[i+len(caveatCloseTag):])
 		}
 		return ""
 	}
@@ -76,15 +99,33 @@ func sessionTitle(raw string) string {
 		return name
 	}
 	if strings.HasPrefix(t, dispatchPreambleLead) {
-		for _, line := range strings.Split(t, "\n") {
-			if strings.HasPrefix(line, dispatchGoalPrefix) {
-				if goal := strings.TrimSpace(strings.TrimPrefix(line, dispatchGoalPrefix)); goal != "" {
-					return goal
-				}
-			}
+		if body := preambleBody(t); body != "" {
+			return body
 		}
 	}
 	return t
+}
+
+// preambleBody titles a dispatched prompt by its Goal: line, else by the first line after the principles
+// (the lead line, its "- " bullets and the conflict line), so a lead prompt with no goal line is still
+// named by its own text. "" when the preamble is all there is.
+func preambleBody(t string) string {
+	lines := strings.Split(t, "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(line, dispatchGoalPrefix) {
+			if goal := strings.TrimSpace(strings.TrimPrefix(line, dispatchGoalPrefix)); goal != "" {
+				return goal
+			}
+		}
+	}
+	for _, line := range lines[1:] {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, dispatchBulletPrefix) || strings.HasPrefix(line, dispatchConflictLead) {
+			continue
+		}
+		return line
+	}
+	return ""
 }
 
 // SessionInfo is one resumable past agent session.
@@ -149,6 +190,9 @@ func parseClaudeLines(lines []string) []claudeLine {
 }
 
 func claudeSessionFrom(id string, recs []claudeLine) *SessionInfo {
+	if len(recs) > 0 && recs[0].IsSidechain {
+		return nil // a subagent's transcript; its parent holds the Task prompt and result
+	}
 	s := &SessionInfo{ID: id}
 	hasTask := false
 	fallback := ""
@@ -235,6 +279,10 @@ func claudeEventsFrom(recs []claudeLine) sessionEvents {
 	cmdByID := map[string]string{}
 	var firstTs, lastTs int64
 	var firstUser, lastAssistant string
+	// the last AskUserQuestion still waits only until its tool_result or any later assistant record:
+	// either means the session moved on, whatever event came last
+	var askPending bool
+	var askID string
 	for _, rec := range recs {
 		if ts := parseTs(rec.Timestamp); ts > 0 {
 			if firstTs == 0 {
@@ -245,6 +293,7 @@ func claudeEventsFrom(recs []claudeLine) sessionEvents {
 		ts := parseTs(rec.Timestamp)
 		switch rec.Type {
 		case "assistant":
+			askPending = false
 			var blocks []claudeBlock
 			if json.Unmarshal(rec.Message.Content, &blocks) != nil {
 				continue
@@ -265,6 +314,7 @@ func claudeEventsFrom(recs []claudeLine) sessionEvents {
 						}
 					}
 					if b.Name == "AskUserQuestion" {
+						askPending, askID = true, b.ID
 						raw = append(raw, SessionEvent{Type: "asked", Ts: ts, Text: askText(b)})
 					} else if b.Name == "Bash" && commitRe.MatchString(cmd) {
 						raw = append(raw, SessionEvent{Type: "committed", Ts: ts, Text: commitSubject(cmd)})
@@ -287,6 +337,9 @@ func claudeEventsFrom(recs []claudeLine) sessionEvents {
 				if b.Type == "text" && firstUser == "" {
 					firstUser = sessionTitle(b.Text)
 				}
+				if b.Type == "tool_result" && askID != "" && b.ToolUseID == askID {
+					askPending = false
+				}
 				if b.Type == "tool_result" && b.IsError && b.ToolUseID != "" {
 					cmd := cmdByID[b.ToolUseID]
 					if cmd == "" {
@@ -305,7 +358,7 @@ func claudeEventsFrom(recs []claudeLine) sessionEvents {
 	if lastAssistant != "" {
 		finishedText = clipText(lastAssistant)
 	}
-	return assembleEvents(raw, firstTs, lastTs, startedText, finishedText)
+	return assembleEvents(raw, firstTs, lastTs, askPending, startedText, finishedText)
 }
 
 type codexLine struct {
@@ -493,7 +546,7 @@ func extractCodexEvents(lines []string) sessionEvents {
 	if lastAssistant != "" {
 		finishedText = clipText(lastAssistant)
 	}
-	return assembleEvents(raw, firstTs, lastTs, startedText, finishedText)
+	return assembleEvents(raw, firstTs, lastTs, false, startedText, finishedText)
 }
 
 // stringContent returns trimmed text when message.content is a plain string (a human prompt).
@@ -577,11 +630,13 @@ func commitSubject(cmd string) string {
 	return "committed"
 }
 
-// assembleEvents sorts the raw events, derives status from the last real event, prepends a synthetic
-// "started" and (only for done sessions) appends a synthetic "finished", and computes duration.
+// assembleEvents sorts the raw events, takes status from the extractor's waiting decision, prepends a
+// synthetic "started" and (only for done sessions) appends a synthetic "finished", and computes duration.
+// waiting is not read off the last event: events are only asked/committed/errored, so an ask that was
+// answered and followed by quiet work would still be the last one.
 // a tool error does not fail a session: agents recover from nearly all of them, and a transcript scan
 // found the rest were almost all the user rejecting a call or a known client-side timeout.
-func assembleEvents(raw []SessionEvent, firstTs, lastTs int64, startedText, finishedText string) sessionEvents {
+func assembleEvents(raw []SessionEvent, firstTs, lastTs int64, waiting bool, startedText, finishedText string) sessionEvents {
 	var real []SessionEvent
 	for _, e := range raw {
 		if e.Ts > 0 {
@@ -591,10 +646,8 @@ func assembleEvents(raw []SessionEvent, firstTs, lastTs int64, startedText, fini
 	sort.SliceStable(real, func(i, j int) bool { return real[i].Ts < real[j].Ts })
 
 	status := "done"
-	if n := len(real); n > 0 {
-		if real[n-1].Type == "asked" {
-			status = "waiting"
-		}
+	if waiting {
+		status = "waiting"
 	}
 
 	var events []SessionEvent
@@ -634,6 +687,7 @@ type provider struct {
 	runtime   string
 	root      string
 	matches   func(name string) bool
+	skipDir   func(root, path string) bool // nil walks every dir
 	fused     func(path, stem string, lines []string) (*SessionInfo, sessionEvents, []Turn)
 	resumeCmd func(s *SessionInfo) string
 }
@@ -643,6 +697,8 @@ func claudeProvider(root string) provider {
 		runtime: "claude",
 		root:    root,
 		matches: func(name string) bool { return strings.HasSuffix(name, ".jsonl") },
+		// Task subagents write <session>/subagents/agent-*.jsonl: sidechains, never a session of their own
+		skipDir: func(_, path string) bool { return filepath.Base(path) == claudeSubagentsDir },
 		// one shared unmarshal pass for every derivation — claude transcripts dominate the scan cost
 		fused: func(_ string, id string, lines []string) (*SessionInfo, sessionEvents, []Turn) {
 			recs := parseClaudeLines(lines)
@@ -929,7 +985,7 @@ func extractOpencodeEvents(data *opencodeSessionData) sessionEvents {
 	if lastAssistant != "" {
 		finishedText = lastAssistant
 	}
-	return assembleEvents(raw, firstTs, lastTs, startedText, finishedText)
+	return assembleEvents(raw, firstTs, lastTs, false, startedText, finishedText)
 }
 
 // piProvider scans Pi's native session storage. root is …/pi/agent/sessions; walkCandidates walks its
@@ -942,6 +998,12 @@ func piProvider(root string) provider {
 		runtime: "pi",
 		root:    root,
 		matches: func(name string) bool { return strings.HasSuffix(name, ".jsonl") },
+		// sessions sit at <encoded cwd>/<file>.jsonl; anything deeper is a pi-subagents child session
+		// (<parent stem>/<runId>/run-<n>/session.jsonl)
+		skipDir: func(root, path string) bool {
+			rel, err := filepath.Rel(root, path)
+			return err == nil && strings.ContainsRune(rel, filepath.Separator)
+		},
 		fused: func(path, _ string, _ []string) (*SessionInfo, sessionEvents, []Turn) {
 			file, err := pisession.Read(path)
 			if err != nil {
@@ -1053,6 +1115,9 @@ func walkCandidates(p provider, windowDays int) []candidate {
 			if headlessSlug != "" && d.Name() == headlessSlug {
 				return filepath.SkipDir // the backend's own headless passes, never a user session
 			}
+			if p.skipDir != nil && path != p.root && p.skipDir(p.root, path) {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if !p.matches(d.Name()) {
@@ -1122,11 +1187,22 @@ func sessionOf(c candidate, e scanCacheEntry) SessionInfo {
 	s.LastActiveTs = c.mtime.UnixMilli()
 	s.ResumeCommand = c.p.resumeCmd(&s)
 	s.TranscriptPath = c.path
-	s.Events = e.se.Events
+	s.Events = withoutRecentFinish(e.se.Events, c.mtime, time.Now())
 	s.Status = e.se.Status
 	s.StartedTs = e.se.StartedTs
 	s.DurationMs = e.se.DurationMs
 	return s
+}
+
+// withoutRecentFinish drops a trailing synthetic "finished" while the transcript is still fresh. It runs at
+// read time because the scan cache keys on mtime+size: a decision cached while fresh would stand forever
+// for a file that then goes idle. Returns a copy; the cached slice is shared.
+func withoutRecentFinish(events []SessionEvent, lastActive, now time.Time) []SessionEvent {
+	n := len(events)
+	if n == 0 || events[n-1].Type != "finished" || now.Sub(lastActive) >= finishedQuietFor {
+		return events
+	}
+	return append([]SessionEvent(nil), events[:n-1]...)
 }
 
 // parseCandidates derives sessions from candidates in mtime order until limit sessions are found
