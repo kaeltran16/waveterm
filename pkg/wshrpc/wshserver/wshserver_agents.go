@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/agentctl"
@@ -85,7 +86,12 @@ func (ws *WshServer) GetRecentSessionsCommand(ctx context.Context, data wshrpc.C
 	return &wshrpc.CommandGetRecentSessionsRtnData{Sessions: out}, nil
 }
 
-func sessionActivityOf(s agentsessions.SessionInfo) wshrpc.SessionActivity {
+func statPath(path string) error {
+	_, err := os.Stat(path)
+	return err
+}
+
+func sessionActivityOf(s agentsessions.SessionInfo, check *agentsessions.DirCheck) wshrpc.SessionActivity {
 	evs := make([]wshrpc.SessionEvent, len(s.Events))
 	for j, e := range s.Events {
 		evs[j] = wshrpc.SessionEvent{Type: e.Type, Ts: e.Ts, Text: e.Text}
@@ -96,7 +102,20 @@ func sessionActivityOf(s agentsessions.SessionInfo) wshrpc.SessionActivity {
 		LastActiveTs: s.LastActiveTs, ResumeCommand: s.ResumeCommand, ResumeArgs: s.ResumeArgs,
 		TranscriptPath: s.TranscriptPath,
 		Status:         s.Status, StartedTs: s.StartedTs, DurationMs: s.DurationMs, Events: evs,
+		ResumeBlocker: check.Blocker(s.ProjectPath),
 	}
+}
+
+// withPinned appends the pinned sessions the window missed.
+func withPinned(sessions []agentsessions.SessionInfo, pinned []string) []agentsessions.SessionInfo {
+	if len(pinned) == 0 {
+		return sessions
+	}
+	have := make(map[string]bool, len(sessions))
+	for _, s := range sessions {
+		have[s.Runtime+":"+s.ID] = true
+	}
+	return append(sessions, agentsessions.PinnedSessions(pinned, have)...)
 }
 
 func (ws *WshServer) GetSessionsActivityCommand(ctx context.Context, data wshrpc.CommandGetSessionsActivityData) (*wshrpc.CommandGetSessionsActivityRtnData, error) {
@@ -115,9 +134,11 @@ func (ws *WshServer) GetSessionsActivityCommand(ctx context.Context, data wshrpc
 	} else {
 		sessions, complete = agentsessions.ScanSessions(data.WindowDays, data.Limit)
 	}
+	sessions = withPinned(sessions, data.Pinned)
 	out := make([]wshrpc.SessionActivity, len(sessions))
+	check := agentsessions.NewDirCheck(statPath)
 	for i, s := range sessions {
-		out[i] = sessionActivityOf(s)
+		out[i] = sessionActivityOf(s, check)
 	}
 	// unlinked sessions still list, just not under their run
 	if err := linkSessionsToRuns(ctx, out); err != nil {
