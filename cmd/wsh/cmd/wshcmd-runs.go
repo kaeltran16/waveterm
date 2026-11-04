@@ -854,15 +854,18 @@ func runsRecordLines(d *waveobj.EvidenceDag) []string {
 			head += fmt.Sprintf("  review rounds %d", t.ReviewRounds)
 		}
 		lines = append(lines, head)
-		for _, sec := range []struct{ label, body string }{
-			{"differs", t.Differs},
-			{"not verified", t.NotVerified},
-			{"reviewer", t.ReviewerUnverified},
-			{"found not fixed", t.FoundNotFixed},
-			{"for lead", t.ForLead},
-			{"unstructured", t.Unstructured},
+		// labelled by what each is, as the sidebar's record (runrecord.ts) labels them: unverified only where something went unchecked
+		for _, sec := range []struct{ label, prefix, body string }{
+			{"changed plan", "", t.Differs},
+			{"unverified", "", t.NotVerified},
+			{"unverified", "reviewer: ", t.ReviewerUnverified},
+			{"not fixed", "", t.FoundNotFixed},
+			{"handoff", "", t.ForLead},
+			{"unverified", "unstructured report: ", t.Unstructured},
 		} {
-			lines = append(lines, runsLabelled("  ", sec.label, sec.body)...)
+			if body := strings.TrimSpace(sec.body); body != "" {
+				lines = append(lines, runsLabelled("  ", sec.label, sec.prefix+body)...)
+			}
 		}
 	}
 	lines = append(lines, fmt.Sprintf("answered %d  forwarded %d", d.Answered, d.Forwarded))

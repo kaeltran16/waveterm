@@ -29,13 +29,13 @@ describe("runRecordRows", () => {
         };
         expect(runRecordRows(dag)).toEqual([
             { kind: "task", text: "t-1 done  0123456  review rounds 2" },
-            { kind: "section", label: "differs", text: "kept the old flag" },
-            { kind: "section", label: "not verified", text: "the CDP scenario\nthe packaged build" },
-            { kind: "section", label: "reviewer", text: "the windows path" },
-            { kind: "section", label: "found not fixed", text: "a stale doc" },
-            { kind: "section", label: "for lead", text: "t-4 reads the new key" },
+            { kind: "section", label: "changed plan", text: "kept the old flag" },
+            { kind: "section", label: "unverified", text: "the CDP scenario\nthe packaged build" },
+            { kind: "section", label: "unverified", text: "reviewer: the windows path" },
+            { kind: "section", label: "not fixed", text: "a stale doc" },
+            { kind: "section", label: "handoff", text: "t-4 reads the new key" },
             { kind: "task", text: "t-2 done  fedcba9" },
-            { kind: "section", label: "unstructured", text: "did it all" },
+            { kind: "section", label: "unverified", text: "unstructured report: did it all" },
             { kind: "task", text: "t-3 skipped" },
             { kind: "run", text: "answered 1  forwarded 2" },
             { kind: "run", label: "told", text: "t-1: keep the links clickable" },
@@ -51,7 +51,7 @@ describe("runRecordRows", () => {
         };
         expect(runRecordRows(dag)).toEqual([
             { kind: "task", text: "t-1 done" },
-            { kind: "section", label: "found not fixed", text: "x" },
+            { kind: "section", label: "not fixed", text: "x" },
             { kind: "run", text: "answered 0  forwarded 0" },
         ]);
     });

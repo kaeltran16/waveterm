@@ -17,18 +17,19 @@ export function runRecordRows(dag: EvidenceDag | undefined): RecordRow[] {
     const rows: RecordRow[] = [];
     for (const t of dag.tasks ?? []) {
         rows.push({ kind: "task", text: taskLine(t) });
-        const sections: [string, string | undefined][] = [
-            ["differs", t.differs],
-            ["not verified", t.notverified],
-            ["reviewer", t.reviewerunverified],
-            ["found not fixed", t.foundnotfixed],
-            ["for lead", t.forlead],
-            ["unstructured", t.unstructured],
+        // labelled by what each is, as the lead's wake row labels them: unverified only where something went unchecked
+        const sections: [string, string | undefined, string?][] = [
+            ["changed plan", t.differs],
+            ["unverified", t.notverified],
+            ["unverified", t.reviewerunverified, "reviewer: "],
+            ["not fixed", t.foundnotfixed],
+            ["handoff", t.forlead],
+            ["unverified", t.unstructured, "unstructured report: "],
         ];
-        for (const [label, body] of sections) {
+        for (const [label, body, prefix = ""] of sections) {
             const text = (body ?? "").trim();
             if (text !== "") {
-                rows.push({ kind: "section", label, text });
+                rows.push({ kind: "section", label, text: prefix + text });
             }
         }
     }
