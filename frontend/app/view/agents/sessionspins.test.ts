@@ -67,10 +67,21 @@ describe("togglePinnedRow", () => {
         expect(togglePinnedRow(pins, row)).toEqual(["claude:x", "claude:y"]);
     });
 
-    it("a run pinned only by a member key unpins, and pinning a run adds just its run key", () => {
+    it("a run pinned only by a member key unpins, and pinning a run with no lead adds just its run key", () => {
         const row = runRow("r1", ["m1"]);
         expect(togglePinnedRow(["claude:m1"], row)).toEqual([]);
         expect(togglePinnedRow([], row)).toEqual(["run:r1"]);
+    });
+
+    // the lead's key brings a run older than the window back with its lead
+    it("pinning a run also pins its lead", () => {
+        const row = runRow("r1", ["m1"]);
+        const lead = sess({ id: "lead1", runid: "r1", role: "lead" }) as LiveSession;
+        row.run.group.lead = [lead];
+        row.run.group.sessions.push(lead);
+        const pinned = togglePinnedRow(["claude:z"], row);
+        expect(pinned).toEqual(["claude:z", "run:r1", "claude:lead1"]);
+        expect(togglePinnedRow(pinned, row)).toEqual(["claude:z"]);
     });
 
     it("does not mutate its input", () => {

@@ -15,6 +15,7 @@ import {
     sessionLabel,
     sessionPrimary,
     sessionSelection,
+    soloStatus,
     taskStatus,
     withoutBrainstormSessions,
 } from "./sessionsruns";
@@ -151,7 +152,7 @@ describe("runView", () => {
     } as DagStatusDigest;
 
     it("lists the lead and every task, and surfaces only the ones that need you", () => {
-        const v = runView({ group: groupRunSessions(sessions).runs[0], dag, digest, leadAtPrompt: true, now: 0 });
+        const v = runView({ group: groupRunSessions(sessions).runs[0], dag, digest, leadAtPrompt: true });
         expect(v.title).toBe("Port the header");
         expect(v.plan).toBe("p.md");
         expect(v.members.map((m) => m.key)).toEqual([LEAD_MEMBER, "t-1", "t-2", "t-3", "t-4"]);
@@ -166,20 +167,66 @@ describe("runView", () => {
     });
 
     it("opens a run with nothing asking on its lead", () => {
-        const v = runView({ group: groupRunSessions(sessions).runs[0], dag, now: 0 });
+        const v = runView({ group: groupRunSessions(sessions).runs[0], dag });
         expect(v.head).toEqual({ key: "running", text: "2 running" });
         expect(defaultMember(v)).toBe(LEAD_MEMBER);
     });
 
-    it("gives a finished run its age", () => {
-        const ended = sessions.map((s) => ({ ...s, live: false, lastactivets: 0 }));
+    // the card and the detail render the age, so the view does not change with the clock
+    it("runView needs no now", () => {
+        const ended = sessions.map((s) => ({ ...s, live: false, lastactivets: HOUR }));
         const done = dagOf(
             dag.tasks.map((t) => ({ ...t, state: "done" })),
             { status: "done" }
         );
-        const v = runView({ group: groupRunSessions(ended).runs[0], dag: done, now: 2 * HOUR });
-        expect(v.head).toEqual({ key: "done", text: "2h" });
+        const v = runView({ group: groupRunSessions(ended).runs[0], dag: done });
+        expect(v.head).toEqual({ key: "done", text: "" });
+        expect(v.lastactivets).toBe(HOUR);
+        expect(v.open).toBe(false);
         expect(v.members[0].status).toEqual({ key: "done", text: "done" });
+    });
+
+    it("cancelled run has no needs and no ask", () => {
+        const cancelledDag = { ...dag, status: "cancelled" } as TaskGroup;
+        const v = runView({ group: groupRunSessions(sessions).runs[0], dag: cancelledDag, digest });
+        expect(v.open).toBe(false);
+        expect(v.needs).toEqual([]);
+        expect(v.ask).toBeUndefined();
+        // the asking task still reads asking on its own row
+        expect(v.members.find((m) => m.key === "t-3")?.status.key).toBe("asking");
+        const cancelledRun = runView({
+            group: groupRunSessions(sessions).runs[0],
+            run: { status: "cancelled" } as Run,
+            dag,
+            digest,
+        });
+        expect(cancelledRun.needs).toEqual([]);
+        expect(cancelledRun.ask).toBeUndefined();
+        expect(defaultMember(cancelledRun)).toBe(LEAD_MEMBER);
+    });
+
+    it("cancelled run head reads cancelled even with a failed task", () => {
+        const failed = dagOf([task("t-1", "done"), task("t-2", "failed")], { status: "cancelled" });
+        expect(runView({ group: groupRunSessions(sessions).runs[0], dag: failed, digest }).head).toEqual({
+            key: "muted",
+            text: "cancelled",
+        });
+        const byRun = runView({
+            group: groupRunSessions(sessions).runs[0],
+            run: { status: "cancelled" } as Run,
+            dag: dagOf([task("t-1", "failed")]),
+        });
+        expect(byRun.head).toEqual({ key: "muted", text: "cancelled" });
+    });
+
+    // a blocked run still waits on a decision on its run sheet, whether or not its lead is still up
+    it("blocked run with an ended lead keeps its needs", () => {
+        const ended = sessions.map((s) => ({ ...s, live: false }));
+        const blocked = dagOf([task("t-1", "done"), task("t-2", "failed")], { status: "blocked" });
+        const v = runView({ group: groupRunSessions(ended).runs[0], run: { status: "blocked" } as Run, dag: blocked });
+        expect(v.open).toBe(true);
+        expect(v.needs.map((m) => m.key)).toEqual(["t-2"]);
+        expect(v.head).toEqual({ key: "failed", text: "1 needs you" });
     });
 
     // the Agents tree's green check: the plan done, the lead finished and the branch landed
@@ -190,15 +237,15 @@ describe("runView", () => {
             { status: "done" }
         );
         const complete = (run: Partial<Run>) =>
-            runView({ group: groupRunSessions(ended).runs[0], run: run as Run, dag: done, now: 0 }).complete;
+            runView({ group: groupRunSessions(ended).runs[0], run: run as Run, dag: done }).complete;
         expect(complete({ status: "done", land: { state: "landed" } as RunLand })).toBe(true);
         expect(complete({ status: "finalizing" })).toBe(false);
         expect(complete({ status: "done", land: { state: "held" } as RunLand })).toBe(false);
-        expect(runView({ group: groupRunSessions(ended).runs[0], dag, now: 0 }).complete).toBe(false);
+        expect(runView({ group: groupRunSessions(ended).runs[0], dag }).complete).toBe(false);
     });
 
     it("lists the tasks its sessions worked when the dag is missing", () => {
-        const v = runView({ group: groupRunSessions(sessions).runs[0], now: 0 });
+        const v = runView({ group: groupRunSessions(sessions).runs[0] });
         expect(v.members.map((m) => m.key)).toEqual([LEAD_MEMBER, "t-1", "t-3"]);
         expect(v.title).toBe("do the thing");
     });
@@ -237,7 +284,7 @@ describe("stage sessions", () => {
     });
 
     it("lists the plan review and the final verification after the tasks, newest session first", () => {
-        const v = runView({ group: groupRunSessions(sessions).runs[0], dag, now: 0 });
+        const v = runView({ group: groupRunSessions(sessions).runs[0], dag });
         expect(v.members.map((m) => m.key)).toEqual([LEAD_MEMBER, "t-1", "plan-reviewer", "verifier"]);
         const [, , review, verify] = v.members;
         expect(review.label).toBe("Plan review");
@@ -254,7 +301,7 @@ describe("stage sessions", () => {
                 mk({ id: "lead", runid: "r1", role: "lead" }),
                 mk({ id: "pr", runid: "r1", role: "plan-reviewer", stagerunid }),
             ]).runs[0];
-            const v = runView({ group, dag: { ...dag, planreview: review }, now: 0 });
+            const v = runView({ group, dag: { ...dag, planreview: review } });
             return v.members.find((m) => m.key === "plan-reviewer")?.status;
         };
         const failedRound: PlanReviewStage = {
@@ -274,7 +321,7 @@ describe("stage sessions", () => {
     });
 
     it("leaves the run's task counts and needs-you rows to its tasks", () => {
-        const v = runView({ group: groupRunSessions(sessions).runs[0], dag, now: 0 });
+        const v = runView({ group: groupRunSessions(sessions).runs[0], dag });
         expect(v.total).toBe(1);
         expect(v.landed).toBe(1);
         expect(v.segs).toEqual(["done"]);
@@ -283,9 +330,9 @@ describe("stage sessions", () => {
 
     it("reads a live stage session as judging, and one with no dag as done", () => {
         const live = sessions.map((s) => (s.id === "fv" ? { ...s, live: true } : s));
-        const running = runView({ group: groupRunSessions(live).runs[0], dag, now: 0 });
+        const running = runView({ group: groupRunSessions(live).runs[0], dag });
         expect(running.members[3].status).toEqual({ key: "review", text: "verifying" });
-        const bare = runView({ group: groupRunSessions(sessions).runs[0], now: 0 });
+        const bare = runView({ group: groupRunSessions(sessions).runs[0] });
         expect(bare.members.slice(2).map((m) => m.status)).toEqual([
             { key: "done", text: "done" },
             { key: "done", text: "done" },
@@ -302,9 +349,37 @@ describe("stage sessions", () => {
 
 describe("sessionPrimary", () => {
     it("jumps to a live session, resumes an ended resumable one, and offers nothing otherwise", () => {
-        expect(sessionPrimary(mk({ live: true, liveId: "tab-1" }))).toBe("jump");
-        expect(sessionPrimary(mk({ resumecommand: "claude --resume x" }))).toBe("resume");
+        expect(sessionPrimary(mk({ live: true, liveId: "tab-1" }))).toEqual({ kind: "jump" });
+        expect(sessionPrimary(mk({ resumecommand: "claude --resume x" }))).toEqual({ kind: "resume" });
+    });
+
+    it("sessionPrimary returns blocked with the reason", () => {
+        const reason = "its working directory C:\\gone no longer exists";
+        expect(sessionPrimary(mk({ resumecommand: "claude --resume x", resumeblocker: reason }))).toEqual({
+            kind: "blocked",
+            reason,
+        });
+        // a live session is jumped to whatever its resume would face
+        expect(sessionPrimary(mk({ live: true, resumecommand: "claude --resume x", resumeblocker: reason }))).toEqual({
+            kind: "jump",
+        });
+    });
+
+    it("sessionPrimary is null without a resume command", () => {
         expect(sessionPrimary(mk())).toBeNull();
+        expect(sessionPrimary(mk({ resumeblocker: "no working directory was recorded" }))).toBeNull();
+    });
+});
+
+describe("soloStatus", () => {
+    it("soloStatus maps live, asking, ended waiting and done", () => {
+        expect(soloStatus(mk({ live: true, needsAttention: true }))).toEqual({ key: "asking", text: "asking" });
+        expect(soloStatus(mk({ live: true }))).toEqual({ key: "running", text: "running" });
+        expect(soloStatus(mk({ status: "waiting", needsAttention: true }))).toEqual({
+            key: "asking",
+            text: "needs you",
+        });
+        expect(soloStatus(mk({ lastactivets: HOUR }))).toEqual({ key: "done", text: "done" });
     });
 });
 
@@ -379,7 +454,7 @@ describe("groupRunSessions folding details", () => {
 
 describe("runView members", () => {
     const viewOf = (list: LiveSession[], over: Partial<Parameters<typeof runView>[0]> = {}) =>
-        runView({ group: groupRunSessions(list).runs[0], now: 0, ...over });
+        runView({ group: groupRunSessions(list).runs[0], ...over });
     const lead = (over: Partial<LiveSession> = {}) => mk({ id: "lead", runid: "r1", role: "lead", ...over });
 
     it("sums each member's tokens and duration over its own sessions", () => {
@@ -478,7 +553,6 @@ describe("runView lead status", () => {
     const statusOf = (over: Partial<LiveSession>, input: Partial<Parameters<typeof runView>[0]> = {}) =>
         runView({
             group: groupRunSessions([mk({ id: "l", runid: "r1", role: "lead", live: true, ...over })]).runs[0],
-            now: 0,
             ...input,
         }).members[0].status;
     const open = dagOf([], { status: "running" });
@@ -503,7 +577,7 @@ describe("runView lead status", () => {
 
 describe("runView head status", () => {
     const headOf = (list: LiveSession[], over: Partial<Parameters<typeof runView>[0]> = {}) =>
-        runView({ group: groupRunSessions(list).runs[0], now: 0, ...over }).head;
+        runView({ group: groupRunSessions(list).runs[0], ...over }).head;
     const lead = (over: Partial<LiveSession> = {}) => mk({ id: "lead", runid: "r1", role: "lead", ...over });
 
     it("says how many tasks need you, singular or plural", () => {
@@ -534,9 +608,10 @@ describe("runView head status", () => {
         expect(headOf([lead({ live: true })])).toEqual({ key: "running", text: "planning" });
     });
 
-    it("gives an ended run the time since its last activity", () => {
+    // its age is the card's and the detail's to render, from view.lastactivets
+    it("leaves an ended run's head text empty", () => {
         const dag = dagOf([task("t-1", "done")], { status: "done" });
-        expect(headOf([lead({ lastactivets: HOUR })], { dag, now: 3 * HOUR })).toEqual({ key: "done", text: "2h" });
+        expect(headOf([lead({ lastactivets: HOUR })], { dag })).toEqual({ key: "done", text: "" });
     });
 });
 

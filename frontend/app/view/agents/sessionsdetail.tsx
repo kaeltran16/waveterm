@@ -17,7 +17,7 @@ import { Check, ChevronDown, ChevronUp, Search } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { AgentsViewModel } from "./agents";
 import type { AgentEntry } from "./agentsviewmodel";
-import { formatAgeShort, formatTokens } from "./agentsviewmodel";
+import { formatAge, formatAgeShort, formatTokens } from "./agentsviewmodel";
 import { docTextOf, rangeOf } from "./docreviewnotesview";
 import { NarrationTimeline } from "./narrationtimeline";
 import { runtimeMeta } from "./runtimemeta";
@@ -105,7 +105,7 @@ export function runSessionPrimary(model: AgentsViewModel, session: LiveSession) 
 }
 
 function PrimaryButton({ model, session, strong }: { model: AgentsViewModel; session: LiveSession; strong?: boolean }) {
-    const primary = sessionPrimary(session);
+    const primary = sessionPrimary(session)?.kind;
     if (primary == null) {
         return null;
     }
@@ -570,7 +570,9 @@ export function RunDetail({
     useEndFindElsewhere(model);
     const lead = view.members[0].session;
     const head: Status =
-        view.live || view.head.key !== "done" ? view.head : { key: "done", text: `done · ${view.head.text} ago` };
+        view.live || view.head.key !== "done"
+            ? view.head
+            : { key: "done", text: `done · ${formatAge(now - view.lastactivets)} ago` };
     const elapsed = (view.live ? now : view.lastactivets) - view.startedts;
     const meta = [
         { k: "lead", v: `${runtimeMeta(view.runtime).glyph} ${view.runtime}` },

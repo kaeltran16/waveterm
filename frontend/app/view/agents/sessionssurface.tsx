@@ -167,8 +167,8 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
             return [];
         }
         const listed = withoutBrainstormSessions(base);
-        return overlayLive(results ? mergeResultSessions(listed, results) : listed, roster, now);
-    }, [base, results, roster, now]);
+        return overlayLive(results ? mergeResultSessions(listed, results) : listed, roster);
+    }, [base, results, roster]);
     const matches = useMemo(() => (results ? foldHits(results) : null), [results]);
     const { runs: runGroups, solos } = useMemo(() => groupRunSessions(live), [live]);
 
@@ -203,7 +203,6 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
                     dag: o?.dag,
                     digest: digests[group.runId],
                     leadAtPrompt: leadAgent?.atPrompt,
-                    now,
                 });
                 return {
                     key: runSelKey(group.runId),
@@ -212,7 +211,7 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
                     run: { group, view },
                 };
             }),
-        [runGroups, runObjs, digests, roster, now]
+        [runGroups, runObjs, digests, roster]
     );
 
     // only a live run can raise a question, and the one in view shows its ask
@@ -581,7 +580,8 @@ function RunCard({
 }) {
     const rt = runtimeMeta(view.runtime);
     // a finished run reads as its age alone; its members' checks already say it landed
-    const head: Status = view.head.key === "done" ? { key: "muted", text: view.head.text } : view.head;
+    const head: Status =
+        view.head.key === "done" ? { key: "muted", text: formatAge(now - view.lastactivets) } : view.head;
     const elapsed = (view.live ? now : view.lastactivets) - view.startedts;
     return (
         <motion.div

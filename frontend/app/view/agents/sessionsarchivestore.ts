@@ -16,7 +16,7 @@ import { atom, type Atom, type PrimitiveAtom } from "jotai";
 import type { AgentVM } from "./agentsviewmodel";
 import { prunePins } from "./sessionspins";
 
-const WINDOW_DAYS = 30;
+export const SESSIONS_WINDOW_DAYS = 30;
 // the first call may parse up to 100 transcripts before it answers
 const ARCHIVE_TIMEOUT_MS = 30_000;
 
@@ -62,7 +62,8 @@ export async function loadSessionsArchive(): Promise<void> {
     try {
         const rtn = await RpcApi.GetSessionsActivityCommand(
             TabRpcClient,
-            { windowdays: WINDOW_DAYS, all: true },
+            // a pinned session older than the window is returned too
+            { windowdays: SESSIONS_WINDOW_DAYS, all: true, pinned: globalStore.get(sessionsPinnedAtom) },
             { timeout: ARCHIVE_TIMEOUT_MS }
         );
         const sessions = rtn.sessions ?? [];
@@ -102,7 +103,7 @@ function norm(p: string): string {
 
 // Overlay the live roster onto the scanned sessions: match on transcript path, strip the synthetic
 // "finished" event for live sessions, and compute needsAttention (live+asking, or ended waiting).
-export function overlayLive(base: SessionActivity[], roster: AgentVM[], _now: number): LiveSession[] {
+export function overlayLive(base: SessionActivity[], roster: AgentVM[]): LiveSession[] {
     const liveByPath = new Map<string, { id: string; asking: boolean }>();
     for (const a of roster) {
         if (a.transcriptPath) {

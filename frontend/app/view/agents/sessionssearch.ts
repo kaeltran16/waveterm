@@ -53,9 +53,42 @@ export function keepRow(r: Row, f: SessionStatusFilter): boolean {
         return r.live;
     }
     if (r.run) {
-        return f === "needs" ? r.run.view.needs.length > 0 : !r.live;
+        // a cancelled or blocked run has ended without being done
+        return f === "needs" ? r.run.view.needs.length > 0 : r.run.view.complete;
     }
     return filterByStatus([r.session!], f).length > 0;
+}
+
+export interface EmptyListState {
+    title: string;
+    body: string;
+    // show-all resets the status filter; the project scope is the shell's, so it is named, never reset
+    action: "show-all" | "new-agent" | null;
+}
+
+const EMPTY_FILTERED: Record<
+    Exclude<SessionStatusFilter, "all">,
+    { title: string; body: (scope: string) => string }
+> = {
+    live: { title: "No live sessions", body: (scope) => `No agent is running${scope} right now.` },
+    needs: { title: "Nothing needs you", body: (scope) => `No session${scope} is waiting on you.` },
+    done: { title: "No finished sessions", body: (scope) => `No session${scope} has finished yet.` },
+};
+
+export function emptyListState(filter: SessionStatusFilter, project: string): EmptyListState {
+    const scope = project === "all" ? "" : ` in ${project}`;
+    if (filter !== "all") {
+        const empty = EMPTY_FILTERED[filter];
+        return { title: empty.title, body: empty.body(scope), action: "show-all" };
+    }
+    if (scope) {
+        return { title: `No sessions${scope}`, body: "Pick another project to see its sessions.", action: null };
+    }
+    return {
+        title: "No sessions found",
+        body: "Sessions appear here as agents run. Start one to begin.",
+        action: "new-agent",
+    };
 }
 
 export function scopeRows(rows: Row[], project: string): Row[] {

@@ -235,13 +235,22 @@ export function finalStageVM(runId: string): AgentVM {
     return { id: finalStageId(runId), name: stageLabel(VERIFIER_ROLE), task: "", state: "idle" };
 }
 
+const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+// an initiative ref in a goal, with the parentheses around it when it has them; the session index strips the same
+const EFFORT_REF_RE = new RegExp(`\\(\\s*effort:${UUID}\\s*\\)|effort:${UUID}`, "gi");
+
+// stripEffortRefs drops initiative refs (noise in a title) and collapses the whitespace they leave
+export function stripEffortRefs(text: string): string {
+    return text.replace(EFFORT_REF_RE, " ").replace(/\s+/g, " ").trim();
+}
+
 // runTitle names a run by its plan's title, else the first line of its goal.
 export function runTitle(run: Run | undefined, dag: TaskGroup | undefined): string {
-    const title = dag?.title?.trim();
+    const title = stripEffortRefs(dag?.title ?? "");
     if (title) {
         return title;
     }
-    return run?.goal?.trim().split("\n")[0] || "Orchestrator run";
+    return stripEffortRefs(run?.goal?.trim().split("\n")[0] ?? "") || "Orchestrator run";
 }
 
 // laneLabel is the letter a task's lane goes by, in the plan order the digest lists lanes in.
