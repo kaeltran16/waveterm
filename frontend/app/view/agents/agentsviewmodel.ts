@@ -115,6 +115,7 @@ export interface AgentVM {
     atPrompt?: boolean; // the raw status was waiting or idle, whatever state it folds to: a lead between wakes
     runDone?: boolean; // its own quick run is done, so at its prompt it is finished rather than idle
     pinned?: boolean; // session:pinned on the tab: the Agent tree lists it first in its project
+    startError?: string; // its controller refused to start: it reads idle, not booting, with this reason
 }
 
 const STATE_RANK: Record<AgentState, number> = { asking: 0, working: 1, idle: 2 };
@@ -995,6 +996,7 @@ export interface PendingLaunch {
     name: string;
     project: string;
     ts: number; // launch time (UnixMilli) — drives the booting row's age
+    runtime?: string; // so the booting header names its runtime rather than Unknown
 }
 
 /** Pure: a pending launch -> a "booting" working AgentVM. No transcriptPath (none exists yet); the
@@ -1005,10 +1007,19 @@ export function pendingToVM(p: PendingLaunch, now: number): AgentVM {
         name: p.name,
         task: "",
         state: "working",
+        agent: p.runtime,
         project: p.project,
         blockId: p.blockId,
         activeMs: Math.max(0, now - p.ts),
     };
+}
+
+/** Pure: an agent whose controller refused to start reads idle with the reason, never as still booting. */
+export function withStartError(agent: AgentVM, err: string | undefined): AgentVM {
+    if (!err) {
+        return agent;
+    }
+    return { ...agent, state: "idle", startError: err };
 }
 
 /** Pure: overlay booting launches onto the base roster. A pending entry whose tabId already exists in

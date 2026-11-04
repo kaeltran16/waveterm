@@ -228,7 +228,7 @@ describe("launchAgent", () => {
         }
         expect(globalStore.get(model.pendingLaunchesAtom)).toStrictEqual([
             earlier,
-            { tabId: "tab-1", blockId: "blk-1", name: "Fix login", project: "proj", ts: 1234 },
+            { tabId: "tab-1", blockId: "blk-1", name: "Fix login", project: "proj", ts: 1234, runtime: "claude" },
         ]);
         expect(globalStore.get(model.focusIdAtom)).toBe("tab-1");
         expect(globalStore.get(model.surfaceAtom)).toBe("agent");
