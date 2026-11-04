@@ -113,6 +113,7 @@ export interface SessionRowVM {
     tabId: string;
     label: string;
     customLabel?: string;
+    projectNamed?: boolean; // an agent row whose label is its (possibly numbered) project name, no title or custom label
     projectLabel?: string; // launch-time project name; the roster groups by this (not the lossy transcript-path derivation)
     cwd?: string; // the session terminal's cwd; resolves the registered project the agent works in
     runORef?: string; // the run this session works for: a lead's own run, a worker's child run
@@ -185,20 +186,39 @@ export function labelChanged(draft: string, current: string | undefined): boolea
     return draft.trim() !== (current ?? "").trim();
 }
 
-function rowLabel(s: SessionInput): string {
+/** Pure: base, else the lowest free "base N" (N from 2) not in taken: "demo", "demo 2", "demo 3". */
+export function numberedName(base: string, taken: string[]): string {
+    if (!taken.includes(base)) {
+        return base;
+    }
+    let n = 2;
+    while (taken.includes(`${base} ${n}`)) {
+        n++;
+    }
+    return `${base} ${n}`;
+}
+
+// fromProject: the label is the launch-time project name, which several agents in one project share
+function rowLabel(s: SessionInput): { label: string; fromProject: boolean } {
     const custom = s.customLabel && s.customLabel.length > 0 ? s.customLabel : undefined;
     const title = s.title && s.title.trim().length > 0 ? s.title.trim() : undefined;
     const project = s.projectLabel && s.projectLabel.trim().length > 0 ? s.projectLabel.trim() : undefined;
     const agent = s.agent && s.agent.length > 0 ? s.agent : s.name;
-    return custom ?? title ?? project ?? (agent && agent.length > 0 ? agent : "session");
+    const label = custom ?? title ?? project ?? (agent && agent.length > 0 ? agent : "session");
+    return { label, fromProject: custom == null && title == null && project != null };
 }
 
-function toRow(s: SessionInput): SessionRowVM {
+function isAgentSession(s: SessionInput): boolean {
+    return s.agent != null && s.agent !== "terminal";
+}
+
+function toRow(s: SessionInput, label: string): SessionRowVM {
     const subagents = s.subagents ?? [];
     const status = rollUpStatus(s.status, subagents);
     return {
         tabId: s.tabId,
-        label: rowLabel(s),
+        label,
+        projectNamed: isAgentSession(s) && rowLabel(s).fromProject,
         customLabel: s.customLabel,
         projectLabel: s.projectLabel,
         cwd: s.cwd,
@@ -236,8 +256,22 @@ export function buildSessionViewModel(sessions: SessionInput[]): SidebarViewMode
         groupMap.get(label)!.push(s);
     }
 
+    // agents named after their project share that name; number the repeats in tab order, as terminals are
+    const labels = new Map<string, string>();
+    const numbered: string[] = [];
+    for (const s of sessions) {
+        const { label, fromProject } = rowLabel(s);
+        if (!fromProject || !isAgentSession(s)) {
+            labels.set(s.tabId, label);
+            continue;
+        }
+        const name = numberedName(label, numbered);
+        numbered.push(name);
+        labels.set(s.tabId, name);
+    }
+
     const groups: SessionGroupVM[] = groupOrder.map((label) => {
-        const rows = groupMap.get(label)!.map((s) => toRow(s));
+        const rows = groupMap.get(label)!.map((s) => toRow(s, labels.get(s.tabId)!));
         return { label, sessions: rows, aggregateStatus: aggregateStatus(rows.map((r) => r.status)) };
     });
 

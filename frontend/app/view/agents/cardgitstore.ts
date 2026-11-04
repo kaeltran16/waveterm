@@ -18,6 +18,23 @@ import { ensureSessionStart } from "./agentsessionstore";
 import { parseGitChanges, type GitChanges } from "./gitstatus";
 
 export const diffStatsByIdAtom = atom<Record<string, DiffStats>>({}) as PrimitiveAtom<Record<string, DiffStats>>;
+// each card's resolved cwd, so a chip can tell when its checkout's changes are shared with other cards
+export const cardCwdByIdAtom = atom<Record<string, string>>({}) as PrimitiveAtom<Record<string, string>>;
+
+function checkoutKey(cwd: string): string {
+    return cwd.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+}
+
+/** Pure: how many cards, this one included, resolve to its checkout (0 when its cwd is unknown). Paths compare
+ *  case-insensitively and slash-agnostic, as Windows treats them; a worktree is its own checkout. */
+export function sharedCheckoutCount(id: string, cwdById: Record<string, string>): number {
+    const own = cwdById[id];
+    if (!own) {
+        return 0;
+    }
+    const key = checkoutKey(own);
+    return Object.values(cwdById).filter((c) => checkoutKey(c) === key).length;
+}
 
 /** Pure: collapse a GitChanges into the card's headline stats. */
 export function diffStatsFromChanges(changes: GitChanges): DiffStats {
@@ -30,6 +47,21 @@ const DEBOUNCE_MS = 4000;
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
 // monotonically-increasing load token per id: a newer load supersedes an in-flight older one
 const loadSeq = new Map<string, number>();
+
+function setCwd(id: string, cwd: string | null): void {
+    const cur = globalStore.get(cardCwdByIdAtom);
+    if (cwd == null) {
+        if (!(id in cur)) {
+            return;
+        }
+        const { [id]: _, ...rest } = cur;
+        globalStore.set(cardCwdByIdAtom, rest);
+        return;
+    }
+    if (cur[id] !== cwd) {
+        globalStore.set(cardCwdByIdAtom, { ...cur, [id]: cwd });
+    }
+}
 
 function setStats(id: string, stats: DiffStats | null): void {
     const cur = globalStore.get(diffStatsByIdAtom);
@@ -54,6 +86,7 @@ export async function refreshCardGit(id: string, transcriptPath: string | undefi
     if (loadSeq.get(id) !== seq) {
         return;
     }
+    setCwd(id, cwd || null);
     if (!cwd) {
         setStats(id, null);
         return;
@@ -95,7 +128,7 @@ export function scheduleCardGit(id: string, transcriptPath: string | undefined, 
 }
 
 /** Stop tracking an agent that left the rendered set: cancel its pending refresh, invalidate any
- *  in-flight load, and drop its stats. */
+ *  in-flight load, and drop its stats and cwd. */
 export function dropCardGit(id: string): void {
     const existing = timers.get(id);
     if (existing) {
@@ -104,4 +137,5 @@ export function dropCardGit(id: string): void {
     }
     loadSeq.set(id, (loadSeq.get(id) ?? 0) + 1);
     setStats(id, null);
+    setCwd(id, null);
 }

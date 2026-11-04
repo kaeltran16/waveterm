@@ -21,6 +21,7 @@ import { listOpenBrainstorms, tauriOpenBrainstormsIO } from "./brainstormpoller"
 import { brainstormsAtom, type BrainstormState } from "./brainstormstore";
 import {
     composeStartupCommand,
+    defaultLaunchProject,
     deriveBranch,
     isRuntimeOffered,
     RUNTIME_FLAGS,
@@ -59,6 +60,7 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
     const remember = useAtomValue(naRememberFlagsAtom);
     const recentProjects = useAtomValue(recentProjectsAtom);
     const harnesses = useAtomValue(harnessesAtom);
+    const scope = useAtomValue(model.projectFilterAtom);
     const [runtime, setRuntime] = useState<Runtime>("claude");
     const [project, setProject] = useState<string>("");
     const [task, setTask] = useState("");
@@ -94,7 +96,7 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
     // the one project list, most recently used first so the last one is the default
     const candidates = useMemo(() => recentFirst(rows, recentProjects), [rows, recentProjects]);
     const offeredRuntimes = RUNTIMES.filter((r) => isRuntimeOffered(r.id, harnesses));
-    const selectedProject = project || candidates[0]?.name || "";
+    const selectedProject = defaultLaunchProject(project, candidates, scope);
     const selectedCandidate = candidates.find((c) => c.name === selectedProject);
     const selectedPath = selectedCandidate?.path ?? "";
     const branchNames = branches.map((b) => b.name);

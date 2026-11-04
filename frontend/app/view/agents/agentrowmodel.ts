@@ -47,7 +47,16 @@ export type AgentRowMenuItem =
     | { key: "open" | "terminal" | "diff" | "mute" | "copy" | "close"; label: string; danger?: boolean }
     | { separator: true };
 
-export function agentRowMenuItems(flags: { hasDiff: boolean; hasMute: boolean }): AgentRowMenuItem[] {
+export type MuteMode = ReturnType<typeof muteMode>;
+
+// dismissing an idle card parks it in the Idle section, so it says so rather than "background"
+const MUTE_LABEL: Record<MuteMode, string> = { background: "Move to background", dismiss: "Move to Idle" };
+
+export function muteTitle(mode: MuteMode): string {
+    return mode === "background" ? `${MUTE_LABEL.background} (B)` : MUTE_LABEL.dismiss;
+}
+
+export function agentRowMenuItems(flags: { hasDiff: boolean; mute: MuteMode | null }): AgentRowMenuItem[] {
     const items: AgentRowMenuItem[] = [
         { key: "open", label: "Open" },
         { key: "terminal", label: "Open terminal" },
@@ -55,11 +64,18 @@ export function agentRowMenuItems(flags: { hasDiff: boolean; hasMute: boolean })
     if (flags.hasDiff) {
         items.push({ key: "diff", label: "Review changes" });
     }
-    if (flags.hasMute) {
-        items.push({ key: "mute", label: "Move to background" });
+    if (flags.mute != null) {
+        items.push({ key: "mute", label: MUTE_LABEL[flags.mute] });
     }
     items.push({ key: "copy", label: "Copy name" });
     items.push({ separator: true });
     items.push({ key: "close", label: "Close agent", danger: true });
     return items;
+}
+
+// an asking card's scroll region sticks to its bottom, which in a short card leaves the answer band's first
+// option above the view: the scrollTop that holds the band's top in view instead, or null when the bottom pin
+// (bottomScrollTop = scrollHeight - clientHeight) already shows it
+export function askScrollTop(answerTop: number, bottomScrollTop: number): number | null {
+    return answerTop < bottomScrollTop ? answerTop : null;
 }

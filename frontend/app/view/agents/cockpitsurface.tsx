@@ -22,13 +22,13 @@ import {
     matchesProjectFilter,
     mergeOrder,
     partitionBackgrounded,
-    projectsFromAgents,
     type AgentVM,
 } from "./agentsviewmodel";
 import {
     buildGridCards,
     cardMatchesChip,
     cardShare,
+    chipCounts,
     columnNavIds,
     isBackgroundedRun,
     resolveCursor,
@@ -39,7 +39,16 @@ import {
     type GridCard,
     type RowTarget,
 } from "./cardgridlayout";
-import { hiddenAgentIds, rosterLoadPhase, splitRecentlyIdle } from "./cockpitsurfacemodel";
+import {
+    cockpitCounts,
+    gridNotice,
+    orderIds,
+    plural,
+    prunedBackgrounded,
+    railSelectTarget,
+    rosterLoadPhase,
+    splitRecentlyIdle,
+} from "./cockpitsurfacemodel";
 import { BackgroundAgentsStrip } from "./backgroundagentsstrip";
 import { BackgroundedSection } from "./backgroundedsection";
 import { channelMessagesAtom } from "./channelsstore";
@@ -49,8 +58,7 @@ import { LeadCard } from "./leadcard";
 import { rowAction } from "./leadcardactions";
 import { buildLeadCard, isLeadDown, rowKeyActions, stopSelector, type LeadCardVM } from "./leadcardmodel";
 import { ensurePreviousInfo, rosterSeededAtom } from "./liveagents";
-import { idsWithEntriesAtom } from "./livetranscriptatoms";
-import { CockpitEmptyState } from "./cockpitemptystate";
+import { CockpitEmptyState, CockpitGridNotice } from "./cockpitemptystate";
 import { CockpitRail } from "./cockpitrail";
 import { useRailTracking } from "./cockpiteventsrail";
 import { HintsBar } from "./cockpithelp";
@@ -62,6 +70,7 @@ import { useRunDigests } from "./runlineagestore";
 import { useCockpitKeyboard } from "./usecockpitkeyboard";
 import { useCardStreams } from "./usecardstreams";
 import { ProjectSwitcher } from "./projectswitcher";
+import { isStandingBy } from "./shelltasks";
 import { shellTasksByIdAtom } from "./shelltasksstore";
 import { useSubagentTracking } from "./subagenttracking";
 import { SurfaceToolbar, ToolbarFact } from "./surfacescaffold";
@@ -92,10 +101,9 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
 
     // channel-aware "needs you": excludes asks Jarvis already auto-answered, so it matches the Channels
     // rail dot and nav badge (raw asking historically over-counted). one answered set feeds both the
-    // header counter and the need-you tab (liveAsking) below.
+    // header counter and the need-you tab below.
     const channelMessages = useAtomValue(channelMessagesAtom);
     const answeredAsks = answeredAskIdsAcross(Object.values(channelMessages));
-    const needsYou = agents.filter((a) => needsHuman(a, answeredAsks)).length;
 
     // `structuralNow` feeds structural computations below (usage-window rollover, the idle-grace window,
     // and which transcripts stay streamed). Subscribe to the coarse (~15s) structural clock REACTIVELY —
@@ -119,8 +127,8 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
         shellTasks
     );
     // one unified list: asks stay in place alongside active working + just-finished (grace) rows,
-    // minus anything backgrounded. Asking agents are never backgrounded (the effect below un-mutes any
-    // that start asking), so they always land in `active` and hold whatever slot they already had.
+    // minus anything backgrounded. Asking agents are passed in too: the pruning effect below drops a plain
+    // agent's id once it stops working, which is what resurfaces it into `active`.
     const { active: activeAgents, backgrounded } = partitionBackgrounded(
         [...asking, ...working, ...recentlyIdle],
         backgroundedIds
@@ -146,13 +154,13 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
         { trackGit: true },
     );
 
-    // anchored order (kept ids hold their slot; new ids append) + manual drag reorder. This is what
-    // stops a working->asking transition from jumping: the id already holds a slot, so it stays put.
+    // anchored order (kept ids hold their slot; new ids append). This is what stops a working->asking
+    // transition from jumping: the id already holds a slot, so it stays put. Backgrounded ids hold theirs too.
     const [order, setOrder] = useModelAtom(model.orderAtom);
+    const orderKey = orderIds(activeAgents, backgrounded).join(",");
     useEffect(() => {
-        const ids = activeAgents.map((a) => a.id);
-        setOrder((prev) => mergeOrder(prev, ids));
-    }, [activeAgents.map((a) => a.id).join(",")]);
+        setOrder((prev) => mergeOrder(prev, orderKey ? orderKey.split(",") : []));
+    }, [orderKey]);
     const orderedAgents = applyAgentOrder(order, activeAgents);
 
     // cursor + answer selection (lifted onto the model); help/pulse stay ephemeral surface-local
@@ -199,8 +207,13 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     // status chips narrow what the grid renders; cursor/order still operate over the full set
     const projectFilter = useAtomValue(model.projectFilterAtom);
     const liveOnly = useAtomValue(model.liveOnlyAtom);
-    // project + live-only (global/needs-you counts read the unfiltered set — see needsYou above)
-    const visibleOrdered = filterAgents(orderedAgents, projectFilter, liveOnly);
+    // the toolbar counts every agent in scope, whatever its card shows
+    const counts = cockpitCounts(agents, projectFilter, (a) => needsHuman(a, answeredAsks));
+    // an agent standing by (idle with a running shell task) is live: Live only keeps it, and it counts as working
+    const standingByIds = new Set(
+        agents.filter((a) => isStandingBy(a.state, shellTasks[a.id] ?? [])).map((a) => a.id)
+    );
+    const visibleOrdered = filterAgents(orderedAgents, projectFilter, liveOnly, standingByIds);
     // run events feed lead-down, review findings and the Events rail; digests feed lanes and question owners
     const lineage = useAtomValue(model.lineageAtom);
     const runsInView = Object.values(lineage.runs);
@@ -223,11 +236,6 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     // one card per plain agent or run; a run's workers are rows of its card. A running run keeps its card while
     // its lead idles between wakes, so its lead is looked up in scope before parking and Live only.
     const runScope = filterAgents(agents, projectFilter, false);
-    // agents with nothing to show stay off the grid and out of its counts until their first transcript entry
-    const idsWithEntries = useAtomValue(idsWithEntriesAtom);
-    const hidden = hiddenAgentIds(agents, idsWithEntries, lineage);
-    const counted = agents.filter((a) => !hidden.has(a.id));
-    const liveVisible = visibleOrdered.filter((a) => !hidden.has(a.id));
     const allCards = buildGridCards(withActiveRunLeads(visibleOrdered, runScope, lineage), lineage, agents);
     const leadVMs = new Map<string, LeadCardVM & { down: boolean }>();
     for (const c of allCards) {
@@ -250,14 +258,11 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     }
     const cardNeedsYou = (c: GridCard) =>
         c.kind === "agent" ? needsHuman(c.agent, answeredAsks) : leadVMs.get(c.id)!.needsYou;
-    const shownCards = allCards.filter(
-        (c) =>
-            !isBackgroundedRun(c, backgroundedIds, cardNeedsYou(c)) &&
-            (c.kind !== "agent" || !hidden.has(c.agent.id))
-    );
-    const cards = shownCards.filter((c) => cardMatchesChip(c, chip, cardNeedsYou(c)));
+    const cardStandingBy = (c: GridCard) => c.kind === "agent" && standingByIds.has(c.agent.id);
+    const shownCards = allCards.filter((c) => !isBackgroundedRun(c, backgroundedIds, cardNeedsYou(c)));
+    const cards = shownCards.filter((c) => cardMatchesChip(c, chip, cardNeedsYou(c), cardStandingBy(c)));
     // counted by card, as the tab filters: a run's idle workers and a lead between wakes are not up for review
-    const readyCount = shownCards.filter((c) => cardMatchesChip(c, "idle", cardNeedsYou(c))).length;
+    const tabCounts = chipCounts(shownCards, cardNeedsYou, cardStandingBy);
     const columns = splitGridColumns(cards, (c) => c.kind === "run");
     // cursor stops: cards, and each lead card's shown task rows; a worker's id aliases to its row
     const rowsOf = (c: GridCard) => {
@@ -288,10 +293,6 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
             }
         }
     }
-    const liveCount = liveVisible.length;
-    const liveAsking = liveVisible.filter((a) => needsHuman(a, answeredAsks)).length;
-    const liveWorking = liveVisible.filter((a) => a.state === "working").length;
-    const projectCount = projectsFromAgents(counted).length;
     // idle/backgrounded sections share the project scope; live-only hides the parked-idle section
     const shownParkedIdle = liveOnly ? [] : parkedIdle.filter((a) => matchesProjectFilter(a, projectFilter));
     const shownBackgrounded = backgrounded.filter((a) => matchesProjectFilter(a, projectFilter));
@@ -309,22 +310,14 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
         }
     }, [navigableIds.join(","), cursorId]);
 
-    // asking overrides backgrounded: a muted agent that starts asking re-surfaces (it's in `asking`,
-    // not `working`), so drop it from the set to avoid re-muting when it returns to working.
+    // only a working agent stays backgrounded: one that asks or finishes resurfaces on the grid, and is not
+    // re-muted when it works again. keyed on the set too, so an id added by any writer (the b key, the
+    // context menu) for an agent that is not working is dropped at once
+    const pruneKey = agents.map((a) => `${a.id}:${a.state}:${a.booting ? 1 : 0}`).join(",");
+    const backgroundedKey = [...backgroundedIds].join(",");
     useEffect(() => {
-        const askingSet = new Set(asking.map((a) => a.id));
-        setBackgroundedIds((prev) => {
-            let changed = false;
-            const next = new Set(prev);
-            for (const id of prev) {
-                if (askingSet.has(id)) {
-                    next.delete(id);
-                    changed = true;
-                }
-            }
-            return changed ? next : prev;
-        });
-    }, [asking.map((a) => a.id).join(",")]);
+        setBackgroundedIds((prev) => prunedBackgrounded(prev, agents, lineage));
+    }, [pruneKey, backgroundedKey, lineage]);
 
     // a moved cursor scrolls its stop into view, a task row inside its card too; a jump (n, the rail) centers
     // its own target, so the follow-up here leaves that one alone
@@ -412,7 +405,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                 setOpenComposerId(undefined);
                 containerRef.current?.focus();
             }}
-            onBackground={a.state === "working" || a.state === "asking" ? () => toggleBackground(a.id) : undefined}
+            onBackground={a.state === "working" && !a.booting ? () => toggleBackground(a.id) : undefined}
             onDismiss={a.state === "idle" ? () => dismissAgent(model, a) : undefined}
         />
     );
@@ -450,19 +443,30 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
         );
     };
 
-    const phase = rosterLoadPhase(seeded, [...asking, ...working, ...idle].filter((a) => !hidden.has(a.id)).length);
+    const phase = rosterLoadPhase(seeded, agents.length);
+    const notice = gridNotice({
+        seeded,
+        rosterCount: agents.length,
+        scopedCount: counts.agents,
+        shownCards: shownCards.length,
+        parked: shownParkedIdle.length,
+        backgrounded: shownBackgrounded.length,
+        projectFilter,
+    });
 
     return (
         <MotionConfig reducedMotion="user">
         <div
             ref={containerRef}
             data-cockpit-surface
+            data-focus-home
             tabIndex={0}
             onKeyDown={onKeyDown}
             className="relative flex h-full w-full text-secondary outline-none"
         >
             <div className="flex min-w-0 flex-1 flex-col bg-background">
-                <div className="sticky top-0 z-[5] shrink-0">
+                {/* above the grid's overlays, so the header switcher's dropdown stays clickable over them */}
+                <div className="sticky top-0 z-20 shrink-0">
                     <SurfaceToolbar
                         title="Cockpit"
                         actions={
@@ -485,9 +489,9 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                         }
                     >
                         <ToolbarFact>
-                            {counted.length} agents · {projectCount} projects ·{" "}
+                            {plural(counts.agents, "agent")} · {plural(counts.projects, "project")} ·{" "}
                             <span className="font-semibold text-warning">
-                                <RollingCount value={needsYou} /> need you
+                                <RollingCount value={counts.needsYou} /> need you
                             </span>
                         </ToolbarFact>
                     </SurfaceToolbar>
@@ -495,10 +499,10 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                         <div className="-mb-3 -ml-1 mt-1 flex flex-wrap gap-0.5">
                             {(
                                 [
-                                    ["asking", "need you", liveAsking],
-                                    ["working", "working", liveWorking],
-                                    ["idle", "ready for review", readyCount],
-                                    ["all", "live", liveCount],
+                                    ["asking", "need you", tabCounts.asking],
+                                    ["working", "working", tabCounts.working],
+                                    ["idle", "ready for review", tabCounts.idle],
+                                    ["all", "live", tabCounts.all],
                                 ] as [ChipFilter, string, number][]
                             ).map(([key, label, count]) => (
                                 <button
@@ -531,35 +535,48 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                     </div>
                 </div>
 
-                <div className="relative flex min-h-0 flex-1 flex-col">
-                    <AnimatePresence initial={false}>
-                        {phase === "empty" ? (
-                            <CockpitEmptyState
-                                key="empty"
-                                onNewAgent={() => globalStore.set(model.newAgentOpenAtom, true)}
-                            />
-                        ) : phase === "loading" ? (
-                            <CockpitGridSkeleton key="loading" />
-                        ) : null}
-                    </AnimatePresence>
+                <div className="flex min-h-0 flex-1 flex-col">
+                    {/* the overlays cover the grid only, never the Backgrounded/Idle sections below it */}
+                    <div className="relative flex min-h-0 flex-1 flex-col">
+                        <AnimatePresence initial={false}>
+                            {notice.kind === "empty-roster" ? (
+                                <CockpitEmptyState
+                                    key="empty"
+                                    onNewAgent={() => globalStore.set(model.newAgentOpenAtom, true)}
+                                />
+                            ) : notice.kind === "loading" ? (
+                                <CockpitGridSkeleton key="loading" />
+                            ) : notice.kind !== "none" ? (
+                                <CockpitGridNotice key={notice.kind} notice={notice} />
+                            ) : null}
+                        </AnimatePresence>
 
-                    <div ref={gridScrollRef} className="min-h-0 flex-1 overflow-y-auto px-5 pb-5 pt-2.5">
-                        <div className="flex items-start gap-3.5">
-                            {columns.map((col, ci) => (
-                                <div
-                                    key={ci}
-                                    className="flex min-w-0 flex-1 flex-col gap-3.5"
-                                    style={{ minHeight: gridViewportPx }}
-                                >
-                                    <AnimatePresence initial={false}>{col.map(renderCard)}</AnimatePresence>
-                                </div>
-                            ))}
+                        <div ref={gridScrollRef} className="min-h-0 flex-1 overflow-y-auto px-5 pb-5 pt-2.5">
+                            <div className="flex items-start gap-3.5">
+                                {columns.map((col, ci) => (
+                                    <div
+                                        key={ci}
+                                        className="flex min-w-0 flex-1 flex-col gap-3.5"
+                                        style={{ minHeight: gridViewportPx }}
+                                    >
+                                        <AnimatePresence initial={false}>{col.map(renderCard)}</AnimatePresence>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
                     </div>
 
                     <div className="shrink-0 px-[18px]">
-                        <BackgroundedSection agents={shownBackgrounded} onRestore={(id) => toggleBackground(id)} />
-                        <IdleSection agents={shownParkedIdle} onOpen={(id) => model.openTerminal(id)} />
+                        <BackgroundedSection
+                            agents={shownBackgrounded}
+                            nowAtom={model.nowAtom}
+                            onRestore={(id) => toggleBackground(id)}
+                        />
+                        <IdleSection
+                            agents={shownParkedIdle}
+                            nowAtom={model.nowAtom}
+                            onOpen={(id) => model.openTerminal(id)}
+                        />
                         <BackgroundAgentsStrip model={model} />
                     </div>
                 </div>
@@ -577,8 +594,24 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                 runEvents={runEvents}
                 tags={railTags}
                 onSelectAgent={(id) => {
-                    setCursorId(id);
-                    scrollToPulse(id);
+                    const target = railSelectTarget(id, {
+                        onGrid: new Set([...navigableIds, ...Object.keys(cursorAlias)]),
+                        backgrounded: backgroundedIds,
+                        parked: new Set(parkedIdle.map((a) => a.id)),
+                    });
+                    if (target === "terminal") {
+                        model.openTerminal(id);
+                    } else if (target === "agent") {
+                        openFocus(id, false);
+                    } else if (target === "restore") {
+                        toggleBackground(id);
+                        setCursorId(id);
+                        // the restored card mounts on the next commit, so scroll to it after that
+                        requestAnimationFrame(() => scrollToPulse(id));
+                    } else {
+                        setCursorId(id);
+                        scrollToPulse(id);
+                    }
                 }}
             />
         </div>

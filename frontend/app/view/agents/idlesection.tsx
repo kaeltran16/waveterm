@@ -2,14 +2,24 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { cardVariants } from "@/app/element/motiontokens";
+import { useAtomValue, type Atom } from "jotai";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { AgentComposer } from "./agentcomposer";
-import { formatAge, projectOf, type AgentVM } from "./agentsviewmodel";
+import { displayAgeMs, formatAge, projectOf, type AgentVM } from "./agentsviewmodel";
 import { SectionHeader } from "./sectionheader";
 
-export function IdleSection({ agents, onOpen }: { agents: AgentVM[]; onOpen: (id: string) => void }) {
+export function IdleSection({
+    agents,
+    nowAtom,
+    onOpen,
+}: {
+    agents: AgentVM[];
+    nowAtom: Atom<number>;
+    onOpen: (id: string) => void;
+}) {
     const [open, setOpen] = useState(false);
+    const now = useAtomValue(nowAtom);
     if (agents.length === 0) {
         return null;
     }
@@ -56,7 +66,7 @@ export function IdleSection({ agents, onOpen }: { agents: AgentVM[]; onOpen: (id
                                             {a.activity}
                                         </span>
                                         <span className="ml-auto shrink-0 font-mono text-[10.5px] text-muted">
-                                            {formatAge(a.activeMs)} idle
+                                            {formatAge(displayAgeMs(a, now))} idle
                                         </span>
                                     </div>
                                     {a.blockId ? (

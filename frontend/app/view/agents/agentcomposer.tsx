@@ -1,10 +1,9 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { RpcApi } from "@/app/store/wshclientapi";
-import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { cn, fireAndForget, stringToBase64 } from "@/util/util";
+import { cn, fireAndForget } from "@/util/util";
 import { forwardRef, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
+import { sendAgentText } from "./agentsend";
 
 // one line at 12px (rows={1}: the default two rows would set the floor instead); it grows as text wraps
 const ComposerMinH = 32;
@@ -16,12 +15,28 @@ export function canSendComposer(text: string, blockId?: string): boolean {
     return text.trim() !== "" && blockId != null;
 }
 
+/** Sends the composer's text and clears it only once the send lands, and only if the user hasn't typed
+ *  since (clear gets the sent text to compare). A failed send keeps the text and is logged. */
+export async function submitComposer(
+    text: string,
+    blockId: string,
+    clear: (sent: string) => void,
+    send: (blockId: string, text: string) => Promise<void> = sendAgentText
+): Promise<void> {
+    try {
+        await send(blockId, text);
+    } catch (e) {
+        console.error("agent composer: send failed, text kept", e);
+        return;
+    }
+    clear(text);
+}
+
 export interface AgentComposerHandle {
     fill: (text: string) => void;
 }
 
-// Sends free text to an agent's terminal block. "\r" submits (the PTY treats CR as Enter), mirroring
-// how term-model writes xterm input via ControllerInputCommand.
+// Sends free text to an agent's terminal block through sendAgentText.
 export const AgentComposer = forwardRef<
     AgentComposerHandle,
     {
@@ -33,6 +48,7 @@ export const AgentComposer = forwardRef<
 >(function AgentComposer({ blockId, placeholder, className, onEscape }, ref) {
     const [text, setText] = useState("");
     const taRef = useRef<HTMLTextAreaElement>(null);
+    const sendingRef = useRef(false);
     useImperativeHandle(
         ref,
         () => ({
@@ -55,13 +71,16 @@ export const AgentComposer = forwardRef<
         if (!canSendComposer(text, blockId)) {
             return;
         }
+        // the text stays until the send lands, so a second Enter meanwhile must not send it again
+        if (sendingRef.current) {
+            return;
+        }
+        sendingRef.current = true;
         fireAndForget(() =>
-            RpcApi.ControllerInputCommand(TabRpcClient, {
-                blockid: blockId!,
-                inputdata64: stringToBase64(text.trim() + "\r"),
+            submitComposer(text, blockId!, (sent) => setText((cur) => (cur === sent ? "" : cur))).finally(() => {
+                sendingRef.current = false;
             })
         );
-        setText("");
     };
     return (
         <div className={cn("flex shrink-0 items-end gap-2 border-t border-border px-[14px] py-2", className)}>

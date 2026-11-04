@@ -5,10 +5,12 @@
 // These keys are cockpit-local — handled here, not by the global keybinding registry. Extracted from
 // cockpitsurface.tsx as a hook taking a single deps object.
 
+import { globalStore } from "@/app/store/jotaiStore";
 import { peekTarget } from "@/app/view/jarvis/openref";
 import { type KeyboardEvent, type MutableRefObject } from "react";
 import type { AgentsViewModel } from "./agents";
-import { answerDigitTarget, canSubmitAsk, hasAnswerableAsk, moveCursor, nextAskId, type AgentVM } from "./agentsviewmodel";
+import { answerDigitTarget, hasAnswerableAsk, moveCursor, nextAskId, type AgentVM } from "./agentsviewmodel";
+import { enterAction, pickAdvance } from "./askflow";
 import { askerAt, columnJump, type RowTarget } from "./cardgridlayout";
 import { isRowKey, rowCardId } from "./leadcardmodel";
 
@@ -41,7 +43,6 @@ export function useCockpitKeyboard(deps: CockpitKeyDeps): (e: KeyboardEvent) => 
         cursorId,
         setCursorId,
         answerTab,
-        answerSel,
         navCols,
         rowTargets,
         askTargets,
@@ -56,6 +57,30 @@ export function useCockpitKeyboard(deps: CockpitKeyDeps): (e: KeyboardEvent) => 
         scrollToPulse,
         focusRowComposer,
     } = deps;
+
+    // the atoms, not the render's snapshot: a digit's toggle has just written them
+    const answersOf = (id: string) => ({
+        sel: globalStore.get(model.answerSelAtom)[id] ?? {},
+        txt: globalStore.get(model.answerTextAtom)[id] ?? {},
+    });
+    // a digit picks an option, then moves on as a click does, but never submits: Enter stays the confirm step
+    const pickDigit = (asker: AgentVM, qi: number, oi: number) => {
+        toggleAnswer(asker.id, qi, oi);
+        const { sel, txt } = answersOf(asker.id);
+        const next = pickAdvance(asker.ask?.questions ?? [], sel, txt, qi);
+        if (next != null) {
+            selectQuestion(asker.id, next);
+        }
+    };
+    const enterAsk = (asker: AgentVM) => {
+        const { sel, txt } = answersOf(asker.id);
+        const action = enterAction(asker.ask?.questions ?? [], sel, txt, answerTab[asker.id] ?? 0);
+        if ("qi" in action) {
+            selectQuestion(asker.id, action.qi);
+        } else {
+            submitAnswer(asker.id);
+        }
+    };
 
     return (e: KeyboardEvent) => {
         const t = e.target as HTMLElement;
@@ -75,13 +100,13 @@ export function useCockpitKeyboard(deps: CockpitKeyDeps): (e: KeyboardEvent) => 
                 const d = parseInt(e.key, 10);
                 const target = asker ? answerDigitTarget(asker, answerTab[asker.id] ?? 0, d) : null;
                 if (asker && target) {
-                    toggleAnswer(asker.id, target.qi, target.oi);
+                    pickDigit(asker, target.qi, target.oi);
                 } else {
                     row.actions[d - 1]?.();
                 }
             } else if (e.key === "Enter") {
-                if (asker && canSubmitAsk(asker.ask?.questions ?? [], answerSel[asker.id] ?? {})) {
-                    submitAnswer(asker.id);
+                if (asker?.state === "asking" && hasAnswerableAsk(asker)) {
+                    enterAsk(asker);
                 } else if (row.openId) {
                     openFocus(row.openId, false);
                 }
@@ -123,8 +148,8 @@ export function useCockpitKeyboard(deps: CockpitKeyDeps): (e: KeyboardEvent) => 
         } else if (e.key === "Enter") {
             e.preventDefault();
             if (!cur) return;
-            if (cur.state === "asking" && canSubmitAsk(cur.ask?.questions ?? [], answerSel[cur.id] ?? {})) {
-                submitAnswer(cur.id);
+            if (cur.state === "asking" && hasAnswerableAsk(cur)) {
+                enterAsk(cur);
             } else {
                 openFocus(cur.id, false);
             }
@@ -154,7 +179,7 @@ export function useCockpitKeyboard(deps: CockpitKeyDeps): (e: KeyboardEvent) => 
                 const target = answerDigitTarget(cur, answerTab[cur.id] ?? 0, parseInt(e.key, 10));
                 if (target) {
                     e.preventDefault();
-                    toggleAnswer(cur.id, target.qi, target.oi);
+                    pickDigit(cur, target.qi, target.oi);
                 }
             }
         }

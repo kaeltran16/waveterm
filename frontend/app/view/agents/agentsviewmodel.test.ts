@@ -1015,6 +1015,11 @@ describe("pendingToVM", () => {
             activeMs: 4000,
         });
     });
+
+    it("marks booting", () => {
+        const p: PendingLaunch = { tabId: "t1", blockId: "b1", name: "n", project: "p", ts: 0 };
+        expect(pendingToVM(p, 1).booting).toBe(true);
+    });
 });
 
 describe("mergePendingLaunches", () => {

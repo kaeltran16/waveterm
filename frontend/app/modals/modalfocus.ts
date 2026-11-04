@@ -25,7 +25,22 @@ export function focusTrapTarget(
     return focusables[(next + focusables.length) % focusables.length];
 }
 
-export function takeModalFocus(panel: HTMLElement | null, previous: HTMLElement | null): () => void {
+// a surface marks the element that owns its keyboard with data-focus-home; only the visible surface's
+// counts, since an off-screen mounted surface (the Agent surface) keeps its node in the DOM
+export function visibleFocusHome(): HTMLElement | null {
+    for (const el of document.querySelectorAll<HTMLElement>("[data-focus-home]")) {
+        if (el.checkVisibility()) {
+            return el;
+        }
+    }
+    return null;
+}
+
+export function takeModalFocus(
+    panel: HTMLElement | null,
+    previous: HTMLElement | null,
+    home: () => HTMLElement | null = visibleFocusHome
+): () => void {
     if (panel != null && !panel.contains(previous)) {
         panel.focus();
     }
@@ -33,15 +48,21 @@ export function takeModalFocus(panel: HTMLElement | null, previous: HTMLElement 
         // a confirmed close tears down what had focus; refocusing a detached node would silently
         // land focus on <body> instead of leaving it where the browser already put it. A hidden one
         // (the Agent surface's xterm after a palette pick navigated away) cannot take focus either.
+        // <body> (what was "focused" when the modal opened over nothing) passes both checks but ignores
+        // focus(), which would leave focus in this panel
         if (previous?.isConnected && previous.checkVisibility()) {
             previous.focus();
-            return;
+            if (document.activeElement === previous) {
+                return;
+            }
         }
         // with nowhere to hand focus back, don't leave it in this panel: it outlives the close through
-        // the exit animation, and a surface mounting in the same commit cannot claim focus past it
+        // the exit animation, and a surface the palette pick navigated to can lose its own mount-time focus
+        // claim to it. Hand focus to the visible surface's focus home instead of leaving it on <body>.
         const active = document.activeElement as HTMLElement | null;
         if (panel?.contains(active)) {
             active.blur();
         }
+        home()?.focus();
     };
 }
