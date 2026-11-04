@@ -85,7 +85,11 @@ export function runStepView(runId: string, run: RunInfo | undefined, loaded: boo
             ...base,
             state: "cancelled",
             headline: "The run was cancelled",
-            detail: `${tasksLanded(done, total, where)} before it stopped. Nothing more builds or merges.`,
+            // cancelled while its lead was still planning: there were no tasks to land
+            detail:
+                total === 0
+                    ? "It stopped before its plan had any tasks. Nothing builds or merges."
+                    : `${tasksLanded(done, total, where)} before it stopped. Nothing more builds or merges.`,
             tree: "cancelled",
         };
     }

@@ -14,7 +14,6 @@ import { escapeMenusOpenAtom } from "@/app/hook/useEscapeClose";
 import { anyModalOpen } from "@/app/modals/modalstack";
 import { globalStore } from "@/app/store/jotaiStore";
 import { confirmCloseSession } from "@/app/view/agents/agentactions";
-import { getProcExitAtom } from "@/app/view/agents/agentcontrollerstore";
 import { AgentsViewModel, SURFACE_ORDER, type SurfaceKey } from "@/app/view/agents/agents";
 import { answerDigitTarget, canSubmitAsk, moveCursor, type AgentVM } from "@/app/view/agents/agentsviewmodel";
 import {
@@ -198,17 +197,13 @@ const clickThrough = (selector: string): boolean | void => {
     el.click();
 };
 
-// the canvas of the board the focused agent's brainstorm pane shows full size; null while the pane shows anything
-// else, the exited card included
+// the canvas of the board the focused agent's brainstorm pane shows full size; null while it shows anything else
 function brainstormBoard(model: AgentsViewModel): ReturnType<typeof focusedCanvas> {
     const s = focusedBrainstorm(model);
     if (s?.mode !== "brainstorm") {
         return null;
     }
-    const id = globalStore.get(model.focusIdAtom);
-    const agent = globalStore.get(model.agentsAtom).find((a) => a.id === id);
-    const exited = agent != null && globalStore.get(getProcExitAtom(agent.blockId ?? "")) != null;
-    return paneView({ ...s, exited }) === "board" ? focusedCanvas(model) : null;
+    return paneView(s) === "board" ? focusedCanvas(model) : null;
 }
 
 // `[` `]` belong to the boards in canvas mode and on a brainstorm's full-size board, so the surface switch stands
@@ -876,11 +871,6 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
     };
     const brainstorm = () => focusedBrainstorm(model);
     const inBrainstorm = (ctx: KeyContext) => agentNav(ctx) && brainstorm()?.mode === "brainstorm";
-    // the exit the pane reads, so an exited agent's card holds the keys as the pane holds the review
-    const exited = () => {
-        const agent = globalStore.get(model.agentsAtom).find((a) => a.id === focusId());
-        return agent != null && globalStore.get(getProcExitAtom(agent.blockId ?? "")) != null;
-    };
     // the check's review fills the main area: j and k move its cursor instead of the agents, and y, u and Enter act
     // on the cursor row
     const inReview = (ctx: KeyContext) => {
@@ -889,7 +879,7 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
         }
         const s = brainstorm()!;
         const f = shownBrainstormFile(s);
-        return f != null && paneView({ ...s, exited: exited() }) === "check" && checkMain(f, s.designOpen) === "review";
+        return f != null && paneView(s) === "check" && checkMain(f, s.designOpen) === "review";
     };
     const reviewRow = () => {
         const s = brainstorm();
@@ -944,7 +934,7 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
         if (s?.mode !== "brainstorm") {
             return null;
         }
-        const step = paneBack({ ...s, exited: exited() }, shownBrainstormFile(s));
+        const step = paneBack(s, shownBrainstormFile(s));
         return step === "board" && focusedCanvas(model)?.mark != null ? null : step;
     };
     return [

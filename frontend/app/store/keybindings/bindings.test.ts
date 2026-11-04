@@ -7,7 +7,6 @@ import { resmonOpenAtom, resmonSnapshotAtom, resmonUiAtom } from "@/app/cockpit/
 import { cheatsheetOpenAtom } from "@/app/cockpit/shortcuts-cheatsheet";
 import { escapeMenusOpenAtom } from "@/app/hook/useEscapeClose";
 import { globalStore } from "@/app/store/jotaiStore";
-import { getProcExitAtom } from "@/app/view/agents/agentcontrollerstore";
 import { SURFACE_ORDER, type SurfaceKey } from "@/app/view/agents/agents";
 import type { BrainstormFile } from "@/app/view/agents/brainstormmodel";
 import { sendBrainstorm } from "@/app/view/agents/brainstormsend";
@@ -2258,19 +2257,7 @@ describe("brainstorm check review keys", () => {
 
     afterEach(() => {
         detachBrainstorm("a1");
-        globalStore.set(getProcExitAtom("b1"), undefined);
         vi.unstubAllGlobals();
-    });
-
-    it("an exited agent's card is not the review: j/k stay on the agents and nothing claims y or u", () => {
-        globalStore.set(getProcExitAtom("b1"), { code: 0, at: 1 });
-        for (const id of REVIEW_KEYS) {
-            expect(active(id), id).toBe(false);
-        }
-        expect(active("agent:next-j")).toBe(true);
-        expect(claiming("y")).toEqual([]);
-        updateBrainstorm("a1", (s) => ({ ...s, showDesign: true, designOpen: true }));
-        expect(active("agent:brainstorm-review-next")).toBe(true);
     });
 
     it("in the review, j k Enter y u are the review's and the agent j/k stand down; the arrows still move agents", () => {

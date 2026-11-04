@@ -36,8 +36,6 @@ export type BrainstormState = {
     // when brainstorm mode was last shown: the compaction banner and the unseen mark compare against it
     lastViewedMs: number;
     board: string | null;
-    // "Open the design" pressed on the exited card
-    showDesign: boolean;
     // the design opened over the question or the working note; kept here so a board's Back returns to it
     designOpen: boolean;
     boards: CanvasBoard[];
@@ -121,7 +119,6 @@ export function attachBrainstorm(
         modifiedMs: null,
         lastViewedMs: now,
         board: null,
-        showDesign: false,
         designOpen: false,
         boards: [],
         base: null,

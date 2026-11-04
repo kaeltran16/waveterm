@@ -5,20 +5,17 @@
 // shows comes from brainstormmodel, what it knows from the agent's brainstorm state (BrainstormPoller keeps it
 // current), and every action is one line typed into the agent (brainstormsend).
 
-import { launchAgent } from "@/app/cockpit/cockpit-actions";
 import { cardVariants, turnTransition, viewFade } from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
 import * as WOS from "@/app/store/wos";
 import { RpcApi } from "@/app/store/wshclientapi";
-import { makeFeBlockRouteId } from "@/app/store/wshrouter";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { cn } from "@/util/util";
 import { atom, useAtomValue, type Atom } from "jotai";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
-import { getProcExitAtom } from "./agentcontrollerstore";
 import type { AgentsViewModel } from "./agents";
-import { projectOf, type AgentVM } from "./agentsviewmodel";
+import { type AgentVM } from "./agentsviewmodel";
 import { Check } from "./brainstormcheck";
 import {
     boardBackLabel,
@@ -33,7 +30,6 @@ import {
     designUnder,
     droppedQuestion,
     editLock,
-    exitedSummary,
     historyRows,
     isNote,
     judgeWait,
@@ -46,7 +42,6 @@ import {
     partAnswer,
     partGist,
     partView,
-    resumePrompt,
     reviewHead,
     unseenSince,
     type BoardPick,
@@ -70,7 +65,6 @@ import {
     openBrainstormBoard,
     openBrainstormDesign,
     shownBrainstormFile,
-    updateBrainstorm,
     type BrainstormState,
 } from "./brainstormstore";
 import {
@@ -103,10 +97,7 @@ import {
     WorkingMain,
 } from "./brainstormui";
 import { CANVAS_BTN, CANVAS_PRIMARY_BTN, CanvasPane, EdgeState, EXPLAINER } from "./canvaspane";
-import { runtimeStartupCommand, type Runtime } from "./launch";
 
-// how far back the exited card looks for the agent's last words
-const LAST_OUTPUT_LINES = 200;
 const NO_RUN: Atom<Run | undefined> = atom(undefined as Run | undefined);
 
 const PART_DOT: Record<PartView, string> = {
@@ -164,13 +155,8 @@ function BoardPicks({ agent, picks }: { agent: AgentVM; picks: BoardPick[] }) {
     );
 }
 
-function hhmm(ms: number): string {
-    return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
-}
-
 export function BrainstormPane({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
     const s = useAtomValue(brainstormAtom(agent.id));
-    const exit = useAtomValue(getProcExitAtom(agent.blockId ?? ""));
     if (s == null) {
         return null;
     }
@@ -179,8 +165,6 @@ export function BrainstormPane({ model, agent }: { model: AgentsViewModel; agent
         file: s.file,
         error: s.error,
         removed: s.removed,
-        exited: exit != null,
-        showDesign: s.showDesign,
         board: s.board,
     });
     return (
@@ -199,8 +183,6 @@ export function BrainstormPane({ model, agent }: { model: AgentsViewModel; agent
                 <Removed agent={agent} topic={s.topic} />
             ) : view === "error" ? (
                 <Unreadable s={s} />
-            ) : view === "exited" ? (
-                <Exited model={model} agent={agent} s={s} exit={exit!} />
             ) : view === "board" ? (
                 <CanvasPane
                     model={model}
@@ -1054,91 +1036,6 @@ function RailQuestion({ h, justNow, goTo }: { h: HistoryRow; justNow: boolean; g
                     <IntoLinks into={h.into} goTo={goTo} />
                 </div>
             ) : null}
-        </div>
-    );
-}
-
-function Exited({
-    model,
-    agent,
-    s,
-    exit,
-}: {
-    model: AgentsViewModel;
-    agent: AgentVM;
-    s: BrainstormState;
-    exit: { code: number; at: number };
-}) {
-    const [lastLine, setLastLine] = useState<string | null>(null);
-    const act = useAction();
-    const blockId = agent.blockId;
-    useEffect(() => {
-        if (blockId == null) {
-            return;
-        }
-        let live = true;
-        RpcApi.TermGetScrollbackLinesCommand(
-            TabRpcClient,
-            { linestart: 0, lineend: LAST_OUTPUT_LINES, lastcommand: false },
-            { route: makeFeBlockRouteId(blockId) }
-        )
-            .then((r) => {
-                const line = [...(r?.lines ?? [])].reverse().find((l) => l.trim() !== "");
-                if (live && line != null) {
-                    setLastLine(line.trim());
-                }
-            })
-            .catch((e) => console.warn("brainstorm exited: reading the last output failed", blockId, e));
-        return () => {
-            live = false;
-        };
-    }, [blockId, exit.at]);
-    const resume = () => {
-        const runtime = (agent.agent ?? "claude") as Runtime;
-        return launchAgent(model, {
-            runtime,
-            startupCommand: runtimeStartupCommand(runtime),
-            task: resumePrompt(s.path),
-            brainstormFile: s.path,
-            projectPath: s.cwd,
-            projectName: projectOf(agent),
-        }).then(() => undefined);
-    };
-    return (
-        <div className="flex flex-1 items-center justify-center bg-surface p-[24px]">
-            <div data-brainstorm-exited className="flex w-[420px] flex-col gap-[12px]">
-                <span className="flex items-center gap-[8px] text-[14px] font-semibold text-primary">
-                    <span className={cn(DOT, "bg-error")} />
-                    {agent.name} exited with code {exit.code} at {hhmm(exit.at)}
-                </span>
-                {s.file != null ? (
-                    <span className="text-[13px] leading-[1.5] text-secondary">{exitedSummary(s.file)}</span>
-                ) : null}
-                <div className="flex gap-[8px]">
-                    <button
-                        type="button"
-                        data-brainstorm-resume
-                        disabled={act.busy}
-                        onClick={() => void act.run(resume)}
-                        className={CANVAS_PRIMARY_BTN}
-                    >
-                        Resume in a new agent
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() =>
-                            updateBrainstorm(agent.id, (x) => ({ ...x, showDesign: true, designOpen: true }))
-                        }
-                        className={CANVAS_BTN}
-                    >
-                        Open the design
-                    </button>
-                </div>
-                {act.error != null ? <span className={ERROR_LINE}>{act.error}</span> : null}
-                {lastLine != null ? (
-                    <span className="font-mono text-[11px] text-muted">Last output: {lastLine}</span>
-                ) : null}
-            </div>
         </div>
     );
 }

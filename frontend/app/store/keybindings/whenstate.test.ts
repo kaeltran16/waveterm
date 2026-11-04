@@ -8,7 +8,6 @@
 // flipping diffScopeAtom directly when the picker jumps to a different agent).
 
 import { globalStore } from "@/app/store/jotaiStore";
-import { getProcExitAtom } from "@/app/view/agents/agentcontrollerstore";
 import { attachBrainstorm, detachBrainstorm, setBrainstormMode } from "@/app/view/agents/brainstormstore";
 import { attachCanvas, detachCanvas, setCanvasMode } from "@/app/view/agents/canvasstore";
 import { diffScopeAtom } from "@/app/view/agents/diffscopeatom";
@@ -227,37 +226,5 @@ describe("watchFocusedCanvas", () => {
         globalStore.set(model.focusIdAtom, "a1");
         expect(globalStore.get(whenVersionAtom)).toBe(before);
         detachBrainstorm("a2");
-    });
-
-    it("bumps when the focused agent's process exits, and follows the focus to the next agent's block", () => {
-        const model = {
-            focusIdAtom: atom<string | undefined>("a1") as PrimitiveAtom<string | undefined>,
-            agentsAtom: atom([
-                { id: "a1", blockId: "b1" },
-                { id: "a2", blockId: "b2" },
-            ]),
-        } as any;
-        const stop = watchFocusedCanvas(model);
-        try {
-            let before = globalStore.get(whenVersionAtom);
-            globalStore.set(getProcExitAtom("b1"), { code: 0, at: 1 });
-            expect(globalStore.get(whenVersionAtom)).toBeGreaterThan(before);
-
-            before = globalStore.get(whenVersionAtom);
-            globalStore.set(getProcExitAtom("b2"), { code: 0, at: 1 }); // not focused
-            expect(globalStore.get(whenVersionAtom)).toBe(before);
-
-            globalStore.set(model.focusIdAtom, "a2");
-            before = globalStore.get(whenVersionAtom);
-            globalStore.set(getProcExitAtom("b2"), undefined);
-            expect(globalStore.get(whenVersionAtom)).toBeGreaterThan(before);
-            before = globalStore.get(whenVersionAtom);
-            globalStore.set(getProcExitAtom("b1"), undefined); // the one focus left
-            expect(globalStore.get(whenVersionAtom)).toBe(before);
-        } finally {
-            stop();
-            globalStore.set(getProcExitAtom("b1"), undefined);
-            globalStore.set(getProcExitAtom("b2"), undefined);
-        }
     });
 });

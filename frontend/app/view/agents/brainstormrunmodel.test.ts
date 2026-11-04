@@ -128,6 +128,12 @@ describe("runStepView", () => {
         expect(v.canClose).toBe(false);
     });
 
+    it("reads a run cancelled while planning as stopped before any tasks, not as all 0 landed", () => {
+        const v = runStepView(BLOCKED_ID, runOf(BLOCKED_ID, { done: 0, total: 0, status: "cancelled" }), true);
+        expect(v.state).toBe("cancelled");
+        expect(v.detail).toBe("It stopped before its plan had any tasks. Nothing builds or merges.");
+    });
+
     it("reads a run still loading as loading, with no tree text", () => {
         const v = runStepView(BLOCKED_ID, undefined, false);
         expect(v.state).toBe("loading");

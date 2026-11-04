@@ -3,7 +3,6 @@
 
 import { registerModal } from "@/app/modals/modalstack";
 import { globalStore } from "@/app/store/jotaiStore";
-import { getProcExitAtom } from "@/app/view/agents/agentcontrollerstore";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import {
     attachBrainstorm,
@@ -589,7 +588,6 @@ describe("PREDICATE_ATOMS completeness (whenstate.ts)", () => {
             model.agentsAtom,
             canvasStateAtom("a1"),
             brainstormAtom("a1"),
-            getProcExitAtom(""),
         ]);
         const missing = [...seen].filter((a) => !registered.has(a));
         const unused = PREDICATE_ATOMS.filter((a) => !seen.has(a));

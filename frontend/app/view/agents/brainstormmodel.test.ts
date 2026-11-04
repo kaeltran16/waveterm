@@ -34,7 +34,6 @@ import {
     designUnder,
     droppedQuestion,
     editLock,
-    exitedSummary,
     handoffView,
     hasMockups,
     hasProsCons,
@@ -1714,16 +1713,6 @@ describe("summaries", () => {
         );
     });
 
-    it("exitedSummary", () => {
-        const two = parts.slice(0, 7);
-        expect(exitedSummary(file({ parts: two, question: { n: 5, text: "?", part: "a" } }))).toBe(
-            "The brainstorm is saved: 5 parts yours, 2 guesses, and question 5 still unanswered. A new agent reads it and carries on from that question."
-        );
-        expect(exitedSummary(file({ parts: two }))).toBe(
-            "The brainstorm is saved: 5 parts yours, 2 guesses. A new agent reads it and carries on."
-        );
-    });
-
     it("resumePrompt and runLine", () => {
         expect(resumePrompt("C:\\p\\brainstorm.json")).toBe(
             "Resume the brainstorm in C:\\p\\brainstorm.json with arc:brainstorm."
@@ -1818,25 +1807,19 @@ describe("brainstormAttention", () => {
 
 describe("paneView", () => {
     const f = file();
-    const s = { file: f, error: null, removed: false, exited: false, showDesign: false, board: null };
+    const s = { file: f, error: null, removed: false, board: null };
 
     it("defaults to the design", () => {
         expect(paneView(s)).toBe("design");
     });
 
     it("removed beats everything", () => {
-        expect(paneView({ ...s, removed: true, error: "e", exited: true, board: "B" })).toBe("removed");
+        expect(paneView({ ...s, removed: true, error: "e", board: "B" })).toBe("removed");
     });
 
     it("error shows only with no last good file", () => {
         expect(paneView({ ...s, file: null, error: "bad" })).toBe("error");
         expect(paneView({ ...s, error: "bad" })).toBe("design");
-    });
-
-    it("exited holds unless showDesign or a run started", () => {
-        expect(paneView({ ...s, exited: true })).toBe("exited");
-        expect(paneView({ ...s, exited: true, showDesign: true })).toBe("design");
-        expect(paneView({ ...s, exited: true, file: file({ run: "r1" }) })).toBe("run");
     });
 
     it("board beats run beats check beats design", () => {
@@ -1876,8 +1859,6 @@ describe("paneBack", () => {
         file: file({ question: q }),
         error: null,
         removed: false,
-        exited: false,
-        showDesign: false,
         board: null,
         designOpen: false,
     };
@@ -1895,7 +1876,6 @@ describe("paneBack", () => {
     it("the design opened over the question or the working note steps back to it", () => {
         expect(back({ designOpen: true })).toBe("design");
         expect(back({ designOpen: true, file: file({ working: "w" }) })).toBe("design");
-        expect(back({ designOpen: true, exited: true, showDesign: true })).toBe("design");
     });
 
     it("the design opened with nothing under it has no step, a pending builder check's design included", () => {
@@ -1909,11 +1889,10 @@ describe("paneBack", () => {
         expect(back({ designOpen: true, file: file({ check }) })).toBeNull();
     });
 
-    it("has no step from the question itself, a run, the exited card, or an unreadable or removed file", () => {
+    it("has no step from the question itself, a run, or an unreadable or removed file", () => {
         expect(back()).toBeNull();
         expect(back({ file: file({ question: q, check }) })).toBeNull();
         expect(back({ designOpen: true, file: file({ question: q, run: "r1" }) })).toBeNull();
-        expect(back({ designOpen: true, exited: true })).toBeNull();
         expect(back({ designOpen: true, file: null, error: "bad" })).toBeNull();
         expect(back({ designOpen: true, removed: true })).toBeNull();
     });

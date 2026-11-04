@@ -294,9 +294,9 @@ to the judge**). The judge rides the builder check's machinery.
 
 - **Compaction.** After a compaction the agent re-reads the file and stamps `compacted`; the terminal
   shows a banner with the counts until you next open the brainstorm.
-- **Agent exited.** The pane offers **Resume in a new agent**, which launches one in the same project
-  with the prompt `Resume the brainstorm in <path> with arc:brainstorm.` A brainstorm that started a
-  run is not offered this.
+- **Agent exited.** Its tab closes, as every agent tab does on exit. The brainstorm stays in its file:
+  **+ New agent** lists the project's unfinished ones under **Brainstorms left open**, and **Resume**
+  launches an agent with the prompt `Resume the brainstorm in <path> with arc:brainstorm.`
 - **File deleted.** The pane says the file is gone; **Back to terminal** detaches it and clears the
   tab meta.
 

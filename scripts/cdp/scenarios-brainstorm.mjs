@@ -115,7 +115,7 @@ const BS_MID_STATES = {
     page: "guess",
     builder: "open",
 };
-// five yours, two guesses, one open: the compaction and exited boards' counts
+// five yours, two guesses, one open: the compaction board's counts
 const BS_LATE_STATES = { ...BS_MID_STATES, current: "yours", constraints: "yours", thresholds: "guess" };
 const BS_ASKED = { thresholds: { body: "" } };
 const BS_FILES = {
@@ -195,8 +195,6 @@ const bsRead = (h, ctx) =>
             approve: btn(pane?.querySelector("[data-brainstorm-approve]")),
             approveBar: flat(pane?.querySelector("[data-brainstorm-approve-bar]")),
             builder: flat(pane?.querySelector("[data-brainstorm-builder-question]")),
-            exited: flat(pane?.querySelector("[data-brainstorm-exited]")),
-            resume: !!pane?.querySelector("[data-brainstorm-resume]"),
             parts: [...(pane?.querySelectorAll("[data-brainstorm-part]") ?? [])].map((p) => ({
                 id: p.getAttribute("data-brainstorm-part"),
                 state: p.getAttribute("data-state"),
@@ -1275,23 +1273,14 @@ export const brainstormMode = {
             ...checkTyped.detail,
         });
 
-        // 10. agent exited
+        // 10. agent exited: its tab closes (shellcontroller closes every agent block on exit), so the pane has no
+        // exited state and an exit signal leaves it on the question
         bsWrite(ctx, BS_FILES.late);
         await bsUntil(h, ctx, (s) => s.view === "design" && s.question.includes(BS_Q5.text));
         await bsPublishProc(h, ctx, "done", 1);
-        const s10 = await bsUntil(h, ctx, (s) => s.view === "exited", 3000);
-        await h.shot("cdp-shots/brainstorm-mode-10.png");
-        const summary =
-            "The brainstorm is saved: 5 parts yours, 2 guesses, and question 5 still unanswered. A new agent reads it and carries on from that question.";
-        const exitedHead = new RegExp(`^${ctx.agentName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} exited with code 1 at \\d{2}:\\d{2} `);
-        rec(
-            "10. the agent exited: <name> exited with code 1 at, what is saved, Resume in a new agent",
-            s10.ok && ctx.agentName !== "" && exitedHead.test(s10.exited) && s10.exited.includes(summary) && s10.resume,
-            { exited: s10.exited, agent: ctx.agentName, resume: s10.resume }
-        );
-        await bsClick(h, BS_PANE, "Open the design");
-        const s10b = await bsUntil(h, ctx, (s) => s.view === "design" && s.parts.length > 0, 2000);
-        rec("10b. Open the design shows the design itself, not the question", s10b.ok && s10b.title === "Consumer lag alerts", { view: s10b.view, parts: s10b.parts.length, title: s10b.title });
+        await new Promise((r) => setTimeout(r, 500));
+        const s10 = await bsUntil(h, ctx, (s) => s.view === "design" && s.question.includes(BS_Q5.text), 2000);
+        rec("10. an exit signal leaves the pane on the question", s10.ok, { view: s10.view, question: s10.question });
         await bsPublishProc(h, ctx, "running", 0);
 
         // 11. an unreadable file. Over a file read before, the last good contents stay with a banner

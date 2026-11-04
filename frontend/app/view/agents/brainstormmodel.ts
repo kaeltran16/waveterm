@@ -1571,15 +1571,6 @@ export function compactedSummary(f: BrainstormFile): string {
     return `The agent compacted its context and re-read its brainstorm file: ${plural(c.yours, "part", "parts")} yours, ${plural(c.guesses, "guess", "guesses")}, ${c.open} open. Nothing was lost.`;
 }
 
-export function exitedSummary(f: BrainstormFile): string {
-    const c = brainstormCounts(f);
-    const saved = `The brainstorm is saved: ${plural(c.yours, "part", "parts")} yours, ${plural(c.guesses, "guess", "guesses")}`;
-    if (f.question != null) {
-        return `${saved}, and question ${f.question.n} still unanswered. A new agent reads it and carries on from that question.`;
-    }
-    return `${saved}. A new agent reads it and carries on.`;
-}
-
 // a brainstorm a new agent can carry on: listed in the New agent window, since one whose tab is gone is otherwise lost
 export type OpenBrainstorm = {
     topic: string;
@@ -1650,14 +1641,12 @@ export function brainstormAttention(
     };
 }
 
-export type PaneView = "error" | "removed" | "exited" | "run" | "check" | "board" | "design";
+export type PaneView = "error" | "removed" | "run" | "check" | "board" | "design";
 
 export function paneView(s: {
     file: BrainstormFile | null;
     error: string | null;
     removed: boolean;
-    exited: boolean;
-    showDesign: boolean;
     board: string | null;
 }): PaneView {
     if (s.removed) {
@@ -1665,9 +1654,6 @@ export function paneView(s: {
     }
     if (s.error != null && s.file == null) {
         return "error";
-    }
-    if (s.exited && !s.showDesign && s.file?.run == null) {
-        return "exited";
     }
     if (s.board != null) {
         return "board";

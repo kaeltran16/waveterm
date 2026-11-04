@@ -25,7 +25,6 @@
 // this list has an atom no predicate reads. Keep that test passing rather than trusting this comment.
 
 import { globalStore } from "@/app/store/jotaiStore";
-import { getProcExitAtom } from "@/app/view/agents/agentcontrollerstore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { brainstormAtom } from "@/app/view/agents/brainstormstore";
 import { canvasStateAtom } from "@/app/view/agents/canvasstore";
@@ -85,10 +84,9 @@ for (const predicateAtom of PREDICATE_ATOMS) {
 }
 
 // The canvas and brainstorm predicates (buildAgentBindings, and the surface/agent switches in buildGlobalBindings)
-// read the focused agent's canvasStateAtom, brainstormAtom and its block's exit atom: one atom per agent, picked by
-// a model-owned focus id, so none can be a static PREDICATE_ATOMS entry. This follows the focus and re-subscribes
-// them, reading the block id from the roster once per focus; the completeness test counts these atoms and the roster
-// as covered here. Returns the unsubscribe.
+// read the focused agent's canvasStateAtom and brainstormAtom: one atom per agent, picked by a model-owned focus
+// id, so neither can be a static PREDICATE_ATOMS entry. This follows the focus and re-subscribes them; the
+// completeness test counts these atoms and the roster as covered here. Returns the unsubscribe.
 export function watchFocusedCanvas(model: AgentsViewModel): () => void {
     let unsub = () => {};
     const follow = () => {
@@ -97,12 +95,9 @@ export function watchFocusedCanvas(model: AgentsViewModel): () => void {
         if (id) {
             const unsubCanvas = globalStore.sub(canvasStateAtom(id), bumpWhenVersion);
             const unsubBrainstorm = globalStore.sub(brainstormAtom(id), bumpWhenVersion);
-            const agent = globalStore.get(model.agentsAtom).find((a) => a.id === id);
-            const unsubExit = globalStore.sub(getProcExitAtom(agent?.blockId ?? ""), bumpWhenVersion);
             unsub = () => {
                 unsubCanvas();
                 unsubBrainstorm();
-                unsubExit();
             };
         } else {
             unsub = () => {};
