@@ -132,13 +132,20 @@ export function startDefs(homeProject: string | null): StartDef[] {
 }
 
 // the registry group holding a surface's own bindings
-const SURFACE_GROUP: Partial<Record<SurfaceKey, string>> = {
+export const SURFACE_GROUP: Partial<Record<SurfaceKey, string>> = {
     cockpit: "Cockpit",
     jarvis: "Jarvis",
     agent: "Agent",
     code: "Code",
     files: "Diff",
 };
+
+// the cheat sheet's group order: the surface's own group first, then alphabetical
+export function cheatsheetGroupOrder(groups: string[], surface: SurfaceKey): string[] {
+    const own = SURFACE_GROUP[surface];
+    const rest = groups.filter((g) => g !== own).sort((a, b) => a.localeCompare(b));
+    return groups.includes(own) ? [own, ...rest] : rest;
+}
 
 const GROUP_ORDER = ["Global", "Navigation", "Appearance", "Help"];
 

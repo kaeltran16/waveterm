@@ -5,7 +5,7 @@
 
 import { CollapsibleRail } from "@/app/element/collapsiblerail";
 import type { AgentsViewModel } from "./agents";
-import { CockpitEventsRail } from "./cockpiteventsrail";
+import { CockpitEventsRail, useRailRows } from "./cockpiteventsrail";
 import { ICON } from "./navrail";
 import type { Lineage } from "./runlineage";
 
@@ -22,10 +22,12 @@ export function CockpitRail({
     tags: Record<string, string>;
     onSelectAgent: (id: string) => void;
 }) {
+    const unread = useRailRows(model, lineage, runEvents).fresh.length;
     return (
         <CollapsibleRail
             openAtom={model.railOpenAtom}
             ariaLabel="Events"
+            strip={{ content: <EventsStrip unread={unread} />, title: "Events" }}
             sections={[
                 {
                     id: "events",
@@ -43,5 +45,22 @@ export function CockpitRail({
                 },
             ]}
         />
+    );
+}
+
+// the collapsed rail: its glyph, badged with the unread count so new events read while it is closed
+function EventsStrip({ unread }: { unread: number }) {
+    return (
+        <span className="relative flex h-[20px] w-[20px] items-center justify-center text-accent">
+            {ICON.sessions}
+            {unread > 0 ? (
+                <span
+                    data-rail-unread={unread}
+                    className="absolute -right-[8px] -top-[6px] flex h-[16px] min-w-[16px] items-center justify-center rounded-[8px] border-2 border-surface bg-accent px-[3px] font-mono text-[10.5px] font-bold leading-none text-background"
+                >
+                    {unread}
+                </span>
+            ) : null}
+        </span>
     );
 }

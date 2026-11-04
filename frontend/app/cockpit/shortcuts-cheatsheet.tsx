@@ -4,6 +4,7 @@
 // Centered modal listing every registered binding, grouped by `group`, generated from bindingsAtom.
 // Opens on `?` (navigate posture) or via the command palette "Keyboard shortcuts" entry.
 
+import { cheatsheetGroupOrder } from "@/app/cockpit/palette-commands";
 import { ModalShell } from "@/app/modals/modalshell";
 import { bindingsAtom } from "@/app/store/keybindings/store";
 import { globalStore } from "@/app/store/jotaiStore";
@@ -38,7 +39,7 @@ export function ShortcutsCheatSheet({ model }: { model: AgentsViewModel }) {
             arr.push(b);
             byGroup.set(b.group, arr);
         }
-        return [...byGroup.entries()].sort(([a], [b]) => (a === surface ? -1 : b === surface ? 1 : a.localeCompare(b)));
+        return cheatsheetGroupOrder([...byGroup.keys()], surface).map((g) => [g, byGroup.get(g)] as const);
     }, [bindings, query, surface]);
 
     return (
@@ -59,7 +60,7 @@ export function ShortcutsCheatSheet({ model }: { model: AgentsViewModel }) {
                 </div>
                 <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
                     {groups.map(([group, items]) => (
-                        <div key={group} className="mb-4">
+                        <div key={group} data-cheatsheet-group={group} className="mb-4">
                             <div className={cn(REGION_LABEL, "mb-1 text-muted")}>
                                 {group}
                             </div>
