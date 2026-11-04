@@ -55,7 +55,7 @@ export const SESSION_KIND: ThingKindDef<SessionThing> = {
             run: (t, { model }) => confirmCloseSession(t.agent, model),
         },
     ],
-    // live or resumable ones only, as the palette's session rows; one whose resume is blocked is left out
+    // the palette's session rows: resumable ones, leaving out one whose resume is blocked
     entries: (get, model) => {
         const base = get(sessionsArchiveAtom);
         if (base == null) {
@@ -63,10 +63,7 @@ export const SESSION_KIND: ThingKindDef<SessionThing> = {
         }
         const roster = get(model.agentsAtom);
         return overlayLive(base, roster)
-            .filter((s) => {
-                const primary = sessionPrimary(s)?.kind;
-                return primary === "resume" || primary === "jump";
-            })
+            .filter((s) => s.resumecommand && !s.resumeblocker)
             .map((s) => ({
                 key: `session:${s.runtime}:${s.id}`,
                 title: s.task || "(untitled session)",
