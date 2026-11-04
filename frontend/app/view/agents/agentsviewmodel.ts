@@ -652,10 +652,10 @@ export function applyAgentOrder(order: string[], agents: AgentVM[]): AgentVM[] {
         .filter(Boolean) as AgentVM[];
 }
 
-/** Pure: split working-state agents into the active set (rendered in the working region) and the
- *  backgrounded set (collapsed lane). An id in `backgroundedIds` goes to backgrounded; order within
- *  each is preserved. Asking agents are never passed here (they live in the asks region), so a
- *  backgrounded agent that starts asking naturally re-surfaces. */
+/** Pure: split the grid's agents into the active set (rendered on the grid) and the backgrounded set
+ *  (collapsed lane). An id in `backgroundedIds` goes to backgrounded; order within each is preserved.
+ *  Asking and just-finished agents are passed in too: it is pruning the set (prunedBackgrounded), not
+ *  this split, that resurfaces a backgrounded agent once it stops working. */
 export function partitionBackgrounded(
     working: AgentVM[],
     backgroundedIds: Set<string>

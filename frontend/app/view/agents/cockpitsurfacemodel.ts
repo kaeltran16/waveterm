@@ -2,11 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Pure glue for CockpitSurface: dismissal keying, the roster load phase, the recently-idle
-// grace-window split, the toolbar counts, the empty-grid notice, and a generic set toggle. Extracted so the surface's orchestration decisions
+// grace-window split, the toolbar counts, the empty-grid notice, the backgrounded set's pruning, the card order's
+// ids, where an Events row click goes, and a generic set toggle. Extracted so the surface's orchestration decisions
 // are unit-testable without rendering the grid.
 
 import { isRecentlyIdle, matchesProjectFilter, projectsFromAgents, type AgentVM } from "./agentsviewmodel";
 import type { LoadPhase } from "./loadphase";
+import type { Lineage } from "./runlineage";
 import { isStandingBy, type ShellTask } from "./shelltasks";
 
 // a just-finished agent's dismissal is keyed by idle episode (id:idleSince) so a later re-idle re-shows it.
@@ -106,6 +108,43 @@ export function gridNotice(input: {
 
 export function plural(n: number, word: string): string {
     return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+
+// only a working agent stays backgrounded, so the section's "still running" holds: a plain agent's id goes once it
+// asks, finishes or leaves the roster, and never stays while it is still booting. a run member's id stays, since a lead idles between wakes and its card
+// already resurfaces on needs-you (isBackgroundedRun).
+export function prunedBackgrounded(ids: Set<string>, agents: AgentVM[], lineage: Lineage): Set<string> {
+    const byId = new Map(agents.map((a) => [a.id, a]));
+    const keep = (id: string) => {
+        const a = byId.get(id);
+        return lineage.roles[id] != null || (a?.state === "working" && !a.booting);
+    };
+    if ([...ids].every(keep)) {
+        return ids;
+    }
+    return new Set([...ids].filter(keep));
+}
+
+export type RailSelectTarget = "grid" | "restore" | "terminal" | "agent";
+
+// where an Events row click goes: a card on the grid is cursored, a backgrounded agent restored, a parked idle
+// agent's terminal opened (as its Idle row does), and anything else opens in the Agent surface.
+export function railSelectTarget(
+    id: string,
+    where: { onGrid: Set<string>; backgrounded: Set<string>; parked: Set<string> }
+): RailSelectTarget {
+    if (where.onGrid.has(id)) {
+        return "grid";
+    }
+    if (where.backgrounded.has(id)) {
+        return "restore";
+    }
+    return where.parked.has(id) ? "terminal" : "agent";
+}
+
+// the ids the card order is merged over: backgrounded ones keep their slot, so a restored card returns to it
+export function orderIds(active: AgentVM[], backgrounded: AgentVM[]): string[] {
+    return [...active, ...backgrounded].map((a) => a.id);
 }
 
 export function toggleInSet(set: Set<string>, id: string): Set<string> {

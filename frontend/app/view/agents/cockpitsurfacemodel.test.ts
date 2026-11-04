@@ -2,18 +2,22 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import type { AgentVM } from "./agentsviewmodel";
+import { applyAgentOrder, mergeOrder, type AgentVM } from "./agentsviewmodel";
 import {
     cardBody,
     cardHasContent,
     cockpitCounts,
     dismissKey,
     gridNotice,
+    orderIds,
     plural,
+    prunedBackgrounded,
+    railSelectTarget,
     rosterLoadPhase,
     splitRecentlyIdle,
     toggleInSet,
 } from "./cockpitsurfacemodel";
+import type { Lineage } from "./runlineage";
 import type { ShellTask } from "./shelltasks";
 
 function agent(over: Partial<AgentVM>): AgentVM {
@@ -189,5 +193,72 @@ describe("plural", () => {
         expect(plural(1, "agent")).toBe("1 agent");
         expect(plural(0, "agent")).toBe("0 agents");
         expect(plural(2, "project")).toBe("2 projects");
+    });
+});
+
+describe("prunedBackgrounded", () => {
+    const noLineage: Lineage = { roles: {}, runs: {} };
+    it("drops an agent that finished", () => {
+        const next = prunedBackgrounded(new Set(["t1"]), [agent({ id: "t1", state: "idle" })], noLineage);
+        expect([...next]).toEqual([]);
+    });
+    it("drops an agent that is asking", () => {
+        const next = prunedBackgrounded(new Set(["t1"]), [agent({ id: "t1", state: "asking" })], noLineage);
+        expect([...next]).toEqual([]);
+    });
+    it("drops a just-finished agent added to the set after it stopped working", () => {
+        // the b key or the context menu can add a recently-idle card's id; the next prune must drop it
+        const added = new Set(["t1", "w"]);
+        const roster = [agent({ id: "t1", state: "idle" }), agent({ id: "w", state: "working" })];
+        expect([...prunedBackgrounded(added, roster, noLineage)]).toEqual(["w"]);
+    });
+    it("drops a booting agent", () => {
+        const next = prunedBackgrounded(new Set(["t1"]), [agent({ id: "t1", booting: true })], noLineage);
+        expect([...next]).toEqual([]);
+    });
+    it("drops an agent that left the roster", () => {
+        expect([...prunedBackgrounded(new Set(["gone"]), [], noLineage)]).toEqual([]);
+    });
+    it("keeps a run lead's id", () => {
+        const lineage: Lineage = { roles: { lead: { kind: "lead", runId: "r1" } }, runs: {} };
+        const ids = new Set(["lead"]);
+        const next = prunedBackgrounded(ids, [agent({ id: "lead", state: "idle" })], lineage);
+        expect([...next]).toEqual(["lead"]);
+    });
+    it("returns the same set when unchanged", () => {
+        const ids = new Set(["t1"]);
+        expect(prunedBackgrounded(ids, [agent({ id: "t1", state: "working" })], noLineage)).toBe(ids);
+    });
+});
+
+describe("railSelectTarget", () => {
+    const where = {
+        onGrid: new Set(["g"]),
+        backgrounded: new Set(["b"]),
+        parked: new Set(["p"]),
+    };
+    it("cursors a card on the grid", () => {
+        expect(railSelectTarget("g", where)).toBe("grid");
+    });
+    it("restores a backgrounded agent", () => {
+        expect(railSelectTarget("b", where)).toBe("restore");
+    });
+    it("opens a parked idle agent's terminal", () => {
+        expect(railSelectTarget("p", where)).toBe("terminal");
+    });
+    it("opens anything else in the Agent surface", () => {
+        expect(railSelectTarget("x", where)).toBe("agent");
+    });
+});
+
+describe("orderIds", () => {
+    it("orderIds keeps a backgrounded id's slot", () => {
+        const order = mergeOrder(
+            ["a", "b", "c"],
+            orderIds([agent({ id: "a" }), agent({ id: "c" })], [agent({ id: "b" })])
+        );
+        expect(order).toEqual(["a", "b", "c"]);
+        const restored = applyAgentOrder(order, [agent({ id: "a" }), agent({ id: "c" }), agent({ id: "b" })]);
+        expect(restored.map((a) => a.id)).toEqual(["a", "b", "c"]);
     });
 });

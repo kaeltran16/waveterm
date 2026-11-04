@@ -39,7 +39,16 @@ import {
     type GridCard,
     type RowTarget,
 } from "./cardgridlayout";
-import { cockpitCounts, gridNotice, plural, rosterLoadPhase, splitRecentlyIdle } from "./cockpitsurfacemodel";
+import {
+    cockpitCounts,
+    gridNotice,
+    orderIds,
+    plural,
+    prunedBackgrounded,
+    railSelectTarget,
+    rosterLoadPhase,
+    splitRecentlyIdle,
+} from "./cockpitsurfacemodel";
 import { BackgroundAgentsStrip } from "./backgroundagentsstrip";
 import { BackgroundedSection } from "./backgroundedsection";
 import { channelMessagesAtom } from "./channelsstore";
@@ -118,8 +127,8 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
         shellTasks
     );
     // one unified list: asks stay in place alongside active working + just-finished (grace) rows,
-    // minus anything backgrounded. Asking agents are never backgrounded (the effect below un-mutes any
-    // that start asking), so they always land in `active` and hold whatever slot they already had.
+    // minus anything backgrounded. Asking agents are passed in too: the pruning effect below drops a plain
+    // agent's id once it stops working, which is what resurfaces it into `active`.
     const { active: activeAgents, backgrounded } = partitionBackgrounded(
         [...asking, ...working, ...recentlyIdle],
         backgroundedIds
@@ -145,13 +154,13 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
         { trackGit: true },
     );
 
-    // anchored order (kept ids hold their slot; new ids append) + manual drag reorder. This is what
-    // stops a working->asking transition from jumping: the id already holds a slot, so it stays put.
+    // anchored order (kept ids hold their slot; new ids append). This is what stops a working->asking
+    // transition from jumping: the id already holds a slot, so it stays put. Backgrounded ids hold theirs too.
     const [order, setOrder] = useModelAtom(model.orderAtom);
+    const orderKey = orderIds(activeAgents, backgrounded).join(",");
     useEffect(() => {
-        const ids = activeAgents.map((a) => a.id);
-        setOrder((prev) => mergeOrder(prev, ids));
-    }, [activeAgents.map((a) => a.id).join(",")]);
+        setOrder((prev) => mergeOrder(prev, orderKey ? orderKey.split(",") : []));
+    }, [orderKey]);
     const orderedAgents = applyAgentOrder(order, activeAgents);
 
     // cursor + answer selection (lifted onto the model); help/pulse stay ephemeral surface-local
@@ -301,22 +310,14 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
         }
     }, [navigableIds.join(","), cursorId]);
 
-    // asking overrides backgrounded: a muted agent that starts asking re-surfaces (it's in `asking`,
-    // not `working`), so drop it from the set to avoid re-muting when it returns to working.
+    // only a working agent stays backgrounded: one that asks or finishes resurfaces on the grid, and is not
+    // re-muted when it works again. keyed on the set too, so an id added by any writer (the b key, the
+    // context menu) for an agent that is not working is dropped at once
+    const pruneKey = agents.map((a) => `${a.id}:${a.state}:${a.booting ? 1 : 0}`).join(",");
+    const backgroundedKey = [...backgroundedIds].join(",");
     useEffect(() => {
-        const askingSet = new Set(asking.map((a) => a.id));
-        setBackgroundedIds((prev) => {
-            let changed = false;
-            const next = new Set(prev);
-            for (const id of prev) {
-                if (askingSet.has(id)) {
-                    next.delete(id);
-                    changed = true;
-                }
-            }
-            return changed ? next : prev;
-        });
-    }, [asking.map((a) => a.id).join(",")]);
+        setBackgroundedIds((prev) => prunedBackgrounded(prev, agents, lineage));
+    }, [pruneKey, backgroundedKey, lineage]);
 
     // a moved cursor scrolls its stop into view, a task row inside its card too; a jump (n, the rail) centers
     // its own target, so the follow-up here leaves that one alone
@@ -404,7 +405,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                 setOpenComposerId(undefined);
                 containerRef.current?.focus();
             }}
-            onBackground={a.state === "working" || a.state === "asking" ? () => toggleBackground(a.id) : undefined}
+            onBackground={a.state === "working" && !a.booting ? () => toggleBackground(a.id) : undefined}
             onDismiss={a.state === "idle" ? () => dismissAgent(model, a) : undefined}
         />
     );
@@ -565,8 +566,16 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                     </div>
 
                     <div className="shrink-0 px-[18px]">
-                        <BackgroundedSection agents={shownBackgrounded} onRestore={(id) => toggleBackground(id)} />
-                        <IdleSection agents={shownParkedIdle} onOpen={(id) => model.openTerminal(id)} />
+                        <BackgroundedSection
+                            agents={shownBackgrounded}
+                            nowAtom={model.nowAtom}
+                            onRestore={(id) => toggleBackground(id)}
+                        />
+                        <IdleSection
+                            agents={shownParkedIdle}
+                            nowAtom={model.nowAtom}
+                            onOpen={(id) => model.openTerminal(id)}
+                        />
                         <BackgroundAgentsStrip model={model} />
                     </div>
                 </div>
@@ -584,8 +593,24 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                 runEvents={runEvents}
                 tags={railTags}
                 onSelectAgent={(id) => {
-                    setCursorId(id);
-                    scrollToPulse(id);
+                    const target = railSelectTarget(id, {
+                        onGrid: new Set([...navigableIds, ...Object.keys(cursorAlias)]),
+                        backgrounded: backgroundedIds,
+                        parked: new Set(parkedIdle.map((a) => a.id)),
+                    });
+                    if (target === "terminal") {
+                        model.openTerminal(id);
+                    } else if (target === "agent") {
+                        openFocus(id, false);
+                    } else if (target === "restore") {
+                        toggleBackground(id);
+                        setCursorId(id);
+                        // the restored card mounts on the next commit, so scroll to it after that
+                        requestAnimationFrame(() => scrollToPulse(id));
+                    } else {
+                        setCursorId(id);
+                        scrollToPulse(id);
+                    }
                 }}
             />
         </div>
