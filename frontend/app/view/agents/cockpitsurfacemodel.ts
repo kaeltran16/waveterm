@@ -53,6 +53,12 @@ export function cardHasContent(agent: AgentVM, hasEntries: boolean): boolean {
     );
 }
 
+// what a card body shows: the feed, or a "waiting in its terminal" notice for an agent with nothing to show yet
+// (a booting launch, or one stopped at a trust prompt).
+export function cardBody(agent: AgentVM, hasEntries: boolean): "feed" | "waiting" {
+    return agent.booting || !cardHasContent(agent, hasEntries) ? "waiting" : "feed";
+}
+
 // the plain agents the grid leaves off, which the counts skip too. a run's lead and workers are rows on the run
 // card, so they are never hidden; the membership test is buildGridCards' own.
 export function hiddenAgentIds(agents: AgentVM[], idsWithEntries: Set<string>, lineage: Lineage): Set<string> {

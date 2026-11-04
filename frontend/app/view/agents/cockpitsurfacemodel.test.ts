@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 import type { AgentVM } from "./agentsviewmodel";
 import {
+    cardBody,
     cardHasContent,
     dismissKey,
     hiddenAgentIds,
@@ -113,6 +114,21 @@ describe("cardHasContent", () => {
     });
     it("always shows an asking agent", () => {
         expect(cardHasContent(agent({ state: "asking" }), false)).toBe(true);
+    });
+});
+
+describe("cardBody", () => {
+    it("is waiting for a booting agent, even with entries", () => {
+        expect(cardBody(agent({ booting: true }), true)).toBe("waiting");
+    });
+    it("is waiting when there are no entries and no ask", () => {
+        expect(cardBody(agent({ state: "idle" }), false)).toBe("waiting");
+    });
+    it("is feed for an asking agent", () => {
+        expect(cardBody(agent({ state: "asking" }), false)).toBe("feed");
+    });
+    it("is feed once there are entries", () => {
+        expect(cardBody(agent({ state: "idle" }), true)).toBe("feed");
     });
 });
 
