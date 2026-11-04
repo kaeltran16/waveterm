@@ -71,28 +71,6 @@ const stubSearch = (h, body) =>
         RpcApi.SearchSessionsCommand = (client, data) => (${body})(data);
         return true;
     })()`);
-// a real archive load already in flight when the fixtures go in (the index is still reading) would land over them,
-// so the fixture archive is put back on every write until releaseArchive
-const ARCHIVE_STORE = `
-    const names = performance.getEntriesByType("resource").map((e) => e.name.split("?")[0]);
-    const { globalStore } = await import(names.find((n) => n.endsWith("/app/store/jotaiStore.ts")));
-    const store = await import(names.find((n) => n.endsWith("/app/view/agents/sessionsarchivestore.ts")));
-`;
-const holdArchive = (h) =>
-    h.ev(`(async () => {
-        ${ARCHIVE_STORE}
-        const held = globalStore.get(store.sessionsArchiveAtom);
-        const put = () => {
-            if (globalStore.get(store.sessionsArchiveAtom) !== held) globalStore.set(store.sessionsArchiveAtom, held);
-            if (globalStore.get(store.sessionsIncompleteAtom)) globalStore.set(store.sessionsIncompleteAtom, false);
-        };
-        const offs = [globalStore.sub(store.sessionsArchiveAtom, put), globalStore.sub(store.sessionsIncompleteAtom, put)];
-        window.__sessionsListStatesArchiveHold = () => offs.forEach((off) => off());
-        return true;
-    })()`);
-const releaseArchive = (h) =>
-    h.ev(`(window.__sessionsListStatesArchiveHold?.(), delete window.__sessionsListStatesArchiveHold, true)`);
-
 const restoreSearch = (h) =>
     h.ev(`(async () => {
         if (!window.${SEARCH_STUB}) return true;
@@ -200,7 +178,6 @@ export default function (kit) {
                 // the fixtures replace the archive from here on
                 await installRuns(h, [fx.cancelled, fx.complete]);
                 await installSessions(h, fx.sessions);
-                await holdArchive(h);
                 const cancelledKey = `run:${fx.cancelled.run.oid}`;
                 const completeKey = `run:${fx.complete.run.oid}`;
                 await until(h, `!!${card(cancelledKey)} && !!${card(completeKey)}`);
@@ -323,7 +300,6 @@ export default function (kit) {
                     return true;
                 `
                 );
-                await releaseArchive(h);
                 await restoreSessions(h);
             },
         },

@@ -3,7 +3,14 @@
 
 import { randomUUID } from "node:crypto";
 import { setTimeout as nap } from "node:timers/promises";
-import { fixtureSession, installSessions, restoreSessions } from "./sessions-page-fixtures.mjs";
+import {
+    fixtureSession,
+    installSessions,
+    pageEval,
+    readPins,
+    restoreSessions,
+    setPins,
+} from "./sessions-page-fixtures.mjs";
 import { openPalette, paletteKey, paletteStateWhen, PALETTE, PEEKS_ESC } from "./scenarios-shared.mjs";
 
 const NAME = "sessions-palette-resume";
@@ -11,6 +18,9 @@ const SCOPE_COUNT = 12;
 const ROWS_WAIT_MS = 5_000;
 // the toast lives 6s (TOAST_TTL_MS), so it is read well inside that
 const TOAST_WAIT_MS = 4_000;
+// a real archive load in flight makes loadSessionsArchive a no-op until it lands (ARCHIVE_TIMEOUT_MS is 30s)
+const PRUNE_WAIT_MS = 35_000;
+const PIN_SEEN = "__sessionsPaletteResumePinSeen";
 const SCOPE = `${PALETTE}?.querySelector('[data-palette-scope][aria-pressed="true"]')?.getAttribute('data-palette-scope') ?? null`;
 const ERROR_TOASTS = `[...document.querySelectorAll('[data-notification-toast="error"]')].map((t) => (t.textContent ?? '').replace(/\\s+/g, ' ').trim())`;
 // the app's own module instance, as sessions-page-fixtures.mjs imports it
@@ -48,10 +58,14 @@ export default function (_kit) {
                         projectpath: `C:\\arc-verify-sessions-fixture\\vanished-${tag}`,
                     }),
                 };
+                // a pin no fixture holds, so a stubbed load prunes it and the saved pins must bring it back
+                const pinsBefore = await readPins(h);
+                const pinKey = `claude:${randomUUID()}`;
+                await setPins(h, [...pinsBefore, pinKey]);
                 await installSessions(h, [fx.resumable, fx.blocked, fx.vanished]);
-                return { fx };
+                return { fx, pinsBefore, pinKey };
             },
-            async assert(h, { fx }) {
+            async assert(h, { fx, pinsBefore, pinKey }) {
                 const steps = [];
                 const rec = (step, ok, detail) => steps.push({ step, ok, detail });
                 if (!(await openPalette(h))) {
@@ -106,11 +120,58 @@ export default function (_kit) {
                         tabsAfter === tabsBefore,
                     JSON.stringify({ selected, toasts, tabsBefore, tabsAfter })
                 );
+
+                // 3. a load under the stub prunes the extra pin; restoreSessions writes the saved pins back. The
+                // real reload inside it may prune the key again, so a subscription records that it came back.
+                const key = JSON.stringify(pinKey);
+                let pinDetail;
+                let pinOk = false;
+                try {
+                    const pruned = await pageEval(
+                        h,
+                        `
+                        const has = () => globalStore.get(store.sessionsPinnedAtom).includes(${key});
+                        const t0 = Date.now();
+                        while (has() && Date.now() - t0 < ${PRUNE_WAIT_MS}) {
+                            await store.loadSessionsArchive();
+                            await new Promise((r) => setTimeout(r, 100));
+                        }
+                        if (has()) return false;
+                        window.${PIN_SEEN} = { seen: false };
+                        const off = globalStore.sub(store.sessionsPinnedAtom, () => {
+                            if (has()) window.${PIN_SEEN}.seen = true;
+                        });
+                        window.${PIN_SEEN}.off = off;
+                        return true;
+                    `
+                    );
+                    if (pruned) await restoreSessions(h);
+                    const restored = pruned
+                        ? await h.ev(`(() => {
+                              const r = window.${PIN_SEEN};
+                              r?.off?.();
+                              delete window.${PIN_SEEN};
+                              return !!r?.seen;
+                          })()`)
+                        : false;
+                    const unpinned = (await readPins(h)).filter((k) => k !== pinKey);
+                    await setPins(h, unpinned);
+                    const pinsAfter = await readPins(h);
+                    pinOk = pruned && restored && JSON.stringify(pinsAfter) === JSON.stringify(pinsBefore);
+                    pinDetail = { pruned, restored, pinsBefore, pinsAfter };
+                } catch (e) {
+                    pinDetail = { error: e?.message ?? String(e) };
+                }
+                rec("3. teardown keeps the store's pins", pinOk, JSON.stringify(pinDetail));
                 return steps;
             },
-            async teardown(h) {
+            async teardown(h, ctx) {
                 await h.ev(PEEKS_ESC).catch(() => {});
+                await h.ev(`(window.${PIN_SEEN}?.off?.(), delete window.${PIN_SEEN}, true)`).catch(() => {});
                 await restoreSessions(h);
+                if (ctx?.pinKey == null) return;
+                const pins = await readPins(h);
+                if (pins.includes(ctx.pinKey)) await setPins(h, pins.filter((k) => k !== ctx.pinKey));
             },
         },
     ];

@@ -91,17 +91,54 @@ const MOD = `
     const WOS = await mod("app/store/wos.ts");
     const { RpcApi } = await mod("app/store/wshclientapi.ts");
 `;
-const pageEval = (h, body) => h.ev(`(async () => { ${MOD} ${body} })()`);
+export const pageEval = (h, body) => h.ev(`(async () => { ${MOD} ${body} })()`);
 
+const PINS_WAIT_MS = 5_000;
+// a pin write lands in sessionsPinnedAtom only when the client object is pushed back, so wait for it
+const SET_PINS = `
+    const setPins = async (pins) => {
+        const want = JSON.stringify(pins);
+        if (JSON.stringify(globalStore.get(store.sessionsPinnedAtom)) === want) return;
+        store.setSessionsPinned(pins);
+        const t0 = Date.now();
+        while (JSON.stringify(globalStore.get(store.sessionsPinnedAtom)) !== want) {
+            if (Date.now() - t0 > ${PINS_WAIT_MS}) {
+                throw new Error("sessions pins never landed: want " + want + ", have " + JSON.stringify(globalStore.get(store.sessionsPinnedAtom)));
+            }
+            await new Promise((r) => setTimeout(r, 50));
+        }
+    };
+`;
+
+export function readPins(h) {
+    return pageEval(h, `return [...globalStore.get(store.sessionsPinnedAtom)];`);
+}
+
+// writes the store's pins and waits until sessionsPinnedAtom holds them
+export function setPins(h, pins) {
+    return pageEval(h, `${SET_PINS} await setPins(${JSON.stringify(pins)}); return true;`);
+}
+
+// the stub answers complete, so any archive load under it prunes the store's pins against the fixtures: the
+// first install saves the pins for restoreSessions. A real load already in flight would land over the fixtures,
+// so the installed list is put back on every write until restoreSessions.
 export function installSessions(h, sessions) {
     return pageEval(
         h,
         `
         const sessions = ${JSON.stringify(sessions)};
+        if (!("__sessionsFixturePins" in window)) window.__sessionsFixturePins = [...globalStore.get(store.sessionsPinnedAtom)];
+        window.__sessionsFixtureArchiveHold?.();
         RpcApi.GetSessionsActivityCommand = async () => ({ sessions, incomplete: false });
         globalStore.set(store.sessionsArchiveAtom, sessions);
         globalStore.set(store.sessionsIncompleteAtom, false);
         globalStore.set(store.sessionsErrorAtom, false);
+        const put = () => {
+            if (globalStore.get(store.sessionsArchiveAtom) !== sessions) globalStore.set(store.sessionsArchiveAtom, sessions);
+            if (globalStore.get(store.sessionsIncompleteAtom)) globalStore.set(store.sessionsIncompleteAtom, false);
+        };
+        const offs = [globalStore.sub(store.sessionsArchiveAtom, put), globalStore.sub(store.sessionsIncompleteAtom, put)];
+        window.__sessionsFixtureArchiveHold = () => offs.forEach((off) => off());
     `
     );
 }
@@ -152,10 +189,14 @@ export function setTranscript(h, path, entry) {
     return h.ev(`(window.__sessionsFixtureTranscripts[${JSON.stringify(path)}] = ${JSON.stringify(entry)}, true)`);
 }
 
+// safe to call twice: a second call finds no hold and no saved pins, and only reloads
 export function restoreSessions(h) {
     return pageEval(
         h,
         `
+        ${SET_PINS}
+        window.__sessionsFixtureArchiveHold?.();
+        delete window.__sessionsFixtureArchiveHold;
         delete RpcApi.GetSessionsActivityCommand;
         delete RpcApi.GetAgentTranscriptCommand;
         delete window.__sessionsFixtureTranscripts;
@@ -166,6 +207,11 @@ export function restoreSessions(h) {
             await WOS.reloadWaveObject(oref).catch(() => {});
         }
         delete window.__sessionsFixtureHeld;
+        if ("__sessionsFixturePins" in window) {
+            // the reload below sends the pins, so they must have landed first
+            await setPins(window.__sessionsFixturePins);
+            delete window.__sessionsFixturePins;
+        }
         await store.loadSessionsArchive();
     `
     );
