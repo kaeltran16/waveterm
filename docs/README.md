@@ -19,7 +19,7 @@ reference for build commands, architecture, and gotchas — start there.
 
 | Path | What's in it |
 | --- | --- |
-| `reference/` | `architecture.md` (the full three-layer map extracted from `AGENTS.md`), `motion-system.md` (motion principles and tokens), `cdp-verification.md` (verifying UI in the live dev app over CDP), and protocol references cited from source comments. |
+| `reference/` | `architecture.md` (the full three-layer map extracted from `AGENTS.md`), `motion-system.md` (motion principles and tokens), `cdp-verification.md` (verifying UI in the live dev app over CDP), `surface-review.md` (reviewing an area on a copy of the real store), and protocol references cited from source comments. |
 | `agents/` | Integration notes for the agent reporters: tab auto-naming, usage reporting, brainstorm mode, and how the Claude Code mods and Arc's skills install (`claude-mods.md`). |
 | `superpowers/specs/` | Design docs — the **why** behind each feature. Written before implementation, kept after. |
 | `superpowers/plans/` | Implementation plans while their work is in flight. Deleted once shipped; git history keeps them. |

@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 )
 
@@ -58,7 +60,17 @@ var acFieldCache = struct {
 	ids map[string]string
 }{ids: map[string]string{}}
 
+// searchPath is the one POST that only reads.
+const searchPath = "/search/jql"
+
+// errSnapshotWrite refuses a write from a dev app booted on a copy of the user's store: the copy's tickets
+// are the real ones, and a review pass clicks through every action.
+var errSnapshotWrite = errors.New("snapshot store: Jira writes are off")
+
 func (c *Client) newRequest(ctx context.Context, method, path string, body any) (*http.Request, error) {
+	if wavebase.IsSnapshot() && method != http.MethodGet && path != searchPath {
+		return nil, fmt.Errorf("%s %s: %w", method, path, errSnapshotWrite)
+	}
 	var reader io.Reader
 	if body != nil {
 		raw, err := json.Marshal(body)
@@ -196,7 +208,7 @@ func (c *Client) SearchOpen(ctx context.Context) ([]wshrpc.JiraTicket, error) {
 	var resp struct {
 		Issues []rawIssue `json:"issues"`
 	}
-	if err := c.do(ctx, http.MethodPost, "/search/jql", req, &resp); err != nil {
+	if err := c.do(ctx, http.MethodPost, searchPath, req, &resp); err != nil {
 		return nil, err
 	}
 	tickets := make([]wshrpc.JiraTicket, 0, len(resp.Issues))

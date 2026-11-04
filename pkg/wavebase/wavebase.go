@@ -110,6 +110,21 @@ func IsDevMode() bool {
 	return Dev_VarCache != ""
 }
 
+// ArcSnapshotVarName marks a wavesrv running on a copy of the user's packaged store
+// (scripts/cdp/snapshot-dev.mjs). The copy holds live runs and agents whose cwds are real checkouts, so
+// nothing it does may reach those checkouts, the vault remote or Jira.
+const ArcSnapshotVarName = "ARC_SNAPSHOT"
+
+func IsSnapshot() bool {
+	return os.Getenv(ArcSnapshotVarName) == "1"
+}
+
+// SnapshotScratchDir is the one place a snapshot app may start processes: the snapshot base's scratch dir,
+// beside the data dir.
+func SnapshotScratchDir() string {
+	return filepath.Join(filepath.Dir(GetWaveDataDir()), "scratch")
+}
+
 func GetWaveAppPath() string {
 	return AppPath_VarCache
 }

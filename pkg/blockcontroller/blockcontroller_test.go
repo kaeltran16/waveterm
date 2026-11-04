@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -284,5 +285,28 @@ func TestFailedAppendStillPublishesChunk(t *testing.T) {
 	}
 	if data.Data64 != base64.StdEncoding.EncodeToString(chunk) {
 		t.Errorf("published data64 = %q, want the chunk", data.Data64)
+	}
+}
+
+func TestSnapshotMayStartOnlyInsideScratch(t *testing.T) {
+	base := t.TempDir()
+	scratch := filepath.Join(base, "scratch")
+	cases := []struct {
+		cwd  string
+		want bool
+	}{
+		{scratch, true},
+		{filepath.Join(scratch, "proj", "sub"), true},
+		{"", false},                // the shell's default cwd is the home dir
+		{"~/code/waveterm", false}, // not absolute
+		{base, false},              // the snapshot's own store
+		{filepath.Join(base, "scratch-other"), false}, // a sibling sharing the prefix
+		{filepath.Join(scratch, "..", "data"), false},
+		{filepath.Dir(base), false},
+	}
+	for _, c := range cases {
+		if got := snapshotMayStart(scratch, c.cwd); got != c.want {
+			t.Errorf("snapshotMayStart(%q) = %v, want %v", c.cwd, got, c.want)
+		}
 	}
 }

@@ -285,3 +285,20 @@ func TestTransitionsParse(t *testing.T) {
 		t.Errorf("Transitions = %+v, %v", ts, err)
 	}
 }
+
+func TestSnapshotRefusesWritesButReads(t *testing.T) {
+	t.Setenv("ARC_SNAPSHOT", "1")
+	c, _ := fakeJira(t, map[string]http.HandlerFunc{
+		"GET /rest/api/3/field": fieldsRoute(true),
+		"POST /rest/api/3/search/jql": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, 200, map[string]any{"issues": []any{issueJSON("PAY-318", nil)}, "isLast": true})
+		},
+	})
+	if tickets, err := c.SearchOpen(context.Background()); err != nil || len(tickets) != 1 {
+		t.Errorf("SearchOpen = %d tickets, %v; want the read to go through", len(tickets), err)
+	}
+	// fakeJira fails the test on any request it has no route for, so a refused write never reaching it is checked too
+	if err := c.DoTransition(context.Background(), "PAY-318", "31"); !errors.Is(err, errSnapshotWrite) {
+		t.Errorf("DoTransition = %v, want errSnapshotWrite", err)
+	}
+}

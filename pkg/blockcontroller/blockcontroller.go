@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -300,6 +301,13 @@ func ResyncController(ctx context.Context, tabId string, blockId string, rtOpts 
 		if (controllerName == BlockController_Shell || controllerName == BlockController_Cmd) && !isLocalConnName(connName) {
 			return fmt.Errorf("cannot start shellproc: remote connections are not supported (%q)", connName)
 		}
+		if wavebase.IsSnapshot() {
+			scratch := wavebase.SnapshotScratchDir()
+			cwd := blockData.Meta.GetString(waveobj.MetaKey_CmdCwd, "")
+			if !snapshotMayStart(scratch, cwd) {
+				return fmt.Errorf("snapshot store: not starting a process in %q, only inside %s", cwd, scratch)
+			}
+		}
 
 		// Start controller
 		err = controller.Start(ctx, blockData.Meta, rtOpts, force)
@@ -309,6 +317,16 @@ func ResyncController(ctx context.Context, tabId string, blockId string, rtOpts 
 	}
 
 	return nil
+}
+
+// snapshotMayStart is whether a snapshot app may start a process in cwd. Every cwd the copied store holds is
+// a real checkout that a live agent or run of the user's owns, so only the snapshot's scratch dir qualifies.
+func snapshotMayStart(scratch, cwd string) bool {
+	if !filepath.IsAbs(cwd) {
+		return false
+	}
+	rel, err := filepath.Rel(scratch, cwd)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 func GetBlockControllerRuntimeStatus(blockId string) *BlockControllerRuntimeStatus {
