@@ -6,13 +6,14 @@ import type { AgentVM } from "./agentsviewmodel";
 import {
     cardBody,
     cardHasContent,
+    cockpitCounts,
     dismissKey,
-    hiddenAgentIds,
+    gridNotice,
+    plural,
     rosterLoadPhase,
     splitRecentlyIdle,
     toggleInSet,
 } from "./cockpitsurfacemodel";
-import { NO_LINEAGE, type Lineage } from "./runlineage";
 import type { ShellTask } from "./shelltasks";
 
 function agent(over: Partial<AgentVM>): AgentVM {
@@ -132,24 +133,61 @@ describe("cardBody", () => {
     });
 });
 
-describe("hiddenAgentIds", () => {
-    it("hides a plain agent with nothing to show and keeps one with entries", () => {
-        const roster = [agent({ id: "empty" }), agent({ id: "talking", state: "idle" })];
-        expect([...hiddenAgentIds(roster, new Set(["talking"]), NO_LINEAGE)]).toEqual(["empty"]);
+describe("cockpitCounts", () => {
+    const roster = [
+        agent({ id: "a", project: "demo", state: "asking" }),
+        agent({ id: "b", project: "demo", state: "idle" }),
+        agent({ id: "c", project: "other" }),
+    ];
+    const asking = (a: AgentVM) => a.state === "asking";
+    it("counts the whole roster unscoped", () => {
+        expect(cockpitCounts(roster, "all", asking)).toEqual({ agents: 3, projects: 2, needsYou: 1 });
     });
-    it("never hides a run's lead or worker, whose rows live on the run card", () => {
-        const lineage: Lineage = {
-            roles: {
-                lead: { kind: "lead", runId: "r1" },
-                worker: { kind: "worker", leadRunId: "r1", taskId: "1" },
-            },
-            runs: { r1: { runId: "r1", channelId: "c1", title: "run", project: "p" } },
-        };
-        const roster = [agent({ id: "lead" }), agent({ id: "worker" })];
-        expect(hiddenAgentIds(roster, new Set(), lineage).size).toBe(0);
+    it("counts only the scoped project", () => {
+        expect(cockpitCounts(roster, "other", asking)).toEqual({ agents: 1, projects: 1, needsYou: 0 });
     });
-    it("hides an agent whose run is not in the lineage, as the grid shows it as a plain card", () => {
-        const lineage: Lineage = { roles: { orphan: { kind: "worker", leadRunId: "gone", taskId: "1" } }, runs: {} };
-        expect([...hiddenAgentIds([agent({ id: "orphan" })], new Set(), lineage)]).toEqual(["orphan"]);
+    it("counts an agent with no transcript", () => {
+        expect(cockpitCounts([agent({ id: "boot", project: "demo", booting: true })], "all", asking).agents).toBe(1);
+    });
+});
+
+describe("gridNotice", () => {
+    const base = {
+        seeded: true,
+        rosterCount: 2,
+        scopedCount: 2,
+        shownCards: 0,
+        parked: 0,
+        backgrounded: 0,
+        projectFilter: "all",
+    };
+    it("is loading before the roster is read", () => {
+        expect(gridNotice({ ...base, seeded: false, rosterCount: 0, scopedCount: 0 }).kind).toBe("loading");
+    });
+    it("is the empty roster once read with no agents", () => {
+        expect(gridNotice({ ...base, rosterCount: 0, scopedCount: 0 }).kind).toBe("empty-roster");
+    });
+    it("names a scope with no agents", () => {
+        expect(gridNotice({ ...base, scopedCount: 0, projectFilter: "demo" })).toEqual({
+            kind: "empty-scope",
+            project: "demo",
+        });
+    });
+    it("counts the parked agents when all are parked", () => {
+        expect(gridNotice({ ...base, parked: 2 })).toEqual({ kind: "nothing-live", idle: 2, backgrounded: 0 });
+    });
+    it("counts the backgrounded agents when all are backgrounded", () => {
+        expect(gridNotice({ ...base, backgrounded: 2 })).toEqual({ kind: "nothing-live", idle: 0, backgrounded: 2 });
+    });
+    it("is none while cards show", () => {
+        expect(gridNotice({ ...base, shownCards: 1, parked: 1 }).kind).toBe("none");
+    });
+});
+
+describe("plural", () => {
+    it("is singular for one and plural otherwise", () => {
+        expect(plural(1, "agent")).toBe("1 agent");
+        expect(plural(0, "agent")).toBe("0 agents");
+        expect(plural(2, "project")).toBe("2 projects");
     });
 });

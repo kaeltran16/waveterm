@@ -88,27 +88,52 @@ export function isBackgroundedRun(card: GridCard, backgroundedIds: Set<string>, 
     return card.kind === "run" && card.lead != null && backgroundedIds.has(card.lead.id) && !needsYou;
 }
 
-/** Pure: does the status chip show this card. A run card shows under Asking when anything in it needs you. */
 /** Pure: a status tab's press. Pressing the selected tab again returns to everything. */
 export function toggleChip(current: ChipFilter, pressed: ChipFilter): ChipFilter {
     return current === pressed ? "all" : pressed;
 }
 
-export function cardMatchesChip(card: GridCard, chip: ChipFilter, needsYou: boolean): boolean {
+/** Pure: does the status chip show this card. A card shows under Asking when it needs you. A booting agent is
+ *  live but not yet working; one standing by (idle with a running shell task) has not finished, so it is
+ *  working, not up for review. */
+export function cardMatchesChip(card: GridCard, chip: ChipFilter, needsYou: boolean, standingBy = false): boolean {
     if (chip === "all") {
         return true;
     }
-    if (card.kind === "agent") {
-        return card.agent.state === chip;
-    }
     if (chip === "asking") {
         return needsYou;
+    }
+    if (card.kind === "agent") {
+        const { state, booting } = card.agent;
+        if (chip === "working") {
+            return (state === "working" && !booting) || standingBy;
+        }
+        return state === "idle" && !standingBy;
     }
     if (chip === "working") {
         return card.lead?.state === "working" || card.run.dag?.status === "running";
     }
     // a run is up for review once it ends; a lead idling between wakes is still running it
     return runFinished(card.run);
+}
+
+const CHIPS: ChipFilter[] = ["asking", "working", "idle", "all"];
+
+/** Pure: each status tab's count, in cards, as the tab filters them. */
+export function chipCounts(
+    cards: GridCard[],
+    needsYou: (c: GridCard) => boolean,
+    standingBy: (c: GridCard) => boolean
+): Record<ChipFilter, number> {
+    const counts = { asking: 0, working: 0, idle: 0, all: 0 };
+    for (const c of cards) {
+        for (const chip of CHIPS) {
+            if (cardMatchesChip(c, chip, needsYou(c), standingBy(c))) {
+                counts[chip]++;
+            }
+        }
+    }
+    return counts;
 }
 
 // what the keyboard does on a focused task row: open, answer the worker's question, or run the row's actions

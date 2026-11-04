@@ -11,6 +11,7 @@ import { ChevronDown, Plus } from "lucide-react";
 import { useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { projectsFromAgents } from "./agentsviewmodel";
+import { cockpitCounts } from "./cockpitsurfacemodel";
 import { projectListAtom, removeProject, switcherProjects } from "./projectsstore";
 import { projectControlCopy } from "./surfacecontext";
 
@@ -24,6 +25,8 @@ export function ProjectSwitcher({ model, variant }: { model: AgentsViewModel; va
     const [confirming, setConfirming] = useState<string | null>(null);
     const rows = useAtomValue(projectListAtom);
     const projects = switcherProjects(rows, projectsFromAgents(agents));
+    // the Cockpit toolbar's own count, unscoped
+    const allCount = cockpitCounts(agents, "all", () => false).agents;
     const projectLabel = filter === "all" ? "All projects" : filter;
     const copy = projectControlCopy(variant === "header" ? "cockpit" : surface, projectLabel);
     const close = () => {
@@ -82,7 +85,7 @@ export function ProjectSwitcher({ model, variant }: { model: AgentsViewModel; va
                                 <span className="flex-1 truncate text-[13px] font-medium text-secondary">
                                     All projects
                                 </span>
-                                <span className="font-mono text-[11px] text-muted">{agents.length}</span>
+                                <span className="font-mono text-[11px] text-muted">{allCount}</span>
                                 <span className="w-5 shrink-0" />
                             </button>
                             {projects.map((p) => (

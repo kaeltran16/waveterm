@@ -960,8 +960,15 @@ export function matchesProjectFilter(agent: AgentVM, filter: string): boolean {
 
 /** Pure: apply the project scope + live-only (hide idle) filters, preserving input order. The chip
  *  filter is applied separately by the caller so the live-section counts can ignore it. */
-export function filterAgents(agents: AgentVM[], projectFilter: string, liveOnly: boolean): AgentVM[] {
-    return agents.filter((a) => matchesProjectFilter(a, projectFilter) && (!liveOnly || a.state !== "idle"));
+export function filterAgents(
+    agents: AgentVM[],
+    projectFilter: string,
+    liveOnly: boolean,
+    standingBy: Set<string> = new Set()
+): AgentVM[] {
+    // an agent standing by (idle with a running shell task) is still live
+    const live = (a: AgentVM) => a.state !== "idle" || standingBy.has(a.id);
+    return agents.filter((a) => matchesProjectFilter(a, projectFilter) && (!liveOnly || live(a)));
 }
 
 // --- card data types --------------------------------------------------------

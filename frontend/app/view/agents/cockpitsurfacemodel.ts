@@ -2,12 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Pure glue for CockpitSurface: dismissal keying, the roster load phase, the recently-idle
-// grace-window split, and a generic set toggle. Extracted so the surface's orchestration decisions
+// grace-window split, the toolbar counts, the empty-grid notice, and a generic set toggle. Extracted so the surface's orchestration decisions
 // are unit-testable without rendering the grid.
 
-import { isRecentlyIdle, type AgentVM } from "./agentsviewmodel";
+import { isRecentlyIdle, matchesProjectFilter, projectsFromAgents, type AgentVM } from "./agentsviewmodel";
 import type { LoadPhase } from "./loadphase";
-import { roleRunId, type Lineage } from "./runlineage";
 import { isStandingBy, type ShellTask } from "./shelltasks";
 
 // a just-finished agent's dismissal is keyed by idle episode (id:idleSince) so a later re-idle re-shows it.
@@ -42,8 +41,7 @@ export function splitRecentlyIdle(
 }
 
 // a card body shows the narration feed, an ask, or a working activity line. an agent with none of them (just
-// launched and not yet prompted, or idle without ever writing a transcript entry) is an empty card, so it stays
-// off the grid until one arrives; its terminal is still in the Agent surface.
+// launched and not yet prompted, or idle without ever writing a transcript entry) has nothing to show yet.
 export function cardHasContent(agent: AgentVM, hasEntries: boolean): boolean {
     return (
         hasEntries ||
@@ -59,18 +57,55 @@ export function cardBody(agent: AgentVM, hasEntries: boolean): "feed" | "waiting
     return agent.booting || !cardHasContent(agent, hasEntries) ? "waiting" : "feed";
 }
 
-// the plain agents the grid leaves off, which the counts skip too. a run's lead and workers are rows on the run
-// card, so they are never hidden; the membership test is buildGridCards' own.
-export function hiddenAgentIds(agents: AgentVM[], idsWithEntries: Set<string>, lineage: Lineage): Set<string> {
-    const hidden = new Set<string>();
-    for (const a of agents) {
-        const role = lineage.roles[a.id];
-        const inRun = role != null && lineage.runs[roleRunId(role)] != null;
-        if (!inRun && !cardHasContent(a, idsWithEntries.has(a.id))) {
-            hidden.add(a.id);
-        }
+// the toolbar's facts over the scoped roster: every agent counts, whatever its card shows
+export function cockpitCounts(
+    agents: AgentVM[],
+    projectFilter: string,
+    needsYou: (a: AgentVM) => boolean
+): { agents: number; projects: number; needsYou: number } {
+    const scoped = agents.filter((a) => matchesProjectFilter(a, projectFilter));
+    return {
+        agents: scoped.length,
+        projects: projectsFromAgents(scoped).length,
+        needsYou: scoped.filter(needsYou).length,
+    };
+}
+
+export interface GridNotice {
+    kind: "loading" | "empty-roster" | "empty-scope" | "nothing-live" | "none";
+    idle?: number;
+    backgrounded?: number;
+    project?: string;
+}
+
+// what covers an empty grid: the full empty state only for an empty roster; a scope with no agents, or a roster
+// that is all parked or backgrounded, gets a smaller notice that points at the sections below.
+export function gridNotice(input: {
+    seeded: boolean;
+    rosterCount: number;
+    scopedCount: number;
+    shownCards: number;
+    parked: number;
+    backgrounded: number;
+    projectFilter: string;
+}): GridNotice {
+    if (input.shownCards > 0) {
+        return { kind: "none" };
     }
-    return hidden;
+    if (input.rosterCount === 0) {
+        return { kind: input.seeded ? "empty-roster" : "loading" };
+    }
+    if (input.scopedCount === 0 && input.projectFilter !== "all") {
+        return { kind: "empty-scope", project: input.projectFilter };
+    }
+    if (input.parked + input.backgrounded > 0) {
+        return { kind: "nothing-live", idle: input.parked, backgrounded: input.backgrounded };
+    }
+    return { kind: "none" };
+}
+
+export function plural(n: number, word: string): string {
+    return `${n} ${word}${n === 1 ? "" : "s"}`;
 }
 
 export function toggleInSet(set: Set<string>, id: string): Set<string> {

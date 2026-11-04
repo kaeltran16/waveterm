@@ -88,4 +88,7 @@ describe("filterAgents", () => {
     it("composes project + liveOnly", () => {
         expect(filterAgents(agents, "waveterm", true).map((a) => a.id)).toEqual(["a"]);
     });
+    it("filterAgents keeps standing-by under Live only", () => {
+        expect(filterAgents(agents, "all", true, new Set(["b"])).map((a) => a.id)).toEqual(["a", "b", "c"]);
+    });
 });
