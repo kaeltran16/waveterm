@@ -30,7 +30,8 @@ export function fixtureSession(overrides = {}) {
     };
 }
 
-// a run and the dag its dagoref names, as the WOS cache holds them (otype/oid/version/meta are required)
+// a run and the dag its dagoref names (the bare id, as the store holds it), as the WOS cache holds them
+// (otype/oid/version/meta are required)
 export function fixtureRun({ status = "executing", dagStatus = "running", tasks = [] } = {}) {
     const now = Date.now();
     const runId = randomUUID();
@@ -50,7 +51,7 @@ export function fixtureRun({ status = "executing", dagStatus = "running", tasks 
         status,
         phases: [],
         createdts: now - 600_000,
-        dagoref: `dag:${dagId}`,
+        dagoref: dagId,
     };
     const dag = {
         otype: "dag",

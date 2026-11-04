@@ -54,7 +54,7 @@ describe("fixtureRun", () => {
         const { run, dag } = fixtureRun({ status: "executing", dagStatus: "running", tasks: [{ id: "t-1" }, { id: "t-2" }] });
         expect(run.oid).toMatch(UUID);
         expect(dag.oid).toMatch(UUID);
-        expect(run.dagoref).toBe(`dag:${dag.oid}`);
+        expect(run.dagoref).toBe(dag.oid);
         expect(dag.runid).toBe(run.oid);
         expect(run.status).toBe("executing");
         expect(dag.status).toBe("running");
