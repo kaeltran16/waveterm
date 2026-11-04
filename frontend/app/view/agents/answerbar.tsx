@@ -7,6 +7,7 @@ import { ArrowUpRight, Check, FileText, X } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { answerHint, nextUnansweredQuestion, type AgentAskQuestion, type AgentVM } from "./agentsviewmodel";
 import { activePreview, previewBody, previewMode } from "./answerbarpreview";
+import { canDismissAsk } from "./askflow";
 import { DOC_REVIEW_COPY, docReviewAtom, parseDocReview, type DocReview } from "./docreview";
 
 // The answer surface tracks the agent's status, mirroring the handoff (Wave-answer.dc.html: the
@@ -323,20 +324,21 @@ export function AnswerBar({
         !hideQuestion && agent.ask?.note ? (
             <div className="mb-1.5 text-[11px] text-warning">{agent.ask.note}</div>
         ) : null;
-    // dismiss control: clears the pending ask (pi: cancels the blocked ask tool).
-    // Only rendered when the parent wires it (agent row + channel rows).
-    const dismissControl = onDismiss ? (
-        <div className="mb-1 flex justify-end">
-            <button
-                type="button"
-                onClick={onDismiss}
-                title="Dismiss this question (pi: cancels the ask; claude: closes the panel copy)"
-                className="flex cursor-pointer rounded-sm px-1.5 py-0.5 text-muted hover:bg-surface-hover hover:text-secondary"
-            >
-                <X size={12} aria-hidden />
-            </button>
-        </div>
-    ) : null;
+    // dismiss control: cancels the blocked ask tool. Only rendered when the parent wires it (agent row + channel
+    // rows) and the runtime can cancel: elsewhere it would hide the ask while the agent stays blocked.
+    const dismissControl =
+        onDismiss && canDismissAsk(agent) ? (
+            <div className="mb-1 flex justify-end">
+                <button
+                    type="button"
+                    onClick={onDismiss}
+                    title="Dismiss this question (cancels the ask)"
+                    className="flex cursor-pointer rounded-sm px-1.5 py-0.5 text-muted hover:bg-surface-hover hover:text-secondary"
+                >
+                    <X size={12} aria-hidden />
+                </button>
+            </div>
+        ) : null;
     if (sent) {
         const chosen = questions
             .flatMap((q, qi) => {
