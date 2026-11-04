@@ -4,10 +4,12 @@
 import { describe, expect, it } from "vitest";
 import {
     agentRowMenuItems,
+    askScrollTop,
     clampQuestionIndex,
     entriesToShow,
     isFinishTransition,
     muteMode,
+    muteTitle,
     subagentsLabel,
     tasksLabel,
 } from "./agentrowmodel";
@@ -66,7 +68,7 @@ describe("isFinishTransition", () => {
 
 describe("agentRowMenuItems", () => {
     it("always includes open, terminal, copy, a separator, and a danger close", () => {
-        const items = agentRowMenuItems({ hasDiff: false, hasMute: false });
+        const items = agentRowMenuItems({ hasDiff: false, mute: null });
         expect(items).toEqual([
             { key: "open", label: "Open" },
             { key: "terminal", label: "Open terminal" },
@@ -76,17 +78,36 @@ describe("agentRowMenuItems", () => {
         ]);
     });
     it("adds Review changes when there is a diff", () => {
-        const items = agentRowMenuItems({ hasDiff: true, hasMute: false });
+        const items = agentRowMenuItems({ hasDiff: true, mute: null });
         expect(items.some((i) => "key" in i && i.key === "diff" && i.label === "Review changes")).toBe(true);
     });
-    it("adds Move to background when a mute action exists", () => {
-        const items = agentRowMenuItems({ hasDiff: false, hasMute: true });
-        expect(items.some((i) => "key" in i && i.key === "mute" && i.label === "Move to background")).toBe(true);
+    it("labels the mute item by what it does: background an active card, move an idle one to Idle", () => {
+        const muteLabel = (mute: "background" | "dismiss") =>
+            agentRowMenuItems({ hasDiff: false, mute }).find((i) => "key" in i && i.key === "mute");
+        expect(muteLabel("background")).toEqual({ key: "mute", label: "Move to background" });
+        expect(muteLabel("dismiss")).toEqual({ key: "mute", label: "Move to Idle" });
     });
     it("orders optional items diff -> mute between terminal and copy", () => {
-        const items = agentRowMenuItems({ hasDiff: true, hasMute: true });
+        const items = agentRowMenuItems({ hasDiff: true, mute: "dismiss" });
         const keys = items.map((i) => ("key" in i ? i.key : "sep"));
         expect(keys).toEqual(["open", "terminal", "diff", "mute", "copy", "sep", "close"]);
+    });
+});
+
+describe("muteTitle", () => {
+    it("names the button's action, with the B key only where it backgrounds", () => {
+        expect(muteTitle("background")).toBe("Move to background (B)");
+        expect(muteTitle("dismiss")).toBe("Move to Idle");
+    });
+});
+
+describe("askScrollTop", () => {
+    it("holds the answer band's top in view when the bottom pin would scroll past it", () => {
+        expect(askScrollTop(120, 300)).toBe(120);
+    });
+    it("leaves the bottom pin alone when it already shows the band's top", () => {
+        expect(askScrollTop(300, 120)).toBeNull();
+        expect(askScrollTop(120, 120)).toBeNull();
     });
 });
 

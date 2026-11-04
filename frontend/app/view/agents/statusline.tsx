@@ -50,12 +50,14 @@ export function StatusLine({
     mark,
     standing,
     className,
+    projectClassName,
 }: {
     agent: AgentVM;
     nowAtom: Atom<number>;
     mark?: ReactNode;
     standing?: boolean;
     className?: string;
+    projectClassName?: string; // the agent card hides the project chip when it is too narrow for it and the name
 }) {
     const project = projectOf(agent);
     const rt = runtimeMeta(agent.agent);
@@ -72,7 +74,12 @@ export function StatusLine({
                 {agent.name}
             </b>
             {project ? (
-                <span className="shrink-0 rounded-[5px] border border-edge-mid bg-surface-raised px-1.5 py-px font-mono text-[10.5px] text-muted">
+                <span
+                    className={cn(
+                        "shrink-0 rounded-[5px] border border-edge-mid bg-surface-raised px-1.5 py-px font-mono text-[10.5px] text-muted",
+                        projectClassName
+                    )}
+                >
                     {project}
                 </span>
             ) : null}
