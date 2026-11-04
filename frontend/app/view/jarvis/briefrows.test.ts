@@ -9,9 +9,11 @@ import {
     filterLines,
     initiativeLine,
     initiativeProjects,
+    initiativesMeta,
     keepsProject,
     keepsRunKind,
     lineOpenTarget,
+    plainSummary,
     projectCounts,
     projectName,
     queueLine,
@@ -21,8 +23,10 @@ import {
     runRowFace,
     sessionLine,
     sessionWindow,
+    shortTitle,
     sinceLabel,
     type BriefLine,
+    type EffortIndex,
 } from "./briefrows";
 import { buildEffortCard } from "./effortmodel";
 
@@ -167,6 +171,14 @@ describe("sessionLine", () => {
             runOid: "r1",
         });
         expect(sessionLine({ ...run, ts: NOW - DAY }, NOW).stale).toBe(false);
+    });
+
+    it("folds a run blocked past seven days, keeping its state; a recent block or an asking run stays", () => {
+        const blocked = { ...run, chip: { label: "blocked", tone: "blocked" as const }, ts: NOW - 27 * DAY };
+        expect(sessionLine(blocked, NOW)).toMatchObject({ kind: "! run", state: "blocked", stale: true });
+        expect(sessionLine({ ...blocked, ts: NOW - 2 * DAY }, NOW).stale).toBe(false);
+        const asking = { ...blocked, chip: { label: "asking", tone: "asking" as const } };
+        expect(sessionLine(asking, NOW).stale).toBe(false);
     });
 
     it("never folds what needs eyes, and names its state instead of its age", () => {
@@ -850,5 +862,105 @@ describe("keepsProject", () => {
         expect(keepsProject("", undefined)).toBe(true);
         expect(keepsProject("", "")).toBe(true);
         expect(keepsProject("", "opal")).toBe(false);
+    });
+});
+
+describe("initiativesMeta", () => {
+    const card = (status: string, idleDays: number) => ({ status, updatedts: NOW - idleDays * DAY });
+
+    it("counts initiatives with no update in seven days as quiet, beside the paused ones", () => {
+        expect(
+            initiativesMeta([card("active", 19), card("active", 12), card("paused", 30), card("active", 1)], NOW)
+        ).toBe("1 paused · 2 quiet 7d+");
+    });
+
+    it("reads all moving only when nothing is paused or quiet", () => {
+        expect(initiativesMeta([card("active", 1), card("active", 6.9)], NOW)).toBe("all moving");
+        expect(initiativesMeta([card("active", 8)], NOW)).toBe("1 quiet 7d+");
+    });
+});
+
+describe("Behind you's short, grouped rows", () => {
+    const runEvent = (over: Partial<DeltaRow>): DeltaRow => ({
+        key: "run-created:" + (over.oref ?? ""),
+        ts: NOW - MIN,
+        kind: "run-created",
+        title: "Fix the gate.\n\nA second paragraph of goal.",
+        wording: "Run started",
+        detail: "status: cancelled",
+        oref: "run:r1",
+        project: "C:\\Users\\me\\IdeaProjects\\waveterm",
+        effortOid: "",
+        ...over,
+    });
+    const index: EffortIndex = new Map([["e1", { oref: "effort:e1", title: "Brief", chunkStages: {}, ticket: "" }]]);
+
+    it("folds an initiative's runs into its digest, counted once per run", () => {
+        const [group] = behindGroups(
+            [
+                {
+                    label: "Today",
+                    rows: [
+                        runEvent({ key: "a", oref: "run:r1", effortOid: "e1" }),
+                        runEvent({ key: "b", oref: "run:r1", kind: "run-done", effortOid: "e1", ts: NOW - 2 * MIN }),
+                        runEvent({ key: "c", oref: "run:r2", effortOid: "e1", ts: NOW - 3 * MIN }),
+                    ],
+                },
+            ],
+            [],
+            NOW,
+            { efforts: index }
+        );
+        expect(group.lines.map((l) => [l.kind, l.title, l.detail, l.target])).toEqual([
+            ["Initiative", "Brief", "2 runs", { oref: "effort:e1" }],
+        ]);
+    });
+
+    it("keeps a run whose initiative it cannot name as its own row: first-line title, project name", () => {
+        const [group] = behindGroups([{ label: "Today", rows: [runEvent({ effortOid: "archived" })] }], [], NOW, {
+            efforts: index,
+            projects: { waveterm: { path: "C:/Users/me/IdeaProjects/waveterm" } },
+        });
+        expect(group.lines.map((l) => [l.kind, l.title, l.detail])).toEqual([
+            ["Run started", "Fix the gate.", "waveterm · cancelled"],
+        ]);
+    });
+
+    it("cuts a goal to its first line's lead sentence", () => {
+        expect(shortTitle("Fix every chunk of the Brief. Read it first.\n\nMore")).toBe(
+            "Fix every chunk of the Brief."
+        );
+    });
+});
+
+describe("plainSummary", () => {
+    it("takes the first prose line of a report, not its markdown", () => {
+        expect(
+            plainSummary("# Run report: Portfolio\n\n## Tasks\n- t-1: **built** the [grid](x.md) in `app.tsx`")
+        ).toBe("t-1: built the grid in app.tsx");
+        expect(plainSummary("# only a heading\n---")).toBe("");
+        expect(plainSummary("Shipped the fold. Then more.")).toBe("Shipped the fold.");
+    });
+
+    it("names a shipped run's project, not its cwd", () => {
+        const [group] = behindGroups(
+            [],
+            [
+                {
+                    oref: "run:r2",
+                    goal: "ship it",
+                    project: "C:\\Users\\me\\IdeaProjects\\portfolio-redesign",
+                    summary: "# Run report: Portfolio\n## Tasks\n- t-1: rebuilt the hero",
+                    completedTs: NOW - MIN,
+                    fresh: false,
+                    hasReport: true,
+                    effortOid: "",
+                    chunkLabel: "",
+                    mode: "quick",
+                },
+            ],
+            NOW
+        );
+        expect(group.lines[0].detail).toBe("portfolio-redesign · t-1: rebuilt the hero");
     });
 });

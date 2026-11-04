@@ -21,6 +21,7 @@ import {
     ArrowUpRight,
     ChevronDown,
     Copy,
+    FolderInput,
     Pause,
     Pencil,
     Play,
@@ -343,6 +344,8 @@ export type InitiativeMenuActs = {
     details: () => void;
     // absent when the row's card is not in the snapshot, so its status is unknown
     status?: { value: string; ops: EffortOps };
+    // the Move to project submenu (moveToProjectItems)
+    move?: ContextMenuItem[];
 };
 
 export function showInitiativeMenu(line: BriefLine, ev: React.MouseEvent, acts: InitiativeMenuActs): void {
@@ -363,6 +366,9 @@ export function showInitiativeMenu(line: BriefLine, ev: React.MouseEvent, acts: 
             { label: "Rename", icon: <Pencil size={15} />, click: acts.rename },
             { label: "Details", icon: <SlidersHorizontal size={15} />, click: acts.details }
         );
+        if (acts.move != null) {
+            items.push({ label: "Move to project", icon: <FolderInput size={15} />, submenu: acts.move });
+        }
         const st = acts.status;
         if (st != null && st.value === "archived") {
             items.push({ label: "Unarchive", icon: <ArchiveRestore size={15} />, click: st.ops.unarchive });

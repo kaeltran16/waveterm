@@ -4,6 +4,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
     effortOps,
+    moveToProjectItems,
     mutationRunner,
     openChunkInPlan,
     stepTarget,
@@ -34,6 +35,7 @@ function fakeStore(): EffortWrites {
     const ok = () => vi.fn(() => Promise.resolve());
     return {
         setEffortStatus: ok(),
+        setEffortProject: ok(),
         unarchiveEffort: ok(),
         deleteEffort: ok(),
         setChunkStatus: ok(),
@@ -86,6 +88,46 @@ describe("mutationRunner", () => {
         mutationRunner(setError)(() => Promise.resolve());
         await Promise.resolve();
         expect(setError.mock.calls).toEqual([[null]]);
+    });
+});
+
+describe("moveToProjectItems", () => {
+    const click = (items: ContextMenuItem[], label: string) => items.find((i) => i.label === label)!.click!();
+
+    it("lists every project once, sorted, the current one checked, then no project", () => {
+        const items = moveToProjectItems(fakeDeps(), OREF, "waveterm", ["siem", "waveterm", "arc"]);
+        expect(items.map((i) => [i.label ?? i.type, i.checked ?? null])).toEqual([
+            ["arc", false],
+            ["siem", false],
+            ["waveterm", true],
+            ["separator", null],
+            ["No project", false],
+        ]);
+    });
+
+    it("moves the initiative, and its undo moves it back", () => {
+        const deps = fakeDeps();
+        click(moveToProjectItems(deps, OREF, "cyber", ["cyber", "jobs"]), "jobs");
+        expect(deps.store.setEffortProject).toHaveBeenCalledWith(OREF, "jobs");
+        expect(deps.undo.notify.mock.calls[0][0]).toBe("Moved to jobs");
+        undoOf(deps)();
+        expect(deps.store.setEffortProject).toHaveBeenLastCalledWith(OREF, "cyber");
+    });
+
+    it("clears the project, and keeps a current project Arc no longer lists", () => {
+        const deps = fakeDeps();
+        const items = moveToProjectItems(deps, OREF, "gone", ["jobs"]);
+        expect(items.find((i) => i.label === "gone")?.checked).toBe(true);
+        click(items, "No project");
+        expect(deps.store.setEffortProject).toHaveBeenCalledWith(OREF, "");
+        expect(deps.undo.notify.mock.calls[0][0]).toBe("Moved to no project");
+    });
+
+    it("writes nothing when the current project is chosen", () => {
+        const deps = fakeDeps();
+        click(moveToProjectItems(deps, OREF, "jobs", ["jobs"]), "jobs");
+        expect(deps.store.setEffortProject).not.toHaveBeenCalled();
+        expect(deps.undo.notify).not.toHaveBeenCalled();
     });
 });
 
@@ -250,6 +292,8 @@ describe("openChunkInPlan", () => {
             calls,
             deps: {
                 closeSheet: vi.fn(() => void calls.push("close")),
+                showInitiative: vi.fn((oref: string) => void calls.push("show " + oref)),
+                openNotes: vi.fn((id: string) => void calls.push("notes " + id)),
                 openInitiative: vi.fn((id: string) => void calls.push("open " + id)),
                 setCursor: vi.fn((id: string) => void calls.push("cursor " + id)),
                 loadPlan: vi.fn(async () => {
@@ -266,12 +310,20 @@ describe("openChunkInPlan", () => {
         await openChunkInPlan(deps, OREF, "c");
         expect(calls).toEqual([
             "close",
+            "show " + OREF,
             "open " + LINE,
             "cursor " + chunkRowId(LINE, "c"),
             "load",
             "stage " + stageRowId(LINE, "B", 1),
         ]);
         expect(deps.loadPlan).toHaveBeenCalledWith(OREF);
+        expect(deps.openNotes).not.toHaveBeenCalled();
+    });
+
+    it("opens the chunk's notes when asked, as a blocked chunk's waiting row does", async () => {
+        const { deps } = revealDeps(plan);
+        await openChunkInPlan(deps, OREF, "c", true);
+        expect(deps.openNotes).toHaveBeenCalledWith(chunkRowId(LINE, "c"));
     });
 
     it("unfolds nothing when the plan has no such chunk", async () => {

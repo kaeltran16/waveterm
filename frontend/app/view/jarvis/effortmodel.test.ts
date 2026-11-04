@@ -45,7 +45,7 @@ describe("buildEffortCard", () => {
             "pending",
             "pending",
         ]);
-        expect(m.blockedChunks).toEqual(["Phase 5"]);
+        expect(m.blockedChunks).toEqual([{ label: "Phase 5", since: null, needs: "", latest: undefined }]);
     });
 
     it("caps chips at 12 with an overflow count", () => {

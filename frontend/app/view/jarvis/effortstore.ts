@@ -149,6 +149,10 @@ export async function appendChunkNote(oref: string, chunk: string | null, text: 
 export async function setEffortStatus(oref: string, status: string): Promise<void> {
     await mutateEffort(oref, [{ op: "setStatus", status }]);
 }
+// "" clears the project
+export async function setEffortProject(oref: string, project: string): Promise<void> {
+    await mutateEffort(oref, [{ op: "setProject", project }]);
+}
 
 // not setStatus("active"): the server restores whatever the archive replaced, which is the only
 // place that knows — an initiative archived while paused or done comes back as it went in.
