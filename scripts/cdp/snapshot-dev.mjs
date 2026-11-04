@@ -98,6 +98,9 @@ async function main() {
             ARC_SNAPSHOT: "1",
             ARC_DEV_NO_GLOBAL_INSTALL: "1",
             WEBVIEW2_USER_DATA_FOLDER: profile,
+            // a claude started from this shell inherits CLAUDE_CODE_CHILD_SESSION and would write no transcript,
+            // and the cockpit hides an agent with no transcript entries
+            CLAUDE_CODE_FORCE_SESSION_PERSISTENCE: "1",
         },
     });
     for (const sig of ["SIGINT", "SIGTERM"]) {

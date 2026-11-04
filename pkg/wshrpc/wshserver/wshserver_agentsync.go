@@ -9,6 +9,7 @@ import (
 	"os"
 
 	"github.com/wavetermdev/waveterm/pkg/agentsync"
+	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 )
 
@@ -29,7 +30,8 @@ func (ws *WshServer) AgentSyncStatusCommand(ctx context.Context) (*wshrpc.Comman
 }
 
 func (ws *WshServer) AgentSyncApplyCommand(ctx context.Context, data wshrpc.CommandAgentSyncApplyData) (*wshrpc.CommandAgentSyncApplyRtnData, error) {
-	actions, err := agentsync.Apply(agentsync.DefaultPaths(), data.DryRun)
+	// a snapshot's vault is a copy, and applying it would write the harness homes the user's real agents read
+	actions, err := agentsync.Apply(agentsync.DefaultPaths(), data.DryRun || wavebase.IsSnapshot())
 	if err != nil {
 		return nil, fmt.Errorf("syncing harness config: %w", err)
 	}
@@ -41,7 +43,8 @@ func (ws *WshServer) AgentSyncApplyCommand(ctx context.Context, data wshrpc.Comm
 }
 
 func (ws *WshServer) AgentSyncAdoptCommand(ctx context.Context, data wshrpc.CommandAgentSyncAdoptData) (*wshrpc.CommandAgentSyncAdoptRtnData, error) {
-	plan, err := agentsync.Adopt(agentsync.DefaultPaths(), data.Apply, data.Keep)
+	// adopting moves skills out of the real harness homes, which a snapshot must leave alone
+	plan, err := agentsync.Adopt(agentsync.DefaultPaths(), data.Apply && !wavebase.IsSnapshot(), data.Keep)
 	rtn := &wshrpc.CommandAgentSyncAdoptRtnData{Moves: skillMoves(plan.Moves), Unresolved: plan.Unresolved}
 	if err != nil {
 		// a partial plan is data the caller must see, not just an error string

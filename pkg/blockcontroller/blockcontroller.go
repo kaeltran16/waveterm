@@ -305,7 +305,9 @@ func ResyncController(ctx context.Context, tabId string, blockId string, rtOpts 
 			scratch := wavebase.SnapshotScratchDir()
 			cwd := blockData.Meta.GetString(waveobj.MetaKey_CmdCwd, "")
 			if !snapshotMayStart(scratch, cwd) {
-				return fmt.Errorf("snapshot store: not starting a process in %q, only inside %s", cwd, scratch)
+				err := fmt.Errorf("snapshot store: not starting a process in %q, only inside %s", cwd, scratch)
+				log.Printf("block %s: %v\n", blockId, err)
+				return err
 			}
 		}
 

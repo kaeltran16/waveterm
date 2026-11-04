@@ -29,11 +29,25 @@ live.
   the watchdog, the loose-end and memory-hygiene sweeps, and remote mode (`cmd/server/main-server.go`);
 - start a block's process only when its cwd is inside `arc-snap\scratch` (`pkg/blockcontroller`): every other
   cwd in the copy is a real checkout;
-- refuse Jira writes; reads and the search POST go through (`pkg/jira/client.go`).
+- refuse Jira writes; reads and the search POST go through (`pkg/jira/client.go`);
+- run agent sync (launch-time steering and skills) and skill adoption as dry runs, since both would write the
+  real harness homes in `~` (`wshserver_agentsync.go`).
 
-Not guarded: actions that call a model directly (a run's judge, a consult, a brainstorm judge) spend tokens.
-With the watchdog off, runs stay frozen as they were copied, so a review sees a run's state but not its
-progress.
+A refused process start is logged in `arc-snap\data\waveapp.log` (`snapshot store: not starting a process`),
+but the UI does not show it yet: the terminal opens on its old scrollback, or a launched agent reads
+"working".
+
+Not guarded: actions that call a model directly (a run's judge, a consult, a brainstorm judge) spend tokens,
+and agents launched in the snapshot write their transcripts to the real `~/.claude/projects`. With the watchdog
+off, runs stay frozen as they were copied, so a review sees a run's state but not its progress.
+
+## What a snapshot cannot show
+
+- **The user's live agents.** They are processes in the packaged Arc, so the roster starts empty: Live, Jump
+  and every live-agent state come only from agents the pass launches itself.
+- **Live runs.** No copied run has a lead or workers. A run's workers get worktrees outside `scratch`, which
+  the guard refuses, so run cards are reviewed from the code unless a run can be made to work in the scratch
+  project (untested).
 
 ## A pass
 
@@ -55,12 +69,22 @@ real data".
    - places where the UI and the code disagree.
 
    A usage finding with a cause in the code names the `file:line`.
-4. **Stay inside the copy.** Launch agents and runs only with a cwd under `arc-snap\scratch`. Never send to an
-   existing agent. Never use `wsh`: it talks to the packaged Arc, not the snapshot.
+4. **Stay inside the copy.**
+   - Launch agents only through the app's New agent flow, with a cwd under `arc-snap\scratch` (a throwaway git
+     repo there, registered as a project in the copy), on Haiku or Sonnet, at most 3.
+   - The first launch in a new scratch folder stops at Claude's folder-trust prompt, which only its terminal
+     can answer.
+   - Never send to an agent the pass did not launch, and close the ones it did before reporting.
+   - Never use `wsh` from the reviewer's shell: it talks to the packaged Arc, not the snapshot.
+   - Run no CDP scenario that writes fixtures outside the copy (the `scenarios-sessions*` ones write into
+     `~/.claude/projects`).
+   - The app is one window: two reviewers cannot drive it at once. A second pass can do steps 1 and 3 while
+     the first drives it.
 
 ## The report
 
-Written to `cdp-shots/review/<area>/report.md`, with its screenshots beside it (gitignored):
+Written to `cdp-shots/review/<area>/report.md`, with its screenshots beside it (gitignored). A subagent cannot
+write the report file, so it returns the report as text and the session that dispatched it saves it:
 
 - **Features:** every feature from step 1, each marked tried, or skipped with the reason.
 - **Findings:** each with the question it fails or the code defect, what was seen (a screenshot or the code),
