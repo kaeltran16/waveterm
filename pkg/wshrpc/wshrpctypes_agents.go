@@ -175,6 +175,8 @@ type CommandGetSessionsActivityData struct {
 	WindowDays int  `json:"windowdays,omitempty"`
 	Limit      int  `json:"limit,omitempty"`
 	All        bool `json:"all,omitempty"` // every session in the window; Limit is ignored
+	// pin keys (runtime:id or run:<id>) to return even when older than the window, if their transcript still exists
+	Pinned []string `json:"pinned,omitempty"`
 }
 
 type CommandGetSessionsActivityRtnData struct {

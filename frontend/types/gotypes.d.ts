@@ -1019,6 +1019,7 @@ declare global {
         windowdays?: number;
         limit?: number;
         all?: boolean;
+        pinned?: string[];
     };
 
     // wshrpc.CommandGetSessionsActivityRtnData
@@ -3169,6 +3170,7 @@ declare global {
         taskid?: string;
         role?: string;
         stagerunid?: string;
+        resumeblocker?: string;
     };
 
     // wshrpc.SessionEvent
