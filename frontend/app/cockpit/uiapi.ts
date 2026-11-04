@@ -159,6 +159,15 @@ export function revealLeavesTrail(address: string, attached: { canvas?: string; 
     return true;
 }
 
+// a brainstorm's toast names it by its title: its address is a slug the user never typed
+export function revealTrail(caller: string, address: string, brainstormTitle?: string): string {
+    const target = parseAddress(address);
+    if (target.kind === "brainstorm") {
+        return `${caller} opened the brainstorm "${brainstormTitle?.trim() || target.topic}"`;
+    }
+    return `${caller}: ${address}`;
+}
+
 export function callerName(roster: readonly { blockId?: string; name: string }[], blockId: string | undefined): string {
     if (!blockId) {
         return UNKNOWN_CALLER;

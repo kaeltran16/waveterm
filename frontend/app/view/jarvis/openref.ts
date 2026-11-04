@@ -525,7 +525,8 @@ async function selectBrainstorm(
         jumpToAgent(model, landing.owner);
         return OK;
     }
-    attachBrainstorm(landing.agentId, { topic: target.topic, cwd: landing.cwd }, Date.now());
+    // the first reveal opens the pane: left on the terminal, the user watched the agent's tool echo the whole file
+    attachBrainstorm(landing.agentId, { topic: target.topic, cwd: landing.cwd }, Date.now(), "brainstorm");
     pollBrainstormNow(model, landing.agentId);
     // the attach stands without the meta: it only costs the re-attach after a restart
     try {

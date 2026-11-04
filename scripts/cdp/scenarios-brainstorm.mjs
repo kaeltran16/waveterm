@@ -583,12 +583,31 @@ export const brainstormMode = {
         }
         const switcher = await polishWaitFor(h, `!!${BS_SWITCH}`, 3000);
         const meta = await bsTabMeta(h, ctx).catch((e) => `error: ${e?.message ?? e}`);
+        const paneOpened = await polishWaitFor(h, `!!${BS_PANE}`, 3000);
+        const toast = await h.ev(`[...document.querySelectorAll('[data-notification-toast]')].map((t) => t.innerText).join(' | ')`);
         rec(
-            "0b. uireveal brainstorm:<topic> from the agent's terminal attaches it: the header switcher, the tab meta",
-            revealError == null && switcher && meta === ctx.file && tagged.visible,
-            { revealError, switcher, meta, want: ctx.file, terminalVisible: tagged.visible }
+            "0b. uireveal brainstorm:<topic> from the agent's terminal attaches it and opens the pane: the header switcher, the tab meta, the toast naming its title",
+            revealError == null && switcher && meta === ctx.file && tagged.visible && paneOpened && toast.includes('opened the brainstorm "Consumer lag alerts"'),
+            { revealError, switcher, meta, want: ctx.file, terminalVisible: tagged.visible, paneOpened, toast }
         );
         if (!switcher) return steps;
+
+        // 0c. a later reveal of the same brainstorm leaves the view the user picked
+        await bsClick(h, BS_SWITCH, "Terminal");
+        const onTerminal = await polishWaitFor(h, `!${BS_PANE}`, 3000);
+        let revealAgain = null;
+        try {
+            await bsReveal(h, ctx, BS_TOPIC);
+        } catch (e) {
+            revealAgain = String(e?.message ?? e);
+        }
+        await new Promise((r) => setTimeout(r, 800));
+        const stillTerminal = await h.ev(`!${BS_PANE}`);
+        rec("0c. after Terminal, a second reveal of the same brainstorm keeps the terminal", onTerminal && revealAgain == null && stillTerminal, {
+            onTerminal,
+            revealAgain,
+            stillTerminal,
+        });
 
         // 1. just started
         await bsClick(h, BS_SWITCH, "Brainstorm");

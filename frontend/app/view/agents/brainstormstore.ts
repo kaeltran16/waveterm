@@ -98,7 +98,13 @@ export function baselineBrainstormSeen(path: string, f: BrainstormFile): void {
 
 // one brainstorm per agent: the agent reveals on every write, so the same one keeps its state, and any other
 // (a new topic, or the same topic in another project) starts over in its place
-export function attachBrainstorm(agentId: string, a: { topic: string; cwd: string }, now: number): void {
+// mode is where a new one opens; the same one attached again keeps the mode the user chose
+export function attachBrainstorm(
+    agentId: string,
+    a: { topic: string; cwd: string },
+    now: number,
+    mode: BrainstormState["mode"] = "terminal"
+): void {
     const prev = getBrainstorm(agentId);
     if (prev != null && prev.topic === a.topic && samePath(prev.cwd, a.cwd)) {
         return;
@@ -107,7 +113,7 @@ export function attachBrainstorm(agentId: string, a: { topic: string; cwd: strin
         topic: a.topic,
         path: brainstormFilePath(a.cwd, a.topic),
         cwd: a.cwd,
-        mode: "terminal",
+        mode,
         file: null,
         error: null,
         failedReads: 0,

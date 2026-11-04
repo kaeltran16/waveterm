@@ -12,6 +12,7 @@ import {
     resolveAction,
     revealError,
     revealLeavesTrail,
+    revealTrail,
     revealWaitsForUser,
     selectionFor,
     toUiActions,
@@ -186,6 +187,19 @@ describe("revealWaitsForUser", () => {
         expect(revealWaitsForUser("brainstorm:consumer-lag-alerts", undefined)).toBe(true);
         expect(revealWaitsForUser("run:abc", "b1")).toBe(true);
         expect(revealWaitsForUser("surface:files", "b1")).toBe(true);
+    });
+});
+
+describe("revealTrail", () => {
+    it("names a brainstorm by its title, or its topic before the file has one", () => {
+        expect(revealTrail("pi-1", "brainstorm:habit-streaks", "Habit streaks")).toBe(
+            'pi-1 opened the brainstorm "Habit streaks"'
+        );
+        expect(revealTrail("pi-1", "brainstorm:habit-streaks", " ")).toBe('pi-1 opened the brainstorm "habit-streaks"');
+    });
+
+    it("names anything else by its address", () => {
+        expect(revealTrail("pi-1", "canvas:t")).toBe("pi-1: canvas:t");
     });
 });
 

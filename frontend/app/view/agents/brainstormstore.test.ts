@@ -67,6 +67,14 @@ describe("attachBrainstorm", () => {
         expect(getBrainstorm("a1")).toMatchObject({ mode: "brainstorm", modifiedMs: 5, lastViewedMs: 200 });
     });
 
+    it("opens a new brainstorm in the mode asked for, and a second attach keeps the mode the user chose", () => {
+        attachBrainstorm("a1", LAG, 100, "brainstorm");
+        expect(getBrainstorm("a1")).toMatchObject({ mode: "brainstorm", lastViewedMs: 100 });
+        setBrainstormMode("a1", "terminal", 200);
+        attachBrainstorm("a1", LAG, 300, "brainstorm");
+        expect(getBrainstorm("a1")?.mode).toBe("terminal");
+    });
+
     it("keeps the state when the same project is spelled with other slashes or case", () => {
         attachBrainstorm("a1", { topic: "lag", cwd: "C:/Users/me/proj" }, 100);
         setBrainstormMode("a1", "brainstorm", 200);

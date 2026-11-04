@@ -14,8 +14,11 @@ import { modalsModel } from "@/app/store/modalmodel";
 import { RpcResponseHelper, WshClient } from "@/app/store/wshclient";
 import { DefaultRouter } from "@/app/store/wshrpcutil";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
+import { parseBrainstorm } from "@/app/view/agents/brainstormmodel";
+import { tauriBrainstormIO } from "@/app/view/agents/brainstormpoller";
 import { getBrainstorm } from "@/app/view/agents/brainstormstore";
 import { getCanvas } from "@/app/view/agents/canvasstore";
+import { parseAddress } from "@/app/view/jarvis/address";
 import { briefPeekRecordAtom } from "@/app/view/jarvis/jarvisstore";
 import { activeRunIdAtom, activeSubjectAtom } from "@/app/view/jarvis/jarvissubjectstore";
 import { openAddress } from "@/app/view/jarvis/openref";
@@ -29,6 +32,7 @@ import {
     resolveAction,
     revealError,
     revealLeavesTrail,
+    revealTrail,
     revealWaitsForUser,
     selectionFor,
     toUiActions,
@@ -87,7 +91,12 @@ class CockpitUiClient extends WshClient {
             throw new Error(revealError(data.address, result.reason, result.message));
         }
         if (leavesTrail) {
-            this.trail(data.callerblockid, data.address);
+            const title = await this.brainstormTitle(data.callerblockid, data.address);
+            pushToast({
+                title: revealTrail(this.caller(data.callerblockid), data.address, title),
+                message: "",
+                level: "info",
+            });
         }
         return result.notice ?? "";
     }
@@ -163,6 +172,22 @@ class CockpitUiClient extends WshClient {
     private attachedTopics(blockId: string | undefined): { canvas?: string; brainstorm?: string } {
         const agent = blockId ? this.roster().find((a) => a.blockId === blockId) : undefined;
         return agent != null ? { canvas: getCanvas(agent.id)?.topic, brainstorm: getBrainstorm(agent.id)?.topic } : {};
+    }
+
+    // read here, since the reveal has only just attached it and the poller has not read it yet
+    private async brainstormTitle(blockId: string | undefined, address: string): Promise<string | undefined> {
+        const agent = blockId ? this.roster().find((a) => a.blockId === blockId) : undefined;
+        const s = agent != null && parseAddress(address).kind === "brainstorm" ? getBrainstorm(agent.id) : null;
+        if (s == null) {
+            return undefined;
+        }
+        try {
+            const parsed = parseBrainstorm(await tauriBrainstormIO.read(s.path));
+            return "file" in parsed ? parsed.file.title : undefined;
+        } catch (e) {
+            console.warn("brainstorm reveal: reading the title failed", s.path, e);
+            return undefined;
+        }
     }
 
     // a worker moving the view is never unexplained
