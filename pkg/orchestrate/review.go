@@ -399,6 +399,16 @@ func deliverLater(ctx context.Context, g *waveobj.TaskGroup, from, id string, n 
 	return id + " (typed to its worker)", ""
 }
 
+// forLaterTyped is a passed worker's For later tasks section as it is typed to a later task at work.
+func forLaterTyped(from, heading, section string) string {
+	return fmt.Sprintf("%s passed review; its worker's %s: %s", from, heading, section)
+}
+
+// reviewNoteTyped is a reviewer's note for a later task as it is typed to that task's worker.
+func reviewNoteTyped(from, note string) string {
+	return fmt.Sprintf("%s passed review with a note for your task: %s", from, note)
+}
+
 // routeForLater delivers a passed worker's For later tasks to its unfinished descendants and the tasks its reviewer
 // named. A descendant not started reads it from the report at dispatch (predecessorHandoff), so nothing is stored on it;
 // a named task off the plan's edges has no such read, so the section joins its prompt.
@@ -406,7 +416,7 @@ func routeForLater(ctx context.Context, g *waveobj.TaskGroup, from, section stri
 	heading := sectionHeading(jarvis.ReportKeyForLater)
 	n := laterNote{
 		amend: fmt.Sprintf("%s's worker, %s: %s", from, heading, section),
-		typed: fmt.Sprintf("%s passed review; its worker's %s: %s", from, heading, section),
+		typed: forLaterTyped(from, heading, section),
 	}
 	var reached, missed []string
 	for _, id := range unionIDs(later, named) {
@@ -442,7 +452,7 @@ func routeDownstream(ctx context.Context, g *waveobj.TaskGroup, from, note strin
 	}
 	n := laterNote{
 		amend: from + "'s reviewer: " + note,
-		typed: fmt.Sprintf("%s passed review with a note for your task: %s", from, note),
+		typed: reviewNoteTyped(from, note),
 	}
 	var reached, missed []string
 	for _, id := range targets {

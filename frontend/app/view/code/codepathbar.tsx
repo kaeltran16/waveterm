@@ -18,7 +18,7 @@ import type { AgentsViewModel } from "@/app/view/agents/agents";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { projectsAtom } from "@/app/view/agents/projectsstore";
 import { joinRepoPath } from "@/util/paths";
-import { cn, stringToBase64 } from "@/util/util";
+import { cn } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
 import { Check, Copy, Send, X } from "lucide-react";
 import { useState } from "react";
@@ -184,10 +184,8 @@ function SendToAgent({ model, rel, projectName }: { model: AgentsViewModel; rel:
         setNote("");
         setSent(`Sent to ${target.name}`);
         window.setTimeout(() => setSent(null), 1600);
-        void RpcApi.ControllerInputCommand(TabRpcClient, {
-            blockid: target.blockId!,
-            inputdata64: stringToBase64(line + "\r"),
-        });
+        // the agent's mod runs it as a prompt, leaving the human's draft alone; a session with none has it typed
+        void RpcApi.AgentPromptCommand(TabRpcClient, { blockid: target.blockId!, text: line });
     };
 
     // no live agent for this project — and a worktree browsed outside the registry never has one,

@@ -1,0 +1,3 @@
+Mock up this goal with arc:design: Build Interview practice app
+
+A run waits on this session: when the human approves the mockup (Build this… on the canvas), the run takes it and its lead plans from it.

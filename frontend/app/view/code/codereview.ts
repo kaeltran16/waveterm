@@ -101,7 +101,7 @@ export function reviewMarkdown(projectName: string, comments: readonly ReviewCom
     return parts.join("\n\n") + "\n";
 }
 
-// ControllerInputCommand submits at the first newline, so this is always one line
+// one line, as every handoff is (codehandoff.ts); the arc-view mod draws it as a row of its own
 export function reviewHandoffLine(absPath: string): string {
     return `review comments in ${absPath.replace(/[\r\n]+/g, " ")} — address each one`;
 }

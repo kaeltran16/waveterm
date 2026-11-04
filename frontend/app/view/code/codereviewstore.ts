@@ -11,7 +11,6 @@ import { modalsModel } from "@/app/store/modalmodel";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
-import { stringToBase64 } from "@/util/util";
 import { atom, type PrimitiveAtom } from "jotai";
 import {
     addComment,
@@ -110,10 +109,7 @@ export async function sendReview(
     try {
         if (target != null) {
             const { path } = await RpcApi.CodeReviewWriteCommand(TabRpcClient, { project: projectName, markdown });
-            await RpcApi.ControllerInputCommand(TabRpcClient, {
-                blockid: target.blockId!,
-                inputdata64: stringToBase64(reviewHandoffLine(path) + "\r"),
-            });
+            await RpcApi.AgentPromptCommand(TabRpcClient, { blockid: target.blockId!, text: reviewHandoffLine(path) });
         } else {
             if (navigator.clipboard == null) {
                 throw new Error("the clipboard is unavailable");

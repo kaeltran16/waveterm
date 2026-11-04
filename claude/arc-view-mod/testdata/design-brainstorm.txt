@@ -1,0 +1,3 @@
+Brainstorm this goal with the human with superpowers:brainstorming: Build Interview practice app
+
+A run waits on this session: when the human approves the design (Approve in the brainstorm pane), the run takes it and its lead plans from it.

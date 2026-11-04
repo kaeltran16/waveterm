@@ -4,15 +4,14 @@
 
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
-import { base64ToString } from "@/util/util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const reviewWrite = vi.fn();
-const controllerInput = vi.fn();
+const agentPrompt = vi.fn();
 vi.mock("@/app/store/wshclientapi", () => ({
     RpcApi: {
         CodeReviewWriteCommand: (...a: any[]) => reviewWrite(...a),
-        ControllerInputCommand: (...a: any[]) => controllerInput(...a),
+        AgentPromptCommand: (...a: any[]) => agentPrompt(...a),
     },
 }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
@@ -49,7 +48,7 @@ beforeEach(() => {
 
 afterEach(() => {
     reviewWrite.mockReset();
-    controllerInput.mockReset();
+    agentPrompt.mockReset();
     vi.unstubAllGlobals();
     globalStore.set(codeReviewsAtom, new Map());
     globalStore.set(codeCommentDraftAtom, null);
@@ -57,10 +56,10 @@ afterEach(() => {
 });
 
 describe("sendReview to an agent", () => {
-    it("writes the review once, injects one handoff line, and clears the project", async () => {
+    it("writes the review once, sends one handoff line, and clears the project", async () => {
         seed([comment]);
         reviewWrite.mockResolvedValue({ path: "/home/u/.arc/review/alpha/x.md" });
-        controllerInput.mockResolvedValue(undefined);
+        agentPrompt.mockResolvedValue(undefined);
 
         const res = await sendReview(agent, "alpha");
 
@@ -70,14 +69,14 @@ describe("sendReview to an agent", () => {
             project: "alpha",
             markdown: reviewMarkdown("alpha", [comment]),
         });
-        expect(controllerInput).toHaveBeenCalledTimes(1);
-        const input = controllerInput.mock.calls[0][1];
+        expect(agentPrompt).toHaveBeenCalledTimes(1);
+        const input = agentPrompt.mock.calls[0][1];
         expect(input.blockid).toBe("blk-1");
-        expect(base64ToString(input.inputdata64)).toBe(reviewHandoffLine("/home/u/.arc/review/alpha/x.md") + "\r");
+        expect(input.text).toBe(reviewHandoffLine("/home/u/.arc/review/alpha/x.md"));
         expect(projectComments(globalStore.get(codeReviewsAtom), project.path)).toEqual([]);
     });
 
-    it("keeps the comments and injects nothing when the write fails", async () => {
+    it("keeps the comments and sends nothing when the write fails", async () => {
         seed([comment]);
         reviewWrite.mockRejectedValue(new Error("disk full"));
 
@@ -85,14 +84,14 @@ describe("sendReview to an agent", () => {
 
         expect(res.ok).toBe(false);
         expect("message" in res && res.message).toContain("disk full");
-        expect(controllerInput).not.toHaveBeenCalled();
+        expect(agentPrompt).not.toHaveBeenCalled();
         expect(projectComments(globalStore.get(codeReviewsAtom), project.path)).toEqual([comment]);
     });
 
     it("re-anchors the open file's comments against the buffer before writing", async () => {
         seed([{ ...comment, startLine: 1, endLine: 1, anchor: "three" }]);
         reviewWrite.mockResolvedValue({ path: "/r.md" });
-        controllerInput.mockResolvedValue(undefined);
+        agentPrompt.mockResolvedValue(undefined);
 
         await sendReview(agent, "alpha");
 

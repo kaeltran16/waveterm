@@ -4,9 +4,8 @@
 
 // Pure: what gets handed to an agent, and which agents can receive it.
 //
-// The payload is a REFERENCE, never a snippet, and always exactly one line. ControllerInputCommand
-// appends a carriage return and submits, so a multi-line payload would submit at its first newline
-// and dribble the rest in as separate messages. Reading the file is what the agent is for.
+// The payload is a REFERENCE, never a snippet, and always exactly one line, which the arc-view mod draws
+// as a row of its own (claude/arc-view-mod/hooks/prompt-core.ts). Reading the file is what the agent is for.
 
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { sameRepoPath } from "@/util/paths";
