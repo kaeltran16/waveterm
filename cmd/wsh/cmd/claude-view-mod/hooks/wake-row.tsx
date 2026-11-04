@@ -1,5 +1,5 @@
 // the transcript row for a wake the cockpit sent over the stream, under the engine's own line naming
-// the arc plugin: its events, what passed unverified, and a count of the recaps.
+// the arc plugin: its events, the caveats on what passed, and a count of the recaps.
 import type { Elements, RenderElement } from "claude-code";
 import type { Wake, WakeEvent, WakeKind } from "./wake-core";
 import { commandFits, EVENT_INDENT, recapLine, wakeSummary } from "./wake-core";
@@ -61,7 +61,7 @@ export function drawWakeRow(els: RowElements, wake: Wake, columns: number): Rend
                 <Box gap={1} paddingLeft={EVENT_INDENT - 2}>
                     <Text color={CAVEAT_COLOR}>~</Text>
                     <Text dimColor wrap="truncate-end">
-                        unverified {caveat}
+                        {caveat.label} {caveat.text}
                     </Text>
                 </Box>
             ))}

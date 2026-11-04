@@ -10,11 +10,35 @@ export type WakeEvent = {
     // the command the line ends on, "" when it ends on none
     command: string;
 };
-export type Wake = { events: WakeEvent[]; questions: number; caveats: string[]; recaps: number };
+// a line of the wake's caveats block, labelled by what it is: most of the block was checked, so the row
+// says unverified only where something went unchecked
+export type Caveat = { label: string; text: string };
+export type Wake = { events: WakeEvent[]; questions: number; caveats: Caveat[]; recaps: number };
 
 const WAKE_PREFIX = "wake: ";
 const CAVEATS_HEADER = "Unverified:";
 const RECAPS_HEADER = "Since your last wake:";
+
+// the worker report's section headings (pkg/jarvis WorkerReportSections) the engine puts in the block, by label.
+// the reviewer's caveat, an unstructured report and anything unknown are unverified, their prefix kept
+const CAVEAT_LABELS: Record<string, string> = {
+    "Differs from plan": "changed plan",
+    "For later tasks": "handoff",
+    "Found not fixed": "not fixed",
+    "Not verified": "unverified",
+};
+const UNVERIFIED = "unverified";
+// "<task> <heading>: <body>"; a flattened section opens on its first bullet's "- "
+const CAVEAT_LINE = /^(\S+) ([^:]+): (?:- )?(.*)$/;
+
+function caveatOf(line: string): Caveat {
+    const m = CAVEAT_LINE.exec(line);
+    const label = m ? CAVEAT_LABELS[m[2]] : undefined;
+    if (label === undefined) {
+        return { label: UNVERIFIED, text: line };
+    }
+    return { label, text: `${m[1]} ${m[3]}` };
+}
 
 const TRAILING_COMMAND = /^(.*)\. ((?:wsh|git) [\w -]+)$/;
 const QUESTIONS = /^(\d+) questions? waiting$/;
@@ -73,7 +97,7 @@ export function parseWake(text: string): Wake | null {
         } else if (line === RECAPS_HEADER) {
             section = "recaps";
         } else if (section === "caveats") {
-            wake.caveats.push(line);
+            wake.caveats.push(caveatOf(line));
         } else if (section === "recaps") {
             wake.recaps++;
         } else if (line.startsWith(WAKE_PREFIX)) {
