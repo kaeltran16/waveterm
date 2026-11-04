@@ -80,14 +80,12 @@ export function StateGlyph({ kind }: { kind: GlyphKind }) {
     const g = GLYPH.get(kind) ?? NO_MARK;
     return (
         <span className="relative mt-px h-[14px] w-[14px] flex-none">
-            {kind === "running" ? (
-                <span className="absolute -inset-[3px] rounded-full border-[1.5px] border-accent pulse-soft" />
-            ) : null}
             <CrossFade swapKey={kind} className="relative">
                 <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" className="block">
                     <circle cx="7" cy="7" r="5.25" style={{ fill: g.fill, stroke: g.ring, strokeWidth: 1.5 }} />
                     {g.mark ? (
                         <path
+                            className={kind === "running" ? "pulse-dot" : undefined}
                             d={g.mark}
                             style={{
                                 fill: g.markFill,
