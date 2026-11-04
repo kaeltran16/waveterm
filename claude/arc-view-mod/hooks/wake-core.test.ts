@@ -91,9 +91,30 @@ describe("parseWake", () => {
                 "Since your last wake:\nplan review passed; workers are starting: ok\nt-1's review note reached t-4: reuse it"
         );
         expect(wake?.events).toHaveLength(1);
-        expect(wake?.caveats).toEqual(["t-2 reviewer: the Esc path was not exercised"]);
+        expect(wake?.caveats).toEqual([{ label: "unverified", text: "t-2 reviewer: the Esc path was not exercised" }]);
         expect(wake?.recaps).toBe(2);
         expect(recapLine(wake!.recaps)).toBe("2 recaps since your last wake");
+    });
+
+    it("labels each caveat by its report section, unverified only for what went unchecked", () => {
+        const wake = parseWake(
+            "wake: run finished. wsh jarvis dag status\n" +
+                "Unverified:\n" +
+                "t-8 Differs from plan: - The nav rule changed, against fix-plan decision 2.\n" +
+                "t-8 For later tasks: - `CURRENT_LINE` is now 0.15.\n" +
+                "t-3 Found not fixed: - a flaky test on the base\n" +
+                "t-4 Not verified: - the phone layout\n" +
+                "t-5 unstructured report: Done. Ran the tests.\n" +
+                "t-8 reviewer: Step 4 asks for the full npm test."
+        );
+        expect(wake?.caveats).toEqual([
+            { label: "changed plan", text: "t-8 The nav rule changed, against fix-plan decision 2." },
+            { label: "handoff", text: "t-8 `CURRENT_LINE` is now 0.15." },
+            { label: "found", text: "t-3 a flaky test on the base" },
+            { label: "unverified", text: "t-4 the phone layout" },
+            { label: "unverified", text: "t-5 unstructured report: Done. Ran the tests." },
+            { label: "unverified", text: "t-8 reviewer: Step 4 asks for the full npm test." },
+        ]);
     });
 
     it("is null for text that is not a wake", () => {
