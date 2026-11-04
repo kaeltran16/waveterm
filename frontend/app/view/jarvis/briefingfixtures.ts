@@ -9,7 +9,7 @@
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import type { BriefingLoadState } from "./briefingstore";
 
-export type BriefingFixtureName = "normal" | "attention" | "empty" | "partial" | "failed";
+export type BriefingFixtureName = "normal" | "attention" | "empty" | "partial" | "failed" | "act";
 export interface BriefingFixture {
     load: BriefingLoadState;
     agents: AgentVM[];
@@ -236,10 +236,129 @@ const attentionItems: AttentionItem[] = [
     },
 ];
 
+// "act": the shapes the Brief has to help you act on. Blockers of different ages with what each needs (one
+// whose newer note says it cleared), quiet initiatives behind the fold, blocked runs a month old, a run
+// attached to an initiative, a multi-paragraph goal, a report-markdown summary on a cwd path, and rows past
+// every region's cap for the filter to reach.
+const HOUR = 60 * 60 * 1000;
+const actEffort = (
+    oid: string,
+    title: string,
+    idle: number,
+    chunks: EffortChunkSummary[],
+    project = "waveterm"
+): EffortSummary => ({
+    oref: "effort:" + oid,
+    title,
+    project,
+    status: "active",
+    done: chunks.filter((c) => c.status === "done").length,
+    total: chunks.length,
+    updatedts: NOW - idle,
+    chunks,
+});
+const ACT_EFFORTS: EffortSummary[] = [
+    actEffort("act-rules", "Anomaly-to-rule pipeline", 3 * HOUR, [
+        { label: "G9 draft the rule", status: "done" },
+        {
+            label: "G10 validate the G4 label",
+            status: "blocked",
+            blocked: { since: NOW - 22 * DAY, needs: "needs: the G4 label from the data team" },
+        },
+        {
+            label: "S6 per-tenant soak",
+            status: "blocked",
+            blocked: {
+                since: NOW - 14 * DAY,
+                needs: "needs: a clean DEV soak",
+                latest: { ts: NOW - 3 * DAY, text: "the empty-buffer blocker is gone on DEV" },
+            },
+        },
+    ]),
+    actEffort("act-cutover", "Pipeline cutover", 2 * DAY, [
+        {
+            label: "P2 cut traffic over",
+            status: "blocked",
+            blocked: { since: NOW - 2 * DAY, needs: "needs: an SRE window" },
+        },
+    ]),
+    ...Array.from({ length: 4 }, (_, i) =>
+        actEffort(`act-busy-${i}`, `Busy initiative ${i + 1}`, (i + 1) * HOUR, [{ label: "next", status: "active" }])
+    ),
+    actEffort("act-quiet-1", "Concurrent runs contract", 12 * DAY, [{ label: "C1", status: "pending" }]),
+    actEffort("act-quiet-2", "Fold-hidden hypothesis tracker", 19 * DAY, [{ label: "H1", status: "pending" }]),
+];
+const ACT_GOAL =
+    "Clean up the cockpit's run list so a cancelled run reads plainly.\n\nRead the run store first, then the view; keep the change small.";
+const actState: WorkState = {
+    projects: [
+        {
+            project: "C:\\Users\\dev\\IdeaProjects\\waveterm",
+            active: Array.from({ length: 3 }, (_, i) => ({
+                project: "C:\\Users\\dev\\IdeaProjects\\waveterm",
+                kind: "run",
+                title: `e2e quick run ${i + 1}`,
+                detail: "status: blocked",
+                ts: NOW - 27 * DAY,
+                navtarget: `run:r-act-stale-${i}`,
+                mode: "quick",
+            })),
+            shipped: [
+                {
+                    project: "C:\\Users\\dev\\IdeaProjects\\portfolio-redesign",
+                    runoid: "r-act-shipped",
+                    goal: "Portfolio hero redesign",
+                    summary: "# Run report: Portfolio hero\n\n## Tasks\n- t-1: **rebuilt** the hero in `hero.tsx`",
+                    completedts: NOW - 5 * HOUR,
+                    hasreport: true,
+                    mode: "orchestrator",
+                },
+            ],
+            events: [],
+            delta: [
+                {
+                    ts: NOW - HOUR,
+                    kind: "run-created",
+                    project: "C:\\Users\\dev\\IdeaProjects\\waveterm",
+                    title: "Unblock the G10 label check",
+                    detail: "status: executing",
+                    navtarget: "run:r-act-attached",
+                    effortoid: "act-rules",
+                },
+                {
+                    ts: NOW - 2 * HOUR,
+                    kind: "effort-note",
+                    project: "waveterm",
+                    title: "Anomaly-to-rule pipeline",
+                    detail: "G9 draft the rule · Drafted the rule. Next is the label.",
+                    navtarget: "effort:act-rules",
+                },
+                {
+                    ts: NOW - 3 * HOUR,
+                    kind: "run-created",
+                    project: "C:\\Users\\dev\\IdeaProjects\\waveterm",
+                    title: ACT_GOAL,
+                    detail: "status: cancelled",
+                    navtarget: "run:r-act-cancelled",
+                },
+                ...Array.from({ length: 5 }, (_, i) => ({
+                    ts: NOW - (2 + i) * DAY,
+                    kind: "decision",
+                    title: `filler decision ${i + 1}`,
+                })),
+                { ts: NOW - 6 * DAY - HOUR, kind: "decision", title: "dag-motion easing settled" },
+            ],
+        },
+    ],
+    sources: { runs: true, sessions: true, dossiers: true, efforts: true, attention: "volatile" },
+    efforts: ACT_EFFORTS,
+};
+
 export const BRIEFING_FIXTURES: Record<BriefingFixtureName, BriefingFixture> = {
     normal: { load: loaded(normalState), agents, attention: [] },
     attention: { load: loaded(attentionState), agents, attention: attentionItems },
     empty: { load: loaded(emptyState), agents, attention: [] },
     partial: { load: loaded(partialState), agents, attention: [] },
     failed: { load: { snapshot: null, loading: false, error: "fixture failure" }, agents: [], attention: [] },
+    act: { load: loaded(actState), agents: [], attention: [] },
 };

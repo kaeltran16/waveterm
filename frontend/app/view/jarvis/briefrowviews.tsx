@@ -24,15 +24,15 @@ const PULSE = "pulse-dot-slow";
 export function WaitingRow({
     line,
     focused,
-    act,
+    acts,
     onOpen,
     onAct,
 }: {
     line: BriefLine;
     focused: boolean;
-    act: QueueAct;
+    acts: QueueAct[];
     onOpen?: (e: React.MouseEvent) => void;
-    onAct: () => void;
+    onAct: (act: QueueAct) => void;
 }) {
     return (
         <div
@@ -55,12 +55,23 @@ export function WaitingRow({
             >
                 {line.kind}
             </span>
-            <span
-                title={line.why ? `${line.title} — ${line.why}` : line.title}
-                className="min-w-0 flex-1 truncate text-[13px] text-ink-hi"
-            >
-                {line.title}
-                {line.why ? <span className="text-ink-mid"> — {line.why}</span> : null}
+            <span className="flex min-w-0 flex-1 flex-col">
+                <span
+                    title={line.why ? `${line.title} — ${line.why}` : line.title}
+                    className="truncate text-[13px] text-ink-hi"
+                >
+                    {line.title}
+                    {line.why ? <span className="text-ink-mid"> — {line.why}</span> : null}
+                </span>
+                {line.detail ? (
+                    <span
+                        data-jarvis-queue-latest
+                        title={line.detail}
+                        className="truncate font-mono text-[11px] text-muted"
+                    >
+                        {line.detail}
+                    </span>
+                ) : null}
             </span>
             <span className="w-[200px] flex-none truncate text-right font-mono text-[11px] text-ink-mid">
                 {line.meta}
@@ -73,17 +84,20 @@ export function WaitingRow({
             >
                 {line.age}
             </span>
-            <button
-                type="button"
-                data-jarvis-queue-act={act.kind}
-                onClick={(e) => {
-                    e.stopPropagation();
-                    onAct();
-                }}
-                className="w-[66px] flex-none cursor-pointer rounded-[6px] border border-edge-mid py-[3px] font-mono text-[10.5px] font-semibold text-secondary hover:border-edge-strong hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-            >
-                {act.label}
-            </button>
+            {acts.map((act) => (
+                <button
+                    key={act.kind}
+                    type="button"
+                    data-jarvis-queue-act={act.kind}
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        onAct(act);
+                    }}
+                    className="w-[66px] flex-none cursor-pointer rounded-[6px] border border-edge-mid py-[3px] font-mono text-[10.5px] font-semibold text-secondary hover:border-edge-strong hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                >
+                    {act.label}
+                </button>
+            ))}
         </div>
     );
 }

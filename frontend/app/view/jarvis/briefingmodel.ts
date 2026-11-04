@@ -73,6 +73,9 @@ export interface DeltaRow {
     wording: string;
     detail: string | null;
     oref: string | null;
+    // the project path, and a run event's initiative: Behind you names the one and folds into the other
+    project?: string;
+    effortOid?: string;
 }
 export interface ShippedRow {
     oref: string;
@@ -161,7 +164,10 @@ export interface QueueRow {
     runId: string | null;
     taskId: string;
     retry: boolean;
+    // a blocked initiative chunk: what Unblock and Done write to, and the open that lands on it
+    chunk?: QueueChunk;
 }
+export type QueueChunk = { effortOref: string; label: string; needs: string; latest?: EffortLastNote };
 
 // dag-blocked is absent from the rail's map and fell through to the raw wire kind, which
 // already reads as a label; spelled out here so every kind the server can emit has a written form.
@@ -245,37 +251,40 @@ export function buildAttentionQueue(input: {
             retry: a.retry === true,
         };
     });
-    // a blocked chunk is attention the server's attention leg never sees; it has no waiting-since to
-    // interleave on, so it follows the wire rows rather than competing with them for priority.
+    // blocked chunks and blocked records are attention the server's attention leg never sees. They follow
+    // the wire rows rather than compete with them for priority, oldest first among themselves: the longest
+    // wait is the likeliest to be stale. One with no recorded age sorts last.
+    const blocked: QueueRow[] = [];
     for (const e of input.efforts) {
-        for (const label of e.blockedChunks) {
-            rows.push({
-                key: "chunk:" + e.oref + ":" + label,
+        for (const c of e.blockedChunks) {
+            blocked.push({
+                key: "chunk:" + e.oref + ":" + c.label,
                 kind: "chunk blocked",
-                title: label,
+                title: c.label,
                 source: e.title,
                 detail: e.title,
-                ts: null,
+                ts: c.since,
                 action: "Open",
                 nav: { kind: "effort", oref: e.oref },
                 tone: "asking",
                 // a blocked chunk IS the initiative's row, so naming the initiative again beside the
                 // chunk would say the same thing twice; detail already carries the title.
                 attrib: "",
-                why: "",
+                why: c.needs,
                 cites: [],
                 wireKind: "chunk-blocked",
                 channelId: "",
                 runId: null,
                 taskId: "",
                 retry: false,
+                chunk: { effortOref: e.oref, label: c.label, needs: c.needs, latest: c.latest },
             });
         }
     }
     // a record with blockers waits on you as much as a gate does (design L1010: everything that needs you
     // is in this one queue), so it leaves Runs and joins here, opening its record.
     for (const b of input.blockers ?? []) {
-        rows.push({
+        blocked.push({
             key: "blocker:" + b.oref,
             kind: "blocked",
             wireKind: "blocker",
@@ -295,6 +304,8 @@ export function buildAttentionQueue(input: {
             retry: false,
         });
     }
+    const age = (r: QueueRow) => r.ts ?? Number.POSITIVE_INFINITY;
+    rows.push(...blocked.sort((a, b) => age(a) - age(b)));
     return rows;
 }
 
@@ -320,8 +331,8 @@ export function queueKindLabel(row: QueueRow): "ask" | "failed" | "blocked" | "w
 }
 
 export type QueueAct = {
-    label: "Retry" | "Acknowledge" | "Open";
-    kind: "retry-dag" | "ack-run" | "open";
+    label: "Retry" | "Acknowledge" | "Open" | "Unblock" | "Done";
+    kind: "retry-dag" | "ack-run" | "open" | "unblock-chunk" | "done-chunk";
 };
 
 // What the row's button does in place (design L1598-1609). Retry needs the exact task the server named;
@@ -336,6 +347,18 @@ export function queueAction(row: QueueRow): QueueAct {
     return { label: "Open", kind: "open" };
 }
 
+// A blocked chunk is often stale (its last note says the blocker cleared), so its row settles it in place:
+// Unblock returns it to pending, Done finishes it. The row's own click still opens it.
+const CHUNK_ACTS: QueueAct[] = [
+    { label: "Unblock", kind: "unblock-chunk" },
+    { label: "Done", kind: "done-chunk" },
+];
+
+// every button a row carries, in order
+export function queueActions(row: QueueRow): QueueAct[] {
+    return row.chunk != null ? CHUNK_ACTS : [queueAction(row)];
+}
+
 // the rows Acknowledge all settles: exactly the ones whose own button is Acknowledge
 export function ackableRuns(rows: QueueRow[]): { channelId: string; runId: string }[] {
     return rows
@@ -343,6 +366,15 @@ export function ackableRuns(rows: QueueRow[]): { channelId: string; runId: strin
         .map((r) => ({ channelId: r.channelId, runId: r.runId! }));
 }
 
+const KIND_PLURAL: Record<ReturnType<typeof queueKindLabel>, string> = {
+    ask: "asks",
+    failed: "failed",
+    blocked: "blocked",
+    "workflow scan": "workflow scans",
+};
+
+// one count per kind word in queue order (design L1010-1013), then how many initiatives the blocked chunks span: ten blockers
+// read as "10 blocked", not as the word ten times
 export function summarizeAttentionQueue(rows: QueueRow[], now: number): QueueSummary | null {
     if (rows.length === 0) {
         return null;
@@ -352,10 +384,23 @@ export function summarizeAttentionQueue(rows: QueueRow[], now: number): QueueSum
         null
     );
     const n = rows.length;
-    const kinds = rows.map(queueKindLabel).join(" · ");
+    const kinds = new Map<ReturnType<typeof queueKindLabel>, number>();
+    for (const r of rows) {
+        const k = queueKindLabel(r);
+        kinds.set(k, (kinds.get(k) ?? 0) + 1);
+    }
+    // a single one reads as the design's bare kind word
+    const parts = [...kinds].map(([k, c]) => (c === 1 ? k : `${c} ${KIND_PLURAL[k]}`));
+    const initiatives = new Set(rows.flatMap((r) => (r.chunk != null ? [r.chunk.effortOref] : []))).size;
+    if (initiatives > 0) {
+        parts.push(`${initiatives} initiative${initiatives === 1 ? "" : "s"}`);
+    }
+    if (oldestTs != null) {
+        parts.push(`oldest ${formatAge(now - oldestTs)}`);
+    }
     return {
         title: `${n} ${n === 1 ? "thing is" : "things are"} waiting on you`,
-        detail: oldestTs != null ? `${kinds} · oldest ${formatAge(now - oldestTs)}` : kinds,
+        detail: parts.join(" · "),
         oldestTs,
     };
 }
@@ -448,6 +493,8 @@ function dossierWording(detail: string | undefined): string {
     }
     return "Record updated";
 }
+
+const RUN_EVENTS = new Set(["run-created", "run-done"]);
 
 const DELTA_WORDING: Record<string, string> = {
     "run-created": "Run started",
@@ -558,8 +605,9 @@ export function projectBriefing(input: BriefingModelInput): BriefingModel {
         .flatMap((p) => p.delta ?? [])
         .filter((ev) => ev.ts >= actualCursor && ev.kind !== "session" && !matchesAttention(ev, attentionItems));
     const promotedOrefs = new Set(windowedShipped.map((s) => "run:" + s.runoid));
+    // a shipped run's start and finish both repeat its Shipped row
     const delta: DeltaRow[] = rawDelta
-        .filter((ev) => ev.kind !== "run-done" || !promotedOrefs.has(ev.navtarget ?? ""))
+        .filter((ev) => !RUN_EVENTS.has(ev.kind) || !promotedOrefs.has(ev.navtarget ?? ""))
         .map((ev) => {
             const wording = ev.kind === "dossier" ? dossierWording(ev.detail) : (DELTA_WORDING[ev.kind] ?? ev.kind);
             return {
@@ -570,6 +618,8 @@ export function projectBriefing(input: BriefingModelInput): BriefingModel {
                 wording,
                 detail: ev.detail ?? null,
                 oref: ev.navtarget || null,
+                project: ev.project ?? "",
+                effortOid: ev.effortoid ?? "",
             };
         });
 

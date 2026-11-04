@@ -44,6 +44,7 @@ import {
 import { PetPeek } from "./petpeek";
 import { petSignalsFrom } from "./petsignals";
 import {
+    dismissPetBubble,
     markPetSpoke,
     petBubbleAtom,
     petCornerAtom,
@@ -58,7 +59,7 @@ import {
     setPetWatermark,
     type PetCorner,
 } from "./petstore";
-import { nextUtterance, unreadAfterLeaving, unreadAfterSaying } from "./petvoice";
+import { nextUtterance, unreadAfterSaying } from "./petvoice";
 
 // The one utterance kind that ripples. Punctuation is not decoration on every event — a wave that crossed
 // the network for each of the ten kinds would be constant motion and would stop meaning anything. A
@@ -468,10 +469,7 @@ export function PetView({ model }: { model: AgentsViewModel }) {
                 anchor={anchor}
                 corner={corner}
                 onOpen={clickBubble}
-                onDismiss={() => {
-                    globalStore.set(petBubbleAtom, null);
-                    globalStore.set(petUnreadAtom, unreadAfterLeaving(bubble, unread));
-                }}
+                onDismiss={() => dismissPetBubble()}
             />
             {/* the peek derives its own ranked condition LIST from the same signals — expressionFor is
                 the creature's single face, and passing it here would cap the panel at one condition */}

@@ -13,7 +13,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { attentionAtom } from "@/app/view/agents/attentionstore";
 import { atom, type PrimitiveAtom } from "jotai";
 import type { PetActState } from "./petacts";
-import type { PetEvent, PetWatermark } from "./petvoice";
+import { unreadAfterLeaving, type PetEvent, type PetWatermark } from "./petvoice";
 
 const CORNER_KEY = "wave:pet.corner";
 const WATERMARK_KEY = "wave:pet.watermark";
@@ -113,6 +113,18 @@ export const petBubbleAtom = atom<PetEvent | null>(null) as PrimitiveAtom<PetEve
 // The unread marker. Set when a bubble auto-dismisses without being opened, cleared by the peek — the
 // creature keeps the KIND of what happened, never a count of it (design §3).
 export const petUnreadAtom = atom(false);
+
+// Closes the bubble the way its own dismiss does: what it said stays in the peek and the unread marker
+// follows. With a kind, only a bubble of that kind: the Brief closes "Where we were" once the user scrolls
+// or clicks into the rows it would otherwise sit over.
+export function dismissPetBubble(kind?: PetEvent["kind"]): void {
+    const bubble = globalStore.get(petBubbleAtom);
+    if (bubble == null || (kind != null && bubble.kind !== kind)) {
+        return;
+    }
+    globalStore.set(petBubbleAtom, null);
+    globalStore.set(petUnreadAtom, unreadAfterLeaving(bubble, globalStore.get(petUnreadAtom)));
+}
 
 // Everything the creature has said this session, newest first. Auto-dismiss loses nothing because the
 // peek reads this back. Bounded: it is a recent-history panel, not a log.

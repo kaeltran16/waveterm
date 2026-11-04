@@ -286,3 +286,31 @@ func TestEffortSummaryTicketSeen(t *testing.T) {
 		t.Fatalf("TicketSeen = %+v", s.TicketSeen)
 	}
 }
+
+func TestTimelineDropsRecordsThatShadowARun(t *testing.T) {
+	runs := []*waveobj.Run{trun("r1", "done", 100, 500, ev("shipped a"))}
+	dossiers := []jarvisdossier.Dossier{
+		{ID: "shadow", Objective: "goal-r1", Status: "completed", Updated: 600, Refs: []string{"run-r1"}},
+		{ID: "gone", Objective: "a run not loaded", Status: "active", Updated: 650, Refs: []string{"run-r9"}},
+		{ID: "own", Objective: "a record of its own", Status: "active", Updated: 700},
+	}
+	var kept []string
+	for _, e := range Timeline(runs, nil, nil, dossiers, nil, 0) {
+		if e.Kind == "dossier" {
+			kept = append(kept, e.NavTarget)
+		}
+	}
+	if len(kept) != 2 || kept[0] != "task:own" || kept[1] != "task:gone" {
+		t.Fatalf("dossier events = %v, want the shadow of r1 dropped and the rest kept", kept)
+	}
+}
+
+func TestTimelineRunEventsNameTheirInitiative(t *testing.T) {
+	r := trun("r1", "done", 100, 500, ev("shipped a"))
+	r.EffortRef = &waveobj.RunEffortRef{EffortOID: "eff-1", ChunkLabel: "c"}
+	for _, e := range Timeline([]*waveobj.Run{r}, nil, nil, nil, nil, 0) {
+		if e.EffortOID != "eff-1" {
+			t.Fatalf("%s event effortoid = %q, want eff-1", e.Kind, e.EffortOID)
+		}
+	}
+}

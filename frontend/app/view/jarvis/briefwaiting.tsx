@@ -6,9 +6,9 @@
 import { cardVariants, MOTION, paneReveal } from "@/app/element/motiontokens";
 import { cn } from "@/util/util";
 import { AnimatePresence, motion, MotionConfig } from "motion/react";
-import { queueAction, type QueueRow, type QueueSummary } from "./briefingmodel";
+import { queueActions, type QueueAct, type QueueRow, type QueueSummary } from "./briefingmodel";
 import { keyOf, NoMatch, QueueSummaryView, Region } from "./briefprimitives";
-import type { BriefLine, LineTarget } from "./briefrows";
+import type { BriefLine } from "./briefrows";
 import { WaitingRow } from "./briefrowviews";
 import { SMALL_BTN } from "./briefstyle";
 
@@ -25,7 +25,7 @@ export function WaitingRegion({
     onAckAll,
     entering,
     cursor,
-    openLine,
+    onOpenRow,
     onAct,
 }: {
     queue: QueueRow[];
@@ -42,8 +42,9 @@ export function WaitingRegion({
     onAckAll: () => void;
     entering: Set<string>;
     cursor: string | undefined;
-    openLine: (target: LineTarget, e?: React.MouseEvent) => void;
-    onAct: (q: QueueRow, l: BriefLine) => void;
+    // a click hands its event over, so Ctrl can peek instead
+    onOpenRow: (q: QueueRow, l: BriefLine, e: React.MouseEvent) => void;
+    onAct: (q: QueueRow, l: BriefLine, act: QueueAct) => void;
 }) {
     const queueOf = (l: BriefLine) => queue.find((q) => "waiting:" + q.key === l.id)!;
     return (
@@ -107,9 +108,11 @@ export function WaitingRegion({
                                             <WaitingRow
                                                 line={l}
                                                 focused={cursor === l.id}
-                                                act={queueAction(queueOf(l))}
-                                                onOpen={l.target != null ? (e) => openLine(l.target, e) : undefined}
-                                                onAct={() => onAct(queueOf(l), l)}
+                                                acts={queueActions(queueOf(l))}
+                                                onOpen={
+                                                    l.target != null ? (e) => onOpenRow(queueOf(l), l, e) : undefined
+                                                }
+                                                onAct={(act) => onAct(queueOf(l), l, act)}
                                             />
                                         </motion.div>
                                     ))}

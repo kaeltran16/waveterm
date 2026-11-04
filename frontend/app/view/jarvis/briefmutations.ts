@@ -27,6 +27,7 @@ export type EffortOps = { togglePause: () => void; archive: () => void; unarchiv
 export type EffortWrites = Pick<
     typeof effortstore,
     | "setEffortStatus"
+    | "setEffortProject"
     | "unarchiveEffort"
     | "deleteEffort"
     | "setChunkStatus"
@@ -59,6 +60,31 @@ export function mutationRunner(setError: (msg: string | null) => void): RunMutat
         setError(null);
         fn().catch((e) => setError(e instanceof Error ? e.message : String(e)));
     };
+}
+
+// A misfiled initiative skews every project chip, so the row's menu moves it in one step: the projects
+// Arc knows, the current one checked (choosing it does nothing), and no project. Undo moves it back.
+export function moveToProjectItems(
+    deps: Pick<MutationDeps, "store" | "undo" | "run">,
+    oref: string,
+    current: string,
+    projects: string[]
+): ContextMenuItem[] {
+    const move = (to: string) => () => {
+        if (to === current) {
+            return;
+        }
+        deps.run(() => deps.store.setEffortProject(oref, to));
+        deps.undo.notify(to === "" ? "Moved to no project" : `Moved to ${to}`, () =>
+            deps.run(() => deps.store.setEffortProject(oref, current))
+        );
+    };
+    const names = [...new Set([...projects, ...(current !== "" ? [current] : [])])].sort((a, b) => a.localeCompare(b));
+    return [
+        ...names.map((p) => ({ label: p, type: "checkbox" as const, checked: p === current, click: move(p) })),
+        { type: "separator" as const },
+        { label: "No project", type: "checkbox" as const, checked: current === "", click: move("") },
+    ];
 }
 
 // the plan footer and the row's context menu act through these, so the two cannot drift apart
@@ -188,19 +214,33 @@ export function stepTarget(input: {
 
 export type RevealDeps = {
     closeSheet: () => void;
+    // makes the initiative's row drawn: past the region's fold or outside the picked project it is not
+    showInitiative: (effortOref: string) => void;
     openInitiative: (lineId: string) => void;
     setCursor: (id: string) => void;
     // the plan, loaded first: a never-opened initiative has not fetched it yet
     loadPlan: (oref: string) => Promise<ChunkRowModel[]>;
     openStage: (stageId: string) => void;
+    // opens the chunk's notes beside the plan
+    openNotes: (chunkId: string) => void;
 };
 
-// a run row's ↳ opens its initiative inline on that chunk, with the chunk's stage unfolded
-export async function openChunkInPlan(deps: RevealDeps, effortOref: string, chunk: string): Promise<void> {
+// a run row's ↳ opens its initiative inline on that chunk, with the chunk's stage unfolded; a blocked
+// chunk's waiting row also opens its notes, where the reason it is blocked is written
+export async function openChunkInPlan(
+    deps: RevealDeps,
+    effortOref: string,
+    chunk: string,
+    notes = false
+): Promise<void> {
     const lineId = initiativeLineId(effortOref);
     deps.closeSheet();
+    deps.showInitiative(effortOref);
     deps.openInitiative(lineId);
     deps.setCursor(chunkRowId(lineId, chunk));
+    if (notes) {
+        deps.openNotes(chunkRowId(lineId, chunk));
+    }
     // the stage override needs the plan, which a never-opened initiative has not loaded yet
     const chunks = await deps.loadPlan(effortOref);
     const at = groupChunksByStage(chunks).findIndex((g) => g.rows.some((r) => r.label === chunk));

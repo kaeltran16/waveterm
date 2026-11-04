@@ -35,6 +35,7 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { attentionAtom } from "@/app/view/agents/attentionstore";
 import { channelsAtom, loadChannels } from "@/app/view/agents/channelsstore";
+import { projectListAtom, projectsAtom } from "@/app/view/agents/projectsstore";
 import { DagModal } from "@/app/view/orchestrate/dagmodal";
 import { setDagModalAgentsContext } from "@/app/view/orchestrate/dagmodalstate";
 import { cn, fireAndForget } from "@/util/util";
@@ -57,6 +58,7 @@ import {
     SEVEN_DAYS_MS,
     SHIPPED_CAP,
     summarizeAttentionQueue,
+    type QueueRow,
 } from "./briefingmodel";
 import {
     briefingCursorAtom,
@@ -69,6 +71,7 @@ import {
 import { BriefChunkPane, InitiativesRegion } from "./briefinitiatives";
 import {
     effortOps,
+    moveToProjectItems,
     mutationRunner,
     openChunkInPlan,
     stepTarget,
@@ -80,13 +83,14 @@ import { briefListNav, cursorAction, resolveBriefCursor, runNavLines } from "./b
 import { BriefPeek } from "./briefpeekview";
 import { REGIONS, showInitiativeMenu, type RegionId } from "./briefprimitives";
 import { BriefProfileModal } from "./briefprofileview";
-import { ackAll, actOnQueue, type QueueActionDeps } from "./briefqueueactions";
+import { ackAll, actOnQueue, openQueueRow, type QueueActionDeps } from "./briefqueueactions";
 import { briefRestorePlan } from "./briefrestore";
 import {
     behindGroups,
     filterLines,
     initiativeLine,
     initiativeProjects,
+    initiativesMeta,
     keepsProject,
     keepsRunKind,
     projectCounts,
@@ -126,6 +130,7 @@ import {
     renameEffort,
     setChunkStage,
     setChunkStatus,
+    setEffortProject,
     setEffortStatus,
     unarchiveEffort,
 } from "./effortstore";
@@ -152,6 +157,8 @@ import {
 import { clearSubject, persistedSubjectAtom, stageRunAtom } from "./jarvissubjectstore";
 import { JiraCheckDialog } from "./jiracheckdialog";
 import { openOrPeek, openOrPeekAddress } from "./openref";
+import { dismissPetBubble } from "./petstore";
+import { AVATAR_SURFACE_REACH_PX } from "./petview";
 import { forgetOrigin } from "./returnsurface";
 import { loadTaskList, taskListAtom } from "./tasksstore";
 
@@ -190,6 +197,7 @@ const NO_LINES: BriefLine[] = [];
 // the effortstore writes the mutation layer goes through, and the RPCs Waiting's in-place buttons send
 const EFFORT_WRITES: EffortWrites = {
     setEffortStatus,
+    setEffortProject,
     unarchiveEffort,
     deleteEffort,
     setChunkStatus,
@@ -203,6 +211,7 @@ const EFFORT_WRITES: EffortWrites = {
 const QUEUE_RPC: QueueActionDeps["rpc"] = {
     dagAction: (data) => RpcApi.DagActionCommand(TabRpcClient, data),
     ackRun: (data) => RpcApi.AckRunCommand(TabRpcClient, data),
+    setChunkStatus,
 };
 
 export function BriefSurface({ model }: { model: AgentsViewModel }) {
@@ -297,6 +306,9 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
 
     // Each region opens at its cap and the region's own control opens the rest in place. The caps stay
     // display-side so the overflow count is what was actually hidden from the rows above it.
+    // a search reaches every fold: a match hidden behind "+N more" would read as no match
+    const [query, setQuery] = useState("");
+    const filtering = query.trim() !== "";
     const [expanded, setExpanded] = useAtom(briefExpandedAtom);
     const toggleRegion = useCallback(
         (id: RegionId) => setExpanded((prev) => ({ ...prev, [id]: prev[id] !== true })),
@@ -327,8 +339,8 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     const project = pickedProject != null && projectOptions.includes(pickedProject) ? pickedProject : null;
     const projectEfforts = useMemo(() => efforts.filter((e) => keepsProject(project, e.project)), [efforts, project]);
     const effortWindow = useMemo(
-        () => capRegion(projectEfforts, EFFORT_CAP, initiativesOpen),
-        [projectEfforts, initiativesOpen]
+        () => capRegion(projectEfforts, EFFORT_CAP, initiativesOpen || filtering),
+        [projectEfforts, initiativesOpen, filtering]
     );
     const archivedShown = useMemo(
         () => archivedCards.filter((c) => keepsProject(project, c.project)),
@@ -339,8 +351,8 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         () =>
             model_ == null
                 ? { rows: [], more: 0 }
-                : sessionWindow(runKindLegs(model_, runKind), sessionsOpen, Date.now()),
-        [model_, sessionsOpen, runKind]
+                : sessionWindow(runKindLegs(model_, runKind), sessionsOpen || filtering, Date.now()),
+        [model_, sessionsOpen, runKind, filtering]
     );
     const runCounts = useMemo(
         () =>
@@ -382,16 +394,17 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         entranceRef.current = computeEntrances(entranceRef.current, entranceKey, entranceIds).state;
     }, [entranceIdsKey, entranceKey]);
 
-    const deltaWindow = useMemo(() => capRegion(model_?.delta ?? [], DELTA_CAP, behindOpen), [model_, behindOpen]);
+    const deltaWindow = useMemo(
+        () => capRegion(model_?.delta ?? [], DELTA_CAP, behindOpen || filtering),
+        [model_, behindOpen, filtering]
+    );
     const deltaGroups = useMemo(() => groupDelta(deltaWindow.rows, Date.now()), [deltaWindow]);
 
     // The filter and the one-region view narrow what is drawn, and the nav ids are the drawn lines' own, so
     // j/k can never land on a row the filter hid.
-    const [query, setQuery] = useState("");
     const [only, setOnly] = useState<RegionId | null>(null);
     const [staleOpen, setStaleOpen] = useAtom(briefStaleOpenAtom);
     const toggleOnly = (id: RegionId) => setOnly((cur) => (cur === id ? null : id));
-    const filtering = query.trim() !== "";
     const [shippedOpen, setShippedOpen] = useAtom(briefShippedOpenAtom);
     const [shippedKind, setShippedKind] = useAtom(briefShippedKindAtom);
     const shippedAll = useMemo(
@@ -415,6 +428,10 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
             flush();
         };
     }, []);
+    // Behind you folds a run into its initiative by title and names a row's project
+    const effortIndex = useAtomValue(briefEffortIndexAtom);
+    const projects = useAtomValue(projectsAtom);
+    const projectList = useAtomValue(projectListAtom);
     const lines = useMemo(() => {
         const now = Date.now();
         return {
@@ -432,11 +449,23 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                 sessions.rows.map((r) => sessionLine(r, now)),
                 query
             ),
-            behind: behindGroups(deltaGroups, shipped.rows, now)
+            behind: behindGroups(deltaGroups, shipped.rows, now, { efforts: effortIndex, projects })
                 .map((g) => ({ ...g, lines: filterLines(g.lines, query) }))
                 .filter((g) => g.lines.length > 0),
         };
-    }, [queue, effortWindow, showArchived, archivedShown, sessions, deltaGroups, shipped, query, pendingDeletes]);
+    }, [
+        queue,
+        effortWindow,
+        showArchived,
+        archivedShown,
+        sessions,
+        deltaGroups,
+        shipped,
+        query,
+        pendingDeletes,
+        effortIndex,
+        projects,
+    ]);
     const staleCount = lines.sessions.filter((l) => l.stale).length;
     const waitingShown = waitingOpen || filtering;
     const view = useMemo(() => {
@@ -616,6 +645,71 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         },
         [model]
     );
+    const revealChunk = useCallback(
+        (effortOref: string, chunk: string, notes = false) =>
+            fireAndForget(() =>
+                openChunkInPlan(
+                    {
+                        closeSheet: () => {
+                            globalStore.set(briefSheetOpenAtom, false);
+                            clearSubject();
+                            forgetOrigin();
+                        },
+                        showInitiative: (oref) => {
+                            const card = efforts.find((e) => e.oref === oref);
+                            if (card != null && !keepsProject(project, card.project)) {
+                                setPickedProject(null);
+                            }
+                            if (!effortWindow.rows.some((e) => e.oref === oref)) {
+                                setExpanded((prev) => ({ ...prev, initiatives: true }));
+                            }
+                            setOnly((cur) => (cur == null || cur === "initiatives" ? cur : null));
+                        },
+                        openInitiative: setOpenInitiative,
+                        setCursor,
+                        loadPlan: async (oref) => {
+                            await loadEffortDetail(oref);
+                            const effort = globalStore.get(effortDetailAtom).get(oref);
+                            return effort != null ? effortChunkRows(effort) : [];
+                        },
+                        openStage: (id) => setStageOverrides((cur) => ({ ...cur, [id]: true })),
+                        openNotes: (id) => {
+                            setNoteChunk(id);
+                            setReadingNote(new Set());
+                        },
+                    },
+                    effortOref,
+                    chunk,
+                    notes
+                )
+            ),
+        [
+            efforts,
+            project,
+            effortWindow,
+            setPickedProject,
+            setExpanded,
+            setOpenInitiative,
+            setCursor,
+            setStageOverrides,
+            setNoteChunk,
+            setReadingNote,
+        ]
+    );
+    const queueDeps: QueueActionDeps = {
+        rpc: QUEUE_RPC,
+        undo: briefUndo,
+        openLine,
+        openChunk: (oref, label) => revealChunk(oref, label, true),
+    };
+    // Ctrl still peeks the initiative, as every other row's click does
+    const openWaiting = (q: QueueRow, l: BriefLine, e?: React.MouseEvent) => {
+        if (e?.ctrlKey) {
+            openLine(l.target, e);
+        } else {
+            openQueueRow(queueDeps, q, l);
+        }
+    };
     const cursorRow = tracker.rows.find((r) => r.id === cursor) ?? null;
     const cursorTarget = cursorRow?.kind === "line" ? cursorRow.line.target : null;
     const toggleInitiative = useCallback(
@@ -635,9 +729,14 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         } else if (act?.kind === "toggle-initiative") {
             toggleInitiative(act.id);
         } else if (act?.kind === "open") {
-            openLine(act.target);
+            const q = cursorRow?.kind === "line" ? queue.find((r) => "waiting:" + r.key === cursorRow.line.id) : null;
+            if (q != null && cursorRow?.kind === "line") {
+                openWaiting(q, cursorRow.line);
+            } else {
+                openLine(act.target);
+            }
         }
-    }, [cursorRow, openLine, setNoteChunk, setReadingNote, toggleInitiative]);
+    }, [cursorRow, queue, openWaiting, openLine, setNoteChunk, setReadingNote, toggleInitiative]);
     const shippedLines = lines.behind.find((g) => g.label === SHIPPED_LABEL)?.lines ?? NO_LINES;
     const stageRun = useAtomValue(stageRunAtom);
     const runList = useAtomValue(briefRunListAtom);
@@ -693,7 +792,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         globalStore.set(briefGraphRecordAtom, null);
     };
     const projectCount = snapshot?.state.projects?.length ?? 0;
-    const paused = projectEfforts.filter((e) => e.status === "paused").length;
+    const initiativesHead = initiativesMeta(projectEfforts, Date.now());
     const liveN = view.sessionLines.filter((l) => !l.stale).length;
     const visitCursor = useAtomValue(briefingCursorAtom);
 
@@ -744,6 +843,15 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                 card != null
                     ? { value: card.status, ops: effortOps(mutationDeps, card.oref, card.title, card.status) }
                     : undefined,
+            move:
+                card != null
+                    ? moveToProjectItems(
+                          mutationDeps,
+                          card.oref,
+                          card.project ?? "",
+                          projectList.map((p) => p.name)
+                      )
+                    : undefined,
         });
     };
     useEffect(() => {
@@ -755,34 +863,8 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         );
     }, [stageRun, shipped, view.sessionLines]);
 
-    const queueDeps: QueueActionDeps = { rpc: QUEUE_RPC, undo: briefUndo, openLine };
     const ackable = ackableRuns(queue);
 
-    const revealChunk = useCallback(
-        (effortOref: string, chunk: string) =>
-            fireAndForget(() =>
-                openChunkInPlan(
-                    {
-                        closeSheet: () => {
-                            globalStore.set(briefSheetOpenAtom, false);
-                            clearSubject();
-                            forgetOrigin();
-                        },
-                        openInitiative: setOpenInitiative,
-                        setCursor,
-                        loadPlan: async (oref) => {
-                            await loadEffortDetail(oref);
-                            const effort = globalStore.get(effortDetailAtom).get(oref);
-                            return effort != null ? effortChunkRows(effort) : [];
-                        },
-                        openStage: (id) => setStageOverrides((cur) => ({ ...cur, [id]: true })),
-                    },
-                    effortOref,
-                    chunk
-                )
-            ),
-        [setOpenInitiative, setCursor, setStageOverrides]
-    );
     // the run sheet's ↳ chunk line reveals through the same handler, published because the sheet mounts
     // outside the Brief
     const setRevealChunk = useSetAtom(briefRevealChunkAtom);
@@ -828,8 +910,14 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                 index has left, and the window is not the surface. */}
             <div className="@container relative flex min-h-0 flex-1">
                 <div
+                    data-jarvis-brief-scroll
+                    // the pet sits over the bottom-right corner: the rows end with its reach of room, so any
+                    // row-end control scrolls clear of it, and "Where we were" closes once the rows are in use
+                    style={{ paddingBottom: AVATAR_SURFACE_REACH_PX + 20 }}
+                    onScroll={() => dismissPetBubble("resume")}
+                    onPointerDown={() => dismissPetBubble("resume")}
                     className={cn(
-                        "flex min-h-0 flex-1 flex-col gap-[26px] overflow-y-auto px-[22px] pb-2.5 pt-5",
+                        "flex min-h-0 flex-1 flex-col gap-[26px] overflow-y-auto px-[22px] pt-5",
                         // the sidebar docks only in the wide band; below it, it floats over the index
                         selectedChunk != null && "@min-[1281px]:pr-[480px]"
                     )}
@@ -905,15 +993,15 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                         onAckAll={() => fireAndForget(() => ackAll(queueDeps, ackable))}
                                         entering={entering}
                                         cursor={cursor}
-                                        openLine={openLine}
-                                        onAct={(q, l) => fireAndForget(() => actOnQueue(queueDeps, q, l))}
+                                        onOpenRow={openWaiting}
+                                        onAct={(q, l, act) => fireAndForget(() => actOnQueue(queueDeps, q, l, act))}
                                     />
                                 ) : null}
                                 {view.shows("initiatives") ? (
                                     <InitiativesRegion
                                         lines={lines.initiatives}
                                         empty={efforts.length === 0 && archivedCards.length === 0}
-                                        paused={paused}
+                                        meta={initiativesHead}
                                         only={only === "initiatives"}
                                         onOnly={() => toggleOnly("initiatives")}
                                         projects={{

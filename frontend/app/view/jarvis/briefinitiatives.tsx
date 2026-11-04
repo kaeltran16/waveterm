@@ -45,7 +45,7 @@ export type RenameField = {
 export function InitiativesRegion({
     lines,
     empty,
-    paused,
+    meta,
     only,
     onOnly,
     projects,
@@ -74,7 +74,8 @@ export function InitiativesRegion({
 }: {
     lines: BriefLine[];
     empty: boolean;
-    paused: number;
+    // what is not moving: paused and quiet counts (initiativesMeta)
+    meta: string;
     only: boolean;
     onOnly: () => void;
     // the project filter; options holds every project an initiative names, picked null for all
@@ -117,7 +118,7 @@ export function InitiativesRegion({
             count={lines.length}
             empty={empty}
             gap="gap-[9px]"
-            meta={paused > 0 ? `${paused} paused` : "all moving"}
+            meta={meta}
             only={only}
             onOnly={onOnly}
             filter={

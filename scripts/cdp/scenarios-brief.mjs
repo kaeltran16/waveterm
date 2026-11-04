@@ -93,7 +93,8 @@ export const briefSurface = {
     async arrange(h) {
         const ctx = {};
         try {
-            ctx.effortId = (await h.rpc("effortcreate", { title: "verify brief-surface: a blocked chunk", chunks: [{ label: "Gate" }] })).effortoid;
+            // the label matches the fixture's blocked chunk, so its row lands on a chunk the real plan has
+            ctx.effortId = (await h.rpc("effortcreate", { title: "verify brief-surface: a blocked chunk", chunks: [{ label: "Phase 5" }] })).effortoid;
         } catch (e) {
             ctx.arrangeError = String(e?.message ?? e);
         }
@@ -157,8 +158,8 @@ export const briefSurface = {
         });
 
         // Review reveals the existing actionable rows; the disclosure changes presentation, not where a
-        // decision lands. A row opens what it names, and carries the design's one action (Approve, Open,
-        // Retry) as its only control.
+        // decision lands. A row opens what it names, and its only controls are its actions: the design's one
+        // (Approve, Open, Retry), or a blocked chunk's Unblock and Done.
         await h.ev(`document.querySelector('[data-jarvis-brief-attention-summary]')?.click()`);
         await h.ev("new Promise((r) => setTimeout(r, 300))");
         const q = await h.ev(`(() => {
@@ -169,11 +170,13 @@ export const briefSurface = {
                 expanded: summary?.getAttribute('aria-expanded') ?? null,
                 rows: rows.length,
                 openable: rows.filter((r) => r.classList.contains('cursor-pointer')).length,
-                oneAction: rows.filter((r) => controls(r).length === 1 && r.querySelector('[data-jarvis-queue-act]')).length,
+                oneAction: rows.filter(
+                    (r) => controls(r).length >= 1 && controls(r).length === r.querySelectorAll('[data-jarvis-queue-act]').length
+                ).length,
             };
         })()`);
         steps.push({
-            step: "4. Review reveals queue rows that open what they name, each with its one action",
+            step: "4. Review reveals queue rows that open what they name, with only their actions as controls",
             ok: q.expanded === "true" && q.rows > 0 && q.openable === q.rows && q.oneAction === q.rows,
             detail: JSON.stringify(q),
         });
@@ -262,9 +265,9 @@ export const briefSurface = {
         await h.ev(`document.querySelector('[data-jarvis-brief-row="initiative"][aria-expanded="true"]')?.click()`);
         await h.ev("new Promise((r) => setTimeout(r, 300))");
 
-        // The sideways arm into the effort sheet is still the one a blocked chunk takes. The router loads an
-        // initiative before it opens the sheet, and the fixture's own is not in any store, so the blocked chunk's
-        // initiative is pointed at the one the arrange made, on a copy of the normal fixture.
+        // A blocked chunk's row lands on that chunk in its initiative's plan, with its notes open, rather than on
+        // the initiative's sheet. The plan loads from the store, and the fixture's own initiative is not in it, so
+        // the blocked chunk's initiative is pointed at the one the arrange made, on a copy of the normal fixture.
         await lookEval(h, `
             const { BRIEFING_FIXTURES } = await mod("app/view/jarvis/briefingfixtures.ts");
             const { briefingFixtureAtom } = await mod("app/view/jarvis/briefingstore.ts");
@@ -285,19 +288,20 @@ export const briefSurface = {
             `[...document.querySelectorAll('[data-jarvis-brief-row="queue"]')].find((r) => /Scenario gate clearance/.test(r.innerText || ""))?.click()`
         );
         await h.ev("new Promise((r) => setTimeout(r, 800))");
-        const sheet = await h.ev(`(() => {
-            const el = document.querySelector('[data-jarvis-brief-sheet]');
+        const sheet = await lookEval(h, `
+            await until(() => document.querySelector('[data-jarvis-chunk-sidebar]') != null, 5000);
             return {
-                face: el ? el.dataset.jarvisBriefSheet : null,
-                label: el ? (el.innerText || "").replace(/\\s+/g, " ").trim().slice(0, 10).toLowerCase() : null,
+                sheet: !!document.querySelector('[data-jarvis-brief-sheet]'),
+                chunk: document.querySelector('[data-jarvis-tracker-chunk="Phase 5"]')?.getAttribute("aria-pressed") ?? null,
+                sidebar: (document.querySelector('[data-jarvis-chunk-sidebar]')?.innerText || "").includes("Phase 5"),
             };
-        })()`);
+        `);
         steps.push({
-            step: "8. a blocked chunk still opens the initiative's own sheet",
-            ok: arranged.arrangeError == null && sheet.face === "effort" && sheet.label === "initiative",
+            step: "8. a blocked chunk's row lands on that chunk in its initiative's plan, notes open",
+            ok: arranged.arrangeError == null && sheet.sheet === false && sheet.chunk === "true" && sheet.sidebar,
             detail: arranged.arrangeError ?? JSON.stringify(sheet),
         });
-        await h.ev(`[...document.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === 'Close detail sheet')?.click()`);
+        await h.ev(`document.querySelector('[data-jarvis-brief-row="initiative"][aria-expanded="true"]')?.click()`);
         await h.ev("new Promise((r) => setTimeout(r, 300))");
         await lookEval(h, `
             const { BRIEFING_FIXTURES } = await mod("app/view/jarvis/briefingfixtures.ts");
@@ -309,8 +313,8 @@ export const briefSurface = {
 
         // F8: the row states what it is waiting on and what it belongs to, on its one line. The "attention"
         // fixture is the one that carries wire attention items; "normal" has none, so the queue there is only
-        // blocked chunks, which carry no attribution by design. The row itself opens (step 4), so its one
-        // nested control is its action. A one-line row has no room for cites, so it no longer draws them.
+        // blocked chunks, which carry no attribution by design. The row itself opens (step 4), so its nested
+        // controls are its actions. A one-line row has no room for cites, so it no longer draws them.
         await h.ev(`document.querySelector('[data-briefing-fixture="attention"]')?.click()`);
         await h.ev("new Promise((r) => setTimeout(r, 600))");
         const ctx = await h.ev(`(() => {
@@ -318,9 +322,10 @@ export const briefSurface = {
             const txt = (e) => (e.innerText || "").replace(/\\s+/g, " ").trim();
             return {
                 rows: rows.length,
-                oneAction: rows.filter(
-                    (r) => r.querySelectorAll('button, a, input, select, textarea').length === 1 && r.querySelector('[data-jarvis-queue-act]')
-                ).length,
+                oneAction: rows.filter((r) => {
+                    const n = r.querySelectorAll('button, a, input, select, textarea').length;
+                    return n >= 1 && n === r.querySelectorAll('[data-jarvis-queue-act]').length;
+                }).length,
                 first: rows.length ? txt(rows[0]) : null,
             };
         })()`);
@@ -4311,5 +4316,328 @@ export const briefLiveInitiative = {
             delete window.__liveBriefLoads;
         `).catch(() => {});
         if (ctx?.effortoid) await h.rpc("effortdelete", { effortoid: ctx.effortoid }).catch(() => {});
+    },
+};
+
+// --- brief-act: the Brief helps you act on what it shows ------------------------------------------------
+// The 11-04 review's ten findings, one step each. A real initiative with two blocked chunks drives what writes:
+// its waiting rows (needs, newer note, Unblock / Done with undo), the open that lands on the chunk, and Move to
+// project. The "act" briefing fixture drives what only reads: ages and order, the filter past every fold, the
+// quiet count, Behind you's grouping, Shipped's second line, the pet's room and the stale blocked runs.
+const ACT_EFFORT = "verify brief-act blockers";
+const ACT_PROJECT = "verify-brief-act";
+const actQueueRow = (label) =>
+    `[...document.querySelectorAll('[data-jarvis-brief-row="queue"]')].find((r) => (r.innerText || "").includes(${JSON.stringify(label)}))`;
+const actText = (el) => `((${el})?.innerText || "").replace(/\\s+/g, " ").trim()`;
+
+async function actFixture(h, name) {
+    await lookEval(h, `
+        const { briefingFixtureAtom } = await mod("app/view/jarvis/briefingstore.ts");
+        (await mod("app/store/jotaiStore.ts")).globalStore.set(briefingFixtureAtom, ${JSON.stringify(name)});
+    `);
+    await h.ev("new Promise((r) => setTimeout(r, 700))");
+}
+
+async function actFilter(h, q) {
+    await h.ev(`(() => {
+        const i = document.querySelector('[data-jarvis-brief-filter]');
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(i, ${JSON.stringify(q)});
+        i.dispatchEvent(new Event("input", { bubbles: true }));
+    })()`);
+    await h.ev("new Promise((r) => setTimeout(r, 500))");
+}
+
+async function actChunk(h, effortoid, label) {
+    const { effort } = (await h.rpc("effortget", { effortoid })) ?? {};
+    return effort?.chunks?.find((c) => c.label === label) ?? null;
+}
+
+async function actWaitChunk(h, effortoid, label, status) {
+    for (let i = 0; i < 40; i++) {
+        const c = await actChunk(h, effortoid, label);
+        if (c?.status === status) return c;
+        await new Promise((r) => setTimeout(r, 250));
+    }
+    return actChunk(h, effortoid, label);
+}
+
+export const briefAct = {
+    name: "brief-act",
+    surface: "jarvis",
+    async arrange(h) {
+        const ctx = {};
+        try {
+            ctx.effortoid = (
+                await h.rpc("effortcreate", {
+                    title: ACT_EFFORT,
+                    project: ACT_PROJECT,
+                    chunks: [{ label: "act-soak" }, { label: "act-label" }],
+                })
+            ).effortoid;
+            await h.rpc("effortmutate", {
+                effortoid: ctx.effortoid,
+                author: "you",
+                ops: [
+                    { op: "setChunkStatus", chunk: "act-soak", status: "blocked", note: "needs: a clean DEV soak" },
+                    { op: "appendNote", chunk: "act-soak", note: "the empty-buffer blocker is gone on DEV" },
+                    { op: "setChunkStatus", chunk: "act-label", status: "blocked", note: "needs: the G4 label" },
+                ],
+            });
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        await h.cdp("Emulation.setDeviceMetricsOverride", { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false });
+        await h.goto("jarvis");
+        await actFixture(h, null);
+        await actFilter(h, "");
+
+        // 1. live: the blocked chunk's row says what it needs and shows the note written after the block
+        await h.ev(`document.querySelector('[data-jarvis-brief-attention-summary][aria-expanded="false"]')?.click()`);
+        const live = await lookEval(h, `
+            await until(() => ${actQueueRow("act-soak")} != null && ${actQueueRow("act-label")} != null, 30000);
+            const row = ${actQueueRow("act-soak")};
+            return {
+                text: ${actText(actQueueRow("act-soak"))},
+                latest: (row?.querySelector('[data-jarvis-queue-latest]')?.innerText || "").trim(),
+                acts: [...(row?.querySelectorAll('[data-jarvis-queue-act]') ?? [])].map((b) => b.innerText.trim()),
+                summary: ${actText(`document.querySelector('[data-jarvis-brief-attention-summary]')`)},
+            };
+        `);
+        steps.push({
+            step: "1. a blocked chunk's waiting row shows what it needs, its newer note, and Unblock / Done",
+            ok:
+                ctx.arrangeError == null &&
+                live.text.includes("needs: a clean DEV soak") &&
+                /the empty-buffer blocker is gone on DEV/.test(live.latest) &&
+                JSON.stringify(live.acts) === JSON.stringify(["Unblock", "Done"]),
+            detail: ctx.arrangeError ?? JSON.stringify(live),
+        });
+        await h.shot("cdp-shots/brief-act-waiting-live.png");
+
+        // 2. opening the row lands on the chunk in its initiative's plan, notes open, no sheet
+        await h.ev(`(${actQueueRow("act-label")})?.click()`);
+        const landed = await lookEval(h, `
+            await until(() => document.querySelector('[data-jarvis-chunk-sidebar]') != null, 6000);
+            const side = document.querySelector('[data-jarvis-chunk-sidebar]');
+            const chunk = document.querySelector('[data-jarvis-tracker-chunk="act-label"]');
+            return {
+                sidebar: (side?.innerText || "").includes("act-label"),
+                reason: (side?.innerText || "").includes("needs: the G4 label"),
+                pressed: chunk?.getAttribute("aria-pressed") ?? null,
+                sheet: !!document.querySelector('[data-jarvis-brief-sheet]'),
+            };
+        `);
+        steps.push({
+            step: "2. opening a blocked chunk's row lands on that chunk with its notes, not the initiative's top",
+            ok: landed.sidebar && landed.reason && landed.pressed === "true" && landed.sheet === false,
+            detail: JSON.stringify(landed),
+        });
+        await h.shot("cdp-shots/brief-act-landed.png");
+        await h.ev(`document.querySelector('[data-jarvis-brief-row="initiative"][aria-expanded="true"]')?.click()`);
+
+        // 3. Unblock writes pending, its undo blocks it again with what it needs; Done finishes the other
+        await h.ev(`(${actQueueRow("act-soak")})?.querySelector('[data-jarvis-queue-act="unblock-chunk"]')?.click()`);
+        const unblocked = await actWaitChunk(h, ctx.effortoid, "act-soak", "pending");
+        const toast = await h.ev(`(document.querySelector('[data-jarvis-brief-toast]')?.innerText || "").trim()`);
+        await h.ev(`document.querySelector('[data-jarvis-toast-undo]')?.click()`);
+        const reblocked = await actWaitChunk(h, ctx.effortoid, "act-soak", "blocked");
+        await lookEval(h, `await until(() => ${actQueueRow("act-label")}?.querySelector('[data-jarvis-queue-act="done-chunk"]') != null, 15000);`);
+        await h.ev(`(${actQueueRow("act-label")})?.querySelector('[data-jarvis-queue-act="done-chunk"]')?.click()`);
+        const done = await actWaitChunk(h, ctx.effortoid, "act-label", "done");
+        const newest = (c) => [...(c?.notes ?? [])].sort((a, b) => b.ts - a.ts)[0]?.text ?? "";
+        steps.push({
+            step: "3. Unblock and Done act from the row, and Unblock's undo blocks it again with its needs",
+            ok:
+                unblocked?.status === "pending" &&
+                /Unblocked · act-soak/.test(toast) &&
+                reblocked?.status === "blocked" &&
+                newest(reblocked) === "marked blocked · needs: a clean DEV soak" &&
+                done?.status === "done",
+            detail: JSON.stringify({ unblocked: unblocked?.status, toast, reblocked: reblocked?.status, note: newest(reblocked), done: done?.status }),
+        });
+
+        // 4. Move to project from the initiative row's menu
+        const menu = await lookEval(h, `
+            await until(() => [...document.querySelectorAll('[data-jarvis-brief-row="initiative"]')].some((r) => (r.innerText || "").includes(${JSON.stringify(ACT_EFFORT)})), 15000);
+            const row = [...document.querySelectorAll('[data-jarvis-brief-row="initiative"]')].find((r) => (r.innerText || "").includes(${JSON.stringify(ACT_EFFORT)}));
+            const r = row.getBoundingClientRect();
+            row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2, clientX: r.left + 40, clientY: r.top + 10 }));
+            const { globalStore } = await mod("app/store/jotaiStore.ts");
+            const { contextMenuAtom } = await mod("app/store/contextmenu.ts");
+            await until(() => globalStore.get(contextMenuAtom) != null, 3000);
+            const move = globalStore.get(contextMenuAtom)?.items.find((i) => i.label === "Move to project");
+            const sub = (move?.submenu ?? []).map((i) => [i.label ?? i.type, i.checked ?? null]);
+            const at = [...document.querySelectorAll("span.whitespace-nowrap")].find((s) => s.textContent === "Move to project")?.parentElement?.getBoundingClientRect();
+            return { sub, at: at ? { x: Math.round(at.left + 40), y: Math.round(at.top + at.height / 2) } : null };
+        `);
+        if (menu.at) {
+            await h.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", x: menu.at.x, y: menu.at.y });
+            await h.ev("new Promise((r) => setTimeout(r, 500))");
+        }
+        await h.shot("cdp-shots/brief-act-move-menu.png");
+        await lookEval(h, `
+            const { globalStore } = await mod("app/store/jotaiStore.ts");
+            const { contextMenuAtom, closeContextMenu } = await mod("app/store/contextmenu.ts");
+            globalStore.get(contextMenuAtom)?.items.find((i) => i.label === "Move to project")?.submenu?.find((i) => i.label === "No project")?.click();
+            closeContextMenu();
+        `);
+        let moved = null;
+        for (let i = 0; i < 40 && moved !== ""; i++) {
+            // an empty project is omitted on the wire
+            const got = ((await h.rpc("effortget", { effortoid: ctx.effortoid })) ?? {}).effort;
+            moved = got != null ? (got.project ?? "") : null;
+            if (moved !== "") await new Promise((r) => setTimeout(r, 250));
+        }
+        steps.push({
+            step: "4. an initiative's menu moves it to another project (here: to no project)",
+            ok: menu.sub.some(([l, c]) => l === ACT_PROJECT && c === true) && menu.sub.some(([l]) => l === "No project") && moved === "",
+            detail: JSON.stringify({ sub: menu.sub, moved }),
+        });
+
+        // the rest reads the act fixture
+        await actFixture(h, "act");
+        await h.ev(`document.querySelector('[data-jarvis-brief-attention-summary][aria-expanded="false"]')?.click()`);
+        await h.ev("new Promise((r) => setTimeout(r, 500))");
+        const queue = await h.ev(`(() => {
+            const rows = [...document.querySelectorAll('[data-jarvis-brief-row="queue"]')];
+            return {
+                summary: ${actText(`document.querySelector('[data-jarvis-brief-attention-summary]')?.parentElement`)},
+                rows: rows.map((r) => (r.innerText || "").replace(/\\s+/g, " ").trim()),
+            };
+        })()`);
+        const order = ["G10 validate", "S6 per-tenant", "P2 cut traffic"].map((t) => queue.rows.findIndex((r) => r.includes(t)));
+        steps.push({
+            step: "5. the queue counts blockers by kind and initiative, and lists them oldest first with their age",
+            ok:
+                /3 blocked · 2 initiatives · oldest 22d/.test(queue.summary) &&
+                order.every((n, i) => n >= 0 && (i === 0 || n > order[i - 1])) &&
+                /22d/.test(queue.rows[order[0]] ?? "") &&
+                /needs: the G4 label/.test(queue.rows[order[0]] ?? ""),
+            detail: JSON.stringify({ summary: queue.summary, order, first: queue.rows[order[0]] }),
+        });
+        await h.shot("cdp-shots/brief-act-queue.png");
+        await h.ev(`document.querySelector('[data-jarvis-brief-attention-summary][aria-expanded="true"]')?.click()`);
+
+        // 6. the filter reaches rows behind Initiatives' and Behind you's folds
+        await actFilter(h, "hypothesis tracker");
+        const hitInit = await h.ev(`[...document.querySelectorAll('[data-jarvis-brief-row="initiative"]')].some((r) => (r.innerText || "").includes("Fold-hidden hypothesis tracker"))`);
+        await actFilter(h, "dag-motion");
+        const hitBehind = await h.ev(`[...document.querySelectorAll('[data-jarvis-brief-row="delta"]')].some((r) => (r.innerText || "").includes("dag-motion easing settled"))`);
+        await actFilter(h, "e2e quick run 2");
+        const hitRuns = await h.ev(`[...document.querySelectorAll('[data-jarvis-brief-region="sessions"] [data-jarvis-brief-row]')].some((r) => (r.innerText || "").includes("e2e quick run 2"))`);
+        await actFilter(h, "");
+        steps.push({
+            step: "6. the filter finds rows behind the Initiatives, Behind you and Runs folds",
+            ok: hitInit === true && hitBehind === true && hitRuns === true,
+            detail: JSON.stringify({ hitInit, hitBehind, hitRuns }),
+        });
+
+        // 7. Initiatives counts the quiet ones instead of saying all moving
+        const initMeta = await h.ev(`${actText(`document.querySelector('[data-jarvis-brief-region="initiatives"]')?.firstElementChild`)}`);
+        steps.push({
+            step: "7. the Initiatives head counts initiatives with no update in 7 days",
+            ok: /2 quiet 7d\+/.test(initMeta) && !/all moving/.test(initMeta),
+            detail: JSON.stringify(initMeta),
+        });
+
+        // 8 + 9. Behind you: an initiative's run folds into its digest, a goal reads as its first sentence with its
+        // project, and Shipped's second line is prose with a project name, not report markdown on a cwd path
+        const behind = await h.ev(`(() => {
+            const rows = [...document.querySelectorAll('[data-jarvis-brief-region="behind"] [data-jarvis-brief-row]')];
+            const t = (r) => (r.innerText || "").replace(/\\s+/g, " ").trim();
+            return {
+                digest: t(rows.find((r) => t(r).includes("Anomaly-to-rule pipeline")) ?? {}),
+                cancelled: t(rows.find((r) => t(r).includes("Clean up the cockpit")) ?? {}),
+                attachedOwnRow: rows.some((r) => t(r).includes("Unblock the G10 label check")),
+                shipped: t(rows.find((r) => r.dataset.jarvisBriefRow === "shipped") ?? {}),
+            };
+        })()`);
+        steps.push({
+            step: "8. Behind you folds an initiative's run into its digest and reads a goal as its first sentence",
+            ok:
+                /1 run/.test(behind.digest) &&
+                !behind.attachedOwnRow &&
+                behind.cancelled.includes("Clean up the cockpit's run list so a cancelled run reads plainly.") &&
+                !behind.cancelled.includes("Read the run store first") &&
+                behind.cancelled.includes("waveterm · cancelled"),
+            detail: JSON.stringify(behind),
+        });
+        steps.push({
+            step: "9. Shipped's second line is the project name and prose, no report markdown or cwd path",
+            ok:
+                behind.shipped.includes("portfolio-redesign · t-1: rebuilt the hero in hero.tsx") &&
+                !/[#*`]|:\\/.test(behind.shipped),
+            detail: JSON.stringify(behind.shipped),
+        });
+        await h.ev(`document.querySelector('[data-jarvis-brief-region="behind"]')?.scrollIntoView({ block: "start" })`);
+        await h.shot("cdp-shots/brief-act-behind.png");
+
+        // 10. the pet: the rows end with its reach of room so the last row scrolls clear of it, and Where we
+        // were closes once the rows are scrolled
+        const pet = await lookEval(h, `
+            const { globalStore } = await mod("app/store/jotaiStore.ts");
+            const { petBubbleAtom } = await mod("app/view/jarvis/petstore.ts");
+            const scroll = document.querySelector('[data-jarvis-brief-scroll]');
+            scroll.scrollTop = scroll.scrollHeight;
+            await nap(300);
+            const rows = [...scroll.querySelectorAll('[data-jarvis-brief-row]')];
+            const last = rows[rows.length - 1]?.getBoundingClientRect();
+            const avatar = document.querySelector('[aria-label="Jarvis condition"]')?.getBoundingClientRect();
+            globalStore.set(petBubbleAtom, { id: "resume:brief-act:1", at: 1, kind: "resume", text: "Where we were — verify" });
+            await nap(200);
+            const shown = globalStore.get(petBubbleAtom) != null;
+            scroll.scrollTop = 0;
+            scroll.dispatchEvent(new Event("scroll"));
+            await nap(200);
+            return {
+                pad: parseFloat(getComputedStyle(scroll).paddingBottom),
+                rowsN: rows.length,
+                lastBottom: last ? Math.round(last.bottom) : null,
+                avatarTop: avatar ? Math.round(avatar.top) : null,
+                shown,
+                closed: globalStore.get(petBubbleAtom) == null,
+            };
+        `);
+        steps.push({
+            step: "10. the Brief's last row scrolls clear of the pet, and Where we were closes on scroll",
+            ok:
+                pet.pad >= 124 &&
+                pet.lastBottom != null &&
+                (pet.avatarTop == null || pet.lastBottom <= pet.avatarTop) &&
+                pet.shown &&
+                pet.closed,
+            detail: JSON.stringify(pet),
+        });
+
+        // 11. blocked runs a month old fold as stale, so Runs' live count agrees with the header
+        const runs = await h.ev(`(() => ({
+            regions: [...document.querySelectorAll('[data-jarvis-brief-region]')].map((s) => s.dataset.jarvisBriefRegion),
+            rows: document.querySelectorAll('[data-jarvis-brief-scroll] [data-jarvis-brief-row]').length,
+            head: ${actText(`document.querySelector('[data-jarvis-brief-region="sessions"]')?.firstElementChild`)},
+            stale: ${actText(`document.querySelector('[data-jarvis-brief-stale]')`)},
+            fleet: ${actText(`document.querySelector('[data-jarvis-brief-band="fleet"]')`)},
+        }))()`);
+        steps.push({
+            step: "11. week-old blocked runs fold as stale: Runs reads 0 live, as the header says nothing running",
+            ok: /0 live/.test(runs.head) && /3/.test(runs.stale) && /nothing running/.test(runs.fleet),
+            detail: JSON.stringify(runs),
+        });
+        await h.ev(`document.querySelector('[data-jarvis-brief-region="sessions"]')?.scrollIntoView({ block: "start" })`);
+        await h.shot("cdp-shots/brief-act-runs.png");
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await actFilter(h, "").catch(() => {});
+        await actFixture(h, null).catch(() => {});
+        await h.cdp("Emulation.clearDeviceMetricsOverride").catch(() => {});
+        if (ctx?.effortoid) {
+            await h.rpc("effortdelete", { effortoid: ctx.effortoid }).catch((e) => {
+                console.error(`brief-act teardown: delete the initiative failed: ${e?.message ?? e}`);
+            });
+        }
     },
 };

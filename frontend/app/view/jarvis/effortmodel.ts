@@ -13,6 +13,9 @@ export const CHIP_CAP = 12;
 
 export type ChunkChip = { label: string; tone: ChunkTone };
 
+// what the waiting queue says about a blocked chunk: since is null when no note recorded the block
+export type BlockedChunk = { label: string; since: number | null; needs: string; latest?: EffortLastNote };
+
 export type EffortCardModel = {
     oref: string;
     title: string;
@@ -30,7 +33,7 @@ export type EffortCardModel = {
     activeTone?: ChunkTone;
     chips: ChunkChip[];
     chipOverflow: number;
-    blockedChunks: string[];
+    blockedChunks: BlockedChunk[];
     shortId: string;
     // each chunk's stage by label, for rows that name a chunk without its effort detail loaded
     chunkStages: Record<string, string>;
@@ -74,7 +77,14 @@ export function buildEffortCard(e: EffortSummary): EffortCardModel {
             e.activechunk != null ? chunkTone(chunks.find((c) => c.label === e.activechunk)?.status ?? "") : undefined,
         chips,
         chipOverflow: Math.max(0, chunks.length - CHIP_CAP),
-        blockedChunks: chunks.filter((c) => c.status === "blocked").map((c) => c.label),
+        blockedChunks: chunks
+            .filter((c) => c.status === "blocked")
+            .map((c) => ({
+                label: c.label,
+                since: c.blocked?.since || null,
+                needs: c.blocked?.needs ?? "",
+                latest: c.blocked?.latest,
+            })),
         shortId: e.oref.replace(/^effort:/, "").slice(0, 8),
         chunkStages: Object.fromEntries(chunks.map((c) => [c.label, c.stage ?? ""])),
         lastnote: e.lastnote,

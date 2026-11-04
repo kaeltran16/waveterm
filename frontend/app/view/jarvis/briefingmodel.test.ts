@@ -597,6 +597,7 @@ describe("briefing projection fields", () => {
             { ts: T0 - DAY, kind: "run-done", title: "ga", navtarget: "run:r-a" },
             { ts: T0 - DAY, kind: "run-created", title: "ga", navtarget: "run:r-a" },
             { ts: T0 - 2 * DAY, kind: "run-created", title: "gb", navtarget: "run:r-b" },
+            { ts: T0 - HOUR, kind: "run-created", title: "gz", navtarget: "run:r-z" },
         ];
         const m = projectBriefing(
             input(workState([{ project: "waveterm", active: [], shipped, events: delta, delta }]), [], T0 - 9 * DAY)
@@ -639,11 +640,9 @@ describe("briefing projection fields", () => {
                 mode: "",
             },
         ]);
-        // only the completion is promoted into shipped; the same run's other events stay in the delta
-        expect(m.delta.map((d) => [d.kind, d.oref])).toEqual([
-            ["run-created", "run:r-a"],
-            ["run-created", "run:r-b"],
-        ]);
+        // a shipped run's start and its completion both repeat its Shipped row, so neither stays in the delta;
+        // a run that has not shipped keeps its start
+        expect(m.delta.map((d) => [d.kind, d.oref])).toEqual([["run-created", "run:r-z"]]);
     });
 
     it("projects every delta field, keeps an event exactly at the cursor, and nulls what it lacks", () => {
@@ -664,6 +663,8 @@ describe("briefing projection fields", () => {
                 wording: "Decision recorded",
                 detail: "because",
                 oref: "decision:d1",
+                project: "",
+                effortOid: "",
             },
             {
                 key: `decision:${T0 - HOUR}:bare`,
@@ -673,6 +674,8 @@ describe("briefing projection fields", () => {
                 wording: "Decision recorded",
                 detail: null,
                 oref: null,
+                project: "",
+                effortOid: "",
             },
         ]);
     });
@@ -1170,7 +1173,13 @@ describe("buildAttentionQueue rows", () => {
     it("rows a blocked chunk with its initiative as source and detail, and nothing to retry", () => {
         const rows = buildAttentionQueue({
             attention: [],
-            efforts: [{ oref: "effort:e-1", title: "Gate", blockedChunks: ["Phase 5"] } as EffortCardModel],
+            efforts: [
+                {
+                    oref: "effort:e-1",
+                    title: "Gate",
+                    blockedChunks: [{ label: "Phase 5", since: 40, needs: "needs: SRE sign-off" }],
+                } as EffortCardModel,
+            ],
         });
         expect(rows).toEqual([
             {
@@ -1179,20 +1188,44 @@ describe("buildAttentionQueue rows", () => {
                 title: "Phase 5",
                 source: "Gate",
                 detail: "Gate",
-                ts: null,
+                ts: 40,
                 action: "Open",
                 nav: { kind: "effort", oref: "effort:e-1" },
                 tone: "asking",
                 attrib: "",
-                why: "",
+                why: "needs: SRE sign-off",
                 cites: [],
                 wireKind: "chunk-blocked",
                 channelId: "",
                 runId: null,
                 taskId: "",
                 retry: false,
+                chunk: { effortOref: "effort:e-1", label: "Phase 5", needs: "needs: SRE sign-off", latest: undefined },
             },
         ]);
+    });
+
+    it("puts blocked chunks and records after the wire rows, oldest first, unaged last", () => {
+        const rows = buildAttentionQueue({
+            attention: [attentionItem({ kind: "ask", key: "ask:new", text: "the ask", waitingsince: T0 - HOUR })],
+            efforts: [
+                {
+                    oref: "effort:a",
+                    title: "A",
+                    blockedChunks: [
+                        { label: "a-2d", since: T0 - 2 * DAY, needs: "" },
+                        { label: "a-unaged", since: null, needs: "" },
+                    ],
+                } as EffortCardModel,
+                {
+                    oref: "effort:b",
+                    title: "B",
+                    blockedChunks: [{ label: "b-22d", since: T0 - 22 * DAY, needs: "" }],
+                } as EffortCardModel,
+            ],
+            blockers: [{ oref: "task:r", objective: "rec-14d", blockers: "", project: null, ts: T0 - 14 * DAY }],
+        });
+        expect(rows.map((r) => r.title)).toEqual(["the ask", "b-22d", "rec-14d", "a-2d", "a-unaged"]);
     });
 
     it("rows a record blocker with its project, and a scopeless one with empty text", () => {
@@ -1258,7 +1291,7 @@ describe("summarizeAttentionQueue", () => {
         });
         expect(summarizeAttentionQueue(queue, T0)).toEqual({
             title: "2 things are waiting on you",
-            detail: "ask · ask · oldest 1d",
+            detail: "2 asks · oldest 1d",
             oldestTs: T0 - DAY,
         });
     });
@@ -1274,10 +1307,25 @@ describe("summarizeAttentionQueue", () => {
         });
         expect(summarizeAttentionQueue(queue, T0)).toEqual({
             title: "3 things are waiting on you",
-            detail: "blocked · ask · ask · oldest 2h",
+            detail: "blocked · 2 asks · oldest 2h",
             oldestTs: T0 - 2 * HOUR,
         });
         expect(summarizeAttentionQueue(queue.slice(0, 1), T0)?.detail).toBe("blocked");
+    });
+
+    it("counts blocked chunks once and names how many initiatives they span", () => {
+        const chunks = (oref: string, n: number) =>
+            ({
+                oref,
+                title: oref,
+                blockedChunks: Array.from({ length: n }, (_, i) => ({
+                    label: `c${i}`,
+                    since: T0 - (i + 1) * DAY,
+                    needs: "",
+                })),
+            }) as EffortCardModel;
+        const queue = buildAttentionQueue({ attention: [], efforts: [chunks("effort:a", 7), chunks("effort:b", 3)] });
+        expect(summarizeAttentionQueue(queue, T0)?.detail).toBe("10 blocked · 2 initiatives · oldest 7d");
     });
 
     it("returns null for an empty queue", () => {

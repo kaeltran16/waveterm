@@ -3,7 +3,8 @@
 
 import { describe, expect, it, vi } from "vitest";
 import type { QueueRow } from "./briefingmodel";
-import { ackAll, actOnQueue } from "./briefqueueactions";
+import { queueActions, type QueueAct } from "./briefingmodel";
+import { ackAll, actOnQueue, openQueueRow } from "./briefqueueactions";
 import type { BriefLine } from "./briefrows";
 
 const row = (over: Partial<QueueRow>): QueueRow => ({
@@ -32,9 +33,10 @@ const line = (target: BriefLine["target"]) => ({ id: "waiting:k", target }) as B
 function fakeDeps(fail = false) {
     const rpc = () => vi.fn(() => (fail ? Promise.reject(new Error("refused")) : Promise.resolve()));
     return {
-        rpc: { dagAction: rpc(), ackRun: rpc() },
+        rpc: { dagAction: rpc(), ackRun: rpc(), setChunkStatus: rpc() },
         undo: { notify: vi.fn(), error: vi.fn() },
         openLine: vi.fn(),
+        openChunk: vi.fn(),
     };
 }
 
@@ -81,6 +83,53 @@ describe("actOnQueue", () => {
     it("does nothing for a row with no target and no in-place action", async () => {
         const deps = fakeDeps();
         await actOnQueue(deps, row({ wireKind: "ask" }), line(null));
+        expect(deps.openLine).not.toHaveBeenCalled();
+    });
+});
+
+describe("a blocked chunk's row", () => {
+    const chunk = { effortOref: "effort:e1", label: "S6 soak", needs: "needs: a DEV soak" };
+    const blocked = row({ wireKind: "chunk-blocked", channelId: "", runId: null, chunk });
+    const act = (kind: QueueAct["kind"]) => queueActions(blocked).find((a) => a.kind === kind)!;
+
+    it("offers Unblock and Done in place of Open", () => {
+        expect(queueActions(blocked).map((a) => a.label)).toEqual(["Unblock", "Done"]);
+        expect(queueActions(row({ wireKind: "ask" })).map((a) => a.label)).toEqual(["Open"]);
+    });
+
+    it("unblocks to pending, and its undo blocks it again with what it needs", async () => {
+        const deps = fakeDeps();
+        await actOnQueue(deps, blocked, line(null), act("unblock-chunk"));
+        expect(deps.rpc.setChunkStatus).toHaveBeenCalledWith("effort:e1", "S6 soak", "pending");
+        const [text, undo] = deps.undo.notify.mock.calls[0] as unknown as [string, () => void];
+        expect(text).toBe("Unblocked · S6 soak");
+        undo();
+        expect(deps.rpc.setChunkStatus).toHaveBeenLastCalledWith(
+            "effort:e1",
+            "S6 soak",
+            "blocked",
+            "needs: a DEV soak"
+        );
+    });
+
+    it("marks done", async () => {
+        const deps = fakeDeps();
+        await actOnQueue(deps, blocked, line(null), act("done-chunk"));
+        expect(deps.rpc.setChunkStatus).toHaveBeenCalledWith("effort:e1", "S6 soak", "done");
+        expect(deps.undo.notify).toHaveBeenCalledWith("Done · S6 soak", expect.any(Function));
+    });
+
+    it("shows a refused write instead of a success toast", async () => {
+        const deps = fakeDeps(true);
+        await actOnQueue(deps, blocked, line(null), act("done-chunk"));
+        expect(deps.undo.error).toHaveBeenCalledWith("refused");
+        expect(deps.undo.notify).not.toHaveBeenCalled();
+    });
+
+    it("opens on the chunk itself, not the initiative's top", () => {
+        const deps = fakeDeps();
+        openQueueRow(deps, blocked, line({ queue: { kind: "oref", oref: "effort:e1" } }));
+        expect(deps.openChunk).toHaveBeenCalledWith("effort:e1", "S6 soak");
         expect(deps.openLine).not.toHaveBeenCalled();
     });
 });

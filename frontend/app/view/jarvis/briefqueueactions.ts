@@ -4,7 +4,7 @@
 // Waiting on you's in-place actions. The RPCs, the toast and the row opener arrive as deps, so the tests
 // drive fakes.
 
-import { queueAction, type QueueRow } from "./briefingmodel";
+import { queueAction, type QueueAct, type QueueRow } from "./briefingmodel";
 import type { UndoOps } from "./briefmutations";
 import type { BriefLine, LineTarget } from "./briefrows";
 
@@ -12,25 +12,68 @@ export type QueueActionDeps = {
     rpc: {
         dagAction: (data: CommandDagActionData) => Promise<void>;
         ackRun: (data: CommandAckRunData) => Promise<void>;
+        setChunkStatus: (oref: string, chunk: string, status: string, note?: string) => Promise<void>;
     };
     undo: Pick<UndoOps, "notify" | "error">;
     openLine: (target: LineTarget) => void;
+    // lands the initiative's plan on the chunk with its notes open
+    openChunk: (effortOref: string, label: string) => void;
 };
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-// Retry acts on the exact task the server named, and anything else opens the row's run
-export async function actOnQueue(deps: QueueActionDeps, q: QueueRow, line: BriefLine): Promise<void> {
-    const act = queueAction(q);
-    const run = async (label: string, fn: () => Promise<void>) => {
+// what a row's click opens: a blocked chunk lands on itself in its initiative's plan, anything else on
+// the row's target
+export function openQueueRow(deps: Pick<QueueActionDeps, "openLine" | "openChunk">, q: QueueRow, line: BriefLine) {
+    if (q.chunk != null) {
+        deps.openChunk(q.chunk.effortOref, q.chunk.label);
+    } else if (line.target != null) {
+        deps.openLine(line.target);
+    }
+}
+
+// Retry acts on the exact task the server named, Unblock and Done on the row's chunk, and anything else
+// opens the row
+export async function actOnQueue(
+    deps: QueueActionDeps,
+    q: QueueRow,
+    line: BriefLine,
+    act: QueueAct = queueAction(q)
+): Promise<void> {
+    const run = async (label: string, fn: () => Promise<void>, undo?: () => void) => {
         try {
             await fn();
-            deps.undo.notify(label);
+            if (undo != null) {
+                deps.undo.notify(label, undo);
+            } else {
+                deps.undo.notify(label);
+            }
         } catch (e) {
             deps.undo.error(message(e));
         }
     };
+    const chunk = q.chunk;
+    // re-blocking writes the needs note back, so the row returns saying what it waits on (its age restarts)
+    const reblock = () => {
+        if (chunk != null) {
+            deps.rpc
+                .setChunkStatus(chunk.effortOref, chunk.label, "blocked", chunk.needs || undefined)
+                .catch((e) => deps.undo.error(message(e)));
+        }
+    };
     switch (act.kind) {
+        case "unblock-chunk":
+        case "done-chunk": {
+            if (chunk == null) {
+                return;
+            }
+            const done = act.kind === "done-chunk";
+            return run(
+                `${done ? "Done" : "Unblocked"} · ${chunk.label}`,
+                () => deps.rpc.setChunkStatus(chunk.effortOref, chunk.label, done ? "done" : "pending"),
+                reblock
+            );
+        }
         case "retry-dag":
             return run(`Retrying ${q.taskId}`, () =>
                 deps.rpc.dagAction({ channelid: q.channelId, runid: q.runId!, taskid: q.taskId, action: "retry" })
@@ -40,9 +83,7 @@ export async function actOnQueue(deps: QueueActionDeps, q: QueueRow, line: Brief
                 deps.rpc.ackRun({ channelid: q.channelId, runid: q.runId! })
             );
         default:
-            if (line.target != null) {
-                deps.openLine(line.target);
-            }
+            openQueueRow(deps, q, line);
     }
 }
 

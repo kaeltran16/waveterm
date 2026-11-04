@@ -69,3 +69,35 @@ func TestEffortSummaryWithoutNotesHasNoLastNote(t *testing.T) {
 		t.Fatalf("last note = %+v, want nil", got)
 	}
 }
+
+func TestEffortSummaryBlockedChunkCarriesNeedsAndAge(t *testing.T) {
+	eff := &waveobj.Effort{
+		OID: "eff-b",
+		Chunks: []waveobj.EffortChunk{
+			{Label: "S6", Status: "blocked", Notes: []waveobj.EffortNote{
+				{Ts: 100, Text: "marked blocked · needs: a DEV soak\nsecond line"},
+				{Ts: 200, Text: "the empty-buffer blocker is gone on DEV", Author: "agent"},
+			}},
+			{Label: "G10", Status: "blocked", Notes: []waveobj.EffortNote{{Ts: 50, Text: "marked blocked · needs: the G4 label"}}},
+			{Label: "Old", Status: "blocked"},
+			{Label: "Done", Status: "done", Notes: []waveobj.EffortNote{{Ts: 10, Text: "marked blocked · stale"}}},
+		},
+	}
+	s := EffortSummaryOf(eff)
+	b := s.Chunks[0].Blocked
+	if b == nil || b.Since != 100 || b.Needs != "needs: a DEV soak" {
+		t.Fatalf("S6 blocked = %+v, want since 100 and the marking note's first line", b)
+	}
+	if b.Latest == nil || b.Latest.Ts != 200 || b.Latest.Text != "the empty-buffer blocker is gone on DEV" {
+		t.Errorf("S6 latest = %+v, want the newer note", b.Latest)
+	}
+	if g := s.Chunks[1].Blocked; g == nil || g.Since != 50 || g.Latest != nil {
+		t.Errorf("G10 blocked = %+v, want since 50 and no latest (the marking note is the newest)", g)
+	}
+	if o := s.Chunks[2].Blocked; o == nil || o.Since != 0 || o.Needs != "" {
+		t.Errorf("unrecorded block = %+v, want an empty Blocked", o)
+	}
+	if s.Chunks[3].Blocked != nil {
+		t.Errorf("a done chunk carries Blocked %+v", s.Chunks[3].Blocked)
+	}
+}
