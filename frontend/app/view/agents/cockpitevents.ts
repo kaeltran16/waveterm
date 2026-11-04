@@ -6,8 +6,8 @@
 // reload (effort 9868f8d2, decided frontend-only). Pure.
 
 import { isFinishTransition } from "./agentrowmodel";
-import type { AgentState, AgentVM } from "./agentsviewmodel";
-import type { RunInfo } from "./runlineage";
+import { matchesProjectFilter, type AgentState, type AgentVM } from "./agentsviewmodel";
+import type { Lineage, RunInfo } from "./runlineage";
 import { detailOf, eventText } from "./runtimeline";
 
 export type RailKind = "asked" | "answered" | "finished" | "quiet" | "failed" | "told" | "landed";
@@ -136,6 +136,54 @@ export function mergeRailEvents(lists: RailEvent[][], max = RAIL_MAX): RailEvent
         .sort((x, y) => y.ts - x.ts)
         .filter((e) => (seen.has(e.key) ? false : (seen.add(e.key), true)))
         .slice(0, max);
+}
+
+/** Pure: an "asked" event recorded before its question arrived takes the question once it lands. Only the
+ *  agent's newest event is filled, so an earlier ask never takes the text of a later one. Returns `events`
+ *  itself when nothing changed. */
+export function fillAskedText(events: RailEvent[], agents: AgentVM[]): RailEvent[] {
+    const byId = new Map(agents.map((a) => [a.id, a]));
+    const newest = new Map<string, RailEvent>();
+    for (const e of events) {
+        if (e.focusId != null && e.group == null && (newest.get(e.focusId)?.ts ?? -Infinity) < e.ts) {
+            newest.set(e.focusId, e);
+        }
+    }
+    let changed = false;
+    const out = events.map((e) => {
+        if (e.kind !== "asked" || e.text || e.group != null || newest.get(e.focusId) !== e) {
+            return e;
+        }
+        const a = byId.get(e.focusId);
+        const question = a?.state === "asking" ? a.ask?.questions?.[0]?.question : undefined;
+        if (!question) {
+            return e;
+        }
+        changed = true;
+        return { ...e, text: question };
+    });
+    return changed ? out : events;
+}
+
+/** Pure: the rows a project scope keeps. An agent's row follows its agent's project, a run's row its lead's;
+ *  a row whose agent or lead is gone from the roster drops out of any scope but "all". */
+export function scopeRailRows<T extends RailEvent>(
+    rows: T[],
+    agents: AgentVM[],
+    lineage: Lineage,
+    projectFilter: string
+): T[] {
+    if (projectFilter === "all") {
+        return rows;
+    }
+    const byId = new Map(agents.map((a) => [a.id, a]));
+    const leadOf = (runId: string) =>
+        Object.entries(lineage.roles).find(([, r]) => r.kind === "lead" && r.runId === runId)?.[0];
+    return rows.filter((e) => {
+        const id = e.group != null ? leadOf(e.group) : e.focusId;
+        const a = id != null ? byId.get(id) : undefined;
+        return a != null && matchesProjectFilter(a, projectFilter);
+    });
 }
 
 /** Pure: events after the last "mark all read" are new. */

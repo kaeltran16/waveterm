@@ -452,7 +452,7 @@ function docReviewRoster(runId, docPath, decisions = DOC_REVIEW_DECISIONS, heade
             model: "opus",
             activeMs: 90_000,
             blockId: "fx-blk-doc-worker",
-            // the Cockpit leaves an agent with nothing to show off its grid (cardHasContent)
+            // gives the card a feed, not the "Waiting in its terminal" body an agent with nothing to show gets
             previousInfo: [{ kind: "message", text: "Working through the fixture task." }],
         },
         {

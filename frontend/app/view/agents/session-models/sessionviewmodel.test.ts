@@ -375,6 +375,37 @@ describe("buildSessionViewModel — project label (launch default)", () => {
         const vm = buildSessionViewModel([input({ tabId: "t1", agent: "claude", cwd: "/src/X" })]);
         expect(vm.groups[0].sessions[0].cwd).toBe("/src/X");
     });
+    it("numbers repeated project-fallback labels in tab order", () => {
+        const vm = buildSessionViewModel([
+            input({ tabId: "t1", projectLabel: "demo", cwd: "/src/A" }),
+            input({ tabId: "t2", projectLabel: "other", cwd: "/src/B" }),
+            input({ tabId: "t3", projectLabel: "demo", cwd: "/src/B" }),
+            input({ tabId: "t4", projectLabel: "demo", cwd: "/src/A" }),
+        ]);
+        const labels = Object.fromEntries(flattenVisualOrder(vm).map((r) => [r.tabId, r.label]));
+        expect(labels).toEqual({ t1: "demo", t2: "other", t3: "demo 2", t4: "demo 3" });
+        expect(flattenVisualOrder(vm).every((r) => r.projectNamed)).toBe(true);
+    });
+    it("never numbers a titled or custom-labelled row", () => {
+        const vm = buildSessionViewModel([
+            input({ tabId: "t1", projectLabel: "demo", title: "Fix login" }),
+            input({ tabId: "t2", projectLabel: "demo", customLabel: "demo" }),
+            input({ tabId: "t3", projectLabel: "demo", title: "Fix login" }),
+            input({ tabId: "t4", projectLabel: "demo" }),
+        ]);
+        const rows = flattenVisualOrder(vm);
+        expect(rows.map((r) => r.label)).toEqual(["Fix login", "demo", "Fix login", "demo"]);
+        expect(rows.map((r) => r.projectNamed)).toEqual([false, false, false, true]);
+    });
+    it("a terminal with the same project label does not shift an agent's number", () => {
+        const vm = buildSessionViewModel([
+            input({ tabId: "term", agent: undefined, projectLabel: "demo" }),
+            input({ tabId: "t1", projectLabel: "demo" }),
+            input({ tabId: "t2", projectLabel: "demo" }),
+        ]);
+        expect(flattenVisualOrder(vm).map((r) => r.label)).toEqual(["demo", "demo", "demo 2"]);
+        expect(flattenVisualOrder(vm)[0].projectNamed).toBe(false);
+    });
 });
 
 describe("flattenVisualOrder", () => {

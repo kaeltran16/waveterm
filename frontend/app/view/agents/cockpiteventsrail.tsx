@@ -24,10 +24,12 @@ import type { AgentsViewModel } from "./agents";
 import { formatAgeShort, type AgentVM } from "./agentsviewmodel";
 import {
     agentTransitions,
+    fillAskedText,
     groupRailEvents,
     mergeRailEvents,
     RAIL_MAX,
     runRailEvents,
+    scopeRailRows,
     splitUnread,
     type AgentSnap,
     type RailEvent,
@@ -68,6 +70,36 @@ export function useRailTracking(agents: AgentVM[], lineage: Lineage): void {
             globalStore.set(agentEventsAtom, (prev) => mergeRailEvents([events, prev], RAIL_MAX));
         }
     }, [key]);
+    // an ask's question can land after the state change that recorded it
+    const questionsKey = plain
+        .filter((a) => a.state === "asking")
+        .map((a) => `${a.id}:${a.ask?.questions?.[0]?.question ?? ""}`)
+        .join("\n");
+    useEffect(() => {
+        globalStore.set(agentEventsAtom, (prev) => fillAskedText(prev, plain));
+    }, [key, questionsKey]);
+}
+
+// useRailRows is the rail's list: plain-agent and run events merged, narrowed to the project scope, and split
+// at the last "mark all read".
+export function useRailRows(
+    model: AgentsViewModel,
+    lineage: Lineage,
+    runEvents: Record<string, RunEvent[]>
+): { all: RailEvent[]; fresh: RailEvent[]; old: RailEvent[] } {
+    const agentEvents = useAtomValue(agentEventsAtom);
+    const seenTs = useAtomValue(seenTsAtom);
+    const agents = useAtomValue(model.agentsAtom);
+    const projectFilter = useAtomValue(model.projectFilterAtom);
+    const all = useMemo(() => {
+        const leadOf = (runId: string) =>
+            Object.entries(lineage.roles).find(([, r]) => r.kind === "lead" && r.runId === runId)?.[0];
+        const runLists = Object.values(lineage.runs).map((r) =>
+            runRailEvents(r, runEvents[r.runId] ?? [], leadOf(r.runId))
+        );
+        return scopeRailRows(mergeRailEvents([agentEvents, ...runLists]), agents, lineage, projectFilter);
+    }, [agentEvents, lineage, runEvents, agents, projectFilter]);
+    return { all, ...splitUnread(all, seenTs) };
 }
 
 export function CockpitEventsRail({
@@ -84,20 +116,10 @@ export function CockpitEventsRail({
     tags: Record<string, string>;
     onSelect: (id: string) => void;
 }) {
-    const now = useAtomValue(model.nowAtom);
-    const agentEvents = useAtomValue(agentEventsAtom);
-    const seenTs = useAtomValue(seenTsAtom);
-    const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
     // the 1s clock only moves the age labels; the list itself changes with the events
-    const all = useMemo(() => {
-        const leadOf = (runId: string) =>
-            Object.entries(lineage.roles).find(([, r]) => r.kind === "lead" && r.runId === runId)?.[0];
-        const runLists = Object.values(lineage.runs).map((r) =>
-            runRailEvents(r, runEvents[r.runId] ?? [], leadOf(r.runId))
-        );
-        return mergeRailEvents([agentEvents, ...runLists]);
-    }, [agentEvents, lineage, runEvents]);
-    const { fresh, old } = splitUnread(all, seenTs);
+    const now = useAtomValue(model.nowAtom);
+    const { all, fresh, old } = useRailRows(model, lineage, runEvents);
+    const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
     const row = (e: RailRow, isNew: boolean) => {
         const k = KIND[e.kind];
         const tag = e.group == null && e.focusId ? tags[e.focusId] : undefined;

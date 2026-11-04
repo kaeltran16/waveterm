@@ -5,14 +5,17 @@ import { describe, expect, it } from "vitest";
 import type { AgentVM } from "./agentsviewmodel";
 import {
     agentTransitions,
+    fillAskedText,
     finishes,
     groupRailEvents,
     mergeRailEvents,
     nextSnap,
     runRailEvents,
+    scopeRailRows,
     splitUnread,
+    type RailEvent,
 } from "./cockpitevents";
-import type { RunInfo } from "./runlineage";
+import type { Lineage, RunInfo } from "./runlineage";
 
 const a = (over: Partial<AgentVM>) =>
     ({ id: "x", name: "flaky-e2e", task: "fix flake", state: "working", ...over }) as AgentVM;
@@ -221,5 +224,72 @@ describe("groupRailEvents", () => {
     });
     it("offers nothing for a run with a single event", () => {
         expect(groupRailEvents([e("a", "R")], {})[0].more).toBeUndefined();
+    });
+});
+
+describe("fillAskedText", () => {
+    const asked = (over: Partial<RailEvent> = {}): RailEvent => ({
+        key: "x:asked:90",
+        focusId: "x",
+        who: "flaky-e2e",
+        kind: "asked",
+        text: "",
+        ts: 90,
+        ...over,
+    });
+    const askingNow = a({ state: "asking", ask: { questions: [{ question: "retry or wait?" }] } });
+    it("fills an empty asked event once its agent's question arrives", () => {
+        expect(fillAskedText([asked()], [askingNow])).toEqual([asked({ text: "retry or wait?" })]);
+    });
+    it("leaves an asked event that already has its question", () => {
+        const events = [asked({ text: "deploy now?" })];
+        expect(fillAskedText(events, [askingNow])).toBe(events);
+    });
+    it("leaves an asked event whose agent stopped asking", () => {
+        const events = [asked()];
+        expect(fillAskedText(events, [a({ state: "working" })])).toBe(events);
+    });
+    it("leaves an earlier ask when the agent has a newer event", () => {
+        const events = [{ ...asked(), key: "x:answered:95", kind: "answered" as const, ts: 95 }, asked()];
+        expect(fillAskedText(events, [askingNow])).toBe(events);
+    });
+    it("returns the same array when the question has not arrived", () => {
+        const events = [asked()];
+        expect(fillAskedText(events, [a({ state: "asking" })])).toBe(events);
+    });
+});
+
+describe("scopeRailRows", () => {
+    const agents = [
+        a({ id: "p1", project: "payments" }),
+        a({ id: "w1", project: "web" }),
+        a({ id: "lead", project: "payments" }),
+    ];
+    const lineage: Lineage = {
+        roles: { lead: { kind: "lead", runId: "R" } },
+        runs: {},
+    };
+    const ev = (key: string, over: Partial<RailEvent>): RailEvent => ({
+        key,
+        who: key,
+        kind: "finished",
+        text: "",
+        ts: 0,
+        ...over,
+    });
+    const rows = [
+        ev("p", { focusId: "p1" }),
+        ev("w", { focusId: "w1" }),
+        ev("run", { focusId: "lead", group: "R" }),
+        ev("gone", { focusId: "closed" }),
+    ];
+    it("keeps every row with no scope", () => {
+        expect(scopeRailRows(rows, agents, lineage, "all")).toBe(rows);
+    });
+    it("keeps an agent's row in its project's scope and drops it from another", () => {
+        expect(scopeRailRows(rows, agents, lineage, "web").map((r) => r.key)).toEqual(["w"]);
+    });
+    it("scopes a run's row by its lead's project", () => {
+        expect(scopeRailRows(rows, agents, lineage, "payments").map((r) => r.key)).toEqual(["p", "run"]);
     });
 });

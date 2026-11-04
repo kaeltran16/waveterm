@@ -9,6 +9,7 @@ import {
     CARD_MIN_PX,
     cardMatchesChip,
     cardShare,
+    chipCounts,
     columnJump,
     columnNavIds,
     isBackgroundedRun,
@@ -16,6 +17,7 @@ import {
     splitGridColumns,
     toggleChip,
     withActiveRunLeads,
+    type GridCard,
 } from "./cardgridlayout";
 import type { Lineage, RunInfo } from "./runlineage";
 
@@ -139,6 +141,45 @@ describe("cardMatchesChip", () => {
         expect(cardMatchesChip(run("running"), "idle", false)).toBe(false);
         expect(cardMatchesChip(run("done"), "idle", false)).toBe(true);
         expect(cardMatchesChip(run("cancelled"), "idle", false)).toBe(true);
+    });
+    it("puts a standing-by agent under working, not ready for review", () => {
+        const card = { kind: "agent", id: "a", agent: vm("a", "idle") } as const;
+        expect(cardMatchesChip(card, "working", false, true)).toBe(true);
+        expect(cardMatchesChip(card, "idle", false, true)).toBe(false);
+    });
+    it("keeps a booting agent out of working", () => {
+        const card = { kind: "agent", id: "a", agent: { ...vm("a"), booting: true } } as const;
+        expect(cardMatchesChip(card, "working", false)).toBe(false);
+        expect(cardMatchesChip(card, "all", false)).toBe(true);
+    });
+    it("puts a plain agent under need you when it needs you", () => {
+        const card = { kind: "agent", id: "a", agent: vm("a", "asking") } as const;
+        expect(cardMatchesChip(card, "asking", true)).toBe(true);
+        expect(cardMatchesChip(card, "asking", false)).toBe(false);
+    });
+});
+
+describe("chipCounts", () => {
+    it("counts cards per tab, a run as one card", () => {
+        const cards: GridCard[] = [
+            { kind: "agent", id: "ask", agent: vm("ask", "asking") },
+            { kind: "agent", id: "work", agent: vm("work") },
+            { kind: "agent", id: "boot", agent: { ...vm("boot"), booting: true } },
+            { kind: "agent", id: "stand", agent: vm("stand", "idle") },
+            { kind: "agent", id: "done", agent: vm("done", "idle") },
+            {
+                kind: "run",
+                id: "L",
+                run: { ...R, dag: { status: "running" } as RunInfo["dag"] },
+                lead: vm("L", "idle"),
+            },
+        ];
+        const counts = chipCounts(
+            cards,
+            (c) => c.id === "ask",
+            (c) => c.id === "stand"
+        );
+        expect(counts).toEqual({ asking: 1, working: 3, idle: 1, all: 6 });
     });
 });
 

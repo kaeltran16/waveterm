@@ -30,12 +30,12 @@ export function HintsBar({
         ["↑↓ / j k", "move"],
         ["← → / h l", "column"],
         ["⏎", "open"],
-        ["esc", "back"],
         ["1–9", "answer"],
         ["r", "reply"],
         ["t", "terminal"],
         ["b", "background"],
         ["n", "next ask"],
+        ["space", "peek"],
         ["[ ]", "switch surface"],
         ["g", "go"],
         [formatChordString("Ctrl:p"), "palette"],
@@ -46,23 +46,33 @@ export function HintsBar({
             data-cockpit-hints=""
             className="flex shrink-0 items-center gap-4 border-t border-border bg-background px-[18px] py-1.5 text-[11px] text-muted"
         >
-            {ready &&
-                HINTS.map(([k, d]) => (
-                    <span key={k} className="flex items-center gap-1">
-                        <span className="rounded-[4px] bg-edge-mid px-1.5 py-0.5 font-mono text-secondary">{k}</span>
-                        {d}
-                    </span>
-                ))}
+            {/* one line: hints that don't fit wrap onto a clipped second line, so they drop whole from the end */}
+            {ready ? (
+                <div
+                    data-cockpit-hints-row=""
+                    className="flex h-5 min-w-0 flex-1 flex-wrap items-center gap-x-4 overflow-hidden"
+                >
+                    {HINTS.map(([k, d]) => (
+                        <span key={k} className="flex h-5 shrink-0 items-center gap-1">
+                            <span className="rounded-[4px] bg-edge-mid px-1.5 py-0.5 font-mono leading-4 text-secondary">
+                                {k}
+                            </span>
+                            {d}
+                        </span>
+                    ))}
+                </div>
+            ) : null}
             {ready ? (
                 <button
                     type="button"
+                    data-cockpit-help=""
                     onClick={onOpenHelp}
-                    className="ml-auto cursor-pointer font-mono hover:text-secondary"
+                    className="shrink-0 cursor-pointer font-mono hover:text-secondary"
                 >
                     ?
                 </button>
             ) : null}
-            <div className={cn("flex items-center gap-2", !ready && "ml-auto")}>
+            <div className={cn("flex shrink-0 items-center gap-2", !ready && "ml-auto")}>
                 <RemoteReadout model={model} />
                 <ResMonReadout />
             </div>

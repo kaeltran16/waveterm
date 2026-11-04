@@ -8,6 +8,7 @@ import {
     buildCommandItems,
     buildExtraItems,
     buildThemeItems,
+    cheatsheetGroupOrder,
     commandGroups,
     postCloseContext,
     startDefs,
@@ -162,6 +163,19 @@ describe("commandGroups", () => {
     it("lists groups outside the fixed order alphabetically", () => {
         const groups = commandGroups([row("Zeta"), row("Global"), row("Alpha"), row("Mid")], "usage");
         expect(groups.map((g) => g.label)).toEqual(["Global", "Alpha", "Mid", "Zeta"]);
+    });
+});
+
+describe("cheatsheetGroupOrder", () => {
+    const groups = ["Global", "Agent", "Diff", "Cockpit", "Navigation"];
+    it("puts the Cockpit group first on the cockpit", () => {
+        expect(cheatsheetGroupOrder(groups, "cockpit")).toEqual(["Cockpit", "Agent", "Diff", "Global", "Navigation"]);
+    });
+    it("maps a surface key to its group name: files leads with Diff", () => {
+        expect(cheatsheetGroupOrder(groups, "files")).toEqual(["Diff", "Agent", "Cockpit", "Global", "Navigation"]);
+    });
+    it("sorts alphabetically on a surface with no group of its own", () => {
+        expect(cheatsheetGroupOrder(groups, "usage")).toEqual(["Agent", "Cockpit", "Diff", "Global", "Navigation"]);
     });
 });
 

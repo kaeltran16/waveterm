@@ -25,14 +25,16 @@ import {
     X,
 } from "lucide-react";
 import { motion } from "motion/react";
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { confirmCloseSession, driveAgent, NUDGE_INPUT } from "./agentactions";
 import { AgentComposer, type AgentComposerHandle } from "./agentcomposer";
 import {
     agentRowMenuItems,
+    askScrollTop,
     clampQuestionIndex,
     entriesToShow,
     muteMode,
+    muteTitle,
     subagentsLabel,
     tasksLabel,
     type AgentRowMenuItem,
@@ -49,9 +51,10 @@ import {
 } from "./agentsviewmodel";
 import { AnswerBar, DocReviewSummary } from "./answerbar";
 import { AttentionBanner, BannerChip } from "./attentioncard";
-import { diffStatsByIdAtom } from "./cardgitstore";
+import { cardCwdByIdAtom, diffStatsByIdAtom, sharedCheckoutCount } from "./cardgitstore";
 import type { CardShare } from "./cardgridlayout";
 import { finishes, nextSnap, type AgentSnap } from "./cockpitevents";
+import { cardBody } from "./cockpitsurfacemodel";
 import { CommitTick, useCommitDone } from "./committick";
 import { parseDocReview } from "./docreview";
 import { entriesAtomFor, tasksAtomFor } from "./livetranscriptatoms";
@@ -71,6 +74,20 @@ const CTL_BOX =
 // the header's count chips (subagents, tasks, diff); each adds its own hover
 const CHIP =
     "flex h-5 shrink-0 cursor-pointer items-center gap-1 rounded-[5px] border border-edge-mid px-[7px] font-mono text-[10.5px] font-semibold text-ink-mid";
+
+// below this card width the header's chips would crowd the name out, so they drop to their count (the card is the
+// @container). the label leads with the count, so only its noun hides and the chip's text stays the label.
+const WIDE_ONLY = "@max-[420px]:hidden";
+
+function ChipCount({ n, label }: { n: number; label: string }) {
+    const count = String(n);
+    return (
+        <>
+            {count}
+            <span className={WIDE_ONLY}>{label.slice(count.length)}</span>
+        </>
+    );
+}
 
 const SUB_COLOR: Record<SubagentState, string> = {
     working: "var(--color-accent)",
@@ -181,9 +198,10 @@ function FanoutBadge({ subs, onOpen }: { subs: SubagentVM[]; onOpen: () => void 
                     e.stopPropagation();
                     onOpen();
                 }}
+                title={subagentsLabel(subs.length)}
                 className={cn(CHIP, "hover:border-accent hover:text-accent-soft")}
             >
-                {subagentsLabel(subs.length)}
+                <ChipCount n={subs.length} label={subagentsLabel(subs.length)} />
             </button>
             <PopoverReveal
                 open={peek}
@@ -221,7 +239,7 @@ function ShellTasksBadge({ tasks }: { tasks: ShellTask[] }) {
     return (
         <div className="relative shrink-0" onMouseEnter={() => setPeek(true)} onMouseLeave={() => setPeek(false)}>
             <span data-shell-tasks-chip className={cn(CHIP, "hover:border-edge-strong hover:text-accent-soft")}>
-                {shellTasksLabel(tasks)}
+                <ChipCount n={tasks.length} label={shellTasksLabel(tasks)} />
             </span>
             <PopoverReveal
                 open={peek}
@@ -317,6 +335,25 @@ export const AgentRow = memo(function AgentRow({
         }
     }, [composerOpen]);
     const asking = agent.state === "asking";
+    // an ask that arrives (or is there at mount) brings its first option into view: the region sticks to its
+    // bottom, which in a short card leaves the options above it. measured against where the pin lands, not the
+    // scrollTop now, since the pin for this same render may still be pending; onScroll then releases the stick so
+    // that pin and later resizes leave it. entries too: a transcript that loads after mount re-pins a still-stuck
+    // region, while one the user scrolled stays where they left it
+    const answerRef = useRef<HTMLDivElement>(null);
+    const askId = asking ? agent.ask?.askId : undefined;
+    useLayoutEffect(() => {
+        const el = scrollRef.current;
+        const band = answerRef.current;
+        if (askId == null || el == null || band == null || !atBottom) {
+            return;
+        }
+        const top = askScrollTop(band.offsetTop - el.offsetTop, el.scrollHeight - el.clientHeight);
+        if (top != null) {
+            el.scrollTop = top;
+            onScroll();
+        }
+    }, [askId, entries]);
     const working = agent.state === "working";
     const idle = agent.state === "idle";
     const hasQuestions = hasAnswerableAsk(agent);
@@ -325,6 +362,9 @@ export const AgentRow = memo(function AgentRow({
     const question = qs[qIdx]?.question;
     const review = parseDocReview(agent.ask);
     const diff = useAtomValue(diffStatsByIdAtom)[agent.id];
+    // the git numbers are the checkout's, so a checkout shared with other cards is charged to none of them alone
+    const sharedBy = sharedCheckoutCount(agent.id, useAtomValue(cardCwdByIdAtom));
+    const body = cardBody(agent, liveEntries.length > 0);
     const subs = useAtomValue(subagentsByIdAtom)[agent.id] ?? [];
     const shellTasks = useAtomValue(shellTasksByIdAtom)[agent.id] ?? [];
     const standingBy = isStandingBy(agent.state, shellTasks);
@@ -334,7 +374,8 @@ export const AgentRow = memo(function AgentRow({
     const tasks = useAtomValue(tasksAtomFor(agent.id));
     const prog = tasks && tasks.length > 0 ? taskProgress(tasks) : undefined;
     const showComposer = composerOpen;
-    const muteAction = muteMode(agent.state) === "dismiss" ? onDismiss : onBackground;
+    const mute = muteMode(agent.state);
+    const muteAction = mute === "dismiss" ? onDismiss : onBackground;
     const onContextMenu = (e: React.MouseEvent) => {
         const icons: Record<string, React.ReactNode> = {
             open: <PanelRight size={15} />,
@@ -352,7 +393,7 @@ export const AgentRow = memo(function AgentRow({
             copy: () => void navigator.clipboard.writeText(agent.name),
             close: () => confirmCloseSession(agent),
         };
-        const items: ContextMenuItem[] = agentRowMenuItems({ hasDiff: !!diff, hasMute: !!muteAction }).map(
+        const items: ContextMenuItem[] = agentRowMenuItems({ hasDiff: !!diff, mute: muteAction ? mute : null }).map(
             (it: AgentRowMenuItem) =>
                 "separator" in it
                     ? { type: "separator" }
@@ -392,25 +433,25 @@ export const AgentRow = memo(function AgentRow({
             onClick={onCursor}
             onContextMenu={onContextMenu}
             className={cn(
-                // card fills its flex share; overflow clipped
-                "group relative flex cursor-pointer flex-col overflow-hidden rounded-[13px] border",
-                asking
-                    ? "border-warning/40 bg-lane pulse-glow"
-                    : "border-edge-mid bg-lane",
+                // card fills its flex share; overflow clipped. @container: the header's chips size to the card
+                "@container group relative flex cursor-pointer flex-col overflow-hidden rounded-[13px] border",
+                asking ? "border-warning/40 bg-lane pulse-glow" : "border-edge-mid bg-lane",
                 isCursor &&
                     (asking ? "shadow-[0_0_0_1.5px_var(--color-warning)]" : "shadow-[0_0_0_1.5px_var(--color-accent)]"),
                 pulse && "ring-2 ring-warning ring-inset",
                 justFinished && "animate-[settle_0.5s_ease-out] motion-reduce:animate-none"
             )}
         >
-            {/* header bar */}
-            <div className="flex shrink-0 items-center gap-2 border-b border-edge-mid bg-surface px-3 py-1.5">
+            {/* header bar. the name has priority: a narrow card drops the project chip and tightens the gaps, and
+                the status line clips rather than spill under the chips */}
+            <div className="flex shrink-0 items-center gap-2 border-b border-edge-mid bg-surface px-3 py-1.5 @max-[420px]:gap-1.5">
                 <StatusLine
                     agent={agent}
                     nowAtom={nowAtom}
                     mark={runDone || commitDone ? <CommitTick runDone={runDone} /> : undefined}
                     standing={standingBy}
-                    className="min-w-0 flex-1"
+                    className="min-w-0 flex-1 overflow-hidden"
+                    projectClassName={WIDE_ONLY}
                 />
                 {subs.length > 0 ? <FanoutBadge subs={subs} onOpen={onOpen} /> : null}
                 {shellTasks.length > 0 ? <ShellTasksBadge tasks={shellTasks} /> : null}
@@ -421,9 +462,15 @@ export const AgentRow = memo(function AgentRow({
                             e.stopPropagation();
                             onOpenDiff();
                         }}
-                        title="Review changes in Diff"
+                        title={
+                            sharedBy > 1
+                                ? `All changes in this checkout, shared by ${sharedBy} agents`
+                                : "Review changes in Diff"
+                        }
+                        data-diff-chip={sharedBy > 1 ? "repo" : "agent"}
                         className={cn(CHIP, "hover:border-accent hover:bg-accent/10")}
                     >
+                        {sharedBy > 1 ? <span className="font-normal text-muted">repo</span> : null}
                         <span className="text-diff-added">+{diff.adds}</span>
                         <span className="text-diff-removed">−{diff.dels}</span>
                     </button>
@@ -446,7 +493,7 @@ export const AgentRow = memo(function AgentRow({
                             e.stopPropagation();
                             muteAction();
                         }}
-                        title={idle ? "Move to background" : "Move to background (B)"}
+                        title={muteTitle(mute)}
                         className={CTL_BOX}
                     >
                         {/* down-chevron into a tray line: collapse this card into the background lane */}
@@ -591,54 +638,85 @@ export const AgentRow = memo(function AgentRow({
                     onScroll={onScroll}
                     className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden"
                 >
-                    {/* feed */}
-                    <div className="shrink-0 grow px-3 py-1.5">
-                        {working ? (
-                            <ActivityLine
-                                agent={agent}
-                                nowAtom={nowAtom}
-                                className="mb-1.5 border-b border-edge-mid pb-1.5"
-                                onNudge={() => driveAgent(agent.blockId, NUDGE_INPUT)}
-                                right={
-                                    prog ? (
-                                        <TaskChip
-                                            done={prog.done}
-                                            total={prog.total}
-                                            onClick={() => setTasksOpen((v) => !v)}
-                                        />
-                                    ) : null
-                                }
-                            />
-                        ) : null}
-                        {entries.length > 0 ? (
-                            <NarrationTimeline entries={entries} accentLatest active={!idle} />
-                        ) : null}
-                    </div>
+                    {/* feed, or for an agent with nothing to show yet (booting, or stopped at a trust prompt) a
+                        pointer to its terminal; a booting one keeps its "starting" line above it */}
+                    {body === "waiting" ? (
+                        <div className="shrink-0 grow px-3 py-1.5">
+                            {agent.booting ? (
+                                <ActivityLine
+                                    agent={agent}
+                                    nowAtom={nowAtom}
+                                    className="mb-1.5 border-b border-edge-mid pb-1.5"
+                                    onNudge={() => driveAgent(agent.blockId, NUDGE_INPUT)}
+                                />
+                            ) : null}
+                            <div data-card-waiting className="flex items-center gap-2">
+                                <span className="min-w-0 flex-1 truncate text-[12px] text-muted">
+                                    Waiting in its terminal
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onOpenTerminal();
+                                    }}
+                                    title="Open terminal"
+                                    className={CTL_BOX}
+                                >
+                                    <SquareTerminal size={13} aria-hidden />
+                                </button>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="shrink-0 grow px-3 py-1.5">
+                            {working ? (
+                                <ActivityLine
+                                    agent={agent}
+                                    nowAtom={nowAtom}
+                                    className="mb-1.5 border-b border-edge-mid pb-1.5"
+                                    onNudge={() => driveAgent(agent.blockId, NUDGE_INPUT)}
+                                    right={
+                                        prog ? (
+                                            <TaskChip
+                                                done={prog.done}
+                                                total={prog.total}
+                                                onClick={() => setTasksOpen((v) => !v)}
+                                            />
+                                        ) : null
+                                    }
+                                />
+                            ) : null}
+                            {entries.length > 0 ? (
+                                <NarrationTimeline entries={entries} accentLatest active={!idle} />
+                            ) : null}
+                        </div>
+                    )}
 
                     {/* structured answer band */}
                     {asking && hasQuestions ? (
-                        <AnswerBar
-                            agent={agent}
-                            selections={selections}
-                            texts={texts}
-                            sent={sent}
-                            numbered
-                            hideQuestion
-                            activeQuestion={activeQuestion}
-                            onToggle={onToggleAnswer}
-                            onText={onAnswerText}
-                            onSubmit={onSubmitAnswer}
-                            onSelectQuestion={onSelectQuestion}
-                            onDismiss={
-                                agent.ask?.oref
-                                    ? () =>
-                                          fireAndForget(() =>
-                                              RpcApi.AgentAskClearCommand(TabRpcClient, agent.ask!.oref!)
-                                          )
-                                    : undefined
-                            }
-                            className="shrink-0 border-t border-edge-mid px-3 py-2"
-                        />
+                        <div ref={answerRef} className="shrink-0 border-t border-edge-mid px-3 py-2">
+                            <AnswerBar
+                                agent={agent}
+                                selections={selections}
+                                texts={texts}
+                                sent={sent}
+                                numbered
+                                hideQuestion
+                                activeQuestion={activeQuestion}
+                                onToggle={onToggleAnswer}
+                                onText={onAnswerText}
+                                onSubmit={onSubmitAnswer}
+                                onSelectQuestion={onSelectQuestion}
+                                onDismiss={
+                                    agent.ask?.oref
+                                        ? () =>
+                                              fireAndForget(() =>
+                                                  RpcApi.AgentAskClearCommand(TabRpcClient, agent.ask!.oref!)
+                                              )
+                                        : undefined
+                                }
+                            />
+                        </div>
                     ) : null}
 
                     {/* footer: the composer collapses to a slim "+ message… R" row by default and expands

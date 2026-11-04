@@ -115,6 +115,7 @@ export interface AgentVM {
     atPrompt?: boolean; // the raw status was waiting or idle, whatever state it folds to: a lead between wakes
     runDone?: boolean; // its own quick run is done, so at its prompt it is finished rather than idle
     pinned?: boolean; // session:pinned on the tab: the Agent tree lists it first in its project
+    booting?: boolean; // a pending launch with no roster row yet: live, but not working
     startError?: string; // its controller refused to start: it reads idle, not booting, with this reason
 }
 
@@ -652,10 +653,10 @@ export function applyAgentOrder(order: string[], agents: AgentVM[]): AgentVM[] {
         .filter(Boolean) as AgentVM[];
 }
 
-/** Pure: split working-state agents into the active set (rendered in the working region) and the
- *  backgrounded set (collapsed lane). An id in `backgroundedIds` goes to backgrounded; order within
- *  each is preserved. Asking agents are never passed here (they live in the asks region), so a
- *  backgrounded agent that starts asking naturally re-surfaces. */
+/** Pure: split the grid's agents into the active set (rendered on the grid) and the backgrounded set
+ *  (collapsed lane). An id in `backgroundedIds` goes to backgrounded; order within each is preserved.
+ *  Asking and just-finished agents are passed in too: it is pruning the set (prunedBackgrounded), not
+ *  this split, that resurfaces a backgrounded agent once it stops working. */
 export function partitionBackgrounded(
     working: AgentVM[],
     backgroundedIds: Set<string>
@@ -960,8 +961,15 @@ export function matchesProjectFilter(agent: AgentVM, filter: string): boolean {
 
 /** Pure: apply the project scope + live-only (hide idle) filters, preserving input order. The chip
  *  filter is applied separately by the caller so the live-section counts can ignore it. */
-export function filterAgents(agents: AgentVM[], projectFilter: string, liveOnly: boolean): AgentVM[] {
-    return agents.filter((a) => matchesProjectFilter(a, projectFilter) && (!liveOnly || a.state !== "idle"));
+export function filterAgents(
+    agents: AgentVM[],
+    projectFilter: string,
+    liveOnly: boolean,
+    standingBy: Set<string> = new Set()
+): AgentVM[] {
+    // an agent standing by (idle with a running shell task) is still live
+    const live = (a: AgentVM) => a.state !== "idle" || standingBy.has(a.id);
+    return agents.filter((a) => matchesProjectFilter(a, projectFilter) && (!liveOnly || live(a)));
 }
 
 // --- card data types --------------------------------------------------------
@@ -1011,6 +1019,7 @@ export function pendingToVM(p: PendingLaunch, now: number): AgentVM {
         project: p.project,
         blockId: p.blockId,
         activeMs: Math.max(0, now - p.ts),
+        booting: true,
     };
 }
 
@@ -1019,7 +1028,7 @@ export function withStartError(agent: AgentVM, err: string | undefined): AgentVM
     if (!err) {
         return agent;
     }
-    return { ...agent, state: "idle", startError: err };
+    return { ...agent, state: "idle", booting: false, startError: err };
 }
 
 /** Pure: overlay booting launches onto the base roster. A pending entry whose tabId already exists in

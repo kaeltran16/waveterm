@@ -2,16 +2,22 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import type { AgentVM } from "./agentsviewmodel";
+import { applyAgentOrder, mergeOrder, type AgentVM } from "./agentsviewmodel";
 import {
+    cardBody,
     cardHasContent,
+    cockpitCounts,
     dismissKey,
-    hiddenAgentIds,
+    gridNotice,
+    orderIds,
+    plural,
+    prunedBackgrounded,
+    railSelectTarget,
     rosterLoadPhase,
     splitRecentlyIdle,
     toggleInSet,
 } from "./cockpitsurfacemodel";
-import { NO_LINEAGE, type Lineage } from "./runlineage";
+import type { Lineage } from "./runlineage";
 import type { ShellTask } from "./shelltasks";
 
 function agent(over: Partial<AgentVM>): AgentVM {
@@ -116,24 +122,143 @@ describe("cardHasContent", () => {
     });
 });
 
-describe("hiddenAgentIds", () => {
-    it("hides a plain agent with nothing to show and keeps one with entries", () => {
-        const roster = [agent({ id: "empty" }), agent({ id: "talking", state: "idle" })];
-        expect([...hiddenAgentIds(roster, new Set(["talking"]), NO_LINEAGE)]).toEqual(["empty"]);
+describe("cardBody", () => {
+    it("is waiting for a booting agent, even with entries", () => {
+        expect(cardBody(agent({ booting: true }), true)).toBe("waiting");
     });
-    it("never hides a run's lead or worker, whose rows live on the run card", () => {
-        const lineage: Lineage = {
-            roles: {
-                lead: { kind: "lead", runId: "r1" },
-                worker: { kind: "worker", leadRunId: "r1", taskId: "1" },
-            },
-            runs: { r1: { runId: "r1", channelId: "c1", title: "run", project: "p" } },
-        };
-        const roster = [agent({ id: "lead" }), agent({ id: "worker" })];
-        expect(hiddenAgentIds(roster, new Set(), lineage).size).toBe(0);
+    it("is waiting when there are no entries and no ask", () => {
+        expect(cardBody(agent({ state: "idle" }), false)).toBe("waiting");
     });
-    it("hides an agent whose run is not in the lineage, as the grid shows it as a plain card", () => {
-        const lineage: Lineage = { roles: { orphan: { kind: "worker", leadRunId: "gone", taskId: "1" } }, runs: {} };
-        expect([...hiddenAgentIds([agent({ id: "orphan" })], new Set(), lineage)]).toEqual(["orphan"]);
+    it("is feed for an asking agent", () => {
+        expect(cardBody(agent({ state: "asking" }), false)).toBe("feed");
+    });
+    it("is feed once there are entries", () => {
+        expect(cardBody(agent({ state: "idle" }), true)).toBe("feed");
+    });
+});
+
+describe("cockpitCounts", () => {
+    const roster = [
+        agent({ id: "a", project: "demo", state: "asking" }),
+        agent({ id: "b", project: "demo", state: "idle" }),
+        agent({ id: "c", project: "other" }),
+    ];
+    const asking = (a: AgentVM) => a.state === "asking";
+    it("counts the whole roster unscoped", () => {
+        expect(cockpitCounts(roster, "all", asking)).toEqual({ agents: 3, projects: 2, needsYou: 1 });
+    });
+    it("counts only the scoped project", () => {
+        expect(cockpitCounts(roster, "other", asking)).toEqual({ agents: 1, projects: 1, needsYou: 0 });
+    });
+    it("counts an agent with no transcript", () => {
+        expect(cockpitCounts([agent({ id: "boot", project: "demo", booting: true })], "all", asking).agents).toBe(1);
+    });
+});
+
+describe("gridNotice", () => {
+    const base = {
+        seeded: true,
+        rosterCount: 2,
+        scopedCount: 2,
+        shownCards: 0,
+        parked: 0,
+        backgrounded: 0,
+        projectFilter: "all",
+    };
+    it("is loading before the roster is read", () => {
+        expect(gridNotice({ ...base, seeded: false, rosterCount: 0, scopedCount: 0 }).kind).toBe("loading");
+    });
+    it("is the empty roster once read with no agents", () => {
+        expect(gridNotice({ ...base, rosterCount: 0, scopedCount: 0 }).kind).toBe("empty-roster");
+    });
+    it("names a scope with no agents", () => {
+        expect(gridNotice({ ...base, scopedCount: 0, projectFilter: "demo" })).toEqual({
+            kind: "empty-scope",
+            project: "demo",
+        });
+    });
+    it("counts the parked agents when all are parked", () => {
+        expect(gridNotice({ ...base, parked: 2 })).toEqual({ kind: "nothing-live", idle: 2, backgrounded: 0 });
+    });
+    it("counts the backgrounded agents when all are backgrounded", () => {
+        expect(gridNotice({ ...base, backgrounded: 2 })).toEqual({ kind: "nothing-live", idle: 0, backgrounded: 2 });
+    });
+    it("is none while cards show", () => {
+        expect(gridNotice({ ...base, shownCards: 1, parked: 1 }).kind).toBe("none");
+    });
+});
+
+describe("plural", () => {
+    it("is singular for one and plural otherwise", () => {
+        expect(plural(1, "agent")).toBe("1 agent");
+        expect(plural(0, "agent")).toBe("0 agents");
+        expect(plural(2, "project")).toBe("2 projects");
+    });
+});
+
+describe("prunedBackgrounded", () => {
+    const noLineage: Lineage = { roles: {}, runs: {} };
+    it("drops an agent that finished", () => {
+        const next = prunedBackgrounded(new Set(["t1"]), [agent({ id: "t1", state: "idle" })], noLineage);
+        expect([...next]).toEqual([]);
+    });
+    it("drops an agent that is asking", () => {
+        const next = prunedBackgrounded(new Set(["t1"]), [agent({ id: "t1", state: "asking" })], noLineage);
+        expect([...next]).toEqual([]);
+    });
+    it("drops a just-finished agent added to the set after it stopped working", () => {
+        // the b key or the context menu can add a recently-idle card's id; the next prune must drop it
+        const added = new Set(["t1", "w"]);
+        const roster = [agent({ id: "t1", state: "idle" }), agent({ id: "w", state: "working" })];
+        expect([...prunedBackgrounded(added, roster, noLineage)]).toEqual(["w"]);
+    });
+    it("drops a booting agent", () => {
+        const next = prunedBackgrounded(new Set(["t1"]), [agent({ id: "t1", booting: true })], noLineage);
+        expect([...next]).toEqual([]);
+    });
+    it("drops an agent that left the roster", () => {
+        expect([...prunedBackgrounded(new Set(["gone"]), [], noLineage)]).toEqual([]);
+    });
+    it("keeps a run lead's id", () => {
+        const lineage: Lineage = { roles: { lead: { kind: "lead", runId: "r1" } }, runs: {} };
+        const ids = new Set(["lead"]);
+        const next = prunedBackgrounded(ids, [agent({ id: "lead", state: "idle" })], lineage);
+        expect([...next]).toEqual(["lead"]);
+    });
+    it("returns the same set when unchanged", () => {
+        const ids = new Set(["t1"]);
+        expect(prunedBackgrounded(ids, [agent({ id: "t1", state: "working" })], noLineage)).toBe(ids);
+    });
+});
+
+describe("railSelectTarget", () => {
+    const where = {
+        onGrid: new Set(["g"]),
+        backgrounded: new Set(["b"]),
+        parked: new Set(["p"]),
+    };
+    it("cursors a card on the grid", () => {
+        expect(railSelectTarget("g", where)).toBe("grid");
+    });
+    it("restores a backgrounded agent", () => {
+        expect(railSelectTarget("b", where)).toBe("restore");
+    });
+    it("opens a parked idle agent's terminal", () => {
+        expect(railSelectTarget("p", where)).toBe("terminal");
+    });
+    it("opens anything else in the Agent surface", () => {
+        expect(railSelectTarget("x", where)).toBe("agent");
+    });
+});
+
+describe("orderIds", () => {
+    it("orderIds keeps a backgrounded id's slot", () => {
+        const order = mergeOrder(
+            ["a", "b", "c"],
+            orderIds([agent({ id: "a" }), agent({ id: "c" })], [agent({ id: "b" })])
+        );
+        expect(order).toEqual(["a", "b", "c"]);
+        const restored = applyAgentOrder(order, [agent({ id: "a" }), agent({ id: "c" }), agent({ id: "b" })]);
+        expect(restored.map((a) => a.id)).toEqual(["a", "b", "c"]);
     });
 });

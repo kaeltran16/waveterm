@@ -3,7 +3,7 @@
 //
 // Impure side of a channel message: turns typed text into the right verb-command(s). dispatch ->
 // launchAgent (a new worker) + a "dispatch" message; consult -> a streamed one-shot review; steer ->
-// ControllerInputCommand (inject into a live worker's PTY) + a "directive" message; post -> a "human"
+// sendAgentText (hand the text to a live worker's session) + a "directive" message; post -> a "human"
 // message. Every branch records a channel message so the timeline is the single source of truth (and a
 // manager can replay it). The one caller left is the command palette's fast-dispatch rows, which
 // synthesize the "@runtime goal" / "ask @runtime goal" transport strings themselves.
@@ -12,8 +12,8 @@ import { launchAgent } from "@/app/cockpit/cockpit-actions";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { stringToBase64 } from "@/util/util";
 import type { AgentsViewModel } from "./agents";
+import { sendAgentText } from "./agentsend";
 import type { AgentVM } from "./agentsviewmodel";
 import { planMessage, type RosterEntry } from "./channelmessages";
 import { consultStreamKey, consultStreamsAtom, setConsultStream } from "./channelsstore";
@@ -107,10 +107,7 @@ export async function sendChannelMessage(args: {
     }
     if (plan.kind === "steer") {
         if (plan.blockId) {
-            await RpcApi.ControllerInputCommand(TabRpcClient, {
-                blockid: plan.blockId,
-                inputdata64: stringToBase64(plan.text + "\r"),
-            });
+            await sendAgentText(plan.blockId, plan.text);
         }
         await post(channelId, "directive", "you", plan.text, `tab:${plan.targetId}`);
         return;
@@ -135,10 +132,7 @@ export async function steerWorker(args: {
     if (!worker?.blockId) {
         return false;
     }
-    await RpcApi.ControllerInputCommand(TabRpcClient, {
-        blockid: worker.blockId,
-        inputdata64: stringToBase64(text + "\r"),
-    });
+    await sendAgentText(worker.blockId, text);
     await post(channelId, "directive", "you", text, workerORef);
     return true;
 }

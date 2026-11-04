@@ -5,8 +5,11 @@ import { describe, expect, it } from "vitest";
 import {
     buildLaunchMeta,
     composeStartupCommand,
+    defaultLaunchProject,
     deriveBranch,
     isRuntimeOffered,
+    launchLanding,
+    numberedName,
     resumeArgsForClaude,
     resumeArgsForOpencode,
     resumeArgsForPi,
@@ -316,5 +319,45 @@ describe("isRuntimeOffered", () => {
     });
     it("offers everything while the catalog is empty", () => {
         expect(isRuntimeOffered("codex", [])).toBe(true);
+    });
+});
+
+describe("numberedName", () => {
+    it("keeps the base when nothing clashes", () => {
+        expect(numberedName("demo", ["other", "demo-x"])).toBe("demo");
+    });
+    it("numbers from 2 on one clash", () => {
+        expect(numberedName("demo", ["demo"])).toBe("demo 2");
+    });
+    it("fills the lowest free number in a gap", () => {
+        expect(numberedName("demo", ["demo", "demo 3"])).toBe("demo 2");
+        expect(numberedName("demo", ["demo", "demo 2", "demo 4"])).toBe("demo 3");
+    });
+});
+
+describe("launchLanding", () => {
+    it("stays on the Cockpit", () => {
+        expect(launchLanding("cockpit")).toBeNull();
+    });
+    it("lands on the Agent surface from anywhere else", () => {
+        expect(launchLanding("jarvis")).toBe("agent");
+        expect(launchLanding("agent")).toBe("agent");
+    });
+});
+
+describe("defaultLaunchProject", () => {
+    const candidates = [{ name: "recent" }, { name: "scoped" }];
+    it("keeps an explicit pick", () => {
+        expect(defaultLaunchProject("recent", candidates, "scoped")).toBe("recent");
+    });
+    it("preselects the Cockpit's scope when it is a candidate", () => {
+        expect(defaultLaunchProject("", candidates, "scoped")).toBe("scoped");
+    });
+    it("falls back to the most recent when the scope is not a candidate", () => {
+        expect(defaultLaunchProject("", candidates, "all")).toBe("recent");
+        expect(defaultLaunchProject("", candidates, "gone")).toBe("recent");
+    });
+    it("is empty with no candidates", () => {
+        expect(defaultLaunchProject("", [], "scoped")).toBe("");
     });
 });

@@ -2,10 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // The cockpit's "No agents running" empty state: the shared SurfaceEmptyState, so it matches every
-// other surface's empty state, laid over the grid.
+// other surface's empty state, laid over the grid. A grid empty for another reason gets the smaller
+// CockpitGridNotice instead.
 
+import { cardVariants } from "@/app/element/motiontokens";
 import { formatChordString } from "@/util/keysym";
 import { SquareTerminal } from "lucide-react";
+import { motion } from "motion/react";
+import type { GridNotice } from "./cockpitsurfacemodel";
 import { SurfaceEmptyState } from "./surfacescaffold";
 
 export function CockpitEmptyState({ onNewAgent }: { onNewAgent: () => void }) {
@@ -36,5 +40,25 @@ export function CockpitEmptyState({ onNewAgent }: { onNewAgent: () => void }) {
                 ),
             }}
         />
+    );
+}
+
+// the grid's own notice when the roster has agents but none of them is a card here
+export function CockpitGridNotice({ notice }: { notice: GridNotice }) {
+    const text =
+        notice.kind === "empty-scope"
+            ? `No agents in ${notice.project}`
+            : `Nothing live: ${notice.idle} idle, ${notice.backgrounded} backgrounded below`;
+    return (
+        <motion.div
+            data-cockpit-grid-notice={notice.kind}
+            variants={cardVariants}
+            initial="initial"
+            animate="animate"
+            exit="exit"
+            className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center px-[30px] text-center"
+        >
+            <span className="text-[14px] font-medium text-muted">{text}</span>
+        </motion.div>
     );
 }

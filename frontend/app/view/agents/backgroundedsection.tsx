@@ -2,15 +2,25 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { cardVariants } from "@/app/element/motiontokens";
+import { useAtomValue, type Atom } from "jotai";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
-import { formatAge, type AgentVM } from "./agentsviewmodel";
+import { displayAgeMs, formatAge, type AgentVM } from "./agentsviewmodel";
 import { SectionHeader } from "./sectionheader";
 
 // Collapsed lane for still-running agents the user has muted with `b`. Distinct from Idle (finished):
 // clicking a row un-backgrounds it (returns it to the working region) via onRestore.
-export function BackgroundedSection({ agents, onRestore }: { agents: AgentVM[]; onRestore: (id: string) => void }) {
+export function BackgroundedSection({
+    agents,
+    nowAtom,
+    onRestore,
+}: {
+    agents: AgentVM[];
+    nowAtom: Atom<number>;
+    onRestore: (id: string) => void;
+}) {
     const [open, setOpen] = useState(false);
+    const now = useAtomValue(nowAtom);
     if (agents.length === 0) {
         return null;
     }
@@ -49,7 +59,7 @@ export function BackgroundedSection({ agents, onRestore }: { agents: AgentVM[]; 
                                     {a.task || a.activity || ""}
                                 </span>
                                 <span className="ml-auto shrink-0 font-mono text-[10.5px] text-muted">
-                                    {formatAge(a.activeMs)}
+                                    {formatAge(displayAgeMs(a, now))}
                                 </span>
                             </motion.div>
                         ))}

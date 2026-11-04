@@ -183,6 +183,13 @@ import {
     uiApi,
     uiDrift,
 } from "./scenarios-cockpit.mjs";
+import { cockpitAskKeys } from "./scenarios-cockpit-asks.mjs";
+import { cockpitCardLayout } from "./scenarios-cockpit-card.mjs";
+import { cockpitComposerSend } from "./scenarios-cockpit-composer.mjs";
+import { cockpitLaunchStays } from "./scenarios-cockpit-launch.mjs";
+import { cockpitOffgrid } from "./scenarios-cockpit-offgrid.mjs";
+import { cockpitRailHelp } from "./scenarios-cockpit-rail.mjs";
+import { cockpitRosterCounts } from "./scenarios-cockpit-roster.mjs";
 import { SESSIONS_KIT } from "./scenarios-shared.mjs";
 
 
@@ -335,6 +342,13 @@ export const SCENARIOS = [
     runSheetCardsLook,
     codeStaleBarLook,
     uiDrift,
+    cockpitComposerSend,
+    cockpitAskKeys,
+    cockpitLaunchStays,
+    cockpitRosterCounts,
+    cockpitOffgrid,
+    cockpitCardLayout,
+    cockpitRailHelp,
     workflowScan,
     workflowScanEntry,
     jiraSettings,
