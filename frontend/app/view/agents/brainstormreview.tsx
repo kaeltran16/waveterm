@@ -486,7 +486,12 @@ export function AnsweredRail({ f, agent }: { f: BrainstormFile; agent?: AgentVM 
 }
 
 function answeredLine(questions: number, forYou: number, answered: number, calls: number): string {
-    const yours = answered === forYou ? `${forYou} for you, all answered` : `${forYou} for you, ${answered} answered`;
+    const yours =
+        forYou === 0
+            ? "none for you"
+            : answered === forYou
+              ? `${forYou} for you, all answered`
+              : `${forYou} for you, ${answered} answered`;
     const decided = calls > 0 ? `; the agent decided ${calls}, shown under their decisions` : "";
     return `It had ${questions} questions: ${yours}${decided}.`;
 }

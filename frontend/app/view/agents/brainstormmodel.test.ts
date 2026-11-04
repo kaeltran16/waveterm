@@ -443,6 +443,26 @@ describe("terminalAnswer", () => {
         expect(terminalAnswer(asking, 1200, working, 1000)).toBeNull();
     });
 
+    it("reads a turn after the judge delivered as taking in its result, not an answer", () => {
+        for (const state of ["answered", "failed"] as const) {
+            const agent = { ...working, brainstormJudge: { state, ts: 800 } };
+            const sent = terminalAnswer(asking, 500, agent, 1000);
+            expect(sent).toEqual({ at: 1000, modifiedMs: 500, kind: "judged" });
+            const shown = shownFile(asking, sent);
+            expect(shown.working).toBe("Taking in the judge’s result.");
+            expect(treeLine(shown, false).text).toBe("taking in the judge’s result");
+        }
+    });
+
+    it("still reads an answer when the judge's record predates the file or the judge was stopped", () => {
+        expect(
+            terminalAnswer(asking, 500, { ...working, brainstormJudge: { state: "answered", ts: 400 } }, 1000)?.kind
+        ).toBe("answer");
+        expect(
+            terminalAnswer(asking, 500, { ...working, brainstormJudge: { state: "stopped", ts: 800 } }, 1000)?.kind
+        ).toBe("answer");
+    });
+
     it("needs an open question, a working agent and both stamps", () => {
         expect(terminalAnswer(file(), 500, working, 1000)).toBeNull();
         expect(terminalAnswer(asking, 500, { state: "idle" }, 1000)).toBeNull();
@@ -639,6 +659,12 @@ describe("treeLine", () => {
         expect(treeLine(file({ check: { yours: [], calls: [], answered: [] } }), false).text).toBe("builder check");
         expect(treeLine(file({ working: "Writing" }), false).text).toBe("writing up your answer");
         expect(treeLine(file(), false)).toEqual({ text: "in progress" });
+    });
+
+    it("names the guesses still to confirm when nothing else is going on", () => {
+        const f = file({ parts: [part("a", "guess"), part("b", "guess"), part("c", "yours")] });
+        expect(treeLine(f, false)).toEqual({ text: "2 guesses to confirm" });
+        expect(treeLine(file({ parts: [part("a", "guess")] }), false).text).toBe("1 guess to confirm");
     });
 
     it("names the judge's wait, not an answer being written up", () => {
@@ -1644,7 +1670,7 @@ describe("checkReview", () => {
         expect(checkReview(kept).pending).toBe(7);
     });
 
-    it("counts a yours part an agent's call is under as changed, even untouched", () => {
+    it("counts a yours part an agent's call is under as changed, even untouched, and with no builder question answered names the check", () => {
         const f = file({
             parts: [part("a", "yours"), part("b", "yours")],
             check: { yours: [], calls: [{ text: "c", part: "b" }, { text: "loose" }], answered: [], touched: [] },
@@ -1653,7 +1679,7 @@ describe("checkReview", () => {
         expect(m.changed.map((r) => [r.id, r.view, r.action, r.calls])).toEqual([["b", "yours", null, ["c"]]]);
         expect(m.unchanged.map((p) => p.id)).toEqual(["a"]);
         expect(m.summary).toBe(
-            "Your answers to the builder changed 1 decision you had confirmed. The agent’s 1 call sits under the decision it belongs to."
+            "The check changed 1 decision you had confirmed. The agent’s 1 call sits under the decision it belongs to."
         );
     });
 

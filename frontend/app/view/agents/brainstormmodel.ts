@@ -385,8 +385,8 @@ export function canCheck(f: BrainstormFile): boolean {
 
 // a line Arc sent, which the agent has not answered yet: modifiedMs is the file's when it was sent. An answer closes
 // the question, a check hands the design to a builder (its send time outlives the line, sentCheckAt), any other line
-// is a change
-export type SentKind = "answer" | "check" | "line";
+// is a change. judged is the judge's result, which Arc delivers itself (terminalAnswer)
+export type SentKind = "answer" | "check" | "line" | "judged";
 export type SentLine = { at: number; modifiedMs: number | null; kind: SentKind };
 
 export function sentKind(a: BrainstormAction): SentKind {
@@ -396,6 +396,7 @@ export function sentKind(a: BrainstormAction): SentKind {
 const PENDING_ANSWER = "Writing up your answer.";
 const PENDING_CHECK = "A builder is reading the design.";
 const PENDING_LINE = "Taking in your change.";
+const PENDING_JUDGED = "Taking in the judge’s result.";
 
 // the agent has taken a line delivered at `at` once its turn ends after it, or its file changed while it is not at
 // work. A write mid-turn settles nothing: a line sent before that turn ends would join it, not start the next
@@ -471,17 +472,23 @@ export function builderCheckView(
 }
 
 // an answer typed in the terminal never passes through Arc: a turn that started after the file last asked is one,
-// pending like a sent answer until that turn ends. A turn that wrote the question itself started before the write
+// pending like a sent answer until that turn ends. A turn that wrote the question itself started before the write.
+// The judge's result, delivered after that write, starts such a turn too: it is the agent taking that result in
 export function terminalAnswer(
     f: BrainstormFile,
     modifiedMs: number | null,
-    agent: Pick<AgentVM, "state"> | undefined,
+    agent: Pick<AgentVM, "state" | "brainstormJudge"> | undefined,
     turnStartMs: number | undefined
 ): SentLine | null {
     if (f.question == null || agent?.state !== "working" || modifiedMs == null || turnStartMs == null) {
         return null;
     }
-    return turnStartMs > modifiedMs ? { at: turnStartMs, modifiedMs, kind: "answer" } : null;
+    if (turnStartMs <= modifiedMs) {
+        return null;
+    }
+    const judge = agent.brainstormJudge;
+    const delivered = (judge?.state === "answered" || judge?.state === "failed") && judge.ts > modifiedMs;
+    return { at: turnStartMs, modifiedMs, kind: delivered ? "judged" : "answer" };
 }
 
 // the file as Arc shows it: the agent writes once per turn, so while a sent line is pending Arc says the agent is
@@ -494,6 +501,9 @@ export function shownFile(f: BrainstormFile, sent: SentLine | null): BrainstormF
     }
     if (sent.kind === "answer") {
         return { ...f, working: PENDING_ANSWER, question: null };
+    }
+    if (sent.kind === "judged") {
+        return { ...f, working: PENDING_JUDGED, question: null };
     }
     return { ...f, working: sent.kind === "check" ? PENDING_CHECK : PENDING_LINE };
 }
@@ -543,11 +553,15 @@ export function treeLine(f: BrainstormFile, asking: boolean, runText?: string): 
     if (judgeWait(f, false)) {
         return { text: `judge weighing question ${f.question!.n}` };
     }
+    if (f.working === PENDING_JUDGED) {
+        return { text: "taking in the judge’s result" };
+    }
     // only a closed question means the agent is writing up an answer; a kept one is a change being taken in
     if (f.working != null) {
         return { text: f.question == null ? "writing up your answer" : "working" };
     }
-    return { text: "in progress" };
+    const guesses = confirmableGuesses(f);
+    return { text: guesses > 0 ? `${plural(guesses, "guess", "guesses")} to confirm` : "in progress" };
 }
 
 export type BrainstormAction =
@@ -1455,11 +1469,13 @@ function reviewRow(f: BrainstormFile, p: BrainstormPart, calls: string[]): Revie
     };
 }
 
-function reviewSummary(changed: number, fresh: number, pending: number, calls: number): string {
+// answered is how many of the builder's questions the user answered: with none, the check's own calls made the changes
+function reviewSummary(changed: number, fresh: number, pending: number, calls: number, answered: number): string {
     const what: string[] = [];
     if (changed > 0) {
+        const by = answered > 0 ? "Your answers to the builder" : "The check";
         what.push(
-            `Your answers to the builder changed ${plural(changed, "decision", "decisions")} you had confirmed` +
+            `${by} changed ${plural(changed, "decision", "decisions")} you had confirmed` +
                 (fresh > 0 ? `, and ${fresh} ${fresh === 1 ? "is" : "are"} new.` : ".")
         );
     } else if (fresh > 0) {
@@ -1503,6 +1519,7 @@ export function checkReview(f: BrainstormFile): ReviewModel {
     const rows = [...changed, ...fresh];
     const pending = changed.filter((r) => r.action === "keep-restore").length;
     const calls = rows.reduce((n, r) => n + r.calls.length, 0);
+    const answered = (f.check?.yours ?? []).filter((y) => y.a != null);
     return {
         changed,
         fresh,
@@ -1510,14 +1527,12 @@ export function checkReview(f: BrainstormFile): ReviewModel {
         notes: noteParts(f),
         cursorIds: rows.map((r) => r.id),
         pending,
-        summary: reviewSummary(changed.length, fresh.length, pending, calls),
-        answered: (f.check?.yours ?? [])
-            .filter((y) => y.a != null)
-            .map((y) => ({
-                q: y.q,
-                a: y.a!,
-                changed: (y.into ?? []).map((id) => ({ id, title: partTitle(f, id) })),
-            })),
+        summary: reviewSummary(changed.length, fresh.length, pending, calls, answered.length),
+        answered: answered.map((y) => ({
+            q: y.q,
+            a: y.a!,
+            changed: (y.into ?? []).map((id) => ({ id, title: partTitle(f, id) })),
+        })),
     };
 }
 
