@@ -27,6 +27,7 @@ import {
     builderCheckView,
     checkClock,
     checkSpan,
+    decidedCount,
     decisionParts,
     designUnder,
     droppedQuestion,
@@ -849,7 +850,7 @@ function IntoLinks({
 // every question answered with all it offered, newest at the top, then the recon it all stood on
 function DecidedRail({ f, unseen, goTo }: { f: BrainstormFile; unseen: Unseen; goTo: (id: string) => void }) {
     const rows = historyRows(f, unseen).reverse();
-    const decided = rows.filter((r) => r.kind === "question" && !r.dropped).length;
+    const decided = decidedCount(f);
     const working = f.working != null;
     const railRef = useRef<HTMLElement>(null);
     const shown = useRef(0);

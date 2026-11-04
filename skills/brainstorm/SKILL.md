@@ -24,6 +24,12 @@ What changes from plain brainstorming:
   changed, then the question you are waiting on. Never repeat a part's text there.
 - Mockups are `arc:design` boards, listed on the part they illustrate. Never start the visual
   companion's server inside Arc. A live spike is listed on its part too, never only in the terminal.
+- Recon and mockups need no permission. Where superpowers says to offer recon or the visual
+  companion, do the work instead: read the project you run in, or search the web, once looking would
+  help, and draw boards whenever seeing would help more than reading (**Mockups**, below). Record
+  what you found as a `recon` entry whose `q` says what you looked at, with the parts it fed in
+  `into`. Never spend a question on whether to look or to draw: the pane counts every question as a
+  decision, and the user came to decide the design.
 - Still end every turn on the question in the terminal: the file is what Arc shows, the terminal is
   what you wait on.
 
@@ -78,7 +84,7 @@ gitignored.
     { "kind": "question", "n": 1, "q": "What should this make possible?", "a": "Know before we drop data.", "into": ["intent"] },
     { "kind": "question", "n": 2, "q": "One threshold for every group, or one per group?", "why": "Groups range from a few hundred messages a day to millions an hour.", "a": "Per group, with a default to start from", "into": ["thresholds"],
       "options": [{ "label": "One threshold for every group", "detail": "One number to tune for every group." }, { "label": "Per group, with a default to start from", "detail": "Every group alerts from day one; teams tighten their own.", "pick": true }], "picked": 1 },
-    { "kind": "recon", "q": "I offered to look at your Prometheus targets. You said yes.", "a": "Found 2.45 on every target.", "into": ["constraints"] }
+    { "kind": "recon", "q": "I looked at your Prometheus targets.", "a": "Found 2.45 on every target.", "into": ["constraints"] }
   ],
   "done": false,
   "check": null,
@@ -146,7 +152,7 @@ Every other action is a `brainstorm:` line:
 |---|---|
 | the answer, as typed | Answer sequence below, unless the line pushes back or asks instead (below). |
 | `brainstorm: guess` | The user wants you to decide. Write your best guess for the current question's part as `guess` (say in `from` that it was your call), then ask the next question as after an answer. |
-| `brainstorm: skip questions` | Stop asking. Write every `asked` and `open` part as a `guess`, set `question: null` and `done: true`. |
+| `brainstorm: skip questions` | Stop asking. Write every `asked` and `open` part as a `guess`, set `question: null` and `done: true`. The part the open question asks takes that question's pick (yours, or the judge's) as its guess, never a different call. |
 | `brainstorm: judged <path>` | The judge weighed the open question. Copy the file at `<path>` onto `question` with the one-line script under **Approach questions go to the judge**, which sets `working` to `null` in the same write; never retype it. End the turn on the question. |
 | `brainstorm: judge failed: <reason>` | The judge did not weigh the open question (ignore it for a question no longer open, as the section after **Approach questions go to the judge** says). Write your own `options` and `read` with one `pick`, set `question.judge` to `{ "failed": "<reason>" }` and `working` to `null`, and end the turn on the question. |
 | `brainstorm: confirm <part id>` | Make that part `yours`; drop its `was` and `why`. |
@@ -267,7 +273,7 @@ question back. In that one write:
 **Asking.** One question per turn, as superpowers does. Every question about the design names its
 `part`. Every question carries `why`: one or two sentences on what you already know and what you
 cannot tell without the user, which Arc shows under the question. When the question has natural
-choices, it also carries 2-4 `options`, each `{ "label", "detail", "pros", "cons" }`: `label` is the
+choices (a yes-or-no question included), it also carries 2-4 `options`, each `{ "label", "detail", "pros", "cons" }`: `label` is the
 answer in a few words, `detail` says what the option is in one sentence, and `pros` and `cons` are
 your reasons for and against it, one short sentence each (what it gains and loses, what it costs,
 whether it fits what is there today). Mark your recommendation with `"pick": true` on exactly one

@@ -28,6 +28,7 @@ import {
     clockText,
     compactedSummary,
     confirmableGuesses,
+    decidedCount,
     designLabel,
     designUnder,
     droppedQuestion,
@@ -2223,6 +2224,18 @@ describe("a superseded question", () => {
         const f = overreach();
         expect(answeredQuestions(f).map((h) => h.n)).toEqual([11]);
         expect(questionTrack(f)).toEqual(["done", "ahead"]);
+    });
+
+    it("decides nothing, and nor does an answer that went into no part: the rail counts only the rest", () => {
+        const f = file({
+            history: [
+                { kind: "question", n: 1, q: "Which?", a: "A", into: ["a"] },
+                { kind: "question", n: 2, q: "Want me to look at the code?", a: "Yes, go look", into: [] },
+                { kind: "recon", q: "I looked at the code.", a: "Found it.", into: ["a"] },
+                { kind: "question", n: 3, q: "Old", a: "", into: [], superseded: true, part: "b" },
+            ],
+        });
+        expect(decidedCount(f)).toBe(1);
     });
 
     it("draws in the rail as dropped, with nothing picked and no answer", () => {

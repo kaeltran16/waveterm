@@ -766,6 +766,12 @@ export function answeredQuestions(f: BrainstormFile): HistoryEntry[] {
     return f.history.filter((h) => h.kind === "question" && h.superseded !== true);
 }
 
+// what the rail counts as decided: an answer that went into no part decided nothing (a permission, a clarification),
+// so it is listed but not counted
+export function decidedCount(f: BrainstormFile): number {
+    return answeredQuestions(f).filter((h) => h.into.length > 0).length;
+}
+
 // what was decided, oldest first so the newest lands at the bottom; recon is the ground every question stood on, so it
 // stays at the top
 export function historyRows(f: BrainstormFile, unseen: Unseen = NOTHING_UNSEEN): HistoryRow[] {
