@@ -1099,6 +1099,7 @@ function Exited({
             runtime,
             startupCommand: runtimeStartupCommand(runtime),
             task: resumePrompt(s.path),
+            brainstormFile: s.path,
             projectPath: s.cwd,
             projectName: projectOf(agent),
         }).then(() => undefined);

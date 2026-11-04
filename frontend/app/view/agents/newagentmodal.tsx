@@ -16,6 +16,9 @@ import { Check, ChevronDown, Plus, SquareTerminal, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
+import { openBrainstormLine, resumePrompt, samePath, type OpenBrainstorm } from "./brainstormmodel";
+import { listOpenBrainstorms, tauriOpenBrainstormsIO } from "./brainstormpoller";
+import { brainstormsAtom, type BrainstormState } from "./brainstormstore";
 import {
     composeStartupCommand,
     deriveBranch,
@@ -43,6 +46,12 @@ const RUNTIMES: { id: Runtime; name: string }[] = [
 
 const LABEL = "font-mono text-[10.5px] font-semibold uppercase tracking-[0.1em] text-muted";
 
+// one an agent still has attached is carried on there, so a second agent would write the same file
+function notAttached(rows: OpenBrainstorm[], attached: Record<string, BrainstormState>): OpenBrainstorm[] {
+    const paths = Object.values(attached).map((s) => s.path);
+    return rows.filter((b) => !paths.some((p) => samePath(p, b.path)));
+}
+
 export function NewAgentModal({ model }: { model: AgentsViewModel }) {
     const open = useAtomValue(model.newAgentOpenAtom);
     const rows = useAtomValue(projectListAtom);
@@ -63,6 +72,8 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
     const [branches, setBranches] = useState<BranchInfo[]>([]);
     const [branchListOpen, setBranchListOpen] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [openBrainstorms, setOpenBrainstorms] = useState<OpenBrainstorm[]>([]);
+    const attachedBrainstorms = useAtomValue(brainstormsAtom);
     const reqIdRef = useRef(0);
     const launchingRef = useRef(false);
     const defaultAppliedRef = useRef(false);
@@ -154,6 +165,29 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
             cancelled = true;
         };
     }, [open, selectedPath]);
+    useEffect(() => {
+        if (!open || !selectedPath) {
+            setOpenBrainstorms([]);
+            return;
+        }
+        let cancelled = false;
+        listOpenBrainstorms(selectedPath, tauriOpenBrainstormsIO)
+            .then((rows) => {
+                if (!cancelled) {
+                    setOpenBrainstorms(rows);
+                }
+            })
+            .catch((e) => {
+                console.warn("new agent: listing the project's brainstorms failed", selectedPath, e);
+                if (!cancelled) {
+                    setOpenBrainstorms([]);
+                }
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [open, selectedPath]);
+    const resumable = runtimeShowsTask(runtime) ? notAttached(openBrainstorms, attachedBrainstorms) : [];
     // Switching projects re-defaults the branch field to the new project's current branch.
     useEffect(() => {
         setBranchEdited(false);
@@ -166,7 +200,9 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
         setStartup(runtimeStartupCommand(r));
         setFlagMenuOpen(false);
     };
-    const launch = async () => {
+    // resume: the brainstorm.json a Resume row carries on, sent as the task; it starts in the project itself, never a
+    // worktree, since the agent reveals the brainstorm from its own folder
+    const launch = async (resume?: string) => {
         // a held Enter on the focused Launch button repeats the click; one launch per open
         if (launchingRef.current) {
             return;
@@ -178,7 +214,7 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
             return;
         }
         let branchArg: string | undefined;
-        if (wantsWorktree) {
+        if (wantsWorktree && resume == null) {
             if (!chosenBranch) {
                 setError("Enter a branch name or turn off the worktree option.");
                 return;
@@ -190,7 +226,8 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
             await launchAgent(model, {
                 runtime,
                 startupCommand: composeStartupCommand(startup, runtime, runtimeFlags),
-                task: runtimeShowsTask(runtime) ? task : "",
+                task: resume != null ? resumePrompt(resume) : runtimeShowsTask(runtime) ? task : "",
+                brainstormFile: resume,
                 projectPath: path,
                 projectName: c.name,
                 branch: branchArg,
@@ -528,6 +565,35 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
                                     <span>Start with a task</span>
                                 </button>
                             )
+                        ) : null}
+                        {resumable.length > 0 ? (
+                            <div data-new-agent-brainstorms>
+                                <div className={cn(LABEL, "mb-[6px]")}>Brainstorms left open</div>
+                                <div className="flex flex-col gap-px">
+                                    {resumable.map((b) => (
+                                        <div
+                                            key={b.path}
+                                            title={b.path}
+                                            className="flex items-center gap-[10px] rounded-[7px] py-[5px] pl-2 pr-[6px] hover:bg-surface-hover"
+                                        >
+                                            <span className="min-w-0 truncate text-[12.5px] font-semibold text-secondary">
+                                                {b.title}
+                                            </span>
+                                            <span className="flex-1 truncate font-mono text-[10.5px] text-muted">
+                                                {openBrainstormLine(b, Date.now())}
+                                            </span>
+                                            <button
+                                                type="button"
+                                                data-new-agent-resume={b.topic}
+                                                onClick={() => void launch(b.path)}
+                                                className="shrink-0 cursor-pointer rounded-[6px] border border-edge-mid px-2 py-1 text-[11.5px] font-semibold text-ink-mid hover:bg-surface-hover hover:text-primary"
+                                            >
+                                                Resume
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
                         ) : null}
                         {error ? <div className="text-[12px] text-error">{error}</div> : null}
                     </div>

@@ -16,12 +16,14 @@ import type { AgentVM } from "./agentsviewmodel";
 import {
     BRAINSTORM_POLL_MS,
     brainstormFilePath,
+    brainstormsDir,
     nextSentCheckAt,
     parseBrainstorm,
     parseBrainstormPath,
     settleSent,
     terminalAnswer,
     type BrainstormFile,
+    type OpenBrainstorm,
 } from "./brainstormmodel";
 import {
     attachBrainstorm,
@@ -34,6 +36,7 @@ import {
 } from "./brainstormstore";
 import { boardsFromCanvasJson, boardUrl, canvasDesignDir } from "./canvasmodel";
 import { tauriCanvasIO } from "./canvaspoller";
+import { tauriSendIO } from "./canvassend";
 
 const CANVAS_JSON = "canvas.json";
 const HTTP_OK = 200;
@@ -47,6 +50,44 @@ export type BrainstormIO = {
     serve(designDir: string): Promise<string | null>;
     canvasJson(url: string): Promise<unknown>;
 };
+
+export type OpenBrainstormsIO = Pick<BrainstormIO, "stat" | "read"> & { list(dir: string): Promise<string[]> };
+
+// a project's brainstorms that were never approved, newest first: what a new agent can carry on. One that can't be read
+// right now (mid-write, or not a brainstorm) is left out rather than failing the list.
+export async function listOpenBrainstorms(cwd: string, io: OpenBrainstormsIO): Promise<OpenBrainstorm[]> {
+    const dir = brainstormsDir(cwd);
+    if (!(await io.stat(dir)).exists) {
+        return [];
+    }
+    const rows = await Promise.all(
+        (await io.list(dir)).map(async (topic): Promise<OpenBrainstorm | null> => {
+            const path = brainstormFilePath(cwd, topic);
+            try {
+                const st = await io.stat(path);
+                if (!st.exists) {
+                    return null;
+                }
+                const parsed = parseBrainstorm(await io.read(path));
+                if (!("file" in parsed) || parsed.file.done) {
+                    return null;
+                }
+                const f = parsed.file;
+                return {
+                    topic,
+                    path,
+                    title: f.title || topic,
+                    question: f.question?.n ?? null,
+                    modifiedMs: st.modifiedMs ?? 0,
+                };
+            } catch (e) {
+                console.warn("open brainstorms: reading failed", path, e);
+                return null;
+            }
+        })
+    );
+    return rows.filter((r): r is OpenBrainstorm => r != null).sort((a, b) => b.modifiedMs - a.modifiedMs);
+}
 
 function listsBoards(f: BrainstormFile): boolean {
     const named = (f.question?.options ?? []).some((o) => o.boards != null && o.boards.length > 0);
@@ -137,6 +178,12 @@ export const tauriBrainstormIO: BrainstormIO = {
         const res = await tauriCanvasIO.get(url);
         return res.status === HTTP_OK ? res.json : undefined;
     },
+};
+
+export const tauriOpenBrainstormsIO: OpenBrainstormsIO = {
+    stat: tauriBrainstormIO.stat,
+    read: tauriBrainstormIO.read,
+    list: tauriSendIO.list,
 };
 
 // `wsh agent-hook` stamps the agent's block on every prompt it submits, the terminal's included

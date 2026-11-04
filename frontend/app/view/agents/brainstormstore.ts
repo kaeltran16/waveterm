@@ -12,6 +12,7 @@ import { atomFamily } from "jotai/utils";
 import type { AgentsViewModel } from "./agents";
 import {
     brainstormFilePath,
+    samePath,
     seenMark,
     shownFile,
     type BrainstormFile,
@@ -99,7 +100,7 @@ export function baselineBrainstormSeen(path: string, f: BrainstormFile): void {
 // (a new topic, or the same topic in another project) starts over in its place
 export function attachBrainstorm(agentId: string, a: { topic: string; cwd: string }, now: number): void {
     const prev = getBrainstorm(agentId);
-    if (prev != null && prev.topic === a.topic && prev.cwd === a.cwd) {
+    if (prev != null && prev.topic === a.topic && samePath(prev.cwd, a.cwd)) {
         return;
     }
     const next: BrainstormState = {

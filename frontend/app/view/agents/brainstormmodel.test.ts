@@ -47,6 +47,7 @@ import {
     mainView,
     nextSentCheckAt,
     noteParts,
+    openBrainstormLine,
     optionLetter,
     orderedParts,
     paneBack,
@@ -1728,6 +1729,12 @@ describe("summaries", () => {
             "Resume the brainstorm in C:\\p\\brainstorm.json with arc:brainstorm."
         );
         expect(runLine("siem-pipeline")).toBe("siem-pipeline · orchestrator · this design attached");
+    });
+
+    it("openBrainstormLine names the open question and the file's age", () => {
+        const b = { topic: "t", path: "/p", title: "T", question: 15, modifiedMs: 0 };
+        expect(openBrainstormLine(b, 2 * 86_400_000)).toBe("question 15 · 2d ago");
+        expect(openBrainstormLine({ ...b, question: null }, 3_600_000)).toBe("no question open · 1h ago");
     });
 });
 

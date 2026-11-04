@@ -5,7 +5,7 @@
 // brainstorm.json. The agent writes the file; Arc only reads it and types one line back.
 
 import type { NewRunPrefill } from "@/app/view/jarvis/newrun";
-import type { AgentVM } from "./agentsviewmodel";
+import { formatAgo, type AgentVM } from "./agentsviewmodel";
 import { boardLabel, canvasDir, canvasProjectDir, join } from "./canvasmodel";
 
 export const BRAINSTORM_POLL_MS = 3000;
@@ -357,8 +357,18 @@ export function parseBrainstorm(text: string): ParseResult {
     }
 }
 
+// one file spelled two ways: a project registered as C:/x and a terminal's C:\x, on a case-blind file system
+export function samePath(a: string, b: string): boolean {
+    const key = (p: string) => p.replace(/[\\/]+/g, "/").toLowerCase();
+    return key(a) === key(b);
+}
+
+export function brainstormsDir(cwd: string): string {
+    return join(cwd, ".superpowers", "brainstorm");
+}
+
 export function brainstormFilePath(cwd: string, topic: string): string {
-    return join(cwd, ".superpowers", "brainstorm", topic, "brainstorm.json");
+    return join(brainstormsDir(cwd), topic, "brainstorm.json");
 }
 
 const BRAINSTORM_PATH = /^(.+?)[\\/]\.superpowers[\\/]brainstorm[\\/]([^\\/]+)[\\/]brainstorm\.json$/i;
@@ -1568,6 +1578,20 @@ export function exitedSummary(f: BrainstormFile): string {
         return `${saved}, and question ${f.question.n} still unanswered. A new agent reads it and carries on from that question.`;
     }
     return `${saved}. A new agent reads it and carries on.`;
+}
+
+// a brainstorm a new agent can carry on: listed in the New agent window, since one whose tab is gone is otherwise lost
+export type OpenBrainstorm = {
+    topic: string;
+    path: string;
+    title: string;
+    question: number | null;
+    modifiedMs: number;
+};
+
+export function openBrainstormLine(b: OpenBrainstorm, now: number): string {
+    const where = b.question != null ? `question ${b.question}` : "no question open";
+    return `${where} · ${formatAgo(now - b.modifiedMs)}`;
 }
 
 export function resumePrompt(path: string): string {

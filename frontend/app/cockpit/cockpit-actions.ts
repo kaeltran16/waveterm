@@ -7,6 +7,7 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import * as WOS from "@/app/store/wos";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { AgentsViewModel } from "@/app/view/agents/agents";
+import { SESSION_BRAINSTORM } from "@/app/view/agents/brainstormstore";
 import type { PendingLaunch } from "@/app/view/agents/agentsviewmodel";
 import { resolveCwd } from "@/app/view/agents/agentcwdresolve";
 import { buildLaunchMeta, runtimeCreatesAgentPanel, runtimeStartupCommand, type Runtime } from "@/app/view/agents/launch";
@@ -23,6 +24,9 @@ export interface LaunchAgentOpts {
     resumePath?: string; // pi transcript path; preflighted before any worktree/tab is created
     label?: string; // the session's name in the roster (session:label), e.g. the initiative it works on
     effortORef?: string; // the initiative it works on (session:effort), "effort:<oid>"
+    // the brainstorm.json it carries on (session:brainstorm): attached up front, since the agent's hook reveals the pane
+    // only when its write creates the file, and a resumed brainstorm's file already exists
+    brainstormFile?: string;
 }
 
 // Launch a runtime as its OWN session tab. Agent runtimes get a pending roster row; terminals only
@@ -92,6 +96,9 @@ export async function launchAgent(model: AgentsViewModel, opts: LaunchAgentOpts)
     }
     if (opts.effortORef) {
         tabMeta["session:effort"] = opts.effortORef;
+    }
+    if (opts.brainstormFile) {
+        tabMeta[SESSION_BRAINSTORM] = opts.brainstormFile;
     }
     await RpcApi.SetMetaCommand(TabRpcClient, { oref: WOS.makeORef("tab", tabId), meta: tabMeta });
     if (agentPanel) {
