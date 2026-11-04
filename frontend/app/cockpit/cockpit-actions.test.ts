@@ -15,6 +15,7 @@ const setMeta = vi.fn().mockResolvedValue(undefined);
 const reloadWaveObject = vi.fn().mockResolvedValue(undefined);
 const fileInfo = vi.fn();
 const agentSyncApply = vi.fn().mockResolvedValue({ actions: [] });
+const pushToast = vi.fn();
 
 vi.mock("@/app/store/services", () => ({ WorkspaceService: { CreateTab: (...a: any[]) => createTab(...a) } }));
 vi.mock("@/app/store/wshclientapi", () => ({
@@ -26,6 +27,7 @@ vi.mock("@/app/store/wshclientapi", () => ({
     },
 }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
+vi.mock("@/app/cockpit/notificationstore", () => ({ pushToast: (...a: any[]) => pushToast(...a) }));
 vi.mock("@/app/view/agents/agents", () => ({ AgentsViewModel: class {} }));
 vi.mock("@/app/store/global-atoms", () => ({ atoms: { workspace: atom({ oid: "ws1", tabids: [] }) } }));
 vi.mock("@/app/store/wos", () => ({
@@ -34,7 +36,7 @@ vi.mock("@/app/store/wos", () => ({
     reloadWaveObject: (...a: any[]) => reloadWaveObject(...a),
 }));
 
-import { launchAgent } from "./cockpit-actions";
+import { launchAgent, launchAgentOrToast } from "./cockpit-actions";
 
 // the mock above makes the workspace atom writable; its real type is read-only.
 const workspaceAtom = atoms.workspace as unknown as PrimitiveAtom<Workspace>;
@@ -53,6 +55,7 @@ beforeEach(() => {
     reloadWaveObject.mockClear();
     fileInfo.mockReset().mockResolvedValue({});
     agentSyncApply.mockClear();
+    pushToast.mockClear();
     createWorktree.mockReset().mockResolvedValue({ worktreepath: "C:/wt/feat-x" });
     h.tab = { blockids: ["blk-1"] };
     globalStore.set(workspaceAtom, { oid: "ws1", tabids: [] } as any);
@@ -119,9 +122,41 @@ describe("launchAgent", () => {
         ]);
     });
 
-    it("does not touch the resume path when none is given", async () => {
-        fileInfo.mockRejectedValue(new Error("no such file"));
+    it("launchAgent refuses a pi resumePath that FileInfo reports notfound", async () => {
+        const missing = "C:/Users/me/.pi/agent/sessions/gone.jsonl";
+        fileInfo.mockImplementation(async (_c: unknown, d: { info: { path: string } }) =>
+            d.info.path === missing ? { notfound: true } : {}
+        );
+        const err = (await launchAgent(fakeModel(), {
+            ...agentOpts,
+            runtime: "pi",
+            resumePath: missing,
+        }).catch((e: unknown) => e)) as Error;
+        expect(createTab).not.toHaveBeenCalled();
+        expect(err.message).toBe(`Pi session no longer exists: ${missing}`);
+    });
+
+    it("launchAgent refuses a missing projectPath before creating a tab", async () => {
+        fileInfo.mockResolvedValue({ notfound: true });
+        await expect(launchAgent(fakeModel(), { ...agentOpts, branch: "feat/x" })).rejects.toThrow(
+            "Working directory no longer exists: C:/proj"
+        );
+        expect(fileInfo).toHaveBeenCalledWith({}, { info: { path: "C:/proj" } });
+        expect(createWorktree).not.toHaveBeenCalled();
+        expect(createTab).not.toHaveBeenCalled();
+    });
+
+    it("checks only the project path when no resume path is given", async () => {
         await expect(launchAgent(fakeModel(), agentOpts)).resolves.toBe("tab-1");
+        expect(fileInfo.mock.calls).toEqual([[{}, { info: { path: "C:/proj" } }]]);
+    });
+
+    it("does not check the cwd of a terminal or of an agent with no project path", async () => {
+        fileInfo.mockResolvedValue({ notfound: true });
+        await expect(launchAgent(fakeModel(), { ...agentOpts, runtime: "terminal", startupCommand: "" })).resolves.toBe(
+            "tab-1"
+        );
+        await expect(launchAgent(fakeModel(), { ...agentOpts, projectPath: "" })).resolves.toBe("tab-1");
         expect(fileInfo).not.toHaveBeenCalled();
     });
 
@@ -219,5 +254,29 @@ describe("launchAgent", () => {
     it("opens a terminal with no project path in the home directory", async () => {
         await launchAgent(fakeModel(), { ...agentOpts, runtime: "terminal", startupCommand: "", projectPath: "" });
         expect(metaOf("block:blk-1")["cmd:cwd"]).toBe("~");
+    });
+});
+
+describe("launchAgentOrToast", () => {
+    it("launchAgentOrToast toasts the reason and returns null", async () => {
+        fileInfo.mockResolvedValue({ notfound: true });
+        const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+            await expect(launchAgentOrToast(fakeModel(), agentOpts)).resolves.toBeNull();
+            expect(logged.mock.calls[0].join(" ")).toContain("proj");
+        } finally {
+            logged.mockRestore();
+        }
+        expect(pushToast).toHaveBeenCalledWith({
+            level: "error",
+            title: "Couldn't start the agent",
+            message: "Working directory no longer exists: C:/proj",
+        });
+        expect(createTab).not.toHaveBeenCalled();
+    });
+
+    it("returns the tab id and toasts nothing when the launch works", async () => {
+        await expect(launchAgentOrToast(fakeModel(), agentOpts)).resolves.toBe("tab-1");
+        expect(pushToast).not.toHaveBeenCalled();
     });
 });

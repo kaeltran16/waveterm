@@ -1,5 +1,6 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
+import { pushToast } from "@/app/cockpit/notificationstore";
 import { atoms } from "@/app/store/global-atoms";
 import { globalStore } from "@/app/store/jotaiStore";
 import { WorkspaceService } from "@/app/store/services";
@@ -37,14 +38,26 @@ export interface LaunchAgentOpts {
 export async function launchAgent(model: AgentsViewModel, opts: LaunchAgentOpts): Promise<string> {
     // Pi --session creates a session when the path is missing; a stale archived entry must never reach
     // that behavior, so a resumePath that no longer exists on disk aborts before anything is created.
+    // FileInfo reports a missing path as notfound rather than throwing; a throw still counts as missing.
     if (opts.resumePath) {
+        let missing: boolean;
         try {
-            await RpcApi.FileInfoCommand(TabRpcClient, { info: { path: opts.resumePath } });
+            missing = !!(await RpcApi.FileInfoCommand(TabRpcClient, { info: { path: opts.resumePath } }))?.notfound;
         } catch {
+            missing = true;
+        }
+        if (missing) {
             throw new Error(`Pi session no longer exists: ${opts.resumePath}`);
         }
     }
     const isTerminal = opts.runtime === "terminal";
+    // the shell falls back to the home dir for a missing cmd:cwd, where a resume cannot find its session
+    if (!isTerminal && opts.projectPath) {
+        const info = await RpcApi.FileInfoCommand(TabRpcClient, { info: { path: opts.projectPath } });
+        if (info?.notfound) {
+            throw new Error(`Working directory no longer exists: ${opts.projectPath}`);
+        }
+    }
     let cwd = opts.projectPath;
     if (!isTerminal && opts.branch?.trim()) {
         const rtn = await RpcApi.CreateWorktreeCommand(TabRpcClient, {
@@ -119,6 +132,21 @@ export async function launchAgent(model: AgentsViewModel, opts: LaunchAgentOpts)
         globalStore.set(model.surfaceAtom, "agent");
     }
     return tabId;
+}
+
+// launchAgentOrToast is launchAgent for a click that has nowhere else to say why it failed
+export async function launchAgentOrToast(model: AgentsViewModel, opts: LaunchAgentOpts): Promise<string | null> {
+    try {
+        return await launchAgent(model, opts);
+    } catch (e) {
+        console.error(`launch ${opts.runtime} in ${opts.projectName} (${opts.projectPath}) failed:`, e);
+        pushToast({
+            level: "error",
+            title: "Couldn't start the agent",
+            message: e instanceof Error ? e.message : String(e),
+        });
+        return null;
+    }
 }
 
 // Attach = resume a detached background agent inside a fresh Wave terminal block. `claude --resume
