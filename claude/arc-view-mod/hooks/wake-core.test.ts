@@ -110,7 +110,7 @@ describe("parseWake", () => {
         expect(wake?.caveats).toEqual([
             { label: "changed plan", text: "t-8 The nav rule changed, against fix-plan decision 2." },
             { label: "handoff", text: "t-8 `CURRENT_LINE` is now 0.15." },
-            { label: "found", text: "t-3 a flaky test on the base" },
+            { label: "not fixed", text: "t-3 a flaky test on the base" },
             { label: "unverified", text: "t-4 the phone layout" },
             { label: "unverified", text: "t-5 unstructured report: Done. Ran the tests." },
             { label: "unverified", text: "t-8 reviewer: Step 4 asks for the full npm test." },

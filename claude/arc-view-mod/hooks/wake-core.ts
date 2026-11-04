@@ -24,7 +24,7 @@ const RECAPS_HEADER = "Since your last wake:";
 const CAVEAT_LABELS: Record<string, string> = {
     "Differs from plan": "changed plan",
     "For later tasks": "handoff",
-    "Found not fixed": "found",
+    "Found not fixed": "not fixed",
     "Not verified": "unverified",
 };
 const UNVERIFIED = "unverified";
