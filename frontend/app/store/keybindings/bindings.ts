@@ -1318,6 +1318,26 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
     ];
 }
 
+// Sessions-surface keys, registered by the surface while it is mounted. j/k and Enter are the shared list-nav.
+export function buildSessionsBindings(): Binding[] {
+    return [
+        {
+            id: "sessions:search",
+            keys: "/",
+            group: "Sessions",
+            label: "Search sessions",
+            when: (ctx) => ctx.surface === "sessions" && !ctx.editable && !ctx.modalOpen,
+            run: () => {
+                const el = document.querySelector<HTMLInputElement>("[data-sessions-search]");
+                if (el == null) {
+                    return false;
+                }
+                el.focus();
+            },
+        },
+    ];
+}
+
 // Diff-surface keys. `c` is the entry gesture the mockup names; Escape is the single exit; Tab jumps
 // between the two compare sides. Entering compare needs a cwd and a branch, which only the surface
 // knows, so `c` clicks the control the surface already draws (the same clickThrough shape

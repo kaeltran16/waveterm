@@ -259,6 +259,9 @@ A session opened from a search hit shows a find bar over its transcript, with th
 
 | Keys | Action |
 |---|---|
+| `/` | Focus the list's search field |
+| `j` / `k` (or `↓` / `↑`) | Next / previous row of the list, "All activity" first |
+| `Enter` | The selected session's primary action: Jump to its live agent, else Resume it |
 | `Enter` / `Shift`+`Enter` in the find bar | Next / previous match, wrapping |
 | `Esc` in the find bar | Close the find bar |
 | `Esc` in the list's search field | Clear the query |

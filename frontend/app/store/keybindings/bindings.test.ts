@@ -83,6 +83,7 @@ import {
     buildJarvisGraphBindings,
     buildListNavBindings,
     buildResMonBindings,
+    buildSessionsBindings,
     closeTargetForDoubleCtrlC,
     ctrlCReachesSession,
 } from "./bindings";
@@ -2366,5 +2367,31 @@ describe("brainstorm check review keys", () => {
         vi.stubGlobal("document", { activeElement: { tagName: "BUTTON" } });
         expect(find("agent:brainstorm-review-open").run(nav)).toBe(false);
         expect(getBrainstorm("a1")!.review.open).toEqual({ grain: false });
+    });
+});
+
+describe("sessions surface bindings", () => {
+    const on = ctx("sessions");
+    const search = () => buildSessionsBindings().find((b) => b.id === "sessions:search")!;
+    afterEach(() => vi.unstubAllGlobals());
+
+    it("sessions:search focuses the search field on the sessions surface", () => {
+        const el = { focus: vi.fn() };
+        const querySelector = vi.fn(() => el);
+        vi.stubGlobal("document", { querySelector });
+        const b = search();
+        expect(b.keys).toBe("/");
+        expect(b.when!(on)).toBe(true);
+        expect(b.when!(ctx("files"))).toBe(false);
+        expect(b.when!({ ...on, editable: true })).toBe(false);
+        expect(b.when!({ ...on, modalOpen: true })).toBe(false);
+        expect(b.run(on)).toBeUndefined();
+        expect(querySelector).toHaveBeenCalledWith("[data-sessions-search]");
+        expect(el.focus).toHaveBeenCalledOnce();
+    });
+
+    it("sessions:search lets the key pass when the field is not on screen", () => {
+        vi.stubGlobal("document", { querySelector: () => null });
+        expect(search().run(on)).toBe(false);
     });
 });
