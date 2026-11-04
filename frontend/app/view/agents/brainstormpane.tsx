@@ -22,6 +22,7 @@ import { projectOf, type AgentVM } from "./agentsviewmodel";
 import { Check } from "./brainstormcheck";
 import {
     boardBackLabel,
+    boardPicks,
     boardTabLabels,
     bodyBeyondGist,
     builderCheckView,
@@ -40,6 +41,7 @@ import {
     lineBox,
     mainView,
     noteParts,
+    optionLetter,
     paneView,
     partAnswer,
     partGist,
@@ -47,6 +49,7 @@ import {
     resumePrompt,
     reviewHead,
     unseenSince,
+    type BoardPick,
     type BrainstormAction,
     type BrainstormFile,
     type BrainstormPart,
@@ -96,6 +99,7 @@ import {
     StaleBanner,
     Toolbar,
     useAction,
+    useAnswer,
     WorkingMain,
 } from "./brainstormui";
 import { CANVAS_BTN, CANVAS_PRIMARY_BTN, CanvasPane, EdgeState, EXPLAINER } from "./canvaspane";
@@ -119,6 +123,45 @@ function scrollToPart(root: RefObject<HTMLElement>, id: string): void {
     root.current
         ?.querySelector(`[data-brainstorm-part="${CSS.escape(id)}"]`)
         ?.scrollIntoView({ block: "start", behavior: "smooth" });
+}
+
+// a board an answer names picks that answer from full size; once it is sent the pane leaves the board for the agent
+// writing it up. A send that fails stays on the board with its reason
+function BoardPicks({ agent, picks }: { agent: AgentVM; picks: BoardPick[] }) {
+    const ans = useAnswer(agent);
+    if (picks.length === 0) {
+        return null;
+    }
+    const pick = async (p: BoardPick) => {
+        if (await ans.sendText(p.label)) {
+            openBrainstormBoard(agent.id, null);
+        }
+    };
+    return (
+        <div
+            data-brainstorm-board-picks
+            className="flex flex-none flex-wrap items-center gap-[10px] border-b border-edge-faint bg-surface px-[22px] py-[8px]"
+        >
+            <span className="text-[12.5px] text-ink-mid">
+                {picks.length === 1 ? "This board shows an answer" : "This board shows answers"}
+            </span>
+            {picks.map((p) => (
+                <button
+                    key={p.index}
+                    type="button"
+                    data-brainstorm-board-pick={p.index}
+                    title={p.label}
+                    disabled={ans.act.busy}
+                    onClick={() => void pick(p)}
+                    className={cn(CANVAS_PRIMARY_BTN, "min-w-0 max-w-[480px]")}
+                >
+                    <span className="flex-none">Pick {optionLetter(p.index)}</span>
+                    <span className="min-w-0 truncate font-normal">· {p.label}</span>
+                </button>
+            ))}
+            {ans.act.error != null ? <span className={ERROR_LINE}>{ans.act.error}</span> : null}
+        </div>
+    );
 }
 
 function hhmm(ms: number): string {
@@ -165,6 +208,16 @@ export function BrainstormPane({ model, agent }: { model: AgentsViewModel; agent
                     onBack={() => openBrainstormBoard(agent.id, null)}
                     backLabel={boardBackLabel(f, s.designOpen, s.sent != null)}
                     tabLabels={f != null ? (boardTabLabels(f, judgeWait(f, s.sent != null)) ?? undefined) : undefined}
+                    boardActions={
+                        f != null
+                            ? (board) => (
+                                  <BoardPicks
+                                      agent={agent}
+                                      picks={boardPicks(f, board, judgeWait(f, s.sent != null))}
+                                  />
+                              )
+                            : undefined
+                    }
                 />
             ) : view === "run" ? (
                 <RunStep model={model} agent={agent} s={s} f={f!} />

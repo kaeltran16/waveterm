@@ -102,19 +102,22 @@ async function openBuildRun(model: AgentsViewModel, agent: AgentVM, s: CanvasSta
 }
 
 // onBack: shown inside a brainstorm, which owns the way back (backLabel says where to) and the run launch. tabLabels
-// names a board's tab in place of its plain label, as a brainstorm's open question letters its answers' boards
+// names a board's tab in place of its plain label, as a brainstorm's open question letters its answers' boards;
+// boardActions draws a row under the toolbar for the one board shown, never under All or while marking
 export function CanvasPane({
     model,
     agent,
     onBack,
     backLabel,
     tabLabels,
+    boardActions,
 }: {
     model: AgentsViewModel;
     agent: AgentVM;
     onBack?: () => void;
     backLabel?: string;
     tabLabels?: Record<string, string>;
+    boardActions?: (board: string) => ReactNode;
 }) {
     const s = useAtomValue(canvasStateAtom(agent.id));
     const now = useAtomValue(model.nowAtom);
@@ -207,6 +210,9 @@ export function CanvasPane({
                     </div>
                 ) : null}
             </div>
+            {boardActions != null && pane === "board" && !marking && currentTab(s) !== ALL_TAB
+                ? boardActions(board.name)
+                : null}
             <div className="flex min-h-0 flex-1 flex-col bg-surface-code">
                 {pane === "server-down" ? (
                     <ServerDown />

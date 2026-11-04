@@ -1969,6 +1969,7 @@ const BSAB_TABS = `(() => {
     const tabs = [...(${BS_PANE}?.querySelectorAll('[data-canvas-pane] [role="tab"]') ?? [])];
     return {
         canvas: !!${BS_PANE}?.querySelector("[data-canvas-pane]"),
+        picks: [...(${BS_PANE}?.querySelectorAll("[data-canvas-pane] [data-brainstorm-board-pick]") ?? [])].map((b) => (b.textContent ?? "").replace(/\\s+/g, " ").trim()),
         labels: tabs.map((t) => (t.textContent ?? "").trim()),
         selected: (tabs.find((t) => t.getAttribute("aria-selected") === "true")?.textContent ?? "").trim(),
     };
@@ -2094,6 +2095,37 @@ export const brainstormAnswerBoards = {
             { opened, stepped, all, backed, back }
         );
 
+        // 4b. a board one answer names picks that answer from full size; All picks nothing
+        await h.ev(BS_TYPED_INSTALL);
+        const STRIP_LABEL = BSAB_FILE.question.options[1].label;
+        const RAIL_LABEL = BSAB_FILE.question.options[0].label;
+        await h.ev(
+            `${BS_PANE}?.querySelector('[data-brainstorm-row-boards] [data-brainstorm-thumb="${BSAB_RAIL}"]')?.parentElement?.querySelector("[data-brainstorm-open-board]")?.click()`
+        );
+        await polishWaitFor(h, `!!${BS_PANE}?.querySelector("[data-canvas-pane] [data-brainstorm-board-pick]")`, BS_POLL_WAIT_MS);
+        const railPicks = await h.ev(BSAB_TABS);
+        await h.ev(`[...(${BS_PANE}?.querySelectorAll('[data-canvas-pane] [role="tab"]') ?? [])].find((t) => t.textContent.trim() === "All")?.click()`);
+        await polishNap(300);
+        const allPicks = await h.ev(BSAB_TABS);
+        await h.ev(`[...(${BS_PANE}?.querySelectorAll('[data-canvas-pane] [role="tab"]') ?? [])].find((t) => t.textContent.trim() === "B · Top-strip")?.click()`);
+        await polishNap(300);
+        const stripPicks = await h.ev(BSAB_TABS);
+        await h.shot("cdp-shots/brainstorm-answer-boards-4b-pick.png");
+        const pickMark = await bsMark(h, ctx, STRIP_LABEL);
+        await h.ev(`${BS_PANE}?.querySelector("[data-canvas-pane] [data-brainstorm-board-pick]")?.click()`);
+        const pickTyped = await bsTyped(h, ctx, pickMark, STRIP_LABEL);
+        const leftBoard = await polishWaitFor(h, `!${BS_PANE}?.querySelector("[data-canvas-pane]") && !!${BS_PANE}?.querySelector("[data-brainstorm-working]")`, 3000);
+        await h.ev(BS_TYPED_REMOVE);
+        rec(
+            "4b. (Pick from full size) A's Left-rail offers Pick A with its label, All offers none, B's Top-strip offers Pick B; clicking it sends B's label as the answer and leaves the board for the agent writing it up",
+            JSON.stringify(railPicks.picks) === JSON.stringify([`Pick A· ${RAIL_LABEL}`]) &&
+                allPicks.picks.length === 0 &&
+                JSON.stringify(stripPicks.picks) === JSON.stringify([`Pick B· ${STRIP_LABEL}`]) &&
+                pickTyped.ok &&
+                leftBoard,
+            { rail: railPicks.picks, all: allPicks.picks, strip: stripPicks.picks, typed: pickTyped.detail, leftBoard }
+        );
+
         bsWrite(ctx, BSAB_JUDGING);
         await polishWaitFor(
             h,
@@ -2129,10 +2161,11 @@ export const brainstormAnswerBoards = {
         const jBacked = await bsClick(h, BS_PANE, "Back to the question");
         const jBack = await polishWaitFor(h, `!!${BS_PANE}?.querySelector("[data-brainstorm-judging] [data-brainstorm-row-boards]")`, 3000);
         rec(
-            "6. (Judge wait full size) Open full size on C's Left-rail shows it with the tabs lettered by approach; Back returns to the judge's wait",
+            "6. (Judge wait full size) Open full size on C's Left-rail shows it with the tabs lettered by approach and Pick C for that approach; Back returns to the judge's wait",
             jOpened.canvas &&
                 JSON.stringify(jOpened.labels) === JSON.stringify(BSAB_JUDGING_TABS_WANT) &&
                 jOpened.selected === "C · Left-rail" &&
+                JSON.stringify(jOpened.picks) === JSON.stringify([`Pick C· ${BSAB_JUDGING.question.approaches[2].name}`]) &&
                 jBacked === "clicked" &&
                 jBack,
             { opened: jOpened, backed: jBacked, back: jBack }

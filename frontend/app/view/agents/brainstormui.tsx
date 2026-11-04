@@ -294,10 +294,13 @@ export function DesignButton({ f, onClick }: { f: BrainstormFile; onClick: () =>
 export function useAnswer(agent: AgentVM, kind: "answer" | "builder-answer" = "answer") {
     const [draft, setDraft] = useState("");
     const act = useAction();
-    const send = async (action: BrainstormAction) => {
-        if ((await act.run(() => sendBrainstorm(agent, action))) && action.kind === kind) {
+    // whether the line was sent
+    const send = async (action: BrainstormAction): Promise<boolean> => {
+        const ok = await act.run(() => sendBrainstorm(agent, action));
+        if (ok && action.kind === kind) {
             setDraft("");
         }
+        return ok;
     };
     const sendText = (text: string) => send({ kind, text });
     const sendDraft = () => {

@@ -710,6 +710,20 @@ export function boardTabLabels(f: BrainstormFile, judging = false): Record<strin
     return labels;
 }
 
+export type BoardPick = { index: number; label: string };
+
+// the answers a board opened full size can be picked as: each row of the open question that names it. Only while the
+// user can answer: a question the agent is not writing over, or the judge's wait (judging), where the rows are the
+// approaches
+export function boardPicks(f: BrainstormFile, board: string, judging: boolean): BoardPick[] {
+    const q = f.question;
+    if (q == null || (f.working != null && !judging)) {
+        return [];
+    }
+    const rows = judging ? (q.approaches ?? []).map((a) => ({ label: a.name, boards: a.boards })) : (q.options ?? []);
+    return rows.flatMap((r, index) => ((r.boards ?? []).includes(board) ? [{ index, label: r.label }] : []));
+}
+
 export type HistoryRow = {
     // the entry's place in the history: entries only append, so a new one leaves the others' keys alone
     key: string;

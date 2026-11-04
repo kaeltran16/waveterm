@@ -10,6 +10,7 @@ import {
     approveBlocker,
     asksUser,
     boardBackLabel,
+    boardPicks,
     boardTabLabels,
     bodyBeyondGist,
     brainstormAttention,
@@ -2021,6 +2022,43 @@ describe("questionBoardLayout and boardTabLabels", () => {
 
     it("no labels without a question", () => {
         expect(boardTabLabels(file())).toBeNull();
+    });
+
+    describe("boardPicks", () => {
+        const shared = asked(
+            [opt("Rail", ["Left-rail.dc.html"]), opt("Strip"), opt("Both", ["Left-rail.dc.html", "Top.dc.html"])],
+            ["Left-rail.dc.html", "Top.dc.html", "Page.dc.html"]
+        ).f;
+
+        it("offers every answer that names the board, by its row, and none for a shared board", () => {
+            expect(boardPicks(shared, "Left-rail.dc.html", false)).toEqual([
+                { index: 0, label: "Rail" },
+                { index: 2, label: "Both" },
+            ]);
+            expect(boardPicks(shared, "Page.dc.html", false)).toEqual([]);
+        });
+
+        it("offers nothing while the agent writes or with no question", () => {
+            expect(boardPicks({ ...shared, working: "Writing up your answer." }, "Left-rail.dc.html", false)).toEqual(
+                []
+            );
+            expect(boardPicks({ ...shared, question: null }, "Left-rail.dc.html", false)).toEqual([]);
+        });
+
+        it("offers the approaches during the judge's wait, by name", () => {
+            const f = {
+                ...shared,
+                working: "The judge is weighing 2 approaches.",
+                question: {
+                    ...shared.question!,
+                    approaches: [
+                        { name: "Strip", description: "", facts: [] },
+                        { name: "Rail", description: "", facts: [], boards: ["Left-rail.dc.html"] },
+                    ],
+                },
+            };
+            expect(boardPicks(f, "Left-rail.dc.html", true)).toEqual([{ index: 1, label: "Rail" }]);
+        });
     });
 
     describe("while the judge weighs", () => {
