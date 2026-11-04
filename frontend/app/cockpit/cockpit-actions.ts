@@ -10,8 +10,17 @@ import { AgentsViewModel } from "@/app/view/agents/agents";
 import { SESSION_BRAINSTORM } from "@/app/view/agents/brainstormstore";
 import type { PendingLaunch } from "@/app/view/agents/agentsviewmodel";
 import { resolveCwd } from "@/app/view/agents/agentcwdresolve";
-import { buildLaunchMeta, runtimeCreatesAgentPanel, runtimeStartupCommand, type Runtime } from "@/app/view/agents/launch";
+import {
+    buildLaunchMeta,
+    launchLanding,
+    numberedName,
+    runtimeCreatesAgentPanel,
+    runtimeStartupCommand,
+    type Runtime,
+} from "@/app/view/agents/launch";
 import { projectsAtom } from "@/app/view/agents/projectsstore";
+import { sessionSidebarViewModelAtom } from "@/app/view/agents/session-models/sessionsidebarmodel";
+import { flattenVisualOrder } from "@/app/view/agents/session-models/sessionviewmodel";
 
 export interface LaunchAgentOpts {
     runtime: Runtime;
@@ -30,10 +39,11 @@ export interface LaunchAgentOpts {
 }
 
 // Launch a runtime as its OWN session tab. Agent runtimes get a pending roster row; terminals only
-// open in the Agent surface focus pane. We do NOT setActiveTab — the cockpit stays on the
-// Agents tab; the agent's process starts when its terminal mounts in the focus pane. The new tab's
-// default term block is reconfigured via SetMeta before it renders, so meta is honored at controller
-// start (the backend starts controllers lazily on the first terminal-view resync).
+// open in the Agent surface focus pane. We do NOT setActiveTab. The new tab's default term block is
+// reconfigured via SetMeta first, so meta is honored at controller start. An agent's process is started
+// here with a resync (the backend otherwise starts controllers lazily on the first terminal-view
+// resync), so it runs without its terminal mounted and a launch from the Cockpit can stay there; it
+// starts at the block's stored size and the terminal resizes it when first opened. A start error throws.
 export async function launchAgent(model: AgentsViewModel, opts: LaunchAgentOpts): Promise<string> {
     // Pi --session creates a session when the path is missing; a stale archived entry must never reach
     // that behavior, so a resumePath that no longer exists on disk aborts before anything is created.
@@ -101,22 +111,32 @@ export async function launchAgent(model: AgentsViewModel, opts: LaunchAgentOpts)
         tabMeta[SESSION_BRAINSTORM] = opts.brainstormFile;
     }
     await RpcApi.SetMetaCommand(TabRpcClient, { oref: WOS.makeORef("tab", tabId), meta: tabMeta });
+    if (!isTerminal) {
+        await RpcApi.ControllerResyncCommand(TabRpcClient, { tabid: tabId, blockid: blockId });
+    }
     if (agentPanel) {
+        // named as the roster will name its row, so the name does not jump when that row replaces it
+        const taken = flattenVisualOrder(globalStore.get(sessionSidebarViewModelAtom))
+            .filter((r) => r.projectNamed && r.tabId !== tabId)
+            .map((r) => r.label);
         const pending: PendingLaunch = {
             tabId,
             blockId,
-            name: opts.label || opts.projectName,
+            name: opts.label || numberedName(opts.projectName, taken),
             project: opts.projectName,
             ts: Date.now(),
         };
         globalStore.set(model.pendingLaunchesAtom, [...globalStore.get(model.pendingLaunchesAtom), pending]);
     }
     // Terminals launch in the background: leave the user where they are (no focus/surface change). The
-    // terminal appears under the Agent tree's "Terminals" group and starts when first opened. Agents
-    // foreground into the Agent surface so their booting terminal mounts (which starts the process).
+    // terminal appears under the Agent tree's "Terminals" group and starts when first opened. An agent
+    // is focused; from anywhere but the Cockpit it also lands on the Agent surface.
     if (!isTerminal) {
         globalStore.set(model.focusIdAtom, tabId);
-        globalStore.set(model.surfaceAtom, "agent");
+        const landing = launchLanding(globalStore.get(model.surfaceAtom));
+        if (landing) {
+            globalStore.set(model.surfaceAtom, landing);
+        }
     }
     return tabId;
 }

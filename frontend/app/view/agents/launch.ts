@@ -1,7 +1,29 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import type { SurfaceKey } from "./agents";
+
+export { numberedName } from "./session-models/sessionviewmodel";
+
 export type Runtime = "claude" | "codex" | "opencode" | "pi" | "terminal";
+
+// a launch made on the Cockpit stays there (its card shows the booting agent); from anywhere else it
+// lands on the Agent surface, where its terminal shows
+export function launchLanding(surface: SurfaceKey): SurfaceKey | null {
+    return surface === "cockpit" ? null : "agent";
+}
+
+// the project New agent preselects: the user's pick, then the Cockpit's scope when it can be launched
+// in, then the most recently used
+export function defaultLaunchProject(chosen: string, candidates: { name: string }[], scope: string): string {
+    if (chosen) {
+        return chosen;
+    }
+    if (candidates.some((c) => c.name === scope)) {
+        return scope;
+    }
+    return candidates[0]?.name ?? "";
+}
 
 const RUNTIME_CMD: Record<Runtime, string> = {
     claude: "claude",

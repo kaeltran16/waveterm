@@ -15,6 +15,7 @@ const setMeta = vi.fn().mockResolvedValue(undefined);
 const reloadWaveObject = vi.fn().mockResolvedValue(undefined);
 const fileInfo = vi.fn();
 const agentSyncApply = vi.fn().mockResolvedValue({ actions: [] });
+const controllerResync = vi.fn().mockResolvedValue(undefined);
 
 vi.mock("@/app/store/services", () => ({ WorkspaceService: { CreateTab: (...a: any[]) => createTab(...a) } }));
 vi.mock("@/app/store/wshclientapi", () => ({
@@ -23,10 +24,15 @@ vi.mock("@/app/store/wshclientapi", () => ({
         FileInfoCommand: (...a: any[]) => fileInfo(...a),
         CreateWorktreeCommand: (...a: any[]) => createWorktree(...a),
         AgentSyncApplyCommand: (...a: any[]) => agentSyncApply(...a),
+        ControllerResyncCommand: (...a: any[]) => controllerResync(...a),
     },
 }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 vi.mock("@/app/view/agents/agents", () => ({ AgentsViewModel: class {} }));
+vi.mock("@/app/view/agents/session-models/sessionsidebarmodel", async () => {
+    const { atom } = await import("jotai");
+    return { sessionSidebarViewModelAtom: atom({ groups: [] }) };
+});
 vi.mock("@/app/store/global-atoms", () => ({ atoms: { workspace: atom({ oid: "ws1", tabids: [] }) } }));
 vi.mock("@/app/store/wos", () => ({
     makeORef: (otype: string, oid: string) => `${otype}:${oid}`,
@@ -34,16 +40,18 @@ vi.mock("@/app/store/wos", () => ({
     reloadWaveObject: (...a: any[]) => reloadWaveObject(...a),
 }));
 
+import { sessionSidebarViewModelAtom } from "@/app/view/agents/session-models/sessionsidebarmodel";
 import { launchAgent } from "./cockpit-actions";
 
-// the mock above makes the workspace atom writable; its real type is read-only.
+// the mocks above make the workspace and sidebar atoms writable; their real types are read-only.
 const workspaceAtom = atoms.workspace as unknown as PrimitiveAtom<Workspace>;
+const sidebarAtom = sessionSidebarViewModelAtom as unknown as PrimitiveAtom<{ groups: any[] }>;
 
-function fakeModel() {
+function fakeModel(surface = "cockpit") {
     return {
         pendingLaunchesAtom: atom([]),
         focusIdAtom: atom<string | undefined>(undefined),
-        surfaceAtom: atom("cockpit"),
+        surfaceAtom: atom(surface),
     } as any;
 }
 
@@ -53,6 +61,8 @@ beforeEach(() => {
     reloadWaveObject.mockClear();
     fileInfo.mockReset().mockResolvedValue({});
     agentSyncApply.mockClear();
+    controllerResync.mockReset().mockResolvedValue(undefined);
+    globalStore.set(sidebarAtom, { groups: [] });
     createWorktree.mockReset().mockResolvedValue({ worktreepath: "C:/wt/feat-x" });
     h.tab = { blockids: ["blk-1"] };
     globalStore.set(workspaceAtom, { oid: "ws1", tabids: [] } as any);
@@ -183,7 +193,7 @@ describe("launchAgent", () => {
 
     it("adds a booting row for an agent, after the rows already pending, and foregrounds it", async () => {
         const now = vi.spyOn(Date, "now").mockReturnValue(1234);
-        const model = fakeModel();
+        const model = fakeModel("jarvis");
         const earlier = { tabId: "t0", blockId: "b0", name: "old", project: "p0", ts: 1 };
         globalStore.set(model.pendingLaunchesAtom, [earlier]);
         try {
@@ -203,6 +213,54 @@ describe("launchAgent", () => {
         const model = fakeModel();
         await launchAgent(model, agentOpts);
         expect(globalStore.get(model.pendingLaunchesAtom)[0]).toMatchObject({ name: "proj" });
+    });
+
+    it("numbers the booting row against the live agents named for the project, not terminals or titled ones", async () => {
+        const row = (tabId: string, label: string, projectNamed: boolean) => ({ tabId, label, projectNamed });
+        globalStore.set(sidebarAtom, {
+            groups: [
+                {
+                    label: "proj",
+                    sessions: [
+                        row("a1", "proj", true),
+                        row("term", "proj 2", false),
+                        row("a2", "Fix login", false),
+                        row("tab-1", "proj 2", true), // the new tab itself, if the sidebar already shows it
+                    ],
+                },
+            ],
+        });
+        const model = fakeModel();
+        await launchAgent(model, agentOpts);
+        expect(globalStore.get(model.pendingLaunchesAtom)[0]).toMatchObject({ name: "proj 2" });
+    });
+
+    it("launchAgent starts the controller with ControllerResyncCommand", async () => {
+        await launchAgent(fakeModel(), agentOpts);
+        expect(controllerResync).toHaveBeenCalledWith({}, { tabid: "tab-1", blockid: "blk-1" });
+        // the meta the process starts with is in place, and visible, first
+        expect(controllerResync.mock.invocationCallOrder[0]).toBeGreaterThan(
+            reloadWaveObject.mock.invocationCallOrder[0]
+        );
+    });
+
+    it("launchAgent from the Cockpit leaves surfaceAtom on cockpit", async () => {
+        const model = fakeModel("cockpit");
+        await launchAgent(model, agentOpts);
+        expect(globalStore.get(model.surfaceAtom)).toBe("cockpit");
+        expect(globalStore.get(model.focusIdAtom)).toBe("tab-1");
+    });
+
+    it("launchAgent rethrows a controller start error", async () => {
+        controllerResync.mockRejectedValue(new Error("snapshot refused"));
+        const model = fakeModel("jarvis");
+        await expect(launchAgent(model, agentOpts)).rejects.toThrow("snapshot refused");
+        expect(globalStore.get(model.surfaceAtom)).toBe("jarvis");
+    });
+
+    it("leaves a terminal to start when it is first opened", async () => {
+        await launchAgent(fakeModel(), { ...agentOpts, runtime: "terminal", startupCommand: "" });
+        expect(controllerResync).not.toHaveBeenCalled();
     });
 
     it("opens a terminal in the project in the background, with no agent row and no branch worktree", async () => {
