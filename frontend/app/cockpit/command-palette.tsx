@@ -239,9 +239,8 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
             }
         }
         // search rows replace their archive entries: they carry the hit Open in Sessions lands on
-        const now = Date.now();
         for (const result of sessionSearch.results ?? []) {
-            const session = overlayLive([result.session], agents, now)[0];
+            const session = overlayLive([result.session], agents)[0];
             const agent = session.liveId != null ? agents.find((a) => a.id === session.liveId) : undefined;
             const find = { result, query: sessionsAt.query, terms: sessionSearch.terms };
             m.set(`session:${session.runtime}:${session.id}`, {

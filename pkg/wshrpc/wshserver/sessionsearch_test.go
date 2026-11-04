@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -125,5 +126,27 @@ func TestSearchResultsKeepsResultsWhenLinkFails(t *testing.T) {
 	results := searchResults(sessions, agentsessions.ParseQuery("deploy"), false, 20, fail)
 	if len(results) != 1 || results[0].Session.ID != "lead" {
 		t.Fatalf("a link failure keeps the matched sessions, got %+v", results)
+	}
+}
+
+func TestSearchResultsCarryResumeBlocker(t *testing.T) {
+	here := indexedSession("here", 300, "deploy")
+	here.Info.ProjectPath = t.TempDir()
+	gone := indexedSession("gone", 200, "deploy")
+	gone.Info.ProjectPath = filepath.Join(t.TempDir(), "deleted")
+	none := indexedSession("none", 100, "deploy")
+	results := searchResults([]agentsessions.IndexedSession{here, gone, none}, agentsessions.ParseQuery("deploy"), true, 20, linkByRole)
+	if len(results) != 3 {
+		t.Fatalf("want three results, got %d", len(results))
+	}
+	want := map[string]string{
+		"here": "",
+		"gone": "its working directory " + gone.Info.ProjectPath + " no longer exists",
+		"none": "no working directory was recorded",
+	}
+	for _, r := range results {
+		if r.Session.ResumeBlocker != want[r.Session.ID] {
+			t.Errorf("%s: resumeblocker = %q, want %q", r.Session.ID, r.Session.ResumeBlocker, want[r.Session.ID])
+		}
 	}
 }

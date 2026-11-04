@@ -7,6 +7,7 @@ import type { TabModel } from "@/app/store/tab-model";
 import * as WOS from "@/app/store/wos";
 import { atom, type Atom, type PrimitiveAtom } from "jotai";
 import { sentAskIdsAtom } from "./agentaskstore";
+import { getStartErrorAtom } from "./agentcontrollerstore";
 import {
     cycleId,
     groupAgents,
@@ -16,6 +17,7 @@ import {
     providerPlanUsage,
     toggleSelection,
     withRunDone,
+    withStartError,
     type AgentVM,
     type PendingLaunch,
 } from "./agentsviewmodel";
@@ -181,7 +183,11 @@ export class AgentsViewModel implements ViewModel {
             const runOf = (id: string) => get(WOS.getWaveObjectAtom<Run>(WOS.makeORef("run", id)));
             return mergePendingLaunches(get(base), get(pendingAtom), now).map((agent) =>
                 withRunDone(
-                    withBrainstorm(agent, shownBrainstormFile(brainstorms[agent.id]), now),
+                    withBrainstorm(
+                        agent.blockId ? withStartError(agent, get(getStartErrorAtom(agent.blockId))) : agent,
+                        shownBrainstormFile(brainstorms[agent.id]),
+                        now
+                    ),
                     agent.runId ? runOf(agent.runId) : undefined
                 )
             );

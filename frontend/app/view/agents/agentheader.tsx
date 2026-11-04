@@ -137,8 +137,24 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
     const runDone = agentRunDone(agent, standingBy);
     // standing by reads like its dot: accent, not the idle grey
     const done = ended || runDone;
-    const stateText = done ? (landed ? "landed" : "done") : standingBy ? "standing by" : STATE_LABEL[agent.state];
-    const stateColor = done ? "var(--color-success)" : standingBy ? "var(--color-accent)" : STATE_COLOR[agent.state];
+    // a controller that refused to start reads as failed, never as still booting
+    const failed = !done && agent.startError != null;
+    const stateText = done
+        ? landed
+            ? "landed"
+            : "done"
+        : failed
+          ? "failed to start"
+          : standingBy
+            ? "standing by"
+            : STATE_LABEL[agent.state];
+    const stateColor = done
+        ? "var(--color-success)"
+        : failed
+          ? "var(--color-error)"
+          : standingBy
+            ? "var(--color-accent)"
+            : STATE_COLOR[agent.state];
     // m4: one-shot settle on the state pill when the focused agent reaches idle
     const readPending = shellReadPending(agent, useAtomValue(shellReadAtByIdAtom)[agent.id]);
     // held until a shell-task read since the Stop lands, so a just-launched task never settles first;
@@ -215,7 +231,7 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
             onContextMenu={onContextMenu}
             className="flex shrink-0 items-center gap-[13px] border-b border-border bg-background px-[22px] py-[14px]"
         >
-            {stage ? null : ended ? (
+            {stage ? null : ended || failed ? (
                 <span className="h-[9px] w-[9px] shrink-0 rounded-full" style={{ background: stateColor }} />
             ) : runDone ? (
                 <CommitTick runDone />
@@ -255,9 +271,10 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                             <span
                                 className={cn(
                                     "shrink-0 whitespace-nowrap rounded-[5px] border px-[7px] py-[1px] font-mono text-[10.5px] font-medium opacity-85 transition-colors duration-[140ms]",
-                                    settling && "animate-[settle_0.5s_ease-out] motion-reduce:animate-none"
+                                    failed && "border-error text-error",
+                                    settling && !failed && "animate-[settle_0.5s_ease-out] motion-reduce:animate-none"
                                 )}
-                                style={{ color: stateColor, borderColor: stateColor }}
+                                style={failed ? undefined : { color: stateColor, borderColor: stateColor }}
                                 data-agent-state-pill
                             >
                                 {stateText}
@@ -282,6 +299,11 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                         </span>
                     ) : null}
                 </div>
+                {failed ? (
+                    <div data-agent-start-error className="mt-[2px] font-mono text-[11px] font-medium text-error">
+                        {agent.startError}
+                    </div>
+                ) : null}
                 {subline.length > 0 ? (
                     <div className="mt-[2px] whitespace-nowrap font-mono text-[11px] font-medium text-muted">
                         {subline.map((part, i) => (

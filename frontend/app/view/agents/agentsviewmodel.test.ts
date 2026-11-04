@@ -51,6 +51,7 @@ import {
     usageLevel,
     withAsk,
     withRunDone,
+    withStartError,
     type AgentActionEntry,
     type AgentAskQuestion,
     type AgentEntry,
@@ -1019,6 +1020,25 @@ describe("pendingToVM", () => {
     it("marks booting", () => {
         const p: PendingLaunch = { tabId: "t1", blockId: "b1", name: "n", project: "p", ts: 0 };
         expect(pendingToVM(p, 1).booting).toBe(true);
+    });
+
+    it("pendingToVM carries the runtime", () => {
+        const p: PendingLaunch = { tabId: "t1", blockId: "b1", name: "n", project: "p", ts: 0, runtime: "pi" };
+        expect(pendingToVM(p, 0).agent).toBe("pi");
+    });
+});
+
+describe("withStartError", () => {
+    it("withStartError folds to idle with the error", () => {
+        const booting = pendingToVM({ tabId: "t1", blockId: "b1", name: "n", project: "p", ts: 0 }, 0);
+        const out = withStartError(booting, "remote connections are not supported");
+        expect(out).toMatchObject({ id: "t1", state: "idle", startError: "remote connections are not supported" });
+        expect(out.booting).toBe(false);
+    });
+
+    it("withStartError leaves an agent without error untouched", () => {
+        const agent = mk("t1", "working");
+        expect(withStartError(agent, undefined)).toBe(agent);
     });
 });
 

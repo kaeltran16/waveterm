@@ -11,7 +11,9 @@ import { cardVariants, MOTION } from "@/app/element/motiontokens";
 import { SkeletonLine, SkeletonRows } from "@/app/element/skeleton";
 import { ContextMenuModel } from "@/app/store/contextmenu";
 import { globalStore } from "@/app/store/jotaiStore";
+import { buildSessionsBindings } from "@/app/store/keybindings/bindings";
 import { useSurfaceListNav, type ListNavController } from "@/app/store/keybindings/listnav";
+import { useKeybindings } from "@/app/store/keybindings/store";
 import * as WOS from "@/app/store/wos";
 import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { cn, fireAndForget } from "@/util/util";
@@ -21,7 +23,7 @@ import { AnimatePresence, motion, MotionConfig } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
-import { formatAge, formatAgeShort, formatTokens } from "./agentsviewmodel";
+import { formatAge, formatTokens } from "./agentsviewmodel";
 import type { RunInfo } from "./runlineage";
 import { runDigestsAtom, useRunDigests } from "./runlineagestore";
 import { runtimeMeta } from "./runtimemeta";
@@ -33,6 +35,7 @@ import {
     pageFeed,
     pageGroups,
     resolveSelectedSession,
+    SESSIONS_WINDOW_DAYS,
     sessionsArchiveAtom,
     sessionsErrorAtom,
     sessionsIncompleteAtom,
@@ -57,6 +60,7 @@ import {
     sessionKey,
     sessionLabel,
     sessionSelection,
+    soloStatus,
     withoutBrainstormSessions,
     type RunMember,
     type RunView,
@@ -64,6 +68,7 @@ import {
 } from "./sessionsruns";
 import {
     composeSearchRows,
+    emptyListState,
     foldHits,
     isSearchQuery,
     keepRow,
@@ -76,6 +81,7 @@ import {
     type SnippetRow,
 } from "./sessionssearch";
 import { useSessionsSearch } from "./sessionssearchstore";
+import { ranLabel } from "./sessionstime";
 import { SurfaceEmptyState, SurfaceError, SurfaceToolbar, ToolbarFact } from "./surfacescaffold";
 
 const FILTERS: { key: SessionStatusFilter; label: string }[] = [
@@ -115,11 +121,9 @@ function needsRow(r: Row): boolean {
     return r.run ? r.run.view.needs.length > 0 : r.session!.needsAttention;
 }
 
-function soloStatus(s: LiveSession, now: number): Status {
-    if (s.live) {
-        return s.needsAttention ? { key: "asking", text: "asking" } : { key: "running", text: "running" };
-    }
-    return { key: "muted", text: formatAge(now - s.lastactivets) };
+// a card reads an ended run or session as its age alone: its other marks already say how it ended
+function cardStatus(status: Status, lastactivets: number, now: number): Status {
+    return status.key === "done" ? { key: "muted", text: formatAge(now - lastactivets) } : status;
 }
 
 // the session a member opens: its own, else the live agent of its run the scan has not picked up yet
@@ -167,8 +171,8 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
             return [];
         }
         const listed = withoutBrainstormSessions(base);
-        return overlayLive(results ? mergeResultSessions(listed, results) : listed, roster, now);
-    }, [base, results, roster, now]);
+        return overlayLive(results ? mergeResultSessions(listed, results) : listed, roster);
+    }, [base, results, roster]);
     const matches = useMemo(() => (results ? foldHits(results) : null), [results]);
     const { runs: runGroups, solos } = useMemo(() => groupRunSessions(live), [live]);
 
@@ -203,7 +207,6 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
                     dag: o?.dag,
                     digest: digests[group.runId],
                     leadAtPrompt: leadAgent?.atPrompt,
-                    now,
                 });
                 return {
                     key: runSelKey(group.runId),
@@ -212,7 +215,7 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
                     run: { group, view },
                 };
             }),
-        [runGroups, runObjs, digests, roster, now]
+        [runGroups, runObjs, digests, roster]
     );
 
     // only a live run can raise a question, and the one in view shows its ask
@@ -231,19 +234,28 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
             )
     );
 
-    const soloRows: Row[] = solos.map((s) => ({
-        key: sessionKey(s),
-        live: s.live,
-        lastactivets: s.lastactivets,
-        session: s,
-    }));
-    const rows = [...runRows, ...soloRows];
-    const scoped = scopeRows(rows, projectFilter);
-    const shown = matches
-        ? composeSearchRows(rows, matches, filter, projectFilter)
-        : scoped.filter((r) => keepRow(r, filter));
-    const pinSet = new Set(pins);
-    const groups = groupByRecency(shown, now, (r: Row) => isRowPinned(r, pinSet));
+    // everything derived from the archive is memoized off the 1 s clock: only the day it groups by reads time
+    const rows = useMemo(
+        () => [
+            ...runRows,
+            ...solos.map((s): Row => ({ key: sessionKey(s), live: s.live, lastactivets: s.lastactivets, session: s })),
+        ],
+        [runRows, solos]
+    );
+    const scoped = useMemo(() => scopeRows(rows, projectFilter), [rows, projectFilter]);
+    const shown = useMemo(
+        () =>
+            matches
+                ? composeSearchRows(rows, matches, filter, projectFilter)
+                : scoped.filter((r) => keepRow(r, filter)),
+        [matches, rows, scoped, filter, projectFilter]
+    );
+    const pinSet = useMemo(() => new Set(pins), [pins]);
+    const startOfToday = new Date(now).setHours(0, 0, 0, 0);
+    const groups = useMemo(
+        () => groupByRecency(shown, startOfToday, (r: Row) => isRowPinned(r, pinSet)),
+        [shown, startOfToday, pinSet]
+    );
     const pinMenu = (row: Row) => (e: React.MouseEvent) => {
         e.preventDefault();
         const pinned = isRowPinned(row, pinSet);
@@ -261,9 +273,18 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
     const summary = matches ? searchSummary(new Map(shown.map((r) => [r.key, matches.get(r.key)!]))) : "";
     const openCard = (m: CardMatch) => openSessionHit(model, m.results[0], query, search.terms);
     const openHit = (row: SnippetRow) => openSessionHit(model, row.result, query, search.terms, row.hit);
-    const scopedSessions = scoped.flatMap((r) => (r.run ? r.run.group.sessions : [r.session!]));
+    const scopedSessions = useMemo(
+        () => scoped.flatMap((r) => (r.run ? r.run.group.sessions : [r.session!])),
+        [scoped]
+    );
     const liveCount = scopedSessions.filter((s) => s.live).length;
     const needsCount = scoped.filter(needsRow).length;
+    const empty = emptyListState(filter, projectFilter);
+    const searchPending = searching && search.loading && results != null;
+
+    // stable array: run() reads the DOM, so it never needs rebuilding
+    const sessionsBindings = useMemo(() => buildSessionsBindings(), []);
+    useKeybindings(sessionsBindings);
 
     // detail resolves against every row so project and status filters never blank an explicit selection
     const selSession = selRunId ? undefined : resolveSelectedSession(live, sel);
@@ -345,7 +366,10 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
         }
     });
 
-    const runTitles = Object.fromEntries(runRows.map((r) => [r.run!.group.runId, r.run!.view.title]));
+    const runTitles = useMemo(
+        () => Object.fromEntries(runRows.map((r) => [r.run!.group.runId, r.run!.view.title])),
+        [runRows]
+    );
     const detailKind = selRun ? "run" : selSession ? "solo" : "feed";
 
     return (
@@ -387,6 +411,7 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
                             {liveCount} {liveCount === 1 ? "agent" : "agents"} live
                         </ToolbarFact>
                     ) : null}
+                    <ToolbarFact>last {SESSIONS_WINDOW_DAYS} days</ToolbarFact>
                 </SurfaceToolbar>
 
                 {loadError ? (
@@ -434,7 +459,7 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
                                 data-sessions-search-error=""
                                 className="mt-3 flex items-center gap-2 px-1 text-[12px] text-error"
                             >
-                                <span className="flex-1">Search failed</span>
+                                <span className="flex-1">Search failed: {search.error}</span>
                                 <button
                                     type="button"
                                     onClick={search.retry}
@@ -455,19 +480,33 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
                                 No sessions match “{query.trim()}”.
                             </div>
                         ) : groups.length === 0 ? (
-                            <div className="mt-6">
+                            <div data-sessions-empty="" className="mt-6">
                                 <SurfaceEmptyState
-                                    title="No sessions found"
-                                    body="Sessions appear here as agents run. Start one to begin."
-                                    action={{
-                                        label: "New agent",
-                                        onClick: () => globalStore.set(model.newAgentOpenAtom, true),
-                                    }}
+                                    title={empty.title}
+                                    body={empty.body}
+                                    action={
+                                        empty.action === "show-all"
+                                            ? { label: "Show all", onClick: () => setFilter("all") }
+                                            : empty.action === "new-agent"
+                                              ? {
+                                                    label: "New agent",
+                                                    onClick: () => globalStore.set(model.newAgentOpenAtom, true),
+                                                }
+                                              : undefined
+                                    }
                                 />
                             </div>
                         ) : (
                             paged.map((g) => (
-                                <div key={g.key} data-sessions-group={g.key} className="flex flex-col gap-1.5">
+                                <div
+                                    key={g.key}
+                                    data-sessions-group={g.key}
+                                    data-sessions-search-pending={searchPending ? "" : undefined}
+                                    className={cn(
+                                        "flex flex-col gap-1.5 transition-opacity",
+                                        searchPending && "opacity-60"
+                                    )}
+                                >
                                     <div className="flex items-center gap-2.5 px-1 pb-0.5 pt-3">
                                         <span className={cn(REGION_LABEL, "text-muted")}>{g.label}</span>
                                         <div className="h-px flex-1 bg-edge-faint" />
@@ -580,8 +619,7 @@ function RunCard({
     onContextMenu: (e: React.MouseEvent) => void;
 }) {
     const rt = runtimeMeta(view.runtime);
-    // a finished run reads as its age alone; its members' checks already say it landed
-    const head: Status = view.head.key === "done" ? { key: "muted", text: view.head.text } : view.head;
+    const head = cardStatus(view.head, view.lastactivets, now);
     const elapsed = (view.live ? now : view.lastactivets) - view.startedts;
     return (
         <motion.div
@@ -630,7 +668,7 @@ function RunCard({
                     <span className="flex-1" />
                     <span className="truncate">
                         <span className={rt.text}>{rt.glyph}</span>{" "}
-                        {[view.project, formatAgeShort(elapsed)].filter(Boolean).join(" · ")}
+                        {[view.project, ranLabel(elapsed)].filter(Boolean).join(" · ")}
                     </span>
                 </span>
             </button>
@@ -714,7 +752,7 @@ function SoloCard({
                     <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-primary">
                         {session.task || "(untitled session)"}
                     </span>
-                    <StatusMark status={soloStatus(session, now)} />
+                    <StatusMark status={cardStatus(soloStatus(session), session.lastactivets, now)} />
                 </span>
                 <span className="flex w-full items-center gap-2 font-mono text-[10.5px] text-muted">
                     <span className={rt.text}>{rt.glyph}</span>
@@ -907,7 +945,7 @@ function MergedFeed({
     now: number;
     onOpen: (sessionKey: string) => void;
 }) {
-    const feed = mergedFeed(list, (s) => sessionLabel(s, titles));
+    const feed = useMemo(() => mergedFeed(list, (s) => sessionLabel(s, titles)), [list, titles]);
     const feedPage = usePaging(FEED_PAGE, feed.length);
     return (
         <div data-sessions-feed="" className="min-h-0 flex-1 overflow-y-auto">

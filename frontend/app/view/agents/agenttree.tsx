@@ -668,7 +668,13 @@ function ParentRow({
                 )}
             >
                 <Slot>
-                    {mark ? (
+                    {agent.startError != null ? (
+                        <span
+                            data-tree-start-error
+                            title={agent.startError}
+                            className="h-[7px] w-[7px] shrink-0 rounded-full bg-error"
+                        />
+                    ) : mark ? (
                         <Workflow
                             size={13}
                             aria-hidden

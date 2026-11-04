@@ -1122,3 +1122,17 @@ describe("projectTranscript compaction edge cases", () => {
         expect(projectTranscript([boundary({ postTokens: 4 })])).toStrictEqual([{ kind: "compaction", postTokens: 4 }]);
     });
 });
+
+describe("projectTranscript pasted_content", () => {
+    const wrapped = '<pasted_content id="p1">\nfix the race\nin the clone\n</pasted_content id="p1">';
+    it("unwraps pasted_content in a string prompt", () => {
+        const line = JSON.stringify({ type: "user", message: { content: `see this: ${wrapped}` } });
+        expect(projectTranscript([line])).toStrictEqual([
+            { kind: "user", text: "see this: fix the race\nin the clone" },
+        ]);
+    });
+    it("unwraps pasted_content in a text block", () => {
+        const line = JSON.stringify({ type: "user", message: { content: [{ type: "text", text: wrapped }] } });
+        expect(projectTranscript([line])).toStrictEqual([{ kind: "user", text: "fix the race\nin the clone" }]);
+    });
+});

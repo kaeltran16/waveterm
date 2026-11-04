@@ -6,7 +6,7 @@
 // dag and its stage sessions, and surfaces only the members that need you. No React, no Wave runtime.
 
 import type { LaunchAgentOpts } from "@/app/cockpit/cockpit-actions";
-import { formatAge, type AgentVM } from "./agentsviewmodel";
+import type { AgentVM } from "./agentsviewmodel";
 import type { Runtime } from "./launch";
 import { BRAINSTORM_JUDGE_ROLE, BUILDER_CHECK_ROLE, planReviewerOf, runTitle, stageLabel, unmetDeps } from "./runlineage";
 import { runComplete } from "./runmodel";
@@ -188,6 +188,9 @@ export interface RunView {
     // the lead's runtime, for the run's glyph
     runtime: string;
     live: boolean;
+    // neither the run nor its dag is cancelled or done: only an open run has members that need you and an ask
+    open: boolean;
+    // a finished run's text is empty: the card and the detail render its age from lastactivets
     head: Status;
     // nothing left to happen: the plan done, the lead finished and the run landed (the Agents tree's green check)
     complete: boolean;
@@ -209,7 +212,6 @@ export interface RunViewInput {
     digest?: DagStatusDigest;
     // the lead's roster agent, when live: whether it sits at its prompt
     leadAtPrompt?: boolean;
-    now: number;
 }
 
 function basename(path: string | undefined): string {
@@ -256,21 +258,31 @@ function stageStatus(role: string, session: LiveSession | undefined, dag: TaskGr
     return STAGE_VERDICTS[state] ?? { key: "done", text: "done" };
 }
 
-function headStatus(
-    members: RunMember[],
-    live: boolean,
-    dag: TaskGroup | undefined,
-    lastactivets: number,
-    now: number
-): Status {
-    const count = (k: StatusKey) => members.filter((m) => m.status.key === k).length;
-    const asking = count("asking");
-    if (asking > 0) {
-        return { key: "asking", text: `${asking} asking` };
+const ENDED_STATUSES = ["cancelled", "done"];
+
+function runCancelled(run: Run | undefined, dag: TaskGroup | undefined): boolean {
+    return run?.status === "cancelled" || dag?.status === "cancelled";
+}
+
+function runOpen(run: Run | undefined, dag: TaskGroup | undefined): boolean {
+    return !ENDED_STATUSES.includes(run?.status) && !ENDED_STATUSES.includes(dag?.status);
+}
+
+// a cancelled run reads cancelled whatever its tasks were left at; an ended one asks nothing of you
+function headStatus(members: RunMember[], live: boolean, dag: TaskGroup | undefined, run: Run | undefined): Status {
+    if (runCancelled(run, dag)) {
+        return { key: "muted", text: "cancelled" };
     }
-    const failed = count("failed");
-    if (failed > 0) {
-        return { key: "failed", text: `${failed} need${failed === 1 ? "s" : ""} you` };
+    const count = (k: StatusKey) => members.filter((m) => m.status.key === k).length;
+    if (runOpen(run, dag)) {
+        const asking = count("asking");
+        if (asking > 0) {
+            return { key: "asking", text: `${asking} asking` };
+        }
+        const failed = count("failed");
+        if (failed > 0) {
+            return { key: "failed", text: `${failed} need${failed === 1 ? "s" : ""} you` };
+        }
     }
     const running = members.filter(
         (m) => m.key !== LEAD_MEMBER && (m.status.key === "running" || m.status.key === "review")
@@ -278,17 +290,15 @@ function headStatus(
     if (running > 0) {
         return { key: "running", text: `${running} running` };
     }
-    if (dag?.status === "cancelled") {
-        return { key: "muted", text: "cancelled" };
-    }
     if (live) {
         return { key: "running", text: dag ? "working" : "planning" };
     }
-    return { key: "done", text: formatAge(now - lastactivets) };
+    return { key: "done", text: "" };
 }
 
 export function runView(input: RunViewInput): RunView {
-    const { group, run, dag, digest, now } = input;
+    const { group, run, dag, digest } = input;
+    const open = runOpen(run, dag);
     const lead = memberSession(group.lead);
     const members: RunMember[] = [
         {
@@ -336,7 +346,7 @@ export function runView(input: RunViewInput): RunView {
             durationMs: sum(sessions, (s) => s.durationms),
         };
     });
-    const askTask = taskMembers.find((m) => m.status.key === "asking");
+    const askTask = open ? taskMembers.find((m) => m.status.key === "asking") : undefined;
     const askText = askTask ? digest?.tasks?.find((t) => t.taskid === askTask.key)?.asksummary : undefined;
     return {
         runId: group.runId,
@@ -345,13 +355,14 @@ export function runView(input: RunViewInput): RunView {
         plan: basename(dag?.planpath),
         runtime: run?.runtime || lead?.runtime || "claude",
         live: group.live,
-        head: headStatus(members, group.live, dag, group.lastactivets, now),
+        open,
+        head: headStatus(members, group.live, dag, run),
         complete: runComplete({ dag, status: run?.status, land: run?.land }),
         segs: taskMembers.map((m) => m.status.key),
         landed: taskMembers.filter((m) => m.status.key === "done").length,
         total: taskMembers.length,
         members: [...members, ...stageMembers],
-        needs: members.filter((m) => needsYou(m.status)),
+        needs: open ? members.filter((m) => needsYou(m.status)) : [],
         ask: askTask ? { member: askTask.key, num: askTask.num, text: askText || "" } : undefined,
         tokens: sum(group.sessions, (s) => s.tokenstotal),
         startedts: run?.createdts || Math.min(...group.sessions.map((s) => s.startedts || s.lastactivets)),
@@ -381,12 +392,28 @@ export function sessionSelection(s: Pick<SessionActivity, "runtime" | "id" | "ru
     return isSoloSession(s) ? { sel: sessionKey(s) } : { sel: runSelKey(s.runid), member: memberOfSession(s) };
 }
 
-// sessionPrimary is a session's one primary action: Jump to its live agent, else Resume it if it can be
-export function sessionPrimary(s: Pick<LiveSession, "live" | "resumecommand">): "jump" | "resume" | null {
+export type SessionPrimary = { kind: "jump" } | { kind: "resume" } | { kind: "blocked"; reason: string };
+
+// sessionPrimary is a session's one primary action: Jump to its live agent, else Resume it, or say why it can't
+// be (the index's resumeblocker); null when it has no resume command at all
+export function sessionPrimary(
+    s: Pick<LiveSession, "live" | "resumecommand" | "resumeblocker">
+): SessionPrimary | null {
     if (s.live) {
-        return "jump";
+        return { kind: "jump" };
     }
-    return s.resumecommand ? "resume" : null;
+    if (!s.resumecommand) {
+        return null;
+    }
+    return s.resumeblocker ? { kind: "blocked", reason: s.resumeblocker } : { kind: "resume" };
+}
+
+// soloStatus is a session's status word on its card and its detail; a done session's card shows its age instead
+export function soloStatus(s: LiveSession): Status {
+    if (s.live) {
+        return s.needsAttention ? { key: "asking", text: "asking" } : { key: "running", text: "running" };
+    }
+    return s.needsAttention ? { key: "asking", text: "needs you" } : { key: "done", text: "done" };
 }
 
 // resumeLaunchOpts launches an ended session again under its own name; an empty task replays no prompt

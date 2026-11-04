@@ -295,3 +295,59 @@ func TestStartWarmupIsIdempotent(t *testing.T) {
 		}
 	}
 }
+
+func TestPinnedSessionsFindsOldClaudeSession(t *testing.T) {
+	dir := indexHome(t)
+	path := writeSession(t, dir, "old", "pinned long ago", 40*24*time.Hour)
+
+	got := PinnedSessions([]string{"claude:old"}, map[string]bool{})
+	if len(got) != 1 {
+		t.Fatalf("want the pinned session past the window, got %d", len(got))
+	}
+	s := got[0]
+	if s.ID != "old" || s.Runtime != "claude" || s.TranscriptPath != path || s.ResumeCommand != "claude --resume old" {
+		t.Fatalf("info = %+v", s)
+	}
+	if age := time.Since(time.UnixMilli(s.LastActiveTs)); age < 39*24*time.Hour {
+		t.Fatalf("lastActiveTs is the transcript's mtime, got an age of %v", age)
+	}
+}
+
+func TestPinnedSessionsFindsPiSession(t *testing.T) {
+	indexHome(t)
+	root := SessionRoot("pi")
+	buildPiTree(t, root)
+	if err := os.Rename(filepath.Join(root, "C_Users_Bob_not_the_repo", "session-uuid.jsonl"),
+		filepath.Join(root, "C_Users_Bob_not_the_repo", "2026-08-11T03-00-00-000Z_session-uuid.jsonl")); err != nil {
+		t.Fatal(err)
+	}
+	got := PinnedSessions([]string{"pi:session-uuid"}, nil)
+	if len(got) != 1 || got[0].ID != "session-uuid" || got[0].Runtime != "pi" {
+		t.Fatalf("want the pinned pi session, got %+v", got)
+	}
+}
+
+func TestPinnedSessionsSkipsMissingTranscript(t *testing.T) {
+	dir := indexHome(t)
+	path := writeSession(t, dir, "deleted", "pinned then deleted", 40*24*time.Hour)
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	got := PinnedSessions([]string{"claude:deleted", "codex:abc", "run:abc", "nocolon", "claude:"}, nil)
+	if len(got) != 0 {
+		t.Fatalf("a missing transcript, an unsupported runtime and a run key give nothing, got %+v", got)
+	}
+}
+
+func TestPinnedSessionsSkipsHave(t *testing.T) {
+	dir := indexHome(t)
+	writeSession(t, dir, "listed", "already in the window", time.Hour)
+	reads := countReads(t)
+	got := PinnedSessions([]string{"claude:listed"}, map[string]bool{"claude:listed": true})
+	if len(got) != 0 {
+		t.Fatalf("a key the caller has is not returned twice, got %+v", got)
+	}
+	if n := total(reads()); n != 0 {
+		t.Fatalf("a key the caller has is not read, got %d reads", n)
+	}
+}

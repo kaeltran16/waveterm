@@ -4,7 +4,7 @@
 // The Sessions surface's right pane: a run (its lead and tasks, and the session of the one in view) or a single
 // session, each read as its transcript or its lifecycle events. @theme tokens only.
 
-import { launchAgent } from "@/app/cockpit/cockpit-actions";
+import { launchAgentOrToast } from "@/app/cockpit/cockpit-actions";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
@@ -14,10 +14,10 @@ import { landOn } from "@/app/view/jarvis/returnsurface";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { Check, ChevronDown, ChevronUp, Search } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AgentsViewModel } from "./agents";
 import type { AgentEntry } from "./agentsviewmodel";
-import { formatAgeShort, formatTokens } from "./agentsviewmodel";
+import { formatAge, formatAgeShort, formatTokens, groupTimeline } from "./agentsviewmodel";
 import { docTextOf, rangeOf } from "./docreviewnotesview";
 import { NarrationTimeline } from "./narrationtimeline";
 import { runtimeMeta } from "./runtimemeta";
@@ -28,11 +28,14 @@ import {
     resumeLaunchOpts,
     sessionKey,
     sessionPrimary,
+    soloStatus,
     type RunMember,
     type RunView,
     type Status,
     type StatusKey,
 } from "./sessionsruns";
+import { eventTime, startedLabel } from "./sessionstime";
+import { LIVE_REFRESH_MS, mayHaveEarlier, shouldStick, transcriptMaxLines } from "./sessionstranscript";
 import { projectorFor } from "./transcriptregistry";
 import { TranscriptSkeleton } from "./transcriptskeleton";
 
@@ -91,16 +94,17 @@ export function StatusMark({ status, className }: { status: Status; className?: 
     );
 }
 
-// A session's primary action: Jump to the live agent, else Resume the ended session (if resumable).
+// A session's primary action: Jump to the live agent, else Resume the ended session; a blocked one does nothing.
 // Shared by the detail buttons (mouse) and list-nav Enter (keyboard) so both do exactly one thing.
 export function runSessionPrimary(model: AgentsViewModel, session: LiveSession) {
-    if (session.live && session.liveId) {
+    const primary = sessionPrimary(session);
+    if (primary?.kind === "jump" && session.liveId) {
         globalStore.set(model.focusIdAtom, session.liveId);
         landOn(model.surfaceAtom, "agent");
         return;
     }
-    if (session.resumecommand) {
-        fireAndForget(() => launchAgent(model, resumeLaunchOpts(session)));
+    if (primary?.kind === "resume") {
+        fireAndForget(() => launchAgentOrToast(model, resumeLaunchOpts(session)));
     }
 }
 
@@ -108,6 +112,22 @@ function PrimaryButton({ model, session, strong }: { model: AgentsViewModel; ses
     const primary = sessionPrimary(session);
     if (primary == null) {
         return null;
+    }
+    if ("reason" in primary) {
+        return (
+            <span data-sessions-resume-blocked="" className="flex min-w-0 items-center gap-2.5">
+                <span className="min-w-0 max-w-[280px] truncate text-[11.5px] text-muted" title={primary.reason}>
+                    {primary.reason}
+                </span>
+                <button
+                    type="button"
+                    disabled
+                    className="flex-none cursor-default rounded-[7px] border border-edge-mid bg-surface-raised px-[11px] py-[5px] text-[12px] font-semibold text-muted opacity-60"
+                >
+                    Resume
+                </button>
+            </span>
+        );
     }
     return (
         <button
@@ -120,7 +140,7 @@ function PrimaryButton({ model, session, strong }: { model: AgentsViewModel; ses
                     : "border border-edge-strong bg-surface-raised px-[11px] py-[5px] text-secondary hover:border-accent hover:text-accent-soft"
             )}
         >
-            {primary === "jump" ? "Jump →" : "Resume →"}
+            {primary.kind === "jump" ? "Jump →" : "Resume →"}
         </button>
     );
 }
@@ -168,44 +188,73 @@ function Meta({ items, className }: { items: { k: string; v: string }[]; classNa
     );
 }
 
-function useTranscript(session: LiveSession | undefined, full: boolean): AgentEntry[] | null {
-    const [entries, setEntries] = useState<AgentEntry[] | null>(null);
+interface TranscriptRead {
+    entries: AgentEntry[] | null;
+    error: string | null;
+    // lines the last read returned
+    fetched: number;
+}
+
+const UNREAD: TranscriptRead = { entries: null, error: null, fetched: 0 };
+
+// useTranscript reads a session's transcript, and again every LIVE_REFRESH_MS while it is live; a reread keeps the
+// entries shown until it lands, and one that returns the same lines changes nothing.
+function useTranscript(session: LiveSession | undefined, full: boolean): TranscriptRead {
     const path = session?.transcriptpath;
     const runtime = session?.runtime;
+    const live = !!session?.live;
+    const [read, setRead] = useState<TranscriptRead & { of?: string }>(UNREAD);
     useEffect(() => {
-        let cancelled = false;
-        setEntries(null);
         if (!path || !runtime) {
-            setEntries([]);
+            setRead({ of: path, entries: [], error: null, fetched: 0 });
             return;
         }
-        fireAndForget(async () => {
+        let cancelled = false;
+        let inflight = false;
+        let lastKey: string | null = null;
+        const maxlines = transcriptMaxLines(runtime, full);
+        const load = async () => {
+            if (inflight) {
+                return;
+            }
+            inflight = true;
             try {
-                // Pi's parent-linked active branch needs the complete file, and a find may target the first turn;
-                // otherwise tail the recent window.
-                const maxlines = runtime === "pi" || full ? -1 : 2000;
-                const rtn = await RpcApi.GetAgentTranscriptCommand(TabRpcClient, { path, maxlines });
-                const projected = projectorFor(runtime, path).project(rtn.lines ?? []);
-                if (!cancelled) {
-                    setEntries(projected);
+                const lines = (await RpcApi.GetAgentTranscriptCommand(TabRpcClient, { path, maxlines })).lines ?? [];
+                const key = `${lines.length}:${lines[lines.length - 1] ?? ""}`;
+                if (cancelled || key === lastKey) {
+                    return;
                 }
+                lastKey = key;
+                const entries = projectorFor(runtime, path).project(lines);
+                setRead({ of: path, entries, error: null, fetched: lines.length });
             } catch (e) {
                 console.warn(`reading transcript ${path} failed`, e);
                 if (!cancelled) {
-                    setEntries([]);
+                    const error = e instanceof Error ? e.message : String(e);
+                    // a failed reread keeps what an earlier read showed
+                    setRead((prev) =>
+                        prev.of === path && prev.entries != null ? prev : { ...UNREAD, of: path, error }
+                    );
                 }
+            } finally {
+                inflight = false;
             }
-        });
+        };
+        fireAndForget(load);
+        const timer = live ? setInterval(() => fireAndForget(load), LIVE_REFRESH_MS) : null;
         return () => {
             cancelled = true;
+            if (timer != null) {
+                clearInterval(timer);
+            }
         };
-    }, [path, runtime, full]);
-    return entries;
+    }, [path, runtime, full, live]);
+    return read.of === path ? read : UNREAD;
 }
 
-function clock(ts: number): string {
-    return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
-}
+// an event time column fits HH:MM, or a date and time once any event is from another day
+const EVENT_TIME_COL = "grid-cols-[44px_8px_minmax(0,1fr)]";
+const EVENT_DATE_COL = "grid-cols-[112px_8px_minmax(0,1fr)]";
 
 // mark is the event a search hit opened at
 function ActivityList({ events, mark }: { events: SessionEvent[]; mark?: number }) {
@@ -213,6 +262,9 @@ function ActivityList({ events, mark }: { events: SessionEvent[]; mark?: number 
     useLayoutEffect(() => {
         markRef.current?.scrollIntoView({ block: "center" });
     }, [mark]);
+    const now = Date.now();
+    const times = events.map((e) => eventTime(e.ts, now));
+    const dated = events.some((e) => new Date(e.ts).toDateString() !== new Date(now).toDateString());
     return (
         <div className="flex flex-col">
             {events.map((e, i) => (
@@ -220,12 +272,16 @@ function ActivityList({ events, mark }: { events: SessionEvent[]; mark?: number 
                     key={i}
                     ref={i === mark ? markRef : undefined}
                     aria-current={i === mark ? true : undefined}
+                    data-sessions-event=""
                     className={cn(
-                        "grid grid-cols-[44px_8px_minmax(0,1fr)] gap-x-3.5 border-b border-edge-faint py-2.5",
+                        "grid gap-x-3.5 border-b border-edge-faint py-2.5",
+                        dated ? EVENT_DATE_COL : EVENT_TIME_COL,
                         i === mark && "rounded-[6px] ring-1 ring-inset ring-accent"
                     )}
                 >
-                    <span className="pt-0.5 font-mono text-[10.5px] text-muted">{clock(e.ts)}</span>
+                    <span data-sessions-event-time="" className="pt-0.5 font-mono text-[10.5px] text-muted">
+                        {times[i]}
+                    </span>
                     <span
                         className="mt-[7px] h-[7px] w-[7px] rounded-full"
                         style={{ backgroundColor: eventColor(e.type) }}
@@ -350,7 +406,14 @@ function SessionBody({
         setFullFor(key);
     }
     const full = key != null && fullFor === key;
-    const entries = useTranscript(view === "transcript" ? session : undefined, full);
+    const read = useTranscript(view === "transcript" ? session : undefined, full);
+    const entries = read.entries;
+    const items = useMemo(() => (entries == null ? 0 : groupTimeline(entries).length), [entries]);
+    const earlier =
+        session != null &&
+        entries != null &&
+        entries.length > 0 &&
+        mayHaveEarlier(read.fetched, transcriptMaxLines(session.runtime, full), items, full);
 
     // the bar's query, editable to refine the find; a new hit resets it
     const [edit, setEdit] = useState({ of: find, text: find?.query ?? "", pos: firstPos(find) });
@@ -360,13 +423,30 @@ function SessionBody({
     const terms = find == null ? [] : edit.text === find.query ? find.terms : findTerms(edit.text);
     const termsKey = JSON.stringify(terms);
 
+    // whether the reader was at the bottom before the last update: a reread follows the end only then, a first read
+    // opens at the end, and a find places the view itself
     const scrollRef = useRef<HTMLDivElement>(null);
+    const stickRef = useRef(true);
+    const onScroll = () => {
+        const el = scrollRef.current;
+        if (el != null) {
+            stickRef.current = shouldStick(el.scrollTop, el.scrollHeight, el.clientHeight);
+        }
+    };
     useLayoutEffect(() => {
         const el = scrollRef.current;
-        if (el && entries?.length && !full) {
+        if (entries == null) {
+            stickRef.current = true;
+            return;
+        }
+        if (el && entries.length && stickRef.current && find == null) {
             el.scrollTop = el.scrollHeight;
         }
-    }, [entries, full]);
+    }, [entries]);
+    const showEarlier = () => {
+        stickRef.current = false;
+        setFullFor(key);
+    };
 
     // the matches, in document order, over the text of each prompt and reply as drawn
     const [ranges, setRanges] = useState<Range[] | null>(null);
@@ -414,16 +494,39 @@ function SessionBody({
             ) : (
                 <div className="py-4 text-[13px] text-muted">No activity yet.</div>
             );
+    } else if (read.error != null) {
+        body = (
+            <div data-sessions-transcript-error="" className="flex flex-col gap-1 py-4 text-[13px]">
+                <span className="text-secondary">Couldn't read the transcript</span>
+                <span className="break-all font-mono text-[11px] text-muted">{session.transcriptpath}</span>
+                <span className="break-words font-mono text-[11px] text-error">{read.error}</span>
+            </div>
+        );
     } else if (entries == null) {
         body = <TranscriptSkeleton className="pt-3" />;
     } else if (entries.length === 0) {
         body = <div className="py-4 text-[13px] text-muted">No transcript to show.</div>;
     } else {
-        body = <NarrationTimeline entries={entries} active={session.live} renderAll={full} />;
+        body = (
+            <>
+                {earlier ? (
+                    <button
+                        type="button"
+                        data-sessions-earlier=""
+                        onClick={showEarlier}
+                        className="w-full cursor-pointer rounded-[6px] py-2 text-center text-[12px] font-semibold text-muted hover:bg-surface-hover hover:text-primary"
+                    >
+                        Show earlier turns
+                    </button>
+                ) : null}
+                <NarrationTimeline entries={entries} active={session.live} renderAll={full} />
+            </>
+        );
     }
     return (
         <div
             ref={scrollRef}
+            onScroll={onScroll}
             data-session-key={key ?? undefined}
             className={cn("min-h-0 flex-1 overflow-y-auto", className)}
         >
@@ -450,8 +553,15 @@ function sessionMeta(s: LiveSession | undefined, extra: { k: string; v: string }
         { k: "runtime", v: runtimeMeta(s.runtime).label.toLowerCase() },
         ...extra,
         { k: "branch", v: s.branch || "—" },
-        { k: "time", v: s.durationms > 0 ? formatAgeShort(s.durationms) : "—" },
+        ...timeMeta(s.startedts, s.durationms),
         { k: "tokens", v: s.tokenstotal > 0 ? `${formatTokens(s.tokenstotal)} tok` : "—" },
+    ];
+}
+
+function timeMeta(startedts: number, ranMs: number): { k: string; v: string }[] {
+    return [
+        { k: "started", v: startedts > 0 ? startedLabel(startedts, Date.now()) : "—" },
+        { k: "ran", v: ranMs > 0 ? formatAgeShort(ranMs) : "—" },
     ];
 }
 
@@ -473,11 +583,7 @@ function RuntimeTile({ runtime }: { runtime: string }) {
 
 export function SoloDetail({ model, session }: { model: AgentsViewModel; session: LiveSession }) {
     useEndFindElsewhere(model);
-    const status: Status = session.live
-        ? session.needsAttention
-            ? { key: "asking", text: "asking" }
-            : { key: "running", text: "running" }
-        : { key: "done", text: "done" };
+    const status = soloStatus(session);
     return (
         <div className="flex h-full min-h-0 flex-col">
             <div className="mb-1 flex flex-none items-start gap-3.5 border-b border-edge-faint pb-4">
@@ -521,9 +627,17 @@ function MemberRow({
 }) {
     const rt = runtimeMeta(view.runtime);
     const isLead = member.key === LEAD_MEMBER;
+    const ref = useRef<HTMLButtonElement>(null);
+    useEffect(() => {
+        if (current) {
+            ref.current?.scrollIntoView({ block: "nearest" });
+        }
+    }, [current]);
     return (
         <button
+            ref={ref}
             type="button"
+            data-sessions-member={member.key}
             aria-current={current}
             onClick={() => globalStore.set(model.sessionsMemberAtom, member.key)}
             className={cn(
@@ -570,13 +684,15 @@ export function RunDetail({
     useEndFindElsewhere(model);
     const lead = view.members[0].session;
     const head: Status =
-        view.live || view.head.key !== "done" ? view.head : { key: "done", text: `done · ${view.head.text} ago` };
+        view.live || view.head.key !== "done"
+            ? view.head
+            : { key: "done", text: `done · ${formatAge(now - view.lastactivets)} ago` };
     const elapsed = (view.live ? now : view.lastactivets) - view.startedts;
     const meta = [
         { k: "lead", v: `${runtimeMeta(view.runtime).glyph} ${view.runtime}` },
         ...(view.plan ? [{ k: "plan", v: view.plan }] : []),
         { k: "project", v: view.project || "—" },
-        { k: "time", v: formatAgeShort(elapsed) },
+        ...timeMeta(view.startedts, elapsed),
         { k: "tokens", v: view.tokens > 0 ? `${formatTokens(view.tokens)} tok` : "—" },
     ];
     // a stage member has no task number: its label names it
@@ -600,7 +716,7 @@ export function RunDetail({
                         onClick={(e) => fireAndForget(() => openOrPeek(model, { kind: "run", runId: view.runId }, e))}
                         className="cursor-pointer rounded-[7px] border border-edge-mid bg-surface-raised px-3 py-[7px] text-[12px] font-semibold text-ink-mid hover:text-primary"
                     >
-                        Open in Orchestrate
+                        Open run sheet
                     </button>
                     {lead?.live ? (
                         <button

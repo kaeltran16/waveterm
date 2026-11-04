@@ -5,7 +5,7 @@
 // need (PaletteDeps), so command-palette.tsx only wires sources to builders and the rows' words are tested
 // here. The grouping and ranking rules stay in palette-groups / palette-match.
 
-import { launchAgent } from "@/app/cockpit/cockpit-actions";
+import { launchAgentOrToast } from "@/app/cockpit/cockpit-actions";
 import { globalStore } from "@/app/store/jotaiStore";
 import type { Binding, SurfaceKey } from "@/app/store/keybindings/types";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
@@ -13,12 +13,12 @@ import { formatAge, type AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { answerAgentAsk } from "@/app/view/agents/askanswer";
 import { sendChannelMessage } from "@/app/view/agents/channelactions";
 import { docReviewAtom } from "@/app/view/agents/docreview";
-import type { Runtime } from "@/app/view/agents/launch";
 import { channelProjectLabel } from "@/app/view/agents/projectlabel";
 import { rowsWithChannel, type ProjectRow } from "@/app/view/agents/projectsstore";
 import { runStatusView, type RunStatusTone } from "@/app/view/agents/runmodel";
 import { openRunDag } from "@/app/view/agents/runrailsections";
 import { openSessionHit } from "@/app/view/agents/sessionsfind";
+import { resumeLaunchOpts } from "@/app/view/agents/sessionsruns";
 import { themeOverridesAtom, themePresetAtom } from "@/app/view/agents/themestore";
 import { startWorkflowScan } from "@/app/view/agents/workflowscanstart";
 import { rankBriefRows, type BriefRow } from "@/app/view/jarvis/briefpalette";
@@ -409,7 +409,7 @@ export function answerRows(answering: NeedsRow | undefined, { model, close }: Pa
 export function sessionRows(sessions: SessionActivity[] | null, { model, close }: PaletteDeps): PaletteItem[] {
     const now = Date.now();
     return (sessions ?? [])
-        .filter((s) => s.resumecommand)
+        .filter((s) => s.resumecommand && !s.resumeblocker)
         .map((s) => {
             const title = s.task || "(untitled session)";
             return {
@@ -421,20 +421,9 @@ export function sessionRows(sessions: SessionActivity[] | null, { model, close }
                 verb: "Resume",
                 echo: `Resumes “${title}” in a new ${s.runtime} tab`,
                 run: () => {
-                    const piResume =
-                        s.runtime === "pi" && s.resumeargs?.length
-                            ? { startupArgs: s.resumeargs, resumePath: s.transcriptpath }
-                            : {};
-                    fireAndForget(() =>
-                        launchAgent(model, {
-                            runtime: s.runtime as Runtime,
-                            startupCommand: s.resumecommand!,
-                            task: "",
-                            projectPath: s.projectpath,
-                            projectName: s.projectname || "agent",
-                            ...piResume,
-                        })
-                    );
+                    // a palette row is an archive session, never a live one
+                    const opts = resumeLaunchOpts({ ...s, live: false, needsAttention: false });
+                    fireAndForget(() => launchAgentOrToast(model, opts));
                     close();
                 },
             };

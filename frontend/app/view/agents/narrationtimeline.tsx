@@ -23,6 +23,7 @@ import {
 } from "./agentsviewmodel";
 import { MarkdownMessage } from "./markdownmessage";
 import { highlightLine } from "./highlight";
+import { TIMELINE_RENDER_CAP } from "./sessionstranscript";
 import { formatDuration } from "./tooldetail";
 
 // Handoff lane feed (Wave-cockpit-live.dc.html:211-247). message -> narration row
@@ -573,9 +574,6 @@ function TaskNotificationRow({ summary, status, result }: { summary: string; sta
         </div>
     );
 }
-
-// grouped items kept in the DOM; card is stick-to-bottom so off-screen history is safe to drop
-const TIMELINE_RENDER_CAP = 200;
 
 export function NarrationTimeline({
     entries,

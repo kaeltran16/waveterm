@@ -278,6 +278,8 @@ type SessionActivity struct {
 	TaskId     string `json:"taskid,omitempty"`
 	Role       string `json:"role,omitempty"`
 	StageRunId string `json:"stagerunid,omitempty"`
+	// empty = the session resumes; else why it cannot (its project folder is gone, say)
+	ResumeBlocker string `json:"resumeblocker,omitempty"`
 }
 
 type PathCommandData struct {

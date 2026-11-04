@@ -62,6 +62,12 @@ describe("session entries", () => {
         expect(entries[0].thing.agent).toBe(agent);
         expect(entries[1].thing.agent).toBeUndefined();
     });
+    it("leaves out a session whose resume is blocked", () => {
+        const store = createStore();
+        store.set(sessionsArchiveAtom, [mk({ id: "s4", transcriptpath: "/t/s4.jsonl", resumeblocker: "gone" })]);
+        const model = { agentsAtom: atom([]) } as unknown as AgentsViewModel;
+        expect(SESSION_KIND.entries(store.get, model)).toEqual([]);
+    });
     it("lists nothing before the archive loads", () => {
         const model = { agentsAtom: atom([]) } as unknown as AgentsViewModel;
         expect(SESSION_KIND.entries(createStore().get, model)).toEqual([]);

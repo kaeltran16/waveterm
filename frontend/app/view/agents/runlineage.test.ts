@@ -25,6 +25,7 @@ import {
     runRoleOf,
     runTitle,
     stageLabel,
+    stripEffortRefs,
     taskAgentOf,
     taskElapsed,
     taskStateLabel,
@@ -66,6 +67,8 @@ describe("runRoleOf", () => {
     });
 });
 
+const EFFORT = "89d8c1f2-3a4b-4c5d-8e9f-0a1b2c3d4e5f";
+
 describe("run facts", () => {
     it("titles a run by its plan, else its goal's first line", () => {
         expect(runTitle({ goal: "ignored" } as Run, { title: "Resource linking" } as TaskGroup)).toBe(
@@ -73,6 +76,16 @@ describe("run facts", () => {
         );
         expect(runTitle({ goal: "Link resources\nacross surfaces" } as Run, undefined)).toBe("Link resources");
         expect(runTitle(undefined, undefined)).toBe("Orchestrator run");
+        expect(runTitle({ goal: `Fix every chunk of initiative effort:${EFFORT}\nmore` } as Run, undefined)).toBe(
+            "Fix every chunk of initiative"
+        );
+    });
+
+    it("stripEffortRefs", () => {
+        expect(stripEffortRefs(`Fix the bug (effort:${EFFORT})`)).toBe("Fix the bug");
+        expect(stripEffortRefs(`Fix every chunk of initiative effort:${EFFORT}`)).toBe("Fix every chunk of initiative");
+        expect(stripEffortRefs(`Ship  effort:${EFFORT}  the  header`)).toBe("Ship the header");
+        expect(stripEffortRefs("Keep effort:later and (notes)")).toBe("Keep effort:later and (notes)");
     });
 
     it("letters lanes in plan order", () => {

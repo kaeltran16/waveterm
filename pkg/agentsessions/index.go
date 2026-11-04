@@ -5,8 +5,11 @@ package agentsessions
 
 import (
 	"log"
+	"os"
+	"path/filepath"
 	"runtime"
 	"sort"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -82,6 +85,57 @@ func Indexed(windowDays int) (sessions []IndexedSession, complete bool) {
 		StartWarmup()
 	}
 	return sessions, complete
+}
+
+// PinnedSessions returns the session of each runtime:id key not in have (keyed the same), wherever its
+// transcript sits in time, so a pin outlives the window. Only claude and pi can be located by id; other
+// runtimes, run:<id> keys and keys whose transcript is gone or carries no session give nothing.
+func PinnedSessions(keys []string, have map[string]bool) []SessionInfo {
+	var out []SessionInfo
+	seen := map[string]bool{}
+	for _, key := range keys {
+		if have[key] || seen[key] {
+			continue
+		}
+		seen[key] = true
+		c, ok := pinnedCandidate(key)
+		if !ok {
+			continue
+		}
+		e, ok := cachedEntry(c)
+		if !ok {
+			e = parseCandidate(c)
+		}
+		if e.info == nil {
+			continue
+		}
+		out = append(out, sessionOf(c, e))
+	}
+	return out
+}
+
+// pinnedCandidate locates a runtime:id key's transcript, if its runtime can be located by id and it exists.
+func pinnedCandidate(key string) (candidate, bool) {
+	rt, id, ok := strings.Cut(key, ":")
+	if !ok || id == "" || (rt != "claude" && rt != "pi") {
+		return candidate{}, false
+	}
+	for _, p := range allProviders() {
+		if p.runtime != rt {
+			continue
+		}
+		path := TranscriptForSession(p.root, rt, "", id)
+		if path == "" {
+			return candidate{}, false
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			return candidate{}, false
+		}
+		stem := strings.TrimSuffix(filepath.Base(path), ".jsonl")
+		return candidate{path: path, stem: stem, mtime: info.ModTime(), size: info.Size(), p: p}, true
+	}
+	return candidate{}, false
 }
 
 // pruneScanCache drops entries whose transcript is not among cands, so the cache holds the window's

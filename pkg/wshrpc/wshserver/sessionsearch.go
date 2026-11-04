@@ -18,13 +18,14 @@ const defaultMaxHits = 20
 // runAgents, and returns them newest first. A link error is logged and the results are kept unlinked.
 func searchResults(sessions []agentsessions.IndexedSession, q agentsessions.Query, runAgents bool, maxHits int, link func([]wshrpc.SessionActivity) error) []wshrpc.SessionSearchResult {
 	var matched []wshrpc.SessionSearchResult
+	check := agentsessions.NewDirCheck(statPath)
 	for _, s := range sessions {
 		ok, hits, turnHits, eventHits := q.Match(s, maxHits)
 		if !ok {
 			continue
 		}
 		matched = append(matched, wshrpc.SessionSearchResult{
-			Session: sessionActivityOf(s.Info), Hits: hitsToWire(hits), TurnHits: turnHits, EventHits: eventHits,
+			Session: sessionActivityOf(s.Info, check), Hits: hitsToWire(hits), TurnHits: turnHits, EventHits: eventHits,
 		})
 	}
 	activity := make([]wshrpc.SessionActivity, len(matched))

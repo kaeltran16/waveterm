@@ -6,7 +6,9 @@ import type { LiveSession } from "./sessionsarchivestore";
 import type { RunSessions, RunView } from "./sessionsruns";
 import {
     composeSearchRows,
+    emptyListState,
     foldHits,
+    keepRow,
     mergeResultSessions,
     searchSummary,
     snippetParts,
@@ -63,7 +65,10 @@ const soloRow = (s: LiveSession): Row => ({
     session: s,
 });
 
-const runRow = (runId: string, over: { live?: boolean; project?: string; needs?: number } = {}): Row => ({
+const runRow = (
+    runId: string,
+    over: { live?: boolean; project?: string; needs?: number; complete?: boolean } = {}
+): Row => ({
     key: `run:${runId}`,
     live: !!over.live,
     lastactivets: 0,
@@ -73,6 +78,7 @@ const runRow = (runId: string, over: { live?: boolean; project?: string; needs?:
             runId,
             project: over.project ?? "proj",
             needs: new Array(over.needs ?? 0).fill({}),
+            complete: !!over.complete,
         } as unknown as RunView,
     },
 });
@@ -147,6 +153,36 @@ describe("searchSummary", () => {
         ]);
         expect(searchSummary(m)).toBe("3 sessions · 7 matches");
         expect(searchSummary(new Map([["claude:a", card(1)]]))).toBe("1 session · 1 match");
+    });
+});
+
+describe("keepRow", () => {
+    // a cancelled or blocked run has ended but is not done
+    it("keepRow keeps only complete runs under Done", () => {
+        expect(keepRow(runRow("r1", { complete: true }), "done")).toBe(true);
+        expect(keepRow(runRow("r2"), "done")).toBe(false);
+        expect(keepRow(runRow("r3", { live: true, complete: true }), "done")).toBe(true);
+        expect(keepRow(runRow("r2"), "all")).toBe(true);
+    });
+});
+
+describe("emptyListState", () => {
+    it("emptyListState per filter", () => {
+        expect(emptyListState("live", "all")).toEqual({
+            title: "No live sessions",
+            body: expect.any(String),
+            action: "show-all",
+        });
+        expect(emptyListState("needs", "all")).toMatchObject({ title: "Nothing needs you", action: "show-all" });
+        expect(emptyListState("done", "all")).toMatchObject({ title: "No finished sessions", action: "show-all" });
+        // a project scope is named, not reset: it is the shell's
+        expect(emptyListState("live", "waveterm").body).toContain("in waveterm");
+        expect(emptyListState("all", "waveterm")).toEqual({
+            title: "No sessions in waveterm",
+            body: expect.any(String),
+            action: null,
+        });
+        expect(emptyListState("all", "all")).toMatchObject({ title: "No sessions found", action: "new-agent" });
     });
 });
 

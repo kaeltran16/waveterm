@@ -4,7 +4,7 @@
 // Pure model for pinning Sessions rows: which rows a pin set holds, toggling one, and pruning keys whose
 // session left the window. A pin key is a row key (`${runtime}:${id}` or `run:<runId>`). No React, no store.
 
-import { runSelKey, sessionKey } from "./sessionsruns";
+import { memberSession, runSelKey, sessionKey } from "./sessionsruns";
 import type { Row } from "./sessionssearch";
 
 // a run row is pinned by its own key, or by a member session's key (a session pinned before it joined a run)
@@ -21,7 +21,9 @@ export function togglePinnedRow(pins: string[], row: Row): string[] {
         const drop = new Set(rowPinKeys(row));
         return pins.filter((k) => !drop.has(k));
     }
-    return [...pins, row.key];
+    // the lead's key brings a run older than the session window back with its lead
+    const lead = row.run ? memberSession(row.run.group.lead) : undefined;
+    return lead ? [...pins, row.key, sessionKey(lead)] : [...pins, row.key];
 }
 
 // returns the input array itself when nothing is dropped, so a caller can test `next !== pins`

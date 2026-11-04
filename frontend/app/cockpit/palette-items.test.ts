@@ -4,7 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/app/view/jarvis/openref", () => ({ openAddress: vi.fn(), openTarget: vi.fn() }));
-vi.mock("@/app/cockpit/cockpit-actions", () => ({ launchAgent: vi.fn() }));
+vi.mock("@/app/cockpit/cockpit-actions", () => ({ launchAgentOrToast: vi.fn() }));
 vi.mock("@/app/view/agents/askanswer", () => ({ answerAgentAsk: vi.fn() }));
 vi.mock("@/app/view/agents/channelactions", () => ({ sendChannelMessage: vi.fn() }));
 vi.mock("@/app/view/agents/runrailsections", () => ({ openRunDag: vi.fn() }));
@@ -12,7 +12,7 @@ vi.mock("@/app/view/jarvis/initiativeworkaction", () => ({ workOnInitiative: vi.
 vi.mock("@/app/view/agents/sessionsfind", () => ({ openSessionHit: vi.fn() }));
 vi.mock("@/app/view/agents/workflowscanstart", () => ({ startWorkflowScan: vi.fn() }));
 
-import { launchAgent } from "@/app/cockpit/cockpit-actions";
+import { launchAgentOrToast } from "@/app/cockpit/cockpit-actions";
 import { globalStore } from "@/app/store/jotaiStore";
 import type { Binding } from "@/app/store/keybindings/types";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
@@ -443,6 +443,19 @@ describe("answerRows", () => {
 describe("sessionRows", () => {
     afterEach(() => vi.useRealTimers());
 
+    const session = (over: Partial<SessionActivity>) =>
+        ({
+            id: "s1",
+            runtime: "claude",
+            task: "refactor",
+            projectname: "waveterm",
+            projectpath: "C:/src/waveterm",
+            branch: "main",
+            lastactivets: 0,
+            resumecommand: "claude --resume s1",
+            ...over,
+        }) as SessionActivity;
+
     it("lists only resumable sessions and resumes one in a new tab", () => {
         vi.useFakeTimers();
         vi.setSystemTime(10 * 3_600_000);
@@ -470,12 +483,36 @@ describe("sessionRows", () => {
             echo: "Resumes “refactor” in a new claude tab",
         });
         rows[0].run();
-        expect(vi.mocked(launchAgent).mock.calls[0][1]).toMatchObject({
+        expect(vi.mocked(launchAgentOrToast).mock.calls[0][1]).toMatchObject({
             runtime: "claude",
             startupCommand: "claude --resume s1",
             projectName: "waveterm",
         });
         expect(deps.close).toHaveBeenCalled();
+    });
+
+    it("sessionRows leaves out a session with a resumeblocker", () => {
+        const rows = sessionRows(
+            [
+                session({ id: "s1" }),
+                session({ id: "s2", resumeblocker: "its working directory C:/gone no longer exists" }),
+            ],
+            deps
+        );
+        expect(rows.map((r) => r.key)).toEqual(["session:claude:s1"]);
+    });
+
+    it("sessionRows resumes with the session's label", () => {
+        const [row] = sessionRows([session({ task: "  refactor the export  " })], deps);
+        row.run();
+        expect(vi.mocked(launchAgentOrToast).mock.calls[0][1]).toStrictEqual({
+            runtime: "claude",
+            startupCommand: "claude --resume s1",
+            task: "",
+            projectPath: "C:/src/waveterm",
+            projectName: "waveterm",
+            label: "refactor the export",
+        });
     });
 });
 

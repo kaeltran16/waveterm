@@ -94,6 +94,13 @@ function parseTaskNotification(content: string): Extract<AgentEntry, { kind: "no
     return { kind: "notification", summary: grab("summary") ?? "", status: grab("status"), ...(result ? { result } : {}) };
 }
 
+// the tag claude code wraps a long typed or pasted message in; pastedContentRe in pkg/agentsessions/humanprompts.go
+const PASTED_CONTENT_RE = /<pasted_content id="[^"]+">\n?([^]*?)\n?<\/pasted_content id="[^"]+">/g;
+
+function unwrapPasted(text: string): string {
+    return text.replace(PASTED_CONTENT_RE, "$1");
+}
+
 function mergeCompaction(entries: AgentEntry[], patch: Partial<Extract<AgentEntry, { kind: "compaction" }>>): void {
     const last = entries[entries.length - 1];
     if (last != null && last.kind === "compaction") {
@@ -205,7 +212,7 @@ export function projectTranscript(lines: string[]): AgentEntry[] {
                     if (cmd != null) {
                         entries.push({ kind: "command", ...cmd });
                     } else if (content.trim() !== "") {
-                        entries.push({ kind: "user", text: content });
+                        entries.push({ kind: "user", text: unwrapPasted(content) });
                     }
                 }
                 continue;
@@ -215,7 +222,9 @@ export function projectTranscript(lines: string[]): AgentEntry[] {
             }
             for (const block of content) {
                 if (block?.type === "text" && typeof block.text === "string" && block.text.trim() !== "") {
-                    entries.push(isInterrupted(block.text) ? { kind: "interrupted" } : { kind: "user", text: block.text });
+                    entries.push(
+                        isInterrupted(block.text) ? { kind: "interrupted" } : { kind: "user", text: unwrapPasted(block.text) }
+                    );
                     continue;
                 }
                 if (block?.type !== "tool_result" || typeof block.tool_use_id !== "string") {

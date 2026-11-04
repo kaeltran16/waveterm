@@ -23,6 +23,10 @@ import run from "./scenarios-brainstorm-run.mjs";
 import sessionsList from "./scenarios-sessions.mjs";
 import sessionsFind from "./scenarios-sessions-find.mjs";
 import sessionsPalette from "./scenarios-sessions-palette.mjs";
+import sessionsListStates from "./scenarios-sessions-list-states.mjs";
+import sessionsDetailStates from "./scenarios-sessions-detail-states.mjs";
+import sessionsPaletteResume from "./scenarios-sessions-palette-resume.mjs";
+import agentStartFailed from "./scenarios-agent-start-failed.mjs";
 import {
     diffComments,
     diffCompare,
@@ -308,6 +312,10 @@ export const SCENARIOS = [
     ...sessionsList(SESSIONS_KIT),
     ...sessionsFind(SESSIONS_KIT),
     ...sessionsPalette(SESSIONS_KIT),
+    ...sessionsListStates(SESSIONS_KIT),
+    ...sessionsDetailStates(SESSIONS_KIT),
+    ...sessionsPaletteResume(SESSIONS_KIT),
+    ...agentStartFailed(SESSIONS_KIT),
     canvasMark,
     canvasTabsScenario,
     agentTerminalNames,

@@ -1,23 +1,38 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { ClientModel } from "@/app/store/client-model";
 import { globalStore } from "@/app/store/jotaiStore";
-import { describe, expect, it } from "vitest";
+import { RpcApi } from "@/app/store/wshclientapi";
+import type { PrimitiveAtom } from "jotai";
+import { describe, expect, it, vi } from "vitest";
 import type { AgentVM } from "./agentsviewmodel";
 import {
     filterByProject,
     filterByStatus,
     groupByRecency,
+    loadSessionsArchive,
     mergedFeed,
     overlayLive,
     pageFeed,
     pageGroups,
     resolveSelectedSession,
+    SESSIONS_WINDOW_DAYS,
     sessionsPinnedAtom,
     shouldPrunePins,
     totalEvents,
     type RecencyGroup,
 } from "./sessionsarchivestore";
+
+vi.mock("@/app/store/wshclientapi", () => ({
+    RpcApi: { GetSessionsActivityCommand: vi.fn(), SetMetaCommand: vi.fn() },
+}));
+// the client object as WOS holds it: null until it loads
+vi.mock("@/app/store/client-model", async () => {
+    const { atom } = await import("jotai");
+    const clientAtom = atom<Client | null>(null);
+    return { ClientModel: { getInstance: () => ({ clientAtom, clientId: "client-1" }) } };
+});
 
 const ev = (type: string, ts: number, text = ""): SessionEvent => ({ type, ts, text });
 
@@ -45,17 +60,17 @@ const mkAgent = (over: Partial<AgentVM> = {}): AgentVM =>
 
 describe("overlayLive", () => {
     it("flags a session live when its transcript path matches a roster agent, stripping finished", () => {
-        const [s] = overlayLive([mk()], [mkAgent()], 1000);
+        const [s] = overlayLive([mk()], [mkAgent()]);
         expect(s.live).toBe(true);
         expect(s.liveId).toBe("t1");
         expect(s.events.some((e) => e.type === "finished")).toBe(false);
     });
     it("marks needsAttention for a live asking agent", () => {
-        const [s] = overlayLive([mk()], [mkAgent({ state: "asking" })], 1000);
+        const [s] = overlayLive([mk()], [mkAgent({ state: "asking" })]);
         expect(s.needsAttention).toBe(true);
     });
     it("marks needsAttention for an ended waiting session", () => {
-        const [s] = overlayLive([mk({ status: "waiting" })], [], 1000);
+        const [s] = overlayLive([mk({ status: "waiting" })], []);
         expect(s.live).toBe(false);
         expect(s.needsAttention).toBe(true);
     });
@@ -64,26 +79,26 @@ describe("overlayLive", () => {
 describe("overlayLive: what the overlay keeps and decides", () => {
     it("keeps a live session's other events, in order, and drops only the finished one", () => {
         const events = [ev("started", 1, "go"), ev("committed", 2, "c1"), ev("finished", 3)];
-        const [s] = overlayLive([mk({ events })], [mkAgent()], 1000);
+        const [s] = overlayLive([mk({ events })], [mkAgent()]);
         expect(s.events).toEqual([ev("started", 1, "go"), ev("committed", 2, "c1")]);
     });
     it("leaves an ended session's events as scanned, finished included", () => {
         const events = [ev("started", 1), ev("finished", 2)];
-        const [s] = overlayLive([mk({ events, transcriptpath: "/other.jsonl" })], [mkAgent()], 1000);
+        const [s] = overlayLive([mk({ events, transcriptpath: "/other.jsonl" })], [mkAgent()]);
         expect(s.events).toEqual(events);
     });
     it("does not flag a live session that is not asking", () => {
-        const [s] = overlayLive([mk()], [mkAgent({ state: "working" })], 1000);
+        const [s] = overlayLive([mk()], [mkAgent({ state: "working" })]);
         expect(s.live).toBe(true);
         expect(s.needsAttention).toBe(false);
     });
     it("does not flag an ended session that finished", () => {
-        const [s] = overlayLive([mk({ status: "done" })], [], 1000);
+        const [s] = overlayLive([mk({ status: "done" })], []);
         expect(s.needsAttention).toBe(false);
     });
     it("ignores a roster agent with no transcript path, and still matches the others", () => {
         const roster = [mkAgent({ id: "t0", transcriptPath: undefined }), mkAgent()];
-        const [s] = overlayLive([mk()], roster, 1000);
+        const [s] = overlayLive([mk()], roster);
         expect(s.liveId).toBe("t1");
     });
 });
@@ -95,8 +110,7 @@ describe("session filters and selection", () => {
             mk({ id: "b", projectname: "beta", status: "waiting", transcriptpath: "/nope.jsonl" }),
             mk({ id: "c", projectname: "alpha" }), // live (matches mkAgent path)
         ],
-        [mkAgent()],
-        1000
+        [mkAgent()]
     );
 
     it("filters by the session's existing project name", () => {
@@ -135,8 +149,7 @@ describe("groupByRecency", () => {
                 mk({ id: "today", lastactivets: startToday, transcriptpath: "/t.jsonl" }),
                 mk({ id: "old", lastactivets: yesterday, transcriptpath: "/o.jsonl" }),
             ],
-            [mkAgent()],
-            now
+            [mkAgent()]
         );
         const groups = groupByRecency(list, now);
         expect(groups.map((g) => g.key)).toEqual(["live", "today", "earlier"]);
@@ -246,6 +259,26 @@ describe("pins: prune gate and the unloaded client", () => {
     it("reads no pins before the client is loaded", () => {
         expect(globalStore.get(sessionsPinnedAtom)).toEqual([]);
     });
+
+    // a pinned session older than the window comes back only if the scan is told it is pinned
+    it("loadSessionsArchive sends the pins", async () => {
+        const clientAtom = ClientModel.getInstance().clientAtom as unknown as PrimitiveAtom<Client>;
+        globalStore.set(clientAtom, { meta: { "sessions:pinned": ["claude:x", "run:r1"] } } as unknown as Client);
+        vi.mocked(RpcApi.GetSessionsActivityCommand).mockResolvedValue({
+            sessions: [mk({ id: "x", runid: "r1" })],
+            incomplete: false,
+        });
+        await loadSessionsArchive();
+        // the rpc client is not set up in a unit test
+        expect(vi.mocked(RpcApi.GetSessionsActivityCommand).mock.calls[0][1]).toEqual({
+            windowdays: SESSIONS_WINDOW_DAYS,
+            all: true,
+            pinned: ["claude:x", "run:r1"],
+        });
+        expect(SESSIONS_WINDOW_DAYS).toBe(30);
+        // both pins are still in the window, so none is pruned
+        expect(RpcApi.SetMetaCommand).not.toHaveBeenCalled();
+    });
 });
 
 describe("mergedFeed + totalEvents", () => {
@@ -255,8 +288,7 @@ describe("mergedFeed + totalEvents", () => {
                 mk({ id: "a", task: "A task", events: [ev("started", 10, "a-start")] }),
                 mk({ id: "b", task: "B task", transcriptpath: "/b.jsonl", events: [ev("committed", 20, "b-commit")] }),
             ],
-            [],
-            1000
+            []
         );
         const feed = mergedFeed(list);
         expect(feed[0].ts).toBe(20);
@@ -311,8 +343,7 @@ describe("pageGroups + pageFeed", () => {
                 mk({ id: "a", events: [ev("started", 10), ev("asked", 40)] }),
                 mk({ id: "b", transcriptpath: "/b.jsonl", events: [ev("started", 20), ev("committed", 30)] }),
             ],
-            [],
-            1000
+            []
         );
         const feed = mergedFeed(list);
         expect(pageFeed(feed, 3).map((e) => e.ts)).toEqual([40, 30, 20]);
