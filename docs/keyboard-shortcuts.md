@@ -127,8 +127,8 @@ A link inside an item view does a full open, even with `Ctrl` held.
 | `h` / `l` (or `←` / `→`) | Move to the other column; on an ask with several questions, switch question |
 | `1`…`9` on a task row | Answer the worker's question, else run the row's action |
 | `Enter` on a task row | Send the worker's answer, else open the worker |
-| `1`…`9` | Select an answer option |
-| `Enter` | Confirm the answer, else open focus |
+| `1`…`9` | Select an answer option; on a single-choice question, move to the next unanswered one (never sends) |
+| `Enter` | Send the answer once every question is answered, else move to the next unanswered question; with no ask, open focus |
 | `r` | Reply inline to the agent |
 | `t` | Open the agent's terminal |
 | `b` | Background the agent (keeps it running) |
