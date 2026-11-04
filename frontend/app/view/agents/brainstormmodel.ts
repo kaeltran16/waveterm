@@ -42,8 +42,9 @@ export type AnswerOption = {
     cons?: string[];
     boards?: string[];
 };
-// what the agent lists for the judge on an approach question: facts only, no odds or pick
-export type Approach = { name: string; description: string; facts: string[] };
+// what the agent lists for the judge on an approach question: facts only, no odds or pick; boards are the mockups
+// that show the approach, as on an option
+export type Approach = { name: string; description: string; facts: string[]; boards?: string[] };
 // Arc's account of the judge's work: what it added and dropped, or why it failed and left the agent's options standing
 export type JudgeRecord =
     | { kind: "weighed"; added: string[]; dropped: { name: string; reason: string }[] }
@@ -186,7 +187,15 @@ function parseOptions(raw: unknown): AnswerOption[] {
 function parseApproaches(raw: unknown): Approach[] {
     return (Array.isArray(raw) ? raw : [])
         .filter((a): a is Rec => isRecord(a) && typeof a.name === "string" && a.name.trim() !== "")
-        .map((a) => ({ name: a.name as string, description: str(a.description) ?? "", facts: lines(a.facts) }));
+        .map((a) => {
+            const boards = [...new Set(lines(a.boards))];
+            return {
+                name: a.name as string,
+                description: str(a.description) ?? "",
+                facts: lines(a.facts),
+                ...(boards.length > 0 ? { boards } : {}),
+            };
+        });
 }
 
 // a judge of any other shape is no record, so the question draws as the agent wrote it. dropped may be absent: a
@@ -628,7 +637,7 @@ export function spikeUrl(base: string, canvas: string, path: string): string {
 }
 
 export type QuestionBoardLayout = {
-    // rows[i] is option i's boards to draw
+    // rows[i] is row i's boards to draw: option i's, or approach i's while the judge weighs
     rows: string[][];
     // the asked part's boards that no option names
     shared: string[];
@@ -641,18 +650,24 @@ function askedPartBoards(f: BrainstormFile): string[] {
     return [...new Set((id ? f.parts.find((x) => x.id === id)?.boards : undefined) ?? [])];
 }
 
+// the boards of each row the pane draws: the approaches while the judge weighs them (judgeWait), else the options
+function answerRows(q: BrainstormQuestion, judging: boolean): { boards?: string[] }[] {
+    return (judging ? q.approaches : q.options) ?? [];
+}
+
 // only an option's own boards put a board in its row; the rest of the asked part's boards are shared. onCanvas is the
 // canvas's board names: a board an answer names that is not on disk draws nothing. null when nothing would draw
 export function questionBoardLayout(
     f: BrainstormFile,
     base: string | null,
-    onCanvas: string[]
+    onCanvas: string[],
+    judging = false
 ): QuestionBoardLayout | null {
     const q = f.question;
     if (q == null || f.canvas == null || base == null) {
         return null;
     }
-    const options = q.options ?? [];
+    const options = answerRows(q, judging);
     const named = new Set(options.flatMap((o) => o.boards ?? []));
     const rows = options.map((o) => [...new Set(o.boards ?? [])].filter((b) => onCanvas.includes(b)));
     const shared = askedPartBoards(f).filter((b) => !named.has(b));
@@ -660,9 +675,9 @@ export function questionBoardLayout(
 }
 
 // the canvas tab of each board an answer names or the asked part shares; a board not in the map keeps its plain name
-export function boardTabLabels(f: BrainstormFile): Record<string, string> | null {
-    const options = f.question?.options;
-    if (options == null || options.length === 0) {
+export function boardTabLabels(f: BrainstormFile, judging = false): Record<string, string> | null {
+    const options = f.question != null ? answerRows(f.question, judging) : [];
+    if (options.length === 0) {
         return null;
     }
     const letters: Record<string, string[]> = {};

@@ -109,7 +109,7 @@ export function Check({
                     ) : main === "builder" ? (
                         <BuilderAsk agent={agent} f={f} goTo={goTo} openDesign={openDesign} />
                     ) : main === "judging" ? (
-                        <JudgingMain agent={agent} f={f} goTo={goTo} openDesign={openDesign} skip={false} />
+                        <JudgingMain agent={agent} s={s} f={f} goTo={goTo} openDesign={openDesign} skip={false} />
                     ) : main === "working" ? (
                         <WorkingMain f={f} openDesign={openDesign} />
                     ) : (

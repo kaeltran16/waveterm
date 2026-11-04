@@ -1896,9 +1896,26 @@ const BSAB_FILE = bsFile({
     parts: [{ id: "status", title: "Run sheet status", state: "asked", body: "", boards: [BSAB_TODAY, BSAB_RAIL, BSAB_STRIP] }],
 });
 const BSAB_TABS_WANT = ["All", "A · Left-rail", "A · Left-rail-failed", "B · Top-strip", "Every answer · Run-sheet-today"];
+// the same question while the judge weighs it: the approaches carry the boards, so the rows and tabs follow them
+const BSAB_JUDGING = {
+    ...BSAB_FILE,
+    working: "The judge is weighing 3 approaches.",
+    question: {
+        n: 2,
+        text: BSAB_FILE.question.text,
+        part: "status",
+        approaches: [
+            { name: "Status strip across the top", description: "One full-width strip, pinned.", facts: ["f"], boards: [BSAB_STRIP] },
+            { name: "Leave it in the title row", description: "The pill gets a stronger color.", facts: [] },
+            { name: "Status in a left rail", description: "A rail beside the timeline.", facts: ["f"], boards: [BSAB_RAIL, BSAB_RAIL_FAILED] },
+        ],
+    },
+};
+const BSAB_JUDGING_TABS_WANT = ["All", "C · Left-rail", "C · Left-rail-failed", "A · Top-strip", "Every answer · Run-sheet-today"];
 
-// the question's rows and the boards in and above them, with where each thumbnail sits
-const BSAB_READ = `(() => {
+// the question's rows (the Answers group, or Approaches during the judge's wait) and the boards in and above them,
+// with where each thumbnail sits
+const bsabRead = (group = "Answers") => `(() => {
     const flat = (el) => (el?.innerText ?? "").replace(/\\s+/g, " ").trim();
     const box = (el) => el.getBoundingClientRect();
     const pane = ${BS_PANE};
@@ -1916,7 +1933,7 @@ const BSAB_READ = `(() => {
             right: Math.round(r.right),
         };
     };
-    const answers = q?.querySelector('[role="group"][aria-label="Answers"]');
+    const answers = q?.querySelector('[role="group"][aria-label="${group}"]');
     const rows = [...(answers?.children ?? [])].map((row) => {
         const btn = row.querySelector("[data-brainstorm-option]");
         const reasons = row.querySelector("[data-brainstorm-proscons]");
@@ -2000,7 +2017,7 @@ export const brainstormAnswerBoards = {
         const rec = (step, ok, detail) => steps.push({ step, ok, detail: typeof detail === "string" ? detail : JSON.stringify(detail) });
         // every thumbnail waits on canvas.json: the answer rows draw only boards it lists
         await polishWaitFor(h, `${BS_PANE}?.querySelectorAll("[data-brainstorm-question] [data-brainstorm-thumb] iframe").length === 4`, BS_POLL_WAIT_MS);
-        const r = await h.ev(BSAB_READ);
+        const r = await h.ev(bsabRead());
         const [a, b, c] = r.rows;
         const names = (row) => row?.thumbs.map((t) => t.name) ?? [];
         const aRail = a?.thumbs.find((t) => t.name === BSAB_RAIL);
@@ -2075,6 +2092,50 @@ export const brainstormAnswerBoards = {
                 backed === "clicked" &&
                 back,
             { opened, stepped, all, backed, back }
+        );
+
+        bsWrite(ctx, BSAB_JUDGING);
+        await polishWaitFor(
+            h,
+            `${BS_PANE}?.querySelectorAll("[data-brainstorm-judging] [data-brainstorm-row-boards] [data-brainstorm-thumb] iframe").length === 3`,
+            BS_POLL_WAIT_MS
+        );
+        const j = await h.ev(bsabRead("Approaches"));
+        await h.shot("cdp-shots/brainstorm-answer-boards-5-judging.png");
+        const [ja, jb, jc] = j.rows;
+        rec(
+            "5. (Judge wait) the approach rows hold their own boards: A's Top-strip uncaptioned, B none and no slot, C's two captioned side by side, all inside their rows right of the label; Run-sheet-today shows once above, under For every answer",
+            j.rows.length === 3 &&
+                JSON.stringify(names(ja)) === JSON.stringify([BSAB_STRIP]) &&
+                ja.thumbs[0].frame &&
+                ja.thumbs[0].caption === "" &&
+                !jb.slot &&
+                JSON.stringify(names(jc)) === JSON.stringify([BSAB_RAIL, BSAB_RAIL_FAILED]) &&
+                JSON.stringify(jc.thumbs.map((t) => t.caption)) === JSON.stringify(["Left-rail", "Left-rail-failed"]) &&
+                [ja, jc].every((row) => row.inRow && row.rightOfLabel) &&
+                JSON.stringify(j.shared.map((t) => t.name)) === JSON.stringify([BSAB_TODAY]) &&
+                j.sharedHead === "For every answer" &&
+                j.sharedAbove &&
+                !j.overflow,
+            { rows: j.rows, shared: j.shared, sharedHead: j.sharedHead, overflow: j.overflow }
+        );
+
+        await h.ev(
+            `${BS_PANE}?.querySelector('[data-brainstorm-judging] [data-brainstorm-row-boards] [data-brainstorm-thumb="${BSAB_RAIL}"]')?.parentElement?.querySelector("[data-brainstorm-open-board]")?.click()`
+        );
+        await polishWaitFor(h, `${BS_PANE}?.querySelectorAll('[data-canvas-pane] [role="tab"]').length === ${BSAB_JUDGING_TABS_WANT.length}`, BS_POLL_WAIT_MS);
+        const jOpened = await h.ev(BSAB_TABS);
+        await h.shot("cdp-shots/brainstorm-answer-boards-6-judging-full-size.png");
+        const jBacked = await bsClick(h, BS_PANE, "Back to the question");
+        const jBack = await polishWaitFor(h, `!!${BS_PANE}?.querySelector("[data-brainstorm-judging] [data-brainstorm-row-boards]")`, 3000);
+        rec(
+            "6. (Judge wait full size) Open full size on C's Left-rail shows it with the tabs lettered by approach; Back returns to the judge's wait",
+            jOpened.canvas &&
+                JSON.stringify(jOpened.labels) === JSON.stringify(BSAB_JUDGING_TABS_WANT) &&
+                jOpened.selected === "C · Left-rail" &&
+                jBacked === "clicked" &&
+                jBack,
+            { opened: jOpened, backed: jBacked, back: jBack }
         );
         return steps;
     },

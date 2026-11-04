@@ -1996,6 +1996,56 @@ describe("questionBoardLayout and boardTabLabels", () => {
         expect(boardTabLabels(file())).toBeNull();
     });
 
+    describe("while the judge weighs", () => {
+        const approach = (name: string, boards?: string[]) => ({
+            name,
+            description: "",
+            facts: [],
+            ...(boards ? { boards } : {}),
+        });
+        const weighing = (partBoards: string[]) =>
+            asked(undefined, partBoards, partBoards, {
+                working: "The judge is weighing 3 approaches.",
+                question: {
+                    n: 1,
+                    text: "Which layout?",
+                    part: "layout",
+                    approaches: [
+                        approach("Main", ["Main.dc.html"]),
+                        approach("Strip"),
+                        approach("Box", ["Box.dc.html"]),
+                    ],
+                },
+            }).f;
+
+        it("each approach's boards draw in its row and its tab carries its letter", () => {
+            const f = weighing(["Main.dc.html", "Box.dc.html", "Page.dc.html"]);
+            expect(questionBoardLayout(f, BASE, ["Main.dc.html", "Box.dc.html", "Page.dc.html"], true)).toEqual({
+                rows: [["Main.dc.html"], [], ["Box.dc.html"]],
+                shared: ["Page.dc.html"],
+            });
+            expect(boardTabLabels(f, true)).toEqual({
+                "Main.dc.html": "A · Main",
+                "Box.dc.html": "C · Box",
+                "Page.dc.html": "Every answer · Page",
+            });
+        });
+
+        it("an earlier run's options do not lay out the approach rows", () => {
+            const f = weighing(["Main.dc.html"]);
+            const withOld = {
+                ...f,
+                question: { ...f.question!, options: [opt("Old", ["Main.dc.html"])] },
+            };
+            expect(questionBoardLayout(withOld, BASE, ["Main.dc.html"], true)?.rows).toEqual([
+                ["Main.dc.html"],
+                [],
+                [],
+            ]);
+            expect(questionBoardLayout(withOld, BASE, ["Main.dc.html"])?.rows).toEqual([["Main.dc.html"]]);
+        });
+    });
+
     describe("parse", () => {
         const optionBoards = (boards: unknown) => {
             const r = parseBrainstorm(
@@ -2374,6 +2424,27 @@ describe("a judged question", () => {
             judge: { kind: "weighed", added: ["Two"], dropped: [{ name: "Three", reason: "slow" }] },
         });
         expect(r.ok && r.file.history[0].judge).toEqual({ kind: "weighed", added: [], dropped: [] });
+    });
+
+    it("keeps an approach's boards, non-blank and once, and reads a boards that is no list as none", () => {
+        const r = parseBrainstorm(
+            raw({
+                question: {
+                    n: 4,
+                    text: "Q",
+                    approaches: [
+                        { name: "One", boards: ["A.dc.html", " ", "A.dc.html", 1, "B.dc.html"] },
+                        { name: "Two", boards: "A.dc.html" },
+                        { name: "Three", boards: [] },
+                    ],
+                },
+            })
+        );
+        expect(r.ok && r.file.question?.approaches).toEqual([
+            { name: "One", description: "", facts: [], boards: ["A.dc.html", "B.dc.html"] },
+            { name: "Two", description: "", facts: [] },
+            { name: "Three", description: "", facts: [] },
+        ]);
     });
 
     it("parses a failed judge", () => {

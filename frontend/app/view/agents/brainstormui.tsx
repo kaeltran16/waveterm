@@ -675,33 +675,7 @@ export function QuestionMain({
     const chips = q.part !== "";
     const ans = useAnswer(agent);
     const offers = (q.options?.length ?? 0) > 0;
-    const layout = questionBoardLayout(
-        f,
-        s.base,
-        s.boards.map((b) => b.name)
-    );
-    const thumbs = (boards: string[], width: number, caption?: ((name: string) => string) | null) => (
-        <Thumbnails
-            agentId={agent.id}
-            s={s}
-            canvas={f.canvas!}
-            base={s.base!}
-            boards={boards}
-            width={width}
-            caption={caption}
-            compact
-        />
-    );
-    // a row with no board has no slot; an only board needs no caption, since the row's label names it
-    const rowBoards = (i: number) => {
-        const boards = layout?.rows[i] ?? [];
-        if (boards.length === 0) {
-            return null;
-        }
-        return boards.length === 1
-            ? thumbs(boards, THUMB_W_QUESTION, null)
-            : thumbs(boards, THUMB_W_ROW_SEVERAL, boardLabel);
-    };
+    const { shared, rowBoards } = questionBoards(agent.id, s, f, false);
     return (
         <div data-brainstorm-question className="flex min-h-0 flex-1 flex-col">
             <Track segments={questionTrack(f)} />
@@ -719,12 +693,7 @@ export function QuestionMain({
                         </button>
                     ) : null}
                 </QuestionHead>
-                {layout != null && layout.shared.length > 0 ? (
-                    <div data-brainstorm-shared-boards className="flex flex-col gap-[10px]">
-                        {offers ? <h2 className={SECTION_HEAD}>For every answer</h2> : null}
-                        {thumbs(layout.shared, THUMB_W_QUESTION)}
-                    </div>
-                ) : null}
+                <SharedBoards shared={shared} heading={offers} />
                 <QuestionAnswers key={q.n} q={q} ans={ans} compact={false} rowBoards={rowBoards} />
                 <AnswerBox ans={ans} options={q.options != null} />
                 <div className="flex flex-col gap-[10px]">
@@ -761,6 +730,57 @@ export function QuestionMain({
                     ) : null}
                 </div>
             </MainBody>
+        </div>
+    );
+}
+
+// the asked question's boards: shared draws over the rows, rowBoards(i) beside row i (judging: the approach rows)
+function questionBoards(
+    agentId: string,
+    s: BrainstormState,
+    f: BrainstormFile,
+    judging: boolean
+): { shared: ReactNode | null; rowBoards: (i: number) => ReactNode | null } {
+    const layout = questionBoardLayout(
+        f,
+        s.base,
+        s.boards.map((b) => b.name),
+        judging
+    );
+    const thumbs = (boards: string[], width: number, caption?: ((name: string) => string) | null) => (
+        <Thumbnails
+            agentId={agentId}
+            s={s}
+            canvas={f.canvas!}
+            base={s.base!}
+            boards={boards}
+            width={width}
+            caption={caption}
+            compact
+        />
+    );
+    // a row with no board has no slot; an only board needs no caption, since the row's label names it
+    const rowBoards = (i: number) => {
+        const boards = layout?.rows[i] ?? [];
+        if (boards.length === 0) {
+            return null;
+        }
+        return boards.length === 1
+            ? thumbs(boards, THUMB_W_QUESTION, null)
+            : thumbs(boards, THUMB_W_ROW_SEVERAL, boardLabel);
+    };
+    const shared = layout != null && layout.shared.length > 0 ? thumbs(layout.shared, THUMB_W_QUESTION) : null;
+    return { shared, rowBoards };
+}
+
+function SharedBoards({ shared, heading }: { shared: ReactNode | null; heading: boolean }) {
+    if (shared == null) {
+        return null;
+    }
+    return (
+        <div data-brainstorm-shared-boards className="flex flex-col gap-[10px]">
+            {heading ? <h2 className={SECTION_HEAD}>For every answer</h2> : null}
+            {shared}
         </div>
     );
 }
@@ -802,12 +822,14 @@ function QuestionHead({ f, goTo, children }: { f: BrainstormFile; goTo: (id: str
 // options, read and judge are left out too
 export function JudgingMain({
     agent,
+    s,
     f,
     goTo,
     openDesign,
     skip = true,
 }: {
     agent: AgentVM;
+    s: BrainstormState;
     f: BrainstormFile;
     goTo: (id: string) => void;
     openDesign: () => void;
@@ -817,6 +839,7 @@ export function JudgingMain({
     const q = f.question!;
     const approaches = q.approaches!;
     const ans = useAnswer(agent);
+    const { shared, rowBoards } = questionBoards(agent.id, s, f, true);
     return (
         <div data-brainstorm-question data-brainstorm-judging className="flex min-h-0 flex-1 flex-col">
             <Track segments={questionTrack(f)} />
@@ -830,6 +853,7 @@ export function JudgingMain({
                     <span className={cn(SMALL_DOT, "pulse-dot bg-success")} />
                     {f.working}
                 </div>
+                <SharedBoards shared={shared} heading={true} />
                 <div className="flex flex-col gap-[8px]">
                     <div className="flex items-baseline gap-[8px]">
                         <h2 data-brainstorm-judge-list className={SECTION_HEAD}>
@@ -841,33 +865,51 @@ export function JudgingMain({
                         </span>
                     </div>
                     <div role="group" aria-label="Approaches" className="flex flex-col gap-[6px]">
-                        {approaches.map((a, i) => (
-                            <div key={i} className={cn(OPTION_ROW, OPTION_ROW_PLAIN)}>
-                                <button
-                                    type="button"
-                                    data-brainstorm-approach
-                                    data-brainstorm-option={i}
-                                    disabled={ans.act.busy}
-                                    onClick={() => void ans.sendText(a.name)}
-                                    className={cn(OPTION_BTN, "gap-[14px] px-[12px] py-[9px]")}
+                        {approaches.map((a, i) => {
+                            const side = rowBoards(i);
+                            return (
+                                <div
+                                    key={i}
+                                    className={cn(
+                                        OPTION_ROW,
+                                        OPTION_ROW_PLAIN,
+                                        side != null && "grid grid-cols-[minmax(0,1fr)_auto] grid-rows-[auto_1fr]"
+                                    )}
                                 >
-                                    <span className={cn(OPTION_LETTER, "h-[24px] w-[24px] text-[11.5px]")}>
-                                        {optionLetter(i)}
-                                    </span>
-                                    <span className="w-[190px] flex-none text-[13.5px] font-semibold leading-[1.4] text-primary">
-                                        {a.name}
-                                    </span>
-                                    <span className="min-w-0 flex-1 text-[12.5px] leading-[1.45] text-ink-mid">
-                                        {a.description}
-                                    </span>
-                                    {a.facts.length > 0 ? (
-                                        <span className="flex-none text-[12px] text-accent-soft">
-                                            {plural(a.facts.length, "fact", "facts")}
+                                    <button
+                                        type="button"
+                                        data-brainstorm-approach
+                                        data-brainstorm-option={i}
+                                        disabled={ans.act.busy}
+                                        onClick={() => void ans.sendText(a.name)}
+                                        className={cn(OPTION_BTN, "gap-[14px] px-[12px] py-[9px]")}
+                                    >
+                                        <span className={cn(OPTION_LETTER, "h-[24px] w-[24px] text-[11.5px]")}>
+                                            {optionLetter(i)}
                                         </span>
+                                        <span className="w-[190px] flex-none text-[13.5px] font-semibold leading-[1.4] text-primary">
+                                            {a.name}
+                                        </span>
+                                        <span className="min-w-0 flex-1 text-[12.5px] leading-[1.45] text-ink-mid">
+                                            {a.description}
+                                        </span>
+                                        {a.facts.length > 0 ? (
+                                            <span className="flex-none text-[12px] text-accent-soft">
+                                                {plural(a.facts.length, "fact", "facts")}
+                                            </span>
+                                        ) : null}
+                                    </button>
+                                    {side != null ? (
+                                        <div
+                                            data-brainstorm-row-boards
+                                            className="col-start-2 row-span-2 row-start-1 py-[9px] pr-[12px]"
+                                        >
+                                            {side}
+                                        </div>
                                     ) : null}
-                                </button>
-                            </div>
-                        ))}
+                                </div>
+                            );
+                        })}
                     </div>
                 </div>
                 <AnswerBox ans={ans} options={true} placeholder="Or answer now in your own words…" />

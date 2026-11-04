@@ -34,6 +34,7 @@ import {
     exitedSummary,
     historyRows,
     isNote,
+    judgeWait,
     leftPanel,
     lineBox,
     mainView,
@@ -162,7 +163,7 @@ export function BrainstormPane({ model, agent }: { model: AgentsViewModel; agent
                     agent={agent}
                     onBack={() => openBrainstormBoard(agent.id, null)}
                     backLabel={boardBackLabel(f, s.designOpen, s.sent != null)}
-                    tabLabels={f != null ? (boardTabLabels(f) ?? undefined) : undefined}
+                    tabLabels={f != null ? (boardTabLabels(f, judgeWait(f, s.sent != null)) ?? undefined) : undefined}
                 />
             ) : view === "run" ? (
                 <RunStep model={model} agent={agent} s={s} f={f!} />
@@ -245,7 +246,7 @@ function Design({
                                 }
                             />
                         ) : view === "judging" ? (
-                            <JudgingMain agent={agent} f={f} goTo={goTo} openDesign={openDesign} />
+                            <JudgingMain agent={agent} s={s} f={f} goTo={goTo} openDesign={openDesign} />
                         ) : view === "working" ? (
                             <WorkingMain f={f} openDesign={openDesign} />
                         ) : (
