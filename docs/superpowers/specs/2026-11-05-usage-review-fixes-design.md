@@ -43,7 +43,7 @@ sheet drops these runs (`wshserver_channels.go:97-110`), so Open run lands on no
   its session title. No backfill: the tab meta keeps only the latest judge run, so history can't be rebuilt.
 
 **F2, only 25 rows reachable.** Confirmed (`LIST_EXPANDED_ROWS`, `usageattribution.ts:17,574-588`). The
-list pages: `usageListExpandedAtom` becomes the number of rows shown (8, then +25 per press of "Show 25
+list pages: the boolean `usageListExpandedAtom` is replaced by `usageListShownAtom`, the number of rows shown (8, then +25 per press of "Show 25
 more", the last press showing the rest), with "Show top 8" once more than 8 show. No virtualization: a
 1308-row list is reached in pages, and each page is a plain render. The other-folders text stays: with
 paging, its promise is true.
@@ -62,7 +62,7 @@ paging, its promise is true.
 it says, and the head's Open run stays the way to the sheet.
 
 **F5, failed range switch shows the old range.** Confirmed (`usagestore.ts:91-93,117-126`). The store
-records the window the held buckets belong to (`usageHeldWindowAtom`, set only on success). When the
+records the window the held buckets belong to (`usageHeldWindowAtom`, set only on success; the request-time `heldWindowDays` still decides when the skeleton shows). When the
 requested window differs from the held one and the load failed, the detail shows an error panel with
 Retry instead of the held data; switching back to the held window shows it at once. Why not revert the
 toggle: the revert retriggers a load that clears the error, so the user would see the toggle snap back
@@ -113,7 +113,7 @@ from open tabs".
 
 **F14, 7-day chart starts at the first active day.** Confirmed (`usagestats.ts:306-314`).
 `aggregateBuckets` takes the held window's start day and starts `daily` there (or earlier, if a bucket is
-older). Callers pass the held window (F5's atom), the one truth for what the buckets cover.
+older). Callers, the By work scope aggregation in `usagesurface.tsx` included, pass `windowStartDay` of the held window (F5's atom), the one truth for what the buckets cover.
 
 **F15, duplicate legend rows.** Confirmed. A legend row gets a `label`: `provider/model` when the model name
 repeats within its harness group, else the model name.
@@ -140,7 +140,7 @@ tokens and spend, truncated with a `title`.
 `agentsviewmodel.ts`, read by the Usage card and the app bar. `ok` is `accent`: a quota under the warning
 line is not a success status, and the app bar is where it is read most.
 
-**F21, chart entrance cascade.** Confirmed (`dailychart.tsx` per-column delay). Columns grow together.
+**F21, chart entrance cascade.** Confirmed (`dailychart.tsx` per-column delay). Columns grow together; a usage-charts step samples column heights mid-entrance to show it.
 
 ## Verification
 
