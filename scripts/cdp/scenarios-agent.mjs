@@ -1593,6 +1593,8 @@ const RESMON_COCKPIT_HINTS = `document.querySelector('[data-cockpit-hints]')`;
 const RESMON_POPOVER = `document.querySelector('[data-resmon-popover]')`;
 // the window where the footer's chips wrapped out of the bar (visual revisit F2)
 const RESMON_NARROW = { width: 1000, height: 700, deviceScaleFactor: 1, mobile: false };
+// the footer's h-7 bar
+const RESMON_FOOTER_PX = 28;
 // each footer chip against the footer below its top border (inside: shown whole) and against the chip row's clip
 // (dropped: wholly outside it), and whether the readout shows whole
 const RESMON_CHIP_FIT = `(() => {
@@ -1884,10 +1886,15 @@ export const resmonFooter = {
         const shot = (n) => h.shot(`cdp-shots/resmon-footer-${n}.png`);
 
         await resmonBlur(h);
-        const rest = await h.ev(`(() => ({
-            last: !!${RESMON_FOOTER}?.lastElementChild?.matches('[data-resmon-readout]'),
-            text: ${resmonReadoutText(RESMON_FOOTER)},
-        }))()`);
+        // the readout shares a wrapper with the remote chip: the wrapper closes the footer, the readout the wrapper
+        const rest = await h.ev(`(() => {
+            const f = ${RESMON_FOOTER};
+            const r = ${resmonReadout(RESMON_FOOTER)};
+            return {
+                last: !!r && !!f?.lastElementChild?.contains(r) && r.parentElement?.lastElementChild === r,
+                text: ${resmonReadoutText(RESMON_FOOTER)},
+            };
+        })()`);
         await shot("1-rest");
         rec("1. Agent at rest: the readout ends the footer and reads Arc 61% CPU · 7.4 GB",
             rest.last && rest.text === "Arc 61% CPU · 7.4 GB", JSON.stringify(rest));
@@ -1914,6 +1921,27 @@ export const resmonFooter = {
                 narrow.readout?.fits === true &&
                 (narrow.text ?? "").endsWith("GB"),
             JSON.stringify(narrow));
+
+        await h.cdp("Emulation.setDeviceMetricsOverride", RESMON_NARROW);
+        let narrowLeader;
+        try {
+            await h.goto("files");
+            await polishWaitFor(h, `!!${RESMON_FOOTER}?.querySelector('[data-footer-chips]')`, 10000);
+            await resmonBlur(h);
+            await resmonKey(h, ctx, "g");
+            await polishWaitFor(h, `[...(${RESMON_FOOTER}?.querySelectorAll('span') ?? [])].some((s) => s.textContent.trim() === 'g →')`, 5000);
+            narrowLeader = await h.ev(RESMON_CHIP_FIT);
+            narrowLeader.height = await h.ev(`${RESMON_FOOTER}?.getBoundingClientRect().height ?? null`);
+            await shot("2a-leader-diff-1000");
+        } finally {
+            await resmonKey(h, ctx, "Escape");
+            await h.cdp("Emulation.setDeviceMetricsOverride", RESMON_VIEWPORT);
+        }
+        rec("2a. 1000x700 Diff under the g leader: shown chips sit inside the 28px footer, the rest are dropped whole",
+            narrowLeader.chips.length > 0 &&
+                narrowLeader.chips.every((c) => c.inside || c.dropped) &&
+                Math.abs((narrowLeader.height ?? 0) - RESMON_FOOTER_PX) < 0.5,
+            JSON.stringify(narrowLeader));
         await h.goto("agent");
         await resmonBlur(h);
 
@@ -1973,9 +2001,24 @@ export const resmonFooter = {
         await resmonSeedRoster(h, ctx);
         await h.goto("cockpit");
         await polishWaitFor(h, `!!${RESMON_COCKPIT_HINTS}`, 10000);
+        // after ?: the help button precedes the readout, and only the remote chip (absent when remote mode is off)
+        // and the readouts' wrapper sit between them
         const cockpit = await h.ev(`(() => {
+            const bar = ${RESMON_COCKPIT_HINTS};
             const r = ${resmonReadout(RESMON_COCKPIT_HINTS)};
-            return { readout: !!r, afterHelp: r?.previousElementSibling?.textContent.trim() === '?', footer: !!${RESMON_FOOTER} };
+            const help = bar?.querySelector('[data-cockpit-help]');
+            const follows = (a, b) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+            const between = r && help
+                ? [...bar.querySelectorAll('*')].filter((el) =>
+                      follows(help, el) && follows(el, r) && !help.contains(el) && !el.contains(r) && !el.closest('[data-remote-pill]'))
+                : null;
+            return {
+                readout: !!r,
+                afterHelp: !!r && !!help && follows(help, r) && between.length === 0,
+                between: between?.map((el) => el.tagName + (el.textContent.trim() ? ':' + el.textContent.trim() : '')) ?? null,
+                remote: !!bar?.querySelector('[data-remote-pill]'),
+                footer: !!${RESMON_FOOTER},
+            };
         })()`);
         await shot("6-cockpit");
         rec("6. Cockpit: the readout sits in the cockpit hints bar, after ?",
