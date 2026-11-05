@@ -6,6 +6,7 @@ import {
     buildRecordPeek,
     decisionsOpenOnMount,
     objectiveParts,
+    recordTitle,
     statusConfirmCopy,
     statusPickerRows,
     type RecordPeekInput,
@@ -164,6 +165,48 @@ describe("buildRecordPeek", () => {
         );
     });
 
+    // the record was captured from a run whose goal is its objective, so that run's report names it best
+    it("titles the peek by its origin run's report H1, and then shows the whole objective", () => {
+        const objective = "Fix the Brief. Read the report first.";
+        const peek = buildRecordPeek(
+            input({
+                detail: detail({ objective }),
+                runs: [
+                    run({ id: "r-other", goal: "something else", evidence: { summary: "# Other" } as RunEvidence }),
+                    run({
+                        goal: `  ${objective}\n`,
+                        evidence: { summary: "# Run report: Brief fixes\n" } as RunEvidence,
+                    }),
+                ],
+            })
+        );
+        expect(peek.title).toBe("Brief fixes");
+        expect(peek.titleIsId).toBe(false);
+        expect(peek.body).toBe(objective);
+        expect(peek.body?.startsWith("Fix the Brief.")).toBe(true);
+    });
+
+    it("clamps a whole objective under a run title like any other body", () => {
+        const objective = "First sentence. " + "y".repeat(400);
+        const peek = buildRecordPeek(
+            input({
+                detail: detail({ objective }),
+                runs: [run({ goal: objective, evidence: { summary: "# Long one" } as RunEvidence })],
+            })
+        );
+        expect(peek.body).toBe(objective);
+        expect(peek.bodyMore).toBe("Show the full objective · 416");
+    });
+
+    it("keeps the objective headline and its body with no matching run, or while the runs load", () => {
+        const objective = "Ship it.\n\nThen tidy up the rest.";
+        for (const runs of [[run()], undefined]) {
+            const peek = buildRecordPeek(input({ detail: detail({ objective }), runs }));
+            expect(peek.title).toBe("Ship it.");
+            expect(peek.body).toBe("Then tidy up the rest.");
+        }
+    });
+
     it("flags a title that fell back to the record id", () => {
         expect(buildRecordPeek(input({ detail: detail({ objective: "" }) })).titleIsId).toBe(true);
         expect(buildRecordPeek(input({ detail: detail({ objective: "  " }) })).titleIsId).toBe(true);
@@ -293,5 +336,33 @@ describe("objectiveParts", () => {
     it("measures the show-more link on the body", () => {
         expect(objectiveParts("Head. " + "y".repeat(401)).bodyMore).toBe("Show the full objective · 401");
         expect(objectiveParts("Head. " + "y".repeat(400)).bodyMore).toBeNull();
+    });
+});
+
+describe("recordTitle", () => {
+    const withReport = (goal: string, summary: string) => ({ goal, evidence: { summary } as RunEvidence });
+
+    it("is the report H1 of the first run whose goal is the objective", () => {
+        expect(
+            recordTitle(" Ship it. Then tidy. ", [
+                withReport("other", "# Not this"),
+                withReport("Ship it. Then tidy.", "# Run report: Shipping"),
+                withReport("Ship it. Then tidy.", "# Second"),
+            ])
+        ).toEqual({ title: "Shipping", fromRun: true });
+    });
+
+    it("is the run's goal lead sentence when the matching run filed no report", () => {
+        expect(recordTitle("Ship it. Then tidy.", [{ goal: "Ship it. Then tidy." }])).toEqual({
+            title: "Ship it.",
+            fromRun: true,
+        });
+    });
+
+    it("is the objective headline with no matching run, or while the runs load", () => {
+        const fallback = { title: "Ship it.", fromRun: false };
+        expect(recordTitle("Ship it. Then tidy.", [withReport("other", "# Not this")])).toEqual(fallback);
+        expect(recordTitle("Ship it. Then tidy.", [])).toEqual(fallback);
+        expect(recordTitle("Ship it. Then tidy.", undefined)).toEqual(fallback);
     });
 });

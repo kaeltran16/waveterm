@@ -29,6 +29,9 @@ import {
 } from "./briefingmodel";
 import { headline, noteBody } from "./effortfeed";
 import type { EffortCardModel } from "./effortmodel";
+import { runTitle, shortTitle } from "./runreport";
+
+export { shortTitle };
 
 export type LineTone = "ok" | "active" | "asking" | "error" | "muted" | "faint";
 export type LineTarget = { queue: QueueOpenTarget } | { oref: string } | null;
@@ -449,12 +452,6 @@ function eventText(row: DeltaRow): string {
 
 const RUN_EVENTS = new Set(["run-created", "run-done"]);
 
-// A run goal runs to paragraphs; a Behind you row is one line, so it takes the goal's first line's lead
-// sentence.
-export function shortTitle(text: string): string {
-    return headline(text.trim().split("\n")[0] ?? "");
-}
-
 const MD_LIST = /^(?:[-*+]|\d+[.)])\s+/;
 const MD_INLINE = /\*\*|__|`/g;
 const MD_LINK = /\[([^\]]*)\]\([^)]*\)/g;
@@ -614,7 +611,7 @@ export function behindGroups(
                 id: "behind:shipped:" + s.oref,
                 kind: "Shipped",
                 kindTone: "ok",
-                title: s.goal,
+                title: runTitle(s.goal, s.summary),
                 note: "",
                 meta: "",
                 state: age(s.completedTs, now),

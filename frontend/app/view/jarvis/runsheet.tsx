@@ -62,6 +62,7 @@ import { briefEffortIndexAtom, briefProfileAtom, briefRevealChunkAtom } from "./
 import { ticketUrl } from "./jiraticket";
 import { useLocalImage } from "./localimage";
 import { openTarget } from "./openref";
+import { runTitle } from "./runreport";
 import { RunReportView } from "./runreportview";
 import { runSettingsDraft, type LinkedGroupRead } from "./runsettings";
 import {
@@ -213,8 +214,13 @@ function RunSheetFrame({ ctx, dag }: { ctx: SheetCtx; dag: SheetDagRead | null }
     // the viewer mounts only while open: mounting is what claims the keys and the modal stack
     const [shotsAt, setShotsAt] = useState<{ round: number; scenario?: string } | null>(null);
 
+    // below 800px of height a pinned head and dock leave the body a sliver, so then the whole column scrolls and
+    // only the composer stays pinned
     return (
-        <div data-run-sheet={run.status} className="flex min-h-0 flex-1 flex-col bg-background">
+        <div
+            data-run-sheet={run.status}
+            className="flex min-h-0 flex-1 flex-col bg-background [@media(max-height:799px)]:overflow-y-auto"
+        >
             <Reading
                 run={run}
                 status={status}
@@ -223,7 +229,10 @@ function RunSheetFrame({ ctx, dag }: { ctx: SheetCtx; dag: SheetDagRead | null }
                 onRetry={dag?.digest.retry}
                 onOpenDesign={design != null ? () => openTarget(ctx.model, { kind: "agent", ...design }) : undefined}
             />
-            <div className="sc min-h-0 flex-1 overflow-y-auto px-4 pb-2.5">
+            <div
+                data-run-sheet-body
+                className="sc min-h-0 flex-1 overflow-y-auto px-4 pb-2.5 [@media(max-height:799px)]:flex-[1_0_auto] [@media(max-height:799px)]:overflow-visible"
+            >
                 {dag != null ? (
                     <RunTimingSection run={run} digest={dag.digest.digest} tasks={dag.group?.tasks} now={now} />
                 ) : null}
@@ -254,8 +263,13 @@ function RunSheetFrame({ ctx, dag }: { ctx: SheetCtx; dag: SheetDagRead | null }
                 configuration moved up into the reading; the composer sits under the dock (design L571-587). */}
             <footer data-jarvis-brief-sheet-face="settings" className="flex-none border-t border-edge-faint bg-surface">
                 <Dock ctx={ctx} group={group} finalEntry={finalEntry} onOpenShots={setShotsAt} />
-                <RunComposer model={ctx.model} channel={channel} run={run} onClose={ctx.onClose} />
             </footer>
+            <div
+                data-run-sheet-composer
+                className="flex-none bg-surface [@media(max-height:799px)]:sticky [@media(max-height:799px)]:bottom-0"
+            >
+                <RunComposer model={ctx.model} channel={channel} run={run} onClose={ctx.onClose} />
+            </div>
             {group != null && shotsAt != null ? (
                 <FinalShotsViewer group={group} initial={shotsAt} onClose={() => setShotsAt(null)} />
             ) : null}
@@ -380,7 +394,10 @@ function Reading({
     const ref = run.effortref;
     const effort = ref != null ? index.get(ref.effortoid) : undefined;
     return (
-        <div className="flex flex-none flex-col gap-[11px] border-b border-edge-faint px-4 pb-3.5 pt-4">
+        <div
+            data-run-sheet-reading
+            className="flex flex-none flex-col gap-[11px] border-b border-edge-faint px-4 pb-3.5 pt-4"
+        >
             <div className="flex items-center gap-[9px]">
                 <span
                     className={cn(
@@ -434,9 +451,10 @@ function Reading({
                     </>
                 }
             />
-            {/* collapsed, the goal is a two-line heading; expanded it becomes the prose it was written as. A div,
+            {/* collapsed, the heading is the run's title; expanded it becomes the goal as it was written. A div,
                 not a button: expanded markdown renders block elements a button may not contain. */}
             <div
+                data-run-sheet-title={goalOpen ? "goal" : "title"}
                 onClick={() => setGoalOpen((o) => !o)}
                 title={goalOpen ? "Collapse" : "Expand"}
                 className="mt-0.5 cursor-pointer text-[17px] font-bold leading-[1.3] tracking-[-.01em] text-primary hover:opacity-90"
@@ -448,7 +466,7 @@ function Reading({
                     />
                 ) : (
                     <div className="line-clamp-2">
-                        <InlineMarkdown text={run.goal} />
+                        <InlineMarkdown text={runTitle(run.goal, run.evidence?.summary ?? "")} />
                     </div>
                 )}
             </div>

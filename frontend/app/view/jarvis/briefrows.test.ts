@@ -549,6 +549,33 @@ describe("behindGroups", () => {
             group: "shipped",
         });
     });
+
+    it("titles a shipped run by its report's H1, else by its goal's lead sentence", () => {
+        const row = (goal: string, summary: string): ShippedRow => ({
+            oref: "run:" + goal.length,
+            goal,
+            project: "waveterm",
+            summary,
+            completedTs: NOW - MIN,
+            fresh: false,
+            hasReport: summary !== "",
+            effortOid: "",
+            chunkLabel: "",
+            mode: "orchestrator",
+        });
+        const [group] = behindGroups(
+            [],
+            [
+                row("Fix all findings in C:\\a\\report.md (read it by that path; shots beside it). Land.", ""),
+                row("Fix the palette. Read first.", "# Run report: Palette fixes\n\n## Landed\n- none"),
+            ],
+            NOW
+        );
+        expect(group.lines.map((l) => l.title)).toEqual([
+            "Fix all findings in C:\\a\\report.md (read it by that path; shots beside it).",
+            "Palette fixes",
+        ]);
+    });
 });
 
 // F2: the cap counts the folded lines the region draws, not the events behind them
