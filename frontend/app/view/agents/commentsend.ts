@@ -20,7 +20,8 @@ export type Recipient =
     | { kind: "live"; name: string; blockId: string; working: boolean }
     // folder: how the bar names the place ("waveterm", "loom's folder"); ended: the agent that is gone
     | { kind: "new"; cwd: string; project: string; folder: string; ended?: string }
-    | { kind: "wait"; reason: string };
+    // forAgent: the wait is on a live agent that will take the comments, so the button does not offer to start one
+    | { kind: "wait"; reason: string; forAgent?: true };
 
 export interface RecipientFacts {
     // the roster entry, absent when the agent has ended
@@ -102,6 +103,10 @@ export function resolveRecipient(batch: CommentBatch, facts: RecipientFacts): Re
             const a = facts.agent;
             // a plain terminal is never live: a prompt pasted into a shell would run as commands
             if (a?.blockId && a.kind !== "terminal") {
+                // a prompt typed now would answer the agent's open question
+                if (a.state === "asking") {
+                    return { kind: "wait", reason: `${a.name} is asking a question — answer it first`, forAgent: true };
+                }
                 return { kind: "live", name: a.name, blockId: a.blockId, working: a.state === "working" };
             }
             return resolveEnded(batch, facts);
@@ -131,7 +136,11 @@ export function sendBarText(
         case "new":
             return { count, detail: `in ${r.folder}`, action: `Start agent with ${comments}` };
         case "wait":
-            return { count, detail: r.reason, action: `Start agent with ${comments}` };
+            return {
+                count,
+                detail: r.reason,
+                action: r.forAgent ? `Send ${comments}` : `Start agent with ${comments}`,
+            };
     }
 }
 
