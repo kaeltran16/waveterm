@@ -77,6 +77,19 @@ function shellStart(task, dir, timestamp) {
     ];
 }
 
+// the standing card's subagents are real files beside its transcript, where GetSubagentsCommand looks: a value lent
+// into the store is replaced by the next disk read, which the tracker does on its own clock
+function writeSubagents(dir, name) {
+    const sub = join(dir, name, "subagents");
+    mkdirSync(sub, { recursive: true });
+    const record = (type, content) => JSON.stringify({ type, isSidechain: true, message: { role: type, content } });
+    writeFileSync(join(sub, "agent-fxsub1.jsonl"), record("user", "Explore the parser's callers") + "\n");
+    writeFileSync(
+        join(sub, "agent-fxsub2.jsonl"),
+        [record("user", "Plan the parser rewrite"), record("assistant", [{ type: "text", text: "Planned." }])].join("\n") + "\n"
+    );
+}
+
 // a transcript whose cwd record points the card's git chip at `cwd`; written after the repo's commit, so the
 // session start anchors on it
 function writeTranscript(dir, name, cwd, shellTasks = []) {
@@ -167,6 +180,7 @@ export const cockpitCardLayout = {
                 b: writeTranscript(ctx.root, "shared-b", repo.replace(/\\/g, "/")),
                 standing: writeTranscript(ctx.root, "standing", wt, SHELL),
             };
+            writeSubagents(ctx.root, "standing");
             mkdirSync(new URL(".", TREE_RAIL_FIXTURE), { recursive: true });
             writeFileSync(TREE_RAIL_FIXTURE, JSON.stringify(roster(transcripts), null, 2));
             ctx.wroteFixture = true;
@@ -231,11 +245,6 @@ export const cockpitCardLayout = {
         });
 
         const header = await lookEval(h, `
-            const { globalStore } = await mod("app/store/jotaiStore.ts");
-            const { subagentsByIdAtom } = await mod("app/view/agents/subagentsstore.ts");
-            // subagents load from disk once on enter and on activity; this fixture has none on disk, so it lends two
-            const subs = [{ id: "fx-sub-1", type: "Explore", state: "working" }, { id: "fx-sub-2", type: "Plan", state: "done" }];
-            globalStore.set(subagentsByIdAtom, { ...globalStore.get(subagentsByIdAtom), ${JSON.stringify(ID.standing)}: subs });
             const c = () => ${card(ID.standing)};
             const chipEls = () => [
                 c()?.querySelector('[data-shell-tasks-chip]'),
