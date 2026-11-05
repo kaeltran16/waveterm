@@ -326,7 +326,8 @@ const actState: WorkState = {
                 {
                     project: "C:\\Users\\dev\\IdeaProjects\\portfolio-redesign",
                     runoid: "r-act-shipped",
-                    goal: "Portfolio hero redesign",
+                    // past a tooltip's length, so the row's title must come from the report's H1 (brief-act 41)
+                    goal: "Redesign the portfolio's hero so a visitor reads who it is for in one glance. Rebuild the layout in the hero component, keep the copy to two lines, check it at phone and desktop widths, and leave the rest of the page as it is.",
                     summary: "# Run report: Portfolio hero\n\n## Tasks\n- t-1: **rebuilt** the hero in `hero.tsx`",
                     completedts: NOW - 5 * HOUR,
                     hasreport: true,

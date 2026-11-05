@@ -3146,13 +3146,36 @@ export const briefProfile = {
 // own j/k list so one cursor walks rows and chunks alike. The chunk rows need the effort DETAIL, which
 // the briefing fixture does not carry (it seeds summaries only) — so the plan-dependent steps SKIP when
 // the dev store has no real initiative with chunks, rather than failing on an empty dev database.
+// steps 11-12 read a live initiative of four chunks, one done and one skipped: its facts line counts three
+const TRACKER_SKIPPED = "verify brief-inline-tracker skipped chunk";
+const TRACKER_FOOTER = ["Rename", "Details", "Activity", "Pause", "Archive", "Delete"];
+
 export const briefInlineTracker = {
     name: "brief-inline-tracker",
     surface: "jarvis",
-    async arrange() {
-        return {};
+    async arrange(h) {
+        const ctx = {};
+        try {
+            ctx.effortoid = (
+                await h.rpc("effortcreate", {
+                    title: TRACKER_SKIPPED,
+                    chunks: [{ label: "sk-done" }, { label: "sk-skipped" }, { label: "sk-next" }, { label: "sk-last" }],
+                })
+            ).effortoid;
+            await h.rpc("effortmutate", {
+                effortoid: ctx.effortoid,
+                author: "you",
+                ops: [
+                    { op: "setChunkStatus", chunk: "sk-done", status: "done" },
+                    { op: "setChunkStatus", chunk: "sk-skipped", status: "skipped" },
+                ],
+            });
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
     },
-    async assert(h) {
+    async assert(h, ctx) {
         const steps = [];
         await h.goto("jarvis");
         await h.ev(`document.querySelector('[data-briefing-fixture="normal"]')?.click()`);
@@ -3331,7 +3354,7 @@ export const briefInlineTracker = {
                 detail: String(confirm),
             });
             await h.shot("cdp-shots/brief-inline-tracker-confirm.png");
-            await h.ev(`[...document.querySelectorAll('[data-jarvis-delete-confirm] button')].find((b) => b.textContent.trim() === 'cancel')?.click()`);
+            await h.ev(`[...document.querySelectorAll('[data-jarvis-delete-confirm] button')].find((b) => b.textContent.trim() === 'Cancel')?.click()`);
             await h.ev("new Promise((r) => setTimeout(r, 150))");
         } else {
             steps.push(skipStep("5-8. the editing layer: status menu, rename, delete + undo, delete confirm", "no initiative with chunks in this dev store"));
@@ -3357,7 +3380,65 @@ export const briefInlineTracker = {
                 : skipStep(menuStep, "no initiative with chunks in this dev store - ui-drift renders the menu through the module")
         );
 
+        // 11 + 12: the 11-05 Brief live pass, on the arranged initiative in live data at 1600x950. The filter finds
+        // it past the Initiatives window, which leads with whatever blocked initiatives the store holds.
+        await h.cdp("Emulation.setDeviceMetricsOverride", MODELS_VIEWPORT);
+        await actFixture(h, null);
+        await actFilter(h, TRACKER_SKIPPED);
+        const f10 = await lookEval(h, `
+            const row = () => ${actInitRow(TRACKER_SKIPPED)};
+            const found = await until(() => row() != null, 25000);
+            if (row() != null && row().getAttribute("aria-expanded") !== "true") row().click();
+            const detail = () => document.querySelector('[data-jarvis-initiative-detail]');
+            const facts = () => [...(detail()?.querySelectorAll("span") ?? [])].map(flat).find((t) => /^\\d+ chunks? · \\d+ done/.test(t)) ?? null;
+            await until(() => facts() != null, 10000);
+            return {
+                found,
+                facts: facts(),
+                progress: [...(row()?.querySelectorAll("span") ?? [])].map(flat).find((t) => /^\\d+\\/\\d+$/.test(t)) ?? null,
+            };
+        `);
+        await h.shot("cdp-shots/brief-inline-tracker-11-skipped.png");
+        const counted = /^(\d+) chunks? · (\d+) done · 1 skipped, not counted$/.exec(f10.facts ?? "");
+        const total = /^\d+\/(\d+)$/.exec(f10.progress ?? "")?.[1] ?? null;
+        steps.push({
+            step: "11. F10: at 1600x950 an initiative with a skipped chunk reads <n> chunks · <d> done · 1 skipped, not counted, its <n> the row's progress total",
+            ok: ctx.arrangeError == null && counted != null && counted[1] === total && counted[1] === "3" && counted[2] === "1",
+            detail: ctx.arrangeError ?? JSON.stringify(f10),
+        });
+
+        const f15 = await lookEval(h, `
+            const detail = document.querySelector('[data-jarvis-initiative-detail]');
+            const labels = [...(detail?.querySelectorAll('[data-jarvis-initiative-action]') ?? [])].map(flat);
+            detail?.querySelector('[data-jarvis-initiative-action="delete"]')?.click();
+            const confirm = () => document.querySelector('[data-jarvis-delete-confirm]');
+            await until(() => confirm() != null, 3000);
+            const confirmLabels = [...(confirm()?.querySelectorAll("button") ?? [])].map(flat);
+            [...(confirm()?.querySelectorAll("button") ?? [])].find((b) => flat(b) === "Cancel")?.click();
+            const closed = await until(() => confirm() == null, 3000);
+            return { labels, confirmLabels, closed };
+        `);
+        await actFilter(h, "");
+        steps.push({
+            step: "12. F15: at 1600x950 every tracker footer action and the delete confirm's buttons start with a capital",
+            ok:
+                TRACKER_FOOTER.every((l) => f15.labels.includes(l)) &&
+                [...f15.labels, ...f15.confirmLabels].every((l) => /^[A-Z]/.test(l)) &&
+                JSON.stringify(f15.confirmLabels) === JSON.stringify(["Cancel", "Delete"]) &&
+                f15.closed === true,
+            detail: JSON.stringify(f15),
+        });
+
         return steps;
+    },
+    async teardown(h, ctx) {
+        await actFilter(h, "").catch(() => {});
+        await h.cdp("Emulation.clearDeviceMetricsOverride", {}).catch(() => {});
+        if (ctx?.effortoid) {
+            await h.rpc("effortdelete", { effortoid: ctx.effortoid }).catch((e) => {
+                console.error(`brief-inline-tracker teardown: delete the initiative failed: ${e?.message ?? e}`);
+            });
+        }
     },
 };
 
@@ -4036,6 +4117,85 @@ async function seedRecordBandRecords(h) {
     );
 }
 
+// steps 12-15 (F3, F5, F6): two records in one project and window, each confirmed onto its own lead run, and a
+// third lead run there that neither refs. Every run in the project is a structural guess of each record anchored
+// on it; a run claimed by one record is no guess of the other. Each run's goal is its record's id as words, so
+// its capture collides with the record written first and the arrange attaches it explicitly; the third run takes
+// pair A's goal, so its capture collides too and it stays unclaimed. Objectives run long, so the chips truncate.
+const RECORD_BAND_PAIR = [
+    {
+        key: "a",
+        id: "verify-record-band-pair-a",
+        ticket: "VERIFY-2202",
+        head: "Verify record-band pair A owns the first of three runs in one project, and its sibling's run is no guess of it.",
+    },
+    {
+        key: "b",
+        id: "verify-record-band-pair-b",
+        ticket: "VERIFY-2203",
+        head: "Verify record-band pair B owns the second of three runs in one project, and its sibling's run is no guess of it.",
+    },
+];
+const recordBandPairGoal = (key) => `verify record-band pair ${key}`;
+
+async function seedRecordBandPair(h) {
+    const dir = join(await vaultRoot(h), "tasks", "active");
+    mkdirSync(dir, { recursive: true });
+    const stamp = Date.now() - 30 * DAY_MS;
+    return RECORD_BAND_PAIR.map((p) =>
+        writeRecordBandRecord(dir, p.id, p.ticket, `${p.head} ${RECORD_BAND_FILLER.trim()}`, stamp)
+    );
+}
+
+// keys a (pair A's), b (pair B's) and u (neither's), each on its own channel in the pair's one project
+async function arrangeRecordBandPair(h, pair) {
+    pair.files = await seedRecordBandPair(h);
+    const wslist = await h.rpc("workspacelist", null);
+    for (const key of ["a", "b", "u"]) {
+        const ch = await h.rpc("createchannel", { name: `verify-record-band-pair-${key}`, projectpath: pair.cwd });
+        pair.channels.push(ch.oid);
+        const created = await h.rpc("createrun", {
+            channelid: ch.oid,
+            workspaceid: wslist[0].workspacedata.oid,
+            goal: recordBandPairGoal(key === "u" ? "a" : key),
+            runtime: "claude",
+            mode: "quick",
+            deferstart: true,
+        });
+        pair.runs[key] = created.run.id;
+    }
+    for (const p of RECORD_BAND_PAIR) {
+        await h.rpc("acceptdossieredge", { dossierid: p.id, runoref: `run:${pair.runs[p.key]}` });
+    }
+}
+
+async function teardownRecordBandPair(h, pair) {
+    const step = async (what, fn) => {
+        try {
+            await fn();
+        } catch (e) {
+            console.error(`record-band-detach-restore teardown: ${what} failed: ${e?.message ?? e}`);
+        }
+    };
+    // detached first, so the accept log claims no run of a record the next pass writes again under this id
+    for (const p of RECORD_BAND_PAIR) {
+        if (pair.runs[p.key]) {
+            await step(`detach pair ${p.key}`, () =>
+                h.rpc("detachdossieredge", { dossierid: p.id, runoref: `run:${pair.runs[p.key]}` })
+            );
+        }
+    }
+    for (const [i, channelId] of pair.channels.entries()) {
+        const runId = pair.runs[["a", "b", "u"][i]];
+        if (runId) await step(`cancel pair run ${runId}`, () => h.rpc("cancelrun", { channelid: channelId, runid: runId }));
+        await step(`delete pair channel ${channelId}`, () => h.rpc("deletechannel", { channelid: channelId }));
+    }
+    await step("remove the pair's temp dir", () => rmSync(pair.cwd, { recursive: true, force: true }));
+    for (const file of pair.files ?? []) {
+        await step(`remove ${file}`, () => rmSync(file, { force: true }));
+    }
+}
+
 export const recordBandDetachRestore = {
     name: "record-band-detach-restore",
     surface: "jarvis",
@@ -4075,6 +4235,13 @@ export const recordBandDetachRestore = {
             });
             ctx.guessed.runId = created2.run.id;
             ctx.guessed.runORef = `run:${ctx.guessed.runId}`;
+            // its own catch: a failed pair fails steps 12-15, not the band steps before them
+            ctx.pair = { cwd: mkdtempSync(join(tmpdir(), "verify-record-band-pair-")), channels: [], runs: {} };
+            try {
+                await arrangeRecordBandPair(h, ctx.pair);
+            } catch (e) {
+                ctx.pair.error = String(e?.message ?? e);
+            }
             // the Brief reads a boot-primed snapshot, so the RPC-created channel needs a reload
             await h.ev("location.reload()");
             await h.ev(`(async () => {
@@ -4370,9 +4537,123 @@ export const recordBandDetachRestore = {
             JSON.stringify(confirmCopy)
         );
         steps.push(await floorStep(h, `11. no visible text in the record band is under ${MIN_FONT_PX}px`, RECORD_BAND));
+
+        // 12-15: the 11-05 Brief live pass on the pair (arrange). pairBand opens a run's sheet, waits for its band to
+        // name one of `first`, expands it until every record in `want` has a row, and measures each expanded row: its
+        // chip, and the "open this record" link that must stay on one line inside the row.
+        const pair = ctx.pair ?? { runs: {} };
+        const [pairA, pairB] = RECORD_BAND_PAIR;
+        // two evaluates, as each holds one 25s wait under the 30s cap
+        const pairBand = async (runId, first, want) => {
+            const head = await h.ev(`(async () => {
+                ${RECORD_BAND_LIB}
+                const opened = await window.__openAddress(${JSON.stringify(`run:${runId ?? ""}`)});
+                const first = ${JSON.stringify(first)};
+                const shown = await until(() =>
+                    first.includes(${RECORD_BAND}?.querySelector("[data-jarvis-band-toggle] [data-jarvis-edge-chip]")?.getAttribute("title"))
+                );
+                return { opened: opened?.ok ?? null, shown };
+            })()`);
+            const body = await h.ev(`(async () => {
+                ${RECORD_BAND_LIB}
+                const toggle = () => ${RECORD_BAND}?.querySelector("[data-jarvis-band-toggle]");
+                const want = ${JSON.stringify(want)};
+                if (toggle()?.getAttribute("aria-expanded") !== "true") toggle()?.click();
+                const chips = () => [...(${RECORD_BAND}?.querySelectorAll("[data-jarvis-edge-chip]") ?? [])].filter((c) => !toggle()?.contains(c));
+                const ids = () => chips().map((c) => c.getAttribute("title"));
+                const expanded = await until(() => want.every((id) => ids().includes(id)));
+                await new Promise((r) => setTimeout(r, 400));
+                const rows = chips().map((c) => {
+                    const row = c.closest("button")?.parentElement;
+                    const link = [...(row?.querySelectorAll("span") ?? [])].find((s) => (s.textContent || "").trim() === "open this record");
+                    return {
+                        id: c.getAttribute("title"),
+                        edge: c.querySelector("[data-jarvis-edge-label]")?.textContent?.trim() ?? null,
+                        linkLines: link?.getClientRects().length ?? 0,
+                        rowScroll: row?.scrollWidth ?? 0,
+                        rowClient: row?.clientWidth ?? 0,
+                    };
+                });
+                return { expanded, rows };
+            })()`);
+            return { ...head, ...body };
+        };
+        const linksOneLine = (band) =>
+            band.rows.length > 0 && band.rows.every((r) => r.linkLines === 1 && r.rowScroll <= r.rowClient);
+        const PAIR_STEPS = {
+            f5: "12. F5: at 1600x950 a run confirmed onto record A shows A confirmed and no guessed row for record B",
+            f6wide: "13. F6: at 1600x950 every expanded band row's open this record link is one line inside its row",
+            f6narrow: "14. F6: at 1000x700 every expanded band row's open this record link is one line inside its row",
+            f3: "15. F3: at 1600x950 record A's peek lists its own run and the run no record claims under Runs on this record, and not record B's run",
+        };
+        // without the pair every wait below would run out its 25s for nothing
+        if (pair.error != null || pair.runs.u == null) {
+            for (const step of Object.values(PAIR_STEPS)) rec(step, false, pair.error ?? "the arrange made no pair");
+            return steps;
+        }
+
+        const f5 = await pairBand(pair.runs.a, [pairA.id], [pairA.id]);
+        await h.shot("cdp-shots/record-band-12-claimed-run.png");
+        rec(
+            PAIR_STEPS.f5,
+            f5.opened === true &&
+                f5.expanded === true &&
+                f5.rows.some((r) => r.id === pairA.id && r.edge === "confirmed") &&
+                !f5.rows.some((r) => r.id === pairB.id),
+            JSON.stringify(f5)
+        );
+
+        // the unclaimed run is a guess of both records, so its band has two rows to measure
+        const pairIds = RECORD_BAND_PAIR.map((p) => p.id);
+        const f6wide = await pairBand(pair.runs.u, pairIds, pairIds);
+        await h.shot("cdp-shots/record-band-13-links-wide.png");
+        rec(
+            PAIR_STEPS.f6wide,
+            f6wide.expanded === true && f6wide.rows.length >= pairIds.length && linksOneLine(f6wide),
+            JSON.stringify(f6wide)
+        );
+        await h.cdp("Emulation.setDeviceMetricsOverride", { width: 1000, height: 700, deviceScaleFactor: 1, mobile: false });
+        await new Promise((r) => setTimeout(r, 500));
+        const f6narrow = await pairBand(pair.runs.u, pairIds, pairIds);
+        await h.shot("cdp-shots/record-band-14-links-narrow.png");
+        rec(
+            PAIR_STEPS.f6narrow,
+            f6narrow.expanded === true && f6narrow.rows.length >= pairIds.length && linksOneLine(f6narrow),
+            JSON.stringify(f6narrow)
+        );
+        await h.cdp("Emulation.setDeviceMetricsOverride", MODELS_VIEWPORT);
+
+        const f3 = await h.ev(`(async () => {
+            ${RECORD_BAND_LIB}
+            ${PEEKS_ESC};
+            await new Promise((r) => setTimeout(r, 400));
+            await window.__openAddress(${JSON.stringify(`task:${pairA.id}`)});
+            const peek = '[data-jarvis-brief-band="peek"]';
+            const runIds = () => [...document.querySelectorAll(peek + " [data-jarvis-peek-run]")].map((r) => r.getAttribute("data-jarvis-peek-run"));
+            const want = ${JSON.stringify([pair.runs.a, pair.runs.u])};
+            const listed = await until(() => want.every((id) => runIds().includes(id)));
+            return {
+                listed,
+                record: document.querySelector(peek + " [data-jarvis-peek-record]")?.getAttribute("data-jarvis-peek-record") ?? null,
+                runs: runIds(),
+            };
+        })()`);
+        await h.shot("cdp-shots/record-band-15-record-runs.png");
+        rec(
+            PAIR_STEPS.f3,
+            f3.listed === true &&
+                f3.record === pairA.id &&
+                f3.runs.includes(pair.runs.a) &&
+                f3.runs.includes(pair.runs.u) &&
+                !f3.runs.includes(pair.runs.b),
+            JSON.stringify({ ...f3, a: pair.runs.a, b: pair.runs.b, u: pair.runs.u })
+        );
+        await h.ev(PEEKS_ESC);
         return steps;
     },
     async teardown(h, ctx) {
+        await h.cdp("Emulation.clearDeviceMetricsOverride", {}).catch(() => {});
+        if (ctx.pair != null) await teardownRecordBandPair(h, ctx.pair);
         // detached, so the record keeps one run ref across runs rather than growing one per run
         await teardownFixtureRun(h, ctx, "record-band-detach-restore", {
             what: "detach the run from the record",
@@ -5026,6 +5307,21 @@ async function actFixture(h, name) {
 // the review fixture's direct-agent ask (briefingfixtures.ts REVIEW_AGENT_ASK_TEXT)
 const REVIEW_AGENT_ASK = "Can I rename the tenant table?";
 
+// steps 41-45. The act fixture's shipped run: a goal past a tooltip's length, a report whose H1 is "Run report:
+// Portfolio hero" (briefingfixtures.ts r-act-shipped).
+const ACT_SHIPPED_TITLE = "Portfolio hero";
+// a real run's goal, so CreateRun captures a record with it as the objective: a path full of dots and a ";"
+// mid-sentence, the shape the old headline cut at the ";"
+const ACT_RECORD_HEAD =
+    "Verify record titles: fix the findings in C:/dev/review/report.md (gitignored, read it by that path; its shots sit beside it) and nothing else.";
+const ACT_RECORD_GOAL = `${ACT_RECORD_HEAD} Then stop before landing anything.`;
+const ACT_RECORD_H1 = "Record titles read whole";
+// an initiative whose notes are the creation marker and one written note, with a blocked chunk so it waits
+const ACT_PEEK_EFFORT = "verify brief-act peek objective";
+const ACT_PEEK_CHUNK = "pk-wait";
+const ACT_PEEK_NOTE = "Ship the record titles fix";
+const ACT_RESUME_SUMMARY = "Picked up the record titles: Shipped rows now read their report's heading.";
+
 // steps 35, 36 and 37-38 set the registry, the dev roster and the review queue page-side; these put them back, and
 // are no-ops after
 const actRestoreConfig = (h) =>
@@ -5309,7 +5605,7 @@ export const briefAct = {
             const rows = [...scroll.querySelectorAll('[data-jarvis-brief-row]')];
             const last = rows[rows.length - 1]?.getBoundingClientRect();
             const avatar = document.querySelector('[aria-label="Jarvis condition"]')?.getBoundingClientRect();
-            globalStore.set(petBubbleAtom, { id: "resume:brief-act:1", at: 1, kind: "resume", text: "Where we were — verify" });
+            globalStore.set(petBubbleAtom, { id: "resume:brief-act:1", at: 1, kind: "resume", text: "verify brief-act resume" });
             await nap(200);
             const shown = globalStore.get(petBubbleAtom) != null;
             scroll.scrollTop = 0;
@@ -5734,7 +6030,7 @@ export const briefAct = {
             const { petBubbleAtom } = await mod("app/view/jarvis/petstore.ts");
             scroll.scrollTop = 0;
             await nap(300);
-            globalStore.set(petBubbleAtom, { id: "resume:brief-act:2", at: 2, kind: "resume", text: "Where we were — verify" });
+            globalStore.set(petBubbleAtom, { id: "resume:brief-act:2", at: 2, kind: "resume", text: "verify brief-act resume" });
             await nap(200);
             const shown = globalStore.get(petBubbleAtom) != null;
             const top0 = scroll.scrollTop;
@@ -6242,6 +6538,161 @@ export const briefAct = {
             detail: JSON.stringify({ before: f16before, during: f16during, after: f16after }),
         });
         await actFixture(h, null);
+
+        // 41-45: the 11-05 Brief live pass's titles and labels, at 1600x950.
+        // 41. a Shipped row is titled by its report's H1, not its goal, so its tooltip is short too
+        await actFixture(h, "act");
+        await actFilter(h, "");
+        const f4ship = await h.ev(`(() => {
+            const title = document.querySelector('[data-jarvis-brief-region="behind"] [data-jarvis-brief-row="shipped"] span[title]');
+            return { text: (title?.textContent || "").replace(/\\s+/g, " ").trim(), attr: title?.getAttribute("title") ?? null };
+        })()`);
+        await h.shot("cdp-shots/brief-act-41-shipped-title.png");
+        await actFixture(h, null);
+        steps.push({
+            step: "41. F4: a Shipped row whose report has an H1 is titled by that H1, and its title attribute is under 200 characters",
+            ok: f4ship.text === ACT_SHIPPED_TITLE && f4ship.attr === ACT_SHIPPED_TITLE && f4ship.attr.length < 200,
+            detail: JSON.stringify(f4ship),
+        });
+
+        // 42 + 43. a record captured from a run's goal: its peek title is the goal's lead sentence whole, past the ";",
+        // while the run has no report, then the report's H1 once it has one. No RPC writes a run's report, so the H1
+        // is set on the loaded copy of the run the peek reads, and put back after.
+        ctx.titled = { cwd: mkdtempSync(join(tmpdir(), "verify-brief-act-titled-")) };
+        try {
+            const wslist = await h.rpc("workspacelist", null);
+            const ch = await h.rpc("createchannel", { name: "verify-brief-act-titled", projectpath: ctx.titled.cwd });
+            ctx.titled.channelId = ch.oid;
+            const created = await h.rpc("createrun", {
+                channelid: ctx.titled.channelId,
+                workspaceid: wslist[0].workspacedata.oid,
+                goal: ACT_RECORD_GOAL,
+                runtime: "claude",
+                mode: "quick",
+                deferstart: true,
+            });
+            ctx.titled.runId = created.run.id;
+            const found = ((await h.rpc("listtaskdossiers", null))?.dossiers ?? []).find(
+                (d) => (d.objective ?? "").trim() === ACT_RECORD_GOAL
+            );
+            if (found == null) throw new Error("CreateRun captured no record for the titled goal");
+            ctx.titled.recordId = found.id;
+            // an earlier pass's record fails the capture, so the run is attached explicitly
+            await h.rpc("acceptdossieredge", { dossierid: found.id, runoref: `run:${ctx.titled.runId}` });
+        } catch (e) {
+            ctx.titled.error = String(e?.message ?? e);
+        }
+        const f4rec =
+            ctx.titled.error != null
+                ? {}
+                : await lookEval(h, `
+            const { globalStore } = await mod("app/store/jotaiStore.ts");
+            const { briefPeekRecordAtom } = await mod("app/view/jarvis/jarvisstore.ts");
+            const { recordRunsAtom } = await mod("app/view/jarvis/jarvissubjectstore.ts");
+            const id = ${JSON.stringify(ctx.titled.recordId)};
+            const goal = ${JSON.stringify(ACT_RECORD_GOAL)};
+            const h1 = ${JSON.stringify(ACT_RECORD_H1)};
+            const peek = '[data-jarvis-brief-band="peek"]';
+            globalStore.set(briefPeekRecordAtom, id);
+            const runRow = peek + ' [data-jarvis-peek-run="' + ${JSON.stringify(ctx.titled.runId)} + '"]';
+            const loaded = await until(() => document.querySelector(runRow) != null, 15000);
+            const title = () => flat(document.querySelector(peek + " [data-jarvis-peek-title]"));
+            const fallback = title();
+            const runs = globalStore.get(recordRunsAtom)[id] ?? [];
+            const reportOn = (r) =>
+                (r.goal ?? "").trim() === goal
+                    ? { ...r, evidence: { ...(r.evidence ?? {}), summary: "# Run report: " + h1 + "\\n\\n- t-1: changed nothing" } }
+                    : r;
+            globalStore.set(recordRunsAtom, { ...globalStore.get(recordRunsAtom), [id]: runs.map(reportOn) });
+            await until(() => title() === h1, 3000);
+            const reported = title();
+            globalStore.set(recordRunsAtom, { ...globalStore.get(recordRunsAtom), [id]: runs });
+            globalStore.set(briefPeekRecordAtom, null);
+            return { loaded, fallback, reported, runs: runs.length };
+        `);
+        steps.push({
+            step: "42. F4: a record whose objective has a ; mid-sentence titles its peek with the whole lead sentence, not cut at the ;",
+            ok: ctx.titled.error == null && f4rec.loaded === true && f4rec.fallback === ACT_RECORD_HEAD && !f4rec.fallback.endsWith(";"),
+            detail: ctx.titled.error ?? JSON.stringify({ record: ctx.titled.recordId, ...f4rec }),
+        });
+        steps.push({
+            step: "43. F4: once the record's origin run has a report, the record peek's title is that report's H1",
+            ok: ctx.titled.error == null && f4rec.reported === ACT_RECORD_H1,
+            detail: ctx.titled.error ?? JSON.stringify(f4rec),
+        });
+
+        // 44. the resume bubble says the summary alone: its heading is already Where we were
+        const f9 = await lookEval(h, `
+            const { globalStore } = await mod("app/store/jotaiStore.ts");
+            const { petBubbleAtom } = await mod("app/view/jarvis/petstore.ts");
+            const { eventFromResume } = await mod("app/view/jarvis/petjoin.ts");
+            const summary = ${JSON.stringify(ACT_RESUME_SUMMARY)};
+            const ev = eventFromResume({
+                card: { taskId: "verify-brief-act-resume", summary, status: "active", updated: Date.now() },
+                runoref: "run:verify-brief-act-resume",
+            });
+            globalStore.set(petBubbleAtom, ev);
+            await until(() => document.querySelector("[data-pet-bubble]") != null, 3000);
+            await nap(300);
+            const text = flat(document.querySelector("[data-pet-bubble] .line-clamp-3"));
+            globalStore.set(petBubbleAtom, null);
+            return { summary, text };
+        `);
+        steps.push({
+            step: "44. F9: the Where we were bubble's text is the resume summary alone, not prefixed with Where we were",
+            ok: f9.text === f9.summary && !/^Where we were/.test(f9.text),
+            detail: JSON.stringify(f9),
+        });
+
+        // 45. Ctrl-click on a Waiting row peeks its initiative: the objective line is the written note, never the
+        // "effort created" marker every initiative's notes start with. setProject writes the one effort note, the
+        // batch's note after it; the blocked chunk is what puts the initiative in Waiting.
+        let peekNotes = null;
+        try {
+            ctx.peekoid = (await h.rpc("effortcreate", { title: ACT_PEEK_EFFORT, chunks: [{ label: ACT_PEEK_CHUNK }] })).effortoid;
+            await h.rpc("effortmutate", {
+                effortoid: ctx.peekoid,
+                author: "you",
+                ops: [{ op: "setChunkStatus", chunk: ACT_PEEK_CHUNK, status: "blocked", note: "needs: a written objective" }],
+            });
+            await h.rpc("effortmutate", {
+                effortoid: ctx.peekoid,
+                author: "you",
+                note: ACT_PEEK_NOTE,
+                ops: [{ op: "setProject", project: ACT_PROJECT }],
+            });
+            peekNotes = ((await h.rpc("effortget", { effortoid: ctx.peekoid }))?.effort?.notes ?? []).map((n) => n.text);
+        } catch (e) {
+            ctx.peekError = String(e?.message ?? e);
+        }
+        const peekF13 = await lookEval(h, `
+            const region = '[data-jarvis-brief-region="waiting"]';
+            const row = () => ${actQueueRow(ACT_PEEK_CHUNK)};
+            const found = await until(() => {
+                document.querySelector(region + ' [data-jarvis-brief-attention-summary][aria-expanded="false"]')?.click();
+                return row() != null;
+            }, 20000);
+            row()?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, ctrlKey: true }));
+            const item = '[data-pet-peek-item="effort"][data-pet-peek-status="ready"]';
+            const ready = await until(() => document.querySelector(item) != null, 6000);
+            await nap(300);
+            const text = flat(document.querySelector(item));
+            document.querySelector('[data-pet-peek] button[aria-label="Close Jarvis panel"]')?.click();
+            return { found, ready, text: text.slice(0, 300) };
+        `);
+        await h.shot("cdp-shots/brief-act-45-initiative-peek.png");
+        steps.push({
+            step: "45. F13: Ctrl-click on a Waiting row peeks its initiative with the written note as its objective, never effort created",
+            ok:
+                ctx.peekError == null &&
+                peekNotes?.length === 2 &&
+                peekNotes[0] === "effort created" &&
+                peekF13.found === true &&
+                peekF13.ready === true &&
+                peekF13.text.includes(ACT_PEEK_NOTE) &&
+                !peekF13.text.includes("effort created"),
+            detail: ctx.peekError ?? JSON.stringify({ notes: peekNotes, ...peekF13 }),
+        });
         return steps;
     },
     async teardown(h, ctx) {
@@ -6253,7 +6704,7 @@ export const briefAct = {
         for (const command of ["EffortGetCommand", "EffortMutateCommand", "SetDossierStatusCommand"]) {
             await releaseRpc(h, command).catch(() => {});
         }
-        for (const effortoid of [ctx?.stagedoid, ctx?.archivedoid]) {
+        for (const effortoid of [ctx?.stagedoid, ctx?.archivedoid, ctx?.peekoid]) {
             if (effortoid) {
                 await h.rpc("effortdelete", { effortoid }).catch((e) => {
                     console.error(`brief-act teardown: delete an initiative failed: ${e?.message ?? e}`);
@@ -6266,6 +6717,16 @@ export const briefAct = {
         if (ctx?.effortoid) {
             await h.rpc("effortdelete", { effortoid: ctx.effortoid }).catch((e) => {
                 console.error(`brief-act teardown: delete the initiative failed: ${e?.message ?? e}`);
+            });
+        }
+        // detached, so the titled record keeps one run ref across passes rather than growing one per pass
+        if (ctx?.titled?.cwd != null) {
+            await teardownFixtureRun(h, ctx.titled, "brief-act (titled run)", {
+                what: "detach the titled run from its record",
+                fn: () =>
+                    ctx.titled.recordId && ctx.titled.runId
+                        ? h.rpc("detachdossieredge", { dossierid: ctx.titled.recordId, runoref: `run:${ctx.titled.runId}` })
+                        : null,
             });
         }
         // the channel, its run and the temp dir; it reloads, which also drops the review fixture's swapped roster
