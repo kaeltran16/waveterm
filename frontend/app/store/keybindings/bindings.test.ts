@@ -33,6 +33,7 @@ import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
 import { registerCommentSend } from "@/app/view/agents/commentsend";
 import { refreshCompare } from "@/app/view/agents/comparestore";
 import { commentOnSelection } from "@/app/view/agents/diffcommentlayer";
+import { filesSurfaceWidthAtom, historyCollapsedAtom } from "@/app/view/agents/difflayout";
 import { gotoChange } from "@/app/view/agents/diffnav";
 import { ignoreWsAtom, splitAvailableAtom, splitViewAtom } from "@/app/view/agents/diffoptions";
 import { diffScopeAtom } from "@/app/view/agents/diffscopeatom";
@@ -2106,6 +2107,23 @@ describe("Diff keys, DOM and toggles", () => {
             find("files:next-file").run(on);
             expect(globalStore.get(reviewMarksAtom)).toBe(before);
         });
+    });
+
+    it("⇧H flips the history that is drawn, not the raw override", () => {
+        // narrow and following the width: the rail shows, so the first press opens the history
+        globalStore.set(filesSurfaceWidthAtom, 1000);
+        globalStore.set(historyCollapsedAtom, null);
+        find("files:toggle-history").run(on);
+        expect(globalStore.get(historyCollapsedAtom)).toBe(false);
+        find("files:toggle-history").run(on);
+        expect(globalStore.get(historyCollapsedAtom)).toBe(true);
+        // wide and following the width: the column shows, so the first press folds it
+        globalStore.set(filesSurfaceWidthAtom, 1600);
+        globalStore.set(historyCollapsedAtom, null);
+        find("files:toggle-history").run(on);
+        expect(globalStore.get(historyCollapsedAtom)).toBe(true);
+        globalStore.set(filesSurfaceWidthAtom, 0);
+        globalStore.set(historyCollapsedAtom, null);
     });
 
     it("asks the editor for the next and previous change", () => {

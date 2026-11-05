@@ -54,6 +54,11 @@ export function focusFollowAgent(
     if (origin?.kind === "agent" && origin.id === focusId) {
         return null; // already showing it
     }
+    // an ended agent's scope stays until a source is picked: when it leaves, the Agent surface moves focus to
+    // the first agent, and following that would replace the ended state before anyone could read it
+    if (origin?.kind === "agent" && !agents.some((a) => a.id === origin.id)) {
+        return null;
+    }
     return agents.find((a) => a.id === focusId) ?? null;
 }
 

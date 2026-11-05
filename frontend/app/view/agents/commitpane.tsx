@@ -83,6 +83,8 @@ export function CommitPane({
     onSelectFile,
     caption,
     review,
+    failure = null,
+    onRetry,
 }: {
     row: HistoryRow;
     changes: GitChanges | null;
@@ -91,6 +93,9 @@ export function CommitPane({
     review: ReviewSubject | null;
     // the working-tree row's "measured from what" line; worktreeCaption builds it
     caption?: string;
+    // the file list's read failed
+    failure?: string | null;
+    onRetry?: () => void;
 }) {
     const isWorkingTree = row.hash === WORKING_TREE;
     const count = changes?.files.length ?? 0;
@@ -117,6 +122,8 @@ export function CommitPane({
                     selectedFile={selectedFile}
                     onSelectFile={onSelectFile}
                     review={review}
+                    failure={failure}
+                    onRetry={onRetry}
                 />
             </div>
         </div>

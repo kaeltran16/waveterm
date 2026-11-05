@@ -9,13 +9,12 @@
 
 import { MOTION } from "@/app/element/motiontokens";
 import { SkeletonLine, SkeletonRows } from "@/app/element/skeleton";
-import { getApi } from "@/app/store/global";
 import { globalStore } from "@/app/store/jotaiStore";
 import { openInCode } from "@/app/view/code/codestore";
-import { joinRepoPath, splitRepoPath } from "@/util/paths";
+import { splitRepoPath } from "@/util/paths";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { Check, ChevronDown, ChevronUp, Code, ExternalLink, FileText, Pilcrow, RotateCw } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Code, FileText, Pilcrow, RotateCw } from "lucide-react";
 import { motion } from "motion/react";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
@@ -79,7 +78,6 @@ export function DiffPane({
     path,
     adds,
     dels,
-    editorCwd,
     repoCwd,
     model,
     nothingToCompare = null,
@@ -88,7 +86,6 @@ export function DiffPane({
     path: string | null;
     adds: number;
     dels: number;
-    editorCwd: string | null;
     repoCwd: string | null;
     model: AgentsViewModel;
     // compare's aggregate is selected and the two refs list no files
@@ -307,22 +304,12 @@ export function DiffPane({
                                 })
                             )
                         }
-                        title="Open in Code"
-                        aria-label="Open in Code"
+                        title="Open in Code (Enter)"
+                        aria-label="Open in Code (Enter)"
                         className={cn(headerBtn, "text-ink-mid hover:text-ink-hi")}
                     >
                         <Code size={13} />
                         {layout.labelled ? "Open in Code" : null}
-                    </button>
-                )}
-                {editorCwd && (
-                    <button
-                        onClick={() => getApi().openExternal(joinRepoPath(editorCwd, path))}
-                        title="Open in editor"
-                        aria-label="Open in editor"
-                        className={cn(headerBtn, "text-ink-mid hover:text-ink-hi")}
-                    >
-                        <ExternalLink size={13} />
                     </button>
                 )}
             </div>

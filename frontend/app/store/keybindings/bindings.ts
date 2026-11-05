@@ -56,7 +56,7 @@ import {
     swapCompareRefs,
 } from "@/app/view/agents/comparestore";
 import { commentOnSelection } from "@/app/view/agents/diffcommentlayer";
-import { historyCollapsedAtom } from "@/app/view/agents/difflayout";
+import { filesSurfaceWidthAtom, historyCollapsedAtom, resolveCollapsed } from "@/app/view/agents/difflayout";
 import { gotoChange } from "@/app/view/agents/diffnav";
 import { ignoreWsAtom, splitAvailableAtom, splitViewAtom } from "@/app/view/agents/diffoptions";
 import { docReviewAtom, parseDocReview } from "@/app/view/agents/docreview";
@@ -1503,10 +1503,13 @@ export function buildFilesBindings(): Binding[] {
             label: "Collapse / expand history",
             when: on,
             run: () => {
-                const cur = globalStore.get(historyCollapsedAtom);
-                // from "follow the width", an explicit toggle means "collapse it" — that is the
-                // state the user can see and is reacting to
-                globalStore.set(historyCollapsedAtom, cur == null ? true : !cur);
+                // flips what is drawn: from "follow the width" at a narrow width the rail is showing, so
+                // the toggle opens the history over the panes rather than writing an invisible "collapsed"
+                const shown = resolveCollapsed(
+                    globalStore.get(historyCollapsedAtom),
+                    globalStore.get(filesSurfaceWidthAtom)
+                );
+                globalStore.set(historyCollapsedAtom, !shown);
             },
         },
         {

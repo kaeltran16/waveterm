@@ -1,10 +1,10 @@
 // Diff surface scenario diff-scope: what the surface reads (sources, ranges, history bounds) on a repo with a long
 // history, a second worktree, a stash and an uncommitted edit, beside a plain folder and a clone with a remote.
 // The helpers below are shared with scenarios-files-states.mjs.
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { FINAL_SHOTS_UICTX, git, reloadApp, teardownFixtureRun, TREE_RAIL_FIXTURE, waveService } from "./scenarios-shared.mjs";
+import { FINAL_SHOTS_UICTX, git, lookEval, reloadApp, teardownFixtureRun, TREE_RAIL_FIXTURE, waveService } from "./scenarios-shared.mjs";
 
 // the history page is 50 rows, so more than that makes a second page
 const SCOPE_FILLER_COMMITS = 62;
@@ -104,6 +104,14 @@ export const SCOPE = {
     afterLandFile: "later.txt",
     // any commit on the first page, so the run link has a remembered row to override
     projectCommit: "filler commit 50",
+    // a first-page commit no earlier step selects, so picking it reads its files afresh
+    failCommit: "filler commit 55",
+    // a second fixture agent whose transcript names its folder but carries no timestamp: a just-launched session
+    noStartId: "fx-diff-no-start",
+    noStart: "diff-no-start",
+    // the label of the plain terminal tab the no-source step focuses
+    terminalFocus: "verify-diff-terminal",
+    remoteSeed: "seed the remote",
 };
 
 const rev = (dir, ref) => git(dir, "rev-parse", ref).toString().trim();
@@ -250,6 +258,408 @@ async function openRunFromSheet(h, runId) {
     return until(h, `(${q("[data-files-range-summary]")}?.textContent ?? "").includes("…")`, 15000);
 }
 
+// the agents view model, found on the nav rail's props as the other scenarios find it
+const MODEL = `(() => {
+    const nav = document.querySelector('nav');
+    const key = nav && Object.keys(nav).find((k) => k.startsWith('__reactFiber$'));
+    for (let f = key ? nav[key] : null; f != null; f = f.return) {
+        if (f.memoizedProps?.model?.surfaceAtom != null) return f.memoizedProps.model;
+    }
+    return null;
+})()`;
+
+const NARROW = { width: 1000, height: 700 };
+const SUMMARY = `(${q("[data-files-range-summary]")}?.textContent ?? "").trim()`;
+const LIST_FAILURE = "[data-file-list-failure]";
+const RAIL_ROWS = `document.querySelectorAll("[data-history-rail-row]").length`;
+const widthOf = (sel) => `Math.round(${q(sel)}?.getBoundingClientRect().width ?? 0)`;
+
+// a global key with nothing focused, as the reader presses it over the panes
+async function pressGlobal(h, { key, code, vk, modifiers = 0 }) {
+    await h.ev(`document.activeElement?.blur?.()`);
+    const text = key.length === 1 ? { text: key } : {};
+    await h.cdp("Input.dispatchKeyEvent", { type: "keyDown", key, code, windowsVirtualKeyCode: vk, modifiers, ...text });
+    await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", key, code, windowsVirtualKeyCode: vk, modifiers });
+}
+const KEY_R = { key: "r", code: "KeyR", vk: 82 };
+const KEY_SHIFT_H = { key: "H", code: "KeyH", vk: 72, modifiers: 8 };
+const KEY_ENTER = { key: "Enter", code: "Enter", vk: 13 };
+
+const clickButton = (h, scopeSel, label) =>
+    h.ev(`(() => {
+        const b = [...document.querySelectorAll(${JSON.stringify(`${scopeSel} button`)})].find((x) => x.textContent.trim() === ${JSON.stringify(label)});
+        b?.click();
+        return b != null;
+    })()`);
+
+// Moves every object out of the repository, so git still finds the repository but cannot read one commit. Each
+// rename is retried: a git process the app is running can hold an object open for a moment on Windows.
+async function emptyObjects(dir) {
+    const objects = join(dir, ".git", "objects");
+    const aside = mkdtempSync(join(tmpdir(), "verify-diff-objects-"));
+    for (const name of readdirSync(objects)) {
+        await renameRetrying(join(objects, name), join(aside, name));
+    }
+    return aside;
+}
+
+async function restoreObjects(dir, aside) {
+    const objects = join(dir, ".git", "objects");
+    for (const name of readdirSync(aside)) {
+        await renameRetrying(join(aside, name), join(objects, name));
+    }
+    rmSync(aside, { recursive: true, force: true });
+}
+
+async function renameRetrying(from, to) {
+    for (let i = 0; ; i++) {
+        try {
+            renameSync(from, to);
+            return;
+        } catch (e) {
+            if (i >= 20) throw e;
+            await sleep(150);
+        }
+    }
+}
+
+// Only the change list reads the index, so a corrupt one fails that read alone while git log still answers.
+function corruptIndex(dir) {
+    const index = join(dir, ".git", "index");
+    renameSync(index, index + ".verify");
+    writeFileSync(index, "not an index");
+}
+
+function restoreIndex(dir) {
+    const index = join(dir, ".git", "index");
+    rmSync(index, { force: true });
+    renameSync(index + ".verify", index);
+}
+
+// the second fixture agent: its transcript names the project's folder and has no timestamp to anchor a session on
+function seedNoStartAgent(h, ctx) {
+    const root = mkdtempSync(join(tmpdir(), "verify-diff-nostart-"));
+    ctx.dirs.push(root);
+    const transcriptPath = join(root, "session.jsonl");
+    writeFileSync(transcriptPath, JSON.stringify({ type: "user", cwd: ctx.dir, message: { role: "user", content: "start" } }) + "\n");
+    return lookEval(h, `
+        const { globalStore } = await mod("app/store/jotaiStore.ts");
+        const { devMockAgentsAtom } = await mod("app/view/agents/devmock.ts");
+        const cur = globalStore.get(devMockAgentsAtom) ?? [];
+        const base = cur.find((a) => a.id === ${JSON.stringify(SCOPE.agentId)}) ?? {};
+        globalStore.set(devMockAgentsAtom, [...cur, { ...base, id: ${JSON.stringify(SCOPE.noStartId)}, name: ${JSON.stringify(SCOPE.noStart)}, activeMs: 0, transcriptPath: ${JSON.stringify(transcriptPath)} }]);
+        return globalStore.get(devMockAgentsAtom).length;
+    `);
+}
+
+async function openTerminalTab(h, ctx) {
+    const bootTab = String(await h.ev("window.TabRpcClient.routeId")).replace(/^tab:/, "");
+    const wslist = await h.rpc("workspacelist", null);
+    const ws = wslist.find((w) => (w.workspacedata?.tabids ?? []).includes(bootTab)) ?? wslist[0];
+    ctx.workspaceId = ws.workspacedata.oid;
+    ctx.termTabId = await waveService(h, "workspace", "CreateTab", [ctx.workspaceId, SCOPE.terminalFocus, false]);
+    const tab = await waveService(h, "object", "GetObject", [`tab:${ctx.termTabId}`]);
+    const blockId = tab?.blockids?.[0];
+    if (!blockId) throw new Error("the new tab has no block");
+    await h.rpc("setmeta", { oref: `block:${blockId}`, meta: { view: "term", controller: "shell", "cmd:cwd": ctx.dir } });
+    return { tabId: ctx.termTabId };
+}
+
+const dropAgent = (h, id) =>
+    lookEval(h, `
+        const { globalStore } = await mod("app/store/jotaiStore.ts");
+        const { devMockAgentsAtom } = await mod("app/view/agents/devmock.ts");
+        globalStore.set(devMockAgentsAtom, (globalStore.get(devMockAgentsAtom) ?? []).filter((a) => a.id !== ${JSON.stringify(id)}));
+        return true;
+    `);
+
+// a pointer click at the element's centre, as the reader's mouse lands
+async function mouseClick(h, sel) {
+    const at = await h.ev(`(() => { const r = ${q(sel)}?.getBoundingClientRect(); return r ? { x: r.x + r.width / 2, y: r.y + r.height / 2 } : null; })()`);
+    if (at == null) return false;
+    for (const type of ["mousePressed", "mouseReleased"]) {
+        await h.cdp("Input.dispatchMouseEvent", { type, x: at.x, y: at.y, button: "left", clickCount: 1 });
+    }
+    return true;
+}
+
+async function pickSource(h, sel) {
+    if (!(await pickerOpen(h))) await h.ev(`${q("[data-files-source-picker]")}.click()`);
+    if (!(await until(h, `!!${q(sel)}`, 5000))) return false;
+    await h.ev(`${q(sel)}.click()`);
+    return true;
+}
+
+// Steps 9-12: the project's history, its open file, and what a failed read leaves on screen
+async function historySteps(h, ctx, rec) {
+    const onProject = (await openOnDiff(h, SCOPE.project)) && (await until(h, `/\\d+ commits loaded/.test(document.body.innerText)`));
+    const rows = await historyRowCount(h);
+    const label = await h.ev(`document.body.innerText.match(/(\\d+) commits loaded/)?.[0] ?? ""`);
+    const uncommitted = await h.ev(historyHas("Uncommitted changes"));
+    rec(
+        "9. history counts: the count names the commits, not the uncommitted row above them",
+        onProject && uncommitted && label === `${rows - 1} commits loaded`,
+        JSON.stringify({ onProject, rows, label, uncommitted })
+    );
+
+    const wt = (await pickHistoryRow(h, "Uncommitted changes")) && (await pickFile(h, SCOPE.edited));
+    const diff = wt && (await until(h, `!!${q(DIFF_EDITOR)}`));
+    if (diff) await pressGlobal(h, KEY_ENTER);
+    const code = diff
+        ? await lookEval(h, `
+            const { globalStore } = await mod("app/store/jotaiStore.ts");
+            const { codeFileAtom } = await mod("app/view/code/codestore.ts");
+            const model = ${MODEL};
+            await until(() => globalStore.get(model.surfaceAtom) === "code" && globalStore.get(codeFileAtom)?.path === ${JSON.stringify(SCOPE.edited)}, 8000);
+            return { surface: globalStore.get(model.surfaceAtom), file: globalStore.get(codeFileAtom)?.path ?? null };
+        `)
+        : null;
+    await h.shot("cdp-shots/diff-scope-enter-code.png");
+    rec(
+        "10. Enter opens in Code: Enter on the open file switches to the Code surface on that file",
+        code?.surface === "code" && code?.file === SCOPE.edited,
+        JSON.stringify({ wt, diff, code })
+    );
+    await h.goto("files");
+
+    // 11. a commit picked while git cannot read objects: the list says so and offers Retry, which reads it again
+    let aside = null;
+    try {
+        // the surface's remount reads the change list and history again; emptying the objects under them
+        // would fail those reads instead of the one this step is about
+        await until(h, `${historyHas("Uncommitted changes")} && !!${q("[data-changed-file-row]")}`, 10000);
+        await sleep(2000);
+        aside = await emptyObjects(ctx.dir);
+        const picked = await pickHistoryRow(h, SCOPE.failCommit);
+        const failed = picked && (await until(h, `!!${q(LIST_FAILURE)} && !!${q("[data-file-list-retry]")}`, 10000));
+        const message = failed ? await textOf(h, LIST_FAILURE) : "";
+        await h.shot("cdp-shots/diff-scope-commit-failure.png");
+        await restoreObjects(ctx.dir, aside);
+        aside = null;
+        if (failed) await h.ev(`${q("[data-file-list-retry]")}.click()`);
+        const recovered = failed && (await until(h, `!${q(LIST_FAILURE)} && !!${q(fileRowSel("notes.txt"))}`, 10000));
+        rec(
+            "11. commit list failure: a commit whose files cannot be read shows the failure with Retry, and Retry reads them",
+            failed && recovered,
+            JSON.stringify({ picked, failed, recovered, message: message.slice(0, 160) })
+        );
+    } finally {
+        if (aside) await restoreObjects(ctx.dir, aside);
+    }
+
+    // 12. a refresh that fails keeps the last read and says so; the next good read takes the notice away
+    let corrupt = false;
+    try {
+        const onRow = (await pickHistoryRow(h, "Uncommitted changes")) && (await pickFile(h, SCOPE.edited));
+        corruptIndex(ctx.dir);
+        corrupt = true;
+        await pressGlobal(h, KEY_R);
+        const notice = await until(h, `!!${q("[data-files-refresh-failed]")}`, 10000);
+        const noticeText = notice ? await textOf(h, "[data-files-refresh-failed]") : "";
+        const rowStays = (await h.ev(historyHas("Uncommitted changes"))) && (await h.ev(`!!${q(fileRowSel(SCOPE.edited))}`));
+        await h.shot("cdp-shots/diff-scope-refresh-failed.png");
+        restoreIndex(ctx.dir);
+        corrupt = false;
+        await pressGlobal(h, KEY_R);
+        const cleared = await until(h, `!${q("[data-files-refresh-failed]")}`, 10000);
+        rec(
+            "12. refresh failed notice: a failed r keeps the working-tree row and reads \"couldn’t refresh\"; a good r clears it",
+            onRow && notice && noticeText.includes("couldn’t refresh") && rowStays && cleared,
+            JSON.stringify({ onRow, notice, noticeText, rowStays, cleared })
+        );
+    } finally {
+        if (corrupt) restoreIndex(ctx.dir);
+    }
+}
+
+// Steps 13-16: compare on a repo without a remote, the rail and overlay at the shipped window size, Fetch on a clone
+async function compareAndLayoutSteps(h, ctx, rec) {
+    await openOnDiff(h, SCOPE.project);
+    await h.ev(`${q('[data-range-chip="compare"]')}?.click()`);
+    const comparing = await until(h, `${q('[data-range-chip="compare"]')}?.getAttribute("aria-pressed") === "true" && !!${q("[data-compare-column]")}`, 10000);
+    // the pair the step reads: side is one commit ahead of main
+    await lookEval(h, `
+        const { setCompareRefs } = await mod("app/view/agents/comparestore.ts");
+        await setCompareRefs(${JSON.stringify(ctx.dir)}, "main", "side");
+    `);
+    const sideRow = `[...document.querySelectorAll("[data-compare-column] button")].find((b) => b.textContent.includes(${JSON.stringify(SCOPE.side)}))`;
+    const listed = comparing && (await until(h, `!!(${sideRow})`, 10000));
+    // the branch list (and its remote answer) is in once the column is drawn
+    await sleep(1000);
+    const fetchShown = await h.ev(`!!${q("[data-files-fetch]")}`);
+    rec(
+        "13. no Fetch without a remote: comparing in a repository with no remote draws no Fetch",
+        comparing && listed && !fetchShown,
+        JSON.stringify({ comparing, listed, fetchShown })
+    );
+
+    let aside = null;
+    try {
+        aside = await emptyObjects(ctx.dir);
+        if (listed) await h.ev(`(${sideRow}).click()`);
+        const failed = listed && (await until(h, `!!${q(LIST_FAILURE)} && !!${q("[data-file-list-retry]")}`, 10000));
+        await h.shot("cdp-shots/diff-scope-compare-row-failure.png");
+        await restoreObjects(ctx.dir, aside);
+        aside = null;
+        if (failed) await h.ev(`${q("[data-file-list-retry]")}.click()`);
+        const recovered = failed && (await until(h, `!${q(LIST_FAILURE)} && !!${q(fileRowSel("refunds.txt"))}`, 10000));
+        rec(
+            "14. compare row failure: a compare commit row whose files cannot be read shows the failure with Retry",
+            failed && recovered,
+            JSON.stringify({ failed, recovered })
+        );
+    } finally {
+        if (aside) await restoreObjects(ctx.dir, aside);
+    }
+
+    // 15. at the shipped size the column is a rail: in compare its first dot is the whole comparison, and in history
+    // scrolling it to the end reads the next page
+    await setViewport(h, NARROW);
+    const rail = await until(h, `!!${q("[data-history-rail]")}`, 5000);
+    await h.ev(`${q("[data-history-rail-row]")}?.click()`);
+    await sleep(500);
+    const firstIsAll = await h.ev(`${q("[data-history-rail-scroll] button")}?.hasAttribute("data-history-rail-all") ?? false`);
+    await h.ev(`${q("[data-history-rail-all]")}?.click()`);
+    const allSelected = await until(
+        h,
+        `${q("[data-history-rail-all]")}?.getAttribute("aria-current") === "true"`,
+        5000
+    );
+    const aggregate = await lookEval(h, `
+        const { globalStore } = await mod("app/store/jotaiStore.ts");
+        const { compareSelectionAtom } = await mod("app/view/agents/comparestore.ts");
+        return globalStore.get(compareSelectionAtom);
+    `);
+    await h.shot("cdp-shots/diff-scope-rail-all-changes.png");
+    await h.ev(`${q('[data-range-chip="working"]')}?.click()`);
+    const historyRail = await until(h, `${q('[data-range-chip="compare"]')}?.getAttribute("aria-pressed") !== "true" && ${RAIL_ROWS} > 0`, 10000);
+    const before = await h.ev(RAIL_ROWS);
+    await h.ev(`(() => { const el = ${q("[data-history-rail-scroll]")}; el.scrollTop = el.scrollHeight; })()`);
+    const paged = await until(h, `${RAIL_ROWS} > ${before}`, 10000);
+    const after = await h.ev(RAIL_ROWS);
+    rec(
+        "15. rail pages and has All changes: in compare the rail's first dot selects All changes; in history scrolling it loads the next page",
+        rail && firstIsAll && allSelected && aggregate === "__aggregate__" && historyRail && paged,
+        JSON.stringify({ rail, firstIsAll, allSelected, aggregate, before, after })
+    );
+
+    // 16. ⇧H at the shipped size opens the history over the panes rather than beside them
+    const wt = await until(h, `!!${q(DIFF_EDITOR)}`);
+    const paneBefore = await h.ev(widthOf("[data-diff-pane]"));
+    await pressGlobal(h, KEY_SHIFT_H);
+    const overlay = await until(h, `!!${q("[data-history-overlay] [data-history-row]")}`, 5000);
+    await sleep(300);
+    const paneAfter = await h.ev(widthOf("[data-diff-pane]"));
+    const railStays = await h.ev(`!!${q("[data-history-rail]")}`);
+    await h.shot("cdp-shots/diff-scope-overlay.png");
+    await pressGlobal(h, KEY_SHIFT_H);
+    const closed = await until(h, `!${q("[data-history-overlay]")}`, 5000);
+    // the second press wrote an explicit "collapsed"; back to following the width for the steps after this one
+    await lookEval(h, `
+        const { globalStore } = await mod("app/store/jotaiStore.ts");
+        const { historyCollapsedAtom } = await mod("app/view/agents/difflayout.ts");
+        globalStore.set(historyCollapsedAtom, null);
+    `);
+    rec(
+        "16. overlay at 1000x700: ⇧H draws the history over the panes, leaving the diff pane's width as it was",
+        wt && overlay && railStays && paneBefore > 0 && Math.abs(paneAfter - paneBefore) <= 1 && closed,
+        JSON.stringify({ wt, overlay, railStays, paneBefore, paneAfter, closed })
+    );
+    await setViewport(h);
+
+    // the previous project's rows stay drawn until the clone's load lands, and that load would drop a compare
+    // entered before it, so wait for the clone's own commit first
+    const onRemote = (await openOnDiff(h, SCOPE.remote)) && (await until(h, historyHas(SCOPE.remoteSeed), 15000));
+    await h.ev(`${q('[data-range-chip="compare"]')}?.click()`);
+    const remoteCompare = await until(h, `${q('[data-range-chip="compare"]')}?.getAttribute("aria-pressed") === "true"`, 10000);
+    const fetchDrawn = onRemote && remoteCompare && (await until(h, `!!${q("[data-files-fetch]")}`, 10000));
+    if (fetchDrawn) await mouseClick(h, "[data-files-fetch]");
+    const fetched = fetchDrawn && (await until(h, `(${q("[data-files-fetched]")}?.textContent ?? "").trim() === "fetched just now"`, 15000));
+    const fetchedText = await textOf(h, "[data-files-fetched]");
+    const fetchStates = await lookEval(h, `
+        const { globalStore } = await mod("app/store/jotaiStore.ts");
+        const { fetchStatesAtom } = await mod("app/view/agents/comparestore.ts");
+        const { filesStateAtom } = await mod("app/view/agents/filesstore.ts");
+        return { states: globalStore.get(fetchStatesAtom), cwd: globalStore.get(filesStateAtom)?.cwd ?? null };
+    `);
+    await h.shot("cdp-shots/diff-scope-fetched.png");
+    await h.ev(`${q('[data-range-chip="working"]')}?.click()`);
+    rec(
+        "17. fetched just now: on a clone with a remote, Fetch is drawn and its clock reads \"fetched just now\"",
+        fetched,
+        JSON.stringify({ onRemote, remoteCompare, fetchDrawn, fetchedText, fetchStates })
+    );
+}
+
+// Steps 18-21: the plain folder, an agent with no session start, the same agent ended, and no source at all
+async function subjectSteps(h, ctx, rec) {
+    const plain = await pickSource(h, `[data-files-source-option=${JSON.stringify(SCOPE.plain)}]`);
+    const notRepo = plain && (await until(h, `!!${q("[data-not-a-repo]")} && !!${q("[data-range-chip]")}`, 10000));
+    const chips = await h.ev(`[...document.querySelectorAll("[data-range-chip]")].map((c) => c.getAttribute("data-range-chip"))`);
+    await h.shot("cdp-shots/diff-scope-plain-no-compare.png");
+    rec(
+        "18. not a repo has no Compare: a plain folder offers no compare chip",
+        notRepo && !chips.includes("compare"),
+        JSON.stringify({ plain, notRepo, chips })
+    );
+
+    const seeded = await seedNoStartAgent(h, ctx);
+    const picked = await pickSource(h, `[data-files-source-agent=${JSON.stringify(SCOPE.noStartId)}]`);
+    const labelled = picked && (await until(h, `(${SUMMARY}).includes("(no session start yet)")`, 10000));
+    const summary = await h.ev(SUMMARY);
+    const chip = await h.ev(`(() => {
+        const c = ${q('[data-range-chip="session"]')};
+        return c ? { disabled: c.disabled, pressed: c.getAttribute("aria-pressed"), text: c.textContent.trim() } : null;
+    })()`);
+    await h.shot("cdp-shots/diff-scope-no-session-start.png");
+    rec(
+        "19. agent without a session start: the summary says it is measured from HEAD, and the session chip stays enabled",
+        labelled && chip != null && !chip.disabled && chip.pressed === "true",
+        JSON.stringify({ seeded, picked, summary, chip })
+    );
+
+    await dropAgent(h, SCOPE.noStartId);
+    const ended = await until(h, `document.body.innerText.includes("This agent has ended")`, 10000);
+    // the Agent surface moves focus to the remaining agent; the ended state must outlast that
+    await sleep(1500);
+    const held = await h.ev(`document.body.innerText.includes("This agent has ended")`);
+    const body = await h.ev(`document.body.innerText.includes(${JSON.stringify(`Its changes are in ${ctx.dir}.`)})`);
+    await h.shot("cdp-shots/diff-scope-ended-agent.png");
+    const clicked = ended && (await clickButton(h, "body", "Open its folder"));
+    const rescoped = clicked && (await until(h, `(${q("[data-files-source-picker]")}?.textContent ?? "").trim() === ${JSON.stringify(SCOPE.project)} && !!${q("[data-history-row]")}`, 15000));
+    rec(
+        "20. ended agent: an agent that leaves the roster reads \"This agent has ended\", and its action opens its folder's project",
+        ended && held && body && rescoped,
+        JSON.stringify({ ended, held, body, clicked, rescoped, label: await pickerLabel(h) })
+    );
+
+    // a real terminal: the Agent surface keeps a focus only on an agent or a terminal it can mount
+    const term = await openTerminalTab(h, ctx).catch((e) => ({ error: String(e?.message ?? e) }));
+    const focused =
+        term.tabId != null &&
+        (await lookEval(h, `
+            const { globalStore } = await mod("app/store/jotaiStore.ts");
+            const model = ${MODEL};
+            const id = ${JSON.stringify(term.tabId ?? "")};
+            const listed = await until(() => globalStore.get(model.terminalsAtom).some((t) => t.id === id), 15000);
+            globalStore.set(model.focusIdAtom, id);
+            globalStore.set(model.diffScopeAtom, null);
+            return listed;
+        `));
+    const pick = focused && (await until(h, `document.body.innerText.includes("Pick something to review")`, 5000));
+    await sleep(1000);
+    const pickHeld = await h.ev(`document.body.innerText.includes("Pick something to review")`);
+    await h.shot("cdp-shots/diff-scope-no-source.png");
+    const chose = pick && (await clickButton(h, "body", "Choose a source"));
+    const opens = chose && (await until(h, `${q("[data-files-source-picker]")}?.getAttribute("aria-expanded") === "true"`, 3000));
+    rec(
+        "21. no source picked: with a terminal focused and no scope, Diff asks to pick a source, and its action opens the picker",
+        pick && pickHeld && opens,
+        JSON.stringify({ term, focused, pick, pickHeld, chose, opens })
+    );
+    await pressKey(h, "Escape");
+}
+
 const FILTER_INPUT = `[aria-label="Filter sources"]`;
 const KEYS = { ArrowDown: 40, Enter: 13, Escape: 27 };
 
@@ -339,7 +749,7 @@ function seedRemoteRepo() {
     git(clone, "symbolic-ref", "HEAD", "refs/heads/main");
     writeFileSync(join(clone, "README.md"), "# remote\n");
     git(clone, "add", ".");
-    git(clone, "commit", "-q", "-m", "seed the remote");
+    git(clone, "commit", "-q", "-m", SCOPE.remoteSeed);
     git(clone, "push", "-q", "-u", "origin", "main");
     return { root, clone };
 }
@@ -451,6 +861,10 @@ export const diffScope = {
                 onProject && !stashRow && !stashChip,
                 JSON.stringify({ onProject, stashRow, stashChip })
             );
+
+            await historySteps(h, ctx, rec);
+            await compareAndLayoutSteps(h, ctx, rec);
+            await subjectSteps(h, ctx, rec);
         } catch (e) {
             rec("scenario aborted", false, String(e?.message ?? e));
         }
@@ -458,6 +872,11 @@ export const diffScope = {
     },
     async teardown(h, ctx) {
         await h.cdp("Emulation.setFocusEmulationEnabled", { enabled: false }).catch(() => {});
+        if (ctx.termTabId) {
+            await waveService(h, "workspace", "CloseTab", [ctx.workspaceId, ctx.termTabId, false]).catch((e) =>
+                console.error(`diff-scope teardown: closing the terminal tab: ${e?.message ?? e}`)
+            );
+        }
         restoreFixture(ctx.priorFixture);
         if (ctx.run?.channelId) {
             // a done run cannot be cancelled; this deletes its channel and its landing tree

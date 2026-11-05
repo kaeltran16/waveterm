@@ -70,6 +70,12 @@ describe("run beats project beats agent", () => {
         expect(focusFollowAgent(agentScope("a1"), "a2", agents)).toEqual({ id: "a2", name: "diff-parity" });
     });
 
+    // the Agent surface moves focus to the first agent when the focused one leaves, which must not
+    // carry the surface off the ended agent's state before it can be read
+    it("holds an agent scope whose agent has left the roster", () => {
+        expect(focusFollowAgent(agentScope("gone"), "a1", agents)).toBeNull();
+    });
+
     // focus can name an agent that has since exited; the surface keeps showing what it has
     it("ignores a focus id no agent answers to", () => {
         expect(focusFollowAgent(agentScope("a1"), "gone", agents)).toBeNull();

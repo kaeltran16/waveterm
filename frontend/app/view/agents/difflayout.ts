@@ -14,6 +14,9 @@ export const HISTORY_COLLAPSE_PX = 1280;
 // null = follow the width; true/false = the user said so and resizing must not undo it
 export const historyCollapsedAtom = atom<boolean | null>(null) as PrimitiveAtom<boolean | null>;
 
+// the Diff surface's measured width (0 = not measured), so ⇧H can flip what is drawn rather than the raw override
+export const filesSurfaceWidthAtom = atom<number>(0) as PrimitiveAtom<number>;
+
 export function resolveCollapsed(explicit: boolean | null, surfaceWidth: number): boolean {
     if (explicit != null) {
         return explicit;

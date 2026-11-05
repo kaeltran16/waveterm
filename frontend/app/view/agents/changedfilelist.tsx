@@ -11,7 +11,7 @@ import { SkeletonLine, SkeletonRows } from "@/app/element/skeleton";
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { Check, ChevronDown, ChevronRight, MessageSquare } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, MessageSquare, RotateCw } from "lucide-react";
 import { useMemo } from "react";
 import { activeCommentSourceAtom, commentStoreAtom, countsByPath } from "./diffcomments";
 import { buildFileTree, collapsedDirsAtom, treeModeAtom, type FileTreeRow } from "./filetree";
@@ -294,17 +294,42 @@ export function ReviewProgress({ review, changes }: { review: ReviewSubject | nu
     );
 }
 
+// A failed read of the list, drawn where the skeleton would otherwise wait forever.
+function FileListFailure({ message, onRetry }: { message: string; onRetry?: () => void }) {
+    return (
+        <div data-file-list-failure className="flex flex-col items-start gap-[8px] px-[8px] py-[6px]">
+            <div className="text-[12px] font-semibold text-ink-hi">Couldn’t read the changed files</div>
+            <div className="break-words text-[11.5px] leading-[1.5] text-ink-mid">{message}</div>
+            {onRetry ? (
+                <button
+                    data-file-list-retry
+                    onClick={onRetry}
+                    className="flex h-[26px] items-center gap-[6px] rounded-[7px] border border-edge-mid px-[9px] text-[11.5px] font-semibold text-ink-mid hover:border-edge-strong hover:text-foreground"
+                >
+                    <RotateCw size={12} />
+                    Retry
+                </button>
+            ) : null}
+        </div>
+    );
+}
+
 export function ChangedFileList({
     changes,
     selectedFile,
     onSelectFile,
     review,
+    failure = null,
+    onRetry,
 }: {
     changes: GitChanges | null;
     selectedFile: string | null;
     onSelectFile: (path: string) => void;
     // the list's review subject; null draws no checks
     review: ReviewSubject | null;
+    // the list's read failed; only shown while there is no list
+    failure?: string | null;
+    onRetry?: () => void;
 }) {
     const tree = useAtomValue(treeModeAtom);
     const collapsed = useAtomValue(collapsedDirsAtom);
@@ -320,7 +345,7 @@ export function ChangedFileList({
         [changes, tree, collapsed]
     );
     if (changes == null) {
-        return <FileListSkeleton />;
+        return failure ? <FileListFailure message={failure} onRetry={onRetry} /> : <FileListSkeleton />;
     }
     if (changes.files.length === 0) {
         return <div className="px-[8px] py-[6px] text-[12px] text-ink-mid">No files changed</div>;
