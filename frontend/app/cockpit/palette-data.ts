@@ -25,7 +25,14 @@ export const allRunsAtom = atom<ProjectRun[]>([]) as PrimitiveAtom<ProjectRun[]>
 
 let latestAllRunsLoad = 0;
 
-// a failed channel keeps its previous runs: dropping them on one bad request would make live runs vanish from the palette
+// a run the engine started for a dag task or stage (worker, reviewer, plan reviewer, verifier). It is part of its
+// lead's run, which the palette lists, and its goal is the engine's prompt rather than anything the user wrote.
+export function isEngineChild(run: Run): boolean {
+    return !!run.taskid || !!run.stagerole;
+}
+
+// a failed channel keeps its previous runs: dropping them on one bad request would make live runs vanish from the palette.
+// engine children are left out here, so no palette row, run action or event load ever sees them.
 export function mergeChannelRuns(prev: ProjectRun[], results: ChannelRunsResult[]): ProjectRun[] {
     const out: ProjectRun[] = [];
     for (const res of results) {
@@ -34,7 +41,9 @@ export function mergeChannelRuns(prev: ProjectRun[], results: ChannelRunsResult[
             continue;
         }
         for (const run of res.runs ?? []) {
-            out.push({ channelId: res.channelId, run });
+            if (!isEngineChild(run)) {
+                out.push({ channelId: res.channelId, run });
+            }
         }
     }
     return out;

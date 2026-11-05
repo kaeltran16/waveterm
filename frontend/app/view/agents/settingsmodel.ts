@@ -27,6 +27,9 @@ export type SettingRowDef = {
     // value against the shipped default, and revert by deleting the user's override; every other row's
     // value lives somewhere only the surface knows how to reach.
     config?: boolean;
+    // A New Agent launch flag's runtime. The section holds every runtime's flags, so the changed count and
+    // Reset section see a flag set on any of them; the body shows one runtime's at a time.
+    runtime?: Runtime;
 };
 
 export type SettingSectionDef = {
@@ -75,9 +78,16 @@ export function isModOptionOn(options: Record<string, unknown> | null, field: st
 const THEME_OVERRIDE_KEY = "cockpit.theme.overrides";
 const LAUNCH_FLAGS_KEY = "agent.launch.flags";
 
-// The per-runtime launch flags are a catalog, not a fixed list, so the New Agent section's rows depend
-// on which runtime is being edited. Everything else is static.
-export function settingsSections(flagRuntime: Runtime): SettingSectionDef[] {
+// Runtimes the flag editor lists. Terminal stays out (it isn't an agent); pi is included even though
+// its catalog is empty so its no-flags state renders in the editor instead of the row vanishing.
+export const FLAG_RUNTIMES: { id: Runtime; name: string }[] = [
+    { id: "claude", name: "Claude" },
+    { id: "codex", name: "Codex" },
+    { id: "opencode", name: "OpenCode" },
+    { id: "pi", name: "Pi" },
+];
+
+export function settingsSections(): SettingSectionDef[] {
     return [
         {
             id: "appearance",
@@ -244,13 +254,16 @@ export function settingsSections(flagRuntime: Runtime): SettingSectionDef[] {
                     key: LAUNCH_FLAGS_KEY,
                     scope: "local",
                 },
-                ...RUNTIME_FLAGS[flagRuntime].map((f) => ({
-                    id: flagRowId(flagRuntime, f.id),
-                    title: f.flag,
-                    desc: f.desc,
-                    key: LAUNCH_FLAGS_KEY,
-                    scope: "local" as const,
-                })),
+                ...FLAG_RUNTIMES.flatMap(({ id: runtime }) =>
+                    RUNTIME_FLAGS[runtime].map((f) => ({
+                        id: flagRowId(runtime, f.id),
+                        title: f.flag,
+                        desc: f.desc,
+                        key: LAUNCH_FLAGS_KEY,
+                        scope: "local" as const,
+                        runtime,
+                    }))
+                ),
             ],
         },
         {
@@ -582,15 +595,40 @@ export function jiraConnectionLine(conn: JiraConnection, now: number): JiraConne
     return { tone: "error", text: parseJiraError(conn.error ?? "").message, checked };
 }
 
-// Sections with non-matching rows dropped, then empty sections dropped. An empty query returns the
-// sections unchanged (identity, not a copy of every row) so callers can skip the filtered path.
+// A query naming the section itself (its name or blurb) finds all of it, Storage included, which has no rows.
+export function sectionMatches(section: SettingSectionDef, query: string): boolean {
+    const q = query.trim().toLowerCase();
+    return q !== "" && `${section.name} ${section.blurb}`.toLowerCase().includes(q);
+}
+
+// A section the query names is kept whole; any other has its non-matching rows dropped, and is dropped once
+// none is left. An empty query returns the sections unchanged (identity, not a copy of every row) so callers
+// can skip the filtered path.
 export function filterSections(sections: SettingSectionDef[], query: string): SettingSectionDef[] {
     if (query.trim() === "") {
         return sections;
     }
     return sections
-        .map((s) => ({ ...s, rows: s.rows.filter((r) => rowMatches(r, query)) }))
-        .filter((s) => s.rows.length > 0);
+        .map((s) => (sectionMatches(s, query) ? s : { ...s, rows: s.rows.filter((r) => rowMatches(r, query)) }))
+        .filter((s) => s.rows.length > 0 || sectionMatches(s, query));
+}
+
+// The rows a search leaves showing in one section, or null for all of them: no search, or one naming the section.
+export function visibleRowIds(section: SettingSectionDef | null, query: string): Set<string> | null {
+    if (section == null || query.trim() === "" || sectionMatches(section, query)) {
+        return null;
+    }
+    return new Set(section.rows.filter((r) => rowMatches(r, query)).map((r) => r.id));
+}
+
+// The runtime whose flags the New Agent body shows: the one picked, unless a search leaves none of its flags
+// standing while another runtime's match, which then shows instead of an empty list.
+export function shownFlagRuntime(picked: Runtime, visible: ReadonlySet<string> | null): Runtime {
+    const anyVisible = (r: Runtime) => RUNTIME_FLAGS[r].some((f) => visible!.has(flagRowId(r, f.id)));
+    if (visible == null || anyVisible(picked)) {
+        return picked;
+    }
+    return FLAG_RUNTIMES.find((r) => anyVisible(r.id))?.id ?? picked;
 }
 
 export function groupSections(sections: SettingSectionDef[]): SettingGroup[] {

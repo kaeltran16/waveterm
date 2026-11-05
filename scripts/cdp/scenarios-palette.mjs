@@ -2292,3 +2292,198 @@ export const paletteNotes = {
         if (failed.length > 0) throw new Error(failed.join("; "));
     },
 };
+
+// --- palette-review-fixes: the palette half of the 2026-11-05 palette and settings review (F1, F3, F4, F10, F11)
+// Engine children reach the palette through the real loadAllRuns: GetChannelRunsCommand is stubbed in the page for the
+// fixture channel only, so the merge that drops them is the one the app runs. The teardown's reload removes the stub.
+const REVIEW_NARROW_VIEWPORT = { width: 1000, height: 700, deviceScaleFactor: 1, mobile: false };
+const REVIEW_ACCENT = "#66d9ef";
+// START_DEFS' New run… description in frontend/app/cockpit/palette-commands.ts
+const NEW_RUN_META = "goal or plan, workers, models";
+
+// the New run… row's description: its text and whether the row shows all of it
+const NEW_RUN_META_FIT = `(() => {
+    const row = [...(${PALETTE}?.querySelectorAll('button[data-idx]') ?? [])].find((b) => (b.textContent || '').includes('New run…'));
+    const meta = [...(row?.querySelectorAll('span') ?? [])].find((s) => s.textContent === ${JSON.stringify(NEW_RUN_META)});
+    return meta ? { text: meta.textContent, scroll: meta.scrollWidth, client: meta.clientWidth } : { row: !!row, meta: false };
+})()`;
+
+// the Go to group's overflow line, read off the group whose label is Go to
+const GOTO_OVERFLOW = `(() => {
+    const list = ${PALETTE}?.querySelector('[role="listbox"][aria-label="Results"]');
+    const g = [...(list?.children ?? [])].find((el) => (el.firstElementChild?.textContent || '').trim() === 'Go to');
+    if (!g) return null;
+    const line = [...g.querySelectorAll('*')].find((el) => el.children.length === 0 && /^\\+\\d+ more/.test((el.textContent || '').trim()));
+    return line ? line.textContent.trim() : '';
+})()`;
+
+export const paletteReviewFixes = {
+    name: "palette-review-fixes",
+    surface: "jarvis",
+    async arrange(h) {
+        const cwd = mkdtempSync(join(tmpdir(), "verify-palette-review-"));
+        const stamp = `palrev${Date.now() % 100000}`;
+        const ctx = { cwd, stamp };
+        try {
+            const ch = await h.rpc("createchannel", { name: "verify-palette-review", projectpath: cwd });
+            ctx.channelId = ch.oid;
+            ctx.theme = await lookEval(h, `
+                const S = await mod("app/store/jotaiStore.ts");
+                const T = await mod("app/view/agents/themestore.ts");
+                return { preset: S.globalStore.get(T.themePresetAtom), overrides: S.globalStore.get(T.themeOverridesAtom) };
+            `);
+            // the palette lists runs from the boot-primed channel list
+            await polishReload(h);
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        if (ctx.arrangeError != null) {
+            rec("0. a fixture channel was made", false, ctx.arrangeError);
+            return steps;
+        }
+        try {
+            await h.cdp("Emulation.setDeviceMetricsOverride", MODELS_VIEWPORT);
+            await h.goto("jarvis");
+            const s = ctx.stamp;
+            const fixture = [
+                { id: `${s}-lead`, oid: `${s}-lead`, goal: `${s} ship the lead goal`, status: "done", mode: "orchestrator", phases: [], createdts: 1 },
+                { id: `${s}-worker`, oid: `${s}-worker`, goal: `You are the worker for task 1 ${s}`, status: "done", taskid: "1", phases: [], createdts: 2 },
+                { id: `${s}-review`, oid: `${s}-review`, goal: `You review task 1 ${s}`, status: "done", taskid: "1", review: true, phases: [], createdts: 3 },
+                { id: `${s}-verifier`, oid: `${s}-verifier`, goal: `You are the verifier ${s}`, status: "done", stagerole: "verifier", phases: [], createdts: 4 },
+            ];
+            await lookEval(h, `
+                const { RpcApi } = await mod("app/store/wshclientapi.ts");
+                const orig = RpcApi.GetChannelRunsCommand;
+                RpcApi.GetChannelRunsCommand = (client, data, opts) =>
+                    data?.channelid === ${JSON.stringify(ctx.channelId)}
+                        ? Promise.resolve({ runs: ${JSON.stringify(fixture)} })
+                        : orig.call(RpcApi, client, data, opts);
+            `);
+
+            // 1. F1: All and Runs list the lead run, never the engine's worker, reviewer or verifier
+            const opened = await openPalette(h);
+            await h.ev(setInputExpr(PALETTE_INPUT, s));
+            const all = await paletteStateWhen(h, (st) => st.groups.some((g) => g.rows.some((r) => r.includes(`${s} ship the lead goal`))), 8000);
+            const allRows = all?.groups.flatMap((g) => g.rows) ?? [];
+            await h.shot("cdp-shots/palette-review-all-runs.png");
+            await h.ev(setInputExpr(PALETTE_INPUT, "r:"));
+            await paletteStateWhen(h, (st) => st.token === "Runs", 2000);
+            await h.ev(setInputExpr(PALETTE_INPUT, s));
+            const runs = await paletteStateWhen(h, (st) => st.groups.some((g) => g.rows.some((r) => r.includes(s))), 4000);
+            // the Runs group only: a "Start … as a goal" row follows any query and is not a run
+            const runRows = runs?.groups.filter((g) => g.label === "Runs").flatMap((g) => g.rows) ?? [];
+            const child = (r) => /worker for task|review task|the verifier/.test(r);
+            rec(
+                "1. All and Runs list the lead run and none of the engine's worker, reviewer or verifier runs",
+                opened &&
+                    allRows.some((r) => r.includes(`${s} ship the lead goal`)) &&
+                    !allRows.some(child) &&
+                    runRows.length === 1 &&
+                    runRows[0].includes(`${s} ship the lead goal`),
+                JSON.stringify({ allRows: allRows.filter((r) => r.includes(s)), runRows })
+            );
+
+            // 2. F11 and F10 at 1600: the empty All screen's Go to overflow points at the scope; New run…'s text fits
+            await openPalette(h);
+            await paletteStateWhen(h, (st) => st.groups.some((g) => g.label === "Go to"), 3000);
+            const overflow = await h.ev(GOTO_OVERFLOW);
+            const fitWide = await h.ev(NEW_RUN_META_FIT);
+            await h.shot("cdp-shots/palette-review-empty-1600.png");
+            rec(
+                "2. at 1600 the empty All screen ends Go to with '+N more · Go to scope', and New run…'s description shows in full",
+                /^\+\d+ more · Go to scope$/.test(overflow ?? "") && fitWide.text === NEW_RUN_META && fitWide.scroll <= fitWide.client,
+                JSON.stringify({ overflow, fitWide })
+            );
+
+            // 3. F10 at 1000x700
+            await h.ev(PEEKS_ESC);
+            await h.cdp("Emulation.setDeviceMetricsOverride", REVIEW_NARROW_VIEWPORT);
+            await polishNap(400);
+            await openPalette(h);
+            await paletteStateWhen(h, (st) => st.groups.some((g) => g.label === "Start"), 3000);
+            const fitNarrow = await h.ev(NEW_RUN_META_FIT);
+            await h.shot("cdp-shots/palette-review-empty-1000.png");
+            rec(
+                "3. at 1000x700 New run…'s description still shows in full",
+                fitNarrow.text === NEW_RUN_META && fitNarrow.scroll <= fitNarrow.client,
+                JSON.stringify(fitNarrow)
+            );
+            await h.ev(PEEKS_ESC);
+            await h.cdp("Emulation.setDeviceMetricsOverride", MODELS_VIEWPORT);
+            await polishNap(400);
+
+            // 4. F3: typing a command's name in Commands selects that command, ahead of any Resume · verb rows
+            await openPalette(h);
+            await h.ev(setInputExpr(PALETTE_INPUT, "c:"));
+            await paletteStateWhen(h, (st) => st.token === "Commands", 2000);
+            await h.ev(setInputExpr(PALETTE_INPUT, "resume brainstorm"));
+            const cmds = await paletteStateWhen(h, (st) => st.query === "resume brainstorm" && st.selected != null, 3000);
+            await h.shot("cdp-shots/palette-review-commands-resume.png");
+            rec(
+                "4. Commands with 'resume brainstorm' selects the Resume brainstorm… command and leads with its group",
+                (cmds?.selected ?? "").startsWith("Resume brainstorm") && cmds?.groups[0]?.label === "Commands",
+                JSON.stringify({ selected: cmds?.selected, groups: cmds?.groups.map((g) => [g.label, g.rows.length]) })
+            );
+
+            // 5. F4: a theme picked in the palette keeps an accent override, as Settings' theme grid does
+            const target = await lookEval(h, `
+                const S = await mod("app/store/jotaiStore.ts");
+                const T = await mod("app/view/agents/themestore.ts");
+                const { THEMES } = await mod("app/view/agents/themes.ts");
+                S.globalStore.set(T.themeOverridesAtom, { accent: ${JSON.stringify(REVIEW_ACCENT)} });
+                const cur = S.globalStore.get(T.themePresetAtom);
+                return THEMES.find((t) => t.id !== cur)?.name ?? null;
+            `);
+            await h.ev(setInputExpr(PALETTE_INPUT, "switch theme"));
+            await paletteStateWhen(h, (st) => (st.selected ?? "").startsWith("Switch theme"), 3000);
+            await h.ev(paletteKey("Enter"));
+            await paletteStateWhen(h, (st) => st.drill != null, 3000);
+            await h.ev(setInputExpr(PALETTE_INPUT, target ?? ""));
+            const drill = await paletteStateWhen(h, (st) => (st.selected ?? "").startsWith(target ?? "\u0000"), 3000);
+            await h.shot("cdp-shots/palette-review-theme-drill.png");
+            await h.ev(paletteKey("Enter"));
+            await polishNap(400);
+            const after = await lookEval(h, `
+                const S = await mod("app/store/jotaiStore.ts");
+                const T = await mod("app/view/agents/themestore.ts");
+                const { THEMES } = await mod("app/view/agents/themes.ts");
+                const preset = S.globalStore.get(T.themePresetAtom);
+                return { preset: THEMES.find((t) => t.id === preset)?.name ?? preset, overrides: S.globalStore.get(T.themeOverridesAtom) };
+            `);
+            rec(
+                "5. picking another theme in the palette's theme drill switches it and keeps the accent override; the footer says so",
+                target != null &&
+                    /keeping your color overrides/.test(drill?.text ?? "") &&
+                    after.preset === target &&
+                    after.overrides?.accent === REVIEW_ACCENT,
+                JSON.stringify({ target, footer: /keeping your color overrides/.test(drill?.text ?? ""), after })
+            );
+        } catch (e) {
+            rec("scenario aborted", false, String(e?.message ?? e));
+        }
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await h.ev(PEEKS_ESC).catch(() => {});
+        await h.cdp("Emulation.clearDeviceMetricsOverride").catch(() => {});
+        const restore =
+            ctx.theme == null
+                ? undefined
+                : {
+                      what: "restore the theme",
+                      fn: () =>
+                          lookEval(h, `
+                              const S = await mod("app/store/jotaiStore.ts");
+                              const T = await mod("app/view/agents/themestore.ts");
+                              S.globalStore.set(T.themePresetAtom, ${JSON.stringify(ctx.theme.preset)});
+                              S.globalStore.set(T.themeOverridesAtom, ${JSON.stringify(ctx.theme.overrides)});
+                          `),
+                  };
+        await teardownFixtureRun(h, ctx, "palette-review-fixes", restore);
+    },
+};

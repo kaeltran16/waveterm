@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { fuzzyMatch, fuzzyScore, highlightRuns, rankPaletteItems } from "./palette-match";
+import { fuzzyMatch, fuzzyScore, highlightRuns, rankPaletteItems, scorePaletteItems } from "./palette-match";
 
 describe("fuzzyScore", () => {
     it("returns null when query chars are not a subsequence", () => {
@@ -25,12 +25,7 @@ describe("fuzzyScore", () => {
 });
 
 describe("rankPaletteItems", () => {
-    const items = [
-        { search: "Profile" },
-        { search: "Go to Files" },
-        { search: "axbxcx" },
-        { search: "abcxyz" },
-    ];
+    const items = [{ search: "Profile" }, { search: "Go to Files" }, { search: "axbxcx" }, { search: "abcxyz" }];
 
     it("passes items through unchanged for an empty query", () => {
         expect(rankPaletteItems(items, "").map((i) => i.search)).toEqual(items.map((i) => i.search));
@@ -96,5 +91,17 @@ describe("highlightRuns", () => {
     });
     it("returns [] for empty text", () => {
         expect(highlightRuns("", [0])).toEqual([]);
+    });
+});
+
+describe("scorePaletteItems", () => {
+    const items = [{ search: "axbxcx" }, { search: "abcxyz" }, { search: "zzz" }];
+    it("ranks as rankPaletteItems does, keeping each row's score", () => {
+        const scored = scorePaletteItems(items, "abc");
+        expect(scored.map((s) => s.item)).toEqual(rankPaletteItems(items, "abc"));
+        expect(scored.map((s) => s.score)).toEqual(scored.map((s) => fuzzyScore("abc", s.item.search)));
+    });
+    it("keeps the input order with a zero score for an empty query", () => {
+        expect(scorePaletteItems(items, "  ")).toEqual(items.map((item) => ({ item, score: 0 })));
     });
 });

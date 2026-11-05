@@ -95,6 +95,30 @@ export function highlightRuns(text: string, positions: number[]): { text: string
     return runs;
 }
 
+export interface Scored<T> {
+    item: T;
+    score: number;
+}
+
+/**
+ * rankPaletteItems with each row's score kept beside it, so a caller that merges or floors the ranking reads
+ * the score instead of matching the row again. Empty/whitespace query -> input order, every score 0.
+ */
+export function scorePaletteItems<T extends { search: string }>(items: T[], query: string): Scored<T>[] {
+    if (query.trim() === "") {
+        return items.map((item) => ({ item, score: 0 }));
+    }
+    const scored: Scored<T>[] = [];
+    for (const item of items) {
+        const score = fuzzyScore(query, item.search);
+        if (score != null) {
+            scored.push({ item, score });
+        }
+    }
+    scored.sort((a, b) => b.score - a.score);
+    return scored;
+}
+
 /**
  * Ranks searchable items by fuzzyScore(query, item.search) descending, dropping
  * non-matches. Empty/whitespace query -> passthrough in natural (input) order.
@@ -104,13 +128,5 @@ export function rankPaletteItems<T extends { search: string }>(items: T[], query
     if (query.trim() === "") {
         return items;
     }
-    const scored: { item: T; score: number }[] = [];
-    for (const item of items) {
-        const score = fuzzyScore(query, item.search);
-        if (score != null) {
-            scored.push({ item, score });
-        }
-    }
-    scored.sort((a, b) => b.score - a.score);
-    return scored.map((s) => s.item);
+    return scorePaletteItems(items, query).map((s) => s.item);
 }

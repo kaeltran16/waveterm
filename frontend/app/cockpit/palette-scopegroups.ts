@@ -20,7 +20,7 @@ import {
     type PaletteGroup,
 } from "./palette-groups";
 import { notesFor, searchesSessions, type CommandRow, type LaunchTarget, type PaletteDeps } from "./palette-items";
-import { rankPaletteItems } from "./palette-match";
+import { rankPaletteItems, scorePaletteItems } from "./palette-match";
 import { MAX_RECENT, recentItems, sortByMru } from "./palette-mru";
 import { NEEDS_GROUP_LABELS, type NeedsGroup, type NeedsRow } from "./palette-needs";
 import type { PaletteItem } from "./palette-rows";
@@ -151,7 +151,8 @@ export function scopeGroups(input: ScopeGroupsInput, deps: Pick<PaletteDeps, "se
         // mergeRanked interleaves by score without re-ranking either side, so the brief rows keep
         // briefpalette's order (archived last) while the merged head is still the best match overall
         // notes join the ranking but not the pool: they are never listed under Recent
-        const ranked = mergeRanked(nav.query, rankPaletteItems([...pool, ...rows.notesInAll], nav.query), rows.brief);
+        // scored once: the merge and assembleAllGroups' name floor read these scores rather than matching again
+        const ranked = mergeRanked(nav.query, scorePaletteItems([...pool, ...rows.notesInAll], nav.query), rows.brief);
         const groups = assembleAllGroups({
             query: nav.query,
             ranked,
@@ -209,9 +210,11 @@ function narrowedGroups(input: ScopeGroupsInput, deps: Pick<PaletteDeps, "setNav
         if (q === "") {
             return [{ key: "start", label: "Start", items: rows.start }, ...commandGroups(rows.commands, surface)];
         }
-        const hits = rankPaletteItems([...rows.start, ...rows.verbs, ...rows.commands], nav.query);
+        // the scope's own rows before the borrowed verb rows, so a command wins a tie; then, as in All, the kind of
+        // the best hit leads, since Enter runs the first row: typing a command's name must not run a verb row
+        const hits = rankPaletteItems([...rows.start, ...rows.commands, ...rows.verbs], nav.query);
         return hits.length > 0
-            ? groupByKind(hits, ["start", "action", "command"]).map((g) =>
+            ? groupByKind(hits, ["start", "command", "action"], hits[0].kind).map((g) =>
                   g.key === "action" ? { ...g, label: verbGroupLabel(g.items.map((it) => verbByKey.get(it.key)!)) } : g
               )
             : narrowed([], ["command"]);

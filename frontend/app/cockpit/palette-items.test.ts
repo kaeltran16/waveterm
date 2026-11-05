@@ -93,7 +93,7 @@ const channel = (oid: string, projectpath: string, name = "") => ({ oid, project
 const projects = { waveterm: { path: "C:/src/waveterm" } } as Record<string, ProjectKeywords>;
 
 describe("themeRows", () => {
-    it("marks the current theme, and applying one drops per-role overrides", () => {
+    it("marks the current theme, and applying one keeps the per-role overrides, as Settings does", () => {
         const rows = themeRows(THEMES[0].id, deps);
         expect(rows[0]).toMatchObject({
             key: `theme:${THEMES[0].id}`,
@@ -105,11 +105,11 @@ describe("themeRows", () => {
         });
         const other = rows[1];
         expect(other.meta).toBeUndefined();
-        expect(other.echo).toBe(`Switches the theme to ${THEMES[1].name}, dropping per-role overrides`);
+        expect(other.echo).toBe(`Switches the theme to ${THEMES[1].name}, keeping your color overrides`);
         globalStore.set(themeOverridesAtom, { accent: "x" } as any);
         other.run();
         expect(globalStore.get(themePresetAtom)).toBe(THEMES[1].id);
-        expect(globalStore.get(themeOverridesAtom)).toEqual({});
+        expect(globalStore.get(themeOverridesAtom)).toEqual({ accent: "x" });
         expect(deps.close).toHaveBeenCalled();
     });
 });
@@ -200,7 +200,7 @@ describe("startRows", () => {
             echo: "Opens the New agent window",
         });
         expect(rows[0].chord).toBeUndefined();
-        expect(rows[0].meta).toBe("goal or plan file, workers, models");
+        expect(rows[0].meta).toBe("goal or plan, workers, models");
         rows[1].run();
         expect(deps.close).toHaveBeenCalled();
         expect(globalStore.get(deps.model.newAgentOpenAtom)).toBe(true);
