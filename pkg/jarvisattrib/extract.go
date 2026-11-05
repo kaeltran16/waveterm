@@ -136,6 +136,8 @@ func assembleEdges(d *jarvisdossier.Dossier, runs []*waveobj.Run, lk edgeLookups
 	for _, r := range runs {
 		byORef["run:"+r.OID] = r
 	}
+	// worker and review children and engine stage sessions are bookkeeping, never a dossier's work.
+	isLead := func(r *waveobj.Run) bool { return jarvis.UsageRole(r) == jarvis.UsageRole_Lead }
 	m := map[string]AttributedEdge{}
 	anchorPaths := map[string]bool{}
 	l1 := map[string]bool{}
@@ -146,9 +148,13 @@ func assembleEdges(d *jarvisdossier.Dossier, runs []*waveobj.Run, lk edgeLookups
 		if !ok {
 			continue
 		}
+		r := byORef[oref]
+		if r != nil && !isLead(r) {
+			continue
+		}
 		mergeInto(m, AttributedEdge{DossierID: d.ID, RunORef: oref, Layers: []int{1}, State: StateConfirmed})
 		l1[oref] = true
-		if r := byORef[oref]; r != nil {
+		if r != nil {
 			anchorPaths[r.ProjectPath] = true
 		}
 	}
@@ -156,7 +162,7 @@ func assembleEdges(d *jarvisdossier.Dossier, runs []*waveobj.Run, lk edgeLookups
 	// layers 2 & 3 over the remaining candidate runs.
 	for _, r := range runs {
 		oref := "run:" + r.OID
-		if l1[oref] {
+		if l1[oref] || !isLead(r) {
 			continue
 		}
 		subs := lk.commits(r)
