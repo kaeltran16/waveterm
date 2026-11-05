@@ -23,7 +23,7 @@ export function CockpitAppBar({ model }: { model: AgentsViewModel }) {
         <div
             // "deep": a bare attribute drags only on the bar's own pixels, not its children; buttons still opt out
             data-tauri-drag-region="deep"
-            className="flex h-[46px] shrink-0 items-center gap-4 border-b border-border bg-surface pl-4"
+            className="@container flex h-[46px] shrink-0 items-center gap-4 border-b border-border bg-surface pl-4"
         >
             <div className="flex items-center gap-[9px]">
                 <div className="flex h-[19px] w-[19px] items-center justify-center rounded-[6px] bg-gradient-to-br from-accent-300 to-accent-500">
@@ -34,11 +34,12 @@ export function CockpitAppBar({ model }: { model: AgentsViewModel }) {
                 <ProjectSwitcher model={model} variant="bar" />
             </div>
 
-            <div className="flex min-w-0 flex-1 justify-center">
+            <div className="flex min-w-[160px] flex-1 justify-center">
                 <button
                     type="button"
+                    data-app-search
                     onClick={() => globalStore.set(model.paletteOpenAtom, true)}
-                    className="flex w-[min(520px,42%)] cursor-text items-center gap-2.5 rounded-[9px] border border-edge-mid bg-surface-raised px-3 py-[7px] text-muted hover:border-edge-strong hover:bg-surface-hover"
+                    className="flex w-full max-w-[520px] cursor-text items-center gap-2.5 rounded-[9px] border border-edge-mid bg-surface-raised px-3 py-[7px] text-muted hover:border-edge-strong hover:bg-surface-hover"
                 >
                     <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.5">
                         <circle cx="5.5" cy="5.5" r="4" />

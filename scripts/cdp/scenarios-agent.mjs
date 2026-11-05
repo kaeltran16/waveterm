@@ -1591,6 +1591,37 @@ const RESMON_TOTAL_MEM = 7945689498;
 const RESMON_FOOTER = `document.querySelector('[data-hints-footer]')`;
 const RESMON_COCKPIT_HINTS = `document.querySelector('[data-cockpit-hints]')`;
 const RESMON_POPOVER = `document.querySelector('[data-resmon-popover]')`;
+// the window where the footer's chips wrapped out of the bar (visual revisit F2)
+const RESMON_NARROW = { width: 1000, height: 700, deviceScaleFactor: 1, mobile: false };
+// each footer chip against the footer below its top border (inside: shown whole) and against the chip row's clip
+// (dropped: wholly outside it), and whether the readout shows whole
+const RESMON_CHIP_FIT = `(() => {
+    const f = ${RESMON_FOOTER};
+    const row = f?.querySelector('[data-footer-chips]');
+    if (!f || !row) return { footer: !!f, row: !!row, chips: [] };
+    const fr = f.getBoundingClientRect();
+    const rr = row.getBoundingClientRect();
+    const top = fr.top + parseFloat(getComputedStyle(f).borderTopWidth);
+    const bottom = Math.min(fr.bottom, window.innerHeight);
+    const eps = 0.5;
+    const within = (r) => r.top >= top - eps && r.bottom <= bottom + eps && r.left >= fr.left - eps && r.right <= fr.right + eps;
+    const readout = f.querySelector('[data-resmon-readout]');
+    return {
+        footer: [fr.left, top, fr.right, bottom].map(Math.round),
+        row: [rr.left, rr.top, rr.right, rr.bottom].map(Math.round),
+        chips: [...row.children].map((c) => {
+            const r = c.getBoundingClientRect();
+            return {
+                text: c.textContent.trim(),
+                inside: within(r),
+                dropped: r.top >= rr.bottom - eps || r.bottom <= rr.top + eps || r.left >= rr.right - eps || r.right <= rr.left + eps,
+            };
+        }),
+        readout: readout
+            ? { fits: readout.scrollWidth <= readout.clientWidth && within(readout.getBoundingClientRect()), sw: readout.scrollWidth, cw: readout.clientWidth }
+            : null,
+    };
+})()`;
 // a run's workers and plan commands share one view, keyed by its run id
 const RESMON_GROUP_ORDER = ["arc", "job:14820", "run:run-a", "run:run-b", "job:7716"];
 // the popover grows in with a scale reveal; measure after it settles
@@ -1860,6 +1891,31 @@ export const resmonFooter = {
         await shot("1-rest");
         rec("1. Agent at rest: the readout ends the footer and reads Arc 61% CPU · 7.4 GB",
             rest.last && rest.text === "Arc 61% CPU · 7.4 GB", JSON.stringify(rest));
+
+        const wide = await h.ev(RESMON_CHIP_FIT);
+        rec("1a. 1600x950 Agent: every footer chip lies wholly inside the footer, none dropped",
+            wide.chips.length > 0 && wide.chips.every((c) => c.inside), JSON.stringify(wide));
+
+        await h.cdp("Emulation.setDeviceMetricsOverride", RESMON_NARROW);
+        let narrow;
+        try {
+            await h.goto("files");
+            await polishWaitFor(h, `!!${RESMON_FOOTER}?.querySelector('[data-footer-chips]')`, 10000);
+            await resmonNap(300);
+            narrow = await h.ev(RESMON_CHIP_FIT);
+            narrow.text = await h.ev(resmonReadoutText(RESMON_FOOTER));
+            await shot("1b-diff-1000");
+        } finally {
+            await h.cdp("Emulation.setDeviceMetricsOverride", RESMON_VIEWPORT);
+        }
+        rec("1b. 1000x700 Diff: shown chips sit inside the footer, the rest are dropped whole, the readout is not cut",
+            narrow.chips.every((c) => c.inside || c.dropped) &&
+                narrow.chips.some((c) => c.dropped) &&
+                narrow.readout?.fits === true &&
+                (narrow.text ?? "").endsWith("GB"),
+            JSON.stringify(narrow));
+        await h.goto("agent");
+        await resmonBlur(h);
 
         await resmonKey(h, ctx, "g");
         const leader = await h.ev(`(() => {

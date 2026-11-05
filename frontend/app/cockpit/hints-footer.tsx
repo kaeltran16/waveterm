@@ -39,7 +39,7 @@ function FooterBar({
         >
             {children}
             {readout ? (
-                <div className="ml-auto flex items-center gap-2">
+                <div className="ml-auto flex shrink-0 items-center gap-2">
                     <RemoteReadout model={model} />
                     <ResMonReadout />
                 </div>
@@ -48,10 +48,31 @@ function FooterBar({
     );
 }
 
+// every chip is one bar-tall line with no row gap, so a chip that does not fit wraps to a second line the
+// row's own height clips: the tail (lowest priority, see visibleHints) drops whole instead of spilling out
+function ChipRow({ dim, children }: { dim?: boolean; children: React.ReactNode }) {
+    return (
+        <div
+            data-footer-chips=""
+            className={cn(
+                "flex h-full min-w-0 flex-1 flex-wrap content-start items-center gap-x-4 self-stretch overflow-hidden",
+                dim && "opacity-60"
+            )}
+        >
+            {children}
+        </div>
+    );
+}
+
 // lit: the chip's key is held right now (Ctrl for peek), so it reads as armed
 function Chip({ glyph, label, lit }: { glyph: string; label: string; lit?: boolean }) {
     return (
-        <span className={cn("flex items-center gap-1.5 text-[12px]", lit ? "text-accent-soft" : "text-secondary")}>
+        <span
+            className={cn(
+                "flex h-full shrink-0 items-center gap-1.5 whitespace-nowrap text-[12px]",
+                lit ? "text-accent-soft" : "text-secondary"
+            )}
+        >
             <span
                 className={cn(
                     "rounded-[5px] border px-[6px] py-0.5 font-mono text-[10.5px] text-primary",
@@ -95,11 +116,11 @@ export function HintsFooter({ model }: { model: AgentsViewModel }) {
         return (
             <FooterBar model={model} readout={surface !== "cockpit"}>
                 <span className="shrink-0 font-mono text-[11px] text-accent-soft">{leader} →</span>
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                <ChipRow>
                     {items.map((it) => (
                         <Chip key={it.next} glyph={it.next} label={it.label} />
                     ))}
-                </div>
+                </ChipRow>
             </FooterBar>
         );
     }
@@ -116,10 +137,7 @@ export function HintsFooter({ model }: { model: AgentsViewModel }) {
     const chips = visibleHints(ctx, bindings, SURFACE_HINTS[surface] ?? [], GLOBAL_HINTS);
     return (
         <FooterBar model={model}>
-            <div
-                data-footer-chips=""
-                className={cn("flex flex-wrap items-center gap-x-4 gap-y-1", ctx.editable && "opacity-60")}
-            >
+            <ChipRow dim={ctx.editable}>
                 {chips.map((c) => (
                     <Chip
                         key={(c.glyph ?? c.keys) + c.label}
@@ -128,7 +146,7 @@ export function HintsFooter({ model }: { model: AgentsViewModel }) {
                         lit={c.ctrlLit && ctrlHeld}
                     />
                 ))}
-            </div>
+            </ChipRow>
         </FooterBar>
     );
 }
