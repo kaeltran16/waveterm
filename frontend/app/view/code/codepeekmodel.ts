@@ -4,7 +4,7 @@
 // Pure: the Code peek card's state and the decisions it renders from: where a clicked path points,
 // which modes it offers, its diff stat, and where the card sits against the terminal line.
 
-import { isMarkdownPath, NOT_TRACKED } from "./codeclassify";
+import { isImagePath, isMarkdownPath, NOT_TRACKED } from "./codeclassify";
 
 export type PeekMode = "preview" | "source" | "diff";
 export type PeekOpen = { projectPath: string; rel: string };
@@ -92,6 +92,10 @@ export function needsHome(raw: string, cwd: string | null): boolean {
 
 export function initialPeekMode(path: string): PeekMode {
     return isMarkdownPath(path) ? "preview" : "source";
+}
+
+export function binaryPeekMessage(path: string): string {
+    return isImagePath(path) ? "Image — open it in Code" : "Binary file";
 }
 
 export function peekModes(path: string, file: PeekFile): Record<PeekMode, { enabled: boolean; reason?: string }> {

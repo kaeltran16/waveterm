@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { classifyFile, hasNulByte, isMarkdownPath, MAX_VIEW_BYTES } from "./codeclassify";
+import { classifyFile, hasNulByte, isImagePath, isMarkdownPath, MAX_VIEW_BYTES } from "./codeclassify";
 
 describe("classifyFile", () => {
     it("treats an unrecognized (empty) mimetype as text, because Go and Rust land there", () => {
@@ -30,6 +30,15 @@ describe("classifyFile", () => {
 
     it("lets the size gate win over a text mimetype", () => {
         expect(classifyFile(MAX_VIEW_BYTES + 1, "text/plain")).toBe("toolarge");
+    });
+
+    it("a large font is binary, not too large", () => {
+        expect(classifyFile(MAX_VIEW_BYTES + 1, "font/woff2")).toBe("binary");
+    });
+
+    it("a large text file is still too large", () => {
+        expect(classifyFile(MAX_VIEW_BYTES + 1, "")).toBe("toolarge");
+        expect(classifyFile(MAX_VIEW_BYTES + 1, "application/json")).toBe("toolarge");
     });
 
     it("admits a file exactly at the cap", () => {
@@ -65,5 +74,19 @@ describe("isMarkdownPath", () => {
         expect(isMarkdownPath("foo.md.txt")).toBe(false);
         expect(isMarkdownPath("src/main.ts")).toBe(false);
         expect(isMarkdownPath("Makefile")).toBe(false);
+    });
+});
+
+describe("isImagePath", () => {
+    it("accepts the viewable image extensions, case-insensitively", () => {
+        for (const p of ["a.png", "a/b.JPG", "x.jpeg", "x.gif", "x.webp", "x.svg", "x.bmp", "x.ico", "x.avif"]) {
+            expect(isImagePath(p)).toBe(true);
+        }
+    });
+
+    it("rejects other files", () => {
+        expect(isImagePath("a.png.txt")).toBe(false);
+        expect(isImagePath("png")).toBe(false);
+        expect(isImagePath("a.woff2")).toBe(false);
     });
 });

@@ -32,6 +32,8 @@ const NOT_TRACKED = "Not a git repository — no change tracking";
 const PREVIEW_REASON = "Preview is for markdown files";
 // rows the shell's prompt and a stray blank line can take beside the printed rows
 const ROW_SLACK = 3;
+// a 1x1 png: the peek classifies by mime, so the bytes only need to be a real image
+const PIXEL_PNG_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 const MORE_LINES = 5;
 const RENDERER_SETTLE_MS = 1500;
 
@@ -74,6 +76,7 @@ function makeRepo(dir) {
     writeFileSync(join(dir, "notes", "peek.md"), md.slice(0, PEEK_MD_LINES).join("\n") + "\n");
     git(dir, "add", "notes/peek.md");
     writeFileSync(join(dir, "bin", "blob.bin"), Buffer.from([0x41, 0, 0x42, 0, 0, 0x43]));
+    writeFileSync(join(dir, "bin", "pixel.png"), Buffer.from(PIXEL_PNG_B64, "base64"));
     writeFileSync(join(dir, "big", "huge.txt"), "x".repeat(2 * 1024 * 1024 + 4096));
 }
 
@@ -85,6 +88,7 @@ function peekRows(plainAbs, filler) {
         ["src/committed.ts:30", "line"],
         ["gone/missing.ts", "missing"],
         ["bin/blob.bin", "bin"],
+        ["bin/pixel.png", "png"],
         ["big/huge.txt", "big"],
         ["~/x.md", "tilde"],
         [plainAbs, "plain"],
@@ -293,7 +297,7 @@ export const codePeek = {
         // the shell's banner and first prompt land before the cls, so the rows print from the top
         await polishNap(2500);
         const termRows = await peekEval(h, `return termWrap().terminal.rows;`);
-        const filler = Math.max(0, termRows - 10 - ROW_SLACK);
+        const filler = Math.max(0, termRows - 11 - ROW_SLACK);
         ctx.linesFile = join(ctx.plainDir, "lines.txt");
         writeFileSync(ctx.linesFile, peekRows(ctx.plainAbs, filler).join("\n") + "\n");
         ctx.moreFile = join(ctx.plainDir, "more.txt");
@@ -477,8 +481,11 @@ export const codePeek = {
         rec("a path that does not exist shows missing", missing.info.state === "missing" && missing.info.message === `No such file: ${join(ctx.repo, "gone", "missing.ts")}`, missing.info);
         await h.shot(shotName("10-missing"));
         const binary = await peekAt(h, "bin");
-        rec("a binary file shows binary", binary.info.state === "binary" && binary.info.message === "Binary file — open it in Code", binary.info);
+        rec("a binary file shows binary", binary.info.state === "binary" && binary.info.message === "Binary file", binary.info);
         await h.shot(shotName("10-binary"));
+        const png = await peekAt(h, "png");
+        rec("an image file hints that Code shows it", png.info.state === "binary" && png.info.message === "Image — open it in Code", png.info);
+        await h.shot(shotName("10-image"));
         const big = await peekAt(h, "big");
         rec("a file over 2 MB shows too large", big.info.state === "toolarge" && big.info.message === "Larger than the 2 MB view limit", big.info);
         await h.shot(shotName("10-toolarge"));
