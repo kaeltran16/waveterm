@@ -38,13 +38,40 @@ func ContentHash(data []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
+const utf8BOM = "\ufeff"
+
+// normalizeEOL is the one place a file's line endings are reconciled with the "---\n" front matter
+// grammar the parser, splice and write guard all speak: it drops a leading UTF-8 BOM and turns
+// CRLF into LF. bom and crlf say what to put back (restoreEOL) so a write keeps the file's style.
+func normalizeEOL(s string) (text string, bom, crlf bool) {
+	if strings.HasPrefix(s, utf8BOM) {
+		s = s[len(utf8BOM):]
+		bom = true
+	}
+	if strings.Contains(s, "\r\n") {
+		s = strings.ReplaceAll(s, "\r\n", "\n")
+		crlf = true
+	}
+	return s, bom, crlf
+}
+
+func restoreEOL(text string, bom, crlf bool) string {
+	if crlf {
+		text = strings.ReplaceAll(text, "\n", "\r\n")
+	}
+	if bom {
+		text = utf8BOM + text
+	}
+	return text
+}
+
 // parseNode splits frontmatter from body, unmarshals the frontmatter into a map (order does not
 // matter for querying; the write path preserves order by splicing raw text, not re-serializing this
 // map), extracts deduped [[wikilinks]] in order, and hashes the raw bytes. ID is frontmatter id,
-// else name, else the filename stem.
+// else name, else the filename stem. Front matter and body are line-ending normalized (CRLF, BOM).
 func parseNode(path string, data []byte) (Node, string) {
 	n := Node{Path: path, ContentHash: ContentHash(data)}
-	body := string(data)
+	body, _, _ := normalizeEOL(string(data))
 	if strings.HasPrefix(body, "---\n") {
 		if end := strings.Index(body[4:], "\n---"); end >= 0 {
 			fmText := body[4 : 4+end]

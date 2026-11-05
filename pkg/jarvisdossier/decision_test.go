@@ -233,3 +233,18 @@ func TestAppendDecisionHonorsCreatedOverride(t *testing.T) {
 		t.Errorf("filename %q should be dated when it was decided, not when it was imported", name)
 	}
 }
+
+func TestLoadDecisionCRLF(t *testing.T) {
+	v := newVault(t)
+	raw := "---\r\nid: dec-crlf\r\ncreated: 1753000000000\r\nactor: human\r\nstatus: active\r\n---\r\n\r\nbecause\r\n"
+	if _, err := v.Create("decisions", "crlf.md", raw); err != nil {
+		t.Fatal(err)
+	}
+	d, err := LoadDecision(v.Retriever(wavevault.AllScope()), "dec-crlf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Actor != "human" || d.Status != "active" || d.Rationale != "because" {
+		t.Fatalf("decision = %+v", d)
+	}
+}

@@ -61,7 +61,7 @@ func editsInSpec(spec RegionSpec, edits []RegionEdit) error {
 // are upserted; blocks are replaced between existing markers (an absent block errors — B scaffolds
 // blocks). All bytes outside the targeted regions are preserved verbatim.
 func spliceRegions(content string, edits []RegionEdit) (string, error) {
-	out := content
+	out, bom, crlf := normalizeEOL(content)
 	for _, e := range edits {
 		switch e.Kind {
 		case FrontmatterKey:
@@ -76,7 +76,7 @@ func spliceRegions(content string, edits []RegionEdit) (string, error) {
 			return "", fmt.Errorf("wavevault: unknown region kind %d", e.Kind)
 		}
 	}
-	return out, nil
+	return restoreEOL(out, bom, crlf), nil
 }
 
 // setFrontmatterKey upserts a top-level "key: value" line inside the --- frontmatter block,
@@ -130,7 +130,7 @@ func setBlock(content, name, value string) (string, error) {
 // humanProjection removes every machine-owned region so two versions can be compared for
 // human-region equality: a splice that touched only machine regions leaves this identical.
 func humanProjection(content string, spec RegionSpec) string {
-	out := content
+	out, _, _ := normalizeEOL(content)
 	for _, name := range spec.Blocks {
 		begin := "<!-- jarvis:begin " + name + " -->"
 		end := "<!-- jarvis:end " + name + " -->"
