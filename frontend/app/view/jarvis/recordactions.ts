@@ -12,6 +12,7 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { reloadAmbient } from "@/app/view/agents/ambientstore";
 import { fireAndForget } from "@/util/util";
 import { atom, type PrimitiveAtom } from "jotai";
+import { statusConfirmCopy } from "./briefpeek";
 import { invalidateBloom } from "./jarvisgraphstore";
 import { reloadRecordDetail, reloadRecordScope } from "./jarvissubjectstore";
 import { isTerminalTransition } from "./tasksderive";
@@ -73,9 +74,10 @@ export function confirmDossierStatus(dossierId: string, status: string): void {
         setDossierStatus(dossierId, status);
         return;
     }
+    const copy = statusConfirmCopy(status);
     modalsModel.pushModal("ConfirmModal", {
-        title: `Mark this record ${status}?`,
-        message: `This sets the record's status to "${status}". You can reactivate it later.`,
+        title: copy.title,
+        message: copy.body,
         confirmLabel: `Yes, ${status}`,
         destructive: status === "archived",
         onConfirm: () => setDossierStatus(dossierId, status),
@@ -90,6 +92,7 @@ export interface DetachedEdge {
     dossierId: string;
     runORef: string;
     label: string;
+    ticket?: string;
     bucket: string;
 }
 
@@ -108,11 +111,12 @@ export function loadDetachedEdges(key: string): void {
     fireAndForget(async () => {
         try {
             const rtn = await RpcApi.ListDetachedEdgesCommand(TabRpcClient, detachedRequest(key));
-            const labels = new Map((rtn?.tasks ?? []).map((t) => [t.id, t.label]));
+            const tasks = new Map((rtn?.tasks ?? []).map((t) => [t.id, t]));
             const rows: DetachedEdge[] = (rtn?.edges ?? []).map((e) => ({
                 dossierId: e.dossierid,
                 runORef: e.oref,
-                label: labels.get(e.dossierid) ?? e.dossierid,
+                label: tasks.get(e.dossierid)?.label ?? e.dossierid,
+                ticket: tasks.get(e.dossierid)?.ticket,
                 bucket: e.bucket,
             }));
             globalStore.set(detachedEdgesAtom, { ...globalStore.get(detachedEdgesAtom), [key]: rows });

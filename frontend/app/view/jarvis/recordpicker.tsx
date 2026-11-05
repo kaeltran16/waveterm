@@ -13,6 +13,21 @@ import { loadTaskList, taskListAtom } from "./tasksstore";
 
 const MAX_ROWS = 8;
 
+// one ticket look for every place a record is named: the picker, the band's chips and its detached rows
+export function TicketChip({ ticket }: { ticket?: string }) {
+    if (!ticket) {
+        return null;
+    }
+    return (
+        <span
+            data-jarvis-ticket-chip
+            className="flex-none rounded bg-surface-hover px-1.5 py-px font-mono text-[10.5px] text-ink-mid"
+        >
+            {ticket}
+        </span>
+    );
+}
+
 export function RecordPicker({ onPick, onCancel }: { onPick: (dossierId: string) => void; onCancel: () => void }) {
     const records = useAtomValue(taskListAtom);
     const [q, setQ] = useState("");
@@ -61,11 +76,7 @@ export function RecordPicker({ onPick, onCancel }: { onPick: (dossierId: string)
                         className="flex cursor-pointer items-center gap-2 rounded-[7px] px-2 py-1 text-left transition-colors duration-[140ms] hover:bg-surface-hover"
                     >
                         <span className="min-w-0 flex-1 truncate text-[11.5px] text-secondary">{r.objective}</span>
-                        {r.ticket ? (
-                            <span className="flex-none rounded bg-surface-hover px-1.5 py-px font-mono text-[10.5px] text-ink-mid">
-                                {r.ticket}
-                            </span>
-                        ) : null}
+                        <TicketChip ticket={r.ticket} />
                     </button>
                 ))
             )}

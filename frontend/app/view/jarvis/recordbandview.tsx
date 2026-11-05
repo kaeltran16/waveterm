@@ -17,7 +17,7 @@ import { EdgeControls } from "./edgecontrolsview";
 import { briefPeekRecordAtom } from "./jarvisstore";
 import { acceptEdge, detachedEdgesAtom, loadDetachedEdges } from "./recordactions";
 import { bandGlyph, edgeLabel, edgeLineStyle, recordBandCase } from "./recordband";
-import { RecordPicker } from "./recordpicker";
+import { RecordPicker, TicketChip } from "./recordpicker";
 import { STAGE_BAND_INSET, STAGE_GUTTER, STAGE_SCROLLER } from "./stagemeasure";
 import { TaskDetail } from "./taskdetail";
 
@@ -51,11 +51,8 @@ function EdgeChip({ tag }: { tag: AmbientTag }) {
             />
             <span className="truncate text-[11.5px] font-semibold text-secondary">{tag.label}</span>
             {tag.ticket ? (
-                <span
-                    data-jarvis-edge-ticket
-                    className="flex-none rounded bg-surface-hover px-1.5 py-px font-mono text-[10.5px] text-ink-mid"
-                >
-                    {tag.ticket}
+                <span data-jarvis-edge-ticket className="contents">
+                    <TicketChip ticket={tag.ticket} />
                 </span>
             ) : null}
             <span data-jarvis-edge-label className="flex-none font-mono text-[10.5px] text-muted">
@@ -240,11 +237,17 @@ export function RecordBand({
                                 {detached.map((d) => (
                                     <div
                                         key={"detached-" + d.dossierId}
+                                        data-jarvis-detached-row
                                         className="flex items-center gap-2 rounded-[7px] px-1 py-1 opacity-70"
                                     >
-                                        <span className="min-w-0 flex-1 truncate text-[11.5px] text-muted">
+                                        <span
+                                            data-jarvis-detached-label
+                                            className="min-w-0 truncate text-[11.5px] text-muted"
+                                        >
                                             Detached · {d.label}
                                         </span>
+                                        <TicketChip ticket={d.ticket} />
+                                        <div className="flex-1" />
                                         <EdgeControls
                                             dossierId={d.dossierId}
                                             runORef={d.runORef}

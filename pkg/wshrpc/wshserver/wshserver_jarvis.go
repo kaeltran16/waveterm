@@ -521,11 +521,11 @@ func (ws *WshServer) ListDetachedEdgesCommand(ctx context.Context, data wshrpc.C
 			continue
 		}
 		labelled[e.DossierID] = true
-		label := e.DossierID
-		if d, err := jarvisdossier.LoadDossier(v.Retriever(wavevault.AllScope()), e.DossierID); err == nil && d.Objective != "" {
-			label = d.Objective
+		task := wshrpc.AmbientTask{Id: e.DossierID, Label: e.DossierID}
+		if d, err := jarvisdossier.LoadDossier(v.Retriever(wavevault.AllScope()), e.DossierID); err == nil {
+			task = ambientTask(wshrpc.SpaceSummary{Id: e.DossierID, Objective: d.Objective, Ticket: d.Ticket})
 		}
-		out.Tasks = append(out.Tasks, wshrpc.AmbientTask{Id: e.DossierID, Label: label})
+		out.Tasks = append(out.Tasks, task)
 	}
 	return &out, nil
 }
@@ -795,6 +795,16 @@ func ambientLabel(d wshrpc.SpaceSummary) string {
 	return boundRunes(d.Ticket, ambientLabelMax)
 }
 
+// ambientTask is a dossier as a tag target, the one shape the band and the detached rows both label from.
+// The id labels a dossier with neither an objective nor a ticket, so a row never renders blank.
+func ambientTask(d wshrpc.SpaceSummary) wshrpc.AmbientTask {
+	label := ambientLabel(d)
+	if label == "" {
+		label = d.Id
+	}
+	return wshrpc.AmbientTask{Id: d.Id, Label: label, Ticket: d.Ticket}
+}
+
 // decisionTitle is a decision's ambient card line: the first non-empty line of the human rationale,
 // stripped of markdown lead-ins and bounded. Decisions have no title field — the rationale is the record.
 func decisionTitle(rationale string) string {
@@ -818,7 +828,7 @@ func buildAmbient(dossiers []wshrpc.SpaceSummary, byDossier map[string][]jarvisa
 	known := make(map[string]bool, len(dossiers))
 	for _, d := range dossiers {
 		known[d.Id] = true
-		out.Tasks = append(out.Tasks, wshrpc.AmbientTask{Id: d.Id, Label: ambientLabel(d), Ticket: d.Ticket})
+		out.Tasks = append(out.Tasks, ambientTask(d))
 		for _, e := range byDossier[d.Id] {
 			out.Edges = append(out.Edges, wshrpc.AmbientEdge{
 				ORef:       e.RunORef,

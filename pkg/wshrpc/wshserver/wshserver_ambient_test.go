@@ -131,6 +131,31 @@ func TestAmbientLabelObjectiveAndTicket(t *testing.T) {
 	}
 }
 
+func TestAmbientTaskLabelAndTicket(t *testing.T) {
+	cases := []struct {
+		in   wshrpc.SpaceSummary
+		want wshrpc.AmbientTask
+	}{
+		{
+			wshrpc.SpaceSummary{Id: "d1", Objective: "first line\nsecond", Ticket: "PROJ-142"},
+			wshrpc.AmbientTask{Id: "d1", Label: "first line", Ticket: "PROJ-142"},
+		},
+		{
+			wshrpc.SpaceSummary{Id: "d1", Ticket: "PROJ-142"},
+			wshrpc.AmbientTask{Id: "d1", Label: "PROJ-142", Ticket: "PROJ-142"},
+		},
+		{
+			wshrpc.SpaceSummary{Id: "d1"},
+			wshrpc.AmbientTask{Id: "d1", Label: "d1"},
+		},
+	}
+	for _, c := range cases {
+		if got := ambientTask(c.in); got != c.want {
+			t.Fatalf("ambientTask(%+v) = %+v, want %+v", c.in, got, c.want)
+		}
+	}
+}
+
 func TestAmbientLabelAndTitleAreBounded(t *testing.T) {
 	long := strings.Repeat("ünïcödé ", 40)
 	label := ambientLabel(wshrpc.SpaceSummary{Id: "t", Objective: long})

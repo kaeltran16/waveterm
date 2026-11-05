@@ -472,8 +472,7 @@ export const briefPeek = {
             // the capture names the record by its goal's slug, so a later run finds it already there and its capture
             // fails ("already exists"): attach this run to the record explicitly
             await h.rpc("acceptdossieredge", { dossierid: BRIEF_PEEK_RECORD, runoref: `run:${ctx.runId}` });
-            // before the reload: an RPC write bypasses the app's record cache, so a decision added after the record
-            // was read would be missing from the detail step 14 opens
+            // the decision step 14 anchors on; one added after the record was cached is step 15's
             try {
                 ctx.decisionId = await ensurePeekDecision(h);
             } catch (e) {
@@ -1217,6 +1216,38 @@ export const briefPeek = {
                 anchorWhileOpen === decisionId &&
                 anchorAfterClose == null,
             detail: JSON.stringify({ decisionId, decisionError, lit, anchorAfterFlash, relit, anchorWhileOpen, anchorAfterClose }),
+        });
+
+        // F4: a decision an agent appends after the record is cached (step 14 opened it) is still found by an
+        // anchored open. Each run appends one, as an agent would; no RPC removes a decision.
+        let fresh = null;
+        let freshError = null;
+        try {
+            const made = await h.rpc("appenddossierdecision", {
+                dossierid: BRIEF_PEEK_RECORD,
+                summary: `verify brief-peek: a decision added after the cache ${Date.now()}`,
+                rationale: "So an anchored open has a decision the cached record does not hold.",
+                links: [],
+            });
+            fresh = made?.decisionid ?? null;
+        } catch (e) {
+            freshError = String(e?.message ?? e);
+        }
+        const FRESH_CARD = `document.querySelector('${LOG} [data-jarvis-decision="${fresh}"]')`;
+        if (fresh != null) {
+            await h.ev(
+                `window.__openAddress?.(${JSON.stringify("task:" + BRIEF_PEEK_RECORD)}, { anchor: ${JSON.stringify(fresh)} })`
+            );
+        }
+        const freshShown = fresh != null && (await polishWaitFor(h, `${FRESH_CARD} != null`, 8000));
+        const freshLog = await readLog();
+        await h.shot("cdp-shots/brief-peek-anchor-fresh.png");
+        await pressEscape();
+        await polishWaitFor(h, `!document.querySelector('${BAND}')`, 3000);
+        steps.push({
+            step: "15. an anchored open of a decision appended after the record was cached opens the log on its card",
+            ok: freshError == null && freshShown === true && freshLog.expanded === "true" && freshLog.log === true,
+            detail: JSON.stringify({ fresh, freshError, freshShown, freshLog }),
         });
         return steps;
     },
@@ -3928,35 +3959,49 @@ const RECORD_BAND_PICKER = `${RECORD_BAND}?.querySelector("[data-jarvis-record-p
 const RECORD_BAND_PICKER_INPUT = `${RECORD_BAND_PICKER}?.querySelector("input")`;
 const RECORD_BAND_GLYPH_TITLE = "Guessed by Jarvis: expand to confirm or detach it";
 
-// with the empty machine blocks renderDossier lays down: accepting an edge writes the refs block in place
-async function seedRecordBandTwins(h) {
+// the run's own record, written before CreateRun so its capture finds it: a two-line objective, and a ticket
+// that is not the twins' so the picker's "1739" still narrows to the twins. Rewritten whole each run, which
+// also drops any ref an earlier run left in it.
+const RECORD_BAND_RECORD_TICKET = "VERIFY-2201";
+const RECORD_BAND_RECORD_HEAD = "Verify record-band detach and restore";
+const RECORD_BAND_RECORD_OBJECTIVE = `${RECORD_BAND_RECORD_HEAD}\nA second line the row leaves out.`;
+
+// with the empty machine blocks renderDossier lays down: accepting an edge writes the refs block in place.
+// The objective goes quoted, as renderDossier writes one with a newline in it.
+function writeRecordBandRecord(dir, id, ticket, objective, stamp) {
+    const file = join(dir, `${id}.md`);
+    const block = (name) => [`<!-- jarvis:begin ${name} -->`, `<!-- jarvis:end ${name} -->`];
+    const lines = [
+        "---",
+        "status: active",
+        `ticket: ${ticket}`,
+        `objective: ${JSON.stringify(objective)}`,
+        "acceptance: []",
+        "confidence: med",
+        `created: ${stamp}`,
+        `updated: ${stamp}`,
+        "---",
+        ...block("state"),
+        ...block("refs"),
+        ...block("blockers"),
+        "",
+        "## Notes",
+        "",
+        "",
+    ];
+    writeFileSync(file, lines.join("\n"));
+    return file;
+}
+
+// returns only the twins' files: teardown removes those, and the run's record stays as it always has
+async function seedRecordBandRecords(h) {
     const dir = join(await vaultRoot(h), "tasks", "active");
     mkdirSync(dir, { recursive: true });
     const stamp = Date.now() - 30 * DAY_MS;
-    return RECORD_BAND_TWINS.map((t) => {
-        const file = join(dir, `${t.id}.md`);
-        const block = (name) => [`<!-- jarvis:begin ${name} -->`, `<!-- jarvis:end ${name} -->`];
-        const lines = [
-            "---",
-            "status: active",
-            `ticket: ${RECORD_BAND_TICKET}`,
-            `objective: ${t.head} ${RECORD_BAND_FILLER.trim()}`,
-            "acceptance: []",
-            "confidence: med",
-            `created: ${stamp}`,
-            `updated: ${stamp}`,
-            "---",
-            ...block("state"),
-            ...block("refs"),
-            ...block("blockers"),
-            "",
-            "## Notes",
-            "",
-            "",
-        ];
-        writeFileSync(file, lines.join("\n"));
-        return file;
-    });
+    writeRecordBandRecord(dir, RECORD_BAND_RECORD, RECORD_BAND_RECORD_TICKET, RECORD_BAND_RECORD_OBJECTIVE, stamp);
+    return RECORD_BAND_TWINS.map((t) =>
+        writeRecordBandRecord(dir, t.id, RECORD_BAND_TICKET, `${t.head} ${RECORD_BAND_FILLER.trim()}`, stamp)
+    );
 }
 
 export const recordBandDetachRestore = {
@@ -3965,7 +4010,7 @@ export const recordBandDetachRestore = {
     async arrange(h) {
         const ctx = { cwd: mkdtempSync(join(tmpdir(), "verify-record-band-")) };
         try {
-            ctx.twinFiles = await seedRecordBandTwins(h);
+            ctx.twinFiles = await seedRecordBandRecords(h);
             const wslist = await h.rpc("workspacelist", null);
             const ch = await h.rpc("createchannel", { name: "verify-record-band", projectpath: ctx.cwd });
             ctx.channelId = ch.oid;
@@ -4060,13 +4105,23 @@ export const recordBandDetachRestore = {
             const confirm = dialogButton();
             confirm?.click();
             const ok = await until(() => bandButton("Restore") && !bandButton("Not this record"));
-            return { ok, asked: !!confirm, detachedRow: bandText().includes("Detached"), text: bandText() };
+            const row = ${RECORD_BAND}?.querySelector("[data-jarvis-detached-row]");
+            return {
+                ok,
+                asked: !!confirm,
+                label: (row?.querySelector("[data-jarvis-detached-label]")?.textContent || "").replace(/\\s+/g, " ").trim(),
+                ticket: row?.querySelector("[data-jarvis-ticket-chip]")?.textContent?.trim() ?? null,
+                text: bandText(),
+            };
         })()`);
         const afterDetach = await detachedIds();
         await h.shot("cdp-shots/record-band-detached.png");
         rec(
-            "2. Not this record moves the edge to a Detached row that offers Restore",
-            detached.ok === true && detached.detachedRow === true && afterDetach.includes(RECORD_BAND_RECORD),
+            "2. Not this record moves the edge to a Detached row that offers Restore, labelled with the objective's first line and its ticket chip",
+            detached.ok === true &&
+                detached.label === `Detached · ${RECORD_BAND_RECORD_HEAD}` &&
+                detached.ticket === RECORD_BAND_RECORD_TICKET &&
+                afterDetach.includes(RECORD_BAND_RECORD),
             JSON.stringify({ ...detached, stored: afterDetach })
         );
 
