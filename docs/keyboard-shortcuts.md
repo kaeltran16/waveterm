@@ -190,7 +190,7 @@ A link inside an item view does a full open, even with `Ctrl` held.
 | `Shift`+`N` | New initiative |
 | `Shift`+`G` | Graph peek (`Esc` closes) |
 | `Shift`+`J` / `Shift`+`K` | Next / previous run in this channel |
-| `j` / `k` | With a run sheet open: next / previous run in the list it counts (Runs, or Shipped for a finished run) |
+| `j` / `k` | With a run sheet open: next / previous run in the list it counts (Runs, or Shipped for a finished run), including the rows behind the region's folds, which open as you land on them |
 | `1`…`9` | With a run sheet open: pick an option on the lead's question card |
 | `Enter` | Submit the answer |
 | `Esc` | Leave the composer |

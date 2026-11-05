@@ -40,7 +40,7 @@ import { DagModal } from "@/app/view/orchestrate/dagmodal";
 import { setDagModalAgentsContext } from "@/app/view/orchestrate/dagmodalstate";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtom, useAtomValue, useSetAtom, type PrimitiveAtom } from "jotai";
-import { X } from "lucide-react";
+import { TriangleAlert, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { BehindRegion } from "./briefbehind";
@@ -81,7 +81,7 @@ import {
     type EffortWrites,
     type MutationDeps,
 } from "./briefmutations";
-import { briefListNav, cursorAction, resolveBriefCursor, runNavLines } from "./briefnav";
+import { briefListNav, cursorAction, resolveBriefCursor, runNavFold, runNavLines } from "./briefnav";
 import { BriefPeek } from "./briefpeekview";
 import { REGIONS, showInitiativeMenu, type RegionId } from "./briefprimitives";
 import { BriefProfileModal } from "./briefprofileview";
@@ -96,6 +96,7 @@ import {
     initiativesMeta,
     keepsProject,
     keepsRunKind,
+    liveRunKindCounts,
     projectCounts,
     queueLine,
     runKindCounts,
@@ -378,12 +379,9 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                 : sessionWindow(runKindLegs(model_, runKind), sessionsOpen || filtering, Date.now()),
         [model_, sessionsOpen, runKind, filtering]
     );
+    // the chips count what the head's "N live" counts; the stale fold states the rest
     const runCounts = useMemo(
-        () =>
-            runKindCounts(
-                (model_?.activeRuns ?? []).map((r) => r.mode),
-                model_?.directAgents.length ?? 0
-            ),
+        () => liveRunKindCounts(model_ ?? { activeRuns: [], directAgents: [] }, Date.now()),
         [model_]
     );
     // moment 1: which rows are new to YOU. Excludes `behind` deliberately — that region is entirely
@@ -770,10 +768,49 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     const shippedLines = lines.behind.find((g) => g.label === SHIPPED_LABEL)?.lines ?? NO_LINES;
     const stageRun = useAtomValue(stageRunAtom);
     const runList = useAtomValue(briefRunListAtom);
+    // The run sheet steps through every run the kind filter keeps, not only the drawn ones: Shipped past its cap,
+    // and Runs' live rows past the cap and its stale ones. The query still applies, so every run it lands on can
+    // be drawn by opening the fold that hides it.
+    const runNavSource = useMemo(() => {
+        if (model_ == null) {
+            return { sessions: NO_LINES, shipped: NO_LINES };
+        }
+        const now = Date.now();
+        const all = sessionWindow(runKindLegs(model_, runKind), true, now).rows.map((r) => sessionLine(r, now));
+        const shippedGroup = behindGroups([], shippedAll, now, { efforts: effortIndex, projects }).find(
+            (g) => g.label === SHIPPED_LABEL
+        );
+        return { sessions: filterLines(all, query), shipped: filterLines(shippedGroup?.lines ?? NO_LINES, query) };
+    }, [model_, runKind, shippedAll, effortIndex, projects, query]);
     // with a run sheet open on the published run list, j/k step the sheet through that list (briefnav.ts)
     const runNav = useMemo(
-        () => runNavLines({ sheetOpen, stageRun, runList, shippedLines, sessionLines: view.sessionLines }),
-        [sheetOpen, stageRun, runList, shippedLines, view.sessionLines]
+        () =>
+            runNavLines({
+                sheetOpen,
+                stageRun,
+                runList,
+                shippedLines: runNavSource.shipped,
+                sessionLines: runNavSource.sessions,
+            }),
+        [sheetOpen, stageRun, runList, runNavSource]
+    );
+    // a landing on a run behind a fold opens that fold, so closing the sheet leaves the cursor on a drawn row
+    const drawnRunIds = useMemo(
+        () => new Set([...view.sessionLines, ...shippedLines].map((l) => l.id)),
+        [view.sessionLines, shippedLines]
+    );
+    const revealRunLine = useCallback(
+        (line: BriefLine) => {
+            const fold = runNavFold(line, drawnRunIds);
+            if (fold === "shipped") {
+                setShippedOpen(true);
+            } else if (fold === "stale") {
+                setStaleOpen(true);
+            } else if (fold === "more") {
+                setExpanded((prev) => ({ ...prev, sessions: true }));
+            }
+        },
+        [drawnRunIds, setShippedOpen, setStaleOpen, setExpanded]
     );
     // memoized because the controller is registered per identity. Typing never reaches here: list keys
     // are off in a field.
@@ -786,12 +823,24 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                     cursor,
                     setCursor,
                     openLine,
+                    revealLine: revealRunLine,
                     sheetOpen,
                     cursorRow,
                     activate: activateCursor,
                     cursorTarget,
                 }),
-            [runNav, tracker.navIds, cursor, setCursor, openLine, sheetOpen, cursorRow, activateCursor, cursorTarget]
+            [
+                runNav,
+                tracker.navIds,
+                cursor,
+                setCursor,
+                openLine,
+                revealRunLine,
+                sheetOpen,
+                cursorRow,
+                activateCursor,
+                cursorTarget,
+            ]
         )
     );
     // the four regions scroll as one column, so a cursor moved off-screen has to be brought back
@@ -887,10 +936,12 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         globalStore.set(
             briefRunListAtom,
             stageRun != null && stageRun.status === "done"
-                ? shipped.rows.map((r) => r.oref.replace(/^run:/, ""))
-                : view.sessionLines.flatMap((l) => (l.runOid ? [l.runOid] : []))
+                ? runNavSource.shipped.flatMap((l) =>
+                      l.target != null && "oref" in l.target ? [l.target.oref.replace(/^run:/, "")] : []
+                  )
+                : runNavSource.sessions.flatMap((l) => (l.runOid ? [l.runOid] : []))
         );
-    }, [stageRun, shipped, view.sessionLines]);
+    }, [stageRun, runNavSource]);
 
     const ackable = ackableRuns(queue);
 
@@ -904,6 +955,10 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     const firstLoad = snapshot == null && loading;
     const loadFailed = snapshot == null && error != null;
     const staleSnapshot = snapshot != null && error != null;
+    const missingLegs = model_?.health.missingLegs ?? [];
+    // "Where we were" closes once the rows are in use, on input only: the cursor's own scrollIntoView scrolls the
+    // container too, on mount and on every cursor move, and that is not the user moving on
+    const dismissResume = () => dismissPetBubble("resume");
 
     return (
         <div data-jarvis-region="brief" className="absolute inset-0 flex flex-col bg-background">
@@ -934,6 +989,31 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                         refresh failed — showing the previous snapshot
                     </motion.div>
                 ) : null}
+                {missingLegs.length > 0 ? (
+                    <motion.div
+                        key="partial"
+                        variants={paneReveal}
+                        initial="initial"
+                        animate="animate"
+                        exit="exit"
+                        data-jarvis-brief-band="partial"
+                        className="flex flex-none items-center gap-2 overflow-hidden border-b border-edge-faint px-[22px] py-1 font-mono text-[10.5px] text-asking"
+                    >
+                        <TriangleAlert size={12} aria-hidden className="flex-none" />
+                        <span className="min-w-0 truncate">
+                            Partial snapshot: couldn't read {missingLegs.join(", ")}. Behind you stays unread until a
+                            full load.
+                        </span>
+                        <button
+                            type="button"
+                            data-jarvis-brief-partial-retry
+                            onClick={refreshBriefing}
+                            className="flex-none cursor-pointer text-accent-soft hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                        >
+                            Retry
+                        </button>
+                    </motion.div>
+                ) : null}
             </AnimatePresence>
             {/* @container, not a media query: the sidebar's width rule is about how much SURFACE the
                 index has left, and the window is not the surface. */}
@@ -943,8 +1023,10 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                     // the pet sits over the bottom-right corner: the rows end with its reach of room, so any
                     // row-end control scrolls clear of it, and "Where we were" closes once the rows are in use
                     style={{ paddingBottom: AVATAR_SURFACE_REACH_PX + 20 }}
-                    onScroll={() => dismissPetBubble("resume")}
-                    onPointerDown={() => dismissPetBubble("resume")}
+                    onWheel={dismissResume}
+                    onTouchMove={dismissResume}
+                    onPointerDown={dismissResume}
+                    onKeyDown={dismissResume}
                     className={cn(
                         "flex min-h-0 flex-1 flex-col gap-[26px] overflow-y-auto px-[22px] pt-5",
                         // the sidebar docks only in the wide band; below it, it floats over the index
@@ -1030,6 +1112,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                     <InitiativesRegion
                                         lines={lines.initiatives}
                                         empty={efforts.length === 0 && archivedCards.length === 0}
+                                        missing={missingLegs.includes("Initiatives")}
                                         meta={initiativesHead}
                                         only={only === "initiatives"}
                                         onOnly={() => toggleOnly("initiatives")}
@@ -1105,6 +1188,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                         model={model}
                                         lines={view.sessionLines}
                                         empty={sessions.rows.length === 0}
+                                        missing={missingLegs.includes("Runs")}
                                         runKind={runKind}
                                         onRunKind={setRunKind}
                                         runCounts={runCounts}
@@ -1144,6 +1228,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                         expanded={behindOpen}
                                         onToggleMore={() => toggleRegion("behind")}
                                         shippedTotal={shippedAll.length}
+                                        shippedMissing={missingLegs.includes("Runs")}
                                         shippedLines={shippedLines}
                                         shippedKind={shippedKind}
                                         onShippedKind={setShippedKind}

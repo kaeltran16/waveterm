@@ -331,6 +331,18 @@ export function NoMatch() {
     );
 }
 
+// What a region says while the snapshot leg that feeds it failed: its rows may be missing, so neither its
+// absence sentence nor its count can be trusted.
+export const couldNotRead = (what: string) => `Couldn't read ${what} in this snapshot.`;
+
+export function LegMissing({ what }: { what: string }) {
+    return (
+        <span data-jarvis-brief-missing className="px-[11px] py-1 font-mono text-[10.5px] text-asking">
+            {couldNotRead(what)}
+        </span>
+    );
+}
+
 // An initiative's name and its id are the two things you carry out of the Brief — into a prompt, a
 // `wsh effort` call, a message to someone. The row is a button, so neither could be dragged out of it:
 // a mousedown inside a button starts a click, not a text selection. The expanded detail's id line
@@ -442,7 +454,13 @@ export function BriefRunRow({
             selected={selected}
             onOpenSheet={onOpenSheet}
             onOpenChunk={() => onOpenChunk(face.effortOref, face.chunk)}
-            onAnswer={() => onOpenSheet?.()}
+            onAnswer={() => {
+                if (face.answer === "agent" && line.agentId != null) {
+                    jumpToAgent(model, line.agentId);
+                } else if (face.answer === "sheet") {
+                    onOpenSheet?.();
+                }
+            }}
             onOpenAgent={() => {
                 const worker = run != null ? leadWorker(run, agents) : undefined;
                 const id = worker?.id ?? line.agentId;
@@ -453,7 +471,8 @@ export function BriefRunRow({
                 jumpToAgent(model, id);
             }}
             onStop={() =>
-                run != null && confirmCancelRun(run.channeloid ?? "", run.id, liveWorkers(run, agents).length)
+                run != null &&
+                confirmCancelRun(run.channeloid ?? "", run.id, liveWorkers(run, agents).length, briefUndo.error)
             }
         />
     );

@@ -7,6 +7,7 @@
 // out of production builds (only reachable through the briefingFixtureAtom seam, which import.meta.env.DEV
 // gates).
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
+import { missingLegs, SHIPPED_CAP } from "./briefingmodel";
 import type { BriefingLoadState } from "./briefingstore";
 
 export type BriefingFixtureName = "normal" | "attention" | "empty" | "partial" | "failed" | "act" | "review";
@@ -169,9 +170,14 @@ const attentionState: WorkState = {
     efforts: EFFORT_FIXTURES,
 };
 
+// the runs and efforts legs failed: the server degrades each to empty and says so in sources
 const partialState: WorkState = {
-    projects: normalState.projects,
-    sources: { runs: false, sessions: true, dossiers: true, efforts: true, attention: "volatile" },
+    projects: normalState.projects.map((p) => ({
+        ...p,
+        active: (p.active ?? []).filter((a) => a.kind !== "run"),
+        shipped: [],
+    })),
+    sources: { runs: false, sessions: true, dossiers: true, efforts: false, attention: "volatile" },
 };
 
 const emptyState: WorkState = {
@@ -180,7 +186,12 @@ const emptyState: WorkState = {
 };
 
 const loaded = (state: WorkState): BriefingLoadState => ({
-    snapshot: { state, queryStartedAt: NOW, actualCursor: NOW - 7 * DAY, complete: true },
+    snapshot: {
+        state,
+        queryStartedAt: NOW,
+        actualCursor: NOW - 7 * DAY,
+        complete: missingLegs(state.sources).length === 0,
+    },
     loading: false,
     error: null,
 });
@@ -394,6 +405,27 @@ const reviewAttention: AttentionItem[] = [
         waitingsince: NOW - HOUR,
     },
 ];
+// Runs: twelve orchestrator runs a week quiet beside two live quick runs, so the kind chips and the head's
+// "N live" can disagree (F15), and an asking direct agent whose Answer goes to the agent (F6)
+const reviewRuns = (n: number, tag: string, mode: string, age: number): ActiveWorkItem[] =>
+    Array.from({ length: n }, (_, i) => ({
+        project: REVIEW_PROJECT,
+        kind: "run",
+        title: `Review ${tag} ${mode} run ${i + 1}`,
+        detail: "status: executing",
+        ts: NOW - age - i * MIN,
+        navtarget: `run:r-review-${tag}-${i + 1}`,
+        mode,
+    }));
+const REVIEW_ASKER: AgentVM = {
+    id: "tab-review-asker",
+    name: "review asker",
+    task: "pick the first tenant",
+    state: "asking",
+    agent: "claude",
+    project: "waveterm",
+    blockedMs: 5 * MIN,
+};
 const reviewState: WorkState = {
     projects: [
         {
@@ -409,7 +441,7 @@ const reviewState: WorkState = {
         },
         {
             project: REVIEW_PROJECT,
-            active: [],
+            active: [...reviewRuns(12, "stale", "orchestrator", 10 * DAY), ...reviewRuns(2, "live", "quick", 20 * MIN)],
             shipped: [
                 {
                     project: REVIEW_PROJECT,
@@ -419,6 +451,15 @@ const reviewState: WorkState = {
                     completedts: NOW - 3 * HOUR,
                     mode: "quick",
                 },
+                // past Shipped's cap, for the run sheet to step into its fold (F16)
+                ...Array.from({ length: SHIPPED_CAP + 1 }, (_, i) => ({
+                    project: REVIEW_PROJECT,
+                    runoid: `r-review-shipped-${i + 1}`,
+                    goal: `Review shipped run ${i + 1}`,
+                    summary: "shipped for the review fixture",
+                    completedts: NOW - (4 + i) * HOUR,
+                    mode: "quick",
+                })),
             ],
             events: [],
             delta: [
@@ -456,5 +497,5 @@ export const BRIEFING_FIXTURES: Record<BriefingFixtureName, BriefingFixture> = {
     partial: { load: loaded(partialState), agents, attention: [] },
     failed: { load: { snapshot: null, loading: false, error: "fixture failure" }, agents: [], attention: [] },
     act: { load: loaded(actState), agents: [], attention: [] },
-    review: { load: loaded(reviewState), agents: [], attention: reviewAttention },
+    review: { load: loaded(reviewState), agents: [REVIEW_ASKER], attention: reviewAttention },
 };

@@ -100,6 +100,8 @@ export interface ActiveWorkRow {
     name: string;
     meta: string;
     chip: { label: string; tone: "blocked" | "asking" | "running" | "muted" } | null;
+    // a run's snapshot mode, "" for the other kinds: its type badge before the live Run loads
+    mode: string;
     ts: number;
 }
 
@@ -465,6 +467,7 @@ export function mergeActiveWork(input: {
                 r.status === "blocked"
                     ? { label: "blocked", tone: "blocked" as const }
                     : { label: r.status || "running", tone: "running" as const },
+            mode: r.mode,
             ts: r.ts,
         })),
         ...input.blockers.map((b) => ({
@@ -474,6 +477,7 @@ export function mergeActiveWork(input: {
             name: b.objective,
             meta: b.blockers,
             chip: b.project == null ? { label: "Unscoped record", tone: "muted" as const } : null,
+            mode: "",
             ts: b.ts,
         })),
         ...input.directAgents.map((a) => ({
@@ -483,11 +487,12 @@ export function mergeActiveWork(input: {
             name: a.name + " · " + (a.task || a.name),
             meta: [a.runtime, a.project].filter(Boolean).join(" · "),
             chip: { label: a.state, tone: a.state === "asking" ? ("asking" as const) : ("running" as const) },
+            mode: "",
             ts: a.startedTs,
         })),
     ];
-    return rows
-        .sort((x, y) => {
+    return uniqueKeys(
+        rows.sort((x, y) => {
             const s = (r: ActiveWorkRow) =>
                 r.kind === "blocker" || (r.chip != null && (r.chip.tone === "blocked" || r.chip.tone === "asking"))
                     ? 0
@@ -507,11 +512,50 @@ export function mergeActiveWork(input: {
             }
             return x.key < y.key ? -1 : x.key > y.key ? 1 : 0;
         })
-        .map((r, i) => ({ ...r, key: r.key + ":" + i }));
+    );
+}
+
+// A key names the thing, never where it sits: a position suffix moved every later row's id when a row arrived
+// above it, so the cursor fell back to the first row and the rest replayed their entrance. Only rows that share a
+// key (run items with no navtarget all read "run:") take their ts, then an ordinal among the identical ones.
+function uniqueKeys(rows: ActiveWorkRow[]): ActiveWorkRow[] {
+    const counted = (keys: string[]) => {
+        const n = new Map<string, number>();
+        for (const k of keys) {
+            n.set(k, (n.get(k) ?? 0) + 1);
+        }
+        return n;
+    };
+    const byKey = counted(rows.map((r) => r.key));
+    const timed = rows.map((r) => ((byKey.get(r.key) ?? 0) > 1 ? r.key + ":" + r.ts : r.key));
+    const byTimed = counted(timed);
+    const seen = new Map<string, number>();
+    return rows.map((r, i) => {
+        let key = timed[i];
+        if ((byTimed.get(key) ?? 0) > 1) {
+            const ordinal = seen.get(key) ?? 0;
+            seen.set(key, ordinal + 1);
+            key += ":" + ordinal;
+        }
+        return key === r.key ? r : { ...r, key };
+    });
+}
+
+export type SourceLeg = "Runs" | "Records" | "Initiatives";
+
+// The legs a partial snapshot could not read, in the order the Brief names them. Sessions is left out: the Brief
+// projects no row from it, and a cold transcript scan reports it incomplete on routine launches.
+export function missingLegs(sources: SourceHealth): SourceLeg[] {
+    const legs: [boolean, SourceLeg][] = [
+        [sources.runs, "Runs"],
+        [sources.dossiers, "Records"],
+        [sources.efforts, "Initiatives"],
+    ];
+    return legs.filter(([ok]) => ok !== true).map(([, leg]) => leg);
 }
 export interface SourceHealthSummary {
     complete: boolean;
-    missingLegs: string[];
+    missingLegs: SourceLeg[];
     attentionState: string;
 }
 export interface BriefingModel {
@@ -679,13 +723,7 @@ export function projectBriefing(input: BriefingModelInput): BriefingModel {
         mode: s.mode ?? "",
     }));
 
-    const missingLegs: string[] = [];
-    if (state.sources.runs !== true) {
-        missingLegs.push("Runs");
-    }
-    if (state.sources.dossiers !== true) {
-        missingLegs.push("Records");
-    }
+    const missing = missingLegs(state.sources);
 
     // efforts: non-archived only, newest-updated first (the wire already sorts; the defensive sort
     // keeps the projection total regardless of server ordering).
@@ -701,7 +739,7 @@ export function projectBriefing(input: BriefingModelInput): BriefingModel {
         delta,
         shipped,
         efforts: effortCards,
-        health: { complete: missingLegs.length === 0, missingLegs, attentionState: state.sources.attention },
+        health: { complete: missing.length === 0, missingLegs: missing, attentionState: state.sources.attention },
         counts: { runs: activeRuns.length, agents: directAgents.length, delta: delta.length, shipped: shipped.length },
     };
 }

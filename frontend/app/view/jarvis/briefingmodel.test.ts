@@ -14,6 +14,7 @@ import {
     EFFORT_CAP,
     groupDelta,
     mergeActiveWork,
+    missingLegs,
     projectBriefing,
     queueAction,
     queueActions,
@@ -742,6 +743,16 @@ describe("briefing projection fields", () => {
         });
     });
 
+    it("names a missing efforts leg as Initiatives, and a missing sessions leg not at all", () => {
+        const health = (over: Partial<SourceHealth>) => {
+            const state = workState([]);
+            state.sources = { ...state.sources, ...over };
+            return projectBriefing(input(state)).health;
+        };
+        expect(health({ efforts: false })).toMatchObject({ complete: false, missingLegs: ["Initiatives"] });
+        expect(health({ sessions: false })).toMatchObject({ complete: true, missingLegs: [] });
+    });
+
     it("orders the efforts newest-updated first whatever order the wire sent", () => {
         const effortAt = (title: string, updatedts: number) => ({
             oref: `effort:${title}`,
@@ -974,6 +985,50 @@ describe("unified active work", () => {
             directAgents: [],
         });
         expect(rows.map((r) => r.oref)).toEqual(["run:a", "run:z"]);
+    });
+
+    it("a run row's key does not change when an asking agent arrives above it", () => {
+        const runs = [run({ oref: "run:a", ts: T0 - HOUR }), run({ oref: "run:b", ts: T0 - 2 * HOUR })];
+        const keys = (rows: ReturnType<typeof mergeActiveWork>) =>
+            rows.filter((r) => r.kind === "run").map((r) => [r.oref, r.key]);
+        const before = mergeActiveWork({ activeRuns: runs, blockers: [], directAgents: [] });
+        const after = mergeActiveWork({
+            activeRuns: runs,
+            blockers: [],
+            directAgents: [agentRow({ state: "asking" })],
+        });
+        expect(after[0].kind).toBe("agent");
+        expect(keys(after)).toEqual(keys(before));
+        expect(keys(after)).toEqual([
+            ["run:a", "run:run:a"],
+            ["run:b", "run:run:b"],
+        ]);
+    });
+
+    it("keeps colliding run keys unique without their position", () => {
+        // a run item with no navtarget reads oref "run:", so all four share one key; two share a ts too
+        const blank = (goal: string, ts: number) => run({ oref: "run:", oid: "", goal, ts });
+        const runs = [
+            blank("one", T0 - HOUR),
+            blank("two", T0 - 2 * HOUR),
+            blank("three", T0 - 3 * HOUR),
+            blank("four", T0 - 3 * HOUR),
+        ];
+        const keys = (rows: ReturnType<typeof mergeActiveWork>) =>
+            Object.fromEntries(rows.filter((r) => r.oref === "run:").map((r) => [r.name, r.key]));
+        const before = keys(mergeActiveWork({ activeRuns: runs, blockers: [], directAgents: [] }));
+        expect(new Set(Object.values(before)).size).toBe(4);
+        expect(before.one).toBe(`run:run::${T0 - HOUR}`);
+        expect([before.three, before.four]).toEqual([`run:run::${T0 - 3 * HOUR}:0`, `run:run::${T0 - 3 * HOUR}:1`]);
+        // a roster change elsewhere: a newer run and an asking agent sort above all four
+        const after = keys(
+            mergeActiveWork({
+                activeRuns: [run({ oref: "run:new", ts: T0 }), ...runs],
+                blockers: [],
+                directAgents: [agentRow({ state: "asking" })],
+            })
+        );
+        expect(after).toEqual(before);
     });
 
     it("stays deterministic when timestamps collide", () => {
@@ -1603,5 +1658,25 @@ describe("effectiveCursor", () => {
     it("reads the snapshot's cursor when no visit cursor is stored", () => {
         expect(effectiveCursor(T0, null)).toBe(T0);
         expect(effectiveCursor(T0, undefined)).toBe(T0);
+    });
+});
+
+describe("missingLegs", () => {
+    const all: SourceHealth = { runs: true, sessions: true, dossiers: true, efforts: true, attention: "volatile" };
+
+    it("names each leg the snapshot could not read, in order", () => {
+        expect(missingLegs(all)).toEqual([]);
+        expect(missingLegs({ ...all, runs: false })).toEqual(["Runs"]);
+        expect(missingLegs({ ...all, dossiers: false })).toEqual(["Records"]);
+        expect(missingLegs({ ...all, efforts: false })).toEqual(["Initiatives"]);
+        expect(missingLegs({ ...all, runs: false, dossiers: false, efforts: false })).toEqual([
+            "Runs",
+            "Records",
+            "Initiatives",
+        ]);
+    });
+
+    it("names nothing for a missing sessions leg: the Brief draws no row from it", () => {
+        expect(missingLegs({ ...all, sessions: false })).toEqual([]);
     });
 });

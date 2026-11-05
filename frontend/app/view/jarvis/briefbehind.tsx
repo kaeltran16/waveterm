@@ -7,7 +7,7 @@
 import { cn } from "@/util/util";
 import { SHIPPED_CAP } from "./briefingmodel";
 import { markBriefingSeen } from "./briefingstore";
-import { MoreControl, NoMatch, RegionHead, REGIONS, runKindFilter } from "./briefprimitives";
+import { LegMissing, MoreControl, NoMatch, RegionHead, REGIONS, runKindFilter } from "./briefprimitives";
 import { SHIPPED_LABEL, type BriefLine, type LineGroup, type LineTarget, type RunKindFilter } from "./briefrows";
 import { DeltaRowView, ShippedRowView } from "./briefrowviews";
 import { MONO_FAINT } from "./briefstyle";
@@ -26,6 +26,7 @@ export function BehindRegion({
     expanded,
     onToggleMore,
     shippedTotal,
+    shippedMissing,
     shippedLines,
     shippedKind,
     onShippedKind,
@@ -52,6 +53,8 @@ export function BehindRegion({
     onToggleMore: () => void;
     // every shipped run the kind filter keeps, before the cap
     shippedTotal: number;
+    // the snapshot could not read the runs leg, which Shipped is read from
+    shippedMissing: boolean;
     shippedLines: BriefLine[];
     shippedKind: RunKindFilter;
     onShippedKind: (k: RunKindFilter) => void;
@@ -118,7 +121,8 @@ export function BehindRegion({
                     ) : null}
                 </div>
                 {shippedFilter.menu ? null : <div className="px-[11px] pb-1">{shippedFilter.node}</div>}
-                {shippedTotal === 0 ? (
+                {shippedMissing ? <LegMissing what="shipped runs" /> : null}
+                {shippedTotal === 0 && !shippedMissing ? (
                     <div className="px-[11px] py-[7px] text-[12.5px] text-ink-mid">
                         {shippedKind === "all"
                             ? "Nothing shipped in the last seven days."

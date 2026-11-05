@@ -12,6 +12,7 @@ import {
     TREE_RAIL_LEAD_ID,
     arrangeFixtureRun,
     closeProfile,
+    failRpc,
     floorDetail,
     floorOk,
     floorStep,
@@ -4330,6 +4331,22 @@ const actQueueRow = (label) =>
     `[...document.querySelectorAll('[data-jarvis-brief-row="queue"]')].find((r) => (r.innerText || "").includes(${JSON.stringify(label)}))`;
 const actText = (el) => `((${el})?.innerText || "").replace(/\\s+/g, " ").trim()`;
 
+// lookEval prelude for steps 21-27: the store, the Brief's list-nav controller and the review fixture's roster. The
+// roster is read at render, so swapping it and writing any atom the Brief reads re-renders on the same snapshot.
+const ACT_BRIEF_LIB = `
+    const { globalStore } = await mod("app/store/jotaiStore.ts");
+    const { listNavAtom } = await mod("app/store/keybindings/listnav.ts");
+    const { settledChunksAtom } = await mod("app/view/jarvis/briefundo.ts");
+    const fx = (await mod("app/view/jarvis/briefingfixtures.ts")).BRIEFING_FIXTURES.review;
+    const setAgents = async (agents) => {
+        fx.agents = agents;
+        globalStore.set(settledChunksAtom, new Map(globalStore.get(settledChunksAtom)));
+        await nap(60);
+    };
+    const scroll = document.querySelector('[data-jarvis-brief-scroll]');
+    const cursorRow = () => document.querySelector('[data-jarvis-brief-cursor="true"]');
+`;
+
 async function actFixture(h, name) {
     await lookEval(h, `
         const { briefingFixtureAtom } = await mod("app/view/jarvis/briefingstore.ts");
@@ -4385,6 +4402,9 @@ export const briefAct = {
                     { op: "setChunkStatus", chunk: "act-settle", status: "blocked", note: "needs: a settle check" },
                 ],
             });
+            // a real run: its channel hosts the run sheet of step 24, and step 27 stops it
+            ctx.cwd = mkdtempSync(join(tmpdir(), "verify-brief-act-"));
+            await arrangeFixtureRun(h, ctx, "brief-act", "brief-act lead");
         } catch (e) {
             ctx.arrangeError = String(e?.message ?? e);
         }
@@ -4583,7 +4603,7 @@ export const briefAct = {
         await h.shot("cdp-shots/brief-act-behind.png");
 
         // 10. the pet: the rows end with its reach of room so the last row scrolls clear of it, and Where we
-        // were closes once the rows are scrolled
+        // were closes once the rows are scrolled by hand (a wheel; a scroll alone no longer closes it, F20)
         const pet = await lookEval(h, `
             const { globalStore } = await mod("app/store/jotaiStore.ts");
             const { petBubbleAtom } = await mod("app/view/jarvis/petstore.ts");
@@ -4597,7 +4617,7 @@ export const briefAct = {
             await nap(200);
             const shown = globalStore.get(petBubbleAtom) != null;
             scroll.scrollTop = 0;
-            scroll.dispatchEvent(new Event("scroll"));
+            scroll.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -120 }));
             await nap(200);
             return {
                 pad: parseFloat(getComputedStyle(scroll).paddingBottom),
@@ -4609,7 +4629,7 @@ export const briefAct = {
             };
         `);
         steps.push({
-            step: "10. the Brief's last row scrolls clear of the pet, and Where we were closes on scroll",
+            step: "10. F20: the Brief's last row scrolls clear of the pet, and Where we were closes on a wheel",
             ok:
                 pet.pad >= 124 &&
                 pet.lastBottom != null &&
@@ -4819,10 +4839,267 @@ export const briefAct = {
             ok: seen.before > 0 && seen.emptied && unseen.back,
             detail: JSON.stringify({ ...seen, unseen }),
         });
+
+        // 21-27: the 11-05 code review's Runs, snapshot and pet findings. The review fixture's Runs: an asking direct
+        // agent above two live quick runs and twelve week-quiet orchestrator runs, and Shipped past its cap.
+        await actFixture(h, "review");
+        await actFilter(h, "");
+        const sessionRows = `[...document.querySelectorAll('[data-jarvis-brief-region="sessions"] [data-jarvis-brief-row="session"]')]`;
+        const LIVE_RUN = "sessions:run:run:r-review-live-2";
+        const f5 = await lookEval(h, `${ACT_BRIEF_LIB}
+            window.__briefActAgents ??= fx.agents;
+            await setAgents([]);
+            await nap(400);
+            globalStore.get(listNavAtom)?.setCursor(${JSON.stringify(LIVE_RUN)});
+            await nap(400);
+            const before = { cursor: flat(cursorRow()), top: scroll.scrollTop };
+            await setAgents(window.__briefActAgents);
+            // an entrance replay starts from opacity 0, so 60ms in it still reads below 1
+            const row = cursorRow();
+            const opacity = row != null ? Number(getComputedStyle(row.parentElement).opacity) : null;
+            await nap(400);
+            const names = ${sessionRows}.map(flat);
+            return {
+                before,
+                after: { cursor: flat(cursorRow()), top: scroll.scrollTop },
+                opacity,
+                asker: names.findIndex((t) => t.includes("review asker")),
+                live: names.findIndex((t) => t.includes("Review live quick run 2")),
+            };
+        `);
+        steps.push({
+            step: "21. F5: an asking agent arriving above a Runs row leaves the cursor and the scroll where they were, with no entrance replay",
+            ok:
+                f5.before.cursor.includes("Review live quick run 2") &&
+                f5.after.cursor === f5.before.cursor &&
+                f5.after.top === f5.before.top &&
+                f5.opacity === 1 &&
+                f5.asker >= 0 &&
+                f5.asker < f5.live,
+            detail: JSON.stringify(f5),
+        });
+        await h.shot("cdp-shots/brief-act-21-stable-key.png");
+
+        // 22. the asking agent's Answer goes to the Agent surface on that agent; a run whose Run has not loaded keeps
+        // its run badge
+        const f6 = await lookEval(h, `${ACT_BRIEF_LIB}
+            const brief = document.querySelector('[data-jarvis-region="brief"]');
+            const fk = brief && Object.keys(brief).find((k) => k.startsWith("__reactFiber$"));
+            let model = null;
+            for (let f = fk ? brief[fk] : null; f && model == null; f = f.return) {
+                if (f.memoizedProps?.model?.focusIdAtom) model = f.memoizedProps.model;
+            }
+            const rows = ${sessionRows};
+            const asker = rows.find((r) => flat(r).includes("review asker"));
+            const live = rows.find((r) => flat(r).includes("Review live quick run 1"));
+            const liveBadge = flat([...(live?.querySelectorAll("span") ?? [])].find((s) => s.className.includes("rounded-[5px]")));
+            button(asker, /^Answer$/)?.click();
+            await until(() => model != null && globalStore.get(model.surfaceAtom) === "agent", 3000);
+            return {
+                model: model != null,
+                answer: button(asker, /^Answer$/) != null || !document.contains(asker),
+                liveBadge,
+                focus: model != null ? globalStore.get(model.focusIdAtom) : null,
+                surface: model != null ? globalStore.get(model.surfaceAtom) : null,
+            };
+        `);
+        await h.shot("cdp-shots/brief-act-22-answer-agent.png");
+        steps.push({
+            step: "22. F6: an asking direct agent's Answer lands on the Agent surface with that agent focused; an unloaded run keeps its run badge",
+            ok: f6.focus === "tab-review-asker" && f6.surface === "agent" && f6.liveBadge === "quick run",
+            detail: JSON.stringify(f6),
+        });
+        await h.goto("jarvis");
+        await h.ev("new Promise((r) => setTimeout(r, 700))");
+
+        // 23. the kind chips count what the head's N live counts, not the week-quiet runs behind the fold
+        const f15 = await h.ev(`(() => {
+            const sec = document.querySelector('[data-jarvis-brief-region="sessions"]');
+            const t = (el) => (el?.innerText || "").replace(/\\s+/g, " ").trim();
+            const chip = (k) => t(sec?.querySelector('[data-jarvis-run-kind] [data-filter-option="' + k + '"]'));
+            return { head: t(sec?.firstElementChild), all: chip("all"), orchestrator: chip("orchestrator"), quick: chip("quick") };
+        })()`);
+        const chipN = (s) => Number(/(\d+)\s*$/.exec(s ?? "")?.[1] ?? NaN);
+        const liveN = Number(/(\d+) live/.exec(f15.head)?.[1] ?? NaN);
+        steps.push({
+            step: "23. F15: the all chip counts the runs the head's N live counts, not the 12 stale ones",
+            ok: liveN === 3 && chipN(f15.all) === liveN && chipN(f15.orchestrator) === 0 && chipN(f15.quick) === 2,
+            detail: JSON.stringify(f15),
+        });
+        await h.ev(`document.querySelector('[data-jarvis-brief-region="sessions"]')?.scrollIntoView({ block: "start" })`);
+        await h.shot("cdp-shots/brief-act-23-live-chips.png");
+
+        // 24. a run sheet on a shipped run steps through all of Shipped: the fourth run opens Shipped's fold and sits
+        // under the cursor. The fixture's runs exist only on this page, so they ride a real channel's run list, and
+        // the scenario lands the sheet on each one as the router would.
+        const SHIPPED_RUNS = ["r-review-shipped", ...Array.from({ length: 4 }, (_, i) => `r-review-shipped-${i + 1}`)];
+        await h.ev(`[...document.querySelectorAll('[data-jarvis-brief-shipped-more]')].find((b) => /show less/.test(b.innerText))?.click()`);
+        const f16 = await lookEval(h, `${ACT_BRIEF_LIB}
+            const ch = ${JSON.stringify(ctx.channelId ?? "")};
+            const ids = ${JSON.stringify(SHIPPED_RUNS)};
+            const { activeChannelIdAtom, activeChannelAtom, activeChannelRunsAtom } = await mod("app/view/agents/channelsstore.ts");
+            const { activeSubjectAtom, activeRunIdAtom } = await mod("app/view/jarvis/jarvissubjectstore.ts");
+            const { briefSheetOpenAtom, briefRunListAtom } = await mod("app/view/jarvis/jarvisstore.ts");
+            globalStore.set(activeChannelIdAtom, ch);
+            const loaded = await until(() => globalStore.get(activeChannelAtom) != null && globalStore.get(activeChannelRunsAtom).length > 0, 15000);
+            const real = globalStore.get(activeChannelRunsAtom)[0];
+            globalStore.set(activeChannelRunsAtom, ids.map((id) => ({ ...real, id, status: "done", mode: "quick" })));
+            globalStore.set(activeRunIdAtom, { [ch]: ids[0] });
+            globalStore.set(activeSubjectAtom, { kind: "channel", id: ch });
+            globalStore.set(briefSheetOpenAtom, true);
+            await nap(700);
+            const behind = document.querySelector('[data-jarvis-brief-region="behind"]');
+            const shippedHead = [...(behind?.querySelectorAll("div") ?? [])].find((d) => d.firstElementChild?.textContent === "Shipped · 7 days");
+            const list = globalStore.get(briefRunListAtom);
+            const navN = globalStore.get(listNavAtom)?.navigableIds.length ?? 0;
+            const stepped = [];
+            for (let i = 1; i <= 3; i++) {
+                const c = globalStore.get(listNavAtom);
+                const next = c.navigableIds[c.navigableIds.indexOf(c.cursorId) + 1];
+                stepped.push(next);
+                c.setCursor(next);
+                globalStore.set(activeRunIdAtom, { [ch]: ids[i] });
+                await nap(500);
+            }
+            const cur = cursorRow();
+            return {
+                loaded,
+                list,
+                head: flat(shippedHead?.children[1]),
+                navN,
+                stepped,
+                cursor: flat(cur),
+                cursorRow: cur?.dataset.jarvisBriefRow ?? null,
+                fold: flat(behind?.querySelector('[data-jarvis-brief-shipped-more]')),
+                drawn: behind?.querySelectorAll('[data-jarvis-brief-row="shipped"]').length ?? 0,
+            };
+        `);
+        await h.ev(`document.querySelector('[data-jarvis-brief-cursor="true"]')?.scrollIntoView({ block: "center" })`);
+        await h.shot("cdp-shots/brief-act-24-shipped-fold.png");
+        await lookEval(h, `
+            const { globalStore } = await mod("app/store/jotaiStore.ts");
+            const { activeChannelIdAtom } = await mod("app/view/agents/channelsstore.ts");
+            const { clearSubject } = await mod("app/view/jarvis/jarvissubjectstore.ts");
+            const { briefSheetOpenAtom } = await mod("app/view/jarvis/jarvisstore.ts");
+            globalStore.set(briefSheetOpenAtom, false);
+            clearSubject();
+            globalStore.set(activeChannelIdAtom, undefined);
+            await nap(400);
+        `);
+        await h.ev(`[...document.querySelectorAll('[data-jarvis-brief-shipped-more]')].find((b) => /show less/.test(b.innerText))?.click()`);
+        steps.push({
+            step: "24. F16: a run sheet on a shipped run counts all of Shipped, and stepping to the fourth run opens Shipped's fold under the cursor",
+            ok:
+                ctx.arrangeError == null &&
+                f16.loaded &&
+                JSON.stringify(f16.list) === JSON.stringify(SHIPPED_RUNS) &&
+                Number(f16.head) === SHIPPED_RUNS.length &&
+                f16.navN === SHIPPED_RUNS.length &&
+                f16.cursorRow === "shipped" &&
+                f16.cursor.includes("Review shipped run 3") &&
+                f16.fold === "show less" &&
+                f16.drawn === SHIPPED_RUNS.length,
+            detail: ctx.arrangeError ?? JSON.stringify(f16),
+        });
+
+        // 25. a partial snapshot says which legs it could not read, and the regions they feed say so instead of
+        // claiming nothing is there
+        await actFixture(h, "partial");
+        const f10 = await h.ev(`(() => {
+            const t = (s) => (document.querySelector(s)?.innerText || "").replace(/\\s+/g, " ").trim();
+            return {
+                band: t('[data-jarvis-brief-band="partial"]'),
+                retry: document.querySelector('[data-jarvis-brief-partial-retry]') != null,
+                runs: t('[data-jarvis-brief-region="sessions"]'),
+                behind: t('[data-jarvis-brief-region="behind"]'),
+                initiatives: t('[data-jarvis-brief-region="initiatives"]'),
+            };
+        })()`);
+        await h.shot("cdp-shots/brief-act-25-partial.png");
+        steps.push({
+            step: "25. F10: a partial snapshot shows a band naming Runs and Initiatives with Retry, and Runs, Shipped and Initiatives say they couldn't be read",
+            ok:
+                /Partial snapshot: couldn't read Runs, Initiatives\./.test(f10.band) &&
+                /Retry/.test(f10.band) &&
+                f10.retry &&
+                /couldn't read runs/i.test(f10.runs) &&
+                /couldn't read shipped runs/i.test(f10.behind) &&
+                !/nothing shipped/i.test(f10.behind) &&
+                /couldn't read initiatives/i.test(f10.initiatives) &&
+                !/no initiative is active/i.test(f10.initiatives),
+            detail: JSON.stringify(f10),
+        });
+
+        // 26. a cursor move that scrolls the rows is not the user moving on: Where we were stays open. The stale fold
+        // is opened first so the last row sits below the fold.
+        await actFixture(h, "review");
+        await h.ev(`document.querySelector('[data-jarvis-brief-stale][aria-expanded="false"]')?.click()`);
+        const f20 = await lookEval(h, `${ACT_BRIEF_LIB}
+            const { petBubbleAtom } = await mod("app/view/jarvis/petstore.ts");
+            scroll.scrollTop = 0;
+            await nap(300);
+            globalStore.set(petBubbleAtom, { id: "resume:brief-act:2", at: 2, kind: "resume", text: "Where we were — verify" });
+            await nap(200);
+            const shown = globalStore.get(petBubbleAtom) != null;
+            const top0 = scroll.scrollTop;
+            const ids = globalStore.get(listNavAtom)?.navigableIds ?? [];
+            globalStore.get(listNavAtom)?.setCursor(ids[ids.length - 1]);
+            await nap(600);
+            return { shown, top0, top: scroll.scrollTop, open: globalStore.get(petBubbleAtom) != null };
+        `);
+        await h.shot("cdp-shots/brief-act-26-bubble-stays.png");
+        await lookEval(h, `
+            const { globalStore } = await mod("app/store/jotaiStore.ts");
+            const { petBubbleAtom } = await mod("app/view/jarvis/petstore.ts");
+            globalStore.set(petBubbleAtom, null);
+        `);
+        await h.ev(`document.querySelector('[data-jarvis-brief-stale][aria-expanded="true"]')?.click()`);
+        steps.push({
+            step: "26. F20: a cursor move that scrolls the rows with no key or pointer event leaves Where we were open",
+            ok: f20.shown && f20.top > f20.top0 && f20.open,
+            detail: JSON.stringify(f20),
+        });
+
+        // 27. live: a Stop the server refuses shows the reason in an error toast, and the run still reads as before
+        await actFixture(h, null);
+        const stopRow = `[...document.querySelectorAll('[data-jarvis-brief-region="sessions"] [data-jarvis-brief-row="session"]')].find((r) => (r.innerText || "").includes("verify brief-act: do nothing"))`;
+        const STOP_REFUSED = "verify: the cancel was refused";
+        const f22before = await lookEval(h, `
+            (await mod("app/view/jarvis/briefingstore.ts")).refreshBriefing();
+            const found = await until(() => ${stopRow}?.querySelector('button[title="Stop this session"]') != null, 60000);
+            return { found, text: flat(${stopRow}) };
+        `);
+        await failRpc(h, "CancelRunCommand", STOP_REFUSED);
+        const f22 = await lookEval(h, `
+            ${stopRow}?.querySelector('button[title="Stop this session"]')?.click();
+            await nap(300);
+            button(dialog(), /^Cancel run$/)?.click();
+            await until(() => document.querySelector('[data-jarvis-brief-toast="error"]') != null, 5000);
+            await nap(300);
+            return {
+                toast: flat(document.querySelector('[data-jarvis-brief-toast]')),
+                error: document.querySelector('[data-jarvis-brief-toast="error"]') != null,
+                text: flat(${stopRow}),
+            };
+        `);
+        await h.shot("cdp-shots/brief-act-27-stop-refused.png");
+        await releaseRpc(h, "CancelRunCommand");
+        steps.push({
+            step: "27. F22: a Stop the server refuses shows an error toast with its message, and the run row still reads running",
+            ok:
+                ctx.arrangeError == null &&
+                f22before.found &&
+                f22.error &&
+                f22.toast.includes(STOP_REFUSED) &&
+                f22.text === f22before.text &&
+                !/stopped/.test(f22.text),
+            detail: ctx.arrangeError ?? JSON.stringify({ before: f22before, ...f22 }),
+        });
         return steps;
     },
     async teardown(h, ctx) {
         await releaseRpc(h, "AckRunCommand").catch(() => {});
+        await releaseRpc(h, "CancelRunCommand").catch(() => {});
         await actFilter(h, "").catch(() => {});
         await actFixture(h, null).catch(() => {});
         await h.cdp("Emulation.clearDeviceMetricsOverride").catch(() => {});
@@ -4831,5 +5108,7 @@ export const briefAct = {
                 console.error(`brief-act teardown: delete the initiative failed: ${e?.message ?? e}`);
             });
         }
+        // the channel, its run and the temp dir; it reloads, which also drops the review fixture's swapped roster
+        if (ctx?.cwd != null) await teardownFixtureRun(h, ctx, "brief-act");
     },
 };
