@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { resmonOpenAtom } from "@/app/cockpit/resmonstore";
+import { imageZoomOpenAtom } from "@/app/element/imagezoommodel";
 import { anyModalOpen } from "@/app/modals/modalstack";
 import { contextMenuAtom } from "@/app/store/contextmenu";
 import { globalStore } from "@/app/store/jotaiStore";
@@ -113,6 +114,8 @@ export function deriveKeyContext(): KeyContext {
         globalStore.get(petPeekOpenAtom) ||
         // the Final check viewer over the run sheet: its arrows and Escape are its own, not the Brief's list
         globalStore.get(finalShotsViewerOpenAtom) ||
+        // the image zoom view: its Escape closes it, where the Code surface's would go back underneath it
+        globalStore.get(imageZoomOpenAtom) ||
         // the Resource Manager popover is window chrome too, and its arrows, Enter, x and Escape are surface keys
         globalStore.get(resmonOpenAtom) ||
         // a context menu moves its highlight with the arrows and closes on Escape; uncounted, the Brief's

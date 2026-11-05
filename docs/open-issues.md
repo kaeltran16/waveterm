@@ -48,7 +48,11 @@ Tracked in their own initiatives, not here:
 
 ## 2 · Blocked
 
-Nothing blocked.
+- **Code's image file view does not open the zoom view** (2026-11-05). Blocked on F22 of the Code review fixes
+  run (5638249e, Task 11), which renders image files in Code's `binary` case. Once it lands: give that `img` a
+  `cursor-zoom-in` click that sets a `ZoomImage` state, and render `<ImageZoom image={...} onClose={...} />`
+  (`frontend/app/element/imagezoom.tsx`) beside it, as `MarkdownPreview` in `codeviewer.tsx` does; add a step
+  to `code-image-zoom` that opens the PNG fixture and zooms it.
 
 ---
 

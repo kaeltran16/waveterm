@@ -249,9 +249,11 @@ function WaveBlock(props: WaveBlockProps) {
 const MarkdownImg = ({
     props,
     resolveOpts,
+    onClickImage,
 }: {
     props: React.ImgHTMLAttributes<HTMLImageElement>;
     resolveOpts: MarkdownResolveOpts;
+    onClickImage?: (src: string, alt: string) => void;
 }) => {
     const [resolvedSrc, setResolvedSrc] = useState<string>(props.src);
     const [resolvedSrcSet, setResolvedSrcSet] = useState<string>(props.srcSet);
@@ -302,7 +304,18 @@ const MarkdownImg = ({
         return <span>{resolvedStr}</span>;
     }
     if (resolvedSrc != null) {
-        return <img {...props} src={resolvedSrc} srcSet={resolvedSrcSet} />;
+        if (onClickImage == null) {
+            return <img {...props} src={resolvedSrc} srcSet={resolvedSrcSet} />;
+        }
+        return (
+            <img
+                {...props}
+                src={resolvedSrc}
+                srcSet={resolvedSrcSet}
+                onClick={() => onClickImage(resolvedSrc, props.alt ?? "")}
+                className={cn(props.className, "cursor-zoom-in")}
+            />
+        );
     }
     return <span>[img]</span>;
 };
@@ -317,6 +330,8 @@ type MarkdownProps = {
     onClickExecute?: (cmd: string) => void;
     // return true when the link was handled; false falls through to the external opener
     onClickLink?: (href: string) => boolean;
+    // opt-in: an image that resolved is clickable and reports its resolved src; unresolved ones stay text
+    onClickImage?: (src: string, alt: string) => void;
     resolveOpts?: MarkdownResolveOpts;
     scrollable?: boolean;
     rehype?: boolean;
@@ -338,6 +353,7 @@ const Markdown = memo(function Markdown({
     rehype = true,
     onClickExecute,
     onClickLink,
+    onClickImage,
 }: MarkdownProps) {
     const textAtomValue = useAtomValueSafe<string>(textAtom);
     const tocRef = useRef<TocItem[]>([]);
@@ -377,7 +393,9 @@ const Markdown = memo(function Markdown({
         h4: (props: React.HTMLAttributes<HTMLHeadingElement>) => <Heading props={props} hnum={4} />,
         h5: (props: React.HTMLAttributes<HTMLHeadingElement>) => <Heading props={props} hnum={5} />,
         h6: (props: React.HTMLAttributes<HTMLHeadingElement>) => <Heading props={props} hnum={6} />,
-        img: (props: React.HTMLAttributes<HTMLImageElement>) => <MarkdownImg props={props} resolveOpts={resolveOpts} />,
+        img: (props: React.HTMLAttributes<HTMLImageElement>) => (
+            <MarkdownImg props={props} resolveOpts={resolveOpts} onClickImage={onClickImage} />
+        ),
         source: (props: React.HTMLAttributes<HTMLSourceElement>) => (
             <MarkdownSource props={props} resolveOpts={resolveOpts} />
         ),
