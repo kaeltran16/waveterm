@@ -12,6 +12,7 @@ import {
     answerLine,
     designLabel,
     hasProsCons,
+    hiddenMockups,
     judgeWork,
     optionLetter,
     partBoards,
@@ -21,6 +22,7 @@ import {
     plural,
     progressView,
     questionBoardLayout,
+    questionSpikes,
     questionTrack,
     sentenceDiff,
     spikeUrl,
@@ -661,6 +663,7 @@ export function QuestionMain({
     openDesign,
     skip = true,
     findings,
+    openParts,
 }: {
     agent: AgentVM;
     s: BrainstormState;
@@ -671,6 +674,8 @@ export function QuestionMain({
     skip?: boolean;
     // notes the agent wrote since the user last saw the design, and the way to them: they sit behind the question
     findings?: { count: number; open: () => void };
+    // opens several parts at once; without it the link to hidden mockups opens the first
+    openParts?: (ids: string[]) => void;
 }) {
     const q = f.question!;
     const fresh = f.history.length === 0;
@@ -695,6 +700,7 @@ export function QuestionMain({
                             New findings · {findings.count}
                         </button>
                     ) : null}
+                    <HiddenMockupsLink f={f} s={s} judging={false} open={openParts ?? ((ids) => goTo(ids[0]))} />
                 </QuestionHead>
                 <SharedBoards shared={shared} heading={offers} />
                 <QuestionAnswers key={q.n} q={q} ans={ans} compact={false} rowBoards={rowBoards} />
@@ -737,7 +743,8 @@ export function QuestionMain({
     );
 }
 
-// the asked question's boards: shared draws over the rows, rowBoards(i) beside row i (judging: the approach rows)
+// the asked question's boards and spikes: shared draws over the rows, rowBoards(i) beside row i (judging: the
+// approach rows)
 function questionBoards(
     agentId: string,
     s: BrainstormState,
@@ -762,17 +769,39 @@ function questionBoards(
             compact
         />
     );
-    // a row with no board has no slot; an only board needs no caption, since the row's label names it
+    const spikes = questionSpikes(f, s.base, judging);
+    const links = (paths: string[] | undefined) =>
+        paths != null && paths.length > 0 ? <Spikes base={s.base!} canvas={f.canvas!} spikes={paths} /> : null;
+    // a row with nothing to show has no slot; an only board needs no caption, since the row's label names it
     const rowBoards = (i: number) => {
         const boards = layout?.rows[i] ?? [];
-        if (boards.length === 0) {
-            return null;
+        const live = links(spikes?.rows[i]);
+        const pics =
+            boards.length === 0
+                ? null
+                : boards.length === 1
+                  ? thumbs(boards, THUMB_W_QUESTION, null)
+                  : thumbs(boards, THUMB_W_ROW_SEVERAL, boardLabel);
+        if (live == null) {
+            return pics;
         }
-        return boards.length === 1
-            ? thumbs(boards, THUMB_W_QUESTION, null)
-            : thumbs(boards, THUMB_W_ROW_SEVERAL, boardLabel);
+        // as wide as the boards over it, so a long spike path wraps rather than widening the row
+        return (
+            <div className="flex w-min flex-col gap-[8px]" style={{ minWidth: THUMB_W_QUESTION }}>
+                {pics}
+                {live}
+            </div>
+        );
     };
-    const shared = layout != null && layout.shared.length > 0 ? thumbs(layout.shared, THUMB_W_QUESTION) : null;
+    const sharedBoards = layout != null && layout.shared.length > 0 ? thumbs(layout.shared, THUMB_W_QUESTION) : null;
+    const sharedSpikes = links(spikes?.shared);
+    const shared =
+        sharedBoards == null && sharedSpikes == null ? null : (
+            <>
+                {sharedBoards}
+                {sharedSpikes}
+            </>
+        );
     return { shared, rowBoards };
 }
 
@@ -785,6 +814,35 @@ function SharedBoards({ shared, heading }: { shared: ReactNode | null; heading: 
             {heading ? <h2 className={SECTION_HEAD}>For every answer</h2> : null}
             {shared}
         </div>
+    );
+}
+
+// a link over the question to the parts whose boards or spikes it does not draw: nothing else shows them while it is
+// open
+function HiddenMockupsLink({
+    f,
+    s,
+    judging,
+    open,
+}: {
+    f: BrainstormFile;
+    s: BrainstormState;
+    judging: boolean;
+    open: (ids: string[]) => void;
+}) {
+    const hidden = hiddenMockups(f, s.base, judging);
+    if (hidden == null) {
+        return null;
+    }
+    return (
+        <button
+            type="button"
+            data-brainstorm-hidden-mockups
+            onClick={() => open(hidden.parts)}
+            className={cn(CHIP, "self-start")}
+        >
+            {hidden.label}
+        </button>
     );
 }
 
@@ -830,6 +888,7 @@ export function JudgingMain({
     goTo,
     openDesign,
     skip = true,
+    openParts,
 }: {
     agent: AgentVM;
     s: BrainstormState;
@@ -838,6 +897,7 @@ export function JudgingMain({
     openDesign: () => void;
     // false in the builder check, where every part is already written
     skip?: boolean;
+    openParts?: (ids: string[]) => void;
 }) {
     const q = f.question!;
     const approaches = q.approaches!;
@@ -847,7 +907,9 @@ export function JudgingMain({
         <div data-brainstorm-question data-brainstorm-judging className="flex min-h-0 flex-1 flex-col">
             <Track segments={questionTrack(f)} />
             <MainBody>
-                <QuestionHead f={f} goTo={goTo} />
+                <QuestionHead f={f} goTo={goTo}>
+                    <HiddenMockupsLink f={f} s={s} judging={true} open={openParts ?? ((ids) => goTo(ids[0]))} />
+                </QuestionHead>
                 <div
                     data-brainstorm-judge-status
                     aria-live="polite"

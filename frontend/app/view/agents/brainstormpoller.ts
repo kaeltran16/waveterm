@@ -89,9 +89,10 @@ export async function listOpenBrainstorms(cwd: string, io: OpenBrainstormsIO): P
     return rows.filter((r): r is OpenBrainstorm => r != null).sort((a, b) => b.modifiedMs - a.modifiedMs);
 }
 
-function listsBoards(f: BrainstormFile): boolean {
-    const named = (f.question?.options ?? []).some((o) => o.boards != null && o.boards.length > 0);
-    return named || f.parts.some((p) => p.boards != null && p.boards.length > 0);
+// a spike is served from the same folder as the boards, so a file whose only mockups are spikes needs it served too
+function listsMockups(f: BrainstormFile): boolean {
+    const has = (m: { boards?: string[]; spikes?: string[] }) => (m.boards?.length ?? 0) + (m.spikes?.length ?? 0) > 0;
+    return [...(f.question?.options ?? []), ...(f.question?.approaches ?? []), ...f.parts].some(has);
 }
 
 // the thumbnails take their sizes from the canvas's canvas.json, re-read on each change of the brainstorm file
@@ -100,7 +101,7 @@ async function readBoards(
     f: BrainstormFile,
     io: BrainstormIO
 ): Promise<Pick<BrainstormState, "base" | "boards"> | null> {
-    if (f.canvas == null || !listsBoards(f)) {
+    if (f.canvas == null || !listsMockups(f)) {
         return null;
     }
     const base = s.base ?? (await io.serve(canvasDesignDir(s.cwd)));

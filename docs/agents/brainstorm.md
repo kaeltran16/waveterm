@@ -119,6 +119,13 @@ Open full size (the canvas), each of its `spikes` (a throwaway live page under t
 motion a board cannot show) a link that opens it in the browser from the same served folder.
 `PartMockups` in `brainstormui.tsx` draws both, from `partBoards` and `partSpikes`.
 
+An open question draws its own mockups: each option's `boards` and `spikes` (each approach's, while
+the judge weighs) beside that answer's row, and the asked part's that no answer names over the rows
+as "For every answer" (`questionBoardLayout` and `questionSpikes`, drawn by `questionBoards`). A board
+or spike that sits only on another part, a note included, is out of view while the question fills
+the pane, so the question shows a link such as **Live spikes in 1 part** that opens those parts
+(`hiddenMockups`).
+
 **Builder check.** Check with a builder appears once the agent sets `done`, no question is open and
 every part is yours.
 
@@ -257,7 +264,8 @@ to the judge**). The judge rides the builder check's machinery.
   `read`, or a dropped entry with no name or reason. `JudgingSessionLost` fails a lost session with its
   reason, as for the builder check. Arc does not respawn a lost judge.
 - **Delivery and the two lines.** A usable result is written to `<topic dir>/judge.json` as
-  `{ "options", "read", "judge": { "added", "dropped" } }`, the agent gets `brainstorm: judged <abs
+  `{ "options", "read", "judge": { "added", "dropped" } }`, each option's `boards` and `spikes` set by
+  Arc from the approaches its `from` names (the judge's own are discarded), the agent gets `brainstorm: judged <abs
   path>` through the same delivery `AgentPromptCommand` uses, and the record becomes `answered`. The
   agent copies the file onto `question` with one `Object.assign` script, never retyping it, and clears
   `working` in the same write; `approaches` stays for a rerun. Any failure (no result, an unusable

@@ -37,6 +37,7 @@ import {
     handoffView,
     hasMockups,
     hasProsCons,
+    hiddenMockups,
     historyRows,
     isAsking,
     judgeWait,
@@ -63,6 +64,7 @@ import {
     pickableOptions,
     progressView,
     questionBoardLayout,
+    questionSpikes,
     questionTrack,
     resumePrompt,
     reviewHead,
@@ -2194,6 +2196,123 @@ describe("spikes", () => {
 
     it("a spike is served from the canvas folder, each segment encoded", () => {
         expect(spikeUrl(BASE, "my topic", "spike/motion one.html")).toBe(`${BASE}/my%20topic/spike/motion%20one.html`);
+    });
+
+    describe("on the question's answers", () => {
+        const parsed = (question: Record<string, unknown>) => {
+            const r = parseBrainstorm(raw({ question: { n: 1, text: "Which motion?", part: "a", ...question } }));
+            if ("error" in r) {
+                throw new Error(r.error);
+            }
+            return r.file.question!;
+        };
+        const opt = (label: string, spikes?: string[]) => ({ label, detail: "", ...(spikes ? { spikes } : {}) });
+        const approach = (name: string, spikes?: string[]) => ({
+            name,
+            description: "",
+            facts: [],
+            ...(spikes ? { spikes } : {}),
+        });
+        // the portfolio-motion case: one spike per option, and the notes that hold them besides
+        const motion = (over: Partial<BrainstormFile> = {}) =>
+            file({
+                canvas: "topic",
+                parts: [
+                    part("motion", "asked"),
+                    part("recon", "yours", { kind: "note", spikes: ["spike/spring.html", "spike/fade.html"] }),
+                ],
+                question: {
+                    n: 1,
+                    text: "Which motion?",
+                    part: "motion",
+                    options: [opt("Spring", ["spike/spring.html"]), opt("Fade", ["spike/fade.html"]), opt("None")],
+                },
+                ...over,
+            });
+
+        it("an option and an approach keep their spikes, validated as a part's and once", () => {
+            const q = parsed({
+                options: [{ label: "A", detail: "", spikes: ["spike\\a.html", "./spike/a.html", "../x.html", 5] }],
+                approaches: [{ name: "B", description: "", facts: [], spikes: ["spike/b.html", "/abs.html"] }],
+            });
+            expect(q.options?.[0].spikes).toEqual(["spike/a.html"]);
+            expect(q.approaches?.[0].spikes).toEqual(["spike/b.html"]);
+        });
+
+        it("an option or approach with no usable spikes has none", () => {
+            const q = parsed({
+                options: [{ label: "A", detail: "", spikes: "spike/a.html" }],
+                approaches: [{ name: "B", description: "", facts: [], spikes: ["../b.html"] }],
+            });
+            expect(q.options?.[0]).not.toHaveProperty("spikes");
+            expect(q.approaches?.[0]).not.toHaveProperty("spikes");
+        });
+
+        it("each option's spikes draw in its row", () => {
+            expect(questionSpikes(motion(), BASE)).toEqual({
+                rows: [["spike/spring.html"], ["spike/fade.html"], []],
+                shared: [],
+            });
+        });
+
+        it("each approach's spikes draw in its row while the judge weighs", () => {
+            const f = motion({
+                working: "The judge is weighing 2 approaches.",
+                question: {
+                    n: 1,
+                    text: "Which motion?",
+                    part: "motion",
+                    options: [opt("Old", ["spike/old.html"])],
+                    approaches: [approach("Plain"), approach("Spring", ["spike/spring.html"])],
+                },
+            });
+            expect(questionSpikes(f, BASE, true)?.rows).toEqual([[], ["spike/spring.html"]]);
+        });
+
+        it("the asked part's spikes no answer names are shared", () => {
+            const f = motion({
+                parts: [part("motion", "asked", { spikes: ["spike/spring.html", "spike/all.html"] })],
+            });
+            expect(questionSpikes(f, BASE)?.shared).toEqual(["spike/all.html"]);
+        });
+
+        it("no spikes draw without a served canvas or with nothing to draw", () => {
+            expect(questionSpikes(motion(), null)).toBeNull();
+            expect(questionSpikes(motion({ canvas: undefined }), BASE)).toBeNull();
+            expect(
+                questionSpikes(
+                    motion({ question: { n: 1, text: "Which?", part: "motion", options: [opt("A")] } }),
+                    BASE
+                )
+            ).toBeNull();
+        });
+
+        it("a spike only on a note is linked over the question; one an answer shows is not", () => {
+            expect(hiddenMockups(motion(), BASE)).toBeNull();
+            const textOnly = motion({
+                question: { n: 1, text: "Which motion?", part: "motion", options: [opt("Spring"), opt("Fade")] },
+            });
+            expect(hiddenMockups(textOnly, BASE)).toEqual({ parts: ["recon"], label: "Live spikes in 1 part" });
+        });
+
+        it("names boards and spikes left on other parts, and counts the parts", () => {
+            const f = file({
+                canvas: "topic",
+                parts: [
+                    part("motion", "asked", { boards: ["Shown.dc.html"] }),
+                    part("look", "guess", { boards: ["Look.dc.html"] }),
+                    part("recon", "yours", { kind: "note", spikes: ["spike/drag.html"] }),
+                ],
+                question: { n: 1, text: "Which motion?", part: "motion", options: [opt("A"), opt("B")] },
+            });
+            expect(hiddenMockups(f, BASE)).toEqual({
+                parts: ["look", "recon"],
+                label: "Live spike and board in 2 parts",
+            });
+            expect(hiddenMockups({ ...f, parts: f.parts.slice(0, 2) }, BASE)?.label).toBe("Board in 1 part");
+            expect(hiddenMockups(f, null)).toBeNull();
+            expect(hiddenMockups({ ...f, question: null }, BASE)).toBeNull();
+        });
     });
 });
 

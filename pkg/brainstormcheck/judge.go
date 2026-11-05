@@ -38,8 +38,9 @@ const (
 //go:embed judge-prompt.md
 var judgePromptTemplate string
 
-// BoardList is a list of mockup file names that reads any JSON value without failing: only the non-blank strings
-// are kept, so an agent's malformed "boards" never makes the whole brainstorm file unreadable to the judge.
+// BoardList is a list of mockup file names (or spike paths) that reads any JSON value without failing: only the
+// non-blank strings are kept, so an agent's malformed "boards" or "spikes" never makes the whole brainstorm file
+// unreadable to the judge.
 type BoardList []string
 
 func (b *BoardList) UnmarshalJSON(data []byte) error {
@@ -63,10 +64,11 @@ type Approach struct {
 	Description string    `json:"description"`
 	Facts       []string  `json:"facts"`
 	Boards      BoardList `json:"boards,omitempty"`
+	Spikes      BoardList `json:"spikes,omitempty"`
 }
 
 // JudgeOption is one answer the judge offers, shaped as a question's option in brainstorm.json. From names the
-// approaches it offers; Boards is never the judge's: judgeFileBytes copies them from those approaches.
+// approaches it offers; Boards and Spikes are never the judge's: judgeFileBytes copies them from those approaches.
 type JudgeOption struct {
 	Label  string    `json:"label"`
 	Detail string    `json:"detail"`
@@ -74,6 +76,7 @@ type JudgeOption struct {
 	Cons   []string  `json:"cons,omitempty"`
 	Pick   bool      `json:"pick,omitempty"`
 	Boards BoardList `json:"boards,omitempty"`
+	Spikes BoardList `json:"spikes,omitempty"`
 	From   []string  `json:"from,omitempty"`
 }
 
@@ -250,6 +253,9 @@ func approachesText(approaches []Approach) string {
 		if len(a.Boards) > 0 {
 			fmt.Fprintf(&b, "   Boards: %s\n", strings.Join(a.Boards, ", "))
 		}
+		if len(a.Spikes) > 0 {
+			fmt.Fprintf(&b, "   Live spikes: %s\n", strings.Join(a.Spikes, ", "))
+		}
 		if len(a.Facts) == 0 {
 			b.WriteString("   Facts: none listed\n")
 			continue
@@ -291,7 +297,7 @@ func rerunText(earlier []JudgeOption, line string) string {
 
 // DecideJudge judges the judge's run as Decide judges the reviewer's, then checks its result. Deliver carries
 // judge.json's bytes; a result that fails the check fails the judge with the check's error as the reason.
-// approaches are the question's, whose boards the delivered options take.
+// approaches are the question's, whose boards and spikes the delivered options take.
 func DecideJudge(run *waveobj.Run, lostReason string, approaches []Approach) (Action, []byte) {
 	action := decide(run, lostReason, JudgeEmptyReason)
 	if action.Kind != Deliver {
@@ -306,7 +312,7 @@ func DecideJudge(run *waveobj.Run, lostReason string, approaches []Approach) (Ac
 
 // judgeFileBytes checks the judge's report and turns it into judge.json. The report is the JSON object alone:
 // prose or a code fence around it fails rather than delivers half a question. Code, not the judge, pairs a board
-// with an option: each option's Boards is the union of its From approaches' boards.
+// with an option: each option's Boards and Spikes are the union of its From approaches' boards and spikes.
 func judgeFileBytes(report string, approaches []Approach) ([]byte, error) {
 	var r judgeResult
 	if err := json.Unmarshal([]byte(strings.TrimSpace(report)), &r); err != nil {
@@ -316,7 +322,8 @@ func judgeFileBytes(report string, approaches []Approach) ([]byte, error) {
 		return nil, err
 	}
 	for i := range r.Options {
-		r.Options[i].Boards = boardsFromApproaches(r.Options[i].From, approaches)
+		r.Options[i].Boards = fromApproaches(r.Options[i].From, approaches, func(a Approach) BoardList { return a.Boards })
+		r.Options[i].Spikes = fromApproaches(r.Options[i].From, approaches, func(a Approach) BoardList { return a.Spikes })
 	}
 	return json.Marshal(judgeFile{
 		Options: r.Options,
@@ -325,23 +332,23 @@ func judgeFileBytes(report string, approaches []Approach) ([]byte, error) {
 	})
 }
 
-// boardsFromApproaches is the boards of the approaches from names, in from order, each board once. A name that
+// fromApproaches is field's entries of the approaches from names, in from order, each entry once. A name that
 // matches no approach exactly (after trimming) is a guess and adds none.
-func boardsFromApproaches(from []string, approaches []Approach) BoardList {
-	var boards BoardList
+func fromApproaches(from []string, approaches []Approach, field func(Approach) BoardList) BoardList {
+	var out BoardList
 	for _, name := range from {
 		for _, a := range approaches {
 			if strings.TrimSpace(a.Name) != strings.TrimSpace(name) {
 				continue
 			}
-			for _, board := range a.Boards {
-				if !slices.Contains(boards, board) {
-					boards = append(boards, board)
+			for _, item := range field(a) {
+				if !slices.Contains(out, item) {
+					out = append(out, item)
 				}
 			}
 		}
 	}
-	return boards
+	return out
 }
 
 func checkJudgeResult(r judgeResult) error {

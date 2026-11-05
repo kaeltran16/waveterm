@@ -24,6 +24,8 @@ What changes from plain brainstorming:
   changed, then the question you are waiting on. Never repeat a part's text there.
 - Mockups are `arc:design` boards, listed on the part they illustrate. Never start the visual
   companion's server inside Arc. A live spike is listed on its part too, never only in the terminal.
+  A board or spike that shows one answer also goes on that answer's option or approach, since a
+  question fills the pane while it is open (**Mockups**, below).
 - Recon and mockups need no permission. Where superpowers says to offer recon or the visual
   companion, do the work instead: read the project you run in, or search the web, once looking would
   help, and draw boards whenever seeing would help more than reading (**Mockups**, below). Record
@@ -283,9 +285,11 @@ shows the options as lettered rows the user picks from, each with its pros and c
 choice is a trade-off; a question whose answers need no weighing leaves them and `read` out.
 
 An option may also carry `boards`: the file names of the mockups that show this answer, as on a part
-(under the canvas's `project/`). Arc draws them inside that answer's row, so the user sees what they
-would pick. Leave `boards` out of an answer with no mockup, and never pair a board with an answer by
-order or by count: only the names you write on the option count. An open question (a story, a moment, a number only the user knows) has no
+(under the canvas's `project/`), and `spikes`: the live spike pages that show it, as on a part (paths
+under the canvas folder). Arc draws them inside that answer's row, the boards as thumbnails and each
+spike as a link, so the user sees what they would pick. Leave them out of an answer with no mockup,
+and never pair a board or spike with an answer by order or by count: only the names you write on the
+option count. An open question (a story, a moment, a number only the user knows) has no
 `options`. An approach question is the exception: the judge writes its options, pick and `read`
 (below).
 
@@ -299,10 +303,12 @@ process steps, plain choices and the builder's questions are not approach questi
 For an approach question, in one write:
 
 - List at least five distinct approaches in `approaches`, unconventional ones included, each
-  `{ "name", "description", "facts", "boards" }`: a name of a few words, one or two sentences on what it is,
+  `{ "name", "description", "facts", "boards", "spikes" }`: a name of a few words, one or two sentences on what it is,
   and the facts you found in the code that bear on it (the code it touches, what already exists that
-  it would reuse, the constraints that rule it in or out), naming files and functions. `boards` is
-  optional: the file names of the mockups that show this approach. Finding facts
+  it would reuse, the constraints that rule it in or out), naming files and functions. `boards` and
+  `spikes` are optional: the mockups and live spikes that show this approach, as on an option; Arc
+  draws them in the approach's row while the judge weighs, and on each judged option that came from
+  it. Finding facts
   is your job; ask the user only for what you cannot look up. An approach with no `name` does not
   count toward the five. A fact the design stands on also goes in a note part.
 - Write no odds, no pick, no ranking and no pros and cons for them, in `approaches` or in a note.
@@ -328,9 +334,9 @@ node -e "const fs=require('fs'),[f,j]=process.argv.slice(1),b=JSON.parse(fs.read
 
 `<path>` is `judge.json` beside `brainstorm.json`: `{ "options", "read", "judge": { "added",
 "dropped" } }`. `approaches` stays in the question for a rerun. Each judged option names the
-approaches it came from in `from`, and Arc sets the option's `boards` from those approaches' `boards`
-itself, so copy `options` exactly as they are, `from` and `boards` included, and never write or edit
-an option's `boards` on a judged question.
+approaches it came from in `from`, and Arc sets the option's `boards` and `spikes` from those
+approaches' `boards` and `spikes` itself, so copy `options` exactly as they are, `from`, `boards` and
+`spikes` included, and never write or edit an option's `boards` or `spikes` on a judged question.
 
 **While the judge weighs.** Arc shows the question, the approach list and an open answer box while
 the judge runs, and stops the judge itself before it sends an answer or Skip; you never stop it. A
@@ -390,7 +396,14 @@ HTML file under the canvas folder, e.g. `.superpowers/design/<canvas>/spike/moti
 path relative to the canvas folder in `spikes` on the part it illustrates (`"spikes":
 ["spike/motion.html"]`), and set `canvas`. Arc serves the folder and shows each spike as a link in
 the part that opens it in the browser. A spike is listed on the part it illustrates, never only in
-the terminal: a URL in the terminal is gone once the user reads the pane.
+the terminal: a URL in the terminal is gone once the user reads the pane. A spike that shows one
+answer is also named in `spikes` on that answer's option (or on its approach), as a board is.
+
+**Visual choices show in the answers.** When a question's options differ in how they look or move,
+each option (or each approach, on an approach question) carries a board that shows it, and a spike
+too when motion matters. While a question is open the pane shows only the question: a board or spike
+that sits only on a note, or on a part the question is not asking, is not in view while the user
+picks, and the user sees text-only options.
 
 **Left to the builder.** The part with id `builder` and title `Left to the builder` is always the
 last part. Write it as a `guess` once nothing is left to ask.
