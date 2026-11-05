@@ -183,6 +183,15 @@ import {
     uiApi,
     uiDrift,
 } from "./scenarios-cockpit.mjs";
+import { codeSession } from "./scenarios-code-session.mjs";
+import { codeJumps } from "./scenarios-code-jumps.mjs";
+import { codeToolbar } from "./scenarios-code-toolbar.mjs";
+import { codeKeys } from "./scenarios-code-keys.mjs";
+import { codeHandoff } from "./scenarios-code-handoff.mjs";
+import { codeChanged } from "./scenarios-code-changed.mjs";
+import { codeBlameDraft } from "./scenarios-code-blame-draft.mjs";
+import { codeDiffStates } from "./scenarios-code-diff-states.mjs";
+import { codeEditor } from "./scenarios-code-editor.mjs";
 import { cockpitAskKeys } from "./scenarios-cockpit-asks.mjs";
 import { cockpitCardLayout } from "./scenarios-cockpit-card.mjs";
 import { cockpitComposerSend } from "./scenarios-cockpit-composer.mjs";
@@ -341,6 +350,15 @@ export const SCENARIOS = [
     runSheetLegacyLook,
     runSheetCardsLook,
     codeStaleBarLook,
+    codeSession,
+    codeJumps,
+    codeToolbar,
+    codeKeys,
+    codeHandoff,
+    codeChanged,
+    codeBlameDraft,
+    codeDiffStates,
+    codeEditor,
     uiDrift,
     cockpitComposerSend,
     cockpitAskKeys,
