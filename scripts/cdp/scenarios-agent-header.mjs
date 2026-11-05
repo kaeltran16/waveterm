@@ -46,9 +46,52 @@ const rosterAgent = (id, blockId, name, state) => ({
     task: "header fixture",
     state,
     agent: "claude",
+    model: "claude-opus-5-5",
+    usage: { contextpct: 42, contextmax: 200_000 },
     project: name,
     blockId,
 });
+
+const NARROW = { width: 1000, height: 700, deviceScaleFactor: 1, mobile: false };
+const WIDE = { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false };
+// the title keeps this much before the model and context chips give way (the component's min-w floor)
+const TITLE_FLOOR_PX = 96;
+// runtime, state, model and context: every chip the fixture agent has
+const HEADER_CHIPS = 4;
+// the title, then the runtime and state pills each on a line of their own when the column cannot hold both
+const MAX_LINES = 3;
+
+// where the title row's parts sit: the title, each chip after it, the column that clips them, the buttons beside it
+const headerFit = `(() => {
+    const hd = ${HEADER};
+    const row = hd?.querySelector("[data-agent-title-row]");
+    const actions = hd?.querySelector("[data-agent-actions]");
+    if (!row || !actions) return null;
+    const box = (el) => {
+        const r = el.getBoundingClientRect();
+        return { left: r.left, right: r.right, width: r.width };
+    };
+    const [title, ...chips] = [...row.children];
+    const col = box(row.parentElement);
+    const act = box(actions);
+    const parts = chips
+        .map((el) => ({ text: (el.textContent ?? "").trim(), shown: getComputedStyle(el).display !== "none", ...box(el) }))
+        .filter((p) => p.shown);
+    return {
+        headerWidth: box(hd).width,
+        titleWidth: box(title).width,
+        titleClipped: title.scrollWidth > title.clientWidth,
+        // items on one line share a vertical center; another line sits a whole line lower
+        lines: [title, ...chips]
+            .filter((el) => getComputedStyle(el).display !== "none")
+            .map((el) => { const r = el.getBoundingClientRect(); return (r.top + r.bottom) / 2; })
+            .sort((a, b) => a - b)
+            .reduce((n, c, i, all) => (i > 0 && c - all[i - 1] > 6 ? n + 1 : n), 1),
+        shown: parts.map((p) => p.text),
+        outOfColumn: parts.filter((p) => p.right > col.right + 0.5).map((p) => p.text),
+        underButtons: parts.filter((p) => p.right > act.left + 0.5).map((p) => p.text),
+    };
+})()`;
 
 // the labels the header's right-click menu offers, read from the menu atom the host renders
 const menuLabels = `(async () => {
@@ -155,6 +198,48 @@ export default function (_kit) {
                     before.includes("F11") && after.includes("F11") && before !== after,
                     JSON.stringify({ before, after })
                 );
+
+                // the rail and fullscreen are the page's own state: teardown puts the rail back
+                await agentPage(
+                    h,
+                    `const R = await mod("app/view/agents/railstore.ts");
+                    if (!("__headerRailPrev" in window)) window.__headerRailPrev = globalStore.get(R.railVisibleAtom);
+                    globalStore.set(R.terminalFullscreenAtom, false);
+                    globalStore.set(R.railVisibleAtom, true);
+                    return true;`
+                );
+                try {
+                    await h.cdp("Emulation.setDeviceMetricsOverride", NARROW);
+                    await polishWaitFor(h, `${HEADER}?.getBoundingClientRect().width < ${NARROW.width}`, HEADER_WAIT_MS);
+                    const narrow = await h.ev(headerFit);
+                    await h.shot("cdp-shots/agent-header-5-narrow-rail.png");
+                    rec(
+                        `5. at 1000x700 with the rail open the title keeps ${TITLE_FLOOR_PX}px, only the runtime and state pills show, wrapped under it, and none reaches the buttons`,
+                        narrow != null &&
+                            narrow.titleWidth >= TITLE_FLOOR_PX &&
+                            narrow.lines <= MAX_LINES &&
+                            narrow.shown.length === HEADER_CHIPS - 2 &&
+                            narrow.outOfColumn.length === 0 &&
+                            narrow.underButtons.length === 0,
+                        JSON.stringify(narrow)
+                    );
+
+                    await h.cdp("Emulation.setDeviceMetricsOverride", WIDE);
+                    await polishWaitFor(h, `${HEADER}?.getBoundingClientRect().width > ${NARROW.width}`, HEADER_WAIT_MS);
+                    const wide = await h.ev(headerFit);
+                    await h.shot("cdp-shots/agent-header-6-wide-rail.png");
+                    rec(
+                        "6. at 1600x950 with the rail open the model pill and context readout still show",
+                        wide != null &&
+                            wide.shown.includes("claude-opus-5-5") &&
+                            wide.shown.length === HEADER_CHIPS &&
+                            wide.titleWidth >= TITLE_FLOOR_PX &&
+                            wide.underButtons.length === 0,
+                        JSON.stringify(wide)
+                    );
+                } finally {
+                    await h.cdp("Emulation.clearDeviceMetricsOverride").catch(() => {});
+                }
                 return steps;
             },
             // best-effort, so one failed step does not strand the rest
@@ -166,6 +251,18 @@ export default function (_kit) {
                         console.error(`${NAME} teardown: ${what} failed: ${e?.message ?? e}`);
                     }
                 };
+                await step("clear the viewport override", () => h.cdp("Emulation.clearDeviceMetricsOverride"));
+                await step("put the rail back", () =>
+                    agentPage(
+                        h,
+                        `const { railVisibleAtom } = await mod("app/view/agents/railstore.ts");
+                        if ("__headerRailPrev" in window) {
+                            globalStore.set(railVisibleAtom, window.__headerRailPrev);
+                            delete window.__headerRailPrev;
+                        }
+                        return true;`
+                    )
+                );
                 await step("leave fullscreen", () =>
                     agentPage(
                         h,

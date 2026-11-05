@@ -228,7 +228,7 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
         <div
             data-agent-header
             onContextMenu={onContextMenu}
-            className="flex shrink-0 items-center gap-[13px] border-b border-border bg-background px-[22px] py-[14px]"
+            className="@container flex shrink-0 items-center gap-[13px] border-b border-border bg-background px-[22px] py-[14px]"
         >
             {stage ? null : ended || failed ? (
                 <span className="h-[9px] w-[9px] shrink-0 rounded-full" style={{ background: stateColor }} />
@@ -242,9 +242,9 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                     className="!h-[9px] !w-[9px]"
                 />
             )}
-            <div className="min-w-0">
-                <div className="flex items-center gap-[9px]">
-                    <span className="min-w-0 truncate font-mono text-[15px] font-semibold text-foreground">
+            <div className="min-w-0 flex-1 overflow-hidden">
+                <div data-agent-title-row className="flex flex-wrap items-center gap-x-[9px] gap-y-[3px]">
+                    <span className="min-w-[96px] max-w-full truncate font-mono text-[15px] font-semibold text-foreground">
                         {lineage?.kind === "lead" ? (
                             <Workflow
                                 size={13}
@@ -285,7 +285,7 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                         </>
                     )}
                     {agent.model ? (
-                        <span className="shrink-0 whitespace-nowrap rounded-[5px] border border-edge-mid px-[7px] py-[1px] font-mono text-[10.5px] font-medium text-muted">
+                        <span className="shrink-0 whitespace-nowrap rounded-[5px] border border-edge-mid px-[7px] py-[1px] font-mono text-[10.5px] font-medium text-muted @max-[480px]:hidden">
                             {agent.model}
                         </span>
                     ) : null}
@@ -293,7 +293,7 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                         <span
                             title={`context: ${Math.round(agent.usage.contextpct)}% of the window`}
                             className={cn(
-                                "shrink-0 whitespace-nowrap font-mono text-[10.5px] font-semibold",
+                                "shrink-0 whitespace-nowrap font-mono text-[10.5px] font-semibold @max-[400px]:hidden",
                                 CTX_TEXT[contextLevel(agent.usage.contextpct, agent.usage.contextmax)]
                             )}
                         >
@@ -308,7 +308,7 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                     </div>
                 ) : null}
                 {subline.length > 0 ? (
-                    <div className="mt-[2px] whitespace-nowrap font-mono text-[11px] font-medium text-muted">
+                    <div className="mt-[2px] truncate font-mono text-[11px] font-medium text-muted">
                         {subline.map((part, i) => (
                             <Fragment key={i}>
                                 {i > 0 ? " · " : null}
@@ -318,8 +318,7 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                     </div>
                 ) : null}
             </div>
-            <div className="flex-1" />
-            <div className="flex shrink-0 items-center gap-[7px]">
+            <div data-agent-actions className="flex shrink-0 items-center gap-[7px]">
                 {review && !reviewOpen ? (
                     <button
                         type="button"
