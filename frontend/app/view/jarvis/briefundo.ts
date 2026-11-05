@@ -102,6 +102,24 @@ export function createUndoQueue(io: {
 export const pendingDeleteKeysAtom = atom<Set<string>>(new Set<string>()) as PrimitiveAtom<Set<string>>;
 export const briefToastAtom = atom<BriefToast | null>(null) as PrimitiveAtom<BriefToast | null>;
 
+// Waiting chunks Unblock or Done has acted on, each with when: the Brief hides them until a snapshot that
+// started after the act has read the write (withoutSettledChunks).
+export const settledChunksAtom = atom<Map<string, number>>(new Map<string, number>()) as PrimitiveAtom<
+    Map<string, number>
+>;
+
+export function settleChunk(key: string, on: boolean): void {
+    globalStore.set(settledChunksAtom, (prev) => {
+        const next = new Map(prev);
+        if (on) {
+            next.set(key, Date.now());
+        } else {
+            next.delete(key);
+        }
+        return next;
+    });
+}
+
 export const briefUndo = createUndoQueue({
     setHidden: (keys) => globalStore.set(pendingDeleteKeysAtom, keys),
     setToast: (t) => globalStore.set(briefToastAtom, t),

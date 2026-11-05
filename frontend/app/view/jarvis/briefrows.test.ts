@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import type { ActiveWorkRow, DeltaRow, QueueRow, RunRow } from "./briefingmodel";
+import type { ActiveWorkRow, DeltaRow, QueueRow, RunRow, ShippedRow } from "./briefingmodel";
+import { DELTA_CAP, groupDelta } from "./briefingmodel";
 import {
     behindGroups,
+    capBehind,
     filterAsMenu,
     filterLines,
     initiativeLine,
@@ -23,6 +25,7 @@ import {
     runRowFace,
     sessionLine,
     sessionWindow,
+    SHIPPED_LABEL,
     shortTitle,
     sinceLabel,
     type BriefLine,
@@ -37,7 +40,6 @@ const NOW = new Date(2026, 8, 15, 12, 0).getTime();
 describe("queueLine", () => {
     const q: QueueRow = {
         key: "gate:1",
-        kind: "dag blocked",
         title: "Approve the plan",
         source: "waveterm",
         detail: "waveterm · #arc",
@@ -504,6 +506,70 @@ describe("behindGroups", () => {
             runType: "orchestrator",
             group: "shipped",
         });
+    });
+});
+
+// F2: the cap counts the folded lines the region draws, not the events behind them
+describe("capBehind", () => {
+    const delta = (over: Partial<DeltaRow>): DeltaRow => ({
+        key: "k",
+        ts: NOW,
+        kind: "decision",
+        title: "a decision",
+        wording: "Decision recorded",
+        detail: null,
+        oref: null,
+        ...over,
+    });
+    const shipped: ShippedRow = {
+        oref: "run:r9",
+        goal: "shipped work",
+        project: "",
+        summary: "",
+        completedTs: NOW - DAY,
+        fresh: false,
+        hasReport: false,
+        effortOid: "",
+        chunkLabel: "",
+        mode: "",
+    };
+
+    it("folds 40 notes on one initiative into one digest and hides nothing", () => {
+        const notes = Array.from({ length: 40 }, (_, i) =>
+            delta({
+                key: `n${i}`,
+                ts: NOW - i * MIN,
+                kind: "effort-note",
+                title: "SIEM",
+                detail: `A · note ${i}`,
+                oref: "effort:e1",
+            })
+        );
+        const capped = capBehind(behindGroups(groupDelta(notes, NOW), [], NOW), DELTA_CAP, false);
+        expect(capped.more).toBe(0);
+        expect(capped.groups.flatMap((g) => g.lines.map((l) => l.detail))).toEqual(["40 notes"]);
+    });
+
+    it("hides the folded lines past the cap across day groups", () => {
+        const rows = Array.from({ length: 7 }, (_, i) => delta({ key: `d${i}`, ts: NOW - i * 4 * 60 * MIN }));
+        const groups = behindGroups(groupDelta(rows, NOW), [], NOW);
+        const capped = capBehind(groups, 5, false);
+        expect(capped.more).toBe(2);
+        expect(capped.groups.flatMap((g) => g.lines.map((l) => l.id))).toEqual(
+            ["d0", "d1", "d2", "d3", "d4"].map((k) => "behind:" + k)
+        );
+        expect(capped.groups.every((g) => g.lines.length > 0)).toBe(true);
+        expect(capBehind(groups, 5, true)).toEqual({ groups, more: 0 });
+    });
+
+    it("leaves Shipped to its own cap", () => {
+        const rows = Array.from({ length: 7 }, (_, i) => delta({ key: `d${i}`, ts: NOW - i * MIN }));
+        const groups = behindGroups(groupDelta(rows, NOW), [shipped], NOW);
+        const capped = capBehind(groups, 5, false);
+        expect(capped.more).toBe(2);
+        expect(capped.groups.find((g) => g.label === SHIPPED_LABEL)).toBe(
+            groups.find((g) => g.label === SHIPPED_LABEL)
+        );
     });
 });
 

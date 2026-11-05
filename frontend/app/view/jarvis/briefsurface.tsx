@@ -52,12 +52,14 @@ import {
     buildAttentionQueue,
     capRegion,
     DELTA_CAP,
+    effectiveCursor,
     EFFORT_CAP,
     groupDelta,
     projectBriefing,
     SEVEN_DAYS_MS,
     SHIPPED_CAP,
     summarizeAttentionQueue,
+    withoutSettledChunks,
     type QueueRow,
 } from "./briefingmodel";
 import {
@@ -87,6 +89,7 @@ import { ackAll, actOnQueue, openQueueRow, type QueueActionDeps } from "./briefq
 import { briefRestorePlan } from "./briefrestore";
 import {
     behindGroups,
+    capBehind,
     filterLines,
     initiativeLine,
     initiativeProjects,
@@ -110,7 +113,15 @@ import { BriefSheet } from "./briefsheet";
 import { REGION_LABEL } from "./briefstyle";
 import { BriefToastView } from "./brieftoast";
 import { BriefToolbar } from "./brieftoolbar";
-import { briefUndo, chunkKey, effortKey, noteKey, pendingDeleteKeysAtom } from "./briefundo";
+import {
+    briefUndo,
+    chunkKey,
+    effortKey,
+    noteKey,
+    pendingDeleteKeysAtom,
+    settleChunk,
+    settledChunksAtom,
+} from "./briefundo";
 import { WaitingRegion } from "./briefwaiting";
 import { EffortCreateForm } from "./effortcreateform";
 import { effortFeed, feedNoteCounts } from "./effortfeed";
@@ -157,6 +168,7 @@ import {
 import { clearSubject, persistedSubjectAtom, stageRunAtom } from "./jarvissubjectstore";
 import { JiraCheckDialog } from "./jiracheckdialog";
 import { openOrPeek, openOrPeekAddress } from "./openref";
+import { LAND_TIMEOUT_MS } from "./petactrun";
 import { dismissPetBubble } from "./petstore";
 import { AVATAR_SURFACE_REACH_PX } from "./petview";
 import { forgetOrigin } from "./returnsurface";
@@ -212,6 +224,7 @@ const QUEUE_RPC: QueueActionDeps["rpc"] = {
     dagAction: (data) => RpcApi.DagActionCommand(TabRpcClient, data),
     ackRun: (data) => RpcApi.AckRunCommand(TabRpcClient, data),
     setChunkStatus,
+    landRun: (data) => RpcApi.LandRunCommand(TabRpcClient, data, { timeout: LAND_TIMEOUT_MS }),
 };
 
 export function BriefSurface({ model }: { model: AgentsViewModel }) {
@@ -275,6 +288,11 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     useEffect(() => {
         setDagModalAgentsContext(model, agents);
     }, [model, agents]);
+    // mark seen moves the visit cursor at once and the snapshot's on the reload, so Behind you reads the later
+    // of the two. A fixture's window is its own: the visit cursor stored on this machine would empty it.
+    const visitCursor = useAtomValue(briefingCursorAtom);
+    const cursorTs =
+        snapshot != null ? effectiveCursor(snapshot.actualCursor, fixture != null ? null : visitCursor) : 0;
     const model_ = useMemo(() => {
         if (snapshot == null) {
             return null;
@@ -282,27 +300,33 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         return projectBriefing({
             state: snapshot.state,
             agents,
-            actualCursor: snapshot.actualCursor,
+            actualCursor: cursorTs,
             queryStartedAt: snapshot.queryStartedAt,
             sevenDaysAgo: snapshot.queryStartedAt - SEVEN_DAYS_MS,
         });
-    }, [snapshot, agents]);
+    }, [snapshot, agents, cursorTs]);
 
     // a fixture seeds attention the same way it seeds the roster, so every fixture previews the queue.
     const attention = fixture != null ? BRIEFING_FIXTURES[fixture].attention : liveAttention;
+    // the full projection, not the window: a blocked chunk on the seventh initiative is still waiting on
+    // you, so the queue reads every effort even when the Initiatives region is only showing six. A chunk
+    // Unblock or Done just settled is gone from this one list, so its Waiting row, the summary and its
+    // initiative's "N blocked" agree before the snapshot catches up.
+    const settled = useAtomValue(settledChunksAtom);
+    const efforts = useMemo(
+        () =>
+            model_ != null && snapshot != null
+                ? withoutSettledChunks(model_.efforts, settled, snapshot.queryStartedAt)
+                : [],
+        [model_, snapshot, settled]
+    );
     // memoized because the j/k controller below is registered per identity: recomputing these every
     // render would re-register it every render. They are pure functions of the snapshot projection, so
     // pinning them to it also stops groupDelta's "now" drifting between renders of the same snapshot.
     const queue = useMemo(
-        () =>
-            model_ != null
-                ? buildAttentionQueue({ attention, efforts: model_.efforts, blockers: model_.blockers })
-                : [],
-        [model_, attention]
+        () => (model_ != null ? buildAttentionQueue({ attention, efforts, blockers: model_.blockers }) : []),
+        [model_, efforts, attention]
     );
-    // the full projection, not the window: a blocked chunk on the seventh initiative is still waiting on
-    // you, so the queue reads every effort even when the Initiatives region is only showing six.
-    const efforts = useMemo(() => model_?.efforts ?? [], [model_]);
 
     // Each region opens at its cap and the region's own control opens the rest in place. The caps stay
     // display-side so the overflow count is what was actually hidden from the rows above it.
@@ -365,7 +389,6 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     // moment 1: which rows are new to YOU. Excludes `behind` deliberately — that region is entirely
     // since-your-last-visit by construction, so marking it would mark every row and its own label
     // already states the fact.
-    const cursorTs = snapshot?.actualCursor ?? 0;
     const freshInitiatives = useMemo(
         () =>
             freshKeys(
@@ -394,11 +417,8 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         entranceRef.current = computeEntrances(entranceRef.current, entranceKey, entranceIds).state;
     }, [entranceIdsKey, entranceKey]);
 
-    const deltaWindow = useMemo(
-        () => capRegion(model_?.delta ?? [], DELTA_CAP, behindOpen || filtering),
-        [model_, behindOpen, filtering]
-    );
-    const deltaGroups = useMemo(() => groupDelta(deltaWindow.rows, Date.now()), [deltaWindow]);
+    // the whole delta, grouped: Behind you folds it before it caps it (capBehind)
+    const deltaGroups = useMemo(() => groupDelta(model_?.delta ?? [], Date.now()), [model_]);
 
     // The filter and the one-region view narrow what is drawn, and the nav ids are the drawn lines' own, so
     // j/k can never land on a row the filter hid.
@@ -434,6 +454,14 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     const projectList = useAtomValue(projectListAtom);
     const lines = useMemo(() => {
         const now = Date.now();
+        // fold, filter, then cap: a filter still reaches every fold, and "+N more" counts lines, not events
+        const behind = capBehind(
+            behindGroups(deltaGroups, shipped.rows, now, { efforts: effortIndex, projects })
+                .map((g) => ({ ...g, lines: filterLines(g.lines, query) }))
+                .filter((g) => g.lines.length > 0),
+            DELTA_CAP,
+            behindOpen || filtering
+        );
         return {
             waiting: filterLines(
                 queue.map((q) => queueLine(q, now)),
@@ -449,9 +477,8 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                 sessions.rows.map((r) => sessionLine(r, now)),
                 query
             ),
-            behind: behindGroups(deltaGroups, shipped.rows, now, { efforts: effortIndex, projects })
-                .map((g) => ({ ...g, lines: filterLines(g.lines, query) }))
-                .filter((g) => g.lines.length > 0),
+            behind: behind.groups,
+            behindMore: behind.more,
         };
     }, [
         queue,
@@ -465,6 +492,8 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         pendingDeletes,
         effortIndex,
         projects,
+        behindOpen,
+        filtering,
     ]);
     const staleCount = lines.sessions.filter((l) => l.stale).length;
     const waitingShown = waitingOpen || filtering;
@@ -701,6 +730,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         undo: briefUndo,
         openLine,
         openChunk: (oref, label) => revealChunk(oref, label, true),
+        settle: settleChunk,
     };
     // Ctrl still peeks the initiative, as every other row's click does
     const openWaiting = (q: QueueRow, l: BriefLine, e?: React.MouseEvent) => {
@@ -794,7 +824,6 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     const projectCount = snapshot?.state.projects?.length ?? 0;
     const initiativesHead = initiativesMeta(projectEfforts, Date.now());
     const liveN = view.sessionLines.filter((l) => !l.stale).length;
-    const visitCursor = useAtomValue(briefingCursorAtom);
 
     // the run sheet mounts outside the Brief's snapshot, so the Brief publishes what its ↳ chunk line and
     // its n / N position read
@@ -1105,10 +1134,13 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                             snapshot?.queryStartedAt ?? Date.now(),
                                             visitCursor == null
                                         )}
+                                        deltaTotal={model_.delta.length}
+                                        only={only === "behind"}
+                                        onOnly={() => toggleOnly("behind")}
                                         groups={lines.behind.filter((g) => g.label !== SHIPPED_LABEL)}
                                         cursor={cursor}
                                         openLine={openLine}
-                                        more={deltaWindow.more}
+                                        more={lines.behindMore}
                                         expanded={behindOpen}
                                         onToggleMore={() => toggleRegion("behind")}
                                         shippedTotal={shippedAll.length}

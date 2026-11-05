@@ -59,7 +59,7 @@ export type RegionId = keyof typeof REGIONS;
 // A heading is also how one region is read alone: pressing it hides the other regions, pressing it again
 // brings them back. The count is a plain label inside it, because a bordered pill inside a button would
 // read as a second control.
-function RegionHead({
+export function RegionHead({
     id,
     label,
     meta,

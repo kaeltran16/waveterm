@@ -521,7 +521,7 @@ export function behindGroups(
     });
     if (shipped.length > 0) {
         out.push({
-            label: "Shipped · 7 days",
+            label: SHIPPED_LABEL,
             lines: shipped.map((s) => ({
                 id: "behind:shipped:" + s.oref,
                 kind: "Shipped",
@@ -544,6 +544,31 @@ export function behindGroups(
         });
     }
     return out;
+}
+
+// Behind you's window, taken after the fold: a cap on raw events let a burst of notes that folds into one
+// digest fill the window and call its own events "+N more". Shipped keeps its own cap, so it passes through
+// and is not counted.
+export function capBehind(groups: LineGroup[], cap: number, expanded: boolean): { groups: LineGroup[]; more: number } {
+    if (expanded) {
+        return { groups, more: 0 };
+    }
+    let room = cap;
+    let more = 0;
+    const kept: LineGroup[] = [];
+    for (const g of groups) {
+        if (g.label === SHIPPED_LABEL) {
+            kept.push(g);
+            continue;
+        }
+        const lines = g.lines.slice(0, Math.max(room, 0));
+        room -= lines.length;
+        more += g.lines.length - lines.length;
+        if (lines.length > 0) {
+            kept.push(lines.length === g.lines.length ? g : { ...g, lines });
+        }
+    }
+    return { groups: kept, more };
 }
 
 export function filterLines<T extends BriefLine>(lines: T[], query: string): T[] {

@@ -1014,6 +1014,13 @@ export const holdRpc = (h, command) =>
         (window.__heldRpc ??= {})[${JSON.stringify(command)}] ??= RpcApi[${JSON.stringify(command)}];
         RpcApi[${JSON.stringify(command)}] = () => new Promise(() => {});
     `);
+// Refuses every call of an RPC with `message`, until releaseRpc puts the original back.
+export const failRpc = (h, command, message) =>
+    lookEval(h, `
+        const { RpcApi } = await mod("app/store/wshclientapi.ts");
+        (window.__heldRpc ??= {})[${JSON.stringify(command)}] ??= RpcApi[${JSON.stringify(command)}];
+        RpcApi[${JSON.stringify(command)}] = () => Promise.reject(new Error(${JSON.stringify(message)}));
+    `);
 export const releaseRpc = (h, command) =>
     lookEval(h, `
         const { RpcApi } = await mod("app/store/wshclientapi.ts");

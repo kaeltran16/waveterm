@@ -4371,7 +4371,7 @@ export const briefAct = {
                 await h.rpc("effortcreate", {
                     title: ACT_EFFORT,
                     project: ACT_PROJECT,
-                    chunks: [{ label: "act-soak" }, { label: "act-label" }],
+                    chunks: [{ label: "act-soak" }, { label: "act-label" }, { label: "act-settle" }],
                 })
             ).effortoid;
             await h.rpc("effortmutate", {
@@ -4381,6 +4381,8 @@ export const briefAct = {
                     { op: "setChunkStatus", chunk: "act-soak", status: "blocked", note: "needs: a clean DEV soak" },
                     { op: "appendNote", chunk: "act-soak", note: "the empty-buffer blocker is gone on DEV" },
                     { op: "setChunkStatus", chunk: "act-label", status: "blocked", note: "needs: the G4 label" },
+                    // F14's own (step 19): step 3 spends the other two
+                    { op: "setChunkStatus", chunk: "act-settle", status: "blocked", note: "needs: a settle check" },
                 ],
             });
         } catch (e) {
@@ -4394,6 +4396,10 @@ export const briefAct = {
         await h.goto("jarvis");
         await actFixture(h, null);
         await actFilter(h, "");
+        // a fresh store's first briefing load runs past one CDP evaluate's 30s, so it is waited out here
+        for (let i = 0; i < 180 && (await h.ev(`document.querySelector('[data-jarvis-brief-state="loading"]') != null`)); i++) {
+            await new Promise((r) => setTimeout(r, 1000));
+        }
 
         // 1. live: the blocked chunk's row says what it needs and shows the note written after the block
         await h.ev(`document.querySelector('[data-jarvis-brief-attention-summary][aria-expanded="false"]')?.click()`);
@@ -4628,9 +4634,195 @@ export const briefAct = {
         });
         await h.ev(`document.querySelector('[data-jarvis-brief-region="sessions"]')?.scrollIntoView({ block: "start" })`);
         await h.shot("cdp-shots/brief-act-runs.png");
+
+        // 12-18: the 11-05 code review's Waiting and Behind you findings, on the "review" fixture
+        await actFixture(h, "review");
+        await h.ev(`document.querySelector('[data-jarvis-brief-attention-summary][aria-expanded="false"]')?.click()`);
+        await h.ev("new Promise((r) => setTimeout(r, 500))");
+        const rowActs = (label) => `[...((${actQueueRow(label)})?.querySelectorAll('[data-jarvis-queue-act]') ?? [])].map((b) => b.innerText.trim())`;
+        const waiting = await h.ev(`(() => ({
+            summary: ${actText(`document.querySelector('[data-jarvis-brief-attention-summary]')?.parentElement`)},
+            unverified: ${actText(actQueueRow("review unverified one"))},
+            held: ${actText(actQueueRow("review held land"))},
+            heldActs: ${rowActs("review held land")},
+            ask: ${actText(actQueueRow("Which tenant goes first?"))},
+            askActs: ${rowActs("Which tenant goes first?")},
+        }))()`);
+        steps.push({
+            step: "12. F7: an unverified run and a held land read by their own kind words, and the summary counts them",
+            ok: /^unverified /.test(waiting.unverified) && /^land held /.test(waiting.held) && /2 unverified/.test(waiting.summary),
+            detail: JSON.stringify({ summary: waiting.summary, unverified: waiting.unverified, held: waiting.held }),
+        });
+        await h.shot("cdp-shots/brief-act-12-kinds.png");
+
+        // 13. the held land's row offers the pet's verbs; Dismiss acks with land: true (the ack is stubbed)
+        await lookEval(h, `
+            const { RpcApi } = await mod("app/store/wshclientapi.ts");
+            (window.__heldRpc ??= {}).AckRunCommand ??= RpcApi.AckRunCommand;
+            window.__briefActAcks = [];
+            RpcApi.AckRunCommand = (_client, data) => {
+                window.__briefActAcks.push(data);
+                return Promise.resolve();
+            };
+        `);
+        await h.ev(`(${actQueueRow("review held land")})?.querySelector('[data-jarvis-queue-act="dismiss-land"]')?.click()`);
+        const dismissed = await lookEval(h, `
+            await until(() => (window.__briefActAcks ?? []).length > 0, 3000);
+            await until(() => document.querySelector('[data-jarvis-brief-toast]') != null, 3000);
+            return {
+                acks: window.__briefActAcks ?? [],
+                toast: (document.querySelector('[data-jarvis-brief-toast]')?.innerText || "").replace(/\\s+/g, " ").trim(),
+            };
+        `);
+        await h.shot("cdp-shots/brief-act-13-held-land.png");
+        await releaseRpc(h, "AckRunCommand");
+        steps.push({
+            step: "13. F8: a held land offers Retry land and Dismiss, and Dismiss acks the land",
+            ok:
+                JSON.stringify(waiting.heldActs) === JSON.stringify(["Retry land", "Dismiss"]) &&
+                dismissed.acks.length === 1 &&
+                dismissed.acks[0].land === true &&
+                dismissed.acks[0].runid === "r-review-held" &&
+                /Dismissed · review held land/.test(dismissed.toast),
+            detail: JSON.stringify({ acts: waiting.heldActs, ...dismissed }),
+        });
+
+        steps.push({
+            step: "14. F9: an ask with no channel draws no button, not a dead Open",
+            ok: waiting.ask.includes("Which tenant goes first?") && waiting.askActs.length === 0,
+            detail: JSON.stringify({ ask: waiting.ask, acts: waiting.askActs }),
+        });
+        await h.ev(`(${actQueueRow("Which tenant goes first?")})?.scrollIntoView({ block: "center" })`);
+        await h.shot("cdp-shots/brief-act-14-no-act.png");
+        await h.ev(`document.querySelector('[data-jarvis-brief-attention-summary][aria-expanded="true"]')?.click()`);
+
+        // 15 + 16. Behind you: newest first across projects, and the cap counts folded lines. Its window is
+        // module state, so one left open by hand is closed first.
+        await h.ev(`document.querySelector('[data-jarvis-brief-region="behind"] [data-jarvis-brief-more="less"]')?.click()`);
+        await h.ev("new Promise((r) => setTimeout(r, 300))");
+        const behindRows = await h.ev(`(() => {
+            const sec = document.querySelector('[data-jarvis-brief-region="behind"]');
+            const t = (r) => (r?.innerText || "").replace(/\\s+/g, " ").trim();
+            return {
+                rows: [...(sec?.querySelectorAll('[data-jarvis-brief-row="delta"]') ?? [])].map(t),
+                more: t(sec?.querySelector('[data-jarvis-brief-more]')),
+            };
+        })()`);
+        await h.ev(`document.querySelector('[data-jarvis-brief-region="behind"]')?.scrollIntoView({ block: "start" })`);
+        steps.push({
+            step: "15. F1: Behind you leads with today's newest line, not the decisions the server lists first",
+            ok:
+                behindRows.rows.length > 0 &&
+                /Review notes initiative|Review run from today/.test(behindRows.rows[0]) &&
+                !/review decision/.test(behindRows.rows[0]),
+            detail: JSON.stringify(behindRows.rows.slice(0, 3)),
+        });
+        await h.shot("cdp-shots/brief-act-15-newest-first.png");
+        const digest = behindRows.rows.find((r) => r.includes("Review notes initiative")) ?? "";
+        // eight lines fold out of 47 events (the digest, the run, six decisions): the cap of 5 hides 3 lines
+        steps.push({
+            step: "16. F2: 40 notes fold to one digest, and +N more counts the folded lines it hides, not events",
+            ok:
+                /40 notes/.test(digest) &&
+                behindRows.rows.filter((r) => r.includes("Review notes initiative")).length === 1 &&
+                behindRows.rows.length === 5 &&
+                behindRows.more === "+3 more",
+            detail: JSON.stringify({ digest, drawn: behindRows.rows.length, more: behindRows.more }),
+        });
+        await h.shot("cdp-shots/brief-act-16-digest.png");
+
+        // 17. a filter that matches nothing says so in the delta and in Shipped, and mark seen stays
+        await actFilter(h, "zz-no-match");
+        const noMatch = await h.ev(`(() => {
+            const sec = document.querySelector('[data-jarvis-brief-region="behind"]');
+            const text = (sec?.innerText || "").replace(/\\s+/g, " ");
+            return {
+                noMatch: text.split("Nothing here matches the filter.").length - 1,
+                nothingNew: text.includes("Nothing new since you last looked."),
+                markSeen: sec?.querySelector('[data-jarvis-brief-mark-seen]') != null,
+            };
+        })()`);
+        await h.ev(`document.querySelector('[data-jarvis-brief-region="behind"]')?.scrollIntoView({ block: "start" })`);
+        await h.shot("cdp-shots/brief-act-17-no-match.png");
+        await actFilter(h, "");
+        steps.push({
+            step: "17. F17: a filter matching nothing reads as no match in Behind you and in Shipped, and mark seen stays",
+            ok: noMatch.noMatch === 2 && !noMatch.nothingNew && noMatch.markSeen,
+            detail: JSON.stringify(noMatch),
+        });
+
+        // 18. Behind you's head shows only that region, and a second press shows all four
+        const regions = `[...document.querySelectorAll('[data-jarvis-brief-region]')].map((s) => s.dataset.jarvisBriefRegion)`;
+        const behindHead = `document.querySelector('[data-jarvis-brief-region="behind"] button[aria-pressed]')`;
+        await h.ev(`${behindHead}?.click()`);
+        await h.ev("new Promise((r) => setTimeout(r, 400))");
+        const onlyBehind = await h.ev(regions);
+        await h.shot("cdp-shots/brief-act-18-only-behind.png");
+        await h.ev(`${behindHead}?.click()`);
+        await h.ev("new Promise((r) => setTimeout(r, 400))");
+        const allRegions = await h.ev(regions);
+        steps.push({
+            step: "18. F18: pressing Behind you's head shows only it, and pressing again shows all four regions",
+            ok: JSON.stringify(onlyBehind) === JSON.stringify(["behind"]) && allRegions.length === 4,
+            detail: JSON.stringify({ onlyBehind, allRegions }),
+        });
+
+        // 19. live: Unblock hides the row and drops the initiative's count at the click; Undo brings both back
+        await actFixture(h, null);
+        await h.ev(`document.querySelector('[data-jarvis-brief-attention-summary][aria-expanded="false"]')?.click()`);
+        const initRow = `[...document.querySelectorAll('[data-jarvis-brief-row="initiative"]')].find((r) => (r.innerText || "").includes(${JSON.stringify(ACT_EFFORT)}))`;
+        const blockedN = `Number(/(\\d+) blocked/.exec((${initRow})?.innerText || "")?.[1] ?? 0)`;
+        const settle = await lookEval(h, `
+            await until(() => ${actQueueRow("act-settle")} != null && ${initRow} != null, 30000);
+            const before = ${blockedN};
+            ${actQueueRow("act-settle")}?.querySelector('[data-jarvis-queue-act="unblock-chunk"]')?.click();
+            const t0 = Date.now();
+            const gone = await until(() => ${actQueueRow("act-settle")} == null && ${blockedN} === before - 1, 1000);
+            const goneMs = Date.now() - t0;
+            const after = ${blockedN};
+            return { before, gone, goneMs, after };
+        `);
+        await h.shot("cdp-shots/brief-act-19-settled.png");
+        const restored = await lookEval(h, `
+            await until(() => document.querySelector('[data-jarvis-toast-undo]') != null, 5000);
+            document.querySelector('[data-jarvis-toast-undo]')?.click();
+            const back = await until(() => ${actQueueRow("act-settle")} != null && ${blockedN} === ${settle.before}, 20000);
+            return { back, n: ${blockedN} };
+        `);
+        const reblocked19 = await actWaitChunk(h, ctx.effortoid, "act-settle", "blocked");
+        steps.push({
+            step: "19. F14: Unblock removes its Waiting row and one of the initiative's N blocked at once; Undo brings both back",
+            ok: settle.before > 0 && settle.gone && settle.after === settle.before - 1 && restored.back && reblocked19?.status === "blocked",
+            detail: JSON.stringify({ ...settle, restored, chunk: reblocked19?.status }),
+        });
+        await h.ev(`document.querySelector('[data-jarvis-brief-attention-summary][aria-expanded="true"]')?.click()`);
+
+        // 20. live: mark seen empties Behind you at the click; its Undo brings the rows back
+        const deltaN = `document.querySelectorAll('[data-jarvis-brief-region="behind"] [data-jarvis-brief-row="delta"]').length`;
+        const seen = await lookEval(h, `
+            await until(() => ${deltaN} > 0 && document.querySelector('[data-jarvis-brief-mark-seen]') != null, 20000);
+            const before = ${deltaN};
+            document.querySelector('[data-jarvis-brief-mark-seen]')?.click();
+            const emptied = await until(() => ${deltaN} === 0, 1000);
+            return { before, emptied, after: ${deltaN} };
+        `);
+        await h.ev(`document.querySelector('[data-jarvis-brief-region="behind"]')?.scrollIntoView({ block: "start" })`);
+        await h.shot("cdp-shots/brief-act-20-marked-seen.png");
+        const unseen = await lookEval(h, `
+            await until(() => document.querySelector('[data-jarvis-toast-undo]') != null, 5000);
+            document.querySelector('[data-jarvis-toast-undo]')?.click();
+            const back = await until(() => ${deltaN} > 0, 20000);
+            return { back, n: ${deltaN} };
+        `);
+        steps.push({
+            step: "20. F14: mark seen empties Behind you at the click, and its Undo restores the rows",
+            ok: seen.before > 0 && seen.emptied && unseen.back,
+            detail: JSON.stringify({ ...seen, unseen }),
+        });
         return steps;
     },
     async teardown(h, ctx) {
+        await releaseRpc(h, "AckRunCommand").catch(() => {});
         await actFilter(h, "").catch(() => {});
         await actFixture(h, null).catch(() => {});
         await h.cdp("Emulation.clearDeviceMetricsOverride").catch(() => {});

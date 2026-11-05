@@ -9,7 +9,7 @@
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import type { BriefingLoadState } from "./briefingstore";
 
-export type BriefingFixtureName = "normal" | "attention" | "empty" | "partial" | "failed" | "act";
+export type BriefingFixtureName = "normal" | "attention" | "empty" | "partial" | "failed" | "act" | "review";
 export interface BriefingFixture {
     load: BriefingLoadState;
     agents: AgentVM[];
@@ -354,6 +354,101 @@ const actState: WorkState = {
     efforts: ACT_EFFORTS,
 };
 
+// "review": the 11-05 code review's Waiting and Behind you findings (brief-act steps 12 on). A run-unverified
+// pair and a held land read by their own kind words; the held land offers Retry land and Dismiss; an ask
+// with no channel offers nothing. Behind you: six decisions in the "" project, which the server lists first,
+// all older than a run and an initiative from today, and that initiative's 40 notes, which fold to one row.
+const MIN = 60_000;
+const REVIEW_PROJECT = "C:\\Users\\dev\\IdeaProjects\\waveterm";
+const REVIEW_EFFORT = "review-notes";
+const reviewRun = (kind: string, runid: string, source: string, text: string, reason?: string): AttentionItem => ({
+    kind,
+    key: `${kind}:${runid}`,
+    channelid: "ch-review",
+    channelname: "waveterm",
+    runid,
+    source,
+    text,
+    reason,
+    action: "Review",
+    phaseidx: 0,
+    waitingsince: NOW - 2 * HOUR,
+});
+const reviewAttention: AttentionItem[] = [
+    reviewRun("run-unverified", "r-review-u1", "review unverified one", "The run landed but its Verify never ran."),
+    reviewRun("run-unverified", "r-review-u2", "review unverified two", "The run landed but its Verify never ran."),
+    reviewRun(
+        "run-land-held",
+        "r-review-held",
+        "review held land",
+        "The run's branch was not merged back: the merge conflicts with main in pkg/x.go",
+        "the merge conflicts with main in pkg/x.go"
+    ),
+    {
+        kind: "ask",
+        key: "ask:review-standalone",
+        source: "review standalone ask",
+        text: "Which tenant goes first?",
+        action: "Answer",
+        phaseidx: 0,
+        waitingsince: NOW - HOUR,
+    },
+];
+const reviewState: WorkState = {
+    projects: [
+        {
+            project: "",
+            active: [],
+            shipped: [],
+            events: [],
+            delta: Array.from({ length: 6 }, (_, i) => ({
+                ts: NOW - (20 + i) * MIN,
+                kind: "decision",
+                title: `review decision ${i + 1}`,
+            })),
+        },
+        {
+            project: REVIEW_PROJECT,
+            active: [],
+            shipped: [
+                {
+                    project: REVIEW_PROJECT,
+                    runoid: "r-review-shipped",
+                    goal: "Review shipped run",
+                    summary: "shipped for the review fixture",
+                    completedts: NOW - 3 * HOUR,
+                    mode: "quick",
+                },
+            ],
+            events: [],
+            delta: [
+                {
+                    ts: NOW - 10 * MIN,
+                    kind: "run-created",
+                    project: REVIEW_PROJECT,
+                    title: "Review run from today",
+                    detail: "status: executing",
+                    navtarget: "run:r-review-today",
+                },
+                ...Array.from({ length: 40 }, (_, i) => ({
+                    ts: NOW - 2 * MIN - i * 5000,
+                    kind: "effort-note",
+                    project: "waveterm",
+                    title: "Review notes initiative",
+                    detail: `N1 the note chunk · note ${40 - i} on the chunk.`,
+                    navtarget: "effort:" + REVIEW_EFFORT,
+                })),
+            ],
+        },
+    ],
+    sources: { runs: true, sessions: true, dossiers: true, efforts: true, attention: "volatile" },
+    efforts: [
+        actEffort(REVIEW_EFFORT, "Review notes initiative", 2 * MIN, [
+            { label: "N1 the note chunk", status: "active" },
+        ]),
+    ],
+};
+
 export const BRIEFING_FIXTURES: Record<BriefingFixtureName, BriefingFixture> = {
     normal: { load: loaded(normalState), agents, attention: [] },
     attention: { load: loaded(attentionState), agents, attention: attentionItems },
@@ -361,4 +456,5 @@ export const BRIEFING_FIXTURES: Record<BriefingFixtureName, BriefingFixture> = {
     partial: { load: loaded(partialState), agents, attention: [] },
     failed: { load: { snapshot: null, loading: false, error: "fixture failure" }, agents: [], attention: [] },
     act: { load: loaded(actState), agents: [], attention: [] },
+    review: { load: loaded(reviewState), agents: [], attention: reviewAttention },
 };
