@@ -322,7 +322,10 @@ type Run struct {
 	// ConsultSessions are sessions the run started outside its own agent (a one-shot model call), each with the
 	// usage role it played, so the usage linker can place their tokens on this run.
 	ConsultSessions []ConsultSession `json:"consultsessions,omitempty"`
-	Meta            MetaMapType      `json:"meta"`
+	// BrainstormLead is "<harness>:<session id>" of the agent a brainstorm builder check or judge was started
+	// for, so the usage linker can place that run's tokens under the brainstorming session.
+	BrainstormLead string      `json:"brainstormlead,omitempty"`
+	Meta           MetaMapType `json:"meta"`
 }
 
 func (*Run) GetOType() string {
