@@ -5,7 +5,15 @@ import { describe, expect, it } from "vitest";
 import { emptyDiffState } from "./diffempty";
 
 const pair = (
-    over: Partial<{ binary: boolean; tooLarge: boolean; original: string; modified: string; size: number }> = {}
+    over: Partial<{
+        binary: boolean;
+        tooLarge: boolean;
+        original: string;
+        modified: string;
+        size: number;
+        originalMissing: boolean;
+        modifiedMissing: boolean;
+    }> = {}
 ) => ({
     path: "a.ts",
     binary: false,
@@ -37,8 +45,41 @@ describe("emptyDiffState", () => {
             "nocommit"
         );
     });
-    it("asks for a file when none is selected", () => {
-        expect(emptyDiffState({ path: null, pair: null, nothingToCompare: null })?.kind).toBe("nofile");
+    it("asks for a file when none is selected, naming the keys that step through the list", () => {
+        expect(emptyDiffState({ path: null, pair: null, nothingToCompare: null })).toEqual({
+            kind: "nofile",
+            title: "Pick a file to see its changes",
+            body: "Choose one from the list, or step through it with n / p.",
+        });
+    });
+    it("says why a file could not be read instead of loading forever", () => {
+        expect(emptyDiffState({ path: "a.ts", pair: null, nothingToCompare: null, failure: "is a directory" })).toEqual(
+            {
+                kind: "failed",
+                title: "Couldn’t read this file",
+                body: "is a directory",
+            }
+        );
+        // with no file open there is nothing that failed to read
+        expect(emptyDiffState({ path: null, pair: null, nothingToCompare: null, failure: "x" })?.kind).toBe("nofile");
+    });
+    it("names a new empty file rather than calling it a rename", () => {
+        expect(
+            emptyDiffState({
+                path: "a.ts",
+                pair: pair({ original: "", modified: "", originalMissing: true }),
+                nothingToCompare: null,
+            })
+        ).toEqual({ kind: "newempty", title: "New empty file", body: "It was added with no content." });
+    });
+    it("names a deleted empty file rather than calling it a rename", () => {
+        expect(
+            emptyDiffState({
+                path: "a.ts",
+                pair: pair({ original: "", modified: "", modifiedMissing: true }),
+                nothingToCompare: null,
+            })
+        ).toEqual({ kind: "deletedempty", title: "Deleted empty file", body: "It had no content." });
     });
     it("is null while the pair is still loading, so the pane shows its skeleton", () => {
         expect(emptyDiffState({ path: "a.ts", pair: null, nothingToCompare: null })).toBeNull();

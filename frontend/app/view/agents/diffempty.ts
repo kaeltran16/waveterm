@@ -5,7 +5,16 @@
 // Pure: why the diff pane has nothing to draw, in words. Null means there is something to draw, or
 // the pair is still loading and the pane's skeleton is the honest answer.
 
-export type EmptyDiffKind = "nothing" | "nocommit" | "nofile" | "toolarge" | "binary" | "unchanged";
+export type EmptyDiffKind =
+    | "nothing"
+    | "nocommit"
+    | "nofile"
+    | "failed"
+    | "toolarge"
+    | "binary"
+    | "newempty"
+    | "deletedempty"
+    | "unchanged";
 
 export interface EmptyDiff {
     kind: EmptyDiffKind;
@@ -15,11 +24,21 @@ export interface EmptyDiff {
 
 export interface EmptyDiffInput {
     path: string | null;
-    pair: { path: string; binary: boolean; tooLarge: boolean; original: string; modified: string } | null;
+    pair: {
+        path: string;
+        binary: boolean;
+        tooLarge: boolean;
+        original: string;
+        modified: string;
+        originalMissing?: boolean;
+        modifiedMissing?: boolean;
+    } | null;
     // set when compare's aggregate is selected and lists no files
     nothingToCompare: { base: string; head: string } | null;
     // set when no commit is open, so there is no file list to pick from either
     noCommit?: boolean;
+    // why the open file's pair could not be read
+    failure?: string | null;
 }
 
 export function emptyDiffState(i: EmptyDiffInput): EmptyDiff | null {
@@ -38,8 +57,11 @@ export function emptyDiffState(i: EmptyDiffInput): EmptyDiff | null {
         return {
             kind: "nofile",
             title: "Pick a file to see its changes",
-            body: "Choose one from the list, or move through it with the arrow keys.",
+            body: "Choose one from the list, or step through it with n / p.",
         };
+    }
+    if (i.failure) {
+        return { kind: "failed", title: "Couldn’t read this file", body: i.failure };
     }
     if (i.pair == null || i.pair.path !== i.path) {
         return null;
@@ -60,6 +82,13 @@ export function emptyDiffState(i: EmptyDiffInput): EmptyDiff | null {
         };
     }
     if (i.pair.original === i.pair.modified) {
+        // equal only because both are empty: the file was added or deleted with no content
+        if (i.pair.originalMissing) {
+            return { kind: "newempty", title: "New empty file", body: "It was added with no content." };
+        }
+        if (i.pair.modifiedMissing) {
+            return { kind: "deletedempty", title: "Deleted empty file", body: "It had no content." };
+        }
         return { kind: "unchanged", title: "Contents unchanged", body: "Only the name or the file mode changed." };
     }
     return null;

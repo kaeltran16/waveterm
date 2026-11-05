@@ -24,6 +24,7 @@ import {
     type CommentDraft,
     type PendingComment,
 } from "./diffcomments";
+import { splitAvailableAtom, splitHintText } from "./diffoptions";
 
 const cardBox = "max-w-[640px] rounded-[8px] border bg-surface-raised font-sans";
 const cardHeader = "flex h-[32px] items-center gap-[8px] border-b border-edge-faint";
@@ -175,10 +176,11 @@ function PendingCard({ comment, sourceKey }: { comment: PendingComment; sourceKe
 }
 
 function SplitHint() {
+    const available = useAtomValue(splitAvailableAtom);
     return (
         <div data-diff-split-hint className="flex h-[26px] items-center gap-[6px] font-sans text-[11.5px] text-muted">
             <MessageSquare size={12} className="flex-none" />
-            Removed lines: switch to split (⇧D) to comment on them
+            {splitHintText(available)}
         </div>
     );
 }

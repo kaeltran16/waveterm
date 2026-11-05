@@ -15,7 +15,7 @@ import { openInCode } from "@/app/view/code/codestore";
 import { joinRepoPath, splitRepoPath } from "@/util/paths";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { Check, ChevronDown, ChevronUp, Code, ExternalLink, FileText, Pilcrow } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Code, ExternalLink, FileText, Pilcrow, RotateCw } from "lucide-react";
 import { motion } from "motion/react";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
@@ -23,10 +23,10 @@ import { DiffCommentZones } from "./diffcommentcard";
 import { commentSplitAtom, mountCommentLayer } from "./diffcommentlayer";
 import { activeCommentSourceAtom, relocateComments } from "./diffcomments";
 import { firstDifferingLine } from "./diffcontent";
-import { diffPairAtom } from "./diffcontentstore";
+import { diffPairAtom, diffPairFailureAtom, retryDiffPair } from "./diffcontentstore";
 import { emptyDiffState, type EmptyDiff } from "./diffempty";
 import { changePosition, clearDiffNav, diffNavPosAtom, gotoChange, setDiffNav } from "./diffnav";
-import { ignoreWsAtom, paneHeaderLayout, paneOptions, splitViewAtom } from "./diffoptions";
+import { ignoreWsAtom, paneHeaderLayout, paneOptions, splitAvailableAtom, splitViewAtom } from "./diffoptions";
 import { activeReviewAtom, markState, noteOpenPair, pairHash, reviewMarksAtom, toggleOpenFile } from "./reviewmarks";
 import { fmtBytes } from "./runcompletion";
 
@@ -39,12 +39,25 @@ const navBtn =
 
 function EmptyState({ empty }: { empty: EmptyDiff }) {
     return (
-        <div className="flex flex-1 flex-col items-center justify-center gap-[8px] px-[32px] text-center">
+        <div
+            data-diff-empty={empty.kind}
+            className="flex flex-1 flex-col items-center justify-center gap-[8px] px-[32px] text-center"
+        >
             <span className="flex h-[28px] w-[28px] items-center justify-center rounded-[8px] border border-edge-mid bg-surface text-muted">
                 <FileText size={16} />
             </span>
             <div className="text-[13px] font-semibold text-ink-hi">{empty.title}</div>
-            <div className="max-w-[360px] text-[12px] leading-[1.5] text-ink-mid">{empty.body}</div>
+            <div className="max-w-[360px] break-words text-[12px] leading-[1.5] text-ink-mid">{empty.body}</div>
+            {empty.kind === "failed" ? (
+                <button
+                    onClick={() => fireAndForget(retryDiffPair)}
+                    data-diff-retry
+                    className={cn(headerBtn, "mt-[4px] text-ink-mid hover:text-ink-hi")}
+                >
+                    <RotateCw size={13} />
+                    Retry
+                </button>
+            ) : null}
         </div>
     );
 }
@@ -84,6 +97,7 @@ export function DiffPane({
     noCommit?: boolean;
 }) {
     const pair = useAtomValue(diffPairAtom);
+    const failure = useAtomValue(diffPairFailureAtom);
     const split = useAtomValue(splitViewAtom);
     const ignoreWs = useAtomValue(ignoreWsAtom);
     const navPos = useAtomValue(diffNavPosAtom);
@@ -133,7 +147,10 @@ export function DiffPane({
     useEffect(() => {
         globalStore.set(commentSplitAtom, splitShown);
     }, [splitShown]);
-    const empty = emptyDiffState({ path, pair, nothingToCompare, noCommit });
+    useEffect(() => {
+        globalStore.set(splitAvailableAtom, layout.split);
+    }, [layout.split]);
+    const empty = emptyDiffState({ path, pair, nothingToCompare, noCommit, failure });
 
     const body = () => {
         if (empty) {
