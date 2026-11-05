@@ -27,6 +27,12 @@ import sessionsListStates from "./scenarios-sessions-list-states.mjs";
 import sessionsDetailStates from "./scenarios-sessions-detail-states.mjs";
 import sessionsPaletteResume from "./scenarios-sessions-palette-resume.mjs";
 import agentStartFailed from "./scenarios-agent-start-failed.mjs";
+import agentStreams from "./scenarios-agent-streams.mjs";
+import agentSubagents from "./scenarios-agent-subagents.mjs";
+import agentKeys from "./scenarios-agent-keys.mjs";
+import agentHeader from "./scenarios-agent-header.mjs";
+import agentRail from "./scenarios-agent-rail.mjs";
+import agentTree from "./scenarios-agent-tree.mjs";
 import {
     diffComments,
     diffCompare,
@@ -316,6 +322,12 @@ export const SCENARIOS = [
     ...sessionsDetailStates(SESSIONS_KIT),
     ...sessionsPaletteResume(SESSIONS_KIT),
     ...agentStartFailed(SESSIONS_KIT),
+    ...agentStreams(SESSIONS_KIT),
+    ...agentSubagents(SESSIONS_KIT),
+    ...agentKeys(SESSIONS_KIT),
+    ...agentHeader(SESSIONS_KIT),
+    ...agentRail(SESSIONS_KIT),
+    ...agentTree(SESSIONS_KIT),
     canvasMark,
     canvasTabsScenario,
     agentTerminalNames,
