@@ -457,6 +457,12 @@ describe("shell commands", () => {
         expect(commandRules("sed -i 's/a/b/' src/add.ts")).toEqual([]);
         expect(commandRules("cat src/add.test.ts")).toEqual([]);
     });
+
+    test("appending to a test file adds tests, so only an overwrite or a config append is caught", async () => {
+        expect(commandRules("cat >> src/add.test.ts <<'EOF'\nit('adds', () => {});\nEOF")).toEqual([]);
+        expect(commandRules("cat > src/add.test.ts <<'EOF'\nit('adds', () => {});\nEOF")).toEqual(["shell-edit"]);
+        expect(commandRules("echo 'addopts = -k fast' >> setup.cfg")).toEqual(["shell-edit"]);
+    });
 });
 
 describe("options", () => {
