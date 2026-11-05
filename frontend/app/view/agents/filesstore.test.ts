@@ -15,8 +15,10 @@ vi.mock("./agentsessionstore", () => ({ ensureSessionStart: (...a: any[]) => ens
 
 import { scopeKey, type DiffScope } from "./diffscope";
 import {
+    agentCwdOf,
     consumeFileLink,
     filesErrorAtom,
+    filesRefreshFailedAtom,
     filesSelectedPathAtom,
     filesStateAtom,
     loadFilesForScope,
@@ -25,6 +27,7 @@ import {
     selectFile,
     startChangesPoll,
 } from "./filesstore";
+import { treeModeAtom } from "./filetree";
 
 const runScopeVal = (id: string, cwd = "/repo", base = "abc123"): DiffScope => ({
     repo: { origin: { kind: "run", runId: id, cwd, baseCommit: base }, label: `run ${base}` },
@@ -46,6 +49,7 @@ afterEach(() => {
     globalStore.set(filesStateAtom, null);
     globalStore.set(filesSelectedPathAtom, null);
     globalStore.set(filesErrorAtom, false);
+    globalStore.set(filesRefreshFailedAtom, false);
 });
 
 describe("loadFilesForScope, run range", () => {
@@ -142,6 +146,7 @@ describe("loadFilesForScope outcomes", () => {
             changes: null,
             ref: "",
             head: "",
+            end: "",
         });
         expect(globalStore.get(filesErrorAtom)).toBe(false);
     });
@@ -246,6 +251,105 @@ describe("reloadChanges", () => {
         await new Promise((r) => setTimeout(r, 0));
 
         expect(globalStore.get(filesSelectedPathAtom)).toBe("b.ts");
+    });
+});
+
+// a landed run's list stops at the run's own tip, so what landed on main after it is not counted
+describe("loadFilesForScope, bounded run range", () => {
+    it("sends the run's tip as end and records it", async () => {
+        gitChanges.mockResolvedValue({ isrepo: true, branch: "main", statusz: "M  x.ts\0", numstat: "1\t0\tx.ts\n" });
+        const scope = runScopeVal("run-b");
+        scope.range = { kind: "run", runId: "run-b", baseCommit: "abc123", headCommit: "tip999" };
+
+        await loadFilesForScope(scope);
+
+        expect(gitChanges).toHaveBeenCalledWith({}, { cwd: "/repo", ref: "abc123", end: "tip999" });
+        expect(globalStore.get(filesStateAtom)?.end).toBe("tip999");
+    });
+
+    it("keeps the bound on a refresh", async () => {
+        gitChanges.mockResolvedValue({ isrepo: true, branch: "main", statusz: "", numstat: "" });
+        const scope = runScopeVal("run-c");
+        scope.range = { kind: "run", runId: "run-c", baseCommit: "abc123", headCommit: "tip999" };
+        await loadFilesForScope(scope);
+        gitChanges.mockClear();
+
+        await reloadChanges("/repo");
+
+        expect(gitChanges).toHaveBeenCalledWith({}, { cwd: "/repo", ref: "abc123", end: "tip999" });
+    });
+
+    it("records an empty end for a live read", async () => {
+        gitChanges.mockResolvedValue({ isrepo: true, branch: "main", statusz: "", numstat: "" });
+        await loadFilesForScope(projectScopeVal("proj"));
+        expect(globalStore.get(filesStateAtom)?.end).toBe("");
+    });
+});
+
+// one failed 10 s tick must not wipe the working-tree row
+describe("a refresh that fails", () => {
+    const dirty = { isrepo: true, branch: "main", statusz: "M  a.ts\0", numstat: "1\t0\ta.ts\n" };
+
+    it("keeps the last good state and says the refresh failed, until a read succeeds", async () => {
+        gitChanges.mockResolvedValueOnce(dirty);
+        await loadFilesForScope(projectScopeVal("proj"));
+        const good = globalStore.get(filesStateAtom);
+
+        gitChanges.mockRejectedValueOnce(new Error("git gone"));
+        await reloadChanges("/repo");
+
+        expect(globalStore.get(filesStateAtom)).toBe(good);
+        expect(globalStore.get(filesRefreshFailedAtom)).toBe(true);
+        expect(globalStore.get(filesErrorAtom)).toBe(false);
+
+        gitChanges.mockResolvedValueOnce(dirty);
+        await reloadChanges("/repo");
+        expect(globalStore.get(filesRefreshFailedAtom)).toBe(false);
+    });
+
+    it("leaves an initial-load failure as the surface's error", async () => {
+        gitChanges.mockRejectedValueOnce(new Error("git gone"));
+        await loadFilesForScope(projectScopeVal("proj"));
+        expect(globalStore.get(filesErrorAtom)).toBe(true);
+        expect(globalStore.get(filesRefreshFailedAtom)).toBe(false);
+    });
+});
+
+// an ended agent is no longer in the roster, so its folder has to have been remembered while it was
+describe("agentCwdOf", () => {
+    it("remembers the folder an agent scope resolved to", async () => {
+        resolveCwd.mockResolvedValue("/wt-remembered");
+        ensureSessionStart.mockResolvedValue(null);
+        gitChanges.mockResolvedValue({ isrepo: true, branch: "main", statusz: "", numstat: "" });
+
+        await loadFilesForScope(agentScopeVal("a-cwd"), { transcriptPath: "/t.jsonl" });
+
+        expect(agentCwdOf("a-cwd")).toBe("/wt-remembered");
+        expect(agentCwdOf("a-unknown")).toBeUndefined();
+    });
+});
+
+describe("the first file opened on load", () => {
+    afterEach(() => globalStore.set(treeModeAtom, true));
+    const two = {
+        isrepo: true,
+        branch: "main",
+        statusz: "M  README.md\0M  retry/policy.go\0",
+        numstat: "1\t0\tREADME.md\n1\t0\tretry/policy.go\n",
+    };
+
+    it("is the first row the tree draws", async () => {
+        globalStore.set(treeModeAtom, true);
+        gitChanges.mockResolvedValue(two);
+        await loadFilesForScope(projectScopeVal("proj"));
+        expect(globalStore.get(filesSelectedPathAtom)).toBe("retry/policy.go");
+    });
+
+    it("is git's first file in the flat list", async () => {
+        globalStore.set(treeModeAtom, false);
+        gitChanges.mockResolvedValue(two);
+        await loadFilesForScope(projectScopeVal("proj"));
+        expect(globalStore.get(filesSelectedPathAtom)).toBe("README.md");
     });
 });
 

@@ -4,7 +4,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { git, reloadApp, TREE_RAIL_FIXTURE } from "./scenarios-shared.mjs";
+import { FINAL_SHOTS_UICTX, git, reloadApp, teardownFixtureRun, TREE_RAIL_FIXTURE, waveService } from "./scenarios-shared.mjs";
 
 // the history page is 50 rows, so more than that makes a second page
 const SCOPE_FILLER_COMMITS = 62;
@@ -93,7 +93,162 @@ export const SCOPE = {
     agent: "diff-remote-chip",
     twoSources: "diff-remote",
     noMatch: "zz-no-source-matches",
+    // the landed run: its one commit, merged --no-ff into main, then a commit on main after it. audit.txt sorts
+    // before run/ in git's list but after it in the tree, so the first file opened says which order was used
+    runChannel: "verify-diff-scope-run",
+    runCommit: "run: pay out the ledger",
+    runFiles: ["audit.txt", "run/payout.txt"],
+    runFirstTreeFile: "run/payout.txt",
+    landMerge: "land the payout run",
+    afterLand: "after the run landed",
+    afterLandFile: "later.txt",
+    // any commit on the first page, so the run link has a remembered row to override
+    projectCommit: "filler commit 50",
 };
+
+const rev = (dir, ref) => git(dir, "rev-parse", ref).toString().trim();
+
+// A real run record held by deferstart, so no lead starts. Its landing tree gets the run's commit, main merges it
+// --no-ff the way a land does, and a later commit lands on main; the record then reads done and landed at that
+// merge, with sealed evidence so the run sheet draws its diff link. endcommit stays unset: the tip must come from
+// the land commit's parents.
+// fills `run` as it goes, so teardown removes whatever was made before a failure
+async function seedLandedRun(h, run) {
+    const dir = run.cwd;
+    const wslist = await h.rpc("workspacelist", null);
+    const ch = await h.rpc("createchannel", { name: SCOPE.runChannel, projectpath: dir });
+    run.channelId = ch.oid;
+    const created = await h.rpc("createrun", {
+        channelid: ch.oid,
+        workspaceid: wslist[0].workspacedata.oid,
+        goal: "verify diff-scope: do nothing, make no file changes, stop immediately",
+        runtime: "claude",
+        mode: "orchestrator",
+        deferstart: true,
+    });
+    run.runId = created.run.id;
+    run.landPath = created.run.landpath;
+    run.base = created.run.basecommit || rev(dir, "HEAD");
+    const tree = run.landPath;
+    if (!tree) throw new Error("createrun made no landing tree");
+    mkdirSync(join(tree, "run"), { recursive: true });
+    writeFileSync(join(tree, "run", "payout.txt"), "payouts settle here\n");
+    writeFileSync(join(tree, "audit.txt"), "audited\n");
+    git(tree, "add", ...SCOPE.runFiles);
+    git(tree, "commit", "-q", "-m", SCOPE.runCommit);
+    run.tip = rev(tree, "HEAD");
+    git(dir, "merge", "-q", "--no-ff", "-m", SCOPE.landMerge, run.tip);
+    run.merge = rev(dir, "HEAD");
+    writeFileSync(join(dir, SCOPE.afterLandFile), "later\n");
+    git(dir, "add", SCOPE.afterLandFile);
+    git(dir, "commit", "-q", "-m", SCOPE.afterLand);
+    const oref = `run:${run.runId}`;
+    const evidence = {
+        capturedts: Date.now(),
+        hash: "",
+        files: SCOPE.runFiles.map((path) => ({ path, stat: "A", add: 1, del: 0 })),
+        addtotal: 2,
+        deltotal: 0,
+        runtimems: 0,
+        durationms: 0,
+    };
+    const stored = await waveService(h, "object", "GetObject", [oref]);
+    await waveService(
+        h,
+        "object",
+        "UpdateObject",
+        [{ ...stored, otype: "run", status: "done", report: "", evidence, land: { state: "landed", commit: run.merge } }, false],
+        FINAL_SHOTS_UICTX
+    );
+}
+
+const SELECTED_ROW = `[...document.querySelectorAll("[data-history-row] > button.bg-surface-selected")].map((b) => b.textContent).join(" | ")`;
+const historyHas = (subject) =>
+    `[...document.querySelectorAll("[data-history-row]")].some((r) => r.textContent.includes(${JSON.stringify(subject)}))`;
+const FILE_ROWS = `[...document.querySelectorAll("[data-changed-file-row]")].map((r) => r.getAttribute("data-changed-file-row"))`;
+const OPEN_FILE = `document.querySelector('[data-changed-file-row][aria-current="true"]')?.getAttribute("data-changed-file-row") ?? null`;
+
+// the row the divider labels, and whether it and the row above it are dimmed
+const DIVIDER_ROW = `(() => {
+    const rows = [...document.querySelectorAll("[data-history-row]")];
+    const i = rows.findIndex((r) => r.firstElementChild?.tagName === "DIV" && /run base/i.test(r.firstElementChild.textContent));
+    if (i < 0) return null;
+    const dim = (r) => !!r?.querySelector("button span.text-muted.flex-1");
+    return { subject: rows[i].querySelector("button span.flex-1")?.textContent ?? "", dimmed: dim(rows[i]), aboveDimmed: dim(rows[i - 1]), above: rows[i - 1]?.textContent ?? "" };
+})()`;
+
+// a value once it has held across one half-second poll
+async function settled(h, expr) {
+    let last = null;
+    for (let waited = 0; waited < WAIT_MS; waited += 500) {
+        const now = await h.ev(expr);
+        if (now && now === last) return now;
+        last = now;
+        await sleep(500);
+    }
+    return last;
+}
+
+// Steps 4-7: the landed run, opened from its sheet after a commit was picked on the project
+async function runSteps(h, ctx, rec) {
+    const { run } = ctx;
+    if (ctx.runError) {
+        rec("4-7. the landed run fixture", false, ctx.runError);
+        return;
+    }
+    // the project's own load has to settle first, or it moves the selection off a row picked while it ran
+    const onProject =
+        (await openOnDiff(h, SCOPE.project)) && (await until(h, `${SELECTED_ROW}.includes("Uncommitted changes")`, 15000));
+    const picked = onProject && (await pickHistoryRow(h, SCOPE.projectCommit));
+    const pickedRow = picked ? await settled(h, SELECTED_ROW) : null;
+    const opened = await openRunFromSheet(h, run.runId);
+    // the summary counts the change list only once it is in, which is when its row can be selected
+    const runRow = opened && (await until(h, `${SELECTED_ROW}.includes("Run changes")`, 15000));
+    const summary = runRow ? await settled(h, `(${q("[data-files-range-summary]")}?.textContent ?? "").trim()`) : "";
+    const want = `${run.base.slice(0, 7)} … ${run.tip.slice(0, 7)} · ${SCOPE.runFiles.length} files`;
+    await h.shot("cdp-shots/diff-scope-run-bounded.png");
+    rec(
+        "4. run range bounded: a landed run opens on <base> … <tip>, counting none of the commit landed after it",
+        opened && !!summary?.startsWith(want),
+        JSON.stringify({ opened, summary, want })
+    );
+
+    const row = await settled(h, SELECTED_ROW);
+    rec(
+        "5. run link selects Run changes: the commit picked on the project gives way to the run's own row",
+        !!pickedRow?.includes(SCOPE.projectCommit) && !!row?.includes("Run changes"),
+        JSON.stringify({ pickedRow, row })
+    );
+
+    const divider = await h.ev(DIVIDER_ROW);
+    const sideListed = await h.ev(historyHas(SCOPE.side));
+    const laterListed = await h.ev(historyHas(SCOPE.afterLand));
+    rec(
+        "6. session divider: under the run, the side branch's commit is absent and the divider sits above the dimmed base row",
+        !!divider?.subject.includes(SCOPE.latest) && divider.dimmed && !divider.aboveDimmed && !sideListed && !laterListed,
+        JSON.stringify({ divider, sideListed, laterListed })
+    );
+
+    const open = await settled(h, OPEN_FILE);
+    const order = await h.ev(FILE_ROWS);
+    await h.shot("cdp-shots/diff-scope-first-file.png");
+    rec(
+        "7. first file is first row: in tree mode the run opens on the first file row drawn, not git's first file",
+        open === SCOPE.runFirstTreeFile && order[0] === open,
+        JSON.stringify({ open, order })
+    );
+}
+
+// opens the run's sheet the way a finished run is reached and follows its diff link, which calls openRunDiff
+async function openRunFromSheet(h, runId) {
+    await h.goto("jarvis");
+    if (!(await until(h, `typeof window.__openAddress === "function"`, 5000))) return false;
+    await h.ev(`window.__openAddress(${JSON.stringify(`run:${runId}`)})`);
+    const link = `[...document.querySelectorAll("[data-evidence-block] button")].find((b) => /open the repository diff/.test(b.textContent || ""))`;
+    if (!(await until(h, `!!(${link})`, 10000))) return false;
+    await h.ev(`${link}.click()`);
+    return until(h, `(${q("[data-files-range-summary]")}?.textContent ?? "").includes("…")`, 15000);
+}
 
 const FILTER_INPUT = `[aria-label="Filter sources"]`;
 const KEYS = { ArrowDown: 40, Enter: 13, Escape: 27 };
@@ -201,6 +356,13 @@ export const diffScope = {
         await h.rpc("createproject", { name: SCOPE.plain, path: plain });
         await h.rpc("createproject", { name: SCOPE.remote, path: remote.clone });
         const chip = seedChipAgent(scope.dir);
+        const run = { cwd: scope.dir };
+        let runError = null;
+        try {
+            await seedLandedRun(h, run);
+        } catch (e) {
+            runError = String(e?.message ?? e);
+        }
         // fresh module state: Diff's scope, range and history collapse outlive the surface for the page's life; the
         // same reload reads the fixture roster
         await reloadApp(h);
@@ -209,11 +371,13 @@ export const diffScope = {
             plain,
             remoteRoot: remote.root,
             names,
+            run,
+            runError,
             priorFixture: chip.priorFixture,
             dirs: [scope.dir, scope.sideRoot, plain, remote.root, chip.transcriptRoot],
         };
     },
-    async assert(h) {
+    async assert(h, ctx) {
         const steps = [];
         const rec = (step, ok, detail) => steps.push({ step, ok, detail });
         try {
@@ -272,6 +436,21 @@ export const diffScope = {
                 pinned && chip && named,
                 JSON.stringify({ pinned, chip, named, label: await pickerLabel(h) })
             );
+
+            await runSteps(h, ctx, rec);
+
+            const onProject = await openOnDiff(h, SCOPE.project);
+            await until(h, historyHas(SCOPE.afterLand));
+            const stashRow = await h.ev(`${historyHas("verify stashed edit")} || ${historyHas("index on main")}`);
+            const stashChip = await h.ev(
+                `[...document.querySelectorAll("[data-history-row] button span")].some((s) => ["stash", "refs/stash"].includes(s.textContent.trim()))`
+            );
+            await h.shot("cdp-shots/diff-scope-no-stash.png");
+            rec(
+                "8. stash not listed: the project's history has no row and no chip for the fixture's stash",
+                onProject && !stashRow && !stashChip,
+                JSON.stringify({ onProject, stashRow, stashChip })
+            );
         } catch (e) {
             rec("scenario aborted", false, String(e?.message ?? e));
         }
@@ -280,6 +459,12 @@ export const diffScope = {
     async teardown(h, ctx) {
         await h.cdp("Emulation.setFocusEmulationEnabled", { enabled: false }).catch(() => {});
         restoreFixture(ctx.priorFixture);
+        if (ctx.run?.channelId) {
+            // a done run cannot be cancelled; this deletes its channel and its landing tree
+            await teardownFixtureRun(h, { ...ctx.run, runId: null }, "diff-scope", null).catch((e) =>
+                console.error(`diff-scope teardown: ${e?.message ?? e}`)
+            );
+        }
         await removeFixtures(h, ctx.names, ctx.dirs);
         // drop the fixture roster the page read at boot
         await reloadApp(h);
