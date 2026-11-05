@@ -2558,7 +2558,7 @@ export const briefComposerSteerOnly = {
         await h.shot("cdp-shots/brief-composer-steer-only.png");
         return steps;
     },
-    async teardown(h) {},
+    async teardown() {},
 };
 
 // --- brief-restore: the stored subject, landed three different ways -------------------------------
@@ -5152,7 +5152,7 @@ export const briefAct = {
         await h.shot("cdp-shots/brief-act-27-stop-refused.png");
         await releaseRpc(h, "CancelRunCommand");
         steps.push({
-            step: "27. F22: a Stop the server refuses shows an error toast with its message, and the run row still reads running",
+            step: "27. F22: a Stop the server refuses shows an error toast with its message, and the run row is unchanged",
             ok:
                 ctx.arrangeError == null &&
                 f22before.found &&
@@ -5268,16 +5268,39 @@ export const briefAct = {
         `);
         await h.shot("cdp-shots/brief-act-30-plan-error.png");
         await releaseRpc(h, "EffortGetCommand");
-        const f13b = await lookEval(h, `
+        // the retried read waits on a gate rather than holdRpc's never-settling promise, so the Retry's own load
+        // is the one that draws the plan once the gate opens
+        const retrying = await lookEval(h, `
+            const { RpcApi } = await mod("app/store/wshclientapi.ts");
+            const real = RpcApi.EffortGetCommand;
+            let open;
+            const gate = new Promise((r) => (open = r));
+            window.__planRetryGate = () => { RpcApi.EffortGetCommand = real; open(); };
+            RpcApi.EffortGetCommand = (...args) => gate.then(() => real.apply(RpcApi, args));
             document.querySelector('[data-jarvis-plan-retry]')?.click();
+            const loading = await until(() => document.querySelector('[data-jarvis-initiative-detail="loading"]') != null, 6000);
+            return { loading, error: document.querySelector('[data-jarvis-initiative-detail="error"]') != null };
+        `);
+        await h.shot("cdp-shots/brief-act-30-plan-retrying.png");
+        const f13b = await lookEval(h, `
+            window.__planRetryGate?.();
+            delete window.__planRetryGate;
             const drawn = await until(() => document.querySelector('[data-jarvis-tracker-stage]') != null, 10000);
             return { drawn, error: document.querySelector('[data-jarvis-initiative-detail="error"]') != null };
         `);
         await h.shot("cdp-shots/brief-act-30-plan-retried.png");
         steps.push({
-            step: "30. F13: an initiative whose plan fails to load shows the error with Retry, and Retry draws the plan",
-            ok: f13.shown && f13.text.includes(PLAN_REFUSED) && f13.retry && !f13.loading && f13b.drawn && !f13b.error,
-            detail: JSON.stringify({ ...f13, retried: f13b }),
+            step: "30. F13: an initiative whose plan fails to load shows the error with Retry, and Retry draws the plan, showing the plan loading while it retries",
+            ok:
+                f13.shown &&
+                f13.text.includes(PLAN_REFUSED) &&
+                f13.retry &&
+                !f13.loading &&
+                retrying.loading &&
+                !retrying.error &&
+                f13b.drawn &&
+                !f13b.error,
+            detail: JSON.stringify({ ...f13, retrying, retried: f13b }),
         });
         await h.ev(`${ACT_OPEN_INIT}?.click()`);
 
@@ -5381,7 +5404,12 @@ export const briefAct = {
             pick?.click();
             const shown = await until(() => document.querySelector('[data-jarvis-brief-toast="error"]') != null, 5000);
             await nap(300);
-            return { record, status, shown, toast: flat(document.querySelector('[data-jarvis-brief-toast]')) };
+            // the toast answers the open peek, so it must draw above the dialog scrim, not under it
+            const el = document.querySelector("[data-jarvis-brief-toast]");
+            const r = el?.getBoundingClientRect();
+            const hit = r ? document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) : null;
+            const onTop = hit?.closest("[data-jarvis-brief-toast]") != null;
+            return { record, status, shown, onTop, toast: flat(el) };
         `);
         await h.shot("cdp-shots/brief-act-34-status-refused.png");
         await releaseRpc(h, "SetDossierStatusCommand");
@@ -5390,8 +5418,8 @@ export const briefAct = {
             globalStore.set((await mod("app/view/jarvis/jarvisstore.ts")).briefPeekRecordAtom, null);
         `);
         steps.push({
-            step: "34. F12: a status change from the record peek that the server refuses shows an error toast naming the reason",
-            ok: f12.record != null && f12.status != null && f12.shown && f12.toast.includes("Couldn't set the record's status") && f12.toast.includes(STATUS_REFUSED),
+            step: "34. F12: a status change from the record peek that the server refuses shows an error toast naming the reason, drawn above the peek",
+            ok: f12.record != null && f12.status != null && f12.shown && f12.onTop === true && f12.toast.includes("Couldn't set the record's status") && f12.toast.includes(STATUS_REFUSED),
             detail: JSON.stringify(f12),
         });
         return steps;

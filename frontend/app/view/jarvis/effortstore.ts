@@ -103,12 +103,13 @@ function setLoadError(oref: string, message: string | null): void {
 
 // Cache fill for the sheet and the composer; a successful mutate has already replaced the cache entry, so
 // callers may skip this. A failure is recorded under the oref (effortLoadErrorAtom) and still throws to the
-// caller. The stale entry is left in place across a refetch on purpose — dropping it first would blank an
-// open sheet's rows.
+// caller; a load that starts clears it first, so a Retry draws the loading line again until it settles. The
+// stale entry is left in place across a refetch on purpose — dropping it first would blank an open sheet's rows.
 export async function loadEffortDetail(oref: string, freshTs?: number): Promise<void> {
     if (effortDetailIsFresh(globalStore.get(effortDetailAtom).get(oref), freshTs)) {
         return;
     }
+    setLoadError(oref, null);
     let rtn: CommandEffortGetRtnData;
     try {
         rtn = await RpcApi.EffortGetCommand(

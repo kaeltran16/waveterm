@@ -6,10 +6,11 @@
 // here; React components do not reinterpret wire kinds inline.
 
 import { formatAge, type AgentVM } from "@/app/view/agents/agentsviewmodel";
-import { chunkKey } from "./briefundo";
 import { buildEffortCard, type EffortCardModel } from "./effortmodel";
 
 export const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+
+export const chunkKey = (oref: string, label: string) => `chunk:${oref}:${label}`;
 
 // The window a region opens at. This projection produces every row it knows about; the caps are what
 // the Brief shows before its regions are expanded, so the hidden rows stay addressable rather than

@@ -113,6 +113,14 @@ describe("loadEffortDetail", () => {
         expect(globalStore.get(effortLoadErrorAtom).has("effort:x")).toBe(false);
         expect(globalStore.get(effortDetailAtom).get("effort:x")).toBe(effort);
     });
+
+    it("clears a recorded load error when a reload starts", () => {
+        globalStore.set(effortDetailAtom, new Map());
+        globalStore.set(effortLoadErrorAtom, new Map([["effort:x", "timeout"]]));
+        get.mockReturnValueOnce(new Promise(() => {}));
+        void loadEffortDetail("effort:x");
+        expect(globalStore.get(effortLoadErrorAtom).has("effort:x")).toBe(false);
+    });
 });
 
 describe("detailOps", () => {

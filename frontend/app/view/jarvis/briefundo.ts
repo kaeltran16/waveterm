@@ -9,6 +9,9 @@
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { atom, type PrimitiveAtom } from "jotai";
+import { chunkKey } from "./briefingmodel";
+
+export { chunkKey };
 
 export const UNDO_WINDOW_MS = 5000;
 
@@ -126,5 +129,4 @@ export const briefUndo = createUndoQueue({
 });
 
 export const effortKey = (oref: string) => `effort:${oref}`;
-export const chunkKey = (oref: string, label: string) => `chunk:${oref}:${label}`;
 export const noteKey = (oref: string, label: string, ts: number) => `note:${oref}:${label}:${ts}`;
