@@ -39,7 +39,9 @@ import {
     buildAttribution,
     classSplit,
     itemScopeKey,
+    LIST_COLLAPSED_ROWS,
     listPage,
+    nextShown,
     otherFoldersText,
     plural,
     resolveScope,
@@ -301,8 +303,8 @@ function workHead(scope: WorkScope, stats: UsageStats, action: ReactNode): Detai
     if (scope.kind === "all") {
         return { title: "All usage", meta: statsMeta(stats) };
     }
-    if (scope.kind === "project") {
-        const { label, count } = scope.project;
+    if (scope.kind === "project" || scope.kind === "initiative") {
+        const { label, count } = scope.kind === "project" ? scope.project : scope.initiative;
         return { title: label, meta: [["runs and sessions", String(count)], ...statsMeta(stats)] };
     }
     const { item } = scope;
@@ -398,7 +400,11 @@ function WorkListCard({
     onOpen: (key: string) => void;
     onToggle: () => void;
 }) {
-    const page = listPage(list, expanded);
+    const page = listPage(
+        list,
+        expanded ? nextShown(LIST_COLLAPSED_ROWS, list.rows.length) : LIST_COLLAPSED_ROWS
+    );
+    const toggleLabel = expanded ? page.lessLabel : page.moreLabel;
     return (
         <div data-usage-list className="rounded-[14px] border border-border bg-surface-raised px-5 py-[18px]">
             <SectionRule label={list.title} meta={list.meta} />
@@ -449,7 +455,7 @@ function WorkListCard({
                     );
                 })}
             </div>
-            {page.hasMore ? (
+            {toggleLabel != null ? (
                 <button
                     type="button"
                     data-usage-more
@@ -457,7 +463,7 @@ function WorkListCard({
                     onClick={onToggle}
                     className={cn(QUIET_BUTTON, "mt-3 px-3 py-1.5 text-muted")}
                 >
-                    {page.moreLabel}
+                    {toggleLabel}
                 </button>
             ) : null}
         </div>
@@ -639,7 +645,7 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
     );
     const rows = useMemo(() => railRows(groups), [groups]);
 
-    const attr = useMemo(() => buildAttribution(buckets, sessions), [buckets, sessions]);
+    const attr = useMemo(() => buildAttribution(buckets, sessions, []), [buckets, sessions]);
     const scope = useMemo(() => resolveScope(attr, workScope, workItem?.key ?? null), [attr, workScope, workItem]);
     const workStats = useMemo(
         () => (scope.kind === "all" ? allStats : aggregateBuckets(scopeBuckets(buckets, attr, scope), Date.now())),
