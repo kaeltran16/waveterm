@@ -4,13 +4,14 @@
 
 // Renders whichever variant the store resolved the opened file to. The text case hands off to the
 // existing Monaco wrapper, which derives the language from the filename — so Go, Rust and TypeScript
-// all highlight without a language map here. Only the text case is editable; every other variant
-// (binary, too large, missing, unreadable) stays a dead end by construction.
+// all highlight without a language map here. Only the text case is editable; an image file renders,
+// and every other variant (binary, too large, missing, unreadable) is read-only by construction.
 //
 // This is also the only module that touches Monaco directly. The store publishes a pending line and
 // a handoff asks for the current selection; both are served here so codestore.ts stays IO-and-atoms.
 
 import { Markdown } from "@/app/element/markdown";
+import { resolveRemoteFile } from "@/app/element/markdown-util";
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { SurfaceEmptyState } from "@/app/view/agents/surfacescaffold";
@@ -22,7 +23,7 @@ import type * as MonacoTypes from "monaco-editor";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CodeBlameColumn, type EditorLineLayout } from "./codeblamecolumn";
 import { codeBlameOnAtom } from "./codeblamestore";
-import { isMarkdownPath } from "./codeclassify";
+import { isImagePath, isMarkdownPath } from "./codeclassify";
 import { missingView } from "./codedifftarget";
 import { CodeDiffView } from "./codediffview";
 import { remember } from "./codeeditorcache";
@@ -35,8 +36,10 @@ import {
     cancelComment,
     codeCommentDraftAtom,
     codeReviewsAtom,
+    consumePendingComment,
     saveComment,
     setCommentSelectionReader,
+    startComment,
 } from "./codereviewstore";
 import {
     codeDraftsAtom,
@@ -64,6 +67,12 @@ function sizeLabel(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function copyPath(project: CodeProject | null, rel: string): void {
+    if (project != null) {
+        void navigator.clipboard?.writeText(joinRepoPath(project.path, rel));
+    }
 }
 
 // Module-scoped rather than a ref: the path bar's handoff control needs the same instance, and the
@@ -366,13 +375,37 @@ function CommentMarkers({ path, text }: { path: string; text: string }) {
     return null;
 }
 
+// room between the input's shadow and the code line below it
+const COMMENT_ZONE_GAP_PX = 4;
+
 // The note being written, drawn under the draft's last line. Enter and Escape are the input's own and
 // stop here; the window's Escape (back to Cockpit) already stands down while a field holds focus.
 function CommentInput({ path }: { path: string }) {
     const draft = useAtomValue(codeCommentDraftAtom);
+    const ed = useAtomValue(editorAtom);
     const layout = useEditorLineLayout();
     const [note, setNote] = useState("");
-    if (draft == null || draft.path !== path || layout == null) {
+    const boxRef = useRef<HTMLDivElement>(null);
+    const shown = draft != null && draft.path === path && layout != null;
+    // An empty view zone as tall as the input pushes the lines after the draft down, so the input sits in
+    // a gap rather than over code. The input stays outside the zone: Monaco would take its clicks and keys.
+    useEffect(() => {
+        const box = boxRef.current;
+        if (!shown || ed == null || box == null) {
+            return;
+        }
+        let id = "";
+        ed.changeViewZones((a) => {
+            id = a.addZone({
+                afterLineNumber: draft.endLine,
+                heightInPx: box.offsetHeight + COMMENT_ZONE_GAP_PX,
+                domNode: document.createElement("div"),
+            });
+        });
+        // a no-op on an editor already disposed by a file switch
+        return () => ed.changeViewZones((a) => a.removeZone(id));
+    }, [shown, ed, draft]);
+    if (!shown) {
         return null;
     }
     const close = (save: boolean) => {
@@ -387,6 +420,7 @@ function CommentInput({ path }: { path: string }) {
     const range = draft.endLine === draft.startLine ? `${draft.startLine}` : `${draft.startLine}-${draft.endLine}`;
     return (
         <div
+            ref={boxRef}
             style={{ top: layout.top(draft.endLine) + layout.height(draft.endLine, 1) }}
             className="absolute inset-x-3 z-10 rounded-[8px] border border-border bg-surface p-1.5 shadow-popover-md"
         >
@@ -406,6 +440,67 @@ function CommentInput({ path }: { path: string }) {
                 }}
                 className="w-full rounded-[6px] border border-border bg-surface px-2 py-1 text-[12px] text-primary outline-none placeholder:text-muted"
             />
+        </div>
+    );
+}
+
+// An image file, fetched the way a Markdown image is (wavesrv bytes as a blob url) and fit to the pane.
+function ImageView({ project, path, size }: { project: CodeProject | null; path: string; size: number }) {
+    const [src, setSrc] = useState<string | null>(null);
+    const [failed, setFailed] = useState(false);
+    const root = project?.path;
+    useEffect(() => {
+        if (root == null) {
+            return;
+        }
+        const { dir, file } = splitRepoPath(path);
+        let url: string | null = null;
+        let gone = false;
+        setSrc(null);
+        setFailed(false);
+        void resolveRemoteFile(file, { connName: "local", baseDir: joinRepoPath(root, dir) }).then((u) => {
+            url = u;
+            if (gone) {
+                if (u != null) {
+                    URL.revokeObjectURL(u);
+                }
+            } else if (u == null) {
+                setFailed(true);
+            } else {
+                setSrc(u);
+            }
+        });
+        return () => {
+            gone = true;
+            if (url != null) {
+                URL.revokeObjectURL(url);
+            }
+        };
+    }, [root, path]);
+    return (
+        <div data-code-image className="flex h-full flex-col items-center p-4">
+            <div className="flex min-h-0 w-full flex-1 items-center justify-center">
+                {failed ? (
+                    <p className="text-[12px] text-error">Could not load the image.</p>
+                ) : src != null ? (
+                    <img
+                        src={src}
+                        alt={path}
+                        onError={() => setFailed(true)}
+                        className="max-h-full max-w-full object-contain"
+                    />
+                ) : null}
+            </div>
+            <div className="flex flex-none items-center gap-2 pt-3 text-[12px] text-muted">
+                <span>{sizeLabel(size)}</span>
+                <button
+                    type="button"
+                    onClick={() => copyPath(project, path)}
+                    className="cursor-pointer rounded-[6px] px-2 py-0.5 hover:bg-surface-hover hover:text-primary"
+                >
+                    Copy path
+                </button>
+            </div>
         </div>
     );
 }
@@ -471,20 +566,22 @@ export function CodeViewer({ model }: { model: AgentsViewModel }) {
                 />
             );
         case "binary":
-            return <SurfaceEmptyState title="Binary file" body={`${file.path} — ${sizeLabel(file.size)}`} />;
+            if (isImagePath(file.path)) {
+                return <ImageView key={file.path} project={project} path={file.path} size={file.size} />;
+            }
+            return (
+                <SurfaceEmptyState
+                    title="Binary file"
+                    body={`${file.path} — ${sizeLabel(file.size)}`}
+                    action={{ label: "Copy path", onClick: () => copyPath(project, file.path) }}
+                />
+            );
         case "toolarge":
             return (
                 <SurfaceEmptyState
                     title="File too large to display"
                     body={`${file.path} — ${sizeLabel(file.size)}`}
-                    action={{
-                        label: "Copy path",
-                        onClick: () => {
-                            if (project != null) {
-                                void navigator.clipboard?.writeText(joinRepoPath(project.path, file.path));
-                            }
-                        },
-                    }}
+                    action={{ label: "Copy path", onClick: () => copyPath(project, file.path) }}
                 />
             );
         case "error":
@@ -530,7 +627,16 @@ export function CodeViewer({ model }: { model: AgentsViewModel }) {
                         setEditor(ed);
                         restoreKept(ed, abs);
                         applyPendingLine(ed);
+                        const commentAction = ed.addAction({
+                            id: "arc.code.comment",
+                            label: "Add review comment",
+                            contextMenuGroupId: "navigation",
+                            run: () => startComment(),
+                        });
+                        // an Alt+M from Preview or Diff waited for this editor's caret
+                        consumePendingComment();
                         return () => {
+                            commentAction.dispose();
                             if (editor === ed) {
                                 setEditor(null);
                             }
