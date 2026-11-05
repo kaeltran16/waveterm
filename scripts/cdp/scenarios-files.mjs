@@ -292,6 +292,24 @@ func Submit(id string) error {
         const name = "verify-diff-compare";
         await h.rpc("createproject", { name, path: dir });
 
+        // A second repository, checked out on main with a side branch ahead of it: what compare opens
+        // on when the checked-out branch IS the default one. README.md sorts before pkg/ in git's order
+        // but a tree draws directories first, so the first file listed differs by mode.
+        const dirB = mkdtempSync(join(tmpdir(), "verify-diff-compare-b-"));
+        git(dirB, "init", "-q", "--initial-branch=main");
+        writeFileSync(join(dirB, "README.md"), "# base\n");
+        git(dirB, "add", ".");
+        git(dirB, "commit", "-q", "-m", "seed");
+        git(dirB, "checkout", "-q", "-b", "side-work");
+        writeFileSync(join(dirB, "README.md"), "# base\nside\n");
+        mkdirSync(join(dirB, "pkg"));
+        writeFileSync(join(dirB, "pkg", "util.go"), "package pkg\n");
+        git(dirB, "add", ".");
+        git(dirB, "commit", "-q", "-m", "side work");
+        git(dirB, "checkout", "-q", "main");
+        const nameB = "verify-diff-compare-b";
+        await h.rpc("createproject", { name: nameB, path: dirB });
+
         // Deterministic entry. historyCollapsedAtom is an explicit override that a resize deliberately
         // cannot undo (difflayout.ts), and it is module-level, so it outlives the surface for the whole
         // life of the page. An earlier run of this scenario would otherwise be the thing that decides
@@ -308,7 +326,7 @@ func Submit(id string) error {
             if (up) break;
             await new Promise((r) => setTimeout(r, 500));
         }
-        return { dir, name };
+        return { dir, name, dirB, nameB };
     },
     async assert(h, ctx) {
         const steps = [];
@@ -414,6 +432,61 @@ func Submit(id string) error {
         await h.shot("cdp-shots/diff-compare.png");
         steps.push(await floorStep(h, `6. no visible text on the Diff surface is under ${MIN_FONT_PX}px`, SURFACE_ROOT));
 
+        // pick the second repository, which is on its default branch; a new source replaces the compare range
+        await click("[data-files-source-picker]");
+        await sleep(200);
+        await click(`[data-files-source-option=${JSON.stringify(ctx.nameB)}]`);
+        await sleep(1600);
+        await click('[data-range-chip="compare"]');
+        // the picker opens with the pair once the compare range is on
+        await waitFor('[data-range-chip="compare"][aria-pressed="true"]', 8000);
+        await waitFor('input[placeholder="base ref"]', 4000);
+        await sleep(1500);
+
+        // entering compare opens the picker with the pair in its two fields
+        const pair = await h.ev(
+            `['base ref', 'head ref'].map(p => document.querySelector('input[placeholder="' + p + '"]')?.value ?? '').join('...')`
+        );
+        rec(
+            "7. on the default branch, compare opens on two different refs",
+            pair === "main...side-work",
+            `pair="${pair}"`
+        );
+
+        // tree mode is the default: the first drawn row is pkg/util.go, not git's first path README.md
+        const rows = await h.ev(
+            `Array.from(document.querySelectorAll('[data-changed-file-row]')).map(e => e.dataset.changedFileRow + (e.getAttribute('aria-current') === 'true' ? '*' : '')).join(',')`
+        );
+        rec(
+            "8. compare opens the first listed file",
+            rows.split(",")[0] === "pkg/util.go*" && rows.split(",").filter((r) => r.endsWith("*")).length === 1,
+            `rows=${rows}`
+        );
+
+        // open the picker and type: suggestions show while the field is focused, and go when it is not
+        await h.ev(`(() => { const i = document.querySelector('input[placeholder="base ref"]'); i?.focus(); i?.select(); })()`);
+        await sleep(300);
+        await h.cdp("Input.insertText", { text: "ma" });
+        await sleep(500);
+        const open = await h.ev(`document.querySelectorAll('[data-ref-suggestion]').length`);
+        const box = await h.ev(
+            `(() => { const r = document.querySelector('[data-diff-pane]')?.getBoundingClientRect();
+              return r ? { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) } : null; })()`
+        );
+        if (box) {
+            const m = { x: box.x, y: box.y, button: "left", clickCount: 1 };
+            await h.cdp("Input.dispatchMouseEvent", { type: "mousePressed", ...m });
+            await h.cdp("Input.dispatchMouseEvent", { type: "mouseReleased", ...m });
+        }
+        await sleep(600);
+        const closed = await h.ev(`document.querySelectorAll('[data-ref-suggestion]').length`);
+        rec(
+            "9. suggestions close on blur",
+            open > 0 && box != null && closed === 0,
+            `open=${open} diffPane=${box != null} afterClick=${closed}`
+        );
+        await h.shot("cdp-shots/diff-compare-default-pair.png");
+
         return steps;
     },
     async teardown(h, ctx) {
@@ -425,16 +498,20 @@ func Submit(id string) error {
         await h.cdp("Input.dispatchKeyEvent", { type: "keyDown", ...esc });
         await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", ...esc });
         await h.ev(`document.querySelector('[data-history-rail] button[title="Expand history"]')?.click()`);
-        try {
-            await h.rpc("deleteproject", { name: ctx.name });
-        } catch {
-            /* leave a stale registry entry rather than failing teardown */
+        for (const name of [ctx.name, ctx.nameB]) {
+            try {
+                await h.rpc("deleteproject", { name });
+            } catch {
+                /* leave a stale registry entry rather than failing teardown */
+            }
         }
-        try {
-            // the surface is still scoped here, so wavesrv may hold the repo open a moment longer
-            rmSync(ctx.dir, { recursive: true, force: true });
-        } catch {
-            /* a leftover temp repo is cheaper than a failed teardown */
+        for (const dir of [ctx.dir, ctx.dirB]) {
+            try {
+                // the surface is still scoped here, so wavesrv may hold the repo open a moment longer
+                rmSync(dir, { recursive: true, force: true });
+            } catch {
+                /* a leftover temp repo is cheaper than a failed teardown */
+            }
         }
     },
 };
