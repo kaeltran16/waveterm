@@ -43,9 +43,18 @@ describe("assembleAllGroups", () => {
     const juno = item("agent:juno", "agent", "juno Palette: rank runs beside sessions");
     const launch = [item("launch:quick", "launch", ""), item("launch:orchestrate", "launch", "")];
     const asGoalItem = item("as-goal", "as-goal", "");
-    const input = (over: Partial<AllGroupsInput<GroupableItem>>): AllGroupsInput<GroupableItem> => ({
+    // ranked rows arrive scored, as scorePaletteItems leaves them; the tests list them in the order they rank
+    const input = ({
+        ranked = [],
+        ...over
+    }: Partial<Omit<AllGroupsInput<GroupableItem>, "ranked">> & {
+        ranked?: GroupableItem[];
+    }): AllGroupsInput<GroupableItem> => ({
         query: "",
-        ranked: [],
+        ranked: ranked.map((it) => ({
+            item: it,
+            score: fuzzyScore((over.query ?? "").trim(), it.search) ?? -Infinity,
+        })),
         recent: [],
         goto: [],
         launch: [],
@@ -71,7 +80,9 @@ describe("assembleAllGroups", () => {
     });
 
     it("returns nothing when the text names nothing and there is nowhere to start it", () => {
-        expect(assembleAllGroups(input({ query: "add a runs group to the palette", ranked: [juno] }))).toStrictEqual([]);
+        expect(assembleAllGroups(input({ query: "add a runs group to the palette", ranked: [juno] }))).toStrictEqual(
+            []
+        );
     });
 
     it("groups a note row under Notes", () => {
@@ -117,6 +128,11 @@ describe("assembleAllGroups", () => {
         expect(groups.map((g) => g.key)).toEqual(["needs", "start", "recent", "goto"]);
         expect(groups[0].items.map((i) => i.key)).toEqual(["needs:a", "needs:b", "needs:c"]);
         expect(groups[0]).toMatchObject({ label: "Needs you · 4", hidden: 1, asking: true });
+    });
+
+    it("points the empty screen's Go to overflow at the Go to scope, not at typing", () => {
+        const groups = assembleAllGroups(input({ goto: [jarvis, cockpit] }));
+        expect(groups.find((g) => g.key === "goto")?.more).toBe("Go to scope");
     });
 
     it("does not repeat a Start row already under Recent", () => {

@@ -24,7 +24,7 @@ import { runStatusView, type RunStatusTone } from "@/app/view/agents/runmodel";
 import { openRunDag } from "@/app/view/agents/runrailsections";
 import { openSessionHit } from "@/app/view/agents/sessionsfind";
 import { resumeLaunchOpts } from "@/app/view/agents/sessionsruns";
-import { themeOverridesAtom, themePresetAtom } from "@/app/view/agents/themestore";
+import { themePresetAtom } from "@/app/view/agents/themestore";
 import { startWorkflowScan } from "@/app/view/agents/workflowscanstart";
 import { rankBriefRows, type BriefRow } from "@/app/view/jarvis/briefpalette";
 import { workOnInitiative } from "@/app/view/jarvis/initiativeworkaction";
@@ -97,11 +97,10 @@ export function themeRows(themePreset: string, { close }: PaletteDeps): PaletteI
         meta: t.current ? "current" : undefined,
         swatch: t.swatch,
         verb: "Apply",
-        echo: t.current ? "Already the theme" : `Switches the theme to ${t.title}, dropping per-role overrides`,
+        echo: t.current ? "Already the theme" : `Switches the theme to ${t.title}, keeping your color overrides`,
         run: () => {
-            // matches selectPreset in settingssurface.tsx: picking a preset drops per-role overrides
+            // as Settings' theme grid does: a preset keeps the per-role overrides, which each have their own Revert
             globalStore.set(themePresetAtom, t.id);
-            globalStore.set(themeOverridesAtom, {});
             close();
         },
     }));

@@ -18,7 +18,7 @@ import type { BriefKind } from "@/app/view/jarvis/briefpalette";
 import { loadTaskList } from "@/app/view/jarvis/tasksstore";
 import { fireAndForget } from "@/util/util";
 import { atom, type PrimitiveAtom } from "jotai";
-import { fuzzyScore } from "./palette-match";
+import { fuzzyScore, type Scored } from "./palette-match";
 
 // The BriefKinds the palette sources here. Sessions are deliberately absent: the palette already has a
 // Sessions group whose Enter resumes the session rather than navigating to it.
@@ -60,25 +60,31 @@ export function loadPaletteEntities(): void {
  * archived row back above them. The head is still the better-scoring of the two heads, which is what
  * assembleAllGroups reads to pick the leading group.
  *
- * Ties go to `primary`; an empty query has no scores to compare, so `extra` simply follows.
+ * `primary` arrives scored (scorePaletteItems), so its rows are not matched a second time; only `extra` is scored
+ * here. Ties go to `primary`; an empty query has no scores to compare, so `extra` simply follows.
  */
-export function mergeRanked<T extends { search: string }>(query: string, primary: T[], extra: T[]): T[] {
+export function mergeRanked<T extends { search: string }>(
+    query: string,
+    primary: Scored<T>[],
+    extra: T[]
+): Scored<T>[] {
     const q = query.trim();
+    const scoredExtra = extra.map((item) => ({
+        item,
+        score: q === "" ? 0 : (fuzzyScore(q, item.search) ?? -Infinity),
+    }));
     if (q === "") {
-        return [...primary, ...extra];
+        return [...primary, ...scoredExtra];
     }
-    const score = (it: T) => fuzzyScore(q, it.search) ?? -Infinity;
-    const primaryScores = primary.map(score);
-    const extraScores = extra.map(score);
-    const out: T[] = [];
+    const out: Scored<T>[] = [];
     let i = 0;
     let j = 0;
-    while (i < primary.length && j < extra.length) {
-        if (extraScores[j] > primaryScores[i]) {
-            out.push(extra[j++]);
+    while (i < primary.length && j < scoredExtra.length) {
+        if (scoredExtra[j].score > primary[i].score) {
+            out.push(scoredExtra[j++]);
         } else {
             out.push(primary[i++]);
         }
     }
-    return [...out, ...primary.slice(i), ...extra.slice(j)];
+    return [...out, ...primary.slice(i), ...scoredExtra.slice(j)];
 }

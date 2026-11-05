@@ -17,16 +17,19 @@ import {
     resolveSelection,
     rowKeys,
     rowMatches,
+    sectionMatches,
     settingsSections,
+    shownFlagRuntime,
     SKIM_FIELDS,
     SKIM_PLUGIN,
     vaultStatusLine,
     vaultSyncButton,
     vaultSyncFailureNote,
+    visibleRowIds,
     type SettingSectionDef,
 } from "./settingsmodel";
 
-const sections = () => settingsSections("claude");
+const sections = () => settingsSections();
 
 describe("vault sync rows", () => {
     it("treats the vault path as machine-local", () => {
@@ -140,20 +143,19 @@ describe("settingsSections", () => {
         expect(new Set(ids).size).toBe(ids.length);
     });
 
-    it("lists the flags of the runtime being edited, and only those", () => {
-        const rows = sections().find((s) => s.id === "newagent")!.rows;
-        expect(rows.map((r) => r.id)).toEqual([
+    it("lists every runtime's flags, so a flag set on one runtime counts while another is shown", () => {
+        const section = sections().find((s) => s.id === "newagent")!;
+        expect(section.rows.map((r) => r.id)).toEqual([
             "newagent.remember",
             "newagent.runtime",
-            ...RUNTIME_FLAGS.claude.map((f) => flagRowId("claude", f.id)),
+            ...(["claude", "codex", "opencode", "pi"] as const).flatMap((rt) =>
+                RUNTIME_FLAGS[rt].map((f) => flagRowId(rt, f.id))
+            ),
         ]);
-        const codex = settingsSections("codex").find((s) => s.id === "newagent")!.rows;
-        expect(codex.some((r) => r.title === "--verbose")).toBe(false);
-    });
-
-    it("renders a runtime with an empty flag catalog as a section with no flag rows", () => {
-        const rows = settingsSections("pi").find((s) => s.id === "newagent")!.rows;
-        expect(rows.map((r) => r.id)).toEqual(["newagent.remember", "newagent.runtime"]);
+        const verbose = flagRowId("claude", "verbose");
+        expect(section.rows.find((r) => r.id === verbose)?.runtime).toBe("claude");
+        // the count and Reset section read the section's rows, whichever runtime the body shows
+        expect(changedCount(section, new Set([verbose]))).toBe(1);
     });
 
     it("offers the OpenRouter key where the OpenRouter models are set", () => {
@@ -261,6 +263,59 @@ describe("filterSections", () => {
 
     it("returns nothing when no row matches", () => {
         expect(filterSections(sections(), "zzzz")).toEqual([]);
+    });
+
+    it("keeps the whole of every section the query names, Storage's empty row list included", () => {
+        const all = sections();
+        for (const s of all) {
+            const found = filterSections(all, s.name).find((f) => f.id === s.id);
+            expect(found, s.name).toBeDefined();
+            expect(found!.rows).toEqual(s.rows);
+        }
+        expect(filterSections(all, "storage").map((s) => s.id)).toContain("storage");
+    });
+
+    it("keeps the whole section when the query matches its blurb", () => {
+        const found = filterSections(sections(), "per runtime");
+        const newAgent = found.find((s) => s.id === "newagent")!;
+        expect(newAgent.rows).toEqual(sections().find((s) => s.id === "newagent")!.rows);
+    });
+});
+
+describe("sectionMatches and visibleRowIds", () => {
+    const terminal = () => sections().find((s) => s.id === "terminal")!;
+
+    it("names a section by its name or blurb, never by an empty query", () => {
+        expect(sectionMatches(terminal(), "TERMINAL")).toBe(true);
+        expect(sectionMatches(terminal(), "   ")).toBe(false);
+        expect(sectionMatches(terminal(), "zzzz")).toBe(false);
+    });
+
+    it("shows every row with no search, or a search naming the section", () => {
+        expect(visibleRowIds(terminal(), "")).toBeNull();
+        expect(visibleRowIds(terminal(), "terminal")).toBeNull();
+        expect(visibleRowIds(null, "scrollback")).toBeNull();
+    });
+
+    it("shows only the matching rows for any other search", () => {
+        expect([...visibleRowIds(terminal(), "scrollback")!]).toEqual(["terminal.scrollback"]);
+    });
+});
+
+describe("shownFlagRuntime", () => {
+    const verbose = flagRowId("claude", "verbose");
+
+    it("shows the picked runtime with no search", () => {
+        expect(shownFlagRuntime("codex", null)).toBe("codex");
+    });
+
+    it("shows the runtime holding the matching flag when the picked one has none", () => {
+        expect(shownFlagRuntime("codex", new Set([verbose]))).toBe("claude");
+    });
+
+    it("keeps the picked runtime while one of its flags matches, or when no flag does", () => {
+        expect(shownFlagRuntime("claude", new Set([verbose]))).toBe("claude");
+        expect(shownFlagRuntime("codex", new Set(["terminal.scrollback"]))).toBe("codex");
     });
 });
 

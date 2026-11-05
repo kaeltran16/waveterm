@@ -106,7 +106,7 @@ export const START_DEFS: StartDef[] = [
     {
         id: "run",
         title: "New run…",
-        meta: "goal or plan file, workers, models",
+        meta: "goal or plan, workers, models",
         echo: "Opens the New run window",
         binding: "jarvis:new-run",
     },
