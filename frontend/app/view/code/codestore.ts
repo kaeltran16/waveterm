@@ -62,6 +62,7 @@ import {
 import { changedDirs, statusByPath, type CodeStatus } from "./codestatus";
 import { definitionPattern, rankDefinitions } from "./codesymbolquery";
 import { ancestorsOf, buildTree, visibleRows } from "./codetree";
+import { worktreeFolders, type WorktreeFolder } from "./codeworktrees";
 
 export interface CodeProject {
     name: string;
@@ -115,6 +116,8 @@ export const codeFileAtom = atom<CodeFile>({ kind: "none" }) as PrimitiveAtom<Co
 export const codeHistoryAtom = atom<History>(EMPTY_HISTORY) as PrimitiveAtom<History>;
 // every checkout of the selected project's repository, main first; empty until loaded
 export const codeWorktreesAtom = atom<GitWorktree[]>([]) as PrimitiveAtom<GitWorktree[]>;
+// the browsed folder's counterpart in each of those checkouts, only where it exists as a directory
+export const codeWorktreeFoldersAtom = atom<WorktreeFolder[]>([]) as PrimitiveAtom<WorktreeFolder[]>;
 // persisted, so a worktree or a directory reached by path stays one click away after a restart
 export const codeRecentsAtom = atomWithStorage<CodeProject[]>("code.project.recents", [], undefined, {
     getOnInit: true,
@@ -232,6 +235,9 @@ export const codeMutateErrorAtom = atom<string | null>(null) as PrimitiveAtom<st
 // eleven characters is friction, and the inline row shows WHERE the thing will land.
 export type CodeEdit = { kind: "rename"; path: string } | { kind: "create"; dir: string; isDir: boolean } | null;
 export const codeEditAtom = atom<CodeEdit>(null) as PrimitiveAtom<CodeEdit>;
+// Folders created this session (repo-relative) that no file sits under yet: `git ls-files` lists files
+// only, so without this a new folder has no row until something lands in it.
+export const codeSessionDirsAtom = atom<Set<string>>(new Set<string>()) as PrimitiveAtom<Set<string>>;
 
 // Working-tree status, keyed by repo-relative path. null = not loaded yet, which is a different
 // thing from an empty map (a clean tree) and different again from a failed read.
@@ -246,7 +252,7 @@ export const codeStatusDirsAtom = atom((get) => changedDirs(get(codeStatusAtom)?
 // The rendered row list. Derived rather than memoized inside the pane, because the keyboard bindings
 // have to agree with the pane about which rows exist and cannot see a component's useMemo.
 export const codeRowsAtom = atom((get) =>
-    visibleRows(buildTree(get(codeIndexAtom)?.paths ?? []), get(codeExpandedAtom))
+    visibleRows(buildTree(get(codeIndexAtom)?.paths ?? [], get(codeSessionDirsAtom)), get(codeExpandedAtom))
 );
 
 // The open file's declarations, derived from the buffer with the draft overlaid, so the outline
@@ -295,6 +301,9 @@ export async function selectProject(p: CodeProject | null): Promise<void> {
     globalStore.set(codeDiffBaseAtom, null);
     globalStore.set(codeStaleAtom, null);
     globalStore.set(codeWorktreesAtom, []);
+    globalStore.set(codeWorktreeFoldersAtom, []);
+    globalStore.set(codeEditAtom, null);
+    globalStore.set(codeSessionDirsAtom, new Set<string>());
     resetSearch(); // results belong to the repository they were found in
     // drafts survive on purpose — they are keyed by absolute path, so coming back to this project
     // brings your unsaved edits back with it
@@ -306,26 +315,37 @@ export async function selectProject(p: CodeProject | null): Promise<void> {
     await loadIndex(p);
 }
 
-// A stored selection restores only while the registry still knows its path — a project that was
-// renamed or removed must not silently reopen under a stale path (same rule as jarvis.subject.last).
-export function canRestoreProject(stored: CodeProject | null, registry: Record<string, ProjectKeywords>): boolean {
+export type RestoreKind = "registered" | "by-path" | "none";
+
+// How a stored selection comes back. A registered path restores under the registry's name; any other
+// path was reached by typing it or by a jump, has no name to go stale, and restores once a stat says it
+// is still a directory (restorePath).
+export function restoreKind(
+    stored: CodeProject | null,
+    registry: Record<string, ProjectKeywords> | undefined
+): RestoreKind {
     if (stored == null) {
-        return false;
+        return "none";
     }
     for (const v of Object.values(registry ?? {})) {
         if (v?.path != null && sameRepoPath(v.path, stored.path)) {
-            return true;
+            return "registered";
         }
     }
-    return false;
+    return "by-path";
+}
+
+// picking what is already shown only closes the picker; a reselect would reset the whole session
+export function isCurrentPick(current: CodeProject | null, path: string): boolean {
+    return current != null && sameRepoPath(current.path, path);
 }
 
 export type CodeBodyPhase = "no-projects" | "no-project" | "error" | "loading" | "ready";
 
 // What CodeBody shows. A stored project the restore effect is about to reopen is "loading": that effect
 // runs after the first paint, and "No project selected" there is a false claim. More states than LoadPhase
-// has, so this is Code's own union. A jump (openInCode) can select a repository the registry does not hold,
-// so an empty registry is only the answer when nothing is selected.
+// has, so this is Code's own union. A jump (openInCode) or a typed path can select a directory the registry
+// does not hold, so an empty registry is only the answer when nothing is selected or stored.
 export function codeBodyPhase(p: {
     registry: Record<string, ProjectKeywords> | undefined;
     project: CodeProject | null;
@@ -334,10 +354,10 @@ export function codeBodyPhase(p: {
     indexError: string | null;
 }): CodeBodyPhase {
     if (p.project == null) {
-        if (Object.keys(p.registry ?? {}).length === 0) {
-            return "no-projects";
+        if (restoreKind(p.stored, p.registry) !== "none") {
+            return "loading";
         }
-        return canRestoreProject(p.stored, p.registry ?? {}) ? "loading" : "no-project";
+        return Object.keys(p.registry ?? {}).length === 0 ? "no-projects" : "no-project";
     }
     if (p.indexError != null) {
         return "error";
@@ -371,6 +391,20 @@ export async function loadFileIndex(path: string): Promise<CodeIndex> {
     return idx;
 }
 
+// the ls-files in flight, so ensureIndex can tell "loading" from "nobody asked"
+let indexInFlight: { path: string; seq: number } | null = null;
+let indexSeq = 0;
+
+function setIndex(idx: CodeIndex): void {
+    globalStore.set(codeIndexAtom, idx);
+    // a session folder that now holds a file has a real row; keeping it would outlive a later delete
+    const dirs = globalStore.get(codeSessionDirsAtom);
+    const kept = [...dirs].filter((d) => !idx.paths.some((p) => p.startsWith(`${d}/`)));
+    if (kept.length !== dirs.size) {
+        globalStore.set(codeSessionDirsAtom, new Set(kept));
+    }
+}
+
 async function loadIndex(p: CodeProject): Promise<void> {
     const token = `index:${p.path}`;
     current.indexToken = token;
@@ -378,53 +412,67 @@ async function loadIndex(p: CodeProject): Promise<void> {
     void loadWorktrees();
     const cached = indexCache.get(p.path);
     if (cached != null) {
-        globalStore.set(codeIndexAtom, cached);
+        setIndex(cached);
         return;
     }
+    const flight = { path: p.path, seq: ++indexSeq };
+    indexInFlight = flight;
     try {
         const idx = await loadFileIndex(p.path);
         if (current.indexToken !== token) {
             return;
         }
-        globalStore.set(codeIndexAtom, idx);
+        setIndex(idx);
     } catch (e) {
         if (current.indexToken !== token) {
             return;
         }
         // a failed RPC is an error, not an empty repo — the Diff surface once conflated these
         globalStore.set(codeIndexErrorAtom, e instanceof Error ? e.message : String(e));
+    } finally {
+        if (indexInFlight === flight) {
+            indexInFlight = null;
+        }
     }
 }
 
+// The index on screen stays until the refetch lands: blanking it read as a cold start to the surface,
+// which then reselected the project and threw away the open file, the expanded folders and history.
 export async function refreshIndex(): Promise<void> {
     const p = globalStore.get(codeProjectAtom);
     if (p == null) {
         return;
     }
     indexCache.delete(p.path);
-    globalStore.set(codeIndexAtom, null);
     globalStore.set(codeIndexErrorAtom, null);
-    await loadIndex(p);
+    await loadIndex(p); // refetches ls-files and, alongside it, git status
 }
 
 // Returning to the surface is the other moment the cache is stale — an agent wrote while Code was
-// off-screen — but unlike the explicit refresh this one must not blank the tree: the index already on
-// screen stays until the refetch lands. Guarded against pile-up, since nav switching is a keystroke.
+// off-screen. Guarded against pile-up, since nav switching is a keystroke; refreshIndex is not, so a
+// mutation's refresh is never skipped.
 let revalidating = false;
 
 export async function revalidateIndex(): Promise<void> {
-    const p = globalStore.get(codeProjectAtom);
-    if (p == null || revalidating) {
+    if (revalidating) {
         return;
     }
     revalidating = true;
     try {
-        indexCache.delete(p.path);
-        globalStore.set(codeIndexErrorAtom, null);
-        await loadIndex(p); // refetches ls-files and, alongside it, git status
+        await refreshIndex();
     } finally {
         revalidating = false;
     }
+}
+
+// The current project's index when none is on screen, without the reset selectProject does. A no-op
+// while a load for this project is already running, which is the usual case right after a selection.
+export async function ensureIndex(): Promise<void> {
+    const p = globalStore.get(codeProjectAtom);
+    if (p == null || (indexInFlight != null && sameRepoPath(indexInFlight.path, p.path))) {
+        return;
+    }
+    await loadIndex(p);
 }
 
 // Status is decoration over the rows, so a failure degrades rather than blocks: the tree still
@@ -461,17 +509,36 @@ async function loadWorktrees(): Promise<void> {
     }
     const token = `worktrees:${p.path}`;
     current.worktreesToken = token;
+    let worktrees: GitWorktree[] = [];
     try {
         const res = await RpcApi.GitListWorktreesCommand(TabRpcClient, { cwd: p.path });
-        if (current.worktreesToken === token) {
-            globalStore.set(codeWorktreesAtom, res?.worktrees ?? []);
-        }
+        worktrees = res?.worktrees ?? [];
     } catch (e) {
         console.error("listing worktrees failed", p.path, e);
-        if (current.worktreesToken === token) {
-            globalStore.set(codeWorktreesAtom, []);
-        }
     }
+    if (current.worktreesToken !== token) {
+        return;
+    }
+    globalStore.set(codeWorktreesAtom, worktrees);
+    const folders = await existingFolders(worktreeFolders(p.path, worktrees));
+    if (current.worktreesToken === token) {
+        globalStore.set(codeWorktreeFoldersAtom, folders);
+    }
+}
+
+// a subfolder project may not exist in every checkout (another branch, or not created there yet)
+async function existingFolders(folders: WorktreeFolder[]): Promise<WorktreeFolder[]> {
+    const stats = await Promise.all(
+        folders.map(async (f) => {
+            try {
+                return statPathError(await RpcApi.FileInfoCommand(TabRpcClient, { info: { path: f.path } })) == null;
+            } catch (e) {
+                console.error("stat of worktree folder failed", f.path, e);
+                return false;
+            }
+        })
+    );
+    return folders.filter((_, i) => stats[i]);
 }
 
 // Binary and too-large are answers rather than failures, but from the diff's point of view both
@@ -662,14 +729,19 @@ export async function createEntry(dir: string, name: string, isDir: boolean): Pr
         ok = false;
         globalStore.set(codeMutateErrorAtom, `Could not create ${rel}: ${errorText(e)}`);
     }
+    if (ok && isDir) {
+        // an empty directory is not in `git ls-files` output at all; the session set gives it its row
+        globalStore.set(codeSessionDirsAtom, (d) => new Set(d).add(rel));
+    }
     await refreshIndex();
     if (!ok) {
         return;
     }
     revealPath(rel);
     globalStore.set(codeCursorAtom, rel);
-    if (!isDir) {
-        // an empty directory is not in `git ls-files` output at all, so only a file has a row to open
+    if (isDir) {
+        globalStore.set(codeExpandedAtom, (e) => new Set(e).add(rel));
+    } else {
         await openPath(rel);
     }
 }
@@ -723,6 +795,7 @@ function carryRename(project: CodeProject, rel: string, next: string): void {
         stack: h.stack.map((e) => ({ ...e, path: renamedPath(e.path, rel, next) })),
         idx: h.idx,
     }));
+    globalStore.set(codeSessionDirsAtom, (d) => new Set([...d].map((p) => renamedPath(p, rel, next))));
     revealPath(next);
 }
 
@@ -741,7 +814,10 @@ export async function deletePath(rel: string, isDir: boolean): Promise<void> {
             recursive: isDir,
         });
     } catch (e) {
+        // nothing was deleted, so the open file stays open
         globalStore.set(codeMutateErrorAtom, `Could not delete ${rel}: ${errorText(e)}`);
+        await refreshIndex();
+        return;
     }
     const file = globalStore.get(codeFileAtom);
     if (file.kind !== "none" && underOrEqual(file.path, rel)) {
@@ -750,6 +826,7 @@ export async function deletePath(rel: string, isDir: boolean): Promise<void> {
         globalStore.set(codeFileAtom, { kind: "none" });
         globalStore.set(codeCursorAtom, null);
     }
+    globalStore.set(codeSessionDirsAtom, (d) => new Set([...d].filter((p) => !underOrEqual(p, rel))));
     await refreshIndex();
 }
 
@@ -926,6 +1003,8 @@ export async function saveCurrent(): Promise<void> {
         const conflict = conflictOf(draft.base, latest);
         if (conflict !== "none") {
             globalStore.set(codeSaveAtom, { kind: "conflict", path: rel, message: conflictMessage(conflict) });
+            // the stale bar is the one "the disk moved" banner; it reads the refusal off codeSaveAtom
+            globalStore.set(codeStaleAtom, { path: rel });
             return;
         }
         await RpcApi.FileWriteCommand(TabRpcClient, { info: { path: abs }, data64: stringToBase64(draft.text) });
@@ -1015,6 +1094,10 @@ export async function selectPath(path: string): Promise<void> {
 // codePickerErrorAtom; a gone directory also leaves the Recent list here.
 export async function openPickedPath(raw: string): Promise<boolean> {
     const path = cleanPathInput(raw);
+    if (isCurrentPick(globalStore.get(codeProjectAtom), path)) {
+        globalStore.set(codePickerErrorAtom, null);
+        return true;
+    }
     let error = validatePathInput(path);
     if (error == null) {
         try {
@@ -1037,6 +1120,36 @@ export async function openPickedPath(raw: string): Promise<boolean> {
     globalStore.set(codePickerErrorAtom, null);
     await selectPath(path);
     return true;
+}
+
+// A by-path restore at launch: the folder may have been deleted since, and listing a gone folder is an
+// index error rather than an answer, so a failed stat forgets the stored folder instead.
+let restoringPath: string | null = null;
+
+export async function restorePath(path: string): Promise<void> {
+    if (restoringPath != null) {
+        return; // the surface re-runs its restore effect on any registry change while the stat is out
+    }
+    restoringPath = path;
+    try {
+        let ok = false;
+        try {
+            ok = statPathError(await RpcApi.FileInfoCommand(TabRpcClient, { info: { path } })) == null;
+        } catch (e) {
+            console.error("stat of the stored Code folder failed", path, e);
+        }
+        if (!ok) {
+            if (sameRepoPath(globalStore.get(lastCodeProjectAtom)?.path ?? "", path)) {
+                globalStore.set(lastCodeProjectAtom, null);
+            }
+            return;
+        }
+        if (globalStore.get(codeProjectAtom) == null) {
+            await selectPath(path);
+        }
+    } finally {
+        restoringPath = null;
+    }
 }
 
 export async function openInCode(

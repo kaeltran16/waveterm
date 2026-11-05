@@ -48,7 +48,6 @@ import {
 } from "./codesidebar";
 import { CodeStaleBar } from "./codestalebar";
 import {
-    canRestoreProject,
     checkStale,
     codeBodyPhase,
     codeDraftsAtom,
@@ -62,16 +61,20 @@ import {
     codeProjectAtom,
     codeRecentsAtom,
     codeSaveAtom,
+    codeWorktreeFoldersAtom,
     codeWorktreesAtom,
     draftKey,
+    ensureIndex,
     goBack,
     goForward,
+    isCurrentPick,
     lastCodeProjectAtom,
     NOT_TRACKED,
     openPickedPath,
     refreshIndex,
     registeredProjects,
-    reloadFromDisk,
+    restoreKind,
+    restorePath,
     revalidateIndex,
     revertDraft,
     saveCurrent,
@@ -94,7 +97,7 @@ export function CodeSurface({ model }: { model: AgentsViewModel }) {
     const history = useAtomValue(codeHistoryAtom);
     const hasFocus = useAtomValue(atoms.documentHasFocus);
     const mutateError = useAtomValue(codeMutateErrorAtom);
-    const worktrees = useAtomValue(codeWorktreesAtom);
+    const worktreeFolders = useAtomValue(codeWorktreeFoldersAtom);
     const recents = useAtomValue(codeRecentsAtom);
     const pickerError = useAtomValue(codePickerErrorAtom);
     const filter = useAtomValue(model.projectFilterAtom);
@@ -107,15 +110,17 @@ export function CodeSurface({ model }: { model: AgentsViewModel }) {
     useSyncMonacoTheme();
 
     const projects: CodeProject[] = registeredProjects(registry);
-    // a lone main checkout would only repeat the selection
-    const otherCheckouts = worktrees.length > 1 ? worktrees : [];
+    // a lone checkout would only repeat the selection
+    const otherCheckouts = worktreeFolders.length > 1 ? worktreeFolders : [];
     const shownRecents = pickerRecents(recents, [
         ...projects.map((p) => p.path),
         ...otherCheckouts.map((wt) => wt.path),
     ]);
-    const pick = (select: () => Promise<void>) => {
+    const pick = (path: string, select: () => Promise<void>) => {
         setPickerOpen(false);
-        fireAndForget(select);
+        if (!isCurrentPick(project, path)) {
+            fireAndForget(select);
+        }
     };
     const togglePicker = (open: boolean) => {
         globalStore.set(codePickerErrorAtom, null);
@@ -131,18 +136,23 @@ export function CodeSurface({ model }: { model: AgentsViewModel }) {
         });
 
     // the index survives an unmount in a module atom, but a project picked before this surface ever
-    // loaded (or a cache cleared elsewhere) leaves the atom null — reload on mount when that happens.
-    // A fresh launch starts with nothing selected at all; restore the last browsed project, but only
-    // while the registry still knows it — a renamed or removed project must not silently reopen.
+    // loaded leaves it null — load it then, without the reset a reselect would do to the open file.
+    // A fresh launch starts with nothing selected at all; restore the last browsed project: a registered
+    // one under its registry name, a folder opened by path once a stat says it is still there.
     useEffect(() => {
         if (project != null) {
             if (index == null && indexError == null) {
-                fireAndForget(() => selectProject(project));
+                fireAndForget(ensureIndex);
             }
             return;
         }
-        if (stored != null && canRestoreProject(stored, registry)) {
+        const kind = restoreKind(stored, registry);
+        if (kind === "registered") {
             fireAndForget(() => selectProject(stored));
+            return;
+        }
+        if (kind === "by-path") {
+            fireAndForget(() => restorePath(stored.path));
             return;
         }
         // Persisted pick → app-bar project → nothing. The persisted value keeps winning, which is the
@@ -207,7 +217,7 @@ export function CodeSurface({ model }: { model: AgentsViewModel }) {
                                             label={p.name}
                                             detail={p.path}
                                             current={p.path === project?.path}
-                                            onClick={() => pick(() => selectProject(p))}
+                                            onClick={() => pick(p.path, () => selectProject(p))}
                                         />
                                     ))
                                 )}
@@ -217,10 +227,10 @@ export function CodeSurface({ model }: { model: AgentsViewModel }) {
                                         {otherCheckouts.map((wt) => (
                                             <PickerRow
                                                 key={wt.path}
-                                                label={wt.branch || "detached HEAD"}
+                                                label={wt.label}
                                                 detail={wt.path}
                                                 current={sameRepoPath(wt.path, project?.path ?? "")}
-                                                onClick={() => pick(() => selectPath(wt.path))}
+                                                onClick={() => pick(wt.path, () => selectPath(wt.path))}
                                             />
                                         ))}
                                     </div>
@@ -283,13 +293,25 @@ export function CodeSurface({ model }: { model: AgentsViewModel }) {
                         <SaveControls />
                         {/* the affordance for an empty or unfocused tree, where there is no row to
                             right-click */}
-                        <HeaderButton label="New file (n)" onClick={() => startCreate(false)}>
+                        <HeaderButton
+                            label="New file (n)"
+                            disabled={project == null}
+                            onClick={() => startCreate(false)}
+                        >
                             <FilePlus size={13} strokeWidth={1.8} />
                         </HeaderButton>
-                        <HeaderButton label="New folder (Shift+N)" onClick={() => startCreate(true)}>
+                        <HeaderButton
+                            label="New folder (Shift+N)"
+                            disabled={project == null}
+                            onClick={() => startCreate(true)}
+                        >
                             <FolderPlus size={13} strokeWidth={1.8} />
                         </HeaderButton>
-                        <HeaderButton label="Refresh index" onClick={() => fireAndForget(refreshIndex)}>
+                        <HeaderButton
+                            label="Refresh index"
+                            disabled={project == null}
+                            onClick={() => fireAndForget(refreshIndex)}
+                        >
                             <RotateCw size={13} strokeWidth={1.8} />
                         </HeaderButton>
                         <HeaderButton label="Back" disabled={!canBack(history)} onClick={() => fireAndForget(goBack)}>
@@ -471,19 +493,10 @@ function SaveControls() {
     );
 }
 
-// A refused save and a failed save are different things and say so. Both keep the draft: the button
-// reloads from disk, which is the one action that throws typed text away, so it is never automatic.
+// A failed save keeps the draft and offers the retry. A refused save is the stale bar's to say (it
+// raises codeStaleAtom), so the two "the disk moved" banners never stack.
 function SaveBanner() {
     const save = useAtomValue(codeSaveAtom);
-    if (save.kind === "conflict") {
-        return (
-            <SurfaceError
-                message={`${save.path}: ${save.message}`}
-                actionLabel="Reload from disk"
-                onRetry={() => fireAndForget(reloadFromDisk)}
-            />
-        );
-    }
     if (save.kind === "error") {
         return (
             <SurfaceError
