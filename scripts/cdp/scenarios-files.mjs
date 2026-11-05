@@ -10,6 +10,7 @@ import {
     SURFACE_ROOT,
     floorStep,
     git,
+    lookEval,
     openCanvasTerminal,
     polishWaitFor,
     reloadApp,
@@ -1468,10 +1469,49 @@ export const diffComments = {
             const agentRow = `[...document.querySelectorAll("button")].find((b) => !b.dataset.filesSourceOption &&
                 (b.querySelector("span.truncate")?.textContent ?? "").startsWith(${JSON.stringify(DC_AGENT_TOPIC)}))`;
             const listed = await until(`!!(${agentRow})`, 10000);
+            // The project scope this leaves has the same folder, so the rows on screen and the change list cannot
+            // say the switch happened. After the agent scope's change list is in, the history store still settles
+            // its selection on the scope's first file (backoff.go), over a file clicked before then: the comments
+            // then land on backoff.go. So the store is watched from before the click: the change list nulled and
+            // read again, then the selection written after that read.
+            const STORE = `
+                const { globalStore } = await mod("app/store/jotaiStore.ts");
+                const fs = await mod("app/view/agents/filesstore.ts");
+                const hs = await mod("app/view/agents/githistorystore.ts");
+                const { diffScopeAtom } = await mod("app/view/agents/diffscopeatom.ts");`;
+            await lookEval(h, `${STORE}
+                const w = (window.__dcAgentScope = { nulled: false, reloaded: false, selected: false });
+                const offFiles = globalStore.sub(fs.filesStateAtom, () => {
+                    if (globalStore.get(fs.filesStateAtom) == null) w.nulled = true;
+                    else if (w.nulled) w.reloaded = true;
+                });
+                const offFile = globalStore.sub(hs.selectedFileAtom, () => { if (w.reloaded) w.selected = true; });
+                w.off = () => { offFiles(); offFile(); };`);
             await h.ev(`${agentRow}?.click()`);
             // the source opens on the uncommitted row (diff-source-row), whose list has README.md and legacy.go
-            const agentOpened =
-                (await until(`!!${q(rowSel("README.md"))} && !!${q(rowSel(LEGACY))}`, 15000)) && (await openFile(POLICY));
+            const scope = await lookEval(h, `${STORE}
+                const { WORKING_TREE } = await mod("app/view/agents/historyrows.ts");
+                const w = window.__dcAgentScope;
+                const read = () => {
+                    const origin = globalStore.get(diffScopeAtom)?.repo.origin;
+                    return {
+                        agent: origin?.kind === "agent" && origin.id === ${JSON.stringify(ctx.tabId)},
+                        reloaded: w.reloaded,
+                        selected: w.selected,
+                        files: globalStore.get(fs.filesStateAtom)?.changes?.files?.map((f) => f.path) ?? null,
+                        workingTree: globalStore.get(hs.selectedCommitAtom) === WORKING_TREE,
+                        file: globalStore.get(hs.selectedFileAtom),
+                    };
+                };
+                const want = ${JSON.stringify(["README.md", LEGACY, POLICY])};
+                const settled = await until(() => {
+                    const s = read();
+                    return s.agent && s.selected && want.every((p) => s.files?.includes(p)) && s.workingTree && s.file != null;
+                }, 15000);
+                w.off();
+                return { settled, ...read() };`);
+            const policyOpen = () => lookEval(h, `${STORE} return globalStore.get(hs.selectedFileAtom) === ${JSON.stringify(POLICY)};`);
+            const agentOpened = scope.settled && (await openFile(POLICY)) && (await policyOpen());
             const name = await h.ev(`${q("[data-files-source-picker] span.truncate")}?.textContent ?? ""`);
             const onAgent = [
                 await commentOnLine(4, DC_NOTE_RETURN),
@@ -1502,7 +1542,7 @@ export const diffComments = {
                     working.recipient === name &&
                     working.detail === "working, joins its turn" &&
                     working.send === "Send 3 comments⇧↵",
-                JSON.stringify({ listed, agentOpened, name, onAgent, bar: working })
+                JSON.stringify({ listed, agentOpened, name, onAgent, bar: working, scope })
             );
             await h.shot("cdp-shots/diff-comments-live-working.png");
 
