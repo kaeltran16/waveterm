@@ -85,7 +85,7 @@ suggested fix, the reason is given.
 
 ## Builder check, review, run rails
 
-- **F16**: one exported constant, `BS_RAIL`, in `brainstormui.tsx`: `w-[32%] min-w-[280px] max-w-[460px]
+- **F16**: one exported constant, `BS_RAIL`, in `brainstormui.tsx`: `w-[32%] min-w-[260px] max-w-[460px]
   flex-none`. The check, review and run rails use it. The design rail's own sizing
   (`max-w-[500px]`) is left as it is, because the review flags no defect there.
 - **F17**: `checkReview` marks for each row whether it has a `was`. The toggle reads "Show what it was" only
@@ -142,3 +142,16 @@ suggested fix, the reason is given.
   subject arm and the "Selected directly from Records" row. Also delete `BandInput.kind`, the `kind` prop and
   `TaskDetail`'s `showDecisions` parameter, which only the subject case used. The callers in `briefsheet.tsx`
   are updated to match.
+
+## Deviations
+
+- **F16 rail minimum, 260px instead of 280px.** At 1000x700 the brainstorm pane is about 674px wide. A 280px rail
+  leaves the check and review main column 394px, under the scenarios' "main column wider than 400px" step. A 260px
+  rail leaves 414px and the rail's text still fits. Chosen during the run when the Task 4 worker asked.
+- **F7 detached rows** (added in the run's open-issue round): `ListDetachedEdges` builds its task with the same
+  `ambientTask` helper as `buildAmbient`, so a detached row on the band shows the objective's first line and the
+  ticket chip like the band's other rows. A dossier with neither objective nor ticket is labelled by its id.
+- **F4 anchored open** (open-issue round): an open that names a decision reads the record fresh, because the
+  record-detail cache does not see a decision an agent appended outside the app.
+- **F14** (open-issue round): `confirmDossierStatus` in `recordactions.ts` also takes its wording from
+  `statusConfirmCopy`, so the three status confirms share one source.
