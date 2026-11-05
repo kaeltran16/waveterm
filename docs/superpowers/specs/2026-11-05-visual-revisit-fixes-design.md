@@ -165,3 +165,27 @@ use `SurfaceEmptyState` at surface and pane scope alike.
 
 Final runs the scenarios each task names (see the plan's Final line) through `final-verify.mjs`'s isolated app;
 nothing attaches to the dev app on :9222.
+
+## Deviations
+
+- **F2 and F15, plan review.** F2 says the chip row is `h-full self-stretch` with `content-start` and no row gap, and that the leader posture's
+  row shares the element. F15 states the `data` and `action.data` props outright. Both were changed during plan review, before
+  any code was written.
+- **F3, the pills wrap under the title.** With the rail open at 1000x700 the header is 374px wide, and only about 173px is
+  left for the text column. That cannot hold the 96px title floor and both pills on one line. The title row is therefore
+  `flex-wrap`, and the runtime and state pills drop under the title instead of hiding or clipping. The model pill hides
+  below 480px of header width and the context readout below 400px. The subline truncates. Chosen during the run when the
+  Task 3 worker asked.
+- **F7, the filename keeps `flex-none`** and gets `min-w-0 max-w-full truncate`. If both spans could shrink, the directory
+  and the name would shrink together. `max-w-full` makes the directory go first.
+- **F9, the hover color.** Monaco's slider hover color is mixed per sRGB channel by `scrollThumbHover()` in
+  `monacotheme.ts`, so it matches the CSS `color-mix(in srgb, ...)`. colord's `mix` plugin mixes in LAB and would not match.
+- **F9, the Code preview.** The overflow was fixed in the shared `Markdown` element (`paddingAbsolute`), so the
+  `codeviewer.tsx` fallback was not needed. The preview's inset is now the caller's stated padding: before, it was applied
+  twice.
+- **F4 threshold.** The Finished strip's narrow threshold is 330px, chosen between the two measured cards (279px and 579px).
+  A card between 330px and about 360px can still clip Open slightly.
+- **Final rounds.** Commit fcb73f604, from before this run, put the remote chip beside the resource readout. Since then
+  the Resource Manager popover anchors to the bar (`[data-hints-footer]`, `[data-cockpit-hints]`), not to the readout's
+  parent. The run-member and solo Sessions headers' actions get `min-w-0`. `sessions-list-states` derives a module's URL
+  when the browser's resource timing list is full.
