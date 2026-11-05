@@ -6,6 +6,7 @@
 // scenarios-shared.mjs. A new scenario goes in its area's module and into SCENARIOS below, whose order is the run
 // order.
 import { narrationFeed } from "./narrationfeed.mjs";
+import { codeImageZoom } from "./scenarios-code-imagezoom.mjs";
 import { codePeek } from "./scenarios-codepeek.mjs";
 import { jiraSettings } from "./scenarios-jira-settings.mjs";
 import { jiraCheck } from "./scenarios-jira-check.mjs";
@@ -222,6 +223,7 @@ export const SCENARIOS = [
     codeBlame,
     codeReview,
     codeMarkdown,
+    codeImageZoom,
     elementPrimitives,
     jarvisAvatar,
     jarvisAvatarFaults,

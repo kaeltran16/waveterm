@@ -10,6 +10,7 @@
 // This is also the only module that touches Monaco directly. The store publishes a pending line and
 // a handoff asks for the current selection; both are served here so codestore.ts stays IO-and-atoms.
 
+import { ImageZoom, type ZoomImage } from "@/app/element/imagezoom";
 import { Markdown } from "@/app/element/markdown";
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
@@ -202,6 +203,14 @@ function MarkdownPreview({
         },
         [model, project, path]
     );
+    const [zoomed, setZoomed] = useState<ZoomImage | null>(null);
+    const homeRef = useRef<HTMLDivElement>(null);
+    const onClickImage = useCallback((src: string, alt: string) => {
+        // an image takes no focus, so park it on the preview: the zoom view hands focus back to what had it
+        homeRef.current?.focus({ preventScroll: true });
+        setZoomed({ src, alt });
+    }, []);
+    const closeZoom = useCallback(() => setZoomed(null), []);
     // a doc's image paths are relative to the doc, not the repo root
     const resolveOpts = useMemo(
         () =>
@@ -211,14 +220,18 @@ function MarkdownPreview({
         [project, path]
     );
     return (
-        <Markdown
-            text={text}
-            resolveOpts={resolveOpts}
-            scrollable
-            className="h-full"
-            contentClassName="px-5 py-4"
-            onClickLink={onClickLink}
-        />
+        <div ref={homeRef} tabIndex={-1} className="h-full outline-none" data-code-preview="">
+            <Markdown
+                text={text}
+                resolveOpts={resolveOpts}
+                scrollable
+                className="h-full"
+                contentClassName="px-5 py-4"
+                onClickLink={onClickLink}
+                onClickImage={onClickImage}
+            />
+            <ImageZoom image={zoomed} onClose={closeZoom} />
+        </div>
     );
 }
 
