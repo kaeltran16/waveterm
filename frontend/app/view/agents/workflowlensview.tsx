@@ -5,7 +5,6 @@
 // state, read from that run's own record and followed through WOS, so stages and verdicts show as they land.
 // The model is workflowlens.ts; this file only draws it and sends what the owner does.
 
-import { palettePickChannel } from "@/app/cockpit/palette-data";
 import { useCopyFeedback } from "@/app/element/copyfeedback";
 import { CrossFade } from "@/app/element/crossfade";
 import * as WOS from "@/app/store/wos";
@@ -13,15 +12,17 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { openTarget } from "@/app/view/jarvis/openref";
 import { AVATAR_SURFACE_REACH_PX } from "@/app/view/jarvis/petview";
+import { ProjectPicker } from "@/app/view/jarvis/projectpickerview";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtom, useAtomValue, useSetAtom, type Atom, type PrimitiveAtom } from "jotai";
 import { Check } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
+import { openRunDiff } from "./agentdiffnav";
 import type { AgentsViewModel } from "./agents";
 import { errText, useAction } from "./brainstormui";
 import { CANVAS_BTN, CANVAS_PRIMARY_BTN } from "./canvaspane";
-import { activeChannelAtom, primeChannels } from "./channelsstore";
-import { projectListAtom, recentProjectsAtom } from "./projectsstore";
+import { activeChannelAtom, channelsAtom, primeChannels } from "./channelsstore";
+import { projectListAtom, recentProjectsAtom, rowsWithChannel } from "./projectsstore";
 import { fmtDuration } from "./runcompletion";
 import { StatusDot } from "./statusdot";
 import { SurfaceToolbar } from "./surfacescaffold";
@@ -34,6 +35,7 @@ import {
     SCAN_WINDOW_DAYS,
     scanButton,
     scanHead,
+    scanHomeChannel,
     workflowView,
     type DoneRow,
     type FiledRow,
@@ -49,6 +51,12 @@ import { startWorkflowScan, workflowScanRunAtom } from "./workflowscanstart";
 const pickDraftsAtom = atom<Record<string, Record<string, PickDraft>>>({}) as PrimitiveAtom<
     Record<string, Record<string, PickDraft>>
 >;
+
+// the project the owner picked to scan from (by registered name), module-level so it survives a surface switch
+const scanProjectAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
+
+// the picker's open list is in flow, so it hangs off a fixed-size slot instead of growing the toolbar
+const PICKER_SLOT = "relative h-[36px] w-[240px] flex-none";
 
 const NO_RUN: Atom<Run | undefined> = atom(undefined as Run | undefined);
 const NOT_LOADING: Atom<boolean> = atom(false);
@@ -728,7 +736,7 @@ function Done({
                 <button
                     type="button"
                     data-workflow-open-diff
-                    onClick={() => openRun(model, run.id, run.channeloid)}
+                    onClick={() => fireAndForget(() => openRunDiff(model, run))}
                     className={cn(CANVAS_BTN, "px-2.5 py-[5px] text-[12px]")}
                 >
                     Open in Diff
@@ -825,6 +833,9 @@ export function WorkflowLens({ model, lensSwitch }: { model: AgentsViewModel; le
     const activeChannel = useAtomValue(activeChannelAtom);
     const projectRows = useAtomValue(projectListAtom);
     const recentProjects = useAtomValue(recentProjectsAtom);
+    const channels = useAtomValue(channelsAtom);
+    const [pickedProject, setPickedProject] = useAtom(scanProjectAtom);
+    const setNewProjectOpen = useSetAtom(model.newProjectOpenAtom);
     const [loadError, setLoadError] = useState<string | null>(null);
     const start = useAction();
 
@@ -859,7 +870,10 @@ export function WorkflowLens({ model, lensSwitch }: { model: AgentsViewModel; le
         }
     };
     const view = workflowView(run, drafts);
-    const home = palettePickChannel(activeChannel, projectRows, recentProjects[0] ?? null);
+    const home = scanHomeChannel(pickedProject, run?.channeloid, channels, activeChannel, projectRows, recentProjects);
+    const scannable = rowsWithChannel(projectRows);
+    // the picker names the project whose channel scans, which is not always a registered one
+    const homeName = home == null ? null : (scannable.find((r) => r.channel.oid === home.oid)?.name ?? home.name);
     const button = scanButton(view, home);
     const scan = () => {
         const channelId = button.channelId;
@@ -892,6 +906,17 @@ export function WorkflowLens({ model, lensSwitch }: { model: AgentsViewModel; le
                                 {start.error}
                             </span>
                         ) : null}
+                        <div data-workflow-project className={PICKER_SLOT}>
+                            <div className="absolute inset-x-0 top-0 z-20">
+                                <ProjectPicker
+                                    projects={scannable}
+                                    recent={recentProjects}
+                                    picked={homeName}
+                                    onPick={setPickedProject}
+                                    onRegister={() => setNewProjectOpen(true)}
+                                />
+                            </div>
+                        </div>
                         <button
                             type="button"
                             data-workflow-scan-button
