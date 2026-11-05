@@ -3,7 +3,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { showsSourceEditor } from "./codeviewmode";
+import { shownViewMode, showsSourceEditor } from "./codeviewmode";
+
+describe("shownViewMode", () => {
+    it("shows Source for a non-markdown file left in preview mode, and the mode itself otherwise", () => {
+        expect(shownViewMode("preview", "a.js")).toBe("source");
+        expect(shownViewMode("preview", "README.md")).toBe("preview");
+        expect(shownViewMode("diff", "a.js")).toBe("diff");
+        expect(shownViewMode("source", "README.md")).toBe("source");
+    });
+});
 
 describe("showsSourceEditor", () => {
     it("showsSourceEditor is false for markdown Preview and for Diff, true for a Go file in preview mode", () => {

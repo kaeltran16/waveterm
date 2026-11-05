@@ -4,6 +4,7 @@
 import { CopyButton } from "@/app/element/copybutton";
 import { createContentBlockPlugin } from "@/app/element/markdown-contentblock-plugin";
 import {
+    fenceFrontMatter,
     MarkdownContentBlockType,
     releaseResolved,
     resolveRemoteFile,
@@ -369,7 +370,7 @@ const Markdown = memo(function Markdown({
     const [idPrefix] = useState<string>(crypto.randomUUID());
 
     text = textAtomValue ?? text ?? "";
-    const transformedOutput = transformBlocks(text);
+    const transformedOutput = transformBlocks(fenceFrontMatter(text));
     const transformedText = transformedOutput.content;
     const contentBlocksMap = transformedOutput.blocks;
 
@@ -516,7 +517,10 @@ const Markdown = memo(function Markdown({
                 <OverlayScrollbarsComponent
                     ref={contentsOsRef}
                     className={cn("content", contentClassName)}
-                    options={{ scrollbars: { autoHide: "leave" } }}
+                    // overlayscrollbars' stylesheet is not loaded, so its default padding transfer (viewport
+                    // widened by the caller's padding, pulled back by a `left` that only its css makes apply)
+                    // overflowed the host by its left padding. paddingAbsolute leaves the padding on the host.
+                    options={{ paddingAbsolute: true, scrollbars: { autoHide: "leave" } }}
                 >
                     {rendered}
                 </OverlayScrollbarsComponent>

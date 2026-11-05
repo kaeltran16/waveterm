@@ -15,9 +15,20 @@ import {
     polishWaitFor,
     reloadApp,
     restoreLocalStorage,
+    setInputExpr,
     teardownFixtureRun,
     waveService,
 } from "./scenarios-shared.mjs";
+
+// the cockpit's model, found on the nav rail's props as the other scenarios find it
+const MODEL = `(() => {
+    const nav = document.querySelector('nav');
+    const key = nav && Object.keys(nav).find((k) => k.startsWith('__reactFiber$'));
+    for (let f = key ? nav[key] : null; f != null; f = f.return) {
+        if (f.memoizedProps?.model?.surfaceAtom != null) return f.memoizedProps.model;
+    }
+    return null;
+})()`;
 
 // --- git history: filters, paging, the two repository-failure panels, persistence ----------------
 // Every state is arranged for real — globalStore is not on window, so nothing can be injected. The
@@ -523,6 +534,53 @@ func Submit(id string) error {
             rec(s10, false, String(e?.message ?? e));
         }
 
+        const s11 =
+            "11. at 1000x700, Nothing to compare renders through SurfaceEmptyState, its title the size of the surface's Pick something to review";
+        try {
+            // a branch whose tree is main's: one commit ahead, no file differences
+            const same = git(ctx.dirB, "commit-tree", "main^{tree}", "-p", "main", "-m", "same tree").toString().trim();
+            git(ctx.dirB, "update-ref", "refs/heads/same-tree", same);
+            await click("[data-ref-pair]");
+            const head = `document.querySelector('input[placeholder="head ref"]')`;
+            const editing = await waitFor('input[placeholder="head ref"]', 4000);
+            await h.ev(setInputExpr(head, "same-tree"));
+            await h.ev(`${head}?.focus()`);
+            const enter = { key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 };
+            await h.cdp("Input.dispatchKeyEvent", { type: "keyDown", ...enter });
+            await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", ...enter });
+            const nothing = '[data-diff-pane] [data-diff-empty="nothing"]';
+            const shown = editing && (await waitFor(nothing, 8000));
+            const paneTitle = await h.ev(`(() => { const t = document.querySelector(${JSON.stringify(`${nothing} h2`)});
+                return t ? { text: t.textContent, fontSize: getComputedStyle(t).fontSize } : null; })()`);
+            await h.shot("cdp-shots/diff-compare-nothing.png");
+            // the surface-level state shows with no scope; focus can move the scope to an agent on the next
+            // effect, so the title is read as it mounts, and the scope is put back after
+            const surfaceTitle = await lookEval(h, `
+                const { globalStore } = await mod("app/store/jotaiStore.ts");
+                const model = ${MODEL};
+                const prev = globalStore.get(model.diffScopeAtom);
+                let fontSize = null;
+                const read = () => {
+                    const t = [...document.querySelectorAll("h2")].find((e) => e.textContent === "Pick something to review");
+                    if (t != null && fontSize == null) fontSize = getComputedStyle(t).fontSize;
+                };
+                const mo = new MutationObserver(read);
+                mo.observe(document.body, { childList: true, subtree: true });
+                globalStore.set(model.diffScopeAtom, null);
+                await until(() => fontSize != null, 5000);
+                mo.disconnect();
+                globalStore.set(model.diffScopeAtom, prev);
+                return { fontSize };
+            `);
+            rec(
+                s11,
+                shown && paneTitle?.text === "Nothing to compare" && paneTitle.fontSize === surfaceTitle?.fontSize,
+                JSON.stringify({ editing, shown, paneTitle, surfaceTitle })
+            );
+        } catch (e) {
+            rec(s11, false, String(e?.message ?? e));
+        }
+
         return steps;
     },
     async teardown(h, ctx) {
@@ -534,6 +592,7 @@ func Submit(id string) error {
         await h.cdp("Input.dispatchKeyEvent", { type: "keyDown", ...esc });
         await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", ...esc });
         await h.ev(`document.querySelector('[data-history-rail] button[title="Expand history"]')?.click()`);
+        await h.cdp("Emulation.clearDeviceMetricsOverride", {}).catch(() => {});
         for (const name of [ctx.name, ctx.nameB]) {
             try {
                 await h.rpc("deleteproject", { name });

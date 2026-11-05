@@ -7,6 +7,11 @@
 
 import { isMarkdownPath } from "./codeclassify";
 
+// preview is markdown-only, so a non-markdown file left in preview mode is showing its source
+export function shownViewMode(mode: "preview" | "source" | "diff", path: string): "preview" | "source" | "diff" {
+    return mode === "preview" && !isMarkdownPath(path) ? "source" : mode;
+}
+
 export function showsSourceEditor(mode: "preview" | "source" | "diff", path: string): boolean {
     return mode !== "diff" && !(isMarkdownPath(path) && mode === "preview");
 }

@@ -39,6 +39,10 @@ import {
     waveService,
 } from "./scenarios-shared.mjs";
 
+// the window where the app-bar search collapsed (visual revisit F5), and the width it must keep there
+const APP_BAR_NARROW = { width: 1000, height: 700, deviceScaleFactor: 1, mobile: false };
+const APP_BAR_MIN_SEARCH = 200;
+
 // The two layers added on top of the collapse order: the nav rail collapsing itself below a narrow window
 // (navrailwidth.ts, the design's step 4) and the context rail leaving the flow entirely once collapsing
 // both regions to strips is still not enough (jarvislayout.ts's railOverlay). jarvis-collapse-order owns
@@ -419,6 +423,47 @@ export const usageCharts = {
             meters.found && meters.inAppBar && /5h\s*\d+%/.test(meters.text) && /wk\s*\d+%/.test(meters.text),
             JSON.stringify(meters)
         );
+
+        // F5: at 1000 the search keeps a usable width beside the meters, which drop their bars and keep the
+        // percentages; at 1600 the bars are back
+        const appBarRoom = () =>
+            h.ev(`(() => {
+                const bar = document.querySelector("[data-usage-meters]")?.closest("[data-tauri-drag-region]");
+                const search = bar?.querySelector("[data-app-search]");
+                const placeholder = search?.querySelector("span.truncate");
+                const meters = bar?.querySelector("[data-usage-meters]");
+                const shown = (el) => el.getBoundingClientRect().width > 0;
+                return {
+                    bar: bar ? Math.round(bar.getBoundingClientRect().width) : null,
+                    search: search ? Math.round(search.getBoundingClientRect().width) : null,
+                    placeholder: placeholder?.clientWidth ?? null,
+                    meters: meters ? Math.round(meters.getBoundingClientRect().width) : null,
+                    left: bar ? Math.round(bar.firstElementChild.getBoundingClientRect().width) : null,
+                    right: bar ? Math.round(bar.lastElementChild.getBoundingClientRect().width) : null,
+                    bars: [...(meters?.querySelectorAll("div[style*='height']") ?? [])].filter(shown).length,
+                    text: meters?.textContent ?? "",
+                };
+            })()`);
+        await h.cdp("Emulation.setDeviceMetricsOverride", APP_BAR_NARROW);
+        let narrowBar;
+        try {
+            await settle(400);
+            narrowBar = await appBarRoom();
+            await h.shot("cdp-shots/usage-charts-appbar-1000.png");
+        } finally {
+            await h.cdp("Emulation.setDeviceMetricsOverride", OBS_WIDE);
+        }
+        rec(
+            "3c. at 1000x700 the search is at least 200px wide with its placeholder showing; the meters keep 5h and wk percentages",
+            narrowBar.search >= APP_BAR_MIN_SEARCH &&
+                narrowBar.placeholder > 0 &&
+                /5h\s*\d+%/.test(narrowBar.text) &&
+                /wk\s*\d+%/.test(narrowBar.text),
+            JSON.stringify(narrowBar)
+        );
+        await settle(400);
+        const wideBar = await appBarRoom();
+        rec("3d. at 1600x950 the meters render their bars", wideBar.bars === 2, JSON.stringify(wideBar));
 
         // hovering a column opens the visx tooltip (replacing the old native title attribute). React
         // delegates pointer events from a child rect, so dispatch there rather than on the <g>.

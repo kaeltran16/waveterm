@@ -72,14 +72,13 @@ function anchorReadout(): HTMLElement | null {
     return all.reverse().find((el) => el.getBoundingClientRect().height > 0) ?? null;
 }
 
-// 6px above the readout, and never over the bar it sits in: the Cockpit's hints bar is taller than the footer
+// 6px above the readout, and never over the bar it sits in: the Cockpit's hints bar is taller than the footer.
+// the bar, not the readout's parent: the readouts share a wrapper whose top sits inside the bar's padding
 function measureAnchor(): { bottom: number; maxHeight: number } {
     const readout = anchorReadout();
+    const bar = readout?.closest("[data-hints-footer], [data-cockpit-hints]") ?? readout?.parentElement;
     const top = readout
-        ? Math.min(
-              readout.getBoundingClientRect().top - ANCHOR_GAP_PX,
-              readout.parentElement?.getBoundingClientRect().top ?? Infinity
-          )
+        ? Math.min(readout.getBoundingClientRect().top - ANCHOR_GAP_PX, bar?.getBoundingClientRect().top ?? Infinity)
         : window.innerHeight;
     const bottom = window.innerHeight - top;
     return { bottom, maxHeight: Math.min(MAX_HEIGHT_PX, window.innerHeight - bottom - TOP_MARGIN_PX) };

@@ -1,13 +1,29 @@
 // Cockpit review scenarios: a launch stays on the Cockpit.
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { lookEval, lookOpen, lookShot, polishNap, setInputExpr, skipStep, waveService } from "./scenarios-shared.mjs";
+import {
+    MODELS_VIEWPORT,
+    lookEval,
+    lookOpen,
+    lookShot,
+    polishNap,
+    setInputExpr,
+    skipStep,
+    waveService,
+} from "./scenarios-shared.mjs";
 
 // unique per run, so a leftover tab of an earlier run can never take this project's first name
 const LAUNCH_PROJECT = `verify-launch-${Date.now().toString(36)}`;
 // a harmless process that outlives the scenario's checks and reports no agent status; closing its tab ends it
 const LAUNCH_COMMAND = "ping -n 900 127.0.0.1";
+// enough projects before LAUNCH_PROJECT (the list sorts by name) that it sits past the 236px list's fold
+const FILLER_COUNT = 12;
+const FILLER_PREFIX = `aa-fill-${Date.now().toString(36)}-`;
+const LAYOUT_VIEWPORTS = [
+    { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false },
+    { width: 1000, height: 700, deviceScaleFactor: 1, mobile: false },
+];
 const FLAGS_KEY = "agent.launch.flags";
 const RECENT_KEY = "agent.launch.recentprojects";
 const RUNNING_WAIT_MS = 15_000;
@@ -37,6 +53,61 @@ const openNewAgent = (h) =>
             preselected: flat(modal()?.querySelector('[role="radiogroup"][aria-label="Project"] [aria-checked="true"]')),
         };
     `);
+
+// With the dialog open: whether the preselected project row lies inside the list's own scroller, and whether the
+// Codex mark loads and carries the near-white fill. Codex is offered only when installed, so the harness catalog
+// is emptied (which offers every runtime) just while it is read, then put back.
+const measureModalExpr = `
+    const { globalStore } = await mod("app/store/jotaiStore.ts");
+    const { harnessesAtom } = await mod("app/view/agents/harnessstore.ts");
+    const modal = [...document.querySelectorAll('[role="dialog"]')].find((d) => /New agent/.test(flat(d.querySelector("h2"))));
+    const row = modal?.querySelector('[role="radiogroup"][aria-label="Project"] [aria-checked="true"]');
+    const scroller = row?.parentElement;
+    if (!row || !scroller) return { found: false };
+    const s = scroller.getBoundingClientRect();
+    const r = row.getBoundingClientRect();
+    const out = {
+        found: true,
+        listScrolls: scroller.scrollHeight > scroller.clientHeight + 1,
+        scrollTop: Math.round(scroller.scrollTop),
+        row: { top: Math.round(r.top), bottom: Math.round(r.bottom) },
+        scroller: { top: Math.round(s.top), bottom: Math.round(s.bottom) },
+        rowInside: r.top >= s.top - 1 && r.bottom <= s.bottom + 1,
+    };
+    const prev = globalStore.get(harnessesAtom);
+    globalStore.set(harnessesAtom, []);
+    try {
+        const mark = () => button(modal.querySelector('[role="radiogroup"][aria-label="Runtime"]'), /Codex/)?.querySelector("img");
+        out.codexRow = await until(() => mark() != null, 3000);
+        const img = mark();
+        if (img) {
+            out.codexLoaded = await until(() => img.complete && img.naturalWidth > 0, 5000);
+            out.codexFill = (await (await fetch(img.src)).text()).includes("#ececec");
+        }
+    } finally {
+        globalStore.set(harnessesAtom, prev);
+    }
+    return out;
+`;
+
+// opens New agent at a viewport, measures it, closes it, and puts the viewport back
+async function modalLayoutAt(h, viewport) {
+    await h.cdp("Emulation.setDeviceMetricsOverride", viewport);
+    try {
+        await polishNap(400);
+        const opened = await openNewAgent(h);
+        const m = await lookEval(h, measureModalExpr);
+        await h.shot(lookShot(`cockpit-launch-stays-modal-${viewport.width}`));
+        await lookEval(h, `
+            const { globalStore } = await mod("app/store/jotaiStore.ts");
+            globalStore.set(${MODEL}.newAgentOpenAtom, false);
+            await until(() => ![...document.querySelectorAll('[role="dialog"]')].some((d) => /New agent/.test(flat(d.querySelector("h2")))), 5000);
+        `);
+        return { opened, ...m };
+    } finally {
+        await h.cdp("Emulation.setDeviceMetricsOverride", MODELS_VIEWPORT);
+    }
+}
 
 // picks the Claude Code runtime (an agent runtime: a pending card and a started controller), types the
 // command, launches, and returns the new tab once the modal has closed on success
@@ -84,6 +155,11 @@ export const cockpitLaunchStays = {
         // a throw past this point still returns ctx, so teardown removes whatever was already made
         try {
             ctx.dir = mkdtempSync(join(tmpdir(), "verify-launch-stays-"));
+            ctx.fillers = Array.from({ length: FILLER_COUNT }, (_, i) => {
+                const dir = join(ctx.dir, `fill-${i}`);
+                mkdirSync(dir);
+                return { name: `${FILLER_PREFIX}${String(i).padStart(2, "0")}`, dir };
+            });
             ctx.prevFlags = await h.ev(`localStorage.getItem(${JSON.stringify(FLAGS_KEY)})`);
             ctx.prevRecent = await h.ev(`localStorage.getItem(${JSON.stringify(RECENT_KEY)})`);
             const r = await lookEval(h, `
@@ -94,7 +170,10 @@ export const cockpitLaunchStays = {
                 const model = ${MODEL};
                 // registered as New project does, then scoped as it scopes
                 await ps.registerProject(${JSON.stringify(LAUNCH_PROJECT)}, ${JSON.stringify(ctx.dir)});
-                const listed = await until(() => globalStore.get(ps.projectListAtom).some((p) => p.name === ${JSON.stringify(LAUNCH_PROJECT)}), 10000);
+                const fillers = ${JSON.stringify(ctx.fillers)};
+                for (const f of fillers) await ps.registerProject(f.name, f.dir);
+                const names = [${JSON.stringify(LAUNCH_PROJECT)}, ...fillers.map((f) => f.name)];
+                const listed = await until(() => names.every((n) => globalStore.get(ps.projectListAtom).some((p) => p.name === n)), 10000);
                 const prevScope = globalStore.get(model.projectFilterAtom);
                 globalStore.set(model.projectFilterAtom, ${JSON.stringify(LAUNCH_PROJECT)});
                 // a remembered flag would be appended to the command and make it exit
@@ -117,6 +196,23 @@ export const cockpitLaunchStays = {
         const steps = [];
         const rec = (step, ok, detail) => steps.push({ step, ok, detail });
         await lookOpen(h, "cockpit");
+
+        // before any launch: a launch moves LAUNCH_PROJECT to the head of the recent-first list
+        for (const vp of LAYOUT_VIEWPORTS) {
+            const at = `${vp.width}x${vp.height}`;
+            const m = await modalLayoutAt(h, vp);
+            const detail = JSON.stringify(m);
+            rec(
+                `New agent scrolls the preselected project into its list at ${at}`,
+                m.opened?.preselected === LAUNCH_PROJECT && m.listScrolls && m.scrollTop > 0 && m.rowInside,
+                detail
+            );
+            rec(
+                `New agent's Codex mark loads and is near-white at ${at}`,
+                m.codexRow === true && m.codexLoaded === true && m.codexFill === true,
+                detail
+            );
+        }
 
         const first = await openNewAgent(h);
         await h.shot(lookShot("cockpit-launch-stays-modal"));
@@ -192,6 +288,10 @@ export const cockpitLaunchStays = {
             `)
         );
         if (ctx.madeProject) await step("delete the project", () => h.rpc("deleteproject", { name: ctx.name }));
+        for (const f of ctx.fillers ?? []) {
+            await step("delete a filler project", () => h.rpc("deleteproject", { name: f.name }));
+        }
+        await step("clear the viewport override", () => h.cdp("Emulation.clearDeviceMetricsOverride"));
         if (ctx.dir) await step("remove the temp dir", () => rmSync(ctx.dir, { recursive: true, force: true, maxRetries: 3 }));
         await step("go home", () => h.goto("cockpit"));
     },

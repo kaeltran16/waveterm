@@ -59,7 +59,16 @@ export function UsageMeters({
                             <span className={cn("h-1.5 w-1.5 rounded-full", providerDot(m.provider))} />
                         ) : null}
                         <span className="font-mono text-[10.5px] text-muted">{m.short}</span>
-                        <Meter pct={m.pct} fill={USAGE_LEVEL_FILL[lvl]} height={5} radius={3} className="w-11" />
+                        {/* hidden on a narrow app bar (its @container) so the search keeps its room; the
+                            percentage stays and the title keeps the detail. 1200: one provider's two bars
+                            take 108px, which leaves the search under 200px below a ~1060px bar */}
+                        <Meter
+                            pct={m.pct}
+                            fill={USAGE_LEVEL_FILL[lvl]}
+                            height={5}
+                            radius={3}
+                            className="w-11 @max-[1200px]:hidden"
+                        />
                         <span className={cn("font-mono text-[11px] font-semibold", USAGE_LEVEL_TEXT[lvl])}>
                             {Math.round(m.pct)}%
                         </span>

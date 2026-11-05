@@ -23,7 +23,7 @@ import { commentSplitAtom, mountCommentLayer } from "./diffcommentlayer";
 import { activeCommentSourceAtom, relocateComments } from "./diffcomments";
 import { firstDifferingLine } from "./diffcontent";
 import { diffPairAtom, diffPairFailureAtom, retryDiffPair } from "./diffcontentstore";
-import { emptyDiffState, type EmptyDiff } from "./diffempty";
+import { emptyDiffState } from "./diffempty";
 import { changePosition, clearDiffNav, diffNavPosAtom, gotoChange, setDiffNav } from "./diffnav";
 import {
     ignoreWsAtom,
@@ -35,6 +35,7 @@ import {
 } from "./diffoptions";
 import { activeReviewAtom, markState, noteOpenPair, pairHash, reviewMarksAtom, toggleOpenFile } from "./reviewmarks";
 import { fmtBytes } from "./runcompletion";
+import { SurfaceEmptyState } from "./surfacescaffold";
 
 const MonacoDiffViewer = lazy(() => import("@/app/monaco/monaco-react").then((m) => ({ default: m.MonacoDiffViewer })));
 
@@ -42,31 +43,6 @@ const headerBtn =
     "flex h-[28px] flex-none items-center gap-[6px] rounded-[8px] border border-edge-mid px-[10px] text-[11.5px] font-semibold";
 const navBtn =
     "flex h-[26px] w-[26px] flex-none items-center justify-center rounded-[6px] text-muted hover:text-ink-hi";
-
-function EmptyState({ empty }: { empty: EmptyDiff }) {
-    return (
-        <div
-            data-diff-empty={empty.kind}
-            className="flex flex-1 flex-col items-center justify-center gap-[8px] px-[32px] text-center"
-        >
-            <span className="flex h-[28px] w-[28px] items-center justify-center rounded-[8px] border border-edge-mid bg-surface text-muted">
-                <FileText size={16} />
-            </span>
-            <div className="text-[13px] font-semibold text-ink-hi">{empty.title}</div>
-            <div className="max-w-[360px] break-words text-[12px] leading-[1.5] text-ink-mid">{empty.body}</div>
-            {empty.kind === "failed" ? (
-                <button
-                    onClick={() => fireAndForget(retryDiffPair)}
-                    data-diff-retry
-                    className={cn(headerBtn, "mt-[4px] text-ink-mid hover:text-ink-hi")}
-                >
-                    <RotateCw size={13} />
-                    Retry
-                </button>
-            ) : null}
-        </div>
-    );
-}
 
 function PaneSkeleton() {
     return (
@@ -159,7 +135,32 @@ export function DiffPane({
 
     const body = () => {
         if (empty) {
-            return <EmptyState empty={empty} />;
+            return (
+                <SurfaceEmptyState
+                    data={{ "data-diff-empty": empty.kind }}
+                    glyph={
+                        <span className="mb-[12px] flex h-[28px] w-[28px] items-center justify-center rounded-[8px] border border-edge-mid bg-surface text-muted">
+                            <FileText size={16} />
+                        </span>
+                    }
+                    title={empty.title}
+                    body={<span className="break-words">{empty.body}</span>}
+                    action={
+                        empty.kind === "failed"
+                            ? {
+                                  label: (
+                                      <>
+                                          <RotateCw size={13} />
+                                          Retry
+                                      </>
+                                  ),
+                                  onClick: () => fireAndForget(retryDiffPair),
+                                  data: { "data-diff-retry": "" },
+                              }
+                            : undefined
+                    }
+                />
+            );
         }
         if (pair == null || pair.path !== path) {
             return <PaneSkeleton />;
@@ -207,23 +208,37 @@ export function DiffPane({
     const header = () => {
         const { dir, file } = splitRepoPath(path);
         return (
-            <div className="flex h-[48px] flex-none items-center gap-[10px] border-b border-border pl-[18px] pr-[14px]">
-                <span className="flex min-w-0 items-baseline font-mono text-[12.5px]">
+            <div
+                data-diff-header
+                className="flex h-[48px] flex-none items-center gap-[10px] border-b border-border pl-[18px] pr-[14px]"
+            >
+                <span className="flex min-w-0 items-baseline overflow-hidden font-mono text-[12.5px]">
                     {/* rtl truncates from the left, but alone it would move the directory's trailing "/"
                         to its front; the bdi keeps the text itself left-to-right */}
                     <span className="min-w-0 truncate text-muted [direction:rtl]">
                         <bdi dir="ltr">{dir}</bdi>
                     </span>
-                    <span className="flex-none font-semibold text-ink-hi">{file}</span>
+                    {/* never wider than the wrapper, so the directory beside it shrinks to nothing first and
+                        the name truncates only once it is gone */}
+                    <span
+                        data-diff-filename
+                        className="min-w-0 max-w-full flex-none truncate font-semibold text-ink-hi"
+                    >
+                        {file}
+                    </span>
                 </span>
-                <span className="flex-none font-mono text-[11px] font-bold text-diff-added">+{adds}</span>
-                <span className="flex-none font-mono text-[11px] font-bold text-diff-removed">−{dels}</span>
+                <span data-diff-adds className="flex-none font-mono text-[11px] font-bold text-diff-added">
+                    +{adds}
+                </span>
+                <span data-diff-dels className="flex-none font-mono text-[11px] font-bold text-diff-removed">
+                    −{dels}
+                </span>
                 {empty?.kind === "toolarge" && pair != null ? (
                     <span className="flex-none font-mono text-[11px] text-muted">{fmtBytes(pair.size)}</span>
                 ) : null}
                 <div className="flex-1" />
                 {navPos != null && navPos.total > 0 ? (
-                    <div className="flex flex-none items-center gap-[2px]">
+                    <div data-diff-nav className="flex flex-none items-center gap-[2px]">
                         <button
                             onClick={() => gotoChange("previous")}
                             title="Previous change (⇧P)"

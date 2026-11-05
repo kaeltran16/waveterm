@@ -79,6 +79,10 @@ const CHIP =
 // @container). the label leads with the count, so only its noun hides and the chip's text stays the label.
 const WIDE_ONLY = "@max-[420px]:hidden";
 
+// the Finished strip's button words: its two buttons would push the age out and clip Open on the narrowest card
+// (about 285px at 1000x700), so below this width the labels give way to the counts and the arrow
+const NARROW_HIDE = "@max-[330px]:hidden";
+
 function ChipCount({ n, label }: { n: number; label: string }) {
     const count = String(n);
     return (
@@ -581,7 +585,10 @@ export const AgentRow = memo(function AgentRow({
                         <>
                             <Check size={12} aria-hidden className="shrink-0 text-accent-soft" />
                             <span className={cn(REGION_LABEL, "text-accent-soft")}>Finished</span>
-                            <span className="min-w-0 flex-1 font-mono text-[10.5px] text-muted">
+                            <span
+                                data-finished-age
+                                className="min-w-0 flex-1 truncate whitespace-nowrap font-mono text-[10.5px] text-muted"
+                            >
                                 <FinishedAge agent={agent} nowAtom={nowAtom} />
                             </span>
                         </>
@@ -590,9 +597,13 @@ export const AgentRow = memo(function AgentRow({
                         <button
                             type="button"
                             onClick={onOpenDiff}
+                            title="Review changes"
+                            aria-label="Review changes"
                             className="flex h-[23px] shrink-0 cursor-pointer items-center gap-1.5 rounded-[6px] border border-accent/45 bg-transparent px-[9px] text-[11.5px] font-semibold text-accent-soft hover:bg-accent/10"
                         >
-                            Review changes
+                            <span data-review-label className={NARROW_HIDE}>
+                                Review changes
+                            </span>
                             <span className="font-mono text-[10.5px]">
                                 <span className="text-diff-added">+{diff.adds}</span>{" "}
                                 <span className="text-diff-removed">−{diff.dels}</span>
@@ -602,9 +613,11 @@ export const AgentRow = memo(function AgentRow({
                     <button
                         type="button"
                         onClick={onOpen}
+                        title="Open"
+                        aria-label="Open"
                         className="flex h-[23px] shrink-0 cursor-pointer items-center gap-1 rounded-[6px] border border-edge-mid bg-transparent px-[9px] text-[11.5px] text-secondary hover:border-edge-strong"
                     >
-                        Open
+                        <span className={NARROW_HIDE}>Open</span>
                         <ArrowUpRight size={11} aria-hidden />
                     </button>
                 </div>

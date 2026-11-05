@@ -232,10 +232,14 @@ export function MonacoDiffViewer({ original, modified, language, path, options, 
         const el = divRef.current;
         if (!diff || !el) return;
 
-        const debouncedLayout = debounce(100, () => {
-            diff.layout();
+        // layout() with no size re-measures monaco's own root, so it is handed the observed box instead
+        const debouncedLayout = debounce(100, (width: number, height: number) => {
+            diff.layout({ width, height });
         });
-        const resizeObserver = new ResizeObserver(debouncedLayout);
+        const resizeObserver = new ResizeObserver((entries) => {
+            const { width, height } = entries[entries.length - 1].contentRect;
+            debouncedLayout(width, height);
+        });
         resizeObserver.observe(el);
 
         return () => {
@@ -266,5 +270,11 @@ export function MonacoDiffViewer({ original, modified, language, path, options, 
         diff.updateOptions(options);
     }, [options]);
 
-    return <div className="flex flex-col h-full w-full" ref={divRef} />;
+    // the outer box takes the parent's leftover space (flex-1 in a flex column, h-full in a block) and the
+    // absolute host inside it gets a size that depends only on that box, never on what monaco has drawn
+    return (
+        <div className="relative min-h-0 min-w-0 flex-1 basis-0 h-full">
+            <div className="absolute inset-0" ref={divRef} />
+        </div>
+    );
 }

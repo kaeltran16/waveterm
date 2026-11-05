@@ -586,20 +586,24 @@ export function SoloDetail({ model, session }: { model: AgentsViewModel; session
     const status = soloStatus(session);
     return (
         <div className="flex h-full min-h-0 flex-col">
-            <div className="mb-1 flex flex-none items-start gap-3.5 border-b border-edge-faint pb-4">
-                <RuntimeTile runtime={session.runtime} />
-                <div className="min-w-0 flex-1">
-                    <div className="mb-[7px] flex items-center gap-3">
-                        <h2 className="truncate text-[19px] font-bold tracking-[-0.01em] text-primary">
-                            {session.task || "(untitled session)"}
-                        </h2>
-                        <StatusMark status={status} />
+            <div data-sessions-solo-header="" className="@container mb-1 flex-none border-b border-edge-faint pb-4">
+                <div className="flex flex-wrap items-start gap-x-3.5 gap-y-3">
+                    <RuntimeTile runtime={session.runtime} />
+                    <div className="min-w-0 flex-1">
+                        <div className="mb-[7px] flex items-center gap-3">
+                            <h2 className="truncate text-[19px] font-bold tracking-[-0.01em] text-primary">
+                                {session.task || "(untitled session)"}
+                            </h2>
+                            <StatusMark status={status} />
+                        </div>
+                        <Meta
+                            items={[{ k: "project", v: session.projectname || "—" }, ...sessionMeta(session).slice(1)]}
+                        />
                     </div>
-                    <Meta items={[{ k: "project", v: session.projectname || "—" }, ...sessionMeta(session).slice(1)]} />
-                </div>
-                <ViewToggle model={model} className="self-center" />
-                <div className="self-center">
-                    <PrimaryButton model={model} session={session} strong />
+                    <div className="flex min-w-0 flex-none items-center gap-3.5 self-center @max-[600px]:basis-full @max-[600px]:pl-14">
+                        <ViewToggle model={model} />
+                        <PrimaryButton model={model} session={session} strong />
+                    </div>
                 </div>
             </div>
             <SessionBody model={model} session={session} empty="" className="pb-2" />
@@ -769,11 +773,16 @@ export function RunDetail({
                 </div>
 
                 <div className="flex min-h-0 min-w-0 flex-1 flex-col rounded-[10px] border border-edge-mid bg-surface">
-                    <div className="flex-none border-b border-edge-faint px-4 pb-2.5 pt-3">
-                        <div className="mb-1.5 flex items-center gap-3">
+                    <div
+                        data-sessions-member-header=""
+                        className="@container flex-none border-b border-edge-faint px-4 pb-2.5 pt-3"
+                    >
+                        <div className="mb-1.5 flex flex-wrap items-center gap-x-3 gap-y-2">
                             <h3 className="min-w-0 flex-1 truncate text-[15px] font-bold text-primary">{title}</h3>
-                            <ViewToggle model={model} />
-                            {memberSession ? <PrimaryButton model={model} session={memberSession} /> : null}
+                            <div className="flex min-w-0 flex-none items-center gap-3 @max-[600px]:basis-full">
+                                <ViewToggle model={model} />
+                                {memberSession ? <PrimaryButton model={model} session={memberSession} /> : null}
+                            </div>
                         </div>
                         <Meta items={sessionMeta(memberSession, [{ k: "status", v: member.status.text }])} />
                     </div>

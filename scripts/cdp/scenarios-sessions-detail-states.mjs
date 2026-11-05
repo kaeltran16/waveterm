@@ -21,6 +21,12 @@ const NAME = "sessions-detail-states";
 const LONG_LINES = 2_400;
 const RUN_TASKS = 12;
 const DAY_MS = 86_400_000;
+const NARROW_VIEWPORT = { width: 1000, height: 700, deviceScaleFactor: 1, mobile: false };
+const WIDE_VIEWPORT = { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false };
+const MIN_TITLE_WIDTH = 300;
+// the solo and run member headers' @max-[600px] wrap threshold (sessionsdetail.tsx), and the narrowest title they may leave
+const HEADER_WRAP_PX = 600;
+const MIN_HEADER_TITLE_WIDTH = 200;
 const WAIT_MS = 10_000;
 // the live refetch runs every 5s (LIVE_REFRESH_MS); two rounds of it
 const LIVE_WAIT_MS = 12_000;
@@ -124,6 +130,12 @@ export default function (_kit) {
                             { type: "committed", ts: now - 60_000, text: "Fixture commit" },
                         ],
                     }),
+                    // a title longer than any header is wide, so its width is the room the header gives it
+                    header: fixtureSession({
+                        task: `Detail header ${tag} ${"with a very long task title ".repeat(8)}`,
+                        startedts: started,
+                        durationms: 3 * 3_600_000,
+                    }),
                     pasted: fixtureSession({ task: `Detail pasted ${tag}` }),
                     live: fixtureSession({ task: `Detail live ${tag}` }),
                     failed: fixtureSession({ task: `Detail failed read ${tag}` }),
@@ -152,7 +164,7 @@ export default function (_kit) {
                     [fx.live.transcriptpath]: { lines: liveLines },
                     [fx.failed.transcriptpath]: { error: `fixture read failure ${tag}` },
                 };
-                for (const s of [fx.waiting, fx.blocked, fx.vanished, fx.dated, fx.lead, fx.runBlocked, fx.task11]) {
+                for (const s of [fx.waiting, fx.blocked, fx.vanished, fx.dated, fx.header, fx.lead, fx.runBlocked, fx.task11]) {
                     transcripts[s.transcriptpath] = { lines: [userLine(s.task), replyLine(`Reply ${tag}`)] };
                 }
                 await installSessions(h, Object.values(fx));
@@ -394,6 +406,154 @@ export default function (_kit) {
                         s12.includes(`fixture read failure ${tag}`),
                     s12
                 );
+
+                // 13. the solo header at the narrow and the wide viewport
+                const readHeader = () =>
+                    page(
+                        h,
+                        `const header = document.querySelector("[data-sessions-solo-header]");
+                        const title = header?.querySelector("h2")?.getBoundingClientRect();
+                        const col = header?.querySelector("h2")?.parentElement?.parentElement?.getBoundingClientRect();
+                        const meta = header?.querySelector("h2")?.parentElement?.nextElementSibling;
+                        const toggle = header?.querySelector('[role="group"][aria-label="Session view"]')?.getBoundingClientRect();
+                        const tops = new Set([...(meta?.children ?? [])].map((c) => Math.round(c.getBoundingClientRect().top)));
+                        return header == null ? null : {
+                            titleWidth: title?.width ?? null,
+                            metaLines: tops.size,
+                            actionsOnTitleRow: toggle != null && col != null && toggle.top < col.bottom - 1,
+                            headerWidth: header.getBoundingClientRect().width,
+                        };`
+                    );
+                try {
+                    await h.cdp("Emulation.setDeviceMetricsOverride", NARROW_VIEWPORT);
+                    await solo(fx.header);
+                    await page(h, `await nap(600);`);
+                    const narrow = await readHeader();
+                    await h.shot(`cdp-shots/${NAME}-13-header-1000x700.png`);
+                    rec(
+                        "13. at 1000x700 the solo header's title keeps 300px and its meta takes at most two lines",
+                        narrow != null && narrow.titleWidth >= MIN_TITLE_WIDTH && narrow.metaLines <= 2,
+                        narrow
+                    );
+                    await h.cdp("Emulation.setDeviceMetricsOverride", WIDE_VIEWPORT);
+                    await page(h, `await nap(600);`);
+                    const wide = await readHeader();
+                    await h.shot(`cdp-shots/${NAME}-14-header-1600x950.png`);
+                    rec(
+                        "14. at 1600x950 the solo header's actions sit on the title's row",
+                        wide != null && wide.actionsOnTitleRow,
+                        wide
+                    );
+                } finally {
+                    await h.cdp("Emulation.clearDeviceMetricsOverride", {});
+                }
+
+                // 15. the run member's header at the narrow viewport
+                try {
+                    await h.cdp("Emulation.setDeviceMetricsOverride", NARROW_VIEWPORT);
+                    await open(h, { sel: runSel, member: "t-2", view: "transcript", bodyKey: keyOf(fx.runBlocked) });
+                    await page(h, `await nap(600);`);
+                    const s15 = await page(
+                        h,
+                        `const header = document.querySelector("[data-sessions-member-header]");
+                        const title = header?.querySelector("h3");
+                        const actions = title?.nextElementSibling;
+                        if (header == null || title == null || actions == null) return null;
+                        const hs = getComputedStyle(header);
+                        const ts = getComputedStyle(title);
+                        const hr = header.getBoundingClientRect();
+                        const tr = title.getBoundingClientRect();
+                        const ar = actions.getBoundingClientRect();
+                        const buttons = [...actions.querySelectorAll("button")].map((b) => b.getBoundingClientRect());
+                        return {
+                            headerWidth: hr.width,
+                            // the @container query measures the content box
+                            containerWidth: header.clientWidth - parseFloat(hs.paddingLeft) - parseFloat(hs.paddingRight),
+                            titleWidth: tr.width,
+                            titleFits: title.scrollWidth <= title.clientWidth,
+                            titleEllipsis: ts.textOverflow === "ellipsis" && ts.whiteSpace === "nowrap",
+                            actionsBelow: ar.top >= tr.bottom - 0.5,
+                            actionsInlineClear: ar.top < tr.bottom - 1 && tr.right <= ar.left + 0.5,
+                            buttons: buttons.length,
+                            buttonsInside: buttons.every(
+                                (b) => b.left >= hr.left - 0.5 && b.right <= hr.right + 0.5 && b.top >= hr.top - 0.5 && b.bottom <= hr.bottom + 0.5
+                            ),
+                        };`
+                    );
+                    await h.shot(`cdp-shots/${NAME}-15-member-header-1000x700.png`);
+                    const wraps = s15 != null && s15.containerWidth < HEADER_WRAP_PX;
+                    const titleOk =
+                        s15 != null && s15.titleWidth >= MIN_HEADER_TITLE_WIDTH && (s15.titleFits || s15.titleEllipsis);
+                    const layoutOk = s15 != null && (wraps ? s15.actionsBelow : s15.actionsInlineClear);
+                    rec(
+                        "15. at 1000x700 the run member header's actions sit below its title (or inline beside it above 600px), the title is not clipped, and every action stays inside the header",
+                        titleOk && layoutOk && s15.buttons >= 2 && s15.buttonsInside,
+                        {
+                            ...s15,
+                            layout: wraps
+                                ? "below 600px: actions wrap under the title"
+                                : "600px or wider: actions legitimately stay inline",
+                        }
+                    );
+                } finally {
+                    await h.cdp("Emulation.clearDeviceMetricsOverride", {});
+                }
+
+                // 16. the blocked solo session's header at the narrow viewport
+                try {
+                    await h.cdp("Emulation.setDeviceMetricsOverride", NARROW_VIEWPORT);
+                    await solo(fx.blocked);
+                    await page(h, `await nap(600);`);
+                    const s16 = await page(
+                        h,
+                        `const header = document.querySelector("[data-sessions-solo-header]");
+                        const title = header?.querySelector("h2");
+                        // the title's column is the room the header gives it: the h2 itself only spans its text
+                        const col = title?.parentElement?.parentElement;
+                        const actions = col?.nextElementSibling;
+                        if (header == null || title == null || col == null || actions == null) return null;
+                        const hs = getComputedStyle(header);
+                        const ts = getComputedStyle(title);
+                        const hr = header.getBoundingClientRect();
+                        const cr = col.getBoundingClientRect();
+                        const ar = actions.getBoundingClientRect();
+                        const buttons = [...actions.querySelectorAll("button")];
+                        const rects = buttons.map((b) => b.getBoundingClientRect());
+                        return {
+                            headerWidth: hr.width,
+                            // the @container query measures the content box
+                            containerWidth: header.clientWidth - parseFloat(hs.paddingLeft) - parseFloat(hs.paddingRight),
+                            titleWidth: cr.width,
+                            titleTextWidth: title.getBoundingClientRect().width,
+                            titleFits: title.scrollWidth <= title.clientWidth,
+                            titleEllipsis: ts.textOverflow === "ellipsis" && ts.whiteSpace === "nowrap",
+                            actionsBelow: ar.top >= cr.bottom - 0.5,
+                            actionsInlineClear: ar.top < cr.bottom - 1 && cr.right <= ar.left + 0.5,
+                            buttons: buttons.length,
+                            resumeDisabled: buttons.some((b) => b.disabled && b.textContent.trim() === "Resume"),
+                            buttonsInside: rects.every(
+                                (b) => b.left >= hr.left - 0.5 && b.right <= hr.right + 0.5 && b.top >= hr.top - 0.5 && b.bottom <= hr.bottom + 0.5
+                            ),
+                        };`
+                    );
+                    await h.shot(`cdp-shots/${NAME}-16-solo-blocked-header-1000x700.png`);
+                    const wraps = s16 != null && s16.containerWidth < HEADER_WRAP_PX;
+                    const titleOk =
+                        s16 != null && s16.titleWidth >= MIN_HEADER_TITLE_WIDTH && (s16.titleFits || s16.titleEllipsis);
+                    const layoutOk = s16 != null && (wraps ? s16.actionsBelow : s16.actionsInlineClear);
+                    rec(
+                        "16. at 1000x700 the blocked solo session header's actions sit below its title (or inline beside it above 600px), the title is not clipped, and every action, the disabled Resume included, stays inside the header",
+                        titleOk && layoutOk && s16.resumeDisabled && s16.buttons >= 2 && s16.buttonsInside,
+                        {
+                            ...s16,
+                            layout: wraps
+                                ? "below 600px: actions wrap under the title"
+                                : "600px or wider: actions legitimately stay inline",
+                        }
+                    );
+                } finally {
+                    await h.cdp("Emulation.clearDeviceMetricsOverride", {});
+                }
                 return steps;
             },
             async teardown(h) {

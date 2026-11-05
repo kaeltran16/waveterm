@@ -490,7 +490,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                     >
                         <ToolbarFact>
                             {plural(counts.agents, "agent")} · {plural(counts.projects, "project")} ·{" "}
-                            <span className="font-semibold text-warning">
+                            <span data-need-you className={cn(counts.needsYou > 0 && "font-semibold text-warning")}>
                                 <RollingCount value={counts.needsYou} /> need you
                             </span>
                         </ToolbarFact>
