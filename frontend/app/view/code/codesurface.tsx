@@ -8,6 +8,7 @@
 
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import { SkeletonLine, SkeletonRows } from "@/app/element/skeleton";
+import { useEscapeClose } from "@/app/hook/useEscapeClose";
 import { useSyncMonacoTheme } from "@/app/monaco/monacotheme";
 import { atoms } from "@/app/store/global-atoms";
 import { globalStore } from "@/app/store/jotaiStore";
@@ -23,6 +24,8 @@ import { atom, useAtom, useAtomValue } from "jotai";
 import { ArrowRight, ChevronDown, FilePlus, FolderGit2, FolderPlus, RotateCw, Save, Undo2 } from "lucide-react";
 import { useEffect, useInsertionEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { CodeChangedPane } from "./codechangedpane";
+import { projectDraftPaths } from "./codedraft";
+import { projectToFollow } from "./codefollow";
 import { handoffProjectName, liveAgentsForProject } from "./codehandoff";
 import { canBack, canForward } from "./codehistory";
 import { CodePathBar } from "./codepathbar";
@@ -70,6 +73,7 @@ import {
     isCurrentPick,
     lastCodeProjectAtom,
     NOT_TRACKED,
+    openPath,
     openPickedPath,
     refreshIndex,
     registeredProjects,
@@ -103,6 +107,11 @@ export function CodeSurface({ model }: { model: AgentsViewModel }) {
     const filter = useAtomValue(model.projectFilterAtom);
     const [pickerOpen, setPickerOpen] = useState(false);
     const [typedPath, setTypedPath] = useState("");
+    const pickerTriggerRef = useRef<HTMLButtonElement>(null);
+    const closePicker = () => setPickerOpen(false);
+    useEscapeClose(pickerOpen, closePicker, pickerTriggerRef);
+    // starts at the value Code arrives with, so only a change made while Code shows is followed
+    const prevFilterRef = useRef(filter);
 
     // stable array: every run() reads live atoms, so it never needs rebuilding
     const codeBindings = useMemo(() => buildCodeBindings(model), [model]);
@@ -166,6 +175,20 @@ export function CodeSurface({ model }: { model: AgentsViewModel }) {
         }
     }, [project, index, indexError, stored, registry, filter]);
 
+    // the app-bar switcher picked a project while Code shows: open it here. With nothing selected the
+    // restore effect above already seeds from the same change, and a second select would race it.
+    useEffect(() => {
+        const prev = prevFilterRef.current;
+        prevFilterRef.current = filter;
+        if (project == null) {
+            return;
+        }
+        const target = projectToFollow(prev, filter, registeredProjects(registry), project);
+        if (target != null) {
+            fireAndForget(() => selectProject(target));
+        }
+    }, [filter, registry, project]);
+
     // the case that actually bites: an agent wrote while you were looking at another window
     useEffect(() => {
         if (hasFocus) {
@@ -193,6 +216,7 @@ export function CodeSurface({ model }: { model: AgentsViewModel }) {
                     <>
                         <div className="relative">
                             <button
+                                ref={pickerTriggerRef}
                                 type="button"
                                 data-code-project-picker
                                 onClick={() => togglePicker(!pickerOpen)}
@@ -202,10 +226,13 @@ export function CodeSurface({ model }: { model: AgentsViewModel }) {
                                 <span>{project?.name ?? "Pick a project"}</span>
                                 <ChevronDown size={13} strokeWidth={1.8} />
                             </button>
+                            {pickerOpen ? (
+                                <div data-code-picker-backdrop className="fixed inset-0 z-50" onClick={closePicker} />
+                            ) : null}
                             <PopoverReveal
                                 open={pickerOpen}
                                 origin="top right"
-                                className="absolute right-0 top-[calc(100%+6px)] z-20 max-h-[70vh] min-w-[240px] overflow-y-auto rounded-[10px] border border-border bg-surface shadow-popover-md"
+                                className="absolute right-0 top-[calc(100%+6px)] z-[60] max-h-[70vh] min-w-[240px] overflow-y-auto rounded-[10px] border border-border bg-surface shadow-popover-md"
                             >
                                 <PickerHeading first>Projects</PickerHeading>
                                 {projects.length === 0 ? (
@@ -290,6 +317,7 @@ export function CodeSurface({ model }: { model: AgentsViewModel }) {
                             </PopoverReveal>
                         </div>
                         <CodeReviewBar model={model} />
+                        <UnsavedDrafts />
                         <SaveControls />
                         {/* the affordance for an empty or unfocused tree, where there is no row to
                             right-click */}
@@ -493,6 +521,60 @@ function SaveControls() {
     );
 }
 
+// Drafts outlive a file switch, so unsaved work can sit in files you are not looking at, or in files
+// no longer in the index; this lists all of the project's and opens one.
+function UnsavedDrafts() {
+    const project = useAtomValue(codeProjectAtom);
+    const drafts = useAtomValue(codeDraftsAtom);
+    const paths = useMemo(() => (project == null ? [] : projectDraftPaths(drafts, project.path)), [drafts, project]);
+    // unmounting the menu with the last draft drops its open state and its hold on Escape together
+    return paths.length === 0 ? null : <UnsavedDraftsMenu paths={paths} />;
+}
+
+function UnsavedDraftsMenu({ paths }: { paths: string[] }) {
+    const [open, setOpen] = useState(false);
+    const triggerRef = useRef<HTMLButtonElement>(null);
+    const close = () => setOpen(false);
+    useEscapeClose(open, close, triggerRef);
+    return (
+        <div className="relative">
+            <button
+                ref={triggerRef}
+                type="button"
+                data-code-unsaved-count={paths.length}
+                title="Files with unsaved edits"
+                onClick={() => setOpen(!open)}
+                className="flex cursor-pointer items-center gap-1.5 rounded-[8px] border border-border bg-surface px-2.5 py-1 text-[12px] text-accent-soft hover:text-primary"
+            >
+                <span aria-hidden className="size-[6px] rounded-full bg-accent-soft" />
+                {paths.length} unsaved
+            </button>
+            {open ? <div className="fixed inset-0 z-50" onClick={close} /> : null}
+            <PopoverReveal
+                open={open}
+                origin="top right"
+                className="absolute right-0 top-[calc(100%+6px)] z-[60] max-h-[70vh] min-w-[240px] overflow-y-auto rounded-[10px] border border-border bg-surface py-1 shadow-popover-md"
+            >
+                <PickerHeading first>Unsaved edits</PickerHeading>
+                {paths.map((rel) => (
+                    <button
+                        key={rel}
+                        type="button"
+                        data-code-unsaved-row={rel}
+                        onClick={() => {
+                            close();
+                            fireAndForget(() => openPath(rel));
+                        }}
+                        className="flex w-full cursor-pointer px-3 py-1.5 text-left font-mono text-[11.5px] text-secondary hover:bg-accent/10 hover:text-primary"
+                    >
+                        {rel}
+                    </button>
+                ))}
+            </PopoverReveal>
+        </div>
+    );
+}
+
 // A failed save keeps the draft and offers the retry. A refused save is the stale bar's to say (it
 // raises codeStaleAtom), so the two "the disk moved" banners never stack.
 function SaveBanner() {
@@ -520,7 +602,8 @@ function CodeBody({ model, onPickProject }: { model: AgentsViewModel; onPickProj
             return (
                 <SurfaceEmptyState
                     title="No registered projects"
-                    body="Register a project in Settings to browse its source here."
+                    body="Add a project to browse its source here."
+                    action={{ label: "New project", onClick: () => globalStore.set(model.newProjectOpenAtom, true) }}
                 />
             );
         case "no-project":

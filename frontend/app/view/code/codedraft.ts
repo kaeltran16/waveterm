@@ -8,6 +8,8 @@
 // shared with running agents, so between reading a file and saving it someone else may have rewritten
 // it. Comparing the pinned base against a fresh stat is what turns a silent clobber into a refusal.
 
+import { normalizeRepoPath } from "@/util/paths";
+
 export interface FileBase {
     text: string;
     size: number;
@@ -89,6 +91,24 @@ export function renameDraftKeys(drafts: Drafts, from: string, to: string): Map<s
         }
     }
     return out;
+}
+
+// A project's drafts as sorted repo-relative paths (forward slashes, as the index has them). The root
+// comes from the registry or a typed path, so it is compared the way sameRepoPath compares; a draft
+// whose file has since left the index is still listed, since its edits are still here.
+export function projectDraftPaths(drafts: Drafts, projectPath: string): string[] {
+    const root = normalizeRepoPath(projectPath);
+    if (root === "") {
+        return [];
+    }
+    const out: string[] = [];
+    for (const key of drafts.keys()) {
+        const slashed = key.replace(/[\\/]+/g, "/");
+        if (slashed.toLowerCase().startsWith(root + "/")) {
+            out.push(slashed.slice(root.length + 1));
+        }
+    }
+    return out.sort();
 }
 
 // Drafts outlive an app reload as a JSON array of [absolute path, draft] pairs. Malformed rows are

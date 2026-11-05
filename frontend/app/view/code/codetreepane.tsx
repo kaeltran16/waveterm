@@ -19,9 +19,10 @@ import { joinRepoPath } from "@/util/paths";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { ChevronDown, ChevronRight, File, FilePlus, FolderPlus, Pencil, Trash2 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { projectDraftPaths } from "./codedraft";
 import { nameErrorMessage, provisionalIndex, validateName } from "./codemutate";
-import { statusGlyph, type CodeStatus } from "./codestatus";
+import { changedDirs, statusGlyph, type CodeStatus } from "./codestatus";
 import {
     cancelEdit,
     checkStale,
@@ -61,6 +62,10 @@ export function CodeTreePane({ model }: { model: AgentsViewModel }) {
     const edit = useAtomValue(codeEditAtom);
     const index = useAtomValue(codeIndexAtom);
     const plain = useAtomValue(codePlainAtom);
+    const draftDirs = useMemo(
+        () => changedDirs(project == null ? [] : projectDraftPaths(drafts, project.path)),
+        [drafts, project]
+    );
     const openFile = file.kind === "none" ? null : file.path;
     const rowRefs = useRef(new Map<string, HTMLDivElement>());
     const treeRef = useRef<HTMLDivElement>(null);
@@ -206,6 +211,13 @@ export function CodeTreePane({ model }: { model: AgentsViewModel }) {
                     <span
                         aria-label="Unsaved edits"
                         title="Unsaved edits"
+                        className="size-[6px] rounded-full bg-accent-soft"
+                    />
+                ) : null}
+                {row.kind === "dir" && !row.expanded && draftDirs.has(row.path) ? (
+                    <span
+                        aria-label="Contains unsaved edits"
+                        title="Contains unsaved edits"
                         className="size-[6px] rounded-full bg-accent-soft"
                     />
                 ) : null}

@@ -41,13 +41,20 @@ describe("surface context capabilities", () => {
             label: "waveterm",
             title: "Filter this surface by project",
         });
-        expect(projectControlCopy("code", "waveterm")).toEqual({
+        expect(projectControlCopy("files", "waveterm")).toEqual({
             label: "Default · waveterm",
             title: "Set the project default; this surface keeps its explicit target",
         });
         expect(projectControlCopy("usage", "All projects")).toEqual({
             label: "Default · All projects",
             title: "Set the project default; this surface is not project-filtered",
+        });
+    });
+
+    it("Code's switcher title says it opens the project", () => {
+        expect(projectControlCopy("code", "waveterm")).toEqual({
+            label: "Default · waveterm",
+            title: "Set the project default; Code opens it",
         });
     });
 });
