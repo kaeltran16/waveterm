@@ -19,6 +19,8 @@ import type { AgentsViewModel } from "@/app/view/agents/agents";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { answerAgentAsk } from "@/app/view/agents/askanswer";
 import { docReviewAtom } from "@/app/view/agents/docreview";
+import { harnessesAtom } from "@/app/view/agents/harnessstore";
+import { naFlagsAtom } from "@/app/view/agents/naflagsstore";
 import { openRunDag } from "@/app/view/agents/runrailsections";
 import { openSessionHit } from "@/app/view/agents/sessionsfind";
 import { THEMES } from "@/app/view/agents/themes";
@@ -32,6 +34,7 @@ import { atom } from "jotai";
 import {
     agentRows,
     answerRows,
+    brainstormRows,
     briefRows,
     channelRows,
     commandRows,
@@ -140,7 +143,12 @@ describe("commandRows", () => {
         expect(gotoRun).toHaveBeenCalled();
         expect(deps.close).toHaveBeenCalled();
 
-        expect(commandItems.map((c) => c.key)).toEqual(["toggle-rail", "cmd:new-project", "cmd:theme"]);
+        expect(commandItems.map((c) => c.key)).toEqual([
+            "toggle-rail",
+            "cmd:new-project",
+            "cmd:theme",
+            "cmd:resume-brainstorm",
+        ]);
         expect(commandItems[0]).toMatchObject({
             kind: "command",
             group: "View",
@@ -158,6 +166,14 @@ describe("commandRows", () => {
         theme.run();
         expect(navAfter(nav()).drill).toBe("theme");
         expect(deps.close).not.toHaveBeenCalled();
+    });
+
+    it("lets Resume brainstorm drill into its picker", () => {
+        const { commandItems } = commandRows([], "agent", 12, deps);
+        const resume = commandItems.find((c) => c.key === "cmd:resume-brainstorm")!;
+        expect(resume).toMatchObject({ meta: "every project ›", verb: "Pick", echo: "Opens the brainstorm picker" });
+        resume.run();
+        expect(navAfter(nav()).drill).toBe("brainstorm");
     });
 
     it("opens New project from its extra row", () => {
@@ -437,6 +453,49 @@ describe("answerRows", () => {
         vi.mocked(answerAgentAsk).mockReturnValue(false);
         answerRows(row(["Yes"]), deps)[0].run();
         expect(deps.model.openTerminal).toHaveBeenCalledWith("a1");
+    });
+});
+
+describe("brainstormRows", () => {
+    afterEach(() => vi.useRealTimers());
+
+    const b = {
+        topic: "teams",
+        path: "C:/src/waveterm/.superpowers/brainstorm/teams/brainstorm.json",
+        title: "Agent teams",
+        modifiedMs: 0,
+        project: "waveterm",
+        projectPath: "C:/src/waveterm",
+    };
+
+    it("resumes in its project with the default runtime and its remembered flags; ctrl+enter dismisses", () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(2 * 86_400_000);
+        globalStore.set(harnessesAtom, [{ runtime: "claude", installed: true, runworkercapable: true } as HarnessInfo]);
+        globalStore.set(naFlagsAtom, { claude: { "skip-permissions": true } });
+        const onDismiss = vi.fn();
+        const [row] = brainstormRows([b], onDismiss, deps);
+        expect(row).toMatchObject({
+            key: `brainstorm:${b.path}`,
+            kind: "brainstorm",
+            search: "Agent teams waveterm",
+            title: "Agent teams",
+            meta: "2d · #waveterm",
+            verb: "Resume",
+            echo: "Starts an agent in #waveterm on “Agent teams”",
+        });
+        row.run();
+        expect(vi.mocked(launchAgentOrToast).mock.calls[0][1]).toEqual({
+            runtime: "claude",
+            startupCommand: "claude --dangerously-skip-permissions",
+            task: `Resume the brainstorm in ${b.path} with arc:brainstorm.`,
+            brainstormFile: b.path,
+            projectPath: "C:/src/waveterm",
+            projectName: "waveterm",
+        });
+        expect(deps.close).toHaveBeenCalled();
+        row.alt!.run();
+        expect(onDismiss).toHaveBeenCalledWith(b);
     });
 });
 

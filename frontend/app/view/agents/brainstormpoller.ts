@@ -17,6 +17,8 @@ import {
     BRAINSTORM_POLL_MS,
     brainstormFilePath,
     brainstormsDir,
+    dismissedMarkerPath,
+    isDismissed,
     nextSentCheckAt,
     parseBrainstorm,
     parseBrainstormPath,
@@ -72,13 +74,17 @@ export async function listOpenBrainstorms(cwd: string, io: OpenBrainstormsIO): P
                 if (!("file" in parsed) || parsed.file.done) {
                     return null;
                 }
+                const modifiedMs = st.modifiedMs ?? 0;
+                const marker = await io.stat(dismissedMarkerPath(path));
+                if (marker.exists && isDismissed(modifiedMs, marker.modifiedMs)) {
+                    return null;
+                }
                 const f = parsed.file;
                 return {
                     topic,
                     path,
                     title: f.title || topic,
-                    question: f.question?.n ?? null,
-                    modifiedMs: st.modifiedMs ?? 0,
+                    modifiedMs,
                 };
             } catch (e) {
                 console.warn("open brainstorms: reading failed", path, e);
@@ -87,6 +93,33 @@ export async function listOpenBrainstorms(cwd: string, io: OpenBrainstormsIO): P
         })
     );
     return rows.filter((r): r is OpenBrainstorm => r != null).sort((a, b) => b.modifiedMs - a.modifiedMs);
+}
+
+export type ProjectBrainstorm = OpenBrainstorm & { project: string; projectPath: string };
+
+// every project's open brainstorms, newest first; a project whose folder can't be listed is left out
+export async function listAllOpenBrainstorms(
+    projects: { name: string; path: string }[],
+    io: OpenBrainstormsIO
+): Promise<ProjectBrainstorm[]> {
+    const lists = await Promise.all(
+        projects
+            .filter((p) => p.path)
+            .map((p) =>
+                listOpenBrainstorms(p.path, io).then(
+                    (rows) => rows.map((b) => ({ ...b, project: p.name, projectPath: p.path })),
+                    (e) => {
+                        console.warn("open brainstorms: listing failed", p.path, e);
+                        return [];
+                    }
+                )
+            )
+    );
+    return lists.flat().sort((a, b) => b.modifiedMs - a.modifiedMs);
+}
+
+export async function dismissBrainstorm(brainstormFile: string): Promise<void> {
+    await tauriSendIO.write(dismissedMarkerPath(brainstormFile), new Uint8Array());
 }
 
 // a spike is served from the same folder as the boards, so a file whose only mockups are spikes needs it served too

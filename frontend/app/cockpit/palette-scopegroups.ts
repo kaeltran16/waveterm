@@ -38,6 +38,7 @@ const SCOPE_KINDS: Partial<Record<ScopeId, GroupKind[]>> = {
 
 export interface ScopeRows {
     theme: PaletteItem[];
+    brainstorm: PaletteItem[] | null; // null while the projects' folders are still being read
     goto: PaletteItem[];
     commands: CommandRow[];
     start: PaletteItem[];
@@ -101,23 +102,32 @@ export function asGoalRow(query: string, launchLabel: string, { setNav }: Pick<P
     };
 }
 
+function drillEmptyText(nav: NavState, loading: boolean): string {
+    const q = nav.query.trim();
+    if (loading) {
+        return "Reading the projects' brainstorms…";
+    }
+    if (q !== "") {
+        return `Nothing matches “${q}”.`;
+    }
+    return nav.drill === "brainstorm" ? "No brainstorm is left open." : "Nothing to pick.";
+}
+
 export function scopeGroups(input: ScopeGroupsInput, deps: Pick<PaletteDeps, "setNav">): ScopeGroups {
     const { nav, mru, rows, launch } = input;
-    const q = nav.query.trim();
     if (nav.actions != null) {
         return { groups: input.actionGroups(), cap: MAX_IN_SCOPE };
     }
     if (nav.drill != null) {
-        const hits = rankPaletteItems(rows.theme, nav.query);
+        const pool = nav.drill === "brainstorm" ? rows.brainstorm : rows.theme;
+        const hits = rankPaletteItems(pool ?? [], nav.query);
         return {
             groups: [
                 {
                     key: nav.drill,
                     label: DRILL_LABELS[nav.drill],
                     items: hits,
-                    ...(hits.length === 0
-                        ? { emptyText: q === "" ? "Nothing to pick." : `Nothing matches “${q}”.` }
-                        : {}),
+                    ...(hits.length === 0 ? { emptyText: drillEmptyText(nav, pool == null) } : {}),
                 },
             ],
             cap: MAX_IN_SCOPE,

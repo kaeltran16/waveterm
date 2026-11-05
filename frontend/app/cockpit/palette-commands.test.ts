@@ -115,11 +115,12 @@ describe("buildCommandItems", () => {
 describe("buildExtraItems", () => {
     const deps = () => ({ openNewProject: vi.fn() });
 
-    it("offers the chordless modal and one drill row for themes", () => {
+    it("offers the chordless modal and one drill row each for themes and open brainstorms", () => {
         const items = buildExtraItems(deps());
         expect(items.map((i) => [i.key, i.drill])).toEqual([
             ["cmd:new-project", undefined],
             ["cmd:theme", "theme"],
+            ["cmd:resume-brainstorm", "brainstorm"],
         ]);
     });
     it("carries no chord", () => {

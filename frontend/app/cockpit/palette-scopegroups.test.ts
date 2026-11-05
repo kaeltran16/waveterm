@@ -22,6 +22,7 @@ const row = (key: string, kind: PaletteItem["kind"], title = key): PaletteItem =
 
 const rows = (over: Partial<ScopeRows> = {}): ScopeRows => ({
     theme: [row("theme:dark", "theme", "Dark"), row("theme:light", "theme", "Light")],
+    brainstorm: [row("brainstorm:/p/a", "brainstorm", "Agent teams")],
     goto: [row("goto:usage", "surface", "Usage")],
     commands: [{ ...row("toggle-rail", "command", "Toggle rail"), group: "View" } as CommandRow],
     start: [row("start:run", "start", "New run…")],
@@ -92,6 +93,14 @@ describe("scopeGroups", () => {
             items: [],
             emptyText: "Nothing matches “zzz”.",
         });
+    });
+
+    it("lists the brainstorm drill's own rows, and says while they load and when none is open", () => {
+        expect(groupsAt({ drill: "brainstorm", query: "" }).shape).toEqual([["Brainstorm", ["brainstorm:/p/a"]]]);
+        const at = (brainstorm: PaletteItem[] | null) =>
+            groupsAt({ drill: "brainstorm" }, { rows: rows({ brainstorm }) }).groups[0].emptyText;
+        expect(at(null)).toBe("Reading the projects' brainstorms…");
+        expect(at([])).toBe("No brainstorm is left open.");
     });
 
     it("caps All's mixed groups tighter than a scope", () => {

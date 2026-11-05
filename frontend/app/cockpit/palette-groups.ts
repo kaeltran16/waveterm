@@ -23,6 +23,7 @@ export type GroupKind =
     | "command"
     | "file"
     | "theme"
+    | "brainstorm" // an open brainstorm, in the Resume brainstorm picker
     | "needs" // an attention item waiting on the user
     | "answer" // an inline option under the selected Needs you ask; answered by its digit, never selected
     | "start" // New run…, New agent…, New initiative…
@@ -64,6 +65,7 @@ export const KIND_LABELS: Partial<Record<GroupKind, string>> = {
     action: "Actions",
     command: "Commands",
     theme: "Themes",
+    brainstorm: "Brainstorms",
 };
 
 // All's kinds, in the order they show below the lead group. Files stay out of All so thousands of

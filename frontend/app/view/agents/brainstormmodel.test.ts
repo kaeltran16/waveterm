@@ -32,6 +32,7 @@ import {
     decidedCount,
     designLabel,
     designUnder,
+    dismissedMarkerPath,
     droppedQuestion,
     editLock,
     handoffView,
@@ -40,14 +41,15 @@ import {
     hiddenMockups,
     historyRows,
     isAsking,
+    isDismissed,
     judgeWait,
     judgeWork,
     leftPanel,
     lineBox,
     mainView,
     nextSentCheckAt,
+    notAttached,
     noteParts,
-    openBrainstormLine,
     optionLetter,
     orderedParts,
     paneBack,
@@ -1722,10 +1724,19 @@ describe("summaries", () => {
         expect(runLine("siem-pipeline")).toBe("siem-pipeline · orchestrator · this design attached");
     });
 
-    it("openBrainstormLine names the open question and the file's age", () => {
-        const b = { topic: "t", path: "/p", title: "T", question: 15, modifiedMs: 0 };
-        expect(openBrainstormLine(b, 2 * 86_400_000)).toBe("question 15 · 2d ago");
-        expect(openBrainstormLine({ ...b, question: null }, 3_600_000)).toBe("no question open · 1h ago");
+    it("notAttached leaves out a brainstorm an agent carries on, however its path is spelled", () => {
+        const rows = [{ path: "C:\\p\\.superpowers\\brainstorm\\a\\brainstorm.json" }, { path: "C:/p/b" }];
+        expect(notAttached(rows, ["C:/p/.superpowers/brainstorm/a/brainstorm.json"])).toEqual([rows[1]]);
+    });
+
+    it("a dismissed marker sits beside the file and holds only while it is newer", () => {
+        expect(dismissedMarkerPath("/p/.superpowers/brainstorm/t/brainstorm.json")).toBe(
+            "/p/.superpowers/brainstorm/t/dismissed"
+        );
+        expect(isDismissed(100, null)).toBe(false);
+        expect(isDismissed(100, 100)).toBe(true);
+        expect(isDismissed(100, 150)).toBe(true);
+        expect(isDismissed(200, 150)).toBe(false);
     });
 });
 

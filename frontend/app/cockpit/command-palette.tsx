@@ -43,6 +43,7 @@ import { ALL_KIND_ORDER, capGroups } from "./palette-groups";
 import {
     agentRows,
     answerRows,
+    brainstormRows,
     briefRows,
     channelRows,
     commandRows,
@@ -82,6 +83,7 @@ import {
 } from "./palette-scope";
 import { scopeGroups } from "./palette-scopegroups";
 import { useNoteEditor } from "./use-note-editor";
+import { usePaletteBrainstorms } from "./use-palette-brainstorms";
 import { usePaletteFiles } from "./use-palette-files";
 import { usePaletteSessions } from "./use-palette-sessions";
 
@@ -187,9 +189,14 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
     // an action level keeps the search it was opened from, so its row's thing stays listed
     const sessionsAt = nav.actions?.back ?? nav;
     const sessionSearch = usePaletteSessions(open, sessionsAt.scope === "sessions", sessionsAt.query);
+    const brainstorms = usePaletteBrainstorms(open && nav.drill === "brainstorm", projectRows, setPaletteError);
 
     // --- Sources ----------------------------------------------------------------------------------
     const themeItems = useMemo(() => themeRows(themePreset, deps), [themePreset]);
+    const brainstormItems = useMemo(
+        () => brainstorms.list && brainstormRows(brainstorms.list, brainstorms.dismiss, deps),
+        [brainstorms.list, model]
+    );
     const { gotoItems, commandItems } = useMemo(
         () => commandRows(bindings, surface, themeItems.length, deps),
         [bindings, surface, model, themeItems.length]
@@ -282,6 +289,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
             mru,
             rows: {
                 theme: themeItems,
+                brainstorm: brainstormItems,
                 goto: gotoItems,
                 commands: commandItems,
                 start: startItems,

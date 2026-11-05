@@ -78,6 +78,13 @@ export function buildExtraItems(deps: ExtraDeps): CommandItem[] {
     return [
         { key: "cmd:new-project", title: "New project", group: "Global", run: deps.openNewProject },
         { key: "cmd:theme", title: "Switch theme…", group: "Appearance", drill: "theme", run: () => {} },
+        {
+            key: "cmd:resume-brainstorm",
+            title: "Resume brainstorm…",
+            group: "Global",
+            drill: "brainstorm",
+            run: () => {},
+        },
     ];
 }
 

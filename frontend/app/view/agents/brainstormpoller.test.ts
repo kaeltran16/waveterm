@@ -8,6 +8,7 @@ vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 
 import type { AgentVM } from "./agentsviewmodel";
 import {
+    listAllOpenBrainstorms,
     listOpenBrainstorms,
     pollBrainstormOnce,
     reconcileBrainstorms,
@@ -302,12 +303,64 @@ describe("listOpenBrainstorms", () => {
             [at("busy")]: "fails",
         });
         expect(await listOpenBrainstorms("/p", io)).toEqual([
-            { topic: "new", path: at("new"), title: "New one", question: null, modifiedMs: 20 },
-            { topic: "old", path: at("old"), title: "Old one", question: 1, modifiedMs: 10 },
+            { topic: "new", path: at("new"), title: "New one", modifiedMs: 20 },
+            { topic: "old", path: at("old"), title: "Old one", modifiedMs: 10 },
         ]);
     });
 
     it("is empty for a project that never brainstormed", async () => {
         expect(await listOpenBrainstorms("/p", listIO(null, {}))).toEqual([]);
+    });
+
+    it("leaves out one dismissed since its last change, and lists it again once the brainstorm moves on", async () => {
+        const marker = `${dir}/t/dismissed`;
+        const files = (brainstormMs: number) => ({
+            [at("t")]: { text: fileText({ title: "T" }), modifiedMs: brainstormMs },
+            [marker]: { text: "", modifiedMs: 50 },
+        });
+        expect(await listOpenBrainstorms("/p", listIO(["t"], files(40)))).toEqual([]);
+        expect((await listOpenBrainstorms("/p", listIO(["t"], files(60)))).map((b) => b.topic)).toEqual(["t"]);
+    });
+});
+
+describe("listAllOpenBrainstorms", () => {
+    it("merges every project's open brainstorms newest first, naming the project, and skips one that fails", async () => {
+        const file = (title: string, modifiedMs: number) => ({ text: fileText({ title }), modifiedMs });
+        const trees: Record<string, Record<string, { text: string; modifiedMs: number }>> = {
+            "/a/.superpowers/brainstorm": { "/a/.superpowers/brainstorm/x/brainstorm.json": file("X", 10) },
+            "/b/.superpowers/brainstorm": { "/b/.superpowers/brainstorm/y/brainstorm.json": file("Y", 20) },
+        };
+        const all = Object.assign({}, ...Object.values(trees));
+        const io = {
+            async list(path: string) {
+                if (path.startsWith("/broken")) {
+                    throw new Error("access denied");
+                }
+                return Object.keys(trees[path] ?? {}).map((f) => f.split("/").at(-2)!);
+            },
+            async stat(path: string) {
+                const f = all[path];
+                return {
+                    exists: path in trees || path.startsWith("/broken") || f != null,
+                    modifiedMs: f?.modifiedMs ?? null,
+                };
+            },
+            async read(path: string) {
+                return all[path].text;
+            },
+        };
+        const rows = await listAllOpenBrainstorms(
+            [
+                { name: "a", path: "/a" },
+                { name: "b", path: "/b" },
+                { name: "broken", path: "/broken" },
+                { name: "nopath", path: "" },
+            ],
+            io
+        );
+        expect(rows.map((r) => [r.project, r.projectPath, r.title])).toEqual([
+            ["b", "/b", "Y"],
+            ["a", "/a", "X"],
+        ]);
     });
 });

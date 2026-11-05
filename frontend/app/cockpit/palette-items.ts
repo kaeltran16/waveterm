@@ -11,8 +11,13 @@ import type { Binding, SurfaceKey } from "@/app/store/keybindings/types";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { formatAge, type AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { answerAgentAsk } from "@/app/view/agents/askanswer";
+import { resumePrompt } from "@/app/view/agents/brainstormmodel";
+import type { ProjectBrainstorm } from "@/app/view/agents/brainstormpoller";
 import { sendChannelMessage } from "@/app/view/agents/channelactions";
 import { docReviewAtom } from "@/app/view/agents/docreview";
+import { harnessesAtom, harnessPreferenceAtom, resolveDefaultRuntime } from "@/app/view/agents/harnessstore";
+import { composeStartupCommand, runtimeStartupCommand, type Runtime } from "@/app/view/agents/launch";
+import { naFlagsAtom } from "@/app/view/agents/naflagsstore";
 import { channelProjectLabel } from "@/app/view/agents/projectlabel";
 import { rowsWithChannel, type ProjectRow } from "@/app/view/agents/projectsstore";
 import { runStatusView, type RunStatusTone } from "@/app/view/agents/runmodel";
@@ -111,6 +116,7 @@ export function commandRows(
 ): { gotoItems: PaletteItem[]; commandItems: CommandRow[] } {
     const drillMeta: Record<DrillId, string> = {
         theme: `${themeCount} themes ›`,
+        brainstorm: "every project ›",
     };
     const all = [
         ...buildCommandItems(bindings, postCloseContext(surface)),
@@ -403,6 +409,43 @@ export function answerRows(answering: NeedsRow | undefined, { model, close }: Pa
         verb: "Answer",
         echo: `Answers ${answering!.agent!.name}: “${label}”`,
         run: () => answer(answering!, i + 1),
+    }));
+}
+
+// the Resume brainstorm picker: Enter carries one on in its project with the default runtime and its remembered
+// flags, Ctrl+Enter dismisses it until it next changes
+export function brainstormRows(
+    list: ProjectBrainstorm[] | null,
+    onDismiss: (b: ProjectBrainstorm) => void,
+    { model, close }: PaletteDeps
+): PaletteItem[] {
+    const now = Date.now();
+    return (list ?? []).map((b) => ({
+        key: `brainstorm:${b.path}`,
+        kind: "brainstorm" as const,
+        search: `${b.title} ${b.project}`,
+        title: b.title,
+        // age first: the meta column truncates, and a long project name should be what gets cut
+        meta: `${formatAge(now - b.modifiedMs)} · #${b.project}`,
+        verb: "Resume",
+        echo: `Starts an agent in #${b.project} on “${b.title}”`,
+        run: () => {
+            const pref = globalStore.get(harnessPreferenceAtom).route?.runtime ?? "";
+            const runtime = (resolveDefaultRuntime(pref, globalStore.get(harnessesAtom)) || "claude") as Runtime;
+            const flags = globalStore.get(naFlagsAtom)[runtime] ?? {};
+            fireAndForget(() =>
+                launchAgentOrToast(model, {
+                    runtime,
+                    startupCommand: composeStartupCommand(runtimeStartupCommand(runtime), runtime, flags),
+                    task: resumePrompt(b.path),
+                    brainstormFile: b.path,
+                    projectPath: b.projectPath,
+                    projectName: b.project,
+                })
+            );
+            close();
+        },
+        alt: { echo: "Dismisses it until it next changes", run: () => onDismiss(b) },
     }));
 }
 

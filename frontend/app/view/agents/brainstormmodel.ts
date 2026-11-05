@@ -5,7 +5,7 @@
 // brainstorm.json. The agent writes the file; Arc only reads it and types one line back.
 
 import type { NewRunPrefill } from "@/app/view/jarvis/newrun";
-import { formatAgo, type AgentVM } from "./agentsviewmodel";
+import type { AgentVM } from "./agentsviewmodel";
 import { boardLabel, canvasDir, canvasProjectDir, join } from "./canvasmodel";
 
 export const BRAINSTORM_POLL_MS = 3000;
@@ -1625,22 +1625,32 @@ export function compactedSummary(f: BrainstormFile): string {
     return `The agent compacted its context and re-read its brainstorm file: ${plural(c.yours, "part", "parts")} yours, ${plural(c.guesses, "guess", "guesses")}, ${c.open} open. Nothing was lost.`;
 }
 
-// a brainstorm a new agent can carry on: listed in the New agent window, since one whose tab is gone is otherwise lost
+// a brainstorm a new agent can carry on: listed by the palette's Resume brainstorm, since one whose tab is gone is
+// otherwise lost
 export type OpenBrainstorm = {
     topic: string;
     path: string;
     title: string;
-    question: number | null;
     modifiedMs: number;
 };
 
-export function openBrainstormLine(b: OpenBrainstorm, now: number): string {
-    const where = b.question != null ? `question ${b.question}` : "no question open";
-    return `${where} · ${formatAgo(now - b.modifiedMs)}`;
-}
-
 export function resumePrompt(path: string): string {
     return `Resume the brainstorm in ${path} with arc:brainstorm.`;
+}
+
+// one an agent still has attached is carried on there, so a second agent would write the same file
+export function notAttached<T extends { path: string }>(rows: T[], attachedPaths: string[]): T[] {
+    return rows.filter((b) => !attachedPaths.some((p) => samePath(p, b.path)));
+}
+
+// An empty file beside brainstorm.json hides it from the open list. It holds only while it is newer than the
+// brainstorm, so an agent that carries the brainstorm on brings it back without anyone removing the marker.
+export function dismissedMarkerPath(brainstormFile: string): string {
+    return brainstormFile.replace(/brainstorm\.json$/i, "dismissed");
+}
+
+export function isDismissed(brainstormMs: number, markerMs: number | null): boolean {
+    return markerMs != null && markerMs >= brainstormMs;
 }
 
 const ABSOLUTE_PATH = /^([a-zA-Z]:[\\/]|[\\/])/;
