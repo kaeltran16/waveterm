@@ -73,6 +73,49 @@ export const focusAgent = (h, id) =>
         return true;`
     );
 
+const SETTLE_MS = 1_500;
+const SETTLE_CAP_MS = 10_000;
+const MS_PER_MINUTE = 60_000;
+
+// A focused fixture tab starts a plain shell whose startup output moves the block's last-output stamp to now, so the
+// stamp is set back only once that output has settled: stamped and unchanged for SETTLE_MS. A shell that never
+// prints, or never stops, ends at the cap and is stamped anyway. The header and rail clock is structuralNowAtom, so
+// the clock is set with the stamp.
+export const makeQuiet = (h, blockId, minutes) =>
+    agentPage(
+        h,
+        `const { getLastOutputAtom } = await mod("app/view/agents/agentcontrollerstore.ts");
+        const stamp = getLastOutputAtom(${JSON.stringify(blockId)});
+        const start = Date.now();
+        let last = globalStore.get(stamp);
+        let since = start;
+        while (Date.now() - start < ${SETTLE_CAP_MS}) {
+            await nap(50);
+            const cur = globalStore.get(stamp);
+            if (cur !== last) {
+                last = cur;
+                since = Date.now();
+            } else if (cur != null && Date.now() - since >= ${SETTLE_MS}) {
+                break;
+            }
+        }
+        const now = Date.now();
+        globalStore.set(stamp, now - ${minutes} * ${MS_PER_MINUTE});
+        globalStore.set(agentsModel().structuralNowAtom, now);
+        return true;`
+    );
+
+const QUIET_ATTEMPTS = 3;
+
+// a shell print after the stamp is set moves it back to now, so the stamp is set again until seen() holds. Returns
+// the attempt count for the step's detail.
+export async function quietUntil(h, blockId, minutes, seen) {
+    for (let attempt = 1; ; attempt++) {
+        await makeQuiet(h, blockId, minutes);
+        if ((await seen()) || attempt >= QUIET_ATTEMPTS) return attempt;
+    }
+}
+
 // A real tab made as launchAgent makes it: CreateTab, the block's meta, the tab's session meta. No controller unless
 // the caller's blockMeta names one, so nothing runs. CreateTab is a wavesrv service call, which the page cannot
 // reach cross-origin, so Node makes it. pending: true also adds a pending launch, which keeps the row booting.

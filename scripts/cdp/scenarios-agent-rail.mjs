@@ -18,6 +18,7 @@ import {
     focusAgent,
     interrupted,
     makeTab,
+    quietUntil,
     restoreRoster,
     setRoster,
     toolUse,
@@ -237,26 +238,19 @@ export default function (_kit) {
                     JSON.stringify({ done, cut })
                 );
 
-                // the rail and the header share the clock, so the page sets the stamp and the clock together. set
-                // after focusing: a focused tab's terminal may print, which moves the stamp to now
-                const makeQuiet = () =>
-                    agentPage(
-                        h,
-                        `const { getLastOutputAtom } = await mod("app/view/agents/agentcontrollerstore.ts");
-                        const now = Date.now();
-                        globalStore.set(getLastOutputAtom(${JSON.stringify(ctx.ids.working.blockId)}), now - ${QUIET_MIN * MS_PER_MINUTE});
-                        globalStore.set(agentsModel().structuralNowAtom, now);
-                        return true;`
-                    );
+                // set after focusing: a focused tab's terminal may print, which moves the stamp to now
+                const makeQuiet = (seen) => quietUntil(h, ctx.ids.working.blockId, QUIET_MIN, seen);
                 const same = {};
+                let quietAttempts;
                 for (const [key, expect] of [
                     ["done", "idle"],
                     ["standing", "standing by"],
                     ["working", `quiet ${QUIET_MIN}m`],
                 ]) {
                     await focus(key);
-                    if (key === "working") await makeQuiet();
-                    await waitRail(`v.state === ${JSON.stringify(expect)} && v.pill === v.state`);
+                    const seen = () => waitRail(`v.state === ${JSON.stringify(expect)} && v.pill === v.state`);
+                    if (key === "working") quietAttempts = await makeQuiet(seen);
+                    else await seen();
                     const v = await view();
                     same[key] = { state: v?.state, pill: v?.pill };
                     await h.shot(`cdp-shots/agent-rail-3-${key}.png`);
@@ -267,7 +261,7 @@ export default function (_kit) {
                         same.standing?.state === "standing by" &&
                         same.working?.state === `quiet ${QUIET_MIN}m` &&
                         Object.values(same).every((s) => s.state === s.pill),
-                    JSON.stringify(same)
+                    JSON.stringify({ ...same, attempts: quietAttempts })
                 );
 
                 await focus("done");
@@ -318,14 +312,13 @@ export default function (_kit) {
                 );
 
                 await focus("working");
-                await makeQuiet();
-                await waitRail(`v.hint === ${JSON.stringify(QUIET_HINT)}`);
+                const hintAttempts = await makeQuiet(() => waitRail(`v.hint === ${JSON.stringify(QUIET_HINT)}`));
                 const quiet = await view();
                 await h.shot("cdp-shots/agent-rail-7-quiet.png");
                 rec(
                     `7. a working agent silent for ${QUIET_MIN} minutes shows the quiet hint, warning-toned, beside Stop`,
                     quiet?.hint === QUIET_HINT && quiet.hintWarning && quiet.stop,
-                    JSON.stringify(quiet)
+                    JSON.stringify({ ...quiet, attempts: hintAttempts })
                 );
                 return steps;
             },

@@ -3,13 +3,20 @@
 // tab. Nothing is written to disk; teardown closes the tabs and restores the roster.
 
 import { randomUUID } from "node:crypto";
-import { agentPage, closeTabs, focusAgent, makeTab, restoreRoster, setRoster } from "./agent-page-fixtures.mjs";
+import {
+    agentPage,
+    closeTabs,
+    focusAgent,
+    makeTab,
+    quietUntil,
+    restoreRoster,
+    setRoster,
+} from "./agent-page-fixtures.mjs";
 import { polishWaitFor } from "./scenarios-shared.mjs";
 
 const NAME = "agent-header";
 const HEADER_WAIT_MS = 5_000;
 const QUIET_MIN = 4;
-const MS_PER_MINUTE = 60_000;
 // the pill fades its color over 140ms, so a computed color read mid-fade is not yet the tone
 const PILL_FADE_MS = 400;
 
@@ -118,19 +125,12 @@ export default function (_kit) {
                     JSON.stringify({ idleMenu, workingMenu })
                 );
 
-                // the header's clock is structuralNowAtom, so the page sets both the stamp and the clock
-                await agentPage(
-                    h,
-                    `const { getLastOutputAtom } = await mod("app/view/agents/agentcontrollerstore.ts");
-                    const now = Date.now();
-                    globalStore.set(getLastOutputAtom(${JSON.stringify(ctx.workingBlock)}), now - ${QUIET_MIN * MS_PER_MINUTE});
-                    globalStore.set(agentsModel().structuralNowAtom, now);
-                    return true;`
-                );
-                await polishWaitFor(
-                    h,
-                    `(${HEADER}?.querySelector("[data-agent-state-pill]")?.textContent ?? "").startsWith("quiet")`,
-                    HEADER_WAIT_MS
+                const attempts = await quietUntil(h, ctx.workingBlock, QUIET_MIN, () =>
+                    polishWaitFor(
+                        h,
+                        `(${HEADER}?.querySelector("[data-agent-state-pill]")?.textContent ?? "").startsWith("quiet")`,
+                        HEADER_WAIT_MS
+                    )
                 );
                 await agentPage(h, `await nap(${PILL_FADE_MS}); return true;`);
                 const quiet = await h.ev(headerState);
@@ -138,7 +138,7 @@ export default function (_kit) {
                 rec(
                     `3. a working agent silent for ${QUIET_MIN} minutes reads quiet ${QUIET_MIN}m in the warning color`,
                     quiet != null && quiet.pill === `quiet ${QUIET_MIN}m` && quiet.pillWarning,
-                    JSON.stringify(quiet)
+                    JSON.stringify({ ...quiet, attempts })
                 );
 
                 const before = quiet?.fullscreenTitle ?? "";
