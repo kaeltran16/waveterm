@@ -11,17 +11,19 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { projectListAtom } from "@/app/view/agents/projectsstore";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { Check } from "lucide-react";
+import { Check, X } from "lucide-react";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type { AgentsViewModel } from "../agents/agents";
-import { stateRpcTimeoutMs } from "./briefingstore";
+import { briefingStateAtom, stateRpcTimeoutMs } from "./briefingstore";
 import { briefUndo } from "./briefundo";
+import { parentChoices } from "./effortmodel";
 import { setEffortDetails, type EffortDetails } from "./effortstore";
 import { openJiraSettings } from "./jiraactions";
 import { fromLookupError, lookupLine, shouldLookUp, type LookupState } from "./jiralookup";
 import { normalizeKey } from "./jiraticket";
 import { ProjectChips } from "./projectchips";
+import { TicketChip } from "./recordpicker";
 
 export interface ParsedChunkLine {
     label: string;
@@ -145,7 +147,7 @@ export function EffortCreateForm({
             return;
         }
         try {
-            const parentOid = parent.trim().replace(/^effort:/, "");
+            const parentOid = bareOid(parent);
             const rtn = await RpcApi.EffortCreateCommand(
                 TabRpcClient,
                 {
@@ -233,11 +235,10 @@ export function EffortCreateForm({
                     </div>
                     <div className="flex flex-col gap-1">
                         <span className={fieldLabel}>Parent initiative</span>
-                        <input
+                        <ParentPicker
                             value={parent}
-                            onChange={(e) => setParent(e.target.value)}
-                            placeholder="optional · effort id"
-                            className={cn(inputCls, "font-mono")}
+                            selfOid={edit != null ? bareOid(edit.oref) : null}
+                            onChange={setParent}
                         />
                     </div>
                 </div>
@@ -384,8 +385,9 @@ export function EffortCreateForm({
                 {error != null ? (
                     <span className="min-w-0 flex-1 truncate text-[11px] text-error">{error}</span>
                 ) : (
+                    // nothing applies before Save, so Edit has no line here
                     <span className="flex-1 font-mono text-[10.5px] text-ink-mid">
-                        {edit != null ? "changes apply immediately" : "ticked lines save as already done"}
+                        {edit != null ? "" : "ticked lines save as already done"}
                     </span>
                 )}
                 <button
@@ -405,6 +407,105 @@ export function EffortCreateForm({
                 </button>
             </div>
         </ModalShell>
+    );
+}
+
+const bareOid = (s: string) => s.trim().replace(/^effort:/, "");
+
+const PARENT_ROWS = 6;
+
+// Type to filter the live initiatives by title or ticket, modelled on RecordPicker. The value is the bare
+// oid; the briefing's efforts are read here because the New form mounts outside the Brief.
+function ParentPicker({
+    value,
+    selfOid,
+    onChange,
+}: {
+    value: string;
+    selfOid: string | null;
+    onChange: (oid: string) => void;
+}) {
+    const efforts = useAtomValue(briefingStateAtom).snapshot?.state.efforts;
+    const [q, setQ] = useState("");
+    const [open, setOpen] = useState(false);
+    const matches = useMemo(() => parentChoices(efforts ?? [], q, selfOid, PARENT_ROWS), [efforts, q, selfOid]);
+    const oid = bareOid(value);
+    if (oid !== "") {
+        const chosen = efforts?.find((c) => bareOid(c.oref) === oid);
+        return (
+            <div data-effort-parent-chosen={oid} className={cn(inputCls, "flex items-center gap-2")}>
+                <span className="min-w-0 flex-1 truncate">{chosen?.title ?? oid}</span>
+                <button
+                    type="button"
+                    data-effort-parent-clear
+                    aria-label="Clear parent initiative"
+                    onClick={() => onChange("")}
+                    className="flex-none cursor-pointer text-muted hover:text-primary"
+                >
+                    <X className="h-3 w-3" aria-hidden />
+                </button>
+            </div>
+        );
+    }
+    const pick = (oref: string) => {
+        onChange(bareOid(oref));
+        setQ("");
+        setOpen(false);
+    };
+    // stopped here because ModalShell listens on window: the form would otherwise close with its Escape
+    const onKeyDown = (e: KeyboardEvent) => {
+        if (e.key === "Escape") {
+            e.stopPropagation();
+            setQ("");
+            setOpen(false);
+        } else if (e.key === "Enter" && !e.ctrlKey && !e.metaKey && open && matches.length > 0) {
+            e.preventDefault();
+            pick(matches[0].oref);
+        }
+    };
+    return (
+        <div className="flex flex-col gap-1">
+            <input
+                data-effort-field="parent"
+                value={q}
+                onChange={(e) => {
+                    setQ(e.target.value);
+                    setOpen(true);
+                }}
+                onFocus={() => setOpen(true)}
+                onBlur={() => setOpen(false)}
+                onKeyDown={onKeyDown}
+                placeholder="optional · type a title or ticket"
+                aria-label="Parent initiative"
+                className={inputCls}
+            />
+            {open ? (
+                matches.length === 0 ? (
+                    <span className="px-1 font-mono text-[10.5px] text-muted">
+                        {efforts == null ? "Initiatives load with the Brief" : "No initiative matches"}
+                    </span>
+                ) : (
+                    <div data-effort-parent-list className="flex flex-col gap-px">
+                        {matches.map((c) => (
+                            <button
+                                key={c.oref}
+                                type="button"
+                                data-effort-parent-row={bareOid(c.oref)}
+                                // mousedown, so the pick lands before the input's blur closes the list
+                                onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    pick(c.oref);
+                                }}
+                                className="flex cursor-pointer items-center gap-2 rounded-[7px] px-2 py-1 text-left transition-colors duration-[140ms] hover:bg-surface-hover"
+                            >
+                                <span className="min-w-0 flex-1 truncate text-[11.5px] text-secondary">{c.title}</span>
+                                <TicketChip ticket={c.ticket} />
+                            </button>
+                        ))}
+                    </div>
+                )
+            ) : null}
+        </div>
     );
 }
 

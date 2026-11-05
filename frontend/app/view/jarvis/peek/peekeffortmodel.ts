@@ -4,7 +4,7 @@
 // Pure: what the initiative peek body says. Chunk state comes from effortFacts, chunkTone and effortChunkRows;
 // nothing here derives it again.
 
-import { effortFacts, type ChunkTone } from "../effortmodel";
+import { EFFORT_CREATED_NOTE, effortFacts, type ChunkTone } from "../effortmodel";
 import { effortChunkRows } from "../effortstore";
 import type { PeekFacts } from "../peekstore";
 
@@ -13,7 +13,7 @@ export type PeekChunk = { n: number; label: string; status: string; tone: ChunkT
 export type EffortPeekModel = {
     title: string;
     status: string;
-    // an initiative has no objective field; its first note is where one is written
+    // an initiative has no objective field; its first written note (not the creation marker) is where one is
     objective: string | null;
     progress: string;
     project: string | null;
@@ -28,7 +28,9 @@ export function effortPeekModel(effort: Effort): EffortPeekModel {
     const rows = effortChunkRows(effort);
     const doneRows = rows.filter((r) => r.tone === "done");
     const stages = [...new Set(doneRows.map((r) => r.stage).filter((s) => s !== ""))];
-    const objective = [...(effort.notes ?? [])].sort((a, b) => a.ts - b.ts)[0]?.text;
+    const objective = [...(effort.notes ?? [])]
+        .sort((a, b) => a.ts - b.ts)
+        .find((n) => n.text !== EFFORT_CREATED_NOTE)?.text;
     return {
         title: effort.title,
         status: effort.status,

@@ -222,7 +222,10 @@ export function RecordBand({
                                             className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left"
                                         >
                                             <EdgeChip tag={e} />
-                                            <span className="font-mono text-[10.5px] text-muted">open this record</span>
+                                            {/* the chip truncates, never the link */}
+                                            <span className="flex-none whitespace-nowrap font-mono text-[10.5px] text-muted">
+                                                open this record
+                                            </span>
                                         </button>
                                         {runORef != null ? (
                                             <EdgeControls

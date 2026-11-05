@@ -44,6 +44,7 @@ const ROW_LEAVE_SAMPLE_MS = 5000;
 const FOREIGN_WAIT_MS = 90000;
 // setconfig writes the settings file and wavesrv's watcher reloads it a moment later
 const CONNECT_WAIT_MS = 10000;
+const VIEWPORT_1000 = { width: 1000, height: 700, deviceScaleFactor: 1, mobile: false };
 
 const BOARD_ROWS = {
     "PAY-318": "Retry webhook delivery when the partner returns 429",
@@ -381,6 +382,8 @@ export const jiraCheck = {
         // 7. nothing new: Check again after every ticket is gone
         await pressCheckJira(h);
         await waitState(h, "list");
+        // step 11 brings back the ones on initiatives
+        const allIssues = { ...ctx.fake.state.issues };
         ctx.fake.state.issues = {};
         const before7 = searches(ctx.fake);
         await pressCheckAgain(h);
@@ -466,9 +469,44 @@ export const jiraCheck = {
                 byKey?.groups.some((g) => /Initiatives/.test(g.label) && g.rows.some((r) => r.includes(COVERED.key) && r.includes(COVERED.title))),
             { binding, selected: action?.selected, opened, byKey: byKey?.groups }
         );
+
+        // 11. F12 at 1000x700 (shot 42): every assigned ticket is on an initiative, so nothing is listed and the
+        // footer counts them without "more"
+        const onInitiative = [COVERED.key, "PAY-311", reduced.leaving];
+        ctx.fake.state.issues = Object.fromEntries(onInitiative.filter((k) => allIssues[k]).map((k) => [k, allIssues[k]]));
+        await h.cdp("Emulation.setDeviceMetricsOverride", VIEWPORT_1000);
+        try {
+            // opening keeps the last check's state, so this one is asked for
+            await pressCheckJira(h);
+            await polishWaitFor(h, `!!${DIALOG}`, 3000);
+            await pressCheckAgain(h);
+            const allCovered = await waitState(h, "empty");
+            await polishNap(400);
+            const covered11 = await h.ev(`(() => {
+                const f = ${DIALOG}?.querySelector('[data-jira-check-footer]');
+                const r = f?.getBoundingClientRect();
+                return {
+                    footer: ${flat(`${DIALOG}?.querySelector('[data-jira-check-footer]')`)},
+                    rows: ${DIALOG}?.querySelectorAll('[data-jira-row]').length ?? null,
+                    inView: r != null && r.height > 0 && r.bottom <= window.innerHeight,
+                    width: window.innerWidth,
+                };
+            })()`);
+            await h.shot("cdp-shots/jira-check-11-all-covered.png");
+            const expected = `${onInitiative.length} assigned tickets already have an initiative.`;
+            rec(
+                "11. F12: with every assigned ticket on an initiative, the footer reads N assigned tickets already have an initiative, with no more",
+                allCovered && covered11.width === VIEWPORT_1000.width && covered11.rows === 0 && covered11.inView &&
+                    covered11.footer === expected && !/\bmore\b/.test(covered11.footer),
+                { ...covered11, expected }
+            );
+        } finally {
+            await h.cdp("Emulation.clearDeviceMetricsOverride", {}).catch(() => {});
+        }
         return steps;
     },
     async teardown(h, ctx) {
+        await h.cdp("Emulation.clearDeviceMetricsOverride", {}).catch(() => {});
         await h.ev(PEEKS_ESC).catch(() => {});
         await closeDialog(h).catch(() => {});
         await restoreLaunch(h).catch(() => {});

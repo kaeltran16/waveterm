@@ -140,15 +140,17 @@ describe("visibleRows", () => {
 
 describe("footerLine", () => {
     it("is empty with none covered", () => {
-        expect(footerLine(0)).toBe("");
+        expect(footerLine(0, 3)).toBe("");
     });
 
-    it("is singular for one", () => {
-        expect(footerLine(1)).toBe("1 more assigned ticket already has an initiative.");
+    it("says more only beside listed rows", () => {
+        expect(footerLine(2, 3)).toBe("2 more assigned tickets already have an initiative.");
+        expect(footerLine(1, 1)).toBe("1 more assigned ticket already has an initiative.");
     });
 
-    it("is plural for more", () => {
-        expect(footerLine(2)).toBe("2 more assigned tickets already have an initiative.");
+    it("drops more with nothing listed (F12)", () => {
+        expect(footerLine(2, 0)).toBe("2 assigned tickets already have an initiative.");
+        expect(footerLine(1, 0)).toBe("1 assigned ticket already has an initiative.");
     });
 });
 

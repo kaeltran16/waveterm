@@ -34,7 +34,8 @@ export function eventFromResume(rtn: CommandGetLatestResumeRtnData | null | unde
         id: `resume:${rtn?.runoref ?? card.taskId}:${at}`,
         at,
         kind: "resume",
-        text: `Where we were — ${summary}`,
+        // the bubble's heading already says "Where we were"
+        text: summary,
     };
 }
 

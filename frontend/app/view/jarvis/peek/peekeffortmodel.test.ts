@@ -102,6 +102,22 @@ describe("effortPeekModel, whole", () => {
     it("has no objective for an effort that carries no notes at all", () => {
         expect(effortPeekModel({ ...EFFORT, notes: undefined } as Effort).objective).toBeNull();
     });
+
+    it("skips the creation marker for the first written note (F13)", () => {
+        const effort = {
+            ...EFFORT,
+            notes: [
+                { ts: 1, text: "effort created" },
+                { ts: 2, text: "Ship the G4 label" },
+            ],
+        } as Effort;
+        expect(effortPeekModel(effort).objective).toBe("Ship the G4 label");
+    });
+
+    it("has no objective when the creation marker is the only note", () => {
+        const effort = { ...EFFORT, notes: [{ ts: 1, text: "effort created" }] } as Effort;
+        expect(effortPeekModel(effort).objective).toBeNull();
+    });
 });
 
 describe("effortPeekFacts", () => {

@@ -11,6 +11,23 @@ export function chunkTone(status: string): ChunkTone {
 
 export const CHIP_CAP = 12;
 
+// mirrors the first note wshserver_effort.go writes on every initiative it creates
+export const EFFORT_CREATED_NOTE = "effort created";
+
+// the Parent picker's matches: title or ticket, case-insensitive, never the initiative being edited
+export function parentChoices<T extends { oref: string; title: string; ticket?: string }>(
+    cards: T[],
+    query: string,
+    selfOid: string | null,
+    max: number
+): T[] {
+    const q = query.trim().toLowerCase();
+    return cards
+        .filter((c) => c.oref.replace(/^effort:/, "") !== selfOid)
+        .filter((c) => q === "" || c.title.toLowerCase().includes(q) || (c.ticket ?? "").toLowerCase().includes(q))
+        .slice(0, max);
+}
+
 export type ChunkChip = { label: string; tone: ChunkTone };
 
 // what the waiting queue says about a blocked chunk: since is null when no note recorded the block

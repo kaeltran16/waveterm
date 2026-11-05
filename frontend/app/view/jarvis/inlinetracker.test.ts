@@ -203,6 +203,27 @@ describe("trackerRows facts row", () => {
         const stages = rows.filter((r) => r.kind === "stage");
         expect(stages.map((s) => (s as { first: boolean }).first)).toEqual([true, false]);
     });
+
+    const factsFor = (chunks: ChunkRowModel[]) => {
+        const l = { id: "initiatives:effort:e1", target: { oref: "effort:e1" } } as BriefLine;
+        const rows = trackerRows({ lines: [l], openLineId: l.id, chunks, noteCounts: new Map(), stageOverrides: {} });
+        return rows.find((r) => r.kind === "facts");
+    };
+
+    it("leaves skipped chunks out of the count and says so (F10)", () => {
+        const chunks = [
+            ...Array.from({ length: 12 }, (_, i) => chunk(`d${i}`, "done", "")),
+            chunk("s", "skipped", ""),
+            ...Array.from({ length: 24 }, (_, i) => chunk(`p${i}`, "pending", "")),
+        ];
+        expect(factsFor(chunks)).toMatchObject({ count: "36 chunks · 12 done · 1 skipped, not counted" });
+    });
+
+    it("is singular for one counted chunk", () => {
+        expect(factsFor([chunk("a", "pending", ""), chunk("b", "skipped", "")])).toMatchObject({
+            count: "1 chunk · 0 done · 1 skipped, not counted",
+        });
+    });
 });
 
 const FLAT: ChunkRowModel[] = [

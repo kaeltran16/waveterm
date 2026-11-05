@@ -9,8 +9,13 @@ const KEY = "PAY-318";
 const PAY_318_SUMMARY = "Retry webhook delivery when the partner returns 429";
 const PAY_311_SUMMARY = "Settlement report drops refunds issued after cutoff";
 const WAIT_MS = 8000;
+// F11's parent: its title shares a prefix with TITLE, so one query lists both and only the parent may be offered
+const PARENT_TITLE = "verify jira details parent";
+const PARENT_QUERY = "verify jira details";
+const VIEWPORT_1600 = { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false };
 
 const FIELD = `document.querySelector('[data-effort-field="ticket"]')`;
+const PARENT_FIELD = `document.querySelector('[data-effort-field="parent"]')`;
 const LINE = `document.querySelector('[data-jira-lookup]')`;
 const DIALOG = `${FIELD}?.closest('[role="dialog"]')`;
 const ROW = (title) =>
@@ -75,6 +80,7 @@ export const jiraDetails = {
             ctx.fake = await startFakeJira();
             ctx.restores.push(await connectFakeJira(h, ctx.fake));
             ctx.effortoid = await seedTicketedInitiative(h, { title: TITLE, key: KEY, chunks: ["Retry"] });
+            ctx.parentoid = (await h.rpc("effortcreate", { title: PARENT_TITLE }))?.effortoid;
         } catch (e) {
             await jiraDetails.teardown(h, ctx);
             throw e;
@@ -202,13 +208,70 @@ export const jiraDetails = {
         await polishNap(300);
         await h.shot("cdp-shots/jira-details-edit.png");
         await closeForm(h);
+
+        // 6. F11 at 1600x950: Edit initiative has no "changes apply immediately", and Parent is a picker by title that
+        // never offers the initiative being edited and saves the picked one's oid
+        await h.cdp("Emulation.setDeviceMetricsOverride", VIEWPORT_1600);
+        try {
+            if (!(await h.ev(`${ROW(TITLE)}?.parentElement?.querySelector('[data-jarvis-initiative-action="details"]') != null`))) {
+                await h.ev(`${ROW(TITLE)}?.click()`);
+            }
+            await polishWaitFor(
+                h,
+                `${ROW(TITLE)}?.parentElement?.querySelector('[data-jarvis-initiative-action="details"]') != null`,
+                WAIT_MS
+            );
+            await h.ev(`${ROW(TITLE)}.parentElement.querySelector('[data-jarvis-initiative-action="details"]').click()`);
+            const editing6 = await polishWaitFor(h, `${PARENT_FIELD} != null`, WAIT_MS);
+            const footerText = await h.ev(flat(DIALOG));
+            await h.ev(setInputExpr(PARENT_FIELD, PARENT_QUERY));
+            await polishWaitFor(h, `document.querySelector('[data-effort-parent-row]') != null`, WAIT_MS);
+            const offered = await h.ev(
+                `[...document.querySelectorAll('[data-effort-parent-row]')].map((r) => r.getAttribute('data-effort-parent-row'))`
+            );
+            await h.ev(`document.querySelector('[data-effort-parent-row="${ctx.parentoid}"]')?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }))`);
+            await polishWaitFor(h, `document.querySelector('[data-effort-parent-chosen]') != null`, WAIT_MS);
+            const chosen = await h.ev(`(() => {
+                const c = document.querySelector('[data-effort-parent-chosen]');
+                return { oid: c?.getAttribute('data-effort-parent-chosen') ?? null, text: ${flat("c")}, width: window.innerWidth };
+            })()`);
+            await h.shot("cdp-shots/jira-details-parent.png");
+            await h.ev(
+                `[...(${DIALOG}?.querySelectorAll("button") ?? [])].find((b) => (b.textContent || "").trim() === "Save changes")?.click()`
+            );
+            const saved = await polishWaitFor(h, `${PARENT_FIELD} == null && document.querySelector('[data-effort-parent-chosen]') == null`, WAIT_MS);
+            let parentoid = null;
+            for (let waited = 0; waited < WAIT_MS && parentoid !== ctx.parentoid; waited += 250) {
+                parentoid = (await h.rpc("effortget", { effortoid: ctx.effortoid }))?.effort?.parentoid ?? null;
+                if (parentoid !== ctx.parentoid) await polishNap(250);
+            }
+            rec(
+                "6. F11: Edit initiative has no 'changes apply immediately'; Parent lists another initiative by title, not the one edited, and saves its oid",
+                editing6 &&
+                    chosen.width === VIEWPORT_1600.width &&
+                    !footerText.includes("changes apply immediately") &&
+                    offered.includes(ctx.parentoid) &&
+                    !offered.includes(ctx.effortoid) &&
+                    chosen.oid === ctx.parentoid &&
+                    chosen.text === PARENT_TITLE &&
+                    saved &&
+                    parentoid === ctx.parentoid,
+                JSON.stringify({ editing6, footerText, offered, self: ctx.effortoid, parent: ctx.parentoid, chosen, saved, parentoid })
+            );
+        } finally {
+            await h.cdp("Emulation.clearDeviceMetricsOverride", {}).catch(() => {});
+        }
         return steps;
     },
     async teardown(h, ctx) {
+        await h.cdp("Emulation.clearDeviceMetricsOverride", {}).catch(() => {});
         await h.ev(`window.__jiraOpen?.()`).catch(() => {});
         await releaseRpc(h, "JiraShowCommand").catch(() => {});
         if (ctx.effortoid != null) {
             await h.rpc("effortdelete", { effortoid: ctx.effortoid }).catch(() => {});
+        }
+        if (ctx.parentoid != null) {
+            await h.rpc("effortdelete", { effortoid: ctx.parentoid }).catch(() => {});
         }
         // newest first, so the site, email and token end up as they were before the scenario
         for (const restore of [...(ctx.restores ?? [])].reverse()) {
