@@ -7,8 +7,8 @@
 // the surface where it could only be read by tracing early returns. Stated here as three questions
 // with answers, so it can be tested without mounting anything.
 
-import { normalizeRepoPath } from "@/util/paths";
-import type { DiffScope } from "./diffscope";
+import { normalizeRepoPath, repoBasename } from "@/util/paths";
+import { defaultRangeFor, type DiffOrigin, type DiffScope } from "./diffscope";
 
 // The picker's two kinds of source. A run is neither, which is why it is absent here.
 export type FilesSource = { kind: "agent"; id: string } | { kind: "project"; name: string };
@@ -54,6 +54,11 @@ export function focusFollowAgent(
     if (origin?.kind === "agent" && origin.id === focusId) {
         return null; // already showing it
     }
+    // an ended agent's scope stays until a source is picked: when it leaves, the Agent surface moves focus to
+    // the first agent, and following that would replace the ended state before anyone could read it
+    if (origin?.kind === "agent" && !agents.some((a) => a.id === origin.id)) {
+        return null;
+    }
     return agents.find((a) => a.id === focusId) ?? null;
 }
 
@@ -96,4 +101,50 @@ export function worktreeParent<P extends { name: string; path: string }>(project
         }
     }
     return best?.name ?? null;
+}
+
+// What the surface's body draws for its subject. `ended` is an agent scope whose agent has left the
+// roster: its folder is still worth reviewing, so it is told apart from having nothing to show.
+export type SubjectState = "empty" | "pick" | "ended" | "ready";
+
+export function subjectState(
+    scope: DiffScope | null,
+    agents: SourceAgent[],
+    projects: { name: string }[]
+): SubjectState {
+    if (scope == null) {
+        return agents.length > 0 || projects.length > 0 ? "pick" : "empty";
+    }
+    const origin = scope.repo.origin;
+    if (origin.kind === "agent" && !agents.some((a) => a.id === origin.id)) {
+        return "ended";
+    }
+    return "ready";
+}
+
+// Where an ended agent's changes can still be read: the registered project at its folder, else the
+// folder itself as an unregistered project. Built here rather than through agentdiffnav so this file
+// stays free of stores.
+export function endedAgentScope(cwd: string | undefined, projects: { name: string; path: string }[]): DiffScope | null {
+    if (!cwd) {
+        return null;
+    }
+    const own = normalizeRepoPath(cwd);
+    const registered = projects.find((p) => normalizeRepoPath(p.path) === own);
+    const name = registered?.name ?? repoBasename(cwd);
+    const origin: DiffOrigin = { kind: "project", name, path: registered?.path ?? cwd };
+    return { repo: { origin, label: name }, range: defaultRangeFor(origin) };
+}
+
+// The picker's rows in the order it draws them, which is the order the arrow keys walk.
+export function pickerRows(agents: { id: string }[], projects: { name: string }[]): FilesSource[] {
+    return [
+        ...agents.map((a): FilesSource => ({ kind: "agent", id: a.id })),
+        ...projects.map((p): FilesSource => ({ kind: "project", name: p.name })),
+    ];
+}
+
+// clamped, not wrapped: holding an arrow key stops at the end of the list
+export function moveHighlight(count: number, cur: number, dir: 1 | -1): number {
+    return Math.max(0, Math.min(count - 1, cur + dir));
 }

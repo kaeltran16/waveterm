@@ -14,10 +14,11 @@ import type { HistoryFilters } from "./historyquery";
 // A project's path comes from the config registry and a run's directory and base commit were captured
 // when the run started, so both answer synchronously. An agent's directory is read from its live
 // transcript and can fail, so an agent origin carries only its id and the loader resolves the rest.
+// A run's headCommit is its landed tip; absent, the run is live and reads up to HEAD.
 export type DiffOrigin =
     | { kind: "agent"; id: string }
     | { kind: "project"; name: string; path: string }
-    | { kind: "run"; runId: string; cwd: string; baseCommit: string };
+    | { kind: "run"; runId: string; cwd: string; baseCommit: string; headCommit?: string };
 
 export interface DiffRepo {
     origin: DiffOrigin;
@@ -27,7 +28,7 @@ export interface DiffRepo {
 export type DiffRange =
     | { kind: "working" }
     | { kind: "session"; agentId: string }
-    | { kind: "run"; runId: string; baseCommit: string }
+    | { kind: "run"; runId: string; baseCommit: string; headCommit?: string }
     // `from` is the range comparison interrupted. Escape restores it instead of guessing, which is
     // also what lets the old compareAnchorAtom and its invalidation effect go away. `form` is which
     // range form the aggregate uses: merge-base (what head introduced) or tip-to-tip (the full
@@ -51,11 +52,13 @@ export interface RangeOption {
 }
 
 // The history pane's divider label and the name of what its synthetic top row counts. Owned here
-// rather than in githistorystore because it is derived from the range and nothing else.
+// rather than in githistorystore because it is derived from the range and nothing else. `ref` is where
+// git log starts walking; absent walks every ref (--all).
 export interface LoadHistoryOpts {
     anchor?: string;
     anchorLabel?: string;
     rowLabel?: string;
+    ref?: string;
 }
 
 export function originKey(o: DiffOrigin): string {
@@ -76,7 +79,9 @@ export function rangeKey(r: DiffRange): string {
         case "session":
             return `session:${r.agentId}`;
         case "run":
-            return `run:${r.runId}:${r.baseCommit}`;
+            // the tip is appended only when bounded, so an unbounded run keeps the key its review
+            // marks were saved under
+            return r.headCommit ? `run:${r.runId}:${r.baseCommit}:${r.headCommit}` : `run:${r.runId}:${r.baseCommit}`;
         case "compare":
             return `compare:${r.base}..${r.head}:${r.form}`;
     }
@@ -88,11 +93,11 @@ export function scopeKey(scope: DiffScope): string {
     return `${originKey(scope.repo.origin)}|${rangeKey(scope.range)}`;
 }
 
-// Deliberately range-free. git's commit list depends on the directory and the filters; the range only
-// labels a divider and the synthetic top row, both of which are derived from an atom. Folding the
-// range in here would blank the list and scroll to the top on every range change.
-export function historyKey(cwd: string, f: HistoryFilters): string {
-    return `${cwd}|${f.author}|${f.path}|${f.text}`;
+// git's commit list depends on the directory, the filters and the ref it walks from, so those are the
+// key. The range's labels (divider, synthetic top row) are derived from an atom and stay out: folding
+// them in would blank the list and scroll to the top on a change git answers identically.
+export function historyKey(cwd: string, f: HistoryFilters, ref = ""): string {
+    return `${cwd}|${f.author}|${f.path}|${f.text}|${ref}`;
 }
 
 export function originCwd(o: DiffOrigin): string | null {
@@ -113,7 +118,9 @@ export function defaultRangeFor(o: DiffOrigin): DiffRange {
         case "project":
             return { kind: "working" };
         case "run":
-            return { kind: "run", runId: o.runId, baseCommit: o.baseCommit };
+            return o.headCommit
+                ? { kind: "run", runId: o.runId, baseCommit: o.baseCommit, headCommit: o.headCommit }
+                : { kind: "run", runId: o.runId, baseCommit: o.baseCommit };
     }
 }
 
@@ -122,34 +129,42 @@ export interface RangeCtx {
     sessionStartTs: number | null;
     // the commit the backend resolved for the active session range; "" when that range is not active
     sessionRef: string;
+    // false outside a git repository, where there is nothing to compare; omitted = a repository
+    isRepo?: boolean;
 }
 
 export function availableRanges(scope: DiffScope, ctx: RangeCtx): RangeOption[] {
     const out: RangeOption[] = [{ range: { kind: "working" }, label: "Working tree", detail: "", available: true }];
     const origin = scope.repo.origin;
     if (origin.kind === "agent") {
+        // Active without a start, the range measures from HEAD and says so, so the chip stays enabled:
+        // the start usually resolves once the first prompt writes a transcript.
+        const active = scope.range.kind === "session";
+        const started = ctx.sessionStartTs != null;
         out.push({
             range: { kind: "session", agentId: origin.id },
             label: "Since session start",
-            detail: scope.range.kind === "session" ? shortSha(ctx.sessionRef) : "",
-            available: ctx.sessionStartTs != null,
-            reason: ctx.sessionStartTs == null ? "no session-start commit recorded yet" : undefined,
+            detail: !active ? "" : started ? shortSha(ctx.sessionRef) : "not yet",
+            available: started || active,
+            reason: started ? undefined : "no session-start commit recorded yet",
         });
     }
     if (origin.kind === "run") {
         out.push({
-            range: { kind: "run", runId: origin.runId, baseCommit: origin.baseCommit },
+            range: defaultRangeFor(origin),
             label: "This run",
             detail: shortSha(origin.baseCommit),
             available: true,
         });
     }
-    out.push({
-        range: currentCompareRange(scope.range),
-        label: "Compare",
-        detail: "",
-        available: true,
-    });
+    if (ctx.isRepo !== false) {
+        out.push({
+            range: currentCompareRange(scope.range),
+            label: "Compare",
+            detail: "",
+            available: true,
+        });
+    }
     return out;
 }
 
@@ -162,16 +177,20 @@ function currentCompareRange(active: DiffRange): DiffRange {
     return { kind: "compare", base: "", head: "", form: "mergebase", from: active };
 }
 
+// Session and run walk from their own head, so "above the divider" means "in this session/run":
+// --all would list other branches' and worktrees' commits above the anchor.
 export function historyOptsFor(range: DiffRange, resolvedRef: string): LoadHistoryOpts {
     switch (range.kind) {
         case "session":
             return resolvedRef
-                ? { anchor: resolvedRef, anchorLabel: "session start", rowLabel: "Since session start" }
-                : {};
-        case "run":
+                ? { anchor: resolvedRef, anchorLabel: "session start", rowLabel: "Since session start", ref: "HEAD" }
+                : { ref: "HEAD" };
+        case "run": {
+            const ref = range.headCommit || "HEAD";
             return range.baseCommit
-                ? { anchor: range.baseCommit, anchorLabel: "run base", rowLabel: "Run changes" }
-                : {};
+                ? { anchor: range.baseCommit, anchorLabel: "run base", rowLabel: "Run changes", ref }
+                : { ref };
+        }
         case "working":
         case "compare":
             return {};
@@ -209,9 +228,11 @@ export function summaryLine(i: SummaryInput): string {
                 ? `${i.range.head} since ${shortSha(i.mergeBase)} · ${counts}`
                 : `${i.range.base} … ${i.range.head} · ${counts}`;
         case "run":
-            return `${shortSha(i.range.baseCommit)} … HEAD · ${counts}`;
+            return `${shortSha(i.range.baseCommit)} … ${shortSha(i.range.headCommit ?? "") || "HEAD"} · ${counts}`;
         case "session":
-            return `worktree against ${shortSha(i.ref)} · ${counts}`;
+            return i.ref
+                ? `worktree against ${shortSha(i.ref)} · ${counts}`
+                : `${files} against HEAD (no session start yet) · ${delta}`;
         case "working": {
             // measured against HEAD, whatever branch that is — never "against main"
             const where = i.branch && i.branch !== "HEAD" ? `on ${i.branch}` : "against HEAD";

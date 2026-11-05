@@ -1987,3 +1987,173 @@ func TestCompareChangesTipsIncludesBaseSideChanges(t *testing.T) {
 // cap exists for. Built once for the whole run rather than per test; three of the four tests below
 // write it.
 var hugeBody = strings.Repeat(strings.Repeat("x", 45)+"\n", 60000)
+
+func TestFileInWorktree(t *testing.T) {
+	ctx := context.Background()
+	dir := repoWithChange(t) // a.txt is edited on disk, never committed
+	t.Run("text", func(t *testing.T) {
+		got, err := FileInWorktree(ctx, dir, "a.txt", 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !got.IsRepo || got.Content != "one\ntwo\nthree\n" || got.Size != 14 {
+			t.Errorf("got %+v, want the on-disk text", got)
+		}
+		if got.Root == "" {
+			t.Error("Root is empty, want it set in a repo")
+		}
+	})
+	t.Run("absent", func(t *testing.T) {
+		got, err := FileInWorktree(ctx, dir, "nope.txt", 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !got.IsRepo || !got.Missing || got.Content != "" {
+			t.Errorf("got %+v, want Missing", got)
+		}
+	})
+	t.Run("too large", func(t *testing.T) {
+		got, err := FileInWorktree(ctx, dir, "a.txt", 4)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !got.TooLarge || got.Content != "" || got.Size != 14 {
+			t.Errorf("got %+v, want TooLarge with Size 14 and no content", got)
+		}
+	})
+	t.Run("nul byte", func(t *testing.T) {
+		writeFile(t, dir, "nul.dat", "ab\x00cd")
+		got, err := FileInWorktree(ctx, dir, "nul.dat", 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !got.Binary || got.Content != "" {
+			t.Errorf("got %+v, want Binary", got)
+		}
+	})
+	t.Run("invalid utf8", func(t *testing.T) {
+		writeFile(t, dir, "bad.dat", "\xff\xfe")
+		got, err := FileInWorktree(ctx, dir, "bad.dat", 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !got.Binary || got.Content != "" {
+			t.Errorf("got %+v, want Binary", got)
+		}
+	})
+	t.Run("subdirectory", func(t *testing.T) {
+		writeAt(t, dir, "sub/c.txt", "deep\n")
+		got, err := FileInWorktree(ctx, filepath.Join(dir, "sub"), "c.txt", 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Content != "deep\n" || got.Prefix != "sub/" {
+			t.Errorf("got %+v, want deep content and Prefix sub/", got)
+		}
+	})
+	t.Run("no commits", func(t *testing.T) {
+		unborn := initRepo(t)
+		writeFile(t, unborn, "x.txt", "fresh\n")
+		got, err := FileInWorktree(ctx, unborn, "x.txt", 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !got.IsRepo || got.Content != "fresh\n" {
+			t.Errorf("got %+v, want the file read in a repo with no commits", got)
+		}
+	})
+	t.Run("not a repo", func(t *testing.T) {
+		got, err := FileInWorktree(ctx, t.TempDir(), "a.txt", 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.IsRepo {
+			t.Error("IsRepo = true, want false")
+		}
+	})
+}
+
+func TestGetChangesTo(t *testing.T) {
+	dir := t.TempDir()
+	gitRun(t, dir, "init", "-q", "-b", "main")
+	writeFile(t, dir, "a.txt", "one\n")
+	gitRun(t, dir, "add", ".")
+	gitRun(t, dir, "commit", "-q", "-m", "base")
+	base := gitRun(t, dir, "rev-parse", "HEAD")
+	writeFile(t, dir, "b.txt", "two\n")
+	gitRun(t, dir, "add", ".")
+	gitRun(t, dir, "commit", "-q", "-m", "end")
+	end := gitRun(t, dir, "rev-parse", "HEAD")
+	// the checkout moves on after end: neither this commit, an uncommitted edit nor an untracked file belongs to base..end
+	writeFile(t, dir, "c.txt", "three\n")
+	gitRun(t, dir, "add", ".")
+	gitRun(t, dir, "commit", "-q", "-m", "later")
+	head := gitRun(t, dir, "rev-parse", "HEAD")
+	writeFile(t, dir, "a.txt", "edited\n")
+	writeFile(t, dir, "untracked.txt", "u\n")
+
+	ch, err := GetChangesTo(context.Background(), dir, base, end)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ch.IsRepo || !strings.Contains(ch.StatusZ, "b.txt") {
+		t.Fatalf("StatusZ = %q, want only b.txt", ch.StatusZ)
+	}
+	for _, leak := range []string{"a.txt", "c.txt", "untracked.txt"} {
+		if strings.Contains(ch.StatusZ, leak) || strings.Contains(ch.Numstat, leak) {
+			t.Errorf("%s leaked into base..end: %q / %q", leak, ch.StatusZ, ch.Numstat)
+		}
+	}
+	if ch.Branch != "main" || ch.Head != head {
+		t.Errorf("Branch/Head = %q/%q, want main/%s", ch.Branch, ch.Head, head)
+	}
+}
+
+func TestHasRemote(t *testing.T) {
+	ctx := context.Background()
+	dir := repoWithChange(t)
+	if got, err := HasRemote(ctx, dir); err != nil || got {
+		t.Fatalf("HasRemote with no remote = %v, %v; want false, nil", got, err)
+	}
+	bare := t.TempDir()
+	gitRun(t, bare, "init", "-q", "--bare")
+	gitRun(t, dir, "remote", "add", "origin", bare)
+	if got, err := HasRemote(ctx, dir); err != nil || !got {
+		t.Fatalf("HasRemote with origin = %v, %v; want true, nil", got, err)
+	}
+}
+
+func TestHistoryLogExcludesStash(t *testing.T) {
+	dir := repoWithChange(t) // a.txt is dirty
+	gitRun(t, dir, "stash", "push", "-m", "wip")
+	stash := gitRun(t, dir, "rev-parse", "refs/stash")
+	h, err := HistoryLog(context.Background(), dir, HistoryOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(h.Commits) != 1 {
+		t.Fatalf("got %d commits, want only the init commit", len(h.Commits))
+	}
+	for _, c := range h.Commits {
+		if c.Hash == stash {
+			t.Error("the stash's WIP commit is in the history")
+		}
+		for _, r := range c.Refs {
+			if strings.Contains(r, "refs/stash") {
+				t.Errorf("commit %s carries %q", c.Hash, r)
+			}
+		}
+	}
+}
+
+func TestHistoryLogUnbornHead(t *testing.T) {
+	dir := t.TempDir()
+	gitAuthored(t, dir, "init", "--initial-branch=main")
+	h, err := HistoryLog(context.Background(), dir, HistoryOpts{Ref: "HEAD"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (&History{IsRepo: true}); !reflect.DeepEqual(h, want) {
+		t.Errorf("HistoryLog = %+v, want %+v", h, want)
+	}
+}

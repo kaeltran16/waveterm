@@ -67,6 +67,15 @@ describe("resolveRecipient: agent source", () => {
         expect(r).toMatchObject({ kind: "live", working: true });
     });
 
+    it("waits for an agent that is asking a question, whose prompt would answer it", () => {
+        const r = resolveRecipient(batchOf(), facts({ agent: { ...LIVE_AGENT, state: "asking" } }));
+        expect(r).toMatchObject({ kind: "wait", reason: "loom is asking a question — answer it first" });
+    });
+
+    it("keeps an idle agent live", () => {
+        expect(resolveRecipient(batchOf(), facts({ agent: LIVE_AGENT }))).toMatchObject({ kind: "live" });
+    });
+
     it("does not treat a plain terminal as live", () => {
         const r = resolveRecipient(batchOf(), facts({ agent: { ...LIVE_AGENT, kind: "terminal" } }));
         expect(r.kind).toBe("new");
@@ -249,6 +258,14 @@ describe("sendBarText", () => {
             detail: "in waveterm",
             action: "Start agent with 2 comments",
         });
+    });
+
+    it("does not offer to start an agent while the live one is asking", () => {
+        const r = resolveRecipient(batchOf(), facts({ agent: { ...LIVE_AGENT, state: "asking" } }));
+        const t = sendBarText({ comments: 2, files: 1 }, r);
+        expect(t.detail).toBe("loom is asking a question — answer it first");
+        expect(t.action).toBe("Send 2 comments");
+        expect(t.action).not.toContain("Start agent");
     });
 
     it("keeps the Start label on a wait and shows its reason", () => {

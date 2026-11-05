@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 import {
     HISTORY_PAGE_SIZE,
+    HISTORY_RPC_TIMEOUT_MS,
     NO_FILTERS,
     RESTORE_THRESHOLD_MS,
     SLOW_HISTORY_MS,
@@ -133,8 +134,17 @@ describe("noMatchSentence", () => {
     });
 });
 
+describe("history read budgets", () => {
+    // gitinfo's own git timeout is 10 s: the RPC must outlast it so git's error, which names the
+    // command, ends a hung read, and the notice must show well inside that budget
+    it("outlasts git's timeout and warns inside it", () => {
+        expect(HISTORY_RPC_TIMEOUT_MS).toBe(15_000);
+        expect(SLOW_HISTORY_MS).toBe(4_000);
+    });
+});
+
 describe("slowSeconds", () => {
-    it("is silent for the first ten seconds", () => {
+    it("is silent until the read is slow", () => {
         expect(slowSeconds(1_000, 1_000 + SLOW_HISTORY_MS - 1)).toBeNull();
     });
     it("counts whole seconds once the read is slow", () => {

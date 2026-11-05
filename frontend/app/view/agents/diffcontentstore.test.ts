@@ -5,23 +5,28 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const fileAtRef = vi.fn();
-const fileRead = vi.fn();
 vi.mock("@/app/store/wshclientapi", () => ({
     RpcApi: {
         GitFileAtRefCommand: (...a: any[]) => fileAtRef(...a),
-        FileReadCommand: (...a: any[]) => fileRead(...a),
     },
 }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 
 import { pairRefsFor } from "./diffcontent";
-import { clearDiffPair, diffPairAtom, loadDiffPair, MAX_DIFF_BYTES } from "./diffcontentstore";
+import {
+    clearDiffPair,
+    diffPairAtom,
+    diffPairFailureAtom,
+    loadDiffPair,
+    MAX_DIFF_BYTES,
+    retryDiffPair,
+} from "./diffcontentstore";
 
-const b64 = (s: string) => Buffer.from(s, "utf-8").toString("base64");
+// a ref read answers `committed`, the working-tree read answers `disk`
+const byMode = (committed: any, disk: any) => (_c: any, d: any) => Promise.resolve(d.worktree ? disk : committed);
 
 afterEach(() => {
     fileAtRef.mockReset();
-    fileRead.mockReset();
     clearDiffPair();
 });
 
@@ -50,18 +55,40 @@ describe("loading both sides of a diff", () => {
     // The working-tree side is the file on disk, not a ref — a git read of it would show the last
     // committed content and silently hide every uncommitted edit, which is the whole point of the row.
     it("reads the working-tree side from disk, not from git", async () => {
-        fileAtRef.mockResolvedValue({ content: "committed\n" });
-        fileRead.mockResolvedValue({ data64: b64("edited\n") });
+        fileAtRef.mockImplementation(byMode({ content: "committed\n" }, { content: "edited\n" }));
         await loadDiffPair("/repo", "src/x.ts", { kind: "worktree", anchorRef: "HEAD" });
         expect(globalStore.get(diffPairAtom)).toMatchObject({ original: "committed\n", modified: "edited\n" });
-        expect(fileRead).toHaveBeenCalledTimes(1);
+        expect(fileAtRef).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ worktree: true }));
     });
 
-    it("reads a deleted working-tree file as an empty right side rather than failing", async () => {
-        fileAtRef.mockResolvedValue({ content: "was here\n" });
-        fileRead.mockRejectedValue(new Error("ENOENT"));
+    it("reads a deleted working-tree file as an empty, missing right side rather than failing", async () => {
+        fileAtRef.mockImplementation(byMode({ content: "was here\n" }, { content: "", missing: true }));
         await loadDiffPair("/repo", "gone.ts", { kind: "worktree", anchorRef: "HEAD" });
-        expect(globalStore.get(diffPairAtom)).toMatchObject({ original: "was here\n", modified: "" });
+        expect(globalStore.get(diffPairAtom)).toMatchObject({
+            original: "was here\n",
+            modified: "",
+            originalMissing: false,
+            modifiedMissing: true,
+        });
+    });
+
+    it("records the side a new file is missing from", async () => {
+        fileAtRef.mockImplementation(byMode({ content: "", missing: true }, { content: "" }));
+        await loadDiffPair("/repo", "empty.txt", { kind: "worktree", anchorRef: "HEAD" });
+        expect(globalStore.get(diffPairAtom)).toMatchObject({ originalMissing: true, modifiedMissing: false });
+    });
+
+    // the disk read gets the same caps as a ref read, so an untracked lockfile or binary cannot freeze the pane
+    it("reports an untracked binary or oversized file from the working-tree side", async () => {
+        fileAtRef.mockImplementation(byMode({ content: "", missing: true }, { content: "", binary: true, size: 1024 }));
+        await loadDiffPair("/repo", "blob.bin", { kind: "worktree", anchorRef: "HEAD" });
+        expect(globalStore.get(diffPairAtom)).toMatchObject({ binary: true, tooLarge: false });
+
+        fileAtRef.mockImplementation(
+            byMode({ content: "", missing: true }, { content: "", toolarge: true, size: 3_000_000 })
+        );
+        await loadDiffPair("/repo", "big.log", { kind: "worktree", anchorRef: "HEAD" });
+        expect(globalStore.get(diffPairAtom)).toMatchObject({ binary: false, tooLarge: true, size: 3_000_000 });
     });
 
     it("caps both sides and reports the larger one", async () => {
@@ -108,11 +135,16 @@ describe("loading both sides of a diff", () => {
 });
 
 describe("what each side reports about itself", () => {
-    it("reads the working-tree side by its path in the repository", async () => {
-        fileAtRef.mockResolvedValue({ content: "committed\n" });
-        fileRead.mockResolvedValue({ data64: b64("edited\n") });
+    it("reads the working-tree side by its path in the repository, capped like a ref read", async () => {
+        fileAtRef.mockImplementation(byMode({ content: "committed\n" }, { content: "edited\n" }));
         await loadDiffPair("/repo", "src/x.ts", { kind: "worktree", anchorRef: "HEAD" });
-        expect(fileRead).toHaveBeenCalledWith(expect.anything(), { info: { path: "\\repo\\src\\x.ts" } });
+        expect(fileAtRef).toHaveBeenCalledWith(expect.anything(), {
+            cwd: "/repo",
+            path: "src/x.ts",
+            ref: "",
+            worktree: true,
+            maxbytes: MAX_DIFF_BYTES,
+        });
     });
 
     it("is neither binary nor too large when neither side says so", async () => {
@@ -125,13 +157,14 @@ describe("what each side reports about itself", () => {
             binary: false,
             tooLarge: false,
             size: 0,
+            originalMissing: false,
+            modifiedMissing: false,
             refs: pairRefsFor({ kind: "commit", hash: "aaa" }),
         });
     });
 
     it("carries the refs it was read from", async () => {
-        fileAtRef.mockResolvedValue({ content: "x\n" });
-        fileRead.mockResolvedValue({ data64: b64("y\n") });
+        fileAtRef.mockImplementation(byMode({ content: "x\n" }, { content: "y\n" }));
         const worktree = { kind: "worktree", anchorRef: "main" } as const;
         await loadDiffPair("/repo", "a.ts", worktree);
         expect(globalStore.get(diffPairAtom)?.refs).toEqual(pairRefsFor(worktree));
@@ -157,14 +190,62 @@ describe("refreshing the pair already on screen", () => {
     // The change poll replaces the working-tree state every few seconds, and the surface re-reads the
     // open file with it. Blanking the atom first would flash the skeleton on every tick.
     it("keeps the current content on screen while re-reading the same file", async () => {
-        fileAtRef.mockResolvedValue({ content: "v1\n" });
-        fileRead.mockResolvedValue({ data64: b64("v1 edited\n") });
+        fileAtRef.mockImplementation(byMode({ content: "v1\n" }, { content: "v1 edited\n" }));
         await loadDiffPair("/repo", "a.ts", { kind: "worktree", anchorRef: "HEAD" });
 
-        fileRead.mockResolvedValue({ data64: b64("v2 edited\n") });
+        fileAtRef.mockImplementation(byMode({ content: "v1\n" }, { content: "v2 edited\n" }));
         const pending = loadDiffPair("/repo", "a.ts", { kind: "worktree", anchorRef: "HEAD" });
         expect(globalStore.get(diffPairAtom)?.modified).toBe("v1 edited\n");
         await pending;
         expect(globalStore.get(diffPairAtom)?.modified).toBe("v2 edited\n");
+    });
+});
+
+describe("a read that fails", () => {
+    it("says why instead of leaving the skeleton up, and keeps the pair empty", async () => {
+        fileAtRef.mockRejectedValue(new Error("read src/x.ts: is a directory"));
+        await loadDiffPair("/repo", "src/x.ts", { kind: "worktree", anchorRef: "HEAD" });
+        expect(globalStore.get(diffPairAtom)).toBeNull();
+        expect(globalStore.get(diffPairFailureAtom)).toBe("read src/x.ts: is a directory");
+    });
+
+    it("re-reads the same file on retry and clears the failure once it reads", async () => {
+        fileAtRef.mockRejectedValue(new Error("boom"));
+        await loadDiffPair("/repo", "src/x.ts", { kind: "worktree", anchorRef: "HEAD" });
+        expect(globalStore.get(diffPairFailureAtom)).toBe("boom");
+
+        fileAtRef.mockReset();
+        fileAtRef.mockImplementation(byMode({ content: "a\n" }, { content: "b\n" }));
+        await retryDiffPair();
+        expect(globalStore.get(diffPairFailureAtom)).toBeNull();
+        expect(globalStore.get(diffPairAtom)).toMatchObject({ path: "src/x.ts", original: "a\n", modified: "b\n" });
+        expect(fileAtRef).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({ path: "src/x.ts", worktree: true })
+        );
+    });
+
+    it("forgets the failure when the selection moves to another file", async () => {
+        fileAtRef.mockRejectedValue(new Error("boom"));
+        await loadDiffPair("/repo", "a.ts", { kind: "commit", hash: "aaa" });
+        fileAtRef.mockReset();
+        const releases: ((v: any) => void)[] = [];
+        fileAtRef.mockImplementation(() => new Promise((res) => releases.push(res)));
+        const pending = loadDiffPair("/repo", "b.ts", { kind: "commit", hash: "aaa" });
+        expect(globalStore.get(diffPairFailureAtom)).toBeNull();
+        releases.forEach((r) => r({ content: "x\n" }));
+        await pending;
+    });
+
+    it("is cleared with the pair", async () => {
+        fileAtRef.mockRejectedValue(new Error("boom"));
+        await loadDiffPair("/repo", "a.ts", { kind: "commit", hash: "aaa" });
+        clearDiffPair();
+        expect(globalStore.get(diffPairFailureAtom)).toBeNull();
+    });
+
+    it("does nothing on retry when nothing was loaded", async () => {
+        await retryDiffPair();
+        expect(fileAtRef).not.toHaveBeenCalled();
     });
 });

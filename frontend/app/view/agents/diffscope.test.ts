@@ -55,10 +55,47 @@ describe("availableRanges", () => {
     // Temporary unavailability is drawn, not hidden: the chip becomes live on its own once the
     // transcript lands, and hiding it would report a passing state as an impossible one.
     it("keeps the session chip but disables it with a reason when no session start has resolved", () => {
-        const opts = availableRanges(agentScope, { sessionStartTs: null, sessionRef: "" });
+        const opts = availableRanges(
+            { ...agentScope, range: { kind: "working" } },
+            { sessionStartTs: null, sessionRef: "" }
+        );
         const session = opts.find((o) => o.range.kind === "session");
         expect(session?.available).toBe(false);
         expect(session?.reason).toBe("no session-start commit recorded yet");
+    });
+
+    // the active range measures from HEAD until the start resolves; a disabled active chip would
+    // claim the panes show nothing
+    it("draws the active session chip enabled with 'not yet' when no start has resolved", () => {
+        const session = availableRanges(agentScope, { sessionStartTs: null, sessionRef: "" }).find(
+            (o) => o.range.kind === "session"
+        );
+        expect(session?.available).toBe(true);
+        expect(session?.detail).toBe("not yet");
+        expect(session?.reason).toBe("no session-start commit recorded yet");
+    });
+
+    it("omits Compare outside a git repository", () => {
+        const ctx = { sessionStartTs: 1719000000, sessionRef: "a3f9c21" };
+        expect(availableRanges(projectScope, { ...ctx, isRepo: false }).map((o) => o.range.kind)).toEqual(["working"]);
+        expect(availableRanges(projectScope, { ...ctx, isRepo: true }).map((o) => o.range.kind)).toEqual([
+            "working",
+            "compare",
+        ]);
+    });
+
+    it("offers a landed run's range bounded at its tip", () => {
+        const landed: DiffScope = {
+            repo: {
+                origin: { kind: "run", runId: "r1", cwd: "/repo", baseCommit: "9f2c1de", headCommit: "c0ffee1" },
+                label: "run",
+            },
+            range: { kind: "working" },
+        };
+        const run = availableRanges(landed, { sessionStartTs: null, sessionRef: "" }).find(
+            (o) => o.range.kind === "run"
+        );
+        expect(run?.range).toEqual({ kind: "run", runId: "r1", baseCommit: "9f2c1de", headCommit: "c0ffee1" });
     });
 
     it("shows the resolved commit beside the session chip only once it is the active range", () => {
@@ -99,6 +136,19 @@ describe("scopeKey", () => {
     });
 });
 
+describe("rangeKey of a run", () => {
+    // review marks persist by this key, so an unbounded run must keep the key it always had
+    it("keeps today's key for an unbounded run", () => {
+        expect(rangeKey({ kind: "run", runId: "r1", baseCommit: "9f2c1de" })).toBe("run:r1:9f2c1de");
+    });
+
+    it("appends the tip for a landed run", () => {
+        expect(rangeKey({ kind: "run", runId: "r1", baseCommit: "9f2c1de", headCommit: "c0ffee1" })).toBe(
+            "run:r1:9f2c1de:c0ffee1"
+        );
+    });
+});
+
 describe("historyKey", () => {
     // Decision 5 of the design: the commit list depends on directory and filters only. The anchor
     // never reaches git — it only labels a divider — so it must not sit in the identity that decides
@@ -114,6 +164,13 @@ describe("historyKey", () => {
     it("changes when the directory changes", () => {
         expect(historyKey("/repo", NO_FILTERS)).not.toBe(historyKey("/other", NO_FILTERS));
     });
+
+    // walking every ref and walking from HEAD are different answers from git
+    it("changes when the walked ref changes", () => {
+        expect(historyKey("/repo", NO_FILTERS)).not.toBe(historyKey("/repo", NO_FILTERS, "HEAD"));
+        expect(historyKey("/repo", NO_FILTERS, "HEAD")).not.toBe(historyKey("/repo", NO_FILTERS, "c0ffee1"));
+        expect(historyKey("/repo", NO_FILTERS)).toBe(historyKey("/repo", NO_FILTERS, ""));
+    });
 });
 
 describe("historyOptsFor", () => {
@@ -122,7 +179,33 @@ describe("historyOptsFor", () => {
             anchor: "base9",
             anchorLabel: "session start",
             rowLabel: "Since session start",
+            ref: "HEAD",
         });
+    });
+
+    // --all would list other branches' commits above the anchor; the scope's own head does not
+    it("walks a session from HEAD even before its start resolves", () => {
+        expect(historyOptsFor({ kind: "session", agentId: "a1" }, "")).toEqual({ ref: "HEAD" });
+    });
+
+    it("walks a landed run from its tip", () => {
+        expect(historyOptsFor({ kind: "run", runId: "r1", baseCommit: "9f2c1de", headCommit: "c0ffee1" }, "")).toEqual({
+            anchor: "9f2c1de",
+            anchorLabel: "run base",
+            rowLabel: "Run changes",
+            ref: "c0ffee1",
+        });
+    });
+
+    it("walks every ref in compare", () => {
+        const compare = {
+            kind: "compare",
+            base: "a",
+            head: "b",
+            form: "mergebase",
+            from: { kind: "working" },
+        } as const;
+        expect(historyOptsFor(compare, "")).toStrictEqual({});
     });
 
     it("labels the run's base commit", () => {
@@ -130,13 +213,14 @@ describe("historyOptsFor", () => {
             anchor: "9f2c1de",
             anchorLabel: "run base",
             rowLabel: "Run changes",
+            ref: "HEAD",
         });
     });
 
     // No label on purpose: in the working-tree range the top row's count really is uncommitted work
     // against HEAD, so naming it would be noise.
     it("gives the working-tree range no anchor and no label", () => {
-        expect(historyOptsFor({ kind: "working" }, "")).toEqual({});
+        expect(historyOptsFor({ kind: "working" }, "")).toStrictEqual({});
     });
 });
 
@@ -179,6 +263,12 @@ describe("defaultRangeFor", () => {
             runId: "r1",
             baseCommit: "9f2c1de",
         });
+    });
+
+    it("carries a landed run's tip into its range", () => {
+        expect(
+            defaultRangeFor({ kind: "run", runId: "r1", cwd: "/r", baseCommit: "9f2c1de", headCommit: "c0ffee1" })
+        ).toEqual({ kind: "run", runId: "r1", baseCommit: "9f2c1de", headCommit: "c0ffee1" });
     });
 });
 
@@ -232,6 +322,23 @@ describe("summaryLine follows what the panes show", () => {
         expect(
             summaryLine({ ...base, ref: "9f2c1de00", range: { kind: "session", agentId: "a" }, changes: ch(3) })
         ).toBe("worktree against 9f2c1de · 3 files · +10 −2");
+    });
+    it("bounds a landed run's summary at its tip", () => {
+        expect(
+            summaryLine({
+                ...base,
+                range: { kind: "run", runId: "r", baseCommit: "b41d000aa", headCommit: "c0ffee123" },
+                changes: ch(3),
+            })
+        ).toBe("b41d000 … c0ffee1 · 3 files · +10 −2");
+    });
+    it("says a session with no start yet is measured against HEAD", () => {
+        expect(summaryLine({ ...base, range: { kind: "session", agentId: "a" }, changes: ch(3) })).toBe(
+            "3 files against HEAD (no session start yet) · +10 −2"
+        );
+        expect(summaryLine({ ...base, range: { kind: "session", agentId: "a" }, changes: ch(1) })).toBe(
+            "1 file against HEAD (no session start yet) · +10 −2"
+        );
     });
 });
 

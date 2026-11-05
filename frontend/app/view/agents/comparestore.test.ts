@@ -8,35 +8,45 @@ const divergence = vi.fn();
 const compareChanges = vi.fn();
 const listBranches = vi.fn();
 const gitFetch = vi.fn();
+const commitChanges = vi.fn();
 vi.mock("@/app/store/wshclientapi", () => ({
     RpcApi: {
         GitDivergenceCommand: (...a: any[]) => divergence(...a),
         GitCompareChangesCommand: (...a: any[]) => compareChanges(...a),
         ListBranchesCommand: (...a: any[]) => listBranches(...a),
         GitFetchCommand: (...a: any[]) => gitFetch(...a),
-        GitCommitChangesCommand: vi.fn(),
+        GitCommitChangesCommand: (...a: any[]) => commitChanges(...a),
     },
 }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 
+import { AGGREGATE } from "./comparerows";
 import {
     compareAggregateAtom,
+    compareCommitFailureAtom,
     compareErrorAtom,
+    compareHasRemoteAtom,
     compareOnAtom,
     compareRefsAtom,
     compareSelectedFileAtom,
+    compareSelectionAtom,
     compareSidesAtom,
+    defaultComparePair,
     enterCompare,
     fetchStateOf,
     fetchStatesAtom,
     leaveCompare,
+    refreshCompare,
+    retryCompareRow,
     runFetch,
+    selectCompareRow,
     setCompareForm,
     setCompareRefs,
     swapCompareRefs,
 } from "./comparestore";
 import type { DiffScope } from "./diffscope";
 import { diffScopeAtom } from "./diffscopeatom";
+import { treeModeAtom } from "./filetree";
 
 const base: DiffScope = {
     repo: { origin: { kind: "agent", id: "a1" }, label: "jarvis-recall" },
@@ -48,6 +58,9 @@ afterEach(() => {
     compareChanges.mockReset();
     listBranches.mockReset();
     gitFetch.mockReset();
+    commitChanges.mockReset();
+    globalStore.set(treeModeAtom, true);
+    globalStore.set(compareSelectionAtom, AGGREGATE);
     globalStore.set(fetchStatesAtom, {});
     globalStore.set(diffScopeAtom, null);
 });
@@ -436,5 +449,146 @@ describe("runFetch while and after it runs", () => {
             failure: null,
         });
         expect(divergence).not.toHaveBeenCalled();
+    });
+});
+
+describe("defaultComparePair", () => {
+    const br = (name: string, remote = false) => ({ name, age: "1h", remote }) as BranchInfo;
+
+    it("takes the default branch against the current one", () => {
+        expect(
+            defaultComparePair({ def: "main", current: "feat", prev: null, branches: [br("main"), br("feat")] })
+        ).toEqual({ base: "main", head: "feat" });
+    });
+
+    it("lets a remembered pair win, even over a head equal to base", () => {
+        expect(
+            defaultComparePair({ def: "main", current: "feat", prev: { base: "x", head: "y" }, branches: [br("z")] })
+        ).toEqual({ base: "x", head: "y" });
+        expect(
+            defaultComparePair({ def: "main", current: "feat", prev: { base: "m", head: "m" }, branches: [br("z")] })
+        ).toEqual({ base: "m", head: "m" });
+    });
+
+    it("moves head to the most recent local branch other than base when both are the same", () => {
+        expect(
+            defaultComparePair({
+                def: "main",
+                current: "main",
+                prev: null,
+                branches: [br("main"), br("origin/side", true), br("side"), br("older")],
+            })
+        ).toEqual({ base: "main", head: "side" });
+    });
+
+    it("skips remote branches, and stays put with no other local branch", () => {
+        expect(
+            defaultComparePair({
+                def: "main",
+                current: "main",
+                prev: null,
+                branches: [br("main"), br("origin/main", true), br("origin/side", true)],
+            })
+        ).toEqual({ base: "main", head: "main" });
+    });
+});
+
+describe("refreshCompare", () => {
+    const split = { isrepo: true, ahead: [], behind: [], mergebase: "m1" };
+    const agg = { isrepo: true, statusz: "", numstat: "" };
+
+    it("re-reads divergence and aggregate for the same pair", async () => {
+        divergence.mockResolvedValue(split);
+        compareChanges.mockResolvedValue(agg);
+        await setCompareRefs("/repo", "main", "feat");
+        divergence.mockClear();
+        compareChanges.mockClear();
+
+        await refreshCompare("/repo");
+
+        expect(divergence).toHaveBeenCalledWith(expect.anything(), { cwd: "/repo", base: "main", head: "feat" });
+        expect(compareChanges).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({ cwd: "/repo", base: "main", head: "feat" })
+        );
+    });
+
+    it("does nothing without a pair", async () => {
+        globalStore.set(compareRefsAtom, null);
+        await refreshCompare("/repo");
+        expect(divergence).not.toHaveBeenCalled();
+    });
+});
+
+describe("remote presence", () => {
+    async function enter(rtn: object) {
+        globalStore.set(diffScopeAtom, base);
+        listBranches.mockResolvedValue({ branches: [], default: "main", ...rtn });
+        divergence.mockResolvedValue({ isrepo: true, ahead: [], behind: [], mergebase: "m1" });
+        compareChanges.mockResolvedValue({ isrepo: true, statusz: "", numstat: "" });
+        await enterCompare("/repo", "feat");
+    }
+
+    it("reaches the atom from the branch listing", async () => {
+        await enter({ hasremote: true });
+        expect(globalStore.get(compareHasRemoteAtom)).toBe(true);
+        await enter({ hasremote: false });
+        expect(globalStore.get(compareHasRemoteAtom)).toBe(false);
+        await enter({ hasremote: true });
+        await enter({});
+        expect(globalStore.get(compareHasRemoteAtom)).toBe(false);
+    });
+});
+
+const changedFiles = (...paths: string[]) => ({
+    isrepo: true,
+    statusz: paths.map((p) => `M  ${p}\0`).join(""),
+    numstat: paths.map((p) => `1\t0\t${p}\n`).join(""),
+});
+
+describe("a commit row's file list", () => {
+    it("records a failed read, and a retry that succeeds clears it", async () => {
+        commitChanges.mockRejectedValueOnce(new Error("boom"));
+        await selectCompareRow("/repo", "abc1234def");
+        expect(globalStore.get(compareCommitFailureAtom)).toContain("abc1234");
+
+        commitChanges.mockResolvedValue(changedFiles("a.ts"));
+        retryCompareRow("/repo");
+        await vi.waitFor(() => expect(globalStore.get(compareCommitFailureAtom)).toBeNull());
+        expect(globalStore.get(compareSelectedFileAtom)).toBe("a.ts");
+    });
+
+    it("clears the failure when another row is picked", async () => {
+        commitChanges.mockRejectedValueOnce(new Error("boom"));
+        await selectCompareRow("/repo", "abc1234def");
+        commitChanges.mockResolvedValue(changedFiles("a.ts"));
+        await selectCompareRow("/repo", "fed4321cba");
+        expect(globalStore.get(compareCommitFailureAtom)).toBeNull();
+    });
+
+    it("has nothing to retry on the aggregate row", () => {
+        globalStore.set(compareSelectionAtom, AGGREGATE);
+        retryCompareRow("/repo");
+        expect(commitChanges).not.toHaveBeenCalled();
+    });
+});
+
+describe("the first file follows the list's order", () => {
+    it("opens the first tree row for the aggregate, not the first git-order path", async () => {
+        divergence.mockResolvedValue({ isrepo: true, ahead: [], behind: [], mergebase: "m1" });
+        compareChanges.mockResolvedValue(changedFiles("README.md", "pkg/util.go"));
+
+        await setCompareRefs("/repo", "main", "feat");
+        expect(globalStore.get(compareSelectedFileAtom)).toBe("pkg/util.go");
+
+        globalStore.set(treeModeAtom, false);
+        await setCompareRefs("/repo", "main", "feat");
+        expect(globalStore.get(compareSelectedFileAtom)).toBe("README.md");
+    });
+
+    it("does the same for a commit row", async () => {
+        commitChanges.mockResolvedValue(changedFiles("README.md", "pkg/util.go"));
+        await selectCompareRow("/repo", "abc1234def");
+        expect(globalStore.get(compareSelectedFileAtom)).toBe("pkg/util.go");
     });
 });

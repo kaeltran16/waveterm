@@ -156,6 +156,8 @@ type CommandGitFileAtRefData struct {
 	Path string `json:"path"`
 	// MaxBytes refuses a blob larger than this without reading it. 0 = no cap.
 	MaxBytes int64 `json:"maxbytes,omitempty"`
+	// Worktree reads the file on disk under Cwd instead of a blob; Ref is ignored.
+	Worktree bool `json:"worktree,omitempty"`
 }
 
 // Mirrors gitinfo.FileContent one field for one field: Binary, Missing and TooLarge are answers the

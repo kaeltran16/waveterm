@@ -10,8 +10,6 @@
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { joinRepoPath } from "@/util/paths";
-import { base64ToString } from "@/util/util";
 import { atom, type PrimitiveAtom } from "jotai";
 import { pairRefsFor, type DiffPairRefs, type DiffSelection, type DiffSide } from "./diffcontent";
 
@@ -29,46 +27,65 @@ export interface DiffPair {
     // set when either side exceeds MAX_DIFF_BYTES; size is the larger side, for the message
     tooLarge: boolean;
     size: number;
+    // set when the file does not exist on that side: two empty texts then read as an added or deleted
+    // empty file rather than a rename. Optional so hand-built pairs (tests, fixtures) need not say.
+    originalMissing?: boolean;
+    modifiedMissing?: boolean;
     // the refs this pair was read from: a comment made on it is anchored to them
     refs: DiffPairRefs;
 }
 
 export const diffPairAtom = atom<DiffPair | null>(null) as PrimitiveAtom<DiffPair | null>;
 
-const current = { token: "" };
+// why the open file's pair could not be read; the pane shows it with a Retry in place of the skeleton
+export const diffPairFailureAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
+
+type LoadArgs = Parameters<typeof loadDiffPair>;
+
+const current: { token: string; args: LoadArgs | null } = { token: "", args: null };
 
 export function clearDiffPair(): void {
     current.token = "";
+    current.args = null;
     globalStore.set(diffPairAtom, null);
+    globalStore.set(diffPairFailureAtom, null);
 }
 
 interface SideResult {
     text: string;
     binary: boolean;
     tooLarge: boolean;
+    missing: boolean;
     size: number;
 }
 
-const EMPTY_SIDE: SideResult = { text: "", binary: false, tooLarge: false, size: 0 };
-
 async function readSide(cwd: string, path: string, side: DiffSide): Promise<SideResult> {
-    if (side.kind === "worktree") {
-        try {
-            const data = await RpcApi.FileReadCommand(TabRpcClient, { info: { path: joinRepoPath(cwd, path) } });
-            return { ...EMPTY_SIDE, text: base64ToString(data?.data64 ?? "") };
-        } catch {
-            // deleted from the working tree: an empty right side is exactly how that reads
-            return EMPTY_SIDE;
-        }
-    }
-    const r = await RpcApi.GitFileAtRefCommand(TabRpcClient, {
-        cwd,
-        ref: side.ref,
-        path: side.path ?? path,
-        maxbytes: MAX_DIFF_BYTES,
-    });
+    // the working-tree side reads the file on disk through the same reader as a ref, so it gets the
+    // same size cap and binary check instead of an uncapped plain file read
+    const r = await RpcApi.GitFileAtRefCommand(
+        TabRpcClient,
+        side.kind === "worktree"
+            ? { cwd, path, ref: "", worktree: true, maxbytes: MAX_DIFF_BYTES }
+            : { cwd, ref: side.ref, path: side.path ?? path, maxbytes: MAX_DIFF_BYTES }
+    );
     // missing is not a failure: the file was added on one side or deleted on the other
-    return { text: r.content ?? "", binary: !!r.binary, tooLarge: !!r.toolarge, size: r.size ?? 0 };
+    return {
+        text: r.content ?? "",
+        binary: !!r.binary,
+        tooLarge: !!r.toolarge,
+        missing: !!r.missing,
+        size: r.size ?? 0,
+    };
+}
+
+function failureMessage(e: unknown): string {
+    const msg = e instanceof Error ? e.message : String(e ?? "");
+    return msg || "The read failed with no message.";
+}
+
+// re-runs the last loadDiffPair, for the pane's Retry after a failed read
+export function retryDiffPair(): Promise<void> {
+    return current.args == null ? Promise.resolve() : loadDiffPair(...current.args);
 }
 
 // from: the file's rename source, read on the left side in place of path
@@ -81,8 +98,10 @@ export async function loadDiffPair(cwd: string, path: string, sel: DiffSelection
     // previous file's text under the new one's header is worse than showing nothing.
     const refresh = current.token === token;
     current.token = token;
+    current.args = [cwd, path, sel, from];
     if (!refresh) {
         globalStore.set(diffPairAtom, null);
+        globalStore.set(diffPairFailureAtom, null);
     }
     try {
         const [original, modified] = await Promise.all([
@@ -99,11 +118,15 @@ export async function loadDiffPair(cwd: string, path: string, sel: DiffSelection
             binary: original.binary || modified.binary,
             tooLarge: original.tooLarge || modified.tooLarge,
             size: Math.max(original.size, modified.size),
+            originalMissing: original.missing,
+            modifiedMissing: modified.missing,
             refs,
         });
-    } catch {
+        globalStore.set(diffPairFailureAtom, null);
+    } catch (e) {
         if (current.token === token) {
             globalStore.set(diffPairAtom, null);
+            globalStore.set(diffPairFailureAtom, failureMessage(e));
         }
     }
 }

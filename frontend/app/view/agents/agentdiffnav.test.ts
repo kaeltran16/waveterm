@@ -8,14 +8,19 @@ import { describe, expect, it, vi } from "vitest";
 const requestFileLink = vi.fn();
 vi.mock("./filesstore", () => ({ requestFileLink: (...a: any[]) => requestFileLink(...a) }));
 const listWorktrees = vi.fn();
+const gitHistory = vi.fn();
 vi.mock("@/app/store/wshclientapi", () => ({
-    RpcApi: { GitListWorktreesCommand: (...a: any[]) => listWorktrees(...a) },
+    RpcApi: {
+        GitListWorktreesCommand: (...a: any[]) => listWorktrees(...a),
+        GitHistoryCommand: (...a: any[]) => gitHistory(...a),
+    },
 }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 
-import { agentDiffScope, diffScopeOfRun, openDiff, openRunDiff, runDiffScope } from "./agentdiffnav";
+import { agentDiffScope, diffScopeOfRun, landedRunTip, openDiff, openRunDiff, runDiffScope } from "./agentdiffnav";
 import { scopeKey } from "./diffscope";
 import { diffScopeAtom } from "./diffscopeatom";
+import { HISTORY_RPC_TIMEOUT_MS } from "./historyquery";
 
 const surfaceAtom = atom("cockpit");
 const model = { diffScopeAtom, surfaceAtom } as any;
@@ -108,5 +113,89 @@ describe("openRunDiff", () => {
         await openRunDiff(model, run);
         expect(listWorktrees).not.toHaveBeenCalled();
         expect(globalStore.get(diffScopeAtom)).toEqual(runDiffScope("r4", "C:/arc-wt/r4", "9f2c1de"));
+    });
+});
+
+// a land is a --no-ff merge, so its second parent is the run branch's tip
+describe("landedRunTip", () => {
+    it("takes the merge's second parent", () => {
+        expect(landedRunTip("merge1", ["main0", "tip1"], "end1")).toBe("tip1");
+    });
+
+    it("takes the land commit itself when it has one parent", () => {
+        expect(landedRunTip("land1", ["main0"], "end1")).toBe("land1");
+    });
+
+    it("falls back to the run's end commit without a land commit or its parents", () => {
+        expect(landedRunTip(undefined, undefined, "end1")).toBe("end1");
+        expect(landedRunTip("", ["main0"], "end1")).toBe("end1");
+        expect(landedRunTip("land1", undefined, "end1")).toBe("end1");
+        expect(landedRunTip("land1", [], "end1")).toBe("end1");
+    });
+
+    it("is unbounded with nothing to go on", () => {
+        expect(landedRunTip(undefined, undefined, undefined)).toBe("");
+        expect(landedRunTip("land1", undefined, "")).toBe("");
+    });
+});
+
+describe("openRunDiff, bounded at the landed tip", () => {
+    const run = {
+        id: "r5",
+        projectpath: "C:/SIEM",
+        basecommit: "base000",
+        endcommit: "end0000",
+        land: { state: "landed", commit: "merge00" },
+    } as Run;
+    const root = { worktrees: [{ path: "C:/SIEM", branch: "main", ismain: true }] };
+
+    it("reads the land commit's parents and bounds the range at the run branch's tip", async () => {
+        listWorktrees.mockResolvedValueOnce(root);
+        gitHistory.mockResolvedValueOnce({
+            isrepo: true,
+            head: "later00",
+            commits: [{ hash: "merge00", parents: ["main000", "tip0000"] }],
+        });
+        await openRunDiff(model, run);
+        expect(gitHistory).toHaveBeenLastCalledWith(
+            {},
+            { cwd: "C:/SIEM", ref: "merge00", limit: 1 },
+            { timeout: HISTORY_RPC_TIMEOUT_MS }
+        );
+        const scope = globalStore.get(diffScopeAtom);
+        expect(scope).toEqual(runDiffScope("r5", "C:/SIEM", "base000", "tip0000"));
+        expect(scope.range).toMatchObject({ kind: "run", headCommit: "tip0000" });
+    });
+
+    it("falls back to the end commit when the parents cannot be read", async () => {
+        listWorktrees.mockResolvedValueOnce(root);
+        gitHistory.mockRejectedValueOnce(new Error("bad object merge00"));
+        await openRunDiff(model, run);
+        expect(globalStore.get(diffScopeAtom)).toEqual(runDiffScope("r5", "C:/SIEM", "base000", "end0000"));
+    });
+
+    it("falls back to the end commit when git answers with a failure", async () => {
+        listWorktrees.mockResolvedValueOnce(root);
+        gitHistory.mockResolvedValueOnce({
+            isrepo: true,
+            head: "",
+            commits: [],
+            failure: { command: "git log", exitcode: 128, stderr: "bad revision" },
+        });
+        await openRunDiff(model, run);
+        expect(globalStore.get(diffScopeAtom)).toEqual(runDiffScope("r5", "C:/SIEM", "base000", "end0000"));
+    });
+
+    it("asks git nothing when the land recorded no commit", async () => {
+        gitHistory.mockClear();
+        listWorktrees.mockResolvedValueOnce(root);
+        await openRunDiff(model, { ...run, land: { state: "landed" } } as Run);
+        expect(gitHistory).not.toHaveBeenCalled();
+        expect(globalStore.get(diffScopeAtom)).toEqual(runDiffScope("r5", "C:/SIEM", "base000", "end0000"));
+    });
+
+    it("keeps the unbounded key for a run with no tip", () => {
+        expect(runDiffScope("r6", "/repo", "b1")).toEqual(runDiffScope("r6", "/repo", "b1", ""));
+        expect(scopeKey(runDiffScope("r6", "/repo", "b1"))).toBe("run:r6|run:r6:b1");
     });
 });

@@ -20,8 +20,10 @@ vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 
 import { scopeKey } from "./diffscope";
 import { filesStateAtom, requestFileLink } from "./filesstore";
+import { treeModeAtom } from "./filetree";
 import {
     activeChangesAtom,
+    commitChangesFailureAtom,
     historyAppendAtom,
     historyCommitsAtom,
     historyFailureAtom,
@@ -38,13 +40,14 @@ import {
     resetHistory,
     restoreNoticeAtom,
     retryHistory,
+    retrySelectedCommit,
     selectCommit,
     selectedCommitAtom,
     selectedFileAtom,
     setHistoryOpts,
     startFromTop,
 } from "./githistorystore";
-import { HISTORY_PAGE_SIZE, NO_FILTERS } from "./historyquery";
+import { HISTORY_PAGE_SIZE, HISTORY_RPC_TIMEOUT_MS, NO_FILTERS } from "./historyquery";
 import { WORKING_TREE } from "./historyrows";
 
 const CWD = "C:/repo";
@@ -86,6 +89,7 @@ beforeEach(() => {
         changes: RUN_CHANGES as any,
         ref: "base000",
         head: "aaa1111",
+        end: "",
     });
 });
 
@@ -156,6 +160,7 @@ describe("loadHistory selection settling", () => {
             changes: RUN_CHANGES as any,
             ref: "base000",
             head: "aaa1111",
+            end: "",
         });
         await loadHistory(CWD, RUN_OPTS, RUN);
         await settle();
@@ -179,6 +184,7 @@ describe("loadHistory selection settling", () => {
             changes: RUN_CHANGES as any,
             ref: "base000",
             head: "aaa1111",
+            end: "",
         });
         await loadHistory(CWD, RUN_OPTS, RUN);
         await settle();
@@ -473,6 +479,7 @@ describe("startFromTop", () => {
             changes: { files: [] } as any,
             ref: "",
             head: "aaa",
+            end: "",
         });
         globalStore.set(historyFiltersAtom, { author: "dana", path: "", text: "" });
         globalStore.set(historyScrollAtom, 300);
@@ -682,6 +689,7 @@ describe("selectCommit", () => {
             changes: { files: [] } as any,
             ref: "",
             head: "aaa1111",
+            end: "",
         });
         await selectCommit(CWD, WORKING_TREE);
         expect(globalStore.get(selectedFileAtom)).toBeNull();
@@ -697,6 +705,7 @@ describe("loadHistory selection settling, what is re-read", () => {
             changes: { files: [] } as any,
             ref: "",
             head: "aaa1111",
+            end: "",
         });
         gitHistory.mockResolvedValue({ isrepo: true, head: "aaa1111", commits: [] });
         await loadHistory(CWD, {});
@@ -730,5 +739,167 @@ describe("loadHistory selection settling, what is re-read", () => {
         await settle();
         expect(globalStore.get(selectedCommitAtom)).toBe(WORKING_TREE);
         expect(globalStore.get(selectedFileAtom)).toBe("docs/open-issues.md");
+    });
+});
+
+// Session and run ranges walk from their own head; --all listed other branches' commits above the anchor.
+describe("the ref history walks from", () => {
+    const SESSION_OPTS = {
+        anchor: "base000",
+        anchorLabel: "session start",
+        rowLabel: "Since session start",
+        ref: "HEAD",
+    };
+
+    it("sends the range's ref and the history timeout", async () => {
+        await loadHistory(CWD, SESSION_OPTS);
+        expect(gitHistory).toHaveBeenCalledWith(
+            {},
+            { cwd: CWD, limit: HISTORY_PAGE_SIZE, ref: "HEAD" },
+            { timeout: HISTORY_RPC_TIMEOUT_MS }
+        );
+    });
+
+    it("walks every ref, still with the timeout, when the range names none", async () => {
+        await loadHistory(CWD, {});
+        expect(gitHistory).toHaveBeenCalledWith(
+            {},
+            { cwd: CWD, limit: HISTORY_PAGE_SIZE },
+            { timeout: HISTORY_RPC_TIMEOUT_MS }
+        );
+    });
+
+    // a walked-all list and a walked-from-HEAD list are different reads, so the old rows must go
+    it("treats a ref change as a new list, starting at the top", async () => {
+        await loadHistory(CWD, {});
+        globalStore.set(historyScrollAtom, 420);
+        await loadHistory(CWD, SESSION_OPTS);
+        expect(gitHistory).toHaveBeenCalledTimes(2);
+        expect(globalStore.get(historyScrollAtom)).toBe(0);
+    });
+
+    it("pages a session list from the same ref, with the timeout", async () => {
+        gitHistory.mockResolvedValue({
+            isrepo: true,
+            head: "aaa1111",
+            commits: Array.from({ length: HISTORY_PAGE_SIZE }, (_, i) => commit(`c${i}`, `commit ${i}`)),
+        });
+        await loadHistory(CWD, SESSION_OPTS);
+        await settle();
+        gitHistory.mockClear();
+        await loadMoreHistory();
+        expect(gitHistory).toHaveBeenCalledWith(
+            {},
+            { cwd: CWD, limit: HISTORY_PAGE_SIZE, skip: HISTORY_PAGE_SIZE, ref: "HEAD" },
+            { timeout: HISTORY_RPC_TIMEOUT_MS }
+        );
+    });
+});
+
+// Opening a run's diff from a run link used to keep the commit picked on the project before it, so the run
+// opened on that commit instead of "Run changes".
+describe("selection across scopes", () => {
+    const PROJECT = scopeKey({
+        repo: { origin: { kind: "project", name: "repo", path: CWD }, label: "repo" },
+        range: { kind: "working" },
+    });
+    const CHANGES = {
+        cwd: CWD,
+        branch: "main",
+        isRepo: true,
+        changes: RUN_CHANGES as any,
+        ref: "base000",
+        head: "aaa1111",
+        end: "",
+    };
+
+    it("takes the default row when the same directory opens under a new scope", async () => {
+        await loadHistory(CWD, {}, PROJECT);
+        await settle();
+        await selectCommit(CWD, "aaa1111");
+        await loadHistory(CWD, RUN_OPTS, RUN);
+        await settle();
+        expect(globalStore.get(selectedCommitAtom)).toBe(WORKING_TREE);
+    });
+
+    it("keeps the user's row when the same scope loads again", async () => {
+        await loadHistory(CWD, RUN_OPTS, RUN);
+        await settle();
+        await selectCommit(CWD, "aaa1111");
+        await loadHistory(CWD, RUN_OPTS, RUN);
+        await settle();
+        expect(globalStore.get(selectedCommitAtom)).toBe("aaa1111");
+    });
+
+    // the remount read runs while the new scope's change list is still loading: deciding then would land on
+    // the tip (no synthetic row yet) and keep it once the list arrived
+    it("waits for the new scope's change list before choosing", async () => {
+        await loadHistory(CWD, {}, PROJECT);
+        await settle();
+        await selectCommit(CWD, "aaa1111");
+        globalStore.set(filesStateAtom, null);
+        await loadHistory(CWD, RUN_OPTS, RUN);
+        await settle();
+        globalStore.set(filesStateAtom, CHANGES);
+        await loadHistory(CWD, RUN_OPTS, RUN);
+        await settle();
+        expect(globalStore.get(selectedCommitAtom)).toBe(WORKING_TREE);
+    });
+});
+
+describe("a commit's file list that fails to read", () => {
+    it("records the failure, and Retry clears it and reads again", async () => {
+        gitCommitChanges.mockRejectedValueOnce(new Error("object not found"));
+        await selectCommit(CWD, "bbb2222");
+        expect(globalStore.get(commitChangesFailureAtom)).toContain("object not found");
+
+        gitCommitChanges.mockResolvedValue({ isrepo: true, statusz: "M  x.ts\0", numstat: "1\t0\tx.ts\n" });
+        retrySelectedCommit();
+        expect(globalStore.get(commitChangesFailureAtom)).toBeNull();
+        await settle();
+        expect(gitCommitChanges).toHaveBeenCalledTimes(2);
+        expect(gitCommitChanges).toHaveBeenLastCalledWith({}, { cwd: CWD, hash: "bbb2222" });
+        expect(globalStore.get(selectedFileAtom)).toBe("x.ts");
+    });
+});
+
+describe("the first file opened", () => {
+    afterEach(() => globalStore.set(treeModeAtom, true));
+
+    it("is the first row the tree draws, not the first file git listed", async () => {
+        globalStore.set(treeModeAtom, true);
+        gitCommitChanges.mockResolvedValue({
+            isrepo: true,
+            statusz: "M  README.md\0M  retry/policy.go\0",
+            numstat: "1\t0\tREADME.md\n1\t0\tretry/policy.go\n",
+        });
+        await selectCommit(CWD, "bbb2222");
+        expect(globalStore.get(selectedFileAtom)).toBe("retry/policy.go");
+    });
+
+    it("is git's first file in the flat list", async () => {
+        globalStore.set(treeModeAtom, false);
+        gitCommitChanges.mockResolvedValue({
+            isrepo: true,
+            statusz: "M  README.md\0M  retry/policy.go\0",
+            numstat: "1\t0\tREADME.md\n1\t0\tretry/policy.go\n",
+        });
+        await selectCommit(CWD, "bbb2222");
+        expect(globalStore.get(selectedFileAtom)).toBe("README.md");
+    });
+
+    it("follows the tree on the working-tree row too", async () => {
+        globalStore.set(treeModeAtom, true);
+        globalStore.set(filesStateAtom, {
+            cwd: CWD,
+            branch: "main",
+            isRepo: true,
+            changes: { files: [{ path: "README.md" }, { path: "retry/policy.go" }] } as any,
+            ref: "",
+            head: "aaa1111",
+            end: "",
+        });
+        await selectCommit(CWD, WORKING_TREE);
+        expect(globalStore.get(selectedFileAtom)).toBe("retry/policy.go");
     });
 });

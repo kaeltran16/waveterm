@@ -20,6 +20,7 @@ import { AGGREGATE } from "./comparerows";
 import type { CompareForm } from "./diffcontent";
 import type { DiffRange } from "./diffscope";
 import { diffScopeAtom } from "./diffscopeatom";
+import { firstInList, treeModeAtom } from "./filetree";
 import { parseGitChanges, type GitChanges } from "./gitstatus";
 
 export interface CompareRefs {
@@ -47,6 +48,11 @@ export const compareSelectedFileAtom = atom<string | null>(null) as PrimitiveAto
 // A failed compare read, phrased with the refs in it so the column can name what did not resolve.
 export const compareErrorAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 export const compareBranchesAtom = atom<BranchInfo[]>([]) as PrimitiveAtom<BranchInfo[]>;
+// whether the repository has any remote at all, which remote-tracking refs alone cannot say: a clone
+// of a never-fetched remote has a remote and no origin/* branches
+export const compareHasRemoteAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
+// a failed commit-row file list, so the column can say so and offer a retry rather than draw nothing
+export const compareCommitFailureAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 
 const commitChangesAtom = atom<GitChanges | null>(null) as PrimitiveAtom<GitChanges | null>;
 
@@ -87,6 +93,7 @@ function clearCompareState(): void {
     globalStore.set(compareSelectedFileAtom, null);
     globalStore.set(commitChangesAtom, null);
     globalStore.set(compareErrorAtom, null);
+    globalStore.set(compareCommitFailureAtom, null);
     // compareRefsAtom survives on purpose: re-entering compare should offer the pair you last used.
 }
 
@@ -98,11 +105,33 @@ export async function loadCompareRefsMeta(cwd: string): Promise<string> {
         // backend's default branch now prefers the remote one (T2)
         const rtn = await RpcApi.ListBranchesCommand(TabRpcClient, { projectpath: cwd, includeremotes: true });
         globalStore.set(compareBranchesAtom, rtn.branches ?? []);
+        globalStore.set(compareHasRemoteAtom, rtn.hasremote ?? false);
         return rtn.default ?? "";
     } catch {
         globalStore.set(compareBranchesAtom, []);
+        globalStore.set(compareHasRemoteAtom, false);
         return "";
     }
+}
+
+// The pair compare opens on. A remembered pair is the user's own choice and wins as it stands. Otherwise
+// it is the default branch against the checked-out one, and when those are the same branch (on main,
+// the common case) comparing a ref with itself shows nothing, so head becomes the most recently
+// committed local branch instead (branches arrive sorted by recency). With no other local branch it
+// stays as it is and the picker is where to change it.
+export function defaultComparePair(i: {
+    def: string;
+    current: string;
+    prev: CompareRefs | null;
+    branches: BranchInfo[];
+}): CompareRefs {
+    const base = i.prev?.base || i.def;
+    const head = i.prev?.head || i.current;
+    if (i.prev != null || head !== base) {
+        return { base, head };
+    }
+    const other = i.branches.find((b) => !b.remote && b.name !== base);
+    return { base, head: other?.name ?? head };
 }
 
 // Enter compare on the checked-out branch against the repo's default branch — the review question,
@@ -121,8 +150,12 @@ export async function enterCompare(cwd: string, currentBranch: string): Promise<
     globalStore.set(compareAggregateAtom, null);
     const def = await loadCompareRefsMeta(cwd);
     const prev = remembered.cwd === cwd ? globalStore.get(compareRefsAtom) : null;
-    const base = prev?.base || def;
-    const head = prev?.head || currentBranch;
+    const { base, head } = defaultComparePair({
+        def,
+        current: currentBranch,
+        prev,
+        branches: globalStore.get(compareBranchesAtom),
+    });
     globalStore.set(diffScopeAtom, { ...scope, range: { kind: "compare", base, head, form: "mergebase", from } });
     await setCompareRefs(cwd, base, head);
 }
@@ -144,6 +177,7 @@ export async function setCompareRefs(cwd: string, base: string, head: string): P
     globalStore.set(compareSelectedFileAtom, null);
     globalStore.set(commitChangesAtom, null);
     globalStore.set(compareErrorAtom, null);
+    globalStore.set(compareCommitFailureAtom, null);
     if (!base || !head) {
         globalStore.set(compareErrorAtom, "Pick two refs to compare.");
         return;
@@ -170,7 +204,7 @@ export async function setCompareRefs(cwd: string, base: string, head: string): P
         });
         const changes = parseGitChanges(agg.statusz, agg.numstat);
         globalStore.set(compareAggregateAtom, changes);
-        const first = changes.files[0]?.path;
+        const first = firstFile(changes);
         if (first) {
             selectCompareFile(first);
         }
@@ -181,6 +215,21 @@ export async function setCompareRefs(cwd: string, base: string, head: string): P
             globalStore.set(compareErrorAtom, `Couldn’t compare ${base} with ${head}.`);
         }
     }
+}
+
+// Re-reads the pair on screen, for the `r` key. The refs may have moved under it (a commit, a fetch
+// from a terminal), so this is the same read a typed pair gets.
+export async function refreshCompare(cwd: string): Promise<void> {
+    const refs = globalStore.get(compareRefsAtom);
+    if (refs == null) {
+        return;
+    }
+    await setCompareRefs(cwd, refs.base, refs.head);
+}
+
+// the file a freshly read list opens on: the first one drawn, which in tree mode is not the first one git printed
+function firstFile(changes: GitChanges | null): string | undefined {
+    return changes == null ? undefined : firstInList(changes.files, globalStore.get(treeModeAtom));
 }
 
 // A form change is a different question about the same two refs, so it re-reads the aggregate and the
@@ -267,13 +316,14 @@ export async function selectCompareRow(cwd: string, rowId: string): Promise<void
     globalStore.set(compareSelectionAtom, rowId);
     globalStore.set(compareSelectedFileAtom, null);
     if (rowId === AGGREGATE) {
-        const first = globalStore.get(compareAggregateAtom)?.files[0]?.path;
+        const first = firstFile(globalStore.get(compareAggregateAtom));
         if (first) {
             selectCompareFile(first);
         }
         return;
     }
     globalStore.set(commitChangesAtom, null);
+    globalStore.set(compareCommitFailureAtom, null);
     try {
         const ch = await RpcApi.GitCommitChangesCommand(TabRpcClient, { cwd, hash: rowId });
         if (globalStore.get(compareSelectionAtom) !== rowId) {
@@ -281,14 +331,23 @@ export async function selectCompareRow(cwd: string, rowId: string): Promise<void
         }
         const changes = ch.isrepo ? parseGitChanges(ch.statusz, ch.numstat) : null;
         globalStore.set(commitChangesAtom, changes);
-        const first = changes?.files[0]?.path;
+        const first = firstFile(changes);
         if (first) {
             selectCompareFile(first);
         }
     } catch {
         if (globalStore.get(compareSelectionAtom) === rowId) {
             globalStore.set(commitChangesAtom, null);
+            globalStore.set(compareCommitFailureAtom, `Couldn’t read the files of ${rowId.slice(0, 7)}.`);
         }
+    }
+}
+
+// Retry for the selected commit row. The aggregate row has no separate read to repeat.
+export function retryCompareRow(cwd: string): void {
+    const row = globalStore.get(compareSelectionAtom);
+    if (row !== AGGREGATE) {
+        void selectCompareRow(cwd, row);
     }
 }
 

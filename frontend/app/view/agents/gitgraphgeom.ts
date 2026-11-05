@@ -62,12 +62,13 @@ export function graphGeometry(rows: LanedRow[], opts: GeometryOpts): GraphGeomet
     const { rowH, maxLanes } = opts;
     const lastLane = Math.max(0, maxLanes - 1);
 
-    // row tops, so a divider under row i pushes everything below it down
+    // row tops; the pane draws a row's divider above it, so it pushes that row and everything below down
     const tops: number[] = [];
     let acc = 0;
     for (const r of rows) {
+        acc += r.divider ? DIVIDER_H : 0;
         tops.push(acc);
-        acc += rowH + (r.divider ? DIVIDER_H : 0);
+        acc += rowH;
     }
 
     const rowOf = new Map<string, number>();

@@ -125,10 +125,12 @@ export function toRow(c: HistoryCommit, now: number): HistoryRow {
 
 export function buildRows(commits: HistoryCommit[], opts: BuildRowsOpts): HistoryRow[] {
     const anchorIdx = opts.anchor ? commits.findIndex((c) => c.hash === opts.anchor) : -1;
+    // the pane draws the divider above its row, so the anchor commit itself sits below the line: it
+    // existed before the session/run began, and dims with everything older
     const rows: HistoryRow[] = commits.map((c, i) => ({
         ...toRow(c, opts.now),
         divider: anchorIdx >= 0 && i === anchorIdx ? opts.anchorLabel : undefined,
-        before: anchorIdx >= 0 && i > anchorIdx,
+        before: anchorIdx >= 0 && i >= anchorIdx,
     }));
     if (opts.dirtyFileCount <= 0) {
         return rows;
@@ -149,15 +151,24 @@ export function buildRows(commits: HistoryCommit[], opts: BuildRowsOpts): Histor
     return rows;
 }
 
+// Commits loaded, which is every row but the synthetic top one.
+export function commitCount(rows: HistoryRow[]): number {
+    return rows.filter((r) => !r.workingTree).length;
+}
+
 // The working-tree pane's one-line answer to "measured from what". HEAD is not a branch, so a
 // detached checkout says so rather than printing "On HEAD".
 export function worktreeCaption(range: DiffRange, branch: string, head: string, ref: string): string {
     const on = branch && branch !== "HEAD" ? `On ${branch}` : "Detached HEAD";
     switch (range.kind) {
         case "session":
-            return `${on}, measured from session start ${ref.slice(0, 7)}`;
+            return ref
+                ? `${on}, measured from session start ${ref.slice(0, 7)}`
+                : `${on}, measured from HEAD (no session start yet)`;
         case "run":
-            return `${on}, measured from run base ${range.baseCommit.slice(0, 7)}`;
+            return range.headCommit
+                ? `${on}, measured from run base ${range.baseCommit.slice(0, 7)} to its landed tip ${range.headCommit.slice(0, 7)}`
+                : `${on}, measured from run base ${range.baseCommit.slice(0, 7)}`;
         default:
             return `${on}, measured from ${head.slice(0, 7)}`;
     }

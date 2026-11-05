@@ -21,6 +21,14 @@ describe("pairRefsFor", () => {
         });
     });
 
+    // a landed run's working-tree row reads base vs the run's tip, not base vs whatever is on disk now
+    it("reads the modified side at the end ref when the range is bounded", () => {
+        expect(pairRefsFor({ kind: "worktree", anchorRef: "b41d000", end: "c0ffee1" })).toEqual({
+            original: { kind: "ref", ref: "b41d000" },
+            modified: { kind: "ref", ref: "c0ffee1" },
+        });
+    });
+
     it("keeps an explicit anchor over the HEAD sha", () => {
         expect(pairRefsFor({ kind: "worktree", anchorRef: "abc1234", head: "f00dfeed" }).original).toEqual({
             kind: "ref",

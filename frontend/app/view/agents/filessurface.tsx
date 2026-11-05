@@ -6,9 +6,7 @@
 // gutter (historypane), the selected commit's metadata + files (commitpane), and that file's diff
 // (diffpane). Uncommitted work is row zero of the history, not a separate mode. Read-only.
 
-import { getApi } from "@/app/store/global";
 import { globalStore } from "@/app/store/jotaiStore";
-import { joinRepoPath } from "@/util/paths";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { RefreshCw, RotateCcw } from "lucide-react";
@@ -18,19 +16,35 @@ import { useSurfaceListNav, type ListNavController } from "@/app/store/keybindin
 import { useKeybindings } from "@/app/store/keybindings/store";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSyncMonacoTheme } from "@/app/monaco/monacotheme";
+import { openInCode } from "@/app/view/code/codestore";
 import type { AgentsViewModel } from "./agents";
-import { formatAge } from "./agentsviewmodel";
+import { formatAgo } from "./agentsviewmodel";
 import { CommentSendBar } from "./commentsendbar";
 import { DiffPane } from "./diffpane";
-import type { CompareForm, DiffSelection } from "./diffcontent";
+import { firstDifferingLine, type CompareForm, type DiffSelection } from "./diffcontent";
 import { activeCommentSourceAtom, batchSourceFor } from "./diffcomments";
-import { clearDiffPair, loadDiffPair } from "./diffcontentstore";
-import { defaultFocusId, focusFollowAgent, sourceFor, type FilesSource } from "./diffsource";
-import { filesErrorAtom, filesStateAtom, loadFilesForScope, startChangesPoll, type FilesProject } from "./filesstore";
+import { clearDiffPair, diffPairAtom, loadDiffPair } from "./diffcontentstore";
+import {
+    defaultFocusId,
+    endedAgentScope,
+    focusFollowAgent,
+    sourceFor,
+    subjectState,
+    type FilesSource,
+} from "./diffsource";
+import {
+    agentCwdOf,
+    filesErrorAtom,
+    filesRefreshFailedAtom,
+    filesStateAtom,
+    loadFilesForScope,
+    startChangesPoll,
+    type FilesProject,
+} from "./filesstore";
 import { availableRanges, historyOptsFor, rangeKey, scopeKey, summaryLine } from "./diffscope";
 import { agentDiffScope, projectDiffScope } from "./agentdiffnav";
 import { setDiffRange } from "./diffscopeatom";
-import { historyCollapsedAtom, resolveCollapsed } from "./difflayout";
+import { filesSurfaceWidthAtom, historyCollapsedAtom, historyLayout } from "./difflayout";
 import { HistoryRail } from "./historyrail";
 import { peekSessionStart } from "./agentsessionstore";
 import { RangeStrip } from "./rangestrip";
@@ -43,7 +57,9 @@ import {
     compareActiveChangesAtom,
     compareAggregateAtom,
     compareBranchesAtom,
+    compareCommitFailureAtom,
     compareErrorAtom,
+    compareHasRemoteAtom,
     compareOnAtom,
     compareRefsAtom,
     compareSelectedFileAtom,
@@ -54,6 +70,7 @@ import {
     fetchStateOf,
     fetchStatesAtom,
     leaveCompare,
+    retryCompareRow,
     runFetch,
     selectCompareFile,
     selectCompareRow,
@@ -65,6 +82,7 @@ import { RefPicker } from "./refpicker";
 import { activeReviewAtom, reviewSubjectFor } from "./reviewmarks";
 import {
     activeChangesAtom,
+    commitChangesFailureAtom,
     dismissRestoreNotice,
     graphOnAtom,
     historyAppendAtom,
@@ -81,6 +99,7 @@ import {
     resetHistory,
     restoreNoticeAtom,
     retryHistory,
+    retrySelectedCommit,
     selectCommit,
     selectCommitFile,
     selectedCommitAtom,
@@ -91,7 +110,7 @@ import {
 import { GitFailureNotice, GitFailurePanel, NotARepoPanel, SurfaceBanner } from "./gitstatepanels";
 import { HistoryPane } from "./historypane";
 import { RESTORE_DISMISS_MS, countLabel } from "./historyquery";
-import { WORKING_TREE, worktreeCaption } from "./historyrows";
+import { WORKING_TREE, commitCount, worktreeCaption } from "./historyrows";
 import { SourcePicker } from "./sourcepicker";
 import { SurfaceEmptyState, SurfaceError, SurfaceToolbar, ToolbarFact } from "./surfacescaffold";
 
@@ -124,6 +143,10 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
     const compareError = useAtomValue(compareErrorAtom);
     const compareBranches = useAtomValue(compareBranchesAtom);
     const compareChanges = useAtomValue(compareActiveChangesAtom);
+    const compareHasRemote = useAtomValue(compareHasRemoteAtom);
+    const compareCommitFailure = useAtomValue(compareCommitFailureAtom);
+    const commitFailure = useAtomValue(commitChangesFailureAtom);
+    const refreshFailed = useAtomValue(filesRefreshFailedAtom);
     // the ref picker's own open/closed state: `c` and a click on the chip open it, Enter/Escape close it
     const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -131,8 +154,8 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
     // than the window: the surface does not own the whole window, and the rail's whole purpose is to
     // leave the diff pane something to render in.
     const surfaceRef = useRef<HTMLDivElement>(null);
-    const [surfaceWidth, setSurfaceWidth] = useState(0);
-    const collapsed = resolveCollapsed(useAtomValue(historyCollapsedAtom), surfaceWidth);
+    const surfaceWidth = useAtomValue(filesSurfaceWidthAtom);
+    const layout = historyLayout(useAtomValue(historyCollapsedAtom), surfaceWidth);
 
     // Rebuilt from the raw divergence on every render: buildCompareRows is pure and the input is at
     // most a few hundred commits, the same reasoning the history rows use.
@@ -208,9 +231,10 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
         if (el == null) {
             return;
         }
-        const ro = new ResizeObserver(() => setSurfaceWidth(el.clientWidth));
+        const measure = () => globalStore.set(filesSurfaceWidthAtom, el.clientWidth);
+        const ro = new ResizeObserver(measure);
         ro.observe(el);
-        setSurfaceWidth(el.clientWidth);
+        measure();
         return () => ro.disconnect();
     }, []);
 
@@ -345,8 +369,20 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                           fireAndForget(() =>
                               compareOn ? selectCompareRow(state.cwd!, id) : selectCommit(state.cwd!, id)
                           ),
+                      // the open file in Code at its first change, like the diff header's Open in Code
                       activate:
-                          navFile && state.cwd ? () => getApi().openExternal(joinRepoPath(state.cwd!, navFile)) : undefined,
+                          navFile && state.cwd
+                              ? () => {
+                                    const pair = globalStore.get(diffPairAtom);
+                                    const line =
+                                        pair?.path === navFile
+                                            ? firstDifferingLine(pair.original, pair.modified)
+                                            : undefined;
+                                    fireAndForget(() =>
+                                        openInCode(model, { projectPath: state.cwd!, rel: navFile, line })
+                                    );
+                                }
+                              : undefined,
                       // Tab needs to know which side a row belongs to, which an id list cannot say.
                       rows: compareOn ? compareRows : undefined,
                   }
@@ -383,13 +419,14 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                   }
                 : { kind: "commit", hash: compareSelection ?? "" }
             : selectedCommit === WORKING_TREE
-              ? { kind: "worktree", anchorRef: state?.ref ?? "", head: state?.head ?? "" }
+              ? { kind: "worktree", anchorRef: state?.ref ?? "", head: state?.head ?? "", end: state?.end ?? "" }
               : { kind: "commit", hash: selectedCommit ?? "" };
         fireAndForget(() => loadDiffPair(cwd, shownPath, sel, selectedChange?.from));
     }, [
         state?.cwd,
         state?.ref,
         state?.head,
+        state?.end,
         shownPath,
         compareOn,
         compareRefs?.base,
@@ -402,8 +439,9 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
         liveTick,
     ]);
 
+    const subject = subjectState(scope, agents, projects);
     // a scope set by a link (a run's evidence) names its own repo, so it shows even with no agent or project
-    if (scope == null && agents.length === 0 && projects.length === 0) {
+    if (subject === "empty") {
         return (
             <SurfaceEmptyState
                 title="No changes to show"
@@ -412,6 +450,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
             />
         );
     }
+    const ready = subject === "ready";
     const selectedRow = (historyRows ?? []).find((r) => r.hash === selectedCommit) ?? null;
     // a compare commit row *is* a HistoryRow, so the shipped commit pane takes it directly
     const compareCommit =
@@ -422,6 +461,83 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
     const noCommit = compareOn ? compareSelection !== AGGREGATE && compareCommit == null : selectedRow == null;
     const canPick = (compareOn ? compareRows.length : (historyRows?.length ?? 0)) > 0;
     const collapseHistory = () => globalStore.set(historyCollapsedAtom, true);
+    // the same click-through the bindings use to open the picker
+    const chooseSource = () => document.querySelector<HTMLElement>("[data-files-source-picker]")?.click();
+    const endedScope =
+        subject === "ended" && origin?.kind === "agent" ? endedAgentScope(agentCwdOf(origin.id), projects) : null;
+    const endedPath = endedScope?.repo.origin.kind === "project" ? endedScope.repo.origin.path : "";
+
+    const notReady = () =>
+        subject === "pick" ? (
+            <SurfaceEmptyState
+                title="Pick something to review"
+                body="Choose an agent or a project to see its changes."
+                action={{ label: "Choose a source", onClick: chooseSource }}
+            />
+        ) : endedScope ? (
+            <SurfaceEmptyState
+                title="This agent has ended"
+                body={`Its changes are in ${endedPath}.`}
+                action={{ label: "Open its folder", onClick: () => globalStore.set(model.diffScopeAtom, endedScope) }}
+            />
+        ) : (
+            <SurfaceEmptyState
+                title="This agent has ended"
+                body="Its folder was never read. Choose an agent or a project to see its changes."
+                action={{ label: "Choose a source", onClick: chooseSource }}
+            />
+        );
+
+    const historyColumn = () =>
+        compareOn ? (
+            <CompareColumn
+                rows={compareRows}
+                selected={compareSelection}
+                mergeBase={compareSides?.mergeBase ?? ""}
+                mergeBaseTs={compareSides?.mergeBaseTs ?? 0}
+                onCollapse={collapseHistory}
+                error={compareError}
+                loading={compareSides == null && compareError == null}
+                onSelect={(id) => state?.cwd && fireAndForget(() => selectCompareRow(state.cwd!, id))}
+            />
+        ) : (
+            <HistoryPane
+                rows={historyRows ?? []}
+                selected={selectedCommit}
+                // a filtered set mostly lacks its own parents, so lane assignment would sprawl to the fold
+                // limit and draw edges to commits that are not there
+                graphOn={graphOn && !historyFiltered}
+                loading={historyRows == null}
+                countLabel={countLabel(historyFilters, commitCount(historyRows ?? []), historyRows == null)}
+                filtered={historyFiltered}
+                initialScroll={historyScroll}
+                hasMore={historyHasMore}
+                appendState={historyAppend}
+                onSelect={(hash) => state?.cwd && fireAndForget(() => selectCommit(state.cwd!, hash))}
+                onScroll={(top) => globalStore.set(historyScrollAtom, top)}
+                onLoadMore={() => fireAndForget(() => loadMoreHistory())}
+                onCollapse={collapseHistory}
+            />
+        );
+
+    const historyRail = () => (
+        <HistoryRail
+            // a compare commit row IS a HistoryRow, so the rail takes it directly
+            rows={
+                compareOn ? (compareRows.filter((r) => r.kind === "commit") as CompareCommitRow[]) : (historyRows ?? [])
+            }
+            selected={compareOn ? compareSelection : selectedCommit}
+            onSelect={(hash) =>
+                state?.cwd &&
+                fireAndForget(() => (compareOn ? selectCompareRow(state.cwd!, hash) : selectCommit(state.cwd!, hash)))
+            }
+            expanded={layout === "overlay"}
+            onToggle={() => globalStore.set(historyCollapsedAtom, layout === "overlay")}
+            allChanges={compareOn}
+            hasMore={!compareOn && historyHasMore && historyAppend !== "loading"}
+            onLoadMore={() => fireAndForget(() => loadMoreHistory())}
+        />
+    );
 
     return (
         <MotionConfig reducedMotion="user">
@@ -435,19 +551,26 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                 <SurfaceToolbar
                     title="Diff"
                     actions={
-                        scope ? (
-                            <ToolbarFact>
-                                <span data-files-range-summary className="truncate">
-                                    {summaryLine({
-                                        range: scope.range,
-                                        branch: state?.branch ?? "",
-                                        ref: state?.ref ?? "",
-                                        mergeBase: compareSides?.mergeBase ?? "",
-                                        commit: shownCommit,
-                                        changes: shownChanges,
-                                    })}
-                                </span>
-                            </ToolbarFact>
+                        scope && ready ? (
+                            <>
+                                {refreshFailed ? (
+                                    <ToolbarFact>
+                                        <span data-files-refresh-failed>couldn’t refresh · showing the last read</span>
+                                    </ToolbarFact>
+                                ) : null}
+                                <ToolbarFact>
+                                    <span data-files-range-summary className="truncate">
+                                        {summaryLine({
+                                            range: scope.range,
+                                            branch: state?.branch ?? "",
+                                            ref: state?.ref ?? "",
+                                            mergeBase: compareSides?.mergeBase ?? "",
+                                            commit: shownCommit,
+                                            changes: shownChanges,
+                                        })}
+                                    </span>
+                                </ToolbarFact>
+                            </>
                         ) : null
                     }
                 >
@@ -461,12 +584,13 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                             onPickProject={pickProject}
                         />
                     </div>
-                    {scope ? (
+                    {scope && ready ? (
                         <div className="-my-[2px]">
                             <RangeStrip
                                 options={availableRanges(scope, {
                                     sessionStartTs: peekSessionStart(agent?.transcriptPath),
                                     sessionRef: state?.ref ?? "",
+                                    isRepo: state?.isRepo !== false,
                                 })}
                                 active={scope.range}
                                 onPick={(r) =>
@@ -479,7 +603,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                             />
                         </div>
                     ) : null}
-                    {compareOn ? (
+                    {compareOn && ready ? (
                         <div className="-my-[4px]">
                             <RefPicker
                                 base={compareRefs?.base ?? ""}
@@ -498,9 +622,12 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                             />
                         </div>
                     ) : null}
-                    {compareOn ? (
+                    {/* a repository with no remote has nothing to fetch, and a change list still loading has
+                        no folder to fetch in yet */}
+                    {compareOn && ready && compareHasRemote && state?.cwd ? (
                         <div className="flex items-center gap-[7px]">
                             <button
+                                data-files-fetch
                                 onClick={() => state?.cwd && fireAndForget(() => runFetch(state.cwd!))}
                                 disabled={fetchState.running}
                                 title="Update remote-tracking refs"
@@ -518,192 +645,153 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                 clock is part of reading the comparison. Absent until one has
                                 happened — "just now" on an unfetched session would be a lie. */}
                             {fetchState.at > 0 ? (
-                                <span className="font-mono text-[10.5px] text-muted">
-                                    fetched {formatAge(Date.now() - fetchState.at * 1000)} ago
+                                <span data-files-fetched className="font-mono text-[10.5px] text-muted">
+                                    fetched {formatAgo(Date.now() - fetchState.at * 1000)}
                                 </span>
                             ) : null}
                         </div>
                     ) : null}
                 </SurfaceToolbar>
 
-                {restoreMsg ? (
-                    <SurfaceBanner
-                        data-restore-notice
-                        tone="neutral"
-                        icon={<RotateCcw size={14} />}
-                        action={{ label: "Start from the top", onClick: startFromTop }}
-                        onDismiss={dismissRestoreNotice}
-                    >
-                        <span className="min-w-0 flex-1 truncate text-ink-hi">{restoreMsg}</span>
-                    </SurfaceBanner>
-                ) : null}
-
-                {fetchState.failure ? (
-                    <GitFailureNotice
-                        failure={fetchState.failure}
-                        onRetry={() => state?.cwd && fireAndForget(() => runFetch(state.cwd!))}
-                        onDismiss={() => state?.cwd && dismissFetchFailure(state.cwd)}
-                    />
-                ) : null}
-
-                {/* the detailed panel below says the same thing with git's own words behind it */}
-                {loadError && historyFailure == null ? <SurfaceError message="Couldn’t read this repository." /> : null}
-
-                {/* a broken read is checked first: it also reports isRepo:false, and showing it as an
-                    absent repository would hide the reason behind a screen that reads like normality */}
-                {historyFailure ? (
-                    <GitFailurePanel failure={historyFailure} onRetry={() => retryHistory()} />
-                ) : state?.isRepo === false && state?.cwd ? (
-                    <NotARepoPanel
-                        path={state.cwd}
-                        // the same click-through the bindings use to open the picker
-                        onChooseSource={() =>
-                            document.querySelector<HTMLElement>("[data-files-source-picker]")?.click()
-                        }
-                    />
+                {!ready ? (
+                    <div className="flex min-h-0 flex-1 flex-col border-t border-edge-faint">
+                        <div className="min-h-0 flex-1">{notReady()}</div>
+                        {/* an ended agent's pending comments are still its batch to send */}
+                        {subject === "ended" ? <CommentSendBar model={model} /> : null}
+                    </div>
                 ) : (
-                    <div className="flex min-h-0 flex-1 border-t border-edge-faint">
-                        <div
-                            className={cn(
-                                "flex flex-none flex-col border-r border-edge-faint",
-                                collapsed ? "w-[44px]" : "w-[460px]"
-                            )}
-                        >
-                            {collapsed ? (
-                                <HistoryRail
-                                    // a compare commit row IS a HistoryRow, so the rail takes it directly
-                                    rows={
-                                        compareOn
-                                            ? (compareRows.filter((r) => r.kind === "commit") as CompareCommitRow[])
-                                            : (historyRows ?? [])
-                                    }
-                                    selected={compareOn ? compareSelection : selectedCommit}
-                                    onSelect={(hash) =>
-                                        state?.cwd &&
-                                        fireAndForget(() =>
-                                            compareOn
-                                                ? selectCompareRow(state.cwd!, hash)
-                                                : selectCommit(state.cwd!, hash)
-                                        )
-                                    }
-                                    onExpand={() => globalStore.set(historyCollapsedAtom, false)}
-                                />
-                            ) : (
-                                <>
-                                    {compareOn ? (
-                                        <CompareColumn
-                                            rows={compareRows}
-                                            selected={compareSelection}
-                                            mergeBase={compareSides?.mergeBase ?? ""}
-                                            mergeBaseTs={compareSides?.mergeBaseTs ?? 0}
-                                            onCollapse={collapseHistory}
-                                            error={compareError}
-                                            loading={compareSides == null && compareError == null}
-                                            onSelect={(id) =>
-                                                state?.cwd && fireAndForget(() => selectCompareRow(state.cwd!, id))
+                    <>
+                        {restoreMsg ? (
+                            <SurfaceBanner
+                                data-restore-notice
+                                tone="neutral"
+                                icon={<RotateCcw size={14} />}
+                                action={{ label: "Start from the top", onClick: startFromTop }}
+                                onDismiss={dismissRestoreNotice}
+                            >
+                                <span className="min-w-0 flex-1 truncate text-ink-hi">{restoreMsg}</span>
+                            </SurfaceBanner>
+                        ) : null}
+
+                        {fetchState.failure ? (
+                            <GitFailureNotice
+                                failure={fetchState.failure}
+                                onRetry={() => state?.cwd && fireAndForget(() => runFetch(state.cwd!))}
+                                onDismiss={() => state?.cwd && dismissFetchFailure(state.cwd)}
+                            />
+                        ) : null}
+
+                        {/* the detailed panel below says the same thing with git's own words behind it */}
+                        {loadError && historyFailure == null ? (
+                            <SurfaceError message="Couldn’t read this repository." />
+                        ) : null}
+
+                        {/* a broken read is checked first: it also reports isRepo:false, and showing it as an
+                            absent repository would hide the reason behind a screen that reads like normality */}
+                        {historyFailure ? (
+                            <GitFailurePanel failure={historyFailure} onRetry={() => retryHistory()} />
+                        ) : state?.isRepo === false && state?.cwd ? (
+                            <NotARepoPanel path={state.cwd} onChooseSource={chooseSource} />
+                        ) : (
+                            <div className="relative flex min-h-0 flex-1 border-t border-edge-faint">
+                                <div
+                                    className={cn(
+                                        "flex flex-none flex-col border-r border-edge-faint",
+                                        layout === "column" ? "w-[460px]" : "w-[44px]"
+                                    )}
+                                >
+                                    {layout === "column" ? historyColumn() : historyRail()}
+                                </div>
+                                {/* below the collapse width an expanded history is drawn over the panes, so
+                                    asking for it does not squeeze the diff pane to nothing */}
+                                {layout === "overlay" ? (
+                                    <div
+                                        data-history-overlay
+                                        className="absolute bottom-0 left-[44px] top-0 z-20 flex w-[460px] flex-col border-r border-edge-faint bg-background shadow-popover"
+                                    >
+                                        {historyColumn()}
+                                    </div>
+                                ) : null}
+                                {noCommit ? null : (
+                                    <div className="flex w-[300px] flex-none flex-col border-r border-edge-faint bg-surface">
+                                        {compareOn ? (
+                                            compareSelection === AGGREGATE ? (
+                                                <AggregatePane
+                                                    base={compareRefs?.base ?? ""}
+                                                    head={compareRefs?.head ?? ""}
+                                                    form={compareForm}
+                                                    mergeBase={compareSides?.mergeBase ?? ""}
+                                                    changes={compareChanges}
+                                                    selectedFile={compareFile}
+                                                    onSelectFile={(path) => selectCompareFile(path)}
+                                                    onSetForm={(f) =>
+                                                        state?.cwd && fireAndForget(() => setCompareForm(state.cwd!, f))
+                                                    }
+                                                    review={review}
+                                                />
+                                            ) : (
+                                                <CommitPane
+                                                    row={compareCommit}
+                                                    changes={compareChanges}
+                                                    selectedFile={compareFile}
+                                                    onSelectFile={(path) => selectCompareFile(path)}
+                                                    review={review}
+                                                    failure={compareCommitFailure}
+                                                    onRetry={() => state?.cwd && retryCompareRow(state.cwd)}
+                                                />
+                                            )
+                                        ) : (
+                                            <CommitPane
+                                                row={selectedRow}
+                                                caption={
+                                                    scope && state
+                                                        ? worktreeCaption(
+                                                              scope.range,
+                                                              state.branch,
+                                                              state.head,
+                                                              state.ref
+                                                          )
+                                                        : undefined
+                                                }
+                                                changes={activeChanges}
+                                                selectedFile={selectedFile}
+                                                onSelectFile={(path) =>
+                                                    selectedCommit != null && selectCommitFile(selectedCommit, path)
+                                                }
+                                                review={review}
+                                                // the working-tree row's list is the change list, which fails as a whole
+                                                failure={selectedCommit === WORKING_TREE ? null : commitFailure}
+                                                onRetry={retrySelectedCommit}
+                                            />
+                                        )}
+                                    </div>
+                                )}
+                                <div className="isolate flex min-h-0 min-w-0 flex-1 flex-col">
+                                    {noCommit && !canPick ? null : (
+                                        <DiffPane
+                                            path={shownPath}
+                                            adds={selectedChange?.adds ?? 0}
+                                            dels={selectedChange?.dels ?? 0}
+                                            // "Open in Code" wants only the repository: the Code surface always shows
+                                            // the working-tree file, and says so itself when the path is gone
+                                            repoCwd={state?.cwd ?? null}
+                                            nothingToCompare={
+                                                compareOn &&
+                                                compareSelection === AGGREGATE &&
+                                                compareChanges != null &&
+                                                compareChanges.files.length === 0
+                                                    ? { base: compareRefs?.base ?? "", head: compareRefs?.head ?? "" }
+                                                    : null
                                             }
-                                        />
-                                    ) : (
-                                        <HistoryPane
-                                            rows={historyRows ?? []}
-                                            selected={selectedCommit}
-                                            // a filtered set mostly lacks its own parents, so lane assignment
-                                            // would sprawl to the fold limit and draw edges to commits that
-                                            // are not there
-                                            graphOn={graphOn && !historyFiltered}
-                                            loading={historyRows == null}
-                                            countLabel={countLabel(
-                                                historyFilters,
-                                                historyRows?.length ?? 0,
-                                                historyRows == null
-                                            )}
-                                            filtered={historyFiltered}
-                                            initialScroll={historyScroll}
-                                            hasMore={historyHasMore}
-                                            appendState={historyAppend}
-                                            onSelect={(hash) =>
-                                                state?.cwd && fireAndForget(() => selectCommit(state.cwd!, hash))
-                                            }
-                                            onScroll={(top) => globalStore.set(historyScrollAtom, top)}
-                                            onLoadMore={() => fireAndForget(() => loadMoreHistory())}
-                                            onCollapse={collapseHistory}
+                                            noCommit={noCommit}
+                                            model={model}
                                         />
                                     )}
-                                </>
-                            )}
-                        </div>
-                        {noCommit ? null : (
-                            <div className="flex w-[300px] flex-none flex-col border-r border-edge-faint bg-surface">
-                                {compareOn ? (
-                                    compareSelection === AGGREGATE ? (
-                                        <AggregatePane
-                                            base={compareRefs?.base ?? ""}
-                                            head={compareRefs?.head ?? ""}
-                                            form={compareForm}
-                                            mergeBase={compareSides?.mergeBase ?? ""}
-                                            changes={compareChanges}
-                                            selectedFile={compareFile}
-                                            onSelectFile={(path) => selectCompareFile(path)}
-                                            onSetForm={(f) =>
-                                                state?.cwd && fireAndForget(() => setCompareForm(state.cwd!, f))
-                                            }
-                                            review={review}
-                                        />
-                                    ) : (
-                                        <CommitPane
-                                            row={compareCommit}
-                                            changes={compareChanges}
-                                            selectedFile={compareFile}
-                                            onSelectFile={(path) => selectCompareFile(path)}
-                                            review={review}
-                                        />
-                                    )
-                                ) : (
-                                    <CommitPane
-                                        row={selectedRow}
-                                        caption={
-                                            scope && state
-                                                ? worktreeCaption(scope.range, state.branch, state.head, state.ref)
-                                                : undefined
-                                        }
-                                        changes={activeChanges}
-                                        selectedFile={selectedFile}
-                                        onSelectFile={(path) =>
-                                            selectedCommit != null && selectCommitFile(selectedCommit, path)
-                                        }
-                                        review={review}
-                                    />
-                                )}
+                                    <CommentSendBar model={model} />
+                                </div>
                             </div>
                         )}
-                        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-                            {noCommit && !canPick ? null : (
-                                <DiffPane
-                                    path={shownPath}
-                                    adds={selectedChange?.adds ?? 0}
-                                    dels={selectedChange?.dels ?? 0}
-                                    // "Open in editor" only makes sense for a path that exists in the working tree
-                                    editorCwd={
-                                        !compareOn && selectedCommit === WORKING_TREE ? (state?.cwd ?? null) : null
-                                    }
-                                    // "Open in Code" wants only the repository: the Code surface always shows the
-                                    // working-tree file, and says so itself when the path is gone
-                                    repoCwd={state?.cwd ?? null}
-                                    nothingToCompare={
-                                        compareOn &&
-                                        compareSelection === AGGREGATE &&
-                                        compareChanges != null &&
-                                        compareChanges.files.length === 0
-                                            ? { base: compareRefs?.base ?? "", head: compareRefs?.head ?? "" }
-                                            : null
-                                    }
-                                    noCommit={noCommit}
-                                    model={model}
-                                />
-                            )}
-                            <CommentSendBar model={model} />
-                        </div>
-                    </div>
+                    </>
                 )}
             </div>
         </MotionConfig>

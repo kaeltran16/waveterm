@@ -1112,6 +1112,7 @@ declare global {
         cwd: string;
         ref?: string;
         sessionstartts?: number;
+        end?: string;
     };
 
     // wshrpc.CommandGitChangesRtnData
@@ -1187,6 +1188,7 @@ declare global {
         ref: string;
         path: string;
         maxbytes?: number;
+        worktree?: boolean;
     };
 
     // wshrpc.CommandGitFileAtRefRtnData
@@ -1420,6 +1422,7 @@ declare global {
     type CommandListBranchesRtnData = {
         branches: BranchInfo[];
         default?: string;
+        hasremote?: boolean;
     };
 
     // wshrpc.CommandListDetachedEdgesData

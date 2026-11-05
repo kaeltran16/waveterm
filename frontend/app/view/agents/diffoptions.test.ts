@@ -2,7 +2,19 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { LABELLED_MIN_PX, paneHeaderLayout, paneOptions, SPLIT_MIN_PX } from "./diffoptions";
+import { LABELLED_MIN_PX, paneHeaderLayout, paneOptions, SPLIT_MIN_PX, splitHintText } from "./diffoptions";
+
+describe("the hint on removed lines in the unified view", () => {
+    it("points at the split toggle when the pane can draw split", () => {
+        expect(splitHintText(true)).toBe("Removed lines: switch to split (⇧D) to comment on them");
+    });
+    // ⇧D declines on a narrow pane, so naming it there would send the user to a dead key
+    it("says how to make room for split when the pane is too narrow", () => {
+        expect(splitHintText(false)).toBe(
+            "Removed lines: collapse history (⇧H) or widen the window to use split view and comment on them"
+        );
+    });
+});
 
 describe("the diff pane's view switches", () => {
     it("asks for two editors only when split is on", () => {

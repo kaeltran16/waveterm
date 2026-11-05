@@ -199,34 +199,25 @@ A link inside an item view does a full open, even with `Ctrl` held.
 
 | Keys | Action |
 |---|---|
-| `j` / `k` (or `↓` / `↑`) | Next / previous commit or file |
-| `Enter` | Open the file under the cursor |
+| `j` / `k` (or `↓` / `↑`) | Next / previous commit |
+| `Enter` | Open the open file in Code |
+| `n` / `p` | Next / previous file in the list |
 | `/` | Filter history (`Esc` clears) |
 | `Shift`+`G` | Toggle the history graph |
 | `g` `g` | Top of history |
 | `Shift`+`H` | Collapse / expand history |
 | `Shift`+`N` / `Shift`+`P` | Next / previous change in the open diff |
-| `Shift`+`D` | Split / unified |
+| `Shift`+`D` | Split / unified (when the pane is wide enough to split) |
 | `Shift`+`W` | Ignore whitespace |
 | `v` | Mark the open file reviewed (or unmark it) and open the next unreviewed file |
 | `m` | Comment on the selected lines of the open diff, or the cursor's line (also from the editor) |
 | `Ctrl`+`Enter` / `Esc` | Add / cancel the comment being written |
 | `Shift`+`Enter` | Send the pending comments to the agent |
-| `r` | Refresh changes and history |
+| `r` | Refresh changes and history (in compare: the comparison) |
 | `c` | In history: compare refs. In compare: change the compared refs |
 | `Shift`+`S` | Swap compare refs (in compare) |
 | `Tab` | Switch compare side (in compare) |
 | `Esc` | Clear filters, else leave compare, else back to the Cockpit |
-
-### Files — Review mode
-
-| Keys | Action |
-|---|---|
-| `a` | Accept the next hunk |
-| `r` | Reject the next hunk |
-| `u` | Undo the last decision |
-| `j` / `k` (or `↓` / `↑`) | Next / previous file |
-| `Enter` | Apply the review |
 
 ### Code
 

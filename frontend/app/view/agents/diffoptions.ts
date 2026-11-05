@@ -6,7 +6,7 @@
 // rather than in the pane because the surface unmounts on a nav switch and the keybindings flip them
 // from outside it, and the mapping lives here because it is the only part worth a test.
 
-import { atom } from "jotai";
+import { atom, type PrimitiveAtom } from "jotai";
 import type * as MonacoTypes from "monaco-editor";
 
 // below this the two editors are narrower than most lines in this repo, so the toggle is offered
@@ -22,6 +22,16 @@ export function paneHeaderLayout(width: number): { split: boolean; labelled: boo
 }
 
 export const splitViewAtom = atom<boolean>(false);
+
+// Whether the pane is wide enough to draw split, written by the pane from paneHeaderLayout: ⇧D and the
+// removed-lines hint read it from outside the pane. False until the pane measures itself.
+export const splitAvailableAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
+
+export function splitHintText(splitAvailable: boolean): string {
+    return splitAvailable
+        ? "Removed lines: switch to split (⇧D) to comment on them"
+        : "Removed lines: collapse history (⇧H) or widen the window to use split view and comment on them";
+}
 
 // Monaco ignores leading and trailing whitespace by default, so a whitespace-only change draws as no
 // change at all while the counts in the same header read +2 -2 — the pane contradicting the list it

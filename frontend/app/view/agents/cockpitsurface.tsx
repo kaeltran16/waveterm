@@ -13,6 +13,7 @@ import { useKeybindings } from "@/app/store/keybindings/store";
 import { cheatsheetOpenAtom } from "@/app/cockpit/shortcuts-cheatsheet";
 import { dismissAgent, toggleAgentBackground } from "./agentactions";
 import { AgentRow } from "./agentrow";
+import { agentDiffScope, openDiff } from "./agentdiffnav";
 import type { AgentsViewModel, ChipFilter } from "./agents";
 import {
     askSentKey,
@@ -362,10 +363,8 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
         landOn(model.surfaceAtom, "agent");
     };
 
-    // open this agent's changed files in the Diff surface (which scopes to focusIdAtom)
-    const openDiff = (id: string) => {
-        globalStore.set(model.focusIdAtom, id);
-        landOn(model.surfaceAtom, "files");
+    const openAgentDiff = (id: string) => {
+        openDiff(model, agentDiffScope(id, agents.find((a) => a.id === id)?.name ?? id));
     };
 
     const onKeyDown = useCockpitKeyboard({
@@ -396,7 +395,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
             onCursor={() => setCursorId(a.id)}
             onOpen={() => openFocus(a.id, false)}
             onOpenTerminal={() => model.openTerminal(a.id)}
-            onOpenDiff={() => openDiff(a.id)}
+            onOpenDiff={() => openAgentDiff(a.id)}
             onOpenComposer={() => setOpenComposerId(a.id)}
             onToggleAnswer={(qi, oi) => toggleAnswer(a.id, qi, oi)}
             onAnswerText={(qi, value) => model.setAnswerText(a.id, qi, value)}
@@ -438,7 +437,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                 }}
                 onCursor={(key) => setCursorId(key)}
                 onOpen={(id) => openFocus(id, false)}
-                onOpenDiff={openDiff}
+                onOpenDiff={openAgentDiff}
                 onBackground={c.lead && c.lead.state !== "asking" ? () => toggleBackground(c.lead!.id) : undefined}
             />
         );
