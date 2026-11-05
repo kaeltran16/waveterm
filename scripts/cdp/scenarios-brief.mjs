@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { SURFACE_LABEL } from "./attach.mjs";
+import { seedBriefDesign } from "./seed-brief.mjs";
 import {
     MIN_FONT_PX,
     MODELS_VIEWPORT,
@@ -3058,20 +3059,32 @@ export const briefInlineTracker = {
 // --- brief-design-parity: the Brief drawn to its handoff design ----------------------------------
 // The structural half of the parity review against docs/prototype/jarvis-brief-editing.dc.html
 // (variant A); the visual half is cdp-shots/design/ (scripts/cdp/design-states.mjs) beside these shots.
-// Runs against the design's data: seed it first with `node scripts/cdp/seed-brief.mjs`.
+// Runs against the design's data: arrange seeds the initiatives the store lacks (seed-brief.mjs), and
+// teardown deletes only those it seeded. The autonomy chip (step b) draws only over a registered project, so
+// a store with none (Final's) gets a throwaway project, removed with its channel in teardown.
 const PARITY_INITIATIVE = "Scenario gate clearance";
 const PARITY_CHUNK = "N1 box upgrade";
+const PARITY_PROJECT = "brief-design-parity";
 const parityNap = (h, ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
+// wstore's normProjectPath, so a channel's path compares to the one the project was registered at
+const parityNormPath = (p) => (p ?? "").replaceAll("\\", "/").replace(/\/+$/, "");
+
+async function seedParityProject(h) {
+    const projects = (await h.rpc("getfullconfig", null))?.projects ?? {};
+    if (Object.values(projects).some((p) => p?.path)) return null;
+    const path = mkdtempSync(join(tmpdir(), "arc-brief-parity-"));
+    await h.rpc("createproject", { name: PARITY_PROJECT, path });
+    const channels = (await h.rpc("getchannels", null))?.channels ?? [];
+    const channelId = channels.find((c) => parityNormPath(c.projectpath) === parityNormPath(path))?.oid ?? null;
+    return { path, channelId };
+}
 
 export const briefDesignParity = {
     name: "brief-design-parity",
     surface: "jarvis",
     async arrange(h) {
-        const { efforts = [] } = (await h.rpc("effortlist", {})) ?? {};
-        if (!efforts.some((e) => e.title === PARITY_INITIATIVE)) {
-            throw new Error(`no "${PARITY_INITIATIVE}" initiative - run node scripts/cdp/seed-brief.mjs first`);
-        }
-        return {};
+        const project = await seedParityProject(h);
+        return { project, seeded: await seedBriefDesign(h) };
     },
     async assert(h, ctx) {
         const steps = [];
@@ -3276,6 +3289,24 @@ export const briefDesignParity = {
             );
         }
         await h.goto("cockpit");
+        for (const effortoid of ctx.seeded ?? []) {
+            await h.rpc("effortdelete", { effortoid }).catch((e) => {
+                console.warn(`brief-design-parity teardown: delete ${effortoid} failed: ${e?.message ?? e}`);
+            });
+        }
+        if (ctx.project) {
+            const warn = (what) => (e) => console.warn(`brief-design-parity teardown: ${what} failed: ${e?.message ?? e}`);
+            // the project first: while it is registered, the config watcher recreates its channel
+            await h.rpc("deleteproject", { name: PARITY_PROJECT }).catch(warn("delete the project"));
+            if (ctx.project.channelId) {
+                await h.rpc("deletechannel", { channelid: ctx.project.channelId }).catch(warn("delete its channel"));
+            }
+            try {
+                rmSync(ctx.project.path, { recursive: true, force: true });
+            } catch (e) {
+                warn("remove its folder")(e);
+            }
+        }
     },
 };
 
