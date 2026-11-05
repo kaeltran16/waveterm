@@ -123,6 +123,19 @@ const RUN_READ = (pane) => `(() => {
     };
 })()`;
 
+const RUN_NARROW = { width: 1000, height: 700, deviceScaleFactor: 1, mobile: false };
+const VERIFY_WIDE = { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false };
+// the run heading's boxes: the title, Open run, and whether Open run stays inside the main column (the rail is its sibling)
+const RUN_HEAD_BOXES = (pane) => `(() => {
+    const run = ${pane}?.querySelector("[data-brainstorm-run]");
+    const title = run?.querySelector("h1")?.getBoundingClientRect();
+    const open = run?.querySelector("[data-brainstorm-open-run]")?.getBoundingClientRect();
+    const main = run?.getBoundingClientRect();
+    const box = (r) => (r ? { left: Math.round(r.left), right: Math.round(r.right), top: Math.round(r.top), bottom: Math.round(r.bottom) } : null);
+    const overlap = !!title && !!open && title.left < open.right && open.left < title.right && title.top < open.bottom && open.top < title.bottom;
+    return { title: box(title), open: box(open), main: box(main), overlap, openInside: !!open && !!main && open.right <= main.right };
+})()`;
+
 export default function (kit) {
     const {
         bsArrangeAgent,
@@ -328,8 +341,8 @@ export default function (kit) {
             );
             await h.shot("cdp-shots/brainstorm-run-blocked-1.png");
 
-            const tree = await treeStep(h, `Brainstorm · final failed · run ${short}`, "final failed");
-            rec("2. the tree line reads Brainstorm · final failed · run <id8>, the state drawn inside it", tree.ok, tree.detail);
+            const tree = await treeStep(h, `final failed · run ${short}`, "final failed");
+            rec("2. the tree line reads final failed · run <id8>, the state drawn inside it", tree.ok, tree.detail);
 
             const from = await h.activeSurfaceLabel();
             const clicked = await bsClick(h, BS_PANE, `Open run ${short}`);
@@ -415,8 +428,22 @@ export default function (kit) {
             );
             await h.shot("cdp-shots/brainstorm-run-landed-2-passed.png");
 
-            const tree = await treeStep(h, `Brainstorm done · merged · run ${short}`, "merged");
-            rec("3. the tree line reads Brainstorm done · merged · run <id8>, the state drawn inside it", tree.ok, tree.detail);
+            const tree = await treeStep(h, `merged · run ${short}`, "merged");
+            rec("3. the tree line reads merged · run <id8>, the state drawn inside it", tree.ok, tree.detail);
+
+            await h.cdp("Emulation.setDeviceMetricsOverride", RUN_NARROW);
+            try {
+                await polishNap(400);
+                const head = await h.ev(RUN_HEAD_BOXES(BS_PANE));
+                await h.shot("cdp-shots/brainstorm-run-landed-narrow.png");
+                rec(
+                    "3b. at 1000x700 Open run does not overlap the title and sits beside the rail, not under it",
+                    head.open != null && head.title != null && !head.overlap && head.openInside,
+                    head
+                );
+            } finally {
+                await h.cdp("Emulation.setDeviceMetricsOverride", VERIFY_WIDE).catch(() => {});
+            }
 
             const bs = ctx.bs;
             bsWrite(bs, { ...ctx.bsFile, canvas: "../escape" });
@@ -488,8 +515,8 @@ export default function (kit) {
                 s
             );
             await h.shot("cdp-shots/brainstorm-run-missing.png");
-            const tree = await treeStep(h, `Brainstorm · not found · run ${short}`, "not found");
-            rec("2. the tree line reads Brainstorm · not found · run <id8>, the state drawn inside it", tree.ok, tree.detail);
+            const tree = await treeStep(h, `not found · run ${short}`, "not found");
+            rec("2. the tree line reads not found · run <id8>, the state drawn inside it", tree.ok, tree.detail);
             return steps;
         },
         teardown: (h, ctx) => bsTeardownAgent(h, ctx, "brainstorm-run-missing"),

@@ -165,6 +165,9 @@ const Q16 = {
 const GRAPH = { id: "graph", title: "Graph model", state: "asked", body: "" };
 const PICKED_LINE = `brainstorm: builder answer: ${OPTIONS[1].label}`;
 const TYPED_ANSWER = "Count a missing day as zero.";
+const NARROW = { width: 1000, height: 700, deviceScaleFactor: 1, mobile: false };
+const MIN_MAIN = 400;
+const VERIFY_WIDE = { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false };
 const RAIL = `document.querySelector("[data-brainstorm-pane] [data-brainstorm-check-rail]")`;
 
 export default function (kit) {
@@ -874,6 +877,29 @@ export default function (kit) {
                     s4.ok && s4.builder.includes(YOURS[0].q) && c4.pending === "" && c4.failed === "",
                     { ...bsBrief(s4), builder: s4.builder.slice(0, 120), ...c4 }
                 );
+
+                // 4b. a check with exactly one builder question says so in the rail, and a narrow pane keeps the main column
+                bsWrite(ctx, file({ parts: ALL_YOURS, check: { yours: [YOURS[0]], calls: [], answered: [], touched: [] } }));
+                const s4b = await bsUntil(h, ctx, (s) => s.view === "check" && s.builder !== "");
+                const one = await polishWaitFor(
+                    h,
+                    `${RAIL}?.querySelector("[data-brainstorm-check-rail-line]")?.innerText.includes("It had 1 question.") ?? false`,
+                    CHECK_WAIT_MS
+                );
+                const oneLine = await h.ev(`${RAIL}?.querySelector("[data-brainstorm-check-rail-line]")?.innerText.replace(/\\s+/g, " ").trim() ?? ""`);
+                rec("4b. with one builder question the rail reads It had 1 question", s4b.ok && one && !oneLine.includes("1 questions"), { ...bsBrief(s4b), oneLine });
+                await h.cdp("Emulation.setDeviceMetricsOverride", NARROW);
+                try {
+                    await polishNap(400);
+                    const geo = await h.ev(`(() => ({
+                        main: Math.round(${RAIL}?.previousElementSibling?.getBoundingClientRect().width ?? 0),
+                        rail: Math.round(${RAIL}?.getBoundingClientRect().width ?? 0),
+                    }))()`);
+                    await h.shot("cdp-shots/brainstorm-builder-check-narrow.png");
+                    rec("4c. at 1000x700 the check's main column is wider than 400px", geo.main > MIN_MAIN, geo);
+                } finally {
+                    await h.cdp("Emulation.setDeviceMetricsOverride", VERIFY_WIDE).catch(() => {});
+                }
 
                 // 5. the file's check cleared, the record failed: the reason and Try again
                 bsWrite(ctx, READY);

@@ -30,6 +30,7 @@ import {
     releaseRpc,
     reloadApp,
     restoreLocalStorage,
+    setInputExpr,
     skipStep,
     teardownFixtureRun,
     usageRateLimits,
@@ -392,6 +393,65 @@ export const briefSurface = {
 const BRIEF_PEEK_GOAL = "verify brief-peek: an attributed run, do nothing";
 // the record CreateRun captures for that goal: jarvisdossier names it by the goal's slug
 const BRIEF_PEEK_RECORD = "verify-brief-peek-an-attributed-run-do-nothing";
+// a record saved with Windows line endings, which no RPC writes: seeded straight into the vault, removed in teardown
+const BRIEF_PEEK_CRLF = "verify-brief-peek-crlf";
+const BRIEF_PEEK_CRLF_HEAD = "Verify brief-peek reads a CRLF record.";
+const BRIEF_PEEK_CRLF_REST = "Its body is what follows the headline.";
+// found by its summary on a later run, so the seeded record keeps one rather than growing one per run
+const BRIEF_PEEK_DECISION = "verify brief-peek: the anchored decision";
+const BRIEF_PEEK_NARROW = { width: 1000, height: 700, deviceScaleFactor: 1, mobile: false };
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// mirrors wconfig.resolveVaultRoot
+async function vaultRoot(h) {
+    const settings = (await h.rpc("getfullconfig", null))?.settings ?? {};
+    const configured = settings["memory:vaultpath"] || settings["jarvis:vaultpath"];
+    return configured ? configured.replace(/^~(?=$|[\\/])/, homedir()) : join(homedir(), ".waveterm", "vault");
+}
+
+// stamped a month old so it sorts below the records the palette walk opens
+async function seedCrlfRecord(h) {
+    const dir = join(await vaultRoot(h), "tasks", "active");
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, `${BRIEF_PEEK_CRLF}.md`);
+    const stamp = Date.now() - 30 * DAY_MS;
+    const lines = [
+        "---",
+        "status: paused",
+        'ticket: ""',
+        `objective: ${BRIEF_PEEK_CRLF_HEAD} ${BRIEF_PEEK_CRLF_REST}`,
+        "acceptance: []",
+        "confidence: med",
+        `created: ${stamp}`,
+        `updated: ${stamp}`,
+        "---",
+        "",
+        "## Notes",
+        "",
+        "",
+    ];
+    writeFileSync(file, lines.join("\r\n"));
+    return file;
+}
+
+async function ensurePeekDecision(h) {
+    const detail = await h.rpc("getdossier", { dossierid: BRIEF_PEEK_RECORD });
+    const have = (detail?.decisions ?? []).find((c) => c.summary === BRIEF_PEEK_DECISION);
+    if (have != null) return have.id;
+    const made = await h.rpc("appenddossierdecision", {
+        dossierid: BRIEF_PEEK_RECORD,
+        summary: BRIEF_PEEK_DECISION,
+        rationale: "So the peek has a decision to anchor on.",
+        links: [],
+    });
+    return made?.decisionid ?? null;
+}
+
+const PEEK_ANCHOR = `
+    const { globalStore } = await mod("app/store/jotaiStore.ts");
+    const { pendingDecisionAnchorAtom } = await mod("app/view/jarvis/petstore.ts");
+    return globalStore.get(pendingDecisionAnchorAtom);
+`;
 
 export const briefPeek = {
     name: "brief-peek",
@@ -414,6 +474,12 @@ export const briefPeek = {
             // the capture names the record by its goal's slug, so a later run finds it already there and its capture
             // fails ("already exists"): attach this run to the record explicitly
             await h.rpc("acceptdossieredge", { dossierid: BRIEF_PEEK_RECORD, runoref: `run:${ctx.runId}` });
+            // the decision step 14 anchors on; one added after the record was cached is step 15's
+            try {
+                ctx.decisionId = await ensurePeekDecision(h);
+            } catch (e) {
+                ctx.decisionError = String(e?.message ?? e);
+            }
             // the Brief reads a boot-primed snapshot, so the RPC-created channel needs a reload
             await h.ev("location.reload()");
             await h.ev(`(async () => {
@@ -909,6 +975,8 @@ export const briefPeek = {
         if (recordHook) await h.ev(`window.__recordPeekFor(${JSON.stringify(EMPTY_ID)}, { detail: ${JSON.stringify(emptyDetail)} })`);
         const emptyReady =
             recordHook && (await polishWaitFor(h, `document.querySelector('${BAND} [data-jarvis-peek-status-toggle]') != null`, 6000));
+        // the runs are unknown until the record's scope read settles, so the absence is waited for, not read at once
+        await polishWaitFor(h, `document.querySelector('${BAND} [data-jarvis-peek-runs-loading]') == null`, 8000);
         const empty = await h.ev(`(() => {
             const band = document.querySelector('${BAND}');
             if (!band) return null;
@@ -939,7 +1007,7 @@ export const briefPeek = {
                 empty.bodyColor === empty.muted &&
                 empty.text.includes("No session has ever been attributed to this record.") &&
                 empty.text.includes("never updated") &&
-                empty.text.includes("no decisions yet"),
+                empty.text.includes("No decisions yet"),
             detail: JSON.stringify({ emptyReady, empty }),
         });
         // the toggle mounts on the panel's first frame, so the wait above ends while the modal still fades in
@@ -947,6 +1015,242 @@ export const briefPeek = {
         await h.shot("cdp-shots/brief-peek-empty.png");
         await pressEscape();
         await polishWaitFor(h, `!document.querySelector('${BAND}')`, 3000);
+
+        // F1: a CRLF record parses like any other, so its front matter is read rather than shown as its body
+        let crlfError = null;
+        try {
+            ctx.crlfFile = await seedCrlfRecord(h);
+        } catch (e) {
+            crlfError = String(e?.message ?? e);
+        }
+        if (recordHook) await h.ev(`window.__recordPeekFor(${JSON.stringify(BRIEF_PEEK_CRLF)})`);
+        const crlfReady =
+            recordHook &&
+            (await polishWaitFor(
+                h,
+                `document.querySelector('${BAND} [data-jarvis-peek-status-toggle], ${BAND} [data-jarvis-peek-error]') != null`,
+                6000
+            ));
+        const crlf = await h.ev(`(() => {
+            const band = document.querySelector('${BAND}');
+            if (!band) return null;
+            return {
+                record: band.querySelector('[data-jarvis-peek-record]')?.dataset.jarvisPeekRecord ?? null,
+                title: (band.querySelector('[data-jarvis-peek-title]')?.textContent || '').trim(),
+                current: band.querySelector('[data-jarvis-peek-status-toggle] span[data-jarvis-peek-status]')?.dataset.jarvisPeekStatus ?? null,
+                statusButtons: band.querySelectorAll('[data-jarvis-peek-status-toggle] button[data-jarvis-peek-status]').length,
+                body: (band.querySelector('[data-jarvis-peek-body]')?.textContent || '').trim(),
+                error: (band.querySelector('[data-jarvis-peek-error]')?.textContent || '').trim() || null,
+            };
+        })()`);
+        await settle(600);
+        await h.shot("cdp-shots/brief-peek-crlf.png");
+        steps.push({
+            step: "9. a CRLF record opens with its headline title, its status and its body, not its front matter",
+            ok:
+                crlfError == null &&
+                crlfReady === true &&
+                crlf?.record === BRIEF_PEEK_CRLF &&
+                crlf.title === BRIEF_PEEK_CRLF_HEAD &&
+                crlf.current === "paused" &&
+                crlf.statusButtons > 0 &&
+                !crlf.body.startsWith("---") &&
+                crlf.body === BRIEF_PEEK_CRLF_REST,
+            detail: JSON.stringify({ crlfError, crlfReady, crlf }),
+        });
+        await pressEscape();
+        await polishWaitFor(h, `!document.querySelector('${BAND}')`, 3000);
+
+        // F5: with the scope read held, the runs table is loading, never "no session has ever been attributed"
+        await holdRpc(h, "ResolveFocusScopeCommand");
+        await lookEval(h, `
+            const { globalStore } = await mod("app/store/jotaiStore.ts");
+            const S = await mod("app/view/jarvis/jarvissubjectstore.ts");
+            for (const a of [S.recordRunsAtom, S.recordScopeAtom]) {
+                const next = { ...globalStore.get(a) };
+                delete next[${JSON.stringify(BRIEF_PEEK_RECORD)}];
+                globalStore.set(a, next);
+            }
+        `);
+        if (recordHook) await h.ev(`window.__recordPeekFor(${JSON.stringify(BRIEF_PEEK_RECORD)})`);
+        const heldReady =
+            recordHook && (await polishWaitFor(h, `document.querySelector('${BAND} [data-jarvis-peek-status-toggle]') != null`, 6000));
+        await settle(400);
+        const heldRuns = await h.ev(`(() => {
+            const band = document.querySelector('${BAND}');
+            return {
+                skeletonRows: band?.querySelector('[data-jarvis-peek-runs-loading]')?.children.length ?? 0,
+                absent: /No session has ever been attributed/.test(band?.innerText || ''),
+                rows: band?.querySelectorAll('[data-jarvis-peek-run]').length ?? 0,
+            };
+        })()`);
+        await h.shot("cdp-shots/brief-peek-runs-loading.png");
+        await releaseRpc(h, "ResolveFocusScopeCommand");
+        await lookEval(h, `
+            const S = await mod("app/view/jarvis/jarvissubjectstore.ts");
+            await S.reloadRecordScope(${JSON.stringify(BRIEF_PEEK_RECORD)});
+        `).catch(() => {});
+        const runsBack = await polishWaitFor(h, `document.querySelector('${BAND} [data-jarvis-peek-run]') != null`, 10000);
+        const loadingGone = await h.ev(`document.querySelector('${BAND} [data-jarvis-peek-runs-loading]') == null`);
+        steps.push({
+            step: "10. while the record's runs load, the table shows skeleton rows and claims no absence; then the rows land",
+            ok:
+                heldReady === true &&
+                heldRuns.skeletonRows === 3 &&
+                heldRuns.absent === false &&
+                heldRuns.rows === 0 &&
+                runsBack === true &&
+                loadingGone === true,
+            detail: JSON.stringify({ heldReady, heldRuns, runsBack, loadingGone }),
+        });
+
+        // F12: a run row reads as one line of prose, never markdown
+        const heads = await h.ev(
+            `[...document.querySelectorAll('${BAND} [data-jarvis-peek-run]')].map((b) => (b.children[1]?.textContent || '').trim())`
+        );
+        steps.push({
+            step: "11. the run rows' headlines carry no heading marks or code ticks",
+            ok: Array.isArray(heads) && heads.length > 0 && heads.every((t) => t !== "" && !/[#`]/.test(t)),
+            detail: JSON.stringify({ heads }),
+        });
+
+        // F4: the footer's count is the toggle for the record's log, Add decision included; checked narrow
+        await h.cdp("Emulation.setDeviceMetricsOverride", BRIEF_PEEK_NARROW);
+        await settle(400);
+        const TOGGLE = `document.querySelector('${BAND} [data-jarvis-peek-decisions]')`;
+        const LOG = `${BAND} [data-jarvis-peek-decision-log]`;
+        const readLog = () =>
+            h.ev(`(() => {
+                const toggle = ${TOGGLE};
+                const add = document.querySelector('${LOG} [data-jarvis-decision-add]');
+                const r = add?.getBoundingClientRect();
+                return {
+                    label: toggle ? (toggle.textContent || '').trim() : null,
+                    expanded: toggle?.getAttribute('aria-expanded') ?? null,
+                    log: document.querySelector('${LOG}') != null,
+                    add: add != null && /Add decision/.test(add.textContent || ''),
+                    addInSight: r != null && r.height > 0 && add.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)),
+                };
+            })()`);
+        await h.ev(`${TOGGLE}?.click()`);
+        await settle(500);
+        const logOpen = await readLog();
+        await h.shot("cdp-shots/brief-peek-decisions.png");
+        await h.ev(`${TOGGLE}?.click()`);
+        await settle(300);
+        const logClosed = await readLog();
+        await h.cdp("Emulation.clearDeviceMetricsOverride", {}).catch(() => {});
+        steps.push({
+            step: "12. the footer's decisions count opens the record's log with Add decision in sight, and closes it",
+            ok:
+                /^(No decisions yet|\d+ decisions?)$/.test(logOpen.label ?? "") &&
+                logOpen.expanded === "true" &&
+                logOpen.log === true &&
+                logOpen.add === true &&
+                logOpen.addInSight === true &&
+                logClosed.expanded === "false" &&
+                logClosed.log === false,
+            detail: JSON.stringify({ logOpen, logClosed }),
+        });
+
+        // F2: Escape in the Add decision form cancels the form, and the peek around it stays
+        await h.ev(`${TOGGLE}?.click()`);
+        await settle(300);
+        await h.ev(`document.querySelector('${LOG} [data-jarvis-decision-add]')?.click()`);
+        await settle(300);
+        const FORM_INPUT = `document.querySelector('${LOG} [data-jarvis-decision-form] input')`;
+        const typed = await h.ev(setInputExpr(FORM_INPUT, "typed, then abandoned"));
+        await h.ev(
+            `${FORM_INPUT}?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }))`
+        );
+        await settle(400);
+        const afterEsc = await h.ev(`({
+            form: document.querySelector('${LOG} [data-jarvis-decision-form]') != null,
+            add: document.querySelector('${LOG} [data-jarvis-decision-add]') != null,
+            peek: document.querySelector('${BAND}') != null,
+        })`);
+        steps.push({
+            step: "13. Escape in the Add decision form closes the form and leaves the peek open",
+            ok: typed === true && afterEsc.form === false && afterEsc.add === true && afterEsc.peek === true,
+            detail: JSON.stringify({ typed, afterEsc }),
+        });
+        await pressEscape();
+        await polishWaitFor(h, `!document.querySelector('${BAND}')`, 3000);
+
+        // F4: an open anchored on a decision shows the log with that card lit; the anchor clears after its flash,
+        // and a close before the flash ends clears it too
+        const decisionId = ctx.decisionId ?? null;
+        const decisionError = ctx.decisionError ?? (decisionId == null ? "no decision was seeded" : null);
+        const CARD = `document.querySelector('${BAND} [data-jarvis-decision="${decisionId}"]')`;
+        const cardLit = `(() => {
+            const c = ${CARD};
+            if (!c || c.dataset.jarvisDecisionHighlighted == null) return false;
+            const r = c.getBoundingClientRect();
+            return r.height > 0 && c.contains(document.elementFromPoint(r.left + r.width / 2, r.top + Math.min(r.height / 2, 12)));
+        })()`;
+        const openAnchored = () =>
+            h.ev(
+                `window.__openAddress?.(${JSON.stringify("task:" + BRIEF_PEEK_RECORD)}, { anchor: ${JSON.stringify(decisionId)} })`
+            );
+        if (decisionId != null) await openAnchored();
+        const lit = decisionId != null && (await polishWaitFor(h, cardLit, 8000));
+        await h.shot("cdp-shots/brief-peek-anchor.png");
+        let anchorAfterFlash = await lookEval(h, PEEK_ANCHOR);
+        for (let i = 0; i < 16 && anchorAfterFlash != null; i++) {
+            await settle(250);
+            anchorAfterFlash = await lookEval(h, PEEK_ANCHOR);
+        }
+        await pressEscape();
+        await polishWaitFor(h, `!document.querySelector('${BAND}')`, 3000);
+        if (decisionId != null) await openAnchored();
+        const relit = decisionId != null && (await polishWaitFor(h, cardLit, 6000));
+        const anchorWhileOpen = await lookEval(h, PEEK_ANCHOR);
+        await pressEscape();
+        await polishWaitFor(h, `!document.querySelector('${BAND}')`, 3000);
+        const anchorAfterClose = await lookEval(h, PEEK_ANCHOR);
+        steps.push({
+            step: "14. an anchored open shows the log with the decision lit; the anchor clears after the flash and on close",
+            ok:
+                decisionError == null &&
+                lit === true &&
+                anchorAfterFlash == null &&
+                relit === true &&
+                anchorWhileOpen === decisionId &&
+                anchorAfterClose == null,
+            detail: JSON.stringify({ decisionId, decisionError, lit, anchorAfterFlash, relit, anchorWhileOpen, anchorAfterClose }),
+        });
+
+        // F4: a decision an agent appends after the record is cached (step 14 opened it) is still found by an
+        // anchored open. Each run appends one, as an agent would; no RPC removes a decision.
+        let fresh = null;
+        let freshError = null;
+        try {
+            const made = await h.rpc("appenddossierdecision", {
+                dossierid: BRIEF_PEEK_RECORD,
+                summary: `verify brief-peek: a decision added after the cache ${Date.now()}`,
+                rationale: "So an anchored open has a decision the cached record does not hold.",
+                links: [],
+            });
+            fresh = made?.decisionid ?? null;
+        } catch (e) {
+            freshError = String(e?.message ?? e);
+        }
+        const FRESH_CARD = `document.querySelector('${LOG} [data-jarvis-decision="${fresh}"]')`;
+        if (fresh != null) {
+            await h.ev(
+                `window.__openAddress?.(${JSON.stringify("task:" + BRIEF_PEEK_RECORD)}, { anchor: ${JSON.stringify(fresh)} })`
+            );
+        }
+        const freshShown = fresh != null && (await polishWaitFor(h, `${FRESH_CARD} != null`, 8000));
+        const freshLog = await readLog();
+        await h.shot("cdp-shots/brief-peek-anchor-fresh.png");
+        await pressEscape();
+        await polishWaitFor(h, `!document.querySelector('${BAND}')`, 3000);
+        steps.push({
+            step: "15. an anchored open of a decision appended after the record was cached opens the log on its card",
+            ok: freshError == null && freshShown === true && freshLog.expanded === "true" && freshLog.log === true,
+            detail: JSON.stringify({ fresh, freshError, freshShown, freshLog }),
+        });
         return steps;
     },
     async teardown(h, ctx) {
@@ -961,6 +1265,9 @@ export const briefPeek = {
         await step("close the popup", () =>
             h.ev(`document.querySelector('[data-pet-peek] button[aria-label="Close Jarvis panel"]')?.click()`)
         );
+        await step("release the scope read", () => releaseRpc(h, "ResolveFocusScopeCommand"));
+        await step("clear the viewport", () => h.cdp("Emulation.clearDeviceMetricsOverride", {}));
+        if (ctx?.crlfFile) await step("remove the CRLF record", () => rmSync(ctx.crlfFile, { force: true }));
         // a failure between 4c's archive and 4d's reactivation must not leave the seeded record archived
         await step("reactivate the record", () =>
             h.rpc("setdossierstatus", { dossierid: BRIEF_PEEK_RECORD, status: "active" })
@@ -1218,9 +1525,7 @@ const newestMemoryNote = async (h) => {
 async function arrangePeekItemsNote(h, ctx) {
     ctx.note = await newestMemoryNote(h);
     if (ctx.note != null) return;
-    const settings = (await h.rpc("getfullconfig", null))?.settings ?? {};
-    const configured = settings["memory:vaultpath"] || settings["jarvis:vaultpath"];
-    const root = configured ? configured.replace(/^~(?=$|[\\/])/, homedir()) : join(homedir(), ".waveterm", "vault");
+    const root = await vaultRoot(h);
     ctx.noteFile = join(root, "memory", `${PEEK_ITEMS_NOTE}.md`);
     mkdirSync(join(root, "memory"), { recursive: true });
     writeFileSync(
@@ -3672,12 +3977,72 @@ const RECORD_BAND_LIB = `
     };
 `;
 
+// two records on one ticket, guessed onto a second run by that ticket in its channel's name (layer 2). The
+// second run's goal is the first's, so its capture collides with the record the first made and adds no
+// confirmed edge: both of its edges stay guesses. Objectives run past the detail's clamp, and neither names the
+// ticket, so a picker match on "1739" is a ticket match.
+const RECORD_BAND_TICKET = "VERIFY-1739";
+const RECORD_BAND_TWINS = [
+    { id: "verify-record-band-twin-a", head: "Verify record-band twin A shares a ticket with twin B." },
+    { id: "verify-record-band-twin-b", head: "Verify record-band twin B shares a ticket with twin A." },
+];
+const RECORD_BAND_FILLER = "This sentence is padding, so the record detail has a body long enough to clamp. ".repeat(7);
+const RECORD_BAND_PICKER = `${RECORD_BAND}?.querySelector("[data-jarvis-record-picker]")`;
+const RECORD_BAND_PICKER_INPUT = `${RECORD_BAND_PICKER}?.querySelector("input")`;
+const RECORD_BAND_GLYPH_TITLE = "Guessed by Jarvis: expand to confirm or detach it";
+
+// the run's own record, written before CreateRun so its capture finds it: a two-line objective, and a ticket
+// that is not the twins' so the picker's "1739" still narrows to the twins. Rewritten whole each run, which
+// also drops any ref an earlier run left in it.
+const RECORD_BAND_RECORD_TICKET = "VERIFY-2201";
+const RECORD_BAND_RECORD_HEAD = "Verify record-band detach and restore";
+const RECORD_BAND_RECORD_OBJECTIVE = `${RECORD_BAND_RECORD_HEAD}\nA second line the row leaves out.`;
+
+// with the empty machine blocks renderDossier lays down: accepting an edge writes the refs block in place.
+// The objective goes quoted, as renderDossier writes one with a newline in it.
+function writeRecordBandRecord(dir, id, ticket, objective, stamp) {
+    const file = join(dir, `${id}.md`);
+    const block = (name) => [`<!-- jarvis:begin ${name} -->`, `<!-- jarvis:end ${name} -->`];
+    const lines = [
+        "---",
+        "status: active",
+        `ticket: ${ticket}`,
+        `objective: ${JSON.stringify(objective)}`,
+        "acceptance: []",
+        "confidence: med",
+        `created: ${stamp}`,
+        `updated: ${stamp}`,
+        "---",
+        ...block("state"),
+        ...block("refs"),
+        ...block("blockers"),
+        "",
+        "## Notes",
+        "",
+        "",
+    ];
+    writeFileSync(file, lines.join("\n"));
+    return file;
+}
+
+// returns only the twins' files: teardown removes those, and the run's record stays as it always has
+async function seedRecordBandRecords(h) {
+    const dir = join(await vaultRoot(h), "tasks", "active");
+    mkdirSync(dir, { recursive: true });
+    const stamp = Date.now() - 30 * DAY_MS;
+    writeRecordBandRecord(dir, RECORD_BAND_RECORD, RECORD_BAND_RECORD_TICKET, RECORD_BAND_RECORD_OBJECTIVE, stamp);
+    return RECORD_BAND_TWINS.map((t) =>
+        writeRecordBandRecord(dir, t.id, RECORD_BAND_TICKET, `${t.head} ${RECORD_BAND_FILLER.trim()}`, stamp)
+    );
+}
+
 export const recordBandDetachRestore = {
     name: "record-band-detach-restore",
     surface: "jarvis",
     async arrange(h) {
         const ctx = { cwd: mkdtempSync(join(tmpdir(), "verify-record-band-")) };
         try {
+            ctx.twinFiles = await seedRecordBandRecords(h);
             const wslist = await h.rpc("workspacelist", null);
             const ch = await h.rpc("createchannel", { name: "verify-record-band", projectpath: ctx.cwd });
             ctx.channelId = ch.oid;
@@ -3693,6 +4058,23 @@ export const recordBandDetachRestore = {
             ctx.runORef = `run:${ctx.runId}`;
             // a later run finds the record already there and its capture fails, so attach explicitly
             await h.rpc("acceptdossieredge", { dossierid: RECORD_BAND_RECORD, runoref: ctx.runORef });
+            // its own project, so the first record's anchor repo adds no structural edge to it
+            ctx.guessed = { cwd: mkdtempSync(join(tmpdir(), "verify-record-band-guessed-")) };
+            const ch2 = await h.rpc("createchannel", {
+                name: `verify-record-band ${RECORD_BAND_TICKET}`,
+                projectpath: ctx.guessed.cwd,
+            });
+            ctx.guessed.channelId = ch2.oid;
+            const created2 = await h.rpc("createrun", {
+                channelid: ctx.guessed.channelId,
+                workspaceid: wslist[0].workspacedata.oid,
+                goal: RECORD_BAND_GOAL,
+                runtime: "claude",
+                mode: "quick",
+                deferstart: true,
+            });
+            ctx.guessed.runId = created2.run.id;
+            ctx.guessed.runORef = `run:${ctx.guessed.runId}`;
             // the Brief reads a boot-primed snapshot, so the RPC-created channel needs a reload
             await h.ev("location.reload()");
             await h.ev(`(async () => {
@@ -3755,13 +4137,23 @@ export const recordBandDetachRestore = {
             const confirm = dialogButton();
             confirm?.click();
             const ok = await until(() => bandButton("Restore") && !bandButton("Not this record"));
-            return { ok, asked: !!confirm, detachedRow: bandText().includes("Detached"), text: bandText() };
+            const row = ${RECORD_BAND}?.querySelector("[data-jarvis-detached-row]");
+            return {
+                ok,
+                asked: !!confirm,
+                label: (row?.querySelector("[data-jarvis-detached-label]")?.textContent || "").replace(/\\s+/g, " ").trim(),
+                ticket: row?.querySelector("[data-jarvis-ticket-chip]")?.textContent?.trim() ?? null,
+                text: bandText(),
+            };
         })()`);
         const afterDetach = await detachedIds();
         await h.shot("cdp-shots/record-band-detached.png");
         rec(
-            "2. Not this record moves the edge to a Detached row that offers Restore",
-            detached.ok === true && detached.detachedRow === true && afterDetach.includes(RECORD_BAND_RECORD),
+            "2. Not this record moves the edge to a Detached row that offers Restore, labelled with the objective's first line and its ticket chip",
+            detached.ok === true &&
+                detached.label === `Detached · ${RECORD_BAND_RECORD_HEAD}` &&
+                detached.ticket === RECORD_BAND_RECORD_TICKET &&
+                afterDetach.includes(RECORD_BAND_RECORD),
             JSON.stringify({ ...detached, stored: afterDetach })
         );
 
@@ -3779,7 +4171,205 @@ export const recordBandDetachRestore = {
             restored.ok === true && restored.detachedRow === false && !afterRestore.includes(RECORD_BAND_RECORD),
             JSON.stringify({ ...restored, stored: afterRestore })
         );
-        steps.push(await floorStep(h, `4. no visible text in the record band is under ${MIN_FONT_PX}px`, RECORD_BAND));
+        // pinned at verify's own size: a scenario before this one can leave the ~1000x700 window, and the
+        // detail's one-line headline read is width-sensitive
+        await h.cdp("Emulation.setDeviceMetricsOverride", MODELS_VIEWPORT);
+        // the band's line on a confirmed edge: the chip, worded for a person, and nothing before it
+        const confirmedLine = await h.ev(`(() => {
+            const line = ${RECORD_BAND}?.querySelector("[data-jarvis-band-toggle]");
+            const chip = line?.querySelector("[data-jarvis-edge-chip]");
+            const before = chip ? [...line.querySelectorAll("span")].filter((s) => s.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING && !s.contains(chip)) : [];
+            return {
+                chipTitle: chip?.getAttribute("title") ?? null,
+                label: chip?.querySelector("[data-jarvis-edge-label]")?.textContent?.trim() ?? null,
+                glyph: line?.querySelector("[data-jarvis-band-glyph]") != null,
+                textBefore: before.map((s) => (s.textContent || "").trim()).join(" ").trim(),
+                lineText: (line?.innerText || "").replace(/\\s+/g, " ").trim(),
+            };
+        })()`);
+        rec(
+            "4. a confirmed edge's line reads confirmed, has no glyph, and shows no record id before its chip",
+            confirmedLine.chipTitle === RECORD_BAND_RECORD &&
+                confirmedLine.label === "confirmed" &&
+                confirmedLine.glyph === false &&
+                confirmedLine.textBefore === "" &&
+                !confirmedLine.lineText.includes(RECORD_BAND_RECORD) &&
+                !/informing/.test(confirmedLine.lineText),
+            JSON.stringify(confirmedLine)
+        );
+
+        const picked = await h.ev(`(async () => {
+            ${RECORD_BAND_LIB}
+            bandButton("+ Attach another record")?.click();
+            const opened = await until(() => ${RECORD_BAND_PICKER}?.querySelector("[data-jarvis-record-picker-row]"));
+            const rows = () => [...(${RECORD_BAND_PICKER}?.querySelectorAll("[data-jarvis-record-picker-row]") ?? [])];
+            // the old column printed id.slice(0, 8) in its own span
+            const idColumn = rows().some((r) =>
+                [...r.querySelectorAll("span")].some((s) => (s.textContent || "").trim() === (r.getAttribute("title") || "").slice(0, 8))
+            );
+            const input = ${RECORD_BAND_PICKER_INPUT};
+            const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+            set.call(input, "1739");
+            input.dispatchEvent(new Event("input", { bubbles: true }));
+            const twins = ${JSON.stringify(RECORD_BAND_TWINS.map((t) => t.id))};
+            const narrowed = await until(() => rows().length > 0 && rows().every((r) => twins.includes(r.getAttribute("title"))));
+            const matched = rows().map((r) => ({ id: r.getAttribute("title"), text: (r.innerText || "").replace(/\\s+/g, " ").trim() }));
+            ${RECORD_BAND_PICKER_INPUT}?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true }));
+            const top = matched[0]?.id;
+            const attached = await until(() =>
+                !${RECORD_BAND_PICKER} && ${RECORD_BAND}?.querySelector('[data-jarvis-edge-chip][title="' + top + '"]')
+            );
+            return { opened: !!opened, idColumn, narrowed, matched, top, attached, text: bandText() };
+        })()`);
+        ctx.attachedTwin = picked.top ?? null;
+        await h.shot("cdp-shots/record-band-picker-attached.png");
+        rec(
+            "5. the picker shows no record id, finds both twins by a ticket fragment, and Enter attaches the top one",
+            picked.opened === true &&
+                picked.idColumn === false &&
+                picked.narrowed === true &&
+                picked.matched.length === RECORD_BAND_TWINS.length &&
+                picked.matched.every((m) => m.text.includes(RECORD_BAND_TICKET)) &&
+                picked.attached === true,
+            JSON.stringify(picked)
+        );
+
+        const escaped = await h.ev(`(async () => {
+            ${RECORD_BAND_LIB}
+            bandButton("+ Attach another record")?.click();
+            const opened = await until(() => ${RECORD_BAND_PICKER_INPUT});
+            ${RECORD_BAND_PICKER_INPUT}?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true }));
+            await new Promise((r) => setTimeout(r, 400));
+            return { opened: !!opened, picker: !!${RECORD_BAND_PICKER}, sheet: !!${RECORD_BAND}, attachButton: !!bandButton("+ Attach another record") };
+        })()`);
+        rec(
+            "6. Escape in the picker closes the picker and leaves the run sheet open",
+            escaped.opened === true && escaped.picker === false && escaped.sheet === true && escaped.attachButton === true,
+            JSON.stringify(escaped)
+        );
+
+        // the second run: two guessed edges from the shared ticket
+        const guessedLine = await h.ev(`(async () => {
+            ${RECORD_BAND_LIB}
+            const opened = await window.__openAddress(${JSON.stringify(ctx.guessed?.runORef ?? "")});
+            const twins = ${JSON.stringify(RECORD_BAND_TWINS.map((t) => t.id))};
+            const line = () => ${RECORD_BAND}?.querySelector("[data-jarvis-band-toggle]");
+            const chip = () => line()?.querySelector("[data-jarvis-edge-chip]");
+            const shown = await until(() => twins.includes(chip()?.getAttribute("title")) && /\\+1 more/.test(line()?.innerText || ""));
+            const glyph = line()?.querySelector("[data-jarvis-band-glyph]");
+            const lineText = (line()?.innerText || "").replace(/\\s+/g, " ").trim();
+            return {
+                opened,
+                shown,
+                expanded: line()?.getAttribute("aria-expanded"),
+                label: chip()?.querySelector("[data-jarvis-edge-label]")?.textContent?.trim() ?? null,
+                glyphTitle: glyph?.getAttribute("title") ?? null,
+                glyphBeforeChip: !!glyph && !!chip() && !!(glyph.compareDocumentPosition(chip()) & Node.DOCUMENT_POSITION_FOLLOWING),
+                idInLine: twins.some((id) => lineText.includes(id)),
+                informing: /informing/.test(bandText()),
+                lineText,
+            };
+        })()`);
+        await h.shot("cdp-shots/record-band-guessed.png");
+        rec(
+            "7. a guessed edge's line reads guessed with its confidence word and carries the Jarvis glyph",
+            guessedLine.opened?.ok === true &&
+                guessedLine.shown === true &&
+                guessedLine.expanded === "false" &&
+                /^guessed · (strong|likely|weak)$/.test(guessedLine.label ?? "") &&
+                guessedLine.glyphTitle === RECORD_BAND_GLYPH_TITLE &&
+                guessedLine.glyphBeforeChip === true &&
+                guessedLine.idInLine === false &&
+                guessedLine.informing === false,
+            JSON.stringify(guessedLine)
+        );
+
+        const twinRows = await h.ev(`(async () => {
+            ${RECORD_BAND_LIB}
+            const toggle = ${RECORD_BAND}?.querySelector("[data-jarvis-band-toggle]");
+            if (toggle && toggle.getAttribute("aria-expanded") !== "true") toggle.click();
+            const chips = () => [...(${RECORD_BAND}?.querySelectorAll("[data-jarvis-edge-chip]") ?? [])].filter((c) => !toggle?.contains(c));
+            const ok = await until(() => chips().length === ${RECORD_BAND_TWINS.length} && ${RECORD_BAND}?.querySelector("[data-jarvis-detail-headline]"));
+            const rows = chips().map((c) => ({
+                id: c.getAttribute("title"),
+                label: (c.querySelector(".truncate")?.textContent || "").trim(),
+                ticket: c.querySelector("[data-jarvis-edge-ticket]")?.textContent?.trim() ?? null,
+                edge: c.querySelector("[data-jarvis-edge-label]")?.textContent?.trim() ?? null,
+            }));
+            return { ok, rows, distinct: new Set(rows.map((r) => r.label)).size === rows.length };
+        })()`);
+        rec(
+            "8. expanded, two records on one ticket have distinct labels and each carries the ticket chip",
+            twinRows.ok === true &&
+                twinRows.distinct === true &&
+                twinRows.rows.every((r) => r.ticket === RECORD_BAND_TICKET && /^guessed · /.test(r.edge ?? "")),
+            JSON.stringify(twinRows)
+        );
+
+        const heads = RECORD_BAND_TWINS.map((t) => t.head);
+        const detailBody = await h.ev(`(async () => {
+            const band = ${RECORD_BAND};
+            const h2 = band?.querySelector("[data-jarvis-detail-headline]");
+            const body = band?.querySelector("[data-jarvis-detail-body]");
+            const toggle = band?.querySelector("[data-jarvis-detail-body-toggle]");
+            const lineHeight = h2 ? parseFloat(getComputedStyle(h2).lineHeight) : 0;
+            const read = () => ({
+                height: body?.getBoundingClientRect().height ?? 0,
+                clamped: body ? body.scrollHeight > body.clientHeight + 1 : false,
+                label: (toggle?.textContent || "").trim(),
+                expanded: toggle?.getAttribute("aria-expanded") ?? null,
+            });
+            const before = read();
+            const headline = (h2?.textContent || "").trim();
+            const bodyText = (body?.textContent || "").trim();
+            toggle?.click();
+            await new Promise((r) => setTimeout(r, 400));
+            const after = read();
+            toggle?.click();
+            return {
+                headline,
+                h2Lines: h2 && lineHeight > 0 ? Math.round(h2.getBoundingClientRect().height / lineHeight) : null,
+                bodyRepeatsHead: bodyText.includes(headline),
+                before,
+                after,
+            };
+        })()`);
+        await h.shot("cdp-shots/record-band-detail.png");
+        rec(
+            "9. the record detail heads with the one-line objective headline, its body clamped behind Show the full objective",
+            heads.includes(detailBody.headline) &&
+                detailBody.h2Lines === 1 &&
+                detailBody.bodyRepeatsHead === false &&
+                detailBody.before.clamped === true &&
+                detailBody.before.label.startsWith("Show the full objective") &&
+                detailBody.before.expanded === "false" &&
+                detailBody.after.height > detailBody.before.height &&
+                detailBody.after.clamped === false &&
+                detailBody.after.label === "Show less",
+            JSON.stringify(detailBody)
+        );
+
+        const confirmCopy = await h.ev(`(async () => {
+            ${RECORD_BAND_LIB}
+            bandButton("→ archived")?.click();
+            // the run sheet is a dialog too, and holds the confirm: the innermost match is the confirm
+            const dialog = () => [...document.querySelectorAll("[role=dialog], [role=alertdialog]")].filter((d) => /Mark this/.test(d.textContent || "")).pop();
+            await until(() => dialog());
+            const text = (dialog()?.textContent || "").replace(/\\s+/g, " ").trim();
+            const cancel = [...(dialog()?.querySelectorAll("button") ?? [])].find((b) => (b.textContent || "").trim().startsWith("Cancel"));
+            cancel?.click();
+            const closed = await until(() => !dialog());
+            return { text, closed, status: ${RECORD_BAND}?.querySelector("[data-record-status]")?.getAttribute("data-record-status") ?? null };
+        })()`);
+        rec(
+            "10. the detail's status confirm asks to mark this record, in the peek's words",
+            confirmCopy.text.includes("Mark this record archived?") &&
+                confirmCopy.text.includes(`the record's status`) &&
+                confirmCopy.closed === true &&
+                confirmCopy.status === "active",
+            JSON.stringify(confirmCopy)
+        );
+        steps.push(await floorStep(h, `11. no visible text in the record band is under ${MIN_FONT_PX}px`, RECORD_BAND));
         return steps;
     },
     async teardown(h, ctx) {
@@ -3788,6 +4378,17 @@ export const recordBandDetachRestore = {
             what: "detach the run from the record",
             fn: () => (ctx.runORef ? h.rpc("detachdossieredge", { dossierid: RECORD_BAND_RECORD, runoref: ctx.runORef }) : null),
         });
+        if (ctx.guessed?.channelId) {
+            await teardownFixtureRun(h, ctx.guessed, "record-band-detach-restore (guessed run)");
+        }
+        // the twins go whole, with any ref the picker step hardened into one
+        for (const file of ctx.twinFiles ?? []) {
+            try {
+                rmSync(file, { force: true });
+            } catch (e) {
+                console.error(`record-band-detach-restore teardown: remove ${file} failed: ${e?.message ?? e}`);
+            }
+        }
     },
 };
 

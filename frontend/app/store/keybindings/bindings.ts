@@ -1154,7 +1154,7 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             id: "agent:brainstorm-review-open",
             keys: "Enter",
             group: "Agent",
-            label: "Show what the review's decision was",
+            label: "Open or close the decision",
             when: (ctx) => !codePeekFocused() && inReview(ctx),
             // a focused button's Enter is its own press
             run: () => {

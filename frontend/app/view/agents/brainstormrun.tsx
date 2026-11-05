@@ -15,6 +15,7 @@ import { decisionParts, partGist, type BrainstormFile, type BrainstormPart, type
 import { closeTargets, runStepView, shortRunId, type RunStepState, type RunStepView } from "./brainstormrunmodel";
 import { brainstormAtom, shownBrainstormFile, type BrainstormState } from "./brainstormstore";
 import {
+    BS_RAIL,
     CheckMark,
     DOT,
     DOT_ASKED,
@@ -76,7 +77,7 @@ export function RunStep({
                 >
                     <div className="flex items-start gap-[14px] border-b border-border px-[14px] pb-[12px]">
                         <div className="flex min-w-0 flex-1 flex-col gap-[4px]">
-                            <h1 className="m-0 text-[18px] font-bold text-primary">{f.title}</h1>
+                            <h1 className="m-0 break-words text-[18px] font-bold text-primary">{f.title}</h1>
                             {f.spec ? (
                                 <span title={f.spec} className="truncate font-mono text-[10.5px] text-muted">
                                     {f.spec}
@@ -88,7 +89,10 @@ export function RunStep({
                                 type="button"
                                 data-brainstorm-open-run
                                 onClick={() => void openTarget(model, { kind: "run", runId })}
-                                className={cn("flex-none", view.merged ? CANVAS_BTN : CANVAS_PRIMARY_BTN)}
+                                className={cn(
+                                    "flex-none whitespace-nowrap",
+                                    view.merged ? CANVAS_BTN : CANVAS_PRIMARY_BTN
+                                )}
                             >
                                 Open run {shortRunId(runId)}
                             </button>
@@ -101,7 +105,7 @@ export function RunStep({
                     <aside
                         data-brainstorm-run-rail
                         aria-label="The run"
-                        className="w-[460px] flex-none overflow-y-auto border-l border-border bg-surface px-[24px] py-[22px]"
+                        className={cn(BS_RAIL, "overflow-y-auto border-l border-border bg-surface px-[24px] py-[22px]")}
                     >
                         <RunSection model={model} run={run} asks={asks} />
                     </aside>

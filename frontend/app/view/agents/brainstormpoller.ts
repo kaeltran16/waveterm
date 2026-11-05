@@ -44,6 +44,8 @@ const CANVAS_JSON = "canvas.json";
 const HTTP_OK = 200;
 // one failed read is an agent mid-write; the second in a row is a broken file
 const FAILED_READS_FOR_ERROR = 2;
+// an agent's delete-then-rename write leaves the file missing for one poll; the second miss in a row is a removal
+const MISSES_FOR_REMOVED = 2;
 
 export type BrainstormIO = {
     stat(path: string): Promise<{ exists: boolean; modifiedMs: number | null }>;
@@ -158,21 +160,30 @@ async function readFile(path: string, io: BrainstormIO): Promise<{ file: Brainst
 export async function pollBrainstormOnce(s: BrainstormState, io: BrainstormIO): Promise<Partial<BrainstormState>> {
     const st = await io.stat(s.path);
     if (!st.exists) {
-        return { removed: true };
+        if (s.removed) {
+            return {};
+        }
+        const missedStats = s.missedStats + 1;
+        return missedStats >= MISSES_FOR_REMOVED ? { removed: true, missedStats } : { missedStats };
     }
+    // a found file ends a run of misses, whatever the read then makes of it
+    const found: Partial<BrainstormState> = s.missedStats > 0 ? { missedStats: 0 } : {};
     if (st.modifiedMs != null && st.modifiedMs === s.modifiedMs && s.failedReads === 0 && !s.removed) {
-        return {};
+        return found;
     }
     const read = await readFile(s.path, io);
     if ("error" in read) {
         const failedReads = s.failedReads + 1;
-        return failedReads >= FAILED_READS_FOR_ERROR ? { failedReads, error: read.error } : { failedReads };
+        return failedReads >= FAILED_READS_FOR_ERROR
+            ? { ...found, failedReads, error: read.error }
+            : { ...found, failedReads };
     }
     const patch: Partial<BrainstormState> = {
         file: read.file,
         error: null,
         failedReads: 0,
         removed: false,
+        missedStats: 0,
         modifiedMs: st.modifiedMs,
     };
     return { ...patch, ...(await readBoards(s, read.file, io)) };
@@ -245,10 +256,11 @@ export function settleBrainstorm(
 }
 
 // A result that lands after the brainstorm was detached or replaced is dropped rather than written over it. The
-// sent line settles against the agent as the roster has it, before the overlay reads a question as asking.
+// sent line settles against the agent as the roster has it, before the overlay reads a question as asking. A removed
+// brainstorm is still polled, so a file that comes back leaves the gone view.
 async function pollAndMerge(agentId: string, agent: AgentVM | undefined, io: BrainstormIO): Promise<void> {
     const s = getBrainstorm(agentId);
-    if (s == null || s.removed) {
+    if (s == null) {
         return;
     }
     const patch = await pollBrainstormOnce(s, io);

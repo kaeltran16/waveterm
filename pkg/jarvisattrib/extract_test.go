@@ -5,6 +5,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/jarvisdossier"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
@@ -163,6 +164,37 @@ func TestAssembleRejectsImportTimeStampedDossier(t *testing.T) {
 		if e.RunORef == "run:sib1" {
 			t.Fatal("sibling attracted an edge despite the dossier post-dating every run; the backdating guard is not doing anything")
 		}
+	}
+}
+
+// only a lead run is a dossier's work; its worker/review children and the engine's stage sessions are
+// bookkeeping a person never opens as a run, so no layer links to them.
+func TestAssembleEdgesLeadOnly(t *testing.T) {
+	const now = int64(1_000_000_000_000)
+	d := &jarvisdossier.Dossier{
+		ID: "task-1", Ticket: "PROJ-142", Status: "active", Created: now - 10000,
+		Refs: []string{"run-review-child", "run-not-in-store"},
+	}
+	goal := "PROJ-142 work"
+	runs := []*waveobj.Run{
+		{OID: "lead", Goal: goal},
+		{OID: "worker", Goal: goal, TaskId: "t-1"},
+		{OID: "review-child", Goal: goal, TaskId: "t-1", Review: true},
+		{OID: "plan-reviewer", Goal: goal, StageRole: jarvis.UsageRole_PlanReviewer},
+		{OID: "verifier", Goal: goal, StageRole: jarvis.UsageRole_Verifier},
+		{OID: "builder-check", Goal: goal, StageRole: jarvis.UsageRole_BuilderCheck},
+		{OID: "judge", Goal: goal, StageRole: jarvis.UsageRole_BrainstormJudge},
+	}
+	lk := edgeLookups{channelName: func(string) string { return "" }, commits: func(*waveobj.Run) []string { return nil }}
+
+	var got []string
+	for _, e := range assembleEdges(d, runs, lk, now) {
+		got = append(got, e.RunORef)
+	}
+	slices.Sort(got)
+	want := []string{"run:lead", "run:not-in-store"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("edges = %v, want %v (lead only; a ref to a run missing from the store is kept)", got, want)
 	}
 }
 

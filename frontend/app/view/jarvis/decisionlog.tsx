@@ -5,7 +5,7 @@ import { DialogButton } from "@/app/modals/dialogbutton";
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { pendingDecisionAnchorAtom } from "./petstore";
 import { ageLabel } from "./recallderive";
 import { appendDecision } from "./recordactions";
@@ -35,6 +35,8 @@ function DecisionCardRow({ card }: { card: DecisionCard }) {
     return (
         <div
             ref={ref}
+            data-jarvis-decision={card.id}
+            data-jarvis-decision-highlighted={highlighted ? true : undefined}
             className={cn(
                 "rounded-lg border px-3.5 py-3 transition-colors",
                 highlighted ? "border-accent bg-accent/8" : "border-border bg-surface"
@@ -80,8 +82,15 @@ function AppendForm({ dossierId, onDone }: { dossierId: string; onDone: () => vo
             if (ok) onDone();
         });
     };
+    // the form's Escape is Cancel. Stopped here because ModalShell listens on window, and the sheet or peek
+    // around the form would otherwise close with it.
+    const onKeyDown = (e: KeyboardEvent) => {
+        if (e.key !== "Escape") return;
+        e.stopPropagation();
+        onDone();
+    };
     return (
-        <div className="rounded-lg border border-accent/30 bg-surface px-3.5 py-3">
+        <div data-jarvis-decision-form className="rounded-lg border border-accent/30 bg-surface px-3.5 py-3">
             <label htmlFor={summaryId} className={FIELD_LABEL}>
                 Summary
             </label>
@@ -89,6 +98,7 @@ function AppendForm({ dossierId, onDone }: { dossierId: string; onDone: () => vo
                 id={summaryId}
                 value={summary}
                 onChange={(e) => setSummary(e.target.value)}
+                onKeyDown={onKeyDown}
                 placeholder="What was decided, in a line"
                 className={cn(FIELD, "mb-2.5")}
             />
@@ -99,6 +109,7 @@ function AppendForm({ dossierId, onDone }: { dossierId: string; onDone: () => vo
                 id={rationaleId}
                 value={rationale}
                 onChange={(e) => setRationale(e.target.value)}
+                onKeyDown={onKeyDown}
                 placeholder="Why — what it was weighed against"
                 rows={4}
                 className={cn(FIELD, "mb-2.5 resize-y")}
@@ -131,6 +142,7 @@ export function DecisionLog({ decisions, dossierId }: { decisions: DecisionCard[
             ) : (
                 <button
                     type="button"
+                    data-jarvis-decision-add
                     onClick={() => setAdding(true)}
                     className="self-start rounded border border-border px-3 py-1.5 text-[12.5px] font-semibold text-secondary hover:bg-surface-hover"
                 >

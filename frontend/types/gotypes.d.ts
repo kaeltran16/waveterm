@@ -171,6 +171,7 @@ declare global {
     type AmbientTask = {
         id: string;
         label: string;
+        ticket?: string;
     };
 
     // wshrpc.AskRtnData

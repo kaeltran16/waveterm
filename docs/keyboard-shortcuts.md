@@ -171,7 +171,7 @@ A link inside an item view does a full open, even with `Ctrl` held.
 | `Esc` | Back one level, as the pane's back control does: from a full-size board to the question or design it was opened from; from the design opened over the question (or over the agent writing) back to it. A focused field keeps its own `Esc`, and on a board with a drawn mark `Esc` stays the mark note's |
 | `[` / `]` | On a full-size board: previous / next board (the global surface switch stands down there) |
 | `j` / `k` | In the builder check's review: next / previous decision |
-| `Enter` | In the review: show or hide what the cursor decision was (a focused button keeps its own `Enter`) |
+| `Enter` | In the review: open or close the cursor decision (a focused button keeps its own `Enter`) |
 | `y` | In the review: keep the cursor decision's change; on a guess, confirm it |
 | `u` | In the review: put mine back |
 
@@ -185,10 +185,13 @@ A link inside an item view does a full open, even with `Ctrl` held.
 | `w` | Work on the initiative under the cursor in a new agent, or go to the agent already open on it |
 | `Alt`+`↑` / `Alt`+`↓` | Move the chunk under the cursor up / down within its stage |
 | `e` | Expand / collapse the record band |
+| `Enter` in the record picker | Attach the top match |
+| `Esc` in the record picker | Close the picker only; the run sheet stays open |
 | `Shift`+`C` | Check Jira for your open tickets without an initiative |
 | `r` | New run |
 | `Shift`+`N` | New initiative |
 | `Shift`+`G` | Graph peek (`Esc` closes) |
+| `Esc` | In a record's Add decision form: cancel the form, leaving the record open |
 | `Shift`+`J` / `Shift`+`K` | Next / previous run in this channel |
 | `j` / `k` | With a run sheet open: next / previous run in the list it counts (Runs, or Shipped for a finished run), including the rows behind the region's folds, which open as you land on them |
 | `1`…`9` | With a run sheet open: pick an option on the lead's question card |

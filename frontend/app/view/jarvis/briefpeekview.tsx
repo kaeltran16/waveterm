@@ -4,12 +4,11 @@
 // The Brief's record peek. In the three-pane composition a record is a subject on the Stage; the Brief has
 // no Stage, so this is where a record oref lands (see openref.ts's task arm).
 //
-// It is deliberately the smaller half of the meta spec's §2 line: what is running against the record and
-// what you set it to, and nothing else. Its full history, decision log and past corrections belong to the
-// record as a Brief subject.
+// It shows what is running against the record, what you set it to, and its decision log: the peek is the
+// record's only home, so the log is read and added to here.
 //
 // Everything shown is derived in briefpeek.ts. RecordPeekBody mounts it, loads the two caches it reads, and
-// owns the one write on it, including the terminal-status question, which both hosts ask in place; the
+// owns the status write on it, including the terminal-status question, which both hosts ask in place; the
 // Brief's modal and the avatar popup's record item both render it.
 
 import { Skeleton, SkeletonLine } from "@/app/element/skeleton";
@@ -23,9 +22,16 @@ import type { RunStatusTone } from "@/app/view/agents/runmodel";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue, useSetAtom } from "jotai";
 import { Check, ChevronDown, ChevronUp, Waypoints, X } from "lucide-react";
-import { useEffect, useState } from "react";
-import { buildRecordPeek, type PeekRunRow, type PeekStatusRow } from "./briefpeek";
-import { MONO_FAINT, MONO_META, SMALL_BTN } from "./briefstyle";
+import { useEffect, useRef, useState } from "react";
+import {
+    buildRecordPeek,
+    decisionsOpenOnMount,
+    statusConfirmCopy,
+    type PeekRunRow,
+    type PeekStatusRow,
+} from "./briefpeek";
+import { BODY_LINK, MONO_FAINT, SMALL_BTN } from "./briefstyle";
+import { DecisionLog } from "./decisionlog";
 import { fleetForRecord } from "./fleetscope";
 import { briefGraphRecordAtom, briefPeekRecordAtom, graphPeekOpenAtom } from "./jarvisstore";
 import {
@@ -37,6 +43,7 @@ import {
 } from "./jarvissubjectstore";
 import { openAddress, openOrPeekAddress, type OpenGesture } from "./openref";
 import { closePeek } from "./peekstore";
+import { pendingDecisionAnchorAtom } from "./petstore";
 import { setDossierStatus } from "./recordactions";
 import { forgetOrigin, passReturn, returnToOrigin } from "./returnsurface";
 
@@ -61,10 +68,6 @@ export const RUN_TONE: Record<RunStatusTone, string> = {
     failed: "text-error",
     cancelled: "text-muted",
 };
-
-// LINK_BTN's type and hover without its border: a link inside the body, not a control beside it
-const BODY_LINK =
-    "inline-flex cursor-pointer items-center gap-1 self-start font-mono text-[10.5px] text-accent-soft hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
 
 const SEGMENT = "rounded-[6px] px-3 py-1 text-[11.5px] font-semibold";
 
@@ -195,9 +198,6 @@ function RunRowView({ row, model, place }: { row: PeekRunRow; model: AgentsViewM
     );
 }
 
-const confirmTitle = (status: string) => `Mark this record ${status}?`;
-const confirmBody = (status: string) => `This sets the record's status to "${status}". You can reactivate it later.`;
-
 // Asked in place in both hosts: inside the popup a second modal would sit under the popup's focus trap, and in the
 // Brief a dialog over the modal would stack two modals both claiming Escape.
 function InlineConfirm({
@@ -209,14 +209,15 @@ function InlineConfirm({
     onConfirm: () => void;
     onCancel: () => void;
 }) {
+    const copy = statusConfirmCopy(status);
     return (
         <div
             data-jarvis-peek-confirm={status}
             className="mx-[18px] mt-2.5 flex flex-none items-center gap-3 rounded-[8px] border border-edge-mid bg-surface px-3 py-2.5"
         >
             <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <span className="text-[12px] font-semibold text-ink-hi">{confirmTitle(status)}</span>
-                <span className="text-[11.5px] leading-[1.45] text-muted">{confirmBody(status)}</span>
+                <span className="text-[12px] font-semibold text-ink-hi">{copy.title}</span>
+                <span className="text-[11.5px] leading-[1.45] text-muted">{copy.body}</span>
             </div>
             <button
                 type="button"
@@ -244,6 +245,9 @@ function CloseButton({ onClose }: { onClose: () => void }) {
         </button>
     );
 }
+
+// the runs table while the record's scope read is in flight: three rows of varied length, read as rows
+const RUN_SKELETON_WIDTHS = ["w-[72%]", "w-[58%]", "w-[66%]"];
 
 // the frame the read is filling in, shaped like what it will become: toggle, objective lines, runs table
 function LoadingBody() {
@@ -280,8 +284,11 @@ export function RecordPeekBody({
     const messagesByChannel = useAtomValue(channelMessagesAtom);
     const agents = useAtomValue(model.agentsAtom);
     const harnesses = useAtomValue(harnessesAtom);
+    const anchor = useAtomValue(pendingDecisionAnchorAtom);
     const [asking, setAsking] = useState<string | null>(null);
     const [objectiveOpen, setObjectiveOpen] = useState(false);
+    const [decisionsOpen, setDecisionsOpen] = useState(false);
+    const decisionsRef = useRef<HTMLDivElement | null>(null);
 
     // both caches, because the peek's two halves come from different reads: the record's own fields, and the
     // runs attributed to it (a dossier has no run list of its own — ResolveSpaceScope answers that).
@@ -298,16 +305,44 @@ export function RecordPeekBody({
     useEffect(() => {
         setAsking(null);
         setObjectiveOpen(false);
+        setDecisionsOpen(false);
+        // leaving the record drops an anchor on one of its decisions, so it does not flash on the next opening.
+        // Only its own: openref sets the next record's anchor before switching to it.
+        return () => {
+            const leaving = globalStore.get(recordDetailAtom)[recordId]?.decisions ?? [];
+            if (decisionsOpenOnMount(globalStore.get(pendingDecisionAnchorAtom), leaving)) {
+                globalStore.set(pendingDecisionAnchorAtom, null);
+            }
+        };
     }, [recordId]);
 
     const detail = details[recordId];
+    const decisions = detail?.decisions;
+    // declared after the reset above, so a record opened onto an anchor resets and then opens its log
+    useEffect(() => {
+        if (decisionsOpenOnMount(anchor, decisions ?? [])) {
+            setDecisionsOpen(true);
+        }
+    }, [anchor, decisions]);
+
+    // the log opens below the runs, so opening it from the footer brings it into sight. Not done for an anchored
+    // open: the anchored card scrolls itself into view.
+    const toggleDecisions = () => {
+        const opening = !decisionsOpen;
+        setDecisionsOpen(opening);
+        if (opening) {
+            requestAnimationFrame(() => decisionsRef.current?.scrollIntoView({ block: "nearest" }));
+        }
+    };
+
     const readError = detail == null ? readErrors[recordId] : undefined;
-    const runs = runsByRecord[recordId] ?? [];
+    // undefined until the scope read lands: the peek draws skeleton rows rather than claiming no runs
+    const runs = runsByRecord[recordId];
     const fleet = fleetForRecord({
         channels: channels ?? [],
         messagesByChannel,
         agents,
-        attributedRuns: runs,
+        attributedRuns: runs ?? [],
     });
     const peek =
         detail != null
@@ -410,7 +445,15 @@ export function RecordPeekBody({
                             <span className={cn("flex-none", MONO_FAINT)}>{peek.fleetMeta}</span>
                         </div>
                         <div className="flex flex-col overflow-hidden rounded-[9px] border border-border bg-background">
-                            {peek.runs.length === 0 ? (
+                            {peek.runsLoading ? (
+                                <div data-jarvis-peek-runs-loading className="flex flex-col">
+                                    {RUN_SKELETON_WIDTHS.map((w) => (
+                                        <div key={w} className="border-b border-edge-faint px-3 py-2.5 last:border-b-0">
+                                            <SkeletonLine className={cn("h-2.5", w)} />
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : peek.runsAbsent != null ? (
                                 <div className="px-3 py-2.5 font-mono text-[11px] text-muted">{peek.runsAbsent}</div>
                             ) : (
                                 peek.runs.map((row) => (
@@ -419,11 +462,24 @@ export function RecordPeekBody({
                             )}
                         </div>
                     </div>
+                    {decisionsOpen ? (
+                        <div ref={decisionsRef} data-jarvis-peek-decision-log className="flex flex-col">
+                            <span className="px-0.5 pb-2 text-[12.5px] font-semibold text-secondary">Decisions</span>
+                            <DecisionLog decisions={decisions ?? []} dossierId={recordId} />
+                        </div>
+                    ) : null}
                 </div>
                 <div className="flex flex-none items-center gap-2 border-t border-border px-[18px] py-3">
-                    {/* a label, not a button: the peek reports the count and the Brief owns the log,
-                        so this states it and stops there. */}
-                    <span className={MONO_META}>{peek.logLine}</span>
+                    <button
+                        type="button"
+                        data-jarvis-peek-decisions
+                        aria-expanded={decisionsOpen}
+                        onClick={toggleDecisions}
+                        className={BODY_LINK}
+                    >
+                        {peek.logLine}
+                        {decisionsOpen ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+                    </button>
                     <span className="flex-1" />
                     <button
                         type="button"

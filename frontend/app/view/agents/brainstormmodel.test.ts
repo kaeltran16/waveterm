@@ -6,6 +6,7 @@ import type { AgentVM } from "./agentsviewmodel";
 import {
     BUILDER_PART,
     answerLine,
+    answeredLine,
     answeredQuestions,
     approveBlocker,
     asksUser,
@@ -16,6 +17,7 @@ import {
     brainstormAttention,
     brainstormCounts,
     brainstormFilePath,
+    brainstormGoneText,
     brainstormLine,
     brainstormPhase,
     builderCheckView,
@@ -23,6 +25,7 @@ import {
     checkAsk,
     checkClock,
     checkMain,
+    checkRailLine,
     checkReview,
     checkSpan,
     checkUnder,
@@ -33,6 +36,7 @@ import {
     designLabel,
     designUnder,
     dismissedMarkerPath,
+    drawnDecisionParts,
     droppedQuestion,
     editLock,
     handoffView,
@@ -1172,6 +1176,37 @@ describe("orderedParts", () => {
     });
 });
 
+describe("drawnDecisionParts", () => {
+    it("draws the decisions newest first and keeps the builder part last, as the progress bar does", () => {
+        const f = file({ parts: [part("a", "yours"), part("b", "guess"), part(BUILDER_PART, "open")] });
+        expect(drawnDecisionParts(f).map((p) => p.id)).toEqual(["b", "a", BUILDER_PART]);
+        expect(progressView(f).segments.map((s) => s.id)).toEqual(["b", "a", BUILDER_PART]);
+    });
+
+    it("leaves the notes out", () => {
+        const f = file({ parts: [part("a", "yours"), part("n", "yours", { kind: "note" }), part("b", "guess")] });
+        expect(drawnDecisionParts(f).map((p) => p.id)).toEqual(["b", "a"]);
+    });
+});
+
+describe("brainstormGoneText", () => {
+    it("names the run's worktree for a path under arc-wt", () => {
+        const path = "C:\\Users\\x\\AppData\\Local\\arc-wt\\be10d02a\\.superpowers\\brainstorm\\t\\brainstorm.json";
+        expect(brainstormGoneText(path)).toBe(
+            "It lived in a run's worktree (arc-wt\\be10d02a), which has been removed."
+        );
+        expect(brainstormGoneText("/home/x/arc-wt/be10d02a/.superpowers/brainstorm/t/brainstorm.json")).toBe(
+            "It lived in a run's worktree (arc-wt\\be10d02a), which has been removed."
+        );
+    });
+
+    it("names the path otherwise, and never guesses why it went", () => {
+        const path = "C:\\p\\.superpowers\\brainstorm\\t\\brainstorm.json";
+        expect(brainstormGoneText(path)).toBe(`It is no longer at ${path}.`);
+        expect(brainstormGoneText("/p/.superpowers/brainstorm/t/brainstorm.json")).not.toContain("shipped");
+    });
+});
+
 describe("sentenceDiff", () => {
     it("marks same, removed and added sentences", () => {
         expect(sentenceDiff("One. Two. Three.", "One. Deux! Three.")).toEqual([
@@ -1268,11 +1303,11 @@ describe("phase", () => {
 describe("progressView", () => {
     const parts = [part(BUILDER_PART, "open"), part("a", "yours"), part("b", "guess"), part("c", "asked")];
 
-    it("has one segment per part, the builder last, each with its state", () => {
+    it("has one segment per part, newest first and the builder last, each with its state", () => {
         expect(progressView(file({ parts })).segments).toEqual([
-            { id: "a", title: "Title a", state: "yours" },
-            { id: "b", title: "Title b", state: "guess" },
             { id: "c", title: "Title c", state: "asked" },
+            { id: "b", title: "Title b", state: "guess" },
+            { id: "a", title: "Title a", state: "yours" },
             { id: BUILDER_PART, title: `Title ${BUILDER_PART}`, state: "open" },
         ]);
     });
@@ -1400,7 +1435,7 @@ describe("notes", () => {
         expect(brainstormCounts(f)).toEqual({ yours: 1, guesses: 1, open: 1 });
         expect(confirmableGuesses(f)).toBe(1);
         expect(designLabel(f)).toBe("The design · 1 of 3 yours");
-        expect(progressView(f).segments.map((x) => x.id)).toEqual(["a", "b", BUILDER_PART]);
+        expect(progressView(f).segments.map((x) => x.id)).toEqual(["b", "a", BUILDER_PART]);
         expect(questionTrack(file({ parts: [part("n", "open", { kind: "note" }), part("o", "open")] }))).toEqual([
             "ahead",
         ]);
@@ -1631,6 +1666,7 @@ describe("checkReview", () => {
             gist: "now constraints",
             cause: "answer 12: your boss wants PyTorch",
             was: "Was constraints.",
+            hasWas: true,
             body: "Now constraints.",
             view: "changed",
             action: "keep-restore",
@@ -1689,6 +1725,27 @@ describe("checkReview", () => {
         );
     });
 
+    it("checkReview marks hasWas", () => {
+        const f = file({
+            parts: [part("a", "yours", { was: "Was a." }), part("b", "yours"), part("c", "yours")],
+            check: { yours: [], calls: [], answered: [], touched: ["b"] },
+        });
+        const m = checkReview(f);
+        expect(m.changed.map((r) => [r.id, r.hasWas])).toEqual([
+            ["a", true],
+            ["b", false],
+        ]);
+        expect(m.anyWas).toBe(true);
+        const noneWas = checkReview(
+            file({
+                parts: [part("b", "yours")],
+                check: { yours: [], calls: [], answered: [], touched: ["b"] },
+            })
+        );
+        expect(noneWas.changed[0].hasWas).toBe(false);
+        expect(noneWas.anyWas).toBe(false);
+    });
+
     it("drops the clauses whose count is 0", () => {
         const fresh = file({
             parts: [part("a", "yours"), part("b", "guess")],
@@ -1697,6 +1754,21 @@ describe("checkReview", () => {
         expect(checkReview(fresh).summary).toBe("1 decision is new since the check.");
         const none = file({ parts: [part("a", "yours")], check: { yours: [], calls: [], answered: [] } });
         expect(checkReview(none).summary).toBe("The check changed nothing you had confirmed.");
+    });
+});
+
+describe("check rail lines", () => {
+    it("checkRailLine pluralizes", () => {
+        expect(checkRailLine(1)).toContain("1 question.");
+        expect(checkRailLine(1)).not.toContain("1 questions");
+        expect(checkRailLine(2)).toContain("2 questions");
+    });
+
+    it("review rail summary pluralizes", () => {
+        expect(answeredLine(1, 1, 1, 0)).toBe("It had 1 question: 1 for you, all answered.");
+        expect(answeredLine(11, 3, 3, 8)).toBe(
+            "It had 11 questions: 3 for you, all answered; the agent decided 8, shown under their decisions."
+        );
     });
 });
 

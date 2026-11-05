@@ -24,9 +24,12 @@ vi.mock("@/app/store/wshclientapi", () => ({
     },
 }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
+const pushModal = vi.fn();
+vi.mock("@/app/store/modalmodel", () => ({ modalsModel: { pushModal: (...a: unknown[]) => pushModal(...a) } }));
 vi.mock("@/app/store/wos", () => ({ loadAndPinWaveObject: vi.fn().mockResolvedValue(null) }));
 
 import { globalStore } from "@/app/store/jotaiStore";
+import { statusConfirmCopy } from "./briefpeek";
 import { briefToastAtom } from "./briefundo";
 import { graphBloomAtom } from "./jarvisgraphstore";
 import { recordDetailAtom, recordRunsAtom, recordScopeAtom } from "./jarvissubjectstore";
@@ -34,8 +37,10 @@ import {
     acceptEdge,
     afterRecordWrite,
     appendDecision,
+    confirmDossierStatus,
     detachedEdgesAtom,
     detachEdge,
+    loadDetachedEdges,
     setDossierStatus,
 } from "./recordactions";
 import { tasksErrorAtom } from "./tasksstore";
@@ -181,5 +186,41 @@ describe("detachEdge", () => {
         detachEdge("task-a", "run:r1");
         await vi.waitFor(() => expect(globalStore.get(detachedEdgesAtom)["task:task-a"]).toBeDefined());
         expect(globalStore.get(detachedEdgesAtom)["task:task-a"][0].bucket).toBe("");
+    });
+});
+
+describe("loadDetachedEdges", () => {
+    beforeEach(() => {
+        listDetached.mockReset().mockResolvedValue({
+            tasks: [
+                { id: "task-a", label: "Alpha", ticket: "PROJ-142" },
+                { id: "task-b", label: "Beta" },
+            ],
+            edges: [
+                { oref: "run:r1", dossierid: "task-a", provenance: "", bucket: "", state: "detached" },
+                { oref: "run:r1", dossierid: "task-b", provenance: "", bucket: "", state: "detached" },
+            ],
+        });
+        globalStore.set(detachedEdgesAtom, {});
+    });
+
+    it("copies each task's ticket onto its rows", async () => {
+        loadDetachedEdges("run:r1");
+        await vi.waitFor(() => expect(globalStore.get(detachedEdgesAtom)["run:r1"]).toBeDefined());
+        const rows = globalStore.get(detachedEdgesAtom)["run:r1"];
+        expect(rows.map((r) => r.ticket)).toEqual(["PROJ-142", undefined]);
+    });
+});
+
+describe("confirmDossierStatus", () => {
+    beforeEach(() => pushModal.mockReset());
+
+    it("confirms a terminal status in the peek's own words", () => {
+        confirmDossierStatus("d1", "archived");
+        expect(pushModal).toHaveBeenCalledTimes(1);
+        const [name, props] = pushModal.mock.calls[0];
+        expect(name).toBe("ConfirmModal");
+        expect(props.title).toBe(statusConfirmCopy("archived").title);
+        expect(props.message).toBe(statusConfirmCopy("archived").body);
     });
 });

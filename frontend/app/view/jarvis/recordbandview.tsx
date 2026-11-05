@@ -10,22 +10,26 @@ import { globalStore } from "@/app/store/jotaiStore";
 import type { AmbientTag } from "@/app/view/agents/ambient";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { Lock } from "lucide-react";
+import { Bot } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { EdgeControls } from "./edgecontrolsview";
 import { briefPeekRecordAtom } from "./jarvisstore";
 import { acceptEdge, detachedEdgesAtom, loadDetachedEdges } from "./recordactions";
-import { edgeLabel, edgeLineStyle, recordBandCase } from "./recordband";
-import { RecordPicker } from "./recordpicker";
+import { bandGlyph, edgeLabel, edgeLineStyle, recordBandCase } from "./recordband";
+import { RecordPicker, TicketChip } from "./recordpicker";
 import { STAGE_BAND_INSET, STAGE_GUTTER, STAGE_SCROLLER } from "./stagemeasure";
-import type { SubjectKind } from "./subjects";
 import { TaskDetail } from "./taskdetail";
 
+// a robot, not a lock: a lock read as "can't change", the opposite of a guess waiting to be checked
 function MachineGlyph() {
     return (
-        <span className="flex-none text-muted" title="inferred by Jarvis — you can correct it">
-            <Lock size={10} strokeWidth={2} />
+        <span
+            data-jarvis-band-glyph
+            className="flex-none text-muted"
+            title="Guessed by Jarvis: expand to confirm or detach it"
+        >
+            <Bot size={11} strokeWidth={2} />
         </span>
     );
 }
@@ -36,26 +40,35 @@ function MachineGlyph() {
 function EdgeChip({ tag }: { tag: AmbientTag }) {
     const line = edgeLineStyle(tag);
     return (
-        <span className="flex min-w-0 items-center gap-[7px] rounded-[6px] border border-border px-2 py-[3px]">
+        <span
+            data-jarvis-edge-chip
+            title={tag.taskId}
+            className="flex min-w-0 items-center gap-[7px] rounded-[6px] border border-border px-2 py-[3px]"
+        >
             <span
                 className="w-4 flex-none"
                 style={{ borderTopStyle: line.style, borderTopWidth: line.weightPx, borderTopColor: "currentColor" }}
             />
             <span className="truncate text-[11.5px] font-semibold text-secondary">{tag.label}</span>
-            <span className="flex-none font-mono text-[10.5px] text-muted">{edgeLabel(tag)}</span>
+            {tag.ticket ? (
+                <span data-jarvis-edge-ticket className="contents">
+                    <TicketChip ticket={tag.ticket} />
+                </span>
+            ) : null}
+            <span data-jarvis-edge-label className="flex-none font-mono text-[10.5px] text-muted">
+                {edgeLabel(tag)}
+            </span>
         </span>
     );
 }
 
 export function RecordBand({
-    kind,
     tags,
     detail,
     runORef,
     open,
     onToggle,
 }: {
-    kind: SubjectKind;
     tags: AmbientTag[];
     detail: DossierDetail | null;
     // the run every edge on this band is an edge *of*. null off a channel, or before a run resolves.
@@ -63,10 +76,9 @@ export function RecordBand({
     open: boolean;
     onToggle: () => void;
 }) {
-    const band = recordBandCase({ kind, tags });
-    // a dossier subject IS the record, so its panel is always open and has no collapse affordance.
-    const expandable = band.case === "one" || band.case === "several";
-    const showPanel = band.case === "subject" || (expandable && open);
+    const band = recordBandCase({ tags });
+    const expandable = band.case !== "none";
+    const showPanel = expandable && open;
     const [attaching, setAttaching] = useState(false);
     const detachedByKey = useAtomValue(detachedEdgesAtom);
     const detached = runORef != null ? (detachedByKey[runORef] ?? []) : [];
@@ -85,6 +97,7 @@ export function RecordBand({
     // the row's content sits in the shared gutter; the button around it stays full-bleed so its hover tint
     // covers the whole band rather than stopping at the gutter's edges.
     const rowClass = cn(STAGE_GUTTER, "flex items-center gap-2.5 py-2.5");
+    const glyph = bandGlyph(band) ? <MachineGlyph /> : null;
     // the collapsed row carries no nested interactive element, so the whole row can be the control — the
     // expanded per-record rows below are siblings and stay individually reachable. As a div + onClick it was
     // mouse-only, on a surface whose thesis is keyboard operability.
@@ -115,19 +128,16 @@ export function RecordBand({
                 )
             ) : band.case === "one" ? (
                 <>
-                    <MachineGlyph />
-                    <span className="flex-none font-mono text-[11px] font-semibold text-accent-soft">
-                        {band.edge.taskId}
-                    </span>
+                    {glyph}
                     <EdgeChip tag={band.edge} />
                     <div className="flex-1" />
                     <span className="flex-none text-[11px] font-semibold text-muted">
                         {open ? "Collapse" : "Expand the record"}
                     </span>
                 </>
-            ) : band.case === "several" ? (
+            ) : (
                 <>
-                    <MachineGlyph />
+                    {glyph}
                     {/* only the primary edge plus a count: a chip per attributed record put 826px of
                             content in a 790px box at 1440 and drew the trailing label over the rail. The
                             expanded panel below already lists the others as clickable rows. Deliberately
@@ -138,18 +148,6 @@ export function RecordBand({
                     <span className="flex-none text-[11px] font-semibold text-muted">
                         {open ? "Collapse" : "Expand"}
                     </span>
-                </>
-            ) : (
-                <>
-                    <MachineGlyph />
-                    <span className="flex-none font-mono text-[11px] font-semibold text-accent-soft">
-                        {detail?.id ?? ""}
-                    </span>
-                    <span className="min-w-0 truncate text-[12.5px] font-semibold text-secondary">
-                        Selected directly from Records — no run beneath it
-                    </span>
-                    <div className="flex-1" />
-                    <span className="flex-none font-mono text-[11px] text-muted">the subject itself</span>
                 </>
             )}
         </>
@@ -180,7 +178,7 @@ export function RecordBand({
                 </div>
             )}
             {/* the disclosure animates its own height: the band sits above the thread, so an instant 420px
-                panel shoved the thread down a screenful with nothing to follow. initial={false} so a subject
+                panel shoved the thread down a screenful with nothing to follow. initial={false} so a band
                 you left expanded is already open when you come back rather than replaying the reveal. */}
             <AnimatePresence initial={false}>
                 {showPanel && detail != null ? (
@@ -193,7 +191,7 @@ export function RecordBand({
                         className="overflow-hidden"
                     >
                         <div className={cn(STAGE_SCROLLER, "max-h-[420px] border-t border-border bg-background")}>
-                            <TaskDetail detail={detail} showDecisions={band.case !== "subject"} />
+                            <TaskDetail detail={detail} />
                         </div>
                     </motion.div>
                 ) : null}
@@ -239,11 +237,17 @@ export function RecordBand({
                                 {detached.map((d) => (
                                     <div
                                         key={"detached-" + d.dossierId}
+                                        data-jarvis-detached-row
                                         className="flex items-center gap-2 rounded-[7px] px-1 py-1 opacity-70"
                                     >
-                                        <span className="min-w-0 flex-1 truncate text-[11.5px] text-muted">
+                                        <span
+                                            data-jarvis-detached-label
+                                            className="min-w-0 truncate text-[11.5px] text-muted"
+                                        >
                                             Detached · {d.label}
                                         </span>
+                                        <TicketChip ticket={d.ticket} />
+                                        <div className="flex-1" />
                                         <EdgeControls
                                             dossierId={d.dossierId}
                                             runORef={d.runORef}

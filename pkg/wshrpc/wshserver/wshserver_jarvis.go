@@ -521,11 +521,11 @@ func (ws *WshServer) ListDetachedEdgesCommand(ctx context.Context, data wshrpc.C
 			continue
 		}
 		labelled[e.DossierID] = true
-		label := e.DossierID
-		if d, err := jarvisdossier.LoadDossier(v.Retriever(wavevault.AllScope()), e.DossierID); err == nil && d.Objective != "" {
-			label = d.Objective
+		task := wshrpc.AmbientTask{Id: e.DossierID, Label: e.DossierID}
+		if d, err := jarvisdossier.LoadDossier(v.Retriever(wavevault.AllScope()), e.DossierID); err == nil {
+			task = ambientTask(wshrpc.SpaceSummary{Id: e.DossierID, Objective: d.Objective, Ticket: d.Ticket})
 		}
-		out.Tasks = append(out.Tasks, wshrpc.AmbientTask{Id: e.DossierID, Label: label})
+		out.Tasks = append(out.Tasks, task)
 	}
 	return &out, nil
 }
@@ -783,13 +783,26 @@ func boundRunes(s string, n int) string {
 	return strings.TrimSpace(string(rs[:n])) + "…"
 }
 
-// ambientLabel is a dossier's tag text: its ticket when it has one (short and scannable), else the
-// objective bounded so a long one cannot blow out a row.
+// ambientLabel is a dossier's tag text: the first line of its objective, bounded so a long one cannot blow
+// out a row. Tickets are shared across dossiers, so the ticket labels only a dossier with no objective;
+// AmbientTask.Ticket carries it for the tag to show beside the label.
 func ambientLabel(d wshrpc.SpaceSummary) string {
-	if d.Ticket != "" {
-		return d.Ticket
+	for _, line := range strings.Split(d.Objective, "\n") {
+		if s := strings.TrimSpace(line); s != "" {
+			return boundRunes(s, ambientLabelMax)
+		}
 	}
-	return boundRunes(d.Objective, ambientLabelMax)
+	return boundRunes(d.Ticket, ambientLabelMax)
+}
+
+// ambientTask is a dossier as a tag target, the one shape the band and the detached rows both label from.
+// The id labels a dossier with neither an objective nor a ticket, so a row never renders blank.
+func ambientTask(d wshrpc.SpaceSummary) wshrpc.AmbientTask {
+	label := ambientLabel(d)
+	if label == "" {
+		label = d.Id
+	}
+	return wshrpc.AmbientTask{Id: d.Id, Label: label, Ticket: d.Ticket}
 }
 
 // decisionTitle is a decision's ambient card line: the first non-empty line of the human rationale,
@@ -815,7 +828,7 @@ func buildAmbient(dossiers []wshrpc.SpaceSummary, byDossier map[string][]jarvisa
 	known := make(map[string]bool, len(dossiers))
 	for _, d := range dossiers {
 		known[d.Id] = true
-		out.Tasks = append(out.Tasks, wshrpc.AmbientTask{Id: d.Id, Label: ambientLabel(d)})
+		out.Tasks = append(out.Tasks, ambientTask(d))
 		for _, e := range byDossier[d.Id] {
 			out.Edges = append(out.Edges, wshrpc.AmbientEdge{
 				ORef:       e.RunORef,

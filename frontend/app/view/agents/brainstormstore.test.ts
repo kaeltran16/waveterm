@@ -45,6 +45,7 @@ describe("attachBrainstorm", () => {
             error: null,
             failedReads: 0,
             removed: false,
+            missedStats: 0,
             modifiedMs: null,
             lastViewedMs: 100,
             board: null,

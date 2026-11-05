@@ -15,6 +15,7 @@ import * as WOS from "@/app/store/wos";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { joinRepoPath } from "@/util/paths";
+import { fireAndForget } from "@/util/util";
 import type { AgentsViewModel } from "../agents/agents";
 import { brainstormFilePath } from "../agents/brainstormmodel";
 import { pollBrainstormNow } from "../agents/brainstormpoller";
@@ -31,7 +32,7 @@ import { openInCode } from "../code/codestore";
 import { isCanvasSegment, parseAddress, type AddressHint, type OpenTarget } from "./address";
 import { effortDetailAtom, loadEffortDetail } from "./effortstore";
 import { briefPeekRecordAtom, briefSheetOpenAtom } from "./jarvisstore";
-import { loadRecordDetail, selectSubject, setActiveRunId } from "./jarvissubjectstore";
+import { loadRecordDetail, reloadRecordDetail, selectSubject, setActiveRunId } from "./jarvissubjectstore";
 import { clearLoadingPeek, settlePeek, startPeek, type PeekTarget } from "./peekstore";
 import { pendingDecisionAnchorAtom } from "./petstore";
 import { landOn } from "./returnsurface";
@@ -559,16 +560,21 @@ async function loadRecord(target: RecordTarget, current: () => boolean): Promise
 
 function selectRecord(model: AgentsViewModel, target: RecordTarget): OpenResult {
     globalStore.set(pendingDecisionAnchorAtom, target.anchor ?? null);
-    openRecordPeek(target.dossierId);
+    openRecordPeek(target.dossierId, target.anchor != null);
     landOn(model.surfaceAtom, "jarvis", "record");
     return OK;
 }
 
 // A record's home is the Brief peek: it is the only surface that writes a record's status, so it was always
 // the authoritative view. The Vault's second, read-only index is gone. Detail is loaded before the surface
-// flips so the peek mounts on the record rather than on its own empty frame.
-function openRecordPeek(dossierId: string): void {
-    loadRecordDetail(dossierId);
+// flips so the peek mounts on the record rather than on its own empty frame. An anchored open reads fresh: the
+// anchor can name a decision appended since the record was cached, which the cached detail would not hold.
+function openRecordPeek(dossierId: string, fresh: boolean): void {
+    if (fresh) {
+        fireAndForget(() => reloadRecordDetail(dossierId));
+    } else {
+        loadRecordDetail(dossierId);
+    }
     globalStore.set(briefPeekRecordAtom, dossierId);
 }
 

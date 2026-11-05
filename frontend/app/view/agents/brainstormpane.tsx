@@ -22,12 +22,13 @@ import {
     boardPicks,
     boardTabLabels,
     bodyBeyondGist,
+    brainstormGoneText,
     builderCheckView,
     checkClock,
     checkSpan,
     decidedCount,
-    decisionParts,
     designUnder,
+    drawnDecisionParts,
     droppedQuestion,
     editLock,
     historyRows,
@@ -180,7 +181,7 @@ export function BrainstormPane({ model, agent }: { model: AgentsViewModel; agent
             className="flex min-h-0 flex-1 flex-col"
         >
             {view === "removed" ? (
-                <Removed agent={agent} topic={s.topic} />
+                <Removed agent={agent} topic={s.topic} path={s.path} />
             ) : view === "error" ? (
                 <Unreadable s={s} />
             ) : view === "board" ? (
@@ -350,7 +351,7 @@ function DesignMain({
     useEffect(() => () => markBrainstormSeen(s.path, drawn.current), [s.path]);
     const working = f.working != null;
     const fresh = f.history.length === 0;
-    const decisions = decisionParts(f);
+    const decisions = drawnDecisionParts(f);
     const notes = noteParts(f);
     // a changed part opens on its own: what changed is what it asks you to read
     const isOpen = (p: BrainstormPart) => opened[p.id] ?? partView(f, p) === "changed";
@@ -418,7 +419,11 @@ function DesignMain({
                     ) : leftPanel(f) !== "none" ? (
                         <ReviewHead agent={agent} f={f} check={check} />
                     ) : null}
-                    <section data-brainstorm-decisions aria-label="Decisions" className="relative flex flex-col">
+                    <section
+                        data-brainstorm-decisions
+                        aria-label="Decisions"
+                        className="@container relative flex flex-col"
+                    >
                         <div className="flex items-baseline gap-[8px] px-[14px] pb-[6px]">
                             <h2 className={SECTION_HEAD}>Decisions · {decisions.length}</h2>
                             <span className="text-[12px] text-muted">
@@ -426,14 +431,14 @@ function DesignMain({
                             </span>
                         </div>
                         <AnimatePresence mode="popLayout" initial={false}>
-                            {[...decisions].reverse().map(row)}
+                            {decisions.map(row)}
                         </AnimatePresence>
                     </section>
                     {notes.length > 0 ? (
                         <section
                             data-brainstorm-notes
                             aria-label="What the agent found"
-                            className="relative flex flex-col"
+                            className="@container relative flex flex-col"
                         >
                             <div className="flex items-baseline gap-[8px] px-[14px] py-[6px]">
                                 <h2 className={SECTION_HEAD}>What the agent found · {notes.length}</h2>
@@ -738,18 +743,27 @@ function PartRow({
             data-unseen={unseen ? "" : undefined}
             className="flex scroll-mt-[20px] flex-col border-t border-edge-faint"
         >
-            <div className={cn("flex items-start gap-[12px] px-[14px]", note ? "py-[8px]" : "py-[9px]")}>
+            {/* the section is an @container. Wide, the row is 447px of fixed columns (padding, dot, the 200px title,
+                the 150px actions, chevron, gaps) plus the gist; below 690px that leaves the gist under ~240px, so the
+                row stacks: the title over the gist, the actions on their own line under it */}
+            <div
+                className={cn(
+                    "flex items-start gap-[12px] px-[14px] @max-[690px]:flex-wrap @max-[690px]:gap-y-[6px]",
+                    note ? "py-[8px]" : "py-[9px]"
+                )}
+            >
                 <span className={cn(note ? NOTE_DOT : PART_DOT[view], "mt-[6px]")} />
                 <button
                     type="button"
                     data-brainstorm-row-toggle
                     aria-expanded={open}
                     onClick={() => setOpen(!open)}
-                    className="flex min-w-0 flex-1 cursor-pointer items-baseline gap-[14px] border-0 bg-transparent p-0 text-left"
+                    className="flex min-w-0 flex-1 cursor-pointer items-baseline gap-[14px] border-0 bg-transparent p-0 text-left @max-[690px]:flex-col @max-[690px]:items-stretch @max-[690px]:gap-[2px]"
                 >
                     <span
+                        data-brainstorm-part-title
                         className={cn(
-                            "w-[200px] flex-none font-semibold",
+                            "w-[200px] flex-none font-semibold @max-[690px]:w-auto",
                             note ? "text-[13px] text-secondary" : "text-[13.5px]",
                             !note && (dim ? "text-ink-mid" : "text-primary")
                         )}
@@ -777,14 +791,20 @@ function PartRow({
                         ) : null}
                     </span>
                 </button>
-                <span className="flex h-[20px] min-w-[150px] flex-none items-center justify-end gap-[8px]">
+                <span
+                    data-brainstorm-part-actions
+                    className="flex h-[20px] min-w-[150px] flex-none items-center justify-end gap-[8px] @max-[690px]:order-last @max-[690px]:basis-full @max-[690px]:justify-start @max-[690px]:pl-[19px] @max-[690px]:empty:hidden"
+                >
                     {unseen ? <span className="text-[11px] font-semibold text-accent-soft">New</span> : null}
                     {right}
                 </span>
                 <Chevron open={open} onClick={() => setOpen(!open)} />
             </div>
             <PaneReveal open={open}>
-                <div data-brainstorm-row-body className="mb-[12px] ml-[233px] mr-[14px] flex flex-col gap-[8px]">
+                <div
+                    data-brainstorm-row-body
+                    className="mb-[12px] ml-[233px] mr-[14px] flex flex-col gap-[8px] @max-[690px]:ml-[14px]"
+                >
                     {editing ? (
                         <>
                             <textarea
@@ -1061,13 +1081,12 @@ function Unreadable({ s }: { s: BrainstormState }) {
     );
 }
 
-function Removed({ agent, topic }: { agent: AgentVM; topic: string }) {
+function Removed({ agent, topic, path }: { agent: AgentVM; topic: string; path: string }) {
     return (
         <EdgeState>
             <span className="text-[14px] font-semibold text-primary">{topic}'s brainstorm file is gone</span>
-            <span className={EXPLAINER}>
-                Its brainstorm.json under .superpowers/brainstorm was deleted, usually because the feature shipped. The
-                switch disappears once you go back to the terminal.
+            <span data-brainstorm-gone className={cn(EXPLAINER, "break-words")}>
+                {brainstormGoneText(path)} The switch disappears once you go back to the terminal.
             </span>
             <button
                 type="button"

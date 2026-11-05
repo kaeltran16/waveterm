@@ -9,6 +9,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
 import {
+    answeredLine,
     checkReview,
     handoffView,
     hasMockups,
@@ -23,6 +24,7 @@ import {
 import { sendBrainstorm } from "./brainstormsend";
 import { openBrainstormDesign, setReviewCursor, toggleReviewRow, type BrainstormState } from "./brainstormstore";
 import {
+    BS_RAIL,
     ChangeDiff,
     CheckMark,
     DOT,
@@ -59,7 +61,7 @@ const QUIET_BTN =
 const UNDER_ROW = "col-[3/-1] flex flex-col gap-[4px]";
 const REVIEW_KEYS: [string, string][] = [
     ["j k", "Next or previous decision"],
-    ["Enter", "Show what it was"],
+    ["Enter", "Open or close the decision"],
     ["y", "Keep the change"],
     ["u", "Put mine back"],
     ["b", "Back to the terminal"],
@@ -112,7 +114,9 @@ export function CheckReview({
                     <section aria-label="Changed" data-brainstorm-review-section="changed" className="flex flex-col">
                         <div className="flex items-baseline gap-[8px] px-[14px] pb-[6px]">
                             <h2 className={SECTION_HEAD}>Changed since you confirmed · {r.changed.length}</h2>
-                            <span className="text-[12px] text-muted">open one to see what it was</span>
+                            {r.anyWas ? (
+                                <span className="text-[12px] text-muted">open one to see what it was</span>
+                            ) : null}
                             {r.pending > 1 ? <KeepAll agent={agent} f={f} pending={r.pending} /> : null}
                         </div>
                         {r.changed.map(row)}
@@ -289,7 +293,7 @@ function ReviewRowView({
                 <button
                     type="button"
                     data-brainstorm-review-toggle
-                    aria-label={open ? "Hide what it was" : "Show what it was"}
+                    aria-label={`${open ? "Hide" : "Show"} ${row.hasWas ? "what it was" : "it"}`}
                     aria-expanded={open}
                     onClick={toggle}
                     className={cn(
@@ -434,7 +438,10 @@ export function AnsweredRail({ f, agent }: { f: BrainstormFile; agent?: AgentVM 
     return (
         <aside
             aria-label="The builder check"
-            className="flex w-[460px] flex-none flex-col gap-[18px] overflow-y-auto border-l border-border bg-surface px-[24px] py-[22px] *:flex-none"
+            className={cn(
+                BS_RAIL,
+                "flex flex-col gap-[18px] overflow-y-auto border-l border-border bg-surface px-[24px] py-[22px] *:flex-none"
+            )}
         >
             <div className="flex flex-col gap-[8px]">
                 <h2 className="m-0 text-[15px] font-semibold text-primary">A builder read the design</h2>
@@ -483,17 +490,6 @@ export function AnsweredRail({ f, agent }: { f: BrainstormFile; agent?: AgentVM 
             ) : null}
         </aside>
     );
-}
-
-function answeredLine(questions: number, forYou: number, answered: number, calls: number): string {
-    const yours =
-        forYou === 0
-            ? "none for you"
-            : answered === forYou
-              ? `${forYou} for you, all answered`
-              : `${forYou} for you, ${answered} answered`;
-    const decided = calls > 0 ? `; the agent decided ${calls}, shown under their decisions` : "";
-    return `It had ${questions} questions: ${yours}${decided}.`;
 }
 
 // the review's own keys, in the hints footer's style (hints-footer.tsx), under the main area and the rail

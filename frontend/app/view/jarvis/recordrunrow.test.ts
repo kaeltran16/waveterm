@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { runRow } from "./recordrunrow";
+import { reportHeadline, runRow } from "./recordrunrow";
 
 const NOW = 1_700_000_000_000;
 const HOUR = 3_600_000;
@@ -37,6 +37,32 @@ describe("runRow", () => {
     it("prefers the run's own evidence summary over its goal", () => {
         const r = run({ evidence: evidence({ summary: "Moved the scope into an atom." }) });
         expect(runRow(r, "the goal", NOW, harnesses).headline).toBe("Moved the scope into an atom.");
+    });
+
+    // a worker's report opens with a heading and code ticks; the row shows its first line of prose, plain
+    it("headlines the summary's first prose line, markdown stripped", () => {
+        const summary = "# SIEM-1739 run F…\n\n## Done\nCommit `cf6e2462dc` landed the fix.";
+        const r = run({ evidence: evidence({ summary }) });
+        expect(runRow(r, "the goal", NOW, harnesses).headline).toBe("Commit cf6e2462dc landed the fix.");
+    });
+
+    it("falls back to the goal rule when the summary has no prose line", () => {
+        const summary = "# Report\n\n## Done\n```\nnpm test\n```\n";
+        expect(reportHeadline(summary)).toBeNull();
+        expect(runRow(run({ evidence: evidence({ summary }) }), "the goal", NOW, harnesses).headline).toBeNull();
+        expect(
+            runRow(run({ goal: "a different goal", evidence: evidence({ summary }) }), "the goal", NOW, harnesses)
+                .headline
+        ).toBe("a different goal");
+    });
+
+    it("strips list, quote and emphasis markers and bounds the line to its first sentence", () => {
+        expect(reportHeadline("- **Moved** the _scope_ into an atom. Then more.")).toBe(
+            "Moved the scope into an atom."
+        );
+        expect(reportHeadline("> Quoted line")).toBe("Quoted line");
+        expect(reportHeadline("1. Numbered item")).toBe("Numbered item");
+        expect(reportHeadline("kept snake_case_name")).toBe("kept snake_case_name");
     });
 
     it("drops the goal when it is the record's objective repeated", () => {

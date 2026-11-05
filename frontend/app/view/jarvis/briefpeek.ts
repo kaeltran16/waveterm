@@ -1,10 +1,8 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// What the record peek says. The peek is deliberately the smaller half of a line the meta spec draws: what
-// is running against a record and what you set it to are Brief business, so they are here; its full
-// history, its decision log and every past correction belong to the record as a Brief subject. So this
-// module derives exactly those two things, and nothing else the record carries.
+// What the record peek says: what is running against a record, what you set it to, and its decision log.
+// The peek is a record's only home (openref.ts openRecordPeek), so the log is shown and added to here.
 //
 // Pure: DossierDetail + the runs attributed to it + the fleet rollup in, strings and rows out. Every
 // number here is derived from the rows beneath it (invariant 5), and nothing claims a reading the record
@@ -55,8 +53,11 @@ export interface RecordPeek {
     bodyMore: string | null;
     fleetMeta: string;
     runs: PeekRunRow[];
-    // absence is a written sentence, never an empty frame (invariant 3)
-    runsAbsent: string;
+    // the scope read has not landed: the rows draw as skeletons, and nothing is claimed absent yet
+    runsLoading: boolean;
+    // absence is a written sentence, never an empty frame (invariant 3); null while loading or when there are runs
+    runsAbsent: string | null;
+    // the label of the footer toggle that shows the record's decision log
     logLine: string;
 }
 
@@ -102,6 +103,44 @@ export function statusPickerRows(status: string): PeekStatusRow[] {
     return rows;
 }
 
+export interface ObjectiveParts {
+    headline: string;
+    // what the objective says past its headline: null when the headline is all of it
+    body: string | null;
+    // the link that opens a clamped body, or null when the body is short enough to show whole
+    bodyMore: string | null;
+}
+
+// objectiveParts is the one rule for how an objective is shortened: its first sentence as the headline, and
+// the rest as the body, so a host that prints both never says the first sentence twice. A headline that had to
+// cut its sentence says only part of it, so then the body is the whole objective. An empty objective is the
+// caller's case: each host states that absence its own way.
+export function objectiveParts(objective: string): ObjectiveParts {
+    const text = objective.trim();
+    const head = headline(text);
+    let body: string | null = text;
+    if (text.startsWith(head)) {
+        const rest = text.slice(head.length).trim();
+        body = rest === "" ? null : rest;
+    }
+    const bodyMore =
+        body != null && body.length > BODY_CLAMP_CHARS ? `Show the full objective · ${kilo(body.length)}` : null;
+    return { headline: head, body, bodyMore };
+}
+
+export function statusConfirmCopy(status: string): { title: string; body: string } {
+    return {
+        title: `Mark this record ${status}?`,
+        body: `This sets the record's status to "${status}". You can reactivate it later.`,
+    };
+}
+
+// a volunteered utterance that named one of this record's decisions opens the peek with the log shown, so the
+// card it points at is in sight to flash
+export function decisionsOpenOnMount(anchor: string | null, decisions: DecisionCard[]): boolean {
+    return anchor != null && (decisions ?? []).some((d) => d.id === anchor);
+}
+
 function peekBody(detail: DossierDetail): { body: string | null; bodyIsAbsence: boolean; bodyMore: string | null } {
     const objective = detail.objective?.trim() ?? "";
     if (objective === "") {
@@ -111,23 +150,21 @@ function peekBody(detail: DossierDetail): { body: string | null; bodyIsAbsence: 
         }
         return { body: notes, bodyIsAbsence: false, bodyMore: null };
     }
-    if (headline(objective) === objective) {
-        return { body: null, bodyIsAbsence: false, bodyMore: null };
-    }
-    const bodyMore = objective.length > BODY_CLAMP_CHARS ? `Show the full objective · ${kilo(objective.length)}` : null;
-    return { body: objective, bodyIsAbsence: false, bodyMore };
+    const { body, bodyMore } = objectiveParts(objective);
+    return { body, bodyIsAbsence: false, bodyMore };
 }
 
 function logLine(n: number): string {
     if (n === 0) {
-        return "no decisions yet";
+        return "No decisions yet";
     }
-    return `${n} decision${n === 1 ? "" : "s"} · on the Brief`;
+    return `${n} decision${n === 1 ? "" : "s"}`;
 }
 
 export interface RecordPeekInput {
     detail: DossierDetail;
-    runs: Run[];
+    // undefined while the record's scope read is in flight: not loaded is not "never attributed"
+    runs: Run[] | undefined;
     fleet: RecordFleet;
     // the worker counts the fleet rollup produced; passed in rather than recomputed so the meta line and
     // the roster it describes can never disagree
@@ -140,7 +177,7 @@ export function buildRecordPeek(input: RecordPeekInput): RecordPeek {
     const { detail, runs, fleet, counts, harnesses, now } = input;
     const objective = detail.objective?.trim() ?? "";
     return {
-        title: objective !== "" ? headline(objective) : detail.id,
+        title: objective !== "" ? objectiveParts(objective).headline : detail.id,
         titleIsId: objective === "",
         updatedLabel: detail.updated > 0 ? `updated ${ageLabel(Math.max(0, now - detail.updated))}` : "never updated",
         statusLabel: detail.status ?? "",
@@ -165,7 +202,8 @@ export function buildRecordPeek(input: RecordPeekInput): RecordPeek {
                 tone: view.tone,
             };
         }),
-        runsAbsent: RUNS_ABSENT,
+        runsLoading: runs == null,
+        runsAbsent: runs != null && runs.length === 0 ? RUNS_ABSENT : null,
         logLine: logLine(detail.decisions?.length ?? 0),
     };
 }

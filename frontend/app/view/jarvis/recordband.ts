@@ -6,16 +6,13 @@
 // model reads as certain when it is not.
 
 import type { AmbientTag } from "@/app/view/agents/ambient";
-import type { SubjectKind } from "./subjects";
 
 export type BandCase =
     | { case: "none" }
     | { case: "one"; edge: AmbientTag }
-    | { case: "several"; primary: AmbientTag; others: AmbientTag[] }
-    | { case: "subject" };
+    | { case: "several"; primary: AmbientTag; others: AmbientTag[] };
 
 export interface BandInput {
-    kind: SubjectKind;
     tags: AmbientTag[];
 }
 
@@ -44,14 +41,34 @@ export function edgeLineStyle(tag: AmbientTag): EdgeLine {
     return { ...(LINE[tag.bucket] ?? LINE.weak) };
 }
 
+// the engine's names (informing, medium) mean nothing to a person. A confirmed link has no confidence left to
+// show; anything else is a guess, and an unknown bucket never reads as stronger than weak.
+const GUESS_WORD: Record<string, string> = { strong: "strong", medium: "likely", weak: "weak" };
+
 export function edgeLabel(tag: AmbientTag): string {
-    return `${tag.state} · ${tag.bucket}`;
+    if (tag.state === "confirmed") {
+        return "confirmed";
+    }
+    return `guessed · ${GUESS_WORD[tag.bucket] ?? GUESS_WORD.weak}`;
+}
+
+// the collapsed row marks only a guess: a confirmed edge has nothing left for you to check.
+export function bandGlyph(band: BandCase): boolean {
+    const shown = band.case === "one" ? band.edge : band.case === "several" ? band.primary : null;
+    return shown != null && shown.state !== "confirmed";
+}
+
+export function recordPickerMatches<T extends { id: string; objective: string; ticket?: string }>(
+    records: T[],
+    q: string,
+    max: number
+): T[] {
+    const needle = q.trim().toLowerCase();
+    const hit = (r: T) => [r.objective, r.id, r.ticket ?? ""].some((s) => s.toLowerCase().includes(needle));
+    return (needle === "" ? records : records.filter(hit)).slice(0, max);
 }
 
 export function recordBandCase(input: BandInput): BandCase {
-    if (input.kind === "dossier") {
-        return { case: "subject" };
-    }
     const tags = input.tags ?? [];
     if (tags.length === 0) {
         return { case: "none" };

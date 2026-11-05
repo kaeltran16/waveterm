@@ -82,3 +82,20 @@ func TestValidateRejectsHumanRegionInjection(t *testing.T) {
 		t.Fatal("an injected human key must fail validation")
 	}
 }
+
+func TestSpliceRegionsCRLF(t *testing.T) {
+	crlf := strings.ReplaceAll(seeded, "\n", "\r\n")
+	out, err := spliceRegions(crlf, []RegionEdit{{Kind: FrontmatterKey, Name: "status", Value: "completed"}})
+	if err != nil {
+		t.Fatalf("splice: %v", err)
+	}
+	if !strings.Contains(out, "status: completed\r\n") || strings.Contains(out, "status: draft") {
+		t.Fatalf("status not updated:\n%q", out)
+	}
+	if strings.Count(out, "---\r\n") != 2 || strings.HasPrefix(out, "---\r\n---") {
+		t.Fatalf("front matter duplicated:\n%q", out)
+	}
+	if strings.Contains(strings.ReplaceAll(out, "\r\n", ""), "\n") {
+		t.Fatalf("bare LF in CRLF output:\n%q", out)
+	}
+}

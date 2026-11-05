@@ -36,16 +36,19 @@ func TestBuildAmbientProjectsTagsAndDecisions(t *testing.T) {
 
 	got := buildAmbient(dossiers, byDossier, decisions)
 
-	// every dossier is a tag target (a wikilink may reach an unattributed one); ticket wins over objective.
+	// every dossier is a tag target (a wikilink may reach an unattributed one); the objective labels it and
+	// the ticket rides along.
 	if len(got.Tasks) != 3 {
 		t.Fatalf("tasks = %d, want 3: %+v", len(got.Tasks), got.Tasks)
 	}
 	label := map[string]string{}
+	ticket := map[string]string{}
 	for _, task := range got.Tasks {
 		label[task.Id] = task.Label
+		ticket[task.Id] = task.Ticket
 	}
-	if label["task-1"] != "PROJ-142" {
-		t.Fatalf("task-1 label = %q, want the ticket PROJ-142", label["task-1"])
+	if label["task-1"] != "oauth pkce" || ticket["task-1"] != "PROJ-142" {
+		t.Fatalf("task-1 = label %q ticket %q, want the objective as label and PROJ-142 as ticket", label["task-1"], ticket["task-1"])
 	}
 	if label["task-2"] != "drop the electron shell" {
 		t.Fatalf("task-2 label = %q, want the objective (no ticket)", label["task-2"])
@@ -97,6 +100,59 @@ func TestBuildAmbientEmptyVaultProducesNoTags(t *testing.T) {
 	got := buildAmbient(nil, nil, nil)
 	if len(got.Tasks) != 0 || len(got.Edges) != 0 || len(got.Decisions) != 0 {
 		t.Fatalf("empty vault must produce nothing, got %+v", got)
+	}
+}
+
+func TestAmbientLabelObjectiveAndTicket(t *testing.T) {
+	dossiers := []wshrpc.SpaceSummary{
+		{Id: "a", Ticket: "SIEM-1739", Objective: "deploy the collector"},
+		{Id: "b", Ticket: "SIEM-1739", Objective: "fix the parser"},
+		{Id: "c", Ticket: "SIEM-9", Objective: "\n  first line\nsecond line"},
+		{Id: "d", Ticket: "SIEM-7"},
+	}
+	got := buildAmbient(dossiers, nil, nil).Tasks
+	if got[0].Label == got[1].Label {
+		t.Fatalf("two dossiers on one ticket share the label %q", got[0].Label)
+	}
+	for _, task := range got[:2] {
+		if task.Ticket != "SIEM-1739" {
+			t.Fatalf("task %s ticket = %q, want SIEM-1739", task.Id, task.Ticket)
+		}
+	}
+	if got[2].Label != "first line" {
+		t.Fatalf("multi-line objective label = %q, want its first non-empty line", got[2].Label)
+	}
+	if got[3].Label != "SIEM-7" {
+		t.Fatalf("no objective: label = %q, want the ticket", got[3].Label)
+	}
+	long := strings.Repeat("x", 100) + "\nsecond"
+	if l := ambientLabel(wshrpc.SpaceSummary{Objective: long}); len([]rune(l)) > ambientLabelMax+1 {
+		t.Fatalf("first line not bounded: %d runes", len([]rune(l)))
+	}
+}
+
+func TestAmbientTaskLabelAndTicket(t *testing.T) {
+	cases := []struct {
+		in   wshrpc.SpaceSummary
+		want wshrpc.AmbientTask
+	}{
+		{
+			wshrpc.SpaceSummary{Id: "d1", Objective: "first line\nsecond", Ticket: "PROJ-142"},
+			wshrpc.AmbientTask{Id: "d1", Label: "first line", Ticket: "PROJ-142"},
+		},
+		{
+			wshrpc.SpaceSummary{Id: "d1", Ticket: "PROJ-142"},
+			wshrpc.AmbientTask{Id: "d1", Label: "PROJ-142", Ticket: "PROJ-142"},
+		},
+		{
+			wshrpc.SpaceSummary{Id: "d1"},
+			wshrpc.AmbientTask{Id: "d1", Label: "d1"},
+		},
+	}
+	for _, c := range cases {
+		if got := ambientTask(c.in); got != c.want {
+			t.Fatalf("ambientTask(%+v) = %+v, want %+v", c.in, got, c.want)
+		}
 	}
 }
 

@@ -199,11 +199,12 @@ type CommandResolveDossierEdgesRtnData struct {
 	Links []GraphLink `json:"links"`
 }
 
-// AmbientTask is a dossier reduced to what an ambient tag renders: its id and display label. The whole
-// set ships (not just attributed ones) so a memory note's [[wikilink]] can resolve to a tag too.
+// AmbientTask is a dossier reduced to what an ambient tag renders: its id, display label and ticket. The
+// whole set ships (not just attributed ones) so a memory note's [[wikilink]] can resolve to a tag too.
 type AmbientTask struct {
-	Id    string `json:"id"`
-	Label string `json:"label"`
+	Id     string `json:"id"`
+	Label  string `json:"label"`
+	Ticket string `json:"ticket,omitempty"`
 }
 
 // AmbientEdge is one attributed object -> dossier link. ORef is the object the tag renders on (a run

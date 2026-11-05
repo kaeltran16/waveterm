@@ -187,6 +187,25 @@ describe("record landing", () => {
         expect(rpc.ListTaskDossiersCommand).not.toHaveBeenCalled();
     });
 
+    // a decision appended since the record was cached is only in a fresh read
+    it("reads a cached record fresh when the open is anchored on a decision", async () => {
+        const model = makeModel();
+        globalStore.set(taskListAtom, [{ id: "task-a" } as SpaceSummary]);
+        globalStore.set(recordDetailAtom, { "task-a": { id: "task-a" } as unknown as DossierDetail });
+        rpc.GetDossierCommand.mockResolvedValue({ id: "task-a" });
+        await openAddress(model, "task:task-a", { sourceType: "decision", anchor: "dec-1" });
+        expect(rpc.GetDossierCommand).toHaveBeenCalledTimes(1);
+        expect(rpc.GetDossierCommand).toHaveBeenCalledWith({}, { dossierid: "task-a" });
+    });
+
+    it("keeps the cached record when the open has no anchor", async () => {
+        const model = makeModel();
+        globalStore.set(taskListAtom, [{ id: "task-a" } as SpaceSummary]);
+        globalStore.set(recordDetailAtom, { "task-a": { id: "task-a" } as unknown as DossierDetail });
+        await openAddress(model, "task:task-a");
+        expect(rpc.GetDossierCommand).not.toHaveBeenCalled();
+    });
+
     it("loads the record list before calling a record gone, and says so", async () => {
         const model = makeModel();
         rpc.ListTaskDossiersCommand.mockResolvedValue({ dossiers: [{ id: "other" }] });
