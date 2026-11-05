@@ -1,10 +1,10 @@
 // Diff surface scenario diff-scope: what the surface reads (sources, ranges, history bounds) on a repo with a long
 // history, a second worktree, a stash and an uncommitted edit, beside a plain folder and a clone with a remote.
 // The helpers below are shared with scenarios-files-states.mjs.
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { git, reloadApp } from "./scenarios-shared.mjs";
+import { git, reloadApp, TREE_RAIL_FIXTURE } from "./scenarios-shared.mjs";
 
 // the history page is 50 rows, so more than that makes a second page
 const SCOPE_FILLER_COMMITS = 62;
@@ -87,7 +87,64 @@ export const SCOPE = {
     side: "side: settle refunds on the side branch",
     stash: "verify stashed edit",
     edited: "ledger.txt",
+    // a fixture agent working in the project; its name shares "diff-remote" with the remote project, so that
+    // fragment matches exactly two sources, the agent drawn first
+    agentId: "fx-diff-remote-chip",
+    agent: "diff-remote-chip",
+    twoSources: "diff-remote",
+    noMatch: "zz-no-source-matches",
 };
+
+const FILTER_INPUT = `[aria-label="Filter sources"]`;
+const KEYS = { ArrowDown: 40, Enter: 13, Escape: 27 };
+
+async function pressKey(h, key) {
+    const vk = KEYS[key];
+    await h.cdp("Input.dispatchKeyEvent", { type: "keyDown", key, code: key, windowsVirtualKeyCode: vk });
+    await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", key, code: key, windowsVirtualKeyCode: vk });
+}
+
+const pickerLabel = (h) => textOf(h, "[data-files-source-picker]");
+const pickerOpen = (h) => h.ev(`${q("[data-files-source-picker]")}?.getAttribute("aria-expanded") === "true"`);
+
+// opens the source picker and types into its filter, replacing what a previous step left there
+async function filterPicker(h, text) {
+    if (!(await pickerOpen(h))) await h.ev(`${q("[data-files-source-picker]")}.click()`);
+    if (!(await until(h, `!!${q(FILTER_INPUT)}`, 5000))) return false;
+    await h.ev(`${q(FILTER_INPUT)}.focus(); ${q(FILTER_INPUT)}.select()`);
+    await h.cdp("Input.insertText", { text });
+    return until(h, `${q(FILTER_INPUT)}?.value === ${JSON.stringify(text)}`, 3000);
+}
+
+// The cockpit reads its roster from the dev fixture once at boot, and a card draws its diff chip only once its
+// transcript names a cwd with changes: a transcript whose one line names the project gives a real chip from the
+// real pipeline. The fixture file may be a developer's own, so it is kept and put back in teardown.
+function seedChipAgent(dir) {
+    const transcriptRoot = mkdtempSync(join(tmpdir(), "verify-diff-chip-"));
+    const transcriptPath = join(transcriptRoot, "session.jsonl");
+    const line = { type: "user", cwd: dir, timestamp: new Date().toISOString(), message: { role: "user", content: "settle the ledger" } };
+    writeFileSync(transcriptPath, JSON.stringify(line) + "\n");
+    const priorFixture = existsSync(TREE_RAIL_FIXTURE) ? readFileSync(TREE_RAIL_FIXTURE, "utf8") : null;
+    mkdirSync(new URL(".", TREE_RAIL_FIXTURE), { recursive: true });
+    const agent = {
+        id: SCOPE.agentId,
+        name: SCOPE.agent,
+        project: SCOPE.project,
+        task: "settle the ledger",
+        state: "working",
+        agent: "claude",
+        model: "haiku",
+        activeMs: 60_000,
+        transcriptPath,
+    };
+    writeFileSync(TREE_RAIL_FIXTURE, JSON.stringify([agent], null, 2));
+    return { transcriptRoot, priorFixture };
+}
+
+function restoreFixture(priorFixture) {
+    if (priorFixture == null) rmSync(TREE_RAIL_FIXTURE, { force: true });
+    else writeFileSync(TREE_RAIL_FIXTURE, priorFixture);
+}
 
 function seedScopeRepo() {
     const dir = mkdtempSync(join(tmpdir(), "verify-diff-scope-"));
@@ -143,9 +200,18 @@ export const diffScope = {
         await h.rpc("createproject", { name: SCOPE.project, path: scope.dir });
         await h.rpc("createproject", { name: SCOPE.plain, path: plain });
         await h.rpc("createproject", { name: SCOPE.remote, path: remote.clone });
-        // fresh module state: Diff's scope, range and history collapse outlive the surface for the page's life
+        const chip = seedChipAgent(scope.dir);
+        // fresh module state: Diff's scope, range and history collapse outlive the surface for the page's life; the
+        // same reload reads the fixture roster
         await reloadApp(h);
-        return { ...scope, plain, remoteRoot: remote.root, names, dirs: [scope.dir, scope.sideRoot, plain, remote.root] };
+        return {
+            ...scope,
+            plain,
+            remoteRoot: remote.root,
+            names,
+            priorFixture: chip.priorFixture,
+            dirs: [scope.dir, scope.sideRoot, plain, remote.root, chip.transcriptRoot],
+        };
     },
     async assert(h) {
         const steps = [];
@@ -166,12 +232,56 @@ export const diffScope = {
                 JSON.stringify({ opened, rows, top, edited, diff, pane: (await textOf(h, "[data-diff-pane]")).slice(0, 120) })
             );
             await h.shot("cdp-shots/diff-scope-open.png");
+
+            // real keys reach the filter only while the page holds focus, which a dev window behind another lacks
+            await h.cdp("Emulation.setFocusEmulationEnabled", { enabled: true });
+            const typed = await filterPicker(h, SCOPE.twoSources);
+            const rowsShown = await h.ev(`document.querySelectorAll("[data-files-source-agent], [data-files-source-option]").length`);
+            await pressKey(h, "ArrowDown");
+            const highlighted = await until(
+                h,
+                `${q("[data-highlighted]")}?.getAttribute("data-files-source-option") === ${JSON.stringify(SCOPE.remote)}`,
+                3000
+            );
+            await h.shot("cdp-shots/diff-scope-picker-highlight.png");
+            await pressKey(h, "Enter");
+            const scoped = await until(h, `(${q("[data-files-source-picker]")}?.textContent ?? "").trim() === ${JSON.stringify(SCOPE.remote)}`);
+            const closed = !(await pickerOpen(h));
+            await filterPicker(h, SCOPE.noMatch);
+            await pressKey(h, "Enter");
+            await sleep(500);
+            const stillOpen = await pickerOpen(h);
+            const noMatch = await h.ev(`document.body.innerText.includes("No match")`);
+            await h.shot("cdp-shots/diff-scope-picker-no-match.png");
+            await pressKey(h, "Escape");
+            rec(
+                "2. picker keyboard: ArrowDown + Enter picks the second of two matches and closes; Enter on no match stays open",
+                typed && rowsShown === 2 && highlighted && scoped && closed && stillOpen && noMatch,
+                JSON.stringify({ typed, rowsShown, highlighted, scoped, closed, stillOpen, noMatch, label: await pickerLabel(h) })
+            );
+
+            const pinned = await openOnDiff(h, SCOPE.project);
+            await h.goto("cockpit");
+            const chipSel = `[data-diff-chip]`;
+            const chip = await until(h, `!!${q(chipSel)}`, 15000);
+            if (chip) await h.ev(`${q(chipSel)}.click()`);
+            const named = chip && (await until(h, `(${q("[data-files-source-picker]")}?.textContent ?? "").trim() === ${JSON.stringify(SCOPE.agent)}`, 10000));
+            await h.shot("cdp-shots/diff-scope-card-chip.png");
+            rec(
+                "3. card chip scopes to the agent: with Diff pinned to the project, the Cockpit card's diff chip opens Diff on that agent",
+                pinned && chip && named,
+                JSON.stringify({ pinned, chip, named, label: await pickerLabel(h) })
+            );
         } catch (e) {
             rec("scenario aborted", false, String(e?.message ?? e));
         }
         return steps;
     },
     async teardown(h, ctx) {
+        await h.cdp("Emulation.setFocusEmulationEnabled", { enabled: false }).catch(() => {});
+        restoreFixture(ctx.priorFixture);
         await removeFixtures(h, ctx.names, ctx.dirs);
+        // drop the fixture roster the page read at boot
+        await reloadApp(h);
     },
 };

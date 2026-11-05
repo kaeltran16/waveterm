@@ -3,7 +3,17 @@
 
 import { describe, expect, it } from "vitest";
 import type { DiffScope } from "./diffscope";
-import { defaultFocusId, filterSources, focusFollowAgent, sourceFor, worktreeParent } from "./diffsource";
+import {
+    defaultFocusId,
+    endedAgentScope,
+    filterSources,
+    focusFollowAgent,
+    moveHighlight,
+    pickerRows,
+    sourceFor,
+    subjectState,
+    worktreeParent,
+} from "./diffsource";
 
 const agents = [
     { id: "a1", name: "jarvis-recall" },
@@ -105,5 +115,85 @@ describe("worktreeParent", () => {
     });
     it("is null for a top-level project", () => {
         expect(worktreeParent(projects[0], projects)).toBeNull();
+    });
+});
+
+describe("subjectState", () => {
+    const projects = [{ name: "waveterm" }];
+    it("is empty with nothing scoped and no sources", () => {
+        expect(subjectState(null, [], [])).toBe("empty");
+    });
+    it("asks for a pick with nothing scoped while sources exist", () => {
+        expect(subjectState(null, [], projects)).toBe("pick");
+        expect(subjectState(null, agents, [])).toBe("pick");
+    });
+    it("is ended when the scoped agent is no longer in the roster", () => {
+        expect(subjectState(agentScope("gone"), agents, projects)).toBe("ended");
+    });
+    it("is ready for a live agent, a project or a run", () => {
+        expect(subjectState(agentScope("a1"), agents, [])).toBe("ready");
+        expect(subjectState(projectScope, [], projects)).toBe("ready");
+        expect(subjectState(runScope, [], [])).toBe("ready");
+    });
+});
+
+describe("endedAgentScope", () => {
+    const projects = [{ name: "waveterm", path: "C:\\Users\\k\\IdeaProjects\\waveterm" }];
+    it("re-scopes to the registered project at the agent's folder, across separators and case", () => {
+        expect(endedAgentScope("c:/users/k/ideaprojects/waveterm/", projects)).toEqual({
+            repo: { origin: { kind: "project", name: "waveterm", path: projects[0].path }, label: "waveterm" },
+            range: { kind: "working" },
+        });
+    });
+    it("names an unregistered folder for itself", () => {
+        expect(endedAgentScope("C:\\tmp\\exp-native", projects)).toEqual({
+            repo: {
+                origin: { kind: "project", name: "exp-native", path: "C:\\tmp\\exp-native" },
+                label: "exp-native",
+            },
+            range: { kind: "working" },
+        });
+    });
+    it("is null with no remembered folder", () => {
+        expect(endedAgentScope(undefined, projects)).toBeNull();
+        expect(endedAgentScope("", projects)).toBeNull();
+    });
+});
+
+describe("pickerRows", () => {
+    const agents = [
+        { id: "a1", name: "verify-runs" },
+        { id: "a2", name: "Rapid" },
+    ];
+    const projects = [{ name: "waveterm" }, { name: "rapid-proj" }];
+    it("lists agents before projects, in drawn order", () => {
+        expect(pickerRows(agents, projects)).toEqual([
+            { kind: "agent", id: "a1" },
+            { kind: "agent", id: "a2" },
+            { kind: "project", name: "waveterm" },
+            { kind: "project", name: "rapid-proj" },
+        ]);
+    });
+    it("is empty under a filter that matches nothing", () => {
+        const shown = filterSources("zzz", agents, projects);
+        expect(pickerRows(shown.agents, shown.projects)).toEqual([]);
+    });
+});
+
+describe("moveHighlight", () => {
+    it("steps within the rows", () => {
+        expect(moveHighlight(3, 0, 1)).toBe(1);
+        expect(moveHighlight(3, 2, -1)).toBe(1);
+    });
+    it("clamps at either end rather than wrapping", () => {
+        expect(moveHighlight(3, 2, 1)).toBe(2);
+        expect(moveHighlight(3, 0, -1)).toBe(0);
+    });
+    it("pulls a highlight left past a shrunken list back into range", () => {
+        expect(moveHighlight(2, 5, 1)).toBe(1);
+    });
+    it("is 0 with no rows", () => {
+        expect(moveHighlight(0, 0, 1)).toBe(0);
+        expect(moveHighlight(0, 0, -1)).toBe(0);
     });
 });
