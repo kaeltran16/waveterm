@@ -9,7 +9,7 @@
 // React, no Wave runtime imports.
 
 import type { DonutWindow, ProviderDonuts } from "./ratelimitstore";
-import type { DailyUsage } from "./usagestats";
+import type { DailyHarnessUsage, DailyUsage } from "./usagestats";
 
 // "live" = a running agent is reporting now; "saved" = last snapshot from ratelimitstore; "none" =
 // this harness has never reported a quota window (opencode/pi don't publish one at all).
@@ -19,6 +19,7 @@ export interface UsageRailRow {
     harness: string;
     tokens: number;
     spendUsd: number;
+    pricedTokens: number;
     fivehour: DonutWindow;
     week: DonutWindow;
     state: RailState;
@@ -34,13 +35,14 @@ export interface UsageRailGroup {
 // Fold the window's daily series into per-harness totals. `daily` already carries tokens AND spend
 // per harness for every day in the loaded window, so the rail needs no second pass over the raw
 // buckets — and it stays in lockstep with the chart, which reads the same series.
-export function harnessTotals(daily: DailyUsage[]): Record<string, { tokens: number; spendUsd: number }> {
-    const out: Record<string, { tokens: number; spendUsd: number }> = {};
+export function harnessTotals(daily: DailyUsage[]): Record<string, DailyHarnessUsage> {
+    const out: Record<string, DailyHarnessUsage> = {};
     for (const d of daily) {
         for (const [harness, v] of Object.entries(d.byHarness)) {
-            const cur = out[harness] ?? { tokens: 0, spendUsd: 0 };
+            const cur = out[harness] ?? { tokens: 0, spendUsd: 0, pricedTokens: 0 };
             cur.tokens += v.tokens;
             cur.spendUsd += v.spendUsd;
+            cur.pricedTokens += v.pricedTokens;
             out[harness] = cur;
         }
     }
@@ -68,12 +70,13 @@ export function buildUsageRail(
     const rows = keys
         .sort((a, b) => rank(a) - rank(b) || (a < b ? -1 : 1))
         .map<UsageRailRow>((harness) => {
-            const t = totals[harness] ?? { tokens: 0, spendUsd: 0 };
+            const t = totals[harness] ?? { tokens: 0, spendUsd: 0, pricedTokens: 0 };
             const d = byHarness.get(harness);
             return {
                 harness,
                 tokens: t.tokens,
                 spendUsd: t.spendUsd,
+                pricedTokens: t.pricedTokens,
                 fivehour: d?.fivehour ?? {},
                 week: d?.week ?? {},
                 state: d == null ? "none" : d.stale != null ? "saved" : "live",

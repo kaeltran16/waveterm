@@ -9,11 +9,16 @@ vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 
 import {
     allUsageStatsAtom,
+    forecastDaily,
+    forecastDailyAtom,
+    loadForecastHistory,
     loadUsage,
     usageBucketsAtom,
     usageErrorAtom,
+    usageHeldWindowAtom,
     usageLensAtom,
     usageLoadedAtom,
+    usageLoadView,
     usageSessionsAtom,
     usageWorkItemAtom,
     usageWorkScopeAtom,
@@ -68,6 +73,7 @@ afterEach(() => {
     globalStore.set(usageBucketsAtom, []);
     globalStore.set(usageErrorAtom, false);
     globalStore.set(usageLoadedAtom, false);
+    globalStore.set(usageHeldWindowAtom, null);
 });
 
 describe("loadUsage", () => {
@@ -280,5 +286,92 @@ describe("loadUsage", () => {
         expect(globalStore.get(usageLensAtom)).toBe("work");
         expect(globalStore.get(usageWorkScopeAtom)).toBe("C:/work/waveterm");
         expect(globalStore.get(usageWorkItemAtom)).toEqual(item);
+    });
+});
+
+describe("held window", () => {
+    it("records the window of the held buckets only when a load succeeds", async () => {
+        getStats.mockResolvedValueOnce(response);
+        await loadUsage(7);
+        expect(globalStore.get(usageHeldWindowAtom)).toBe(7);
+
+        getStats.mockRejectedValueOnce(new Error("network error"));
+        await loadUsage(0);
+        expect(globalStore.get(usageHeldWindowAtom)).toBe(7);
+        expect(usageLoadView(0, 7, globalStore.get(usageLoadedAtom), globalStore.get(usageErrorAtom))).toBe(
+            "switch-failed"
+        );
+    });
+
+    it("starts the all-usage chart at the held window's first day", async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date(2026, 5, 26, 12));
+        try {
+            getStats.mockResolvedValueOnce(response);
+            await loadUsage(7);
+            expect(globalStore.get(allUsageStatsAtom).daily.map((d) => d.day)[0]).toBe("2026-06-20");
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+});
+
+describe("usageLoadView", () => {
+    it("shows the skeleton while a window that is not held loads", () => {
+        expect(usageLoadView(7, null, false, false)).toBe("skeleton");
+        expect(usageLoadView(0, 7, false, false)).toBe("skeleton");
+    });
+    it("shows the held data at once on a switch back, and while the held window reloads", () => {
+        expect(usageLoadView(7, 7, false, true)).toBe("data-with-error");
+        expect(usageLoadView(7, 7, false, false)).toBe("data");
+        expect(usageLoadView(7, 7, true, false)).toBe("data");
+    });
+    it("keeps the data with a banner when a refresh of the held window failed", () => {
+        expect(usageLoadView(7, 7, true, true)).toBe("data-with-error");
+    });
+    it("fails the switch when a window other than the held one failed", () => {
+        expect(usageLoadView(0, 7, true, true)).toBe("switch-failed");
+        expect(usageLoadView(7, null, true, true)).toBe("switch-failed");
+    });
+});
+
+describe("forecast history", () => {
+    const now = new Date(2026, 10, 5, 12).getTime();
+    const at = (day: string, over: Record<string, unknown> = {}) => ({ ...response.buckets[0], day, ...over });
+
+    it("keeps Claude's daily tokens over the last 28 days", () => {
+        const daily = forecastDaily(
+            [
+                at("2026-10-08", { input: 999 }), // 29 days back: cut
+                at("2026-10-09", { input: 10, output: 0 }),
+                at("2026-10-09", { harness: "codex", input: 500 }),
+                at("2026-11-05", { input: 5, output: 0 }),
+            ],
+            now
+        );
+        expect(daily[0]).toEqual({ day: "2026-10-09", tokens: 10 });
+        expect(daily).toHaveLength(28);
+        expect(daily[daily.length - 1]).toEqual({ day: "2026-11-05", tokens: 5 });
+    });
+
+    it("asks for 28 days at most once an hour, and keeps the last history when a load fails", async () => {
+        const base = now + 365 * 24 * 3600_000;
+        getStats.mockResolvedValue({ buckets: [at("2027-11-05", { input: 7, output: 0 })] });
+        await loadForecastHistory(base);
+        expect(getStats).toHaveBeenCalledTimes(1);
+        expect(getStats.mock.calls[0][1]).toStrictEqual({ windowdays: 28 });
+        const held = globalStore.get(forecastDailyAtom);
+        expect(held?.length).toBeGreaterThan(0);
+
+        await loadForecastHistory(base + 30 * 60_000);
+        expect(getStats).toHaveBeenCalledTimes(1);
+
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        getStats.mockRejectedValueOnce(new Error("network error"));
+        await loadForecastHistory(base + 61 * 60_000);
+        expect(getStats).toHaveBeenCalledTimes(2);
+        expect(globalStore.get(forecastDailyAtom)).toBe(held);
+        expect(warn).toHaveBeenCalled();
+        warn.mockRestore();
     });
 });

@@ -24,12 +24,12 @@ function opacity(fill: string): number {
 }
 
 describe("harness chart metadata", () => {
-    it("maps known harnesses to their tokens and labels, others to muted and the raw id", () => {
+    it("maps known harnesses to their provider tokens and labels, others to muted and the raw id", () => {
         expect(["claude", "codex", "opencode", "pi", "jarvis"].map(harnessChartColor)).toEqual([
-            "var(--color-accent)",
-            "var(--color-success)",
-            "var(--color-rt-opencode)",
-            "var(--color-rt-pi)",
+            "var(--color-provider-claude)",
+            "var(--color-provider-codex)",
+            "var(--color-provider-opencode)",
+            "var(--color-provider-pi)",
             "var(--color-muted)",
         ]);
         expect(["claude", "codex", "opencode", "pi", "jarvis"].map(harnessChartLabel)).toEqual([
@@ -43,7 +43,7 @@ describe("harness chart metadata", () => {
 });
 
 describe("modelShade", () => {
-    const color = "var(--color-rt-pi)";
+    const color = "var(--color-provider-pi)";
 
     it("uses the bare color for a lone model", () => {
         expect(modelShade(color, 0, 1)).toBe(color);
@@ -79,6 +79,23 @@ describe("modelLegend", () => {
         expect(groups[0].label).toBe("Codex");
         expect(groups.map((g) => g.pct)).toEqual([25, 75]);
         expect(groups.every((g) => g.showHead)).toBe(true);
+    });
+
+    it("labels a model by provider/model only when its name repeats in the group", () => {
+        const groups = modelLegend(
+            [
+                series("pi", "openai-codex", "gpt-5.5", 300),
+                series("pi", "openrouter", "gpt-5.5", 200),
+                series("pi", "anthropic", "claude-opus-5-5", 100),
+                series("codex", "openai", "gpt-5.5", 100),
+            ],
+            ["codex", "pi"],
+            "tokens"
+        );
+        expect(groups.map((g) => g.models.map((m) => m.label))).toEqual([
+            ["gpt-5.5"],
+            ["openai-codex/gpt-5.5", "openrouter/gpt-5.5", "claude-opus-5-5"],
+        ]);
     });
 
     it("orders groups by harnessOrder with unlisted harnesses last, alphabetically", () => {
@@ -128,8 +145,8 @@ describe("modelLegend", () => {
     it("shades models within a harness by rank", () => {
         const [g] = modelLegend([series("pi", "x", "b", 10), series("pi", "x", "a", 20)], ["pi"], "tokens");
         expect(g.models.map((m) => m.fill)).toEqual([
-            "var(--color-rt-pi)",
-            "color-mix(in srgb, var(--color-rt-pi) 25%, transparent)",
+            "var(--color-provider-pi)",
+            "color-mix(in srgb, var(--color-provider-pi) 25%, transparent)",
         ]);
     });
 });
@@ -152,7 +169,10 @@ describe("modelRows", () => {
         {
             day: "2026-08-10",
             byHarness: {},
-            byModel: { [a]: { tokens: 10, spendUsd: 1 }, [b]: { tokens: 20, spendUsd: 2 } },
+            byModel: {
+                [a]: { tokens: 10, spendUsd: 1, pricedTokens: 10 },
+                [b]: { tokens: 20, spendUsd: 2, pricedTokens: 20 },
+            },
         },
         { day: "2026-08-11", byHarness: {}, byModel: {} },
     ];

@@ -5,8 +5,13 @@ import type { DailyUsage } from "./usagestats";
 
 const now = 1_800_000_000_000;
 
-function day(d: string, byHarness: Record<string, { tokens: number; spendUsd: number }>): DailyUsage {
-    return { day: d, byHarness, byModel: {} };
+// a day's harness amounts; pricedTokens defaults to every token priced
+function day(
+    d: string,
+    byHarness: Record<string, { tokens: number; spendUsd: number; pricedTokens?: number }>
+): DailyUsage {
+    const priced = Object.entries(byHarness).map(([h, v]) => [h, { pricedTokens: v.tokens, ...v }]);
+    return { day: d, byHarness: Object.fromEntries(priced), byModel: {} };
 }
 
 describe("harnessTotals", () => {
@@ -16,9 +21,14 @@ describe("harnessTotals", () => {
             day("2026-09-02", { claude: { tokens: 60, spendUsd: 2 } }),
         ];
         expect(harnessTotals(daily)).toEqual({
-            claude: { tokens: 160, spendUsd: 3 },
-            codex: { tokens: 40, spendUsd: 0.5 },
+            claude: { tokens: 160, spendUsd: 3, pricedTokens: 160 },
+            codex: { tokens: 40, spendUsd: 0.5, pricedTokens: 40 },
         });
+    });
+    it("carries priced tokens apart from tokens, so an unpriced harness reads as unpriced", () => {
+        const daily = [day("2026-09-01", { codex: { tokens: 40, spendUsd: 0, pricedTokens: 0 } })];
+        const row = railRows(buildUsageRail([], daily, [], ["codex"]))[0];
+        expect(row).toMatchObject({ tokens: 40, pricedTokens: 0 });
     });
     it("is empty for an empty series", () => {
         expect(harnessTotals([])).toEqual({});
@@ -50,7 +60,7 @@ describe("buildUsageRail", () => {
     it("keeps a history-only harness and carries its totals", () => {
         const groups = buildUsageRail(["claude", "opencode"], daily, [], catalog);
         const oc = railRows(groups).find((r) => r.harness === "opencode");
-        expect(oc).toMatchObject({ state: "none", tokens: 30, spendUsd: 0.2 });
+        expect(oc).toMatchObject({ state: "none", tokens: 30, spendUsd: 0.2, pricedTokens: 30 });
         expect(oc?.fivehour).toEqual({});
     });
 

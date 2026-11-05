@@ -279,7 +279,7 @@ describe("splits", () => {
 
 describe("ranked list", () => {
     const pi = (session: string, over: Partial<UsageBucket>): UsageBucket =>
-        bkt(session, 0, { harness: "pi", provider: "openai-codex", model: "gpt-6.1-sol", ...over });
+        bkt(session, 0, { harness: "pi", provider: "openai-codex", model: "no-such-model", ...over });
     const buckets = [
         ...RUN_BUCKETS,
         bkt("solo", 20),
@@ -486,7 +486,7 @@ describe("work item makeup", () => {
 
 describe("amounts", () => {
     const unpriced = (session: string, over: Partial<UsageBucket> = {}) =>
-        bkt(session, 0, { model: "gpt-6.1-sol", input: M, ...over });
+        bkt(session, 0, { model: "no-such-model", input: M, ...over });
 
     it("counts only priced models as priced tokens, and sums reported costs", () => {
         const attr = buildAttribution(

@@ -4,11 +4,12 @@
 // Single source of truth for usage cost. Per-million-token prices for the model families seen in
 // agent transcripts, bundled offline (the cockpit makes no network call for pricing). Sourced from
 // the Claude pricing reference + OpenAI Codex rate card, 2026-07; the OpenCode Go curated lineup
-// (opencode.ai/docs/go) + DeepSeek API docs, 2026-08; current-generation pricing. Go's rate card
-// is flat per tier; tiered models (gpt-5.6-luna, qwen3.7/3.6-plus) are priced at their lower
-// (≤272K/≤256K) tier, which covers typical agent traffic. DeepSeek has announced a price increase
-// ("significant") — refresh the deepseek rows when it lands. Cost is a client-side ESTIMATE — no
-// costUSD is persisted in Claude/Codex transcripts.
+// (opencode.ai/docs/go) + DeepSeek API docs, 2026-08; gpt-6.1-sol/gpt-6-sol from OpenAI's GPT-6.1 Sol
+// announcement, gpt-6-luna/gpt-6-astra from consistent third-party trackers, 2026-11; current-generation
+// pricing. Go's rate card is flat per tier; tiered models (gpt-6, gpt-5.6-luna, qwen3.7/3.6-plus) are
+// priced at their lower (≤272K/≤256K) tier, which covers typical agent traffic. DeepSeek has announced
+// a price increase ("significant") — refresh the deepseek rows when it lands. Cost is a client-side
+// ESTIMATE — no costUSD is persisted in Claude/Codex transcripts.
 //
 // Family-substring pricing loses the model version, so a historical Claude-Opus-4.0 transcript
 // (which billed $15/$75) is priced at the Opus family rate ($5/$25). Acceptable: the cockpit's
@@ -34,6 +35,10 @@ const MODEL_PRICES: Record<string, ModelPrice> = {
     "sonnet-5": { input: 2, output: 10, cacheRead: 0.2, cacheWrite5m: 2.5, cacheWrite1h: 4 }, // sonnet 5 and 5.5
     sonnet: { input: 3, output: 15, cacheRead: 0.3, cacheWrite5m: 3.75, cacheWrite1h: 6 },
     haiku: { input: 1, output: 5, cacheRead: 0.1, cacheWrite5m: 1.25, cacheWrite1h: 2 },
+    "gpt-6-luna": { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite5m: 0, cacheWrite1h: 0 },
+    "gpt-6.1-sol": { input: 2, output: 10, cacheRead: 0.1, cacheWrite5m: 0, cacheWrite1h: 0 },
+    "gpt-6-sol": { input: 2, output: 10, cacheRead: 0.1, cacheWrite5m: 0, cacheWrite1h: 0 },
+    "gpt-6-astra": { input: 10, output: 50, cacheRead: 1.0, cacheWrite5m: 0, cacheWrite1h: 0 },
     "gpt-5.6-luna": { input: 0.2, output: 1.2, cacheRead: 0.02, cacheWrite5m: 0.25, cacheWrite1h: 0 },
     "gpt-5.5": { input: 5, output: 30, cacheRead: 0.5, cacheWrite5m: 0, cacheWrite1h: 0 },
     codex: { input: 1.25, output: 10, cacheRead: 0.125, cacheWrite5m: 0, cacheWrite1h: 0 },
@@ -69,6 +74,10 @@ export function priceFor(model: string): ModelPrice | undefined {
     if (m.includes("sonnet-5")) return MODEL_PRICES["sonnet-5"];
     if (m.includes("sonnet")) return MODEL_PRICES.sonnet;
     if (m.includes("haiku")) return MODEL_PRICES.haiku;
+    if (m.includes("gpt-6-luna")) return MODEL_PRICES["gpt-6-luna"];
+    if (m.includes("gpt-6.1-sol")) return MODEL_PRICES["gpt-6.1-sol"];
+    if (m.includes("gpt-6-sol")) return MODEL_PRICES["gpt-6-sol"];
+    if (m.includes("gpt-6-astra")) return MODEL_PRICES["gpt-6-astra"];
     if (m.includes("gpt-5.6-luna")) return MODEL_PRICES["gpt-5.6-luna"];
     if (m.includes("gpt-5.5")) return MODEL_PRICES["gpt-5.5"];
     if (m.includes("codex")) return MODEL_PRICES.codex;

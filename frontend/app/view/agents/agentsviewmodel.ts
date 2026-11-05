@@ -428,6 +428,19 @@ export function usageLevel(pct: number): "ok" | "warn" | "hot" {
     return "ok";
 }
 
+// the one level -> color map for quota meters (app bar, Usage card). ok is accent: a quota under the
+// warning line is not a success status
+export const USAGE_LEVEL_FILL: Record<ReturnType<typeof usageLevel>, string> = {
+    ok: "bg-accent",
+    warn: "bg-warning",
+    hot: "bg-error",
+};
+export const USAGE_LEVEL_TEXT: Record<ReturnType<typeof usageLevel>, string> = {
+    ok: "text-accent",
+    warn: "text-warning",
+    hot: "text-error",
+};
+
 /** Pure: a token count -> short label ("38k" / "142k" / "1.0M"). */
 export function formatTokens(n: number): string {
     if (n >= 1_000_000) {

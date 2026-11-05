@@ -37,12 +37,11 @@ const BRUSH_H = 28;
 const BRUSH_BLOCK_H = BRUSH_H + 18 + 4;
 const MARGIN = { top: 6, right: 4, bottom: 22, left: 46 };
 const BAR_MAX = 30;
-// Above this many columns the per-column entrance is dropped and the bars snap in. The cascade is
-// delay: ri * 0.025, which was written when the series was capped at 30 days (0.75s). Uncapped, an
-// all-time range animates hundreds of SVG rects on a staggered clock: measured over CDP, a 113-day
-// range had painted only 13% of its bars 3.2s after mount, so the chart read as EMPTY on arrival.
-// A cascade across hundreds of columns communicates nothing anyway — it only reads as motion at small n.
-const STAGGER_MAX_COLS = 40;
+// Above this many columns the entrance is dropped and the bars snap in. It was once a per-column
+// cascade: measured over CDP, a 113-day range had painted only 13% of its bars 3.2s after mount, so the
+// chart read as EMPTY on arrival. Columns now grow together; the cap still spares hundreds of SVG rects
+// an animation that reads as nothing at that density.
+const ENTRANCE_MAX_COLS = 40;
 export function DailyChart({
     daily,
     window: win,
@@ -103,7 +102,7 @@ export function DailyChart({
         nice: true,
     });
     const bandW = Math.min(BAR_MAX, x.bandwidth());
-    const cascade = view.length <= STAGGER_MAX_COLS;
+    const entrance = view.length <= ENTRANCE_MAX_COLS;
     // thin day labels so they never collide: keep every nth so at most ~12 render
     const tickEvery = Math.max(1, Math.ceil(view.length / 12));
     const tickDays = view.filter((_, i) => i % tickEvery === 0).map((r) => r.day);
@@ -154,7 +153,7 @@ export function DailyChart({
                     >
                         <Swatch fill={only.fill} />
                         <span className="text-secondary" title={only.title}>
-                            {only.model}
+                            {only.label}
                         </span>
                         <span>
                             <span className="text-secondary">{axisFmt(only.value)}</span> · {pctStr(only.pct)}
@@ -210,14 +209,13 @@ export function DailyChart({
                                             dy: 2,
                                         })}
                                     />
-                                    {view.map((r, ri) => {
+                                    {view.map((r) => {
                                         const cx = (x(r.day) ?? 0) + (x.bandwidth() - bandW) / 2;
                                         const { offsets, top } = segmentOffsets(r);
                                         // the entrance grows a column from its baseline; a data change after it tweens
                                         // each segment's d, so bars slide and resize instead of snapping
                                         const transition = {
                                             scaleY: {
-                                                delay: ri * 0.025,
                                                 duration: MOTION.durMacro,
                                                 ease: MOTION.easeFluid,
                                             },
@@ -285,7 +283,7 @@ export function DailyChart({
                                                     return (
                                                         <motion.path
                                                             key={m.key}
-                                                            initial={cascade ? { scaleY: 0, d } : false}
+                                                            initial={entrance ? { scaleY: 0, d } : false}
                                                             animate={{ scaleY: 1, d }}
                                                             transition={transition}
                                                             fill={m.fill}
@@ -362,7 +360,7 @@ export function DailyChart({
                                                 className="flex items-center gap-[6px] font-mono text-[10.5px]"
                                             >
                                                 <Swatch fill={m.fill} />
-                                                <span className="text-muted">{m.model}</span>
+                                                <span className="text-muted">{m.label}</span>
                                                 <span className="ml-auto pl-3 text-secondary">
                                                     {axisFmt(tooltipData.values[m.key])}
                                                 </span>
@@ -453,7 +451,7 @@ function LegendCells({ m, fmtValue }: { m: LegendModel; fmtValue: (v: number) =>
         <>
             <Swatch fill={m.fill} />
             <span className="truncate text-secondary" title={m.title}>
-                {m.model}
+                {m.label}
             </span>
             <span className="text-muted">
                 <span className="text-secondary">{fmtValue(m.value)}</span> · {pctStr(m.pct)}
