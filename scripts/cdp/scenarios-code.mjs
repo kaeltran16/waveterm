@@ -1481,13 +1481,15 @@ export const codeReview = {
             let wrote = null;
             Object.defineProperty(clip, 'writeText', { configurable: true, value: (t) => { wrote = t; return Promise.resolve(); } });
             (${COPY})?.click();
-            for (let i = 0; i < 20 && ${REVIEW_COUNT}; i++) await new Promise((r) => setTimeout(r, 50));
+            for (let i = 0; i < 20 && wrote == null; i++) await new Promise((r) => setTimeout(r, 50));
+            await new Promise((r) => setTimeout(r, 150));
             delete clip.writeText;
-            return { wrote, gone: !${REVIEW_COUNT} };
+            const send = document.querySelector('[data-code-review-send]');
+            return { wrote, count: ${REVIEW_COUNT}?.getAttribute('data-code-review-count') ?? null, label: send?.textContent?.trim() };
         })()`);
         rec(
-            "Copy review puts both comments on the clipboard and clears the count",
-            copied?.gone === true && /L4\b/.test(copied.wrote ?? "") && /L12\b/.test(copied.wrote ?? ""),
+            "Copy review puts both comments on the clipboard, keeps the count and shows Copied",
+            copied?.count === "2" && copied?.label === "Copied" && /L4\b/.test(copied.wrote ?? "") && /L12\b/.test(copied.wrote ?? ""),
             JSON.stringify(copied)
         );
         await h.shot("cdp-shots/code-review-sent.png");
@@ -1497,6 +1499,11 @@ export const codeReview = {
         const picker = await polishWaitFor(h, `(${SEND_COPY})?.textContent?.trim() === "Copy reference"`, 3000);
         rec("the path bar's Send to agent popover, drawn by AgentPicker, offers Copy reference", picker === true, `picker=${picker}`);
         await h.ev(`document.querySelector('[data-code-send-to-agent]')?.click()`);
+        // Copy review keeps the review, and reviews persist: the temp checkout's comments must not outlive it
+        await h.ev(`document.querySelector('[data-code-review-clear]')?.click()`);
+        await polishWaitFor(h, `!!${CONFIRM}`, 3000);
+        await h.ev(`${CONFIRM}?.click()`);
+        await polishWaitFor(h, `!${REVIEW_COUNT}`, 3000);
         return steps;
     },
     async teardown(h, ctx) {

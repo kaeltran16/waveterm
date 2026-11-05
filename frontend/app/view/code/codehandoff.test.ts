@@ -22,6 +22,13 @@ describe("handoffLine", () => {
         expect(handoffLine({ rel: "src/a.ts", startLine: 12, endLine: 40 })).toBe("look at src/a.ts:12-40");
     });
 
+    it("handoffLine keeps an absolute path it is given whole", () => {
+        expect(handoffLine({ rel: "C:\\Users\\me\\wt\\src\\x.py", startLine: 12, endLine: 12 })).toBe(
+            "look at C:\\Users\\me\\wt\\src\\x.py:12"
+        );
+        expect(handoffLine({ rel: "/home/me/wt/src/x.py" })).toBe("look at /home/me/wt/src/x.py");
+    });
+
     it("appends a note", () => {
         expect(handoffLine({ rel: "src/a.ts", startLine: 3, endLine: 3, note: "this leaks" })).toBe(
             "look at src/a.ts:3 — this leaks"

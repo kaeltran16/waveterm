@@ -9,9 +9,10 @@
 // Save status stays in the surface toolbar. Splitting identity from save state is a real cost, but moving
 // working controls for tidiness is churn.
 
-import { useCopyFeedback, type CopyState } from "@/app/element/copyfeedback";
+import { useCopyFeedback, writeClipboard, type CopyState } from "@/app/element/copyfeedback";
 import { CrossFade } from "@/app/element/crossfade";
 import { PopoverReveal } from "@/app/element/popoverreveal";
+import { useEscapeClose } from "@/app/hook/useEscapeClose";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
@@ -21,7 +22,7 @@ import { joinRepoPath } from "@/util/paths";
 import { cn } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
 import { Check, Copy, Send, X } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { AgentPicker } from "./codeagentpicker";
 import { codeBlameOnAtom, toggleBlame } from "./codeblamestore";
 import { isMarkdownPath } from "./codeclassify";
@@ -40,6 +41,7 @@ import {
     registeredProjects,
 } from "./codestore";
 import { codeEditorSelection } from "./codeviewer";
+import { showsSourceEditor } from "./codeviewmode";
 
 const COPY_PATH_LABEL: Record<CopyState, string> = { idle: "Copy path", copied: "Copied", failed: "Copy failed" };
 const COPY_PATH_TONE: Record<CopyState, string> = {
@@ -75,7 +77,7 @@ export function CodePathBar({ model }: { model: AgentsViewModel }) {
                 />
             ) : null}
             {file.kind === "text" ? <ViewModeToggle markdown={isMarkdownPath(file.path)} /> : null}
-            {file.kind === "text" ? <BlameToggle /> : null}
+            {file.kind === "text" ? <BlameToggle path={file.path} /> : null}
             <div className="flex-1" />
             <button
                 type="button"
@@ -98,9 +100,10 @@ export function CodePathBar({ model }: { model: AgentsViewModel }) {
                     <span>{COPY_PATH_LABEL[copyState]}</span>
                 </CrossFade>
             </button>
+            {/* absolute: right for an agent in any checkout, which a path relative to this one is not */}
             <SendToAgent
                 model={model}
-                rel={file.path}
+                path={abs}
                 projectName={handoffProjectName(
                     project,
                     registeredProjects(registry),
@@ -140,21 +143,24 @@ function ViewModeToggle({ markdown }: { markdown: boolean }) {
     );
 }
 
-// Blame draws beside the source editor only; in a plain directory there is no history to blame.
-function BlameToggle() {
+// Blame draws beside the source editor only, so it reads as pressed only while its column shows; in a plain
+// directory there is no history to blame.
+function BlameToggle({ path }: { path: string }) {
     const on = useAtomValue(codeBlameOnAtom);
+    const mode = useAtomValue(codeViewModeAtom);
     const plain = useAtomValue(codePlainAtom);
+    const shown = on && !plain && showsSourceEditor(mode, path);
     return (
         <button
             type="button"
             data-code-blame-toggle
-            aria-pressed={on}
+            aria-pressed={shown}
             disabled={plain}
             title={plain ? NOT_TRACKED : "Toggle the blame column (b)"}
             onClick={toggleBlame}
             className={cn(
                 "flex-none cursor-pointer rounded-[6px] border border-border px-2 py-[3px] text-[11px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-default disabled:opacity-40",
-                on && !plain ? "bg-accent/10 text-accent-soft" : "text-muted hover:text-primary"
+                shown ? "bg-accent/10 text-accent-soft" : "text-muted hover:text-primary"
             )}
         >
             Blame
@@ -162,66 +168,98 @@ function BlameToggle() {
     );
 }
 
+// How long a send's outcome stays on the button before it returns to its label.
+const SEND_OUTCOME_MS = 1600;
+
+type SendStatus = { label: string; failed?: boolean } | null;
+
 // A handoff is a keystroke injection into a live agent's terminal — exactly what typing there
 // yourself would do. Deliberately not recorded: channel steering posts a directive message so a
 // channel timeline stays the source of truth, and this surface has no channel to post to.
-function SendToAgent({ model, rel, projectName }: { model: AgentsViewModel; rel: string; projectName: string }) {
+function SendToAgent({ model, path, projectName }: { model: AgentsViewModel; path: string; projectName: string }) {
     const agents = useAtomValue(model.agentsAtom);
     const [open, setOpen] = useState(false);
     const [note, setNote] = useState("");
-    const [sent, setSent] = useState<string | null>(null);
+    const [status, setStatus] = useState<SendStatus>(null);
+    const triggerRef = useRef<HTMLButtonElement>(null);
     const targets = liveAgentsForProject(agents, projectName);
+    const close = () => setOpen(false);
+    useEscapeClose(open, close, triggerRef);
 
     const compose = () => {
         const sel = codeEditorSelection();
         const lines = sel != null ? selectionLines(sel) : null;
-        return handoffLine({ rel, startLine: lines?.startLine, endLine: lines?.endLine, note });
+        return handoffLine({ rel: path, startLine: lines?.startLine, endLine: lines?.endLine, note });
     };
 
-    const send = (target: AgentVM) => {
+    const settle = (next: SendStatus) => {
+        setStatus(next);
+        window.setTimeout(() => setStatus(null), SEND_OUTCOME_MS);
+    };
+
+    const send = async (target: AgentVM) => {
         const line = compose();
         setOpen(false);
         setNote("");
-        setSent(`Sent to ${target.name}`);
-        window.setTimeout(() => setSent(null), 1600);
-        // the agent's mod runs it as a prompt, leaving the human's draft alone; a session with none has it typed
-        void RpcApi.AgentPromptCommand(TabRpcClient, { blockid: target.blockId!, text: line });
+        setStatus({ label: "Sending…" });
+        try {
+            // the agent's mod runs it as a prompt, leaving the human's draft alone; a session with none has it typed
+            await RpcApi.AgentPromptCommand(TabRpcClient, { blockid: target.blockId!, text: line });
+            settle({ label: `Sent to ${target.name}` });
+        } catch (e) {
+            settle({ label: `Could not send: ${e instanceof Error ? e.message : String(e)}`, failed: true });
+        }
     };
 
     // no live agent for this project — and a worktree browsed outside the registry never has one,
     // so the clipboard is the honest fallback rather than a disabled button with no explanation
-    const copyInstead = () => {
-        void navigator.clipboard?.writeText(compose());
+    const copyInstead = async () => {
+        const line = compose();
         setOpen(false);
         setNote("");
-        setSent("Copied reference");
-        window.setTimeout(() => setSent(null), 1600);
+        const outcome = await writeClipboard(line);
+        settle(outcome === "copied" ? { label: "Copied reference" } : { label: "Copy failed", failed: true });
     };
 
     return (
         <div className="relative flex-none">
             <button
+                ref={triggerRef}
                 type="button"
                 data-code-send-to-agent
+                title={status?.label}
                 onClick={() => setOpen((v) => !v)}
-                className="flex cursor-pointer items-center gap-1 rounded-[6px] border border-border px-2 py-[3px] text-[11px] text-muted hover:text-primary"
+                className={cn(
+                    "flex max-w-[280px] cursor-pointer items-center gap-1 rounded-[6px] border border-border px-2 py-[3px] text-[11px]",
+                    status?.failed ? "text-error" : "text-muted hover:text-primary"
+                )}
             >
-                <Send size={11} strokeWidth={1.8} />
-                <span>{sent ?? (targets.length === 0 ? "Copy reference" : "Send to agent")}</span>
+                <Send size={11} strokeWidth={1.8} className="flex-none" />
+                <span className="truncate">
+                    {status?.label ?? (targets.length === 0 ? "Copy reference" : "Send to agent")}
+                </span>
             </button>
+            {open ? <div className="fixed inset-0 z-50" onClick={close} /> : null}
             <PopoverReveal
                 open={open}
                 origin="top right"
-                className="absolute right-0 top-[calc(100%+6px)] z-20 w-[280px] overflow-hidden rounded-[10px] border border-border bg-surface p-2 shadow-popover-md"
+                className="absolute right-0 top-[calc(100%+6px)] z-[60] w-[280px] overflow-hidden rounded-[10px] border border-border bg-surface p-2 shadow-popover-md"
             >
-                <p className="px-1 pb-1 font-mono text-[10.5px] text-muted">{compose()}</p>
+                <p data-code-send-line className="break-all px-1 pb-1 font-mono text-[10.5px] text-muted">
+                    {compose()}
+                </p>
                 <input
                     value={note}
                     placeholder="Add a note (optional)"
                     onChange={(e) => setNote(e.target.value)}
                     className="mb-1.5 w-full rounded-[6px] border border-border bg-surface px-2 py-1 text-[11.5px] text-primary outline-none placeholder:text-muted"
                 />
-                <AgentPicker targets={targets} onPick={send} emptyLabel="Copy reference" onEmpty={copyInstead} />
+                <AgentPicker
+                    targets={targets}
+                    onPick={(t) => void send(t)}
+                    emptyLabel="Copy reference"
+                    onEmpty={() => void copyInstead()}
+                />
             </PopoverReveal>
         </div>
     );
