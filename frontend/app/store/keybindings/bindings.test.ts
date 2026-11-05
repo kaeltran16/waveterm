@@ -7,7 +7,8 @@ import { resmonOpenAtom, resmonSnapshotAtom, resmonUiAtom } from "@/app/cockpit/
 import { cheatsheetOpenAtom } from "@/app/cockpit/shortcuts-cheatsheet";
 import { escapeMenusOpenAtom } from "@/app/hook/useEscapeClose";
 import { globalStore } from "@/app/store/jotaiStore";
-import { SURFACE_ORDER, type SurfaceKey } from "@/app/view/agents/agents";
+import { confirmCloseSession } from "@/app/view/agents/agentactions";
+import { AgentsViewModel, SURFACE_ORDER, type SurfaceKey } from "@/app/view/agents/agents";
 import type { BrainstormFile } from "@/app/view/agents/brainstormmodel";
 import { sendBrainstorm } from "@/app/view/agents/brainstormsend";
 import {
@@ -101,6 +102,10 @@ vi.mock("@/app/cockpit/cockpit-actions", async (orig) => ({
     ...(await orig<typeof import("@/app/cockpit/cockpit-actions")>()),
     launchPiTab: vi.fn(async () => {}),
 }));
+vi.mock("@/app/view/agents/agentactions", async (orig) => ({
+    ...(await orig<typeof import("@/app/view/agents/agentactions")>()),
+    confirmCloseSession: vi.fn(),
+}));
 vi.mock("@/app/view/agents/brainstormsend", async (orig) => ({
     ...(await orig<typeof import("@/app/view/agents/brainstormsend")>()),
     sendBrainstorm: vi.fn(async () => {}),
@@ -129,6 +134,7 @@ vi.mock("@/app/view/code/codestore", async (orig) => ({
 // the canvas guards read the focused agent id from the model
 const stubModel = (focusId?: string): any => ({
     focusIdAtom: atom<string | undefined>(focusId) as PrimitiveAtom<string | undefined>,
+    terminalsAtom: atom([]),
 });
 
 const ctx = (surface: SurfaceKey = "cockpit"): KeyContext => ({
@@ -146,10 +152,6 @@ describe("closeTargetForDoubleCtrlC", () => {
 
     it("closes a focused agent session (spec §5: double-Ctrl+C closes the agent)", () => {
         expect(closeTargetForDoubleCtrlC(agents, "agent-tab")).toEqual(agents[0]);
-    });
-
-    it("closes a focused plain terminal row", () => {
-        expect(closeTargetForDoubleCtrlC(agents, "terminal-tab")).toEqual(agents[1]);
     });
 
     it("returns null (no close) when nothing is focused", () => {
@@ -1608,17 +1610,71 @@ describe("global bindings", () => {
         expect(launchPiTab).toHaveBeenCalledWith(model);
     });
 
-    it("the agent cycle and Ctrl+C belong to the Agent surface and drive the model's focus cycle", () => {
-        const cycleFocus = vi.fn();
-        const { find } = build("agent", { cycleFocus });
+    it("the agent cycle and Ctrl+C belong to the Agent surface", () => {
+        const { find } = build("agent");
         for (const id of ["cycle-agent-next", "cycle-agent-prev", "close-agent"]) {
             expect(find(id).when!(at("agent")), id).toBe(true);
             expect(find(id).when!(at("cockpit")), id).toBe(false);
         }
-        find("cycle-agent-next").run(ctx("agent"));
-        expect(cycleFocus).toHaveBeenLastCalledWith(false);
-        find("cycle-agent-prev").run(ctx("agent"));
-        expect(cycleFocus).toHaveBeenLastCalledWith(true);
+    });
+
+    describe("the agent cycle", () => {
+        const cycling = (focus: string) =>
+            build("agent", {
+                focusOrderAtom: atom(["a", "b", "t"]),
+                focusIdAtom: atom<string | undefined>(focus),
+                cycleFocus: AgentsViewModel.prototype.cycleFocus,
+            });
+
+        it("Ctrl+Tab steps the tree's order and wraps from the last row to the first", () => {
+            const { model, find } = cycling("b");
+            find("cycle-agent-next").run(ctx("agent"));
+            expect(globalStore.get(model.focusIdAtom)).toBe("t");
+            find("cycle-agent-next").run(ctx("agent"));
+            expect(globalStore.get(model.focusIdAtom)).toBe("a");
+        });
+
+        it("Ctrl+Shift+Tab cycles backward", () => {
+            const { model, find } = cycling("b");
+            expect(find("cycle-agent-prev").label).toBe("Previous agent");
+            find("cycle-agent-prev").run(ctx("agent"));
+            expect(globalStore.get(model.focusIdAtom)).toBe("a");
+            find("cycle-agent-prev").run(ctx("agent"));
+            expect(globalStore.get(model.focusIdAtom)).toBe("t");
+        });
+    });
+
+    describe("double Ctrl+C", () => {
+        const roster = (focus: string) =>
+            build("agent", {
+                focusIdAtom: atom<string | undefined>(focus),
+                agentsAtom: atom([{ id: "a", name: "a", state: "working" }]),
+                terminalsAtom: atom([{ id: "t", name: "t", state: "idle", kind: "terminal" }]),
+            });
+        const pressTwice = (find: (id: string) => any) => [
+            find("close-agent").run(ctx("agent")),
+            find("close-agent").run(ctx("agent")),
+        ];
+
+        beforeEach(() => {
+            vi.mocked(confirmCloseSession).mockClear();
+            // the press counts only inside the terminal pane
+            vi.stubGlobal("document", {
+                activeElement: { closest: (sel: string) => (sel === ".cockpit-focus-pane" ? {} : null) },
+            });
+        });
+        afterEach(() => vi.unstubAllGlobals());
+
+        it("double Ctrl+C on a terminal opens no confirm", () => {
+            expect(pressTwice(roster("t").find)).toEqual([false, false]);
+            expect(confirmCloseSession).not.toHaveBeenCalled();
+        });
+
+        it("double Ctrl+C on an agent opens its close confirm, and lets the first press through", () => {
+            const { model, find } = roster("a");
+            expect(pressTwice(find)).toEqual([false, true]);
+            expect(confirmCloseSession).toHaveBeenCalledWith(expect.objectContaining({ id: "a" }), model);
+        });
     });
 
     it("? opens the cheat sheet", () => {
@@ -1874,10 +1930,11 @@ describe("Agent keys, stepping and toggles", () => {
     const nav: KeyContext = { surface: "agent", editable: false, modalOpen: false, leader: null };
     const build = (focus = "b") => {
         const model = {
-            orderAtom: atom(["a", "b", "c"]),
+            focusOrderAtom: atom(["a", "b", "c"]),
             focusIdAtom: atom<string | undefined>(focus),
             focusReplyAtom: atom(true),
             agentsAtom: atom([{ id: "a", state: "working" }]),
+            terminalsAtom: atom([{ id: "c", state: "idle", kind: "terminal" }]),
         } as any;
         return { model, find: (id: string) => buildAgentBindings(model).find((b) => b.id === id)! };
     };
@@ -1893,13 +1950,43 @@ describe("Agent keys, stepping and toggles", () => {
     it.each([
         ["agent:prev", "a"],
         ["agent:prev-k", "a"],
+        ["agent:prev-up", "a"],
         ["agent:next", "c"],
         ["agent:next-j", "c"],
+        ["agent:next-down", "c"],
     ])("%s moves the focus to %s and drops any open reply box", (id, expected) => {
         const { model, find } = build();
         find(id).run(nav);
         expect(globalStore.get(model.focusIdAtom)).toBe(expected);
         expect(globalStore.get(model.focusReplyAtom)).toBe(false);
+    });
+
+    it("ArrowDown steps like j", () => {
+        const down = build().find("agent:next-down");
+        const j = build().find("agent:next-j");
+        expect(down.keys).toBe("ArrowDown");
+        expect(down.label).toBe(j.label);
+        for (const c of [nav, { ...nav, editable: true }, { ...nav, surface: "cockpit" as const }]) {
+            expect(down.when!(c)).toBe(j.when!(c));
+        }
+        const up = build().find("agent:prev-up");
+        expect(up.keys).toBe("ArrowUp");
+        expect(up.label).toBe("Previous agent");
+    });
+
+    it("step from a hidden row lands on the first row", () => {
+        // the focus sits on a worker of a run that was folded, so it is not in the focus order
+        for (const id of ["agent:next-j", "agent:prev-k"]) {
+            const { model, find } = build("hidden-worker");
+            find(id).run(nav);
+            expect(globalStore.get(model.focusIdAtom), id).toBe("a");
+        }
+    });
+
+    it("toggle-rail is off for a terminal", () => {
+        const rail = (focus: string) => build(focus).find("agent:toggle-rail").when!(nav);
+        expect(rail("a")).toBe(true);
+        expect(rail("c")).toBe(false);
     });
 
     it("toggles the rail and fullscreen, and F11 toggles fullscreen too", () => {

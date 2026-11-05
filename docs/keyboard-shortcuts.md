@@ -27,8 +27,8 @@ Design spec: [`docs/superpowers/specs/2026-07-03-keyboard-operability-design.md`
 | `Ctrl`+`1`…`7` | Jump to surface by position — in order: Cockpit, Jarvis, Agent, Code, Diff, Sessions, Usage |
 | `Ctrl`+`P` | Search — opens on the Files scope on Code (see below) |
 | `Ctrl`+`N` | New agent |
-| `Ctrl`+`Tab` / `Ctrl`+`Shift`+`Tab` | Next / previous agent |
-| `Ctrl`+`C` `Ctrl`+`C` (double, within 500ms) | Close the focused agent |
+| `Ctrl`+`Tab` / `Ctrl`+`Shift`+`Tab` | Next / previous agent in the tree's order (terminals included) |
+| `Ctrl`+`C` `Ctrl`+`C` (double, within 500ms) | Close the focused agent (on a plain terminal both presses go to the shell) |
 
 Setup and Settings have no `Ctrl`+number slot — the nine positions are bound to `SURFACE_ORDER`
 (`frontend/app/view/agents/agents.tsx`), which excludes them. Reach Setup with `g` `.` and Settings with `g` `,`.
@@ -137,7 +137,7 @@ A link inside an item view does a full open, even with `Ctrl` held.
 
 | Keys | Action |
 |---|---|
-| `j` / `k` (or `←` / `→`) | Previous / next agent |
+| `j` / `k` (or `↓` / `↑`, `→` / `←`) | Next / previous row in the tree: agents, workers and terminals |
 | `d` | Toggle the agent rail |
 | `f` | Toggle terminal fullscreen |
 | `r` | Review: open the focused agent's Plan review or Plan approval dialog |
@@ -161,7 +161,7 @@ A link inside an item view does a full open, even with `Ctrl` held.
 
 ### Agent: brainstorm mode
 
-`b` works when the focused agent has a brainstorm; such an agent never shows canvas mode, so `c` does nothing for it. In brainstorm mode, `d`, `f` and `F11` do not do their usual jobs, and `Esc` steps back inside the brainstorm instead of leaving the surface; the agent keys (`j` / `k`, the arrows, `Ctrl`+`Tab`) still move between agents, since the tree stays beside the brainstorm, except that `j` / `k` move between decisions while the builder check's review fills the main area (the arrows and `Ctrl`+`Tab` still move between agents there).
+`b` works when the focused agent has a brainstorm; such an agent never shows canvas mode, so `c` does nothing for it. In brainstorm mode, `d`, `f` and `F11` do not do their usual jobs, and `Esc` steps back inside the brainstorm instead of leaving the surface; the agent keys (`j` / `k`, the arrows, `Ctrl`+`Tab`) still move between agents, since the tree stays beside the brainstorm, except that `j` / `k` move between decisions while the builder check's review fills the main area, and `↓` / `↑` stand down there (`←` / `→` and `Ctrl`+`Tab` still move between agents).
 
 | Keys | Action |
 |---|---|

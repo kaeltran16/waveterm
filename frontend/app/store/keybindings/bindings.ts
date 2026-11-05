@@ -212,9 +212,8 @@ const inAgentCanvas = (model: AgentsViewModel, ctx: KeyContext) =>
     ctx.surface === "agent" &&
     ((focusedCanvasMode(model) != null && focusedBrainstorm(model) == null) || brainstormBoard(model) != null);
 
-// Spec §5 (agent-tab-fixes): the second Ctrl+C closes the *focused* session — agent or plain
-// terminal alike (the UI labels both "terminal": "Close terminal — ends the agent"). Returns null
-// only when nothing focusable is targeted, so the press falls through to the PTY instead.
+// the second Ctrl+C closes the focused session among `agents`; the caller passes agents only, so a plain terminal
+// (closed from its row menu or the header's x) gets both presses. null lets the press fall through to the PTY.
 export function closeTargetForDoubleCtrlC(agents: AgentVM[], focusId: string | undefined): AgentVM | null {
     if (!focusId) {
         return null;
@@ -364,7 +363,7 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
             group: "Agent",
             label: "Next agent",
             when: (ctx) => ctx.surface === "agent",
-            run: () => model.cycleFocus(false),
+            run: () => model.cycleFocus(1),
         },
         {
             id: "cycle-agent-prev",
@@ -372,7 +371,7 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
             group: "Agent",
             label: "Previous agent",
             when: (ctx) => ctx.surface === "agent",
-            run: () => model.cycleFocus(true),
+            run: () => model.cycleFocus(-1),
         },
         {
             id: "close-agent",
@@ -392,9 +391,9 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
                 const now = performance.now();
                 if (lastCtrlC != null && now - lastCtrlC < DOUBLE_CTRL_C_MS) {
                     lastCtrlC = null;
-                    const agents = [...globalStore.get(model.agentsAtom), ...globalStore.get(model.terminalsAtom)];
+                    // agents only: on a plain terminal both presses belong to the shell
                     const fid = globalStore.get(model.focusIdAtom);
-                    const a = closeTargetForDoubleCtrlC(agents, fid);
+                    const a = closeTargetForDoubleCtrlC(globalStore.get(model.agentsAtom), fid);
                     if (a) {
                         confirmCloseSession(a, model);
                         return true;
@@ -858,8 +857,9 @@ const agentNavStrict = (ctx: KeyContext) => navigateStrict(ctx) && ctx.surface =
 // focusIdAtom is kept synced to the resolved focused agent (agentsurface.tsx), so reading it live
 // is equivalent to the old closure over `agent.id`.
 export function buildAgentBindings(model: AgentsViewModel): Binding[] {
+    // a focus the tree no longer shows (its run folded) starts from the first row
     const step = (delta: number) => {
-        const order = globalStore.get(model.orderAtom);
+        const order = globalStore.get(model.focusOrderAtom);
         const fid = globalStore.get(model.focusIdAtom);
         globalStore.set(model.focusIdAtom, moveCursor(order, fid, delta) ?? fid);
         globalStore.set(model.focusReplyAtom, false);
@@ -1060,7 +1060,7 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             when: agentNav,
             run: () => step(1),
         },
-        // in the check's review j and k move between its decisions; the arrows and Ctrl+Tab still move agents
+        // in the check's review j and k move its decisions and ↑ ↓ stand down; ← → and Ctrl+Tab still move agents
         {
             id: "agent:prev-k",
             keys: "k",
@@ -1072,6 +1072,22 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
         {
             id: "agent:next-j",
             keys: "j",
+            group: "Agent",
+            label: "Next agent",
+            when: (ctx) => agentNav(ctx) && !inReview(ctx),
+            run: () => step(1),
+        },
+        {
+            id: "agent:prev-up",
+            keys: "ArrowUp",
+            group: "Agent",
+            label: "Previous agent",
+            when: (ctx) => agentNav(ctx) && !inReview(ctx),
+            run: () => step(-1),
+        },
+        {
+            id: "agent:next-down",
+            keys: "ArrowDown",
             group: "Agent",
             label: "Next agent",
             when: (ctx) => agentNav(ctx) && !inReview(ctx),
@@ -1136,7 +1152,8 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             keys: "d",
             group: "Agent",
             label: "Toggle agent rail",
-            when: nav,
+            // a terminal has no rail
+            when: (ctx) => nav(ctx) && !globalStore.get(model.terminalsAtom).some((t) => t.id === focusId()),
             run: () => globalStore.set(railVisibleAtom, !globalStore.get(railVisibleAtom)),
         },
         {

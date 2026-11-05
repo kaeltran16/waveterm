@@ -85,8 +85,9 @@ for (const predicateAtom of PREDICATE_ATOMS) {
 
 // The canvas and brainstorm predicates (buildAgentBindings, and the surface/agent switches in buildGlobalBindings)
 // read the focused agent's canvasStateAtom and brainstormAtom: one atom per agent, picked by a model-owned focus
-// id, so neither can be a static PREDICATE_ATOMS entry. This follows the focus and re-subscribes them; the
-// completeness test counts these atoms and the roster as covered here. Returns the unsubscribe.
+// id, so neither can be a static PREDICATE_ATOMS entry. This follows the focus and re-subscribes them, and watches
+// the terminal roster agent:toggle-rail reads; the completeness test counts these atoms and the roster as covered
+// here. Returns the unsubscribe.
 export function watchFocusedCanvas(model: AgentsViewModel): () => void {
     let unsub = () => {};
     const follow = () => {
@@ -105,9 +106,11 @@ export function watchFocusedCanvas(model: AgentsViewModel): () => void {
         bumpWhenVersion();
     };
     const unsubFocus = globalStore.sub(model.focusIdAtom, follow);
+    const unsubTerminals = globalStore.sub(model.terminalsAtom, bumpWhenVersion);
     follow();
     return () => {
         unsubFocus();
+        unsubTerminals();
         unsub();
     };
 }

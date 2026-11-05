@@ -32,7 +32,7 @@ import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { agentBranchesAtom, loadAgentBranch } from "./agentbranchstore";
 import { confirmCloseRun, confirmCloseSession } from "./agentactions";
 import type { AgentsViewModel } from "./agents";
-import { buildAgentTree, stageSubline, treeAgentCount, type StageOutcome } from "./agenttreemodel";
+import { rowFocusKey, stageSubline, treeAgentCount, type StageOutcome } from "./agenttreemodel";
 import { isAsking, treeLine, type BrainstormFile, type BuilderCheckRecord } from "./brainstormmodel";
 import { runStepView, runTreeText } from "./brainstormrunmodel";
 import { brainstormAtom, setBrainstormMode, shownBrainstormFile } from "./brainstormstore";
@@ -44,11 +44,10 @@ import { renamingRowAtom } from "./rowrenameatom";
 import { duplicateSession, renameSession, sessionCustomLabel, togglePin } from "./session-models/sessionsidebarmodel";
 import { agentRunDone, displayAgeMs, formatAgeShort, type AgentVM } from "./agentsviewmodel";
 import { docReviewAtom, parseDocReview } from "./docreview";
-import { finalRowFocusId, type FinalTone } from "./finalstage";
+import type { FinalTone } from "./finalstage";
 import { useFinalStageView } from "./finalstageviews";
 import { LEAD_MARK_CLASS, leadMark } from "./leadcardmodel";
 import {
-    endedWorkerId,
     laneLabel,
     runAgentsOf,
     runProgress,
@@ -57,7 +56,6 @@ import {
     taskStateLabel,
     unmetDeps,
     workerAsk,
-    workerEnded,
     workerSubtext,
     type RunInfo,
 } from "./runlineage";
@@ -67,7 +65,6 @@ import {
     toggleRunDoneOpen,
     toggleRunQueuedOpen,
     toggleTaskExtrasOpen,
-    treeFoldsAtom,
     useRunDigests,
     useRunInfo,
 } from "./runlineagestore";
@@ -882,6 +879,7 @@ function WorkerRow({
     agent,
     nested,
     extras,
+    focusKey,
 }: {
     model: AgentsViewModel;
     run: RunInfo;
@@ -889,6 +887,7 @@ function WorkerRow({
     agent?: AgentVM;
     nested?: boolean;
     extras?: { count: number; open: boolean };
+    focusKey: string | undefined; // rowFocusKey: with its tab reaped, a task past its worker opens that worker's transcript
 }) {
     const focusId = useAtomValue(model.focusIdAtom);
     const now = useAtomValue(model.nowAtom);
@@ -896,9 +895,6 @@ function WorkerRow({
     const done = !nested && task.state === "done";
     const lane = laneLabel(run.digest, task.id);
     const ask = done || nested ? undefined : workerAsk(run.digest, task.id);
-    // with its tab reaped, a task past its worker still opens that worker's transcript
-    const ended = !nested && (done || (agent == null && workerEnded(task)));
-    const focusKey = ended ? endedWorkerId(run.runId, task.id) : agent?.id;
     const selected = focusKey != null && focusId === focusKey;
     const waits = done || nested ? undefined : unmetDeps(run.dag, task);
     const asksYou = !done && ask?.owner !== "lead" && (ask?.owner === "you" || agent?.state === "asking");
@@ -1078,11 +1074,20 @@ const FINAL_SUB_INK: Record<FinalTone, string> = {
 
 // The run's final stage, under the run like a task's worker: there from the moment the plan's tasks are over,
 // before any verifier session exists. Once the current round's verifier is in the roster the row is that session.
-function FinalRow({ model, run, agent }: { model: AgentsViewModel; run: RunInfo; agent?: AgentVM }) {
+function FinalRow({
+    model,
+    run,
+    agent,
+    focusKey,
+}: {
+    model: AgentsViewModel;
+    run: RunInfo;
+    agent?: AgentVM;
+    focusKey: string; // rowFocusKey: the verifier's session once it is in the roster, else the stage itself
+}) {
     const focusId = useAtomValue(model.focusIdAtom);
     const now = useAtomValue(model.nowAtom);
     const view = useFinalStageView(run.dag, run.runId, run.channelId, now);
-    const focusKey = finalRowFocusId(run, agent ? [agent] : []);
     const selected = focusId === focusKey;
     const select = () => {
         globalStore.set(model.focusIdAtom, focusKey);
@@ -1221,11 +1226,8 @@ function TerminalRow({ model, terminal }: { model: AgentsViewModel; terminal: Ag
 export const AgentTree = memo(function AgentTree({ model }: { model: AgentsViewModel }) {
     const agents = useAtomValue(model.agentsAtom);
     const terminals = useAtomValue(model.terminalsAtom);
-    const order = useAtomValue(model.orderAtom);
     const lineage = useAtomValue(model.lineageAtom);
-    const folds = useAtomValue(treeFoldsAtom);
-    const focusId = useAtomValue(model.focusIdAtom);
-    const rows = buildAgentTree(agents, order, lineage, folds, focusId);
+    const rows = useAtomValue(model.treeRowsAtom);
     // the project group only earns a row when several projects are live: with one, its name and count
     // just restate the header, so suppressing it reads the tree at two levels instead of three. Counts
     // come off the unfiltered rows, and the lone group's attention moves to the header with it.
@@ -1330,6 +1332,7 @@ export const AgentTree = memo(function AgentTree({ model }: { model: AgentsViewM
                                         task={r.task}
                                         agent={r.agent}
                                         nested={r.nested}
+                                        focusKey={rowFocusKey(r)}
                                         extras={
                                             r.nested ? undefined : { count: r.extras ?? 0, open: r.extrasOpen ?? false }
                                         }
@@ -1351,7 +1354,7 @@ export const AgentTree = memo(function AgentTree({ model }: { model: AgentsViewM
                             case "final":
                                 // the stage's own key before a verifier stands for it, then the session's
                                 key = r.agent?.id ?? `final-${r.run.runId}`;
-                                body = <FinalRow model={model} run={r.run} agent={r.agent} />;
+                                body = <FinalRow model={model} run={r.run} agent={r.agent} focusKey={rowFocusKey(r)} />;
                                 break;
                             case "done":
                                 key = `done-${r.run.runId}`;

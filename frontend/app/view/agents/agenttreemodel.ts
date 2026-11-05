@@ -18,6 +18,7 @@ import {
     NO_LINEAGE,
     planReviewerOf,
     workerAsk,
+    workerEnded,
     type Lineage,
     type RunInfo,
 } from "./runlineage";
@@ -255,25 +256,20 @@ function runRows(
     return { rows, members: agents, attn };
 }
 
-/** Pure: roster + anchored order -> [group, ...rows] per project. Projects appear in the first-seen order
- *  of `order`; top-level rows within a group follow `order` (ids absent from `order` sort last), pinned
- *  agents first. A run's workers follow its lead in plan order, and a run with no lead in the roster takes
+/** Pure: roster -> [group, ...rows] per project. Projects appear in the roster's first-seen order; top-level
+ *  rows within a group follow the roster (the session sidebar's order, which does not move when an agent parks),
+ *  pinned agents first. A run's workers follow its lead in plan order, and a run with no lead in the roster takes
  *  the place of its first worker. `count` is the group's visible agents, done workers aside; `attn` is how many wait on the human. */
 export function buildAgentTree(
     agents: AgentVM[],
-    order: string[],
     lineage: Lineage = NO_LINEAGE,
     folds: TreeFolds = NO_FOLDS,
     focusId?: string
 ): AgentTreeRow[] {
-    const rank = new Map(order.map((id, i) => [id, i] as const));
-    const sorted = [...agents].sort(
-        (a, b) => (rank.get(a.id) ?? Number.POSITIVE_INFINITY) - (rank.get(b.id) ?? Number.POSITIVE_INFINITY)
-    );
     const leads = new Map<string, AgentVM>();
     const workers = new Map<string, Map<string, AgentVM[]>>();
     const stages = new Map<string, StageAgent[]>();
-    for (const a of sorted) {
+    for (const a of agents) {
         const role = lineage.roles[a.id];
         if (role?.kind === "lead" && lineage.runs[role.runId] && !leads.has(role.runId)) {
             leads.set(role.runId, a);
@@ -304,7 +300,7 @@ export function buildAgentTree(
     // that tab is gone
     type Owned = { owner: AgentVM; stageRole: string; state: BuilderCheckRecord["state"] };
     const checkOwners = new Map<string, Owned>(); // by the record's run id
-    for (const a of sorted) {
+    for (const a of agents) {
         if (lineage.roles[a.id] != null) {
             continue;
         }
@@ -332,7 +328,7 @@ export function buildAgentTree(
         items.push(item);
     };
     const placedRuns = new Set<string>();
-    for (const a of sorted) {
+    for (const a of agents) {
         const role = lineage.roles[a.id];
         if (role?.kind === "lead" && leads.get(role.runId) === a) {
             placedRuns.add(role.runId);
@@ -381,6 +377,34 @@ export function buildAgentTree(
         rows.push({ kind: "group", project: g.project, count, attn }, ...body);
     }
     return rows;
+}
+
+/** Pure: the id a click on the row focuses; none for a fold or header. A done task's worker, or one whose tab its
+ *  merge reaped, opens as its ended worker's transcript; the final stage is its verifier's session once that is
+ *  in the roster. */
+export function rowFocusKey(row: AgentTreeRow): string | undefined {
+    switch (row.kind) {
+        case "parent":
+        case "check":
+        case "lead":
+        case "stage":
+            return row.agent.id;
+        case "worker": {
+            const ended = !row.nested && (row.task.state === "done" || (row.agent == null && workerEnded(row.task)));
+            return ended ? endedWorkerId(row.run.runId, row.task.id) : row.agent?.id;
+        }
+        case "final":
+            return finalRowFocusId(row.run, row.agent ? [row.agent] : []);
+        default:
+            return undefined;
+    }
+}
+
+/** Pure: what the focus keys step through: the rows' focus keys in the order the tree shows them, then the
+ *  terminals, which the tree lists below its groups. */
+export function treeFocusOrder(rows: AgentTreeRow[], terminals: AgentVM[]): string[] {
+    const keys = rows.map(rowFocusKey).filter((k): k is string => k != null);
+    return [...keys, ...terminals.map((t) => t.id)];
 }
 
 /** Pure: the tree's total for its header, the sum of its groups' counts. */

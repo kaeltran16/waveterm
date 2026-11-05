@@ -2,13 +2,16 @@ import { describe, expect, it } from "vitest";
 import type { AgentVM } from "./agentsviewmodel";
 import {
     buildAgentTree,
+    rowFocusKey,
     stageOutcome,
     stageSubline,
     treeAgentCount,
+    treeFocusOrder,
     UNGROUPED_PROJECT,
     type AgentTreeRow,
 } from "./agenttreemodel";
 import type { BuilderCheckRecord } from "./brainstormmodel";
+import { finalRowFocusId } from "./finalstage";
 import { endedWorkerId, type Lineage, type RunInfo } from "./runlineage";
 
 function vm(id: string, state: AgentVM["state"], path?: string): AgentVM {
@@ -21,61 +24,43 @@ const LOOM = "/home/u/.claude/projects/home-u-loom/def.jsonl"; // -> "loom"
 
 describe("buildAgentTree", () => {
     it("returns [] for no agents", () => {
-        expect(buildAgentTree([], [])).toEqual([]);
+        expect(buildAgentTree([])).toEqual([]);
     });
 
     it("emits one group header then its parents", () => {
         const agents = [vm("a", "working", WAVE), vm("b", "idle", WAVE)];
-        const rows = buildAgentTree(agents, ["a", "b"]);
+        const rows = buildAgentTree(agents);
         expect(rows.map((r) => r.kind)).toEqual(["group", "parent", "parent"]);
         expect(rows[0]).toMatchObject({ kind: "group", project: "waveterm", count: 2, attn: 0 });
     });
 
     it("counts asking agents in the group's attn", () => {
         const agents = [vm("a", "asking", WAVE), vm("b", "working", WAVE)];
-        const rows = buildAgentTree(agents, ["a", "b"]);
+        const rows = buildAgentTree(agents);
         expect(rows[0]).toMatchObject({ kind: "group", attn: 1 });
     });
 
-    it("groups by project in first-seen order of `order`", () => {
-        const agents = [vm("w", "working", WAVE), vm("l", "working", LOOM)];
-        const rows = buildAgentTree(agents, ["l", "w"]); // loom first by order
-        const groups = rows.filter((r) => r.kind === "group");
+    it("groups by project in the roster's first-seen order", () => {
+        const agents = [vm("l", "working", LOOM), vm("w", "working", WAVE)];
+        const groups = buildAgentTree(agents).filter((r) => r.kind === "group");
         expect(groups.map((g: any) => g.project)).toEqual(["loom", "waveterm"]);
     });
 
-    it("orders parents within a group by `order`; ids absent from order sort last", () => {
-        const agents = [vm("a", "working", WAVE), vm("b", "working", WAVE), vm("c", "working", WAVE)];
-        const rows = buildAgentTree(agents, ["b", "a"]); // c missing
-        const parents = rows.filter((r) => r.kind === "parent") as any[];
-        expect(parents.map((p) => p.agent.id)).toEqual(["b", "a", "c"]);
-    });
-
-    it("sorts a reversed roster into every ranked position, with unranked ids last", () => {
-        const agents = [
-            vm("x", "working", WAVE),
-            vm("c", "working", WAVE),
-            vm("b", "working", WAVE),
-            vm("a", "working", WAVE),
-        ];
-        const parents = buildAgentTree(agents, ["a", "b", "c"]).filter((r) => r.kind === "parent") as any[];
-        expect(parents.map((p) => p.agent.id)).toEqual(["a", "b", "c", "x"]);
-    });
-
     it("falls back to UNGROUPED_PROJECT when no transcript path", () => {
-        const rows = buildAgentTree([vm("a", "idle")], ["a"]);
+        const rows = buildAgentTree([vm("a", "idle")]);
         expect(rows[0]).toMatchObject({ kind: "group", project: UNGROUPED_PROJECT });
     });
 
-    it("lists pinned agents first in their own project, leaving the project order to `order`", () => {
+    it("rows follow roster order, pinned first", () => {
         const pinned = (a: AgentVM): AgentVM => ({ ...a, pinned: true });
         const agents = [
             vm("l", "working", LOOM),
-            vm("a", "working", WAVE),
-            pinned(vm("b", "working", WAVE)),
+            vm("a", "idle", WAVE),
             pinned(vm("c", "working", WAVE)),
+            vm("x", "working", WAVE),
+            pinned(vm("b", "working", WAVE)),
         ];
-        const rows = buildAgentTree(agents, ["l", "a", "c", "b"]);
+        const rows = buildAgentTree(agents);
         expect(rows.map((r: any) => (r.kind === "group" ? r.project : r.agent.id))).toEqual([
             "loom",
             "l",
@@ -83,7 +68,73 @@ describe("buildAgentTree", () => {
             "c",
             "b",
             "a",
+            "x",
         ]);
+    });
+});
+
+describe("rowFocusKey and treeFocusOrder", () => {
+    const task = (id: string, state: string, merged = false): TaskNode =>
+        ({ id, label: id, state, merged }) as TaskNode;
+    const run = (tasks: TaskNode[], final?: TaskGroup["final"]): RunInfo => ({
+        runId: "run-1",
+        channelId: "ch",
+        title: "t",
+        project: "waveterm",
+        dag: { oid: "dag-1", runid: "run-1", tasks, final } as TaskGroup,
+    });
+    const agent = (id: string, runId?: string): AgentVM => ({ ...vm(id, "working", WAVE), project: "waveterm", runId });
+
+    it("rowFocusKey for each row kind", () => {
+        const r = run([task("t-1", "running"), task("t-2", "done"), task("t-3", "verifying", true)], {
+            state: "verifying",
+            round: 1,
+            verifierrunid: "vr",
+        } as TaskGroup["final"]);
+        const a = agent("a");
+        expect(rowFocusKey({ kind: "group", project: "p", count: 1, attn: 0 })).toBeUndefined();
+        expect(rowFocusKey({ kind: "parent", agent: a, project: "p" })).toBe("a");
+        expect(rowFocusKey({ kind: "check", agent: a, project: "p", stageRole: "x", state: "reading" })).toBe("a");
+        expect(rowFocusKey({ kind: "lead", agent: a, project: "p", run: r, open: true, live: 0 })).toBe("a");
+        expect(rowFocusKey({ kind: "stage", agent: a, project: "p", run: r, stageRole: "x" })).toBe("a");
+        expect(rowFocusKey({ kind: "run", project: "p", run: r, open: true, live: 0 })).toBeUndefined();
+        expect(rowFocusKey({ kind: "done", project: "p", run: r, count: 1, stages: 0, open: true })).toBeUndefined();
+        expect(rowFocusKey({ kind: "queued", project: "p", run: r, count: 1, open: true })).toBeUndefined();
+        // a live worker is its tab; a done task, or one merged with its tab reaped, is its ended worker
+        const [running, done, merged] = r.dag.tasks;
+        expect(rowFocusKey({ kind: "worker", agent: a, project: "p", run: r, task: running })).toBe("a");
+        expect(rowFocusKey({ kind: "worker", project: "p", run: r, task: running })).toBeUndefined();
+        expect(rowFocusKey({ kind: "worker", agent: a, project: "p", run: r, task: done })).toBe(
+            endedWorkerId("run-1", "t-2")
+        );
+        expect(rowFocusKey({ kind: "worker", project: "p", run: r, task: merged })).toBe(endedWorkerId("run-1", "t-3"));
+        expect(rowFocusKey({ kind: "worker", agent: a, project: "p", run: r, task: done, nested: true })).toBe("a");
+        // the final stage is its verifier's session while that is in the roster, else the stage itself
+        expect(rowFocusKey({ kind: "final", project: "p", run: r, agent: agent("v", "vr") })).toBe("v");
+        expect(rowFocusKey({ kind: "final", project: "p", run: r })).toBe(finalRowFocusId(r, []));
+    });
+
+    it("treeFocusOrder appends terminals after the rows", () => {
+        const rows = buildAgentTree([agent("a"), agent("b")]);
+        const t = { ...vm("t", "idle"), kind: "terminal" } as AgentVM;
+        expect(treeFocusOrder(rows, [t])).toEqual(["a", "b", "t"]);
+    });
+
+    it("treeFocusOrder skips workers of a folded run", () => {
+        const r = run([task("t-1", "running")]);
+        const lineage: Lineage = {
+            roles: { lead: { kind: "lead", runId: "run-1" }, w: { kind: "worker", leadRunId: "run-1", taskId: "t-1" } },
+            runs: { "run-1": r },
+        };
+        const agents = [agent("lead"), agent("w"), agent("solo")];
+        expect(treeFocusOrder(buildAgentTree(agents, lineage), [])).toEqual(["lead", "w", "solo"]);
+        const folds = {
+            collapsed: new Set(["run-1"]),
+            doneOpen: new Map<string, number>(),
+            queuedOpen: new Set<string>(),
+            extrasOpen: new Set<string>(),
+        };
+        expect(treeFocusOrder(buildAgentTree(agents, lineage, folds), [])).toEqual(["lead", "solo"]);
     });
 });
 
@@ -107,44 +158,41 @@ describe("buildAgentTree with a builder check", () => {
         );
 
     it("nests the reviewer under the brainstorm that started it, wherever the roster orders it", () => {
-        const rows = buildAgentTree(
-            [reviewer(), vm("other", "idle", WAVE), brainstorm("reading")],
-            ["rv", "other", "bs"]
-        );
+        const rows = buildAgentTree([reviewer(), vm("other", "idle", WAVE), brainstorm("reading")]);
         expect(shape(rows)).toEqual(["group:waveterm:3:0", "parent:other", "parent:bs", "  check:rv:reading"]);
     });
 
     it("keeps the reviewer under the brainstorm after the check answers or fails", () => {
         for (const state of ["answered", "failed"] as const) {
-            const rows = buildAgentTree([brainstorm(state), reviewer("idle")], ["bs", "rv"]);
+            const rows = buildAgentTree([brainstorm(state), reviewer("idle")]);
             expect(shape(rows)).toEqual(["group:waveterm:2:0", "parent:bs", `  check:rv:${state}`]);
         }
     });
 
     it("gives the reviewer its own row once the brainstorm's tab is gone", () => {
-        const rows = buildAgentTree([reviewer(), vm("other", "idle", WAVE)], ["rv", "other"]);
+        const rows = buildAgentTree([reviewer(), vm("other", "idle", WAVE)]);
         expect(shape(rows)).toEqual(["group:waveterm:2:0", "parent:rv", "parent:other"]);
     });
 
     it("gives the reviewer its own row when the brainstorm's record names another check", () => {
-        const rows = buildAgentTree([brainstorm("reading", "chk-2"), reviewer()], ["bs", "rv"]);
+        const rows = buildAgentTree([brainstorm("reading", "chk-2"), reviewer()]);
         expect(shape(rows)).toEqual(["group:waveterm:2:0", "parent:bs", "parent:rv"]);
     });
 
     it("counts the reviewer in the brainstorm's group, and in its attn while it asks", () => {
-        const rows = buildAgentTree([brainstorm("reading"), reviewer("asking")], ["bs", "rv"]);
+        const rows = buildAgentTree([brainstorm("reading"), reviewer("asking")]);
         expect(shape(rows)).toEqual(["group:waveterm:2:1", "parent:bs", "  check:rv:reading"]);
         expect(treeAgentCount(rows)).toBe(2);
     });
 
     it("draws the reviewer in the brainstorm's group, leaving no group for its own project", () => {
-        const rows = buildAgentTree([brainstorm("reading"), reviewer("working", LOOM)], ["rv", "bs"]);
+        const rows = buildAgentTree([brainstorm("reading"), reviewer("working", LOOM)]);
         expect(shape(rows)).toEqual(["group:waveterm:2:0", "parent:bs", "  check:rv:reading"]);
     });
 
     it("leaves the reviewer its own row when the brainstorm's row is a run's", () => {
         const r: RunInfo = { runId: "run-1", channelId: "ch", title: "t", project: "waveterm" };
-        const rows = buildAgentTree([brainstorm("reading"), reviewer()], ["bs", "rv"], {
+        const rows = buildAgentTree([brainstorm("reading"), reviewer()], {
             roles: { bs: { kind: "lead", runId: "run-1" } },
             runs: { "run-1": r },
         });
@@ -173,29 +221,23 @@ describe("buildAgentTree with a brainstorm judge", () => {
         );
 
     it("nests the judge's session under the agent whose record names its run, with the judge's role and state", () => {
-        const rows = buildAgentTree(
-            [session("jd", "jdg-1"), brainstorm({ state: "reading", ts: 1, runId: "jdg-1" })],
-            ["jd", "bs"]
-        );
+        const rows = buildAgentTree([session("jd", "jdg-1"), brainstorm({ state: "reading", ts: 1, runId: "jdg-1" })]);
         expect(shape(rows)).toEqual(["group:waveterm:2:0", "parent:bs", "  check:jd:brainstorm-judge:reading"]);
         for (const state of ["answered", "failed"] as const) {
-            const later = buildAgentTree(
-                [brainstorm({ state, ts: 1, runId: "jdg-1" }), session("jd", "jdg-1", "idle")],
-                ["bs", "jd"]
-            );
+            const later = buildAgentTree([
+                brainstorm({ state, ts: 1, runId: "jdg-1" }),
+                session("jd", "jdg-1", "idle"),
+            ]);
             expect(shape(later)).toEqual(["group:waveterm:2:0", "parent:bs", `  check:jd:brainstorm-judge:${state}`]);
         }
     });
 
     it("nests both sessions under one agent that holds both records, each with its own role and state", () => {
-        const rows = buildAgentTree(
-            [
-                session("rv", "chk-1"),
-                session("jd", "jdg-1"),
-                brainstorm({ state: "answered", ts: 1, runId: "jdg-1" }, { state: "reading", ts: 1, runId: "chk-1" }),
-            ],
-            ["rv", "jd", "bs"]
-        );
+        const rows = buildAgentTree([
+            session("rv", "chk-1"),
+            session("jd", "jdg-1"),
+            brainstorm({ state: "answered", ts: 1, runId: "jdg-1" }, { state: "reading", ts: 1, runId: "chk-1" }),
+        ]);
         expect(shape(rows)).toEqual([
             "group:waveterm:3:0",
             "parent:bs",
@@ -206,15 +248,15 @@ describe("buildAgentTree with a brainstorm judge", () => {
     });
 
     it("gives the judge's session a plain row once the brainstorming agent is gone", () => {
-        const rows = buildAgentTree([session("jd", "jdg-1"), vm("other", "idle", WAVE)], ["jd", "other"]);
+        const rows = buildAgentTree([session("jd", "jdg-1"), vm("other", "idle", WAVE)]);
         expect(shape(rows)).toEqual(["group:waveterm:2:0", "parent:jd", "parent:other"]);
     });
 
     it("counts the judge in the agent's group, and in its attn while it asks", () => {
-        const rows = buildAgentTree(
-            [brainstorm({ state: "reading", ts: 1, runId: "jdg-1" }), session("jd", "jdg-1", "asking")],
-            ["bs", "jd"]
-        );
+        const rows = buildAgentTree([
+            brainstorm({ state: "reading", ts: 1, runId: "jdg-1" }),
+            session("jd", "jdg-1", "asking"),
+        ]);
         expect(shape(rows)).toEqual(["group:waveterm:2:1", "parent:bs", "  check:jd:brainstorm-judge:reading"]);
         expect(treeAgentCount(rows)).toBe(2);
     });
@@ -271,7 +313,6 @@ describe("buildAgentTree with run lineage", () => {
         const r = run("run-1", [task("t-1", "running")]);
         const rows = buildAgentTree(
             [agent("solo", "idle"), { ...agent("lead", "working"), pinned: true }, agent("w1", "working", "")],
-            ["solo", "lead", "w1"],
             lineage([r], {
                 lead: { kind: "lead", runId: "run-1" },
                 w1: { kind: "worker", leadRunId: "run-1", taskId: "t-1" },
@@ -289,7 +330,6 @@ describe("buildAgentTree with run lineage", () => {
         ]);
         const rows = buildAgentTree(
             [agent("lead", "working"), agent("w2", "working", "")],
-            ["lead", "w2"],
             lineage([r], {
                 lead: { kind: "lead", runId: "run-1" },
                 w2: { kind: "worker", leadRunId: "run-1", taskId: "t-2" },
@@ -309,7 +349,6 @@ describe("buildAgentTree with run lineage", () => {
         const r = run("run-1", [task("t-1", "pending")]);
         const rows = buildAgentTree(
             [agent("lead", "idle"), agent("rev", "working", "")],
-            ["rev", "lead"],
             lineage([r], {
                 lead: { kind: "lead", runId: "run-1" },
                 rev: { kind: "stage", leadRunId: "run-1", stageRole: "plan-reviewer" },
@@ -327,7 +366,6 @@ describe("buildAgentTree with run lineage", () => {
         const r = run("run-1", [task("t-1", "done")]);
         const rows = buildAgentTree(
             [agent("ver", "working", "")],
-            ["ver"],
             lineage([r], { ver: { kind: "stage", leadRunId: "run-1", stageRole: "verifier" } })
         );
         expect(shape(rows)).toEqual(["group:waveterm:1:0", "run:run-1:1", "done:1:false", "stage:verifier:ver"]);
@@ -361,7 +399,7 @@ describe("buildAgentTree with run lineage", () => {
 
         it("folds into the done fold, and only a stage still judging counts as live", () => {
             const { r, roles, agents } = finishing();
-            const rows = buildAgentTree(agents, ["lead", "rev2", "rev1", "ver"], lineage([r], roles));
+            const rows = buildAgentTree(agents, lineage([r], roles));
             expect(shape(rows)).toEqual(["group:waveterm:2:0", "lead:run-1:1", "done:2+2:false", "final:ver"]);
         });
 
@@ -374,7 +412,7 @@ describe("buildAgentTree with run lineage", () => {
                 queuedOpen: new Set<string>(),
                 extrasOpen: new Set<string>(),
             };
-            const rows = buildAgentTree(agents, ["lead", "rev2", "rev1", "ver"], lineage([r], roles), folds);
+            const rows = buildAgentTree(agents, lineage([r], roles), folds);
             expect(shape(rows)).toEqual([
                 "group:waveterm:1:0",
                 "lead:run-1:0",
@@ -392,7 +430,6 @@ describe("buildAgentTree with run lineage", () => {
             r.dag.final = { state: "final", round: 2, verifierrunid: "ver2" };
             const rows = buildAgentTree(
                 [stageAgent("ver1", "ver1"), { ...stageAgent("ver2", "ver2"), state: "working" as const }],
-                ["ver1", "ver2"],
                 lineage([r], {
                     ver1: { kind: "stage", leadRunId: "run-1", stageRole: "verifier" },
                     ver2: { kind: "stage", leadRunId: "run-1", stageRole: "verifier" },
@@ -434,10 +471,8 @@ describe("buildAgentTree with run lineage", () => {
 
             it("names its lens on its row", () => {
                 const r = reviewing(1, roundOne);
-                const ids = ["lead", "full", "spec"];
                 const rows = buildAgentTree(
                     [agent("lead", "idle"), stageAgent("full", "rv-full"), stageAgent("spec", "rv-spec")],
-                    ids,
                     lineage([r], {
                         lead: { kind: "lead", runId: "run-1" },
                         full: { kind: "stage", leadRunId: "run-1", stageRole: "plan-reviewer" },
@@ -462,7 +497,6 @@ describe("buildAgentTree with run lineage", () => {
             r.dag.planreview = { state: "reviewing", round: 1 };
             const rows = buildAgentTree(
                 [agent("lead", "idle"), stageAgent("rev1", "rv1")],
-                ["lead", "rev1"],
                 lineage([r], {
                     lead: { kind: "lead", runId: "run-1" },
                     rev1: { kind: "stage", leadRunId: "run-1", stageRole: "plan-reviewer" },
@@ -500,7 +534,6 @@ describe("buildAgentTree with run lineage", () => {
             shape(
                 buildAgentTree(
                     [agent("lead", "idle"), ...verifiers.map((id) => verifierAgent(id))],
-                    ["lead", ...verifiers],
                     lineage([r], { ...LEAD, ...Object.fromEntries(verifiers.map((id) => [id, VERIFIER])) }),
                     folds,
                     focusId
@@ -597,7 +630,6 @@ describe("buildAgentTree with run lineage", () => {
             const r = staged([task("t-1", "done")], "finalizing");
             const rows = buildAgentTree(
                 [agent("lead", "idle"), agent("s1", "working")],
-                ["lead", "s1"],
                 lineage([r], { ...LEAD, s1: VERIFIER })
             );
             expect(shape(rows)).toEqual([
@@ -628,7 +660,6 @@ describe("buildAgentTree with run lineage", () => {
             };
             const rows = buildAgentTree(
                 [agent("lead", "idle"), verifierAgent("v1")],
-                ["lead", "v1"],
                 lineage([r], { ...LEAD, v1: VERIFIER })
             );
             expect(rows.find((x) => x.kind === "stage")).toMatchObject({ stageRole: "verifier", lens: undefined });
@@ -651,7 +682,6 @@ describe("buildAgentTree with run lineage", () => {
         const r = run("run-1", [task("t-1", "pending")]);
         const rows = buildAgentTree(
             [agent("lead1", "working"), agent("lead2", "working")],
-            ["lead1", "lead2"],
             lineage([r], {
                 lead1: { kind: "lead", runId: "run-1" },
                 lead2: { kind: "lead", runId: "run-1" },
@@ -664,7 +694,6 @@ describe("buildAgentTree with run lineage", () => {
         const r = run("run-1", [task("t-1", "running")]);
         const rows = buildAgentTree(
             [agent("lead", "asking"), agent("w1", "asking", "")],
-            ["lead", "w1"],
             lineage([r], {
                 lead: { kind: "lead", runId: "run-1" },
                 w1: { kind: "worker", leadRunId: "run-1", taskId: "t-1" },
@@ -685,7 +714,6 @@ describe("buildAgentTree with run lineage", () => {
                 { ...agent("old2", "idle", ""), runId: "old-run-2" },
                 { ...agent("worker", "working", ""), runId: "work-run" },
             ],
-            ["lead", "old1", "reviewer", "old2", "worker"],
             lineage([r], {
                 lead: { kind: "lead", runId: "run-1" },
                 old1: { kind: "worker", leadRunId: "run-1", taskId: "t-1" },
@@ -712,7 +740,6 @@ describe("buildAgentTree with run lineage", () => {
                 { ...agent("old", "idle", ""), runId: "old-run" },
                 { ...agent("reviewer", "working", ""), runId: "review-run" },
             ],
-            ["lead", "old", "reviewer"],
             lineage([reviewing()], {
                 ...reviewRoles,
                 old: { kind: "worker", leadRunId: "run-1", taskId: "t-1" },
@@ -725,7 +752,6 @@ describe("buildAgentTree with run lineage", () => {
         const r = run("run-1", [task("t-1", "running")]);
         const rows = buildAgentTree(
             [agent("lead", "working"), agent("w1", "working", "")],
-            ["lead", "w1"],
             lineage([r], {
                 lead: { kind: "lead", runId: "run-1" },
                 w1: { kind: "worker", leadRunId: "run-1", taskId: "t-1" },
@@ -750,7 +776,6 @@ describe("buildAgentTree with run lineage", () => {
         ];
         const rows = buildAgentTree(
             agents,
-            ["w3", "lead", "solo", "w2"],
             lineage([r], {
                 lead: { kind: "lead", runId: "run-1" },
                 w2: { kind: "worker", leadRunId: "run-1", taskId: "t-2" },
@@ -774,7 +799,6 @@ describe("buildAgentTree with run lineage", () => {
         const r = run("run-1", [task("t-1", "running"), task("t-2", "pending"), task("t-3", "ready")]);
         const rows = buildAgentTree(
             [agent("lead", "working"), agent("w1", "working", "")],
-            ["lead", "w1"],
             lineage([r], {
                 lead: { kind: "lead", runId: "run-1" },
                 w1: { kind: "worker", leadRunId: "run-1", taskId: "t-1" },
@@ -795,7 +819,6 @@ describe("buildAgentTree with run lineage", () => {
         const r = run("run-1", [{ ...task("t-1", "done"), runid: "w1-run" }, task("t-2", "done")]);
         const rows = buildAgentTree(
             [agent("lead", "idle"), { ...agent("w1", "idle", ""), runId: "w1-run" }],
-            ["lead", "w1"],
             lineage([r], {
                 lead: { kind: "lead", runId: "run-1" },
                 w1: { kind: "worker", leadRunId: "run-1", taskId: "t-1" },
@@ -818,7 +841,6 @@ describe("buildAgentTree with run lineage", () => {
         const landed = (focusId?: string) =>
             buildAgentTree(
                 [agent("lead", "working"), agent("w3", "working", "")],
-                ["lead", "w3"],
                 lineage([run("run-1", [task("t-1", "done"), task("t-2", "done"), task("t-3", "running")])], {
                     lead: { kind: "lead", runId: "run-1" },
                     w3: { kind: "worker", leadRunId: "run-1", taskId: "t-3" },
@@ -852,7 +874,6 @@ describe("buildAgentTree with run lineage", () => {
         const r = run("run-1", [task("t-1", "running")]);
         const rows = buildAgentTree(
             [agent("lead", "working"), agent("w1", "working", "")],
-            ["lead", "w1"],
             lineage([r], {
                 lead: { kind: "lead", runId: "run-1" },
                 w1: { kind: "worker", leadRunId: "run-1", taskId: "t-1" },
@@ -866,7 +887,6 @@ describe("buildAgentTree with run lineage", () => {
         const r = { ...run("run-2", [task("t-1", "running"), task("t-2", "running")]), project: "accept-ask" };
         const rows = buildAgentTree(
             [agent("solo", "idle"), agent("g2", "working", ""), agent("g1", "working", "")],
-            ["solo", "g2", "g1"],
             lineage([r], {
                 g1: { kind: "worker", leadRunId: "run-2", taskId: "t-1" },
                 g2: { kind: "worker", leadRunId: "run-2", taskId: "t-2" },
@@ -892,7 +912,6 @@ describe("buildAgentTree with run lineage", () => {
         const r = run("run-1", [task("t-1", "running"), task("t-2", "running")], digest);
         const rows = buildAgentTree(
             [agent("lead", "working"), agent("w1", "asking", ""), agent("w2", "asking", "")],
-            ["lead", "w1", "w2"],
             lineage([r], {
                 lead: { kind: "lead", runId: "run-1" },
                 w1: { kind: "worker", leadRunId: "run-1", taskId: "t-1" },
@@ -910,7 +929,6 @@ describe("buildAgentTree with run lineage", () => {
                 { ...agent("old", "idle", ""), runId: "old-run" },
                 { ...agent("new", "working", ""), runId: "new-run" },
             ],
-            ["lead", "old", "new"],
             lineage([r], {
                 lead: { kind: "lead", runId: "run-1" },
                 old: { kind: "worker", leadRunId: "run-1", taskId: "t-1" },
@@ -937,7 +955,6 @@ describe("buildAgentTree with run lineage", () => {
                 { ...agent("reviewer", "working", ""), runId: "review-run" },
                 { ...agent("worker", "idle", ""), runId: "work-run" },
             ],
-            ["lead", "reviewer", "worker"],
             lineage([reviewing()], reviewRoles)
         );
         expect(shape(rows)).toEqual(["group:waveterm:2:0", "lead:run-1:1", "worker:t-1:worker:+1>"]);
@@ -950,7 +967,6 @@ describe("buildAgentTree with run lineage", () => {
                 { ...agent("reviewer", "working", ""), runId: "review-run" },
                 { ...agent("worker", "idle", ""), runId: "work-run" },
             ],
-            ["lead", "reviewer", "worker"],
             lineage([reviewing()], reviewRoles),
             { collapsed: new Set(), doneOpen: new Map(), queuedOpen: new Set(), extrasOpen: new Set(["run-1:t-1"]) }
         );
@@ -969,7 +985,6 @@ describe("buildAgentTree with run lineage", () => {
                 { ...agent("reviewer", "asking", ""), runId: "review-run" },
                 { ...agent("worker", "idle", ""), runId: "work-run" },
             ],
-            ["lead", "reviewer", "worker"],
             lineage([reviewing()], reviewRoles)
         );
         expect(shape(rows)).toEqual([
@@ -984,7 +999,6 @@ describe("buildAgentTree with run lineage", () => {
         const r = run("run-1", [{ id: "t-1", label: "t-1", state: "done", runid: "work-run" } as TaskNode]);
         const rows = buildAgentTree(
             [{ ...agent("reviewer", "idle", ""), runId: "review-run" }, agent("lead", "idle")],
-            ["reviewer", "lead"],
             lineage([r], {
                 lead: { kind: "lead", runId: "run-1" },
                 reviewer: { kind: "worker", leadRunId: "run-1", taskId: "t-1" },
@@ -997,7 +1011,6 @@ describe("buildAgentTree with run lineage", () => {
     it("keeps an agent whose run is not loaded as a plain row", () => {
         const rows = buildAgentTree(
             [agent("w1", "working")],
-            ["w1"],
             lineage([], { w1: { kind: "worker", leadRunId: "gone", taskId: "t-1" } })
         );
         expect(shape(rows)).toEqual(["group:waveterm:1:0", "parent:w1"]);

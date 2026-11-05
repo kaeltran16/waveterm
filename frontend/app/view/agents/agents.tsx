@@ -21,6 +21,7 @@ import {
     type AgentVM,
     type PendingLaunch,
 } from "./agentsviewmodel";
+import { buildAgentTree, treeFocusOrder, type AgentTreeRow } from "./agenttreemodel";
 import { answerAgentAsk } from "./askanswer";
 import { withBrainstorm } from "./brainstormmodel";
 import { brainstormsAtom, shownBrainstormFile } from "./brainstormstore";
@@ -36,6 +37,7 @@ import {
     endedWorkerAtomFor,
     finalStageAtomFor,
     lineageAtomFor,
+    treeFoldsAtom,
     type EndedWorker,
     type FocusedFinalStage,
 } from "./runlineagestore";
@@ -70,6 +72,8 @@ export class AgentsViewModel implements ViewModel {
     noPadding = atom(true);
     agentsAtom: Atom<AgentVM[]>; // base roster overlaid with pending launches
     lineageAtom: Atom<Lineage>; // which agents lead an orchestrator run and which work its tasks
+    treeRowsAtom: Atom<AgentTreeRow[]>; // the Agent surface's tree, as it renders
+    focusOrderAtom: Atom<string[]>; // the ids the focus keys step through, in the tree's order, terminals last
     endedWorkerAtom: Atom<EndedWorker | undefined>; // the done task's worker in focus, read from its transcript
     finalStageAtom: Atom<FocusedFinalStage | undefined>; // the final stage in focus by its own id, before a verifier session stands for it
     baseRosterAtom: Atom<AgentVM[]>; // un-overlaid roster (dev mock or live) — read by the prune effect
@@ -86,6 +90,7 @@ export class AgentsViewModel implements ViewModel {
     // fleet without re-subscribing the surface to the 1s nowAtom (which would re-render the whole grid).
     structuralNowAtom = atom(Date.now());
     cursorIdAtom = atom<string | undefined>(undefined) as PrimitiveAtom<string | undefined>;
+    // the Cockpit grid's card order; the Agent surface's tree follows the roster instead
     orderAtom = atom<string[]>([]) as PrimitiveAtom<string[]>;
     backgroundedIdsAtom = atom<Set<string>>(new Set<string>()) as PrimitiveAtom<Set<string>>;
     dismissedAtom = atom<Set<string>>(new Set<string>()) as PrimitiveAtom<Set<string>>;
@@ -193,6 +198,10 @@ export class AgentsViewModel implements ViewModel {
             );
         });
         this.lineageAtom = lineageAtomFor(this.agentsAtom);
+        this.treeRowsAtom = atom((get) =>
+            buildAgentTree(get(this.agentsAtom), get(this.lineageAtom), get(treeFoldsAtom), get(this.focusIdAtom))
+        );
+        this.focusOrderAtom = atom((get) => treeFocusOrder(get(this.treeRowsAtom), get(this.terminalsAtom)));
         this.endedWorkerAtom = endedWorkerAtomFor(this.focusIdAtom, this.lineageAtom);
         this.finalStageAtom = finalStageAtomFor(this.focusIdAtom, this.lineageAtom);
     }
@@ -204,16 +213,9 @@ export class AgentsViewModel implements ViewModel {
         landOn(this.surfaceAtom, "agent");
     }
 
-    // Cycle the focused agent (Ctrl+Tab). askingOnly restricts to asking agents (Ctrl+Shift+Tab).
-    cycleFocus(askingOnly: boolean) {
-        const agents = globalStore.get(this.agentsAtom);
-        const byId = new Map(agents.map((a) => [a.id, a]));
-        const ordered = globalStore.get(this.orderAtom).filter((id) => byId.has(id));
-        let ids = ordered.length ? ordered : agents.map((a) => a.id);
-        if (askingOnly) {
-            ids = ids.filter((id) => byId.get(id)?.state === "asking");
-        }
-        const next = cycleId(ids, globalStore.get(this.focusIdAtom), 1);
+    // Ctrl+Tab / Ctrl+Shift+Tab: the next or previous row of the tree, wrapping at the ends
+    cycleFocus(delta: 1 | -1) {
+        const next = cycleId(globalStore.get(this.focusOrderAtom), globalStore.get(this.focusIdAtom), delta);
         if (next != null) {
             globalStore.set(this.focusIdAtom, next);
         }

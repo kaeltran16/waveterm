@@ -5,7 +5,7 @@
 // (railVisibleAtom, default off, `d` key) so the surface is normally 2 panes, 3 with the rail open.
 // The center is the focused agent's live Claude Code terminal (CockpitFocusPane) — the real TUI,
 // not a narrated transcript; an AgentHeader bar sits above it for identity + the rail toggle. With no
-// explicit focus it defaults to the first agent in order (handoff dc.html:1790
+// explicit focus it defaults to the tree's first agent (handoff dc.html:1790
 // `focusAgent = …find(fid) || list[0]`) — never the cockpit grid; only a zero-agent roster shows an
 // empty state. Routing is shell-side (this file is imported only by cockpitshell.tsx) so agents.tsx
 // never imports CockpitFocusPane, keeping the agents -> focus-pane -> blockregistry -> agents eval
@@ -48,7 +48,7 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
     const focusId = useAtomValue(model.focusIdAtom);
     const agents = useAtomValue(model.agentsAtom);
     const terminals = useAtomValue(model.terminalsAtom);
-    const order = useAtomValue(model.orderAtom);
+    const focusOrder = useAtomValue(model.focusOrderAtom);
     const fullscreen = useAtomValue(terminalFullscreenAtom);
     const focusSub = useAtomValue(focusSubagentAtom);
     const ended = useAtomValue(model.endedWorkerAtom);
@@ -56,7 +56,7 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
     const seeded = useAtomValue(rosterSeededAtom);
     const wrapRef = useRef<HTMLDivElement>(null);
     // Focusable set = agents + background terminals. handoff (dc.html:1790): focusAgent = …find(fid) ||
-    // list[0] — the Focus surface always shows something, defaulting to the first agent in order (never
+    // list[0] — the Focus surface always shows something, defaulting to the tree's first agent (never
     // a terminal, so background terminals stay backgrounded); it falls back to the first terminal only
     // when there are no agents. focusId is kept "always real" (initialized to a default, never empty).
     // A done task's worker has no terminal to mount, so it is focusable without being mountable; so is a run's
@@ -64,7 +64,8 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
     const mountable = [...agents, ...terminals];
     const focused =
         focusId != null ? (mountable.find((a) => a.id === focusId) ?? ended?.agent ?? stage?.agent) : undefined;
-    const agent = focused ?? agents.find((a) => a.id === order[0]) ?? agents[0] ?? terminals[0];
+    const firstInTree = focusOrder.map((id) => agents.find((a) => a.id === id)).find((a) => a != null);
+    const agent = focused ?? firstInTree ?? agents[0] ?? terminals[0];
     const showSub = focusSub != null && focusSub.parentId === agent?.id;
     const brainstorm = useAtomValue(brainstormAtom(agent?.id ?? ""));
     const brainstormMode = brainstorm?.mode === "brainstorm";
