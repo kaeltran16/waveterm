@@ -152,6 +152,32 @@ describe("scopeGroups", () => {
         expect(out.shape).toEqual([["Actions · Cancel run", [verb.key]]]);
     });
 
+    it("leads Commands with a command typed by its name, ahead of the verb rows its first word also names", () => {
+        const command = { ...row("brainstorm:resume", "command", "Resume brainstorm…"), group: "Jarvis" } as CommandRow;
+        const verbs = [
+            row("action:session:resume:s1", "action", "Resume · fix the flaky brainstorm test"),
+            row("action:session:resume:s2", "action", "Resume · brainstorm panel"),
+        ];
+        const verbByKey = new Map(verbs.map((v) => [v.key, { action: { label: "Resume" } } as VerbRow<any>]));
+        const out = groupsAt(
+            { scope: "commands", query: "resume brainstorm" },
+            { rows: rows({ commands: [command], verbs }), verbByKey }
+        );
+        expect(out.groups[0].items[0].key).toBe("brainstorm:resume");
+        expect(out.shape.map(([label]) => label)).toEqual(["Commands", "Actions · Resume"]);
+    });
+
+    it("gives a command the tie with a verb row that scores the same", () => {
+        const command = { ...row("cmd:resume", "command", "Resume"), group: "Jarvis" } as CommandRow;
+        const verb = row("action:session:resume:s1", "action", "Resume");
+        const verbByKey = new Map([[verb.key, { action: { label: "Resume" } } as VerbRow<any>]]);
+        const out = groupsAt(
+            { scope: "commands", query: "resume" },
+            { rows: rows({ commands: [command], verbs: [verb] }), verbByKey }
+        );
+        expect(out.groups[0].items[0].key).toBe("cmd:resume");
+    });
+
     it("starts a project goal from Projects, or says the project matches none", () => {
         const launch = [row("launch:quick", "launch", "Quick")];
         const target = { ...noLaunch, projectLaunch: { token: "waveterm", goal: "fix" }, targetLabel: "waveterm" };

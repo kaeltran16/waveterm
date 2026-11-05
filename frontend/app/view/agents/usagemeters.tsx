@@ -7,13 +7,10 @@
 import { Meter } from "@/app/element/meter";
 import { cn } from "@/util/util";
 import { Fragment } from "react";
-import { usageLevel } from "./agentsviewmodel";
+import { USAGE_LEVEL_FILL, USAGE_LEVEL_TEXT, usageLevel } from "./agentsviewmodel";
 import { meterTitle, providerDot, usageBarVisible, windowUsedTokens } from "./cockpitrailmodel";
 import type { mergeRateLimitWindows } from "./ratelimitstore";
 import type { WindowTokens } from "./windowtokenstore";
-
-const LEVEL_BAR: Record<"ok" | "warn" | "hot", string> = { ok: "bg-accent", warn: "bg-warning", hot: "bg-error" };
-const LEVEL_TXT: Record<"ok" | "warn" | "hot", string> = { ok: "text-accent", warn: "text-warning", hot: "text-error" };
 
 const WINDOWS = [
     ["fivehour", "5h", "5-hour window"],
@@ -62,8 +59,8 @@ export function UsageMeters({
                             <span className={cn("h-1.5 w-1.5 rounded-full", providerDot(m.provider))} />
                         ) : null}
                         <span className="font-mono text-[10.5px] text-muted">{m.short}</span>
-                        <Meter pct={m.pct} fill={LEVEL_BAR[lvl]} height={5} radius={3} className="w-11" />
-                        <span className={cn("font-mono text-[11px] font-semibold", LEVEL_TXT[lvl])}>
+                        <Meter pct={m.pct} fill={USAGE_LEVEL_FILL[lvl]} height={5} radius={3} className="w-11" />
+                        <span className={cn("font-mono text-[11px] font-semibold", USAGE_LEVEL_TEXT[lvl])}>
                             {Math.round(m.pct)}%
                         </span>
                     </Fragment>

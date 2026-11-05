@@ -13,10 +13,11 @@ import { reloadAmbient } from "@/app/view/agents/ambientstore";
 import { fireAndForget } from "@/util/util";
 import { atom, type PrimitiveAtom } from "jotai";
 import { statusConfirmCopy } from "./briefpeek";
+import { briefUndo } from "./briefundo";
 import { invalidateBloom } from "./jarvisgraphstore";
 import { reloadRecordDetail, reloadRecordScope } from "./jarvissubjectstore";
 import { isTerminalTransition } from "./tasksderive";
-import { loadTaskList, tasksErrorAtom } from "./tasksstore";
+import { loadTaskList } from "./tasksstore";
 
 // Refresh every cache of this record that a write can invalidate. The ambient re-read is deliberately not
 // awaited: ResolveAmbient sweeps every dossier against every run and shells out to git for commit
@@ -28,15 +29,21 @@ export async function afterRecordWrite(dossierId: string): Promise<void> {
     await Promise.all([reloadRecordDetail(dossierId), reloadRecordScope(dossierId)]);
 }
 
-// A write that fails must say so rather than leaving the UI asserting a change that did not happen.
-// tasksErrorAtom is the surface's existing channel for that.
-async function write(dossierId: string, op: () => Promise<void>): Promise<boolean> {
+// A write that fails must say so rather than leaving the UI asserting a change that did not happen. The
+// Brief's toast carries it; tasksErrorAtom is not used because it is the record list's load error, which
+// openref reads, so a failed write there would make a missing record read as a failed load.
+function reportFailure(what: string, e: unknown): void {
+    console.error(`couldn't ${what}`, e);
+    briefUndo.error(`Couldn't ${what}: ${e instanceof Error ? e.message : String(e)}`);
+}
+
+async function write(dossierId: string, what: string, op: () => Promise<void>): Promise<boolean> {
     try {
         await op();
         await afterRecordWrite(dossierId);
         return true;
     } catch (e) {
-        globalStore.set(tasksErrorAtom, String(e));
+        reportFailure(what, e);
         return false;
     }
 }
@@ -47,7 +54,7 @@ export function appendDecision(
     rationale: string,
     links: string[]
 ): Promise<boolean> {
-    return write(dossierId, async () => {
+    return write(dossierId, "record the decision", async () => {
         await RpcApi.AppendDossierDecisionCommand(TabRpcClient, {
             dossierid: dossierId,
             summary,
@@ -59,7 +66,7 @@ export function appendDecision(
 
 export function setDossierStatus(dossierId: string, status: string): void {
     fireAndForget(() =>
-        write(dossierId, async () => {
+        write(dossierId, "set the record's status", async () => {
             await RpcApi.SetDossierStatusCommand(TabRpcClient, { dossierid: dossierId, status });
             // the row can change group or leave the list entirely, which the record's own caches cannot show
             loadTaskList();
@@ -141,7 +148,7 @@ export function detachEdge(dossierId: string, runORef: string): void {
             await RpcApi.DetachDossierEdgeCommand(TabRpcClient, { dossierid: dossierId, runoref: runORef });
             await afterEdgeWrite(dossierId, runORef);
         } catch (e) {
-            globalStore.set(tasksErrorAtom, String(e));
+            reportFailure("detach the run", e);
         }
     });
 }
@@ -154,7 +161,7 @@ export function acceptEdge(dossierId: string, runORef: string): void {
             await RpcApi.AcceptDossierEdgeCommand(TabRpcClient, { dossierid: dossierId, runoref: runORef });
             await afterEdgeWrite(dossierId, runORef);
         } catch (e) {
-            globalStore.set(tasksErrorAtom, String(e));
+            reportFailure("attach the run", e);
         }
     });
 }

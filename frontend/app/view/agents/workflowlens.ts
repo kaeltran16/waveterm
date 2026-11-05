@@ -5,6 +5,9 @@
 // the state the lens draws out (workflow-scan Main.dc.html and States.dc.html). Every number and quote on a
 // card is the recount's (Survivors), never the agent's; the agent's verdict adds only the fix.
 
+import { palettePickChannel } from "@/app/cockpit/palette-data";
+import { rowsWithChannel, type ProjectRow } from "./projectsstore";
+
 export const SCAN_WINDOW_DAYS = 14;
 export const RUN_FLOOR = 3;
 const SHOWN_QUOTES = 2;
@@ -365,6 +368,24 @@ export function picksPayload(cards: WorkflowCard[], picks: Record<string, PickDr
 export function copyText(card: WorkflowCard): string {
     const target = card.where ? `${card.file} · ${card.where}` : card.file;
     return [target, ...card.edit.map((l) => `${l.sign} ${l.text}`)].join("\n");
+}
+
+// the project a scan starts from: the owner's pick, else where the newest scan ran, else the launch rows' own rule.
+// A pick or scan channel that cannot be used (no channel yet, project removed) is skipped, never an empty home.
+export function scanHomeChannel(
+    picked: string | null,
+    newestScanChannelId: string | undefined,
+    channels: Channel[] | null,
+    active: Channel | null,
+    rows: ProjectRow[],
+    recent: string[]
+): Channel | null {
+    const pickedRow = rowsWithChannel(rows).find((r) => r.name === picked);
+    if (pickedRow != null) {
+        return pickedRow.channel;
+    }
+    const scanned = newestScanChannelId ? channels?.find((c) => c.oid === newestScanChannelId) : undefined;
+    return scanned ?? palettePickChannel(active, rows, recent[0] ?? null);
 }
 
 const BUSY_TITLE: Partial<Record<WorkflowView["kind"], string>> = {

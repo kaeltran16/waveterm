@@ -7,7 +7,16 @@ import { cardVariants, MOTION } from "@/app/element/motiontokens";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { cn } from "@/util/util";
 import { AnimatePresence, motion, MotionConfig } from "motion/react";
-import { BriefRunRow, keyOf, MoreControl, NoMatch, Region, runKindFilter } from "./briefprimitives";
+import {
+    BriefRunRow,
+    couldNotRead,
+    keyOf,
+    LegMissing,
+    MoreControl,
+    NoMatch,
+    Region,
+    runKindFilter,
+} from "./briefprimitives";
 import type { BriefLine, LineTarget, RunKindFilter } from "./briefrows";
 import { LINK_BTN } from "./briefstyle";
 
@@ -15,6 +24,7 @@ export function RunsRegion({
     model,
     lines,
     empty,
+    missing,
     runKind,
     onRunKind,
     runCounts,
@@ -38,6 +48,8 @@ export function RunsRegion({
     model: AgentsViewModel;
     lines: BriefLine[];
     empty: boolean;
+    // the snapshot could not read the runs leg: the rows left are direct agents, and none proves nothing runs
+    missing: boolean;
     runKind: RunKindFilter;
     onRunKind: (k: RunKindFilter) => void;
     runCounts: Record<RunKindFilter, number>;
@@ -63,7 +75,7 @@ export function RunsRegion({
         <Region
             id="sessions"
             empty={empty}
-            absent={runKind === "all" ? undefined : `No ${runKind} run is going.`}
+            absent={missing ? couldNotRead("runs") : runKind === "all" ? undefined : `No ${runKind} run is going.`}
             gap="gap-[9px]"
             meta={`${liveN} live`}
             only={only}
@@ -71,6 +83,7 @@ export function RunsRegion({
             filter={runKindFilter(runKind, onRunKind, runCounts)}
         >
             <div className="flex flex-col">
+                {missing ? <LegMissing what="runs" /> : null}
                 {filtering && lines.length === 0 ? <NoMatch /> : null}
                 <MotionConfig reducedMotion="user">
                     <AnimatePresence initial={false}>

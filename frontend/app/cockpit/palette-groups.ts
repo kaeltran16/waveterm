@@ -6,7 +6,7 @@
 // that and Enter opens it; a query that names nothing is a goal, so the launch block leads and Enter
 // starts it. Narrowed scopes are already small, so they list every match.
 
-import { SCORE_PER_CHAR, fuzzyScore } from "./palette-match";
+import { SCORE_PER_CHAR, fuzzyScore, type Scored } from "./palette-match";
 
 export type GroupKind =
     | "recent"
@@ -98,7 +98,12 @@ export function meetsNameFloor(query: string, search: string): boolean {
         return true;
     }
     const score = fuzzyScore(q, search);
-    return score != null && score >= q.length * SCORE_PER_CHAR * MIN_MATCH_DENSITY;
+    return score != null && scoreMeetsNameFloor(q, score);
+}
+
+// meetsNameFloor for a row already scored against the trimmed query
+export function scoreMeetsNameFloor(q: string, score: number): boolean {
+    return score >= q.length * SCORE_PER_CHAR * MIN_MATCH_DENSITY;
 }
 
 // One group per kind, in `order`, with `lead` hoisted to the front. Empty kinds are dropped.
@@ -115,7 +120,7 @@ export function groupByKind<T extends GroupableItem>(
 
 export interface AllGroupsInput<T extends GroupableItem> {
     query: string;
-    ranked: T[]; // every All kind, already ranked best-first; the floor is applied here
+    ranked: Scored<T>[]; // every All kind, already ranked best-first with its score; the floor is applied here
     recent: T[]; // most-recently-used rows, resolved against the current pool
     goto: T[]; // the surfaces, shown under Recent on an empty query
     launch: T[]; // the launch rows; [] when there is no goal or no project to start it in
@@ -147,11 +152,13 @@ export function assembleAllGroups<T extends GroupableItem>(input: AllGroupsInput
             },
             { key: "start", label: "Start", items: notRecent(start) },
             { key: "recent", label: "Recent", items: recent },
-            { key: "goto", label: "Go to", items: notRecent(goto) },
+            // nothing is typed yet, so "keep typing" is the wrong way to the rest: the Go to scope lists every surface
+            { key: "goto", label: "Go to", items: notRecent(goto), more: "Go to scope" },
         ];
         return groups.filter((g) => g.items.length > 0);
     }
-    const names = ranked.filter((it) => meetsNameFloor(query, it.search));
+    const q = query.trim();
+    const names = ranked.filter((s) => scoreMeetsNameFloor(q, s.score)).map((s) => s.item);
     // The kind holding the best match leads, since Enter runs the first row. ranked is best-first.
     const nameGroups = groupByKind(names, ALL_KIND_ORDER, names[0]?.kind);
     const startBlock: PaletteGroup<T>[] =

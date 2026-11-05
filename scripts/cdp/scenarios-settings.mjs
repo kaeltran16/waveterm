@@ -25,6 +25,7 @@ import {
     polishReload,
     polishWaitFor,
     setFinderQuery,
+    setInputExpr,
     waitForProjectInConfig,
 } from "./scenarios-shared.mjs";
 
@@ -2296,4 +2297,227 @@ export const setupMemory = {
     arrange: setupMemoryArrange,
     assert: setupMemoryAssert,
     teardown: setupMemoryTeardown,
+};
+
+// --- settings-review-fixes: the Settings half of the 2026-11-05 palette and settings review (F5-F9)
+// F9 is window chrome: the Jarvis avatar steps aside for any surface's control under it. Settings' Remote fields sit
+// at the window's right edge, so the pane is scrolled until one lies under the avatar, then a real pointer goes there.
+const SETTINGS_WIDE = { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false };
+const SETTINGS_NARROW = { width: 1000, height: 700, deviceScaleFactor: 1, mobile: false };
+const SETTINGS_SEARCH = `document.querySelector('input[placeholder="Search settings"]')`;
+const SETTINGS_PANE = `document.querySelector('[data-settings-section]')`;
+const AVATAR = `document.querySelector('[aria-label="Jarvis condition"]')`;
+// the tunnel token field's two placeholders in RemoteSection, settingssurface.tsx
+const TOKEN_PLACEHOLDERS = ["Stored. Paste a new one to replace it", "Paste the tunnel token"];
+
+const settingsSearch = (q) => setInputExpr(SETTINGS_SEARCH, q);
+const indexSections = `[...document.querySelectorAll('[data-section]')].map((b) => b.getAttribute('data-section'))`;
+const indexRowText = (id) => `(document.querySelector('[data-section="${id}"]')?.textContent ?? '').replace(/\\s+/g, ' ').trim()`;
+
+// the Headless AI key row: how it lays out and how wide its text column is
+const KEY_ROW_LAYOUT = `(() => {
+    const row = document.querySelector('[data-setting-row="headless.apikey"]');
+    if (!row) return null;
+    return { direction: getComputedStyle(row).flexDirection, text: Math.round(row.firstElementChild.getBoundingClientRect().width) };
+})()`;
+
+// each tunnel token placeholder's width in the field's own font, against the room the field gives it
+const TOKEN_FIT = `(() => {
+    const row = document.querySelector('[data-setting-row="remote.tunneltoken"]');
+    const input = row?.querySelector('input[type="password"]');
+    if (!input) return null;
+    const cs = getComputedStyle(input);
+    const ctx = document.createElement('canvas').getContext('2d');
+    ctx.font = cs.font;
+    const room = input.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    return { room: Math.round(room), texts: ${JSON.stringify(TOKEN_PLACEHOLDERS)}.map((t) => Math.ceil(ctx.measureText(t).width)) };
+})()`;
+
+// scrolls the pane until a field sits under the avatar's middle; returns that point and the field's row id
+const FIELD_UNDER_AVATAR = `(() => {
+    const pane = ${SETTINGS_PANE};
+    const av = ${AVATAR}?.getBoundingClientRect();
+    if (!pane || !av) return null;
+    const x = Math.round(av.left + av.width / 2);
+    const y = Math.round(av.top + av.height / 2);
+    for (const input of pane.querySelectorAll('input[type="text"], input[type="password"]')) {
+        const r = input.getBoundingClientRect();
+        if (r.left > x || r.right < x) continue;
+        pane.scrollTop += r.top + r.height / 2 - y;
+        const after = input.getBoundingClientRect();
+        if (Math.abs(after.top + after.height / 2 - y) > 2) continue;
+        input.setAttribute('data-review-target', '');
+        return { x, y, row: input.closest('[data-setting-row]')?.getAttribute('data-setting-row') ?? null };
+    }
+    return null;
+})()`;
+
+export const settingsReviewFixes = {
+    name: "settings-review-fixes",
+    surface: "settings",
+    async arrange(h) {
+        const flags = await lookEval(h, `
+            const S = await mod("app/store/jotaiStore.ts");
+            const N = await mod("app/view/agents/naflagsstore.ts");
+            return S.globalStore.get(N.naFlagsAtom);
+        `).catch(() => null);
+        return { flags };
+    },
+    async assert(h) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        try {
+            await h.cdp("Emulation.setDeviceMetricsOverride", SETTINGS_WIDE);
+            await h.goto("settings");
+            await polishWaitFor(h, `${SETTINGS_SEARCH} != null`, 5000);
+
+            // 1. F5: a section's own name finds the section, whole; Storage too, which has no rows
+            const found = {};
+            for (const [q, id] of [
+                ["Storage", "storage"],
+                ["Appearance", "appearance"],
+                ["Claude account", "claudeaccount"],
+                ["Run defaults", "run"],
+                ["About", "about"],
+            ]) {
+                await h.ev(settingsSearch(q));
+                await polishWaitFor(h, `${indexSections}.includes(${JSON.stringify(id)})`, 2000);
+                found[q] = {
+                    listed: await h.ev(`${indexSections}.includes(${JSON.stringify(id)})`),
+                    empty: await h.ev(`document.body.innerText.includes('No setting matches that')`),
+                };
+                if (q === "Storage") await h.shot("cdp-shots/settings-review-search-storage.png");
+            }
+            await h.ev(settingsSearch("Appearance"));
+            await polishNap(300);
+            const searchedRows = await h.ev(`${SETTINGS_PANE}?.querySelectorAll('[data-setting-row]').length ?? 0`);
+            await h.shot("cdp-shots/settings-review-search-appearance.png");
+            await h.ev(settingsSearch(""));
+            await polishNap(300);
+            await h.ev(`document.querySelector('[data-section="appearance"]')?.click()`);
+            await polishNap(300);
+            const allRows = await h.ev(`${SETTINGS_PANE}?.querySelectorAll('[data-setting-row]').length ?? 0`);
+            rec(
+                "1. searching a section's name lists that section with every row (Storage, Appearance, Claude account, Run defaults, About)",
+                Object.values(found).every((f) => f.listed && !f.empty) && searchedRows > 0 && searchedRows === allRows,
+                JSON.stringify({ found, searchedRows, allRows })
+            );
+
+            // 2. F6: a claude flag set still counts, and Reset section still offers, with Codex on screen
+            await lookEval(h, `
+                const S = await mod("app/store/jotaiStore.ts");
+                const N = await mod("app/view/agents/naflagsstore.ts");
+                S.globalStore.set(N.naFlagsAtom, { claude: { verbose: true } });
+            `);
+            await h.ev(`document.querySelector('[data-section="newagent"]')?.click()`);
+            await polishWaitFor(h, `${SETTINGS_PANE}?.getAttribute('data-settings-section') === 'newagent'`, 3000);
+            await h.ev(`[...(${SETTINGS_PANE}?.querySelectorAll('button') ?? [])].find((b) => b.textContent.trim() === 'Codex')?.click()`);
+            await polishNap(400);
+            const onCodex = {
+                index: await h.ev(indexRowText("newagent")),
+                reset: await h.ev(`[...document.querySelectorAll('button')].some((b) => b.textContent.trim() === 'Reset section')`),
+                codexShown: await h.ev(`!!${SETTINGS_PANE}?.querySelector('[data-setting-row^="newagent.flag.codex."]') || /takes no launch flags/.test(${SETTINGS_PANE}?.textContent ?? '')`),
+            };
+            await h.shot("cdp-shots/settings-review-newagent-codex.png");
+            await h.ev(`[...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Reset section')?.click()`);
+            await polishNap(400);
+            const afterReset = await lookEval(h, `
+                const S = await mod("app/store/jotaiStore.ts");
+                const N = await mod("app/view/agents/naflagsstore.ts");
+                return S.globalStore.get(N.naFlagsAtom);
+            `);
+            rec(
+                "2. with claude --verbose on and Codex shown, New Agent reads 1 changed and Reset section clears the claude flag",
+                /1 changed/.test(onCodex.index) && onCodex.reset && onCodex.codexShown && afterReset?.claude?.verbose === false,
+                JSON.stringify({ onCodex, afterReset })
+            );
+
+            // 3. F7: the section picked survives leaving Settings
+            await h.ev(`document.querySelector('[data-section="jira"]')?.click()`);
+            await polishWaitFor(h, `${SETTINGS_PANE}?.getAttribute('data-settings-section') === 'jira'`, 3000);
+            await h.goto("cockpit");
+            await h.goto("settings");
+            const back = await h.ev(`${SETTINGS_PANE}?.getAttribute('data-settings-section') ?? null`);
+            await h.shot("cdp-shots/settings-review-jira-kept.png");
+            rec("3. Jira picked, then Cockpit and back: Settings still shows Jira", back === "jira", `section=${back}`);
+
+            // 4. F8: the key row stacks its control under its text at 1000x700 and sits beside it at 1600; the
+            // tunnel token field shows each placeholder in full at both sizes
+            await h.ev(`document.querySelector('[data-section="headless"]')?.click()`);
+            await polishWaitFor(h, `${SETTINGS_PANE}?.getAttribute('data-settings-section') === 'headless'`, 3000);
+            const wideKey = await h.ev(KEY_ROW_LAYOUT);
+            await h.ev(`document.querySelector('[data-section="remote"]')?.click()`);
+            await polishWaitFor(h, `${SETTINGS_PANE}?.getAttribute('data-settings-section') === 'remote'`, 3000);
+            const wideToken = await h.ev(TOKEN_FIT);
+            await h.cdp("Emulation.setDeviceMetricsOverride", SETTINGS_NARROW);
+            await polishNap(500);
+            const narrowToken = await h.ev(TOKEN_FIT);
+            await h.shot("cdp-shots/settings-review-remote-1000.png");
+            await h.ev(`document.querySelector('[data-section="headless"]')?.click()`);
+            await polishWaitFor(h, `${SETTINGS_PANE}?.getAttribute('data-settings-section') === 'headless'`, 3000);
+            await h.ev(`document.querySelector('[data-setting-row="headless.apikey"]')?.scrollIntoView({ block: 'center' })`);
+            await polishNap(300);
+            const narrowKey = await h.ev(KEY_ROW_LAYOUT);
+            await h.shot("cdp-shots/settings-review-headless-1000.png");
+            const fits = (t) => t != null && t.texts.every((w) => w <= t.room);
+            rec(
+                "4. at 1000x700 the OpenRouter key row stacks with a text column over 300px; at 1600 it sits beside it; the token placeholders fit",
+                narrowKey?.direction === "column" &&
+                    narrowKey.text > 300 &&
+                    wideKey?.direction === "row" &&
+                    fits(wideToken) &&
+                    fits(narrowToken),
+                JSON.stringify({ wideKey, narrowKey, wideToken, narrowToken })
+            );
+
+            // 5. F9: a field under the avatar takes the pointer: the avatar fades and the click focuses the field. At 1600,
+            // where Remote's fields sit at the pane's right edge (at 1000 they stack under their text, clear of it)
+            await h.cdp("Emulation.setDeviceMetricsOverride", SETTINGS_WIDE);
+            await polishNap(500);
+            await h.ev(`document.querySelector('[data-section="remote"]')?.click()`);
+            await polishWaitFor(h, `${SETTINGS_PANE}?.getAttribute('data-settings-section') === 'remote'`, 3000);
+            await polishNap(300);
+            const spot = await h.ev(FIELD_UNDER_AVATAR);
+            if (spot == null) {
+                rec("5. a Remote field lies under the avatar once the pane scrolls", false, "no field reached the avatar's middle");
+            } else {
+                await h.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", x: spot.x - 1, y: spot.y });
+                await h.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", x: spot.x, y: spot.y });
+                const yielded = await polishWaitFor(h, `${AVATAR}?.hasAttribute('data-pet-yielding')`, 2000);
+                await polishNap(400);
+                const look = await h.ev(`({
+                    opacity: Number(getComputedStyle(${AVATAR}).opacity),
+                    top: document.elementFromPoint(${spot.x}, ${spot.y})?.hasAttribute('data-review-target') ?? false,
+                })`);
+                await h.shot("cdp-shots/settings-review-avatar-yields.png");
+                await h.cdp("Input.dispatchMouseEvent", { type: "mousePressed", x: spot.x, y: spot.y, button: "left", clickCount: 1 });
+                await h.cdp("Input.dispatchMouseEvent", { type: "mouseReleased", x: spot.x, y: spot.y, button: "left", clickCount: 1 });
+                await polishNap(200);
+                const focused = await h.ev(`document.activeElement?.hasAttribute('data-review-target') ?? false`);
+                await h.ev(`document.activeElement?.blur()`);
+                await h.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", x: 20, y: 300 });
+                const back = await polishWaitFor(h, `!${AVATAR}?.hasAttribute('data-pet-yielding')`, 2000);
+                rec(
+                    "5. with the pointer on a field under the avatar, the avatar fades and lets the click through to the field; it returns once the pointer leaves",
+                    yielded && look.opacity < 0.3 && look.top && focused && back,
+                    JSON.stringify({ spot, yielded, look, focused, back })
+                );
+            }
+        } catch (e) {
+            rec("scenario aborted", false, String(e?.message ?? e));
+        }
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await h.ev(settingsSearch("")).catch(() => {});
+        await h.cdp("Emulation.clearDeviceMetricsOverride").catch(() => {});
+        await lookEval(h, `
+            const S = await mod("app/store/jotaiStore.ts");
+            const N = await mod("app/view/agents/naflagsstore.ts");
+            const St = await mod("app/view/agents/settingsstore.ts");
+            S.globalStore.set(N.naFlagsAtom, ${JSON.stringify(ctx?.flags ?? {})});
+            S.globalStore.set(St.settingsSectionAtom, "appearance");
+        `).catch((e) => console.error(`settings-review-fixes teardown: restore failed: ${e?.message ?? e}`));
+        await h.goto("cockpit");
+    },
 };

@@ -19,6 +19,7 @@ import {
     clickByText,
     floorStep,
     fstWriteRun,
+    lookEval,
     notesClipStub,
     openAddressExpr,
     openPalette,
@@ -182,6 +183,70 @@ const buildUsageFixture = () => {
     return { buckets, sessions };
 };
 
+// The review-fixes half of usage-charts (spec 2026-11-05-usage-review-fixes): 28 days of Claude history for the
+// weekly forecast, a project active on only 3 of the last 7 days, gpt-5.5 under two providers in one Codex group,
+// a session of an unpriced model with no reported cost and a session priced under a cent.
+const USAGE_CHARTS_NARROW = "C:/work/narrow";
+const USAGE_CHARTS_UNPRICED_ITEM = "session:codex:fx-unpriced";
+const USAGE_CHARTS_TINY_ITEM = "session:claude:fx-tiny";
+const USAGE_CHARTS_SCOPE_DAYS = 3;
+const USAGE_CHARTS_WEEK_COLUMNS = 7;
+const USAGE_CHARTS_HISTORY_DAYS = 28;
+// how far apart the columns' grown fractions may sit ~100 ms into the entrance
+const USAGE_CHARTS_TOGETHER = 0.05;
+function buildUsageChartsReviewFixture() {
+    const buckets = [];
+    const bucket = (harness, provider, model, session, day, input, extra = {}) =>
+        buckets.push({
+            harness,
+            provider,
+            model,
+            session,
+            day,
+            input,
+            output: Math.round(input / 5),
+            reasoning: 0,
+            cacheread: input * 3,
+            cachecreate: 0,
+            cachecreate1h: 0,
+            msgs: 2,
+            ...extra,
+        });
+    for (let n = 0; n < USAGE_CHARTS_HISTORY_DAYS; n++) {
+        bucket("claude", "anthropic", "claude-opus-4-8", "fx-claude-long", dayAgo(n), 20_000 + (n % 7) * 4_000);
+    }
+    for (let n = 0; n < USAGE_CHARTS_SCOPE_DAYS; n++) {
+        bucket("claude", "anthropic", "claude-sonnet-5-5", "fx-narrow", dayAgo(n), 60_000);
+    }
+    bucket("codex", "openai", "gpt-5.5", "fx-codex-openai", dayAgo(1), 30_000);
+    bucket("codex", "azure", "gpt-5.5", "fx-codex-azure", dayAgo(2), 12_000);
+    bucket("codex", "fx-local", "unpriced-test-model", "fx-unpriced", dayAgo(1), 8_000);
+    // 100 input tokens of opus: a twentieth of a cent
+    buckets.push({
+        harness: "claude",
+        provider: "anthropic",
+        model: "claude-opus-4-8",
+        session: "fx-tiny",
+        day: dayAgo(1),
+        input: 100,
+        output: 0,
+        reasoning: 0,
+        cacheread: 0,
+        cachecreate: 0,
+        cachecreate1h: 0,
+        msgs: 1,
+    });
+    const sessions = [
+        { harness: "claude", session: "fx-claude-long", title: "Long-running Claude work", project: "C:/work/arc" },
+        { harness: "claude", session: "fx-narrow", title: "Three-day spike", project: USAGE_CHARTS_NARROW },
+        { harness: "codex", session: "fx-codex-openai", title: "Codex on OpenAI", project: "C:/work/arc" },
+        { harness: "codex", session: "fx-codex-azure", title: "Codex on Azure", project: "C:/work/arc" },
+        { harness: "codex", session: "fx-unpriced", title: "Local model run", project: "C:/work/arc" },
+        { harness: "claude", session: "fx-tiny", title: "One-line question", project: "C:/work/arc" },
+    ];
+    return { buckets, sessions };
+}
+
 // page-side helpers the usage scenarios share: every query goes through the surface's DOM contract
 const USAGE_LIB = `
     const text = (el) => (el?.textContent || "").replace(/\\s+/g, " ").trim();
@@ -316,7 +381,7 @@ export const usageCharts = {
         // these are the pre-existing design-system tokens, so a rename would break the fills silently)
         const palette = await h.ev(`(() => {
             const cs = getComputedStyle(document.documentElement);
-            const names = ["--color-cacheread","--color-accent","--color-warning","--color-success","--color-accent-200","--color-accent-800","--color-accent-300","--color-rt-opencode","--color-rt-pi"];
+            const names = ["--color-cacheread","--color-provider-claude","--color-provider-codex","--color-provider-opencode","--color-provider-pi","--color-graphlane-1","--color-graphlane-2","--color-graphlane-4","--color-graphlane-6","--color-graphlane-fold"];
             return Object.fromEntries(names.map((n) => [n, cs.getPropertyValue(n).trim()]));
         })()`);
         rec(
@@ -731,11 +796,158 @@ export const usageCharts = {
         rec(
             "17. the Lens group shows By provider pressed, and the detail page has no ranked list",
             lens.lens === "By provider" &&
-                JSON.stringify(lens.options) === JSON.stringify([["By provider", "true"], ["By work", "false"]]) &&
+                JSON.stringify(lens.options) ===
+                    JSON.stringify([["By provider", "true"], ["By work", "false"], ["Workflow", "false"]]) &&
                 lens.lists === 0,
             JSON.stringify(lens)
         );
         steps.push(await floorStep(h, `18. no visible text on the Usage surface is under ${MIN_FONT_PX}px`, SURFACE_ROOT));
+
+        // --- the review fixes, on their own fixture: a reload starts the lens, range and forecast over ---
+        await usageReloadWith(h, buildUsageChartsReviewFixture());
+        await h.goto("usage");
+        const reviewLoaded = await usageEv(
+            h,
+            `return await until(() => document.querySelector("[data-usage-stats]") != null && chartSvg() != null, 15000);`
+        );
+        rec("19. the review fixture loads on By provider, 7 days", reviewLoaded, String(reviewLoaded));
+
+        // a harness's chart and legend color is the provider-* token its card's dot paints with
+        const colors = await usageEv(
+            h,
+            `const bg = (el) => (el ? getComputedStyle(el).backgroundColor : null);
+            return ["claude", "codex"].map((k) => {
+                const card = document.querySelector('[data-usage-scopes] [data-usage-harness="' + k + '"]');
+                const swatch = document
+                    .querySelector('[data-usage-legend-group="' + k + '"]')
+                    ?.parentElement?.querySelector("[data-usage-model] > span");
+                return { k, dot: bg(card?.querySelector("span > span")), swatch: bg(swatch), style: swatch?.getAttribute("style") ?? null };
+            });`
+        );
+        rec(
+            "20. provider colors match cards: each harness's top legend swatch is its card's dot color, a provider-* token",
+            colors.length === 2 &&
+                colors.every((c) => c.dot != null && c.dot === c.swatch && (c.style ?? "").includes(`--color-provider-${c.k}`)),
+            JSON.stringify(colors)
+        );
+
+        // gpt-5.5 runs under two providers in the Codex group, so those two rows name their provider
+        const dup = await usageEv(h, `return legendRows().map((r) => ({ key: r.key, label: r.model }));`);
+        const codexLabels = dup.filter((r) => JSON.parse(r.key)[0] === "codex").map((r) => r.label);
+        rec(
+            "21. legend dup label: gpt-5.5 under two Codex providers reads provider/model, a lone model keeps its name",
+            codexLabels.includes("openai/gpt-5.5") &&
+                codexLabels.includes("azure/gpt-5.5") &&
+                !codexLabels.includes("gpt-5.5") &&
+                dup.some((r) => r.label === "claude-opus-4-8"),
+            JSON.stringify(dup)
+        );
+
+        // remount the chart (the store keeps the buckets, so it draws at once) and sample every column ~100 ms in
+        await h.goto("cockpit");
+        await h.ev(`(() => {
+            window.__usageColumns = null;
+            const columns = () => [...document.querySelectorAll("[data-usage-daily] [data-usage-plot] [data-usage-day]")];
+            // per segment, not per column: a stacked segment grows about its own bottom, so a column's outline
+            // overstates how far its segments have grown
+            const heights = () =>
+                columns().flatMap((c) => [...c.querySelectorAll("path[fill]")].map((p) => p.getBoundingClientRect().height));
+            (async () => {
+                const start = performance.now();
+                while (performance.now() - start < 15000 && !columns().some((c) => c.querySelector("path[fill]"))) {
+                    await new Promise((r) => requestAnimationFrame(r));
+                }
+                const mounted = performance.now();
+                await new Promise((r) => setTimeout(r, 100));
+                const early = heights();
+                const at = Math.round(performance.now() - mounted);
+                await new Promise((r) => setTimeout(r, 1500));
+                window.__usageColumns = { at, early, final: heights() };
+            })();
+            return true;
+        })()`);
+        await h.goto("usage");
+        let entrance = null;
+        for (let waited = 0; waited <= 20000 && entrance == null; waited += 250) {
+            entrance = await h.ev("window.__usageColumns");
+            if (entrance == null) await settle(250);
+        }
+        const fractions =
+            entrance != null && entrance.early.length === entrance.final.length
+                ? entrance.final.map((f, i) => (f > 0 ? entrance.early[i] / f : null)).filter((f) => f != null)
+                : [];
+        const spread = fractions.length > 0 ? Math.max(...fractions) - Math.min(...fractions) : Infinity;
+        rec(
+            "22. columns enter together: ~100 ms after the chart mounts every column's bars sit at the same fraction of their height (within 5%)",
+            fractions.length >= USAGE_CHARTS_WEEK_COLUMNS && spread <= USAGE_CHARTS_TOGETHER,
+            JSON.stringify({ at: entrance?.at, fractions: fractions.map((f) => +f.toFixed(3)), spread: +spread.toFixed(3) })
+        );
+
+        // the projection reads a fixed 28-day history, so the range does not move it
+        const projection = `document.querySelector('[data-usage-scopes] [data-usage-harness="claude"] [data-usage-projection]')`;
+        const forecast = await usageEv(
+            h,
+            `const read = () => text(${projection}) || null;
+            await until(() => read() != null);
+            const week = read();
+            press(groupButton("Range", "All time"));
+            await until(() => pressedIn("Range") === "All time" && document.querySelector("[data-usage-stats]") != null, 15000);
+            await new Promise((r) => setTimeout(r, 500));
+            const allTime = read();
+            press(groupButton("Range", "7 days"));
+            await until(() => pressedIn("Range") === "7 days" && document.querySelector("[data-usage-stats]") != null, 15000);
+            return { week, allTime };`
+        );
+        rec(
+            "23. forecast unchanged across the range switch: the Claude projection reads the same under 7 days and All time",
+            forecast.week != null && forecast.week.startsWith("weekly ~100% by") && forecast.week === forecast.allTime,
+            JSON.stringify(forecast)
+        );
+
+        // By work, a project active on 3 of the last 7 days: the chart still spans the window
+        const narrow = await usageEv(
+            h,
+            `press(groupButton("Lens", "By work"));
+            await until(() => document.querySelector('[data-usage-project="${USAGE_CHARTS_NARROW}"]') != null);
+            press(document.querySelector('[data-usage-project="${USAGE_CHARTS_NARROW}"]'));
+            await until(() => detail()?.getAttribute("data-usage-detail") === "project:${USAGE_CHARTS_NARROW}");
+            await new Promise((r) => setTimeout(r, 500));
+            const days = [...document.querySelectorAll("[data-usage-daily] [data-usage-day]")];
+            return {
+                scope: detail()?.getAttribute("data-usage-detail") ?? null,
+                columns: days.length,
+                active: days.filter((d) => d.querySelector("path[fill]")).length,
+            };`
+        );
+        rec(
+            "24. 7-day chart has 7 columns for a 3-day scope (a By work project)",
+            narrow.scope === `project:${USAGE_CHARTS_NARROW}` &&
+                narrow.columns === USAGE_CHARTS_WEEK_COLUMNS &&
+                narrow.active === USAGE_CHARTS_SCOPE_DAYS,
+            JSON.stringify(narrow)
+        );
+
+        // an unpriced session reads "unpriced" on its row and its API-equivalent card; a sub-cent one "<$0.01"
+        const unpriced = await usageEv(
+            h,
+            `press(document.querySelector('[data-usage-scopes] [data-usage-harness="all"]'));
+            await until(() => detail()?.getAttribute("data-usage-detail") === "all" && detail()?.querySelector("[data-usage-list]") != null);
+            const row = (key) => text(detail()?.querySelector('[data-usage-item="' + key + '"]')) || null;
+            const rows = { unpriced: row("${USAGE_CHARTS_UNPRICED_ITEM}"), tiny: row("${USAGE_CHARTS_TINY_ITEM}") };
+            press(detail()?.querySelector('[data-usage-item="${USAGE_CHARTS_UNPRICED_ITEM}"]'));
+            await until(() => detail()?.getAttribute("data-usage-detail") === "${USAGE_CHARTS_UNPRICED_ITEM}");
+            const card = [...(detail()?.querySelectorAll("[data-usage-stats] > div") ?? [])].find((c) => text(c).startsWith("API-equivalent"));
+            return { rows, estimate: text(card?.children[1]) || null };`
+        );
+        rec(
+            "25. unpriced and <$0.01: the unpriced row and its API-equivalent card read unpriced, a sub-cent row <$0.01",
+            (unpriced.rows.unpriced ?? "").includes("unpriced") &&
+                !(unpriced.rows.unpriced ?? "").includes("≈") &&
+                (unpriced.rows.tiny ?? "").includes("<$0.01") &&
+                unpriced.estimate === "unpriced",
+            JSON.stringify(unpriced)
+        );
+        await usageShots(h, "usage-charts-review-unpriced", []);
 
         return steps;
     },
@@ -771,6 +983,10 @@ const USAGE_WORK_PI_COST = 0.37;
 const USAGE_WORK_OPUS = "claude-opus-5-5";
 const USAGE_WORK_SONNET = "claude-sonnet-5-5";
 const USAGE_WORK_COLLAPSED_ROWS = 8;
+const USAGE_WORK_CHUNK = "Chunk 2: wire fields";
+const USAGE_WORK_TASK_TITLES = { "t-1": "Wire types", "t-2": "By work lens" };
+const USAGE_WORK_JUDGE = "fx-judge";
+const USAGE_WORK_JUDGE_LEAD_ITEM = "session:claude:fx-arc-3";
 const USAGE_WORK_CLASSES = ["cacheRead", "reasoning", "output", "cacheWrite", "input"];
 
 // Eleven work items. arc: an orchestrator run of four sessions on two models, a quick run, three sessions no run
@@ -801,15 +1017,17 @@ function buildUsageWorkFixture() {
         project: USAGE_WORK_ARC,
         runid: USAGE_WORK_RUN,
         channelid: USAGE_WORK_CHANNEL,
-        rungoal: "Usage attribution fixture run",
+        rungoal: "Usage attribution fixture run\n\nA goal paragraph the row must not show.",
         runmode: "orchestrator",
+        runchunk: USAGE_WORK_CHUNK,
         role,
-        ...(taskid ? { taskid } : {}),
+        ...(taskid ? { taskid, tasktitle: USAGE_WORK_TASK_TITLES[taskid] } : {}),
     });
+    // the AI titles a worker session gets: the run page names its task instead
     add("fx-run-lead", USAGE_WORK_OPUS, 40, { title: "Lead session", ...inRun("lead") });
-    add("fx-run-worker-1", USAGE_WORK_SONNET, 40, { title: "Wire types", ...inRun("worker", "t-1") });
-    add("fx-run-worker-2", USAGE_WORK_SONNET, 30, { title: "By work lens", ...inRun("worker", "t-2") });
-    add("fx-run-reviewer", USAGE_WORK_OPUS, 8, { title: "Review of wire types", ...inRun("reviewer", "t-1") });
+    add("fx-run-worker-1", USAGE_WORK_SONNET, 40, { title: "Add six fields to a struct", ...inRun("worker", "t-1") });
+    add("fx-run-worker-2", USAGE_WORK_SONNET, 30, { title: "Render a lens", ...inRun("worker", "t-2") });
+    add("fx-run-reviewer", USAGE_WORK_OPUS, 8, { title: "Check the struct", ...inRun("reviewer", "t-1") });
     add("fx-quick", USAGE_WORK_OPUS, 16, {
         title: "Quick fix session",
         project: USAGE_WORK_ARC,
@@ -820,6 +1038,14 @@ function buildUsageWorkFixture() {
     add("fx-arc-1", USAGE_WORK_OPUS, 12, { title: "Trace the usage scan", project: USAGE_WORK_ARC });
     add("fx-arc-2", USAGE_WORK_SONNET, 20, { title: "Rename the bucket key", project: USAGE_WORK_ARC });
     add("fx-arc-3", USAGE_WORK_OPUS, 6, { title: "Read the price table", project: USAGE_WORK_ARC });
+    // a brainstorm judge started for fx-arc-3: no run of its own, it folds into its lead's session item
+    add(USAGE_WORK_JUDGE, USAGE_WORK_SONNET, 3, {
+        title: "Judge the price table brainstorm",
+        project: USAGE_WORK_ARC,
+        role: "judge",
+        leadharness: "claude",
+        leadsession: "fx-arc-3",
+    });
     add("fx-siem-1", USAGE_WORK_OPUS, 24, { title: "Detector backfill", project: USAGE_WORK_SIEM });
     add("fx-siem-2", USAGE_WORK_SONNET, 10, { title: "Kafka topic audit", project: USAGE_WORK_SIEM });
     add("fx-siem-3", USAGE_WORK_OPUS, 4, { title: "Avro schema check", project: USAGE_WORK_SIEM });
@@ -843,6 +1069,54 @@ function buildUsageWorkFixture() {
     });
     sessions.push({ harness: "pi", session: "fx-pi-local", title: "Local model spike", project: USAGE_WORK_ARC });
     return { buckets, sessions };
+}
+
+// The review-fixes half of usage-work: 34 sessions no run started (eight, 25 more, then the last one) over three
+// projects, two unregistered folders that share a name and one registered as "Arc", and five sessions tagged with
+// one initiative.
+const USAGE_PAGE_ROWS = 34;
+const USAGE_PAGE_STEP = 25;
+const USAGE_PAGE_EFFORT = "fx-effort-usage-review";
+const USAGE_PAGE_EFFORT_TITLE = "Usage review";
+const USAGE_PAGE_EFFORT_ROWS = 5;
+const USAGE_PAGE_PROJECTS = [
+    { path: "C:/work/alpha/cyber_anomaly_detector", label: "alpha / cyber_anomaly_detector" },
+    { path: "C:/work/beta/cyber_anomaly_detector", label: "beta / cyber_anomaly_detector" },
+    { path: "C:/work/arc", name: "Arc", label: "Arc" },
+];
+const usagePageItem = (i) => `session:claude:fx-page-${String(i).padStart(2, "0")}`;
+function buildUsagePagingFixture() {
+    const buckets = [];
+    const sessions = [];
+    for (let i = 0; i < USAGE_PAGE_ROWS; i++) {
+        const p = USAGE_PAGE_PROJECTS[i % USAGE_PAGE_PROJECTS.length];
+        const session = usagePageItem(i).split(":")[2];
+        // falling sizes rank the rows in fixture order
+        const units = USAGE_PAGE_ROWS + 5 - i;
+        buckets.push({
+            harness: "claude",
+            provider: "anthropic",
+            model: USAGE_WORK_OPUS,
+            session,
+            day: dayAgo(1),
+            input: 10_000 * units,
+            output: 2_000 * units,
+            reasoning: 0,
+            cacheread: 100_000 * units,
+            cachecreate: 5_000 * units,
+            cachecreate1h: 0,
+            msgs: units,
+        });
+        sessions.push({
+            harness: "claude",
+            session,
+            title: `Paged session ${i + 1} with a title long enough to be cut`,
+            project: p.path,
+            ...(p.name ? { projectname: p.name } : {}),
+            ...(i < USAGE_PAGE_EFFORT_ROWS ? { effort: USAGE_PAGE_EFFORT } : {}),
+        });
+    }
+    return { buckets, sessions, efforts: [{ oid: USAGE_PAGE_EFFORT, title: USAGE_PAGE_EFFORT_TITLE }] };
 }
 
 // page-side helpers: every query is scoped to the surface's own data-* containers
@@ -872,6 +1146,7 @@ const USAGE_WORK_LIB = `
                       rows: rows.map((r) => r.getAttribute("data-usage-item")),
                       rowText: rows.map(text),
                       more: text(list.querySelector("[data-usage-more]")) || null,
+                      less: text(list.querySelector("[data-usage-less]")) || null,
                   }
                 : null,
             split: splitRows().map((p) => p.key),
@@ -976,19 +1251,52 @@ export const usageWork = {
         await usageShots(h, "usage-work-all", [["[data-usage-list]", "list"], ...USAGE_BELOW]);
 
         const more = usageWorkClick("[data-usage-detail] [data-usage-more]");
+        const less = usageWorkClick("[data-usage-detail] [data-usage-less]");
         const expanded = await view(more, `(s.list?.rows.length ?? 0) > ${USAGE_WORK_COLLAPSED_ROWS}`);
-        const collapsed = await view(more, `s.list?.rows.length === ${USAGE_WORK_COLLAPSED_ROWS}`);
+        const collapsed = await view(less, `s.list?.rows.length === ${USAGE_WORK_COLLAPSED_ROWS}`);
         rec(
-            "2. the toggle expands the list past eight rows and collapses it again",
-            expanded.clicked && expanded.settled && collapsed.clicked && collapsed.settled,
+            "2. Show the last N expands the list past eight rows, and Show top 8 collapses it again",
+            expanded.clicked &&
+                expanded.settled &&
+                /^Show the last \d+$/.test(all.list?.more ?? "") &&
+                expanded.list?.more == null &&
+                expanded.list?.less === `Show top ${USAGE_WORK_COLLAPSED_ROWS}` &&
+                collapsed.clicked &&
+                collapsed.settled,
             JSON.stringify({
                 before: all.list?.more,
                 expandedRows: expanded.list?.rows.length,
-                expandedLabel: expanded.list?.more,
+                expandedLabel: expanded.list?.less,
                 collapsedRows: collapsed.list?.rows.length,
                 collapsedLabel: collapsed.list?.more,
             })
         );
+
+        // the run's row is titled by its effort chunk, not its goal; the judge has no row of its own
+        const expandedAll = await view(more, `(s.list?.rows.length ?? 0) > ${USAGE_WORK_COLLAPSED_ROWS}`);
+        const runRow = expandedAll.list?.rowText[expandedAll.list.rows.indexOf(USAGE_WORK_RUN_ITEM)] ?? "";
+        rec(
+            "2b. chunk-titled run row: the orchestrator run's row reads its chunk label, not its goal",
+            runRow.startsWith(USAGE_WORK_CHUNK) && !runRow.includes("Usage attribution fixture run"),
+            JSON.stringify({ runRow })
+        );
+        const judgeRows = (expandedAll.list?.rows ?? []).filter((k) => k.includes(USAGE_WORK_JUDGE));
+        const judgeLead = await view(
+            usageWorkClick(`[data-usage-item="${USAGE_WORK_JUDGE_LEAD_ITEM}"]`),
+            usageWorkScope(USAGE_WORK_JUDGE_LEAD_ITEM)
+        );
+        rec(
+            "2c. brainstorm judge folds into its lead: no row of its own (no quick run), and its lead's page splits by role with the judge",
+            expandedAll.settled &&
+                judgeRows.length === 0 &&
+                !(expandedAll.list?.rowText ?? []).some((t) => t.includes("Judge the price table")) &&
+                judgeLead.settled &&
+                judgeLead.title === "Read the price table" &&
+                judgeLead.split.includes("judge") &&
+                judgeLead.openRun == null,
+            JSON.stringify({ judgeRows, title: judgeLead.title, split: judgeLead.split, list: judgeLead.list?.rowText })
+        );
+        await allUsage();
 
         const project = await openArc();
         rec(
@@ -1033,6 +1341,13 @@ export const usageWork = {
                 roles.every((r) => run.list.rowText.some((t) => t.includes(`${r} ·`))) &&
                 roles.every((r) => run.split.includes(r)),
             JSON.stringify({ back: run.back, openRun: run.openRun, list: run.list, split: run.split })
+        );
+        const taskRows = Object.entries(USAGE_WORK_TASK_TITLES).map(([id, title]) => `${id} · ${title}`);
+        rec(
+            "4b. task-titled worker rows: each task session reads its task id and title, not its AI title",
+            taskRows.every((t) => (run.list?.rowText ?? []).some((r) => r.startsWith(t))) &&
+                !(run.list?.rowText ?? []).some((r) => r.includes("Add six fields to a struct")),
+            JSON.stringify(run.list?.rowText)
         );
 
         const back = await view(
@@ -1164,6 +1479,219 @@ export const usageWork = {
             `${brief(runPage)} ${JSON.stringify(opened)}`
         );
 
+        // --- the review fixes, on the paging fixture: a reload starts the lens and range over ---
+        await usageReloadWith(h, buildUsagePagingFixture());
+        await h.goto("usage");
+        const paged = await view(lensWork, `s.lens === "work" && s.list != null && s.projects.length === ${USAGE_PAGE_PROJECTS.length}`);
+        const workEv = (body) =>
+            h.ev(`(async () => {
+                ${USAGE_WORK_LIB}
+                ${body}
+            })()`);
+
+        const cards = await workEv(
+            `const bg = (el) => (el ? getComputedStyle(el).backgroundColor : null);
+            return [...document.querySelectorAll("[data-usage-scopes] [data-usage-project]")].map((b) => {
+                const key = b.getAttribute("data-usage-project");
+                const swatch = detail()?.querySelector('[data-usage-split-part="' + key + '"] span span');
+                return { key, name: text(b.querySelector("span > span:nth-child(2)")), dot: bg(b.querySelector("span > span")), split: bg(swatch) };
+            });`
+        );
+        rec(
+            "11. registered and disambiguated project labels: the registered name, and parent folders where folder names collide",
+            paged.settled &&
+                USAGE_PAGE_PROJECTS.every((p) => cards.some((c) => c.key === p.path && c.name === p.label)),
+            JSON.stringify(cards.map((c) => [c.key, c.name]))
+        );
+        rec(
+            "12. card dots match split: each project card's dot is its Where it goes row's color, and no two match",
+            cards.length === USAGE_PAGE_PROJECTS.length &&
+                cards.every((c) => c.dot != null && c.dot === c.split) &&
+                new Set(cards.map((c) => c.dot)).size === cards.length,
+            JSON.stringify(cards.map((c) => [c.key, c.dot, c.split]))
+        );
+
+        const facts = await workEv(
+            `return [...document.querySelectorAll("[data-usage-scopes] button")].map((b) => {
+                const numbers = b.children[1];
+                const fact = b.querySelector("[data-usage-fact]");
+                return {
+                    card: b.getAttribute("data-usage-project") ?? b.getAttribute("data-usage-harness") ?? b.getAttribute("data-usage-initiative"),
+                    numbersFit: numbers ? numbers.scrollWidth <= numbers.clientWidth : false,
+                    ownLine: fact ? fact.getBoundingClientRect().top >= numbers.getBoundingClientRect().bottom : false,
+                    titled: fact ? fact.getAttribute("title") === text(fact) : false,
+                };
+            });`
+        );
+        rec(
+            "13. card fact on its own line: every scope card's numbers fit (scrollWidth <= clientWidth), the fact sits below them with its full text as title",
+            facts.length > USAGE_PAGE_PROJECTS.length && facts.every((f) => f.numbersFit && f.ownLine && f.titled),
+            JSON.stringify(facts)
+        );
+
+        const pageRows = USAGE_WORK_COLLAPSED_ROWS + USAGE_PAGE_STEP;
+        const pageLeft = USAGE_PAGE_ROWS - pageRows;
+        const pageMore = await view(more, `s.list?.rows.length === ${pageRows}`);
+        const pageLast = await view(more, `s.list?.rows.length === ${USAGE_PAGE_ROWS}`);
+        const pageLess = await view(less, `s.list?.rows.length === ${USAGE_WORK_COLLAPSED_ROWS}`);
+        rec(
+            `14. paging past 25: Show ${USAGE_PAGE_STEP} more shows ${pageRows} rows, Show the last ${pageLeft} the rest, then Show top 8 returns to eight`,
+            paged.list?.rows.length === USAGE_WORK_COLLAPSED_ROWS &&
+                paged.list?.more === `Show ${USAGE_PAGE_STEP} more` &&
+                paged.list?.less == null &&
+                pageMore.settled &&
+                pageMore.list?.more === `Show the last ${pageLeft}` &&
+                pageMore.list?.less === `Show top ${USAGE_WORK_COLLAPSED_ROWS}` &&
+                pageLast.settled &&
+                pageLast.list?.more == null &&
+                pageLess.settled &&
+                pageLess.list?.more === `Show ${USAGE_PAGE_STEP} more`,
+            JSON.stringify({
+                first: [paged.list?.rows.length, paged.list?.more, paged.list?.less],
+                more: [pageMore.list?.rows.length, pageMore.list?.more, pageMore.list?.less],
+                last: [pageLast.list?.rows.length, pageLast.list?.more, pageLast.list?.less],
+                less: [pageLess.list?.rows.length, pageLess.list?.more],
+            })
+        );
+        await usageShots(h, "usage-work-paging", [["[data-usage-list]", "list"]]);
+
+        const lastItem = usagePageItem(USAGE_PAGE_ROWS - 1);
+        await view(more, `s.list?.rows.length === ${pageRows}`);
+        await view(more, `s.list?.rows.length === ${USAGE_PAGE_ROWS}`);
+        const drill = await workEv(
+            `const d = detail();
+            d.scrollTo(0, d.scrollHeight);
+            await new Promise((r) => setTimeout(r, 300));
+            const before = d.scrollTop;
+            press(d.querySelector('[data-usage-item="${lastItem}"]'));
+            const settled = await until(() => detail()?.getAttribute("data-usage-detail") === "${lastItem}");
+            await new Promise((r) => setTimeout(r, 300));
+            return { before, settled, after: detail()?.scrollTop ?? null };`
+        );
+        rec(
+            "15. drill scrolls to top: opening a row from the bottom of the list lands at the top of its page",
+            drill.before > 0 && drill.settled && drill.after === 0,
+            JSON.stringify(drill)
+        );
+
+        await allUsage();
+        const initiativeCard = await workEv(
+            `const card = document.querySelector('[data-usage-scopes] [data-usage-initiative="${USAGE_PAGE_EFFORT}"]');
+            const projects = [...document.querySelectorAll("[data-usage-scopes] [data-usage-project]")];
+            const last = projects[projects.length - 1];
+            const divider = card?.previousElementSibling;
+            return {
+                found: card != null,
+                text: text(card),
+                dot: card?.querySelector("span > span")?.className ?? null,
+                afterProjects: card != null && last != null && !!(last.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING),
+                divider: divider != null && divider.tagName === "SPAN" && divider.getBoundingClientRect().width <= 1,
+            };`
+        );
+        const initiative = await view(
+            usageWorkClick(`[data-usage-initiative="${USAGE_PAGE_EFFORT}"]`),
+            `s.scope === "effort:${USAGE_PAGE_EFFORT}" && s.list != null`
+        );
+        const listMeta = await workEv(`return text(detail()?.querySelector("[data-usage-list] h3")?.parentElement);`);
+        rec(
+            "16. initiative card and page: a neutral-dot card after the projects behind a divider, with share and count, opening a page of its runs and sessions",
+            initiativeCard.found &&
+                initiativeCard.text.includes(USAGE_PAGE_EFFORT_TITLE) &&
+                /\d%/.test(initiativeCard.text) &&
+                initiativeCard.text.includes(`${USAGE_PAGE_EFFORT_ROWS} runs and sessions`) &&
+                (initiativeCard.dot ?? "").includes("bg-ink-faint") &&
+                initiativeCard.afterProjects &&
+                initiativeCard.divider &&
+                initiative.settled &&
+                initiative.title === USAGE_PAGE_EFFORT_TITLE &&
+                initiative.list?.title === "Runs and sessions" &&
+                initiative.list.rows.length === USAGE_PAGE_EFFORT_ROWS &&
+                listMeta.includes("sessions from open tabs"),
+            JSON.stringify({ card: initiativeCard, scope: initiative.scope, title: initiative.title, rows: initiative.list?.rows, listMeta })
+        );
+        await usageShots(h, "usage-work-initiative", []);
+
+        // keys go to the page, not CDP Input (which often never reaches the WebView), with focus off any field
+        const KEYS_LIB = `
+            const key = async (k, code) => {
+                document.activeElement?.blur?.();
+                document.dispatchEvent(new KeyboardEvent("keydown", { key: k, code, bubbles: true, cancelable: true }));
+                await new Promise((r) => setTimeout(r, 250));
+            };
+            const scope = () => detail()?.getAttribute("data-usage-detail") ?? null;
+            const marked = () => detail()?.querySelector("[data-usage-cursor]") ?? null;
+            const at = () => ({ scope: scope(), cursor: marked()?.getAttribute("data-usage-item") ?? null });
+            const listed = () =>
+                [...(detail()?.querySelectorAll("[data-usage-list] [data-usage-item]") ?? [])].map((r) =>
+                    r.getAttribute("data-usage-item")
+                );`;
+        const initiativeScope = `effort:${USAGE_PAGE_EFFORT}`;
+        const keyNav = await workEv(
+            `${KEYS_LIB}
+            const rows = listed();
+            await key("j", "KeyJ");
+            const past = at();
+            await key("k", "KeyK");
+            const backUp = at();
+            await key("Enter", "Enter");
+            const entered = at();
+            await key("j", "KeyJ");
+            const second = at();
+            const row = marked();
+            const box = row?.getBoundingClientRect();
+            const view = detail()?.getBoundingClientRect();
+            const ring = row ? getComputedStyle(row).boxShadow : "none";
+            const inView = !!box && !!view && box.top >= view.top && box.bottom <= view.bottom;
+            await key("Enter", "Enter");
+            await until(() => scope() === rows[1]);
+            return { rows, past, backUp, entered, second, ring, inView, opened: at() };`
+        );
+        rec(
+            "17. j past the cards reaches rows, Enter opens the row: from the last card j marks the first row without opening it, k returns to the card, Enter on the card marks the first row, j the next, Enter opens it",
+            keyNav.rows.length === USAGE_PAGE_EFFORT_ROWS &&
+                keyNav.past.scope === initiativeScope &&
+                keyNav.past.cursor === keyNav.rows[0] &&
+                keyNav.backUp.scope === initiativeScope &&
+                keyNav.backUp.cursor == null &&
+                keyNav.entered.scope === initiativeScope &&
+                keyNav.entered.cursor === keyNav.rows[0] &&
+                keyNav.second.cursor === keyNav.rows[1] &&
+                keyNav.ring !== "none" &&
+                keyNav.inView &&
+                keyNav.opened.scope === keyNav.rows[1],
+            JSON.stringify(keyNav)
+        );
+
+        const escProject = USAGE_PAGE_PROJECTS[0].path;
+        const escFrom = await view(
+            usageWorkClick(`[data-usage-project="${escProject}"]`),
+            `s.scope === "project:${escProject}" && s.list != null`
+        );
+        const escItem = escFrom.list?.rows[0];
+        const escOpened = await view(usageWorkClick(`[data-usage-item="${escItem}"]`), usageWorkScope(escItem));
+        const esc = await workEv(
+            `${KEYS_LIB}
+            const surfaceShown = () => document.querySelector("[data-usage-scopes]") != null;
+            await key("Escape", "Escape");
+            await until(() => scope() === "project:${escProject}");
+            const first = scope();
+            await key("Escape", "Escape");
+            await until(() => scope() === "all");
+            const second = scope();
+            await key("Escape", "Escape");
+            const left = await until(() => !surfaceShown());
+            return { first, second, left };`
+        );
+        rec(
+            "18. Esc from an item goes Back, from a project to All usage, then home",
+            escOpened.settled &&
+                escOpened.back != null &&
+                esc.first === `project:${escProject}` &&
+                esc.second === "all" &&
+                esc.left,
+            JSON.stringify({ item: escItem, back: escOpened.back, ...esc })
+        );
+
         return steps;
     },
     async teardown(h, ctx) {
@@ -1286,6 +1814,87 @@ export const usageStates = {
             JSON.stringify({ loadedBefore: before, ...failed })
         );
         await h.shot("cdp-shots/usage-error.png");
+
+        // the store still holds 7 days and the fixture still fails: switching the range fails into a panel that
+        // names the range, rather than the held 7 days under an All time toggle; Retry with a good fixture recovers
+        const switchFailed = await usageEv(
+            h,
+            `press(groupButton("Range", "All time"));
+            const panel = () => document.querySelector("[data-usage-detail] [data-usage-switch-failed]");
+            const shown = await until(() => panel() != null);
+            const card = (harness) => document.querySelector('[data-usage-scopes] [data-usage-harness="' + harness + '"]');
+            return {
+                shown,
+                text: text(panel()),
+                retry: [...(panel()?.querySelectorAll("button") ?? [])].map(text),
+                stats: document.querySelector("[data-usage-stats]") != null,
+                banner: document.querySelector("[data-surface-error]") != null,
+                allFigures: text(card("all")?.querySelector("[data-usage-figures]")),
+                claudeFigures: text(card("claude")?.querySelector("[data-usage-figures]")),
+                claudeLimits: card("claude")?.querySelectorAll("[data-usage-limit]").length ?? -1,
+            };`
+        );
+        await h.shot("cdp-shots/usage-switch-failed.png");
+        await h.ev(`localStorage.setItem('wave:dev-usage-buckets', ${JSON.stringify(JSON.stringify(buildUsageFixture()))})`);
+        const retried = await usageEv(
+            h,
+            `const panel = () => document.querySelector("[data-usage-detail] [data-usage-switch-failed]");
+            press([...(panel()?.querySelectorAll("button") ?? [])].find((b) => text(b) === "Retry"));
+            const recovered = await until(() => panel() == null && document.querySelector("[data-usage-stats]") != null);
+            return {
+                recovered,
+                range: pressedIn("Range"),
+                banner: document.querySelector("[data-surface-error]") != null,
+                allFigures: text(document.querySelector('[data-usage-scopes] [data-usage-harness="all"] [data-usage-figures]')),
+            };`
+        );
+        // the held 7 days' figures must not read under the All time toggle; the quota bars are not range-bound
+        const heldFree = (s) => s !== "" && !s.includes("tok") && !s.includes("$");
+        rec(
+            "5. failed switch shows switch-failed panel naming the range with Retry, the scope cards drop the held figures but keep the quota bars, and Retry recovers",
+            switchFailed.shown &&
+                switchFailed.text.includes("all time") &&
+                switchFailed.retry.includes("Retry") &&
+                !switchFailed.stats &&
+                !switchFailed.banner &&
+                heldFree(switchFailed.allFigures) &&
+                heldFree(switchFailed.claudeFigures) &&
+                switchFailed.claudeLimits > 0 &&
+                retried.recovered &&
+                retried.allFigures.includes("tok") &&
+                retried.range === "All time" &&
+                !retried.banner,
+            JSON.stringify({ switchFailed, retried })
+        );
+
+        // the Claude card's quota bars and the app bar's meters read one level -> color map (62% warn, 41% ok = accent)
+        const levels = await usageEv(
+            h,
+            `const style = (el) => (el ? getComputedStyle(el) : null);
+            const card = document.querySelector('[data-usage-scopes] [data-usage-harness="claude"]');
+            const cardWindow = (kind) => {
+                const row = card?.querySelector('[data-usage-limit="' + kind + '"]');
+                return { fill: style(row?.querySelector("div[style*='width']"))?.backgroundColor ?? null, text: style(row?.children[2])?.color ?? null };
+            };
+            const meters = document.querySelector("[data-usage-meters]");
+            const fills = [...(meters?.querySelectorAll("div[style*='width']") ?? [])].map((d) => style(d).backgroundColor);
+            const texts = [...(meters?.querySelectorAll("span.font-semibold") ?? [])].map((s) => style(s).color);
+            const probe = document.createElement("div");
+            probe.style.background = "var(--color-accent)";
+            document.body.appendChild(probe);
+            const accent = style(probe).backgroundColor;
+            probe.remove();
+            return { card: [cardWindow("fivehour"), cardWindow("week")], bar: fills.map((fill, i) => ({ fill, text: texts[i] ?? null })), accent };`
+        );
+        rec(
+            "6. quota level colors match app bar: each Claude quota bar and percent has the app bar meter's color, ok is accent",
+            levels.card.length === 2 &&
+                levels.bar.length === 2 &&
+                levels.card.every((c, i) => c.fill != null && c.fill === levels.bar[i].fill && c.text === levels.bar[i].text) &&
+                levels.card[0].fill !== levels.card[1].fill &&
+                levels.card[1].fill === levels.accent,
+            JSON.stringify(levels)
+        );
 
         return steps;
     },
@@ -2140,6 +2749,8 @@ export const cockpitNeedsYouCrossChannel = {
 // Usage > Workflow (workflow-scan Main.dc.html and States.dc.html), each lens state seeded on a deferred quick run's
 // own record. No step clicks an enabled Scan workflow button: that starts a real Opus agent.
 const WFS_PROJECT = "verify-workflow-scan";
+const WFS_OTHER_PROJECT = "verify-workflow-scan-other";
+const wfsNorm = (p) => (p || "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 const WFS_LENS = (kind) => `document.querySelector('[data-workflow-lens="${kind}"]')`;
 const WFS_SCAN_BUTTON = `document.querySelector('[data-workflow-scan-button]')`;
 const WFS_SEND = `document.querySelector('[data-workflow-send]')`;
@@ -2296,11 +2907,22 @@ export const workflowScan = {
     name: "workflow-scan",
     surface: "usage",
     async arrange(h) {
-        const ctx = { cwd: mkdtempSync(join(tmpdir(), "verify-workflow-scan-")) };
+        const ctx = { cwd: mkdtempSync(join(tmpdir(), "verify-workflow-scan-")), otherCwd: mkdtempSync(join(tmpdir(), "verify-workflow-scan-other-")) };
         try {
             const wslist = await h.rpc("workspacelist", null);
-            const ch = await h.rpc("createchannel", { name: WFS_PROJECT, projectpath: ctx.cwd });
-            ctx.channelId = ch.oid;
+            // two registered projects, so the picker has a choice: the scan run lives in the first, and the second
+            // is the active one, so the default the picker shows is the scan's project, not the palette's rule
+            await h.rpc("createproject", { name: WFS_PROJECT, path: ctx.cwd });
+            ctx.projects = [WFS_PROJECT];
+            await waitForProjectInConfig(h, WFS_PROJECT);
+            await h.rpc("createproject", { name: WFS_OTHER_PROJECT, path: ctx.otherCwd });
+            ctx.projects.push(WFS_OTHER_PROJECT);
+            await waitForProjectInConfig(h, WFS_OTHER_PROJECT);
+            const channels = (await h.rpc("getchannels", null))?.channels ?? [];
+            const channelAt = (path) => channels.find((c) => wfsNorm(c.projectpath) === wfsNorm(path))?.oid;
+            ctx.channelId = channelAt(ctx.cwd);
+            ctx.otherChannelId = channelAt(ctx.otherCwd);
+            if (!ctx.channelId || !ctx.otherChannelId) throw new Error("createproject made no channel at a project's path");
             const created = await h.rpc("createrun", {
                 channelid: ctx.channelId,
                 workspaceid: wslist[0].workspacedata.oid,
@@ -2315,8 +2937,7 @@ export const workflowScan = {
             ctx.status = created.run.status;
             // lands on the Brief, which installs __openAddress, and re-primes the boot-primed channel list
             await polishReload(h);
-            // the fixture channel is the active one, so it is the home project the Scan button starts in
-            ctx.openedChannel = await h.ev(openAddressExpr(`channel:${ctx.channelId}`));
+            ctx.openedChannel = await h.ev(openAddressExpr(`channel:${ctx.otherChannelId}`));
             ctx.opened = await h.ev(openAddressExpr(`workflowscan:${ctx.runId}`));
             ctx.shown = await polishWaitFor(h, `!!${WFS_LENS("idle")}`, 10000);
         } catch (e) {
@@ -2350,6 +2971,40 @@ export const workflowScan = {
             "1. idle: the big Scan workflow button and the window line show, and the header button is enabled",
             idle?.big && idle.line && !idle.last && idleHeader === true,
             JSON.stringify({ idle, header: idleHeader })
+        );
+
+        // 1a. the picker: two registered projects, the other one active, the scan run in the first
+        const pickerField = `document.querySelector('[data-workflow-project] [aria-haspopup="listbox"]')`;
+        const pickerText = () => h.ev(`(${pickerField})?.innerText ?? null`);
+        const scanTitle = () => h.ev(`${WFS_SCAN_BUTTON}?.title ?? null`);
+        const activeName = await lookEval(h, `
+            const { globalStore } = await mod("app/store/jotaiStore.ts");
+            const { activeChannelAtom } = await mod("app/view/agents/channelsstore.ts");
+            return globalStore.get(activeChannelAtom)?.name ?? null;`);
+        const defaultText = await pickerText();
+        const defaultTitle = await scanTitle();
+        await h.ev(`${pickerField}?.click()`);
+        const listed = await polishWaitFor(h, `!!document.querySelector('[data-project-option="${WFS_OTHER_PROJECT}"]')`, 3000);
+        const options = await h.ev(`[...document.querySelectorAll('[data-project-option]')].map((o) => o.getAttribute('data-project-option'))`);
+        await shot("picker-open");
+        await h.ev(`document.querySelector('[data-project-option="${WFS_OTHER_PROJECT}"]')?.click()`);
+        const picked = await polishWaitFor(h, `(${WFS_SCAN_BUTTON}?.title ?? '').endsWith('#${WFS_OTHER_PROJECT}')`, 3000);
+        const pickedText = await pickerText();
+        const pickedTitle = await scanTitle();
+        await shot("picker-picked");
+        rec(
+            "1a. with two projects registered, the picker defaults to the newest scan's project, and a pick changes the button title",
+            activeName === WFS_OTHER_PROJECT &&
+                (defaultText ?? "").includes(WFS_PROJECT) &&
+                !(defaultText ?? "").includes(WFS_OTHER_PROJECT) &&
+                (defaultTitle ?? "").endsWith(`#${WFS_PROJECT}`) &&
+                listed &&
+                options.includes(WFS_PROJECT) &&
+                options.includes(WFS_OTHER_PROJECT) &&
+                picked &&
+                (pickedText ?? "").includes(WFS_OTHER_PROJECT) &&
+                (pickedTitle ?? "").endsWith(`#${WFS_OTHER_PROJECT}`),
+            JSON.stringify({ activeName, defaultText, defaultTitle, listed, options, picked, pickedText, pickedTitle })
         );
 
         // 2. scanning at the checking stage: the kept patterns under the Opus pane, a ticking clock
@@ -2564,13 +3219,28 @@ export const workflowScan = {
             return !!sheet && (sheet.innerText || '').includes('verify workflow-scan');
         })()`;
         await h.ev(`document.querySelector('[data-workflow-open-diff]')?.click()`);
-        const diffSheet = await polishWaitFor(h, runSheetOpen, 10000);
-        const diffSurface = await h.activeSurfaceLabel();
+        const diffScope = () =>
+            lookEval(h, `
+                const { globalStore } = await mod("app/store/jotaiStore.ts");
+                const { diffScopeAtom } = await mod("app/view/agents/diffscopeatom.ts");
+                const origin = globalStore.get(diffScopeAtom)?.repo.origin;
+                return origin == null ? null : { kind: origin.kind, runId: origin.runId, cwd: origin.cwd, base: origin.baseCommit };`);
+        let diffSurface = null;
+        for (let i = 0; i < 40 && diffSurface !== SURFACE_LABEL.files; i++) {
+            await polishNap(250);
+            diffSurface = await h.activeSurfaceLabel();
+        }
+        const origin = await diffScope();
+        const diffLanded = diffSurface === SURFACE_LABEL.files;
         await shot("open-in-diff");
         rec(
-            "7a. Open in Diff opens the scan run's sheet on the Brief",
-            diffSheet && diffSurface === SURFACE_LABEL.jarvis,
-            JSON.stringify({ diffSheet, diffSurface })
+            "7a. Open in Diff lands on the Diff surface for the scan run's commit",
+            diffLanded &&
+                diffSurface === SURFACE_LABEL.files &&
+                origin?.kind === "run" &&
+                origin.runId === ctx.runId &&
+                wfsNorm(origin.cwd) === wfsNorm(ctx.landPath || ctx.cwd),
+            JSON.stringify({ diffLanded, diffSurface, origin, landPath: ctx.landPath })
         );
         await h.goto("usage");
         const back = await polishWaitFor(h, `!!${WFS_LENS("done")}`, 5000);
@@ -2668,12 +3338,16 @@ export const workflowScan = {
         return steps;
     },
     async teardown(h, ctx) {
-        await teardownFixtureRun(
-            h,
-            ctx,
-            "workflow-scan",
-            ctx.clipStubbed ? { what: "restore the clipboard", fn: () => h.ev(NOTES_CLIP_RESTORE) } : undefined
-        );
+        await teardownFixtureRun(h, ctx, "workflow-scan", {
+            what: "restore the clipboard and delete the projects",
+            fn: async () => {
+                if (ctx.clipStubbed) await h.ev(NOTES_CLIP_RESTORE);
+                // deleteproject drops only the config entry, so the second project's channel would outlive the run
+                if (ctx.otherChannelId) await h.rpc("deletechannel", { channelid: ctx.otherChannelId });
+                for (const name of ctx.projects ?? []) await h.rpc("deleteproject", { name });
+            },
+        });
+        if (ctx.otherCwd) rmSync(ctx.otherCwd, { recursive: true, force: true });
     },
 };
 

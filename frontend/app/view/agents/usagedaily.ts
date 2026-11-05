@@ -8,12 +8,13 @@ import type { DailyUsage, ModelSeries } from "./usagestats";
 
 export type UsageMetric = "tokens" | "spend";
 
-// existing design-system tokens; an unknown harness falls back to muted
+// the provider-* tokens the cards' dots use, so a harness reads as one color everywhere; an unknown
+// harness falls back to muted
 const HARNESS_META: Record<string, { label: string; color: string }> = {
-    claude: { label: "Claude", color: "var(--color-accent)" },
-    codex: { label: "Codex", color: "var(--color-success)" },
-    opencode: { label: "OpenCode", color: "var(--color-rt-opencode)" },
-    pi: { label: "Pi", color: "var(--color-rt-pi)" },
+    claude: { label: "Claude", color: "var(--color-provider-claude)" },
+    codex: { label: "Codex", color: "var(--color-provider-codex)" },
+    opencode: { label: "OpenCode", color: "var(--color-provider-opencode)" },
+    pi: { label: "Pi", color: "var(--color-provider-pi)" },
 };
 const OTHER_COLOR = "var(--color-muted)";
 
@@ -39,6 +40,7 @@ export interface LegendModel {
     key: string;
     harness: string;
     model: string;
+    label: string; // provider/model when the model name repeats in its group, else the model
     title: string;
     fill: string;
     tokens: number;
@@ -84,13 +86,19 @@ export function modelLegend(models: ModelSeries[], harnessOrder: string[], metri
         const ranked = [...byHarness.get(harness)].sort(
             (a, b) => b.tokens - a.tokens || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)
         );
+        const nameCount = new Map<string, number>();
+        for (const m of ranked) {
+            nameCount.set(m.model, (nameCount.get(m.model) ?? 0) + 1);
+        }
         const rows: LegendModel[] = ranked.map((m, rank) => {
             const value = metricValue(m, metric);
+            const title = `${m.provider}/${m.model}`;
             return {
                 key: m.key,
                 harness,
                 model: m.model,
-                title: `${m.provider}/${m.model}`,
+                label: nameCount.get(m.model) > 1 ? title : m.model,
+                title,
                 fill: modelShade(color, rank, ranked.length),
                 tokens: m.tokens,
                 spendUsd: m.spendUsd,

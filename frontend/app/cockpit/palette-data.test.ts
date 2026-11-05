@@ -29,6 +29,18 @@ describe("mergeChannelRuns", () => {
         ]);
         expect(out.map((p) => p.run.id)).toEqual(["1"]);
     });
+    it("leaves out the runs the engine started for a task or a stage", () => {
+        const runs = [
+            r("lead"),
+            { id: "worker", taskid: "1" } as Run,
+            { id: "reviewer", taskid: "1", review: true } as Run,
+            { id: "verifier", stagerole: "verifier" } as Run,
+            { id: "planreview", stagerole: "plan-reviewer" } as Run,
+            r("quick"),
+        ];
+        const out = mergeChannelRuns([], [{ channelId: "a", runs }]);
+        expect(out.map((p) => p.run.id)).toEqual(["lead", "quick"]);
+    });
 });
 
 describe("loadAllRuns", () => {
@@ -50,7 +62,11 @@ describe("loadAllRuns", () => {
     });
     it("loads the events of every unfinished run, which Relaunch reads", async () => {
         vi.mocked(RpcApi.GetChannelRunsCommand).mockResolvedValue({
-            runs: [{ id: "live", status: "executing" } as Run, { id: "over", status: "done" } as Run],
+            runs: [
+                { id: "live", status: "executing" } as Run,
+                { id: "over", status: "done" } as Run,
+                { id: "worker", status: "executing", taskid: "1" } as Run,
+            ],
         } as any);
         vi.mocked(ensureRunEvents).mockClear();
         await loadAllRuns([{ oid: "a" } as Channel]);

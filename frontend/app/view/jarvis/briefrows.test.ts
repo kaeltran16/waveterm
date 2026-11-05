@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import type { ActiveWorkRow, DeltaRow, QueueRow, RunRow } from "./briefingmodel";
+import type { ActiveWorkRow, DeltaRow, QueueRow, RunRow, ShippedRow } from "./briefingmodel";
+import { DELTA_CAP, groupDelta } from "./briefingmodel";
 import {
     behindGroups,
+    capBehind,
     filterAsMenu,
     filterLines,
     initiativeLine,
@@ -13,6 +15,7 @@ import {
     keepsProject,
     keepsRunKind,
     lineOpenTarget,
+    liveRunKindCounts,
     plainSummary,
     projectCounts,
     projectName,
@@ -23,6 +26,7 @@ import {
     runRowFace,
     sessionLine,
     sessionWindow,
+    SHIPPED_LABEL,
     shortTitle,
     sinceLabel,
     type BriefLine,
@@ -37,7 +41,6 @@ const NOW = new Date(2026, 8, 15, 12, 0).getTime();
 describe("queueLine", () => {
     const q: QueueRow = {
         key: "gate:1",
-        kind: "dag blocked",
         title: "Approve the plan",
         source: "waveterm",
         detail: "waveterm · #arc",
@@ -150,18 +153,19 @@ describe("initiativeLine", () => {
 
 describe("sessionLine", () => {
     const run: ActiveWorkRow = {
-        key: "run:run:r1:0",
+        key: "run:run:r1",
         kind: "run",
         oref: "run:r1",
         name: "execute the plan",
         meta: "waveterm · executing",
         chip: { label: "executing", tone: "running" },
+        mode: "quick",
         ts: NOW - 10 * DAY,
     };
 
     it("folds a run silent past seven days, and dates it by its age", () => {
         expect(sessionLine(run, NOW)).toMatchObject({
-            id: "sessions:run:run:r1:0",
+            id: "sessions:run:run:r1",
             kind: "▶ run",
             title: "execute the plan",
             meta: "waveterm · executing",
@@ -183,12 +187,13 @@ describe("sessionLine", () => {
 
     it("never folds what needs eyes, and names its state instead of its age", () => {
         const agent: ActiveWorkRow = {
-            key: "agent:t1:1",
+            key: "agent:t1",
             kind: "agent",
             oref: "agent:t1",
             name: "lead · SIEM status",
             meta: "claude · cad",
             chip: { label: "asking", tone: "asking" },
+            mode: "",
             ts: NOW - 20 * DAY,
         };
         expect(sessionLine(agent, NOW)).toMatchObject({
@@ -203,12 +208,13 @@ describe("sessionLine", () => {
     });
 
     const agent = (chip: ActiveWorkRow["chip"]): ActiveWorkRow => ({
-        key: "agent:t1:1",
+        key: "agent:t1",
         kind: "agent",
         oref: "agent:t1",
         name: "lead",
         meta: "claude · cad",
         chip,
+        mode: "",
         ts: NOW - DAY,
     });
 
@@ -250,6 +256,12 @@ describe("sessionLine", () => {
     it("strips only a leading run: prefix from the oref", () => {
         expect(sessionLine({ ...run, oref: "sub:run:r1" }, NOW).runOid).toBe("sub:run:r1");
     });
+
+    it("carries a run's type from the snapshot's mode, and none for an agent", () => {
+        expect(sessionLine({ ...run, mode: "orchestrator" }, NOW).runType).toBe("orchestrator");
+        expect(sessionLine(run, NOW).runType).toBe("quick run");
+        expect(sessionLine(agent({ label: "working", tone: "running" }), NOW).runType).toBeUndefined();
+    });
 });
 
 describe("sessionWindow", () => {
@@ -272,6 +284,32 @@ describe("sessionWindow", () => {
         expect(w.rows.filter((r) => !sessionLine(r, NOW).stale).map((r) => r.name)).toEqual(["live 0", "live 1"]);
         expect(w.rows.filter((r) => sessionLine(r, NOW).stale)).toHaveLength(9);
         expect(w.more).toBe(0);
+    });
+
+    it("F15: counts each kind's live runs only, as the head's N live does", () => {
+        const stale = runs(12, 10 * DAY, "old").map((r) => ({ ...r, mode: "orchestrator" }));
+        const legs_ = legs([...stale, ...runs(2, 30 * MIN, "live")]);
+        expect(liveRunKindCounts(legs_, NOW)).toEqual({ all: 2, orchestrator: 0, quick: 2 });
+        const liveN = sessionWindow(legs_, false, NOW).rows.filter((r) => !sessionLine(r, NOW).stale).length;
+        expect(liveN).toBe(2);
+    });
+
+    it("counts a direct agent under all only", () => {
+        const agent = {
+            oref: "agent:a1",
+            id: "a1",
+            name: "loom",
+            task: "t",
+            runtime: "claude",
+            project: null,
+            state: "working" as const,
+            startedTs: NOW - 20 * DAY,
+        };
+        expect(liveRunKindCounts({ activeRuns: runs(1, 30 * MIN, "live"), directAgents: [agent] }, NOW)).toEqual({
+            all: 2,
+            orchestrator: 0,
+            quick: 1,
+        });
     });
 
     it("caps the live rows per kind and counts what the cap hid", () => {
@@ -507,6 +545,70 @@ describe("behindGroups", () => {
     });
 });
 
+// F2: the cap counts the folded lines the region draws, not the events behind them
+describe("capBehind", () => {
+    const delta = (over: Partial<DeltaRow>): DeltaRow => ({
+        key: "k",
+        ts: NOW,
+        kind: "decision",
+        title: "a decision",
+        wording: "Decision recorded",
+        detail: null,
+        oref: null,
+        ...over,
+    });
+    const shipped: ShippedRow = {
+        oref: "run:r9",
+        goal: "shipped work",
+        project: "",
+        summary: "",
+        completedTs: NOW - DAY,
+        fresh: false,
+        hasReport: false,
+        effortOid: "",
+        chunkLabel: "",
+        mode: "",
+    };
+
+    it("folds 40 notes on one initiative into one digest and hides nothing", () => {
+        const notes = Array.from({ length: 40 }, (_, i) =>
+            delta({
+                key: `n${i}`,
+                ts: NOW - i * MIN,
+                kind: "effort-note",
+                title: "SIEM",
+                detail: `A · note ${i}`,
+                oref: "effort:e1",
+            })
+        );
+        const capped = capBehind(behindGroups(groupDelta(notes, NOW), [], NOW), DELTA_CAP, false);
+        expect(capped.more).toBe(0);
+        expect(capped.groups.flatMap((g) => g.lines.map((l) => l.detail))).toEqual(["40 notes"]);
+    });
+
+    it("hides the folded lines past the cap across day groups", () => {
+        const rows = Array.from({ length: 7 }, (_, i) => delta({ key: `d${i}`, ts: NOW - i * 4 * 60 * MIN }));
+        const groups = behindGroups(groupDelta(rows, NOW), [], NOW);
+        const capped = capBehind(groups, 5, false);
+        expect(capped.more).toBe(2);
+        expect(capped.groups.flatMap((g) => g.lines.map((l) => l.id))).toEqual(
+            ["d0", "d1", "d2", "d3", "d4"].map((k) => "behind:" + k)
+        );
+        expect(capped.groups.every((g) => g.lines.length > 0)).toBe(true);
+        expect(capBehind(groups, 5, true)).toEqual({ groups, more: 0 });
+    });
+
+    it("leaves Shipped to its own cap", () => {
+        const rows = Array.from({ length: 7 }, (_, i) => delta({ key: `d${i}`, ts: NOW - i * MIN }));
+        const groups = behindGroups(groupDelta(rows, NOW), [shipped], NOW);
+        const capped = capBehind(groups, 5, false);
+        expect(capped.more).toBe(2);
+        expect(capped.groups.find((g) => g.label === SHIPPED_LABEL)).toBe(
+            groups.find((g) => g.label === SHIPPED_LABEL)
+        );
+    });
+});
+
 describe("filterLines", () => {
     const line = (id: string, over: Partial<BriefLine>): BriefLine => ({
         id,
@@ -623,6 +725,15 @@ describe("runRowFace", () => {
         });
         expect(f).toMatchObject({ type: "agent", meta: "claude · waveterm", canStop: false, state: "running" });
     });
+    it("F6: a run line whose Run has not loaded answers in its sheet, typed by the snapshot's mode", () => {
+        const unloaded = (runType: BriefLine["runType"]) =>
+            runRowFace({ line: { ...line, runType, state: "2h" }, asking: false, project: "" });
+        expect(unloaded("orchestrator")).toMatchObject({ type: "orchestrator", answer: "sheet" });
+        expect(unloaded("quick run")).toMatchObject({ type: "quick run", answer: "sheet" });
+    });
+    it("F6: a loaded run answers in its sheet", () => {
+        expect(runRowFace({ line, run, asking: true, project: "p" }).answer).toBe("sheet");
+    });
     it("a cancelled run reads stopped, faint, and cannot be stopped again", () => {
         const f = runRowFace({ line, run: { ...run, status: "cancelled" } as Run, asking: false, project: "p" });
         expect(f).toMatchObject({ state: "stopped", stateTone: "faint", dot: "idle", canStop: false, stopped: true });
@@ -646,6 +757,7 @@ describe("runRowFace", () => {
             chunkLabel: "",
             effortOref: "",
             chunk: "",
+            answer: "agent",
         });
     });
     it("a direct agent asks when the roster says so or when its own line does", () => {

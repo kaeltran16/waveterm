@@ -46,6 +46,19 @@ describe("priceFor", () => {
         expect(priceFor("claude-sonnet-5")?.output).toBe(10);
         expect(priceFor("claude-sonnet-4-5")?.input).toBe(3); // "sonnet-4-5" must not hit the sonnet-5 row
     });
+    it("prices the gpt-6 family at its lower tier, with no cache-write charge", () => {
+        const row = (input: number, output: number, cacheRead: number) => ({
+            input,
+            output,
+            cacheRead,
+            cacheWrite5m: 0,
+            cacheWrite1h: 0,
+        });
+        expect(priceFor("gpt-6-luna")).toEqual(row(0.1, 0.5, 0.01));
+        expect(priceFor("gpt-6.1-sol")).toEqual(row(2, 10, 0.1));
+        expect(priceFor("gpt-6-sol")).toEqual(row(2, 10, 0.1));
+        expect(priceFor("gpt-6-astra")).toEqual(row(10, 50, 1));
+    });
     it("prices opus 5.5 below the opus family", () => {
         expect(priceFor("claude-opus-5-5")).toEqual({
             input: 4,

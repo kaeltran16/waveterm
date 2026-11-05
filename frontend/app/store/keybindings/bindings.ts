@@ -86,6 +86,9 @@ import { renamingRowAtom } from "@/app/view/agents/rowrenameatom";
 import { resolveActiveRunId } from "@/app/view/agents/runmodel";
 import { shellTaskPeekAtom } from "@/app/view/agents/shelltasksstore";
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
+import { LIST_COLLAPSED_ROWS } from "@/app/view/agents/usageattribution";
+import { usageBackStep } from "@/app/view/agents/usagenav";
+import { usageLensAtom, usageListShownAtom, usageWorkItemAtom, usageWorkScopeAtom } from "@/app/view/agents/usagestore";
 import { toggleBlame } from "@/app/view/code/codeblamestore";
 import { closePeek, codePeekFocusedAtom, openPeekInCode } from "@/app/view/code/codepeekstore";
 import { projectComments } from "@/app/view/code/codereview";
@@ -193,6 +196,52 @@ const noEscapeMenuOpen = () => globalStore.get(escapeMenusOpenAtom) === 0;
 // Deep (non-home) surfaces whose Escape returns to the Cockpit. Excludes cockpit (already home), agent
 // (owns Escape via buildAgentBindings: exit fullscreen / back), and settings.
 const ESC_HOME_SURFACES = new Set<SurfaceKey>(["jarvis", "sessions", "files", "usage", "code"]);
+
+// Escape on a deep surface navigates (back, else home) only when nothing on screen owns it.
+// the Jarvis graph peek owns Escape while it is open: closing an overlay is what the user means
+// by Escape there, and navigating home instead would leave the peek open behind the Cockpit.
+// The autonomy panel owns it for the same reason — and it cannot claim the key itself, since
+// this dispatcher runs on window capture, ahead of any handler the panel could register.
+const escapeNavigates = (ctx: KeyContext): boolean =>
+    navigateStrict(ctx) &&
+    ESC_HOME_SURFACES.has(ctx.surface) &&
+    // any open ModalShell (the Brief's Profile window, its sheet) closes on Escape itself; going
+    // home instead unmounts it with its state still set, so it reopens on the way back
+    !anyModalOpen() &&
+    !globalStore.get(graphPeekOpenAtom) &&
+    !globalStore.get(autonomyPanelOpenAtom) &&
+    // and the pet's peek, for the same reason again — it is global chrome, so it can be open
+    // on ANY of these surfaces, not just Jarvis
+    !globalStore.get(petPeekOpenAtom) &&
+    // the Diff surface's compare state owns Escape while it is on: leaving compare is what
+    // Escape means there, and going home instead would strand a two-ref read behind the Cockpit
+    !globalStore.get(compareOnAtom) &&
+    // and with filters active, Escape clears them — the history header says so ("Clear filters", esc)
+    !(ctx.surface === "files" && anyFilterActive(globalStore.get(historyFiltersAtom))) &&
+    // the Brief's record peek is a ModalShell and the Brief is where every record destination
+    // now lands: without this, one press closed the peek AND left the surface — and the peek's
+    // own state was never cleared, so coming back showed it open again
+    globalStore.get(briefPeekRecordAtom) == null &&
+    // the DAG modal takes Escape itself too, and the Brief mounts it as well as Channels
+    globalStore.get(dagModalStateAtom) == null &&
+    // and the Brief's Chunk sidebar: while a note is open, Escape means "back out of the
+    // note", and going home too would do both at once
+    globalStore.get(noteChunkAtom) == null &&
+    // and the plan-editing menu above it, the innermost rung of all
+    globalStore.get(trackerMenuAtom) == null &&
+    // and any hand-rolled dropdown (useEscapeClose): it closes on Escape and returns focus itself
+    noEscapeMenuOpen();
+
+// Usage's By work Back step while Usage shows, else null. The three atoms are all read whatever they
+// hold, so the PREDICATE_ATOMS completeness sweep sees each of them.
+const usageBack = (ctx: KeyContext) => {
+    const step = usageBackStep(
+        globalStore.get(usageLensAtom),
+        globalStore.get(usageWorkScopeAtom),
+        globalStore.get(usageWorkItemAtom)
+    );
+    return ctx.surface === "usage" ? step : null;
+};
 
 // A key that clicks a control the surface already draws, rather than duplicating what the control knows.
 // No control on screen lets the key pass.
@@ -424,40 +473,25 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
             keys: "Escape",
             group: "Navigation",
             label: "Back, else to Cockpit",
-            // the Jarvis graph peek owns Escape while it is open: closing an overlay is what the user means
-            // by Escape there, and navigating home instead would leave the peek open behind the Cockpit.
-            // The autonomy panel owns it for the same reason — and it cannot claim the key itself, since
-            // this dispatcher runs on window capture, ahead of any handler the panel could register.
-            when: (ctx) =>
-                navigateStrict(ctx) &&
-                ESC_HOME_SURFACES.has(ctx.surface) &&
-                // any open ModalShell (the Brief's Profile window, its sheet) closes on Escape itself; going
-                // home instead unmounts it with its state still set, so it reopens on the way back
-                !anyModalOpen() &&
-                !globalStore.get(graphPeekOpenAtom) &&
-                !globalStore.get(autonomyPanelOpenAtom) &&
-                // and the pet's peek, for the same reason again — it is global chrome, so it can be open
-                // on ANY of these surfaces, not just Jarvis
-                !globalStore.get(petPeekOpenAtom) &&
-                // the Diff surface's compare state owns Escape while it is on: leaving compare is what
-                // Escape means there, and going home instead would strand a two-ref read behind the Cockpit
-                !globalStore.get(compareOnAtom) &&
-                // and with filters active, Escape clears them — the history header says so ("Clear filters", esc)
-                !(ctx.surface === "files" && anyFilterActive(globalStore.get(historyFiltersAtom))) &&
-                // the Brief's record peek is a ModalShell and the Brief is where every record destination
-                // now lands: without this, one press closed the peek AND left the surface — and the peek's
-                // own state was never cleared, so coming back showed it open again
-                globalStore.get(briefPeekRecordAtom) == null &&
-                // the DAG modal takes Escape itself too, and the Brief mounts it as well as Channels
-                globalStore.get(dagModalStateAtom) == null &&
-                // and the Brief's Chunk sidebar: while a note is open, Escape means "back out of the
-                // note", and going home too would do both at once
-                globalStore.get(noteChunkAtom) == null &&
-                // and the plan-editing menu above it, the innermost rung of all
-                globalStore.get(trackerMenuAtom) == null &&
-                // and any hand-rolled dropdown (useEscapeClose): it closes on Escape and returns focus itself
-                noEscapeMenuOpen(),
+            // stands down while Usage's By work is drilled: usage:back takes the press there
+            when: (ctx) => escapeNavigates(ctx) && usageBack(ctx) == null,
             run: () => backOrHome(model),
+        },
+        {
+            id: "usage:back",
+            keys: "Escape",
+            group: "Navigation",
+            label: "Back to the scope, else All usage",
+            when: (ctx) => escapeNavigates(ctx) && usageBack(ctx) != null,
+            run: (ctx) => {
+                const step = usageBack(ctx);
+                if (step == null) {
+                    return false;
+                }
+                globalStore.set(usageWorkScopeAtom, step.scope);
+                globalStore.set(usageWorkItemAtom, step.item);
+                globalStore.set(usageListShownAtom, LIST_COLLAPSED_ROWS);
+            },
         },
     ];
 }

@@ -11,7 +11,7 @@ import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { AnimatePresence, motion, MotionConfig, type Variants } from "motion/react";
 import type { RunMutation } from "./briefmutations";
-import { filterSlot, keyOf, MoreControl, NoMatch, Region, REGIONS } from "./briefprimitives";
+import { couldNotRead, filterSlot, keyOf, LegMissing, MoreControl, NoMatch, Region, REGIONS } from "./briefprimitives";
 import type { BriefLine, LineTarget } from "./briefrows";
 import { InitiativeRow } from "./briefrowviews";
 import { LINK_BTN } from "./briefstyle";
@@ -45,6 +45,7 @@ export type RenameField = {
 export function InitiativesRegion({
     lines,
     empty,
+    missing,
     meta,
     only,
     onOnly,
@@ -64,6 +65,8 @@ export function InitiativesRegion({
     onSelectChunk,
     onToggleStage,
     mutateError,
+    loadError,
+    onRetryLoad,
     sidebarOpen,
     more,
     expanded,
@@ -74,6 +77,8 @@ export function InitiativesRegion({
 }: {
     lines: BriefLine[];
     empty: boolean;
+    // the snapshot could not read the efforts leg, so the absence of an initiative proves nothing
+    missing: boolean;
     // what is not moving: paused and quiet counts (initiativesMeta)
     meta: string;
     only: boolean;
@@ -102,6 +107,9 @@ export function InitiativesRegion({
     onSelectChunk: (id: string) => void;
     onToggleStage: (id: string, open: boolean) => void;
     mutateError: string | null;
+    // the open initiative's plan failed to load: drawn with a Retry in place of the loading line
+    loadError: string | null;
+    onRetryLoad: () => void;
     // the sidebar shows the mutate error itself while it is open
     sidebarOpen: boolean;
     more: number;
@@ -117,6 +125,7 @@ export function InitiativesRegion({
             id="initiatives"
             count={lines.length}
             empty={empty}
+            absent={missing ? couldNotRead("initiatives") : undefined}
             gap="gap-[9px]"
             meta={meta}
             only={only}
@@ -142,10 +151,11 @@ export function InitiativesRegion({
             }
         >
             <div className="flex flex-col">
+                {missing ? <LegMissing what="initiatives" /> : null}
                 {lines.length === 0 ? (
                     filtering || project != null ? (
                         <NoMatch />
-                    ) : (
+                    ) : missing ? null : (
                         <span className="px-[11px] py-[7px] text-[12.5px] text-ink-mid">
                             {REGIONS.initiatives.absent}
                         </span>
@@ -228,6 +238,23 @@ export function InitiativesRegion({
                                                         onToggleStage={onToggleStage}
                                                     />
                                                 </>
+                                            ) : loadError != null ? (
+                                                <p
+                                                    data-jarvis-initiative-detail="error"
+                                                    className="flex items-baseline gap-2 px-3 py-2 text-[12px] text-error"
+                                                >
+                                                    <span className="min-w-0">
+                                                        Couldn't load this initiative's plan: {loadError}
+                                                    </span>
+                                                    <button
+                                                        type="button"
+                                                        data-jarvis-plan-retry
+                                                        onClick={onRetryLoad}
+                                                        className={LINK_BTN}
+                                                    >
+                                                        Retry
+                                                    </button>
+                                                </p>
                                             ) : (
                                                 <p
                                                     data-jarvis-initiative-detail="loading"

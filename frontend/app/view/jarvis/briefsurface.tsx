@@ -40,7 +40,7 @@ import { DagModal } from "@/app/view/orchestrate/dagmodal";
 import { setDagModalAgentsContext } from "@/app/view/orchestrate/dagmodalstate";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtom, useAtomValue, useSetAtom, type PrimitiveAtom } from "jotai";
-import { X } from "lucide-react";
+import { TriangleAlert, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { BehindRegion } from "./briefbehind";
@@ -52,12 +52,14 @@ import {
     buildAttentionQueue,
     capRegion,
     DELTA_CAP,
+    effectiveCursor,
     EFFORT_CAP,
     groupDelta,
     projectBriefing,
     SEVEN_DAYS_MS,
     SHIPPED_CAP,
     summarizeAttentionQueue,
+    withoutSettledChunks,
     type QueueRow,
 } from "./briefingmodel";
 import {
@@ -71,15 +73,17 @@ import {
 import { BriefChunkPane, InitiativesRegion } from "./briefinitiatives";
 import {
     effortOps,
+    initiativeLineId,
     moveToProjectItems,
     mutationRunner,
     openChunkInPlan,
+    revealChanges,
     stepTarget,
     trackerEdits,
     type EffortWrites,
     type MutationDeps,
 } from "./briefmutations";
-import { briefListNav, cursorAction, resolveBriefCursor, runNavLines } from "./briefnav";
+import { briefListNav, cursorAction, resolveBriefCursor, runNavFold, runNavLines } from "./briefnav";
 import { BriefPeek } from "./briefpeekview";
 import { REGIONS, showInitiativeMenu, type RegionId } from "./briefprimitives";
 import { BriefProfileModal } from "./briefprofileview";
@@ -87,12 +91,14 @@ import { ackAll, actOnQueue, openQueueRow, type QueueActionDeps } from "./briefq
 import { briefRestorePlan } from "./briefrestore";
 import {
     behindGroups,
+    capBehind,
     filterLines,
     initiativeLine,
     initiativeProjects,
     initiativesMeta,
     keepsProject,
     keepsRunKind,
+    liveRunKindCounts,
     projectCounts,
     queueLine,
     runKindCounts,
@@ -110,7 +116,15 @@ import { BriefSheet } from "./briefsheet";
 import { REGION_LABEL } from "./briefstyle";
 import { BriefToastView } from "./brieftoast";
 import { BriefToolbar } from "./brieftoolbar";
-import { briefUndo, chunkKey, effortKey, noteKey, pendingDeleteKeysAtom } from "./briefundo";
+import {
+    briefUndo,
+    chunkKey,
+    effortKey,
+    noteKey,
+    pendingDeleteKeysAtom,
+    settleChunk,
+    settledChunksAtom,
+} from "./briefundo";
 import { WaitingRegion } from "./briefwaiting";
 import { EffortCreateForm } from "./effortcreateform";
 import { effortFeed, feedNoteCounts } from "./effortfeed";
@@ -121,6 +135,7 @@ import {
     deleteEffort,
     effortChunkRows,
     effortDetailAtom,
+    effortLoadErrorAtom,
     loadArchivedEfforts,
     loadEffortDetail,
     moveChunk,
@@ -157,6 +172,7 @@ import {
 import { clearSubject, persistedSubjectAtom, stageRunAtom } from "./jarvissubjectstore";
 import { JiraCheckDialog } from "./jiracheckdialog";
 import { openOrPeek, openOrPeekAddress } from "./openref";
+import { LAND_TIMEOUT_MS } from "./petactrun";
 import { dismissPetBubble } from "./petstore";
 import { AVATAR_SURFACE_REACH_PX } from "./petview";
 import { forgetOrigin } from "./returnsurface";
@@ -212,6 +228,7 @@ const QUEUE_RPC: QueueActionDeps["rpc"] = {
     dagAction: (data) => RpcApi.DagActionCommand(TabRpcClient, data),
     ackRun: (data) => RpcApi.AckRunCommand(TabRpcClient, data),
     setChunkStatus,
+    landRun: (data) => RpcApi.LandRunCommand(TabRpcClient, data, { timeout: LAND_TIMEOUT_MS }),
 };
 
 export function BriefSurface({ model }: { model: AgentsViewModel }) {
@@ -275,6 +292,11 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     useEffect(() => {
         setDagModalAgentsContext(model, agents);
     }, [model, agents]);
+    // mark seen moves the visit cursor at once and the snapshot's on the reload, so Behind you reads the later
+    // of the two. A fixture's window is its own: the visit cursor stored on this machine would empty it.
+    const visitCursor = useAtomValue(briefingCursorAtom);
+    const cursorTs =
+        snapshot != null ? effectiveCursor(snapshot.actualCursor, fixture != null ? null : visitCursor) : 0;
     const model_ = useMemo(() => {
         if (snapshot == null) {
             return null;
@@ -282,27 +304,33 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         return projectBriefing({
             state: snapshot.state,
             agents,
-            actualCursor: snapshot.actualCursor,
+            actualCursor: cursorTs,
             queryStartedAt: snapshot.queryStartedAt,
             sevenDaysAgo: snapshot.queryStartedAt - SEVEN_DAYS_MS,
         });
-    }, [snapshot, agents]);
+    }, [snapshot, agents, cursorTs]);
 
     // a fixture seeds attention the same way it seeds the roster, so every fixture previews the queue.
     const attention = fixture != null ? BRIEFING_FIXTURES[fixture].attention : liveAttention;
+    // the full projection, not the window: a blocked chunk on the seventh initiative is still waiting on
+    // you, so the queue reads every effort even when the Initiatives region is only showing six. A chunk
+    // Unblock or Done just settled is gone from this one list, so its Waiting row, the summary and its
+    // initiative's "N blocked" agree before the snapshot catches up.
+    const settled = useAtomValue(settledChunksAtom);
+    const efforts = useMemo(
+        () =>
+            model_ != null && snapshot != null
+                ? withoutSettledChunks(model_.efforts, settled, snapshot.queryStartedAt)
+                : [],
+        [model_, snapshot, settled]
+    );
     // memoized because the j/k controller below is registered per identity: recomputing these every
     // render would re-register it every render. They are pure functions of the snapshot projection, so
     // pinning them to it also stops groupDelta's "now" drifting between renders of the same snapshot.
     const queue = useMemo(
-        () =>
-            model_ != null
-                ? buildAttentionQueue({ attention, efforts: model_.efforts, blockers: model_.blockers })
-                : [],
-        [model_, attention]
+        () => (model_ != null ? buildAttentionQueue({ attention, efforts, blockers: model_.blockers }) : []),
+        [model_, efforts, attention]
     );
-    // the full projection, not the window: a blocked chunk on the seventh initiative is still waiting on
-    // you, so the queue reads every effort even when the Initiatives region is only showing six.
-    const efforts = useMemo(() => model_?.efforts ?? [], [model_]);
 
     // Each region opens at its cap and the region's own control opens the rest in place. The caps stay
     // display-side so the overflow count is what was actually hidden from the rows above it.
@@ -354,18 +382,14 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                 : sessionWindow(runKindLegs(model_, runKind), sessionsOpen || filtering, Date.now()),
         [model_, sessionsOpen, runKind, filtering]
     );
+    // the chips count what the head's "N live" counts; the stale fold states the rest
     const runCounts = useMemo(
-        () =>
-            runKindCounts(
-                (model_?.activeRuns ?? []).map((r) => r.mode),
-                model_?.directAgents.length ?? 0
-            ),
+        () => liveRunKindCounts(model_ ?? { activeRuns: [], directAgents: [] }, Date.now()),
         [model_]
     );
     // moment 1: which rows are new to YOU. Excludes `behind` deliberately — that region is entirely
     // since-your-last-visit by construction, so marking it would mark every row and its own label
     // already states the fact.
-    const cursorTs = snapshot?.actualCursor ?? 0;
     const freshInitiatives = useMemo(
         () =>
             freshKeys(
@@ -394,11 +418,8 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         entranceRef.current = computeEntrances(entranceRef.current, entranceKey, entranceIds).state;
     }, [entranceIdsKey, entranceKey]);
 
-    const deltaWindow = useMemo(
-        () => capRegion(model_?.delta ?? [], DELTA_CAP, behindOpen || filtering),
-        [model_, behindOpen, filtering]
-    );
-    const deltaGroups = useMemo(() => groupDelta(deltaWindow.rows, Date.now()), [deltaWindow]);
+    // the whole delta, grouped: Behind you folds it before it caps it (capBehind)
+    const deltaGroups = useMemo(() => groupDelta(model_?.delta ?? [], Date.now()), [model_]);
 
     // The filter and the one-region view narrow what is drawn, and the nav ids are the drawn lines' own, so
     // j/k can never land on a row the filter hid.
@@ -434,6 +455,14 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     const projectList = useAtomValue(projectListAtom);
     const lines = useMemo(() => {
         const now = Date.now();
+        // fold, filter, then cap: a filter still reaches every fold, and "+N more" counts lines, not events
+        const behind = capBehind(
+            behindGroups(deltaGroups, shipped.rows, now, { efforts: effortIndex, projects })
+                .map((g) => ({ ...g, lines: filterLines(g.lines, query) }))
+                .filter((g) => g.lines.length > 0),
+            DELTA_CAP,
+            behindOpen || filtering
+        );
         return {
             waiting: filterLines(
                 queue.map((q) => queueLine(q, now)),
@@ -449,9 +478,8 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                 sessions.rows.map((r) => sessionLine(r, now)),
                 query
             ),
-            behind: behindGroups(deltaGroups, shipped.rows, now, { efforts: effortIndex, projects })
-                .map((g) => ({ ...g, lines: filterLines(g.lines, query) }))
-                .filter((g) => g.lines.length > 0),
+            behind: behind.groups,
+            behindMore: behind.more,
         };
     }, [
         queue,
@@ -465,6 +493,8 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         pendingDeletes,
         effortIndex,
         projects,
+        behindOpen,
+        filtering,
     ]);
     const staleCount = lines.sessions.filter((l) => l.stale).length;
     const waitingShown = waitingOpen || filtering;
@@ -495,14 +525,16 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     // the freshest updatedts the app knows, so a chunk ticked by `wsh effort` out of band still refreshes
     const openCard = efforts.find((e) => e.oref === openEffortORef) ?? null;
     const openFreshTs = openCard?.updatedts;
-    useEffect(() => {
-        if (openEffortORef == null) {
-            return;
+    const loadPlan = useCallback(() => {
+        if (openEffortORef != null) {
+            fireAndForget(() => loadEffortDetail(openEffortORef, openFreshTs));
         }
-        // a failure here leaves the row expanded on its "loading" line rather than collapsing under the
-        // click; the next snapshot refresh retries.
-        fireAndForget(() => loadEffortDetail(openEffortORef, openFreshTs));
     }, [openEffortORef, openFreshTs]);
+    // a failure leaves the row expanded, drawing the load error and a Retry in place of the plan
+    useEffect(loadPlan, [loadPlan]);
+    const loadErrors = useAtomValue(effortLoadErrorAtom);
+    const planLoadError =
+        openEffortORef != null && openEffort == null ? (loadErrors.get(openEffortORef) ?? null) : null;
 
     const tracker = useMemo(() => {
         const feed =
@@ -556,8 +588,17 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
 
     // index math runs on the server's list, pending deletes included: the server still has them
     const planChunks = useMemo(() => (openEffort != null ? effortChunkRows(openEffort) : []), [openEffort]);
-    const [renamingTitle, setRenamingTitle] = useState<string | null>(null);
-    const [detailsOpen, setDetailsOpen] = useState(false);
+    // The rename field and Details belong to the initiative they were opened on: Details asked of an unloaded
+    // initiative waits for its plan, and must not then show on another one. Keyed by line id, so the menu can
+    // open the row and the form in one click; any change of the open initiative drops them.
+    const [renaming, setRenaming] = useState<{ lineId: string; title: string } | null>(null);
+    const [detailsFor, setDetailsFor] = useState<string | null>(null);
+    useEffect(() => {
+        setRenaming((cur) => (cur?.lineId === openInitiative ? cur : null));
+        setDetailsFor((cur) => (cur === openInitiative ? cur : null));
+    }, [openInitiative]);
+    const renamingTitle = renaming != null && renaming.lineId === openInitiative ? renaming.title : null;
+    const detailsOpen = detailsFor != null && detailsFor === openInitiative;
     const mutationDeps = useMemo<MutationDeps>(
         () => ({
             store: EFFORT_WRITES,
@@ -579,8 +620,8 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
             chunks: planChunks,
             pendingDeletes,
             ui: {
-                onRename: (title) => setRenamingTitle(title),
-                onDetails: () => setDetailsOpen(true),
+                onRename: (title) => setRenaming({ lineId: initiativeLineId(oref), title }),
+                onDetails: () => setDetailsFor(initiativeLineId(oref)),
                 onActivity: (e) => fireAndForget(() => openOrPeekAddress(model, oref, e)),
                 // lazy, so this file gains no import line beside the one the Check Jira toolbar adds
                 onConnectJira: () =>
@@ -656,14 +697,30 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                             forgetOrigin();
                         },
                         showInitiative: (oref) => {
-                            const card = efforts.find((e) => e.oref === oref);
-                            if (card != null && !keepsProject(project, card.project)) {
+                            const change = revealChanges({
+                                oref,
+                                live: efforts,
+                                archived: archivedCards,
+                                project,
+                                windowORefs: effortWindow.rows.map((e) => e.oref),
+                                query,
+                                only,
+                            });
+                            if (change.clearProject) {
                                 setPickedProject(null);
                             }
-                            if (!effortWindow.rows.some((e) => e.oref === oref)) {
+                            if (change.expandInitiatives) {
                                 setExpanded((prev) => ({ ...prev, initiatives: true }));
                             }
-                            setOnly((cur) => (cur == null || cur === "initiatives" ? cur : null));
+                            if (change.showArchived) {
+                                setShowArchived(true);
+                            }
+                            if (change.clearQuery) {
+                                setQuery("");
+                            }
+                            if (change.clearOnly) {
+                                setOnly(null);
+                            }
                         },
                         openInitiative: setOpenInitiative,
                         setCursor,
@@ -672,6 +729,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                             const effort = globalStore.get(effortDetailAtom).get(oref);
                             return effort != null ? effortChunkRows(effort) : [];
                         },
+                        pendingDeletes: () => globalStore.get(pendingDeleteKeysAtom),
                         openStage: (id) => setStageOverrides((cur) => ({ ...cur, [id]: true })),
                         openNotes: (id) => {
                             setNoteChunk(id);
@@ -685,8 +743,11 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
             ),
         [
             efforts,
+            archivedCards,
             project,
             effortWindow,
+            query,
+            only,
             setPickedProject,
             setExpanded,
             setOpenInitiative,
@@ -701,6 +762,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         undo: briefUndo,
         openLine,
         openChunk: (oref, label) => revealChunk(oref, label, true),
+        settle: settleChunk,
     };
     // Ctrl still peeks the initiative, as every other row's click does
     const openWaiting = (q: QueueRow, l: BriefLine, e?: React.MouseEvent) => {
@@ -740,10 +802,49 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     const shippedLines = lines.behind.find((g) => g.label === SHIPPED_LABEL)?.lines ?? NO_LINES;
     const stageRun = useAtomValue(stageRunAtom);
     const runList = useAtomValue(briefRunListAtom);
+    // The run sheet steps through every run the kind filter keeps, not only the drawn ones: Shipped past its cap,
+    // and Runs' live rows past the cap and its stale ones. The query still applies, so every run it lands on can
+    // be drawn by opening the fold that hides it.
+    const runNavSource = useMemo(() => {
+        if (model_ == null) {
+            return { sessions: NO_LINES, shipped: NO_LINES };
+        }
+        const now = Date.now();
+        const all = sessionWindow(runKindLegs(model_, runKind), true, now).rows.map((r) => sessionLine(r, now));
+        const shippedGroup = behindGroups([], shippedAll, now, { efforts: effortIndex, projects }).find(
+            (g) => g.label === SHIPPED_LABEL
+        );
+        return { sessions: filterLines(all, query), shipped: filterLines(shippedGroup?.lines ?? NO_LINES, query) };
+    }, [model_, runKind, shippedAll, effortIndex, projects, query]);
     // with a run sheet open on the published run list, j/k step the sheet through that list (briefnav.ts)
     const runNav = useMemo(
-        () => runNavLines({ sheetOpen, stageRun, runList, shippedLines, sessionLines: view.sessionLines }),
-        [sheetOpen, stageRun, runList, shippedLines, view.sessionLines]
+        () =>
+            runNavLines({
+                sheetOpen,
+                stageRun,
+                runList,
+                shippedLines: runNavSource.shipped,
+                sessionLines: runNavSource.sessions,
+            }),
+        [sheetOpen, stageRun, runList, runNavSource]
+    );
+    // a landing on a run behind a fold opens that fold, so closing the sheet leaves the cursor on a drawn row
+    const drawnRunIds = useMemo(
+        () => new Set([...view.sessionLines, ...shippedLines].map((l) => l.id)),
+        [view.sessionLines, shippedLines]
+    );
+    const revealRunLine = useCallback(
+        (line: BriefLine) => {
+            const fold = runNavFold(line, drawnRunIds);
+            if (fold === "shipped") {
+                setShippedOpen(true);
+            } else if (fold === "stale") {
+                setStaleOpen(true);
+            } else if (fold === "more") {
+                setExpanded((prev) => ({ ...prev, sessions: true }));
+            }
+        },
+        [drawnRunIds, setShippedOpen, setStaleOpen, setExpanded]
     );
     // memoized because the controller is registered per identity. Typing never reaches here: list keys
     // are off in a field.
@@ -756,12 +857,24 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                     cursor,
                     setCursor,
                     openLine,
+                    revealLine: revealRunLine,
                     sheetOpen,
                     cursorRow,
                     activate: activateCursor,
                     cursorTarget,
                 }),
-            [runNav, tracker.navIds, cursor, setCursor, openLine, sheetOpen, cursorRow, activateCursor, cursorTarget]
+            [
+                runNav,
+                tracker.navIds,
+                cursor,
+                setCursor,
+                openLine,
+                revealRunLine,
+                sheetOpen,
+                cursorRow,
+                activateCursor,
+                cursorTarget,
+            ]
         )
     );
     // the four regions scroll as one column, so a cursor moved off-screen has to be brought back
@@ -794,7 +907,6 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     const projectCount = snapshot?.state.projects?.length ?? 0;
     const initiativesHead = initiativesMeta(projectEfforts, Date.now());
     const liveN = view.sessionLines.filter((l) => !l.stale).length;
-    const visitCursor = useAtomValue(briefingCursorAtom);
 
     // the run sheet mounts outside the Brief's snapshot, so the Brief publishes what its ↳ chunk line and
     // its n / N position read
@@ -833,11 +945,11 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
             work: live != null ? () => void workOnInitiative(model, live) : undefined,
             rename: () => {
                 expand();
-                setRenamingTitle(l.title);
+                setRenaming({ lineId: l.id, title: l.title });
             },
             details: () => {
                 expand();
-                setDetailsOpen(true);
+                setDetailsFor(l.id);
             },
             status:
                 card != null
@@ -858,10 +970,12 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         globalStore.set(
             briefRunListAtom,
             stageRun != null && stageRun.status === "done"
-                ? shipped.rows.map((r) => r.oref.replace(/^run:/, ""))
-                : view.sessionLines.flatMap((l) => (l.runOid ? [l.runOid] : []))
+                ? runNavSource.shipped.flatMap((l) =>
+                      l.target != null && "oref" in l.target ? [l.target.oref.replace(/^run:/, "")] : []
+                  )
+                : runNavSource.sessions.flatMap((l) => (l.runOid ? [l.runOid] : []))
         );
-    }, [stageRun, shipped, view.sessionLines]);
+    }, [stageRun, runNavSource]);
 
     const ackable = ackableRuns(queue);
 
@@ -875,6 +989,10 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     const firstLoad = snapshot == null && loading;
     const loadFailed = snapshot == null && error != null;
     const staleSnapshot = snapshot != null && error != null;
+    const missingLegs = model_?.health.missingLegs ?? [];
+    // "Where we were" closes once the rows are in use, on input only: the cursor's own scrollIntoView scrolls the
+    // container too, on mount and on every cursor move, and that is not the user moving on
+    const dismissResume = () => dismissPetBubble("resume");
 
     return (
         <div data-jarvis-region="brief" className="absolute inset-0 flex flex-col bg-background">
@@ -905,6 +1023,31 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                         refresh failed — showing the previous snapshot
                     </motion.div>
                 ) : null}
+                {missingLegs.length > 0 ? (
+                    <motion.div
+                        key="partial"
+                        variants={paneReveal}
+                        initial="initial"
+                        animate="animate"
+                        exit="exit"
+                        data-jarvis-brief-band="partial"
+                        className="flex flex-none items-center gap-2 overflow-hidden border-b border-edge-faint px-[22px] py-1 font-mono text-[10.5px] text-asking"
+                    >
+                        <TriangleAlert size={12} aria-hidden className="flex-none" />
+                        <span className="min-w-0 truncate">
+                            Partial snapshot: couldn't read {missingLegs.join(", ")}. Behind you stays unread until a
+                            full load.
+                        </span>
+                        <button
+                            type="button"
+                            data-jarvis-brief-partial-retry
+                            onClick={refreshBriefing}
+                            className="flex-none cursor-pointer text-accent-soft hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                        >
+                            Retry
+                        </button>
+                    </motion.div>
+                ) : null}
             </AnimatePresence>
             {/* @container, not a media query: the sidebar's width rule is about how much SURFACE the
                 index has left, and the window is not the surface. */}
@@ -914,8 +1057,10 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                     // the pet sits over the bottom-right corner: the rows end with its reach of room, so any
                     // row-end control scrolls clear of it, and "Where we were" closes once the rows are in use
                     style={{ paddingBottom: AVATAR_SURFACE_REACH_PX + 20 }}
-                    onScroll={() => dismissPetBubble("resume")}
-                    onPointerDown={() => dismissPetBubble("resume")}
+                    onWheel={dismissResume}
+                    onTouchMove={dismissResume}
+                    onPointerDown={dismissResume}
+                    onKeyDown={dismissResume}
                     className={cn(
                         "flex min-h-0 flex-1 flex-col gap-[26px] overflow-y-auto px-[22px] pt-5",
                         // the sidebar docks only in the wide band; below it, it floats over the index
@@ -1001,6 +1146,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                     <InitiativesRegion
                                         lines={lines.initiatives}
                                         empty={efforts.length === 0 && archivedCards.length === 0}
+                                        missing={missingLegs.includes("Initiatives")}
                                         meta={initiativesHead}
                                         only={only === "initiatives"}
                                         onOnly={() => toggleOnly("initiatives")}
@@ -1017,13 +1163,14 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                         cursor={cursor}
                                         openInitiative={openInitiative}
                                         rename={
-                                            renamingTitle != null
+                                            renamingTitle != null && openInitiative != null
                                                 ? {
                                                       title: renamingTitle,
-                                                      onChange: setRenamingTitle,
+                                                      onChange: (title) =>
+                                                          setRenaming({ lineId: openInitiative, title }),
                                                       onCommit: () => {
                                                           const t = renamingTitle.trim();
-                                                          setRenamingTitle(null);
+                                                          setRenaming(null);
                                                           if (
                                                               t !== "" &&
                                                               openEffortORef != null &&
@@ -1032,7 +1179,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                                               runMutation(() => renameEffort(openEffortORef, t));
                                                           }
                                                       },
-                                                      onCancel: () => setRenamingTitle(null),
+                                                      onCancel: () => setRenaming(null),
                                                   }
                                                 : null
                                         }
@@ -1062,6 +1209,8 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                             }))
                                         }
                                         mutateError={mutateError}
+                                        loadError={planLoadError}
+                                        onRetryLoad={loadPlan}
                                         sidebarOpen={selectedChunk != null}
                                         more={effortWindow.more}
                                         expanded={initiativesOpen}
@@ -1076,6 +1225,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                         model={model}
                                         lines={view.sessionLines}
                                         empty={sessions.rows.length === 0}
+                                        missing={missingLegs.includes("Runs")}
                                         runKind={runKind}
                                         onRunKind={setRunKind}
                                         runCounts={runCounts}
@@ -1105,13 +1255,17 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                             snapshot?.queryStartedAt ?? Date.now(),
                                             visitCursor == null
                                         )}
+                                        deltaTotal={model_.delta.length}
+                                        only={only === "behind"}
+                                        onOnly={() => toggleOnly("behind")}
                                         groups={lines.behind.filter((g) => g.label !== SHIPPED_LABEL)}
                                         cursor={cursor}
                                         openLine={openLine}
-                                        more={deltaWindow.more}
+                                        more={lines.behindMore}
                                         expanded={behindOpen}
                                         onToggleMore={() => toggleRegion("behind")}
                                         shippedTotal={shippedAll.length}
+                                        shippedMissing={missingLegs.includes("Runs")}
                                         shippedLines={shippedLines}
                                         shippedKind={shippedKind}
                                         onShippedKind={setShippedKind}
@@ -1179,7 +1333,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
             {detailsOpen && openEffort != null && openEffortORef != null ? (
                 <EffortCreateForm
                     model={model}
-                    onClose={() => setDetailsOpen(false)}
+                    onClose={() => setDetailsFor(null)}
                     edit={{
                         oref: openEffortORef,
                         details: {

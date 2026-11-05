@@ -9,8 +9,12 @@ const resolveAmbient = vi.fn();
 const appendDecisionRpc = vi.fn();
 const detachCmd = vi.fn();
 const listDetached = vi.fn();
+const setStatusCmd = vi.fn();
+const acceptCmd = vi.fn();
 vi.mock("@/app/store/wshclientapi", () => ({
     RpcApi: {
+        SetDossierStatusCommand: (...a: unknown[]) => setStatusCmd(...a),
+        AcceptDossierEdgeCommand: (...a: unknown[]) => acceptCmd(...a),
         GetDossierCommand: (...a: unknown[]) => getDossier(...a),
         ResolveFocusScopeCommand: (...a: unknown[]) => resolveScope(...a),
         ResolveAmbientCommand: (...a: unknown[]) => resolveAmbient(...a),
@@ -26,15 +30,18 @@ vi.mock("@/app/store/wos", () => ({ loadAndPinWaveObject: vi.fn().mockResolvedVa
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { statusConfirmCopy } from "./briefpeek";
+import { briefToastAtom } from "./briefundo";
 import { graphBloomAtom } from "./jarvisgraphstore";
 import { recordDetailAtom, recordRunsAtom, recordScopeAtom } from "./jarvissubjectstore";
 import {
+    acceptEdge,
     afterRecordWrite,
     appendDecision,
     confirmDossierStatus,
     detachedEdgesAtom,
     detachEdge,
     loadDetachedEdges,
+    setDossierStatus,
 } from "./recordactions";
 import { tasksErrorAtom } from "./tasksstore";
 
@@ -78,16 +85,21 @@ describe("appendDecision", () => {
         resolveScope.mockReset().mockResolvedValue({ runorefs: [], channeloids: [], tabids: [] });
         resolveAmbient.mockReset().mockResolvedValue({ tasks: [], edges: [], decisions: [] });
         globalStore.set(tasksErrorAtom, null);
+        globalStore.set(briefToastAtom, null);
     });
 
-    it("reports a failed decision write and keeps the record cache intact", async () => {
+    it("a failed write toasts its reason and leaves tasksErrorAtom alone", async () => {
         const cached = { id: "task-a", status: "active", decisions: [] } as unknown as DossierDetail;
         globalStore.set(recordDetailAtom, { "task-a": cached });
         appendDecisionRpc.mockRejectedValue(new Error("disk full"));
 
         await expect(appendDecision("task-a", "summary", "why", [])).resolves.toBe(false);
 
-        expect(globalStore.get(tasksErrorAtom)).toContain("disk full");
+        const toast = globalStore.get(briefToastAtom);
+        expect(toast?.error).toBe(true);
+        expect(toast?.text).toContain("record the decision");
+        expect(toast?.text).toContain("disk full");
+        expect(globalStore.get(tasksErrorAtom)).toBeNull();
         expect(globalStore.get(recordDetailAtom)["task-a"]).toBe(cached);
     });
 
@@ -98,6 +110,49 @@ describe("appendDecision", () => {
         await expect(appendDecision("task-a", "summary", "why", [])).resolves.toBe(true);
 
         expect(globalStore.get(recordDetailAtom)["task-a"].status).toBe("completed");
+    });
+});
+
+describe("setDossierStatus", () => {
+    it("a failed write toasts its reason and leaves tasksErrorAtom alone", async () => {
+        setStatusCmd.mockReset().mockRejectedValue(new Error("disk full"));
+        globalStore.set(tasksErrorAtom, null);
+        globalStore.set(briefToastAtom, null);
+
+        setDossierStatus("task-a", "archived");
+
+        await vi.waitFor(() => expect(globalStore.get(briefToastAtom)).not.toBeNull());
+        const toast = globalStore.get(briefToastAtom);
+        expect(toast?.error).toBe(true);
+        expect(toast?.text).toContain("set the record's status");
+        expect(toast?.text).toContain("disk full");
+        expect(globalStore.get(tasksErrorAtom)).toBeNull();
+    });
+});
+
+describe("edge writes", () => {
+    beforeEach(() => {
+        detachCmd.mockReset();
+        acceptCmd.mockReset();
+        globalStore.set(tasksErrorAtom, null);
+        globalStore.set(briefToastAtom, null);
+    });
+
+    it("a refused edge write toasts its reason and leaves tasksErrorAtom alone", async () => {
+        detachCmd.mockRejectedValue(new Error("no such edge"));
+        detachEdge("task-a", "run:r1");
+        await vi.waitFor(() => expect(globalStore.get(briefToastAtom)).not.toBeNull());
+        expect(globalStore.get(briefToastAtom)?.text).toContain("Couldn't detach the run");
+        expect(globalStore.get(briefToastAtom)?.text).toContain("no such edge");
+        expect(globalStore.get(briefToastAtom)?.error).toBe(true);
+
+        globalStore.set(briefToastAtom, null);
+        acceptCmd.mockRejectedValue(new Error("run is gone"));
+        acceptEdge("task-a", "run:r1");
+        await vi.waitFor(() => expect(globalStore.get(briefToastAtom)).not.toBeNull());
+        expect(globalStore.get(briefToastAtom)?.text).toContain("Couldn't attach the run");
+        expect(globalStore.get(briefToastAtom)?.text).toContain("run is gone");
+        expect(globalStore.get(tasksErrorAtom)).toBeNull();
     });
 });
 

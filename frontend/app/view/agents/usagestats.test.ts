@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { aggregateBuckets, bucketSpend, bucketTokens, modelKey, pctStr, usd } from "./usagestats";
+import {
+    CLASS_FILL,
+    aggregateBuckets,
+    bucketSpend,
+    bucketTokens,
+    coverageStr,
+    estimateStr,
+    modelKey,
+    pctStr,
+    usd,
+    windowStartDay,
+} from "./usagestats";
 
 describe("usd", () => {
     it("prints thousands as K, whole dollars from 100, and cents below", () => {
@@ -11,6 +22,41 @@ describe("usd", () => {
             "$99.50",
             "$0.00",
         ]);
+    });
+
+    it("prints a positive amount under a cent as <$0.01, not $0.00", () => {
+        expect([usd(0.004), usd(0.0001), usd(0.005), usd(0)]).toEqual(["<$0.01", "<$0.01", "$0.01", "$0.00"]);
+    });
+});
+
+describe("coverageStr", () => {
+    it("floors, and never rounds up to 100%", () => {
+        expect([coverageStr(99.6), coverageStr(100), coverageStr(50.4), coverageStr(50.9)]).toEqual([
+            ">99%",
+            "100%",
+            "50%",
+            "50%",
+        ]);
+    });
+});
+
+describe("estimateStr", () => {
+    it("reads unpriced when there are tokens and none of them priced", () => {
+        expect(estimateStr(0, 0, 500)).toBe("unpriced");
+    });
+    it("prints the estimate otherwise", () => {
+        expect(estimateStr(1.5, 100, 500)).toBe("≈ $1.50");
+        expect(estimateStr(0, 0, 0)).toBe("≈ $0.00");
+    });
+});
+
+describe("windowStartDay", () => {
+    const now = new Date(2026, 10, 5, 0, 30).getTime();
+    it("is the local day windowDays-1 back, and undefined for all time or no window", () => {
+        expect(windowStartDay(7, now)).toBe("2026-10-30");
+        expect(windowStartDay(28, now)).toBe("2026-10-09");
+        expect(windowStartDay(0, now)).toBeUndefined();
+        expect(windowStartDay(null, now)).toBeUndefined();
     });
 });
 
@@ -335,8 +381,8 @@ describe("aggregateBuckets sums", () => {
         const last = stats.daily[stats.daily.length - 1];
         expect(last.day).toBe(today);
         expect(last.byHarness).toEqual({
-            claude: { tokens: 2 * M, spendUsd: 30 },
-            codex: { tokens: 1 * M, spendUsd: 5 },
+            claude: { tokens: 2 * M, spendUsd: 30, pricedTokens: 2 * M },
+            codex: { tokens: 1 * M, spendUsd: 5, pricedTokens: 1 * M },
         });
         expect(stats.models.map((m) => [m.harness, m.tokens, m.spendUsd])).toEqual([
             ["claude", 4 * M, 80],
@@ -430,6 +476,26 @@ describe("aggregateBuckets day range", () => {
         expect(dayKeys([...buckets].reverse())).toEqual(dayKeys(buckets));
     });
 
+    it("pads a 7-day window to 7 columns for a scope active 3 days", () => {
+        const buckets = ["2026-06-24", "2026-06-25", "2026-06-26"].map((day) => bkt({ day, input: 10 }));
+        const daily = aggregateBuckets(buckets, now, "all", windowStartDay(7, now)).daily;
+        expect(daily.map((d) => d.day)).toEqual([
+            "2026-06-20",
+            "2026-06-21",
+            "2026-06-22",
+            "2026-06-23",
+            "2026-06-24",
+            "2026-06-25",
+            "2026-06-26",
+        ]);
+        expect(daily[0].byHarness).toEqual({});
+    });
+
+    it("starts at a bucket older than the given start day", () => {
+        const daily = aggregateBuckets([bkt({ day: "2026-06-23", input: 10 })], now, "all", "2026-06-25").daily;
+        expect(daily.map((d) => d.day)).toEqual(["2026-06-23", "2026-06-24", "2026-06-25", "2026-06-26"]);
+    });
+
     it("runs on to today when every bucket is older", () => {
         expect(dayKeys([bkt({ day: "2026-06-23", input: 10 })])).toEqual([
             "2026-06-23",
@@ -444,5 +510,25 @@ describe("modelKey", () => {
     it("is stable and unique per triple", () => {
         expect(modelKey("pi", "a", "b")).toBe(modelKey("pi", "a", "b"));
         expect(modelKey("pi", "a/b", "c")).not.toBe(modelKey("pi", "a", "b/c"));
+    });
+});
+
+describe("CLASS_FILL", () => {
+    it("keeps cache read grey and gives the other classes graph lanes", () => {
+        expect(CLASS_FILL).toEqual({
+            cacheRead: "bg-cacheread",
+            output: "bg-graphlane-1",
+            reasoning: "bg-graphlane-4",
+            cacheWrite: "bg-graphlane-6",
+            input: "bg-graphlane-2",
+        });
+    });
+});
+
+describe("daily priced tokens", () => {
+    it("counts only tokens of a priced model", () => {
+        const now = Date.parse("2026-06-26T12:00:00.000Z");
+        const stats = aggregateBuckets([bkt({ input: 100 }), bkt({ model: "no-such-model", input: 50 })], now);
+        expect(stats.daily[0].byHarness.claude).toMatchObject({ tokens: 150, pricedTokens: 100 });
     });
 });

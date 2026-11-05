@@ -55,6 +55,7 @@ import {
     changedCount,
     countLabel,
     filterSections,
+    FLAG_RUNTIMES,
     flagRowId,
     groupSections,
     isModOptionOn,
@@ -65,15 +66,17 @@ import {
     resolveSelection,
     rowKeys,
     settingsSections,
+    shownFlagRuntime,
     SKIM_FIELDS,
     SKIM_PLUGIN,
     vaultStatusLine,
     vaultSyncButton,
     vaultSyncFailureNote,
+    visibleRowIds,
     type SettingRowDef,
     type SettingSectionDef,
 } from "./settingsmodel";
-import { pendingSettingsSectionAtom, takePendingSettingsSection } from "./settingsstore";
+import { pendingSettingsSectionAtom, settingsSectionAtom, takePendingSettingsSection } from "./settingsstore";
 import { navSummary } from "./storagemodel";
 import { StorageHeaderActions, StorageSection } from "./storagesection";
 import { loadStorage, startStoragePoll, storageReportAtom } from "./storagestore";
@@ -85,15 +88,6 @@ const LABEL: Record<SurfaceKey, string> = Object.fromEntries(ITEMS.map((i) => [i
     SurfaceKey,
     string
 >;
-
-// Runtimes the flag editor lists. Terminal stays out (it isn't an agent); pi is included even though
-// its catalog is empty so its no-flags state renders in the editor instead of the row vanishing.
-const FLAG_RUNTIMES: { id: Runtime; name: string }[] = [
-    { id: "claude", name: "Claude" },
-    { id: "codex", name: "Codex" },
-    { id: "opencode", name: "OpenCode" },
-    { id: "pi", name: "Pi" },
-];
 
 const OVERRIDE_ROLES: OverrideRole[] = ["accent", "success", "warning", "error"];
 
@@ -121,7 +115,7 @@ type LocalBinding = { changed: boolean; revert: () => void };
 
 // Which rows differ from their default, and how to put each one back. Lives at the surface rather than
 // inside the section components because the left pane counts changed rows for sections it never renders.
-function useRowBindings(sections: SettingSectionDef[], flagRuntime: Runtime) {
+function useRowBindings(sections: SettingSectionDef[]) {
     const settings = (useAtomValue(atoms.settingsAtom) ?? {}) as unknown as Record<string, unknown>;
     const defaults = useAtomValue(defaultSettingsAtom);
     const [preset, setPreset] = useAtom(themePresetAtom);
@@ -161,11 +155,14 @@ function useRowBindings(sections: SettingSectionDef[], flagRuntime: Runtime) {
                 }),
         };
     }
-    for (const f of RUNTIME_FLAGS[flagRuntime]) {
-        local[flagRowId(flagRuntime, f.id)] = {
-            changed: !!flags[flagRuntime]?.[f.id],
-            revert: () => setFlags((prev) => ({ ...prev, [flagRuntime]: { ...prev[flagRuntime], [f.id]: false } })),
-        };
+    // every runtime's, not only the one on screen: a flag left on for claude still counts while Codex is shown
+    for (const { id: runtime } of FLAG_RUNTIMES) {
+        for (const f of RUNTIME_FLAGS[runtime]) {
+            local[flagRowId(runtime, f.id)] = {
+                changed: !!flags[runtime]?.[f.id],
+                revert: () => setFlags((prev) => ({ ...prev, [runtime]: { ...prev[runtime], [f.id]: false } })),
+            };
+        }
     }
 
     const defs = new Map<string, SettingRowDef>();
@@ -234,12 +231,13 @@ export function SettingsSurface({ model }: { model: AgentsViewModel }) {
     const reduce = useReducedMotion();
     const [query, setQuery] = useState("");
     const [flagRuntime, setFlagRuntime] = useState<Runtime>("claude");
-    const [wanted, setWanted] = useState<string>("appearance");
+    // a store atom, not component state: Settings unmounts on a surface switch, and the section picked survives it
+    const [wanted, setWanted] = useAtom(settingsSectionAtom);
 
-    const sections = useMemo(() => settingsSections(flagRuntime), [flagRuntime]);
+    const sections = useMemo(() => settingsSections(), []);
     const visibleSections = useMemo(() => filterSections(sections, query), [sections, query]);
     const selected = resolveSelection(visibleSections, wanted);
-    const bindings = useRowBindings(sections, flagRuntime);
+    const bindings = useRowBindings(sections);
 
     // keyed on the atom so a deep link made while Settings is already open still moves the selection
     const pendingSection = useAtomValue(pendingSettingsSectionAtom);
@@ -267,10 +265,9 @@ export function SettingsSurface({ model }: { model: AgentsViewModel }) {
     }, []);
 
     const section = sections.find((s) => s.id === selected) ?? null;
-    const filtered = visibleSections.find((s) => s.id === selected) ?? null;
     const ctx: RowCtxValue = {
         defs: bindings.defs,
-        visible: query.trim() === "" || filtered == null ? null : new Set(filtered.rows.map((r) => r.id)),
+        visible: visibleRowIds(section, query),
         changed: bindings.changed,
         revert: bindings.revert,
     };
@@ -336,7 +333,7 @@ export function SettingsSurface({ model }: { model: AgentsViewModel }) {
                                     initial={reduce ? false : { opacity: 0 }}
                                     animate={{ opacity: 1 }}
                                     transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
-                                    className="min-w-0 flex-1 overflow-y-auto px-[28px] pb-12 pt-2"
+                                    className="@container min-w-0 flex-1 overflow-y-auto px-[28px] pb-12 pt-2"
                                 >
                                     <RowCtx.Provider value={ctx}>
                                         <SectionBody
@@ -456,7 +453,9 @@ function ScopeDot({ scope }: { scope: "synced" | "local" }) {
 }
 
 // Labeled settings row. `stacked` drops the control onto its own full-width line for the controls that
-// cannot sit in a right-hand slot (the theme grid, the flag list, the runtime radios).
+// cannot sit in a right-hand slot (the theme grid, the flag list, the runtime radios). Every other row stacks
+// the same way once the pane is narrower than w600 (the pane is the @container): its fixed-width fields would
+// otherwise squeeze the text column to a word per line.
 function SettingRow({ id, stacked, children }: { id: string; stacked?: boolean; children?: ReactNode }) {
     const ctx = useContext(RowCtx);
     const def = ctx.defs.get(id);
@@ -508,10 +507,10 @@ function SettingRow({ id, stacked, children }: { id: string; stacked?: boolean; 
     return (
         <div
             data-setting-row={id}
-            className="flex items-center justify-between gap-6 border-b border-edge-faint py-[15px]"
+            className="flex items-center justify-between gap-6 border-b border-edge-faint py-[15px] @max-w600:flex-col @max-w600:items-stretch @max-w600:gap-3"
         >
             {header}
-            <div className="flex flex-none items-center gap-2.5">
+            <div className="flex flex-none flex-wrap items-center gap-2.5">
                 {children}
                 {revert}
             </div>
@@ -644,7 +643,7 @@ function CommitText({
     value,
     placeholder,
     disabled,
-    width = "w-[300px]",
+    width = "w-[300px] max-w-full",
     onCommit,
     children,
 }: {
@@ -733,7 +732,7 @@ function SecretInput({ placeholder, onCommit }: { placeholder: string; onCommit:
                     e.currentTarget.blur();
                 }
             }}
-            className="w-[300px] rounded border border-edge-mid bg-surface-raised px-2.5 py-[6px] font-mono text-[12px] text-primary outline-none focus:border-accent-700"
+            className="w-[300px] max-w-full rounded border border-edge-mid bg-surface-raised px-2.5 py-[6px] font-mono text-[12px] text-primary outline-none focus:border-accent-700"
         />
     );
 }
@@ -1028,7 +1027,7 @@ function RemoteSection() {
             </SettingRow>
             <SettingRow id="remote.tunneltoken">
                 <SecretInput
-                    placeholder={tokenStored ? "Stored. Paste a new token to replace it" : "Paste the tunnel token"}
+                    placeholder={tokenStored ? "Stored. Paste a new one to replace it" : "Paste the tunnel token"}
                     onCommit={(v) => save("tunneltoken", v)}
                 />
             </SettingRow>
@@ -1041,9 +1040,10 @@ function RemoteSection() {
     );
 }
 
-function NewAgentSection({ runtime, onRuntime }: { runtime: Runtime; onRuntime: (r: Runtime) => void }) {
+function NewAgentSection({ runtime: picked, onRuntime }: { runtime: Runtime; onRuntime: (r: Runtime) => void }) {
     const [flags, setFlags] = useAtom(naFlagsAtom);
     const [remember, setRemember] = useAtom(naRememberFlagsAtom);
+    const runtime = shownFlagRuntime(picked, useContext(RowCtx).visible);
     const catalog = RUNTIME_FLAGS[runtime];
     const runtimeFlags = flags[runtime] ?? {};
     const setFlag = (id: string, on: boolean) =>

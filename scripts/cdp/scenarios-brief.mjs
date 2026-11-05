@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { SURFACE_LABEL } from "./attach.mjs";
+import { seedBriefDesign } from "./seed-brief.mjs";
 import {
     MIN_FONT_PX,
     MODELS_VIEWPORT,
@@ -12,6 +13,7 @@ import {
     TREE_RAIL_LEAD_ID,
     arrangeFixtureRun,
     closeProfile,
+    failRpc,
     floorDetail,
     floorOk,
     floorStep,
@@ -2861,7 +2863,7 @@ export const briefComposerSteerOnly = {
         await h.shot("cdp-shots/brief-composer-steer-only.png");
         return steps;
     },
-    async teardown(h) {},
+    async teardown() {},
 };
 
 // --- brief-restore: the stored subject, landed three different ways -------------------------------
@@ -3362,20 +3364,32 @@ export const briefInlineTracker = {
 // --- brief-design-parity: the Brief drawn to its handoff design ----------------------------------
 // The structural half of the parity review against docs/prototype/jarvis-brief-editing.dc.html
 // (variant A); the visual half is cdp-shots/design/ (scripts/cdp/design-states.mjs) beside these shots.
-// Runs against the design's data: seed it first with `node scripts/cdp/seed-brief.mjs`.
+// Runs against the design's data: arrange seeds the initiatives the store lacks (seed-brief.mjs), and
+// teardown deletes only those it seeded. The autonomy chip (step b) draws only over a registered project, so
+// a store with none (Final's) gets a throwaway project, removed with its channel in teardown.
 const PARITY_INITIATIVE = "Scenario gate clearance";
 const PARITY_CHUNK = "N1 box upgrade";
+const PARITY_PROJECT = "brief-design-parity";
 const parityNap = (h, ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
+// wstore's normProjectPath, so a channel's path compares to the one the project was registered at
+const parityNormPath = (p) => (p ?? "").replaceAll("\\", "/").replace(/\/+$/, "");
+
+async function seedParityProject(h) {
+    const projects = (await h.rpc("getfullconfig", null))?.projects ?? {};
+    if (Object.values(projects).some((p) => p?.path)) return null;
+    const path = mkdtempSync(join(tmpdir(), "arc-brief-parity-"));
+    await h.rpc("createproject", { name: PARITY_PROJECT, path });
+    const channels = (await h.rpc("getchannels", null))?.channels ?? [];
+    const channelId = channels.find((c) => parityNormPath(c.projectpath) === parityNormPath(path))?.oid ?? null;
+    return { path, channelId };
+}
 
 export const briefDesignParity = {
     name: "brief-design-parity",
     surface: "jarvis",
     async arrange(h) {
-        const { efforts = [] } = (await h.rpc("effortlist", {})) ?? {};
-        if (!efforts.some((e) => e.title === PARITY_INITIATIVE)) {
-            throw new Error(`no "${PARITY_INITIATIVE}" initiative - run node scripts/cdp/seed-brief.mjs first`);
-        }
-        return {};
+        const project = await seedParityProject(h);
+        return { project, seeded: await seedBriefDesign(h) };
     },
     async assert(h, ctx) {
         const steps = [];
@@ -3580,6 +3594,24 @@ export const briefDesignParity = {
             );
         }
         await h.goto("cockpit");
+        for (const effortoid of ctx.seeded ?? []) {
+            await h.rpc("effortdelete", { effortoid }).catch((e) => {
+                console.warn(`brief-design-parity teardown: delete ${effortoid} failed: ${e?.message ?? e}`);
+            });
+        }
+        if (ctx.project) {
+            const warn = (what) => (e) => console.warn(`brief-design-parity teardown: ${what} failed: ${e?.message ?? e}`);
+            // the project first: while it is registered, the config watcher recreates its channel
+            await h.rpc("deleteproject", { name: PARITY_PROJECT }).catch(warn("delete the project"));
+            if (ctx.project.channelId) {
+                await h.rpc("deletechannel", { channelid: ctx.project.channelId }).catch(warn("delete its channel"));
+            }
+            try {
+                rmSync(ctx.project.path, { recursive: true, force: true });
+            } catch (e) {
+                warn("remove its folder")(e);
+            }
+        }
     },
 };
 
@@ -4927,9 +4959,61 @@ export const briefLiveInitiative = {
 // quiet count, Behind you's grouping, Shipped's second line, the pet's room and the stale blocked runs.
 const ACT_EFFORT = "verify brief-act blockers";
 const ACT_PROJECT = "verify-brief-act";
+// steps 28-34 make these two besides: a staged plan whose Beta stage starts folded (all done), and an archived one
+const ACT_STAGED = "verify brief-act stages";
+const ACT_ARCHIVED = "verify brief-act archived";
+const actInitRow = (title) =>
+    `[...document.querySelectorAll('[data-jarvis-brief-row="initiative"]')].find((r) => (r.innerText || "").includes(${JSON.stringify(title)}))`;
+const ACT_OPEN_INIT = `document.querySelector('[data-jarvis-brief-row="initiative"][aria-expanded="true"]')`;
+// opens an initiative row's context menu and clicks one of its top-level items
+async function actMenuClick(h, title, label) {
+    return lookEval(h, `
+        const row = ${actInitRow(title)};
+        if (row == null) return { row: false, clicked: false };
+        const r = row.getBoundingClientRect();
+        row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2, clientX: r.left + 40, clientY: r.top + 10 }));
+        const { globalStore } = await mod("app/store/jotaiStore.ts");
+        const { contextMenuAtom, closeContextMenu } = await mod("app/store/contextmenu.ts");
+        await until(() => globalStore.get(contextMenuAtom) != null, 3000);
+        const item = globalStore.get(contextMenuAtom)?.items.find((i) => i.label === ${JSON.stringify(label)});
+        item?.click?.();
+        closeContextMenu();
+        return { row: true, clicked: item != null };
+    `);
+}
+// drops an initiative's plan from the detail cache, so the next open reads it again
+const actUncache = (h, oref) =>
+    lookEval(h, `
+        const { globalStore } = await mod("app/store/jotaiStore.ts");
+        const { effortDetailAtom } = await mod("app/view/jarvis/effortstore.ts");
+        const cache = new Map(globalStore.get(effortDetailAtom));
+        cache.delete(${JSON.stringify(oref)});
+        globalStore.set(effortDetailAtom, cache);
+    `);
+const actClearToast = (h) =>
+    lookEval(h, `
+        const { globalStore } = await mod("app/store/jotaiStore.ts");
+        globalStore.set((await mod("app/view/jarvis/briefundo.ts")).briefToastAtom, null);
+    `);
 const actQueueRow = (label) =>
     `[...document.querySelectorAll('[data-jarvis-brief-row="queue"]')].find((r) => (r.innerText || "").includes(${JSON.stringify(label)}))`;
 const actText = (el) => `((${el})?.innerText || "").replace(/\\s+/g, " ").trim()`;
+
+// lookEval prelude for steps 21-27: the store, the Brief's list-nav controller and the review fixture's roster. The
+// roster is read at render, so swapping it and writing any atom the Brief reads re-renders on the same snapshot.
+const ACT_BRIEF_LIB = `
+    const { globalStore } = await mod("app/store/jotaiStore.ts");
+    const { listNavAtom } = await mod("app/store/keybindings/listnav.ts");
+    const { settledChunksAtom } = await mod("app/view/jarvis/briefundo.ts");
+    const fx = (await mod("app/view/jarvis/briefingfixtures.ts")).BRIEFING_FIXTURES.review;
+    const setAgents = async (agents) => {
+        fx.agents = agents;
+        globalStore.set(settledChunksAtom, new Map(globalStore.get(settledChunksAtom)));
+        await nap(60);
+    };
+    const scroll = document.querySelector('[data-jarvis-brief-scroll]');
+    const cursorRow = () => document.querySelector('[data-jarvis-brief-cursor="true"]');
+`;
 
 async function actFixture(h, name) {
     await lookEval(h, `
@@ -4972,7 +5056,7 @@ export const briefAct = {
                 await h.rpc("effortcreate", {
                     title: ACT_EFFORT,
                     project: ACT_PROJECT,
-                    chunks: [{ label: "act-soak" }, { label: "act-label" }],
+                    chunks: [{ label: "act-soak" }, { label: "act-label" }, { label: "act-settle" }],
                 })
             ).effortoid;
             await h.rpc("effortmutate", {
@@ -4982,8 +5066,13 @@ export const briefAct = {
                     { op: "setChunkStatus", chunk: "act-soak", status: "blocked", note: "needs: a clean DEV soak" },
                     { op: "appendNote", chunk: "act-soak", note: "the empty-buffer blocker is gone on DEV" },
                     { op: "setChunkStatus", chunk: "act-label", status: "blocked", note: "needs: the G4 label" },
+                    // F14's own (step 19): step 3 spends the other two
+                    { op: "setChunkStatus", chunk: "act-settle", status: "blocked", note: "needs: a settle check" },
                 ],
             });
+            // a real run: its channel hosts the run sheet of step 24, and step 27 stops it
+            ctx.cwd = mkdtempSync(join(tmpdir(), "verify-brief-act-"));
+            await arrangeFixtureRun(h, ctx, "brief-act", "brief-act lead");
         } catch (e) {
             ctx.arrangeError = String(e?.message ?? e);
         }
@@ -4995,6 +5084,10 @@ export const briefAct = {
         await h.goto("jarvis");
         await actFixture(h, null);
         await actFilter(h, "");
+        // a fresh store's first briefing load runs past one CDP evaluate's 30s, so it is waited out here
+        for (let i = 0; i < 180 && (await h.ev(`document.querySelector('[data-jarvis-brief-state="loading"]') != null`)); i++) {
+            await new Promise((r) => setTimeout(r, 1000));
+        }
 
         // 1. live: the blocked chunk's row says what it needs and shows the note written after the block
         await h.ev(`document.querySelector('[data-jarvis-brief-attention-summary][aria-expanded="false"]')?.click()`);
@@ -5178,7 +5271,7 @@ export const briefAct = {
         await h.shot("cdp-shots/brief-act-behind.png");
 
         // 10. the pet: the rows end with its reach of room so the last row scrolls clear of it, and Where we
-        // were closes once the rows are scrolled
+        // were closes once the rows are scrolled by hand (a wheel; a scroll alone no longer closes it, F20)
         const pet = await lookEval(h, `
             const { globalStore } = await mod("app/store/jotaiStore.ts");
             const { petBubbleAtom } = await mod("app/view/jarvis/petstore.ts");
@@ -5192,7 +5285,7 @@ export const briefAct = {
             await nap(200);
             const shown = globalStore.get(petBubbleAtom) != null;
             scroll.scrollTop = 0;
-            scroll.dispatchEvent(new Event("scroll"));
+            scroll.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -120 }));
             await nap(200);
             return {
                 pad: parseFloat(getComputedStyle(scroll).paddingBottom),
@@ -5204,7 +5297,7 @@ export const briefAct = {
             };
         `);
         steps.push({
-            step: "10. the Brief's last row scrolls clear of the pet, and Where we were closes on scroll",
+            step: "10. F20: the Brief's last row scrolls clear of the pet, and Where we were closes on a wheel",
             ok:
                 pet.pad >= 124 &&
                 pet.lastBottom != null &&
@@ -5229,9 +5322,722 @@ export const briefAct = {
         });
         await h.ev(`document.querySelector('[data-jarvis-brief-region="sessions"]')?.scrollIntoView({ block: "start" })`);
         await h.shot("cdp-shots/brief-act-runs.png");
+
+        // 12-18: the 11-05 code review's Waiting and Behind you findings, on the "review" fixture
+        await actFixture(h, "review");
+        await h.ev(`document.querySelector('[data-jarvis-brief-attention-summary][aria-expanded="false"]')?.click()`);
+        await h.ev("new Promise((r) => setTimeout(r, 500))");
+        const rowActs = (label) => `[...((${actQueueRow(label)})?.querySelectorAll('[data-jarvis-queue-act]') ?? [])].map((b) => b.innerText.trim())`;
+        const waiting = await h.ev(`(() => ({
+            summary: ${actText(`document.querySelector('[data-jarvis-brief-attention-summary]')?.parentElement`)},
+            unverified: ${actText(actQueueRow("review unverified one"))},
+            held: ${actText(actQueueRow("review held land"))},
+            heldActs: ${rowActs("review held land")},
+            ask: ${actText(actQueueRow("Which tenant goes first?"))},
+            askActs: ${rowActs("Which tenant goes first?")},
+        }))()`);
+        steps.push({
+            step: "12. F7: an unverified run and a held land read by their own kind words, and the summary counts them",
+            ok: /^unverified /.test(waiting.unverified) && /^land held /.test(waiting.held) && /2 unverified/.test(waiting.summary),
+            detail: JSON.stringify({ summary: waiting.summary, unverified: waiting.unverified, held: waiting.held }),
+        });
+        await h.shot("cdp-shots/brief-act-12-kinds.png");
+
+        // 13. the held land's row offers the pet's verbs; Dismiss acks with land: true (the ack is stubbed)
+        await lookEval(h, `
+            const { RpcApi } = await mod("app/store/wshclientapi.ts");
+            (window.__heldRpc ??= {}).AckRunCommand ??= RpcApi.AckRunCommand;
+            window.__briefActAcks = [];
+            RpcApi.AckRunCommand = (_client, data) => {
+                window.__briefActAcks.push(data);
+                return Promise.resolve();
+            };
+        `);
+        await h.ev(`(${actQueueRow("review held land")})?.querySelector('[data-jarvis-queue-act="dismiss-land"]')?.click()`);
+        const dismissed = await lookEval(h, `
+            await until(() => (window.__briefActAcks ?? []).length > 0, 3000);
+            await until(() => document.querySelector('[data-jarvis-brief-toast]') != null, 3000);
+            return {
+                acks: window.__briefActAcks ?? [],
+                toast: (document.querySelector('[data-jarvis-brief-toast]')?.innerText || "").replace(/\\s+/g, " ").trim(),
+            };
+        `);
+        await h.shot("cdp-shots/brief-act-13-held-land.png");
+        await releaseRpc(h, "AckRunCommand");
+        steps.push({
+            step: "13. F8: a held land offers Retry land and Dismiss, and Dismiss acks the land",
+            ok:
+                JSON.stringify(waiting.heldActs) === JSON.stringify(["Retry land", "Dismiss"]) &&
+                dismissed.acks.length === 1 &&
+                dismissed.acks[0].land === true &&
+                dismissed.acks[0].runid === "r-review-held" &&
+                /Dismissed · review held land/.test(dismissed.toast),
+            detail: JSON.stringify({ acts: waiting.heldActs, ...dismissed }),
+        });
+
+        steps.push({
+            step: "14. F9: an ask with no channel draws no button, not a dead Open",
+            ok: waiting.ask.includes("Which tenant goes first?") && waiting.askActs.length === 0,
+            detail: JSON.stringify({ ask: waiting.ask, acts: waiting.askActs }),
+        });
+        await h.ev(`(${actQueueRow("Which tenant goes first?")})?.scrollIntoView({ block: "center" })`);
+        await h.shot("cdp-shots/brief-act-14-no-act.png");
+        await h.ev(`document.querySelector('[data-jarvis-brief-attention-summary][aria-expanded="true"]')?.click()`);
+
+        // 15 + 16. Behind you: newest first across projects, and the cap counts folded lines. Its window is
+        // module state, so one left open by hand is closed first.
+        await h.ev(`document.querySelector('[data-jarvis-brief-region="behind"] [data-jarvis-brief-more="less"]')?.click()`);
+        await h.ev("new Promise((r) => setTimeout(r, 300))");
+        const behindRows = await h.ev(`(() => {
+            const sec = document.querySelector('[data-jarvis-brief-region="behind"]');
+            const t = (r) => (r?.innerText || "").replace(/\\s+/g, " ").trim();
+            return {
+                rows: [...(sec?.querySelectorAll('[data-jarvis-brief-row="delta"]') ?? [])].map(t),
+                more: t(sec?.querySelector('[data-jarvis-brief-more]')),
+            };
+        })()`);
+        await h.ev(`document.querySelector('[data-jarvis-brief-region="behind"]')?.scrollIntoView({ block: "start" })`);
+        steps.push({
+            step: "15. F1: Behind you leads with today's newest line, not the decisions the server lists first",
+            ok:
+                behindRows.rows.length > 0 &&
+                /Review notes initiative|Review run from today/.test(behindRows.rows[0]) &&
+                !/review decision/.test(behindRows.rows[0]),
+            detail: JSON.stringify(behindRows.rows.slice(0, 3)),
+        });
+        await h.shot("cdp-shots/brief-act-15-newest-first.png");
+        const digest = behindRows.rows.find((r) => r.includes("Review notes initiative")) ?? "";
+        // eight lines fold out of 47 events (the digest, the run, six decisions): the cap of 5 hides 3 lines
+        steps.push({
+            step: "16. F2: 40 notes fold to one digest, and +N more counts the folded lines it hides, not events",
+            ok:
+                /40 notes/.test(digest) &&
+                behindRows.rows.filter((r) => r.includes("Review notes initiative")).length === 1 &&
+                behindRows.rows.length === 5 &&
+                behindRows.more === "+3 more",
+            detail: JSON.stringify({ digest, drawn: behindRows.rows.length, more: behindRows.more }),
+        });
+        await h.shot("cdp-shots/brief-act-16-digest.png");
+
+        // 17. a filter that matches nothing says so in the delta and in Shipped, and mark seen stays
+        await actFilter(h, "zz-no-match");
+        const noMatch = await h.ev(`(() => {
+            const sec = document.querySelector('[data-jarvis-brief-region="behind"]');
+            const text = (sec?.innerText || "").replace(/\\s+/g, " ");
+            return {
+                noMatch: text.split("Nothing here matches the filter.").length - 1,
+                nothingNew: text.includes("Nothing new since you last looked."),
+                markSeen: sec?.querySelector('[data-jarvis-brief-mark-seen]') != null,
+            };
+        })()`);
+        await h.ev(`document.querySelector('[data-jarvis-brief-region="behind"]')?.scrollIntoView({ block: "start" })`);
+        await h.shot("cdp-shots/brief-act-17-no-match.png");
+        await actFilter(h, "");
+        steps.push({
+            step: "17. F17: a filter matching nothing reads as no match in Behind you and in Shipped, and mark seen stays",
+            ok: noMatch.noMatch === 2 && !noMatch.nothingNew && noMatch.markSeen,
+            detail: JSON.stringify(noMatch),
+        });
+
+        // 18. Behind you's head shows only that region, and a second press shows all four
+        const regions = `[...document.querySelectorAll('[data-jarvis-brief-region]')].map((s) => s.dataset.jarvisBriefRegion)`;
+        const behindHead = `document.querySelector('[data-jarvis-brief-region="behind"] button[aria-pressed]')`;
+        await h.ev(`${behindHead}?.click()`);
+        await h.ev("new Promise((r) => setTimeout(r, 400))");
+        const onlyBehind = await h.ev(regions);
+        await h.shot("cdp-shots/brief-act-18-only-behind.png");
+        await h.ev(`${behindHead}?.click()`);
+        await h.ev("new Promise((r) => setTimeout(r, 400))");
+        const allRegions = await h.ev(regions);
+        steps.push({
+            step: "18. F18: pressing Behind you's head shows only it, and pressing again shows all four regions",
+            ok: JSON.stringify(onlyBehind) === JSON.stringify(["behind"]) && allRegions.length === 4,
+            detail: JSON.stringify({ onlyBehind, allRegions }),
+        });
+
+        // 19. live: Unblock hides the row and drops the initiative's count at the click; Undo brings both back
+        await actFixture(h, null);
+        await h.ev(`document.querySelector('[data-jarvis-brief-attention-summary][aria-expanded="false"]')?.click()`);
+        const initRow = `[...document.querySelectorAll('[data-jarvis-brief-row="initiative"]')].find((r) => (r.innerText || "").includes(${JSON.stringify(ACT_EFFORT)}))`;
+        const blockedN = `Number(/(\\d+) blocked/.exec((${initRow})?.innerText || "")?.[1] ?? 0)`;
+        const settle = await lookEval(h, `
+            await until(() => ${actQueueRow("act-settle")} != null && ${initRow} != null, 30000);
+            const before = ${blockedN};
+            ${actQueueRow("act-settle")}?.querySelector('[data-jarvis-queue-act="unblock-chunk"]')?.click();
+            const t0 = Date.now();
+            const gone = await until(() => ${actQueueRow("act-settle")} == null && ${blockedN} === before - 1, 1000);
+            const goneMs = Date.now() - t0;
+            const after = ${blockedN};
+            return { before, gone, goneMs, after };
+        `);
+        await h.shot("cdp-shots/brief-act-19-settled.png");
+        const restored = await lookEval(h, `
+            await until(() => document.querySelector('[data-jarvis-toast-undo]') != null, 5000);
+            document.querySelector('[data-jarvis-toast-undo]')?.click();
+            const back = await until(() => ${actQueueRow("act-settle")} != null && ${blockedN} === ${settle.before}, 20000);
+            return { back, n: ${blockedN} };
+        `);
+        const reblocked19 = await actWaitChunk(h, ctx.effortoid, "act-settle", "blocked");
+        steps.push({
+            step: "19. F14: Unblock removes its Waiting row and one of the initiative's N blocked at once; Undo brings both back",
+            ok: settle.before > 0 && settle.gone && settle.after === settle.before - 1 && restored.back && reblocked19?.status === "blocked",
+            detail: JSON.stringify({ ...settle, restored, chunk: reblocked19?.status }),
+        });
+        await h.ev(`document.querySelector('[data-jarvis-brief-attention-summary][aria-expanded="true"]')?.click()`);
+
+        // 20. live: mark seen empties Behind you at the click; its Undo brings the rows back
+        const deltaN = `document.querySelectorAll('[data-jarvis-brief-region="behind"] [data-jarvis-brief-row="delta"]').length`;
+        const seen = await lookEval(h, `
+            await until(() => ${deltaN} > 0 && document.querySelector('[data-jarvis-brief-mark-seen]') != null, 20000);
+            const before = ${deltaN};
+            document.querySelector('[data-jarvis-brief-mark-seen]')?.click();
+            const emptied = await until(() => ${deltaN} === 0, 1000);
+            return { before, emptied, after: ${deltaN} };
+        `);
+        await h.ev(`document.querySelector('[data-jarvis-brief-region="behind"]')?.scrollIntoView({ block: "start" })`);
+        await h.shot("cdp-shots/brief-act-20-marked-seen.png");
+        const unseen = await lookEval(h, `
+            await until(() => document.querySelector('[data-jarvis-toast-undo]') != null, 5000);
+            document.querySelector('[data-jarvis-toast-undo]')?.click();
+            const back = await until(() => ${deltaN} > 0, 20000);
+            return { back, n: ${deltaN} };
+        `);
+        steps.push({
+            step: "20. F14: mark seen empties Behind you at the click, and its Undo restores the rows",
+            ok: seen.before > 0 && seen.emptied && unseen.back,
+            detail: JSON.stringify({ ...seen, unseen }),
+        });
+
+        // 21-27: the 11-05 code review's Runs, snapshot and pet findings. The review fixture's Runs: an asking direct
+        // agent above two live quick runs and twelve week-quiet orchestrator runs, and Shipped past its cap.
+        await actFixture(h, "review");
+        await actFilter(h, "");
+        const sessionRows = `[...document.querySelectorAll('[data-jarvis-brief-region="sessions"] [data-jarvis-brief-row="session"]')]`;
+        const LIVE_RUN = "sessions:run:run:r-review-live-2";
+        const f5 = await lookEval(h, `${ACT_BRIEF_LIB}
+            window.__briefActAgents ??= fx.agents;
+            await setAgents([]);
+            await nap(400);
+            globalStore.get(listNavAtom)?.setCursor(${JSON.stringify(LIVE_RUN)});
+            await nap(400);
+            const before = { cursor: flat(cursorRow()), top: scroll.scrollTop };
+            await setAgents(window.__briefActAgents);
+            // an entrance replay starts from opacity 0, so 60ms in it still reads below 1
+            const row = cursorRow();
+            const opacity = row != null ? Number(getComputedStyle(row.parentElement).opacity) : null;
+            await nap(400);
+            const names = ${sessionRows}.map(flat);
+            return {
+                before,
+                after: { cursor: flat(cursorRow()), top: scroll.scrollTop },
+                opacity,
+                asker: names.findIndex((t) => t.includes("review asker")),
+                live: names.findIndex((t) => t.includes("Review live quick run 2")),
+            };
+        `);
+        steps.push({
+            step: "21. F5: an asking agent arriving above a Runs row leaves the cursor and the scroll where they were, with no entrance replay",
+            ok:
+                f5.before.cursor.includes("Review live quick run 2") &&
+                f5.after.cursor === f5.before.cursor &&
+                f5.after.top === f5.before.top &&
+                f5.opacity === 1 &&
+                f5.asker >= 0 &&
+                f5.asker < f5.live,
+            detail: JSON.stringify(f5),
+        });
+        await h.shot("cdp-shots/brief-act-21-stable-key.png");
+
+        // 22. the asking agent's Answer goes to the Agent surface on that agent; a run whose Run has not loaded keeps
+        // its run badge
+        const f6 = await lookEval(h, `${ACT_BRIEF_LIB}
+            const brief = document.querySelector('[data-jarvis-region="brief"]');
+            const fk = brief && Object.keys(brief).find((k) => k.startsWith("__reactFiber$"));
+            let model = null;
+            for (let f = fk ? brief[fk] : null; f && model == null; f = f.return) {
+                if (f.memoizedProps?.model?.focusIdAtom) model = f.memoizedProps.model;
+            }
+            const rows = ${sessionRows};
+            const asker = rows.find((r) => flat(r).includes("review asker"));
+            const live = rows.find((r) => flat(r).includes("Review live quick run 1"));
+            const liveBadge = flat([...(live?.querySelectorAll("span") ?? [])].find((s) => s.className.includes("rounded-[5px]")));
+            button(asker, /^Answer$/)?.click();
+            await until(() => model != null && globalStore.get(model.surfaceAtom) === "agent", 3000);
+            return {
+                model: model != null,
+                answer: button(asker, /^Answer$/) != null || !document.contains(asker),
+                liveBadge,
+                focus: model != null ? globalStore.get(model.focusIdAtom) : null,
+                surface: model != null ? globalStore.get(model.surfaceAtom) : null,
+            };
+        `);
+        await h.shot("cdp-shots/brief-act-22-answer-agent.png");
+        steps.push({
+            step: "22. F6: an asking direct agent's Answer lands on the Agent surface with that agent focused; an unloaded run keeps its run badge",
+            ok: f6.focus === "tab-review-asker" && f6.surface === "agent" && f6.liveBadge === "quick run",
+            detail: JSON.stringify(f6),
+        });
+        await h.goto("jarvis");
+        await h.ev("new Promise((r) => setTimeout(r, 700))");
+
+        // 23. the kind chips count what the head's N live counts, not the week-quiet runs behind the fold
+        const f15 = await h.ev(`(() => {
+            const sec = document.querySelector('[data-jarvis-brief-region="sessions"]');
+            const t = (el) => (el?.innerText || "").replace(/\\s+/g, " ").trim();
+            const chip = (k) => t(sec?.querySelector('[data-jarvis-run-kind] [data-filter-option="' + k + '"]'));
+            return { head: t(sec?.firstElementChild), all: chip("all"), orchestrator: chip("orchestrator"), quick: chip("quick") };
+        })()`);
+        const chipN = (s) => Number(/(\d+)\s*$/.exec(s ?? "")?.[1] ?? NaN);
+        const liveN = Number(/(\d+) live/.exec(f15.head)?.[1] ?? NaN);
+        steps.push({
+            step: "23. F15: the all chip counts the runs the head's N live counts, not the 12 stale ones",
+            ok: liveN === 3 && chipN(f15.all) === liveN && chipN(f15.orchestrator) === 0 && chipN(f15.quick) === 2,
+            detail: JSON.stringify(f15),
+        });
+        await h.ev(`document.querySelector('[data-jarvis-brief-region="sessions"]')?.scrollIntoView({ block: "start" })`);
+        await h.shot("cdp-shots/brief-act-23-live-chips.png");
+
+        // 24. a run sheet on a shipped run steps through all of Shipped: the fourth run opens Shipped's fold and sits
+        // under the cursor. The fixture's runs exist only on this page, so they ride a real channel's run list, and
+        // the scenario lands the sheet on each one as the router would.
+        const SHIPPED_RUNS = ["r-review-shipped", ...Array.from({ length: 4 }, (_, i) => `r-review-shipped-${i + 1}`)];
+        await h.ev(`[...document.querySelectorAll('[data-jarvis-brief-shipped-more]')].find((b) => /show less/.test(b.innerText))?.click()`);
+        const f16 = await lookEval(h, `${ACT_BRIEF_LIB}
+            const ch = ${JSON.stringify(ctx.channelId ?? "")};
+            const ids = ${JSON.stringify(SHIPPED_RUNS)};
+            const { activeChannelIdAtom, activeChannelAtom, activeChannelRunsAtom } = await mod("app/view/agents/channelsstore.ts");
+            const { activeSubjectAtom, activeRunIdAtom } = await mod("app/view/jarvis/jarvissubjectstore.ts");
+            const { briefSheetOpenAtom, briefRunListAtom } = await mod("app/view/jarvis/jarvisstore.ts");
+            globalStore.set(activeChannelIdAtom, ch);
+            const loaded = await until(() => globalStore.get(activeChannelAtom) != null && globalStore.get(activeChannelRunsAtom).length > 0, 15000);
+            const real = globalStore.get(activeChannelRunsAtom)[0];
+            globalStore.set(activeChannelRunsAtom, ids.map((id) => ({ ...real, id, status: "done", mode: "quick" })));
+            globalStore.set(activeRunIdAtom, { [ch]: ids[0] });
+            globalStore.set(activeSubjectAtom, { kind: "channel", id: ch });
+            globalStore.set(briefSheetOpenAtom, true);
+            await nap(700);
+            const behind = document.querySelector('[data-jarvis-brief-region="behind"]');
+            const shippedHead = [...(behind?.querySelectorAll("div") ?? [])].find((d) => d.firstElementChild?.textContent === "Shipped · 7 days");
+            const list = globalStore.get(briefRunListAtom);
+            const navN = globalStore.get(listNavAtom)?.navigableIds.length ?? 0;
+            const stepped = [];
+            for (let i = 1; i <= 3; i++) {
+                const c = globalStore.get(listNavAtom);
+                const next = c.navigableIds[c.navigableIds.indexOf(c.cursorId) + 1];
+                stepped.push(next);
+                c.setCursor(next);
+                globalStore.set(activeRunIdAtom, { [ch]: ids[i] });
+                await nap(500);
+            }
+            const cur = cursorRow();
+            return {
+                loaded,
+                list,
+                head: flat(shippedHead?.children[1]),
+                navN,
+                stepped,
+                cursor: flat(cur),
+                cursorRow: cur?.dataset.jarvisBriefRow ?? null,
+                fold: flat(behind?.querySelector('[data-jarvis-brief-shipped-more]')),
+                drawn: behind?.querySelectorAll('[data-jarvis-brief-row="shipped"]').length ?? 0,
+            };
+        `);
+        await h.ev(`document.querySelector('[data-jarvis-brief-cursor="true"]')?.scrollIntoView({ block: "center" })`);
+        await h.shot("cdp-shots/brief-act-24-shipped-fold.png");
+        await lookEval(h, `
+            const { globalStore } = await mod("app/store/jotaiStore.ts");
+            const { activeChannelIdAtom } = await mod("app/view/agents/channelsstore.ts");
+            const { clearSubject } = await mod("app/view/jarvis/jarvissubjectstore.ts");
+            const { briefSheetOpenAtom } = await mod("app/view/jarvis/jarvisstore.ts");
+            globalStore.set(briefSheetOpenAtom, false);
+            clearSubject();
+            globalStore.set(activeChannelIdAtom, undefined);
+            await nap(400);
+        `);
+        await h.ev(`[...document.querySelectorAll('[data-jarvis-brief-shipped-more]')].find((b) => /show less/.test(b.innerText))?.click()`);
+        steps.push({
+            step: "24. F16: a run sheet on a shipped run counts all of Shipped, and stepping to the fourth run opens Shipped's fold under the cursor",
+            ok:
+                ctx.arrangeError == null &&
+                f16.loaded &&
+                JSON.stringify(f16.list) === JSON.stringify(SHIPPED_RUNS) &&
+                Number(f16.head) === SHIPPED_RUNS.length &&
+                f16.navN === SHIPPED_RUNS.length &&
+                f16.cursorRow === "shipped" &&
+                f16.cursor.includes("Review shipped run 3") &&
+                f16.fold === "show less" &&
+                f16.drawn === SHIPPED_RUNS.length,
+            detail: ctx.arrangeError ?? JSON.stringify(f16),
+        });
+
+        // 25. a partial snapshot says which legs it could not read, and the regions they feed say so instead of
+        // claiming nothing is there
+        await actFixture(h, "partial");
+        const f10 = await h.ev(`(() => {
+            const t = (s) => (document.querySelector(s)?.innerText || "").replace(/\\s+/g, " ").trim();
+            return {
+                band: t('[data-jarvis-brief-band="partial"]'),
+                retry: document.querySelector('[data-jarvis-brief-partial-retry]') != null,
+                runs: t('[data-jarvis-brief-region="sessions"]'),
+                behind: t('[data-jarvis-brief-region="behind"]'),
+                initiatives: t('[data-jarvis-brief-region="initiatives"]'),
+            };
+        })()`);
+        await h.shot("cdp-shots/brief-act-25-partial.png");
+        steps.push({
+            step: "25. F10: a partial snapshot shows a band naming Runs and Initiatives with Retry, and Runs, Shipped and Initiatives say they couldn't be read",
+            ok:
+                /Partial snapshot: couldn't read Runs, Initiatives\./.test(f10.band) &&
+                /Retry/.test(f10.band) &&
+                f10.retry &&
+                /couldn't read runs/i.test(f10.runs) &&
+                /couldn't read shipped runs/i.test(f10.behind) &&
+                !/nothing shipped/i.test(f10.behind) &&
+                /couldn't read initiatives/i.test(f10.initiatives) &&
+                !/no initiative is active/i.test(f10.initiatives),
+            detail: JSON.stringify(f10),
+        });
+
+        // 26. a cursor move that scrolls the rows is not the user moving on: Where we were stays open. The stale fold
+        // is opened first so the last row sits below the fold.
+        await actFixture(h, "review");
+        await h.ev(`document.querySelector('[data-jarvis-brief-stale][aria-expanded="false"]')?.click()`);
+        const f20 = await lookEval(h, `${ACT_BRIEF_LIB}
+            const { petBubbleAtom } = await mod("app/view/jarvis/petstore.ts");
+            scroll.scrollTop = 0;
+            await nap(300);
+            globalStore.set(petBubbleAtom, { id: "resume:brief-act:2", at: 2, kind: "resume", text: "Where we were — verify" });
+            await nap(200);
+            const shown = globalStore.get(petBubbleAtom) != null;
+            const top0 = scroll.scrollTop;
+            const ids = globalStore.get(listNavAtom)?.navigableIds ?? [];
+            globalStore.get(listNavAtom)?.setCursor(ids[ids.length - 1]);
+            await nap(600);
+            return { shown, top0, top: scroll.scrollTop, open: globalStore.get(petBubbleAtom) != null };
+        `);
+        await h.shot("cdp-shots/brief-act-26-bubble-stays.png");
+        await lookEval(h, `
+            const { globalStore } = await mod("app/store/jotaiStore.ts");
+            const { petBubbleAtom } = await mod("app/view/jarvis/petstore.ts");
+            globalStore.set(petBubbleAtom, null);
+        `);
+        await h.ev(`document.querySelector('[data-jarvis-brief-stale][aria-expanded="true"]')?.click()`);
+        steps.push({
+            step: "26. F20: a cursor move that scrolls the rows with no key or pointer event leaves Where we were open",
+            ok: f20.shown && f20.top > f20.top0 && f20.open,
+            detail: JSON.stringify(f20),
+        });
+
+        // 27. live: a Stop the server refuses shows the reason in an error toast, and the run still reads as before
+        await actFixture(h, null);
+        const stopRow = `[...document.querySelectorAll('[data-jarvis-brief-region="sessions"] [data-jarvis-brief-row="session"]')].find((r) => (r.innerText || "").includes("verify brief-act: do nothing"))`;
+        const STOP_REFUSED = "verify: the cancel was refused";
+        const f22before = await lookEval(h, `
+            (await mod("app/view/jarvis/briefingstore.ts")).refreshBriefing();
+            const found = await until(() => ${stopRow}?.querySelector('button[title="Stop this session"]') != null, 60000);
+            return { found, text: flat(${stopRow}) };
+        `);
+        await failRpc(h, "CancelRunCommand", STOP_REFUSED);
+        const f22 = await lookEval(h, `
+            ${stopRow}?.querySelector('button[title="Stop this session"]')?.click();
+            await nap(300);
+            button(dialog(), /^Cancel run$/)?.click();
+            await until(() => document.querySelector('[data-jarvis-brief-toast="error"]') != null, 5000);
+            await nap(300);
+            return {
+                toast: flat(document.querySelector('[data-jarvis-brief-toast]')),
+                error: document.querySelector('[data-jarvis-brief-toast="error"]') != null,
+                text: flat(${stopRow}),
+            };
+        `);
+        await h.shot("cdp-shots/brief-act-27-stop-refused.png");
+        await releaseRpc(h, "CancelRunCommand");
+        steps.push({
+            step: "27. F22: a Stop the server refuses shows an error toast with its message, and the run row is unchanged",
+            ok:
+                ctx.arrangeError == null &&
+                f22before.found &&
+                f22.error &&
+                f22.toast.includes(STOP_REFUSED) &&
+                f22.text === f22before.text &&
+                !/stopped/.test(f22.text),
+            detail: ctx.arrangeError ?? JSON.stringify({ before: f22before, ...f22 }),
+        });
+
+        // 28-34: the 11-05 code review's Initiatives findings, live. Two more initiatives: a staged one and an
+        // archived one, deleted in teardown; act-label is blocked again for the filter of step 28.
+        try {
+            ctx.stagedoid = (
+                await h.rpc("effortcreate", {
+                    title: ACT_STAGED,
+                    chunks: [{ label: "st-a" }, { label: "st-b" }, { label: "st-c" }],
+                })
+            ).effortoid;
+            await h.rpc("effortmutate", {
+                effortoid: ctx.stagedoid,
+                author: "you",
+                ops: [
+                    { op: "setChunkStage", chunk: "st-a", stage: "Alpha" },
+                    { op: "setChunkStage", chunk: "st-b", stage: "Beta" },
+                    { op: "setChunkStage", chunk: "st-c", stage: "Beta" },
+                    { op: "setChunkStatus", chunk: "st-b", status: "done" },
+                    { op: "setChunkStatus", chunk: "st-c", status: "done" },
+                ],
+            });
+            ctx.archivedoid = (
+                await h.rpc("effortcreate", { title: ACT_ARCHIVED, chunks: [{ label: "arch-one" }, { label: "arch-two" }] })
+            ).effortoid;
+            await h.rpc("effortmutate", { effortoid: ctx.archivedoid, author: "you", ops: [{ op: "setStatus", status: "archived" }] });
+            await h.rpc("effortmutate", {
+                effortoid: ctx.effortoid,
+                author: "you",
+                ops: [{ op: "setChunkStatus", chunk: "act-label", status: "blocked", note: "needs: the G4 label" }],
+            });
+        } catch (e) {
+            ctx.initError = String(e?.message ?? e);
+        }
+        const stagedOref = `effort:${ctx.stagedoid}`;
+        const archivedOref = `effort:${ctx.archivedoid}`;
+
+        // 28. a filter matching a Waiting row's needs but not its initiative: opening the row lands on the chunk
+        await actFilter(h, "G4 label");
+        const f3 = await lookEval(h, `
+            const found = await until(() => ${actQueueRow("act-label")} != null, 30000);
+            ${actQueueRow("act-label")}?.click();
+            const landed = await until(() => (document.querySelector('[data-jarvis-chunk-sidebar]')?.innerText || "").includes("act-label"), 6000);
+            await nap(300);
+            return {
+                found,
+                landed,
+                filter: document.querySelector('[data-jarvis-brief-filter]')?.value ?? null,
+                pressed: document.querySelector('[data-jarvis-tracker-chunk="act-label"]')?.getAttribute("aria-pressed") ?? null,
+                open: flat(${ACT_OPEN_INIT}),
+            };
+        `);
+        await h.shot("cdp-shots/brief-act-28-filter-landing.png");
+        steps.push({
+            step: "28. F3: with a filter that matches a Waiting row's needs but not its initiative, opening the row lands on its chunk and clears the filter",
+            ok: ctx.initError == null && f3.found && f3.landed && f3.filter === "" && f3.pressed === "true" && f3.open.includes(ACT_EFFORT),
+            detail: ctx.initError ?? JSON.stringify(f3),
+        });
+        await h.ev(`${ACT_OPEN_INIT}?.click()`);
+
+        // 29. the ↳ reveal on an archived initiative turns Show archived on and opens its plan on the chunk
+        await h.ev(`document.querySelector('[data-jarvis-brief-archived="hide"]')?.click()`);
+        const f4 = await lookEval(h, `
+            const { globalStore } = await mod("app/store/jotaiStore.ts");
+            const { loadArchivedEfforts } = await mod("app/view/jarvis/effortstore.ts");
+            const { briefRevealChunkAtom } = await mod("app/view/jarvis/jarvisstore.ts");
+            await loadArchivedEfforts();
+            await nap(300);
+            const hiddenBefore = document.querySelector('[data-jarvis-brief-archived="hide"]') == null && ${actInitRow(ACT_ARCHIVED)} == null;
+            globalStore.get(briefRevealChunkAtom)?.(${JSON.stringify(archivedOref)}, "arch-two");
+            const landed = await until(() => document.querySelector('[data-jarvis-tracker-chunk="arch-two"]')?.getAttribute("aria-pressed") === "true", 6000);
+            await nap(300);
+            return {
+                hiddenBefore,
+                landed,
+                showing: document.querySelector('[data-jarvis-brief-archived="hide"]') != null,
+                open: flat(${ACT_OPEN_INIT}),
+            };
+        `);
+        await h.ev(`${ACT_OPEN_INIT}?.scrollIntoView({ block: "center" })`);
+        await h.shot("cdp-shots/brief-act-29-archived-reveal.png");
+        steps.push({
+            step: "29. F4: the ↳ reveal on an archived initiative turns Show archived on and opens its plan on the chunk",
+            ok: f4.hiddenBefore && f4.landed && f4.showing && f4.open.includes(ACT_ARCHIVED),
+            detail: JSON.stringify(f4),
+        });
+        await h.ev(`${ACT_OPEN_INIT}?.click()`);
+        await h.ev(`document.querySelector('[data-jarvis-brief-archived="hide"]')?.click()`);
+
+        // 30. a plan whose first load fails shows the error and Retry in place of the loading line; Retry loads it
+        const PLAN_REFUSED = "verify: the plan read was refused";
+        await actFilter(h, ACT_STAGED);
+        await actUncache(h, stagedOref);
+        await failRpc(h, "EffortGetCommand", PLAN_REFUSED);
+        const f13 = await lookEval(h, `
+            await until(() => ${actInitRow(ACT_STAGED)} != null, 30000);
+            ${actInitRow(ACT_STAGED)}?.click();
+            const shown = await until(() => document.querySelector('[data-jarvis-initiative-detail="error"]') != null, 6000);
+            return {
+                shown,
+                text: flat(document.querySelector('[data-jarvis-initiative-detail="error"]')),
+                retry: document.querySelector('[data-jarvis-plan-retry]') != null,
+                loading: document.querySelector('[data-jarvis-initiative-detail="loading"]') != null,
+            };
+        `);
+        await h.shot("cdp-shots/brief-act-30-plan-error.png");
+        await releaseRpc(h, "EffortGetCommand");
+        // the retried read waits on a gate rather than holdRpc's never-settling promise, so the Retry's own load
+        // is the one that draws the plan once the gate opens
+        const retrying = await lookEval(h, `
+            const { RpcApi } = await mod("app/store/wshclientapi.ts");
+            const real = RpcApi.EffortGetCommand;
+            let open;
+            const gate = new Promise((r) => (open = r));
+            window.__planRetryGate = () => { RpcApi.EffortGetCommand = real; open(); };
+            RpcApi.EffortGetCommand = (...args) => gate.then(() => real.apply(RpcApi, args));
+            document.querySelector('[data-jarvis-plan-retry]')?.click();
+            const loading = await until(() => document.querySelector('[data-jarvis-initiative-detail="loading"]') != null, 6000);
+            return { loading, error: document.querySelector('[data-jarvis-initiative-detail="error"]') != null };
+        `);
+        await h.shot("cdp-shots/brief-act-30-plan-retrying.png");
+        const f13b = await lookEval(h, `
+            window.__planRetryGate?.();
+            delete window.__planRetryGate;
+            const drawn = await until(() => document.querySelector('[data-jarvis-tracker-stage]') != null, 10000);
+            return { drawn, error: document.querySelector('[data-jarvis-initiative-detail="error"]') != null };
+        `);
+        await h.shot("cdp-shots/brief-act-30-plan-retried.png");
+        steps.push({
+            step: "30. F13: an initiative whose plan fails to load shows the error with Retry, and Retry draws the plan, showing the plan loading while it retries",
+            ok:
+                f13.shown &&
+                f13.text.includes(PLAN_REFUSED) &&
+                f13.retry &&
+                !f13.loading &&
+                retrying.loading &&
+                !retrying.error &&
+                f13b.drawn &&
+                !f13b.error,
+            detail: JSON.stringify({ ...f13, retrying, retried: f13b }),
+        });
+        await h.ev(`${ACT_OPEN_INIT}?.click()`);
+
+        // 31. Details asked of an unloaded initiative, which is then collapsed, does not open on the next one
+        await actFilter(h, "verify brief-act");
+        await actUncache(h, stagedOref);
+        await holdRpc(h, "EffortGetCommand");
+        const f19menu = await actMenuClick(h, ACT_STAGED, "Details");
+        await h.ev("new Promise((r) => setTimeout(r, 400))");
+        const f19loading = await h.ev(`document.querySelector('[data-jarvis-initiative-detail="loading"]') != null`);
+        await h.ev(`${ACT_OPEN_INIT}?.click()`);
+        await releaseRpc(h, "EffortGetCommand");
+        const f19 = await lookEval(h, `
+            await nap(400);
+            ${actInitRow(ACT_EFFORT)}?.click();
+            const drawn = await until(() => document.querySelector('[data-jarvis-tracker-chunk="act-soak"]') != null, 10000);
+            await nap(600);
+            return { drawn, open: flat(${ACT_OPEN_INIT}), form: document.querySelector('[data-effort-field]') != null };
+        `);
+        await h.shot("cdp-shots/brief-act-31-no-stray-details.png");
+        steps.push({
+            step: "31. F19: Details from the menu of an unloaded initiative, collapsed before it loads, does not show on the next initiative opened",
+            ok: f19menu.clicked && f19loading && f19.drawn && f19.open.includes(ACT_EFFORT) && !f19.form,
+            detail: JSON.stringify({ menu: f19menu, loading: f19loading, ...f19 }),
+        });
+        await h.ev(`${ACT_OPEN_INIT}?.click()`);
+        await actFilter(h, "");
+
+        // 32. with Alpha's only chunk waiting out its delete, landing on st-c unfolds Beta (folded: all done) under the
+        // cursor. The delete is scheduled as the plan's Delete schedules it, then undone inside its window.
+        const f21 = await lookEval(h, `
+            const { globalStore } = await mod("app/store/jotaiStore.ts");
+            const { briefUndo, chunkKey } = await mod("app/view/jarvis/briefundo.ts");
+            const { loadEffortDetail, removeChunks, effortChunkRows, effortDetailAtom } = await mod("app/view/jarvis/effortstore.ts");
+            const { briefRevealChunkAtom } = await mod("app/view/jarvis/jarvisstore.ts");
+            const oref = ${JSON.stringify(stagedOref)};
+            await loadEffortDetail(oref);
+            const plan = effortChunkRows(globalStore.get(effortDetailAtom).get(oref));
+            briefUndo.schedule([chunkKey(oref, "st-a")], "Deleted “st-a”", () => removeChunks(oref, plan, ["st-a"]));
+            globalStore.get(briefRevealChunkAtom)?.(oref, "st-c");
+            const landed = await until(() => document.querySelector('[data-jarvis-tracker-chunk="st-c"]')?.getAttribute("aria-pressed") === "true", 3000);
+            return {
+                landed,
+                beta: document.querySelector('[data-jarvis-tracker-stage="Beta"]')?.getAttribute("aria-expanded") ?? null,
+                alpha: document.querySelector('[data-jarvis-tracker-stage="Alpha"]') != null,
+            };
+        `);
+        await h.shot("cdp-shots/brief-act-32-pending-delete-landing.png");
+        const f21undo = await lookEval(h, `
+            document.querySelector('[data-jarvis-toast-undo]')?.click();
+            const back = await until(() => document.querySelector('[data-jarvis-tracker-stage="Alpha"]') != null, 3000);
+            return { back };
+        `);
+        const kept = await actChunk(h, ctx.stagedoid, "st-a");
+        steps.push({
+            step: "32. F21: with the first stage's only chunk pending delete, landing on a later stage's chunk unfolds that stage with the cursor on it; Undo keeps the chunk",
+            ok: f21.landed && f21.beta === "true" && !f21.alpha && f21undo.back && kept != null,
+            detail: JSON.stringify({ ...f21, undo: f21undo, kept: kept?.label ?? null }),
+        });
+        await h.ev(`${ACT_OPEN_INIT}?.click()`);
+
+        // 33. a Pause the server refuses shows an error toast, and no "Paused"
+        const MUTATE_REFUSED = "verify: the pause was refused";
+        await actFilter(h, ACT_STAGED);
+        await actClearToast(h);
+        await failRpc(h, "EffortMutateCommand", MUTATE_REFUSED);
+        const f11menu = await actMenuClick(h, ACT_STAGED, "Pause");
+        const f11 = await lookEval(h, `
+            const shown = await until(() => document.querySelector('[data-jarvis-brief-toast="error"]') != null, 5000);
+            await nap(300);
+            return { shown, toast: flat(document.querySelector('[data-jarvis-brief-toast]')) };
+        `);
+        await h.shot("cdp-shots/brief-act-33-pause-refused.png");
+        await releaseRpc(h, "EffortMutateCommand");
+        const stagedStatus = ((await h.rpc("effortget", { effortoid: ctx.stagedoid })) ?? {}).effort?.status ?? null;
+        steps.push({
+            step: "33. F11: a Pause from the menu that the server refuses shows an error toast with its reason, and no Paused toast",
+            ok: f11menu.clicked && f11.shown && f11.toast.includes(MUTATE_REFUSED) && !/Paused/.test(f11.toast) && stagedStatus != null && stagedStatus !== "paused",
+            detail: JSON.stringify({ menu: f11menu, ...f11, status: stagedStatus }),
+        });
+        await actFilter(h, "");
+
+        // 34. a status change from the record peek that the server refuses names the reason in an error toast. The
+        // refused write leaves whichever record it opens unchanged.
+        const STATUS_REFUSED = "verify: the status write was refused";
+        await actClearToast(h);
+        await failRpc(h, "SetDossierStatusCommand", STATUS_REFUSED);
+        const f12 = await lookEval(h, `
+            const { globalStore } = await mod("app/store/jotaiStore.ts");
+            const { RpcApi } = await mod("app/store/wshclientapi.ts");
+            const { TabRpcClient } = await mod("app/store/wshrpcutil.ts");
+            const { briefPeekRecordAtom } = await mod("app/view/jarvis/jarvisstore.ts");
+            const spaces = (await RpcApi.ListDossiersCommand(TabRpcClient))?.spaces ?? [];
+            const record = (spaces.find((s) => s.id === "verify-brief-act-do-nothing") ?? spaces[0])?.id ?? null;
+            if (record == null) return { record };
+            globalStore.set(briefPeekRecordAtom, record);
+            const band = '[data-jarvis-brief-band="peek"]';
+            await until(() => document.querySelector(band + ' [data-jarvis-peek-status-toggle]') != null, 10000);
+            const pick = [...document.querySelectorAll(band + ' button[data-jarvis-peek-status]')].find((b) => ["active", "paused"].includes(b.dataset.jarvisPeekStatus));
+            const status = pick?.dataset.jarvisPeekStatus ?? null;
+            pick?.click();
+            const shown = await until(() => document.querySelector('[data-jarvis-brief-toast="error"]') != null, 5000);
+            await nap(300);
+            // the toast answers the open peek, so it must draw above the dialog scrim, not under it
+            const el = document.querySelector("[data-jarvis-brief-toast]");
+            const r = el?.getBoundingClientRect();
+            const hit = r ? document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) : null;
+            const onTop = hit?.closest("[data-jarvis-brief-toast]") != null;
+            return { record, status, shown, onTop, toast: flat(el) };
+        `);
+        await h.shot("cdp-shots/brief-act-34-status-refused.png");
+        await releaseRpc(h, "SetDossierStatusCommand");
+        await lookEval(h, `
+            const { globalStore } = await mod("app/store/jotaiStore.ts");
+            globalStore.set((await mod("app/view/jarvis/jarvisstore.ts")).briefPeekRecordAtom, null);
+        `);
+        steps.push({
+            step: "34. F12: a status change from the record peek that the server refuses shows an error toast naming the reason, drawn above the peek",
+            ok: f12.record != null && f12.status != null && f12.shown && f12.onTop === true && f12.toast.includes("Couldn't set the record's status") && f12.toast.includes(STATUS_REFUSED),
+            detail: JSON.stringify(f12),
+        });
         return steps;
     },
     async teardown(h, ctx) {
+        await releaseRpc(h, "AckRunCommand").catch(() => {});
+        await releaseRpc(h, "CancelRunCommand").catch(() => {});
+        for (const command of ["EffortGetCommand", "EffortMutateCommand", "SetDossierStatusCommand"]) {
+            await releaseRpc(h, command).catch(() => {});
+        }
+        for (const effortoid of [ctx?.stagedoid, ctx?.archivedoid]) {
+            if (effortoid) {
+                await h.rpc("effortdelete", { effortoid }).catch((e) => {
+                    console.error(`brief-act teardown: delete an initiative failed: ${e?.message ?? e}`);
+                });
+            }
+        }
         await actFilter(h, "").catch(() => {});
         await actFixture(h, null).catch(() => {});
         await h.cdp("Emulation.clearDeviceMetricsOverride").catch(() => {});
@@ -5240,5 +6046,7 @@ export const briefAct = {
                 console.error(`brief-act teardown: delete the initiative failed: ${e?.message ?? e}`);
             });
         }
+        // the channel, its run and the temp dir; it reloads, which also drops the review fixture's swapped roster
+        if (ctx?.cwd != null) await teardownFixtureRun(h, ctx, "brief-act");
     },
 };

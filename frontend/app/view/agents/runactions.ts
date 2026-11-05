@@ -171,8 +171,21 @@ export function rerunFinalStage(channelId: string, runId: string): Promise<void>
 // liveCount 0 (e.g. the worker already exited — the "blocked · worker exited" card) cancels directly.
 // Copy reassures that completed work is kept: the backend stops the processes but keeps worker tabs,
 // transcripts, and completed phases.
-export function confirmCancelRun(channelId: string, runId: string, liveCount: number): void {
-    const doCancel = () => fireAndForget(() => cancelRun(channelId, runId));
+// A caller with a place to show a failure passes onError; without one the failure is only logged.
+export function confirmCancelRun(
+    channelId: string,
+    runId: string,
+    liveCount: number,
+    onError?: (message: string) => void
+): void {
+    if (channelId === "" && onError != null) {
+        onError("This run names no channel, so it can't be cancelled from here");
+        return;
+    }
+    const doCancel = () =>
+        onError == null
+            ? fireAndForget(() => cancelRun(channelId, runId))
+            : void cancelRun(channelId, runId).catch((e) => onError(e instanceof Error ? e.message : String(e)));
     if (liveCount <= 0) {
         doCancel();
         return;

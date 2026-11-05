@@ -60,6 +60,7 @@ import {
     type PetCorner,
 } from "./petstore";
 import { nextUtterance, unreadAfterSaying } from "./petvoice";
+import { petYields, YIELD_OPACITY } from "./petyield";
 
 // The one utterance kind that ripples. Punctuation is not decoration on every event — a wave that crossed
 // the network for each of the ten kinds would be constant motion and would stop meaning anything. A
@@ -141,6 +142,8 @@ export function PetView({ model }: { model: AgentsViewModel }) {
     // rebuild the GL context.
     const [anchor, setAnchor] = useState<HTMLDivElement | null>(null);
     const draggingRef = useRef(false);
+    // over a surface's control, the avatar fades and lets the pointer through to it (petyield.ts)
+    const [yielding, setYielding] = useState(false);
     const x = useMotionValue(0);
     const y = useMotionValue(0);
 
@@ -364,6 +367,29 @@ export function PetView({ model }: { model: AgentsViewModel }) {
         }
     }, [posture]);
 
+    useEffect(() => {
+        if (anchor == null) {
+            return;
+        }
+        let current = false;
+        const onMove = (e: PointerEvent) => {
+            const beneath = () =>
+                document.elementsFromPoint(e.clientX, e.clientY).find((el) => !anchor.contains(el)) ?? null;
+            const next = petYields(
+                { x: e.clientX, y: e.clientY, buttons: e.buttons },
+                anchor.getBoundingClientRect(),
+                beneath,
+                current
+            );
+            if (next !== current) {
+                current = next;
+                setYielding(next);
+            }
+        };
+        window.addEventListener("pointermove", onMove, { passive: true });
+        return () => window.removeEventListener("pointermove", onMove);
+    }, [anchor]);
+
     const openPeek = () => {
         globalStore.set(petPeekOpenAtom, true);
         globalStore.set(petUnreadAtom, false);
@@ -392,8 +418,8 @@ export function PetView({ model }: { model: AgentsViewModel }) {
                 // has to measure the before and after boxes itself.
                 layout
                 initial={reduce ? false : { opacity: 0, scale: 0.55 }}
-                animate={{ opacity: quiet ? 0.4 : 1, scale: 1 }}
-                whileHover={{ opacity: 1, scale: 1.07 }}
+                animate={{ opacity: yielding ? YIELD_OPACITY : quiet ? 0.4 : 1, scale: 1 }}
+                whileHover={yielding ? undefined : { opacity: 1, scale: 1.07 }}
                 whileTap={{ scale: 0.93 }}
                 transition={
                     reduce
@@ -441,9 +467,11 @@ export function PetView({ model }: { model: AgentsViewModel }) {
                 // opacity is animated above rather than set here: an inline style beats a utility class,
                 // so leaving the quiet/hover opacity in the class list would have left two owners for it
                 // and the class would always have lost.
+                data-pet-yielding={yielding ? "" : undefined}
                 className={cn(
                     "fixed z-[60] flex cursor-grab items-center justify-center rounded-full outline-none active:cursor-grabbing",
-                    CORNER_CLASS[corner]
+                    CORNER_CLASS[corner],
+                    yielding && "pointer-events-none"
                 )}
             >
                 {/* The idle renderer's canvas is hidden rather than unmounted: unmounting the WebGL one

@@ -24,9 +24,9 @@ const ERRAND_TIMEOUT_MS = 130_000;
 
 // A land re-runs Check and Verify before it merges: orchestrate.LandTimeout (45 min) plus the margin
 // `wsh runs land` gives it.
-const LAND_TIMEOUT_MS = 45 * 60_000 + 10_000;
+export const LAND_TIMEOUT_MS = 45 * 60_000 + 10_000;
 // orchestrate.LandState_Landed
-const LAND_STATE_LANDED = "landed";
+export const LAND_STATE_LANDED = "landed";
 const STILL_HELD: PetActState = { status: "error", text: "Still held" };
 
 function errText(e: unknown): string {

@@ -69,7 +69,7 @@ func (ws *WshServer) GetUsageStatsCommand(ctx context.Context, data wshrpc.Comma
 	if err != nil {
 		return nil, fmt.Errorf("linking usage sessions to runs: %w", err)
 	}
-	return &wshrpc.CommandGetUsageStatsRtnData{Buckets: out, Sessions: sessions}, nil
+	return &wshrpc.CommandGetUsageStatsRtnData{Buckets: out, Sessions: sessions, Efforts: usageEfforts(ctx, sessions)}, nil
 }
 
 func (ws *WshServer) GetRecentSessionsCommand(ctx context.Context, data wshrpc.CommandGetRecentSessionsData) (*wshrpc.CommandGetRecentSessionsRtnData, error) {

@@ -83,21 +83,48 @@ export function effortDetailIsFresh(cached: Effort | undefined, freshTs?: number
     return cached != null && (freshTs == null || cached.updatedts >= freshTs);
 }
 
+// The last failed load per oref, so an initiative whose plan never arrived can say why and offer a retry:
+// effort sync refreshes only orefs already cached, so nothing else would ever load it again.
+export const effortLoadErrorAtom = atom<Map<string, string>>(new Map()) as PrimitiveAtom<Map<string, string>>;
+
+function setLoadError(oref: string, message: string | null): void {
+    const cur = globalStore.get(effortLoadErrorAtom);
+    if (message == null && !cur.has(oref)) {
+        return;
+    }
+    const next = new Map(cur);
+    if (message == null) {
+        next.delete(oref);
+    } else {
+        next.set(oref, message);
+    }
+    globalStore.set(effortLoadErrorAtom, next);
+}
+
 // Cache fill for the sheet and the composer; a successful mutate has already replaced the cache entry, so
-// callers may skip this. Failures throw to the caller, which owns the error state. The stale entry is left
-// in place across a refetch on purpose — dropping it first would blank an open sheet's rows.
+// callers may skip this. A failure is recorded under the oref (effortLoadErrorAtom) and still throws to the
+// caller; a load that starts clears it first, so a Retry draws the loading line again until it settles. The
+// stale entry is left in place across a refetch on purpose — dropping it first would blank an open sheet's rows.
 export async function loadEffortDetail(oref: string, freshTs?: number): Promise<void> {
     if (effortDetailIsFresh(globalStore.get(effortDetailAtom).get(oref), freshTs)) {
         return;
     }
-    const rtn = await RpcApi.EffortGetCommand(
-        TabRpcClient,
-        { effortoid: effortOid(oref) },
-        { timeout: stateRpcTimeoutMs }
-    );
+    setLoadError(oref, null);
+    let rtn: CommandEffortGetRtnData;
+    try {
+        rtn = await RpcApi.EffortGetCommand(
+            TabRpcClient,
+            { effortoid: effortOid(oref) },
+            { timeout: stateRpcTimeoutMs }
+        );
+    } catch (e) {
+        setLoadError(oref, e instanceof Error ? e.message : String(e));
+        throw e;
+    }
     const cache = new Map(globalStore.get(effortDetailAtom));
     cache.set(oref, rtn.effort);
     globalStore.set(effortDetailAtom, cache);
+    setLoadError(oref, null);
 }
 
 // wavesrv publishes effort:update on every effort write and delete, including the ones made outside this

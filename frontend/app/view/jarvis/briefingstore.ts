@@ -10,7 +10,7 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type Atom, type PrimitiveAtom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import { BRIEFING_FIXTURES, type BriefingFixtureName } from "./briefingfixtures";
-import { SEVEN_DAYS_MS } from "./briefingmodel";
+import { missingLegs, SEVEN_DAYS_MS } from "./briefingmodel";
 
 export interface BriefingSnapshot {
     state: WorkState;
@@ -126,7 +126,7 @@ export async function loadBriefingAsync(): Promise<void> {
             return; // superseded
         }
         const state = rtn.state;
-        const complete = state.sources.runs === true && state.sources.dossiers === true;
+        const complete = missingLegs(state.sources).length === 0;
         globalStore.set(briefingAckAtom, "waiting");
         globalStore.set(fetchedBriefingStateAtom, {
             snapshot: { state, queryStartedAt, actualCursor, complete },
