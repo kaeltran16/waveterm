@@ -5,7 +5,7 @@ import { randomBytes } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { git, reloadApp } from "./scenarios-shared.mjs";
+import { git, lookEval, reloadApp, setInputExpr, waveService } from "./scenarios-shared.mjs";
 import {
     DIFF_EDITOR,
     fileRowSel,
@@ -15,6 +15,7 @@ import {
     pickHistoryRow,
     removeFixtures,
     setViewport,
+    sleep,
     textOf,
     until,
 } from "./scenarios-files-scope.mjs";
@@ -36,10 +37,139 @@ async function emptyStateOf(h, path, kind) {
 }
 
 // an open diff can hold focus in Monaco, where the dispatcher lets every key through
-async function pressKey(h, key, code, vk) {
+async function pressKey(h, key, code, vk, modifiers = 0) {
     await h.ev("document.activeElement?.blur?.()");
-    await h.cdp("Input.dispatchKeyEvent", { type: "keyDown", key, code, text: key, windowsVirtualKeyCode: vk });
-    await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", key, code, windowsVirtualKeyCode: vk });
+    // a named key (Enter) types no character
+    const text = key.length === 1 ? key : undefined;
+    await h.cdp("Input.dispatchKeyEvent", { type: "keyDown", key, code, text, windowsVirtualKeyCode: vk, modifiers });
+    await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", key, code, windowsVirtualKeyCode: vk, modifiers });
+}
+
+const SHIFT = 8; // CDP modifier bitmask
+const CTRL = 2;
+const COMMENT_STORAGE_KEY = "diff.comments.pending";
+const FLAGS_KEY = "agent.launch.flags";
+// a real Claude Code session on haiku, which keeps it cheap. The prompt is typed into its terminal rather than passed
+// on the command line: the launch splits a quoted argument at its first space.
+const ASK_COMMAND = "claude --model haiku";
+const ASK_PROMPT = "Use the AskUserQuestion tool to ask me one question: should the retry budget be 3 or 8? Ask only that and do nothing else.";
+// the folder-trust prompt a new temp folder gets; its default is "No, exit", so it is answered with Down then Enter
+const TRUST_TEXT = "trust this folder";
+const DOWN = "\x1b[B";
+// Claude Code's input box: a rule line, then its prompt glyph (a shell prompt draws no rule)
+const INPUT_BOX = /─{20,}\s*❯/;
+const AGENT_READY_MS = 60_000;
+const AGENT_ASKING_MS = 120_000;
+const AGENT_POLL_MS = 1000;
+const KEY_GAP_MS = 800;
+const ASK_NOTE = "Keep the old helper until the caller moves.";
+
+// the cockpit's model, found the way the other scenarios find it: on the nav rail's props
+const MODEL = `(() => {
+    const nav = document.querySelector('nav');
+    const key = nav && Object.keys(nav).find((k) => k.startsWith('__reactFiber$'));
+    for (let f = key ? nav[key] : null; f != null; f = f.return) {
+        if (f.memoizedProps?.model?.surfaceAtom != null) return f.memoizedProps.model;
+    }
+    return null;
+})()`;
+const NEW_AGENT = `[...document.querySelectorAll('[role="dialog"]')].find((d) => /New agent/.test(flat(d.querySelector("h2"))))`;
+
+// launches a Claude Code agent in the project through New agent; returns its tab, block and roster name
+async function launchAskingAgent(h, project) {
+    await lookEval(h, `
+        const { globalStore } = await mod("app/store/jotaiStore.ts");
+        const { naFlagsAtom } = await mod("app/view/agents/naflagsstore.ts");
+        const model = ${MODEL};
+        // a remembered flag would be appended to the command
+        globalStore.set(naFlagsAtom, {});
+        globalStore.set(model.newAgentOpenAtom, true);
+        await until(() => ${NEW_AGENT} != null, 5000);
+        button(${NEW_AGENT}?.querySelector('[role="radiogroup"][aria-label="Project"]'), new RegExp("^" + ${JSON.stringify(project)} + "$"))?.click();
+        button(${NEW_AGENT}?.querySelector('[role="radiogroup"][aria-label="Runtime"]'), /Claude Code/)?.click();
+        await nap(200);
+    `);
+    await h.ev(setInputExpr(`document.getElementById("na-cmd")`, ASK_COMMAND));
+    return lookEval(h, `
+        const { globalStore } = await mod("app/store/jotaiStore.ts");
+        const { atoms } = await mod("app/store/global-atoms.ts");
+        const model = ${MODEL};
+        const before = new Set(globalStore.get(model.pendingLaunchesAtom).map((p) => p.tabId));
+        const project = flat(${NEW_AGENT}?.querySelector('[role="radiogroup"][aria-label="Project"] [aria-checked="true"]'));
+        await nap(200);
+        button(${NEW_AGENT}, /^Launch agent/)?.click();
+        const closed = await until(() => ${NEW_AGENT} == null, 15000);
+        const pending = globalStore.get(model.pendingLaunchesAtom).find((p) => !before.has(p.tabId));
+        const error = closed ? null : flat(${NEW_AGENT});
+        // a failed launch leaves the dialog up over every later scenario
+        if (!closed) globalStore.set(model.newAgentOpenAtom, false);
+        return {
+            closed,
+            project,
+            error,
+            tabId: pending?.tabId ?? null,
+            blockId: pending?.blockId ?? null,
+            name: pending?.name ?? null,
+            workspaceId: globalStore.get(atoms.workspace)?.oid ?? null,
+        };
+    `);
+}
+
+const agentState = (h, tabId) =>
+    lookEval(h, `
+        const { globalStore } = await mod("app/store/jotaiStore.ts");
+        return globalStore.get(${MODEL}.agentsAtom).find((a) => a.id === ${JSON.stringify(tabId)})?.state ?? null;
+    `);
+
+const typeInto = (h, blockId, text) =>
+    lookEval(h, `
+        const { RpcApi } = await mod("app/store/wshclientapi.ts");
+        const { TabRpcClient } = await mod("app/store/wshrpcutil.ts");
+        await RpcApi.ControllerInputCommand(TabRpcClient, { blockid: ${JSON.stringify(blockId)}, inputdata64: btoa(${JSON.stringify(text)}) });
+    `);
+
+// the terminal's visible text, from the xterm the hidden Agent surface keeps mounted
+const screenOf = (h, blockId) =>
+    lookEval(h, `
+        const { RpcApi } = await mod("app/store/wshclientapi.ts");
+        const { TabRpcClient } = await mod("app/store/wshrpcutil.ts");
+        try {
+            const r = await RpcApi.TermGetScrollbackLinesCommand(TabRpcClient, { linestart: 0, lineend: 200, lastcommand: false }, { route: "feblock:" + ${JSON.stringify(blockId)} });
+            return r.lines.join(" ");
+        } catch (e) {
+            return "";
+        }
+    `);
+
+// accepts the trust prompt once it shows, types the question's prompt once Claude Code's input is up, then waits for the ask
+async function untilAsking(h, agent) {
+    const seen = [];
+    let trusted = false;
+    let prompted = false;
+    for (let waited = 0; waited < AGENT_READY_MS && !prompted; waited += AGENT_POLL_MS) {
+        await sleep(AGENT_POLL_MS);
+        const screen = await screenOf(h, agent.blockId);
+        if (!trusted && screen.includes(TRUST_TEXT)) {
+            await typeInto(h, agent.blockId, DOWN);
+            await sleep(KEY_GAP_MS);
+            await typeInto(h, agent.blockId, "\r");
+            trusted = true;
+        } else if (!screen.includes(TRUST_TEXT) && INPUT_BOX.test(screen)) {
+            // Claude Code is past the trust prompt and its input box is drawn
+            await sleep(KEY_GAP_MS);
+            await typeInto(h, agent.blockId, ASK_PROMPT);
+            await sleep(KEY_GAP_MS);
+            await typeInto(h, agent.blockId, "\r");
+            prompted = true;
+        }
+    }
+    for (let waited = 0; prompted && waited < AGENT_ASKING_MS; waited += AGENT_POLL_MS) {
+        const state = await agentState(h, agent.tabId);
+        if (state !== seen[seen.length - 1]) seen.push(state);
+        if (state === "asking") return { asking: true, trusted, prompted, seen };
+        await sleep(AGENT_POLL_MS);
+    }
+    return { asking: false, trusted, prompted, seen, screen: (await screenOf(h, agent.blockId)).replace(/\s+/g, " ").slice(-600) };
 }
 
 export const STATES = {
@@ -76,9 +206,14 @@ export const diffStates = {
     async arrange(h) {
         const dir = seedStatesRepo();
         await h.rpc("createproject", { name: STATES.project, path: dir });
+        // the comment store reads its key once, at module load, so it is cleared before the reload; teardown puts
+        // back the user's comments and remembered launch flags
+        const prevComments = await h.ev(`localStorage.getItem(${JSON.stringify(COMMENT_STORAGE_KEY)})`);
+        const prevFlags = await h.ev(`localStorage.getItem(${JSON.stringify(FLAGS_KEY)})`);
+        await h.ev(`localStorage.removeItem(${JSON.stringify(COMMENT_STORAGE_KEY)})`);
         // fresh module state: Diff's scope, range and history collapse outlive the surface for the page's life
         await reloadApp(h);
-        return { dir, names: [STATES.project], dirs: [dir] };
+        return { dir, names: [STATES.project], dirs: [dir], prevComments, prevFlags, agent: null };
     },
     async assert(h, ctx) {
         const steps = [];
@@ -202,9 +337,145 @@ export const diffStates = {
             );
             await h.shot("cdp-shots/diff-states-pick-file.png");
         });
+
+        // the seed commit lists src/gone.txt then src/old.py
+        const s9 = "9. n / p step files: n opens the next row without marking it, declines at the last, and p steps back";
+        await guard(s9, async () => {
+            const openRow = () =>
+                h.ev(`(() => { const r = document.querySelector('[data-changed-file-row][aria-current="true"]');
+                    return r ? r.dataset.changedFileRow + ":" + r.dataset.reviewState : null; })()`);
+            const isOpen = (path) => `document.querySelector(${JSON.stringify(fileRowSel(path))})?.getAttribute("aria-current") === "true"`;
+            const picked = (await pickHistoryRow(h, STATES.seed)) && (await pickFile(h, STATES.deletedEmpty));
+            await pressKey(h, "n", "KeyN", 78);
+            const next = (await until(h, isOpen(STATES.deleted))) && (await openRow());
+            await pressKey(h, "n", "KeyN", 78);
+            await sleep(500);
+            const atEnd = await openRow();
+            await pressKey(h, "p", "KeyP", 80);
+            const back = (await until(h, isOpen(STATES.deletedEmpty))) && (await openRow());
+            rec(
+                s9,
+                picked && next === `${STATES.deleted}:none` && atEnd === `${STATES.deleted}:none` && back === `${STATES.deletedEmpty}:none`,
+                JSON.stringify({ picked, next, atEnd, back })
+            );
+            await h.shot("cdp-shots/diff-states-step-files.png");
+        });
+
+        const s10 = "10. ⇧D declined when narrow: with history expanded at 1600x950, ⇧D leaves the pane unified";
+        await guard(s10, async () => {
+            const splitState = () =>
+                lookEval(h, `
+                    const { globalStore } = await mod("app/store/jotaiStore.ts");
+                    const o = await mod("app/view/agents/diffoptions.ts");
+                    return { split: globalStore.get(o.splitViewAtom), available: globalStore.get(o.splitAvailableAtom) };
+                `);
+            const expanded = await h.ev(`!document.querySelector('[aria-label="Expand history"]')`);
+            const picked = await pickFile(h, STATES.deleted);
+            const diff = picked && (await until(h, `!!document.querySelector(${JSON.stringify(DIFF_EDITOR)})`));
+            const before = await splitState();
+            await pressKey(h, "D", "KeyD", 68, SHIFT);
+            await sleep(500);
+            const after = await splitState();
+            const width = await h.ev(`document.querySelector(${JSON.stringify(PANE)})?.clientWidth ?? 0`);
+            rec(
+                s10,
+                expanded && diff && width < SPLIT_MIN_PX && !before.available && !before.split && !after.split,
+                JSON.stringify({ expanded, picked, diff, width, before, after })
+            );
+        });
+
+        const s11 = "11. asking agent waits: a Claude Code agent asking a question gets no comments — the bar says answer it first and ⇧Enter sends nothing";
+        await guard(s11, async () => {
+            const agent = await launchAskingAgent(h, STATES.project);
+            ctx.agent = agent;
+            if (agent.tabId == null) {
+                rec(s11, false, `the launch did not start: ${JSON.stringify(agent)}`);
+                return;
+            }
+            const asked = await untilAsking(h, agent);
+            // old.py then has a modified side to comment on whichever row the agent source opens on: the seed
+            // commit adds it, the working tree edits it
+            writeFileSync(join(ctx.dir, STATES.deleted), "def old():\n    return 2\n");
+            await h.goto("files");
+            await setViewport(h);
+            // by id: the picker's own trigger and the project row carry the same name as the agent
+            const agentRow = `document.querySelector(${JSON.stringify(`[data-files-source-agent="${agent.tabId}"]`)})`;
+            await h.ev(`document.querySelector("[data-files-source-picker]")?.click()`);
+            const listed = await until(h, `!!${agentRow}`, 10000);
+            await h.ev(`${agentRow}?.click()`);
+            const scoped = await until(h, `(document.querySelector("[data-files-source-picker]")?.textContent ?? "").includes(${JSON.stringify(agent.name)}) && !${agentRow}`, 5000);
+            const opened = (await pickFile(h, STATES.deleted)) && (await until(h, `!!document.querySelector(${JSON.stringify(DIFF_EDITOR)})`));
+            await pressKey(h, "m", "KeyM", 77);
+            const drafting = await until(h, `!!document.querySelector("[data-diff-comment-draft] textarea")`, 3000);
+            await h.ev(`document.querySelector("[data-diff-comment-draft] textarea")?.focus()`);
+            await h.cdp("Input.insertText", { text: ASK_NOTE });
+            await h.cdp("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, modifiers: CTRL });
+            await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, modifiers: CTRL });
+            const waiting = await until(h, `document.querySelector("[data-comment-send-bar]")?.dataset.recipientKind === "wait"`, 8000);
+            // every agentprompt the page makes is counted, and none is forwarded
+            await h.ev(`(() => {
+                const c = window.TabRpcClient;
+                window.__dsPrompts = 0;
+                if (!c.__dsOrig) {
+                    c.__dsOrig = c.wshRpcCall;
+                    const call = c.wshRpcCall.bind(c);
+                    c.wshRpcCall = (command, data, opts) => {
+                        if (command !== "agentprompt") return call(command, data, opts);
+                        window.__dsPrompts++;
+                        return Promise.resolve(null);
+                    };
+                }
+            })()`);
+            // with any other recipient ⇧Enter would really send, or start a new agent, so it is pressed only on a wait bar
+            if (waiting) {
+                await pressKey(h, "Enter", "Enter", 13, SHIFT);
+                await sleep(1000);
+            }
+            const bar = await h.ev(`(() => { const b = document.querySelector("[data-comment-send-bar]"); if (!b) return null;
+                const send = b.querySelector("[data-comment-send]");
+                return { kind: b.dataset.recipientKind, detail: b.querySelector("[data-comment-detail]")?.textContent ?? null,
+                    send: send?.textContent ?? null, disabled: send?.disabled ?? null,
+                    pending: document.querySelectorAll('[data-diff-comment-card][data-comment-state="pending"]').length }; })()`);
+            const prompts = await h.ev(`window.__dsPrompts`);
+            await h.shot("cdp-shots/diff-states-asking-agent.png");
+            await h.ev(`(() => { const c = window.TabRpcClient; if (c.__dsOrig) { c.wshRpcCall = c.__dsOrig; delete c.__dsOrig; } })()`);
+            rec(
+                s11,
+                asked.asking &&
+                    listed &&
+                    scoped &&
+                    opened &&
+                    drafting &&
+                    waiting &&
+                    bar?.kind === "wait" &&
+                    bar.detail === `${agent.name} is asking a question — answer it first` &&
+                    bar.send === "Send 1 comment" &&
+                    bar.disabled === true &&
+                    bar.pending === 1 &&
+                    prompts === 0,
+                JSON.stringify({ agent: { name: agent.name, project: agent.project }, asked, listed, scoped, opened, drafting, waiting, bar, prompts })
+            );
+        });
         return steps;
     },
     async teardown(h, ctx) {
+        const step = async (what, fn) => {
+            try {
+                await fn();
+            } catch (e) {
+                console.error(`diff-states teardown: ${what} failed: ${e?.message ?? e}`);
+            }
+        };
+        if (ctx.agent?.tabId) {
+            await step("close the agent", () => waveService(h, "workspace", "CloseTab", [ctx.agent.workspaceId, ctx.agent.tabId, false]));
+        }
+        await step("restore comments and launch flags", () =>
+            h.ev(`(() => {
+                const put = (k, v) => (v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v));
+                put(${JSON.stringify(COMMENT_STORAGE_KEY)}, ${JSON.stringify(ctx.prevComments ?? null)});
+                put(${JSON.stringify(FLAGS_KEY)}, ${JSON.stringify(ctx.prevFlags ?? null)});
+            })()`)
+        );
         await removeFixtures(h, ctx.names, ctx.dirs);
     },
 };

@@ -48,13 +48,20 @@ import {
 import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
 import { sendPendingComments } from "@/app/view/agents/commentsend";
 import { sideJumpTarget, type CompareRow } from "@/app/view/agents/comparerows";
-import { compareOnAtom, compareSelectionAtom, leaveCompare, swapCompareRefs } from "@/app/view/agents/comparestore";
+import {
+    compareOnAtom,
+    compareSelectionAtom,
+    leaveCompare,
+    refreshCompare,
+    swapCompareRefs,
+} from "@/app/view/agents/comparestore";
 import { commentOnSelection } from "@/app/view/agents/diffcommentlayer";
 import { historyCollapsedAtom } from "@/app/view/agents/difflayout";
 import { gotoChange } from "@/app/view/agents/diffnav";
-import { ignoreWsAtom, splitViewAtom } from "@/app/view/agents/diffoptions";
+import { ignoreWsAtom, splitAvailableAtom, splitViewAtom } from "@/app/view/agents/diffoptions";
 import { docReviewAtom, parseDocReview } from "@/app/view/agents/docreview";
 import { filesStateAtom, reloadChanges } from "@/app/view/agents/filesstore";
+import { listOrder, stepInList, treeModeAtom } from "@/app/view/agents/filetree";
 import {
     clearHistoryFilters,
     graphOnAtom,
@@ -74,7 +81,7 @@ import {
 } from "@/app/view/agents/memorystore";
 import { railVisibleAtom, terminalFullscreenAtom } from "@/app/view/agents/railstore";
 import { toggleHandToPhone } from "@/app/view/agents/remotestore";
-import { toggleOpenFile } from "@/app/view/agents/reviewmarks";
+import { activeReviewAtom, toggleOpenFile } from "@/app/view/agents/reviewmarks";
 import { renamingRowAtom } from "@/app/view/agents/rowrenameatom";
 import { resolveActiveRunId } from "@/app/view/agents/runmodel";
 import { shellTaskPeekAtom } from "@/app/view/agents/shelltasksstore";
@@ -1338,10 +1345,24 @@ export function buildSessionsBindings(): Binding[] {
     ];
 }
 
+// false declines the key: no list showing, or already at that end (the list does not wrap)
+function stepFile(dir: 1 | -1): false | undefined {
+    const active = globalStore.get(activeReviewAtom);
+    if (active == null) {
+        return false;
+    }
+    const next = stepInList(listOrder(active.files, globalStore.get(treeModeAtom)), active.open, dir);
+    if (next == null) {
+        return false;
+    }
+    active.select(next);
+}
+
 // Diff-surface keys. `c` is the entry gesture the mockup names; Escape is the single exit; Tab jumps
 // between the two compare sides. Entering compare needs a cwd and a branch, which only the surface
 // knows, so `c` clicks the control the surface already draws (the same clickThrough shape
 // buildJarvisBindings uses) rather than duplicating scope resolution here.
+
 export function buildFilesBindings(): Binding[] {
     const on = (ctx: KeyContext) => ctx.surface === "files" && !ctx.editable && !ctx.modalOpen;
     const inCompare = (ctx: KeyContext) => on(ctx) && globalStore.get(compareOnAtom);
@@ -1381,7 +1402,12 @@ export function buildFilesBindings(): Binding[] {
             group: "Diff",
             label: "Split / unified",
             when: on,
-            run: () => globalStore.set(splitViewAtom, !globalStore.get(splitViewAtom)),
+            run: () => {
+                if (!globalStore.get(splitAvailableAtom)) {
+                    return false; // too narrow to draw split (or no pane yet): the pane stays unified
+                }
+                globalStore.set(splitViewAtom, !globalStore.get(splitViewAtom));
+            },
         },
         {
             id: "files:toggle-whitespace",
@@ -1433,6 +1459,23 @@ export function buildFilesBindings(): Binding[] {
             when: on,
             // no open file in a listed subject — let the key pass
             run: () => (toggleOpenFile() ? undefined : false),
+        },
+        {
+            // n / p open without marking: v is the key that marks and moves on
+            id: "files:next-file",
+            keys: "n",
+            group: "Diff",
+            label: "Next file",
+            when: on,
+            run: () => stepFile(1),
+        },
+        {
+            id: "files:prev-file",
+            keys: "p",
+            group: "Diff",
+            label: "Previous file",
+            when: on,
+            run: () => stepFile(-1),
         },
         {
             // with focus in the diff editor, `m` is the editor's own action (diffcommentlayer.ts)
@@ -1531,8 +1574,13 @@ export function buildFilesBindings(): Binding[] {
             label: "Refresh",
             when: on,
             run: () => {
-                void reloadChanges(globalStore.get(filesStateAtom)?.cwd ?? null);
-                refreshHistory();
+                const cwd = globalStore.get(filesStateAtom)?.cwd ?? null;
+                void reloadChanges(cwd);
+                if (!globalStore.get(compareOnAtom)) {
+                    refreshHistory();
+                } else if (cwd) {
+                    void refreshCompare(cwd);
+                }
             },
         },
         {

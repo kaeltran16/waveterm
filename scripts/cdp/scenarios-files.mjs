@@ -487,6 +487,41 @@ func Submit(id string) error {
         );
         await h.shot("cdp-shots/diff-compare-default-pair.png");
 
+        const s10 = "10. r refreshes the comparison: a commit on the head branch raises its ahead count";
+        try {
+            // Escape in the field cancels the edit step 9 left open, and only the edit
+            await h.ev(`document.querySelector('input[placeholder="base ref"]')?.focus()`);
+            const esc = { key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 };
+            await h.cdp("Input.dispatchKeyEvent", { type: "keyDown", ...esc });
+            await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", ...esc });
+            const pairBack = await waitFor("[data-ref-pair]", 4000);
+            // the ahead count is drawn in the compare column, which step 3 left folded to the rail
+            await h.ev(`document.querySelector('[data-history-rail] button[title="Expand history"]')?.click()`);
+            await waitFor("[data-compare-column]", 4000);
+            const aheadOf = () =>
+                h.ev(`(() => {
+                    const m = (document.querySelector("[data-compare-column]")?.textContent ?? "").match(/(\\d+) ahead/);
+                    return m ? Number(m[1]) : 0;
+                })()`);
+            const before = await aheadOf();
+            // a commit on side-work without checking it out: the working tree the surface polls stays put
+            const tip = git(ctx.dirB, "rev-parse", "side-work").toString().trim();
+            const sha = git(ctx.dirB, "commit-tree", `${tip}^{tree}`, "-p", tip, "-m", "more side work").toString().trim();
+            git(ctx.dirB, "update-ref", "refs/heads/side-work", sha);
+            await h.ev("document.activeElement?.blur?.()");
+            await h.cdp("Input.dispatchKeyEvent", { type: "keyDown", key: "r", code: "KeyR", text: "r", windowsVirtualKeyCode: 82 });
+            await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", key: "r", code: "KeyR", windowsVirtualKeyCode: 82 });
+            let after = before;
+            for (let waited = 0; waited < 8000 && after <= before; waited += 250) {
+                await sleep(250);
+                after = await aheadOf();
+            }
+            rec(s10, pairBack && before > 0 && after === before + 1, `pairBack=${pairBack} ahead=${before} -> ${after}`);
+            await h.shot("cdp-shots/diff-compare-refresh.png");
+        } catch (e) {
+            rec(s10, false, String(e?.message ?? e));
+        }
+
         return steps;
     },
     async teardown(h, ctx) {

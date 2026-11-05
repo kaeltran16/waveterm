@@ -31,15 +31,18 @@ import {
 } from "@/app/view/agents/canvasstore";
 import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
 import { registerCommentSend } from "@/app/view/agents/commentsend";
+import { refreshCompare } from "@/app/view/agents/comparestore";
 import { commentOnSelection } from "@/app/view/agents/diffcommentlayer";
 import { gotoChange } from "@/app/view/agents/diffnav";
-import { ignoreWsAtom, splitViewAtom } from "@/app/view/agents/diffoptions";
+import { ignoreWsAtom, splitAvailableAtom, splitViewAtom } from "@/app/view/agents/diffoptions";
 import { diffScopeAtom } from "@/app/view/agents/diffscopeatom";
 import { docReviewAtom } from "@/app/view/agents/docreview";
-import { graphOnAtom, historyFiltersAtom, historyScrollAtom } from "@/app/view/agents/githistorystore";
+import { filesStateAtom, reloadChanges } from "@/app/view/agents/filesstore";
+import { treeModeAtom } from "@/app/view/agents/filetree";
+import { graphOnAtom, historyFiltersAtom, historyScrollAtom, refreshHistory } from "@/app/view/agents/githistorystore";
 import { NO_FILTERS } from "@/app/view/agents/historyquery";
 import { railVisibleAtom, terminalFullscreenAtom } from "@/app/view/agents/railstore";
-import { activeReviewAtom } from "@/app/view/agents/reviewmarks";
+import { activeReviewAtom, reviewMarksAtom } from "@/app/view/agents/reviewmarks";
 import { renamingRowAtom } from "@/app/view/agents/rowrenameatom";
 import { shellTaskPeekAtom } from "@/app/view/agents/shelltasksstore";
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
@@ -113,6 +116,19 @@ vi.mock("@/app/view/agents/diffcommentlayer", async (orig) => {
 vi.mock("@/app/view/agents/diffnav", async (orig) => ({
     ...(await orig<typeof import("@/app/view/agents/diffnav")>()),
     gotoChange: vi.fn(() => true),
+}));
+// r's three re-reads go to the backend; watched here so the test can tell which one ran
+vi.mock("@/app/view/agents/comparestore", async (orig) => ({
+    ...(await orig<typeof import("@/app/view/agents/comparestore")>()),
+    refreshCompare: vi.fn(async () => {}),
+}));
+vi.mock("@/app/view/agents/githistorystore", async (orig) => ({
+    ...(await orig<typeof import("@/app/view/agents/githistorystore")>()),
+    refreshHistory: vi.fn(),
+}));
+vi.mock("@/app/view/agents/filesstore", async (orig) => ({
+    ...(await orig<typeof import("@/app/view/agents/filesstore")>()),
+    reloadChanges: vi.fn(async () => {}),
 }));
 vi.mock("@/app/view/code/codepeekstore", async (orig) => ({
     ...(await orig<typeof import("@/app/view/code/codepeekstore")>()),
@@ -1979,6 +1995,7 @@ describe("Diff keys, DOM and toggles", () => {
     });
 
     it("flips split view and whitespace handling on each press", () => {
+        globalStore.set(splitAvailableAtom, true);
         globalStore.set(splitViewAtom, false);
         globalStore.set(ignoreWsAtom, false);
         find("files:toggle-split").run(on);
@@ -1989,6 +2006,106 @@ describe("Diff keys, DOM and toggles", () => {
         find("files:toggle-whitespace").run(on);
         expect(globalStore.get(splitViewAtom)).toBe(false);
         expect(globalStore.get(ignoreWsAtom)).toBe(false);
+    });
+
+    it("⇧D declines and leaves the view unified while the pane is too narrow for split", () => {
+        globalStore.set(splitAvailableAtom, false);
+        globalStore.set(splitViewAtom, false);
+        expect(find("files:toggle-split").run(on)).toBe(false);
+        expect(globalStore.get(splitViewAtom)).toBe(false);
+    });
+
+    it("r re-reads the changes and history, and in compare the comparison instead of history", () => {
+        globalStore.set(filesStateAtom, { cwd: "/repo" } as any);
+        vi.mocked(reloadChanges).mockClear();
+        vi.mocked(refreshHistory).mockClear();
+        vi.mocked(refreshCompare).mockClear();
+        find("files:refresh").run(on);
+        expect(reloadChanges).toHaveBeenLastCalledWith("/repo");
+        expect(refreshHistory).toHaveBeenCalledOnce();
+        expect(refreshCompare).not.toHaveBeenCalled();
+
+        globalStore.set(diffScopeAtom, compare);
+        find("files:refresh").run(on);
+        expect(reloadChanges).toHaveBeenCalledTimes(2);
+        expect(refreshCompare).toHaveBeenCalledExactlyOnceWith("/repo");
+        expect(refreshHistory).toHaveBeenCalledOnce();
+        globalStore.set(filesStateAtom, null);
+    });
+
+    describe("n / p step the file list", () => {
+        // git's order differs from the tree's, so a step that follows `files` would be caught
+        const files = ["README.md", "retry/policy.go", "a.go", "retry/budget.go"].map((path) => ({
+            path,
+            status: "M",
+            adds: 1,
+            dels: 0,
+        }));
+        const select = vi.fn();
+        const review = (open: string | null, list = files) =>
+            globalStore.set(activeReviewAtom, { subject: "/repo|commit:abc", files: list, open, select });
+
+        beforeEach(() => {
+            select.mockClear();
+            globalStore.set(treeModeAtom, true);
+        });
+        afterEach(() => globalStore.set(activeReviewAtom, null));
+
+        it("are the Diff group's Next file / Previous file on bare n and p", () => {
+            expect(find("files:next-file")).toMatchObject({ keys: "n", group: "Diff", label: "Next file" });
+            expect(find("files:prev-file")).toMatchObject({ keys: "p", group: "Diff", label: "Previous file" });
+            expect(find("files:next-file").when?.(on)).toBe(true);
+            expect(find("files:next-file").when?.({ ...on, editable: true })).toBe(false);
+        });
+
+        it("open the next and previous file in the order the list draws", () => {
+            review("retry/policy.go");
+            expect(find("files:next-file").run(on)).toBeUndefined();
+            expect(select).toHaveBeenLastCalledWith("a.go");
+            expect(find("files:prev-file").run(on)).toBeUndefined();
+            expect(select).toHaveBeenLastCalledWith("retry/budget.go");
+        });
+
+        it("follow git's order when the list is flat", () => {
+            globalStore.set(treeModeAtom, false);
+            review("retry/policy.go");
+            find("files:next-file").run(on);
+            expect(select).toHaveBeenLastCalledWith("a.go");
+            find("files:prev-file").run(on);
+            expect(select).toHaveBeenLastCalledWith("README.md");
+        });
+
+        it("decline at the ends without wrapping", () => {
+            review("README.md");
+            expect(find("files:next-file").run(on)).toBe(false);
+            review("retry/budget.go");
+            expect(find("files:prev-file").run(on)).toBe(false);
+            expect(select).not.toHaveBeenCalled();
+        });
+
+        it("n with nothing open opens the first file; p declines", () => {
+            review(null);
+            expect(find("files:prev-file").run(on)).toBe(false);
+            find("files:next-file").run(on);
+            expect(select).toHaveBeenCalledExactlyOnceWith("retry/budget.go");
+        });
+
+        it("decline with no file list and with no active review", () => {
+            review(null, []);
+            expect(find("files:next-file").run(on)).toBe(false);
+            expect(find("files:prev-file").run(on)).toBe(false);
+            globalStore.set(activeReviewAtom, null);
+            expect(find("files:next-file").run(on)).toBe(false);
+            expect(find("files:prev-file").run(on)).toBe(false);
+            expect(select).not.toHaveBeenCalled();
+        });
+
+        it("do not mark the file they leave or the one they open", () => {
+            review("retry/policy.go");
+            const before = globalStore.get(reviewMarksAtom);
+            find("files:next-file").run(on);
+            expect(globalStore.get(reviewMarksAtom)).toBe(before);
+        });
     });
 
     it("asks the editor for the next and previous change", () => {
