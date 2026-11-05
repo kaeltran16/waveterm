@@ -33,7 +33,7 @@ export type BrainstormPart = {
     why?: string;
 };
 // an answer the agent offers; pick marks the one it recommends, pros and cons are its reasons for and against, boards
-// are the mockups (file names under the canvas's project/) that show this answer
+// are the mockups (file names under the canvas's project/) and spikes the live pages (as on a part) showing this answer
 export type AnswerOption = {
     label: string;
     detail: string;
@@ -41,10 +41,11 @@ export type AnswerOption = {
     pros?: string[];
     cons?: string[];
     boards?: string[];
+    spikes?: string[];
 };
-// what the agent lists for the judge on an approach question: facts only, no odds or pick; boards are the mockups
-// that show the approach, as on an option
-export type Approach = { name: string; description: string; facts: string[]; boards?: string[] };
+// what the agent lists for the judge on an approach question: facts only, no odds or pick; boards and spikes show the
+// approach, as on an option
+export type Approach = { name: string; description: string; facts: string[]; boards?: string[]; spikes?: string[] };
 // Arc's account of the judge's work: what it added and dropped, or why it failed and left the agent's options standing
 export type JudgeRecord =
     | { kind: "weighed"; added: string[]; dropped: { name: string; reason: string }[] }
@@ -172,6 +173,7 @@ function parseOptions(raw: unknown): AnswerOption[] {
             const pros = lines(o.pros);
             const cons = lines(o.cons);
             const boards = [...new Set(lines(o.boards))];
+            const spikes = [...new Set(spikePaths(o.spikes))];
             return {
                 label: o.label as string,
                 detail: str(o.detail) ?? "",
@@ -179,6 +181,7 @@ function parseOptions(raw: unknown): AnswerOption[] {
                 ...(pros.length > 0 ? { pros } : {}),
                 ...(cons.length > 0 ? { cons } : {}),
                 ...(boards.length > 0 ? { boards } : {}),
+                ...(spikes.length > 0 ? { spikes } : {}),
             };
         });
 }
@@ -189,11 +192,13 @@ function parseApproaches(raw: unknown): Approach[] {
         .filter((a): a is Rec => isRecord(a) && typeof a.name === "string" && a.name.trim() !== "")
         .map((a) => {
             const boards = [...new Set(lines(a.boards))];
+            const spikes = [...new Set(spikePaths(a.spikes))];
             return {
                 name: a.name as string,
                 description: str(a.description) ?? "",
                 facts: lines(a.facts),
                 ...(boards.length > 0 ? { boards } : {}),
+                ...(spikes.length > 0 ? { spikes } : {}),
             };
         });
 }
@@ -674,8 +679,8 @@ function askedPartBoards(f: BrainstormFile): string[] {
     return [...new Set((id ? f.parts.find((x) => x.id === id)?.boards : undefined) ?? [])];
 }
 
-// the boards of each row the pane draws: the approaches while the judge weighs them (judgeWait), else the options
-function answerRows(q: BrainstormQuestion, judging: boolean): { boards?: string[] }[] {
+// the mockups of each row the pane draws: the approaches while the judge weighs them (judgeWait), else the options
+function answerRows(q: BrainstormQuestion, judging: boolean): { boards?: string[]; spikes?: string[] }[] {
     return (judging ? q.approaches : q.options) ?? [];
 }
 
@@ -696,6 +701,55 @@ export function questionBoardLayout(
     const rows = options.map((o) => [...new Set(o.boards ?? [])].filter((b) => onCanvas.includes(b)));
     const shared = askedPartBoards(f).filter((b) => !named.has(b));
     return rows.every((r) => r.length === 0) && shared.length === 0 ? null : { rows, shared };
+}
+
+// the spikes the open question draws, as questionBoardLayout lays out its boards: rows[i] is row i's own, shared the
+// asked part's that no row names. null when the canvas is not named and served, or nothing would draw
+export function questionSpikes(f: BrainstormFile, base: string | null, judging = false): QuestionBoardLayout | null {
+    const q = f.question;
+    if (q == null || f.canvas == null || base == null) {
+        return null;
+    }
+    const rows = answerRows(q, judging).map((r) => r.spikes ?? []);
+    const named = new Set(rows.flat());
+    const id = q.part;
+    const shared = [...new Set((id ? f.parts.find((x) => x.id === id)?.spikes : undefined) ?? [])].filter(
+        (s) => !named.has(s)
+    );
+    return rows.every((r) => r.length === 0) && shared.length === 0 ? null : { rows, shared };
+}
+
+export type HiddenMockups = { parts: string[]; label: string };
+
+// the parts whose boards or spikes the open question does not draw: while it is open the pane shows only the
+// question, so these are reachable only through a link over it. The question draws its rows' own and the asked
+// part's (questionBoardLayout, questionSpikes); null when nothing is left behind or nothing would draw
+export function hiddenMockups(f: BrainstormFile, base: string | null, judging = false): HiddenMockups | null {
+    const q = f.question;
+    if (q == null || f.canvas == null || base == null) {
+        return null;
+    }
+    const rows = answerRows(q, judging);
+    const asked = f.parts.find((p) => p.id === q.part);
+    const shownBoards = new Set([...rows.flatMap((r) => r.boards ?? []), ...(asked?.boards ?? [])]);
+    const shownSpikes = new Set([...rows.flatMap((r) => r.spikes ?? []), ...(asked?.spikes ?? [])]);
+    const boards = new Set<string>();
+    const spikes = new Set<string>();
+    const parts = orderedParts(f).filter((p) => {
+        const b = (p.boards ?? []).filter((x) => !shownBoards.has(x));
+        const s = (p.spikes ?? []).filter((x) => !shownSpikes.has(x));
+        b.forEach((x) => boards.add(x));
+        s.forEach((x) => spikes.add(x));
+        return b.length > 0 || s.length > 0;
+    });
+    if (parts.length === 0) {
+        return null;
+    }
+    const spikeWord = spikes.size === 1 ? "Live spike" : "Live spikes";
+    const boardWord = boards.size === 1 ? "board" : "boards";
+    const what =
+        spikes.size === 0 ? capitalize(boardWord) : boards.size === 0 ? spikeWord : `${spikeWord} and ${boardWord}`;
+    return { parts: parts.map((p) => p.id), label: `${what} in ${plural(parts.length, "part", "parts")}` };
 }
 
 // the canvas tab of each board an answer names or the asked part shares; a board not in the map keeps its plain name

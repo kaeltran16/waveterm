@@ -280,9 +280,17 @@ function Design({
                                         ? { count: unseen.notes.length, open: () => openParts(unseen.notes) }
                                         : undefined
                                 }
+                                openParts={openParts}
                             />
                         ) : view === "judging" ? (
-                            <JudgingMain agent={agent} s={s} f={f} goTo={goTo} openDesign={openDesign} />
+                            <JudgingMain
+                                agent={agent}
+                                s={s}
+                                f={f}
+                                goTo={goTo}
+                                openDesign={openDesign}
+                                openParts={openParts}
+                            />
                         ) : view === "working" ? (
                             <WorkingMain f={f} openDesign={openDesign} />
                         ) : (

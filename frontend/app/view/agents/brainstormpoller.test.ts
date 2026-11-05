@@ -171,6 +171,23 @@ describe("pollBrainstormOnce", () => {
         expect(patch.boards).toEqual([expect.objectContaining({ name: "Main.dc.html" })]);
     });
 
+    it("serves the design folder for a file whose only mockups are spikes, on an option, approach or part", async () => {
+        const spiked = { spikes: ["spike/motion.html"] };
+        const options = [{ label: "A", detail: "", ...spiked }];
+        const approaches = [{ name: "A", description: "", facts: [], ...spiked }];
+        const parts = [{ id: "who", title: "Who", state: "asked", body: "", ...spiked }];
+        for (const over of [
+            { question: { n: 1, text: "Which?", part: "who", options } },
+            { question: { n: 1, text: "Which?", part: "who", approaches } },
+            { parts },
+        ]) {
+            const { io, calls } = fakeIO({ modifiedMs: 10, text: fileText({ canvas: "lag", ...over }) });
+            const patch = await pollBrainstormOnce(state(), io);
+            expect(calls.serves).toEqual(["/p/.superpowers/design"]);
+            expect(patch.base).toBe(BASE);
+        }
+    });
+
     it("asks nothing of wavesrv for a file with no canvas", async () => {
         const { io, calls } = fakeIO({ modifiedMs: 10, text: fileText() });
         const patch = await pollBrainstormOnce(state(), io);
