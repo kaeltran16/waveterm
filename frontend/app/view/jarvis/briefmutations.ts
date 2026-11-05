@@ -62,10 +62,26 @@ export function mutationRunner(setError: (msg: string | null) => void): RunMutat
     };
 }
 
+// The write's toast and its Undo wait for the write to resolve, so a toast never claims a change that did
+// not happen. A rejection, of the write or of the undo's inverse, goes to the toast rather than to the open
+// initiative's error line: these run from the row's menu and the plan footer, where that line may not be drawn.
+function writeThenToast(
+    undo: UndoOps,
+    write: () => Promise<void>,
+    toast?: { text: string; inverse: () => Promise<void> }
+): void {
+    const fail = (e: unknown) => undo.error(e instanceof Error ? e.message : String(e));
+    write().then(() => {
+        if (toast != null) {
+            undo.notify(toast.text, () => void toast.inverse().catch(fail));
+        }
+    }, fail);
+}
+
 // A misfiled initiative skews every project chip, so the row's menu moves it in one step: the projects
 // Arc knows, the current one checked (choosing it does nothing), and no project. Undo moves it back.
 export function moveToProjectItems(
-    deps: Pick<MutationDeps, "store" | "undo" | "run">,
+    deps: Pick<MutationDeps, "store" | "undo">,
     oref: string,
     current: string,
     projects: string[]
@@ -74,10 +90,10 @@ export function moveToProjectItems(
         if (to === current) {
             return;
         }
-        deps.run(() => deps.store.setEffortProject(oref, to));
-        deps.undo.notify(to === "" ? "Moved to no project" : `Moved to ${to}`, () =>
-            deps.run(() => deps.store.setEffortProject(oref, current))
-        );
+        writeThenToast(deps.undo, () => deps.store.setEffortProject(oref, to), {
+            text: to === "" ? "Moved to no project" : `Moved to ${to}`,
+            inverse: () => deps.store.setEffortProject(oref, current),
+        });
     };
     const names = [...new Set([...projects, ...(current !== "" ? [current] : [])])].sort((a, b) => a.localeCompare(b));
     return [
@@ -89,18 +105,21 @@ export function moveToProjectItems(
 
 // the plan footer and the row's context menu act through these, so the two cannot drift apart
 export function effortOps(deps: MutationDeps, oref: string, title: string, status: string): EffortOps {
-    const { store, undo, run } = deps;
+    const { store, undo } = deps;
     return {
         togglePause: () => {
             const next = status === "paused" ? "active" : "paused";
-            run(() => store.setEffortStatus(oref, next));
-            undo.notify(next === "paused" ? "Paused" : "Resumed", () => run(() => store.setEffortStatus(oref, status)));
+            writeThenToast(undo, () => store.setEffortStatus(oref, next), {
+                text: next === "paused" ? "Paused" : "Resumed",
+                inverse: () => store.setEffortStatus(oref, status),
+            });
         },
-        archive: () => {
-            run(() => store.setEffortStatus(oref, "archived"));
-            undo.notify(`Archived “${title}”`, () => run(() => store.unarchiveEffort(oref)));
-        },
-        unarchive: () => run(() => store.unarchiveEffort(oref)),
+        archive: () =>
+            writeThenToast(undo, () => store.setEffortStatus(oref, "archived"), {
+                text: `Archived “${title}”`,
+                inverse: () => store.unarchiveEffort(oref),
+            }),
+        unarchive: () => writeThenToast(undo, () => store.unarchiveEffort(oref)),
         remove: () => {
             deps.closeInitiative(initiativeLineId(oref));
             undo.schedule([effortKey(oref)], `Deleted “${title}”`, () => store.deleteEffort(oref));

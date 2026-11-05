@@ -91,8 +91,40 @@ describe("mutationRunner", () => {
     });
 });
 
+// a promise the test settles by hand, so a toast's timing relative to the write can be asserted
+function deferred() {
+    let resolve!: () => void;
+    let reject!: (reason?: unknown) => void;
+    const promise = new Promise<void>((res, rej) => {
+        resolve = res;
+        reject = rej;
+    });
+    return { promise, resolve, reject };
+}
+
+const flush = () => new Promise<void>((r) => setTimeout(r, 0));
+
 describe("moveToProjectItems", () => {
     const click = (items: ContextMenuItem[], label: string) => items.find((i) => i.label === label)!.click!();
+
+    it("toasts Moved to X after the write and reports a rejection", async () => {
+        const held = deferred();
+        const deps = fakeDeps();
+        deps.store.setEffortProject = vi.fn(() => held.promise);
+        click(moveToProjectItems(deps, OREF, "cyber", ["cyber", "jobs"]), "jobs");
+        await flush();
+        expect(deps.undo.notify).not.toHaveBeenCalled();
+        held.resolve();
+        await flush();
+        expect(deps.undo.notify.mock.calls[0][0]).toBe("Moved to jobs");
+
+        const failing = fakeDeps();
+        failing.store.setEffortProject = vi.fn(() => Promise.reject(new Error("db locked")));
+        click(moveToProjectItems(failing, OREF, "cyber", ["cyber", "jobs"]), "jobs");
+        await flush();
+        expect(failing.undo.error).toHaveBeenCalledWith("db locked");
+        expect(failing.undo.notify).not.toHaveBeenCalled();
+    });
 
     it("lists every project once, sorted, the current one checked, then no project", () => {
         const items = moveToProjectItems(fakeDeps(), OREF, "waveterm", ["siem", "waveterm", "arc"]);
@@ -105,21 +137,33 @@ describe("moveToProjectItems", () => {
         ]);
     });
 
-    it("moves the initiative, and its undo moves it back", () => {
+    it("moves the initiative, and its undo moves it back", async () => {
         const deps = fakeDeps();
         click(moveToProjectItems(deps, OREF, "cyber", ["cyber", "jobs"]), "jobs");
         expect(deps.store.setEffortProject).toHaveBeenCalledWith(OREF, "jobs");
+        await flush();
         expect(deps.undo.notify.mock.calls[0][0]).toBe("Moved to jobs");
         undoOf(deps)();
         expect(deps.store.setEffortProject).toHaveBeenLastCalledWith(OREF, "cyber");
     });
 
-    it("clears the project, and keeps a current project Arc no longer lists", () => {
+    it("reports a failed undo through undo.error", async () => {
+        const deps = fakeDeps();
+        click(moveToProjectItems(deps, OREF, "cyber", ["cyber", "jobs"]), "jobs");
+        await flush();
+        deps.store.setEffortProject = vi.fn(() => Promise.reject(new Error("db locked")));
+        undoOf(deps)();
+        await flush();
+        expect(deps.undo.error).toHaveBeenCalledWith("db locked");
+    });
+
+    it("clears the project, and keeps a current project Arc no longer lists", async () => {
         const deps = fakeDeps();
         const items = moveToProjectItems(deps, OREF, "gone", ["jobs"]);
         expect(items.find((i) => i.label === "gone")?.checked).toBe(true);
         click(items, "No project");
         expect(deps.store.setEffortProject).toHaveBeenCalledWith(OREF, "");
+        await flush();
         expect(deps.undo.notify.mock.calls[0][0]).toBe("Moved to no project");
     });
 
@@ -132,29 +176,78 @@ describe("moveToProjectItems", () => {
 });
 
 describe("effortOps", () => {
-    it("pauses an active initiative, and its undo sets it back", () => {
+    it("pauses an active initiative, and its undo sets it back", async () => {
         const deps = fakeDeps();
         effortOps(deps, OREF, "Ship it", "active").togglePause();
         expect(deps.store.setEffortStatus).toHaveBeenCalledWith(OREF, "paused");
+        await flush();
         expect(deps.undo.notify.mock.calls[0][0]).toBe("Paused");
         undoOf(deps)();
         expect(deps.store.setEffortStatus).toHaveBeenLastCalledWith(OREF, "active");
     });
 
-    it("resumes a paused initiative", () => {
+    it("togglePause toasts only after the write resolves", async () => {
+        const held = deferred();
+        const deps = fakeDeps();
+        deps.store.setEffortStatus = vi.fn(() => held.promise);
+        effortOps(deps, OREF, "Ship it", "active").togglePause();
+        await flush();
+        expect(deps.undo.notify).not.toHaveBeenCalled();
+        held.resolve();
+        await flush();
+        expect(deps.undo.notify).toHaveBeenCalledWith("Paused", expect.any(Function));
+    });
+
+    it("resumes a paused initiative", async () => {
         const deps = fakeDeps();
         effortOps(deps, OREF, "Ship it", "paused").togglePause();
         expect(deps.store.setEffortStatus).toHaveBeenCalledWith(OREF, "active");
+        await flush();
         expect(deps.undo.notify.mock.calls[0][0]).toBe("Resumed");
     });
 
-    it("archives, and its undo unarchives", () => {
+    it("archives, and its undo unarchives", async () => {
         const deps = fakeDeps();
         effortOps(deps, OREF, "Ship it", "active").archive();
         expect(deps.store.setEffortStatus).toHaveBeenCalledWith(OREF, "archived");
+        await flush();
         expect(deps.undo.notify.mock.calls[0][0]).toBe("Archived “Ship it”");
         undoOf(deps)();
         expect(deps.store.unarchiveEffort).toHaveBeenCalledWith(OREF);
+    });
+
+    it("a rejected archive reports through undo.error and toasts nothing", async () => {
+        const deps = fakeDeps();
+        deps.store.setEffortStatus = vi.fn(() => Promise.reject(new Error("db locked")));
+        effortOps(deps, OREF, "Ship it", "active").archive();
+        await flush();
+        expect(deps.undo.error).toHaveBeenCalledWith("db locked");
+        expect(deps.undo.notify).not.toHaveBeenCalled();
+    });
+
+    it("a rejected unarchive reports through undo.error", async () => {
+        const deps = fakeDeps();
+        deps.store.unarchiveEffort = vi.fn(() => Promise.reject(new Error("db locked")));
+        effortOps(deps, OREF, "Ship it", "archived").unarchive();
+        await flush();
+        expect(deps.undo.error).toHaveBeenCalledWith("db locked");
+    });
+
+    it("a failed undo reports through undo.error", async () => {
+        const deps = fakeDeps();
+        effortOps(deps, OREF, "Ship it", "active").archive();
+        await flush();
+        deps.store.unarchiveEffort = vi.fn(() => Promise.reject("gone"));
+        undoOf(deps)();
+        await flush();
+        expect(deps.undo.error).toHaveBeenCalledWith("gone");
+    });
+
+    it("writes through the store, not through run", async () => {
+        const deps = fakeDeps();
+        effortOps(deps, OREF, "Ship it", "active").togglePause();
+        await flush();
+        expect(deps.run).not.toHaveBeenCalled();
     });
 
     it("deletes through the undo window and collapses the row first", () => {

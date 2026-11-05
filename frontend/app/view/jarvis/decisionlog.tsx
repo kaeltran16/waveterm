@@ -71,7 +71,7 @@ function AppendForm({ dossierId, onDone }: { dossierId: string; onDone: () => vo
     const summaryId = useId();
     const rationaleId = useId();
     // a failed write keeps the form open with both fields intact: closing on failure would discard what the
-    // user wrote and assert a decision that is not in the log. tasksErrorAtom carries the reason.
+    // user wrote and assert a decision that is not in the log. The Brief's error toast carries the reason.
     const submit = () => {
         if (err != null || busy) return;
         setBusy(true);
