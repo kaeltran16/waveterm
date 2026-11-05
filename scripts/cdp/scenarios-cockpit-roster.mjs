@@ -202,6 +202,30 @@ async function assert(h, ctx) {
         `)
     );
 
+    // F16: the "need you" fact is amber and bold only while something is asking
+    const needYouStyle = `
+        const el = surface().querySelector("[data-need-you]");
+        const warning = getComputedStyle(document.documentElement).getPropertyValue("--color-warning").trim();
+        const probe = document.createElement("span");
+        probe.style.color = warning;
+        document.body.appendChild(probe);
+        const warningRgb = getComputedStyle(probe).color;
+        probe.remove();
+        const cs = el ? getComputedStyle(el) : null;
+        return { text: flat(el), color: cs?.color ?? null, warningRgb, weight: cs ? Number(cs.fontWeight) : null };
+    `;
+    await run("the need you fact is muted, not amber and bold, while nothing is asking", async () => {
+        const r = await show(h, { roster: [working("fx-roster-work")] }, needYouStyle);
+        r.ok = /^0 need you$/.test(r.text) && r.color !== r.warningRgb && r.weight < 600;
+        return r;
+    });
+    await run("the need you fact is amber and bold while an agent is asking", async () => {
+        const asking = { ...working("fx-roster-ask"), state: "asking", blockedMs: 5000, ask: { askId: "fx-roster-ask-1", questions: [{ header: "Pick", question: "Which one?", options: [{ label: "first", description: "the first" }, { label: "second", description: "the second" }] }] } };
+        const r = await show(h, { roster: [working("fx-roster-work"), asking] }, needYouStyle);
+        r.ok = /^1 need you$/.test(r.text) && r.color === r.warningRgb && r.weight >= 600;
+        return r;
+    });
+
     await run("with every agent parked, the grid shows Nothing live: N idle, M backgrounded below and the Idle list stays clickable", async () => {
         const r = await show(
             h,

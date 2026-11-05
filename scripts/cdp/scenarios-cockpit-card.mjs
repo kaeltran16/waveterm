@@ -7,7 +7,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { TREE_RAIL_FIXTURE, git, lookEval, polishReload, polishWaitFor } from "./scenarios-shared.mjs";
+import { TREE_RAIL_FIXTURE, git, lookEval, polishNap, polishReload, polishWaitFor } from "./scenarios-shared.mjs";
 
 const SMALL_WINDOW = { width: 1000, height: 700, deviceScaleFactor: 1, mobile: false };
 const PROJECT = "card-layout";
@@ -122,7 +122,7 @@ function roster(t) {
             idleSince: now - 60_000,
             transcriptPath: t.standing,
         }),
-        agent(ID.idle, "idle card", { state: "idle", idleSince: now - 60_000 }),
+        agent(ID.idle, "idle card", { state: "idle", idleSince: now - 60_000, transcriptPath: t.idle }),
         agent(ID.ask, "asking at mount", { state: "asking", blockedMs: 30_000, previousInfo: narration("asking at mount"), ask: ASK }),
         agent(ID.arrive, "ask arrives later", {
             state: "working",
@@ -174,7 +174,16 @@ export const cockpitCardLayout = {
             git(repo, "worktree", "add", "-q", "-b", "feature", wt);
             writeFileSync(join(repo, "parser.go"), "package parser\n\nfunc Parse() int {\n    return 2\n}\n");
             writeFileSync(join(wt, "parser.go"), "package parser\n\n// Parse parses.\nfunc Parse() int {\n    return 3\n}\n");
+            // the idle card's own checkout, so its Finished strip carries a Review changes button
+            const finishedRepo = join(ctx.root, "finished-repo");
+            mkdirSync(finishedRepo);
+            git(finishedRepo, "init", "-q", "--initial-branch=main");
+            writeFileSync(join(finishedRepo, "notes.go"), "package notes\n");
+            git(finishedRepo, "add", ".");
+            git(finishedRepo, "commit", "-q", "-m", "seed the notes");
+            writeFileSync(join(finishedRepo, "notes.go"), "package notes\n\nvar Count = 12\n");
             const transcripts = {
+                idle: writeTranscript(ctx.root, "finished", finishedRepo),
                 a: writeTranscript(ctx.root, "shared-a", repo),
                 // the same checkout, spelled with forward slashes
                 b: writeTranscript(ctx.root, "shared-b", repo.replace(/\\/g, "/")),
@@ -315,6 +324,54 @@ export const cockpitCardLayout = {
             detail: JSON.stringify(ask),
         });
         await h.shot("cdp-shots/cockpit-card-layout-ask.png");
+
+        // F4: the Finished strip of the idle card, which has a diff of its own
+        const strip = (width) => lookEval(h, `
+            const c = ${card(ID.idle)};
+            await until(() => c?.querySelector('[data-finished-age]') && c.querySelector('[data-review-label]'), 20000);
+            c.scrollIntoView({ block: "center" });
+            await nap(300);
+            const age = c.querySelector('[data-finished-age]');
+            const label = c.querySelector('[data-review-label]');
+            const row = age.parentElement;
+            const open = [...row.querySelectorAll(':scope > button')].find((b) => b.getAttribute('aria-label') === 'Open');
+            const review = [...row.querySelectorAll(':scope > button')].find((b) => b.getAttribute('aria-label') === 'Review changes');
+            const lineHeight = parseFloat(getComputedStyle(age).lineHeight) || 16;
+            return {
+                viewport: window.innerWidth,
+                card: Math.round(c.getBoundingClientRect().width),
+                strip: Math.round(row.getBoundingClientRect().height),
+                age: Math.round(age.getBoundingClientRect().height),
+                lineHeight,
+                openScroll: [open.scrollWidth, open.clientWidth],
+                openTitle: open.title,
+                reviewTitle: review.title,
+                labelShown: label.getBoundingClientRect().width > 0,
+                rowOverflow: [row.scrollWidth, row.clientWidth],
+            };
+        `);
+        const small = await strip(1000);
+        steps.push({
+            step: "at 1000x700 the Finished strip is one line and Open is not clipped",
+            ok:
+                small.strip <= 34 &&
+                small.age <= small.lineHeight + 2 &&
+                small.openScroll[0] <= small.openScroll[1] &&
+                small.rowOverflow[0] <= small.rowOverflow[1] &&
+                small.openTitle === "Open" &&
+                small.reviewTitle === "Review changes",
+            detail: JSON.stringify(small),
+        });
+        await h.shot("cdp-shots/cockpit-card-layout-finished-1000.png");
+        await h.cdp("Emulation.setDeviceMetricsOverride", { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false });
+        await polishNap(600);
+        const wide = await strip(1600);
+        steps.push({
+            step: "at 1600x950 the Finished strip shows the Review changes label and stays on one line",
+            ok: wide.viewport >= 1500 && wide.labelShown && wide.strip <= 34 && wide.age <= wide.lineHeight + 2 && wide.rowOverflow[0] <= wide.rowOverflow[1],
+            detail: JSON.stringify(wide),
+        });
+        await h.shot("cdp-shots/cockpit-card-layout-finished-1600.png");
         return steps;
     },
     async teardown(h, ctx) {
