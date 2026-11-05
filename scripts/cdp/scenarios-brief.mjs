@@ -28,6 +28,7 @@ import {
     releaseRpc,
     reloadApp,
     restoreLocalStorage,
+    setInputExpr,
     skipStep,
     teardownFixtureRun,
     usageRateLimits,
@@ -390,6 +391,65 @@ export const briefSurface = {
 const BRIEF_PEEK_GOAL = "verify brief-peek: an attributed run, do nothing";
 // the record CreateRun captures for that goal: jarvisdossier names it by the goal's slug
 const BRIEF_PEEK_RECORD = "verify-brief-peek-an-attributed-run-do-nothing";
+// a record saved with Windows line endings, which no RPC writes: seeded straight into the vault, removed in teardown
+const BRIEF_PEEK_CRLF = "verify-brief-peek-crlf";
+const BRIEF_PEEK_CRLF_HEAD = "Verify brief-peek reads a CRLF record.";
+const BRIEF_PEEK_CRLF_REST = "Its body is what follows the headline.";
+// found by its summary on a later run, so the seeded record keeps one rather than growing one per run
+const BRIEF_PEEK_DECISION = "verify brief-peek: the anchored decision";
+const BRIEF_PEEK_NARROW = { width: 1000, height: 700, deviceScaleFactor: 1, mobile: false };
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// mirrors wconfig.resolveVaultRoot
+async function vaultRoot(h) {
+    const settings = (await h.rpc("getfullconfig", null))?.settings ?? {};
+    const configured = settings["memory:vaultpath"] || settings["jarvis:vaultpath"];
+    return configured ? configured.replace(/^~(?=$|[\\/])/, homedir()) : join(homedir(), ".waveterm", "vault");
+}
+
+// stamped a month old so it sorts below the records the palette walk opens
+async function seedCrlfRecord(h) {
+    const dir = join(await vaultRoot(h), "tasks", "active");
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, `${BRIEF_PEEK_CRLF}.md`);
+    const stamp = Date.now() - 30 * DAY_MS;
+    const lines = [
+        "---",
+        "status: paused",
+        'ticket: ""',
+        `objective: ${BRIEF_PEEK_CRLF_HEAD} ${BRIEF_PEEK_CRLF_REST}`,
+        "acceptance: []",
+        "confidence: med",
+        `created: ${stamp}`,
+        `updated: ${stamp}`,
+        "---",
+        "",
+        "## Notes",
+        "",
+        "",
+    ];
+    writeFileSync(file, lines.join("\r\n"));
+    return file;
+}
+
+async function ensurePeekDecision(h) {
+    const detail = await h.rpc("getdossier", { dossierid: BRIEF_PEEK_RECORD });
+    const have = (detail?.decisions ?? []).find((c) => c.summary === BRIEF_PEEK_DECISION);
+    if (have != null) return have.id;
+    const made = await h.rpc("appenddossierdecision", {
+        dossierid: BRIEF_PEEK_RECORD,
+        summary: BRIEF_PEEK_DECISION,
+        rationale: "So the peek has a decision to anchor on.",
+        links: [],
+    });
+    return made?.decisionid ?? null;
+}
+
+const PEEK_ANCHOR = `
+    const { globalStore } = await mod("app/store/jotaiStore.ts");
+    const { pendingDecisionAnchorAtom } = await mod("app/view/jarvis/petstore.ts");
+    return globalStore.get(pendingDecisionAnchorAtom);
+`;
 
 export const briefPeek = {
     name: "brief-peek",
@@ -412,6 +472,13 @@ export const briefPeek = {
             // the capture names the record by its goal's slug, so a later run finds it already there and its capture
             // fails ("already exists"): attach this run to the record explicitly
             await h.rpc("acceptdossieredge", { dossierid: BRIEF_PEEK_RECORD, runoref: `run:${ctx.runId}` });
+            // before the reload: an RPC write bypasses the app's record cache, so a decision added after the record
+            // was read would be missing from the detail step 14 opens
+            try {
+                ctx.decisionId = await ensurePeekDecision(h);
+            } catch (e) {
+                ctx.decisionError = String(e?.message ?? e);
+            }
             // the Brief reads a boot-primed snapshot, so the RPC-created channel needs a reload
             await h.ev("location.reload()");
             await h.ev(`(async () => {
@@ -907,6 +974,8 @@ export const briefPeek = {
         if (recordHook) await h.ev(`window.__recordPeekFor(${JSON.stringify(EMPTY_ID)}, { detail: ${JSON.stringify(emptyDetail)} })`);
         const emptyReady =
             recordHook && (await polishWaitFor(h, `document.querySelector('${BAND} [data-jarvis-peek-status-toggle]') != null`, 6000));
+        // the runs are unknown until the record's scope read settles, so the absence is waited for, not read at once
+        await polishWaitFor(h, `document.querySelector('${BAND} [data-jarvis-peek-runs-loading]') == null`, 8000);
         const empty = await h.ev(`(() => {
             const band = document.querySelector('${BAND}');
             if (!band) return null;
@@ -937,7 +1006,7 @@ export const briefPeek = {
                 empty.bodyColor === empty.muted &&
                 empty.text.includes("No session has ever been attributed to this record.") &&
                 empty.text.includes("never updated") &&
-                empty.text.includes("no decisions yet"),
+                empty.text.includes("No decisions yet"),
             detail: JSON.stringify({ emptyReady, empty }),
         });
         // the toggle mounts on the panel's first frame, so the wait above ends while the modal still fades in
@@ -945,6 +1014,210 @@ export const briefPeek = {
         await h.shot("cdp-shots/brief-peek-empty.png");
         await pressEscape();
         await polishWaitFor(h, `!document.querySelector('${BAND}')`, 3000);
+
+        // F1: a CRLF record parses like any other, so its front matter is read rather than shown as its body
+        let crlfError = null;
+        try {
+            ctx.crlfFile = await seedCrlfRecord(h);
+        } catch (e) {
+            crlfError = String(e?.message ?? e);
+        }
+        if (recordHook) await h.ev(`window.__recordPeekFor(${JSON.stringify(BRIEF_PEEK_CRLF)})`);
+        const crlfReady =
+            recordHook &&
+            (await polishWaitFor(
+                h,
+                `document.querySelector('${BAND} [data-jarvis-peek-status-toggle], ${BAND} [data-jarvis-peek-error]') != null`,
+                6000
+            ));
+        const crlf = await h.ev(`(() => {
+            const band = document.querySelector('${BAND}');
+            if (!band) return null;
+            return {
+                record: band.querySelector('[data-jarvis-peek-record]')?.dataset.jarvisPeekRecord ?? null,
+                title: (band.querySelector('[data-jarvis-peek-title]')?.textContent || '').trim(),
+                current: band.querySelector('[data-jarvis-peek-status-toggle] span[data-jarvis-peek-status]')?.dataset.jarvisPeekStatus ?? null,
+                statusButtons: band.querySelectorAll('[data-jarvis-peek-status-toggle] button[data-jarvis-peek-status]').length,
+                body: (band.querySelector('[data-jarvis-peek-body]')?.textContent || '').trim(),
+                error: (band.querySelector('[data-jarvis-peek-error]')?.textContent || '').trim() || null,
+            };
+        })()`);
+        await settle(600);
+        await h.shot("cdp-shots/brief-peek-crlf.png");
+        steps.push({
+            step: "9. a CRLF record opens with its headline title, its status and its body, not its front matter",
+            ok:
+                crlfError == null &&
+                crlfReady === true &&
+                crlf?.record === BRIEF_PEEK_CRLF &&
+                crlf.title === BRIEF_PEEK_CRLF_HEAD &&
+                crlf.current === "paused" &&
+                crlf.statusButtons > 0 &&
+                !crlf.body.startsWith("---") &&
+                crlf.body === BRIEF_PEEK_CRLF_REST,
+            detail: JSON.stringify({ crlfError, crlfReady, crlf }),
+        });
+        await pressEscape();
+        await polishWaitFor(h, `!document.querySelector('${BAND}')`, 3000);
+
+        // F5: with the scope read held, the runs table is loading, never "no session has ever been attributed"
+        await holdRpc(h, "ResolveFocusScopeCommand");
+        await lookEval(h, `
+            const { globalStore } = await mod("app/store/jotaiStore.ts");
+            const S = await mod("app/view/jarvis/jarvissubjectstore.ts");
+            for (const a of [S.recordRunsAtom, S.recordScopeAtom]) {
+                const next = { ...globalStore.get(a) };
+                delete next[${JSON.stringify(BRIEF_PEEK_RECORD)}];
+                globalStore.set(a, next);
+            }
+        `);
+        if (recordHook) await h.ev(`window.__recordPeekFor(${JSON.stringify(BRIEF_PEEK_RECORD)})`);
+        const heldReady =
+            recordHook && (await polishWaitFor(h, `document.querySelector('${BAND} [data-jarvis-peek-status-toggle]') != null`, 6000));
+        await settle(400);
+        const heldRuns = await h.ev(`(() => {
+            const band = document.querySelector('${BAND}');
+            return {
+                skeletonRows: band?.querySelector('[data-jarvis-peek-runs-loading]')?.children.length ?? 0,
+                absent: /No session has ever been attributed/.test(band?.innerText || ''),
+                rows: band?.querySelectorAll('[data-jarvis-peek-run]').length ?? 0,
+            };
+        })()`);
+        await h.shot("cdp-shots/brief-peek-runs-loading.png");
+        await releaseRpc(h, "ResolveFocusScopeCommand");
+        await lookEval(h, `
+            const S = await mod("app/view/jarvis/jarvissubjectstore.ts");
+            await S.reloadRecordScope(${JSON.stringify(BRIEF_PEEK_RECORD)});
+        `).catch(() => {});
+        const runsBack = await polishWaitFor(h, `document.querySelector('${BAND} [data-jarvis-peek-run]') != null`, 10000);
+        const loadingGone = await h.ev(`document.querySelector('${BAND} [data-jarvis-peek-runs-loading]') == null`);
+        steps.push({
+            step: "10. while the record's runs load, the table shows skeleton rows and claims no absence; then the rows land",
+            ok:
+                heldReady === true &&
+                heldRuns.skeletonRows === 3 &&
+                heldRuns.absent === false &&
+                heldRuns.rows === 0 &&
+                runsBack === true &&
+                loadingGone === true,
+            detail: JSON.stringify({ heldReady, heldRuns, runsBack, loadingGone }),
+        });
+
+        // F12: a run row reads as one line of prose, never markdown
+        const heads = await h.ev(
+            `[...document.querySelectorAll('${BAND} [data-jarvis-peek-run]')].map((b) => (b.children[1]?.textContent || '').trim())`
+        );
+        steps.push({
+            step: "11. the run rows' headlines carry no heading marks or code ticks",
+            ok: Array.isArray(heads) && heads.length > 0 && heads.every((t) => t !== "" && !/[#`]/.test(t)),
+            detail: JSON.stringify({ heads }),
+        });
+
+        // F4: the footer's count is the toggle for the record's log, Add decision included; checked narrow
+        await h.cdp("Emulation.setDeviceMetricsOverride", BRIEF_PEEK_NARROW);
+        await settle(400);
+        const TOGGLE = `document.querySelector('${BAND} [data-jarvis-peek-decisions]')`;
+        const LOG = `${BAND} [data-jarvis-peek-decision-log]`;
+        const readLog = () =>
+            h.ev(`(() => {
+                const toggle = ${TOGGLE};
+                const add = document.querySelector('${LOG} [data-jarvis-decision-add]');
+                const r = add?.getBoundingClientRect();
+                return {
+                    label: toggle ? (toggle.textContent || '').trim() : null,
+                    expanded: toggle?.getAttribute('aria-expanded') ?? null,
+                    log: document.querySelector('${LOG}') != null,
+                    add: add != null && /Add decision/.test(add.textContent || ''),
+                    addInSight: r != null && r.height > 0 && add.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)),
+                };
+            })()`);
+        await h.ev(`${TOGGLE}?.click()`);
+        await settle(500);
+        const logOpen = await readLog();
+        await h.shot("cdp-shots/brief-peek-decisions.png");
+        await h.ev(`${TOGGLE}?.click()`);
+        await settle(300);
+        const logClosed = await readLog();
+        await h.cdp("Emulation.clearDeviceMetricsOverride", {}).catch(() => {});
+        steps.push({
+            step: "12. the footer's decisions count opens the record's log with Add decision in sight, and closes it",
+            ok:
+                /^(No decisions yet|\d+ decisions?)$/.test(logOpen.label ?? "") &&
+                logOpen.expanded === "true" &&
+                logOpen.log === true &&
+                logOpen.add === true &&
+                logOpen.addInSight === true &&
+                logClosed.expanded === "false" &&
+                logClosed.log === false,
+            detail: JSON.stringify({ logOpen, logClosed }),
+        });
+
+        // F2: Escape in the Add decision form cancels the form, and the peek around it stays
+        await h.ev(`${TOGGLE}?.click()`);
+        await settle(300);
+        await h.ev(`document.querySelector('${LOG} [data-jarvis-decision-add]')?.click()`);
+        await settle(300);
+        const FORM_INPUT = `document.querySelector('${LOG} [data-jarvis-decision-form] input')`;
+        const typed = await h.ev(setInputExpr(FORM_INPUT, "typed, then abandoned"));
+        await h.ev(
+            `${FORM_INPUT}?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }))`
+        );
+        await settle(400);
+        const afterEsc = await h.ev(`({
+            form: document.querySelector('${LOG} [data-jarvis-decision-form]') != null,
+            add: document.querySelector('${LOG} [data-jarvis-decision-add]') != null,
+            peek: document.querySelector('${BAND}') != null,
+        })`);
+        steps.push({
+            step: "13. Escape in the Add decision form closes the form and leaves the peek open",
+            ok: typed === true && afterEsc.form === false && afterEsc.add === true && afterEsc.peek === true,
+            detail: JSON.stringify({ typed, afterEsc }),
+        });
+        await pressEscape();
+        await polishWaitFor(h, `!document.querySelector('${BAND}')`, 3000);
+
+        // F4: an open anchored on a decision shows the log with that card lit; the anchor clears after its flash,
+        // and a close before the flash ends clears it too
+        const decisionId = ctx.decisionId ?? null;
+        const decisionError = ctx.decisionError ?? (decisionId == null ? "no decision was seeded" : null);
+        const CARD = `document.querySelector('${BAND} [data-jarvis-decision="${decisionId}"]')`;
+        const cardLit = `(() => {
+            const c = ${CARD};
+            if (!c || c.dataset.jarvisDecisionHighlighted == null) return false;
+            const r = c.getBoundingClientRect();
+            return r.height > 0 && c.contains(document.elementFromPoint(r.left + r.width / 2, r.top + Math.min(r.height / 2, 12)));
+        })()`;
+        const openAnchored = () =>
+            h.ev(
+                `window.__openAddress?.(${JSON.stringify("task:" + BRIEF_PEEK_RECORD)}, { anchor: ${JSON.stringify(decisionId)} })`
+            );
+        if (decisionId != null) await openAnchored();
+        const lit = decisionId != null && (await polishWaitFor(h, cardLit, 8000));
+        await h.shot("cdp-shots/brief-peek-anchor.png");
+        let anchorAfterFlash = await lookEval(h, PEEK_ANCHOR);
+        for (let i = 0; i < 16 && anchorAfterFlash != null; i++) {
+            await settle(250);
+            anchorAfterFlash = await lookEval(h, PEEK_ANCHOR);
+        }
+        await pressEscape();
+        await polishWaitFor(h, `!document.querySelector('${BAND}')`, 3000);
+        if (decisionId != null) await openAnchored();
+        const relit = decisionId != null && (await polishWaitFor(h, cardLit, 6000));
+        const anchorWhileOpen = await lookEval(h, PEEK_ANCHOR);
+        await pressEscape();
+        await polishWaitFor(h, `!document.querySelector('${BAND}')`, 3000);
+        const anchorAfterClose = await lookEval(h, PEEK_ANCHOR);
+        steps.push({
+            step: "14. an anchored open shows the log with the decision lit; the anchor clears after the flash and on close",
+            ok:
+                decisionError == null &&
+                lit === true &&
+                anchorAfterFlash == null &&
+                relit === true &&
+                anchorWhileOpen === decisionId &&
+                anchorAfterClose == null,
+            detail: JSON.stringify({ decisionId, decisionError, lit, anchorAfterFlash, relit, anchorWhileOpen, anchorAfterClose }),
+        });
         return steps;
     },
     async teardown(h, ctx) {
@@ -959,6 +1232,9 @@ export const briefPeek = {
         await step("close the popup", () =>
             h.ev(`document.querySelector('[data-pet-peek] button[aria-label="Close Jarvis panel"]')?.click()`)
         );
+        await step("release the scope read", () => releaseRpc(h, "ResolveFocusScopeCommand"));
+        await step("clear the viewport", () => h.cdp("Emulation.clearDeviceMetricsOverride", {}));
+        if (ctx?.crlfFile) await step("remove the CRLF record", () => rmSync(ctx.crlfFile, { force: true }));
         // a failure between 4c's archive and 4d's reactivation must not leave the seeded record archived
         await step("reactivate the record", () =>
             h.rpc("setdossierstatus", { dossierid: BRIEF_PEEK_RECORD, status: "active" })
@@ -1216,9 +1492,7 @@ const newestMemoryNote = async (h) => {
 async function arrangePeekItemsNote(h, ctx) {
     ctx.note = await newestMemoryNote(h);
     if (ctx.note != null) return;
-    const settings = (await h.rpc("getfullconfig", null))?.settings ?? {};
-    const configured = settings["memory:vaultpath"] || settings["jarvis:vaultpath"];
-    const root = configured ? configured.replace(/^~(?=$|[\\/])/, homedir()) : join(homedir(), ".waveterm", "vault");
+    const root = await vaultRoot(h);
     ctx.noteFile = join(root, "memory", `${PEEK_ITEMS_NOTE}.md`);
     mkdirSync(join(root, "memory"), { recursive: true });
     writeFileSync(

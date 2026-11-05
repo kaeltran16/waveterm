@@ -98,19 +98,33 @@ export function loadRecordScope(dossierId: string): void {
     fireAndForget(() => reloadRecordScope(dossierId));
 }
 
+// A failed or empty scope read still settles the record's runs, to none, so the peek's loading rows end. Only
+// when nothing is cached: a failed refresh keeps the last good list.
+function settleRecordRuns(dossierId: string): void {
+    const prev = globalStore.get(recordRunsAtom);
+    if (prev[dossierId] == null) {
+        globalStore.set(recordRunsAtom, { ...prev, [dossierId]: [] });
+    }
+}
+
 export async function reloadRecordScope(dossierId: string): Promise<void> {
-    const scope = await RpcApi.ResolveFocusScopeCommand(TabRpcClient, { kind: "task", id: dossierId });
+    let scope: SpaceScope;
+    try {
+        scope = await RpcApi.ResolveFocusScopeCommand(TabRpcClient, { kind: "task", id: dossierId });
+    } catch (e) {
+        settleRecordRuns(dossierId);
+        throw e;
+    }
     if (scope == null) {
+        settleRecordRuns(dossierId);
         return;
     }
     globalStore.set(recordScopeAtom, { ...globalStore.get(recordScopeAtom), [dossierId]: scope });
-    const runs: Run[] = [];
-    for (const oref of scope.runorefs ?? []) {
-        const run = await WOS.loadAndPinWaveObject<Run>(oref).catch(() => null);
-        if (run != null) {
-            runs.push(run);
-        }
-    }
+    // in parallel, in the scope's order; a run that fails to load is dropped rather than failing the list
+    const loaded = await Promise.all(
+        (scope.runorefs ?? []).map((oref) => WOS.loadAndPinWaveObject<Run>(oref).catch(() => null))
+    );
+    const runs = loaded.filter((run): run is Run => run != null);
     globalStore.set(recordRunsAtom, { ...globalStore.get(recordRunsAtom), [dossierId]: runs });
 }
 

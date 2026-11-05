@@ -2,7 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { buildRecordPeek, statusPickerRows, type RecordPeekInput } from "./briefpeek";
+import {
+    buildRecordPeek,
+    decisionsOpenOnMount,
+    objectiveParts,
+    statusConfirmCopy,
+    statusPickerRows,
+    type RecordPeekInput,
+} from "./briefpeek";
 
 const NOW = 1_800_000_000_000;
 const DAY = 24 * 60 * 60 * 1000;
@@ -121,11 +128,12 @@ describe("buildRecordPeek", () => {
         expect(peek.bodyMore).toBeNull();
     });
 
-    it("shows the whole objective, paragraphs kept, when it says more than its headline", () => {
-        const objective = "Ship it.\n\nThen tidy up the rest.";
+    // the title already says the first sentence, so the body starts after it rather than saying it twice
+    it("shows the rest of the objective, paragraphs kept, when it says more than its headline", () => {
+        const objective = "Ship it.\n\nThen tidy up the rest.\n\nAnd more.";
         const peek = buildRecordPeek(input({ detail: detail({ objective }) }));
         expect(peek.title).toBe("Ship it.");
-        expect(peek.body).toBe(objective);
+        expect(peek.body).toBe("Then tidy up the rest.\n\nAnd more.");
         expect(peek.bodyMore).toBeNull();
     });
 
@@ -136,8 +144,8 @@ describe("buildRecordPeek", () => {
         expect(peek.body).toBe(objective);
     });
 
-    it("offers the full objective only past 400 characters, counted in kilo", () => {
-        const at = (n: number) => "First sentence. " + "y".repeat(n - 16);
+    it("offers the full objective only past 400 characters of body, counted in kilo", () => {
+        const at = (n: number) => "First sentence. " + "y".repeat(n);
         expect(buildRecordPeek(input({ detail: detail({ objective: at(400) }) })).bodyMore).toBeNull();
         expect(buildRecordPeek(input({ detail: detail({ objective: at(401) }) })).bodyMore).toBe(
             "Show the full objective · 401"
@@ -191,6 +199,21 @@ describe("buildRecordPeek", () => {
     it("says a record has never been worked rather than showing an empty band", () => {
         expect(buildRecordPeek(input()).runsAbsent).toBe("No session has ever been attributed to this record.");
         expect(buildRecordPeek(input()).runs).toEqual([]);
+        expect(buildRecordPeek(input()).runsLoading).toBe(false);
+    });
+
+    // runs not read yet are not runs absent: claiming "never attributed" before the read lands is false
+    it("reads unloaded runs as loading, with no absence sentence", () => {
+        const peek = buildRecordPeek(input({ runs: undefined }));
+        expect(peek.runsLoading).toBe(true);
+        expect(peek.runsAbsent == null).toBe(true);
+        expect(peek.runs).toEqual([]);
+    });
+
+    it("states no absence when the record has runs", () => {
+        const peek = buildRecordPeek(input({ runs: [run()] }));
+        expect(peek.runsLoading).toBe(false);
+        expect(peek.runsAbsent).toBeNull();
     });
 
     // runRow suppresses a goal that merely echoes the objective, to stop N identical lines. A suppressed
@@ -208,13 +231,67 @@ describe("buildRecordPeek", () => {
         expect(peek.runs[0].tone).toBe("blocked");
     });
 
-    it("derives the decision count and points it at the Brief", () => {
-        expect(buildRecordPeek(input()).logLine).toBe("no decisions yet");
-        expect(
-            buildRecordPeek(input({ detail: detail({ decisions: [{}] as unknown as DecisionCard[] }) })).logLine
-        ).toBe("1 decision · on the Brief");
-        expect(
-            buildRecordPeek(input({ detail: detail({ decisions: [{}, {}] as unknown as DecisionCard[] }) })).logLine
-        ).toBe("2 decisions · on the Brief");
+    // the line is the toggle for the peek's own log, so it no longer points somewhere else
+    it("labels the decisions toggle with the count", () => {
+        const withN = (n: number) =>
+            buildRecordPeek(input({ detail: detail({ decisions: Array(n).fill({}) as unknown as DecisionCard[] }) }))
+                .logLine;
+        expect(withN(0)).toBe("No decisions yet");
+        expect(withN(1)).toBe("1 decision");
+        expect(withN(3)).toBe("3 decisions");
+    });
+});
+
+describe("decisionsOpenOnMount", () => {
+    const decisions = [{ id: "dec-1" }, { id: "dec-2" }] as unknown as DecisionCard[];
+
+    it("opens the log when the anchor names one of the record's decisions", () => {
+        expect(decisionsOpenOnMount("dec-2", decisions)).toBe(true);
+    });
+
+    it("stays closed for an anchor on another record, or none", () => {
+        expect(decisionsOpenOnMount("dec-9", decisions)).toBe(false);
+        expect(decisionsOpenOnMount(null, decisions)).toBe(false);
+        expect(decisionsOpenOnMount("dec-1", [])).toBe(false);
+    });
+});
+
+describe("statusConfirmCopy", () => {
+    it("asks about the record and says how to undo it", () => {
+        expect(statusConfirmCopy("completed")).toEqual({
+            title: "Mark this record completed?",
+            body: `This sets the record's status to "completed". You can reactivate it later.`,
+        });
+    });
+});
+
+describe("objectiveParts", () => {
+    it("has no body when the objective is one sentence", () => {
+        expect(objectiveParts("Make attention polling reliable.")).toEqual({
+            headline: "Make attention polling reliable.",
+            body: null,
+            bodyMore: null,
+        });
+    });
+
+    it("starts the body after the headline sentence", () => {
+        const parts = objectiveParts("Fix the band. It repeats the ticket.\n\nMore detail.");
+        expect(parts.headline).toBe("Fix the band.");
+        expect(parts.body?.startsWith("It repeats the ticket.")).toBe(true);
+        expect(parts.body).not.toContain("Fix the band.");
+        expect(parts.bodyMore).toBeNull();
+    });
+
+    // a cut headline says only part of its sentence, so the body has to carry the whole of it
+    it("keeps the whole objective as the body when the headline had to cut it", () => {
+        const objective = "word ".repeat(60).trim() + ". Second sentence.";
+        const parts = objectiveParts(objective);
+        expect(parts.headline.endsWith("…")).toBe(true);
+        expect(parts.body).toBe(objective);
+    });
+
+    it("measures the show-more link on the body", () => {
+        expect(objectiveParts("Head. " + "y".repeat(401)).bodyMore).toBe("Show the full objective · 401");
+        expect(objectiveParts("Head. " + "y".repeat(400)).bodyMore).toBeNull();
     });
 });
