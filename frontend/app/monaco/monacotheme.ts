@@ -31,10 +31,20 @@ export interface MonacoChrome {
 
 const SELECTION_ALPHA = 0.5;
 const LINE_HIGHLIGHT_ALPHA = 0.35;
-// --color-hover and --color-hoverbg: translucent, since the diff overview paints its change marks
-// beneath the slider, and over the code surface they land near the app scrollbar's thumb
-const SCROLL_THUMB = "#ffffff1a";
-const SCROLL_THUMB_HOVER = "#ffffff33";
+// the thumb colors of the app scrollbar (::-webkit-scrollbar-thumb in tailwindsetup.css)
+const SCROLL_THUMB = "#262c34";
+const SCROLL_THUMB_HOVER = "#343c46";
+// GitHub Desktop's dark diff (app/styles/themes/_dark.scss): primer's green-900 / red-900 darkened for the
+// line and darker still for the gutter. Its changed-text fill (green-600 #22863a, red-700 #b31d28) left the
+// gray comment token at 1.06:1, so that is mixed only 30% of the way from the line color toward it.
+const DIFF_BANDS: Record<string, string> = {
+    "diffEditor.insertedLineBackground": "#113a1b",
+    "diffEditor.insertedTextBackground": "#165024",
+    "diffEditorGutter.insertedLineBackground": "#0b2611",
+    "diffEditor.removedLineBackground": "#450c0f",
+    "diffEditor.removedTextBackground": "#641117",
+    "diffEditorGutter.removedLineBackground": "#2f090a",
+};
 
 // token family -> cockpit role. "storage"/"control" read as keyword-family declarations
 // (let/const/type), "delimiter" joins "punctuation" (braces, brackets, separators).
@@ -82,16 +92,14 @@ export function monacoThemeFromTokens(
         colors["editor.lineHighlightBackground"] = colord(chrome.lineHighlight).alpha(LINE_HIGHLIGHT_ALPHA).toHex();
     }
     if (dark) {
-        // vs-dark's slider is a light gray that, as the diff overview's 30px viewport box, fills the whole
-        // edge of any diff that fits on screen
+        // vs-dark's slider is a light gray that stands out from every other scrollbar in the app
         colors["scrollbarSlider.background"] = SCROLL_THUMB;
         colors["scrollbarSlider.hoverBackground"] = SCROLL_THUMB_HOVER;
         colors["scrollbarSlider.activeBackground"] = SCROLL_THUMB_HOVER;
-        // the hairline between the editor and the diff overview reads as a second scrollbar track
+        // the overview ruler's hairline reads as a second scrollbar track
         colors["editorOverviewRuler.border"] = "#00000000";
+        Object.assign(colors, DIFF_BANDS);
     }
-    // the diff bands are left to the base theme on purpose: vs-dark's olive and red at 20% are the
-    // vs code / antigravity bands, which read better than the saturated +N/-N count colors
     return { base: dark ? "vs-dark" : "vs", inherit: true, rules, colors };
 }
 

@@ -300,19 +300,20 @@ svg [aria-label="tip"] g path {
 .monaco-editor .diff-comment-plus {
     cursor: pointer;
 }
-/* block, not a flex child: monaco writes display: block inline on the widget node, which left this an
-   inline box that ignored its size and shrank to a pill the width of the glyph */
-.monaco-editor .diff-comment-plus::before {
-    display: block;
-    margin: 0 auto;
-    content: "+";
-    width: 16px;
-    height: 16px;
-    border-radius: 5px;
+/* centered by absolute inset, since monaco writes display: block, size and position inline on the
+   widget node; 14px leaves a gap to the line numbers on either side of the 17px margin */
+.monaco-editor .diff-comment-plus > svg {
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    width: 14px;
+    height: 14px;
+    border-radius: 4px;
     background: var(--color-accent);
     color: var(--color-background);
-    font: 700 14px/16px var(--font-sans);
-    text-align: center;
+}
+.monaco-editor .diff-comment-plus:hover > svg {
+    background: var(--color-accenthover);
 }
 /* A new file in the Diff pane: monaco draws an empty original as "replace line 1 with everything", so
    every line wears the inserted line and text bands (stacked, which drowns the syntax colors) and line 1

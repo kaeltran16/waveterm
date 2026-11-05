@@ -61,6 +61,9 @@ export function paneOptions(split: boolean, ignoreWs: boolean, newFile = false):
         // monaco defaults this off, which hides the joined glyphs Fira Code is picked for
         fontLigatures: true,
         smoothScrolling: true,
+        // monaco's 30px change map beside the editor's own scrollbar reads as a second, much wider
+        // scrollbar than the app's; the header's change counter and Shift+N/P cover finding hunks
+        renderOverviewRuler: false,
         scrollbar: { useShadows: false, verticalScrollbarSize: 6, horizontalScrollbarSize: 6 },
     };
 }

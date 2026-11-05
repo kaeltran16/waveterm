@@ -142,6 +142,10 @@ function stopPropagation(e: Event): void {
     e.stopPropagation();
 }
 
+// lucide's plus, drawn rather than typed: a text + sits on the font's baseline, low and off-center
+const PLUS_ICON =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M12 6v12M6 12h12"/></svg>';
+
 // the + on the hovered line of one editor; a glyph-margin widget so it carries its own DOM and click
 function plusWidget(monaco: Monaco, editor: CodeEditor, side: CommentSide) {
     const node = document.createElement("div");
@@ -149,6 +153,7 @@ function plusWidget(monaco: Monaco, editor: CodeEditor, side: CommentSide) {
     node.dataset.diffCommentPlus = side;
     node.setAttribute("role", "button");
     node.title = "Comment on this line (m)";
+    node.innerHTML = PLUS_ICON;
     let line = 0;
     let shown = false;
     const widget: MonacoTypes.editor.IGlyphMarginWidget = {

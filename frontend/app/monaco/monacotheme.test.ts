@@ -63,23 +63,24 @@ describe("monacoThemeFromTokens", () => {
         expect(t.colors["editor.lineHighlightBackground"]).toBeUndefined();
     });
 
-    it("leaves the diff bands to the base theme, so they match vs code / antigravity", () => {
-        const t = monacoThemeFromTokens(TOKENS, CHROME, true);
-        for (const key of [
-            "diffEditor.insertedLineBackground",
-            "diffEditor.insertedTextBackground",
-            "diffEditor.removedLineBackground",
-            "diffEditor.removedTextBackground",
-        ]) {
-            expect(t.colors[key]).toBeUndefined();
-        }
+    it("draws the diff bands in github desktop's dark colors on dark, and leaves light to the base", () => {
+        const dark = monacoThemeFromTokens(TOKENS, CHROME, true).colors;
+        expect(dark["diffEditor.insertedLineBackground"]).toBe("#113a1b");
+        expect(dark["diffEditor.insertedTextBackground"]).toBe("#165024");
+        expect(dark["diffEditorGutter.insertedLineBackground"]).toBe("#0b2611");
+        expect(dark["diffEditor.removedLineBackground"]).toBe("#450c0f");
+        expect(dark["diffEditor.removedTextBackground"]).toBe("#641117");
+        expect(dark["diffEditorGutter.removedLineBackground"]).toBe("#2f090a");
+        const light = monacoThemeFromTokens(TOKENS, CHROME, false).colors;
+        expect(light["diffEditor.insertedLineBackground"]).toBeUndefined();
+        expect(light["diffEditor.removedLineBackground"]).toBeUndefined();
     });
 
-    it("draws a translucent scrollbar slider on dark, so the diff overview's marks show through it, and leaves light to the base", () => {
+    it("draws the scrollbar slider in the app scrollbar's thumb colors on dark, and leaves light to the base", () => {
         const dark = monacoThemeFromTokens(TOKENS, CHROME, true).colors;
-        expect(dark["scrollbarSlider.background"]).toBe("#ffffff1a");
-        expect(dark["scrollbarSlider.hoverBackground"]).toBe("#ffffff33");
-        expect(dark["scrollbarSlider.activeBackground"]).toBe("#ffffff33");
+        expect(dark["scrollbarSlider.background"]).toBe("#262c34");
+        expect(dark["scrollbarSlider.hoverBackground"]).toBe("#343c46");
+        expect(dark["scrollbarSlider.activeBackground"]).toBe("#343c46");
         expect(monacoThemeFromTokens(TOKENS, CHROME, false).colors["scrollbarSlider.background"]).toBeUndefined();
     });
 

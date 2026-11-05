@@ -42,6 +42,12 @@ describe("the diff pane's view switches", () => {
         expect(isNewFile("a\n", "")).toBe(false);
     });
 
+    // the change map is a 30px column next to the scrollbar, unlike any other scrollbar in the app
+    it("draws no diff overview ruler", () => {
+        expect(paneOptions(false, false).renderOverviewRuler).toBe(false);
+        expect(paneOptions(true, false).renderOverviewRuler).toBe(false);
+    });
+
     it("never lets either side be typed into", () => {
         const o = paneOptions(true, true);
         expect(o.readOnly).toBe(true);
