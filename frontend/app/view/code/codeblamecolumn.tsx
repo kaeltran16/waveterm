@@ -12,9 +12,10 @@ import { formatAgeShort } from "@/app/view/agents/agentsviewmodel";
 import { openTarget } from "@/app/view/jarvis/openref";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { useEffect } from "react";
-import { blameClick, blameIsCurrent, type BlameEntry } from "./codeblame";
+import { useEffect, useMemo } from "react";
+import { blameClick, blameIsCurrent, mapBlameLines, placeBlame, type BlameEntry } from "./codeblame";
 import { blameKey, codeBlameAtom, loadBlame } from "./codeblamestore";
+import { codeDraftsAtom } from "./codestore";
 
 export interface EditorLineLayout {
     top(line: number): number;
@@ -36,6 +37,7 @@ export function CodeBlameColumn({
     layout: EditorLineLayout | null;
 }) {
     const state = useAtomValue(codeBlameAtom);
+    const drafts = useAtomValue(codeDraftsAtom);
     const lineCount = text.split("\n").length;
     useEffect(() => {
         void loadBlame(path, modtime, lineCount);
@@ -43,6 +45,12 @@ export function CodeBlameColumn({
 
     const key = blameKey(path);
     const entries = key != null && blameIsCurrent(state, key, modtime) && state.kind === "ready" ? state.entries : null;
+    // blame describes the saved text; an unsaved draft moves its lines, so each entry follows its lines there
+    const buffer = (key != null ? drafts.get(key)?.text : null) ?? text;
+    const placed = useMemo(
+        () => (entries == null ? null : placeBlame(entries, mapBlameLines(text, buffer))),
+        [entries, text, buffer]
+    );
     const shownHeight = window.innerHeight;
 
     return (
@@ -58,15 +66,23 @@ export function CodeBlameColumn({
                     Could not read blame: {state.message}
                 </p>
             ) : null}
-            {entries != null && layout != null
-                ? entries.map((e) => {
-                      const top = layout.top(e.start);
-                      const height = layout.height(e.start, e.lines);
+            {placed != null && layout != null
+                ? placed.map((p) => {
+                      const top = layout.top(p.start);
+                      const height = layout.height(p.start, p.lines);
                       // only what is on screen: a scroll re-renders every row drawn
                       if (top + height < 0 || top > shownHeight) {
                           return null;
                       }
-                      return <BlameRow key={`${e.start}:${e.sha}`} model={model} entry={e} top={top} height={height} />;
+                      return (
+                          <BlameRow
+                              key={`${p.start}:${p.entry.sha}`}
+                              model={model}
+                              entry={p.entry}
+                              top={top}
+                              height={height}
+                          />
+                      );
                   })
                 : null}
         </div>
