@@ -984,6 +984,7 @@ export function inspectCommand(command: string, options: DetectOptions): Goalpos
 
     const deleted: string[] = [];
     const edited: Array<readonly [string, GoalpostCategory]> = [];
+    const appended = new Set([...command.matchAll(/>>\s*['"]?([^\s'";&|<>]+)/g)].map((match) => match[1]));
     for (const segment of segmentsOf(command)) {
         const [verb = "", ...rest] = withoutPrefix(segment.words);
         const args = rest.filter((word) => !word.startsWith("-"));
@@ -1002,7 +1003,8 @@ export function inspectCommand(command: string, options: DetectOptions): Goalpos
         const targets = [...(isInPlace ? args : []), ...segment.redirects];
         for (const target of targets) {
             const category = GUARDED_FOR_SHELL(target, options.testPattern);
-            if (category !== null) {
+            // an append adds tests and cannot weaken the ones already in the file
+            if (category !== null && !(category === "tests" && appended.has(target))) {
                 edited.push([target, category] as const);
             }
         }

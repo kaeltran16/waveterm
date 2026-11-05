@@ -47,6 +47,8 @@ and this file for build flow, and `docs/README.md` for what remains of `docs/`. 
   - `pi/extensions/*`, `pi/themes/arc.json` → copied into `cmd/wsh/cmd/`.
   - `claude/arc-mod/`, `claude/arc-view-mod/`, `claude/arc-skim-mod/` → copied into `cmd/wsh/cmd/claude-*`.
   - `skills/` (Arc's `arc:` skills) → the vault, the arc mod and each harness.
+  - The `cmd/wsh/cmd/claude-*` copies are tracked: after editing a source, run `task sync:claudemod` and
+    commit the copies with it.
   - Mods and skills, how they install and their traps: `docs/agents/claude-mods.md`.
 - **Renaming a wshrpc command breaks `task generate` itself** (`undefined: wshrpc.Command<Old>Data`).
   Replace the three symbols (`<Old>Command`, `Command<Old>Data`, wire string `"<old>"`) in
