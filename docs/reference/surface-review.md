@@ -62,6 +62,10 @@ real data".
    - Does it show something without helping act on it?
    - Did using it mean going elsewhere or remembering something?
    - Is a label, count or number wrong, or meaningless to the user?
+   - Does it look right by `DESIGN.md`? Check colors against the `@theme` tokens (a raw color opts out of
+     every theme), spacing rhythm, alignment, hierarchy, and consistency with sibling surfaces. Check clipping,
+     overlap and wrapping at both 1000x700 and 1600x950. A finding of this kind is `visual` and needs a
+     screenshot; name the token or `DESIGN.md` rule it breaks.
 3. **Read each feature's code** and report:
    - bugs and unhandled states;
    - states the code handles that no UI reaches;
