@@ -1600,7 +1600,8 @@ export function buildCodeBindings(model: AgentsViewModel): Binding[] {
             keys: "Alt:ArrowLeft",
             group: "Code",
             label: "Back",
-            when: on,
+            // from the editor too: Alt+arrows are not editing keys, and the editor is where you jump from
+            when: (ctx) => ctx.surface === "code" && !ctx.modalOpen,
             run: () => {
                 void goBack();
             },
@@ -1610,7 +1611,7 @@ export function buildCodeBindings(model: AgentsViewModel): Binding[] {
             keys: "Alt:ArrowRight",
             group: "Code",
             label: "Forward",
-            when: on,
+            when: (ctx) => ctx.surface === "code" && !ctx.modalOpen,
             run: () => {
                 void goForward();
             },
@@ -1629,9 +1630,13 @@ export function buildCodeBindings(model: AgentsViewModel): Binding[] {
             id: "code:diff",
             keys: "d",
             group: "Code",
-            label: "Cycle the diff: HEAD, branch base, off",
+            label: "Cycle the diff: HEAD, branch base, off (git repo)",
             when: on,
             run: () => {
+                // a plain directory has no history to diff against, as its disabled Diff button says
+                if (globalStore.get(codePlainAtom)) {
+                    return false;
+                }
                 void cycleDiff();
             },
         },
@@ -1639,7 +1644,7 @@ export function buildCodeBindings(model: AgentsViewModel): Binding[] {
             id: "code:blame",
             keys: "b",
             group: "Code",
-            label: "Toggle the blame column",
+            label: "Toggle the blame column (switches to Source)",
             when: on,
             run: () => {
                 // a plain directory has no history, as its disabled Blame button says
@@ -1652,7 +1657,7 @@ export function buildCodeBindings(model: AgentsViewModel): Binding[] {
             id: "code:comment",
             keys: "Alt:m",
             group: "Code",
-            label: "Comment on the selection",
+            label: "Comment on the selection (switches to Source)",
             // from the editor too: a comment is on what the editor has selected
             when: (ctx) => ctx.surface === "code" && !ctx.modalOpen,
             run: () => startComment(),
