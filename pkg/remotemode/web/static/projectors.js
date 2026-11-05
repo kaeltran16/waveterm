@@ -429,6 +429,7 @@ function targetFor2(input) {
   }
   return "";
 }
+var HANDBACK_TOOL = "SubagentHandback";
 function parseCommand(content) {
   const nameMatch = /<command-name>([^]*?)<\/command-name>/.exec(content);
   if (nameMatch == null) {
@@ -491,6 +492,9 @@ function projectTranscript(lines) {
           continue;
         }
         if (block?.type === "tool_use" && typeof block.name === "string") {
+          if (block.name === HANDBACK_TOOL) {
+            continue;
+          }
           if (block.name === "Skill" && block?.caller?.type === "direct" && typeof block.input?.skill === "string") {
             const args = typeof block.input.args === "string" ? block.input.args.trim() : "";
             entries.push({
