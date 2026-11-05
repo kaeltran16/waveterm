@@ -50,9 +50,13 @@ const Link = ({
 }) => {
     const onClick = (e: React.MouseEvent) => {
         e.preventDefault();
+        // the caller sees every href first, in-page anchors included, so it can route them its own way
+        if (onClickLink?.(props.href)) {
+            return;
+        }
         if (props.href.startsWith("#")) {
             setFocusedHeading(props.href);
-        } else if (!onClickLink?.(props.href)) {
+        } else {
             openLink(props.href);
         }
     };
@@ -315,7 +319,7 @@ type MarkdownProps = {
     className?: string;
     contentClassName?: string;
     onClickExecute?: (cmd: string) => void;
-    // return true when the link was handled; false falls through to the external opener
+    // return true when the link was handled; false falls through to the heading scroll or the external opener
     onClickLink?: (href: string) => boolean;
     resolveOpts?: MarkdownResolveOpts;
     scrollable?: boolean;

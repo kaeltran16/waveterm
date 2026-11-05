@@ -11,6 +11,7 @@ const fileDelete = vi.fn();
 const fileMkdir = vi.fn();
 const fileMove = vi.fn();
 const listWorktrees = vi.fn();
+const fileRead = vi.fn();
 vi.mock("@/app/store/wshclientapi", () => ({
     RpcApi: {
         GitListFilesCommand: (...a: any[]) => listFiles(...a),
@@ -20,6 +21,7 @@ vi.mock("@/app/store/wshclientapi", () => ({
         FileDeleteCommand: (...a: any[]) => fileDelete(...a),
         FileMkdirCommand: (...a: any[]) => fileMkdir(...a),
         FileMoveCommand: (...a: any[]) => fileMove(...a),
+        FileReadCommand: (...a: any[]) => fileRead(...a),
     },
 }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
@@ -29,7 +31,10 @@ vi.mock("@/app/view/agents/projectsstore", async (importOriginal) => {
     return { ...(await importOriginal<object>()), projectsAtom: atom({}) };
 });
 
+import type { AgentsViewModel } from "@/app/view/agents/agents";
+import { atom } from "jotai";
 import { EMPTY_HISTORY, push } from "./codehistory";
+import { codeSearchModeAtom } from "./codesearchstore";
 import {
     codeBodyPhase,
     codeCursorAtom,
@@ -40,6 +45,7 @@ import {
     codeIndexAtom,
     codeIndexErrorAtom,
     codeMutateErrorAtom,
+    codePendingJumpAtom,
     codeProjectAtom,
     codeSaveAtom,
     codeSessionDirsAtom,
@@ -49,8 +55,11 @@ import {
     deletePath,
     editDraft,
     ensureIndex,
+    goToLine,
     isCurrentPick,
     lastCodeProjectAtom,
+    openInCode,
+    openPath,
     refreshIndex,
     registeredProjects,
     renamePath,
@@ -389,5 +398,74 @@ describe("saveCurrent", () => {
 
         expect(globalStore.get(codeSaveAtom)).toMatchObject({ kind: "conflict", path: "src/a.ts" });
         expect(globalStore.get(codeStaleAtom)).toEqual({ path: "src/a.ts" });
+    });
+});
+
+describe("jumps", () => {
+    // already on Code, so the jump does not move the surface
+    const model = { surfaceAtom: atom("code") } as unknown as AgentsViewModel;
+    const textFile = (body: string) => {
+        fileInfo.mockResolvedValue({ size: body.length, mimetype: "text/plain", modtime: 2 });
+        fileRead.mockResolvedValue({ data64: btoa(body) });
+    };
+
+    afterEach(() => {
+        globalStore.set(codePendingJumpAtom, null);
+    });
+
+    it("openInCode tags the pending jump with its path", async () => {
+        const project = seedSession(["src/a.ts", "src/b.ts"]);
+        textFile("b\n");
+
+        await openInCode(model, { projectPath: project.path, rel: "src/b.ts", line: 9 });
+
+        expect(globalStore.get(codeFileAtom)).toMatchObject({ kind: "text", path: "src/b.ts" });
+        expect(globalStore.get(codePendingJumpAtom)).toEqual({ path: "src/b.ts", line: 9 });
+    });
+
+    it("openInCode carries an anchor", async () => {
+        const project = seedSession(["src/a.ts", "docs/b.md"]);
+        textFile("# B\n");
+
+        await openInCode(model, { projectPath: project.path, rel: "docs/b.md", anchor: "b" });
+
+        expect(globalStore.get(codePendingJumpAtom)).toEqual({ path: "docs/b.md", anchor: "b" });
+    });
+
+    it("opening another file drops a pending jump for a different path", async () => {
+        seedSession(["src/a.ts", "src/b.ts", "README.md"]);
+        textFile("x\n");
+        globalStore.set(codePendingJumpAtom, { path: "src/b.ts", line: 9 });
+
+        await openPath("src/b.ts");
+        expect(globalStore.get(codePendingJumpAtom)).toEqual({ path: "src/b.ts", line: 9 });
+
+        await openPath("README.md");
+        expect(globalStore.get(codePendingJumpAtom)).toBeNull();
+    });
+
+    it("goToLine tags the pending jump with the open file", () => {
+        seedSession(["src/a.ts"]);
+
+        goToLine(152);
+
+        expect(globalStore.get(codePendingJumpAtom)).toEqual({ path: "src/a.ts", line: 152 });
+    });
+
+    it("openPath of a directory reveals the folder and leaves the file and history", async () => {
+        seedSession(["src/a.ts", "docs/x/y.md"]);
+        const file = globalStore.get(codeFileAtom);
+        const history = globalStore.get(codeHistoryAtom);
+        globalStore.set(codeSearchModeAtom, "search");
+        fileInfo.mockResolvedValue({ isdir: true, mimetype: "directory" });
+
+        await openPath("docs/x");
+
+        expect(globalStore.get(codeFileAtom)).toBe(file);
+        expect(globalStore.get(codeHistoryAtom)).toBe(history);
+        expect(fileRead).not.toHaveBeenCalled();
+        expect(globalStore.get(codeCursorAtom)).toBe("docs/x");
+        expect([...globalStore.get(codeExpandedAtom)]).toEqual(expect.arrayContaining(["src", "docs", "docs/x"]));
+        expect(globalStore.get(codeSearchModeAtom)).toBe("files");
     });
 });

@@ -28,6 +28,7 @@ import { remember } from "./codeeditorcache";
 import { langOf, type Lang } from "./codelang";
 import { resolveDocLink } from "./codelink";
 import { previewHeadingFor } from "./codeoutline";
+import { resolvePendingJump, type JumpResolution } from "./codependingjump";
 import { fileComments, reanchor } from "./codereview";
 import {
     cancelComment,
@@ -39,15 +40,18 @@ import {
 import {
     codeDraftsAtom,
     codeFileAtom,
+    codeIndexAtom,
     codeOutlineAtom,
-    codePendingLineAtom,
+    codePendingJumpAtom,
     codePlainAtom,
     codeProjectAtom,
     codeViewModeAtom,
     draftKey,
     editDraft,
+    goToLine,
     openInCode,
     refreshIndex,
+    revealFolder,
     setCaretLineReader,
     setCaretWordReader,
     type CodeProject,
@@ -120,12 +124,28 @@ export function codeEditorWordAtCursor(): { word: string; lang: Lang } | null {
     return word == null ? null : { word, lang };
 }
 
+// The pending jump against the file showing, or null with nothing pending. A drop is cleared here, so a
+// jump whose file opened as binary, missing or an error can never fire later on another file.
+function resolveShowing(): JumpResolution | null {
+    const p = globalStore.get(codePendingJumpAtom);
+    if (p == null) {
+        return null;
+    }
+    const headings = globalStore.get(codeOutlineAtom).filter((s) => s.kind === "heading");
+    const r = resolvePendingJump(p, globalStore.get(codeFileAtom), headings);
+    if (r.kind === "drop") {
+        globalStore.set(codePendingJumpAtom, null);
+    }
+    return r;
+}
+
 function applyPendingLine(ed: MonacoTypes.editor.IStandaloneCodeEditor): void {
-    const line = globalStore.get(codePendingLineAtom);
-    if (line == null) {
+    const r = resolveShowing();
+    if (r?.kind !== "line") {
         return;
     }
-    globalStore.set(codePendingLineAtom, null);
+    globalStore.set(codePendingJumpAtom, null);
+    const line = r.line;
     // a history walk has usually just restored a view that already shows the line, and re-centering
     // it — or dropping the caret's column — would jolt what the reader left
     ed.revealLineInCenterIfOutsideViewport(line);
@@ -135,21 +155,60 @@ function applyPendingLine(ed: MonacoTypes.editor.IStandaloneCodeEditor): void {
 }
 
 // A rendered document has no lines, so a jump lands on the heading of the section holding the line —
-// which is all a Symbols heading row or an @ pick asks for.
-function revealPreviewLine(root: HTMLElement | null, line: number): void {
+// which is all a Symbols heading row or an @ pick asks for. "notready" while the document's headings are
+// not in the DOM yet; "off" when the scroll did not bring the heading into the preview's frame.
+type PreviewReveal = "notready" | "off" | "shown";
+
+function revealPreviewLine(root: HTMLElement | null, line: number): PreviewReveal {
     // the document itself rather than the scroller: which element scrolls is the Markdown component's
     // business, and scrollIntoView finds it
     const doc = root?.querySelector<HTMLElement>("[data-overlayscrollbars-viewport]");
-    if (doc == null) {
-        return;
+    const outline = globalStore.get(codeOutlineAtom);
+    const headings = Array.from(doc?.querySelectorAll<HTMLElement>(".heading") ?? []);
+    if (doc == null || (headings.length === 0 && outline.some((s) => s.kind === "heading"))) {
+        return "notready";
     }
-    const headings = Array.from(doc.querySelectorAll<HTMLElement>(".heading"));
     const at = previewHeadingFor(
-        globalStore.get(codeOutlineAtom),
+        outline,
         line,
         headings.map((h) => h.textContent ?? "")
     );
-    (at === -1 ? doc : headings[at]).scrollIntoView({ block: "start" });
+    const target = at === -1 ? doc : headings[at];
+    target.scrollIntoView({ block: "start" });
+    const shown = target.getBoundingClientRect();
+    const frame = root.getBoundingClientRect();
+    return shown.top >= frame.top - 1 && shown.top < frame.bottom ? "shown" : "off";
+}
+
+// A fresh document's scroller resets its offset a frame or two after it mounts, undoing a reveal made
+// on arrival, so the reveal is re-asserted each frame until it has held this many in a row.
+const PREVIEW_JUMP_SETTLE_FRAMES = 8;
+// the bound on that, after which a document that rendered gives the jump up
+const PREVIEW_JUMP_WAIT_MS = 3000;
+
+// The preview's half of applyPendingLine. The jump stays pending while it settles; one whose document
+// never rendered headings is kept, so a later attempt (or a Source toggle) still lands it.
+function revealPendingInPreview(root: HTMLElement | null): () => void {
+    const r = resolveShowing();
+    if (r?.kind !== "line") {
+        return () => {}; // nothing pending, dropped, or its file is not showing yet (the effect re-runs when it is)
+    }
+    const deadline = Date.now() + PREVIEW_JUMP_WAIT_MS;
+    let held = 0;
+    let rendered = false;
+    let frame = 0;
+    const step = () => {
+        const at = revealPreviewLine(root, r.line);
+        rendered ||= at !== "notready";
+        held = at === "shown" ? held + 1 : 0;
+        if (held >= PREVIEW_JUMP_SETTLE_FRAMES || (Date.now() >= deadline && rendered)) {
+            globalStore.set(codePendingJumpAtom, null);
+        } else if (Date.now() < deadline) {
+            frame = requestAnimationFrame(step);
+        }
+    };
+    step();
+    return () => cancelAnimationFrame(frame);
 }
 
 function restoreKept(ed: MonacoTypes.editor.IStandaloneCodeEditor, key: string): void {
@@ -191,11 +250,25 @@ function MarkdownPreview({
             if (target == null) {
                 return false;
             }
+            if (globalStore.get(codeIndexAtom)?.paths.some((p) => p.startsWith(`${target.rel}/`))) {
+                revealFolder(target.rel);
+                return true;
+            }
+            if (target.rel === path) {
+                // this document is already showing, so only the jump is left to do
+                if (target.line != null) {
+                    goToLine(target.line);
+                } else if (target.anchor != null) {
+                    globalStore.set(codePendingJumpAtom, { path, anchor: target.anchor });
+                }
+                return true;
+            }
             fireAndForget(() =>
                 openInCode(model, {
                     projectPath: project.path,
                     rel: target.rel,
                     line: target.line ?? undefined,
+                    anchor: target.anchor ?? undefined,
                 })
             );
             return true;
@@ -339,7 +412,7 @@ export function CodeViewer({ model }: { model: AgentsViewModel }) {
     const file = useAtomValue(codeFileAtom);
     const project = useAtomValue(codeProjectAtom);
     const drafts = useAtomValue(codeDraftsAtom);
-    const pendingLine = useAtomValue(codePendingLineAtom);
+    const pendingJump = useAtomValue(codePendingJumpAtom);
     const mode = useAtomValue(codeViewModeAtom);
     const blameOn = useAtomValue(codeBlameOnAtom);
     const plain = useAtomValue(codePlainAtom);
@@ -350,19 +423,17 @@ export function CodeViewer({ model }: { model: AgentsViewModel }) {
     // in the file already open does not remount, so the effect covers that — and it cannot cover
     // the first mount, because Monaco lazy-loads and no re-render follows its arrival.
     useEffect(() => {
-        if (pendingLine == null) {
+        if (pendingJump == null) {
             return;
         }
         // consumed here too, so a later Source toggle does not half-open the file at a stale position
         if (file.kind === "text" && isMarkdownPath(file.path) && mode === "preview") {
-            globalStore.set(codePendingLineAtom, null);
-            revealPreviewLine(previewRef.current, pendingLine);
-            return;
+            return revealPendingInPreview(previewRef.current);
         }
         if (editor != null) {
             applyPendingLine(editor);
         }
-    }, [pendingLine, file, mode]);
+    }, [pendingJump, file, mode]);
 
     switch (file.kind) {
         case "none":

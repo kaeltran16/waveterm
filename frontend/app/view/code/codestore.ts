@@ -47,6 +47,7 @@ import { langGlobs, langOf, type Lang } from "./codelang";
 import { deleteWarning, renamedPath, targetDir } from "./codemutate";
 import { outlineOf } from "./codeoutline";
 import { cleanPathInput, pathErrorMessage, statPathError, validatePathInput } from "./codepathinput";
+import type { PendingJump } from "./codependingjump";
 import { pruneRecent, pushRecent } from "./coderecents";
 import { DEFAULT_SEARCH_OPTS, type SearchOpts } from "./codesearchopts";
 import {
@@ -171,9 +172,9 @@ export const codeSaveAtom = atom<SaveState>({ kind: "idle" }) as PrimitiveAtom<S
 // The tree's highlighted row — a file OR a directory. Deliberately separate from codeFileAtom: the
 // cursor used to BE the open file, which is why the cursor could never rest on a directory.
 export const codeCursorAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
-// A line a jump wants revealed once the file's text is in place. The store never touches Monaco;
-// codeviewer.tsx consumes this and clears it.
-export const codePendingLineAtom = atom<number | null>(null) as PrimitiveAtom<number | null>;
+// A line or heading a jump wants revealed once its file's text is in place. The store never touches
+// Monaco; codeviewer.tsx resolves this against the file showing (resolvePendingJump) and clears it.
+export const codePendingJumpAtom = atom<PendingJump | null>(null) as PrimitiveAtom<PendingJump | null>;
 // The viewer lends the store a reader for the caret's line, which history records as an entry is left.
 // A reader rather than an atom: the caret moves on every keystroke and nothing needs to re-render.
 let readCaretLine: () => number | null = () => null;
@@ -292,7 +293,7 @@ export async function selectProject(p: CodeProject | null): Promise<void> {
     globalStore.set(codeIndexAtom, null);
     globalStore.set(codeSaveAtom, { kind: "idle" });
     globalStore.set(codeCursorAtom, null);
-    globalStore.set(codePendingLineAtom, null);
+    globalStore.set(codePendingJumpAtom, null);
     globalStore.set(codeViewModeAtom, "preview");
     globalStore.set(codeStatusAtom, null);
     globalStore.set(codeStatusErrorAtom, null);
@@ -872,6 +873,15 @@ export function revealPath(path: string): void {
     globalStore.set(codeExpandedAtom, next);
 }
 
+// A folder reached by a link or a path: shown and selected in the tree, with the open file and history
+// left as they were, since a folder is not something the viewer can show.
+export function revealFolder(rel: string): void {
+    revealPath(rel);
+    globalStore.set(codeExpandedAtom, (e) => new Set(e).add(rel));
+    globalStore.set(codeCursorAtom, rel);
+    globalStore.set(codeSearchModeAtom, "files");
+}
+
 const OPENING_PLACEHOLDER_DELAY_MS = 150;
 
 export async function openPath(rel: string, opts?: { pushHistory?: boolean; line?: number | null }): Promise<void> {
@@ -879,20 +889,33 @@ export async function openPath(rel: string, opts?: { pushHistory?: boolean; line
     if (project == null) {
         return;
     }
-    if (opts?.pushHistory !== false) {
-        globalStore.set(codeHistoryAtom, (h) => push(withLine(h, readCaretLine()), rel, opts?.line ?? null));
+    // a jump aimed at another file must not fire on this one
+    if (globalStore.get(codePendingJumpAtom)?.path !== rel) {
+        globalStore.set(codePendingJumpAtom, null);
     }
     const token = `file:${rel}`;
     current.fileToken = token;
-    globalStore.set(codeSaveAtom, { kind: "idle" });
-    globalStore.set(codeStaleAtom, null);
     const abs = joinRepoPath(project.path, rel);
+    // deferred until the path is known to be a file, so a folder leaves history and the save state alone
+    let begun = false;
+    const begin = () => {
+        if (begun) {
+            return;
+        }
+        begun = true;
+        if (opts?.pushHistory !== false) {
+            globalStore.set(codeHistoryAtom, (h) => push(withLine(h, readCaretLine()), rel, opts?.line ?? null));
+        }
+        globalStore.set(codeSaveAtom, { kind: "idle" });
+        globalStore.set(codeStaleAtom, null);
+    };
 
     // A file you have unsaved edits in is restored from its pinned base rather than re-read. Re-reading
     // would silently re-point the base at whatever is on disk NOW, which is exactly the state the
     // conflict guard exists to notice — a reopen would launder someone else's write into "no conflict".
     const draft = globalStore.get(codeDraftsAtom).get(abs);
     if (draft != null) {
+        begin();
         globalStore.set(codeFileAtom, {
             kind: "text",
             path: rel,
@@ -906,6 +929,7 @@ export async function openPath(rel: string, opts?: { pushHistory?: boolean; line
     // the previous file stays up until this one is ready: swapping to the placeholder first left it on
     // screen for the whole synchronous render of a large markdown document, a visible flash. The
     // placeholder only appears for a read slow enough to need one.
+    const before = globalStore.get(codeFileAtom);
     const placeholder = setTimeout(() => {
         if (current.fileToken === token) {
             globalStore.set(codeFileAtom, { kind: "loading", path: rel });
@@ -916,6 +940,16 @@ export async function openPath(rel: string, opts?: { pushHistory?: boolean; line
         if (current.fileToken !== token) {
             return;
         }
+        if (info?.isdir) {
+            // a slow stat may already have put the placeholder up over the file that was open
+            if (globalStore.get(codeFileAtom) !== before) {
+                globalStore.set(codeFileAtom, before);
+            }
+            globalStore.set(codePendingJumpAtom, null);
+            revealFolder(rel);
+            return;
+        }
+        begin();
         if (info?.notfound) {
             // the index is a snapshot; this is the visible consequence of having no watcher
             globalStore.set(codeFileAtom, { kind: "missing", path: rel });
@@ -945,6 +979,7 @@ export async function openPath(rel: string, opts?: { pushHistory?: boolean; line
         if (current.fileToken !== token) {
             return;
         }
+        begin(); // a failed read still shows under this path, so it is a place Back returns to
         globalStore.set(codeFileAtom, {
             kind: "error",
             path: rel,
@@ -1051,7 +1086,7 @@ export function goToLine(line: number): void {
         return;
     }
     globalStore.set(codeHistoryAtom, (h) => push(withLine(h, readCaretLine()), file.path, line));
-    globalStore.set(codePendingLineAtom, line);
+    globalStore.set(codePendingJumpAtom, { path: file.path, line });
 }
 
 // back/forward re-read from disk rather than replaying cached text: simpler, and it shows the file
@@ -1077,7 +1112,7 @@ async function walkTo(h: History): Promise<void> {
     if (entry == null) {
         return;
     }
-    globalStore.set(codePendingLineAtom, entry.line);
+    globalStore.set(codePendingJumpAtom, entry.line != null ? { path: entry.path, line: entry.line } : null);
     await openPath(entry.path, { pushHistory: false });
 }
 
@@ -1154,7 +1189,7 @@ export async function restorePath(path: string): Promise<void> {
 
 export async function openInCode(
     model: AgentsViewModel,
-    target: { projectPath: string; rel: string; line?: number }
+    target: { projectPath: string; rel: string; line?: number; anchor?: string }
 ): Promise<void> {
     const project = resolveJumpProject(target.projectPath);
     const cur = globalStore.get(codeProjectAtom);
@@ -1167,8 +1202,15 @@ export async function openInCode(
     await selecting;
     revealPath(target.rel);
     globalStore.set(codeCursorAtom, target.rel);
-    // set before the read: the viewer honors this the moment the text lands
-    globalStore.set(codePendingLineAtom, target.line ?? null);
+    // set before the read: the viewer honors this once this path's text is the file showing
+    globalStore.set(
+        codePendingJumpAtom,
+        target.anchor != null
+            ? { path: target.rel, anchor: target.anchor }
+            : target.line != null
+              ? { path: target.rel, line: target.line }
+              : null
+    );
     await openPath(target.rel, { line: target.line ?? null });
 }
 

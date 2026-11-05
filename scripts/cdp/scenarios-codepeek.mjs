@@ -564,15 +564,15 @@ export const codePeek = {
         await peekAt(h, "line");
         const landed = await peekEval(h, `
             card()?.querySelector("[data-peek-open]")?.click();
-            const { codeFileAtom, codePendingLineAtom } = await mod("app/view/code/codestore.ts");
+            const { codeFileAtom, codePendingJumpAtom } = await mod("app/view/code/codestore.ts");
             const { globalStore } = await mod("app/store/jotaiStore.ts");
             await until(() => globalStore.get(codeFileAtom)?.path === "src/committed.ts" && globalStore.get(codeFileAtom)?.kind === "text", 8000);
-            await until(() => flat(document.querySelector(".line-numbers.active-line-number")) === "30" || globalStore.get(codePendingLineAtom) === 30, 4000);
+            await until(() => flat(document.querySelector(".line-numbers.active-line-number")) === "30" || globalStore.get(codePendingJumpAtom)?.line === 30, 4000);
             // the card closes once the landing resolves, a moment after the file shows
             await until(() => card() == null, 3000);
             return {
                 file: globalStore.get(codeFileAtom)?.path ?? null,
-                pending: globalStore.get(codePendingLineAtom),
+                pending: globalStore.get(codePendingJumpAtom)?.line ?? null,
                 caret: flat(document.querySelector(".line-numbers.active-line-number")),
                 peekClosed: card() == null,
             };
@@ -624,14 +624,14 @@ export const codePeek = {
         const enterAt = await peekAt(h, "line");
         const enterSeen = await pressKey(h, ENTER);
         const entered = await peekEval(h, `
-            const { codeFileAtom, codePendingLineAtom } = await mod("app/view/code/codestore.ts");
+            const { codeFileAtom, codePendingJumpAtom } = await mod("app/view/code/codestore.ts");
             const { globalStore } = await mod("app/store/jotaiStore.ts");
             await until(() => globalStore.get(codeFileAtom)?.path === "src/committed.ts" && globalStore.get(codeFileAtom)?.kind === "text", 8000);
-            await until(() => flat(document.querySelector(".line-numbers.active-line-number")) === "30" || globalStore.get(codePendingLineAtom) === 30, 4000);
+            await until(() => flat(document.querySelector(".line-numbers.active-line-number")) === "30" || globalStore.get(codePendingJumpAtom)?.line === 30, 4000);
             await until(() => card() == null, 3000);
             return {
                 file: globalStore.get(codeFileAtom)?.path ?? null,
-                pending: globalStore.get(codePendingLineAtom),
+                pending: globalStore.get(codePendingJumpAtom)?.line ?? null,
                 caret: flat(document.querySelector(".line-numbers.active-line-number")),
                 peekClosed: card() == null,
             };
