@@ -168,15 +168,8 @@ function PeekBody({ peek, blockId }: { peek: CodePeek; blockId: string }) {
     // keyed by the file, so a moved card never shows the previous file's models
     const key = `${peek.abs}|${peek.mode}`;
     if (peek.mode === "preview") {
-        // the markdown scroller's padding overflows it sideways, which drew a horizontal bar and its corner
         return (
-            <Markdown
-                key={key}
-                text={file.text}
-                scrollable
-                className="h-full"
-                contentClassName="!overflow-x-hidden px-[26px] py-[20px]"
-            />
+            <Markdown key={key} text={file.text} scrollable className="h-full" contentClassName="px-[26px] py-[20px]" />
         );
     }
     if (peek.mode === "diff") {

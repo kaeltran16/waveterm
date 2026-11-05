@@ -22,7 +22,7 @@ import {
     waitForProjectInConfig,
     waveService,
 } from "./scenarios-shared.mjs";
-import { makeCodeRepo, openFolderInCode, removeCodeRepo } from "./scenarios-code-kit.mjs";
+import { makeCodeRepo, openFileInCode, openFolderInCode, removeCodeRepo } from "./scenarios-code-kit.mjs";
 
 // --- code: content search ----------------------------------------------------------------------
 // Drives the real grep RPC, so it needs a backend built with GitGrepCommand (task build:backend).
@@ -1530,11 +1530,28 @@ const MARKDOWN_README = [
     ]).flat(),
 ].join("\n");
 
+const FRONT_MATTER_TITLE = "title: Front matter fixture";
+const FRONT_MATTER_COMMENT = "core surfaces";
+const FRONT_MATTER_BODY_HEADING = "Front matter body";
+// tall enough to scroll, so the scroller has a vertical bar beside any horizontal one
+const FRONT_MATTER_DOC = [
+    "---",
+    FRONT_MATTER_TITLE,
+    `# ${FRONT_MATTER_COMMENT}`,
+    "tags: [a, b]",
+    "---",
+    `# ${FRONT_MATTER_BODY_HEADING}`,
+    "",
+    ...Array.from({ length: 60 }, (_, i) => [`Body paragraph ${i + 1} of the front matter fixture.`, ""]).flat(),
+].join("\n");
+const MARKDOWN_NARROW = { width: 1000, height: 700, deviceScaleFactor: 1, mobile: false };
+const MARKDOWN_WIDE = { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false };
+
 export const codeMarkdown = {
     name: "code-markdown",
     surface: "code",
     async arrange() {
-        return { dir: makeCodeRepo({ "README.md": MARKDOWN_README }) };
+        return { dir: makeCodeRepo({ "README.md": MARKDOWN_README, "FRONT.md": FRONT_MATTER_DOC }) };
     },
     async assert(h, ctx) {
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -1665,9 +1682,58 @@ export const codeMarkdown = {
             detail: JSON.stringify({ reopened, ...reopen }),
         });
 
+        // front matter renders as a yaml code block, not a rule, prose and an h1 per `# comment`; and the
+        // preview's scroller never overflows sideways by its own padding
+        const fmOpened = await openFileInCode(h, "FRONT.md");
+        await h.ev(`document.querySelector('[data-code-view-mode="preview"]')?.click()`);
+        const frontMatter = `(() => {
+            const md = document.querySelector('[data-code-preview] .markdown');
+            if (!md) return null;
+            const flat = (e) => (e.textContent || '').replace(/\\s+/g, ' ').trim();
+            const scroller = md.querySelector(':scope > .content');
+            const pre = [...md.querySelectorAll('pre')].find((p) => flat(p).includes(${JSON.stringify(FRONT_MATTER_TITLE)}));
+            return {
+                h1s: [...md.querySelectorAll('h1, .heading.is-1')].map(flat),
+                preHoldsFrontMatter: pre != null && flat(pre).includes(${JSON.stringify(FRONT_MATTER_COMMENT)}),
+                sw: scroller?.scrollWidth ?? null,
+                cw: scroller?.clientWidth ?? null,
+            };
+        })()`;
+        const fits = (m) => m != null && m.sw != null && m.cw > 0 && m.sw <= m.cw;
+        let narrowFm;
+        let wideFm;
+        try {
+            await h.cdp("Emulation.setDeviceMetricsOverride", MARKDOWN_NARROW);
+            await polishWaitFor(h, `(${frontMatter})?.preHoldsFrontMatter === true`, 4000);
+            await sleep(300);
+            narrowFm = await h.ev(frontMatter);
+            await h.shot("cdp-shots/code-markdown-front-matter-1000.png");
+            await h.cdp("Emulation.setDeviceMetricsOverride", MARKDOWN_WIDE);
+            await sleep(300);
+            wideFm = await h.ev(frontMatter);
+            await h.shot("cdp-shots/code-markdown-front-matter-1600.png");
+        } finally {
+            await h.cdp("Emulation.clearDeviceMetricsOverride").catch(() => {});
+        }
+        steps.push({
+            step: "at 1000x700 front matter renders in a pre, its # comment is no h1, and the body heading still renders",
+            ok:
+                fmOpened === true &&
+                narrowFm?.preHoldsFrontMatter === true &&
+                !narrowFm.h1s.includes(FRONT_MATTER_COMMENT) &&
+                narrowFm.h1s.includes(FRONT_MATTER_BODY_HEADING),
+            detail: JSON.stringify({ fmOpened, narrowFm }),
+        });
+        steps.push({
+            step: "the markdown preview's scroller has no horizontal overflow at 1000x700 and at 1600x950",
+            ok: fits(narrowFm) && fits(wideFm),
+            detail: JSON.stringify({ narrow: narrowFm && { sw: narrowFm.sw, cw: narrowFm.cw }, wide: wideFm && { sw: wideFm.sw, cw: wideFm.cw } }),
+        });
+
         return steps;
     },
     async teardown(h, ctx) {
+        await h.cdp("Emulation.clearDeviceMetricsOverride").catch(() => {});
         await h.goto("cockpit");
         if (ctx?.dir) removeCodeRepo(ctx.dir);
     },

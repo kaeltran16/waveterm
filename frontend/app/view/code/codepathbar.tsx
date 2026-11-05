@@ -41,7 +41,7 @@ import {
     registeredProjects,
 } from "./codestore";
 import { codeEditorSelection } from "./codeviewer";
-import { showsSourceEditor } from "./codeviewmode";
+import { shownViewMode, showsSourceEditor } from "./codeviewmode";
 
 const COPY_PATH_LABEL: Record<CopyState, string> = { idle: "Copy path", copied: "Copied", failed: "Copy failed" };
 const COPY_PATH_TONE: Record<CopyState, string> = {
@@ -76,7 +76,7 @@ export function CodePathBar({ model }: { model: AgentsViewModel }) {
                     className="size-[6px] flex-none rounded-full bg-accent-soft"
                 />
             ) : null}
-            {file.kind === "text" ? <ViewModeToggle markdown={isMarkdownPath(file.path)} /> : null}
+            {file.kind === "text" ? <ViewModeToggle path={file.path} /> : null}
             {file.kind === "text" ? <BlameToggle path={file.path} /> : null}
             <div className="flex-1" />
             <button
@@ -117,9 +117,11 @@ export function CodePathBar({ model }: { model: AgentsViewModel }) {
 // Markdown files render as documents by default; Source is the escape back to the editable view and
 // Diff shows the file against HEAD. Preview is markdown-only — there is nothing to render for a Go
 // file — while Source and Diff are offered for any text file.
-function ViewModeToggle({ markdown }: { markdown: boolean }) {
+function ViewModeToggle({ path }: { path: string }) {
     const [mode, setMode] = useAtom(codeViewModeAtom);
     const plain = useAtomValue(codePlainAtom);
+    const markdown = isMarkdownPath(path);
+    const shown = shownViewMode(mode, path);
     const modes = (["preview", "source", "diff"] as const).filter((m) => markdown || m !== "preview");
     return (
         <div className="flex flex-none items-center gap-0.5 rounded-[6px] border border-border p-[2px]">
@@ -133,7 +135,7 @@ function ViewModeToggle({ markdown }: { markdown: boolean }) {
                     onClick={() => (m === "diff" ? enterDiff() : setMode(m))}
                     className={cn(
                         "cursor-pointer rounded-[4px] px-2 py-[2px] text-[11px] capitalize focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-default disabled:opacity-40",
-                        m === mode ? "bg-accent/10 text-accent-soft" : "text-muted hover:text-primary"
+                        m === shown ? "bg-accent/10 text-accent-soft" : "text-muted hover:text-primary"
                     )}
                 >
                     {m}

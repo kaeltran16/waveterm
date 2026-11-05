@@ -1,10 +1,16 @@
 // Code surface review fixes: code-toolbar. The toolbar and tree fixes (spec "Toolbar, tree, panes"): the project
 // picker closes on an outside click and on Esc (F3); a collapsed folder holding a draft shows the unsaved dot and the
 // toolbar's "N unsaved" lists the project's drafts (F16); the app-bar switcher opens its project in Code (F18); the
-// no-projects empty state opens New project (F20).
+// no-projects empty state opens New project (F20). Visual revisit F8: a .js file left in preview mode shows Source as
+// the selected view-mode segment.
 import { codeEval, makeCodeRepo, openFileInCode, openFolderInCode, removeCodeRepo } from "./scenarios-code-kit.mjs";
 
 const shot = (h, name) => h.shot(`cdp-shots/code-toolbar-${name}.png`);
+
+const NARROW = { width: 1000, height: 700, deviceScaleFactor: 1, mobile: false };
+const WIDE = { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false };
+// the class codepathbar.tsx's ViewModeToggle gives the selected segment
+const SELECTED_CLASS = "bg-accent/10";
 
 // the cockpit's model, found the way the other scenarios find it: on the nav rail's props
 const LIB = `
@@ -41,6 +47,7 @@ export const codeToolbar = {
             "README.md": "# demo\n",
             "src/a.ts": "export const a = 1;\n",
             "src/b.ts": "export const b = 2;\n",
+            "src/c.js": "export const c = 3;\n",
         });
         const other = makeCodeRepo({ "OTHER.md": "# other\n" });
         return { dir, other, project: `verify-code-toolbar-${Date.now().toString(36)}` };
@@ -122,6 +129,39 @@ export const codeToolbar = {
         });
         // the draft is the scenario's own; drop it so it does not outlast the run in localStorage
         await pageEval(h, `C.revertDraft(); await nap(200);`);
+
+        // 3b. a .js file left in preview mode (a fresh project's default) shows Source as the selected segment
+        await pageEval(h, `S.globalStore.set(C.codeViewModeAtom, "preview"); await nap(100);`);
+        const jsOpened = await openFileInCode(h, "src/c.js");
+        const selectedModes = () =>
+            pageEval(h, `
+                await until(() => document.querySelector("[data-code-view-mode]") != null, 4000);
+                await nap(200);
+                return {
+                    stored: S.globalStore.get(C.codeViewModeAtom),
+                    selected: [...document.querySelectorAll("[data-code-view-mode]")]
+                        .filter((b) => b.classList.contains(${JSON.stringify(SELECTED_CLASS)}))
+                        .map((b) => b.getAttribute("data-code-view-mode")),
+                };
+            `);
+        const sourceOnly = (s) => s?.stored === "preview" && s.selected.length === 1 && s.selected[0] === "source";
+        let wideModes;
+        let narrowModes;
+        try {
+            await h.cdp("Emulation.setDeviceMetricsOverride", WIDE);
+            wideModes = await selectedModes();
+            await shot(h, "view-mode-js-1600");
+            await h.cdp("Emulation.setDeviceMetricsOverride", NARROW);
+            narrowModes = await selectedModes();
+            await shot(h, "view-mode-js-1000");
+        } finally {
+            await h.cdp("Emulation.clearDeviceMetricsOverride").catch(() => {});
+        }
+        steps.push({
+            step: "code-toolbar: a .js file in Source view shows exactly one selected view-mode segment, Source, at 1600x950 and 1000x700",
+            ok: jsOpened === true && sourceOnly(wideModes) && sourceOnly(narrowModes),
+            detail: JSON.stringify({ jsOpened, wideModes, narrowModes }),
+        });
 
         // 4. picking a registered project in the app-bar switcher while on Code opens it in Code
         const follow = await pageEval(h, `
