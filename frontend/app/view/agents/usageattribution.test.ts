@@ -2,14 +2,19 @@ import { describe, expect, it } from "vitest";
 import {
     buildAttribution,
     classSplit,
+    FOLD_FILL,
     itemScopeKey,
+    LIST_COLLAPSED_ROWS,
+    LIST_PAGE_STEP,
     listPage,
+    nextShown,
     otherFoldersText,
     resolveScope,
     scopeBuckets,
     scopeId,
     scopeItems,
     scopeList,
+    scopeName,
     scopeSplit,
     splitTable,
     type SplitPart,
@@ -75,7 +80,7 @@ const ALL: WorkScope = { kind: "all" };
 
 describe("work items", () => {
     it("folds a run's lead, workers, reviewer and verifier into one item that is their sum", () => {
-        const attr = buildAttribution(RUN_BUCKETS, RUN_SESSIONS);
+        const attr = buildAttribution(RUN_BUCKETS, RUN_SESSIONS, []);
         expect(attr.items).toHaveLength(1);
         const [run] = attr.items;
         expect(run.key).toBe("run:r1");
@@ -92,7 +97,8 @@ describe("work items", () => {
     it("keeps an unlinked session as its own item, titled by its title and then its id", () => {
         const attr = buildAttribution(
             [bkt("solo", 1), bkt("bare", 2)],
-            [ses("solo", { title: "Fix the rail", project: WAVE }), ses("bare", { project: WAVE })]
+            [ses("solo", { title: "Fix the rail", project: WAVE }), ses("bare", { project: WAVE })],
+            []
         );
         expect(attr.items.map((it) => [it.key, it.kind, it.title])).toEqual([
             ["session:claude:bare", "session", "bare"],
@@ -103,13 +109,14 @@ describe("work items", () => {
     it("marks a quick run as a quick run", () => {
         const attr = buildAttribution(
             [bkt("q", 1)],
-            [ses("q", { runid: "rq", runmode: "quick", rungoal: "Rename a flag", project: WAVE })]
+            [ses("q", { runid: "rq", runmode: "quick", rungoal: "Rename a flag", project: WAVE })],
+            []
         );
         expect(attr.items[0]).toMatchObject({ key: "run:rq", kind: "quick", title: "Rename a flag" });
     });
 
     it("still counts a bucket whose session the directory does not list, as a session with no project", () => {
-        const attr = buildAttribution([bkt("ghost", 3)], []);
+        const attr = buildAttribution([bkt("ghost", 3)], [], []);
         expect(attr.items).toHaveLength(1);
         expect(attr.items[0]).toMatchObject({ key: "session:claude:ghost", kind: "session", project: "" });
         expect(attr.items[0].tokens).toBe(3 * M);
@@ -119,7 +126,7 @@ describe("work items", () => {
     });
 
     it("gives no items, no projects and no throw for an empty window", () => {
-        const attr = buildAttribution([], []);
+        const attr = buildAttribution([], [], []);
         expect(attr.items).toEqual([]);
         expect(attr.projects).toEqual([]);
         expect(attr.other.count).toBe(0);
@@ -138,7 +145,8 @@ describe("projects", () => {
                 ses("big", { project: WAVE }),
                 ses("edge", { project: "C:/work/edge" }),
                 ses("under", { project: "C:/work/under" }),
-            ]
+            ],
+            []
         );
         expect(attr.projects.map((p) => p.label)).toEqual(["waveterm", "edge"]);
         expect(attr.projects[1].sharePct).toBe(1);
@@ -147,39 +155,42 @@ describe("projects", () => {
         expect(scopeItems(attr, ALL).map((it) => it.key)).toContain("session:claude:under");
     });
 
-    it("keeps eight rows and folds the ninth qualifying project", () => {
-        const names = ["a", "b", "c", "d", "e", "f", "g", "h", "i"];
+    it("keeps six rows, one per graph lane, and folds the seventh qualifying project", () => {
+        const names = ["a", "b", "c", "d", "e", "f", "g"];
         const attr = buildAttribution(
             names.map((n, i) => bkt(n, 10 - i)),
-            names.map((n) => ses(n, { project: `C:/work/${n}` }))
+            names.map((n) => ses(n, { project: `C:/work/${n}` })),
+            []
         );
-        expect(attr.projects.map((p) => p.label)).toEqual(names.slice(0, 8));
-        expect(attr.other).toEqual({ count: 1, tokens: 2 * M, spendUsd: 50 });
-        expect(scopeItems(attr, ALL)).toHaveLength(9);
-        expect(otherFoldersText(attr.other)).toContain("1 other folder holds ≈ $50.00");
+        expect(attr.projects.map((p) => p.label)).toEqual(names.slice(0, 6));
+        expect(attr.other).toEqual({ count: 1, tokens: 4 * M, spendUsd: 100 });
+        expect(scopeItems(attr, ALL)).toHaveLength(7);
+        expect(otherFoldersText(attr.other)).toContain("1 other folder holds ≈ $100");
     });
 
-    it("keeps two repo paths with the same folder name as two projects", () => {
+    it("keeps two repo paths with the same folder name as two projects, told apart by their parents", () => {
         const attr = buildAttribution(
             [bkt("one", 2), bkt("two", 1)],
-            [ses("one", { project: "C:/a/app" }), ses("two", { project: "D:\\b\\app" })]
+            [ses("one", { project: "C:/a/app" }), ses("two", { project: "D:\\b\\app" })],
+            []
         );
         expect(attr.projects.map((p) => [p.key, p.label, p.count])).toEqual([
-            ["C:/a/app", "app", 1],
-            ["D:/b/app", "app", 1],
+            ["C:/a/app", "a / app", 1],
+            ["D:/b/app", "b / app", 1],
         ]);
     });
 
     it("treats one repo named with other slashes or drive-letter case as one project", () => {
         const attr = buildAttribution(
             [bkt("one", 2), bkt("two", 1)],
-            [ses("one", { project: "C:/work/waveterm" }), ses("two", { project: "c:\\work\\waveterm\\" })]
+            [ses("one", { project: "C:/work/waveterm" }), ses("two", { project: "c:\\work\\waveterm\\" })],
+            []
         );
         expect(attr.projects.map((p) => [p.key, p.count])).toEqual([["C:/work/waveterm", 2]]);
     });
 
     it("resolves a project off the rail, or an item the window dropped, to the scope above", () => {
-        const attr = buildAttribution([bkt("solo", 1)], [ses("solo", { project: WAVE })]);
+        const attr = buildAttribution([bkt("solo", 1)], [ses("solo", { project: WAVE })], []);
         expect(scopeId(resolveScope(attr, WAVE, null))).toBe(`project:${WAVE}`);
         expect(scopeId(resolveScope(attr, "C:/gone", null))).toBe("all");
         expect(scopeId(resolveScope(attr, WAVE, "run:gone"))).toBe(`project:${WAVE}`);
@@ -203,7 +214,7 @@ describe("splits", () => {
         ses("other", { project: CYBER }),
         ses("tiny", { project: "C:/work/tiny" }),
     ];
-    const attr = buildAttribution(buckets, sessions);
+    const attr = buildAttribution(buckets, sessions, []);
     const statsOf = (scope: WorkScope) => aggregateBuckets(scopeBuckets(buckets, attr, scope), NOW);
     const splitOf = (scope: WorkScope) => scopeSplit(attr, scope, statsOf(scope).split).parts;
     const expectSumsTo = (scope: WorkScope) => {
@@ -279,7 +290,7 @@ describe("splits", () => {
 
 describe("ranked list", () => {
     const pi = (session: string, over: Partial<UsageBucket>): UsageBucket =>
-        bkt(session, 0, { harness: "pi", provider: "openai-codex", model: "gpt-6.1-sol", ...over });
+        bkt(session, 0, { harness: "pi", provider: "openai-codex", model: "no-such-model", ...over });
     const buckets = [
         ...RUN_BUCKETS,
         bkt("solo", 20),
@@ -292,7 +303,7 @@ describe("ranked list", () => {
         { harness: "pi", session: "unpriced-big", title: "Pi big", project: WAVE },
         { harness: "pi", session: "unpriced-small", title: "Pi small", project: WAVE },
     ];
-    const attr = buildAttribution(buckets, sessions);
+    const attr = buildAttribution(buckets, sessions, []);
 
     it("ranks by estimated spend, then tokens", () => {
         const list = scopeList(attr, ALL, "last 7 days")!;
@@ -332,28 +343,49 @@ describe("ranked list", () => {
         expect(scopeList(attr, resolveScope(attr, "all", "session:claude:solo"), "last 7 days")).toBeNull();
     });
 
-    it("pages eight rows, then up to twenty-five", () => {
-        const names = Array.from({ length: 30 }, (_, i) => `s${String(i).padStart(2, "0")}`);
+    it("pages eight rows, then 25 more per step, until every row shows", () => {
+        const names = Array.from({ length: 70 }, (_, i) => `s${String(i).padStart(2, "0")}`);
         const many = buildAttribution(
-            names.map((n, i) => bkt(n, 30 - i)),
-            names.map((n) => ses(n, { project: WAVE }))
-        );
-        const list = scopeList(many, ALL, "last 7 days")!;
-        const collapsed = listPage(list, false);
-        expect(collapsed.rows).toHaveLength(8);
-        expect(collapsed.rows[0].pct).toBe(100);
-        expect(collapsed).toMatchObject({ hasMore: true, moreLabel: "Show top 25 of 30" });
-        const expanded = listPage(list, true);
-        expect(expanded.rows).toHaveLength(25);
-        expect(expanded.moreLabel).toBe("Show top 8");
-
-        const few = buildAttribution(
-            names.slice(0, 10).map((n) => bkt(n, 1)),
+            names.map((n, i) => bkt(n, 70 - i)),
+            names.map((n) => ses(n, { project: WAVE })),
             []
         );
-        expect(listPage(scopeList(few, ALL, "last 7 days")!, false).moreLabel).toBe("Show all 10");
-        const short = buildAttribution([bkt("only", 1)], []);
-        expect(listPage(scopeList(short, ALL, "last 7 days")!, false).hasMore).toBe(false);
+        const list = scopeList(many, ALL, "last 7 days")!;
+        const at8 = listPage(list, LIST_COLLAPSED_ROWS);
+        expect(at8.rows).toHaveLength(8);
+        expect(at8.rows[0].pct).toBe(100);
+        expect(at8).toMatchObject({ moreLabel: "Show 25 more", lessLabel: undefined });
+
+        const step1 = nextShown(LIST_COLLAPSED_ROWS, list.rows.length);
+        expect(step1).toBe(8 + LIST_PAGE_STEP);
+        const at33 = listPage(list, step1);
+        expect(at33.rows).toHaveLength(33);
+        expect(at33).toMatchObject({ moreLabel: "Show 25 more", lessLabel: "Show top 8" });
+
+        const at58 = listPage(list, nextShown(step1, list.rows.length));
+        expect(at58.rows).toHaveLength(58);
+        expect(at58.moreLabel).toBe("Show the last 12");
+
+        const last = nextShown(58, list.rows.length);
+        expect(last).toBe(70);
+        const atTotal = listPage(list, last);
+        expect(atTotal.rows).toHaveLength(70);
+        expect(atTotal).toMatchObject({ moreLabel: undefined, lessLabel: "Show top 8" });
+        expect(nextShown(last, list.rows.length)).toBe(70);
+    });
+
+    it("offers the rest in one step when fewer than 25 remain, and nothing for a short list", () => {
+        const few = buildAttribution(
+            Array.from({ length: 10 }, (_, i) => bkt(`f${i}`, 1)),
+            [],
+            []
+        );
+        expect(listPage(scopeList(few, ALL, "last 7 days")!, LIST_COLLAPSED_ROWS).moreLabel).toBe("Show the last 2");
+        const short = buildAttribution([bkt("only", 1)], [], []);
+        expect(listPage(scopeList(short, ALL, "last 7 days")!, LIST_COLLAPSED_ROWS)).toMatchObject({
+            moreLabel: undefined,
+            lessLabel: undefined,
+        });
     });
 });
 
@@ -420,7 +452,7 @@ describe("split table", () => {
 
 describe("work item makeup", () => {
     it("ranks a run's sessions by spend whatever order their buckets arrive in", () => {
-        const attr = buildAttribution([bkt("rev", 1), bkt("w1", 2), bkt("lead", 4)], RUN_SESSIONS);
+        const attr = buildAttribution([bkt("rev", 1), bkt("w1", 2), bkt("lead", 4)], RUN_SESSIONS, []);
         const [run] = attr.items;
         expect(run.sessions.map((s) => [s.key, s.role])).toEqual([
             ["claude:lead", "lead"],
@@ -435,7 +467,7 @@ describe("work item makeup", () => {
             inRun("lead", "lead", { title: "Lead title", rungoal: "" }),
             inRun("w1", "worker", { title: "Worker title", rungoal: "" }),
         ];
-        const attr = buildAttribution([bkt("lead", 1), bkt("w1", 3)], sessions);
+        const attr = buildAttribution([bkt("lead", 1), bkt("w1", 3)], sessions, []);
         expect(attr.items[0].sessions[0].title).toBe("Worker title");
         expect(attr.items[0].title).toBe("Lead title");
     });
@@ -445,7 +477,7 @@ describe("work item makeup", () => {
             inRun("w1", "worker", { title: "Small worker", rungoal: "" }),
             inRun("w2", "worker", { title: "Big worker", rungoal: "" }),
         ];
-        const attr = buildAttribution([bkt("w1", 1), bkt("w2", 3)], sessions);
+        const attr = buildAttribution([bkt("w1", 1), bkt("w2", 3)], sessions, []);
         expect(attr.items[0].title).toBe("Big worker");
     });
 
@@ -457,28 +489,32 @@ describe("work item makeup", () => {
             ses("solo", { project: WAVE }),
         ];
         const buckets = [bkt("lead", 4), bkt("w", 2, { harness: "pi" }), bkt("w2", 1), bkt("solo", 1)];
-        const attr = buildAttribution(buckets, sessions);
+        const attr = buildAttribution(buckets, sessions, []);
         expect(attr.items[0].harnesses).toEqual(["claude", "pi"]);
         expect(attr.items[1].harnesses).toEqual(["claude"]);
         expect(attr.harnesses).toEqual(["claude", "pi"]);
     });
 
     it("keeps the role of a directory-listed session and an empty one for an unlisted session", () => {
-        const run = buildAttribution(RUN_BUCKETS, RUN_SESSIONS).items[0];
+        const run = buildAttribution(RUN_BUCKETS, RUN_SESSIONS, []).items[0];
         expect(run.sessions.map((s) => s.role)).toEqual(["lead", "worker", "worker", "reviewer", "verifier"]);
-        const ghost = buildAttribution([bkt("ghost", 1)], []).items[0];
+        const ghost = buildAttribution([bkt("ghost", 1)], [], []).items[0];
         expect(ghost.sessions[0].role).toBe("");
     });
 
     it("sums every bucket of one session", () => {
-        const attr = buildAttribution([bkt("s", 1), bkt("s", 2, { day: "2026-10-07" })], [ses("s", { project: WAVE })]);
+        const attr = buildAttribution(
+            [bkt("s", 1), bkt("s", 2, { day: "2026-10-07" })],
+            [ses("s", { project: WAVE })],
+            []
+        );
         expect(attr.items).toHaveLength(1);
         expect(attr.items[0]).toMatchObject({ tokens: 3 * M, spendUsd: 75 });
         expect(attr.items[0].buckets).toEqual([bkt("s", 1), bkt("s", 2, { day: "2026-10-07" })]);
     });
 
     it("drops a session that billed nothing and reported nothing", () => {
-        const attr = buildAttribution([bkt("none", 0), bkt("real", 1)], []);
+        const attr = buildAttribution([bkt("none", 0), bkt("real", 1)], [], []);
         expect(attr.items.map((it) => it.key)).toEqual(["session:claude:real"]);
         expect(attr.total.tokens).toBe(M);
     });
@@ -486,12 +522,13 @@ describe("work item makeup", () => {
 
 describe("amounts", () => {
     const unpriced = (session: string, over: Partial<UsageBucket> = {}) =>
-        bkt(session, 0, { model: "gpt-6.1-sol", input: M, ...over });
+        bkt(session, 0, { model: "no-such-model", input: M, ...over });
 
     it("counts only priced models as priced tokens, and sums reported costs", () => {
         const attr = buildAttribution(
             [bkt("s", 2), unpriced("s", { reportedcostusd: 0.25 }), unpriced("s", { reportedcostusd: 0.5 })],
-            [ses("s", { project: WAVE })]
+            [ses("s", { project: WAVE })],
+            []
         );
         const expected = { tokens: 4 * M, spendUsd: 50, pricedTokens: 2 * M, reportedCostUsd: 0.75 };
         expect(attr.total).toStrictEqual(expected);
@@ -500,14 +537,14 @@ describe("amounts", () => {
     });
 
     it("leaves reportedCostUsd off an amount nothing reported a cost for", () => {
-        const attr = buildAttribution([...RUN_BUCKETS, unpriced("bare")], RUN_SESSIONS);
+        const attr = buildAttribution([...RUN_BUCKETS, unpriced("bare")], RUN_SESSIONS, []);
         expect(attr.total).toStrictEqual({ tokens: 11 * M, spendUsd: 250, pricedTokens: 10 * M });
         expect(attr.items.map((it) => it.reportedCostUsd)).toEqual([undefined, undefined]);
         expect(attr.items[1].sessions[0]).not.toHaveProperty("reportedCostUsd");
     });
 
     it("gives a project of unpriced work a share of 0, not NaN, and still a row", () => {
-        const attr = buildAttribution([unpriced("only")], [ses("only", { project: WAVE })]);
+        const attr = buildAttribution([unpriced("only")], [ses("only", { project: WAVE })], []);
         expect(attr.total.spendUsd).toBe(0);
         expect(attr.projects.map((p) => [p.key, p.sharePct])).toEqual([[WAVE, 0]]);
     });
@@ -520,7 +557,8 @@ describe("amounts", () => {
                 ses("y1", { project: "C:/work/y" }),
                 ses("y2", { project: "C:/work/y" }),
                 ses("y3", { project: "C:/work/y" }),
-            ]
+            ],
+            []
         );
         expect(attr.items[0].project).toBe("C:/work/x");
         expect(attr.projects.map((p) => [p.label, p.count])).toEqual([
@@ -537,7 +575,7 @@ describe("list rows and summary", () => {
         ses("q", { project: WAVE, runid: "rq", runmode: "quick", rungoal: "Quick fix" }),
         ses("solo", { project: WAVE, title: "Solo" }),
     ];
-    const attr = buildAttribution(buckets, sessions);
+    const attr = buildAttribution(buckets, sessions, []);
     const tail =
         " A run counts its lead, workers and reviewers together; open one to see it the same way as this page.";
 
@@ -557,7 +595,7 @@ describe("list rows and summary", () => {
     });
 
     it("says only the kinds of work the scope holds", () => {
-        const onlyRun = buildAttribution(RUN_BUCKETS, RUN_SESSIONS);
+        const onlyRun = buildAttribution(RUN_BUCKETS, RUN_SESSIONS, []);
         expect(scopeList(onlyRun, ALL, "all time")!.summary).toBe(`1 orchestrator run took ≈ $250.${tail}`);
 
         const quickAndSession = buildAttribution(
@@ -565,7 +603,8 @@ describe("list rows and summary", () => {
             [
                 ses("q", { project: WAVE, runid: "rq", runmode: "quick", rungoal: "Quick fix" }),
                 ses("solo", { project: WAVE }),
-            ]
+            ],
+            []
         );
         expect(scopeList(quickAndSession, ALL, "all time")!.summary).toBe(
             `1 quick run ≈ $25.00 and 1 session no run started ≈ $50.00.${tail}`
@@ -583,6 +622,7 @@ describe("list page bars", () => {
         spendUsd: cost,
         cost,
         reported: false,
+        unpriced: false,
     });
     const listOf = (...costs: number[]): WorkList => ({
         title: "Spent on",
@@ -593,20 +633,289 @@ describe("list page bars", () => {
 
     it("sizes each bar against the first row, at least 1 and at most 100", () => {
         // the first row's reported cost can sit below a later row's, so a bar can pass 100 before the cap
-        expect(listPage(listOf(20, 10, 0.05, 40), false).rows.map((r) => r.pct)).toEqual([100, 50, 1, 100]);
+        expect(listPage(listOf(20, 10, 0.05, 40), LIST_COLLAPSED_ROWS).rows.map((r) => r.pct)).toEqual([
+            100, 50, 1, 100,
+        ]);
     });
 
     it("draws every bar at 1 when no row costs anything", () => {
-        expect(listPage(listOf(0, 0), false).rows.map((r) => r.pct)).toEqual([1, 1]);
+        expect(listPage(listOf(0, 0), LIST_COLLAPSED_ROWS).rows.map((r) => r.pct)).toEqual([1, 1]);
     });
 
     it("pages an empty list without a row or a more link", () => {
-        expect(listPage(listOf(), false)).toEqual({ rows: [], hasMore: false, moreLabel: "Show all 0" });
+        expect(listPage(listOf(), LIST_COLLAPSED_ROWS)).toEqual({
+            rows: [],
+            moreLabel: undefined,
+            lessLabel: undefined,
+        });
     });
 
     it("offers more only past eight rows", () => {
         const eight = Array.from({ length: 8 }, () => 1);
-        expect(listPage(listOf(...eight), false).hasMore).toBe(false);
-        expect(listPage(listOf(...eight, 1), false)).toMatchObject({ hasMore: true, moreLabel: "Show all 9" });
+        expect(listPage(listOf(...eight), LIST_COLLAPSED_ROWS).moreLabel).toBeUndefined();
+        expect(listPage(listOf(...eight, 1), LIST_COLLAPSED_ROWS).moreLabel).toBe("Show the last 1");
+    });
+});
+
+describe("brainstorm sessions fold into their lead", () => {
+    const judge = (session: string, lead: string, over: Partial<UsageSession> = {}) =>
+        ses(session, { role: "judge", project: WAVE, leadharness: "claude", leadsession: lead, ...over });
+
+    it("joins a judge and a builder check to the lead's session item, titled by the lead", () => {
+        const attr = buildAttribution(
+            [bkt("agent", 1), bkt("j1", 3), bkt("chk", 2)],
+            [
+                ses("agent", { title: "Brainstorm the rail", project: WAVE }),
+                judge("j1", "agent", { title: "Judge the design" }),
+                judge("chk", "agent", { role: "builder-check", title: "Check the build" }),
+            ],
+            []
+        );
+        expect(attr.items).toHaveLength(1);
+        const [item] = attr.items;
+        expect(item).toMatchObject({ key: "session:claude:agent", kind: "session", title: "Brainstorm the rail" });
+        expect(item.runId).toBeUndefined();
+        expect(item.tokens).toBe(6 * M);
+        expect(item.sessions.map((s) => s.role).sort()).toEqual(["", "builder-check", "judge"]);
+    });
+
+    it("titles a lead's item by its costliest session when the lead billed nothing in the window", () => {
+        const attr = buildAttribution(
+            [bkt("j1", 1), bkt("j2", 3)],
+            [
+                ses("agent", { title: "Brainstorm the rail", project: WAVE }),
+                judge("j1", "agent", { title: "Small judge" }),
+                judge("j2", "agent", { title: "Big judge" }),
+            ],
+            []
+        );
+        expect(attr.items.map((it) => [it.key, it.title])).toEqual([["session:claude:agent", "Big judge"]]);
+    });
+
+    it("joins a judge to its lead's run when the directory places the lead in one", () => {
+        const attr = buildAttribution([...RUN_BUCKETS, bkt("j1", 2)], [...RUN_SESSIONS, judge("j1", "lead")], []);
+        expect(attr.items).toHaveLength(1);
+        expect(attr.items[0]).toMatchObject({ key: "run:r1", kind: "orchestrator", runId: "r1", tokens: 12 * M });
+        expect(attr.items[0].sessions.map((s) => s.key)).toContain("claude:j1");
+    });
+
+    it("places a judge under its lead's run even when the lead billed nothing in the window", () => {
+        const attr = buildAttribution([bkt("j1", 2)], [inRun("lead", "lead"), judge("j1", "lead")], []);
+        expect(attr.items[0]).toMatchObject({ key: "run:r1", kind: "orchestrator", runId: "r1", channelId: "c1" });
+    });
+});
+
+describe("titles", () => {
+    it("titles a run's task session row by its task id and task title, else its session title", () => {
+        const attr = buildAttribution(
+            [bkt("lead", 3), bkt("w1", 2), bkt("w2", 1)],
+            [
+                inRun("lead", "lead", { title: "Lead" }),
+                inRun("w1", "worker", { title: "AI title", taskid: "t-3", tasktitle: "Wire types" }),
+                inRun("w2", "worker", { title: "No task title", taskid: "t-4" }),
+            ],
+            []
+        );
+        const list = scopeList(attr, resolveScope(attr, "all", "run:r1"), "last 7 days")!;
+        expect(list.rows.map((r) => r.title)).toEqual(["Lead", "t-3 · Wire types", "No task title"]);
+    });
+
+    it("titles a run by its chunk, then its lead's title, then its goal", () => {
+        const runOf = (lead: Partial<UsageSession>, worker: Partial<UsageSession> = {}) =>
+            buildAttribution(
+                [bkt("lead", 1), bkt("w1", 3)],
+                [inRun("lead", "lead", lead), inRun("w1", "worker", { title: "Worker title", ...worker })],
+                []
+            ).items[0].title;
+        expect(runOf({ title: "Lead title" }, { runchunk: "Chunk 2: wire types" })).toBe("Chunk 2: wire types");
+        expect(runOf({ title: "Lead title" })).toBe("Lead title");
+        // the lead has no scanned title: its id is not a title, so the goal names the run
+        expect(runOf({})).toBe("Ship usage attribution");
+    });
+
+    it("titles a quick run by its own session's title before its goal", () => {
+        const quick = (over: Partial<UsageSession>) =>
+            buildAttribution(
+                [bkt("q", 1)],
+                [ses("q", { runid: "rq", runmode: "quick", rungoal: "Rename a flag", project: WAVE, ...over })],
+                []
+            ).items[0].title;
+        expect(quick({ title: "Renamed the flag" })).toBe("Renamed the flag");
+        expect(quick({})).toBe("Rename a flag");
+    });
+});
+
+describe("project labels", () => {
+    it("labels a project by its registered name, from any member session", () => {
+        const attr = buildAttribution(
+            [bkt("one", 2), bkt("two", 1)],
+            [ses("one", { project: WAVE }), ses("two", { project: "c:\\work\\waveterm", projectname: "Arc" })],
+            []
+        );
+        expect(attr.projects.map((p) => [p.key, p.label])).toEqual([[WAVE, "Arc"]]);
+        expect(attr.items.map((it) => it.projectLabel)).toEqual(["Arc", "Arc"]);
+    });
+
+    it("prefixes parents to colliding unregistered folder names until they differ, leaving a registered one", () => {
+        const a = "C:/rel/SIEM-1744-2.6.10.0/cyber_anomaly_detector";
+        const b = "C:/rel/SIEM-1715-2.6.10.0/cyber_anomaly_detector";
+        const c = "C:/x/same/app";
+        const d = "C:/y/same/app";
+        const registered = "C:/z/cyber_anomaly_detector";
+        const attr = buildAttribution(
+            [bkt("a", 5), bkt("b", 4), bkt("c", 3), bkt("d", 2), bkt("r", 1)],
+            [
+                ses("a", { project: a }),
+                ses("b", { project: b }),
+                ses("c", { project: c }),
+                ses("d", { project: d }),
+                ses("r", { project: registered, projectname: "cyber_anomaly_detector" }),
+            ],
+            []
+        );
+        expect(attr.projects.map((p) => p.label)).toEqual([
+            "SIEM-1744-2.6.10.0 / cyber_anomaly_detector",
+            "SIEM-1715-2.6.10.0 / cyber_anomaly_detector",
+            "x / same / app",
+            "y / same / app",
+            "cyber_anomaly_detector",
+        ]);
+        expect(attr.items[0].projectLabel).toBe("SIEM-1744-2.6.10.0 / cyber_anomaly_detector");
+    });
+});
+
+describe("initiatives", () => {
+    const EFF = "0a1b2c3d-4e5f-6789-abcd-ef0123456789";
+    const OTHER = "99887766-5544-3322-1100-ffeeddccbbaa";
+    const buckets = [...RUN_BUCKETS, bkt("solo", 2), bkt("cy", 3), bkt("loose", 1), bkt("tagged-other", 0.5)];
+    const sessions = [
+        ...RUN_SESSIONS.map((s) => (s.session === "w1" ? { ...s, effort: EFF } : s)),
+        ses("solo", { project: WAVE, title: "Solo", effort: EFF }),
+        ses("cy", { project: CYBER, title: "Cyber", effort: EFF }),
+        ses("loose", { project: WAVE, title: "Loose" }),
+        ses("tagged-other", { project: WAVE, title: "Other initiative", effort: OTHER }),
+    ];
+    const attr = buildAttribution(buckets, sessions, [{ oid: EFF, title: "Usage review fixes" }]);
+    const scope = resolveScope(attr, `effort:${EFF}`, null);
+
+    it("groups the items any member tags, ranked by spend, named by the effort or the oid's first 8", () => {
+        expect(attr.initiatives.map((i) => [i.key, i.label, i.count])).toEqual([
+            [`effort:${EFF}`, "Usage review fixes", 3],
+            [`effort:${OTHER}`, "99887766", 1],
+        ]);
+        const [mine] = attr.initiatives;
+        expect(mine.tokens).toBe(15 * M);
+        expect(mine.sharePct).toBeCloseTo((375 / 412.5) * 100, 9);
+    });
+
+    it("keeps at most six, the costliest", () => {
+        const ids = Array.from({ length: 7 }, (_, i) => `eff${i}`);
+        const many = buildAttribution(
+            ids.map((id, i) => bkt(id, 7 - i)),
+            ids.map((id) => ses(id, { project: WAVE, effort: id })),
+            []
+        );
+        expect(many.initiatives.map((i) => i.oid)).toEqual(ids.slice(0, 6));
+    });
+
+    it("resolves an initiative scope and narrows items and buckets to it", () => {
+        expect(scope.kind).toBe("initiative");
+        expect(scopeId(scope)).toBe(`effort:${EFF}`);
+        expect(scopeItems(attr, scope).map((it) => it.key)).toEqual([
+            "run:r1",
+            "session:claude:cy",
+            "session:claude:solo",
+        ]);
+        expect(sum(scopeSplit(attr, scope, []).parts, (p) => p.tokens)).toBe(15 * M);
+        expect(scopeBuckets(buckets, attr, scope)).toHaveLength(7);
+        expect(scopeName(attr, `effort:${EFF}`)).toBe("Usage review fixes");
+        expect(scopeId(resolveScope(attr, "effort:gone", null))).toBe("all");
+    });
+
+    it("sends a drilled item to its project on the rail, else to its initiative", () => {
+        const offRail = buildAttribution([bkt("x", 1)], [ses("x", { effort: EFF })], []);
+        expect(itemScopeKey(offRail, offRail.items[0])).toBe(`effort:${EFF}`);
+        expect(itemScopeKey(attr, attr.items[0])).toBe(WAVE);
+    });
+
+    it("splits an initiative by kind, as a project", () => {
+        const split = scopeSplit(attr, scope, []);
+        expect(split.head).toBe("kind");
+        expect(split.parts.map((p) => p.label)).toEqual(["Orchestrator runs · 1", "Sessions no run started · 2"]);
+    });
+
+    it("lists an initiative's runs and sessions with their projects, saying only open tabs' sessions count", () => {
+        const list = scopeList(attr, scope, "last 7 days")!;
+        expect(list.title).toBe("Runs and sessions");
+        expect(list.meta).toBe("3 runs and sessions · last 7 days · runs, and sessions from open tabs");
+        expect(list.rows.map((r) => r.sub)).toEqual([
+            "waveterm · orchestrator run · 5 sessions",
+            "cyber · session",
+            "waveterm · session",
+        ]);
+    });
+});
+
+describe("unpriced rows", () => {
+    it("marks a row with tokens, nothing priced and no reported cost as unpriced", () => {
+        const sol = (session: string, over: Partial<UsageBucket> = {}) =>
+            bkt(session, 0, { harness: "pi", model: "no-such-model", input: M, ...over });
+        const attr = buildAttribution(
+            [bkt("priced", 1), sol("bare"), sol("reported", { reportedcostusd: 0.3 })],
+            [],
+            []
+        );
+        const rows = scopeList(attr, ALL, "last 7 days")!.rows;
+        const byKey = Object.fromEntries(rows.map((r) => [r.key, r]));
+        expect(byKey["session:pi:bare"]).toMatchObject({ unpriced: true, reported: false, cost: 0 });
+        expect(byKey["session:pi:reported"]).toMatchObject({ unpriced: false, reported: true, cost: 0.3 });
+        expect(byKey["session:claude:priced"].unpriced).toBe(false);
+    });
+});
+
+describe("fills", () => {
+    const names = ["a", "b", "c", "d", "e", "f", "g"];
+    const attr = buildAttribution(
+        names.map((n, i) => bkt(n, 10 - i)),
+        names.map((n) => ses(n, { project: `C:/work/${n}` })),
+        []
+    );
+
+    it("gives six projects six distinct graph lanes and the folded rest the fold lane", () => {
+        const parts = scopeSplit(attr, ALL, []).parts;
+        expect(parts.map((p) => p.fill)).toEqual([
+            "bg-graphlane-1",
+            "bg-graphlane-2",
+            "bg-graphlane-3",
+            "bg-graphlane-4",
+            "bg-graphlane-5",
+            "bg-graphlane-6",
+            FOLD_FILL,
+        ]);
+        expect(FOLD_FILL).toBe("bg-graphlane-fold");
+    });
+
+    it("gives a project's card the fill of its split row", () => {
+        const parts = scopeSplit(attr, ALL, []).parts;
+        for (const p of attr.projects) {
+            expect(parts.find((part) => part.key === p.key)!.fill).toBe(p.fill);
+        }
+    });
+
+    it("fills kind and role splits from the graph lanes", () => {
+        const both = buildAttribution(
+            [...RUN_BUCKETS, bkt("solo", 1)],
+            [...RUN_SESSIONS, ses("solo", { project: WAVE })],
+            []
+        );
+        const kinds = scopeSplit(both, resolveScope(both, WAVE, null), []).parts;
+        expect(kinds.map((p) => p.fill)).toEqual(["bg-graphlane-1", "bg-graphlane-3"]);
+        const roles = scopeSplit(both, resolveScope(both, "all", "run:r1"), []).parts;
+        expect(roles.map((p) => p.fill)).toEqual([
+            "bg-graphlane-1",
+            "bg-graphlane-2",
+            "bg-graphlane-3",
+            "bg-graphlane-4",
+        ]);
     });
 });

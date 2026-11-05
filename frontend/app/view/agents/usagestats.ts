@@ -36,6 +36,7 @@ export interface ClassUsage {
 export interface DailyHarnessUsage {
     tokens: number;
     spendUsd: number;
+    pricedTokens: number; // tokens of a model the pricing table knows
 }
 
 export interface DailyUsage {
@@ -96,16 +97,15 @@ export const CLASS_LABEL: Record<TokenClass, string> = {
     input: "Input",
 };
 
-// Tailwind fill utility per token class. Single source of truth — this was previously duplicated
-// verbatim in usagesurface.tsx and tokenusagesection.tsx as inline var(--color-*) strings. Same
-// existing design-system tokens as before, just named once: --color-cacheread carries the grey
-// "low-value, high-volume" read of cache reads, and the other three keep their long-standing pairing.
+// Tailwind fill utility per token class, the one source for every class split. --color-cacheread
+// carries the grey "low-value, high-volume" read of cache reads; the rest are categorical, so they take
+// graph lanes (DESIGN.md) rather than status colors.
 export const CLASS_FILL: Record<TokenClass, string> = {
     cacheRead: "bg-cacheread",
-    reasoning: "bg-accent-300",
-    output: "bg-accent",
-    cacheWrite: "bg-warning",
-    input: "bg-success",
+    reasoning: "bg-graphlane-4",
+    output: "bg-graphlane-1",
+    cacheWrite: "bg-graphlane-6",
+    input: "bg-graphlane-2",
 };
 
 export function localDayKey(ms: number): string {
@@ -113,6 +113,16 @@ export function localDayKey(ms: number): string {
     const m = String(d.getMonth() + 1).padStart(2, "0");
     const day = String(d.getDate()).padStart(2, "0");
     return `${d.getFullYear()}-${m}-${day}`;
+}
+
+// The first local day a windowDays-day window covers: windowDays-1 days back from now's day (local
+// midnight steps, so DST is handled). 0 (all time) or no window has no start. The one source of a
+// window's start: the dev fixture cut and the chart's first column both read it.
+export function windowStartDay(windowDays: number | null, now: number): string | undefined {
+    if (windowDays == null || windowDays <= 0) return undefined;
+    const start = new Date(now);
+    start.setDate(start.getDate() - (windowDays - 1));
+    return localDayKey(start.getTime());
 }
 
 // Inclusive list of local day-keys from startKey to endKey ("YYYY-MM-DD" sorts chronologically).
@@ -176,8 +186,15 @@ function harnessesOf(buckets: UsageBucket[]): string[] {
 // totals stay date-filtered (today = current local day; week = rolling 7); the window totals, split,
 // daily series, and per-model breakdown fold the WHOLE loaded window (the window is chosen by the
 // loader's windowdays). Reported cost is summed only where a bucket reports it (present zero counts,
-// absent does not); API-equivalent spend always comes from the pricing table.
-export function aggregateBuckets(buckets: UsageBucket[], now: number, harnessFilter: HarnessFilter = "all"): UsageStats {
+// absent does not); API-equivalent spend always comes from the pricing table. `daily` starts at fromDay
+// (the loaded window's first day), or at the oldest bucket when that is older, so a narrow scope's chart
+// still spans the whole window.
+export function aggregateBuckets(
+    buckets: UsageBucket[],
+    now: number,
+    harnessFilter: HarnessFilter = "all",
+    fromDay?: string
+): UsageStats {
     const today = localDayKey(now);
     const weekStart = localDayKey(now - 6 * DAY_MS);
     const availableHarnesses = harnessesOf(buckets);
@@ -212,6 +229,7 @@ export function aggregateBuckets(buckets: UsageBucket[], now: number, harnessFil
 
     for (const b of scope) {
         const tk = bucketTokens(b);
+        const pricedTk = priceFor(b.model) != null ? tk : 0;
         const sb = spendBreakdown(bucketAsRecord(b));
         const sp = sb.input + sb.output + sb.reasoning + sb.cacheRead + sb.cacheWrite;
 
@@ -229,9 +247,10 @@ export function aggregateBuckets(buckets: UsageBucket[], now: number, harnessFil
 
         // daily series (window), keyed by harness
         const day = byDay.get(b.day) ?? {};
-        const h = day[b.harness] ?? { tokens: 0, spendUsd: 0 };
+        const h = day[b.harness] ?? { tokens: 0, spendUsd: 0, pricedTokens: 0 };
         h.tokens += tk;
         h.spendUsd += sp;
+        h.pricedTokens += pricedTk;
         day[b.harness] = h;
         byDay.set(b.day, day);
         if (minDay == null || b.day < minDay) minDay = b.day;
@@ -240,9 +259,10 @@ export function aggregateBuckets(buckets: UsageBucket[], now: number, harnessFil
         // daily series (window), keyed by model
         const key = modelKey(b.harness, b.provider, b.model);
         const dayModels = byDayModel.get(b.day) ?? {};
-        const dm = dayModels[key] ?? { tokens: 0, spendUsd: 0 };
+        const dm = dayModels[key] ?? { tokens: 0, spendUsd: 0, pricedTokens: 0 };
         dm.tokens += tk;
         dm.spendUsd += sp;
+        dm.pricedTokens += pricedTk;
         dayModels[key] = dm;
         byDayModel.set(b.day, dayModels);
         const series = byModel.get(key) ?? {
@@ -262,7 +282,7 @@ export function aggregateBuckets(buckets: UsageBucket[], now: number, harnessFil
             tokensWeek += tk;
             spendWeekUsd += sp;
             allTokensWeek += tk;
-            if (priceFor(b.model) != null) pricedTokensWeek += tk;
+            pricedTokensWeek += pricedTk;
         }
         if (b.day === today) {
             tokensToday += tk;
@@ -273,7 +293,7 @@ export function aggregateBuckets(buckets: UsageBucket[], now: number, harnessFil
         // window totals (whole loaded range, all providers)
         tokensWindow += tk;
         spendWindowUsd += sp;
-        if (priceFor(b.model) != null) pricedTokensWindow += tk;
+        pricedTokensWindow += pricedTk;
         tokensWindowByHarness[b.harness] = (tokensWindowByHarness[b.harness] ?? 0) + tk;
         dayTotal.set(b.day, (dayTotal.get(b.day) ?? 0) + tk);
 
@@ -304,9 +324,10 @@ export function aggregateBuckets(buckets: UsageBucket[], now: number, harnessFil
     }));
 
     let daily: DailyUsage[] = [];
-    if (minDay != null) {
+    const startDay = fromDay != null && (minDay == null || fromDay < minDay) ? fromDay : minDay;
+    if (startDay != null) {
         const endKey = maxDay != null && maxDay > today ? maxDay : today;
-        daily = enumerateDays(minDay, endKey).map((day) => ({
+        daily = enumerateDays(startDay, endKey).map((day) => ({
             day,
             byHarness: byDay.get(day) ?? {},
             byModel: byDayModel.get(day) ?? {},
@@ -361,7 +382,21 @@ export function fmt(n: number): string {
 export function usd(n: number): string {
     if (n >= 1000) return "$" + +(n / 1000).toFixed(1) + "K";
     if (n >= 100) return "$" + Math.round(n);
+    if (n > 0 && n < 0.005) return "<$0.01"; // a real cost under a cent must not read as $0.00
     return "$" + n.toFixed(2);
+}
+
+// pricing coverage, floored: a sliver of unpriced tokens never rounds up to a clean 100%
+export function coverageStr(pct: number): string {
+    if (pct >= 100) return "100%";
+    if (pct >= 99) return ">99%";
+    return Math.floor(pct) + "%";
+}
+
+// an API-equivalent estimate; tokens with none of them priced have no estimate, not a $0.00 one
+export function estimateStr(spendUsd: number, pricedTokens: number, tokens: number): string {
+    if (tokens > 0 && pricedTokens <= 0) return "unpriced";
+    return `≈ ${usd(spendUsd)}`;
 }
 
 export function pctStr(n: number): string {

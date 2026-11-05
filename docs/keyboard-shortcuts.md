@@ -86,7 +86,7 @@ cancelled now, in All and in Commands, so it never starts a run named "cancel".
 | `j` / `k` (or `↓` / `↑`) | Move the cursor within the active region |
 | `Enter` | Open / activate the item under the cursor |
 | `Space` | Peek the item under the cursor in the avatar popup, without leaving the surface (see Peek below) |
-| `Esc` | On a deep surface (Jarvis, Sessions, Files, Usage, Code), go back to the surface you jumped from (opening a run, file, diff or agent from elsewhere), else return to the Cockpit. In a composer or text field, leave Type posture first. |
+| `Esc` | On a deep surface (Jarvis, Sessions, Files, Usage, Code), go back to the surface you jumped from (opening a run, file, diff or agent from elsewhere), else return to the Cockpit. On Usage's By work, first go Back from an item to its scope, then from a project or initiative to All usage. In a composer or text field, leave Type posture first. |
 
 ## Resource Manager (the popover opened from the footer's readout or `g` `m`)
 
@@ -257,6 +257,14 @@ A session opened from a search hit shows a find bar over its transcript, with th
 | `Enter` / `Shift`+`Enter` in the find bar | Next / previous match, wrapping |
 | `Esc` in the find bar | Close the find bar |
 | `Esc` in the list's search field | Clear the query |
+
+### Usage
+
+| Keys | Action |
+|---|---|
+| `j` / `k` (or `↓` / `↑`) | By provider: next / previous provider card. By work: next / previous scope card (All usage, the projects, the initiatives), then on into the rows the list shows. Moving onto a card selects it; moving onto a row only marks it |
+| `Enter` | By work: on a row, open it; on a card, move the cursor to its first row |
+| `Esc` | By work: from an item, Back to its scope; from a project or initiative, to All usage; on All usage, leave the surface |
 
 ### Setup: Memory tab
 

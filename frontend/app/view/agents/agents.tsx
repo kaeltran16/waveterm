@@ -42,8 +42,8 @@ import {
     type EndedWorker,
     type FocusedFinalStage,
 } from "./runlineagestore";
-import { usageBucketsAtom } from "./usagestore";
-import { aggregateBuckets, type HarnessFilter } from "./usagestats";
+import { usageBucketsAtom, usageHeldWindowAtom } from "./usagestore";
+import { aggregateBuckets, windowStartDay, type HarnessFilter } from "./usagestats";
 import { landOn } from "@/app/view/jarvis/returnsurface";
 
 export type SurfaceKey =
@@ -138,7 +138,11 @@ export class AgentsViewModel implements ViewModel {
     usageHarnessFilterAtom = atom<HarnessFilter>("all");
     // Usage surface: the harness-filtered derivation over the store's raw buckets. Reads
     // Date.now() at compute time, so it stays fresh when any bucket/filter dependency changes.
-    usageStatsAtom = atom((get) => aggregateBuckets(get(usageBucketsAtom), Date.now(), get(this.usageHarnessFilterAtom)));
+    usageStatsAtom = atom((get) => {
+        const now = Date.now();
+        const fromDay = windowStartDay(get(usageHeldWindowAtom), now);
+        return aggregateBuckets(get(usageBucketsAtom), now, get(this.usageHarnessFilterAtom), fromDay);
+    });
     // App bar plan-usage meters: one 5-hour/weekly reading per provider, on the coarse clock so a window
     // still rolls over in a quiescent fleet. Idle agents' frozen readings fall through to the saved one.
     planUsageAtom = atom((get) =>

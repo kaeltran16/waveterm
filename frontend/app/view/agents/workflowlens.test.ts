@@ -6,6 +6,7 @@ import {
     picksPayload,
     scanButton,
     scanHead,
+    scanHomeChannel,
     workflowView,
     type PickDraft,
     type WorkflowCard,
@@ -487,6 +488,45 @@ describe("copyText", () => {
     it("leaves where out when the verdict has none", () => {
         const ws = scan({ verdicts: [suggest("p1", { where: "" }), suggest("p3")] });
         expect(copyText(picking(workflowView(run(ws), {})).cards[0])).toBe("AGENTS.md\n+ add this line");
+    });
+});
+
+describe("scanHomeChannel", () => {
+    const channel = (oid: string, name: string): Channel => ({ ...home(name), oid });
+    const alpha = channel("c-alpha", "alpha");
+    const beta = channel("c-beta", "beta");
+    const gamma = channel("c-gamma", "gamma");
+    const channels = [alpha, beta, gamma];
+    const rows = [
+        { name: "alpha", path: "C:/alpha", channel: alpha },
+        { name: "beta", path: "C:/beta", channel: beta },
+        { name: "gamma", path: "C:/gamma", channel: gamma },
+        { name: "fresh", path: "C:/fresh" },
+    ];
+
+    it("is the picked project's channel over everything else", () => {
+        expect(scanHomeChannel("beta", "c-gamma", channels, alpha, rows, ["gamma"])).toBe(beta);
+    });
+
+    it("is the newest scan's channel when nothing is picked", () => {
+        expect(scanHomeChannel(null, "c-gamma", channels, alpha, rows, ["beta"])).toBe(gamma);
+    });
+
+    it("falls back to the palette's rule with no pick and no scan", () => {
+        expect(scanHomeChannel(null, undefined, channels, alpha, rows, ["beta"])).toBe(alpha);
+        expect(scanHomeChannel(null, undefined, channels, null, rows, ["beta"])).toBe(beta);
+        expect(scanHomeChannel(null, undefined, channels, null, [rows[0]], [])).toBe(alpha);
+        expect(scanHomeChannel(null, undefined, channels, null, rows, [])).toBeNull();
+    });
+
+    it("skips a scan channel that is no longer in the list", () => {
+        expect(scanHomeChannel(null, "c-gone", channels, alpha, rows, [])).toBe(alpha);
+        expect(scanHomeChannel(null, "c-gone", null, null, rows, ["beta"])).toBe(beta);
+    });
+
+    it("skips a pick that has no channel or is no longer registered", () => {
+        expect(scanHomeChannel("fresh", "c-gamma", channels, alpha, rows, [])).toBe(gamma);
+        expect(scanHomeChannel("removed", undefined, channels, alpha, rows, [])).toBe(alpha);
     });
 });
 

@@ -48,6 +48,8 @@ import { activeReviewAtom, reviewMarksAtom } from "@/app/view/agents/reviewmarks
 import { renamingRowAtom } from "@/app/view/agents/rowrenameatom";
 import { shellTaskPeekAtom } from "@/app/view/agents/shelltasksstore";
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
+import { LIST_COLLAPSED_ROWS } from "@/app/view/agents/usageattribution";
+import { usageLensAtom, usageListShownAtom, usageWorkItemAtom, usageWorkScopeAtom } from "@/app/view/agents/usagestore";
 import { codePeekFocusedAtom, openPeekInCode } from "@/app/view/code/codepeekstore";
 import { codeSearchModeAtom } from "@/app/view/code/codesearchstore";
 import {
@@ -319,6 +321,88 @@ describe("Escape back to the Cockpit", () => {
         expect(b.when!(ctx("jarvis"))).toBe(false);
         globalStore.set(dagModalStateAtom, null);
         expect(b.when!(ctx("jarvis"))).toBe(true);
+    });
+});
+
+describe("Escape on Usage's By work goes Back before it leaves", () => {
+    const model = { surfaceAtom: atom<SurfaceKey>("usage") } as any;
+    const find = (id: string) => buildGlobalBindings(model).find((b) => b.id === id)!;
+    const usage = ctx("usage");
+    const drill = (scope: string, item: { key: string; back: string } | null) => {
+        globalStore.set(usageLensAtom, "work");
+        globalStore.set(usageWorkScopeAtom, scope);
+        globalStore.set(usageWorkItemAtom, item);
+    };
+    // the Escapes the global set holds live in a context; a conflict is two of them at once
+    const liveEscapes = (c: KeyContext) =>
+        buildGlobalBindings(model)
+            .filter((b) => b.keys === "Escape" && (b.when ? b.when(c) : true))
+            .map((b) => b.id);
+
+    beforeEach(() => {
+        globalStore.set(graphPeekOpenAtom, false);
+        globalStore.set(autonomyPanelOpenAtom, false);
+        globalStore.set(petPeekOpenAtom, false);
+    });
+    afterEach(() => {
+        globalStore.set(usageLensAtom, "provider");
+        globalStore.set(usageWorkScopeAtom, "all");
+        globalStore.set(usageWorkItemAtom, null);
+        globalStore.set(usageListShownAtom, LIST_COLLAPSED_ROWS);
+        globalStore.set(escapeMenusOpenAtom, 0);
+    });
+
+    it("is labelled for the cheat sheet under Navigation", () => {
+        const b = find("usage:back");
+        expect(b.keys).toBe("Escape");
+        expect(b.group).toBe("Navigation");
+        expect(b.label).toBe("Back to the scope, else All usage");
+    });
+
+    it("takes Escape from an item, and back-home stands down", () => {
+        drill("C:/work/arc", { key: "run:r1", back: "all" });
+        expect(liveEscapes(usage)).toEqual(["usage:back"]);
+    });
+
+    it("takes Escape from a project or initiative scope", () => {
+        drill("C:/work/arc", null);
+        expect(liveEscapes(usage)).toEqual(["usage:back"]);
+        drill("effort:e1", null);
+        expect(liveEscapes(usage)).toEqual(["usage:back"]);
+    });
+
+    it("leaves Escape to back-home on All usage, on another lens, and on another surface", () => {
+        drill("all", null);
+        expect(liveEscapes(usage)).toEqual(["surface:back-home"]);
+        drill("C:/work/arc", { key: "run:r1", back: "all" });
+        globalStore.set(usageLensAtom, "provider");
+        expect(liveEscapes(usage)).toEqual(["surface:back-home"]);
+        globalStore.set(usageLensAtom, "work");
+        expect(liveEscapes(ctx("files"))).toEqual(["surface:back-home"]);
+    });
+
+    it("stands down under the same guards as back-home", () => {
+        drill("C:/work/arc", null);
+        globalStore.set(escapeMenusOpenAtom, 1);
+        expect(liveEscapes(usage)).toEqual([]);
+        globalStore.set(escapeMenusOpenAtom, 0);
+        expect(liveEscapes({ ...usage, editable: true })).toEqual([]);
+    });
+
+    it("goes from an item Back to the scope it was opened from, with the list collapsed", () => {
+        drill("C:/work/arc", { key: "session:claude:s1", back: "all" });
+        globalStore.set(usageListShownAtom, 33);
+        find("usage:back").run(usage);
+        expect(globalStore.get(usageWorkScopeAtom)).toBe("all");
+        expect(globalStore.get(usageWorkItemAtom)).toBeNull();
+        expect(globalStore.get(usageListShownAtom)).toBe(LIST_COLLAPSED_ROWS);
+    });
+
+    it("goes from a project to All usage, then hands the next Escape to back-home", () => {
+        drill("C:/work/arc", null);
+        find("usage:back").run(usage);
+        expect(globalStore.get(usageWorkScopeAtom)).toBe("all");
+        expect(liveEscapes(usage)).toEqual(["surface:back-home"]);
     });
 });
 

@@ -34,6 +34,7 @@ import { historyFiltersAtom } from "@/app/view/agents/githistorystore";
 import { renamingRowAtom } from "@/app/view/agents/rowrenameatom";
 import { shellTaskPeekAtom } from "@/app/view/agents/shelltasksstore";
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
+import { usageLensAtom, usageWorkItemAtom, usageWorkScopeAtom } from "@/app/view/agents/usagestore";
 import { codePeekFocusedAtom } from "@/app/view/code/codepeekstore";
 import { codeTreeFocusedAtom } from "@/app/view/code/codestore";
 import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
@@ -73,6 +74,9 @@ export const PREDICATE_ATOMS: Atom<unknown>[] = [
     focusSubagentAtom, // buildAgentBindings: subagent:back, agent:back, agent:brainstorm-back
     shellTaskPeekAtom, // buildAgentBindings: shelltask:back, agent:back, agent:brainstorm-back
     codePeekFocusedAtom, // buildAgentBindings: codepeek:open/close, and the Escapes and Enter they take over from
+    usageLensAtom, // usage:back, and surface:back-home stands down to it
+    usageWorkScopeAtom, // usage:back, surface:back-home
+    usageWorkItemAtom, // usage:back, surface:back-home
 ];
 
 function bumpWhenVersion() {

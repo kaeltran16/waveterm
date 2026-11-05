@@ -1067,6 +1067,7 @@ declare global {
     type CommandGetUsageStatsRtnData = {
         buckets: UsageBucket[];
         sessions: UsageSession[];
+        efforts?: UsageEffort[];
     };
 
     // wshrpc.CommandGetWindowTokensData
@@ -3053,6 +3054,7 @@ declare global {
         designsession?: string;
         workflowscan?: WorkflowScan;
         consultsessions?: ConsultSession[];
+        brainstormlead?: string;
     };
 
     // waveobj.RunDesign
@@ -3565,6 +3567,12 @@ declare global {
         msgs: number;
     };
 
+    // wshrpc.UsageEffort
+    type UsageEffort = {
+        oid: string;
+        title: string;
+    };
+
     // waveobj.UsageRow
     type UsageRow = {
         role: string;
@@ -3591,6 +3599,12 @@ declare global {
         runmode?: string;
         role?: string;
         taskid?: string;
+        tasktitle?: string;
+        runchunk?: string;
+        effort?: string;
+        leadharness?: string;
+        leadsession?: string;
+        projectname?: string;
     };
 
     // waveobj.UserNote
