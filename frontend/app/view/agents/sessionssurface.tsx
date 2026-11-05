@@ -647,28 +647,30 @@ function RunCard({
                 </span>
                 <span className="flex w-full items-center gap-2 font-mono text-[10.5px] text-muted">
                     {view.segs.length > 0 ? (
-                        <span className="flex gap-[3px]" aria-hidden="true">
+                        <span className="flex min-w-0 gap-[3px]" aria-hidden="true">
                             {view.segs.map((k, i) => (
                                 <span
                                     key={i}
-                                    className="h-1 w-3.5 rounded-[2px]"
+                                    className="h-1 min-w-1 flex-[0_1_14px] rounded-[2px]"
                                     style={{ backgroundColor: view.complete ? "var(--color-success)" : SEG_COLOR[k] }}
                                 />
                             ))}
                         </span>
                     ) : null}
                     {view.complete ? (
-                        <span className="flex items-center gap-[5px] text-success">
+                        <span className="flex flex-none items-center gap-[5px] whitespace-nowrap text-success">
                             <Check size={11} aria-hidden className="flex-none" />
                             {view.total > 0 ? `${view.landed}/${view.total} landed` : "complete"}
                         </span>
                     ) : (
-                        <span>{view.total > 0 ? `${view.landed}/${view.total} landed` : "planning"}</span>
+                        <span className="flex-none whitespace-nowrap">
+                            {view.total > 0 ? `${view.landed}/${view.total} landed` : "planning"}
+                        </span>
                     )}
                     <span className="flex-1" />
                     <span className="truncate">
                         <span className={rt.text}>{rt.glyph}</span>{" "}
-                        {[view.project, ranLabel(elapsed)].filter(Boolean).join(" · ")}
+                        {[ranLabel(elapsed), view.project].filter(Boolean).join(" · ")}
                     </span>
                 </span>
             </button>
@@ -971,7 +973,9 @@ function MergedFeed({
                                 style={{ backgroundColor: eventColor(e.type) }}
                             />
                             <span className="min-w-0">
-                                <span className="block text-[13px] leading-[1.5] text-secondary">{e.text}</span>
+                                <span className="block break-words text-[13px] leading-[1.5] text-secondary [overflow-wrap:anywhere]">
+                                    {e.text}
+                                </span>
                                 <span className="mt-[3px] flex items-center gap-2 whitespace-nowrap font-mono text-[10.5px]">
                                     <span
                                         className="flex-none uppercase tracking-[0.06em]"

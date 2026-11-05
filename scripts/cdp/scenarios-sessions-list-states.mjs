@@ -5,6 +5,10 @@ import { fixtureRun, fixtureSession, installRuns, installSessions, restoreSessio
 
 const NAME = "sessions-list-states";
 const VIEWPORT = { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false };
+const NARROW_VIEWPORT = { width: 1000, height: 700, deviceScaleFactor: 1, mobile: false };
+// an unbroken path, longer than any feed row is wide
+const WIDE_PATH = `C:\\arc-verify-sessions-fixture\\${"deeply-nested-directory-".repeat(7)}\\file.ts`;
+const NINE_TASKS = 9;
 const IDLE_MS = 10_000;
 const LONG_TASK_BUDGET_MS = 1_000;
 const ARCHIVE_WAIT_MS = 60_000;
@@ -103,14 +107,27 @@ function fixtures() {
     const complete = fixtureRun({ status: "done", dagStatus: "done", tasks: [{ id: "t-1", state: "done", merged: true }] });
     complete.dag.title = "Fixture complete run";
     const solo = fixtureSession({ task: "Fixture solo session" });
+    const nine = fixtureRun({
+        status: "done",
+        dagStatus: "done",
+        tasks: Array.from({ length: NINE_TASKS }, (_, i) => ({ id: `t-${i + 1}`, state: "done", merged: true })),
+    });
+    nine.dag.title = "Fixture nine-task run";
+    const wide = fixtureSession({
+        task: "Fixture wide event session",
+        events: [{ type: "committed", ts: Date.now(), text: `Edited ${WIDE_PATH}` }],
+    });
     return {
         cancelled,
         complete,
+        nine,
         solo,
         sessions: [
             ...runSessions(cancelled, "Fixture cancelled run"),
             ...runSessions(complete, "Fixture complete run"),
+            ...runSessions(nine, "Fixture nine-task run"),
             solo,
+            wide,
         ],
     };
 }
@@ -176,7 +193,7 @@ export default function (kit) {
                 );
 
                 // the fixtures replace the archive from here on
-                await installRuns(h, [fx.cancelled, fx.complete]);
+                await installRuns(h, [fx.cancelled, fx.complete, fx.nine]);
                 await installSessions(h, fx.sessions);
                 const cancelledKey = `run:${fx.cancelled.run.oid}`;
                 const completeKey = `run:${fx.complete.run.oid}`;
@@ -224,7 +241,7 @@ export default function (kit) {
                     const c = ${card(completeKey)};
                     return c?.querySelector('button > span:nth-child(2) > span.truncate')?.textContent?.trim() ?? null;
                 })()`);
-                rec("the run card's time reads ran <n>", /· ran \d+[a-z]+$/.test(meta ?? ""), { meta });
+                rec("the run card's time reads ran <n>", /\bran \d+[a-z]+( · |$)/.test(meta ?? ""), { meta });
 
                 // 5. Live with nothing live, then Show all
                 await clickFilter(h, "Live");
@@ -286,9 +303,75 @@ export default function (kit) {
                 // 8. the window the list covers
                 const fact = await h.ev(`[...document.querySelectorAll('span')].some((s) => s.textContent.trim() === 'last 30 days')`);
                 rec("the toolbar says last 30 days", fact, { fact });
+
+                // 9. the feed and a full run card at the narrow and the wide viewport
+                await withModel(
+                    h,
+                    `globalStore.set(model.sessionsQueryAtom, "");
+                    globalStore.set(model.sessionsStatusFilterAtom, "all");
+                    globalStore.set(model.sessionsSelAtom, "all");
+                    return true;`
+                );
+                const nineKey = `run:${fx.nine.run.oid}`;
+                await until(h, `!!${card(nineKey)} && !!document.querySelector('[data-sessions-feed-row]')`);
+                // the landed span, the segment strip and the trailing text of the nine-task card
+                const readCard = () =>
+                    h.ev(`(() => {
+                        const c = ${card(nineKey)};
+                        const row = c?.querySelector('button > span:nth-child(2)');
+                        if (!row) return null;
+                        const landed = [...row.children].find((s) => s.textContent.includes('9/9 landed'));
+                        const strip = row.firstElementChild;
+                        const trail = row.querySelector('span.truncate');
+                        const lr = landed?.getBoundingClientRect();
+                        const sr = strip?.getBoundingClientRect();
+                        return {
+                            landed: landed?.textContent.trim() ?? null,
+                            landedHeight: lr?.height ?? null,
+                            fontSize: landed ? parseFloat(getComputedStyle(landed).fontSize) : null,
+                            stripRight: sr?.right ?? null,
+                            landedLeft: lr?.left ?? null,
+                            trail: trail?.textContent.replace(/^\\S+\\s/, '').trim() ?? null,
+                        };
+                    })()`);
+                const cardOk = (c) =>
+                    c != null &&
+                    c.landed === "9/9 landed" &&
+                    c.landedHeight < c.fontSize * 2 &&
+                    c.stripRight <= c.landedLeft &&
+                    /^ran \d+[a-z]+/.test(c.trail ?? "");
+                for (const [label, vp] of [
+                    ["1000x700", NARROW_VIEWPORT],
+                    ["1600x950", VIEWPORT],
+                ]) {
+                    await h.cdp("Emulation.setDeviceMetricsOverride", vp);
+                    await nap(h, 600);
+                    const run = await readCard();
+                    await h.shot(`cdp-shots/${NAME}-9-run-card-${label}.png`);
+                    rec(
+                        `at ${label} a 9/9 run card keeps landed on one line and its trailing text leads with the elapsed time`,
+                        cardOk(run),
+                        run
+                    );
+                    if (vp === NARROW_VIEWPORT) {
+                        const feed = await h.ev(`(() => {
+                            const f = document.querySelector('[data-sessions-feed]');
+                            const wide = [...document.querySelectorAll('[data-sessions-feed-row]')]
+                                .find((r) => r.textContent.includes(${JSON.stringify(WIDE_PATH.slice(0, 40))}));
+                            return f ? { scrollWidth: f.scrollWidth, clientWidth: f.clientWidth, wideRow: wide != null } : null;
+                        })()`);
+                        await h.shot(`cdp-shots/${NAME}-9-feed-${label}.png`);
+                        rec(
+                            "at 1000x700 a feed event with an unbroken 150-character path does not scroll the feed sideways",
+                            feed?.wideRow === true && feed.scrollWidth <= feed.clientWidth,
+                            feed
+                        );
+                    }
+                }
                 return steps;
             },
             async teardown(h, { prior }) {
+                await h.cdp("Emulation.clearDeviceMetricsOverride", {});
                 await restoreSearch(h);
                 await withModel(
                     h,

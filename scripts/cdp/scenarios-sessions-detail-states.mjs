@@ -21,6 +21,9 @@ const NAME = "sessions-detail-states";
 const LONG_LINES = 2_400;
 const RUN_TASKS = 12;
 const DAY_MS = 86_400_000;
+const NARROW_VIEWPORT = { width: 1000, height: 700, deviceScaleFactor: 1, mobile: false };
+const WIDE_VIEWPORT = { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false };
+const MIN_TITLE_WIDTH = 300;
 const WAIT_MS = 10_000;
 // the live refetch runs every 5s (LIVE_REFRESH_MS); two rounds of it
 const LIVE_WAIT_MS = 12_000;
@@ -124,6 +127,12 @@ export default function (_kit) {
                             { type: "committed", ts: now - 60_000, text: "Fixture commit" },
                         ],
                     }),
+                    // a title longer than any header is wide, so its width is the room the header gives it
+                    header: fixtureSession({
+                        task: `Detail header ${tag} ${"with a very long task title ".repeat(8)}`,
+                        startedts: started,
+                        durationms: 3 * 3_600_000,
+                    }),
                     pasted: fixtureSession({ task: `Detail pasted ${tag}` }),
                     live: fixtureSession({ task: `Detail live ${tag}` }),
                     failed: fixtureSession({ task: `Detail failed read ${tag}` }),
@@ -152,7 +161,7 @@ export default function (_kit) {
                     [fx.live.transcriptpath]: { lines: liveLines },
                     [fx.failed.transcriptpath]: { error: `fixture read failure ${tag}` },
                 };
-                for (const s of [fx.waiting, fx.blocked, fx.vanished, fx.dated, fx.lead, fx.runBlocked, fx.task11]) {
+                for (const s of [fx.waiting, fx.blocked, fx.vanished, fx.dated, fx.header, fx.lead, fx.runBlocked, fx.task11]) {
                     transcripts[s.transcriptpath] = { lines: [userLine(s.task), replyLine(`Reply ${tag}`)] };
                 }
                 await installSessions(h, Object.values(fx));
@@ -394,6 +403,47 @@ export default function (_kit) {
                         s12.includes(`fixture read failure ${tag}`),
                     s12
                 );
+
+                // 13. the solo header at the narrow and the wide viewport
+                const readHeader = () =>
+                    page(
+                        h,
+                        `const header = document.querySelector("[data-sessions-solo-header]");
+                        const title = header?.querySelector("h2")?.getBoundingClientRect();
+                        const col = header?.querySelector("h2")?.parentElement?.parentElement?.getBoundingClientRect();
+                        const meta = header?.querySelector("h2")?.parentElement?.nextElementSibling;
+                        const toggle = header?.querySelector('[role="group"][aria-label="Session view"]')?.getBoundingClientRect();
+                        const tops = new Set([...(meta?.children ?? [])].map((c) => Math.round(c.getBoundingClientRect().top)));
+                        return header == null ? null : {
+                            titleWidth: title?.width ?? null,
+                            metaLines: tops.size,
+                            actionsOnTitleRow: toggle != null && col != null && toggle.top < col.bottom - 1,
+                            headerWidth: header.getBoundingClientRect().width,
+                        };`
+                    );
+                try {
+                    await h.cdp("Emulation.setDeviceMetricsOverride", NARROW_VIEWPORT);
+                    await solo(fx.header);
+                    await page(h, `await nap(600);`);
+                    const narrow = await readHeader();
+                    await h.shot(`cdp-shots/${NAME}-13-header-1000x700.png`);
+                    rec(
+                        "13. at 1000x700 the solo header's title keeps 300px and its meta takes at most two lines",
+                        narrow != null && narrow.titleWidth >= MIN_TITLE_WIDTH && narrow.metaLines <= 2,
+                        narrow
+                    );
+                    await h.cdp("Emulation.setDeviceMetricsOverride", WIDE_VIEWPORT);
+                    await page(h, `await nap(600);`);
+                    const wide = await readHeader();
+                    await h.shot(`cdp-shots/${NAME}-14-header-1600x950.png`);
+                    rec(
+                        "14. at 1600x950 the solo header's actions sit on the title's row",
+                        wide != null && wide.actionsOnTitleRow,
+                        wide
+                    );
+                } finally {
+                    await h.cdp("Emulation.clearDeviceMetricsOverride", {});
+                }
                 return steps;
             },
             async teardown(h) {
