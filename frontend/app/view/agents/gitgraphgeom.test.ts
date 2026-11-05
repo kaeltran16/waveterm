@@ -52,14 +52,18 @@ describe("graphGeometry", () => {
         expect(g.nodes.filter((n) => n.folded)).toHaveLength(3);
     });
 
-    it("adds divider height to the row below and to the total", () => {
+    // the pane draws a row's divider above it, so the divider row itself moves down
+    it("adds divider height above its own row and to the total", () => {
         const plain = graphGeometry(assignLanes([c("a", "b"), c("b")]), OPTS);
         const withDiv = graphGeometry(
-            assignLanes([{ hash: "a", parents: ["b"], divider: "session start" }, c("b")]),
+            assignLanes([c("a", "b"), { hash: "b", parents: [], divider: "session start" }]),
             OPTS
         );
         expect(withDiv.height).toBe(plain.height + 30);
+        expect(withDiv.nodes[0].y).toBe(plain.nodes[0].y);
         expect(withDiv.nodes[1].y).toBe(plain.nodes[1].y + 30);
+        const firstDiv = graphGeometry(assignLanes([{ hash: "a", parents: ["b"], divider: "run base" }, c("b")]), OPTS);
+        expect(firstDiv.nodes[0].y).toBe(plain.nodes[0].y + 30);
     });
 
     it("marks the working-tree row's edge as dashed", () => {

@@ -23,3 +23,14 @@ export function resolveCollapsed(explicit: boolean | null, surfaceWidth: number)
     }
     return surfaceWidth < HISTORY_COLLAPSE_PX;
 }
+
+export type HistoryLayout = "rail" | "column" | "overlay";
+
+// An explicit expand below the threshold overlays the commit and diff panes instead of pushing two
+// fixed columns into the window, which is what left the diff pane unreadably narrow.
+export function historyLayout(explicit: boolean | null, width: number): HistoryLayout {
+    if (resolveCollapsed(explicit, width)) {
+        return "rail";
+    }
+    return width > 0 && width < HISTORY_COLLAPSE_PX ? "overlay" : "column";
+}

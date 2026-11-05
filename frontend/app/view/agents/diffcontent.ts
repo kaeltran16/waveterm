@@ -10,8 +10,9 @@
 export type CompareForm = "mergebase" | "tips";
 
 export type DiffSelection =
-    // head: the sha HEAD pointed at when the change list was read, "" with no commits
-    | { kind: "worktree"; anchorRef: string; head?: string }
+    // head: the sha HEAD pointed at when the change list was read, "" with no commits. end: a bounded
+    // range's tip (a landed run), read in place of the file on disk
+    | { kind: "worktree"; anchorRef: string; head?: string; end?: string }
     | { kind: "commit"; hash: string }
     | { kind: "compare"; base: string; head: string; mergeBase: string; form: CompareForm };
 
@@ -40,7 +41,7 @@ function selectionRefs(sel: DiffSelection): DiffPairRefs {
         case "worktree":
             return {
                 original: { kind: "ref", ref: sel.anchorRef || sel.head || "HEAD" },
-                modified: { kind: "worktree" },
+                modified: sel.end ? { kind: "ref", ref: sel.end } : { kind: "worktree" },
             };
         // "^" is the first parent, matching gitinfo.commitBase: for a merge that is the conventional
         // "what did this bring in", and for a root commit it simply misses, which the pane renders as

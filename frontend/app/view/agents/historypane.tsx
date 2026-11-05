@@ -25,7 +25,7 @@ import {
 import { GraphGutter } from "./graphgutter";
 import { HistoryFilterRow } from "./historyfilterrow";
 import { HISTORY_PAGE_SIZE, NEAR_BOTTOM_PX, SCROLL_THROTTLE_MS, noMatchSentence, slowSeconds } from "./historyquery";
-import { refChipClass, type HistoryRow } from "./historyrows";
+import { commitCount, refChipClass, type HistoryRow } from "./historyrows";
 import { SubLabel } from "./sectionlabel";
 
 const ROW_H = 34;
@@ -337,13 +337,13 @@ export function HistoryPane({
                         ) : null}
                         {laned.map((row) => (
                             <div key={row.hash || "__wt__"} data-history-row>
+                                {row.divider ? <Divider label={row.divider} /> : null}
                                 <Row
                                     row={row}
                                     laneIndent={indent}
                                     selected={selected === row.hash}
                                     onSelect={() => onSelect(row.hash)}
                                 />
-                                {row.divider ? <Divider label={row.divider} /> : null}
                             </div>
                         ))}
                         {appendState === "failed" ? (
@@ -355,7 +355,7 @@ export function HistoryPane({
                             </button>
                         ) : appendState === "loading" ? (
                             <div className="flex h-[34px] items-center px-[14px] font-mono text-[11px] text-muted">
-                                {`loading commits ${rows.length + 1}–${rows.length + HISTORY_PAGE_SIZE}…`}
+                                {`loading commits ${commitCount(rows) + 1}–${commitCount(rows) + HISTORY_PAGE_SIZE}…`}
                             </div>
                         ) : null}
                     </div>

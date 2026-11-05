@@ -6,6 +6,7 @@ import {
     WORKING_TREE,
     buildRows,
     classifyRef,
+    commitCount,
     defaultSelection,
     keepSelection,
     refChipClass,
@@ -119,7 +120,9 @@ describe("buildRows", () => {
         expect(rows[0].hash).toBe("aaa");
     });
 
-    it("marks the anchor with a divider and dims everything older", () => {
+    // the divider draws above its row, so the anchor commit itself sits below the line: it was there
+    // before the session/run began
+    it("marks the anchor with a divider and dims it with everything older", () => {
         const rows = buildRows([commit("aaa"), commit("bbb"), commit("ccc")], {
             head: "aaa",
             dirtyFileCount: 0,
@@ -130,11 +133,11 @@ describe("buildRows", () => {
         expect(rows[0].before).toBe(false);
         expect(rows[1].hash).toBe("bbb");
         expect(rows[1].divider).toBe("session start");
-        expect(rows[1].before).toBe(false);
+        expect(rows[1].before).toBe(true);
         expect(rows[2].before).toBe(true);
     });
 
-    it("puts the divider only on the anchor row, and dims only the rows below it", () => {
+    it("puts the divider only on the anchor row, and dims the anchor and the rows below it", () => {
         const rows = buildRows([commit("aaa"), commit("bbb"), commit("ccc")], {
             head: "aaa",
             dirtyFileCount: 0,
@@ -143,10 +146,10 @@ describe("buildRows", () => {
             now: NOW,
         });
         expect(rows.map((r) => r.divider)).toStrictEqual([undefined, "session start", undefined]);
-        expect(rows.map((r) => r.before)).toEqual([false, false, true]);
+        expect(rows.map((r) => r.before)).toEqual([false, true, true]);
     });
 
-    it("anchors at the tip: the divider sits on the first row and everything below is dimmed", () => {
+    it("anchors at the tip: the divider sits on the first row and every row is dimmed", () => {
         const rows = buildRows([commit("aaa"), commit("bbb"), commit("ccc")], {
             head: "aaa",
             dirtyFileCount: 0,
@@ -155,7 +158,7 @@ describe("buildRows", () => {
             now: NOW,
         });
         expect(rows.map((r) => r.divider)).toStrictEqual(["run base", undefined, undefined]);
-        expect(rows.map((r) => r.before)).toEqual([false, true, true]);
+        expect(rows.map((r) => r.before)).toEqual([true, true, true]);
     });
 
     it("draws no divider and dims nothing when the scope has no anchor", () => {
@@ -276,5 +279,32 @@ describe("worktreeCaption", () => {
         expect(worktreeCaption({ kind: "run", runId: "r", baseCommit: "b41d000aaaa" }, "wave/r", "x", "")).toBe(
             "On wave/r, measured from run base b41d000"
         );
+    });
+    it("says a session with no start yet is measured from HEAD", () => {
+        expect(worktreeCaption({ kind: "session", agentId: "a" }, "main", "3eaffac1234", "")).toBe(
+            "On main, measured from HEAD (no session start yet)"
+        );
+    });
+    it("bounds a landed run at its tip", () => {
+        expect(
+            worktreeCaption(
+                { kind: "run", runId: "r", baseCommit: "b41d000aaaa", headCommit: "c0ffee12345" },
+                "main",
+                "x",
+                ""
+            )
+        ).toBe("On main, measured from run base b41d000 to its landed tip c0ffee1");
+    });
+});
+
+describe("commitCount", () => {
+    it("ignores the synthetic working-tree row", () => {
+        const rows = buildRows([commit("aaa"), commit("bbb")], { head: "aaa", dirtyFileCount: 3, now: NOW });
+        expect(rows).toHaveLength(3);
+        expect(commitCount(rows)).toBe(2);
+    });
+    it("counts every row on a clean tree", () => {
+        expect(commitCount(buildRows([commit("aaa")], { head: "aaa", dirtyFileCount: 0, now: NOW }))).toBe(1);
+        expect(commitCount([])).toBe(0);
     });
 });
