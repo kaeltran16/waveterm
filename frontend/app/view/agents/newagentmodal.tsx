@@ -61,6 +61,7 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
     const recentProjects = useAtomValue(recentProjectsAtom);
     const harnesses = useAtomValue(harnessesAtom);
     const scope = useAtomValue(model.projectFilterAtom);
+    const surface = useAtomValue(model.surfaceAtom);
     const [runtime, setRuntime] = useState<Runtime>("claude");
     const [project, setProject] = useState<string>("");
     const [task, setTask] = useState("");
@@ -616,7 +617,7 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
                         onClick={() => void launch()}
                         className="focus:outline-2 focus:outline-offset-2 focus:outline-accent-300"
                     >
-                        {runtimeLaunchLabel(runtime)}
+                        {runtimeLaunchLabel(runtime, surface)}
                     </DialogButton>
                 </div>
                 </>

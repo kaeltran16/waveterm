@@ -416,8 +416,9 @@ export function soloStatus(s: LiveSession): Status {
     return s.needsAttention ? { key: "asking", text: "needs you" } : { key: "done", text: "done" };
 }
 
-// resumeLaunchOpts launches an ended session again under its own name; an empty task replays no prompt
-export function resumeLaunchOpts(s: LiveSession): LaunchAgentOpts {
+// resumeLaunchOpts launches an ended session again under its own name; an empty task replays no prompt.
+// It reads only the fields a recent-sessions scan (SessionInfo) also carries, so the hero and tree take it too.
+export function resumeLaunchOpts(s: LiveSession | SessionInfo): LaunchAgentOpts {
     const piResume =
         s.runtime === "pi" && s.resumeargs?.length ? { startupArgs: s.resumeargs, resumePath: s.transcriptpath } : {};
     return {

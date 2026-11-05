@@ -8,6 +8,7 @@ import {
     defaultLaunchProject,
     deriveBranch,
     isRuntimeOffered,
+    launchFocuses,
     launchLanding,
     numberedName,
     resumeArgsForClaude,
@@ -39,9 +40,12 @@ describe("runtime helpers", () => {
         expect(RUNTIME_FLAGS.opencode.map((f) => f.flag)).toEqual(["--auto", "--pure", "-c"]);
         expect(composeStartupCommand("opencode", "opencode", { auto: true })).toBe("opencode --auto");
     });
-    it("labels the launch button", () => {
-        expect(runtimeLaunchLabel("claude")).toBe("Launch agent");
-        expect(runtimeLaunchLabel("terminal")).toBe("Open terminal");
+    it("runtimeLaunchLabel by surface", () => {
+        expect(runtimeLaunchLabel("claude", "agent")).toBe("Launch agent");
+        expect(runtimeLaunchLabel("claude", "cockpit")).toBe("Launch agent");
+        expect(runtimeLaunchLabel("terminal", "agent")).toBe("Open terminal");
+        expect(runtimeLaunchLabel("terminal", "cockpit")).toBe("Add terminal");
+        expect(runtimeLaunchLabel("terminal", "jarvis")).toBe("Add terminal");
     });
     it("hides the task field for terminal", () => {
         expect(runtimeShowsTask("claude")).toBe(true);
@@ -342,6 +346,16 @@ describe("launchLanding", () => {
     it("lands on the Agent surface from anywhere else", () => {
         expect(launchLanding("jarvis")).toBe("agent");
         expect(launchLanding("agent")).toBe("agent");
+    });
+});
+
+describe("launchFocuses", () => {
+    it("launchFocuses", () => {
+        expect(launchFocuses("claude", "cockpit")).toBe(true);
+        expect(launchFocuses("pi", "jarvis")).toBe(true);
+        expect(launchFocuses("terminal", "agent")).toBe(true);
+        expect(launchFocuses("terminal", "cockpit")).toBe(false);
+        expect(launchFocuses("terminal", "jarvis")).toBe(false);
     });
 });
 

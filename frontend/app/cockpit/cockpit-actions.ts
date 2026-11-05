@@ -14,6 +14,7 @@ import type { PendingLaunch } from "@/app/view/agents/agentsviewmodel";
 import { resolveCwd } from "@/app/view/agents/agentcwdresolve";
 import {
     buildLaunchMeta,
+    launchFocuses,
     launchLanding,
     numberedName,
     runtimeCreatesAgentPanel,
@@ -144,12 +145,13 @@ export async function launchAgent(model: AgentsViewModel, opts: LaunchAgentOpts)
         };
         globalStore.set(model.pendingLaunchesAtom, [...globalStore.get(model.pendingLaunchesAtom), pending]);
     }
-    // Terminals launch in the background: leave the user where they are (no focus/surface change). The
-    // terminal appears under the Agent tree's "Terminals" group and starts when first opened. An agent
-    // is focused; from anywhere but the Cockpit it also lands on the Agent surface.
-    if (!isTerminal) {
+    // An agent is focused; from anywhere but the Cockpit it also lands on the Agent surface. A terminal
+    // is focused only on the Agent surface, where its pane shows and starts it; from anywhere else it
+    // stays in the background under the Agent tree's "Terminals" group and starts when first opened.
+    const surface = globalStore.get(model.surfaceAtom);
+    if (launchFocuses(opts.runtime, surface)) {
         globalStore.set(model.focusIdAtom, tabId);
-        const landing = launchLanding(globalStore.get(model.surfaceAtom));
+        const landing = launchLanding(surface);
         if (landing) {
             globalStore.set(model.surfaceAtom, landing);
         }

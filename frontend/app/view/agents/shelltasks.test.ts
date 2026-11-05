@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
+import type { SubagentVM } from "./session-models/sessionviewmodel";
 import {
     clockTime,
     extractShellTasks,
@@ -696,19 +697,35 @@ describe("redirectTarget", () => {
 describe("isStandingBy", () => {
     const running: ShellTask[] = [{ id: "a", kind: "shell", description: "a" }];
 
+    const sub = (over: Partial<SubagentVM>): SubagentVM => ({ id: "s1", type: "general", state: "working", ...over });
+
     it("is true only for idle with a running task", () => {
-        expect(isStandingBy("idle", running)).toBe(true);
+        expect(isStandingBy("idle", running, [])).toBe(true);
     });
 
     it("is false for idle with no running task", () => {
-        expect(isStandingBy("idle", [])).toBe(false);
+        expect(isStandingBy("idle", [], [])).toBe(false);
     });
 
     it("is false while working or asking, with or without a running task", () => {
         for (const state of ["working", "asking"]) {
-            expect(isStandingBy(state, running)).toBe(false);
-            expect(isStandingBy(state, [])).toBe(false);
+            expect(isStandingBy(state, running, [])).toBe(false);
+            expect(isStandingBy(state, [], [])).toBe(false);
         }
+    });
+
+    it("counts a working background subagent", () => {
+        expect(isStandingBy("idle", [], [sub({ background: true })])).toBe(true);
+    });
+
+    it("ignores a foreground or finished subagent", () => {
+        expect(isStandingBy("idle", [], [sub({})])).toBe(false);
+        expect(isStandingBy("idle", [], [sub({ background: true, state: "success" })])).toBe(false);
+        expect(isStandingBy("idle", [], [sub({ background: true, state: "failure" })])).toBe(false);
+    });
+
+    it("is false while working with a working background subagent", () => {
+        expect(isStandingBy("working", [], [sub({ background: true })])).toBe(false);
     });
 });
 

@@ -155,6 +155,7 @@ describe("watchFocusedCanvas", () => {
         const model = {
             focusIdAtom: atom<string | undefined>("a1") as PrimitiveAtom<string | undefined>,
             agentsAtom: atom([]),
+            terminalsAtom: atom([]),
         } as any;
         attachCanvas("a1", A, 0);
         attachCanvas("a2", A, 0);
@@ -190,6 +191,7 @@ describe("watchFocusedCanvas", () => {
         const model = {
             focusIdAtom: atom<string | undefined>("a1") as PrimitiveAtom<string | undefined>,
             agentsAtom: atom([]),
+            terminalsAtom: atom([]),
         } as any;
         attachBrainstorm("a1", { topic: "t1", cwd: "/p" }, 0);
         attachBrainstorm("a2", { topic: "t2", cwd: "/p" }, 0);

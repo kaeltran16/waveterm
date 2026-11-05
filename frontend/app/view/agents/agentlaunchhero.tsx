@@ -4,10 +4,10 @@
 //
 // The Agent-tab "No terminal running" state (handoff dc.html tui.notLaunched, lines 569-583): a
 // launch CTA + a list of recent sessions (from recentsessionsstore), each marked with its runtime, to resume.
-// Resume + launch both route through launchAgent; resume passes `claude --resume <id>` and no task,
+// Resume goes through resumeLaunchOpts + launchAgentOrToast: the session's resume command and no task,
 // so the agent picks up its prior session in its original cwd.
 
-import { launchAgent } from "@/app/cockpit/cockpit-actions";
+import { launchAgentOrToast } from "@/app/cockpit/cockpit-actions";
 import { globalStore } from "@/app/store/jotaiStore";
 import { formatChordString } from "@/util/keysym";
 import { fireAndForget } from "@/util/util";
@@ -15,9 +15,15 @@ import { useAtomValue } from "jotai";
 import { useEffect } from "react";
 import type { AgentsViewModel } from "./agents";
 import { formatAge, formatTokens } from "./agentsviewmodel";
-import type { Runtime } from "./launch";
 import { loadRecentSessions, recentSessionsAtom } from "./recentsessionsstore";
 import { RuntimeMark } from "./runtimemark";
+import { resumeLaunchOpts } from "./sessionsruns";
+
+// a recent session is resumed as the palette's session rows resume an archived one: under its own name,
+// with no prompt replayed; a launch that fails says why in a toast
+export function resumeRecentSession(model: AgentsViewModel, s: SessionInfo): void {
+    fireAndForget(() => launchAgentOrToast(model, resumeLaunchOpts({ ...s, live: false, needsAttention: false })));
+}
 
 export function AgentLaunchHero({ model }: { model: AgentsViewModel }) {
     const sessions = useAtomValue(recentSessionsAtom);
@@ -28,23 +34,6 @@ export function AgentLaunchHero({ model }: { model: AgentsViewModel }) {
     // Open the New Agent modal (same atom as the app-bar "+New agent" and Cmd+N) so the user picks
     // project/runtime/task — rather than launching a bare `claude` in an empty cwd.
     const launchFresh = () => globalStore.set(model.newAgentOpenAtom, true);
-
-    const resume = (s: SessionInfo) => {
-        const piResume =
-            s.runtime === "pi" && s.resumeargs?.length
-                ? { startupArgs: s.resumeargs, resumePath: s.transcriptpath }
-                : {};
-        fireAndForget(() =>
-            launchAgent(model, {
-                runtime: s.runtime as Runtime,
-                startupCommand: s.resumecommand,
-                task: "",
-                projectPath: s.projectpath,
-                projectName: s.projectname || "agent",
-                ...piResume,
-            })
-        );
-    };
 
     const now = Date.now();
     return (
@@ -83,7 +72,7 @@ export function AgentLaunchHero({ model }: { model: AgentsViewModel }) {
                             <button
                                 key={s.id}
                                 type="button"
-                                onClick={() => resume(s)}
+                                onClick={() => resumeRecentSession(model, s)}
                                 className="flex w-full cursor-pointer items-center gap-[11px] border-t border-border px-[14px] py-[11px] text-left hover:bg-surface-hover"
                             >
                                 <RuntimeMark

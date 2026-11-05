@@ -13,6 +13,7 @@ import { cn } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
 import { ChevronDown, ChevronUp, Lightbulb } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
+import { newTokens } from "./agentrailmodel";
 import { prettyModel } from "./modellabel";
 import { usageBreakdownAtom } from "./railstore";
 import { SectionLabel, SubLabel } from "./sectionlabel";
@@ -65,17 +66,16 @@ export function TokenUsageSection() {
     const headlineCaption = reportedTotalUsd !== undefined ? "reported" : "API-equivalent";
 
     return (
-        <div>
-            <div className="flex items-baseline justify-between">
-                <SectionLabel>Token usage</SectionLabel>
-                <span className="font-mono text-[11px] font-semibold text-accent">{fmt(totalTokens)}</span>
-            </div>
+        <div data-token-usage>
+            <SectionLabel>Token usage</SectionLabel>
 
-            {/* headline pair */}
+            {/* headline pair: what the session added, since cache reads re-count the context every turn */}
             <div className="mt-[13px] mb-[15px] flex items-end justify-between">
                 <div>
-                    <div className="font-mono text-[22px] font-bold leading-none text-primary">{fmt(totalTokens)}</div>
-                    <div className="mt-[4px] font-mono text-[10.5px] text-muted">total tokens</div>
+                    <div className="font-mono text-[22px] font-bold leading-none text-primary">
+                        {fmt(newTokens(classes))}
+                    </div>
+                    <div className="mt-[4px] font-mono text-[10.5px] text-muted">new tokens</div>
                 </div>
                 <div className="text-right">
                     <div className="font-mono text-[22px] font-bold leading-none text-success">{headlineUsd}</div>
@@ -86,7 +86,7 @@ export function TokenUsageSection() {
             {/* tokens bar */}
             <div className="mb-[6px] flex items-baseline justify-between">
                 <SubLabel>Tokens</SubLabel>
-                <span className="font-mono text-[11px] text-secondary">{fmt(totalTokens)}</span>
+                <span className="font-mono text-[11px] text-secondary">{fmt(totalTokens)} total</span>
             </div>
             <StackedMeter
                 height={11}

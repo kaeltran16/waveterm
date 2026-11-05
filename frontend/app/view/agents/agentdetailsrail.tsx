@@ -6,26 +6,40 @@ import { Meter } from "@/app/element/meter";
 import { easeFluidCss, MOTION, popoverReveal } from "@/app/element/motiontokens";
 import { SkeletonLine } from "@/app/element/skeleton";
 import { globalStore } from "@/app/store/jotaiStore";
+import * as WOS from "@/app/store/wos";
 import { formatChordString } from "@/util/keysym";
 import { cn, fireAndForget } from "@/util/util";
-import { useAtomValue } from "jotai";
+import { atom, useAtomValue, type Atom } from "jotai";
 import { ArrowLeft, ArrowUpRight, ChevronLeft } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { driveAgent, NUDGE_INPUT } from "./agentactions";
+import { getLastOutputAtom } from "./agentcontrollerstore";
 import { agentDiffScope, openDiff } from "./agentdiffnav";
+import { hungSilenceMs } from "./agenthung";
 import {
     cacheRewriteTitle,
     contextLevel,
     contextNote,
     filesSummary,
+    lastTurnInterrupted,
     offersContextReset,
     railAction,
+    railReloadKey,
     toolChips,
 } from "./agentrailmodel";
 import type { AgentsViewModel } from "./agents";
-import { displayAgeMs, formatAgeShort, recentActions, summarizeActions, type AgentVM } from "./agentsviewmodel";
+import { agentStateView, STATE_TONE_COLOR } from "./agentstateview";
+import {
+    agentRunDone,
+    displayAgeMs,
+    formatAgeShort,
+    recentActions,
+    summarizeActions,
+    type AgentVM,
+} from "./agentsviewmodel";
 import { agentCacheStatusAtom, formatCacheCountdown, loadCacheStatusForAgent } from "./cachestatusstore";
+import { cardCwdByIdAtom, sharedCheckoutCount } from "./cardgitstore";
 import { ASK_OWNER_USER } from "./childaskmodel";
 import { finalRowFocusId, isFinalStageId } from "./finalstage";
 import { FinalStageRail } from "./finalstagerail";
@@ -33,7 +47,7 @@ import { capFiles, statusColor } from "./gitstatus";
 import { entriesAtomFor, liveEntriesByIdAtom } from "./livetranscriptatoms";
 import { prettyModel } from "./modellabel";
 import { loadRailForAgent, railStateAtom, railVisibleAtom } from "./railstore";
-import { agentProject, roleRunId } from "./runlineage";
+import { agentProject, isEndedWorkerId, roleRunId } from "./runlineage";
 import { NeedsYouSection, RunSection, TaskSection, useRunAsks } from "./runrailsections";
 import { SectionLabel, SubLabel } from "./sectionlabel";
 import type { SubagentState } from "./session-models/sessionviewmodel";
@@ -61,6 +75,8 @@ const SUB_COLOR: Record<SubagentState, string> = {
     failure: "var(--color-error)",
     done: "var(--color-muted)",
 };
+
+const NO_BLOCK: Atom<Block | undefined> = atom(undefined as Block | undefined);
 
 const RailFilesCap = 8; // a 296px rail can't show a large worktree; the summary line under it counts them all
 const USAGE_REFRESH_MS = 15_000;
@@ -244,12 +260,13 @@ function SealedFiles({ files }: { files: EvidenceFile[] }) {
 export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
     const liveEntries = useAtomValue(entriesAtomFor(agent.id));
     const subs = useAtomValue(subagentsByIdAtom)[agent.id] ?? [];
-    const standingBy = isStandingBy(agent.state, useAtomValue(shellTasksByIdAtom)[agent.id] ?? []);
+    const standingBy = isStandingBy(agent.state, useAtomValue(shellTasksByIdAtom)[agent.id] ?? [], subs);
     const focusSub = useAtomValue(focusSubagentAtom);
     const sub = focusSub?.parentId === agent.id ? focusSub : null;
     const subVM = sub ? subs.find((s) => s.id === sub.agentId) : undefined;
     const subEntries = useAtomValue(liveEntriesByIdAtom)[sub ? `sub:${sub.agentId}` : ""] ?? [];
-    const entries = sub ? subEntries : liveEntries.length > 0 ? liveEntries : (agent.previousInfo ?? []);
+    const ownEntries = liveEntries.length > 0 ? liveEntries : (agent.previousInfo ?? []);
+    const entries = sub ? subEntries : ownEntries;
     const lineage = useAtomValue(model.lineageAtom);
     const agents = useAtomValue(model.agentsAtom);
     const usage = agent.usage;
@@ -268,10 +285,33 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
     );
     const endedWorker = useAtomValue(model.endedWorkerAtom);
     const ended = endedWorker?.agent.id === agent.id ? endedWorker : undefined;
+    const silentMs = hungSilenceMs(
+        agent,
+        useAtomValue(getLastOutputAtom(agent.blockId ?? "")),
+        useAtomValue(model.structuralNowAtom)
+    );
+    // the header's inputs, so the Session line and the header pill always read the same
+    const task = role?.kind === "worker" ? roleRun?.dag?.tasks?.find((t) => t.id === role.taskId) : undefined;
+    const stateView = agentStateView({
+        agent,
+        ended: isEndedWorkerId(agent.id),
+        landed: task?.merged === true,
+        runDone: agentRunDone(agent, standingBy),
+        standingBy,
+        silentMs,
+    });
+    const block = useAtomValue(
+        agent.blockId ? WOS.getWaveObjectAtom<Block>(WOS.makeORef("block", agent.blockId)) : NO_BLOCK
+    );
+    const reloadKey = railReloadKey(agent, block?.meta?.["agent:lasteditts"]);
+    const loadedFor = useRef("");
 
+    // a new focus blanks the list while it loads; the same agent's later edits reload under the list it shows
     useEffect(() => {
-        fireAndForget(() => loadRailForAgent(agent.id, agent.transcriptPath, agent.blockId));
-    }, [agent.id, agent.transcriptPath, agent.blockId]);
+        const silent = loadedFor.current === agent.id;
+        loadedFor.current = agent.id;
+        fireAndForget(() => loadRailForAgent(agent.id, agent.transcriptPath, agent.blockId, { silent }));
+    }, [reloadKey]);
 
     // re-read while focused: every turn writes the cache again, so a status read once at focus
     // counts down to "expired" under an agent that is still working
@@ -311,7 +351,17 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
     const branch = ended ? ended.branch : railState?.branch;
     const worktree = ended ? undefined : railState?.worktree;
     const live = agent.blockId != null && !ended;
-    const action = sub ? null : railAction(agent.state, age, live, standingBy);
+    const action = sub
+        ? null
+        : railAction({
+              state: agent.state,
+              age,
+              live,
+              standingBy,
+              interrupted: lastTurnInterrupted(ownEntries),
+              silentMs,
+          });
+    const sharedBy = sharedCheckoutCount(agent.id, useAtomValue(cardCwdByIdAtom));
     const offerReset =
         ctxPct != null &&
         offersContextReset({ isClaude, state: agent.state, level: contextLevel(ctxPct, usage?.contextmax), live });
@@ -393,13 +443,15 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                                     cacheCountdown !== "—" ? cacheRewriteTitle(ctxPct, usage?.contextmax) : undefined
                                 }
                             >
-                                {ended ? (
-                                    <>ended {age} ago</>
-                                ) : (
+                                {stateView ? (
                                     <>
-                                        {agent.state} {age}
+                                        <span data-rail-state style={{ color: STATE_TONE_COLOR[stateView.tone] }}>
+                                            {stateView.text}
+                                        </span>
+                                        <span className="text-muted"> · </span>
                                     </>
-                                )}
+                                ) : null}
+                                {ended ? <>{age} ago</> : age}
                                 {cacheCountdown !== "—" ? (
                                     <>
                                         <span className="text-muted"> · </span>
@@ -591,7 +643,18 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                                           ))}
                                       </div>
                                       <div className="mt-[8px] flex items-center gap-[10px] font-mono text-[10.5px]">
-                                          <span className="text-muted">{filesSummary(changes)}</span>
+                                          {/* a checkout's changes are every agent's in it, so they read as the repo's */}
+                                          <span
+                                              data-rail-files-summary
+                                              className="text-muted"
+                                              title={
+                                                  sharedBy > 1
+                                                      ? `All changes in this checkout, shared by ${sharedBy} agents`
+                                                      : undefined
+                                              }
+                                          >
+                                              {sharedBy > 1 ? `repo · ${filesSummary(changes)}` : filesSummary(changes)}
+                                          </span>
                                           <span className="flex-1" />
                                           <button
                                               type="button"
@@ -634,10 +697,16 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
             footer={
                 action ? (
                     <div className="flex items-center gap-[10px]">
-                        <span className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-muted">
+                        <span
+                            data-rail-hint
+                            className={cn(
+                                "min-w-0 flex-1 truncate font-mono text-[10.5px]",
+                                action.tone === "warning" ? "text-warning" : "text-muted"
+                            )}
+                        >
                             {action.hint}
                         </span>
-                        {action.kind === "resume" ? (
+                        {action.kind === "none" ? null : action.kind === "resume" ? (
                             <button
                                 type="button"
                                 onClick={() => drive(NUDGE_INPUT)}

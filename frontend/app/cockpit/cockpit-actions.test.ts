@@ -316,6 +316,21 @@ describe("launchAgent", () => {
         expect(globalStore.get(model.surfaceAtom)).toBe("cockpit");
     });
 
+    it("a terminal launched on the Agent surface is focused", async () => {
+        const model = fakeModel("agent");
+        await launchAgent(model, { ...agentOpts, runtime: "terminal", startupCommand: "" });
+        expect(globalStore.get(model.focusIdAtom)).toBe("tab-1");
+        expect(globalStore.get(model.surfaceAtom)).toBe("agent");
+        expect(globalStore.get(model.pendingLaunchesAtom)).toStrictEqual([]);
+    });
+
+    it("a terminal launched on the Cockpit stays in the background", async () => {
+        const model = fakeModel("cockpit");
+        await launchAgent(model, { ...agentOpts, runtime: "terminal", startupCommand: "" });
+        expect(globalStore.get(model.focusIdAtom)).toBeUndefined();
+        expect(globalStore.get(model.surfaceAtom)).toBe("cockpit");
+    });
+
     it("opens a terminal with no project path in the home directory", async () => {
         await launchAgent(fakeModel(), { ...agentOpts, runtime: "terminal", startupCommand: "", projectPath: "" });
         expect(metaOf("block:blk-1")["cmd:cwd"]).toBe("~");

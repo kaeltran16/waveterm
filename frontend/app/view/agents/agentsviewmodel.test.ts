@@ -499,16 +499,48 @@ describe("isRecentlyIdle", () => {
 describe("streamableTranscriptAgents", () => {
     const NOW = 1_000_000;
 
-    it("keeps streams open for rendered recently-idle agents", () => {
+    const PAST_GRACE = NOW - 360_000;
+    const none = { shellTasks: {}, subagents: {} };
+    const ids = (agents: AgentVM[], opts: Parameters<typeof streamableTranscriptAgents>[2] = none) =>
+        streamableTranscriptAgents(agents, NOW, opts).map((a) => a.id);
+
+    it("streams asking, working and recently idle agents in roster order", () => {
         const agents = [
+            mk("recent", "idle", { transcriptPath: "/r.jsonl", idleSince: NOW - 30_000 }),
             mk("asking", "asking", { transcriptPath: "/a.jsonl" }),
             mk("working", "working", { transcriptPath: "/w.jsonl" }),
-            mk("recent", "idle", { transcriptPath: "/r.jsonl", idleSince: NOW - 30_000 }),
-            mk("old", "idle", { transcriptPath: "/o.jsonl", idleSince: NOW - 360_000 }),
-            mk("missing", "working"),
         ];
-
-        expect(streamableTranscriptAgents(agents, NOW).map((a) => a.id)).toEqual(["asking", "working", "recent"]);
+        expect(ids(agents)).toEqual(["recent", "asking", "working"]);
+    });
+    it("streams the focused idle agent", () => {
+        const agents = [mk("old", "idle", { transcriptPath: "/o.jsonl", idleSince: PAST_GRACE })];
+        expect(ids(agents, { ...none, focusId: "old" })).toEqual(["old"]);
+    });
+    it("skips a focused terminal", () => {
+        const agents = [mk("t", "idle", { kind: "terminal", transcriptPath: "/t.jsonl" })];
+        expect(ids(agents, { ...none, focusId: "t" })).toEqual([]);
+    });
+    it("keeps a standing-by agent past grace", () => {
+        const agents = [
+            mk("shell", "idle", { transcriptPath: "/s.jsonl", idleSince: PAST_GRACE }),
+            mk("sub", "idle", { transcriptPath: "/b.jsonl", idleSince: PAST_GRACE }),
+        ];
+        const opts = {
+            shellTasks: { shell: [{ id: "t1", kind: "shell" as const, description: "server" }] },
+            subagents: { sub: [{ id: "s1", type: "general", state: "working" as const, background: true }] },
+        };
+        expect(ids(agents, opts)).toEqual(["shell", "sub"]);
+    });
+    it("drops an idle agent past grace that is not focused", () => {
+        const agents = [
+            mk("old", "idle", { transcriptPath: "/o.jsonl", idleSince: PAST_GRACE }),
+            mk("other", "working", { transcriptPath: "/w.jsonl" }),
+        ];
+        expect(ids(agents, { ...none, focusId: "other" })).toEqual(["other"]);
+    });
+    it("skips agents with no transcript", () => {
+        const agents = [mk("working", "working"), mk("focused", "idle")];
+        expect(ids(agents, { ...none, focusId: "focused" })).toEqual([]);
     });
 });
 
@@ -1066,6 +1098,26 @@ describe("mergePendingLaunches", () => {
 
     it("returns the base unchanged when there are no pending launches", () => {
         expect(mergePendingLaunches(base, [], 1000)).toHaveLength(1);
+    });
+
+    it("mergePendingLaunches overlays label and pinned", () => {
+        const pending: PendingLaunch[] = [
+            { tabId: "t1", blockId: "b1", name: "payments-api", project: "payments-api", ts: 0 },
+            { tabId: "t2", blockId: "b2", name: "loom", project: "loom", ts: 0 },
+        ];
+        const out = mergePendingLaunches(base, pending, 1000, { t1: { label: "fix auth", pinned: true } });
+        expect(out[1]).toMatchObject({ id: "t1", name: "fix auth", pinned: true, booting: true });
+        expect(out[2].name).toBe("loom");
+        expect(out[2].pinned).toBeFalsy();
+    });
+
+    it("mergePendingLaunches keeps the launch name for an empty label", () => {
+        const pending: PendingLaunch[] = [
+            { tabId: "t1", blockId: "b1", name: "payments-api", project: "payments-api", ts: 0 },
+        ];
+        const out = mergePendingLaunches(base, pending, 1000, { t1: { label: "", pinned: false } });
+        expect(out[1].name).toBe("payments-api");
+        expect(out[1].pinned).toBeFalsy();
     });
 });
 

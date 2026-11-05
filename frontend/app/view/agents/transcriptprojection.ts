@@ -58,6 +58,8 @@ function targetFor(input: any): string {
 
 type ActionEntry = AgentEntry & { kind: "action" };
 
+const HANDBACK_TOOL = "SubagentHandback";
+
 function parseCommand(content: string): { name: string; args?: string } | null {
     const nameMatch = /<command-name>([^]*?)<\/command-name>/.exec(content);
     if (nameMatch == null) {
@@ -135,6 +137,10 @@ export function projectTranscript(lines: string[]): AgentEntry[] {
                     continue;
                 }
                 if (block?.type === "tool_use" && typeof block.name === "string") {
+                    // a subagent's internal report-back call: plumbing, not work it did (its result then matches no action)
+                    if (block.name === HANDBACK_TOOL) {
+                        continue;
+                    }
                     if (block.name === "Skill" && block?.caller?.type === "direct" && typeof block.input?.skill === "string") {
                         const args = typeof block.input.args === "string" ? block.input.args.trim() : "";
                         entries.push({
@@ -358,11 +364,38 @@ export interface SubagentSpawn {
     prompt: string;
     done: boolean;
     failed: boolean;
+    background: boolean; // its tool_result is only the launch ack; a <task-notification> ends it
+}
+
+const NOTIFICATION_COMPLETED = "completed";
+
+// a background launch ack: the record's toolUseResult says the agent went async
+function isAsyncLaunch(toolUseResult: any): boolean {
+    return toolUseResult?.isAsync === true || toolUseResult?.status === "async_launched";
+}
+
+function notificationTag(text: string, tag: string): string | undefined {
+    const m = new RegExp(`<${tag}>([^]*?)</${tag}>`).exec(text);
+    return m ? m[1].trim() : undefined;
+}
+
+// ends the background spawn a <task-notification> names; a foreground spawn is ended by its tool_result alone
+function applyTaskNotification(spawns: Map<string, SubagentSpawn>, text: string): void {
+    if (!text.includes("<task-notification>")) {
+        return;
+    }
+    const s = spawns.get(notificationTag(text, "tool-use-id") ?? "");
+    if (s == null || !s.background) {
+        return;
+    }
+    s.done = true;
+    s.failed = notificationTag(text, "status") !== NOTIFICATION_COMPLETED;
 }
 
 /** Pure: Task/Agent tool_use blocks in a Claude transcript -> subagent spawns, each joined to its
  *  tool_result by tool_use_id (done + failed via is_error). A spawn with no matching result is still
- *  running (done=false). Spawns keep first-seen order; non-Task tools are ignored. */
+ *  running (done=false). A result that is an async launch ack marks the spawn background and leaves it
+ *  running until a <task-notification> names it. Spawns keep first-seen order; non-Task tools are ignored. */
 export function extractSubagentSpawns(lines: string[]): SubagentSpawn[] {
     const spawns = new Map<string, SubagentSpawn>();
     const order: string[] = [];
@@ -374,6 +407,10 @@ export function extractSubagentSpawns(lines: string[]): SubagentSpawn[] {
             continue;
         }
         const content = rec?.message?.content;
+        if (typeof content === "string") {
+            applyTaskNotification(spawns, content);
+            continue;
+        }
         if (!Array.isArray(content)) {
             continue;
         }
@@ -390,14 +427,22 @@ export function extractSubagentSpawns(lines: string[]): SubagentSpawn[] {
                     prompt: typeof input.prompt === "string" ? input.prompt : "",
                     done: false,
                     failed: false,
+                    background: false,
                 });
                 order.push(block.id);
             } else if (block?.type === "tool_result" && typeof block.tool_use_id === "string") {
                 const s = spawns.get(block.tool_use_id);
-                if (s) {
-                    s.done = true;
-                    s.failed = block.is_error === true;
+                if (s == null) {
+                    continue;
                 }
+                if (block.is_error !== true && isAsyncLaunch(rec.toolUseResult)) {
+                    s.background = true;
+                    continue;
+                }
+                s.done = true;
+                s.failed = block.is_error === true;
+            } else if (block?.type === "text" && typeof block.text === "string") {
+                applyTaskNotification(spawns, block.text);
             }
         }
     }

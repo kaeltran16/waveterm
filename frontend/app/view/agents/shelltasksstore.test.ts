@@ -25,6 +25,7 @@ import {
     shellTaskPollIds,
     shellTasksByIdAtom,
 } from "./shelltasksstore";
+import { subagentsByIdAtom } from "./subagentsstore";
 
 const transcript = vi.mocked(RpcApi.GetAgentTranscriptCommand);
 
@@ -168,7 +169,7 @@ describe("shell-task read hold", () => {
             prev,
             [idle],
             now,
-            new Set(isStandingBy(idle.state, tasks) ? ["a1"] : []),
+            new Set(isStandingBy(idle.state, tasks, globalStore.get(subagentsByIdAtom).a1 ?? []) ? ["a1"] : []),
             new Set(pending ? ["a1"] : [])
         );
     };

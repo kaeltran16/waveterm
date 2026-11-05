@@ -1,9 +1,10 @@
 // Pure view-model logic for the Agents view. No React, no Wave runtime imports.
 
-import { modelLabel } from "@/app/view/agents/session-models/sessionviewmodel";
+import { modelLabel, type SubagentVM } from "@/app/view/agents/session-models/sessionviewmodel";
 import type { BuilderCheckRecord } from "./brainstormmodel";
 import { sessionIdFromTranscript } from "./launch";
 import { projectNameFromTranscriptPath } from "./projectname";
+import { isStandingBy, type ShellTask } from "./shelltasks";
 
 export type AgentState = "asking" | "working" | "idle";
 
@@ -858,13 +859,31 @@ export function isRecentlyIdle(agent: AgentVM, now: number, graceMs = IDLE_GRACE
     return agent.state === "idle" && agent.idleSince != null && now - agent.idleSince < graceMs;
 }
 
-/** pure: agents whose transcript should stay streamed into the cockpit panel. just-finished
- *  agents keep rendering during the idle grace window, so their stream stays open too; otherwise a
- *  fast final Codex/Claude write can race the stop event and never reach the panel. */
-export function streamableTranscriptAgents(agents: AgentVM[], now: number): AgentVM[] {
-    return agents.filter(
-        (a) => a.transcriptPath && (a.state === "asking" || a.state === "working" || isRecentlyIdle(a, now))
-    );
+/** pure: agents whose transcript stays streamed, on every surface. just-finished agents keep streaming
+ *  through the idle grace window, so a fast final write cannot race the stop event; an agent standing by
+ *  keeps its stream so its card and chips stay filled; the focused agent streams so the rail, the
+ *  interrupted check and the idle reload have entries for it. roster order, no duplicates. */
+export function streamableTranscriptAgents(
+    agents: AgentVM[],
+    now: number,
+    opts: { shellTasks: Record<string, ShellTask[]>; subagents: Record<string, SubagentVM[]>; focusId?: string }
+): AgentVM[] {
+    const seen = new Set<string>();
+    return agents.filter((a) => {
+        if (!a.transcriptPath || seen.has(a.id)) {
+            return false;
+        }
+        const wanted =
+            a.state === "asking" ||
+            a.state === "working" ||
+            isRecentlyIdle(a, now) ||
+            isStandingBy(a.state, opts.shellTasks[a.id] ?? [], opts.subagents[a.id] ?? []) ||
+            (a.id === opts.focusId && a.kind !== "terminal");
+        if (wanted) {
+            seen.add(a.id);
+        }
+        return wanted;
+    });
 }
 
 /** Pure: overlay a pending ask onto an agent. A live ask makes the agent `asking` regardless of
@@ -1031,11 +1050,32 @@ export function withStartError(agent: AgentVM, err: string | undefined): AgentVM
     return { ...agent, state: "idle", booting: false, startError: err };
 }
 
+/** A pending tab's own session meta (`session:label`, `session:pinned`), keyed by tab id. */
+export type PendingTabMeta = Record<string, { label?: string; pinned?: boolean }>;
+
 /** Pure: overlay booting launches onto the base roster. A pending entry whose tabId already exists in
- *  base is dropped (the real row supersedes it). Never mutates input. */
-export function mergePendingLaunches(base: AgentVM[], pending: PendingLaunch[], now: number): AgentVM[] {
+ *  base is dropped (the real row supersedes it). The tab's label and pin overlay the booting row, so a
+ *  Rename or Pin shows before the agent reports. Never mutates input. */
+export function mergePendingLaunches(
+    base: AgentVM[],
+    pending: PendingLaunch[],
+    now: number,
+    tabMeta: PendingTabMeta = {}
+): AgentVM[] {
     const baseIds = new Set(base.map((a) => a.id));
-    const overlay = pending.filter((p) => !baseIds.has(p.tabId)).map((p) => pendingToVM(p, now));
+    const overlay = pending
+        .filter((p) => !baseIds.has(p.tabId))
+        .map((p) => {
+            const vm = pendingToVM(p, now);
+            const meta = tabMeta[p.tabId];
+            if (meta?.label) {
+                vm.name = meta.label;
+            }
+            if (meta?.pinned) {
+                vm.pinned = true;
+            }
+            return vm;
+        });
     return [...base, ...overlay];
 }
 

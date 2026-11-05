@@ -600,7 +600,14 @@ describe("extractSubagentSpawns", () => {
             usr([{ type: "tool_result", tool_use_id: "t1", is_error: false }]),
         ];
         expect(extractSubagentSpawns(lines)).toEqual([
-            { toolUseId: "t1", subagentType: "Explore", prompt: "look at X", done: true, failed: false },
+            {
+                toolUseId: "t1",
+                subagentType: "Explore",
+                prompt: "look at X",
+                done: true,
+                failed: false,
+                background: false,
+            },
         ]);
     });
 
@@ -633,7 +640,7 @@ describe("extractSubagentSpawns", () => {
             asst([{ type: "tool_use", id: "g1", name: "Agent", input: { subagent_type: "Plan", prompt: "plan it" } }]),
         ];
         expect(extractSubagentSpawns(lines)).toStrictEqual([
-            { toolUseId: "g1", subagentType: "Plan", prompt: "plan it", done: false, failed: false },
+            { toolUseId: "g1", subagentType: "Plan", prompt: "plan it", done: false, failed: false, background: false },
         ]);
     });
 
@@ -644,9 +651,9 @@ describe("extractSubagentSpawns", () => {
             asst([{ type: "tool_use", id: "e3", name: "Task" }]),
         ];
         expect(extractSubagentSpawns(lines)).toStrictEqual([
-            { toolUseId: "e1", subagentType: "", prompt: "", done: false, failed: false },
-            { toolUseId: "e2", subagentType: "", prompt: "", done: false, failed: false },
-            { toolUseId: "e3", subagentType: "", prompt: "", done: false, failed: false },
+            { toolUseId: "e1", subagentType: "", prompt: "", done: false, failed: false, background: false },
+            { toolUseId: "e2", subagentType: "", prompt: "", done: false, failed: false, background: false },
+            { toolUseId: "e3", subagentType: "", prompt: "", done: false, failed: false, background: false },
         ]);
     });
 
@@ -667,8 +674,91 @@ describe("extractSubagentSpawns", () => {
             ]),
         ];
         expect(extractSubagentSpawns(lines)).toStrictEqual([
-            { toolUseId: "k1", subagentType: "", prompt: "real", done: false, failed: false },
+            { toolUseId: "k1", subagentType: "", prompt: "real", done: false, failed: false, background: false },
         ]);
+    });
+
+    const spawnAgent = (id: string) =>
+        asst([
+            {
+                type: "tool_use",
+                id,
+                name: "Agent",
+                input: { subagent_type: "Explore", prompt: "dig", run_in_background: true },
+            },
+        ]);
+    const launchAck = (id: string, toolUseResult: any) =>
+        JSON.stringify({
+            type: "user",
+            toolUseResult,
+            message: {
+                content: [{ type: "tool_result", tool_use_id: id, content: "Async agent launched successfully" }],
+            },
+        });
+    const notification = (id: string, status: string) =>
+        JSON.stringify({
+            type: "user",
+            message: {
+                content: `<task-notification>\n<task-id>x</task-id>\n<tool-use-id>${id}</tool-use-id>\n<status>${status}</status>\n<summary>s</summary>\n</task-notification>`,
+            },
+        });
+
+    it("async spawn stays working after its launch ack", () => {
+        const byStatus = extractSubagentSpawns([spawnAgent("b1"), launchAck("b1", { status: "async_launched" })]);
+        expect(byStatus[0]).toMatchObject({ done: false, failed: false, background: true });
+        const byFlag = extractSubagentSpawns([spawnAgent("b2"), launchAck("b2", { isAsync: true })]);
+        expect(byFlag[0]).toMatchObject({ done: false, failed: false, background: true });
+    });
+
+    it("task notification ends a background spawn", () => {
+        const lines = [spawnAgent("b1"), launchAck("b1", { isAsync: true }), notification("b1", "completed")];
+        expect(extractSubagentSpawns(lines)[0]).toMatchObject({ done: true, failed: false, background: true });
+    });
+
+    it("failed notification marks the background spawn failed", () => {
+        const lines = [spawnAgent("b1"), launchAck("b1", { status: "async_launched" }), notification("b1", "failed")];
+        expect(extractSubagentSpawns(lines)[0]).toMatchObject({ done: true, failed: true, background: true });
+    });
+
+    it("foreground spawn is done by its tool result", () => {
+        const lines = [
+            spawnAgent("f1"),
+            launchAck("f1", { status: "completed" }),
+            spawnAgent("f2"),
+            notification("f2", "completed"),
+        ];
+        const [done, running] = extractSubagentSpawns(lines);
+        expect(done).toMatchObject({ done: true, failed: false, background: false });
+        // a notification names only background spawns; one for a foreground spawn changes nothing
+        expect(running).toMatchObject({ done: false, failed: false, background: false });
+    });
+});
+
+describe("projectTranscript SubagentHandback", () => {
+    it("projectTranscript drops SubagentHandback calls", () => {
+        const lines = [
+            JSON.stringify({
+                type: "assistant",
+                message: {
+                    content: [
+                        { type: "tool_use", id: "h1", name: "SubagentHandback", input: { description: "report" } },
+                        { type: "tool_use", id: "r1", name: "Read", input: { file_path: "/a/b.ts" } },
+                    ],
+                },
+            }),
+            JSON.stringify({
+                type: "user",
+                message: {
+                    content: [
+                        { type: "tool_result", tool_use_id: "h1", content: "handed back" },
+                        { type: "tool_result", tool_use_id: "r1", content: "x" },
+                    ],
+                },
+            }),
+        ];
+        const out = projectTranscript(lines);
+        expect(out).toHaveLength(1);
+        expect(out[0]).toMatchObject({ kind: "action", verb: "read", target: "b.ts" });
     });
 });
 

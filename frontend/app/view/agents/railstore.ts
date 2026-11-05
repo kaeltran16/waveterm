@@ -47,13 +47,17 @@ const current = { id: "" };
 
 const EMPTY: RailGitState = { cwd: null, branch: "", isRepo: false, changes: null };
 
+// silent keeps the shown state until the new read lands, so a reload for the same agent never blanks the list
 export async function loadRailForAgent(
     id: string,
     transcriptPath: string | undefined,
-    blockId?: string
+    blockId?: string,
+    opts?: { silent?: boolean }
 ): Promise<void> {
     current.id = id;
-    globalStore.set(railStateAtom, null);
+    if (!opts?.silent) {
+        globalStore.set(railStateAtom, null);
+    }
 
     const [cwd, startTs] = await Promise.all([resolveCwd(transcriptPath, blockId), ensureSessionStart(transcriptPath)]);
     if (current.id !== id) {

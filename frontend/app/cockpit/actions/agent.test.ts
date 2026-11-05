@@ -1,5 +1,6 @@
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
+import { liveEntriesByIdAtom } from "@/app/view/agents/livetranscriptatoms";
 import { shellTasksByIdAtom } from "@/app/view/agents/shelltasksstore";
 import { describe, expect, it } from "vitest";
 import { AGENT_KIND, type AgentThing } from "./agent";
@@ -38,17 +39,33 @@ describe("agent actions", () => {
         expect(applies("agent:close", t)).toBe(false);
         expect(applies("agent:interrupt", thing())).toBe(true);
     });
-    it("nudges only an idle agent, as the rail's Resume", () => {
-        expect(applies("agent:nudge", thing({ state: "idle" }))).toBe(true);
-        expect(applies("agent:nudge", thing({ state: "working" }))).toBe(false);
-        expect(applies("agent:nudge", thing({ state: "asking" }))).toBe(false);
+    it("nudge applies only after an interrupted turn", () => {
+        try {
+            // no entries: nothing says the turn was cut short
+            expect(applies("agent:nudge", thing({ state: "idle" }))).toBe(false);
+            globalStore.set(liveEntriesByIdAtom, { tab1: [{ kind: "user", text: "go" }, { kind: "interrupted" }] });
+            expect(applies("agent:nudge", thing({ state: "idle" }))).toBe(true);
+            expect(applies("agent:nudge", thing({ state: "working" }))).toBe(false);
+            expect(applies("agent:nudge", thing({ state: "asking" }))).toBe(false);
+            globalStore.set(liveEntriesByIdAtom, {
+                tab1: [{ kind: "interrupted" }, { kind: "user", text: "again" }, { kind: "message", text: "done" }],
+            });
+            expect(applies("agent:nudge", thing({ state: "idle" }))).toBe(false);
+        } finally {
+            globalStore.set(liveEntriesByIdAtom, {});
+        }
+    });
+    it("reads an interrupt from the agent's previous info when nothing streams", () => {
+        expect(applies("agent:nudge", thing({ state: "idle", previousInfo: [{ kind: "interrupted" }] }))).toBe(true);
     });
     it("does not nudge an idle agent standing by on a running shell task", () => {
         globalStore.set(shellTasksByIdAtom, { tab1: [{ id: "b1", kind: "shell", description: "dev server" }] });
+        globalStore.set(liveEntriesByIdAtom, { tab1: [{ kind: "interrupted" }] });
         try {
             expect(applies("agent:nudge", thing({ state: "idle" }))).toBe(false);
         } finally {
             globalStore.set(shellTasksByIdAtom, {});
+            globalStore.set(liveEntriesByIdAtom, {});
         }
     });
     it("backgrounds a working or asking agent and dismisses an idle one", () => {

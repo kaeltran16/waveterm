@@ -20,8 +20,11 @@ import { ChevronLeft, CircleStop, Maximize2, Minimize2, PanelRight, Smartphone, 
 import { motion } from "motion/react";
 import { Fragment, useEffect, useRef } from "react";
 import { confirmCloseSession, interruptAgent } from "./agentactions";
+import { getLastOutputAtom } from "./agentcontrollerstore";
+import { hungSilenceMs } from "./agenthung";
 import { contextLevel, contextTokens } from "./agentrailmodel";
 import type { AgentsViewModel } from "./agents";
+import { agentStateView, STATE_TONE_COLOR } from "./agentstateview";
 import { agentRunDone, type AgentVM } from "./agentsviewmodel";
 import { isAsking } from "./brainstormmodel";
 import { brainstormAtom, setBrainstormMode, shownBrainstormFile } from "./brainstormstore";
@@ -40,13 +43,7 @@ import { runtimeMeta } from "./runtimemeta";
 import { isStandingBy } from "./shelltasks";
 import { shellReadAtByIdAtom, shellReadPending, shellTasksByIdAtom } from "./shelltasksstore";
 import { StatusDot } from "./statusdot";
-
-const STATE_COLOR: Record<AgentVM["state"], string> = {
-    asking: "var(--color-warning)",
-    working: "var(--color-accent)",
-    idle: "var(--color-muted)",
-};
-const STATE_LABEL: Record<AgentVM["state"], string> = { asking: "asking", working: "working", idle: "idle" };
+import { subagentsByIdAtom } from "./subagentsstore";
 
 // header context chip color by context level (mirrors the rail gauge, as text not fill)
 const CTX_TEXT: Record<"ok" | "warn" | "hot", string> = {
@@ -132,29 +129,29 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
     // the final stage's own id is no session: it has no runtime, and its pane says its state
     const stage = isFinalStageId(agent.id);
     const landed = lineage?.kind === "worker" && lineage.task?.merged;
-    const standingBy = isStandingBy(agent.state, useAtomValue(shellTasksByIdAtom)[agent.id] ?? []);
+    const standingBy = isStandingBy(
+        agent.state,
+        useAtomValue(shellTasksByIdAtom)[agent.id] ?? [],
+        useAtomValue(subagentsByIdAtom)[agent.id] ?? []
+    );
     // a quick run's worker that completed its run reads as done, not as an idle session
     const runDone = agentRunDone(agent, standingBy);
-    // standing by reads like its dot: accent, not the idle grey
-    const done = ended || runDone;
+    const silentMs = hungSilenceMs(
+        agent,
+        useAtomValue(getLastOutputAtom(agent.blockId ?? "")),
+        useAtomValue(model.structuralNowAtom)
+    );
+    const stateView = agentStateView({
+        agent,
+        ended,
+        landed: landed === true,
+        runDone,
+        standingBy,
+        silentMs,
+    });
     // a controller that refused to start reads as failed, never as still booting
-    const failed = !done && agent.startError != null;
-    const stateText = done
-        ? landed
-            ? "landed"
-            : "done"
-        : failed
-          ? "failed to start"
-          : standingBy
-            ? "standing by"
-            : STATE_LABEL[agent.state];
-    const stateColor = done
-        ? "var(--color-success)"
-        : failed
-          ? "var(--color-error)"
-          : standingBy
-            ? "var(--color-accent)"
-            : STATE_COLOR[agent.state];
+    const failed = stateView?.tone === "error";
+    const stateColor = stateView ? STATE_TONE_COLOR[stateView.tone] : STATE_TONE_COLOR.idle;
     // m4: one-shot settle on the state pill when the focused agent reaches idle
     const readPending = shellReadPending(agent, useAtomValue(shellReadAtByIdAtom)[agent.id]);
     // held until a shell-task read since the Stop lands, so a just-launched task never settles first;
@@ -206,7 +203,9 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
         e.stopPropagation();
         const items: ContextMenuItem[] = [];
         if (blockId != null) {
-            items.push({ label: "Interrupt turn", icon: <CircleStop size={15} />, click: interrupt });
+            if (agent.state === "working") {
+                items.push({ label: "Interrupt turn", icon: <CircleStop size={15} />, click: interrupt });
+            }
             items.push({
                 label: fullscreen ? "Exit fullscreen" : "Fullscreen terminal",
                 icon: fullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />,
@@ -268,17 +267,21 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                                 <RuntimeMark runtime={agent.agent} className="text-[11px] leading-none" />
                                 {rt.label}
                             </span>
-                            <span
-                                className={cn(
-                                    "shrink-0 whitespace-nowrap rounded-[5px] border px-[7px] py-[1px] font-mono text-[10.5px] font-medium opacity-85 transition-colors duration-[140ms]",
-                                    failed && "border-error text-error",
-                                    settling && !failed && "animate-[settle_0.5s_ease-out] motion-reduce:animate-none"
-                                )}
-                                style={failed ? undefined : { color: stateColor, borderColor: stateColor }}
-                                data-agent-state-pill
-                            >
-                                {stateText}
-                            </span>
+                            {stateView ? (
+                                <span
+                                    className={cn(
+                                        "shrink-0 whitespace-nowrap rounded-[5px] border px-[7px] py-[1px] font-mono text-[10.5px] font-medium opacity-85 transition-colors duration-[140ms]",
+                                        failed && "border-error text-error",
+                                        settling &&
+                                            !failed &&
+                                            "animate-[settle_0.5s_ease-out] motion-reduce:animate-none"
+                                    )}
+                                    style={failed ? undefined : { color: stateColor, borderColor: stateColor }}
+                                    data-agent-state-pill
+                                >
+                                    {stateView.text}
+                                </span>
+                            ) : null}
                         </>
                     )}
                     {agent.model ? (
@@ -414,8 +417,8 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                             onClick={() => globalStore.set(terminalFullscreenAtom, !fullscreen)}
                             title={
                                 fullscreen
-                                    ? `Exit fullscreen (${formatChordString("f")} or ${formatChordString("Escape")})`
-                                    : `Fullscreen terminal (${formatChordString("f")})`
+                                    ? `Exit fullscreen (${formatChordString("F11")}, or ${formatChordString("f")} / ${formatChordString("Escape")} outside the terminal)`
+                                    : `Fullscreen terminal (${formatChordString("f")}, or ${formatChordString("F11")} in the terminal)`
                             }
                             aria-pressed={fullscreen}
                             whileHover={{ scale: 1.06 }}
@@ -445,7 +448,11 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                         <button
                             type="button"
                             onClick={closeTerminal}
-                            title={`Close terminal — ends the agent (${formatChordString("Ctrl:c")} twice)`}
+                            title={
+                                agent.kind === "terminal"
+                                    ? "Close terminal"
+                                    : `Close agent (${formatChordString("Ctrl:c")} twice in its terminal)`
+                            }
                             className={cn(ICON_BTN, "hover:border-error hover:text-error")}
                         >
                             <X size={16} strokeWidth={1.9} />

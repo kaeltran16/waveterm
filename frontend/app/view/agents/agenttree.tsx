@@ -23,6 +23,7 @@ import {
     Pencil,
     Pin,
     PinOff,
+    Plus,
     Radio,
     SquareTerminal,
     Terminal,
@@ -32,9 +33,10 @@ import {
 import { AnimatePresence, motion } from "motion/react";
 import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { agentBranchesAtom, loadAgentBranch } from "./agentbranchstore";
+import { resumeRecentSession } from "./agentlaunchhero";
 import { confirmCloseRun, confirmCloseSession } from "./agentactions";
 import type { AgentsViewModel } from "./agents";
-import { buildAgentTree, stageSubline, treeAgentCount, type StageOutcome } from "./agenttreemodel";
+import { rowFocusKey, stageSubline, treeAgentCount, type StageOutcome } from "./agenttreemodel";
 import { isAsking, treeLine, type BrainstormFile, type BuilderCheckRecord } from "./brainstormmodel";
 import { runStepView, runTreeText } from "./brainstormrunmodel";
 import { brainstormAtom, setBrainstormMode, shownBrainstormFile } from "./brainstormstore";
@@ -42,16 +44,17 @@ import { isUnseen } from "./canvasmodel";
 import { canvasStateAtom, setCanvasMode } from "./canvasstore";
 import { nextSnap, type AgentSnap } from "./cockpitevents";
 import { CommitTick, useCommitDone } from "./committick";
+import { loadRecentSessions, recentSessionsAtom } from "./recentsessionsstore";
 import { renamingRowAtom } from "./rowrenameatom";
+import { RuntimeMark } from "./runtimemark";
 import { terminalStatus } from "./terminalstatus";
 import { duplicateSession, renameSession, sessionCustomLabel, togglePin } from "./session-models/sessionsidebarmodel";
 import { agentRunDone, displayAgeMs, formatAgeShort, type AgentVM } from "./agentsviewmodel";
 import { docReviewAtom, parseDocReview } from "./docreview";
-import { finalRowFocusId, type FinalTone } from "./finalstage";
+import type { FinalTone } from "./finalstage";
 import { useFinalStageView } from "./finalstageviews";
 import { LEAD_MARK_CLASS, leadMark } from "./leadcardmodel";
 import {
-    endedWorkerId,
     laneLabel,
     runAgentsOf,
     runProgress,
@@ -60,7 +63,6 @@ import {
     taskStateLabel,
     unmetDeps,
     workerAsk,
-    workerEnded,
     workerSubtext,
     type RunInfo,
 } from "./runlineage";
@@ -70,7 +72,6 @@ import {
     toggleRunDoneOpen,
     toggleRunQueuedOpen,
     toggleTaskExtrasOpen,
-    treeFoldsAtom,
     useRunDigests,
     useRunInfo,
 } from "./runlineagestore";
@@ -106,7 +107,6 @@ import {
 } from "./shelltasksstore";
 import { StatusDot } from "./statusdot";
 import { focusSubagentAtom, subagentsByIdAtom } from "./subagentsstore";
-import { useSubagentTracking } from "./subagenttracking";
 
 const SUB_COLOR: Record<SubagentState, string> = {
     working: "var(--color-accent)",
@@ -568,7 +568,8 @@ function ParentRow({
     const branch = useAtomValue(agentBranchesAtom)[agent.id];
     const oref = `block:${agent.blockId}`;
     // drop children that finished (success/done) so a completed fan-out doesn't linger in the tree
-    const subs = visibleSubagents(useAtomValue(subagentsByIdAtom)[agent.id] ?? []);
+    const allSubs = useAtomValue(subagentsByIdAtom)[agent.id] ?? [];
+    const subs = visibleSubagents(allSubs);
     const expandOverride = useAtomValue(getSubagentExpandAtom(oref));
     const expanded = subagentExpanded(subs, expandOverride);
     const selected = focusId === agent.id;
@@ -577,7 +578,7 @@ function ParentRow({
     const brainstormFile = shownBrainstormFile(useAtomValue(brainstormAtom(agent.id)));
     const mark = lead != null ? leadMark(lead.run, agent) : null;
     const tasks = useAtomValue(shellTasksByIdAtom)[agent.id] ?? [];
-    const standing = isStandingBy(agent.state, tasks);
+    const standing = isStandingBy(agent.state, tasks, allSubs);
     const commitDone = useCommitDone(agent.blockId, agent.state === "idle" && !standing);
     const runDone = agentRunDone(agent, standing);
     // undefined until the user folds: open while a task runs, as the subagent fold defaults
@@ -884,6 +885,7 @@ function WorkerRow({
     agent,
     nested,
     extras,
+    focusKey,
 }: {
     model: AgentsViewModel;
     run: RunInfo;
@@ -891,6 +893,7 @@ function WorkerRow({
     agent?: AgentVM;
     nested?: boolean;
     extras?: { count: number; open: boolean };
+    focusKey: string | undefined; // rowFocusKey: with its tab reaped, a task past its worker opens that worker's transcript
 }) {
     const focusId = useAtomValue(model.focusIdAtom);
     const now = useAtomValue(model.nowAtom);
@@ -898,9 +901,6 @@ function WorkerRow({
     const done = !nested && task.state === "done";
     const lane = laneLabel(run.digest, task.id);
     const ask = done || nested ? undefined : workerAsk(run.digest, task.id);
-    // with its tab reaped, a task past its worker still opens that worker's transcript
-    const ended = !nested && (done || (agent == null && workerEnded(task)));
-    const focusKey = ended ? endedWorkerId(run.runId, task.id) : agent?.id;
     const selected = focusKey != null && focusId === focusKey;
     const waits = done || nested ? undefined : unmetDeps(run.dag, task);
     const asksYou = !done && ask?.owner !== "lead" && (ask?.owner === "you" || agent?.state === "asking");
@@ -1080,11 +1080,20 @@ const FINAL_SUB_INK: Record<FinalTone, string> = {
 
 // The run's final stage, under the run like a task's worker: there from the moment the plan's tasks are over,
 // before any verifier session exists. Once the current round's verifier is in the roster the row is that session.
-function FinalRow({ model, run, agent }: { model: AgentsViewModel; run: RunInfo; agent?: AgentVM }) {
+function FinalRow({
+    model,
+    run,
+    agent,
+    focusKey,
+}: {
+    model: AgentsViewModel;
+    run: RunInfo;
+    agent?: AgentVM;
+    focusKey: string; // rowFocusKey: the verifier's session once it is in the roster, else the stage itself
+}) {
     const focusId = useAtomValue(model.focusIdAtom);
     const now = useAtomValue(model.nowAtom);
     const view = useFinalStageView(run.dag, run.runId, run.channelId, now);
-    const focusKey = finalRowFocusId(run, agent ? [agent] : []);
     const selected = focusId === focusKey;
     const select = () => {
         globalStore.set(model.focusIdAtom, focusKey);
@@ -1258,17 +1267,70 @@ function TerminalRow({ model, terminal }: { model: AgentsViewModel; terminal: Ag
     );
 }
 
+// the tree is 248px wide: a few recent sessions fit under an empty AGENTS group, the hero lists the rest
+const RECENT_IN_TREE = 3;
+
+// With no agents the AGENTS group says so and offers the ways to start one: the New agent modal, or one of
+// the most recent sessions resumed as the hero resumes it.
+function EmptyAgents({ model }: { model: AgentsViewModel }) {
+    const sessions = useAtomValue(recentSessionsAtom);
+    useEffect(() => {
+        fireAndForget(loadRecentSessions);
+    }, []);
+    const recent = (sessions ?? []).slice(0, RECENT_IN_TREE);
+    return (
+        <div data-tree-empty className="flex flex-col gap-[2px]">
+            <div className="px-[11px] pb-[4px] pt-[6px] text-[12.5px] text-muted">No agents</div>
+            <button
+                type="button"
+                data-tree-new-agent
+                onClick={() => globalStore.set(model.newAgentOpenAtom, true)}
+                className="flex cursor-pointer items-center gap-[9px] rounded-[9px] px-[11px] py-[7px] text-left text-[13px] font-medium text-accent hover:bg-surface-hover"
+            >
+                <Slot>
+                    <Plus size={13} aria-hidden />
+                </Slot>
+                New agent
+            </button>
+            {recent.length > 0 ? (
+                <div className="px-[11px] pb-[4px] pt-[10px] font-mono text-[10.5px] font-semibold uppercase tracking-[.1em] text-muted">
+                    Recent
+                </div>
+            ) : null}
+            {recent.map((s) => (
+                <button
+                    key={s.id}
+                    type="button"
+                    data-tree-recent={s.id}
+                    title={`Resume in ${s.projectname || "its project"}`}
+                    onClick={() => resumeRecentSession(model, s)}
+                    className="flex cursor-pointer items-center gap-[9px] rounded-[9px] px-[11px] py-[7px] text-left hover:bg-surface-hover"
+                >
+                    <Slot>
+                        <RuntimeMark
+                            runtime={s.runtime}
+                            className="text-center text-[11px] leading-none text-muted"
+                            imageClassName="h-[13px] w-[13px]"
+                        />
+                    </Slot>
+                    <div className="min-w-0 flex-1">
+                        <div className="truncate text-[12.5px] text-ink-hi">{s.task || "(untitled session)"}</div>
+                        <div className="truncate font-mono text-[10.5px] text-muted">{s.projectname}</div>
+                    </div>
+                </button>
+            ))}
+        </div>
+    );
+}
+
 // memo: a surface switch re-renders AgentSurface in the same commit that flips it to display:none, and a
 // render there has motion measure every layout="position" row at (0,0) and start sliding it there, so
 // returning within the ~400ms tween shows the whole list shrinking back into place.
 export const AgentTree = memo(function AgentTree({ model }: { model: AgentsViewModel }) {
     const agents = useAtomValue(model.agentsAtom);
     const terminals = useAtomValue(model.terminalsAtom);
-    const order = useAtomValue(model.orderAtom);
     const lineage = useAtomValue(model.lineageAtom);
-    const folds = useAtomValue(treeFoldsAtom);
-    const focusId = useAtomValue(model.focusIdAtom);
-    const rows = buildAgentTree(agents, order, lineage, folds, focusId);
+    const rows = useAtomValue(model.treeRowsAtom);
     // the project group only earns a row when several projects are live: with one, its name and count
     // just restate the header, so suppressing it reads the tree at two levels instead of three. Counts
     // come off the unfiltered rows, and the lone group's attention moves to the header with it.
@@ -1279,8 +1341,6 @@ export const AgentTree = memo(function AgentTree({ model }: { model: AgentsViewM
     const headerAttn = multiProject ? 0 : groupRows.reduce((n, r) => n + (r.kind === "group" ? r.attn : 0), 0);
 
     useRunDigests(Object.values(lineage.runs));
-
-    useSubagentTracking(agents);
 
     // resolve each agent's real branch for its row (cached per cwd-source; see agentbranchstore.ts)
     useEffect(() => {
@@ -1312,6 +1372,11 @@ export const AgentTree = memo(function AgentTree({ model }: { model: AgentsViewM
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto p-[8px]">
                 <AnimatePresence mode="popLayout" initial={false}>
+                    {agents.length === 0 ? (
+                        <motion.div key="agents-empty" layout="position">
+                            <EmptyAgents model={model} />
+                        </motion.div>
+                    ) : null}
                     {visibleRows.map((r) => {
                         if (r.kind === "group") {
                             return (
@@ -1373,6 +1438,7 @@ export const AgentTree = memo(function AgentTree({ model }: { model: AgentsViewM
                                         task={r.task}
                                         agent={r.agent}
                                         nested={r.nested}
+                                        focusKey={rowFocusKey(r)}
                                         extras={
                                             r.nested ? undefined : { count: r.extras ?? 0, open: r.extrasOpen ?? false }
                                         }
@@ -1394,7 +1460,7 @@ export const AgentTree = memo(function AgentTree({ model }: { model: AgentsViewM
                             case "final":
                                 // the stage's own key before a verifier stands for it, then the session's
                                 key = r.agent?.id ?? `final-${r.run.runId}`;
-                                body = <FinalRow model={model} run={r.run} agent={r.agent} />;
+                                body = <FinalRow model={model} run={r.run} agent={r.agent} focusKey={rowFocusKey(r)} />;
                                 break;
                             case "done":
                                 key = `done-${r.run.runId}`;

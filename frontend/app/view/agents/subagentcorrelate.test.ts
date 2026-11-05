@@ -8,6 +8,7 @@ const spawn = (over: Partial<SubagentSpawn>): SubagentSpawn => ({
     prompt: "look at X",
     done: false,
     failed: false,
+    background: false,
     ...over,
 });
 const file = (over: Partial<SubagentFileInfo>): SubagentFileInfo => ({
@@ -22,7 +23,9 @@ const file = (over: Partial<SubagentFileInfo>): SubagentFileInfo => ({
 describe("correlateSubagents", () => {
     it("takes type + success state from a matched, completed spawn", () => {
         const out = correlateSubagents([spawn({ done: true })], [file({})]);
-        expect(out).toEqual([{ id: "a1", type: "Explore", state: "success", transcriptPath: "/p/agent-a1.jsonl" }]);
+        expect(out).toEqual([
+            { id: "a1", type: "Explore", state: "success", background: false, transcriptPath: "/p/agent-a1.jsonl" },
+        ]);
     });
 
     it("maps an errored spawn to failure", () => {
@@ -61,6 +64,25 @@ describe("correlateSubagents", () => {
             ["f1", "success"],
             ["f2", "failure"],
         ]);
+    });
+
+    it("background spawn is done when its child file is done", () => {
+        const bg = spawn({ background: true, done: false });
+        expect(correlateSubagents([bg], [file({ done: false })])[0].state).toBe("working");
+        expect(correlateSubagents([{ ...bg }], [file({ done: true })])[0].state).toBe("done");
+        expect(correlateSubagents([spawn({ background: true, done: true })], [file({ done: true })])[0].state).toBe(
+            "success"
+        );
+        expect(
+            correlateSubagents([spawn({ background: true, done: true, failed: true })], [file({ done: false })])[0]
+                .state
+        ).toBe("failure");
+    });
+
+    it("correlate copies background", () => {
+        expect(correlateSubagents([spawn({ background: true })], [file({})])[0].background).toBe(true);
+        expect(correlateSubagents([spawn({})], [file({})])[0].background).toBe(false);
+        expect(correlateSubagents([], [file({ firstprompt: "orphan" })])[0].background).toBe(false);
     });
 
     it("falls back to the prompt's first line when no spawn matches", () => {

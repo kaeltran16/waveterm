@@ -55,6 +55,7 @@ function stubModel(focusId?: string): any {
     return {
         focusIdAtom: atom<string | undefined>(focusId) as PrimitiveAtom<string | undefined>,
         agentsAtom: atom([]),
+        terminalsAtom: atom([]),
     };
 }
 
@@ -580,12 +581,13 @@ describe("PREDICATE_ATOMS completeness (whenstate.ts)", () => {
             detachCanvas("a1");
         }
 
-        // the focus id, the roster, and the focused agent's canvas, brainstorm and exit atoms are watched by
-        // watchFocusedCanvas, not listed; a1 is not in the stub roster, so its block id is ""
+        // the focus id, the roster, the terminal roster, and the focused agent's canvas, brainstorm and exit atoms
+        // are watched by watchFocusedCanvas, not listed; a1 is not in the stub roster, so its block id is ""
         const registered = new Set<unknown>([
             ...PREDICATE_ATOMS,
             model.focusIdAtom,
             model.agentsAtom,
+            model.terminalsAtom,
             canvasStateAtom("a1"),
             brainstormAtom("a1"),
         ]);
