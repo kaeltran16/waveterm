@@ -69,6 +69,7 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
     const reqIdRef = useRef(0);
     const launchingRef = useRef(false);
     const defaultAppliedRef = useRef(false);
+    const selectedRowRef = useRef<HTMLButtonElement>(null);
     // Default the modal's runtime to the resolved harness preference on first open (Part A: Pi wins
     // for fresh installs / new sessions). Later opens keep whatever the user last picked in this modal.
     useEffect(() => {
@@ -164,6 +165,12 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
     useEffect(() => {
         reqIdRef.current++;
     }, [runtime, selectedProject]);
+    // a preselected project past the list's fold would sit half clipped
+    useEffect(() => {
+        if (open) {
+            selectedRowRef.current?.scrollIntoView({ block: "nearest" });
+        }
+    }, [open, selectedProject]);
     const pickRuntime = (r: Runtime) => {
         setRuntime(r);
         setStartup(runtimeStartupCommand(r));
@@ -287,6 +294,7 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
                                         return (
                                             <button
                                                 key={p.name}
+                                                ref={sel ? selectedRowRef : undefined}
                                                 type="button"
                                                 role="radio"
                                                 aria-checked={sel}
