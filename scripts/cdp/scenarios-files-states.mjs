@@ -1,6 +1,7 @@
 // Diff surface scenario diff-states: the diff pane's states (binary, too large, empty, deleted, nothing picked,
 // read failure) on one repo whose working tree holds a file of each kind and whose history has a commit with no
 // files. Helpers come from scenarios-files-scope.mjs.
+import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -297,25 +298,40 @@ export const diffStates = {
             await h.shot("cdp-shots/diff-states-narrow-hint.png");
         });
 
-        const s7 = "7. diff read failure: a file turned into a folder says Couldn’t read this file with Retry, and Retry reads it once restored";
+        const s7 = "7. diff read failure: a modified file denied read-data says Couldn’t read this file with Retry, and Retry reads it once readable";
         await guard(s7, async () => {
             const path = join(ctx.dir, STATES.deleted);
+            const winPath = path.replace(/\//g, "\\");
+            // a size the index does not hold, so git lists it as modified without hashing its bytes
+            writeFileSync(path, "def old():\n    return 30\n");
+            // refreshes the index's stat for it, so later statuses never need to read it
+            git(ctx.dir, "status", "--porcelain");
             const picked = await pickFile(h, STATES.deleted);
-            const diff = picked && (await until(h, `!!document.querySelector(${JSON.stringify(DIFF_EDITOR)})`));
-            // tracked and deleted, so git still lists it while its path is a folder the read cannot open
-            mkdirSync(path);
+            await pressKey(h, "r", "KeyR", 82);
+            // monaco draws a space as a non-breaking one
+            const editorHas = (text) =>
+                `(document.querySelector(${JSON.stringify(DIFF_EDITOR)})?.textContent ?? "").replace(/\\u00a0/g, " ").includes(${JSON.stringify(text)})`;
+            const diff = picked && (await until(h, editorHas("return 30")));
+            // read-data only: the stat still succeeds and git still lists it, the read of its bytes fails
+            execFileSync("icacls", [winPath, "/deny", `${process.env.USERNAME}:(RD)`], { stdio: "pipe" });
             let failed = false;
             let failedText = "";
+            let recovered = false;
             try {
                 await pressKey(h, "r", "KeyR", 82);
                 failed = await until(h, `${emptyIs("failed")} && !!document.querySelector("[data-diff-retry]")`);
                 failedText = await textOf(h, PANE);
                 await h.shot("cdp-shots/diff-states-read-failure.png");
             } finally {
-                rmSync(path, { recursive: true, force: true });
+                execFileSync("icacls", [winPath, "/remove:d", process.env.USERNAME], { stdio: "pipe" });
             }
-            await h.ev(`document.querySelector("[data-diff-retry]")?.click()`);
-            const recovered = await until(h, `!!document.querySelector(${JSON.stringify(DIFF_EDITOR)})`);
+            try {
+                await h.ev(`document.querySelector("[data-diff-retry]")?.click()`);
+                recovered = await until(h, editorHas("return 30"));
+            } finally {
+                // later steps see the fixture's deleted file
+                rmSync(path, { force: true });
+            }
             rec(
                 s7,
                 diff && failed && failedText.includes("Couldn’t read this file") && recovered,
@@ -393,8 +409,7 @@ export const diffStates = {
                 return;
             }
             const asked = await untilAsking(h, agent);
-            // old.py then has a modified side to comment on whichever row the agent source opens on: the seed
-            // commit adds it, the working tree edits it
+            // the working tree then edits old.py, so the agent's synthetic row lists it with a side to comment on
             writeFileSync(join(ctx.dir, STATES.deleted), "def old():\n    return 2\n");
             await h.goto("files");
             await setViewport(h);
@@ -403,8 +418,36 @@ export const diffStates = {
             await h.ev(`document.querySelector("[data-files-source-picker]")?.click()`);
             const listed = await until(h, `!!${agentRow}`, 10000);
             await h.ev(`${agentRow}?.click()`);
-            const scoped = await until(h, `(document.querySelector("[data-files-source-picker]")?.textContent ?? "").includes(${JSON.stringify(agent.name)}) && !${agentRow}`, 5000);
-            const opened = (await pickFile(h, STATES.deleted)) && (await until(h, `!!document.querySelector(${JSON.stringify(DIFF_EDITOR)})`));
+            // The picker's text already holds the agent's name under the project scope, so it cannot say the switch
+            // happened. Until the agent scope's own load settles, the list on screen is the project's (the seed commit
+            // step 10 left open, which lists old.py too), and a file picked there is replaced when the scope resets
+            // to its default row (F4). So this waits for the store to hold the agent scope, its change list, and
+            // its synthetic row selected.
+            const scope = await lookEval(h, `
+                const { globalStore } = await mod("app/store/jotaiStore.ts");
+                const fs = await mod("app/view/agents/filesstore.ts");
+                const hs = await mod("app/view/agents/githistorystore.ts");
+                const { WORKING_TREE } = await mod("app/view/agents/historyrows.ts");
+                const model = ${MODEL};
+                const read = () => {
+                    const origin = globalStore.get(model.diffScopeAtom)?.repo.origin;
+                    const files = globalStore.get(fs.filesStateAtom)?.changes?.files ?? null;
+                    const rows = globalStore.get(hs.historyRowsAtom) ?? [];
+                    return {
+                        agent: origin?.kind === "agent" && origin.id === ${JSON.stringify(agent.tabId)},
+                        files: files?.map((f) => f.path) ?? null,
+                        commit: globalStore.get(hs.selectedCommitAtom),
+                        top: rows[0]?.workingTree ? rows[0].subject : null,
+                    };
+                };
+                const settled = await until(() => {
+                    const s = read();
+                    return s.agent && !!s.files?.includes(${JSON.stringify(STATES.deleted)}) && s.top != null && s.commit === WORKING_TREE;
+                }, 15000);
+                return { settled, ...read() };
+            `);
+            const scoped = scope.settled && !(await h.ev(`!!${agentRow}`));
+            const opened = scoped && (await pickFile(h, STATES.deleted)) && (await until(h, `!!document.querySelector(${JSON.stringify(DIFF_EDITOR)})`));
             await pressKey(h, "m", "KeyM", 77);
             const drafting = await until(h, `!!document.querySelector("[data-diff-comment-draft] textarea")`, 3000);
             await h.ev(`document.querySelector("[data-diff-comment-draft] textarea")?.focus()`);
@@ -453,7 +496,7 @@ export const diffStates = {
                     bar.disabled === true &&
                     bar.pending === 1 &&
                     prompts === 0,
-                JSON.stringify({ agent: { name: agent.name, project: agent.project }, asked, listed, scoped, opened, drafting, waiting, bar, prompts })
+                JSON.stringify({ agent: { name: agent.name, project: agent.project }, asked, listed, scoped, scope, opened, drafting, waiting, bar, prompts })
             );
         });
         return steps;
