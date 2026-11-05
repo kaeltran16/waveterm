@@ -20,6 +20,10 @@ func readCmdline(pid int) string {
 	return ""
 }
 
+func readListenPorts() map[int][]int {
+	return nil
+}
+
 func splitCmdline(cmdline string) []string {
 	return nil
 }

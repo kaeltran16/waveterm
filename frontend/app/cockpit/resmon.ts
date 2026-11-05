@@ -265,7 +265,7 @@ function splitCommand(command: string): { exe: string; args: string } {
     return { exe, args: c.slice(end + 1).trim() };
 }
 
-function baseName(path: string): string {
+export function baseName(path: string): string {
     return path.split(/[\\/]/).pop() ?? path;
 }
 

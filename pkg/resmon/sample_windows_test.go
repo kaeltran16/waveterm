@@ -7,7 +7,9 @@ package resmon
 
 import (
 	"fmt"
+	"net"
 	"os"
+	"slices"
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/util/jobobject"
@@ -37,4 +39,16 @@ func BenchmarkSample(b *testing.B) {
 	cpuMs := float64(readStat(os.Getpid()).cpuTime-before) / 1e4 / float64(b.N)
 	b.ReportMetric(cpuMs, "cpu-ms/tick")
 	b.ReportMetric(cpuMs/float64(sampleInterval.Milliseconds())*100, "%core")
+}
+
+func TestReadListenPortsSeesOwnListener(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	port := ln.Addr().(*net.TCPAddr).Port
+	if got := readListenPorts()[os.Getpid()]; !slices.Contains(got, port) {
+		t.Fatalf("ports for pid %d = %v, want %d among them", os.Getpid(), got, port)
+	}
 }

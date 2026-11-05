@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { ctrlHeldAtom } from "@/app/cockpit/ctrlheld";
+import { fmtAge } from "@/app/cockpit/resmon";
+import { resmonSnapshotAtom } from "@/app/cockpit/resmonstore";
 import { useSettle } from "@/app/element/motionhooks";
 import { cardVariants, composerReveal, computeEntrances, initialEntranceState } from "@/app/element/motiontokens";
 import { globalStore } from "@/app/store/jotaiStore";
@@ -41,6 +43,7 @@ import { canvasStateAtom, setCanvasMode } from "./canvasstore";
 import { nextSnap, type AgentSnap } from "./cockpitevents";
 import { CommitTick, useCommitDone } from "./committick";
 import { renamingRowAtom } from "./rowrenameatom";
+import { terminalStatus } from "./terminalstatus";
 import { duplicateSession, renameSession, sessionCustomLabel, togglePin } from "./session-models/sessionsidebarmodel";
 import { agentRunDone, displayAgeMs, formatAgeShort, type AgentVM } from "./agentsviewmodel";
 import { docReviewAtom, parseDocReview } from "./docreview";
@@ -1156,9 +1159,12 @@ function FoldRow({
     );
 }
 
-// A background terminal row: no agent chrome (no status dot / model / subagents) — just a glyph +
-// name that focuses the terminal's block in the surface's focus pane.
+// A background terminal row: no agent chrome (no model / subagents) — a glyph, the name, and under it what
+// its shell is running (read off the Resource Manager poll), so a dev server or docker stack shows at a glance.
 function TerminalRow({ model, terminal }: { model: AgentsViewModel; terminal: AgentVM }) {
+    const snap = useAtomValue(resmonSnapshotAtom);
+    const status = terminalStatus(snap?.groups.find((g) => g.ownerid === terminal.blockId));
+    const ports = status?.running ? status.ports : [];
     const focusId = useAtomValue(model.focusIdAtom);
     const selected = focusId === terminal.id;
     const renaming = useAtomValue(renamingRowAtom) === terminal.id;
@@ -1199,15 +1205,53 @@ function TerminalRow({ model, terminal }: { model: AgentsViewModel; terminal: Ag
                 selected ? "bg-accentbg" : "hover:bg-surface-hover"
             )}
         >
-            <Slot>
-                <SquareTerminal size={13} aria-hidden className="text-muted" />
-            </Slot>
+            <span className={cn(status && "mt-[3px] self-start")}>
+                <Slot>
+                    <SquareTerminal size={13} aria-hidden className="text-muted" />
+                </Slot>
+            </span>
             <div className="min-w-0 flex-1">
                 {renaming ? (
                     <RenameBox tabId={terminal.id} />
                 ) : (
-                    <div className="truncate text-[13px] font-medium text-ink-hi">{terminal.name}</div>
+                    <div className="flex min-w-0 items-center gap-[6px]">
+                        <div className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink-hi">
+                            {terminal.name}
+                        </div>
+                        {ports.length > 0 ? (
+                            <span
+                                title={`Listening on ${ports.map((p) => `:${p}`).join(", ")}`}
+                                className="flex-none rounded-[5px] bg-accentbg px-[6px] py-[1px] font-mono text-[10.5px] font-semibold text-accent-soft"
+                            >
+                                :{ports[0]}
+                                {ports.length > 1 ? ` +${ports.length - 1}` : ""}
+                            </span>
+                        ) : null}
+                    </div>
                 )}
+                {status ? (
+                    <div className="mt-[3px] flex min-w-0 items-center gap-[6px] font-mono text-[10.5px]">
+                        <span
+                            aria-hidden
+                            className={cn(
+                                "h-[7px] w-[7px] flex-none rounded-full",
+                                status.running ? "bg-success" : "border border-muted"
+                            )}
+                        />
+                        {status.running ? (
+                            <>
+                                <span title={status.command} className="min-w-0 truncate text-ink-mid">
+                                    {status.command}
+                                </span>
+                                {status.since > 0 ? (
+                                    <span className="flex-none text-muted">{fmtAge(status.since, snap.ts)}</span>
+                                ) : null}
+                            </>
+                        ) : (
+                            <span className="text-muted">idle</span>
+                        )}
+                    </div>
+                ) : null}
             </div>
             <PaneTag model={model} id={terminal.id} />
         </div>
@@ -1398,33 +1442,36 @@ export const AgentTree = memo(function AgentTree({ model }: { model: AgentsViewM
                             </motion.div>
                         );
                     })}
-                    {terminals.length > 0 ? (
-                        <motion.div
-                            key="terminals-header"
-                            layout="position"
-                            className="flex items-center gap-[8px] px-[11px] pb-[6px] pt-[14px]"
-                        >
-                            <span className="truncate font-mono text-[10.5px] font-bold uppercase tracking-[.1em] text-muted">
-                                Terminals
-                            </span>
-                            <div className="h-px flex-1 bg-edge-mid" />
-                            <span className="font-mono text-[10.5px] font-semibold text-muted">{terminals.length}</span>
-                        </motion.div>
-                    ) : null}
-                    {terminals.map((t) => (
-                        <motion.div
-                            key={t.id}
-                            layout="position"
-                            variants={cardVariants}
-                            initial={entranceIds.has(t.id) ? "initial" : false}
-                            animate="animate"
-                            exit="exit"
-                        >
-                            <TerminalRow model={model} terminal={t} />
-                        </motion.div>
-                    ))}
                 </AnimatePresence>
             </div>
+            {terminals.length > 0 ? (
+                <div data-tree-terminals className="flex shrink-0 flex-col border-t border-edge-faint">
+                    <div className="flex items-center gap-[8px] px-[19px] pb-[6px] pt-[12px]">
+                        <span className="truncate font-mono text-[10.5px] font-bold uppercase tracking-[.1em] text-muted">
+                            Terminals
+                        </span>
+                        <div className="h-px flex-1 bg-edge-mid" />
+                        <span className="font-mono text-[10.5px] font-semibold text-muted">{terminals.length}</span>
+                    </div>
+                    {/* fixed height for ~4 two-line terminal rows (56px each), so the agents list above keeps a stable size */}
+                    <div className="h-[232px] overflow-y-auto px-[8px] pb-[8px]">
+                        <AnimatePresence mode="popLayout" initial={false}>
+                            {terminals.map((t) => (
+                                <motion.div
+                                    key={t.id}
+                                    layout="position"
+                                    variants={cardVariants}
+                                    initial={entranceIds.has(t.id) ? "initial" : false}
+                                    animate="animate"
+                                    exit="exit"
+                                >
+                                    <TerminalRow model={model} terminal={t} />
+                                </motion.div>
+                            ))}
+                        </AnimatePresence>
+                    </div>
+                </div>
+            ) : null}
         </div>
     );
 });
