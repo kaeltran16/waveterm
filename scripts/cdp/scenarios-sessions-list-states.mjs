@@ -21,10 +21,21 @@ const FIELD = `document.querySelector('[data-sessions-search]')`;
 const card = (key) => `${LIST}?.querySelector('[data-session-row="' + CSS.escape(${JSON.stringify(key)}) + '"]')`;
 const nap = (h, ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
 
+// a full resource timing buffer drops later modules: derive their url from jotaiStore's
+const MOD = `
+    const mod = async (path) => {
+        const names = performance.getEntriesByType("resource").map((e) => e.name.split("?")[0]);
+        const hit = names.filter((n) => n.endsWith("/" + path)).pop();
+        const base = names.find((n) => n.endsWith("/app/store/jotaiStore.ts"));
+        if (hit == null && base == null) throw new Error("no app module url for " + path);
+        return import(hit ?? base.replace("app/store/jotaiStore.ts", path));
+    };
+`;
+
 // the view model is not on window: the nav rail's fiber props hold it
 const WITH_MODEL = `
-    const names = performance.getEntriesByType("resource").map((e) => e.name.split("?")[0]);
-    const { globalStore } = await import(names.find((n) => n.endsWith("/app/store/jotaiStore.ts")));
+    ${MOD}
+    const { globalStore } = await mod("app/store/jotaiStore.ts");
     const nav = document.querySelector('nav');
     const key = nav && Object.keys(nav).find((k) => k.startsWith('__reactFiber$'));
     let model = null;
@@ -69,8 +80,8 @@ const typeQuery = (h, q) =>
 // body: an expression for the stub's reply, given the call's args
 const stubSearch = (h, body) =>
     h.ev(`(async () => {
-        const names = performance.getEntriesByType("resource").map((e) => e.name.split("?")[0]);
-        const { RpcApi } = await import(names.find((n) => n.endsWith("/app/store/wshclientapi.ts")));
+        ${MOD}
+        const { RpcApi } = await mod("app/store/wshclientapi.ts");
         window.${SEARCH_STUB} = true;
         RpcApi.SearchSessionsCommand = (client, data) => (${body})(data);
         return true;
@@ -78,8 +89,8 @@ const stubSearch = (h, body) =>
 const restoreSearch = (h) =>
     h.ev(`(async () => {
         if (!window.${SEARCH_STUB}) return true;
-        const names = performance.getEntriesByType("resource").map((e) => e.name.split("?")[0]);
-        const { RpcApi } = await import(names.find((n) => n.endsWith("/app/store/wshclientapi.ts")));
+        ${MOD}
+        const { RpcApi } = await mod("app/store/wshclientapi.ts");
         delete RpcApi.SearchSessionsCommand;
         delete window.${SEARCH_STUB};
         return true;
@@ -163,8 +174,7 @@ export default function (kit) {
                     withModel(
                         h,
                         `
-                        const names2 = performance.getEntriesByType("resource").map((e) => e.name.split("?")[0]);
-                        const store = await import(names2.find((n) => n.endsWith("/app/view/agents/sessionsarchivestore.ts")));
+                        const store = await mod("app/view/agents/sessionsarchivestore.ts");
                         const list = globalStore.get(store.sessionsArchiveAtom);
                         return { sessions: list?.length ?? null, complete: list != null && !globalStore.get(store.sessionsIncompleteAtom) };
                     `
