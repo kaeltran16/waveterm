@@ -95,6 +95,20 @@ func TestNonLeadRefClaimsNothing(t *testing.T) {
 	}
 }
 
+// the override log outlives a deleted record: its accept must not hide the run from the records that remain.
+func TestAcceptFromMissingDossierClaimsNothing(t *testing.T) {
+	a, b, runs := claimFixture()
+	dossiers := []*jarvisdossier.Dossier{a, b}
+	ov := map[string]string{"gone|run:rX": "accept"}
+	if claims := claimedRuns(dossiers, runs, ov)["run:rX"]; len(claims) != 0 {
+		t.Fatalf("an accept from deleted record gone claims rX: %v", claims)
+	}
+	e := findEdge(claimEdges(b, dossiers, runs, ov), "run:rX")
+	if e == nil || e.State != StateInforming || !slices.Equal(e.Layers, []int{3}) {
+		t.Fatalf("B's guess of rX = %+v, want an informing layer-3 edge", e)
+	}
+}
+
 // EdgesFor and AllEdges both read every record's refs from the vault to build the claims.
 func TestEdgesForDropsAGuessAnotherRecordClaims(t *testing.T) {
 	ctx := context.Background()

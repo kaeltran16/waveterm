@@ -148,7 +148,7 @@ func keptRun(oref string, byORef map[string]*waveobj.Run) (r *waveobj.Run, ok bo
 }
 
 // claimedRuns maps each run oref to the set of dossiers that claim it: a layer-1 ref assembleEdges keeps, or a
-// human accept, less a human detach of that pair. A claimed run is no guess for any other dossier.
+// human accept by a dossier in dossiers, less a human detach of that pair. A claimed run is no guess for any other dossier.
 func claimedRuns(dossiers []*jarvisdossier.Dossier, runs []*waveobj.Run, overrides map[string]string) map[string]map[string]bool {
 	byORef := runsByORef(runs)
 	claims := map[string]map[string]bool{}
@@ -164,7 +164,9 @@ func claimedRuns(dossiers []*jarvisdossier.Dossier, runs []*waveobj.Run, overrid
 		}
 		claims[oref][dossierID] = true
 	}
+	present := make(map[string]bool, len(dossiers))
 	for _, d := range dossiers {
+		present[d.ID] = true
 		for _, ref := range d.Refs {
 			if oref, ok := refToRunORef(ref); ok {
 				claim(d.ID, oref)
@@ -175,7 +177,8 @@ func claimedRuns(dossiers []*jarvisdossier.Dossier, runs []*waveobj.Run, overrid
 		if action != "accept" {
 			continue
 		}
-		if dossierID, oref, ok := strings.Cut(key, "|"); ok {
+		// the override log outlives a deleted record, whose accept would otherwise hide the run from every record.
+		if dossierID, oref, ok := strings.Cut(key, "|"); ok && present[dossierID] {
 			claim(dossierID, oref)
 		}
 	}
