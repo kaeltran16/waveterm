@@ -12,8 +12,12 @@ const fileMkdir = vi.fn();
 const fileMove = vi.fn();
 const listWorktrees = vi.fn();
 const fileRead = vi.fn();
+const listBranches = vi.fn();
+const divergence = vi.fn();
 vi.mock("@/app/store/wshclientapi", () => ({
     RpcApi: {
+        ListBranchesCommand: (...a: any[]) => listBranches(...a),
+        GitDivergenceCommand: (...a: any[]) => divergence(...a),
         GitListFilesCommand: (...a: any[]) => listFiles(...a),
         GitChangesCommand: async () => ({ statusz: "", numstat: "" }),
         GitListWorktreesCommand: (...a: any[]) => listWorktrees(...a),
@@ -38,6 +42,8 @@ import { codeSearchModeAtom } from "./codesearchstore";
 import {
     codeBodyPhase,
     codeCursorAtom,
+    codeDiffBaseAtom,
+    codeDiffTargetAtom,
     codeEditAtom,
     codeExpandedAtom,
     codeFileAtom,
@@ -50,8 +56,11 @@ import {
     codeSaveAtom,
     codeSessionDirsAtom,
     codeStaleAtom,
+    codeViewModeAtom,
     codeWorktreeFoldersAtom,
+    compareWithDisk,
     createEntry,
+    cycleDiff,
     deletePath,
     editDraft,
     ensureIndex,
@@ -68,6 +77,7 @@ import {
     revertDraft,
     saveCurrent,
     selectProject,
+    showDiffTarget,
     type CodeIndex,
 } from "./codestore";
 
@@ -398,6 +408,74 @@ describe("saveCurrent", () => {
 
         expect(globalStore.get(codeSaveAtom)).toMatchObject({ kind: "conflict", path: "src/a.ts" });
         expect(globalStore.get(codeStaleAtom)).toEqual({ path: "src/a.ts" });
+    });
+});
+
+describe("diff targets", () => {
+    const inDiff = (target: "head" | "base" | "disk") => {
+        globalStore.set(codeViewModeAtom, "diff");
+        globalStore.set(codeDiffTargetAtom, target);
+    };
+
+    afterEach(() => {
+        globalStore.set(codeViewModeAtom, "preview");
+        globalStore.set(codeDiffTargetAtom, "head");
+        globalStore.set(codeDiffBaseAtom, null);
+    });
+
+    it("cycleDiff from the disk target returns to Source", async () => {
+        seedSession(["src/a.ts"]);
+        inDiff("disk");
+
+        await cycleDiff();
+
+        expect(globalStore.get(codeViewModeAtom)).toBe("source");
+    });
+
+    it("showDiffTarget base on the default branch stays on HEAD", async () => {
+        seedSession(["src/a.ts"]);
+        inDiff("head");
+        listBranches.mockResolvedValue({ default: "main" });
+        divergence.mockResolvedValue({ ahead: [], mergebase: "abc1234", isrepo: true });
+
+        await showDiffTarget("base");
+
+        expect(globalStore.get(codeViewModeAtom)).toBe("diff");
+        expect(globalStore.get(codeDiffTargetAtom)).toBe("head");
+        expect(globalStore.get(codeDiffBaseAtom)).toEqual({ kind: "skip" });
+    });
+
+    it("showDiffTarget base on a feature branch lands on the base", async () => {
+        seedSession(["src/a.ts"]);
+        inDiff("head");
+        listBranches.mockResolvedValue({ default: "main" });
+        const commit = { hash: "f00", parents: [], author: "a", email: "e", ts: 0, subject: "s" };
+        divergence.mockResolvedValue({ ahead: [commit], mergebase: "abc1234", isrepo: true });
+
+        await showDiffTarget("base");
+
+        expect(globalStore.get(codeDiffTargetAtom)).toBe("base");
+        expect(globalStore.get(codeDiffBaseAtom)).toEqual({ kind: "usable", branch: "main", sha: "abc1234" });
+    });
+
+    it("showDiffTarget head leaves the disk target", async () => {
+        seedSession(["src/a.ts"]);
+        inDiff("disk");
+
+        await showDiffTarget("head");
+
+        expect(globalStore.get(codeDiffTargetAtom)).toBe("head");
+        expect(listBranches).not.toHaveBeenCalled();
+    });
+
+    it("compareWithDisk enters the disk target", () => {
+        seedSession(["src/a.ts"]);
+        globalStore.set(codeViewModeAtom, "source");
+
+        compareWithDisk();
+
+        expect(globalStore.get(codeViewModeAtom)).toBe("diff");
+        expect(globalStore.get(codeDiffTargetAtom)).toBe("disk");
     });
 });
 

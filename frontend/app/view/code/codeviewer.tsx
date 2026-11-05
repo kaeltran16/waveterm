@@ -23,6 +23,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CodeBlameColumn, type EditorLineLayout } from "./codeblamecolumn";
 import { codeBlameOnAtom } from "./codeblamestore";
 import { isMarkdownPath } from "./codeclassify";
+import { missingView } from "./codedifftarget";
 import { CodeDiffView } from "./codediffview";
 import { remember } from "./codeeditorcache";
 import { langOf, type Lang } from "./codelang";
@@ -45,6 +46,7 @@ import {
     codePendingJumpAtom,
     codePlainAtom,
     codeProjectAtom,
+    codeStatusAtom,
     codeViewModeAtom,
     draftKey,
     editDraft,
@@ -416,6 +418,7 @@ export function CodeViewer({ model }: { model: AgentsViewModel }) {
     const mode = useAtomValue(codeViewModeAtom);
     const blameOn = useAtomValue(codeBlameOnAtom);
     const plain = useAtomValue(codePlainAtom);
+    const status = useAtomValue(codeStatusAtom);
     const previewRef = useRef<HTMLDivElement>(null);
 
     // Two paths, both needed. Monaco is keyed by file path, so opening a DIFFERENT file remounts it
@@ -446,6 +449,20 @@ export function CodeViewer({ model }: { model: AgentsViewModel }) {
         case "loading":
             return <SurfaceEmptyState title="Opening…" body={file.path} />;
         case "missing":
+            // refreshing the index cannot help a deletion git still tracks, so it shows what was removed
+            if (missingView(status?.get(file.path), plain) === "deleted") {
+                return (
+                    <div data-code-deleted className="flex h-full flex-col">
+                        <div className="flex flex-none items-baseline gap-2 border-b border-border px-3 py-1.5 text-[12px]">
+                            <span className="font-semibold text-primary">Deleted in the working tree</span>
+                            <span className="min-w-0 truncate text-muted">{file.path}</span>
+                        </div>
+                        <div className="min-h-0 flex-1">
+                            <CodeDiffView key={file.path} path={file.path} text="" fixedTarget="head" />
+                        </div>
+                    </div>
+                );
+            }
             return (
                 <SurfaceEmptyState
                     title="File no longer exists"

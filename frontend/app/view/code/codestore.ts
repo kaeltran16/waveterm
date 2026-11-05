@@ -20,7 +20,7 @@ import { atom, type PrimitiveAtom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import { debounce } from "throttle-debounce";
 import { classifyFile, hasNulByte, HEAD_BINARY, HEAD_TOOLARGE, MAX_VIEW_BYTES } from "./codeclassify";
-import { diffBaseOf, nextDiffStep, type DiffBase, type DiffStep } from "./codedifftarget";
+import { diffBaseOf, nextDiffStep, type DiffBase, type DiffStep, type DiffTarget } from "./codedifftarget";
 import {
     conflictMessage,
     conflictOf,
@@ -208,8 +208,8 @@ export const codeViewModeAtom = atom<"preview" | "source" | "diff">("preview") a
 
 // The left-hand side of the diff. One union rather than parallel booleans, for the same reason
 // CodeFile is one: the pane renders an exhaustive switch and cannot land in a contradictory pair.
-// `ref` is what the copy was read at ("HEAD" or the base's sha), so a read for the other target
-// never renders under this one's header.
+// `ref` is what the copy was read at ("HEAD", the base's sha, or DISK_REF for the file on disk), so
+// a read for another target never renders under this one's header.
 export type HeadText =
     | { kind: "idle" }
     | { kind: "loading"; path: string; ref: string }
@@ -219,11 +219,13 @@ export type HeadText =
 
 export const codeHeadAtom = atom<HeadText>({ kind: "idle" }) as PrimitiveAtom<HeadText>;
 
-// Which commit Diff compares against. Only meaningful while codeViewModeAtom is "diff"; entering diff
-// always starts on HEAD.
-export const codeDiffTargetAtom = atom<"head" | "base">("head") as PrimitiveAtom<"head" | "base">;
-// The base the last head→base step resolved: usable or an error, never "skip" (a skip never lands on base).
+// What Diff compares against. Only meaningful while codeViewModeAtom is "diff"; the Diff button
+// always starts on HEAD, and only the stale bar's Compare with disk enters "disk".
+export const codeDiffTargetAtom = atom<DiffTarget>("head") as PrimitiveAtom<DiffTarget>;
+// The base last resolved, by a step to it or by the header asking whether to offer it. The target is
+// never "base" on a skip: a skip only disables the header's Branch base.
 export const codeDiffBaseAtom = atom<DiffBase | null>(null) as PrimitiveAtom<DiffBase | null>;
+export const DISK_REF = "disk";
 
 // Set when the open file's bytes moved on disk since we read them. Never auto-reloads: the caret,
 // the scroll offset and the selection would jump under a reader's eyes with no action of theirs.
@@ -599,6 +601,28 @@ export async function loadCommitted(rel: string, ref: string): Promise<void> {
     }
 }
 
+// The disk side of a Compare with disk: read fresh on every entry, since the point is what is there now.
+export async function loadDisk(rel: string): Promise<void> {
+    const project = globalStore.get(codeProjectAtom);
+    if (project == null) {
+        return;
+    }
+    const token = `head:${rel}:${DISK_REF}`;
+    current.headToken = token;
+    globalStore.set(codeHeadAtom, { kind: "loading", path: rel, ref: DISK_REF });
+    try {
+        const data = await RpcApi.FileReadCommand(TabRpcClient, { info: { path: draftKey(project, rel) } });
+        if (current.headToken === token) {
+            const text = base64ToString(data?.data64 ?? "");
+            globalStore.set(codeHeadAtom, { kind: "text", path: rel, ref: DISK_REF, text });
+        }
+    } catch (e) {
+        if (current.headToken === token) {
+            globalStore.set(codeHeadAtom, { kind: "error", path: rel, ref: DISK_REF, message: errorText(e) });
+        }
+    }
+}
+
 // The merge-base of HEAD with the default branch ListBranches resolves. Resolved on every head→base
 // step rather than cached: a commit or a branch switch moves it, and two git calls are cheap. A failed
 // RPC is an error the base step shows, never a silent skip.
@@ -652,6 +676,31 @@ export async function cycleDiff(): Promise<void> {
     }
     globalStore.set(codeDiffBaseAtom, base);
     globalStore.set(codeDiffTargetAtom, "base");
+}
+
+// The diff header's HEAD / Branch base pick. The base is resolved on the click, as the `d` step does;
+// a skip stays where it is (the header then shows Branch base disabled), an error lands so it is seen.
+export async function showDiffTarget(t: "head" | "base"): Promise<void> {
+    if (t === "head") {
+        globalStore.set(codeDiffTargetAtom, "head");
+        return;
+    }
+    const base = await resolveDiffBase();
+    globalStore.set(codeDiffBaseAtom, base);
+    if (base.kind !== "skip" && globalStore.get(codeViewModeAtom) === "diff") {
+        globalStore.set(codeDiffTargetAtom, "base");
+    }
+}
+
+// Whether the header offers Branch base, answered before any click.
+export async function probeDiffBase(): Promise<void> {
+    globalStore.set(codeDiffBaseAtom, await resolveDiffBase());
+}
+
+// The stale bar's way to see what a refused save would overwrite: the draft against the disk copy.
+export function compareWithDisk(): void {
+    globalStore.set(codeDiffTargetAtom, "disk");
+    globalStore.set(codeViewModeAtom, "diff");
 }
 
 // A re-stat of the ONE open file, on window focus and on tree focus. No watcher, by design: a

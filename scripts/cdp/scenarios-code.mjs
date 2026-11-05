@@ -1002,6 +1002,22 @@ export const codeDiff = {
             detail: `toggled=${toDiff} mounted=${mounted} head=${onHead}`,
         });
         await h.shot("cdp-shots/code-diff.png");
+        // the header asks for the base on mount; on main there is none, so Branch base is disabled with its reason
+        const pick = await h.ev(`(async () => {
+            const base = () => document.querySelector('[data-code-diff-option="base"]');
+            for (let i = 0; i < 40 && base()?.disabled !== true; i++) await new Promise((r) => setTimeout(r, 150));
+            const head = document.querySelector('[data-code-diff-option="head"]');
+            return {
+                head: head ? head.getAttribute('aria-pressed') : null,
+                baseDisabled: base() ? base().disabled : null,
+                reason: base() ? base().title : '',
+            };
+        })()`);
+        steps.push({
+            step: "the diff header offers HEAD (pressed) and Branch base, disabled with its reason on the default branch",
+            ok: pick.head === "true" && pick.baseDisabled === true && pick.reason !== "",
+            detail: JSON.stringify(pick),
+        });
         steps.push(await floorStep(h, `no visible text on the Code surface's diff is under ${MIN_FONT_PX}px`, SURFACE_ROOT));
         // codediffview draws no button of its own; the mode toggle above it lives in codepathbar.tsx, outside the
         // focus pass, so whether it rings is recorded, not required
@@ -1712,8 +1728,11 @@ const lookStaleBar = (h) =>
         const bar = () => document.querySelector("[data-code-stale]");
         await until(() => bar() != null, 4000);
         await nap(200);
-        return bar() ? { text: flat(bar()), button: flat(bar().querySelector("button")) } : null;
+        return bar() ? { text: flat(bar()), buttons: [...bar().querySelectorAll("button")].map(flat) } : null;
     `);
+
+// the stale bar's button with this exact label
+const staleButton = (label) => `button(document.querySelector("[data-code-stale]"), /^${label}$/)`;
 
 export const codeStaleBarLook = {
     name: "code-stale-bar",
@@ -1747,10 +1766,10 @@ export const codeStaleBarLook = {
         await h.shot(lookShot("code-stale-bar"));
         steps.push({
             step: "a file changed on disk while open shows the stale bar with Reload",
-            ok: opened === true && clean != null && clean.text.includes(`${LOOK_STALE_FILE} changed on disk`) && clean.button === "Reload",
+            ok: opened === true && clean != null && clean.text.includes(`${LOOK_STALE_FILE} changed on disk`) && JSON.stringify(clean.buttons) === JSON.stringify(["Reload"]),
             detail: JSON.stringify({ opened, clean }),
         });
-        const reload = await tabOnto(h, `document.querySelector("[data-code-stale] button")`);
+        const reload = await tabOnto(h, `[...document.querySelectorAll("[data-code-stale] button")].find((b) => b.textContent.trim() === "Reload")`);
         await h.shot(lookShot("code-stale-bar-focus"));
         const unlabelled = await h.ev(unlabelledButtons(`document.querySelector("[data-code-stale]")`));
         steps.push({
@@ -1761,7 +1780,7 @@ export const codeStaleBarLook = {
         steps.push(await floorStep(h, `no visible text in the stale bar is under ${MIN_FONT_PX}px`, `document.querySelector("[data-code-stale]")`));
 
         const reloaded = await lookEval(h, `
-            document.querySelector("[data-code-stale] button")?.click();
+            ${staleButton("Reload")}?.click();
             return until(() => document.querySelector("[data-code-stale]") == null, 4000);
         `);
         steps.push({ step: "Reload reads the disk copy and clears the bar", ok: reloaded === true, detail: `cleared=${reloaded}` });
@@ -1778,12 +1797,15 @@ export const codeStaleBarLook = {
         const dirty = await lookStaleBar(h);
         await h.shot(lookShot("code-stale-bar-dirty"));
         steps.push({
-            step: "with an unsaved edit the bar says the edits are still here, and its button says what it destroys",
-            ok: dirty != null && /your unsaved edits are still here/.test(dirty.text) && dirty.button === "Discard my edits and reload",
+            step: "with an unsaved edit the bar says the edits are still here, its button says what it destroys, and Compare with disk follows it",
+            ok:
+                dirty != null &&
+                /your unsaved edits are still here/.test(dirty.text) &&
+                JSON.stringify(dirty.buttons) === JSON.stringify(["Discard my edits and reload", "Compare with disk"]),
             detail: JSON.stringify(dirty),
         });
         const discarded = await lookEval(h, `
-            document.querySelector("[data-code-stale] button")?.click();
+            ${staleButton("Discard my edits and reload")}?.click();
             return until(() => document.querySelector("[data-code-stale]") == null, 4000);
         `);
         steps.push({ step: "Discard my edits and reload clears the bar", ok: discarded === true, detail: `cleared=${discarded}` });
