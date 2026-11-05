@@ -31,7 +31,9 @@ export type BrainstormState = {
     // shown only after two consecutive failed reads, so an agent mid-write never flashes an error
     error: string | null;
     failedReads: number;
+    // set only after two consecutive polls found no file, so an agent's delete-then-rename write never shows it gone
     removed: boolean;
+    missedStats: number;
     modifiedMs: number | null;
     // when brainstorm mode was last shown: the compaction banner and the unseen mark compare against it
     lastViewedMs: number;
@@ -116,6 +118,7 @@ export function attachBrainstorm(
         error: null,
         failedReads: 0,
         removed: false,
+        missedStats: 0,
         modifiedMs: null,
         lastViewedMs: now,
         board: null,

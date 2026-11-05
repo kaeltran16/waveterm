@@ -1126,6 +1126,15 @@ export function decisionParts(f: BrainstormFile): BrainstormPart[] {
     return orderedParts(f).filter((p) => !isNote(p));
 }
 
+// the decisions as the design draws them: newest first, with the builder part last, since the agent writes it last
+export function drawnDecisionParts(f: BrainstormFile): BrainstormPart[] {
+    const decisions = decisionParts(f);
+    return [
+        ...decisions.filter((p) => p.id !== BUILDER_PART).reverse(),
+        ...decisions.filter((p) => p.id === BUILDER_PART),
+    ];
+}
+
 export function noteParts(f: BrainstormFile): BrainstormPart[] {
     return orderedParts(f).filter(isNote);
 }
@@ -1214,7 +1223,7 @@ export type ProgressView = {
 
 // one segment per part, in the order the design draws them; the label reads per phase
 export function progressView(f: BrainstormFile): ProgressView {
-    const parts = decisionParts(f);
+    const parts = drawnDecisionParts(f);
     const { yours, open } = brainstormCounts(f);
     const segments = parts.map((p) => ({ id: p.id, title: p.title, state: p.state }));
     if (brainstormPhase(f) === "talk") {
@@ -1416,6 +1425,23 @@ export function plural(n: number, one: string, many: string): string {
     return `${n} ${n === 1 ? one : many}`;
 }
 
+// the ask rail's intro to what the builder asked
+export function checkRailLine(questions: number): string {
+    return `A fresh agent checked whether it could plan from this without coming back to you. It had ${plural(questions, "question", "questions")}.`;
+}
+
+// the review rail's line: how many questions the builder had, how many were yours, and what the agent decided
+export function answeredLine(questions: number, forYou: number, answered: number, calls: number): string {
+    const yours =
+        forYou === 0
+            ? "none for you"
+            : answered === forYou
+              ? `${forYou} for you, all answered`
+              : `${forYou} for you, ${answered} answered`;
+    const decided = calls > 0 ? `; the agent decided ${calls}, shown under their decisions` : "";
+    return `It had ${plural(questions, "question", "questions")}: ${yours}${decided}.`;
+}
+
 function capitalize(s: string): string {
     return s.charAt(0).toUpperCase() + s.slice(1);
 }
@@ -1513,6 +1539,8 @@ export type ReviewRow = {
     // the answer the part came from, as said; the cause leaves out the from it replaces
     said?: PartAnswer;
     was?: string;
+    // whether opening the row shows what it was, or only what it says now
+    hasWas: boolean;
     body: string;
     view: PartView;
     action: "keep-restore" | "confirm" | "answer" | null;
@@ -1528,6 +1556,8 @@ export type ReviewModel = {
     cursorIds: string[];
     // the changed decisions still waiting on keep or put back
     pending: number;
+    // whether any row has a was to open, which the section caption promises
+    anyWas: boolean;
     summary: string;
     answered: { q: string; a: string; changed: { id: string; title: string }[] }[];
 };
@@ -1545,6 +1575,7 @@ function reviewRow(f: BrainstormFile, p: BrainstormPart, calls: string[]): Revie
         cause: p.why ?? (said != null ? "" : (p.from ?? "")),
         ...(said != null ? { said } : {}),
         ...(p.was != null ? { was: p.was } : {}),
+        hasWas: p.was != null,
         body: p.body,
         view,
         action,
@@ -1611,6 +1642,7 @@ export function checkReview(f: BrainstormFile): ReviewModel {
         notes: noteParts(f),
         cursorIds: rows.map((r) => r.id),
         pending,
+        anyWas: rows.some((r) => r.hasWas),
         summary: reviewSummary(changed.length, fresh.length, pending, calls, answered.length),
         answered: answered.map((y) => ({
             q: y.q,
@@ -1726,6 +1758,18 @@ export function paneView(s: {
         return "run";
     }
     return s.file?.check != null ? "check" : "design";
+}
+
+const RUN_WORKTREES = "arc-wt";
+
+// why the gone view's file is gone, saying only what the path shows: a run's worktree, once removed, takes it along
+export function brainstormGoneText(path: string): string {
+    const segs = path.split(/[\\/]/);
+    const at = segs.indexOf(RUN_WORKTREES);
+    if (at >= 0 && segs[at + 1]) {
+        return `It lived in a run's worktree (${RUN_WORKTREES}\\${segs[at + 1]}), which has been removed.`;
+    }
+    return `It is no longer at ${path}.`;
 }
 
 // The one level the pane's back control steps up, or null where it draws none: a full-size board goes back to where

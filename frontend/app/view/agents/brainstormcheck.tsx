@@ -11,6 +11,7 @@ import {
     approveBlocker,
     checkAsk,
     checkMain,
+    checkRailLine,
     checkUnder,
     lineBox,
     partTitle,
@@ -25,6 +26,7 @@ import { approveAndOpenRun, openRunLauncher, sendBrainstorm } from "./brainstorm
 import { openBrainstormDesign, setReviewCursor, type BrainstormState } from "./brainstormstore";
 import {
     AnswerBox,
+    BS_RAIL,
     CHIP,
     DesignButton,
     DOT,
@@ -210,13 +212,15 @@ function AskRail({ f, goTo }: { f: BrainstormFile; goTo: (id: string) => void })
         <aside
             data-brainstorm-check-rail
             aria-label="The builder check"
-            className="flex w-[460px] flex-none flex-col gap-[20px] overflow-y-auto border-l border-border bg-surface px-[24px] py-[22px] *:flex-none"
+            className={cn(
+                BS_RAIL,
+                "flex flex-col gap-[20px] overflow-y-auto border-l border-border bg-surface px-[24px] py-[22px] *:flex-none"
+            )}
         >
             <div className="flex flex-col gap-[8px]">
                 <h2 className="m-0 text-[15px] font-semibold text-primary">A builder read the design</h2>
-                <p className="m-0 text-[13px] leading-[1.5] text-ink-mid">
-                    A fresh agent checked whether it could plan from this without coming back to you. It had{" "}
-                    {ask.questions} questions.
+                <p data-brainstorm-check-rail-line className="m-0 text-[13px] leading-[1.5] text-ink-mid">
+                    {checkRailLine(ask.questions)}
                 </p>
             </div>
             {ask.total > 0 ? (
@@ -316,7 +320,7 @@ function ApproveBar({
     return (
         <div
             data-brainstorm-approve-bar
-            className="flex flex-none items-center gap-[14px] border-t border-border bg-surface px-[22px] py-[12px]"
+            className="flex flex-none flex-wrap items-center gap-x-[14px] gap-y-[8px] border-t border-border bg-surface px-[22px] py-[12px]"
         >
             <div className="flex min-w-[240px] flex-1 flex-col gap-[3px]">
                 <span className="whitespace-nowrap text-[13px] font-semibold text-primary">

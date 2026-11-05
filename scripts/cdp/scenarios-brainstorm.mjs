@@ -660,8 +660,9 @@ export const brainstormMode = {
                 s2.view === "design" &&
                 s2.phase === "Talking it through" &&
                 s2.progress === "3 of 8 parts yours" &&
+                // in the design's order: newest first, the builder part last
                 JSON.stringify(s2.segments) ===
-                    JSON.stringify(["yours", "yours", "yours", "guess", "guess", "asked", "guess", "open"]) &&
+                    JSON.stringify(["guess", "asked", "guess", "guess", "yours", "yours", "yours", "open"]) &&
                 !s2.toolbar.includes("guesses") &&
                 s2.question.startsWith("4 → When it pages") &&
                 s2.title === BS_Q4.text &&
@@ -1335,7 +1336,20 @@ export const brainstormMode = {
             reveal3 == null && s12a.ok && s12.ok && s12.text.includes(`${BS_TOPIC}'s brainstorm file is gone`),
             { reveal3, back: s12a.view, ...bsBrief(s12) }
         );
-        const backed = await bsClick(h, BS_PANE, "Back to terminal");
+        const gone = await h.ev(`(${BS_PANE}?.querySelector("[data-brainstorm-gone]")?.innerText ?? "").replace(/\\s+/g, " ").trim()`);
+        rec(
+            "12c. the gone view says only what the path shows: no longer at the file's path, no feature shipped",
+            gone === `It is no longer at ${ctx.file}. The switch disappears once you go back to the terminal.`,
+            { gone, file: ctx.file }
+        );
+        // the one-poll gap of a delete-then-rename write is pinned by the poller's unit tests: timed here it would flake
+        bsWrite(ctx, BS_FILES.late);
+        const s12r = await bsUntil(h, ctx, (s) => s.view === "design" && s.question.includes(BS_Q5.text));
+        await h.shot("cdp-shots/brainstorm-mode-12-restored.png");
+        rec("12d. restoring brainstorm.json returns from the gone view to the design", s12r.ok, bsBrief(s12r));
+        rmSync(ctx.file, { force: true });
+        const s12g = await bsUntil(h, ctx, (s) => s.view === "removed");
+        const backed = s12g.ok ? await bsClick(h, BS_PANE, "Back to terminal") : `never gone again: ${s12g.view}`;
         const s12b = await bsUntil(h, ctx, (s) => s.view == null && s.switch == null && s.terminal === true, 3000);
         const meta3 = await bsTabMeta(h, ctx).catch((e) => `error: ${e?.message ?? e}`);
         await h.shot("cdp-shots/brainstorm-mode-12-back.png");
@@ -1625,7 +1639,64 @@ export const brainstormMainBoard = bsBoardScenario("brainstorm-main", BS_TOPIC, 
             proscons === 0,
         { ...bsBrief(s), why: s.why, options: s.options, extra, proscons }
     );
+
+    const opened = await bsOpenDesign(h);
+    const order = await h.ev(BSM_ORDER);
+    await h.shot("cdp-shots/brainstorm-main-order.png");
+    rec(
+        "2. the progress segments run in the order the decision rows draw: newest first, the builder last",
+        opened &&
+            order.rows.length === 8 &&
+            order.rows.at(-1) === "builder" &&
+            JSON.stringify(order.segments) === JSON.stringify(order.titles),
+        { opened, ...order }
+    );
+
+    await h.cdp("Emulation.setDeviceMetricsOverride", BSM_NARROW);
+    try {
+        await polishNap(400);
+        const rows = await h.ev(BSM_ROW_BOXES);
+        await h.shot("cdp-shots/brainstorm-main-narrow.png");
+        rec(
+            "3. at 1000x700 no decision row's title overlaps its actions, and every gist is wider than 200px",
+            rows.boxes.length === 8 && rows.boxes.every((b) => !b.overlap && b.gist > BSM_MIN_GIST),
+            rows
+        );
+    } finally {
+        await h.cdp("Emulation.clearDeviceMetricsOverride", {}).catch(() => {});
+    }
 });
+
+const BSM_NARROW = { width: 1000, height: 700, deviceScaleFactor: 1, mobile: false };
+const BSM_MIN_GIST = 200;
+// the decision rows' ids and titles, and the progress segments' titles (each segment's title is "<title>: <state>")
+const BSM_ORDER = `(() => {
+    const pane = ${BS_PANE};
+    const rows = [...(pane?.querySelectorAll("[data-brainstorm-decisions] [data-brainstorm-part]") ?? [])];
+    const segs = [...(pane?.querySelectorAll("[data-brainstorm-progress] [data-state]") ?? [])];
+    return {
+        rows: rows.map((r) => r.getAttribute("data-brainstorm-part")),
+        titles: rows.map((r) => (r.querySelector("[data-brainstorm-part-title]")?.textContent ?? "").trim()),
+        segments: segs.map((s) => { const t = s.getAttribute("title") ?? ""; return t.slice(0, t.lastIndexOf(": ")); }),
+    };
+})()`;
+// each decision row: whether its title's box meets its actions' box, and its gist's width
+const BSM_ROW_BOXES = `(() => {
+    const section = ${BS_PANE}?.querySelector("[data-brainstorm-decisions]");
+    const meet = (a, b) => a.width > 0 && b.width > 0 && a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+    return {
+        section: Math.round(section?.getBoundingClientRect().width ?? 0),
+        boxes: [...(section?.querySelectorAll("[data-brainstorm-part]") ?? [])].map((r) => {
+            const title = r.querySelector("[data-brainstorm-part-title]").getBoundingClientRect();
+            const actions = r.querySelector("[data-brainstorm-part-actions]").getBoundingClientRect();
+            return {
+                id: r.getAttribute("data-brainstorm-part"),
+                overlap: meet(title, actions),
+                gist: Math.round(r.querySelector("[data-brainstorm-gist]").getBoundingClientRect().width),
+            };
+        }),
+    };
+})()`;
 
 // the design before the builder check; the copy is the Review-Skim board's
 const BSR_DECISIONS = [

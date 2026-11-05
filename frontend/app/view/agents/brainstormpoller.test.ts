@@ -30,6 +30,7 @@ function state(over: Partial<BrainstormState> = {}): BrainstormState {
         error: null,
         failedReads: 0,
         removed: false,
+        missedStats: 0,
         modifiedMs: null,
         lastViewedMs: 0,
         board: null,
@@ -87,10 +88,41 @@ function fakeIO(disk: Disk, served: string | null = BASE) {
 }
 
 describe("pollBrainstormOnce", () => {
-    it("marks a missing file removed", async () => {
+    it("one missing poll does not mark it removed", async () => {
         const { io, calls } = fakeIO({ exists: false });
-        expect(await pollBrainstormOnce(state(), io)).toEqual({ removed: true });
+        expect(await pollBrainstormOnce(state(), io)).toEqual({ missedStats: 1 });
         expect(calls.reads).toBe(0);
+    });
+
+    it("two missing polls mark it removed", async () => {
+        const { io } = fakeIO({ exists: false });
+        expect(await pollBrainstormOnce(state({ missedStats: 1 }), io)).toEqual({ removed: true, missedStats: 2 });
+    });
+
+    it("an already removed file returns no patch", async () => {
+        const { io } = fakeIO({ exists: false });
+        expect(await pollBrainstormOnce(state({ removed: true, missedStats: 2 }), io)).toEqual({});
+    });
+
+    it("recovers after a removed file comes back", async () => {
+        const { io } = fakeIO({ modifiedMs: 10, text: fileText() });
+        const patch = await pollBrainstormOnce(state({ removed: true, missedStats: 2, modifiedMs: 10 }), io);
+        expect(patch).toMatchObject({ removed: false, missedStats: 0, modifiedMs: 10 });
+        expect(patch.file?.title).toBe("Consumer lag alerts");
+    });
+
+    it("an unchanged mod time after one miss resets missedStats", async () => {
+        const { io, calls } = fakeIO({ modifiedMs: 10, text: fileText() });
+        expect(await pollBrainstormOnce(state({ missedStats: 1, modifiedMs: 10 }), io)).toEqual({ missedStats: 0 });
+        expect(calls.reads).toBe(0);
+    });
+
+    it("a bad read after one miss resets missedStats", async () => {
+        const patch = await pollBrainstormOnce(
+            state({ missedStats: 1 }),
+            fakeIO({ modifiedMs: 11, readFails: true }).io
+        );
+        expect(patch).toEqual({ failedReads: 1, missedStats: 0 });
     });
 
     it("does not read a file whose mod time has not moved", async () => {

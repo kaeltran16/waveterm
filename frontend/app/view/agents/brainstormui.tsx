@@ -71,6 +71,8 @@ export const CHIP =
 export const FIELD =
     "resize-none rounded-[8px] border border-border bg-background px-[12px] py-[9px] text-[13px] leading-[1.5] text-primary outline-none placeholder:text-muted focus:border-warning/60";
 export const LINK = "cursor-pointer text-accent-soft hover:underline";
+// the width of the rail beside the check, review and run: a third of the pane, so a narrow pane keeps its main column
+export const BS_RAIL = "w-[32%] min-w-[260px] max-w-[460px] flex-none";
 export const CARD_LABEL = "font-mono text-[11px] font-semibold";
 export const ERROR_LINE = "text-[12px] text-error";
 export const SECTION_HEAD = "m-0 text-[13px] font-semibold text-secondary";

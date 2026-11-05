@@ -133,10 +133,14 @@ const CR_CHANGED_LINKS = [
     "Changed What the forecast adds",
     "Changed Forecast grain",
 ];
-const CR_HINTS = "j k Next or previous decision Enter Show what it was y Keep the change u Put mine back b Back to the terminal";
+const CR_HINTS = "j k Next or previous decision Enter Open or close the decision y Keep the change u Put mine back b Back to the terminal";
+const CR_NARROW = { width: 1000, height: 700, deviceScaleFactor: 1, mobile: false };
+const CR_MIN_MAIN = 400;
+// verify.mjs pins 1600x950; clearing the override would leave the next scenario the real, smaller window
+const VERIFY_WIDE = { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false };
 
-// kept: the part yours again, still touched, with nothing it was
-function crFile(kept = []) {
+// kept: the part yours again, still touched, with nothing it was. check replaces the builder check's record
+function crFile(kept = [], check = { yours: CR_ANSWERED, calls: CR_CALLS, answered: [], touched: CR_CHANGED.map((c) => c.id) }) {
     const changed = CR_CHANGED.map((c) =>
         kept.includes(c.id)
             ? { id: c.id, title: c.title, state: "yours", gist: c.now, body: c.now }
@@ -151,7 +155,7 @@ function crFile(kept = []) {
         parts: [...changed, CR_GUESS, CR_GRAPH, ...CR_UNCHANGED.map((p) => ({ ...p, state: "yours" })), ...CR_NOTES],
         history: CR_HISTORY,
         done: false,
-        check: { yours: CR_ANSWERED, calls: CR_CALLS, answered: [], touched: CR_CHANGED.map((c) => c.id) },
+        check,
         run: null,
     };
 }
@@ -257,6 +261,19 @@ export default function (kit) {
             };
         })()`);
 
+    // the review's main column is the review's parent; Approve must sit inside the viewport and the pane must not scroll sideways
+    const NARROW_GEOMETRY = `(() => {
+        const pane = ${BS_PANE};
+        const review = pane?.querySelector("[data-brainstorm-review]");
+        const approve = pane?.querySelector("[data-brainstorm-approve]")?.getBoundingClientRect();
+        const main = review?.parentElement?.getBoundingClientRect();
+        return {
+            main: Math.round(main?.width ?? 0),
+            approveInside: !!approve && !!main && approve.left >= main.left && approve.right <= main.right && approve.right <= window.innerWidth,
+            hscroll: document.scrollingElement.scrollWidth > window.innerWidth || (pane?.scrollWidth ?? 0) > (pane?.clientWidth ?? 0),
+        };
+    })()`;
+
     async function key(h, name) {
         const { text, ...def } = CR_KEYS[name];
         await h.cdp("Input.dispatchKeyEvent", { type: "keyDown", ...def, text });
@@ -335,6 +352,20 @@ export default function (kit) {
                     r.fresh.find((x) => x.id === "graph")?.said === "",
                 { torch, changedSaid: r.changed.map((x) => x.said) }
             );
+
+            await h.cdp("Emulation.setDeviceMetricsOverride", CR_NARROW);
+            try {
+                await polishNap(400);
+                const n = await h.ev(NARROW_GEOMETRY);
+                await h.shot("cdp-shots/brainstorm-check-review-narrow.png");
+                rec(
+                    "1c. at 1000x700 the review's main column is wider than 400px and Approve is inside the viewport with no horizontal scroll",
+                    n.main > CR_MIN_MAIN && n.approveInside && !n.hscroll,
+                    n
+                );
+            } finally {
+                await h.cdp("Emulation.setDeviceMetricsOverride", VERIFY_WIDE).catch(() => {});
+            }
 
             await h.ev(`${ROW("constraints")}?.querySelector("[data-brainstorm-review-toggle]")?.click()`);
             await polishNap(300);
@@ -426,6 +457,27 @@ export default function (kit) {
                     k.keepAll === "Keep all 7 changes" &&
                     k.blocker === "Review 7 changes, confirm 1 guess, answer question 16",
                 { keptDrawn, kept, successRgb, blocker: k.blocker, keepAll: k.keepAll }
+            );
+
+            // every touched decision kept and one builder question: no row has a was to open, and the rail counts one question
+            const allKept = CR_CHANGED.map((c) => c.id);
+            bsWrite(ctx, crFile(allKept, { yours: [CR_ANSWERED[0]], calls: [], answered: [], touched: allKept }));
+            const bareDrawn = await polishWaitFor(h, `${REVIEW}?.querySelector('[data-brainstorm-review-section="changed"]')?.firstElementChild?.innerText.includes("what it was") === false`, BS_POLL_WAIT_MS);
+            const bare = await read(h);
+            await h.shot("cdp-shots/brainstorm-check-review-no-was.png");
+            rec(
+                "6b. a touched row with no was reads Show it, no caption says what it was, and the hint for Enter reads Open or close the decision",
+                bareDrawn &&
+                    // an earlier step left grain open, so a row reads Hide it
+                    bare.changed.every((x) => x.toggle === "Show it" || x.toggle === "Hide it") &&
+                    !bare.changedHead.includes("what it was") &&
+                    bare.hints.includes("Enter Open or close the decision"),
+                { bareDrawn, toggles: bare.changed.map((x) => x.toggle), changedHead: bare.changedHead, hints: bare.hints }
+            );
+            rec(
+                "6c. the review rail counts one builder question as 1 question",
+                bare.railLine.startsWith("It had 1 question:"),
+                { railLine: bare.railLine }
             );
 
             const answerClicked = await bsClick(h, ROW("graph"), "Answer question 16");
