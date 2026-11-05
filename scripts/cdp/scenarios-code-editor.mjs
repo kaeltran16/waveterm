@@ -55,6 +55,26 @@ async function mouse(h, x, y, button) {
     }
 }
 
+// monaco's menu runs an item on a mouseup over the item it has focused on hover, so the pointer moves onto the item
+// and waits for that focus (or a short settle) before it presses
+async function clickMenuItem(h) {
+    const item = await h.ev(`(() => { const b = ${MENU_ITEM}?.getBoundingClientRect(); return b ? { x: b.left + b.width / 2, y: b.top + b.height / 2 } : null; })()`);
+    if (item == null) return null;
+    await h.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", x: item.x, y: item.y, button: "none" });
+    const focused = await polishWaitFor(h, `!!${MENU_ITEM}?.classList.contains('focused')`, 1000);
+    if (!focused) await new Promise((r) => setTimeout(r, 200));
+    await mouse(h, item.x, item.y, "left");
+    return item;
+}
+
+// the gap between the commented line and the next, or null while either is not drawn
+const LINE_GAP = `(() => {
+    const lines = [...document.querySelectorAll(".monaco-editor .view-line")];
+    const a = lines.find((l) => l.textContent.replace(/\\u00a0/g, " ").trim() === ${JSON.stringify(sourceLine(COMMENTED))})?.getBoundingClientRect();
+    const b = lines.find((l) => l.textContent.replace(/\\u00a0/g, " ").trim() === ${JSON.stringify(sourceLine(COMMENTED + 1))})?.getBoundingClientRect();
+    return a && b ? b.top - a.bottom : null;
+})()`;
+
 // the middle of a rendered source line, or null while it is not drawn
 function linePoint(h, n) {
     return h.ev(`(() => {
@@ -97,15 +117,24 @@ export const codeEditor = {
         if (at != null) await mouse(h, at.x, at.y, "right");
         const listed = (await polishWaitFor(h, `!!${MENU_ITEM}`, 3000)) === true;
         await h.shot("cdp-shots/code-editor-context-menu.png");
-        const item = await h.ev(`(() => { const b = ${MENU_ITEM}?.getBoundingClientRect(); return b ? { x: b.left + b.width / 2, y: b.top + b.height / 2 } : null; })()`);
-        if (item != null) await mouse(h, item.x, item.y, "left");
-        const shown = (await polishWaitFor(h, `!!${INPUT}`, 3000)) === true;
+        const item = await clickMenuItem(h);
+        let shown = item != null && (await polishWaitFor(h, `!!${INPUT}`, 1500)) === true;
+        let retried = false;
+        if (item != null && !shown) {
+            // the one retry goes through the menu item too, reopening the menu if the first click closed it
+            retried = true;
+            if (!(await h.ev(`!!${MENU_ITEM}`)) && at != null) {
+                await mouse(h, at.x, at.y, "right");
+                await polishWaitFor(h, `!!${MENU_ITEM}`, 3000);
+            }
+            shown = (await clickMenuItem(h)) != null && (await polishWaitFor(h, `!!${INPUT}`, 3000)) === true;
+        }
         const label = await h.ev(`${INPUT}?.getAttribute('aria-label') ?? null`);
         await h.shot("cdp-shots/code-editor-context-comment.png");
         rec(
             "the context menu lists Add review comment and it opens the comment input",
             listed && shown && label === `Comment on line ${COMMENTED}`,
-            JSON.stringify({ at, listed, item, shown, label })
+            JSON.stringify({ at, listed, item, shown, label, retried })
         );
 
         // the zone under the commented line pushes the next line below the input
@@ -123,12 +152,9 @@ export const codeEditor = {
             JSON.stringify(room)
         );
         const closed = await cancelInput(h);
-        const after = await h.ev(`(() => {
-            const lines = [...document.querySelectorAll(".monaco-editor .view-line")];
-            const a = lines.find((l) => l.textContent.replace(/\\u00a0/g, " ").trim() === ${JSON.stringify(sourceLine(COMMENTED))})?.getBoundingClientRect();
-            const b = lines.find((l) => l.textContent.replace(/\\u00a0/g, " ").trim() === ${JSON.stringify(sourceLine(COMMENTED + 1))})?.getBoundingClientRect();
-            return a && b ? b.top - a.bottom : null;
-        })()`);
+        // monaco removes the view zone a moment after the input unmounts
+        await polishWaitFor(h, `(() => { const g = ${LINE_GAP}; return g != null && Math.abs(g) < 1; })()`, 3000);
+        const after = await h.ev(LINE_GAP);
         rec("Escape closes the input and its gap", closed && after != null && Math.abs(after) < 1, JSON.stringify({ closed, gap: after }));
 
         const readme = await openFileInCode(h, README);
