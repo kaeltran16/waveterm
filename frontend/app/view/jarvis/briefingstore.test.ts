@@ -170,6 +170,24 @@ describe("briefing cursor", () => {
         expect(globalStore.get(briefingStateAtom).snapshot?.complete).toBe(false);
     });
 
+    it("is not complete when the efforts leg is missing: Behind you's initiative events come from it", async () => {
+        mockStateRpc({
+            projects: [],
+            sources: { runs: true, sessions: true, dossiers: true, efforts: false, attention: "volatile" },
+        });
+        await loadBriefingAsync();
+        expect(globalStore.get(briefingStateAtom).snapshot?.complete).toBe(false);
+    });
+
+    it("stays complete with only the sessions leg missing", async () => {
+        mockStateRpc({
+            projects: [],
+            sources: { runs: true, sessions: false, dossiers: true, efforts: true, attention: "volatile" },
+        });
+        await loadBriefingAsync();
+        expect(globalStore.get(briefingStateAtom).snapshot?.complete).toBe(true);
+    });
+
     it("writes nothing to storage when no seen mark is due", async () => {
         globalStore.set(briefingCursorAtom, T0 - DAY);
         globalStore.set(briefingSeenMarksAtom, [{ through: T0 - 1000, at: T0 - 1000 }]);

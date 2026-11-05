@@ -10,15 +10,19 @@ import {
     buildAttentionQueue,
     capRegion,
     DELTA_CAP,
+    effectiveCursor,
     EFFORT_CAP,
     groupDelta,
     mergeActiveWork,
+    missingLegs,
     projectBriefing,
     queueAction,
+    queueActions,
     queueKindLabel,
     queueOpenTarget,
     SHIPPED_CAP,
     summarizeAttentionQueue,
+    withoutSettledChunks,
     type AgentRow,
     type BlockerRow,
     type BriefingModelInput,
@@ -26,6 +30,8 @@ import {
     type QueueRow,
     type RunRow,
 } from "./briefingmodel";
+import { initiativeLine, queueLine } from "./briefrows";
+import { chunkKey } from "./briefundo";
 import type { EffortCardModel } from "./effortmodel";
 
 const HOUR = 60 * 60 * 1000;
@@ -184,6 +190,49 @@ describe("briefing projection", () => {
         expect(m.delta[0].title).toBe("old work");
     });
 
+    // F1: the server groups the delta per project and sorts the projects by key, so "" came first
+    it("Behind you lists the newest events first across projects", () => {
+        const m = projectBriefing(
+            input(
+                workState([
+                    {
+                        project: "",
+                        active: [],
+                        shipped: [],
+                        events: [],
+                        delta: [{ ts: T0 - 3 * HOUR, kind: "decision", title: "chose sqlite" }],
+                    },
+                    {
+                        project: "C:/x",
+                        active: [],
+                        shipped: [],
+                        events: [],
+                        delta: [
+                            { ts: T0 - 2 * HOUR, kind: "run-created", title: "a run", navtarget: "run:r-x" },
+                            { ts: T0 - HOUR, kind: "decision", title: "b tie" },
+                        ],
+                    },
+                    {
+                        project: "zeta",
+                        active: [],
+                        shipped: [],
+                        events: [],
+                        delta: [
+                            {
+                                ts: T0 - HOUR,
+                                kind: "effort-note",
+                                title: "an initiative",
+                                detail: "c1 · a note",
+                                navtarget: "effort:e-z",
+                            },
+                        ],
+                    },
+                ])
+            )
+        );
+        expect(m.delta.map((d) => d.title)).toEqual(["b tie", "an initiative", "a run", "chose sqlite"]);
+    });
+
     it("orders shipped rows newest first across projects", () => {
         const item = (project: string, runoid: string, completedts: number): ShippedItem => ({
             project,
@@ -262,9 +311,9 @@ describe("briefing projection", () => {
             input(workState([{ project: "waveterm", active: [attention], shipped: [], events: [], delta }]))
         );
         expect(m.delta.map((d) => [d.ts, d.title, d.detail])).toEqual([
-            [T0 - 2 * HOUR, "the ask", "check it"],
             [T0 - HOUR, "another ask", "check it"],
             [T0 - HOUR, "the ask", "check something else"],
+            [T0 - 2 * HOUR, "the ask", "check it"],
             [T0 - 3 * HOUR, "unrelated", "unrelated"],
         ]);
     });
@@ -350,7 +399,7 @@ describe("briefing projection", () => {
         const m = projectBriefing(input(state));
         const q = buildAttentionQueue({ attention: [], efforts: m.efforts });
         const row = q.find((r) => r.title === "Phase 5");
-        expect(row?.kind).toBe("chunk blocked");
+        expect(queueKindLabel(row!)).toBe("blocked");
         expect(row?.detail).toBe("Scenario gate clearance");
         expect(row?.nav).toEqual({ kind: "effort", oref: "effort:scenario-gate" });
     });
@@ -656,17 +705,6 @@ describe("briefing projection fields", () => {
         );
         expect(m.delta).toEqual([
             {
-                key: `decision:${T0 - DAY}:chose sqlite`,
-                ts: T0 - DAY,
-                kind: "decision",
-                title: "chose sqlite",
-                wording: "Decision recorded",
-                detail: "because",
-                oref: "decision:d1",
-                project: "",
-                effortOid: "",
-            },
-            {
                 key: `decision:${T0 - HOUR}:bare`,
                 ts: T0 - HOUR,
                 kind: "decision",
@@ -674,6 +712,17 @@ describe("briefing projection fields", () => {
                 wording: "Decision recorded",
                 detail: null,
                 oref: null,
+                project: "",
+                effortOid: "",
+            },
+            {
+                key: `decision:${T0 - DAY}:chose sqlite`,
+                ts: T0 - DAY,
+                kind: "decision",
+                title: "chose sqlite",
+                wording: "Decision recorded",
+                detail: "because",
+                oref: "decision:d1",
                 project: "",
                 effortOid: "",
             },
@@ -692,6 +741,16 @@ describe("briefing projection fields", () => {
             missingLegs: ["Runs", "Records"],
             attentionState: "volatile",
         });
+    });
+
+    it("names a missing efforts leg as Initiatives, and a missing sessions leg not at all", () => {
+        const health = (over: Partial<SourceHealth>) => {
+            const state = workState([]);
+            state.sources = { ...state.sources, ...over };
+            return projectBriefing(input(state)).health;
+        };
+        expect(health({ efforts: false })).toMatchObject({ complete: false, missingLegs: ["Initiatives"] });
+        expect(health({ sessions: false })).toMatchObject({ complete: true, missingLegs: [] });
     });
 
     it("orders the efforts newest-updated first whatever order the wire sent", () => {
@@ -928,6 +987,50 @@ describe("unified active work", () => {
         expect(rows.map((r) => r.oref)).toEqual(["run:a", "run:z"]);
     });
 
+    it("a run row's key does not change when an asking agent arrives above it", () => {
+        const runs = [run({ oref: "run:a", ts: T0 - HOUR }), run({ oref: "run:b", ts: T0 - 2 * HOUR })];
+        const keys = (rows: ReturnType<typeof mergeActiveWork>) =>
+            rows.filter((r) => r.kind === "run").map((r) => [r.oref, r.key]);
+        const before = mergeActiveWork({ activeRuns: runs, blockers: [], directAgents: [] });
+        const after = mergeActiveWork({
+            activeRuns: runs,
+            blockers: [],
+            directAgents: [agentRow({ state: "asking" })],
+        });
+        expect(after[0].kind).toBe("agent");
+        expect(keys(after)).toEqual(keys(before));
+        expect(keys(after)).toEqual([
+            ["run:a", "run:run:a"],
+            ["run:b", "run:run:b"],
+        ]);
+    });
+
+    it("keeps colliding run keys unique without their position", () => {
+        // a run item with no navtarget reads oref "run:", so all four share one key; two share a ts too
+        const blank = (goal: string, ts: number) => run({ oref: "run:", oid: "", goal, ts });
+        const runs = [
+            blank("one", T0 - HOUR),
+            blank("two", T0 - 2 * HOUR),
+            blank("three", T0 - 3 * HOUR),
+            blank("four", T0 - 3 * HOUR),
+        ];
+        const keys = (rows: ReturnType<typeof mergeActiveWork>) =>
+            Object.fromEntries(rows.filter((r) => r.oref === "run:").map((r) => [r.name, r.key]));
+        const before = keys(mergeActiveWork({ activeRuns: runs, blockers: [], directAgents: [] }));
+        expect(new Set(Object.values(before)).size).toBe(4);
+        expect(before.one).toBe(`run:run::${T0 - HOUR}`);
+        expect([before.three, before.four]).toEqual([`run:run::${T0 - 3 * HOUR}:0`, `run:run::${T0 - 3 * HOUR}:1`]);
+        // a roster change elsewhere: a newer run and an asking agent sort above all four
+        const after = keys(
+            mergeActiveWork({
+                activeRuns: [run({ oref: "run:new", ts: T0 }), ...runs],
+                blockers: [],
+                directAgents: [agentRow({ state: "asking" })],
+            })
+        );
+        expect(after).toEqual(before);
+    });
+
     it("stays deterministic when timestamps collide", () => {
         const rows = mergeActiveWork({
             activeRuns: [run({ oref: "run:z", ts: T0 }), run({ oref: "run:a", ts: T0 })],
@@ -966,13 +1069,27 @@ describe("buildAttentionQueue", () => {
         expect(q.map((r) => r.key)).toEqual(["dag-blocked:d1", "ask:w1"]);
     });
 
+    // F7: pins the kind the row draws, not a field nothing renders
     it("writes a label for every kind the server can emit", () => {
         const kinds = ["escalation", "ask", "dag-blocked", "run-land-held", "run-unverified"];
         const q = buildAttentionQueue({
             attention: kinds.map((k, i) => item({ kind: k, key: k + i })),
             efforts: [],
         });
-        expect(q.map((r) => r.kind)).toEqual(["escalation", "ask", "dag blocked", "land held", "unverified"]);
+        expect(q.map((r) => queueLine(r, T0).kind)).toEqual(["ask", "ask", "blocked", "land held", "unverified"]);
+    });
+
+    it("counts unverified runs and held lands by their own words", () => {
+        const q = buildAttentionQueue({
+            attention: [
+                item({ kind: "run-unverified", key: "u1", waitingsince: 0 }),
+                item({ kind: "run-unverified", key: "u2", waitingsince: 0 }),
+                item({ kind: "run-land-held", key: "l1", waitingsince: 0 }),
+                item({ kind: "run-land-held", key: "l2", waitingsince: 0 }),
+            ],
+            efforts: [],
+        });
+        expect(summarizeAttentionQueue(q, T0)?.detail).toBe("2 unverified · 2 held lands");
     });
 
     it("gives a dag-blocked row the error tone and the rest the asking tone", () => {
@@ -1023,7 +1140,6 @@ describe("buildAttentionQueue", () => {
             attention: [item({ kind: "workflow-scan", key: "workflow-scan:r1", oref: "workflowscan:r1" })],
             efforts: [],
         });
-        expect(q[0]!.kind).toBe("workflow scan");
         expect(queueKindLabel(q[0]!)).toBe("workflow scan");
         expect(q[0]!.nav).toEqual({ kind: "oref", oref: "workflowscan:r1" });
         expect(queueOpenTarget(q[0]!.nav)).toEqual({ kind: "oref", oref: "workflowscan:r1" });
@@ -1070,9 +1186,9 @@ describe("buildAttentionQueue", () => {
         expect(q[0]!.cites).toEqual(["docs/plans/auth.md", "pkg/auth/plan.go"]);
     });
 
-    it("still falls through to the raw wire kind for a kind it has never seen", () => {
+    it("reads a kind it has never seen as blocked", () => {
         const q = buildAttentionQueue({ attention: [item({ kind: "some-future-kind", key: "f1" })], efforts: [] });
-        expect(q[0]!.kind).toBe("some-future-kind");
+        expect(queueKindLabel(q[0]!)).toBe("blocked");
     });
 
     it("puts blocked chunks after the wire rows and leaves them ageless", () => {
@@ -1084,7 +1200,7 @@ describe("buildAttentionQueue", () => {
             })
         ).efforts;
         const q = buildAttentionQueue({ attention: [item({})], efforts });
-        expect(q.map((r) => r.kind)).toEqual(["escalation", "chunk blocked"]);
+        expect(q.map((r) => r.wireKind)).toEqual(["escalation", "chunk-blocked"]);
         expect(q[1]!.ts).toBeNull();
     });
 });
@@ -1111,7 +1227,6 @@ describe("buildAttentionQueue rows", () => {
         );
         expect(row).toEqual({
             key: "dag-blocked:d1:t-3",
-            kind: "dag blocked",
             title: "Approve before Jarvis proceeds.",
             source: "ship the ledger",
             detail: "ship the ledger · #waveterm",
@@ -1184,7 +1299,6 @@ describe("buildAttentionQueue rows", () => {
         expect(rows).toEqual([
             {
                 key: "chunk:effort:e-1:Phase 5",
-                kind: "chunk blocked",
                 title: "Phase 5",
                 source: "Gate",
                 detail: "Gate",
@@ -1240,7 +1354,6 @@ describe("buildAttentionQueue rows", () => {
         expect(rows).toEqual([
             {
                 key: "blocker:task:d1",
-                kind: "blocked",
                 wireKind: "blocker",
                 title: "Clear the gate",
                 source: "p",
@@ -1259,7 +1372,6 @@ describe("buildAttentionQueue rows", () => {
             },
             {
                 key: "blocker:",
-                kind: "blocked",
                 wireKind: "blocker",
                 title: "Loose end",
                 source: "",
@@ -1384,7 +1496,6 @@ describe("design queue wording", () => {
     const q = (over: Partial<QueueRow>): QueueRow =>
         ({
             key: "k" + Math.random(),
-            kind: "escalation",
             wireKind: "escalation",
             title: "t",
             source: "s",
@@ -1456,5 +1567,116 @@ describe("design queue wording", () => {
         expect(queueKindLabel(rows[0])).toBe("blocked");
         expect(rows[0].nav).toEqual({ kind: "record", oref: "task:d1" });
         expect(queueOpenTarget(rows[0].nav)).toEqual({ kind: "oref", oref: "task:d1" });
+    });
+});
+
+describe("queueActions", () => {
+    const item = attentionItem;
+    const rowOf = (a: AttentionItem) => buildAttentionQueue({ attention: [a], efforts: [] })[0]!;
+    const labels = (r: QueueRow) => queueActions(r).map((a) => a.label);
+
+    // F8: the queue offers the verbs the pet offers for the same item
+    it("offers Retry land and Dismiss for a held land with a channel and a run", () => {
+        expect(queueActions(rowOf(item({ kind: "run-land-held", key: "l1" })))).toEqual([
+            { label: "Retry land", kind: "land-run" },
+            { label: "Dismiss", kind: "dismiss-land" },
+        ]);
+        expect(labels(rowOf(item({ kind: "run-land-held", key: "l2", runid: "" })))).toEqual(["Open"]);
+    });
+
+    // F9: a row with nowhere to go draws no button rather than a dead Open
+    it("offers nothing for a row with no target and no chunk", () => {
+        expect(queueActions(rowOf(item({ kind: "ask", channelid: "", channelname: "", runid: "" })))).toEqual([]);
+        const blocker = buildAttentionQueue({
+            attention: [],
+            efforts: [],
+            blockers: [{ oref: "", objective: "Loose end", blockers: "", project: null, ts: 6 }],
+        })[0]!;
+        expect(queueActions(blocker)).toEqual([]);
+    });
+
+    it("keeps Unblock and Done on a blocked chunk, which names no channel", () => {
+        const chunk = buildAttentionQueue({
+            attention: [],
+            efforts: [
+                {
+                    oref: "effort:e-1",
+                    title: "Gate",
+                    blockedChunks: [{ label: "Phase 5", since: 40, needs: "" }],
+                } as unknown as EffortCardModel,
+            ],
+        })[0]!;
+        expect(labels(chunk)).toEqual(["Unblock", "Done"]);
+    });
+});
+
+describe("withoutSettledChunks", () => {
+    const card = (blocked: string[]) =>
+        ({
+            oref: "effort:e-1",
+            title: "Gate",
+            status: "active",
+            blockedChunks: blocked.map((label) => ({ label, since: 40, needs: "" })),
+        }) as unknown as EffortCardModel;
+    const settledAt = (label: string, ts: number) => new Map([[chunkKey("effort:e-1", label), ts]]);
+
+    it("drops a chunk settled after the snapshot started", () => {
+        const [c] = withoutSettledChunks([card(["a", "b"])], settledAt("a", T0 + 1000), T0);
+        expect(c.blockedChunks.map((b) => b.label)).toEqual(["b"]);
+        expect(buildAttentionQueue({ attention: [], efforts: [c] }).map((r) => r.title)).toEqual(["b"]);
+    });
+
+    // a reload already in flight when the user clicked returns pre-write data
+    it("keeps a chunk settled against a snapshot that started before the act", () => {
+        const [c] = withoutSettledChunks([card(["a"])], settledAt("a", T0 + 1000), T0 + 999);
+        expect(c.blockedChunks).toEqual([]);
+    });
+
+    it("shows the chunk again once a snapshot started after the act", () => {
+        const [c] = withoutSettledChunks([card(["a"])], settledAt("a", T0), T0 + 1);
+        expect(c.blockedChunks.map((b) => b.label)).toEqual(["a"]);
+    });
+
+    it("moves the initiative's N blocked with it", () => {
+        const [c] = withoutSettledChunks([card(["a", "b"])], settledAt("a", T0 + 1000), T0);
+        expect(initiativeLine(card(["a", "b"])).state).toBe("2 blocked");
+        expect(initiativeLine(c).state).toBe("1 blocked");
+    });
+
+    it("hands back the same card when nothing of it is settled", () => {
+        const cards = [card(["a"])];
+        expect(withoutSettledChunks(cards, new Map(), T0)[0]).toBe(cards[0]);
+    });
+});
+
+describe("effectiveCursor", () => {
+    it("reads the later of the snapshot's cursor and the visit cursor", () => {
+        expect(effectiveCursor(T0, T0 + 5)).toBe(T0 + 5);
+        expect(effectiveCursor(T0, T0 - 5)).toBe(T0);
+    });
+
+    it("reads the snapshot's cursor when no visit cursor is stored", () => {
+        expect(effectiveCursor(T0, null)).toBe(T0);
+        expect(effectiveCursor(T0, undefined)).toBe(T0);
+    });
+});
+
+describe("missingLegs", () => {
+    const all: SourceHealth = { runs: true, sessions: true, dossiers: true, efforts: true, attention: "volatile" };
+
+    it("names each leg the snapshot could not read, in order", () => {
+        expect(missingLegs(all)).toEqual([]);
+        expect(missingLegs({ ...all, runs: false })).toEqual(["Runs"]);
+        expect(missingLegs({ ...all, dossiers: false })).toEqual(["Records"]);
+        expect(missingLegs({ ...all, efforts: false })).toEqual(["Initiatives"]);
+        expect(missingLegs({ ...all, runs: false, dossiers: false, efforts: false })).toEqual([
+            "Runs",
+            "Records",
+            "Initiatives",
+        ]);
+    });
+
+    it("names nothing for a missing sessions leg: the Brief draws no row from it", () => {
+        expect(missingLegs({ ...all, sessions: false })).toEqual([]);
     });
 });

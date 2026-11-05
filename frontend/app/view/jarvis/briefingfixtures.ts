@@ -7,9 +7,10 @@
 // out of production builds (only reachable through the briefingFixtureAtom seam, which import.meta.env.DEV
 // gates).
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
+import { missingLegs, SHIPPED_CAP } from "./briefingmodel";
 import type { BriefingLoadState } from "./briefingstore";
 
-export type BriefingFixtureName = "normal" | "attention" | "empty" | "partial" | "failed" | "act";
+export type BriefingFixtureName = "normal" | "attention" | "empty" | "partial" | "failed" | "act" | "review";
 export interface BriefingFixture {
     load: BriefingLoadState;
     agents: AgentVM[];
@@ -169,9 +170,14 @@ const attentionState: WorkState = {
     efforts: EFFORT_FIXTURES,
 };
 
+// the runs and efforts legs failed: the server degrades each to empty and says so in sources
 const partialState: WorkState = {
-    projects: normalState.projects,
-    sources: { runs: false, sessions: true, dossiers: true, efforts: true, attention: "volatile" },
+    projects: normalState.projects.map((p) => ({
+        ...p,
+        active: (p.active ?? []).filter((a) => a.kind !== "run"),
+        shipped: [],
+    })),
+    sources: { runs: false, sessions: true, dossiers: true, efforts: false, attention: "volatile" },
 };
 
 const emptyState: WorkState = {
@@ -180,7 +186,12 @@ const emptyState: WorkState = {
 };
 
 const loaded = (state: WorkState): BriefingLoadState => ({
-    snapshot: { state, queryStartedAt: NOW, actualCursor: NOW - 7 * DAY, complete: true },
+    snapshot: {
+        state,
+        queryStartedAt: NOW,
+        actualCursor: NOW - 7 * DAY,
+        complete: missingLegs(state.sources).length === 0,
+    },
     loading: false,
     error: null,
 });
@@ -354,6 +365,131 @@ const actState: WorkState = {
     efforts: ACT_EFFORTS,
 };
 
+// "review": the 11-05 code review's Waiting and Behind you findings (brief-act steps 12 on). A run-unverified
+// pair and a held land read by their own kind words; the held land offers Retry land and Dismiss; an ask
+// with no channel offers nothing. Behind you: six decisions in the "" project, which the server lists first,
+// all older than a run and an initiative from today, and that initiative's 40 notes, which fold to one row.
+const MIN = 60_000;
+const REVIEW_PROJECT = "C:\\Users\\dev\\IdeaProjects\\waveterm";
+const REVIEW_EFFORT = "review-notes";
+const reviewRun = (kind: string, runid: string, source: string, text: string, reason?: string): AttentionItem => ({
+    kind,
+    key: `${kind}:${runid}`,
+    channelid: "ch-review",
+    channelname: "waveterm",
+    runid,
+    source,
+    text,
+    reason,
+    action: "Review",
+    phaseidx: 0,
+    waitingsince: NOW - 2 * HOUR,
+});
+const reviewAttention: AttentionItem[] = [
+    reviewRun("run-unverified", "r-review-u1", "review unverified one", "The run landed but its Verify never ran."),
+    reviewRun("run-unverified", "r-review-u2", "review unverified two", "The run landed but its Verify never ran."),
+    reviewRun(
+        "run-land-held",
+        "r-review-held",
+        "review held land",
+        "The run's branch was not merged back: the merge conflicts with main in pkg/x.go",
+        "the merge conflicts with main in pkg/x.go"
+    ),
+    {
+        kind: "ask",
+        key: "ask:review-standalone",
+        source: "review standalone ask",
+        text: "Which tenant goes first?",
+        action: "Answer",
+        phaseidx: 0,
+        waitingsince: NOW - HOUR,
+    },
+];
+// Runs: twelve orchestrator runs a week quiet beside two live quick runs, so the kind chips and the head's
+// "N live" can disagree (F15), and an asking direct agent whose Answer goes to the agent (F6)
+const reviewRuns = (n: number, tag: string, mode: string, age: number): ActiveWorkItem[] =>
+    Array.from({ length: n }, (_, i) => ({
+        project: REVIEW_PROJECT,
+        kind: "run",
+        title: `Review ${tag} ${mode} run ${i + 1}`,
+        detail: "status: executing",
+        ts: NOW - age - i * MIN,
+        navtarget: `run:r-review-${tag}-${i + 1}`,
+        mode,
+    }));
+const REVIEW_ASKER: AgentVM = {
+    id: "tab-review-asker",
+    name: "review asker",
+    task: "pick the first tenant",
+    state: "asking",
+    agent: "claude",
+    project: "waveterm",
+    blockedMs: 5 * MIN,
+};
+const reviewState: WorkState = {
+    projects: [
+        {
+            project: "",
+            active: [],
+            shipped: [],
+            events: [],
+            delta: Array.from({ length: 6 }, (_, i) => ({
+                ts: NOW - (20 + i) * MIN,
+                kind: "decision",
+                title: `review decision ${i + 1}`,
+            })),
+        },
+        {
+            project: REVIEW_PROJECT,
+            active: [...reviewRuns(12, "stale", "orchestrator", 10 * DAY), ...reviewRuns(2, "live", "quick", 20 * MIN)],
+            shipped: [
+                {
+                    project: REVIEW_PROJECT,
+                    runoid: "r-review-shipped",
+                    goal: "Review shipped run",
+                    summary: "shipped for the review fixture",
+                    completedts: NOW - 3 * HOUR,
+                    mode: "quick",
+                },
+                // past Shipped's cap, for the run sheet to step into its fold (F16)
+                ...Array.from({ length: SHIPPED_CAP + 1 }, (_, i) => ({
+                    project: REVIEW_PROJECT,
+                    runoid: `r-review-shipped-${i + 1}`,
+                    goal: `Review shipped run ${i + 1}`,
+                    summary: "shipped for the review fixture",
+                    completedts: NOW - (4 + i) * HOUR,
+                    mode: "quick",
+                })),
+            ],
+            events: [],
+            delta: [
+                {
+                    ts: NOW - 10 * MIN,
+                    kind: "run-created",
+                    project: REVIEW_PROJECT,
+                    title: "Review run from today",
+                    detail: "status: executing",
+                    navtarget: "run:r-review-today",
+                },
+                ...Array.from({ length: 40 }, (_, i) => ({
+                    ts: NOW - 2 * MIN - i * 5000,
+                    kind: "effort-note",
+                    project: "waveterm",
+                    title: "Review notes initiative",
+                    detail: `N1 the note chunk · note ${40 - i} on the chunk.`,
+                    navtarget: "effort:" + REVIEW_EFFORT,
+                })),
+            ],
+        },
+    ],
+    sources: { runs: true, sessions: true, dossiers: true, efforts: true, attention: "volatile" },
+    efforts: [
+        actEffort(REVIEW_EFFORT, "Review notes initiative", 2 * MIN, [
+            { label: "N1 the note chunk", status: "active" },
+        ]),
+    ],
+};
+
 export const BRIEFING_FIXTURES: Record<BriefingFixtureName, BriefingFixture> = {
     normal: { load: loaded(normalState), agents, attention: [] },
     attention: { load: loaded(attentionState), agents, attention: attentionItems },
@@ -361,4 +497,5 @@ export const BRIEFING_FIXTURES: Record<BriefingFixtureName, BriefingFixture> = {
     partial: { load: loaded(partialState), agents, attention: [] },
     failed: { load: { snapshot: null, loading: false, error: "fixture failure" }, agents: [], attention: [] },
     act: { load: loaded(actState), agents: [], attention: [] },
+    review: { load: loaded(reviewState), agents: [REVIEW_ASKER], attention: reviewAttention },
 };

@@ -1,8 +1,21 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { describe, expect, it } from "vitest";
-import { detailOps, effortChunkRows, effortDetailIsFresh } from "./effortstore";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("@/app/store/wshclientapi", () => ({ RpcApi: { EffortGetCommand: vi.fn() } }));
+vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
+
+import { globalStore } from "@/app/store/jotaiStore";
+import { RpcApi } from "@/app/store/wshclientapi";
+import {
+    detailOps,
+    effortChunkRows,
+    effortDetailAtom,
+    effortDetailIsFresh,
+    effortLoadErrorAtom,
+    loadEffortDetail,
+} from "./effortstore";
 
 const effort = {
     oid: "abc",
@@ -79,6 +92,34 @@ describe("effortDetailIsFresh", () => {
     // refetching on every render
     it("trusts any cached copy when no timestamp is offered", () => {
         expect(effortDetailIsFresh(cached, undefined)).toBe(true);
+    });
+});
+
+// a first load that fails is never retried by effort sync (it refreshes cached orefs only), so the failure
+// has to stay where the open initiative can draw it
+describe("loadEffortDetail", () => {
+    const get = vi.mocked(RpcApi.EffortGetCommand);
+
+    it("records a failed load under its oref and rethrows; a later success clears it", async () => {
+        globalStore.set(effortDetailAtom, new Map());
+        globalStore.set(effortLoadErrorAtom, new Map());
+        get.mockRejectedValueOnce(new Error("timeout"));
+        await expect(loadEffortDetail("effort:x")).rejects.toThrow("timeout");
+        expect(globalStore.get(effortLoadErrorAtom).get("effort:x")).toBe("timeout");
+        expect(globalStore.get(effortDetailAtom).has("effort:x")).toBe(false);
+
+        get.mockResolvedValueOnce({ effort } as unknown as CommandEffortGetRtnData);
+        await loadEffortDetail("effort:x");
+        expect(globalStore.get(effortLoadErrorAtom).has("effort:x")).toBe(false);
+        expect(globalStore.get(effortDetailAtom).get("effort:x")).toBe(effort);
+    });
+
+    it("clears a recorded load error when a reload starts", () => {
+        globalStore.set(effortDetailAtom, new Map());
+        globalStore.set(effortLoadErrorAtom, new Map([["effort:x", "timeout"]]));
+        get.mockReturnValueOnce(new Promise(() => {}));
+        void loadEffortDetail("effort:x");
+        expect(globalStore.get(effortLoadErrorAtom).has("effort:x")).toBe(false);
     });
 });
 

@@ -341,6 +341,35 @@ describe("confirmCancelRun", () => {
         );
     });
 
+    it("a refused cancel reaches onError", async () => {
+        cancelRunCommand.mockRejectedValueOnce(new Error("worker would not stop"));
+        const onError = vi.fn();
+
+        confirmCancelRun("channel-1", "run-1", 0, onError);
+
+        await vi.waitFor(() => expect(onError).toHaveBeenCalledWith("worker would not stop"));
+    });
+
+    it("a channel-less cancel reaches onError without the RPC", () => {
+        const onError = vi.fn();
+
+        confirmCancelRun("", "run-1", 0, onError);
+
+        expect(onError).toHaveBeenCalledWith("This run names no channel, so it can't be cancelled from here");
+        expect(cancelRunCommand).not.toHaveBeenCalled();
+        expect(pushModal).not.toHaveBeenCalled();
+    });
+
+    it("no onError still logs", async () => {
+        const log = vi.spyOn(console, "log").mockImplementation(() => {});
+        cancelRunCommand.mockRejectedValueOnce(new Error("worker would not stop"));
+
+        confirmCancelRun("channel-1", "run-1", 0);
+
+        await vi.waitFor(() => expect(log).toHaveBeenCalledWith("fireAndForget error", expect.any(Error)));
+        log.mockRestore();
+    });
+
     it.each([
         [1, "Stop 1 running worker and cancel this run? Completed phases, transcripts, and artifacts are kept."],
         [2, "Stop 2 running workers and cancel this run? Completed phases, transcripts, and artifacts are kept."],

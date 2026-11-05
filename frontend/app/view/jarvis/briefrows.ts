@@ -174,6 +174,7 @@ export function sessionLine(row: ActiveWorkRow, now: number): BriefLine & { stal
         detail: "",
         runOid: row.kind === "run" ? row.oref.replace(/^run:/, "") : undefined,
         agentId: row.kind === "agent" ? row.key.split(":")[1] : undefined,
+        runType: row.kind === "run" ? runType(row.mode) : undefined,
         stale: isStale(row, now),
     };
 }
@@ -191,6 +192,8 @@ export type RunRowFace = {
     chunkLabel: string;
     effortOref: string;
     chunk: string;
+    // what Answer does: a run answers in its sheet, loaded or not; a direct agent's is on the Agent surface
+    answer: "sheet" | "agent" | null;
 };
 
 export type EffortRef = { oref: string; title: string; chunkStages: Record<string, string>; ticket: string };
@@ -208,8 +211,10 @@ export function runRowFace(i: {
     const { line, run } = i;
     if (run == null) {
         const asking = i.asking || line.state === "asking";
+        const isRun = line.runOid != null;
         return {
-            type: "agent",
+            // a run whose Run has not loaded yet is still a run: its badge comes from the snapshot's mode
+            type: isRun ? (line.runType ?? "quick run") : "agent",
             meta: line.meta,
             elapsed: line.age,
             state: asking ? "asking" : line.state === "working" ? "running" : line.state,
@@ -221,6 +226,7 @@ export function runRowFace(i: {
             chunkLabel: "",
             effortOref: "",
             chunk: "",
+            answer: isRun ? "sheet" : line.agentId != null ? "agent" : null,
         };
     }
     const orch = run.mode === "orchestrator";
@@ -255,6 +261,7 @@ export function runRowFace(i: {
         chunkLabel: linked ? `${i.effort.title} · ${stage || "unstaged"}` : "",
         effortOref: linked ? i.effort.oref : "",
         chunk: ref?.chunklabel ?? "",
+        answer: "sheet",
     };
 }
 
@@ -327,6 +334,18 @@ export function projectCounts(cards: { project?: string }[]): Map<string, number
         counts.set(c.project ?? "", (counts.get(c.project ?? "") ?? 0) + 1);
     }
     return counts;
+}
+
+// The Runs chips count what the head's "N live" counts: a stale run is stated by its fold, not by a chip.
+export function liveRunKindCounts(
+    legs: { activeRuns: RunRow[]; directAgents: AgentRow[] },
+    now: number
+): Record<RunKindFilter, number> {
+    const live = mergeActiveWork({ ...legs, blockers: [] }).filter((r) => !isStale(r, now));
+    return runKindCounts(
+        live.filter((r) => r.kind === "run").map((r) => r.mode),
+        live.filter((r) => r.kind === "agent").length
+    );
 }
 
 // a direct agent is neither kind, so only all counts it
@@ -521,7 +540,7 @@ export function behindGroups(
     });
     if (shipped.length > 0) {
         out.push({
-            label: "Shipped · 7 days",
+            label: SHIPPED_LABEL,
             lines: shipped.map((s) => ({
                 id: "behind:shipped:" + s.oref,
                 kind: "Shipped",
@@ -544,6 +563,31 @@ export function behindGroups(
         });
     }
     return out;
+}
+
+// Behind you's window, taken after the fold: a cap on raw events let a burst of notes that folds into one
+// digest fill the window and call its own events "+N more". Shipped keeps its own cap, so it passes through
+// and is not counted.
+export function capBehind(groups: LineGroup[], cap: number, expanded: boolean): { groups: LineGroup[]; more: number } {
+    if (expanded) {
+        return { groups, more: 0 };
+    }
+    let room = cap;
+    let more = 0;
+    const kept: LineGroup[] = [];
+    for (const g of groups) {
+        if (g.label === SHIPPED_LABEL) {
+            kept.push(g);
+            continue;
+        }
+        const lines = g.lines.slice(0, Math.max(room, 0));
+        room -= lines.length;
+        more += g.lines.length - lines.length;
+        if (lines.length > 0) {
+            kept.push(lines.length === g.lines.length ? g : { ...g, lines });
+        }
+    }
+    return { groups: kept, more };
 }
 
 export function filterLines<T extends BriefLine>(lines: T[], query: string): T[] {

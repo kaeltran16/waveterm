@@ -7,15 +7,18 @@
 import { cn } from "@/util/util";
 import { SHIPPED_CAP } from "./briefingmodel";
 import { markBriefingSeen } from "./briefingstore";
-import { MoreControl, runKindFilter } from "./briefprimitives";
+import { LegMissing, MoreControl, NoMatch, RegionHead, REGIONS, runKindFilter } from "./briefprimitives";
 import { SHIPPED_LABEL, type BriefLine, type LineGroup, type LineTarget, type RunKindFilter } from "./briefrows";
 import { DeltaRowView, ShippedRowView } from "./briefrowviews";
-import { MONO_FAINT, REGION_LABEL } from "./briefstyle";
+import { MONO_FAINT } from "./briefstyle";
 import { briefUndo } from "./briefundo";
 
 export function BehindRegion({
     sectionRef,
     since,
+    deltaTotal,
+    only,
+    onOnly,
     groups,
     cursor,
     openLine,
@@ -23,6 +26,7 @@ export function BehindRegion({
     expanded,
     onToggleMore,
     shippedTotal,
+    shippedMissing,
     shippedLines,
     shippedKind,
     onShippedKind,
@@ -36,7 +40,11 @@ export function BehindRegion({
     // the dwell's in-view observer watches this section
     sectionRef: (el: HTMLElement | null) => void;
     since: string;
-    // the delta's day groups, Shipped excluded
+    // every delta row before the filter: mark seen acts on all of them, not on the matches
+    deltaTotal: number;
+    only: boolean;
+    onOnly: () => void;
+    // the delta's day groups as drawn (folded, filtered, capped), Shipped excluded
     groups: LineGroup[];
     cursor: string | undefined;
     openLine: (target: LineTarget, e?: React.MouseEvent) => void;
@@ -45,6 +53,8 @@ export function BehindRegion({
     onToggleMore: () => void;
     // every shipped run the kind filter keeps, before the cap
     shippedTotal: number;
+    // the snapshot could not read the runs leg, which Shipped is read from
+    shippedMissing: boolean;
     shippedLines: BriefLine[];
     shippedKind: RunKindFilter;
     onShippedKind: (k: RunKindFilter) => void;
@@ -60,11 +70,12 @@ export function BehindRegion({
     const shippedFilter = runKindFilter(shippedKind, onShippedKind, shippedCounts);
     return (
         <section ref={sectionRef} data-jarvis-brief-region="behind" className="flex flex-col gap-[9px]">
+            {/* the head is the same show-only button the other regions have; since and mark seen sit beside
+                it, since a control cannot nest inside a button */}
             <div className="flex items-center gap-[9px]">
-                <span className={cn(REGION_LABEL, "text-ink-mid")}>Behind you</span>
-                <span className="h-px min-w-3 flex-1 bg-edge-faint" />
-                <span className={MONO_FAINT}>{since}</span>
-                {deltaRowsN > 0 ? (
+                <RegionHead id="behind" label={REGIONS.behind.label} meta="" only={only} onOnly={onOnly} />
+                <span className={cn("flex-none", MONO_FAINT)}>{since}</span>
+                {deltaTotal > 0 ? (
                     <button
                         type="button"
                         data-jarvis-brief-mark-seen
@@ -72,17 +83,19 @@ export function BehindRegion({
                             const undo = markBriefingSeen();
                             briefUndo.notify("Marked seen", undo);
                         }}
-                        className="cursor-pointer font-mono text-[10.5px] text-accent-soft hover:underline"
+                        className="flex-none cursor-pointer whitespace-nowrap font-mono text-[10.5px] text-accent-soft hover:underline"
                     >
                         mark seen
                     </button>
                 ) : null}
             </div>
             <div className="flex flex-col">
-                {deltaRowsN === 0 ? (
+                {deltaTotal === 0 ? (
                     <div className="px-[11px] py-[7px] text-[12.5px] text-ink-mid">
                         Nothing new since you last looked.
                     </div>
+                ) : deltaRowsN === 0 ? (
+                    <NoMatch />
                 ) : null}
                 {groups.map((g) => (
                     <div key={g.label} className="flex flex-col">
@@ -108,12 +121,15 @@ export function BehindRegion({
                     ) : null}
                 </div>
                 {shippedFilter.menu ? null : <div className="px-[11px] pb-1">{shippedFilter.node}</div>}
-                {shippedTotal === 0 ? (
+                {shippedMissing ? <LegMissing what="shipped runs" /> : null}
+                {shippedTotal === 0 && !shippedMissing ? (
                     <div className="px-[11px] py-[7px] text-[12.5px] text-ink-mid">
                         {shippedKind === "all"
                             ? "Nothing shipped in the last seven days."
                             : `No ${shippedKind} run shipped in the last seven days.`}
                     </div>
+                ) : filtering && shippedLines.length === 0 ? (
+                    <NoMatch />
                 ) : null}
                 {shippedLines.map((l) => (
                     <ShippedRowView

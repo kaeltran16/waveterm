@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it, vi } from "vitest";
-import { briefListNav, cursorAction, resolveBriefCursor, runNavLines } from "./briefnav";
+import { briefListNav, cursorAction, resolveBriefCursor, runNavFold, runNavLines } from "./briefnav";
 import { lineOpenTarget, type BriefLine, type LineTarget } from "./briefrows";
 import type { TrackerRow } from "./inlinetracker";
 
@@ -63,6 +63,38 @@ describe("runNavLines", () => {
         expect(nav({ stageRun: null })).toBeNull();
         expect(nav({ stageRun: { id: "c", status: "running" } })).toBeNull();
     });
+
+    it("walks the whole Shipped list, past the region's cap", () => {
+        const twelve = Array.from({ length: 12 }, (_, i) =>
+            line(`behind:shipped:run:s${i}`, { target: { oref: `run:s${i}` }, group: "shipped" })
+        );
+        const walked = runNavLines({
+            sheetOpen: true,
+            stageRun: { id: "s0", status: "done" },
+            runList: twelve.map((_, i) => `s${i}`),
+            shippedLines: twelve,
+            sessionLines: [],
+        });
+        expect(walked?.lines).toHaveLength(12);
+        expect(walked?.cursorId).toBe("behind:shipped:run:s0");
+    });
+});
+
+describe("runNavFold", () => {
+    const drawn = new Set(["sessions:live", "behind:shipped:run:x"]);
+
+    it("names the fold that hides a run the region does not draw", () => {
+        expect(runNavFold(line("behind:shipped:run:y", { group: "shipped" }), drawn)).toBe("shipped");
+        expect(runNavFold({ ...line("sessions:old", { runOid: "old" }), stale: true } as BriefLine, drawn)).toBe(
+            "stale"
+        );
+        expect(runNavFold(line("sessions:ninth", { runOid: "ninth" }), drawn)).toBe("more");
+    });
+
+    it("names no fold for a drawn run", () => {
+        expect(runNavFold(line("sessions:live", { runOid: "live" }), drawn)).toBeNull();
+        expect(runNavFold(line("behind:shipped:run:x", { group: "shipped" }), drawn)).toBeNull();
+    });
 });
 
 describe("cursorAction", () => {
@@ -103,6 +135,7 @@ describe("briefListNav", () => {
         cursor: "a",
         setCursor: vi.fn(),
         openLine: vi.fn(),
+        revealLine: vi.fn(),
         sheetOpen: false,
         cursorRow: lineRow(line("a")),
         activate: vi.fn(),
@@ -142,5 +175,19 @@ describe("briefListNav", () => {
         c.setCursor("sessions:b");
         expect(setCursor).toHaveBeenCalledWith("sessions:b");
         expect(openLine).toHaveBeenCalledWith({ oref: "run:b" });
+    });
+
+    it("reveals the run it lands on before opening it", () => {
+        const order: string[] = [];
+        const runs = [line("sessions:a"), line("sessions:b", { target: { oref: "run:b" } })];
+        const c = briefListNav({
+            ...base,
+            setCursor: () => order.push("cursor"),
+            openLine: () => order.push("open"),
+            revealLine: (l) => order.push("reveal " + l.id),
+            runNav: { lines: runs, cursorId: "sessions:a" },
+        });
+        c.setCursor("sessions:b");
+        expect(order).toEqual(["reveal sessions:b", "cursor", "open"]);
     });
 });

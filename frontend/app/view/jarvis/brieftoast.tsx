@@ -29,7 +29,8 @@ export function BriefToastView() {
                         exit="exit"
                         role="status"
                         data-jarvis-brief-toast={toast.error ? "error" : "info"}
-                        className="absolute bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-[9px] border border-edge-strong bg-surface-raised py-2 pl-3.5 pr-2.5 shadow-popover-md"
+                        // above the dialog layer (modalshell's z-70): a toast reports what an open dialog just did
+                        className="absolute bottom-6 left-1/2 z-[80] flex -translate-x-1/2 items-center gap-3 rounded-[9px] border border-edge-strong bg-surface-raised py-2 pl-3.5 pr-2.5 shadow-popover-md"
                     >
                         <span
                             className={cn(

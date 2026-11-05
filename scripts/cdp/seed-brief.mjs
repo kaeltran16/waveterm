@@ -1,7 +1,9 @@
 // Seeds the Jarvis Brief design's three initiatives (docs/prototype/jarvis-brief-editing.dc.html,
-// seed() L986-1009) into the running dev app's store, so the brief-design-parity scenario and the
-// side-by-side review have the design's data to draw. Idempotent: a title that already exists is skipped.
+// seed() L986-1009) into a dev app's store. The brief-design-parity scenario seeds itself through
+// seedBriefDesign; the CLI seeds the running dev app for the side-by-side review. Idempotent: a title that
+// already exists, archived included, is skipped.
 // Usage: node scripts/cdp/seed-brief.mjs   (CDP_PORT=<port> for a worktree dev app)
+import { pathToFileURL } from "node:url";
 import { attach } from "./attach.mjs";
 
 // notes are listed oldest first, the order they are appended in
@@ -58,11 +60,12 @@ const INITIATIVES = [
 // run to link. Seeded agent notes therefore show "agent" without "open agent session".
 const NO_BLOCK = "block:00000000-0000-0000-0000-000000000000";
 
-const h = await attach(Number(process.env.CDP_PORT) || 9222);
-const mutate = (effortoid, ops, extra = {}) => h.rpc("effortmutate", { effortoid, ops, ...extra });
-
-try {
-    const { efforts = [] } = (await h.rpc("effortlist", { includearchived: true })) ?? {};
+// returns the oids of the initiatives it created, so a caller can delete only those
+export async function seedBriefDesign(h) {
+    const mutate = (effortoid, ops, extra = {}) => h.rpc("effortmutate", { effortoid, ops, ...extra });
+    const created = [];
+    // an empty store answers efforts: null (a nil Go slice)
+    const efforts = (await h.rpc("effortlist", { includearchived: true }))?.efforts ?? [];
     const existing = new Set(efforts.map((e) => e.title));
     for (const init of INITIATIVES) {
         if (existing.has(init.title)) {
@@ -75,6 +78,7 @@ try {
             ticket: init.ticket,
             chunks: init.chunks.map(([label]) => ({ label })),
         });
+        created.push(effortoid);
 
         const shape = init.chunks.flatMap(([chunk, stage, status]) => [
             ...(stage ? [{ op: "setChunkStage", chunk, stage }] : []),
@@ -98,6 +102,15 @@ try {
         if (init.status !== "active") await mutate(effortoid, [{ op: "setStatus", status: init.status }]);
         console.log(`seeded ${init.title} (${effortoid.slice(0, 8)})`);
     }
-} finally {
-    h.close();
+    return created;
+}
+
+// importing the module (the scenario does) must not attach to any port
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+    const h = await attach(Number(process.env.CDP_PORT) || 9222);
+    try {
+        await seedBriefDesign(h);
+    } finally {
+        h.close();
+    }
 }

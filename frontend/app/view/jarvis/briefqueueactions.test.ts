@@ -9,7 +9,6 @@ import type { BriefLine } from "./briefrows";
 
 const row = (over: Partial<QueueRow>): QueueRow => ({
     key: "k",
-    kind: "gate",
     title: "Plan gate",
     source: "run 7",
     detail: "",
@@ -30,13 +29,19 @@ const row = (over: Partial<QueueRow>): QueueRow => ({
 
 const line = (target: BriefLine["target"]) => ({ id: "waiting:k", target }) as BriefLine;
 
-function fakeDeps(fail = false) {
+function fakeDeps(fail = false, land: RunLand = { state: "landed" }) {
     const rpc = () => vi.fn(() => (fail ? Promise.reject(new Error("refused")) : Promise.resolve()));
     return {
-        rpc: { dagAction: rpc(), ackRun: rpc(), setChunkStatus: rpc() },
+        rpc: {
+            dagAction: rpc(),
+            ackRun: rpc(),
+            setChunkStatus: rpc(),
+            landRun: vi.fn(() => (fail ? Promise.reject(new Error("refused")) : Promise.resolve(land))),
+        },
         undo: { notify: vi.fn(), error: vi.fn() },
         openLine: vi.fn(),
         openChunk: vi.fn(),
+        settle: vi.fn(),
     };
 }
 
@@ -94,7 +99,8 @@ describe("a blocked chunk's row", () => {
 
     it("offers Unblock and Done in place of Open", () => {
         expect(queueActions(blocked).map((a) => a.label)).toEqual(["Unblock", "Done"]);
-        expect(queueActions(row({ wireKind: "ask" })).map((a) => a.label)).toEqual(["Open"]);
+        const ask = row({ wireKind: "ask", nav: { kind: "channel", channelId: "ch1", runId: "r1" } });
+        expect(queueActions(ask).map((a) => a.label)).toEqual(["Open"]);
     });
 
     it("unblocks to pending, and its undo blocks it again with what it needs", async () => {
@@ -126,11 +132,91 @@ describe("a blocked chunk's row", () => {
         expect(deps.undo.notify).not.toHaveBeenCalled();
     });
 
+    // F14: the row and the initiative's count leave at the click, not on the next reload
+    const key = "chunk:effort:e1:S6 soak";
+    it("settles the chunk before the write goes out", async () => {
+        for (const kind of ["unblock-chunk", "done-chunk"] as const) {
+            const deps = fakeDeps();
+            let settledAtWrite: unknown[][] = [];
+            deps.rpc.setChunkStatus.mockImplementation(() => {
+                settledAtWrite = [...deps.settle.mock.calls];
+                return Promise.resolve();
+            });
+            await actOnQueue(deps, blocked, line(null), act(kind));
+            expect(settledAtWrite).toEqual([[key, true]]);
+            expect(deps.settle.mock.calls).toEqual([[key, true]]);
+            expect(deps.undo.error).not.toHaveBeenCalled();
+        }
+    });
+
+    it("brings the row back when the write is refused", async () => {
+        const deps = fakeDeps(true);
+        await actOnQueue(deps, blocked, line(null), act("unblock-chunk"));
+        expect(deps.settle.mock.calls).toEqual([
+            [key, true],
+            [key, false],
+        ]);
+    });
+
+    it("brings the row back on the re-block undo", async () => {
+        const deps = fakeDeps();
+        await actOnQueue(deps, blocked, line(null), act("unblock-chunk"));
+        const [, undo] = deps.undo.notify.mock.calls[0] as unknown as [string, () => void];
+        undo();
+        expect(deps.settle).toHaveBeenLastCalledWith(key, false);
+    });
+
     it("opens on the chunk itself, not the initiative's top", () => {
         const deps = fakeDeps();
         openQueueRow(deps, blocked, line({ queue: { kind: "oref", oref: "effort:e1" } }));
         expect(deps.openChunk).toHaveBeenCalledWith("effort:e1", "S6 soak");
         expect(deps.openLine).not.toHaveBeenCalled();
+    });
+});
+
+// F8: the queue lands and dismisses a held land the way the pet does
+describe("a held land's row", () => {
+    const held = row({
+        wireKind: "run-land-held",
+        source: "the ask bridge",
+        nav: { kind: "channel", channelId: "ch1", runId: "r1" },
+    });
+    const act = (kind: QueueAct["kind"]) => queueActions(held).find((a) => a.kind === kind)!;
+
+    it("Retry land toasts Landed when the land lands", async () => {
+        const deps = fakeDeps();
+        await actOnQueue(deps, held, line(null), act("land-run"));
+        expect(deps.rpc.landRun).toHaveBeenCalledWith({ channelid: "ch1", runid: "r1" });
+        expect(deps.undo.notify).toHaveBeenCalledWith("Landed · the ask bridge");
+        expect(deps.undo.error).not.toHaveBeenCalled();
+    });
+
+    it("a land that holds again notifies, not errors", async () => {
+        const deps = fakeDeps(false, { state: "held", reason: "the merge conflicts with main" });
+        await actOnQueue(deps, held, line(null), act("land-run"));
+        expect(deps.undo.notify).toHaveBeenCalledWith("Still held · the merge conflicts with main");
+        expect(deps.undo.error).not.toHaveBeenCalled();
+    });
+
+    it("a refused Retry land reports through undo.error", async () => {
+        const deps = fakeDeps(true);
+        await actOnQueue(deps, held, line(null), act("land-run"));
+        expect(deps.undo.error).toHaveBeenCalledWith("refused");
+        expect(deps.undo.notify).not.toHaveBeenCalled();
+    });
+
+    it("Dismiss acks with land: true", async () => {
+        const deps = fakeDeps();
+        await actOnQueue(deps, held, line(null), act("dismiss-land"));
+        expect(deps.rpc.ackRun).toHaveBeenCalledWith({ channelid: "ch1", runid: "r1", land: true });
+        expect(deps.undo.notify).toHaveBeenCalledWith("Dismissed · the ask bridge");
+    });
+
+    it("a refused Dismiss reports through undo.error", async () => {
+        const deps = fakeDeps(true);
+        await actOnQueue(deps, held, line(null), act("dismiss-land"));
+        expect(deps.undo.error).toHaveBeenCalledWith("refused");
+        expect(deps.undo.notify).not.toHaveBeenCalled();
     });
 });
 

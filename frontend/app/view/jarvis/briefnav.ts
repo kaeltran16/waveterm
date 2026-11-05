@@ -52,6 +52,21 @@ export function runNavLines(input: {
     return { lines, cursorId: lines.find((l) => oidOf(l) === stageRun.id)?.id };
 }
 
+// The fold that hides a run the sheet stepped onto, so landing on it draws it and closing the sheet leaves the
+// cursor on a drawn row. null when the region already draws it.
+export function runNavFold(
+    line: BriefLine & { stale?: boolean },
+    drawnIds: Set<string>
+): "shipped" | "stale" | "more" | null {
+    if (drawnIds.has(line.id)) {
+        return null;
+    }
+    if (line.group === "shipped") {
+        return "shipped";
+    }
+    return line.stale === true ? "stale" : "more";
+}
+
 export type CursorAction =
     | { kind: "select-chunk"; id: string }
     | { kind: "toggle-initiative"; id: string }
@@ -91,6 +106,8 @@ export function briefListNav(input: {
     cursor: string | undefined;
     setCursor: (id: string) => void;
     openLine: (target: LineTarget) => void;
+    // opens the fold a run-nav landing sits behind (runNavFold)
+    revealLine: (line: BriefLine) => void;
     sheetOpen: boolean;
     cursorRow: TrackerRow | null;
     activate: () => void;
@@ -103,10 +120,13 @@ export function briefListNav(input: {
             navigableIds: runNav.lines.map((l) => l.id),
             cursorId: runNav.cursorId,
             setCursor: (id: string) => {
+                const line = runNav.lines.find((l) => l.id === id);
+                if (line != null) {
+                    input.revealLine(line);
+                }
                 setCursor(id);
-                const target = runNav.lines.find((l) => l.id === id)?.target;
-                if (target != null) {
-                    input.openLine(target);
+                if (line?.target != null) {
+                    input.openLine(line.target);
                 }
             },
         };
