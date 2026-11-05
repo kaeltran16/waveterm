@@ -341,8 +341,8 @@ export default function (kit) {
             );
             await h.shot("cdp-shots/brainstorm-run-blocked-1.png");
 
-            const tree = await treeStep(h, `Brainstorm · final failed · run ${short}`, "final failed");
-            rec("2. the tree line reads Brainstorm · final failed · run <id8>, the state drawn inside it", tree.ok, tree.detail);
+            const tree = await treeStep(h, `final failed · run ${short}`, "final failed");
+            rec("2. the tree line reads final failed · run <id8>, the state drawn inside it", tree.ok, tree.detail);
 
             const from = await h.activeSurfaceLabel();
             const clicked = await bsClick(h, BS_PANE, `Open run ${short}`);
@@ -428,8 +428,8 @@ export default function (kit) {
             );
             await h.shot("cdp-shots/brainstorm-run-landed-2-passed.png");
 
-            const tree = await treeStep(h, `Brainstorm done · merged · run ${short}`, "merged");
-            rec("3. the tree line reads Brainstorm done · merged · run <id8>, the state drawn inside it", tree.ok, tree.detail);
+            const tree = await treeStep(h, `merged · run ${short}`, "merged");
+            rec("3. the tree line reads merged · run <id8>, the state drawn inside it", tree.ok, tree.detail);
 
             await h.cdp("Emulation.setDeviceMetricsOverride", RUN_NARROW);
             try {
@@ -515,8 +515,8 @@ export default function (kit) {
                 s
             );
             await h.shot("cdp-shots/brainstorm-run-missing.png");
-            const tree = await treeStep(h, `Brainstorm · not found · run ${short}`, "not found");
-            rec("2. the tree line reads Brainstorm · not found · run <id8>, the state drawn inside it", tree.ok, tree.detail);
+            const tree = await treeStep(h, `not found · run ${short}`, "not found");
+            rec("2. the tree line reads not found · run <id8>, the state drawn inside it", tree.ok, tree.detail);
             return steps;
         },
         teardown: (h, ctx) => bsTeardownAgent(h, ctx, "brainstorm-run-missing"),
