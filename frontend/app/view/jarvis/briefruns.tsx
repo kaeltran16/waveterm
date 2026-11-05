@@ -52,7 +52,8 @@ export function RunsRegion({
     missing: boolean;
     runKind: RunKindFilter;
     onRunKind: (k: RunKindFilter) => void;
-    runCounts: Record<RunKindFilter, number>;
+    // each kind chip's count label (kindLabels)
+    runCounts: Record<RunKindFilter, string>;
     liveN: number;
     only: boolean;
     onOnly: () => void;

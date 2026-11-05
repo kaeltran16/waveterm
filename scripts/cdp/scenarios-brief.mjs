@@ -5023,6 +5023,34 @@ async function actFixture(h, name) {
     await h.ev("new Promise((r) => setTimeout(r, 700))");
 }
 
+// the review fixture's direct-agent ask (briefingfixtures.ts REVIEW_AGENT_ASK_TEXT)
+const REVIEW_AGENT_ASK = "Can I rename the tenant table?";
+
+// steps 35, 36 and 37-38 set the registry, the dev roster and the review queue page-side; these put them back, and
+// are no-ops after
+const actRestoreConfig = (h) =>
+    lookEval(h, `
+        if (window.__briefActCfg === undefined) return;
+        const { globalStore } = await mod("app/store/jotaiStore.ts");
+        const { atoms } = await mod("app/store/global-atoms.ts");
+        globalStore.set(atoms.fullConfigAtom, window.__briefActCfg);
+        delete window.__briefActCfg;
+    `);
+const actRestoreRoster = (h) =>
+    lookEval(h, `
+        if (!("__briefActRoster" in window)) return;
+        const { globalStore } = await mod("app/store/jotaiStore.ts");
+        globalStore.set((await mod("app/view/agents/devmock.ts")).devMockAgentsAtom, window.__briefActRoster);
+        delete window.__briefActRoster;
+    `);
+const actRestoreAttention = (h) =>
+    lookEval(h, `${ACT_BRIEF_LIB}
+        if (window.__briefActAttention === undefined) return;
+        fx.attention = window.__briefActAttention;
+        delete window.__briefActAttention;
+        await setAgents(fx.agents);
+    `);
+
 async function actFilter(h, q) {
     await h.ev(`(() => {
         const i = document.querySelector('[data-jarvis-brief-filter]');
@@ -6023,9 +6051,203 @@ export const briefAct = {
             ok: f12.record != null && f12.status != null && f12.shown && f12.onTop === true && f12.toast.includes("Couldn't set the record's status") && f12.toast.includes(STATUS_REFUSED),
             detail: JSON.stringify(f12),
         });
+
+        // 35-40: the 11-05 Brief live pass. The review fixture's work keys name one project by path and by name
+        // beside a run worktree and "(none)"; the registry is set page-side to that one project (Final's has none)
+        // and put back after the step.
+        await actFixture(h, "review");
+        const f1 = await lookEval(h, `
+            const { globalStore } = await mod("app/store/jotaiStore.ts");
+            const { atoms } = await mod("app/store/global-atoms.ts");
+            window.__briefActCfg ??= globalStore.get(atoms.fullConfigAtom);
+            globalStore.set(atoms.fullConfigAtom, {
+                ...window.__briefActCfg,
+                projects: { waveterm: { path: "C:/Users/dev/IdeaProjects/waveterm" } },
+            });
+            const fact = '[data-jarvis-region="brief"] [data-jarvis-brief-band="projects"]';
+            await until(() => /1 project$/.test(flat(document.querySelector(fact))), 3000);
+            return { fact: flat(document.querySelector(fact)) };
+        `);
+        await h.shot("cdp-shots/brief-act-35-projects.png");
+        await actRestoreConfig(h);
+        steps.push({
+            step: "35. F1: the header counts the registered projects the work spans, not its keys: one project by path and by name, a worktree and (none) read as all work · 1 project",
+            ok: f1.fact === "all work · 1 project",
+            detail: JSON.stringify(f1),
+        });
+
+        // 36. a direct agent's ask (no channel, its tab in the oref) names the agent and answers on the Agent surface.
+        // The router opens a tab only when the live roster holds it, so the review asker joins the dev roster for the
+        // step (devMockAgentsAtom, as sessions-detail-states does) and leaves it after.
+        const f2 = await lookEval(h, `${ACT_BRIEF_LIB}
+            if (window.__briefActAgents != null) await setAgents(window.__briefActAgents);
+            const dm = await mod("app/view/agents/devmock.ts");
+            if (!("__briefActRoster" in window)) window.__briefActRoster = globalStore.get(dm.devMockAgentsAtom);
+            const asker = fx.agents.find((a) => a.id === "tab-review-asker");
+            globalStore.set(dm.devMockAgentsAtom, [...globalStore.get(dm.devRosterAtom).filter((a) => a.id !== asker?.id), asker]);
+            // step 22 left the focus on this agent, so it is moved off first: the step must see the open move it back
+            const brief0 = document.querySelector('[data-jarvis-region="brief"]');
+            const fk0 = brief0 && Object.keys(brief0).find((k) => k.startsWith("__reactFiber$"));
+            for (let f = fk0 ? brief0[fk0] : null; f; f = f.return) {
+                if (f.memoizedProps?.model?.focusIdAtom) {
+                    globalStore.set(f.memoizedProps.model.focusIdAtom, undefined);
+                    break;
+                }
+            }
+            document.querySelector('[data-jarvis-brief-region="waiting"] [data-jarvis-brief-attention-summary][aria-expanded="false"]')?.click();
+            await until(() => ${actQueueRow(REVIEW_AGENT_ASK)} != null, 3000);
+            await nap(300);
+            const row = ${actQueueRow(REVIEW_AGENT_ASK)};
+            const text = flat(row);
+            const acts = [...(row?.querySelectorAll('[data-jarvis-queue-act]') ?? [])].map(flat);
+            const brief = document.querySelector('[data-jarvis-region="brief"]');
+            const fk = brief && Object.keys(brief).find((k) => k.startsWith("__reactFiber$"));
+            let model = null;
+            for (let f = fk ? brief[fk] : null; f && model == null; f = f.return) {
+                if (f.memoizedProps?.model?.focusIdAtom) model = f.memoizedProps.model;
+            }
+            row?.querySelector('[data-jarvis-queue-act]')?.click();
+            await until(() => model != null && globalStore.get(model.surfaceAtom) === "agent", 3000);
+            return {
+                text,
+                acts,
+                focus: model != null ? globalStore.get(model.focusIdAtom) : null,
+                surface: model != null ? globalStore.get(model.surfaceAtom) : null,
+            };
+        `);
+        await h.shot("cdp-shots/brief-act-36-agent-ask.png");
+        await actRestoreRoster(h);
+        steps.push({
+            step: "36. F2: a direct agent's ask names the agent, offers one Answer, and Answer lands on the Agent surface with that agent focused",
+            ok:
+                f2.text.includes("review asker") &&
+                !/\bworker\b/.test(f2.text) &&
+                JSON.stringify(f2.acts) === JSON.stringify(["Answer"]) &&
+                f2.focus === "tab-review-asker" &&
+                f2.surface === "agent",
+            detail: JSON.stringify(f2),
+        });
+        await h.goto("jarvis");
+        await h.ev("new Promise((r) => setTimeout(r, 700))");
+
+        // 37 + 38. the ask's age reads "just now" on one line at both sizes, and the summary counts a single ask.
+        // The queue is narrowed page-side to that ask, made fresh, and put back after.
+        const f14 = (size) =>
+            lookEval(h, `${ACT_BRIEF_LIB}
+                window.__briefActAttention ??= fx.attention;
+                const ask = window.__briefActAttention.find((a) => a.key === "ask:review-agent");
+                fx.attention = [{ ...ask, waitingsince: Date.now() }];
+                await setAgents(fx.agents);
+                const region = '[data-jarvis-brief-region="waiting"]';
+                document.querySelector(region + ' [data-jarvis-brief-attention-summary][aria-expanded="false"]')?.click();
+                await until(() => document.querySelector(region + ' [data-jarvis-queue-age]') != null, 3000);
+                await nap(400);
+                const age = document.querySelector(region + ' [data-jarvis-queue-age]');
+                const cs = age != null ? getComputedStyle(age) : null;
+                const lineHeight = cs != null ? parseFloat(cs.lineHeight) : NaN;
+                const fontSize = cs != null ? parseFloat(cs.fontSize) : NaN;
+                const height = age?.getBoundingClientRect().height ?? 0;
+                return {
+                    size: ${JSON.stringify(size)},
+                    text: flat(age),
+                    height,
+                    lineHeight,
+                    oneLine: Number.isNaN(lineHeight) ? height < fontSize * 2 : Math.abs(height - lineHeight) < 1,
+                    scrollWidth: age?.scrollWidth ?? 0,
+                    clientWidth: age?.clientWidth ?? 0,
+                    summary: flat(document.querySelector(region + ' [data-jarvis-brief-summary-detail]')),
+                };
+            `);
+        const ageOk = (r) => r.text === "just now" && r.oneLine && r.scrollWidth <= r.clientWidth;
+        const f14wide = await f14("1600x950");
+        await h.shot("cdp-shots/brief-act-37-age-wide.png");
+        steps.push({
+            step: "37. F14: at 1600x950 the ask's age reads just now on one line, and the summary counts it as 1 ask",
+            ok: ageOk(f14wide) && /(^| )1 ask( |$)/.test(f14wide.summary),
+            detail: JSON.stringify(f14wide),
+        });
+        await h.cdp("Emulation.setDeviceMetricsOverride", { width: 1000, height: 700, deviceScaleFactor: 1, mobile: false });
+        await h.ev("new Promise((r) => setTimeout(r, 500))");
+        const f14narrow = await f14("1000x700");
+        await h.shot("cdp-shots/brief-act-38-age-narrow.png");
+        steps.push({
+            step: "38. F14: at 1000x700 the ask's age cell does not wrap",
+            ok: ageOk(f14narrow),
+            detail: JSON.stringify(f14narrow),
+        });
+        await actRestoreAttention(h);
+        await h.cdp("Emulation.setDeviceMetricsOverride", { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false });
+
+        // 39. ten initiatives whose 8th and 9th by activity hold blocked work: both show without +N more, and the head
+        // counts them. The window, the project pick and the filter are module state, so each starts from its default.
+        await actFixture(h, "initiatives");
+        await actFilter(h, "");
+        const initRegion = '[data-jarvis-brief-region="initiatives"]';
+        await h.ev(`document.querySelector('${initRegion} [data-jarvis-brief-more="less"]')?.click()`);
+        await h.ev(`document.querySelector('${initRegion} [data-jarvis-initiative-project] [data-filter-option="all"][aria-pressed="false"]')?.click()`);
+        await h.ev("new Promise((r) => setTimeout(r, 400))");
+        const f8 = await h.ev(`(() => {
+            const sec = document.querySelector('${initRegion}');
+            const t = (el) => (el?.innerText || "").replace(/\\s+/g, " ").trim();
+            return {
+                rows: [...(sec?.querySelectorAll('[data-jarvis-brief-row="initiative"]') ?? [])].map(t),
+                head: t(sec?.querySelector('button[aria-pressed]')),
+                more: t(sec?.querySelector('[data-jarvis-brief-more]')),
+            };
+        })()`);
+        await h.ev(`document.querySelector('${initRegion}')?.scrollIntoView({ block: "start" })`);
+        await h.shot("cdp-shots/brief-act-39-blocked-initiatives.png");
+        const shownInit = (c) => f8.rows.some((r) => r.includes(`Window initiative ${c}`));
+        steps.push({
+            step: "39. F8: the initiatives holding blocked work (8th and 9th by activity) show without +N more, and the head leads with 2 blocked",
+            ok:
+                shownInit("H") &&
+                shownInit("I") &&
+                !shownInit("E") &&
+                f8.rows.length === 6 &&
+                f8.more === "+4 more" &&
+                /2 blocked/.test(f8.head),
+            detail: JSON.stringify(f8),
+        });
+
+        // 40. a filter matching nothing reads 0 of N on Waiting's summary, Initiatives' all chip and Shipped's; cleared,
+        // the counts read as before
+        const f16Counts = () =>
+            h.ev(`(() => {
+                const t = (el) => (el?.textContent || "").replace(/\\s+/g, " ").trim();
+                const chip = (sel) => t(document.querySelector(sel)?.querySelector("span"));
+                return {
+                    waiting: t(document.querySelector('[data-jarvis-brief-region="waiting"] [data-jarvis-brief-summary-title]')),
+                    initiatives: chip('${initRegion} [data-jarvis-initiative-project] [data-filter-option="all"]'),
+                    shipped: chip('[data-jarvis-brief-region="behind"] [data-jarvis-run-kind] [data-filter-option="all"]'),
+                };
+            })()`);
+        const f16before = await f16Counts();
+        await actFilter(h, "zz-no-match");
+        const f16during = await f16Counts();
+        await h.shot("cdp-shots/brief-act-40-filtered-counts.png");
+        await actFilter(h, "");
+        const f16after = await f16Counts();
+        const waitingN = /^(\d+) things? (?:is|are) waiting on you$/.exec(f16before.waiting)?.[1] ?? null;
+        steps.push({
+            step: "40. F16: a filter matching nothing reads 0 of N on the Waiting summary, the Initiatives all chip and the Shipped all chip; cleared, they read N again",
+            ok:
+                waitingN != null &&
+                f16before.initiatives === "10" &&
+                f16before.shipped === "3" &&
+                f16during.waiting === `0 of ${waitingN} waiting match the filter` &&
+                f16during.initiatives === "0 of 10" &&
+                f16during.shipped === "0 of 3" &&
+                JSON.stringify(f16after) === JSON.stringify(f16before),
+            detail: JSON.stringify({ before: f16before, during: f16during, after: f16after }),
+        });
+        await actFixture(h, null);
         return steps;
     },
     async teardown(h, ctx) {
+        await actRestoreConfig(h).catch(() => {});
+        await actRestoreRoster(h).catch(() => {});
+        await actRestoreAttention(h).catch(() => {});
         await releaseRpc(h, "AckRunCommand").catch(() => {});
         await releaseRpc(h, "CancelRunCommand").catch(() => {});
         for (const command of ["EffortGetCommand", "EffortMutateCommand", "SetDossierStatusCommand"]) {

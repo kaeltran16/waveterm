@@ -55,10 +55,10 @@ import {
     effectiveCursor,
     EFFORT_CAP,
     groupDelta,
+    initiativeWindow,
     projectBriefing,
     SEVEN_DAYS_MS,
     SHIPPED_CAP,
-    summarizeAttentionQueue,
     withoutSettledChunks,
     type QueueRow,
 } from "./briefingmodel";
@@ -98,8 +98,10 @@ import {
     initiativesMeta,
     keepsProject,
     keepsRunKind,
+    kindLabels,
+    lineKindCounts,
     liveRunKindCounts,
-    projectCounts,
+    projectCountLabels,
     queueLine,
     runKindCounts,
     runKindLegs,
@@ -107,6 +109,8 @@ import {
     sessionWindow,
     SHIPPED_LABEL,
     sinceLabel,
+    waitingSummary,
+    workProjectCount,
     type BriefLine,
     type LineTarget,
     type RunKindFilter,
@@ -328,8 +332,8 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     // render would re-register it every render. They are pure functions of the snapshot projection, so
     // pinning them to it also stops groupDelta's "now" drifting between renders of the same snapshot.
     const queue = useMemo(
-        () => (model_ != null ? buildAttentionQueue({ attention, efforts, blockers: model_.blockers }) : []),
-        [model_, efforts, attention]
+        () => (model_ != null ? buildAttentionQueue({ attention, efforts, blockers: model_.blockers, agents }) : []),
+        [model_, efforts, attention, agents]
     );
 
     // Each region opens at its cap and the region's own control opens the rest in place. The caps stay
@@ -346,7 +350,6 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     const initiativesOpen = expanded.initiatives === true;
     const sessionsOpen = expanded.sessions === true;
     const behindOpen = expanded.behind === true;
-    const queueSummary = useMemo(() => summarizeAttentionQueue(queue, Date.now()), [queue]);
 
     // archived initiatives come off the effort list, not the briefing, and show only on request
     const [showArchived, setShowArchived] = useState(false);
@@ -362,12 +365,20 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         [efforts, archivedCards, showArchived]
     );
     const projectOptions = useMemo(() => initiativeProjects(projectCards), [projectCards]);
-    const perProject = useMemo(() => projectCounts(projectCards), [projectCards]);
+    // while filtering, each chip counts the initiatives the filter keeps of its own
+    const projectLabels = useMemo(
+        () =>
+            projectCountLabels(
+                projectCards,
+                filtering ? projectCards.filter((c) => filterLines([initiativeLine(c)], query).length > 0) : null
+            ),
+        [projectCards, filtering, query]
+    );
     // a pick whose last initiative went away reads as every project rather than an empty region
     const project = pickedProject != null && projectOptions.includes(pickedProject) ? pickedProject : null;
     const projectEfforts = useMemo(() => efforts.filter((e) => keepsProject(project, e.project)), [efforts, project]);
     const effortWindow = useMemo(
-        () => capRegion(projectEfforts, EFFORT_CAP, initiativesOpen || filtering),
+        () => initiativeWindow(projectEfforts, EFFORT_CAP, initiativesOpen || filtering),
         [projectEfforts, initiativesOpen, filtering]
     );
     const archivedShown = useMemo(
@@ -382,11 +393,19 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                 : sessionWindow(runKindLegs(model_, runKind), sessionsOpen || filtering, Date.now()),
         [model_, sessionsOpen, runKind, filtering]
     );
-    // the chips count what the head's "N live" counts; the stale fold states the rest
-    const runCounts = useMemo(
-        () => liveRunKindCounts(model_ ?? { activeRuns: [], directAgents: [] }, Date.now()),
-        [model_]
-    );
+    // the chips count what the head's "N live" counts; the stale fold states the rest. While filtering, each
+    // counts its live lines the filter keeps, of every kind, since the chips are how you switch kind.
+    const runCounts = useMemo(() => {
+        const now = Date.now();
+        const total = liveRunKindCounts(model_ ?? { activeRuns: [], directAgents: [] }, now);
+        if (model_ == null || !filtering) {
+            return kindLabels(total, null);
+        }
+        const live = sessionWindow(model_, true, now)
+            .rows.map((r) => sessionLine(r, now))
+            .filter((l) => !l.stale);
+        return kindLabels(total, lineKindCounts(filterLines(live, query)));
+    }, [model_, filtering, query]);
     // moment 1: which rows are new to YOU. Excludes `behind` deliberately — that region is entirely
     // since-your-last-visit by construction, so marking it would mark every row and its own label
     // already states the fact.
@@ -432,7 +451,6 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         () => (model_?.shipped ?? []).filter((s) => keepsRunKind(shippedKind, s.mode)),
         [model_, shippedKind]
     );
-    const shippedCounts = useMemo(() => runKindCounts((model_?.shipped ?? []).map((s) => s.mode)), [model_]);
     const shipped = useMemo(
         () => capRegion(shippedAll, SHIPPED_CAP, shippedOpen || filtering),
         [shippedAll, shippedOpen, filtering]
@@ -496,6 +514,28 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         behindOpen,
         filtering,
     ]);
+    // Waiting's card summarizes the rows the filter keeps, "N of M" of the whole queue
+    const queueSummary = useMemo(() => {
+        const ids = new Set(lines.waiting.map((l) => l.id));
+        return waitingSummary(
+            queue,
+            queue.filter((q) => ids.has("waiting:" + q.key)),
+            filtering,
+            Date.now()
+        );
+    }, [queue, lines.waiting, filtering]);
+    // Shipped's kind chips: every shipped run, and while filtering the ones whose line the filter keeps
+    const shippedCounts = useMemo(() => {
+        const all = model_?.shipped ?? [];
+        const total = runKindCounts(all.map((s) => s.mode));
+        if (!filtering) {
+            return kindLabels(total, null);
+        }
+        const shippedGroup = behindGroups([], all, Date.now(), { efforts: effortIndex, projects }).find(
+            (g) => g.label === SHIPPED_LABEL
+        );
+        return kindLabels(total, lineKindCounts(filterLines(shippedGroup?.lines ?? NO_LINES, query)));
+    }, [model_, filtering, query, effortIndex, projects]);
     const staleCount = lines.sessions.filter((l) => l.stale).length;
     const waitingShown = waitingOpen || filtering;
     const view = useMemo(() => {
@@ -904,7 +944,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         globalStore.set(graphPeekOpenAtom, false);
         globalStore.set(briefGraphRecordAtom, null);
     };
-    const projectCount = snapshot?.state.projects?.length ?? 0;
+    const projectCount = workProjectCount(snapshot?.state.projects?.map((p) => p.project) ?? [], projects ?? {});
     const initiativesHead = initiativesMeta(projectEfforts, Date.now());
     const liveN = view.sessionLines.filter((l) => !l.stale).length;
 
@@ -1152,8 +1192,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                         onOnly={() => toggleOnly("initiatives")}
                                         projects={{
                                             options: projectOptions,
-                                            total: projectCards.length,
-                                            counts: perProject,
+                                            labels: projectLabels,
                                             picked: project,
                                             onPick: setPickedProject,
                                         }}
