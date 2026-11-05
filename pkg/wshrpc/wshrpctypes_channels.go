@@ -109,8 +109,8 @@ type AttentionItem struct {
 	TaskId string `json:"taskid,omitempty"`
 	Retry  bool   `json:"retry,omitempty"`
 	// ORef addresses the object an item is about when it is not reachable through a channel. The server sets
-	// one only on a workflow-scan item (workflowscan:<runid>); the frontend's own brainstorm item carries one
-	// too, and the popup target reads it.
+	// one on a workflow-scan item (workflowscan:<runid>) and on a channel-less ask from an agent tab
+	// (tab:<id>); the frontend's own brainstorm item carries one too, and the popup target reads it.
 	ORef string `json:"oref,omitempty"`
 
 	// EffortOID/ChunkLabel are the initiative this waiting thing belongs to, read off the owning run's
