@@ -798,7 +798,7 @@ function TrackerFooter({
                             FOCUS
                         )}
                     >
-                        cancel
+                        Cancel
                     </button>
                     <button
                         type="button"
@@ -811,14 +811,14 @@ function TrackerFooter({
                             FOCUS
                         )}
                     >
-                        delete
+                        Delete
                     </button>
                 </span>
             ) : (
                 <span className="ml-auto flex items-center gap-1.5">
-                    {action("rename", "rename", () => edits.onRename(edits.title))}
-                    {action("details", "details", edits.onDetails)}
-                    {action("activity", "activity", edits.onActivity, false, true)}
+                    {action("rename", "Rename", () => edits.onRename(edits.title))}
+                    {action("details", "Details", edits.onDetails)}
+                    {action("activity", "Activity", edits.onActivity, false, true)}
                     {onPost != null ? (
                         <button
                             type="button"
@@ -829,14 +829,14 @@ function TrackerFooter({
                                 FOCUS
                             )}
                         >
-                            post to Jira
+                            Post to Jira
                         </button>
                     ) : null}
                     {archived
-                        ? action("unarchive", "unarchive", edits.onUnarchive)
-                        : action("pause", edits.effortStatus === "paused" ? "resume" : "pause", edits.onTogglePause)}
-                    {archived ? null : action("archive", "archive", edits.onArchive, true)}
-                    {action("delete", "delete", () => onConfirm(true), true)}
+                        ? action("unarchive", "Unarchive", edits.onUnarchive)
+                        : action("pause", edits.effortStatus === "paused" ? "Resume" : "Pause", edits.onTogglePause)}
+                    {archived ? null : action("archive", "Archive", edits.onArchive, true)}
+                    {action("delete", "Delete", () => onConfirm(true), true)}
                 </span>
             )}
         </div>

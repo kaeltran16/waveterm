@@ -91,13 +91,15 @@ export function visibleRows(data: CommandJiraCheckRtnData, onInitiative: Set<str
     return data.tickets.filter((t) => !taken.has(normalizeKey(t.key)));
 }
 
-export function footerLine(covered: number): string {
+// "more" only beside listed rows: with none listed, the covered tickets are all there is
+export function footerLine(covered: number, listed: number): string {
     if (covered <= 0) {
         return "";
     }
+    const more = listed > 0 ? "more " : "";
     return covered === 1
-        ? "1 more assigned ticket already has an initiative."
-        : `${covered} more assigned tickets already have an initiative.`;
+        ? `1 ${more}assigned ticket already has an initiative.`
+        : `${covered} ${more}assigned tickets already have an initiative.`;
 }
 
 export function emptyDetail(checked: number): string {

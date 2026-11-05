@@ -154,8 +154,8 @@ export const jiraPost = {
         // 1. the footer offers post to Jira on an initiative with a ticket
         const plan = await openPlan(h);
         steps.push({
-            step: "1. the open plan's footer offers post to Jira",
-            ok: plan.ok && plan.post && plan.postText === "post to Jira",
+            step: "1. the open plan's footer offers Post to Jira",
+            ok: plan.ok && plan.post && plan.postText === "Post to Jira",
             detail: JSON.stringify(plan),
         });
 

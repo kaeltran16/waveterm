@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { buildEffortCard, chunkTone, effortFacts, groupChunksByStage, stageOptions } from "./effortmodel";
+import {
+    buildEffortCard,
+    chunkTone,
+    effortFacts,
+    groupChunksByStage,
+    parentChoices,
+    stageOptions,
+} from "./effortmodel";
 
 const base = {
     oref: "effort:abc",
@@ -308,5 +315,29 @@ describe("groupChunksByStage fractions", () => {
     it("an all-skipped stage is 0/0, never a word that wraps", () => {
         const [g] = groupChunksByStage([row("A", "skipped")]);
         expect(g.fraction).toBe("0/0");
+    });
+});
+
+describe("parentChoices (F11)", () => {
+    const cards = [
+        { oref: "effort:a1", title: "Cockpit focus and peek", ticket: "SIEM-1707" },
+        { oref: "effort:b2", title: "Brief live pass" },
+        { oref: "effort:c3", title: "Peek polish", ticket: "SIEM-1800" },
+    ];
+
+    it("excludes the initiative being edited", () => {
+        expect(parentChoices(cards, "peek", "a1", 8).map((c) => c.oref)).toEqual(["effort:c3"]);
+    });
+
+    it("matches by ticket, case-insensitively", () => {
+        expect(parentChoices(cards, "siem-1800", null, 8).map((c) => c.oref)).toEqual(["effort:c3"]);
+    });
+
+    it("matches by title, case-insensitively", () => {
+        expect(parentChoices(cards, "BRIEF", null, 8).map((c) => c.oref)).toEqual(["effort:b2"]);
+    });
+
+    it("returns the first max for an empty query", () => {
+        expect(parentChoices(cards, "  ", null, 2).map((c) => c.oref)).toEqual(["effort:a1", "effort:b2"]);
     });
 });

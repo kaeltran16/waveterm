@@ -16,7 +16,8 @@ describe("eventFromResume", () => {
         const e = eventFromResume({ card, runoref: "run:abc" });
         expect(e?.kind).toBe("resume");
         expect(e?.at).toBe(1_700_000_000_500);
-        expect(e?.text).toBe("Where we were — paused at the migration step");
+        // the heading already says "Where we were" (F9)
+        expect(e?.text).toBe("paused at the migration step");
     });
 
     // stability is the whole point: an id derived from the read time would re-say the same narrative on

@@ -86,8 +86,8 @@ export function InitiativesRegion({
     // the project filter; options holds every project an initiative names, picked null for all
     projects: {
         options: string[];
-        total: number;
-        counts: Map<string, number>;
+        // each chip's count label (projectCountLabels)
+        labels: { all: string; byProject: Map<string, string> };
         picked: string | null;
         onPick: (p: string | null) => void;
     };
@@ -137,11 +137,11 @@ export function InitiativesRegion({
                           noun: "project",
                           tag: "data-jarvis-initiative-project",
                           options: [
-                              { value: null, label: "all", count: projects.total },
+                              { value: null, label: "all", count: projects.labels.all },
                               ...projects.options.map((p) => ({
                                   value: p,
                                   label: p || "no project",
-                                  count: projects.counts.get(p),
+                                  count: projects.labels.byProject.get(p),
                               })),
                           ],
                           value: project,

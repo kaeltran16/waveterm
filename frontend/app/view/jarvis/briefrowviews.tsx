@@ -76,9 +76,11 @@ export function WaitingRow({
             <span className="w-[200px] flex-none truncate text-right font-mono text-[11px] text-ink-mid">
                 {line.meta}
             </span>
+            {/* one width for every row, the width of "just now" at 11px mono, so the column stays aligned */}
             <span
+                data-jarvis-queue-age
                 className={cn(
-                    "w-10 flex-none text-right font-mono text-[11px] font-semibold",
+                    "w-[58px] flex-none whitespace-nowrap text-right font-mono text-[11px] font-semibold",
                     TONE_TEXT[line.kindTone]
                 )}
             >

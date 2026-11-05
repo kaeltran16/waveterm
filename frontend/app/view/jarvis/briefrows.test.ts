@@ -3,20 +3,24 @@
 
 import { describe, expect, it } from "vitest";
 import type { ActiveWorkRow, DeltaRow, QueueRow, RunRow, ShippedRow } from "./briefingmodel";
-import { DELTA_CAP, groupDelta } from "./briefingmodel";
+import { buildAttentionQueue, DELTA_CAP, groupDelta } from "./briefingmodel";
 import {
     behindGroups,
     capBehind,
     filterAsMenu,
+    filterCount,
     filterLines,
     initiativeLine,
     initiativeProjects,
     initiativesMeta,
     keepsProject,
     keepsRunKind,
+    kindLabels,
+    lineKindCounts,
     lineOpenTarget,
     liveRunKindCounts,
     plainSummary,
+    projectCountLabels,
     projectCounts,
     projectName,
     queueLine,
@@ -29,6 +33,8 @@ import {
     SHIPPED_LABEL,
     shortTitle,
     sinceLabel,
+    waitingSummary,
+    workProjectCount,
     type BriefLine,
     type EffortIndex,
 } from "./briefrows";
@@ -543,6 +549,33 @@ describe("behindGroups", () => {
             group: "shipped",
         });
     });
+
+    it("titles a shipped run by its report's H1, else by its goal's lead sentence", () => {
+        const row = (goal: string, summary: string): ShippedRow => ({
+            oref: "run:" + goal.length,
+            goal,
+            project: "waveterm",
+            summary,
+            completedTs: NOW - MIN,
+            fresh: false,
+            hasReport: summary !== "",
+            effortOid: "",
+            chunkLabel: "",
+            mode: "orchestrator",
+        });
+        const [group] = behindGroups(
+            [],
+            [
+                row("Fix all findings in C:\\a\\report.md (read it by that path; shots beside it). Land.", ""),
+                row("Fix the palette. Read first.", "# Run report: Palette fixes\n\n## Landed\n- none"),
+            ],
+            NOW
+        );
+        expect(group.lines.map((l) => l.title)).toEqual([
+            "Fix all findings in C:\\a\\report.md (read it by that path; shots beside it).",
+            "Palette fixes",
+        ]);
+    });
 });
 
 // F2: the cap counts the folded lines the region draws, not the events behind them
@@ -978,7 +1011,21 @@ describe("keepsProject", () => {
 });
 
 describe("initiativesMeta", () => {
-    const card = (status: string, idleDays: number) => ({ status, updatedts: NOW - idleDays * DAY });
+    const card = (status: string, idleDays: number, blocked = 0) => ({
+        status,
+        updatedts: NOW - idleDays * DAY,
+        blockedChunks: Array.from({ length: blocked }, () => ({})),
+    });
+
+    // F8: the blocked ones lead, before what was stopped on purpose
+    it("leads with the initiatives that hold blocked work", () => {
+        expect(initiativesMeta([card("active", 1, 2), card("active", 1, 1), card("paused", 1)], NOW)).toBe(
+            "2 blocked · 1 paused"
+        );
+        expect(initiativesMeta([card("active", 9, 1), card("paused", 1)], NOW)).toBe(
+            "1 blocked · 1 paused · 1 quiet 7d+"
+        );
+    });
 
     it("counts initiatives with no update in seven days as quiet, beside the paused ones", () => {
         expect(
@@ -1074,5 +1121,108 @@ describe("plainSummary", () => {
             NOW
         );
         expect(group.lines[0].detail).toBe("portfolio-redesign · t-1: rebuilt the hero");
+    });
+});
+
+// F1: the header counts registered projects, not the work-state keys the server groups by
+describe("workProjectCount", () => {
+    const keys = [
+        "C:/x/waveterm",
+        "waveterm",
+        "C:/Users/me/AppData/Local/arc-wt/5638249e-t-1",
+        "(none)",
+        "C:/Temp/verify-diff-states-1",
+    ];
+    it("counts the distinct registered projects the keys resolve to, by path or by name", () => {
+        expect(workProjectCount(keys, { waveterm: { path: "C:\\x\\waveterm\\" } })).toBe(1);
+    });
+    it("counts nothing with an empty registry", () => {
+        expect(workProjectCount(keys, {})).toBe(0);
+    });
+    it("counts a project named by its key once with its path", () => {
+        expect(workProjectCount(["waveterm", "c:\\X\\WaveTerm"], { waveterm: { path: "C:/x/waveterm" } })).toBe(1);
+    });
+    it("counts two registered projects, and not a registry member's prototype names", () => {
+        const projects = { a: { path: "C:/a" }, b: { path: "C:/b" }, c: {} };
+        expect(workProjectCount(["C:/a", "b", "constructor", "toString"], projects)).toBe(2);
+    });
+});
+
+// F16: while a filter is active every count is the matching rows "of" the unfiltered count
+describe("filterCount", () => {
+    it("reads the total alone with no filter, and N of M while filtering", () => {
+        expect(filterCount(41, 41, false)).toBe("41");
+        expect(filterCount(0, 41, true)).toBe("0 of 41");
+        expect(filterCount(3, 12, true)).toBe("3 of 12");
+        expect(filterCount(12, 12, true)).toBe("12 of 12");
+    });
+});
+
+describe("waitingSummary", () => {
+    const rows = buildAttentionQueue({
+        attention: Array.from({ length: 11 }, (_, i) => ({
+            kind: "ask",
+            key: "ask:" + i,
+            channelid: "c1",
+            source: "s",
+            text: "t" + i,
+            action: "Answer",
+            phaseidx: 0,
+            waitingsince: NOW - (i + 1) * MIN,
+        })),
+        efforts: [],
+    });
+    it("summarizes the matching rows of the whole queue while filtering", () => {
+        const s = waitingSummary(rows, rows.slice(0, 2), true, NOW);
+        expect(s?.title).toBe("2 of 11 waiting match the filter");
+        expect(s?.detail).toBe("2 asks · oldest 2m");
+    });
+    it("still says 0 of N when the filter matches none", () => {
+        expect(waitingSummary(rows, [], true, NOW)).toEqual({
+            title: "0 of 11 waiting match the filter",
+            detail: "",
+            oldestTs: null,
+        });
+    });
+    it("reads as before with no filter, and as nothing with an empty queue", () => {
+        expect(waitingSummary(rows, rows, false, NOW)?.title).toBe("11 things are waiting on you");
+        expect(waitingSummary([], [], true, NOW)).toBeNull();
+    });
+});
+
+describe("filter chip labels", () => {
+    const run = (runType: "orchestrator" | "quick run") => ({ runType }) as BriefLine;
+    it("counts lines by run kind, an agent line only under all", () => {
+        expect(lineKindCounts([run("orchestrator"), run("quick run"), run("quick run"), {} as BriefLine])).toEqual({
+            all: 4,
+            orchestrator: 1,
+            quick: 2,
+        });
+    });
+    it("labels each kind with its total, or its matches of the total while filtering", () => {
+        const total = { all: 5, orchestrator: 2, quick: 3 };
+        expect(kindLabels(total, null)).toEqual({ all: "5", orchestrator: "2", quick: "3" });
+        expect(kindLabels(total, { all: 1, orchestrator: 0, quick: 1 })).toEqual({
+            all: "1 of 5",
+            orchestrator: "0 of 2",
+            quick: "1 of 3",
+        });
+    });
+    it("labels each project with its initiatives, or its matching ones while filtering", () => {
+        const cards = [{ project: "a" }, { project: "a" }, { project: "" }];
+        expect(projectCountLabels(cards, null)).toEqual({
+            all: "3",
+            byProject: new Map([
+                ["a", "2"],
+                ["", "1"],
+            ]),
+        });
+        expect(projectCountLabels(cards, [{ project: "a" }])).toEqual({
+            all: "1 of 3",
+            byProject: new Map([
+                ["a", "1 of 2"],
+                ["", "0 of 1"],
+            ]),
+        });
     });
 });

@@ -111,11 +111,16 @@ export function trackerRows(args: {
             continue;
         }
         const doneN = chunks.filter((c) => c.status === "done").length;
+        // skips leave the count, as on the row and the sheet, and the sheet's words say so
+        const skippedN = chunks.filter((c) => c.status === "skipped").length;
+        const counted = chunks.length - skippedN;
         out.push({
             kind: "facts",
             id: line.id + "/facts",
             oref,
-            count: `${chunks.length} chunk${chunks.length === 1 ? "" : "s"} · ${doneN} done`,
+            count:
+                `${counted} chunk${counted === 1 ? "" : "s"} · ${doneN} done` +
+                (skippedN > 0 ? ` · ${skippedN} skipped, not counted` : ""),
         });
         const next = nextChunk(chunks);
         const pushChunk = (row: ChunkRowModel) =>

@@ -127,7 +127,7 @@ export function JiraCheckDialog({ model }: { model: AgentsViewModel }) {
     // a list whose rows have all left reads as Nothing new
     const bodyKind = state?.kind === "list" && rows.length === 0 ? "empty" : shown.kind;
     const covered = state?.kind === "list" ? state.data.covered + state.data.tickets.length - rows.length : 0;
-    const footer = state?.kind === "list" ? footerLine(covered) : "";
+    const footer = state?.kind === "list" ? footerLine(covered, rows.length) : "";
     const subtitle = checkSubtitle(shown, rows.length);
     const when = headerWhen(shown, settingsSite, Date.now());
     const toSettings = () => {

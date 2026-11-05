@@ -10,7 +10,15 @@ import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { missingLegs, SHIPPED_CAP } from "./briefingmodel";
 import type { BriefingLoadState } from "./briefingstore";
 
-export type BriefingFixtureName = "normal" | "attention" | "empty" | "partial" | "failed" | "act" | "review";
+export type BriefingFixtureName =
+    | "normal"
+    | "attention"
+    | "empty"
+    | "partial"
+    | "failed"
+    | "act"
+    | "review"
+    | "initiatives";
 export interface BriefingFixture {
     load: BriefingLoadState;
     agents: AgentVM[];
@@ -318,7 +326,8 @@ const actState: WorkState = {
                 {
                     project: "C:\\Users\\dev\\IdeaProjects\\portfolio-redesign",
                     runoid: "r-act-shipped",
-                    goal: "Portfolio hero redesign",
+                    // past a tooltip's length, so the row's title must come from the report's H1 (brief-act 41)
+                    goal: "Redesign the portfolio's hero so a visitor reads who it is for in one glance. Rebuild the layout in the hero component, keep the copy to two lines, check it at phone and desktop widths, and leave the rest of the page as it is.",
                     summary: "# Run report: Portfolio hero\n\n## Tasks\n- t-1: **rebuilt** the hero in `hero.tsx`",
                     completedts: NOW - 5 * HOUR,
                     hasreport: true,
@@ -385,6 +394,27 @@ const reviewRun = (kind: string, runid: string, source: string, text: string, re
     phaseidx: 0,
     waitingsince: NOW - 2 * HOUR,
 });
+const REVIEW_ASKER: AgentVM = {
+    id: "tab-review-asker",
+    name: "review asker",
+    task: "pick the first tenant",
+    state: "asking",
+    agent: "claude",
+    project: "waveterm",
+    blockedMs: 5 * MIN,
+};
+// a direct agent's ask: no channel, its tab in the oref, and the server's fallback word as the source (F2)
+const REVIEW_AGENT_ASK_TEXT = "Can I rename the tenant table?";
+const reviewAgentAsk: AttentionItem = {
+    kind: "ask",
+    key: "ask:review-agent",
+    source: "agent",
+    text: REVIEW_AGENT_ASK_TEXT,
+    action: "Answer",
+    phaseidx: 0,
+    waitingsince: NOW - 30 * MIN,
+    oref: "tab:" + REVIEW_ASKER.id,
+};
 const reviewAttention: AttentionItem[] = [
     reviewRun("run-unverified", "r-review-u1", "review unverified one", "The run landed but its Verify never ran."),
     reviewRun("run-unverified", "r-review-u2", "review unverified two", "The run landed but its Verify never ran."),
@@ -404,6 +434,7 @@ const reviewAttention: AttentionItem[] = [
         phaseidx: 0,
         waitingsince: NOW - HOUR,
     },
+    reviewAgentAsk,
 ];
 // Runs: twelve orchestrator runs a week quiet beside two live quick runs, so the kind chips and the head's
 // "N live" can disagree (F15), and an asking direct agent whose Answer goes to the agent (F6)
@@ -417,15 +448,9 @@ const reviewRuns = (n: number, tag: string, mode: string, age: number): ActiveWo
         navtarget: `run:r-review-${tag}-${i + 1}`,
         mode,
     }));
-const REVIEW_ASKER: AgentVM = {
-    id: "tab-review-asker",
-    name: "review asker",
-    task: "pick the first tenant",
-    state: "asking",
-    agent: "claude",
-    project: "waveterm",
-    blockedMs: 5 * MIN,
-};
+// the work-state keys the server writes beside a project's path: the same project by name, a run worktree and
+// "(none)" (F1). None holds work, so the regions read as before.
+const noWork = (project: string) => ({ project, active: [], shipped: [], events: [], delta: [] });
 const reviewState: WorkState = {
     projects: [
         {
@@ -481,6 +506,9 @@ const reviewState: WorkState = {
                 })),
             ],
         },
+        noWork("waveterm"),
+        noWork("C:\\Users\\dev\\AppData\\Local\\arc-wt\\5638249e-t-1"),
+        noWork("(none)"),
     ],
     sources: { runs: true, sessions: true, dossiers: true, efforts: true, attention: "volatile" },
     efforts: [
@@ -488,6 +516,41 @@ const reviewState: WorkState = {
             { label: "N1 the note chunk", status: "active" },
         ]),
     ],
+};
+
+// "initiatives": ten initiatives over two projects in activity order A to J, H and I holding blocked chunks, so
+// Initiatives' window has to reach past its cap for them (F8); with the review queue and three shipped runs, a
+// filter has counts to narrow in Waiting, Initiatives and Shipped (F16).
+const WINDOW_INITIATIVES = "ABCDEFGHIJ".split("").map((c) => `Window initiative ${c}`);
+const initiativesState: WorkState = {
+    projects: [
+        {
+            project: REVIEW_PROJECT,
+            active: [],
+            shipped: Array.from({ length: 3 }, (_, i) => ({
+                project: REVIEW_PROJECT,
+                runoid: `r-window-shipped-${i + 1}`,
+                goal: `Window shipped run ${i + 1}`,
+                summary: "shipped for the initiatives fixture",
+                completedts: NOW - (i + 1) * HOUR,
+                mode: i === 0 ? "orchestrator" : "quick",
+            })),
+            events: [],
+            delta: [],
+        },
+    ],
+    sources: { runs: true, sessions: true, dossiers: true, efforts: true, attention: "volatile" },
+    efforts: WINDOW_INITIATIVES.map((title, i) =>
+        actEffort(
+            `window-${i + 1}`,
+            title,
+            (i + 1) * HOUR,
+            i === 7 || i === 8
+                ? [{ label: "W blocked", status: "blocked", blocked: { since: NOW - DAY, needs: "needs: a review" } }]
+                : [{ label: "W next", status: "active" }],
+            i % 2 === 0 ? "waveterm" : "portfolio"
+        )
+    ),
 };
 
 export const BRIEFING_FIXTURES: Record<BriefingFixtureName, BriefingFixture> = {
@@ -498,4 +561,5 @@ export const BRIEFING_FIXTURES: Record<BriefingFixtureName, BriefingFixture> = {
     failed: { load: { snapshot: null, loading: false, error: "fixture failure" }, agents: [], attention: [] },
     act: { load: loaded(actState), agents: [], attention: [] },
     review: { load: loaded(reviewState), agents: [REVIEW_ASKER], attention: reviewAttention },
+    initiatives: { load: loaded(initiativesState), agents: [], attention: reviewAttention },
 };

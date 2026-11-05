@@ -1,5 +1,39 @@
 import { describe, expect, it } from "vitest";
-import { parseRunReport } from "./runreport";
+import { parseRunReport, runTitle, shortTitle } from "./runreport";
+
+describe("runTitle", () => {
+    it("is the report's H1", () => {
+        expect(
+            runTitle("Fix the usage surface.", "# Usage surface review fixes (F1-F21): lead report\n\nDAG 1: done.")
+        ).toBe("Usage surface review fixes (F1-F21): lead report");
+    });
+
+    it("drops a leading Run report: prefix, in any case", () => {
+        expect(runTitle("goal", "# Run report: Palette fixes")).toBe("Palette fixes");
+        expect(runTitle("goal", "# run REPORT:Palette fixes\n## Landed")).toBe("Palette fixes");
+    });
+
+    it("falls back to the goal's first line's lead sentence with no report or no H1", () => {
+        const goal = "Fix the palette. Read the report first.\n\nMore detail";
+        expect(runTitle(goal, "")).toBe("Fix the palette.");
+        expect(runTitle(goal, "## Landed\n- abc1234 x")).toBe("Fix the palette.");
+        expect(runTitle(goal, "# Run report:")).toBe("Fix the palette.");
+    });
+
+    it("never ends at a ; and stays bounded with a goal that has no sentence end", () => {
+        const title = runTitle("Read C:\\a\\b.c\\report.md; then fix " + "x ".repeat(200), "");
+        expect(title.length).toBeLessThanOrEqual(181);
+        expect(title.includes("report.md; then fix")).toBe(true);
+    });
+});
+
+describe("shortTitle", () => {
+    it("is the first line's lead sentence", () => {
+        expect(shortTitle("Fix every chunk of the Brief. Read it first.\n\nMore")).toBe(
+            "Fix every chunk of the Brief."
+        );
+    });
+});
 
 const MD = [
     "# Retire the recall arm — run report",

@@ -32,6 +32,24 @@ export function capRegion<T>(rows: T[], cap: number, expanded: boolean): CappedR
     return { rows: shown, more: rows.length - shown.length };
 }
 
+// Initiatives' window: the ones holding blocked work come first, since the Waiting summary names them and the
+// region must show them without a click. The rest fill the cap in list order, and the shown cards keep the
+// list's order.
+export function initiativeWindow<T extends { blockedChunks: unknown[] }>(
+    cards: T[],
+    cap: number,
+    expanded: boolean
+): CappedRows<T> {
+    if (expanded) {
+        return capRegion(cards, cap, true);
+    }
+    const blocked = cards.filter((c) => c.blockedChunks.length > 0).slice(0, cap);
+    const rest = cards.filter((c) => c.blockedChunks.length === 0).slice(0, cap - blocked.length);
+    const picked = new Set<T>([...blocked, ...rest]);
+    const rows = cards.filter((c) => picked.has(c));
+    return { rows, more: cards.length - rows.length };
+}
+
 export interface BriefingModelInput {
     state: WorkState;
     agents: AgentVM[];
@@ -193,11 +211,24 @@ export function queueOpenTarget(nav: QueueNav | null): QueueOpenTarget | null {
 }
 
 const WORKFLOW_SCAN_KIND = "workflow-scan";
+const ASK_KIND = "ask";
+const TAB_OREF_PREFIX = "tab:";
+const ANSWER_ACTION = "Answer";
+
+// A direct agent's ask names no channel, only the agent's tab (pkg/jarvis/attention.go); the oref on any
+// other item means something else (a workflow scan's), so only the tab: prefix makes it an agent's.
+function agentAskTab(a: AttentionItem, channelId: string): string | null {
+    return a.kind === ASK_KIND && channelId === "" && a.oref?.startsWith(TAB_OREF_PREFIX) ? a.oref : null;
+}
 
 // a scan's run is its agent's, so the run body has nothing to decide: the picks wait in Usage › Workflow
 function queueNav(a: AttentionItem, channelId: string): QueueNav | null {
     if (a.kind === WORKFLOW_SCAN_KIND && a.oref) {
         return { kind: "oref", oref: a.oref };
+    }
+    const tab = agentAskTab(a, channelId);
+    if (tab != null) {
+        return { kind: "oref", oref: tab };
     }
     return channelId !== ""
         ? { kind: "channel", channelId, runId: a.runid != null && a.runid !== "" ? a.runid : null }
@@ -208,25 +239,31 @@ export function buildAttentionQueue(input: {
     attention: AttentionItem[];
     efforts: EffortCardModel[];
     blockers?: BlockerRow[];
+    // the live roster: an agent's ask is named by the agent the Runs row names, not the server's fallback word
+    agents?: { id: string; name: string }[];
 }): QueueRow[] {
     // an effort the Brief is not holding (archived, or another project's) resolves to no title; the
     // chunk label still names the work, so the row keeps it rather than dropping the attribution.
     const effortTitles = new Map(input.efforts.map((e) => [e.oref.replace(/^effort:/, ""), e.title]));
+    const agentNames = new Map((input.agents ?? []).map((a) => [TAB_OREF_PREFIX + a.id, a.name]));
     // wire order is the priority claim (gates, then escalations, then asks; oldest first inside a
     // kind — pkg/jarvis/attention.go), so this preserves it rather than re-sorting on age.
     const rows: QueueRow[] = (input.attention ?? []).map((a) => {
         const channelId = a.channelid ?? "";
+        const tab = agentAskTab(a, channelId);
+        const source = (tab != null ? agentNames.get(tab) : undefined) ?? a.source;
         return {
             key: a.key,
             title: a.text,
-            source: a.source,
-            detail: [a.source, channelId !== "" && a.channelname ? "#" + a.channelname : null]
+            source,
+            detail: [source, channelId !== "" && a.channelname ? "#" + a.channelname : null]
                 .filter((s) => s != null && s !== "")
                 .join(" · "),
             ts: a.waitingsince > 0 ? a.waitingsince : null,
             // a standalone item names no channel, so there is no run body to land on; it renders as
-            // static info rather than a button that would navigate nowhere (NeedsRow's rule, kept).
-            action: channelId !== "" ? a.action : null,
+            // static info rather than a button that would navigate nowhere (NeedsRow's rule, kept). An
+            // agent's ask lands on its agent instead.
+            action: tab != null ? ANSWER_ACTION : channelId !== "" ? a.action : null,
             nav: queueNav(a, channelId),
             tone: a.kind === "dag-blocked" ? "error" : "asking",
             attrib:
@@ -330,13 +367,17 @@ export function queueKindLabel(
 }
 
 export type QueueAct = {
-    label: "Retry" | "Acknowledge" | "Open" | "Unblock" | "Done" | "Retry land" | "Dismiss";
+    label: "Retry" | "Acknowledge" | "Open" | "Answer" | "Unblock" | "Done" | "Retry land" | "Dismiss";
     kind: "retry-dag" | "ack-run" | "open" | "unblock-chunk" | "done-chunk" | "land-run" | "dismiss-land";
 };
 
 // What the row's button does in place (design L1598-1609). Retry needs the exact task the server named;
-// without it the row opens its run rather than guessing one.
+// without it the row opens its run rather than guessing one. An agent's ask opens its agent, which is where
+// it is answered, so its open reads as the Runs row's Answer.
 export function queueAction(row: QueueRow): QueueAct {
+    if (row.wireKind === ASK_KIND && row.channelId === "" && row.nav?.kind === "oref") {
+        return { label: "Answer", kind: "open" };
+    }
     if (row.wireKind === "dag-blocked" && row.retry && row.taskId !== "" && row.runId != null) {
         return { label: "Retry", kind: "retry-dag" };
     }
@@ -417,7 +458,7 @@ const KIND_PLURAL: Record<ReturnType<typeof queueKindLabel>, string> = {
 };
 
 // one count per kind word in queue order (design L1010-1013), then how many initiatives the blocked chunks span: ten blockers
-// read as "10 blocked", not as the word ten times
+// read as "10 blocked", not as the word ten times, and one reads as "1 blocked", so every part is a count
 export function summarizeAttentionQueue(rows: QueueRow[], now: number): QueueSummary | null {
     if (rows.length === 0) {
         return null;
@@ -432,8 +473,7 @@ export function summarizeAttentionQueue(rows: QueueRow[], now: number): QueueSum
         const k = queueKindLabel(r);
         kinds.set(k, (kinds.get(k) ?? 0) + 1);
     }
-    // a single one reads as the design's bare kind word
-    const parts = [...kinds].map(([k, c]) => (c === 1 ? k : `${c} ${KIND_PLURAL[k]}`));
+    const parts = [...kinds].map(([k, c]) => `${c} ${c === 1 ? k : KIND_PLURAL[k]}`);
     const initiatives = new Set(rows.flatMap((r) => (r.chunk != null ? [r.chunk.effortOref] : []))).size;
     if (initiatives > 0) {
         parts.push(`${initiatives} initiative${initiatives === 1 ? "" : "s"}`);

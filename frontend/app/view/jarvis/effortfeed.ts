@@ -186,15 +186,16 @@ export function noteBody(note: { ts: number; text: string }): string {
     return m != null && m[1] === localDay(note.ts) ? note.text.slice(m[0].length) : note.text;
 }
 
-// long notes lead with their outcome, so the first sentence stands in for the whole note
+// long notes lead with their outcome, so the first sentence stands in for the whole note. A ; is a clause, not a
+// sentence end: "read it by that path;" is half a thought.
 export function headline(body: string): string {
-    const m = body.match(/^[\s\S]*?[.;](?=\s|$)/);
+    const m = body.match(/^[\s\S]*?[.!?](?=\s|$)/);
     const head = (m != null ? m[0] : body).trim();
     if (head.length <= HEADLINE_MAX) {
         return head;
     }
     const cut = head.lastIndexOf(" ", HEADLINE_MAX);
-    return head.slice(0, cut > 0 ? cut : HEADLINE_MAX) + "…";
+    return head.slice(0, cut > 0 ? cut : HEADLINE_MAX).replace(/[;,:]+$/, "") + "…";
 }
 
 export type CodeSegment = { text: string; code: boolean };

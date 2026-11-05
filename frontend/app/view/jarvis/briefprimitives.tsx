@@ -110,7 +110,8 @@ type FilterSpec<T> = {
     noun: string;
     // the data attribute a CDP scenario finds the filter by
     tag: string;
-    options: { value: T; label: string; count?: number }[];
+    // the count beside each option, already worded: "12", or "3 of 12" while the Brief is filtered
+    options: { value: T; label: string; count?: string }[];
     value: T;
     onChange: (v: T) => void;
 };
@@ -168,7 +169,7 @@ function FilterMenu<T>({ label, noun, tag, options, value, onChange }: FilterSpe
                     type: "radio",
                     label: o.label,
                     checked: o.value === value,
-                    sublabel: o.count != null ? String(o.count) : undefined,
+                    sublabel: o.count,
                     click: () => onChange(o.value),
                 })
             ),
@@ -195,7 +196,7 @@ function FilterMenu<T>({ label, noun, tag, options, value, onChange }: FilterSpe
 export function runKindFilter(
     value: RunKindFilter,
     onChange: (v: RunKindFilter) => void,
-    counts: Record<RunKindFilter, number>
+    counts: Record<RunKindFilter, string>
 ): FilterSlot {
     return filterSlot({
         label: "Show runs of kind",
@@ -304,8 +305,15 @@ export function QueueSummaryView({
         <div className="grid w-full grid-cols-[3px_minmax(0,1fr)_auto] items-center gap-3 rounded-[10px] border border-border bg-surface py-[9px] pl-3 pr-[11px]">
             <span className={cn("self-stretch rounded-[2px]", error ? "bg-error" : "bg-asking")} />
             <span className="min-w-0">
-                <span className="block truncate text-[13px] font-semibold text-ink-hi">{summary.title}</span>
-                <span className="mt-0.5 block truncate font-mono text-[10.5px] text-ink-mid">{summary.detail}</span>
+                <span data-jarvis-brief-summary-title className="block truncate text-[13px] font-semibold text-ink-hi">
+                    {summary.title}
+                </span>
+                <span
+                    data-jarvis-brief-summary-detail
+                    className="mt-0.5 block truncate font-mono text-[10.5px] text-ink-mid"
+                >
+                    {summary.detail}
+                </span>
             </span>
             <button
                 type="button"

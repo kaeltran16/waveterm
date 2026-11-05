@@ -13,6 +13,7 @@ import { headline, kilo } from "./effortfeed";
 import { fleetCountsLine, type RecordFleet } from "./fleetscope";
 import { ageLabel } from "./recallderive";
 import { runRow } from "./recordrunrow";
+import { runTitle } from "./runreport";
 import { allowedTransitions, isTerminalTransition } from "./tasksderive";
 
 export interface PeekStatusRow {
@@ -123,9 +124,11 @@ export function objectiveParts(objective: string): ObjectiveParts {
         const rest = text.slice(head.length).trim();
         body = rest === "" ? null : rest;
     }
-    const bodyMore =
-        body != null && body.length > BODY_CLAMP_CHARS ? `Show the full objective · ${kilo(body.length)}` : null;
-    return { headline: head, body, bodyMore };
+    return { headline: head, body, bodyMore: body != null ? clampLink(body) : null };
+}
+
+function clampLink(body: string): string | null {
+    return body.length > BODY_CLAMP_CHARS ? `Show the full objective · ${kilo(body.length)}` : null;
 }
 
 export function statusConfirmCopy(status: string): { title: string; body: string } {
@@ -141,7 +144,25 @@ export function decisionsOpenOnMount(anchor: string | null, decisions: DecisionC
     return anchor != null && (decisions ?? []).some((d) => d.id === anchor);
 }
 
-function peekBody(detail: DossierDetail): { body: string | null; bodyIsAbsence: boolean; bodyMore: string | null } {
+// A record captured from a run carries that run's goal as its objective (jarviscapture), so the run's report
+// names the record better than any cut of the objective. runs is undefined while the scope read is in flight.
+export function recordTitle(
+    objective: string,
+    runs: Pick<Run, "goal" | "evidence">[] | undefined
+): { title: string; fromRun: boolean } {
+    const text = objective.trim();
+    const origin = (runs ?? []).find((r) => (r.goal ?? "").trim() === text);
+    if (origin != null) {
+        return { title: runTitle(origin.goal, origin.evidence?.summary ?? ""), fromRun: true };
+    }
+    return { title: objectiveParts(text).headline, fromRun: false };
+}
+
+// a title taken from a run no longer says the objective's lead sentence, so then the body is all of it
+function peekBody(
+    detail: DossierDetail,
+    titleFromRun: boolean
+): { body: string | null; bodyIsAbsence: boolean; bodyMore: string | null } {
     const objective = detail.objective?.trim() ?? "";
     if (objective === "") {
         const notes = detail.notes?.trim() ?? "";
@@ -149,6 +170,9 @@ function peekBody(detail: DossierDetail): { body: string | null; bodyIsAbsence: 
             return { body: BODY_ABSENT, bodyIsAbsence: true, bodyMore: null };
         }
         return { body: notes, bodyIsAbsence: false, bodyMore: null };
+    }
+    if (titleFromRun) {
+        return { body: objective, bodyIsAbsence: false, bodyMore: clampLink(objective) };
     }
     const { body, bodyMore } = objectiveParts(objective);
     return { body, bodyIsAbsence: false, bodyMore };
@@ -176,13 +200,14 @@ export interface RecordPeekInput {
 export function buildRecordPeek(input: RecordPeekInput): RecordPeek {
     const { detail, runs, fleet, counts, harnesses, now } = input;
     const objective = detail.objective?.trim() ?? "";
+    const named = recordTitle(objective, runs);
     return {
-        title: objective !== "" ? objectiveParts(objective).headline : detail.id,
+        title: objective !== "" ? named.title : detail.id,
         titleIsId: objective === "",
         updatedLabel: detail.updated > 0 ? `updated ${ageLabel(Math.max(0, now - detail.updated))}` : "never updated",
         statusLabel: detail.status ?? "",
         statusRows: statusPickerRows(detail.status ?? ""),
-        ...peekBody(detail),
+        ...peekBody(detail, objective !== "" && named.fromRun),
         // the record variant of the shared line, so the peek counts workers across channels rather than
         // counting the rows below it — a record's fleet crosses channels by construction (spec §4a fidelity
         // note), and the rows are runs, which is a different number on purpose.

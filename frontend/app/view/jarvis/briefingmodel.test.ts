@@ -13,6 +13,7 @@ import {
     effectiveCursor,
     EFFORT_CAP,
     groupDelta,
+    initiativeWindow,
     mergeActiveWork,
     missingLegs,
     projectBriefing,
@@ -1419,10 +1420,19 @@ describe("summarizeAttentionQueue", () => {
         });
         expect(summarizeAttentionQueue(queue, T0)).toEqual({
             title: "3 things are waiting on you",
-            detail: "blocked · 2 asks · oldest 2h",
+            detail: "1 blocked · 2 asks · oldest 2h",
             oldestTs: T0 - 2 * HOUR,
         });
-        expect(summarizeAttentionQueue(queue.slice(0, 1), T0)?.detail).toBe("blocked");
+        expect(summarizeAttentionQueue(queue.slice(0, 1), T0)?.detail).toBe("1 blocked");
+    });
+
+    // F14: a single one is counted too, so the summary always reads as a count
+    it("counts a single kind as one rather than printing the bare word", () => {
+        const queue = buildAttentionQueue({
+            attention: [attentionItem({ kind: "ask", key: "a1", waitingsince: 0 })],
+            efforts: [],
+        });
+        expect(summarizeAttentionQueue(queue, T0)?.detail).toBe("1 ask");
     });
 
     it("counts blocked chunks once and names how many initiatives they span", () => {
@@ -1459,6 +1469,37 @@ describe("capRegion", () => {
     // the count has to come off the slice, not off the cap: a region shorter than its window hid nothing
     it("reports no overflow for a region that never reached its cap", () => {
         expect(capRegion(rows, 9, false)).toEqual({ rows, more: 0 });
+    });
+});
+
+// F8: the initiatives holding blocked work are never behind the fold
+describe("initiativeWindow", () => {
+    const cards = (blocked: number[]) =>
+        Array.from({ length: 10 }, (_, i) => ({
+            id: i + 1,
+            blockedChunks: blocked.includes(i + 1) ? [{ label: "b" }] : [],
+        }));
+    const ids = (r: { rows: { id: number }[] }) => r.rows.map((c) => c.id);
+
+    it("takes the blocked ones first, then fills in list order, keeping the list's order", () => {
+        const w = initiativeWindow(cards([7, 9]), 6, false);
+        expect(ids(w)).toEqual([1, 2, 3, 4, 7, 9]);
+        expect(w.more).toBe(4);
+    });
+
+    it("shows every card once expanded", () => {
+        expect(initiativeWindow(cards([7, 9]), 6, true)).toEqual({ rows: cards([7, 9]), more: 0 });
+    });
+
+    it("is the plain head of the list when nothing is blocked", () => {
+        const all = cards([]);
+        expect(initiativeWindow(all, 6, false)).toEqual(capRegion(all, 6, false));
+    });
+
+    it("shows the first blocked ones up to the cap when more are blocked than fit", () => {
+        const w = initiativeWindow(cards([1, 2, 4, 5, 6, 7, 8, 10]), 6, false);
+        expect(ids(w)).toEqual([1, 2, 4, 5, 6, 7]);
+        expect(w.more).toBe(4);
     });
 });
 
@@ -1524,7 +1565,7 @@ describe("design queue wording", () => {
             now
         )!;
         expect(s.title).toBe("3 things are waiting on you");
-        expect(s.detail).toBe("blocked · ask · failed · oldest 2h");
+        expect(s.detail).toBe("1 blocked · 1 ask · 1 failed · oldest 2h");
     });
     it("one item is singular", () => {
         expect(summarizeAttentionQueue([q({})], 0)!.title).toBe("1 thing is waiting on you");
@@ -1593,6 +1634,43 @@ describe("queueActions", () => {
             blockers: [{ oref: "", objective: "Loose end", blockers: "", project: null, ts: 6 }],
         })[0]!;
         expect(queueActions(blocker)).toEqual([]);
+    });
+
+    // F2: a direct agent's ask has no channel but names its tab, so it answers on the Agent surface
+    describe("a channel-less ask naming its agent's tab", () => {
+        const ask = item({
+            kind: "ask",
+            key: "ask:t1",
+            channelid: "",
+            channelname: "",
+            runid: "",
+            source: "agent",
+            oref: "tab:t1",
+        });
+        it("opens the agent, offers Answer, and names the agent from the roster", () => {
+            const r = buildAttentionQueue({
+                attention: [ask],
+                efforts: [],
+                agents: [{ id: "t1", name: "calc helper" }],
+            })[0]!;
+            expect(r.nav).toEqual({ kind: "oref", oref: "tab:t1" });
+            expect(r.action).toBe("Answer");
+            expect(labels(r)).toEqual(["Answer"]);
+            expect(queueActions(r)).toEqual([{ label: "Answer", kind: "open" }]);
+            expect(r.detail).toBe("calc helper");
+            expect(r.source).toBe("calc helper");
+        });
+        it("keeps the wire source when the roster does not hold the tab", () => {
+            const r = buildAttentionQueue({ attention: [ask], efforts: [], agents: [{ id: "t2", name: "other" }] })[0]!;
+            expect(r.detail).toBe("agent");
+            expect(r.source).toBe("agent");
+            expect(labels(r)).toEqual(["Answer"]);
+        });
+        it("does not route a non-tab oref on a channel-less ask", () => {
+            const r = rowOf(item({ kind: "ask", channelid: "", channelname: "", runid: "", oref: "effort:e1" }));
+            expect(r.nav).toBeNull();
+            expect(queueActions(r)).toEqual([]);
+        });
     });
 
     it("keeps Unblock and Done on a blocked chunk, which names no channel", () => {

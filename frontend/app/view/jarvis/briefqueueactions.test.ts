@@ -3,9 +3,9 @@
 
 import { describe, expect, it, vi } from "vitest";
 import type { QueueRow } from "./briefingmodel";
-import { queueActions, type QueueAct } from "./briefingmodel";
+import { buildAttentionQueue, queueActions, type QueueAct } from "./briefingmodel";
 import { ackAll, actOnQueue, openQueueRow } from "./briefqueueactions";
-import type { BriefLine } from "./briefrows";
+import { queueLine, type BriefLine } from "./briefrows";
 
 const row = (over: Partial<QueueRow>): QueueRow => ({
     key: "k",
@@ -83,6 +83,31 @@ describe("actOnQueue", () => {
         await actOnQueue(deps, row({ wireKind: "ask" }), line({ oref: "run:r1" }));
         expect(deps.openLine).toHaveBeenCalledWith({ oref: "run:r1" });
         expect(deps.rpc.dagAction).not.toHaveBeenCalled();
+    });
+
+    // F2: a direct agent's ask answers on the Agent surface, through the same open path as every row
+    it("opens a channel-less agent ask on its tab from its Answer act", async () => {
+        const deps = fakeDeps();
+        const q = buildAttentionQueue({
+            attention: [
+                {
+                    kind: "ask",
+                    key: "ask:t1",
+                    source: "agent",
+                    text: "Which tenant goes first?",
+                    action: "Answer",
+                    phaseidx: 0,
+                    waitingsince: 0,
+                    oref: "tab:t1",
+                },
+            ],
+            efforts: [],
+            agents: [{ id: "t1", name: "calc helper" }],
+        })[0]!;
+        const acts = queueActions(q);
+        expect(acts).toEqual([{ label: "Answer", kind: "open" }]);
+        await actOnQueue(deps, q, queueLine(q, 0), acts[0]);
+        expect(deps.openLine).toHaveBeenCalledWith({ queue: { kind: "oref", oref: "tab:t1" } });
     });
 
     it("does nothing for a row with no target and no in-place action", async () => {

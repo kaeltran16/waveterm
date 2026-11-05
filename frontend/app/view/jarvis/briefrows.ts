@@ -16,17 +16,22 @@ import {
     queueKindLabel,
     queueOpenTarget,
     SEVEN_DAYS_MS,
+    summarizeAttentionQueue,
     type ActiveWorkRow,
     type AgentRow,
     type DeltaGroup,
     type DeltaRow,
     type QueueOpenTarget,
     type QueueRow,
+    type QueueSummary,
     type RunRow,
     type ShippedRow,
 } from "./briefingmodel";
 import { headline, noteBody } from "./effortfeed";
 import type { EffortCardModel } from "./effortmodel";
+import { runTitle, shortTitle } from "./runreport";
+
+export { shortTitle };
 
 export type LineTone = "ok" | "active" | "asking" | "error" | "muted" | "faint";
 export type LineTarget = { queue: QueueOpenTarget } | { oref: string } | null;
@@ -134,14 +139,50 @@ export function initiativeLine(card: EffortCardModel): BriefLine {
     };
 }
 
-// The Initiatives head: what is not moving. A paused initiative was stopped on purpose; a quiet one (no
-// update in seven days) stopped without anyone saying so, and the list sorts it to the bottom behind the
-// fold, so the count is the only place it shows.
-export function initiativesMeta(cards: { status: string; updatedts: number }[], now: number): string {
+// The Initiatives head: what is not moving. A blocked initiative waits on someone, so it leads. A paused
+// initiative was stopped on purpose; a quiet one (no update in seven days) stopped without anyone saying so,
+// and the list sorts it to the bottom behind the fold, so the count is the only place it shows.
+export function initiativesMeta(
+    cards: { status: string; updatedts: number; blockedChunks: unknown[] }[],
+    now: number
+): string {
+    const blocked = cards.filter((c) => c.blockedChunks.length > 0).length;
     const paused = cards.filter((c) => c.status === "paused").length;
     const quiet = cards.filter((c) => c.status !== "paused" && now - c.updatedts > SEVEN_DAYS_MS).length;
-    const parts = [paused > 0 ? `${paused} paused` : "", quiet > 0 ? `${quiet} quiet 7d+` : ""];
+    const parts = [
+        blocked > 0 ? `${blocked} blocked` : "",
+        paused > 0 ? `${paused} paused` : "",
+        quiet > 0 ? `${quiet} quiet 7d+` : "",
+    ];
     return joined(parts) || "all moving";
+}
+
+// The one format of a count while the Brief's filter is active: the matching rows "of" the unfiltered count,
+// so a filter never leaves a number that disagrees with the rows beneath it. With no filter, the count alone.
+export function filterCount(matched: number, total: number, filtering: boolean): string {
+    return filtering ? `${matched} of ${total}` : String(total);
+}
+
+// Waiting's summary card: while filtering, built from the matching rows under a title that says how many of
+// the queue they are, and still drawn when none match, so "0 of N" is said rather than the card vanishing.
+export function waitingSummary(
+    rows: QueueRow[],
+    matching: QueueRow[],
+    filtering: boolean,
+    now: number
+): QueueSummary | null {
+    if (!filtering) {
+        return summarizeAttentionQueue(rows, now);
+    }
+    if (rows.length === 0) {
+        return null;
+    }
+    const s = summarizeAttentionQueue(matching, now);
+    return {
+        title: `${filterCount(matching.length, rows.length, true)} waiting match the filter`,
+        detail: s?.detail ?? "",
+        oldestTs: s?.oldestTs ?? null,
+    };
 }
 
 const needsEyes = (row: ActiveWorkRow) =>
@@ -354,6 +395,37 @@ export function runKindCounts(modes: string[], unkinded = 0): Record<RunKindFilt
     return { all: modes.length + unkinded, orchestrator, quick: modes.length - orchestrator };
 }
 
+// the same counts over drawn lines: a run line carries its type, a direct agent's carries none
+export function lineKindCounts(lines: BriefLine[]): Record<RunKindFilter, number> {
+    const runs = lines.filter((l) => l.runType != null);
+    return runKindCounts(
+        runs.map((l) => (l.runType === "orchestrator" ? "orchestrator" : "quick")),
+        lines.length - runs.length
+    );
+}
+
+// the kind chips' labels: each kind's count, or while filtering its matching lines of that count
+export function kindLabels(
+    total: Record<RunKindFilter, number>,
+    matched: Record<RunKindFilter, number> | null
+): Record<RunKindFilter, string> {
+    const label = (k: RunKindFilter) => filterCount(matched?.[k] ?? total[k], total[k], matched != null);
+    return { all: label("all"), orchestrator: label("orchestrator"), quick: label("quick") };
+}
+
+// the project chips' labels, the same way: matched is the initiatives the filter keeps, null with no filter
+export function projectCountLabels(
+    cards: { project?: string }[],
+    matched: { project?: string }[] | null
+): { all: string; byProject: Map<string, string> } {
+    const filtering = matched != null;
+    const hits = projectCounts(matched ?? cards);
+    const byProject = new Map(
+        [...projectCounts(cards)].map(([p, n]) => [p, filterCount(hits.get(p) ?? 0, n, filtering)])
+    );
+    return { all: filterCount((matched ?? cards).length, cards.length, filtering), byProject };
+}
+
 // A region filter's chips get a line of their own under the head while there are few; past this many
 // choices besides all, a line of them runs on and wraps, so the head carries one menu instead.
 export const FILTER_LINE_MAX = 6;
@@ -379,12 +451,6 @@ function eventText(row: DeltaRow): string {
 }
 
 const RUN_EVENTS = new Set(["run-created", "run-done"]);
-
-// A run goal runs to paragraphs; a Behind you row is one line, so it takes the goal's first line's lead
-// sentence.
-export function shortTitle(text: string): string {
-    return headline(text.trim().split("\n")[0] ?? "");
-}
 
 const MD_LIST = /^(?:[-*+]|\d+[.)])\s+/;
 const MD_INLINE = /\*\*|__|`/g;
@@ -545,7 +611,7 @@ export function behindGroups(
                 id: "behind:shipped:" + s.oref,
                 kind: "Shipped",
                 kindTone: "ok",
-                title: s.goal,
+                title: runTitle(s.goal, s.summary),
                 note: "",
                 meta: "",
                 state: age(s.completedTs, now),
@@ -600,14 +666,33 @@ export function filterLines<T extends BriefLine>(lines: T[], query: string): T[]
     );
 }
 
+// a path as the registry compares it: forward slashes, no trailing slash, any case
+const normPath = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+
 // a project's registry name for its path; the path's last segment when the registry has no entry
 export function projectName(path: string, projects: Record<string, { path?: string }> | null): string {
     if (path === "") {
         return "";
     }
-    const norm = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
-    const hit = Object.entries(projects ?? {}).find(([, v]) => v.path != null && norm(v.path) === norm(path));
+    const hit = Object.entries(projects ?? {}).find(([, v]) => v.path != null && normPath(v.path) === normPath(path));
     return hit != null ? hit[0] : (path.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop() ?? path);
+}
+
+// How many registered projects the work-state keys name. The server keys work by every item's raw path, so a
+// run worktree, a temp dir, "(none)" and one project as both its path and its name are all keys; only a key
+// that is a registered name, or whose path is a registered project's, counts, and each project once.
+export function workProjectCount(keys: string[], projects: Record<string, { path?: string }>): number {
+    const byPath = new Map(
+        Object.entries(projects).flatMap(([name, v]) => (v.path ? [[normPath(v.path), name] as const] : []))
+    );
+    const named = new Set<string>();
+    for (const k of keys) {
+        const name = Object.prototype.hasOwnProperty.call(projects, k) ? k : byPath.get(normPath(k));
+        if (name != null) {
+            named.add(name);
+        }
+    }
+    return named.size;
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];

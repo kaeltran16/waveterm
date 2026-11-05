@@ -4,6 +4,20 @@
 // A lead's run report (Run.report, the markdown `wsh jarvis complete --report` files) read as the design's
 // structured report (design L508-537, parser L1023, classification L1406-1418). Pure.
 
+import { headline } from "./effortfeed";
+
+// A run goal runs to paragraphs; a one-line title takes the goal's first line's lead sentence.
+export function shortTitle(text: string): string {
+    return headline(text.trim().split("\n")[0] ?? "");
+}
+
+// a lead names what its run did in its report's H1, so that beats any cut of the goal it was handed
+export function runTitle(goal: string, summary: string): string {
+    const h1 = /^# (.*)$/m.exec(summary);
+    const title = (h1?.[1] ?? "").trim().replace(/^run report:\s*/i, "");
+    return title !== "" ? title : shortTitle(goal);
+}
+
 export type ReportItem = {
     text: string;
     hash: string;

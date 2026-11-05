@@ -123,6 +123,24 @@ describe("note text", () => {
         expect(headline("fixed effortops.go and moved on")).toBe("fixed effortops.go and moved on");
     });
 
+    it("ends a sentence only at . ! or ? before whitespace or the end, never at a ;", () => {
+        expect(
+            headline(
+                "Fix all findings in C:\\a\\report.md (gitignored, read it by that path; its shots sit beside it). Then land."
+            )
+        ).toBe("Fix all findings in C:\\a\\report.md (gitignored, read it by that path; its shots sit beside it).");
+        expect(headline("Does it hold? Then land.")).toBe("Does it hold?");
+        expect(headline("Done! Then land.")).toBe("Done!");
+        expect(headline("Done!")).toBe("Done!");
+    });
+
+    it("bounds a long line with no sentence end", () => {
+        const head = headline("word; ".repeat(66) + "end");
+        expect(head.length).toBeLessThanOrEqual(181);
+        expect(head.endsWith("…")).toBe(true);
+        expect(head.endsWith(";…")).toBe(false);
+    });
+
     it("cuts an overlong first sentence at a word and marks the cut", () => {
         const head = headline("word ".repeat(50) + "end.");
         expect(head.length).toBeLessThanOrEqual(181);

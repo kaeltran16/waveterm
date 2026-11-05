@@ -280,9 +280,44 @@ func memoizeCommits(lk edgeLookups) edgeLookups {
 }
 
 // edgesForDossier is the shared per-dossier core behind EdgesFor and AllEdges: the deterministic layers
-// with the override log applied.
-func edgesForDossier(ctx context.Context, d *jarvisdossier.Dossier, runs []*waveobj.Run, lk edgeLookups, ov map[string]string, now int64) []AttributedEdge {
-	return applyOverrides(assembleEdges(d, runs, lk, now), ov)
+// with the override log applied, less any guess of a run another dossier claims (claimedRuns). A confirmed
+// edge is never dropped, so a run accepted onto two dossiers stays on both.
+func edgesForDossier(ctx context.Context, d *jarvisdossier.Dossier, runs []*waveobj.Run, lk edgeLookups, ov map[string]string, claims map[string]map[string]bool, now int64) []AttributedEdge {
+	edges := applyOverrides(assembleEdges(d, runs, lk, now), ov)
+	out := edges[:0]
+	for _, e := range edges {
+		if e.State != StateConfirmed && claimedByOther(claims[e.RunORef], d.ID) {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+func claimedByOther(claimants map[string]bool, dossierID string) bool {
+	for id := range claimants {
+		if id != dossierID {
+			return true
+		}
+	}
+	return false
+}
+
+// taskDossiers loads every dossier in the tasks collection, skipping any that fails to load (tolerant,
+// mirroring the tasks-collection projection). It reads the vault only: no git.
+func taskDossiers(v *wavevault.Vault) ([]*jarvisdossier.Dossier, error) {
+	r := v.Retriever(wavevault.Scope{Collections: []string{wavevault.CollTasks}})
+	nodes, err := r.Query(wavevault.Filter{})
+	if err != nil {
+		return nil, fmt.Errorf("jarvisattrib: querying tasks: %w", err)
+	}
+	out := make([]*jarvisdossier.Dossier, 0, len(nodes))
+	for _, n := range nodes {
+		if d, err := jarvisdossier.LoadDossier(r, n.ID); err == nil {
+			out = append(out, d)
+		}
+	}
+	return out, nil
 }
 
 // EdgesFor is the D->C seam: the unified, confidence-descending dossier->Run edges (canonical layer-1
@@ -301,7 +336,12 @@ func EdgesFor(ctx context.Context, v *wavevault.Vault, dossierID string) ([]Attr
 	if err != nil {
 		return nil, err
 	}
-	return edgesForDossier(ctx, d, runs, lk, ov, nowFn()), nil
+	// every record's refs, so a run another record claims is no guess of this one
+	all, err := taskDossiers(v)
+	if err != nil {
+		return nil, err
+	}
+	return edgesForDossier(ctx, d, runs, lk, ov, claimedRuns(all, runs, ov), nowFn()), nil
 }
 
 // AllEdges is EdgesFor over every dossier in the vault, sharing one run load, one override read and one
@@ -309,10 +349,9 @@ func EdgesFor(ctx context.Context, v *wavevault.Vault, dossierID string) ([]Attr
 // would reload every Run and re-shell the git range-log per dossier. Dossiers that fail to load are
 // skipped (tolerant, mirroring the tasks-collection projection); dossiers with no edges are omitted.
 func AllEdges(ctx context.Context, v *wavevault.Vault) (map[string][]AttributedEdge, error) {
-	r := v.Retriever(wavevault.Scope{Collections: []string{wavevault.CollTasks}})
-	nodes, err := r.Query(wavevault.Filter{})
+	dossiers, err := taskDossiers(v)
 	if err != nil {
-		return nil, fmt.Errorf("jarvisattrib: querying tasks: %w", err)
+		return nil, err
 	}
 	lk, runs, err := gatherLookups(ctx)
 	if err != nil {
@@ -324,13 +363,10 @@ func AllEdges(ctx context.Context, v *wavevault.Vault) (map[string][]AttributedE
 		return nil, err
 	}
 	now := nowFn()
+	claims := claimedRuns(dossiers, runs, ov)
 	out := map[string][]AttributedEdge{}
-	for _, n := range nodes {
-		d, err := jarvisdossier.LoadDossier(r, n.ID)
-		if err != nil {
-			continue
-		}
-		if edges := edgesForDossier(ctx, d, runs, lk, ov, now); len(edges) > 0 {
+	for _, d := range dossiers {
+		if edges := edgesForDossier(ctx, d, runs, lk, ov, claims, now); len(edges) > 0 {
 			out[d.ID] = edges
 		}
 	}

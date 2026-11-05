@@ -714,12 +714,136 @@ export const runSheetPolish = {
         await h.shot(lookShot("run-sheet-channel-loading"));
         await releaseObject(h, channelOref);
         steps.push(placeholderStep("5. while the run's channel loads, the sheet holds its 32px Reading this project bar", project, { height: 32, radius: "8px" }));
+
+        // F4: the collapsed heading is the run's title, its report's H1 or else the goal's lead sentence
+        await h.cdp("Emulation.setDeviceMetricsOverride", OBS_WIDE);
+        await polishNap(500);
+        const titleWhen = (want) =>
+            h.ev(`(async () => {
+                let text = "";
+                for (let i = 0; i < 20; i++) {
+                    text = (document.querySelector('[data-run-sheet] [data-run-sheet-title="title"]')?.innerText ?? "").trim();
+                    if (text === ${JSON.stringify(want)}) break;
+                    await new Promise((r) => setTimeout(r, 250));
+                }
+                return text;
+            })()`);
+        let seeded = null;
+        try {
+            await seedSheetRun(h, ctx, (r) => ({ ...r, goal: RUN_SHEET_TITLE_GOAL }), (r) => r?.goal === RUN_SHEET_TITLE_GOAL);
+        } catch (e) {
+            seeded = String(e?.message ?? e);
+        }
+        const plain = await titleWhen(RUN_SHEET_TITLE_LEAD);
+        rec(
+            "6. F4: with no report the collapsed heading is the goal's lead sentence, not cut at its ;",
+            seeded == null && plain === RUN_SHEET_TITLE_LEAD && !plain.endsWith(";"),
+            seeded ?? JSON.stringify({ plain })
+        );
+        seeded = null;
+        try {
+            await seedSheetRun(
+                h,
+                ctx,
+                (r) => ({ ...r, evidence: { ...(r.evidence ?? {}), summary: RUN_SHEET_REPORT } }),
+                (r) => r?.evidence?.summary === RUN_SHEET_REPORT
+            );
+        } catch (e) {
+            seeded = String(e?.message ?? e);
+        }
+        const titled = await titleWhen(RUN_SHEET_REPORT_TITLE);
+        rec(
+            "7. F4: with a report the collapsed heading is the report's H1, its Run report: prefix dropped",
+            seeded == null && titled === RUN_SHEET_REPORT_TITLE,
+            seeded ?? JSON.stringify({ titled })
+        );
+
+        // F7: at 950px the head and dock stay pinned around a scrolling body; under 800px the column scrolls
+        // as one and only the composer stays pinned
+        const MEASURE = `
+            const sheet = document.querySelector("[data-run-sheet]");
+            const body = sheet?.querySelector("[data-run-sheet-body]");
+            const reading = sheet?.querySelector("[data-run-sheet-reading]");
+            const dock = sheet?.querySelector('[data-jarvis-brief-sheet-face="settings"]');
+            const composer = sheet?.querySelector("[data-run-sheet-composer]");
+            if (!body || !reading || !dock || !composer) return { error: "the sheet's body, reading, dock or composer is missing" };
+            const box = (e) => {
+                const b = e.getBoundingClientRect();
+                return [Math.round(b.top), Math.round(b.bottom)];
+            };
+            const frame = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+            const read = () => ({
+                reading: box(reading),
+                dock: box(dock),
+                composerGap: Math.round(sheet.getBoundingClientRect().bottom - composer.getBoundingClientRect().bottom),
+            });`;
+        const pinned = await h.ev(`(async () => {
+            ${MEASURE}
+            const before = read();
+            body.scrollTop = 300;
+            await frame();
+            const after = read();
+            const scrolled = body.scrollTop;
+            body.scrollTop = 0;
+            return { before, after, scrolled, sheetScrolls: getComputedStyle(sheet).overflowY, bodyScrolls: getComputedStyle(body).overflowY };
+        })()`);
+        rec(
+            "8. F7: at 1600x950 scrolling the body leaves the Reading head and the dock where they were",
+            pinned.error == null &&
+                pinned.sheetScrolls === "visible" &&
+                pinned.bodyScrolls === "auto" &&
+                JSON.stringify(pinned.before.reading) === JSON.stringify(pinned.after.reading) &&
+                JSON.stringify(pinned.before.dock) === JSON.stringify(pinned.after.dock),
+            JSON.stringify(pinned)
+        );
+
+        await h.cdp("Emulation.setDeviceMetricsOverride", RUN_SHEET_SHORT);
+        await polishNap(500);
+        const short = await h.ev(`(async () => {
+            ${MEASURE}
+            const before = read();
+            sheet.scrollTop = 300;
+            await frame();
+            const after = read();
+            const scrolled = sheet.scrollTop;
+            sheet.scrollTop = 0;
+            return { height: sheet.clientHeight, scrolls: getComputedStyle(sheet).overflowY, scrolled, before, after };
+        })()`);
+        rec(
+            "9. F7: at 1000x700 the sheet scrolls as one, at least 400px tall: the Reading head scrolls away, the composer stays at its bottom",
+            short.error == null &&
+                short.height >= 400 &&
+                short.scrolls === "auto" &&
+                short.after.reading[0] < short.before.reading[0] &&
+                Math.abs(short.before.composerGap) <= 2 &&
+                Math.abs(short.after.composerGap) <= 2,
+            JSON.stringify(short)
+        );
         return steps;
     },
     async teardown(h, ctx) {
+        await h.cdp("Emulation.clearDeviceMetricsOverride", {}).catch(() => {});
         await teardownFixtureRun(h, ctx, "run-sheet-polish");
     },
 };
+
+const RUN_SHEET_SHORT = { width: 1000, height: 700, deviceScaleFactor: 1, mobile: false };
+const RUN_SHEET_TITLE_LEAD = "Fix all findings in C:\\a\\report.md (read it by that path; its shots sit beside it).";
+const RUN_SHEET_TITLE_GOAL = `${RUN_SHEET_TITLE_LEAD} Then land.\n\nMore detail.`;
+const RUN_SHEET_REPORT_TITLE = "Run sheet polish fixture";
+const RUN_SHEET_REPORT = `# Run report: ${RUN_SHEET_REPORT_TITLE}\n\nDAG 1: 0/3 tasks done.\n\n## Landed\n- none`;
+
+// writes a live run: an engine write that read the run before this one puts its own copy back, hence the retries
+async function seedSheetRun(h, ctx, change, kept) {
+    const oref = `run:${ctx.runId}`;
+    let stored = null;
+    for (let i = 0; i < 3 && !kept(stored); i++) {
+        await fstWriteRun(h, ctx.runId, change);
+        await polishNap(300);
+        stored = await waveService(h, "object", "GetObject", [oref]);
+    }
+    if (!kept(stored)) throw new Error(`the run did not keep its seed: stored ${JSON.stringify({ goal: stored?.goal, evidence: stored?.evidence })}`);
+}
 
 // The run sheet's Timing section (docs/superpowers/plans/2026-10-01-run-timing.md) on a live orchestrator run:
 // collapsed with an elapsed header, then expanded to the per-activity bars. Planning is the one activity a

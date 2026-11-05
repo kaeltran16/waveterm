@@ -58,7 +58,8 @@ export function BehindRegion({
     shippedLines: BriefLine[];
     shippedKind: RunKindFilter;
     onShippedKind: (k: RunKindFilter) => void;
-    shippedCounts: Record<RunKindFilter, number>;
+    // each kind chip's count label (kindLabels)
+    shippedCounts: Record<RunKindFilter, string>;
     shippedOpen: boolean;
     onToggleShipped: () => void;
     filtering: boolean;

@@ -32,6 +32,7 @@ export function BriefToolbar({
     hits: number;
     profileOpen: boolean;
     onOpenProfile: () => void;
+    // the registered projects the work spans (workProjectCount)
     projectCount: number;
     // null until a snapshot lands: "all clear" over a load that has not landed is a lie
     waiting: number | null;
@@ -119,7 +120,9 @@ export function BriefToolbar({
         >
             {projectCount > 0 ? (
                 <ToolbarFact>
-                    all work · {projectCount} {projectCount === 1 ? "project" : "projects"}
+                    <span data-jarvis-brief-band="projects">
+                        all work · {projectCount} {projectCount === 1 ? "project" : "projects"}
+                    </span>
                 </ToolbarFact>
             ) : null}
             {/* the chip needs a snapshot: "all clear" over a load that has not landed is a lie */}
