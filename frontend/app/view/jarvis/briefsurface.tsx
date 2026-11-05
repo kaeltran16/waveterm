@@ -73,9 +73,11 @@ import {
 import { BriefChunkPane, InitiativesRegion } from "./briefinitiatives";
 import {
     effortOps,
+    initiativeLineId,
     moveToProjectItems,
     mutationRunner,
     openChunkInPlan,
+    revealChanges,
     stepTarget,
     trackerEdits,
     type EffortWrites,
@@ -133,6 +135,7 @@ import {
     deleteEffort,
     effortChunkRows,
     effortDetailAtom,
+    effortLoadErrorAtom,
     loadArchivedEfforts,
     loadEffortDetail,
     moveChunk,
@@ -522,14 +525,16 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     // the freshest updatedts the app knows, so a chunk ticked by `wsh effort` out of band still refreshes
     const openCard = efforts.find((e) => e.oref === openEffortORef) ?? null;
     const openFreshTs = openCard?.updatedts;
-    useEffect(() => {
-        if (openEffortORef == null) {
-            return;
+    const loadPlan = useCallback(() => {
+        if (openEffortORef != null) {
+            fireAndForget(() => loadEffortDetail(openEffortORef, openFreshTs));
         }
-        // a failure here leaves the row expanded on its "loading" line rather than collapsing under the
-        // click; the next snapshot refresh retries.
-        fireAndForget(() => loadEffortDetail(openEffortORef, openFreshTs));
     }, [openEffortORef, openFreshTs]);
+    // a failure leaves the row expanded, drawing the load error and a Retry in place of the plan
+    useEffect(loadPlan, [loadPlan]);
+    const loadErrors = useAtomValue(effortLoadErrorAtom);
+    const planLoadError =
+        openEffortORef != null && openEffort == null ? (loadErrors.get(openEffortORef) ?? null) : null;
 
     const tracker = useMemo(() => {
         const feed =
@@ -583,8 +588,17 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
 
     // index math runs on the server's list, pending deletes included: the server still has them
     const planChunks = useMemo(() => (openEffort != null ? effortChunkRows(openEffort) : []), [openEffort]);
-    const [renamingTitle, setRenamingTitle] = useState<string | null>(null);
-    const [detailsOpen, setDetailsOpen] = useState(false);
+    // The rename field and Details belong to the initiative they were opened on: Details asked of an unloaded
+    // initiative waits for its plan, and must not then show on another one. Keyed by line id, so the menu can
+    // open the row and the form in one click; any change of the open initiative drops them.
+    const [renaming, setRenaming] = useState<{ lineId: string; title: string } | null>(null);
+    const [detailsFor, setDetailsFor] = useState<string | null>(null);
+    useEffect(() => {
+        setRenaming((cur) => (cur?.lineId === openInitiative ? cur : null));
+        setDetailsFor((cur) => (cur === openInitiative ? cur : null));
+    }, [openInitiative]);
+    const renamingTitle = renaming != null && renaming.lineId === openInitiative ? renaming.title : null;
+    const detailsOpen = detailsFor != null && detailsFor === openInitiative;
     const mutationDeps = useMemo<MutationDeps>(
         () => ({
             store: EFFORT_WRITES,
@@ -606,8 +620,8 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
             chunks: planChunks,
             pendingDeletes,
             ui: {
-                onRename: (title) => setRenamingTitle(title),
-                onDetails: () => setDetailsOpen(true),
+                onRename: (title) => setRenaming({ lineId: initiativeLineId(oref), title }),
+                onDetails: () => setDetailsFor(initiativeLineId(oref)),
                 onActivity: (e) => fireAndForget(() => openOrPeekAddress(model, oref, e)),
                 // lazy, so this file gains no import line beside the one the Check Jira toolbar adds
                 onConnectJira: () =>
@@ -683,14 +697,30 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                             forgetOrigin();
                         },
                         showInitiative: (oref) => {
-                            const card = efforts.find((e) => e.oref === oref);
-                            if (card != null && !keepsProject(project, card.project)) {
+                            const change = revealChanges({
+                                oref,
+                                live: efforts,
+                                archived: archivedCards,
+                                project,
+                                windowORefs: effortWindow.rows.map((e) => e.oref),
+                                query,
+                                only,
+                            });
+                            if (change.clearProject) {
                                 setPickedProject(null);
                             }
-                            if (!effortWindow.rows.some((e) => e.oref === oref)) {
+                            if (change.expandInitiatives) {
                                 setExpanded((prev) => ({ ...prev, initiatives: true }));
                             }
-                            setOnly((cur) => (cur == null || cur === "initiatives" ? cur : null));
+                            if (change.showArchived) {
+                                setShowArchived(true);
+                            }
+                            if (change.clearQuery) {
+                                setQuery("");
+                            }
+                            if (change.clearOnly) {
+                                setOnly(null);
+                            }
                         },
                         openInitiative: setOpenInitiative,
                         setCursor,
@@ -699,6 +729,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                             const effort = globalStore.get(effortDetailAtom).get(oref);
                             return effort != null ? effortChunkRows(effort) : [];
                         },
+                        pendingDeletes: () => globalStore.get(pendingDeleteKeysAtom),
                         openStage: (id) => setStageOverrides((cur) => ({ ...cur, [id]: true })),
                         openNotes: (id) => {
                             setNoteChunk(id);
@@ -712,8 +743,11 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
             ),
         [
             efforts,
+            archivedCards,
             project,
             effortWindow,
+            query,
+            only,
             setPickedProject,
             setExpanded,
             setOpenInitiative,
@@ -911,11 +945,11 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
             work: live != null ? () => void workOnInitiative(model, live) : undefined,
             rename: () => {
                 expand();
-                setRenamingTitle(l.title);
+                setRenaming({ lineId: l.id, title: l.title });
             },
             details: () => {
                 expand();
-                setDetailsOpen(true);
+                setDetailsFor(l.id);
             },
             status:
                 card != null
@@ -1129,13 +1163,14 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                         cursor={cursor}
                                         openInitiative={openInitiative}
                                         rename={
-                                            renamingTitle != null
+                                            renamingTitle != null && openInitiative != null
                                                 ? {
                                                       title: renamingTitle,
-                                                      onChange: setRenamingTitle,
+                                                      onChange: (title) =>
+                                                          setRenaming({ lineId: openInitiative, title }),
                                                       onCommit: () => {
                                                           const t = renamingTitle.trim();
-                                                          setRenamingTitle(null);
+                                                          setRenaming(null);
                                                           if (
                                                               t !== "" &&
                                                               openEffortORef != null &&
@@ -1144,7 +1179,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                                               runMutation(() => renameEffort(openEffortORef, t));
                                                           }
                                                       },
-                                                      onCancel: () => setRenamingTitle(null),
+                                                      onCancel: () => setRenaming(null),
                                                   }
                                                 : null
                                         }
@@ -1174,6 +1209,8 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                             }))
                                         }
                                         mutateError={mutateError}
+                                        loadError={planLoadError}
+                                        onRetryLoad={loadPlan}
                                         sidebarOpen={selectedChunk != null}
                                         more={effortWindow.more}
                                         expanded={initiativesOpen}
@@ -1296,7 +1333,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
             {detailsOpen && openEffort != null && openEffortORef != null ? (
                 <EffortCreateForm
                     model={model}
-                    onClose={() => setDetailsOpen(false)}
+                    onClose={() => setDetailsFor(null)}
                     edit={{
                         oref: openEffortORef,
                         details: {

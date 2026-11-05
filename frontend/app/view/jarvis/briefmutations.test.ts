@@ -7,12 +7,14 @@ import {
     moveToProjectItems,
     mutationRunner,
     openChunkInPlan,
+    revealChanges,
     stepTarget,
     trackerEdits,
     type EffortWrites,
     type MutationDeps,
 } from "./briefmutations";
 import { chunkKey, effortKey } from "./briefundo";
+import { buildEffortCard } from "./effortmodel";
 import type { ChunkRowModel } from "./effortstore";
 import { chunkRowId, stageRowId } from "./inlinetracker";
 
@@ -378,8 +380,90 @@ describe("stepTarget", () => {
     });
 });
 
+describe("revealChanges", () => {
+    const card = (oref: string, over: Partial<EffortSummary> = {}) =>
+        buildEffortCard({
+            oref,
+            title: "Brief polish",
+            project: "arc",
+            status: "active",
+            done: 0,
+            total: 1,
+            updatedts: 1,
+            ...over,
+        } as EffortSummary);
+    const live = card(OREF);
+    const archived = card("effort:old", { status: "archived", project: "siem" });
+    const input = {
+        oref: OREF,
+        live: [live],
+        archived: [archived],
+        project: null,
+        windowORefs: [OREF],
+        query: "",
+        only: null,
+    };
+    const NOTHING = {
+        clearProject: false,
+        expandInitiatives: false,
+        showArchived: false,
+        clearQuery: false,
+        clearOnly: false,
+    };
+
+    it("changes nothing for a live initiative already drawn", () => {
+        expect(revealChanges(input)).toEqual(NOTHING);
+    });
+
+    // a Waiting row matches on its chunk's label and needs, which the initiative's line does not carry
+    it("clears a query the initiative's line does not match, and keeps one it does", () => {
+        expect(revealChanges({ ...input, query: "G4 label" }).clearQuery).toBe(true);
+        expect(revealChanges({ ...input, query: "polish" }).clearQuery).toBe(false);
+    });
+
+    it("turns Show archived on for an archived initiative", () => {
+        expect(revealChanges({ ...input, oref: "effort:old", windowORefs: [] })).toEqual({
+            ...NOTHING,
+            showArchived: true,
+        });
+    });
+
+    it("reveals an archived initiative outside the project and the query", () => {
+        expect(
+            revealChanges({
+                ...input,
+                oref: "effort:old",
+                project: "arc",
+                windowORefs: [OREF],
+                query: "G4 label",
+                only: "sessions",
+            })
+        ).toEqual({
+            clearProject: true,
+            expandInitiatives: false,
+            showArchived: true,
+            clearQuery: true,
+            clearOnly: true,
+        });
+    });
+
+    it("opens the fold for a live initiative past the window, and clears another region's only", () => {
+        expect(revealChanges({ ...input, windowORefs: [], only: "waiting" })).toEqual({
+            ...NOTHING,
+            expandInitiatives: true,
+            clearOnly: true,
+        });
+        expect(revealChanges({ ...input, only: "initiatives" }).clearOnly).toBe(false);
+    });
+
+    it("clears a picked project the initiative is not in", () => {
+        expect(revealChanges({ ...input, project: "siem" }).clearProject).toBe(true);
+        expect(revealChanges({ ...input, project: "arc" }).clearProject).toBe(false);
+    });
+});
+
 describe("openChunkInPlan", () => {
-    function revealDeps(chunks: ChunkRowModel[]) {
+    function revealDeps(chunks: ChunkRowModel[], pending = new Set<string>()) {
         const calls: string[] = [];
         return {
             calls,
@@ -393,10 +477,26 @@ describe("openChunkInPlan", () => {
                     calls.push("load");
                     return chunks;
                 }),
+                pendingDeletes: () => pending,
                 openStage: vi.fn((id: string) => void calls.push("stage " + id)),
             },
         };
     }
+
+    // trackerRows numbers stage runs without pending deletes, so a stage emptied by one shifts the rest
+    it("opens the stage trackerRows draws when an earlier stage is pending delete", async () => {
+        const plan2 = [chunk("a", "A"), chunk("b", "B"), chunk("c", "C")];
+        const { deps } = revealDeps(plan2, new Set([chunkKey(OREF, "a")]));
+        await openChunkInPlan(deps, OREF, "c");
+        expect(deps.openStage).toHaveBeenCalledWith(stageRowId(LINE, "C", 1));
+    });
+
+    it("stops, opening no stage, when the plan fails to load", async () => {
+        const { deps } = revealDeps(plan);
+        deps.loadPlan = vi.fn(() => Promise.reject(new Error("timeout")));
+        await openChunkInPlan(deps, OREF, "c");
+        expect(deps.openStage).not.toHaveBeenCalled();
+    });
 
     it("opens the initiative on the chunk, then unfolds the chunk's stage once the plan loads", async () => {
         const { calls, deps } = revealDeps(plan);

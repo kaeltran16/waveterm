@@ -65,6 +65,8 @@ export function InitiativesRegion({
     onSelectChunk,
     onToggleStage,
     mutateError,
+    loadError,
+    onRetryLoad,
     sidebarOpen,
     more,
     expanded,
@@ -105,6 +107,9 @@ export function InitiativesRegion({
     onSelectChunk: (id: string) => void;
     onToggleStage: (id: string, open: boolean) => void;
     mutateError: string | null;
+    // the open initiative's plan failed to load: drawn with a Retry in place of the loading line
+    loadError: string | null;
+    onRetryLoad: () => void;
     // the sidebar shows the mutate error itself while it is open
     sidebarOpen: boolean;
     more: number;
@@ -233,6 +238,23 @@ export function InitiativesRegion({
                                                         onToggleStage={onToggleStage}
                                                     />
                                                 </>
+                                            ) : loadError != null ? (
+                                                <p
+                                                    data-jarvis-initiative-detail="error"
+                                                    className="flex items-baseline gap-2 px-3 py-2 text-[12px] text-error"
+                                                >
+                                                    <span className="min-w-0">
+                                                        Couldn't load this initiative's plan: {loadError}
+                                                    </span>
+                                                    <button
+                                                        type="button"
+                                                        data-jarvis-plan-retry
+                                                        onClick={onRetryLoad}
+                                                        className={LINK_BTN}
+                                                    >
+                                                        Retry
+                                                    </button>
+                                                </p>
                                             ) : (
                                                 <p
                                                     data-jarvis-initiative-detail="loading"

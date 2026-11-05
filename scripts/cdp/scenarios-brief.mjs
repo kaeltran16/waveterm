@@ -4327,6 +4327,42 @@ export const briefLiveInitiative = {
 // quiet count, Behind you's grouping, Shipped's second line, the pet's room and the stale blocked runs.
 const ACT_EFFORT = "verify brief-act blockers";
 const ACT_PROJECT = "verify-brief-act";
+// steps 28-34 make these two besides: a staged plan whose Beta stage starts folded (all done), and an archived one
+const ACT_STAGED = "verify brief-act stages";
+const ACT_ARCHIVED = "verify brief-act archived";
+const actInitRow = (title) =>
+    `[...document.querySelectorAll('[data-jarvis-brief-row="initiative"]')].find((r) => (r.innerText || "").includes(${JSON.stringify(title)}))`;
+const ACT_OPEN_INIT = `document.querySelector('[data-jarvis-brief-row="initiative"][aria-expanded="true"]')`;
+// opens an initiative row's context menu and clicks one of its top-level items
+async function actMenuClick(h, title, label) {
+    return lookEval(h, `
+        const row = ${actInitRow(title)};
+        if (row == null) return { row: false, clicked: false };
+        const r = row.getBoundingClientRect();
+        row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2, clientX: r.left + 40, clientY: r.top + 10 }));
+        const { globalStore } = await mod("app/store/jotaiStore.ts");
+        const { contextMenuAtom, closeContextMenu } = await mod("app/store/contextmenu.ts");
+        await until(() => globalStore.get(contextMenuAtom) != null, 3000);
+        const item = globalStore.get(contextMenuAtom)?.items.find((i) => i.label === ${JSON.stringify(label)});
+        item?.click?.();
+        closeContextMenu();
+        return { row: true, clicked: item != null };
+    `);
+}
+// drops an initiative's plan from the detail cache, so the next open reads it again
+const actUncache = (h, oref) =>
+    lookEval(h, `
+        const { globalStore } = await mod("app/store/jotaiStore.ts");
+        const { effortDetailAtom } = await mod("app/view/jarvis/effortstore.ts");
+        const cache = new Map(globalStore.get(effortDetailAtom));
+        cache.delete(${JSON.stringify(oref)});
+        globalStore.set(effortDetailAtom, cache);
+    `);
+const actClearToast = (h) =>
+    lookEval(h, `
+        const { globalStore } = await mod("app/store/jotaiStore.ts");
+        globalStore.set((await mod("app/view/jarvis/briefundo.ts")).briefToastAtom, null);
+    `);
 const actQueueRow = (label) =>
     `[...document.querySelectorAll('[data-jarvis-brief-row="queue"]')].find((r) => (r.innerText || "").includes(${JSON.stringify(label)}))`;
 const actText = (el) => `((${el})?.innerText || "").replace(/\\s+/g, " ").trim()`;
@@ -5095,11 +5131,253 @@ export const briefAct = {
                 !/stopped/.test(f22.text),
             detail: ctx.arrangeError ?? JSON.stringify({ before: f22before, ...f22 }),
         });
+
+        // 28-34: the 11-05 code review's Initiatives findings, live. Two more initiatives: a staged one and an
+        // archived one, deleted in teardown; act-label is blocked again for the filter of step 28.
+        try {
+            ctx.stagedoid = (
+                await h.rpc("effortcreate", {
+                    title: ACT_STAGED,
+                    chunks: [{ label: "st-a" }, { label: "st-b" }, { label: "st-c" }],
+                })
+            ).effortoid;
+            await h.rpc("effortmutate", {
+                effortoid: ctx.stagedoid,
+                author: "you",
+                ops: [
+                    { op: "setChunkStage", chunk: "st-a", stage: "Alpha" },
+                    { op: "setChunkStage", chunk: "st-b", stage: "Beta" },
+                    { op: "setChunkStage", chunk: "st-c", stage: "Beta" },
+                    { op: "setChunkStatus", chunk: "st-b", status: "done" },
+                    { op: "setChunkStatus", chunk: "st-c", status: "done" },
+                ],
+            });
+            ctx.archivedoid = (
+                await h.rpc("effortcreate", { title: ACT_ARCHIVED, chunks: [{ label: "arch-one" }, { label: "arch-two" }] })
+            ).effortoid;
+            await h.rpc("effortmutate", { effortoid: ctx.archivedoid, author: "you", ops: [{ op: "setStatus", status: "archived" }] });
+            await h.rpc("effortmutate", {
+                effortoid: ctx.effortoid,
+                author: "you",
+                ops: [{ op: "setChunkStatus", chunk: "act-label", status: "blocked", note: "needs: the G4 label" }],
+            });
+        } catch (e) {
+            ctx.initError = String(e?.message ?? e);
+        }
+        const stagedOref = `effort:${ctx.stagedoid}`;
+        const archivedOref = `effort:${ctx.archivedoid}`;
+
+        // 28. a filter matching a Waiting row's needs but not its initiative: opening the row lands on the chunk
+        await actFilter(h, "G4 label");
+        const f3 = await lookEval(h, `
+            const found = await until(() => ${actQueueRow("act-label")} != null, 30000);
+            ${actQueueRow("act-label")}?.click();
+            const landed = await until(() => (document.querySelector('[data-jarvis-chunk-sidebar]')?.innerText || "").includes("act-label"), 6000);
+            await nap(300);
+            return {
+                found,
+                landed,
+                filter: document.querySelector('[data-jarvis-brief-filter]')?.value ?? null,
+                pressed: document.querySelector('[data-jarvis-tracker-chunk="act-label"]')?.getAttribute("aria-pressed") ?? null,
+                open: flat(${ACT_OPEN_INIT}),
+            };
+        `);
+        await h.shot("cdp-shots/brief-act-28-filter-landing.png");
+        steps.push({
+            step: "28. F3: with a filter that matches a Waiting row's needs but not its initiative, opening the row lands on its chunk and clears the filter",
+            ok: ctx.initError == null && f3.found && f3.landed && f3.filter === "" && f3.pressed === "true" && f3.open.includes(ACT_EFFORT),
+            detail: ctx.initError ?? JSON.stringify(f3),
+        });
+        await h.ev(`${ACT_OPEN_INIT}?.click()`);
+
+        // 29. the ↳ reveal on an archived initiative turns Show archived on and opens its plan on the chunk
+        await h.ev(`document.querySelector('[data-jarvis-brief-archived="hide"]')?.click()`);
+        const f4 = await lookEval(h, `
+            const { globalStore } = await mod("app/store/jotaiStore.ts");
+            const { loadArchivedEfforts } = await mod("app/view/jarvis/effortstore.ts");
+            const { briefRevealChunkAtom } = await mod("app/view/jarvis/jarvisstore.ts");
+            await loadArchivedEfforts();
+            await nap(300);
+            const hiddenBefore = document.querySelector('[data-jarvis-brief-archived="hide"]') == null && ${actInitRow(ACT_ARCHIVED)} == null;
+            globalStore.get(briefRevealChunkAtom)?.(${JSON.stringify(archivedOref)}, "arch-two");
+            const landed = await until(() => document.querySelector('[data-jarvis-tracker-chunk="arch-two"]')?.getAttribute("aria-pressed") === "true", 6000);
+            await nap(300);
+            return {
+                hiddenBefore,
+                landed,
+                showing: document.querySelector('[data-jarvis-brief-archived="hide"]') != null,
+                open: flat(${ACT_OPEN_INIT}),
+            };
+        `);
+        await h.ev(`${ACT_OPEN_INIT}?.scrollIntoView({ block: "center" })`);
+        await h.shot("cdp-shots/brief-act-29-archived-reveal.png");
+        steps.push({
+            step: "29. F4: the ↳ reveal on an archived initiative turns Show archived on and opens its plan on the chunk",
+            ok: f4.hiddenBefore && f4.landed && f4.showing && f4.open.includes(ACT_ARCHIVED),
+            detail: JSON.stringify(f4),
+        });
+        await h.ev(`${ACT_OPEN_INIT}?.click()`);
+        await h.ev(`document.querySelector('[data-jarvis-brief-archived="hide"]')?.click()`);
+
+        // 30. a plan whose first load fails shows the error and Retry in place of the loading line; Retry loads it
+        const PLAN_REFUSED = "verify: the plan read was refused";
+        await actFilter(h, ACT_STAGED);
+        await actUncache(h, stagedOref);
+        await failRpc(h, "EffortGetCommand", PLAN_REFUSED);
+        const f13 = await lookEval(h, `
+            await until(() => ${actInitRow(ACT_STAGED)} != null, 30000);
+            ${actInitRow(ACT_STAGED)}?.click();
+            const shown = await until(() => document.querySelector('[data-jarvis-initiative-detail="error"]') != null, 6000);
+            return {
+                shown,
+                text: flat(document.querySelector('[data-jarvis-initiative-detail="error"]')),
+                retry: document.querySelector('[data-jarvis-plan-retry]') != null,
+                loading: document.querySelector('[data-jarvis-initiative-detail="loading"]') != null,
+            };
+        `);
+        await h.shot("cdp-shots/brief-act-30-plan-error.png");
+        await releaseRpc(h, "EffortGetCommand");
+        const f13b = await lookEval(h, `
+            document.querySelector('[data-jarvis-plan-retry]')?.click();
+            const drawn = await until(() => document.querySelector('[data-jarvis-tracker-stage]') != null, 10000);
+            return { drawn, error: document.querySelector('[data-jarvis-initiative-detail="error"]') != null };
+        `);
+        await h.shot("cdp-shots/brief-act-30-plan-retried.png");
+        steps.push({
+            step: "30. F13: an initiative whose plan fails to load shows the error with Retry, and Retry draws the plan",
+            ok: f13.shown && f13.text.includes(PLAN_REFUSED) && f13.retry && !f13.loading && f13b.drawn && !f13b.error,
+            detail: JSON.stringify({ ...f13, retried: f13b }),
+        });
+        await h.ev(`${ACT_OPEN_INIT}?.click()`);
+
+        // 31. Details asked of an unloaded initiative, which is then collapsed, does not open on the next one
+        await actFilter(h, "verify brief-act");
+        await actUncache(h, stagedOref);
+        await holdRpc(h, "EffortGetCommand");
+        const f19menu = await actMenuClick(h, ACT_STAGED, "Details");
+        await h.ev("new Promise((r) => setTimeout(r, 400))");
+        const f19loading = await h.ev(`document.querySelector('[data-jarvis-initiative-detail="loading"]') != null`);
+        await h.ev(`${ACT_OPEN_INIT}?.click()`);
+        await releaseRpc(h, "EffortGetCommand");
+        const f19 = await lookEval(h, `
+            await nap(400);
+            ${actInitRow(ACT_EFFORT)}?.click();
+            const drawn = await until(() => document.querySelector('[data-jarvis-tracker-chunk="act-soak"]') != null, 10000);
+            await nap(600);
+            return { drawn, open: flat(${ACT_OPEN_INIT}), form: document.querySelector('[data-effort-field]') != null };
+        `);
+        await h.shot("cdp-shots/brief-act-31-no-stray-details.png");
+        steps.push({
+            step: "31. F19: Details from the menu of an unloaded initiative, collapsed before it loads, does not show on the next initiative opened",
+            ok: f19menu.clicked && f19loading && f19.drawn && f19.open.includes(ACT_EFFORT) && !f19.form,
+            detail: JSON.stringify({ menu: f19menu, loading: f19loading, ...f19 }),
+        });
+        await h.ev(`${ACT_OPEN_INIT}?.click()`);
+        await actFilter(h, "");
+
+        // 32. with Alpha's only chunk waiting out its delete, landing on st-c unfolds Beta (folded: all done) under the
+        // cursor. The delete is scheduled as the plan's Delete schedules it, then undone inside its window.
+        const f21 = await lookEval(h, `
+            const { globalStore } = await mod("app/store/jotaiStore.ts");
+            const { briefUndo, chunkKey } = await mod("app/view/jarvis/briefundo.ts");
+            const { loadEffortDetail, removeChunks, effortChunkRows, effortDetailAtom } = await mod("app/view/jarvis/effortstore.ts");
+            const { briefRevealChunkAtom } = await mod("app/view/jarvis/jarvisstore.ts");
+            const oref = ${JSON.stringify(stagedOref)};
+            await loadEffortDetail(oref);
+            const plan = effortChunkRows(globalStore.get(effortDetailAtom).get(oref));
+            briefUndo.schedule([chunkKey(oref, "st-a")], "Deleted “st-a”", () => removeChunks(oref, plan, ["st-a"]));
+            globalStore.get(briefRevealChunkAtom)?.(oref, "st-c");
+            const landed = await until(() => document.querySelector('[data-jarvis-tracker-chunk="st-c"]')?.getAttribute("aria-pressed") === "true", 3000);
+            return {
+                landed,
+                beta: document.querySelector('[data-jarvis-tracker-stage="Beta"]')?.getAttribute("aria-expanded") ?? null,
+                alpha: document.querySelector('[data-jarvis-tracker-stage="Alpha"]') != null,
+            };
+        `);
+        await h.shot("cdp-shots/brief-act-32-pending-delete-landing.png");
+        const f21undo = await lookEval(h, `
+            document.querySelector('[data-jarvis-toast-undo]')?.click();
+            const back = await until(() => document.querySelector('[data-jarvis-tracker-stage="Alpha"]') != null, 3000);
+            return { back };
+        `);
+        const kept = await actChunk(h, ctx.stagedoid, "st-a");
+        steps.push({
+            step: "32. F21: with the first stage's only chunk pending delete, landing on a later stage's chunk unfolds that stage with the cursor on it; Undo keeps the chunk",
+            ok: f21.landed && f21.beta === "true" && !f21.alpha && f21undo.back && kept != null,
+            detail: JSON.stringify({ ...f21, undo: f21undo, kept: kept?.label ?? null }),
+        });
+        await h.ev(`${ACT_OPEN_INIT}?.click()`);
+
+        // 33. a Pause the server refuses shows an error toast, and no "Paused"
+        const MUTATE_REFUSED = "verify: the pause was refused";
+        await actFilter(h, ACT_STAGED);
+        await actClearToast(h);
+        await failRpc(h, "EffortMutateCommand", MUTATE_REFUSED);
+        const f11menu = await actMenuClick(h, ACT_STAGED, "Pause");
+        const f11 = await lookEval(h, `
+            const shown = await until(() => document.querySelector('[data-jarvis-brief-toast="error"]') != null, 5000);
+            await nap(300);
+            return { shown, toast: flat(document.querySelector('[data-jarvis-brief-toast]')) };
+        `);
+        await h.shot("cdp-shots/brief-act-33-pause-refused.png");
+        await releaseRpc(h, "EffortMutateCommand");
+        const stagedStatus = ((await h.rpc("effortget", { effortoid: ctx.stagedoid })) ?? {}).effort?.status ?? null;
+        steps.push({
+            step: "33. F11: a Pause from the menu that the server refuses shows an error toast with its reason, and no Paused toast",
+            ok: f11menu.clicked && f11.shown && f11.toast.includes(MUTATE_REFUSED) && !/Paused/.test(f11.toast) && stagedStatus != null && stagedStatus !== "paused",
+            detail: JSON.stringify({ menu: f11menu, ...f11, status: stagedStatus }),
+        });
+        await actFilter(h, "");
+
+        // 34. a status change from the record peek that the server refuses names the reason in an error toast. The
+        // refused write leaves whichever record it opens unchanged.
+        const STATUS_REFUSED = "verify: the status write was refused";
+        await actClearToast(h);
+        await failRpc(h, "SetDossierStatusCommand", STATUS_REFUSED);
+        const f12 = await lookEval(h, `
+            const { globalStore } = await mod("app/store/jotaiStore.ts");
+            const { RpcApi } = await mod("app/store/wshclientapi.ts");
+            const { TabRpcClient } = await mod("app/store/wshrpcutil.ts");
+            const { briefPeekRecordAtom } = await mod("app/view/jarvis/jarvisstore.ts");
+            const spaces = (await RpcApi.ListDossiersCommand(TabRpcClient))?.spaces ?? [];
+            const record = (spaces.find((s) => s.id === "verify-brief-act-do-nothing") ?? spaces[0])?.id ?? null;
+            if (record == null) return { record };
+            globalStore.set(briefPeekRecordAtom, record);
+            const band = '[data-jarvis-brief-band="peek"]';
+            await until(() => document.querySelector(band + ' [data-jarvis-peek-status-toggle]') != null, 10000);
+            const pick = [...document.querySelectorAll(band + ' button[data-jarvis-peek-status]')].find((b) => ["active", "paused"].includes(b.dataset.jarvisPeekStatus));
+            const status = pick?.dataset.jarvisPeekStatus ?? null;
+            pick?.click();
+            const shown = await until(() => document.querySelector('[data-jarvis-brief-toast="error"]') != null, 5000);
+            await nap(300);
+            return { record, status, shown, toast: flat(document.querySelector('[data-jarvis-brief-toast]')) };
+        `);
+        await h.shot("cdp-shots/brief-act-34-status-refused.png");
+        await releaseRpc(h, "SetDossierStatusCommand");
+        await lookEval(h, `
+            const { globalStore } = await mod("app/store/jotaiStore.ts");
+            globalStore.set((await mod("app/view/jarvis/jarvisstore.ts")).briefPeekRecordAtom, null);
+        `);
+        steps.push({
+            step: "34. F12: a status change from the record peek that the server refuses shows an error toast naming the reason",
+            ok: f12.record != null && f12.status != null && f12.shown && f12.toast.includes("Couldn't set the record's status") && f12.toast.includes(STATUS_REFUSED),
+            detail: JSON.stringify(f12),
+        });
         return steps;
     },
     async teardown(h, ctx) {
         await releaseRpc(h, "AckRunCommand").catch(() => {});
         await releaseRpc(h, "CancelRunCommand").catch(() => {});
+        for (const command of ["EffortGetCommand", "EffortMutateCommand", "SetDossierStatusCommand"]) {
+            await releaseRpc(h, command).catch(() => {});
+        }
+        for (const effortoid of [ctx?.stagedoid, ctx?.archivedoid]) {
+            if (effortoid) {
+                await h.rpc("effortdelete", { effortoid }).catch((e) => {
+                    console.error(`brief-act teardown: delete an initiative failed: ${e?.message ?? e}`);
+                });
+            }
+        }
         await actFilter(h, "").catch(() => {});
         await actFixture(h, null).catch(() => {});
         await h.cdp("Emulation.clearDeviceMetricsOverride").catch(() => {});

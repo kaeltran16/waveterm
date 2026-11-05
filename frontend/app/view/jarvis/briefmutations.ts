@@ -5,9 +5,11 @@
 // chunk sidebar's ↑/↓ and a run row's ↳ chunk line. The store, the undo queue and the UI setters arrive as
 // deps, so the tests drive fakes and briefsurface.tsx is left with the wiring.
 
+import type { RegionId } from "./briefprimitives";
+import { filterLines, initiativeLine, keepsProject } from "./briefrows";
 import type { createUndoQueue } from "./briefundo";
 import { chunkKey, effortKey } from "./briefundo";
-import { groupChunksByStage, stageOptions } from "./effortmodel";
+import { groupChunksByStage, stageOptions, type EffortCardModel } from "./effortmodel";
 import type * as effortstore from "./effortstore";
 import type { ChunkRowModel } from "./effortstore";
 import { chunkRowId, stageRowId } from "./inlinetracker";
@@ -231,14 +233,51 @@ export function stepTarget(input: {
     return { stageId: stageRowId(input.lineId, stage, to.runAt), cursorId: chunkRowId(input.lineId, to.label) };
 }
 
+export type RevealChanges = {
+    clearProject: boolean;
+    expandInitiatives: boolean;
+    showArchived: boolean;
+    clearQuery: boolean;
+    clearOnly: boolean;
+};
+
+// What landing on an initiative must change so its line is drawn, all at once: outside the picked project,
+// past the region's fold, archived with Show archived off, hidden by the filter, or in a region "only" hides.
+// The filter is cleared rather than bent to admit the line: landing is an explicit navigation, and a filter
+// that silently admits a row it does not match is a second rule to learn.
+export function revealChanges(input: {
+    oref: string;
+    live: EffortCardModel[];
+    archived: EffortCardModel[];
+    project: string | null;
+    windowORefs: string[];
+    query: string;
+    only: RegionId | null;
+}): RevealChanges {
+    const live = input.live.find((c) => c.oref === input.oref);
+    const archived = live == null ? input.archived.find((c) => c.oref === input.oref) : undefined;
+    const card = live ?? archived;
+    return {
+        clearProject: card != null && !keepsProject(input.project, card.project),
+        // archived lines are drawn past the cap, so only a live one can sit behind the fold
+        expandInitiatives: archived == null && !input.windowORefs.includes(input.oref),
+        showArchived: archived != null,
+        clearQuery: card != null && filterLines([initiativeLine(card)], input.query).length === 0,
+        clearOnly: input.only != null && input.only !== "initiatives",
+    };
+}
+
 export type RevealDeps = {
     closeSheet: () => void;
-    // makes the initiative's row drawn: past the region's fold or outside the picked project it is not
+    // makes the initiative's row drawn (revealChanges)
     showInitiative: (effortOref: string) => void;
     openInitiative: (lineId: string) => void;
     setCursor: (id: string) => void;
-    // the plan, loaded first: a never-opened initiative has not fetched it yet
+    // the plan, loaded first: a never-opened initiative has not fetched it yet. A rejection is drawn by the
+    // open initiative itself (effortLoadErrorAtom), so the reveal just stops.
     loadPlan: (oref: string) => Promise<ChunkRowModel[]>;
+    // chunk keys waiting out their delete: the plan draws without them, so its stages are counted without them
+    pendingDeletes: () => Set<string>;
     openStage: (stageId: string) => void;
     // opens the chunk's notes beside the plan
     openNotes: (chunkId: string) => void;
@@ -261,9 +300,18 @@ export async function openChunkInPlan(
         deps.openNotes(chunkRowId(lineId, chunk));
     }
     // the stage override needs the plan, which a never-opened initiative has not loaded yet
-    const chunks = await deps.loadPlan(effortOref);
-    const at = groupChunksByStage(chunks).findIndex((g) => g.rows.some((r) => r.label === chunk));
-    const stage = chunks.find((c) => c.label === chunk)?.stage ?? "";
+    let chunks: ChunkRowModel[];
+    try {
+        chunks = await deps.loadPlan(effortOref);
+    } catch {
+        // the open initiative draws the load error and its Retry in place of the plan
+        return;
+    }
+    // stageRowId's run index is counted on the list trackerRows groups, which leaves out pending deletes
+    const pending = deps.pendingDeletes();
+    const visible = chunks.filter((c) => !pending.has(chunkKey(effortOref, c.label)));
+    const at = groupChunksByStage(visible).findIndex((g) => g.rows.some((r) => r.label === chunk));
+    const stage = visible.find((c) => c.label === chunk)?.stage ?? "";
     if (at >= 0) {
         deps.openStage(stageRowId(lineId, stage, at));
     }
