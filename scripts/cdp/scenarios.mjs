@@ -37,6 +37,8 @@ import {
     diffSourceRow,
     gitHistory,
 } from "./scenarios-files.mjs";
+import { diffScope } from "./scenarios-files-scope.mjs";
+import { diffStates } from "./scenarios-files-states.mjs";
 import {
     codeBlame,
     codeDiff,
@@ -211,6 +213,8 @@ export const SCENARIOS = [
     diffComments,
     diffSourceRow,
     diffRename,
+    diffScope,
+    diffStates,
     surfaceSmoke,
     surfaceHeaders,
     codeSearch,
