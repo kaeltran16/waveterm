@@ -175,7 +175,7 @@ func TestDetachedEdgesFiltersByRunAcrossDossiers(t *testing.T) {
 // read never reaches for an embedding index.
 func TestOrphanDossierHasNoEdges(t *testing.T) {
 	d := &jarvisdossier.Dossier{ID: "d1"}
-	got := edgesForDossier(context.Background(), d, nil, edgeLookups{}, map[string]string{}, 0)
+	got := edgesForDossier(context.Background(), d, nil, edgeLookups{}, map[string]string{}, nil, 0)
 	if len(got) != 0 {
 		t.Fatalf("orphan dossier edges = %v, want none", got)
 	}

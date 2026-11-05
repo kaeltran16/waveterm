@@ -129,15 +129,63 @@ func mergeInto(m map[string]AttributedEdge, e AttributedEdge) {
 	m[e.RunORef] = cur
 }
 
-// assembleEdges builds the merged dossier->Run edge set: layer-1 canonical refs (confirmed) plus the
-// layer-2/3 extractors over candidate runs, deduped by run and ordered by confidence descending.
-func assembleEdges(d *jarvisdossier.Dossier, runs []*waveobj.Run, lk edgeLookups, now int64) []AttributedEdge {
-	byORef := map[string]*waveobj.Run{}
+// worker and review children and engine stage sessions are bookkeeping, never a dossier's work.
+func isLead(r *waveobj.Run) bool { return jarvis.UsageRole(r) == jarvis.UsageRole_Lead }
+
+func runsByORef(runs []*waveobj.Run) map[string]*waveobj.Run {
+	byORef := make(map[string]*waveobj.Run, len(runs))
 	for _, r := range runs {
 		byORef["run:"+r.OID] = r
 	}
-	// worker and review children and engine stage sessions are bookkeeping, never a dossier's work.
-	isLead := func(r *waveobj.Run) bool { return jarvis.UsageRole(r) == jarvis.UsageRole_Lead }
+	return byORef
+}
+
+// keptRun is the layer-1 keep rule: a run in the store must be a lead run, and a run missing from the store is
+// kept (its record still names it). r is nil for a missing run.
+func keptRun(oref string, byORef map[string]*waveobj.Run) (r *waveobj.Run, ok bool) {
+	r = byORef[oref]
+	return r, r == nil || isLead(r)
+}
+
+// claimedRuns maps each run oref to the set of dossiers that claim it: a layer-1 ref assembleEdges keeps, or a
+// human accept, less a human detach of that pair. A claimed run is no guess for any other dossier.
+func claimedRuns(dossiers []*jarvisdossier.Dossier, runs []*waveobj.Run, overrides map[string]string) map[string]map[string]bool {
+	byORef := runsByORef(runs)
+	claims := map[string]map[string]bool{}
+	claim := func(dossierID, oref string) {
+		if overrides[dossierID+"|"+oref] == "detach" {
+			return
+		}
+		if _, ok := keptRun(oref, byORef); !ok {
+			return
+		}
+		if claims[oref] == nil {
+			claims[oref] = map[string]bool{}
+		}
+		claims[oref][dossierID] = true
+	}
+	for _, d := range dossiers {
+		for _, ref := range d.Refs {
+			if oref, ok := refToRunORef(ref); ok {
+				claim(d.ID, oref)
+			}
+		}
+	}
+	for key, action := range overrides {
+		if action != "accept" {
+			continue
+		}
+		if dossierID, oref, ok := strings.Cut(key, "|"); ok {
+			claim(dossierID, oref)
+		}
+	}
+	return claims
+}
+
+// assembleEdges builds the merged dossier->Run edge set: layer-1 canonical refs (confirmed) plus the
+// layer-2/3 extractors over candidate runs, deduped by run and ordered by confidence descending.
+func assembleEdges(d *jarvisdossier.Dossier, runs []*waveobj.Run, lk edgeLookups, now int64) []AttributedEdge {
+	byORef := runsByORef(runs)
 	m := map[string]AttributedEdge{}
 	anchorPaths := map[string]bool{}
 	l1 := map[string]bool{}
@@ -148,8 +196,8 @@ func assembleEdges(d *jarvisdossier.Dossier, runs []*waveobj.Run, lk edgeLookups
 		if !ok {
 			continue
 		}
-		r := byORef[oref]
-		if r != nil && !isLead(r) {
+		r, ok := keptRun(oref, byORef)
+		if !ok {
 			continue
 		}
 		mergeInto(m, AttributedEdge{DossierID: d.ID, RunORef: oref, Layers: []int{1}, State: StateConfirmed})
