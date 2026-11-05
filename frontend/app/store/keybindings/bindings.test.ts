@@ -51,6 +51,7 @@ import {
     codeCursorAtom,
     codeIndexAtom,
     codeTreeFocusedAtom,
+    codeViewModeAtom,
     findReferences,
     goToDefinition,
     startCreate,
@@ -2172,20 +2173,34 @@ describe("Code keys, posture and the tree", () => {
         vi.unstubAllGlobals();
         globalStore.set(codeTreeFocusedAtom, false);
         globalStore.set(codeIndexAtom, null);
+        globalStore.set(codeViewModeAtom, "preview");
         globalStore.set(codeCursorAtom, null);
         vi.mocked(startCreate).mockClear();
     });
 
-    it.each(["code:back", "code:forward", "code:refresh", "code:diff"])(
-        "%s is live on the Code surface out of a field and a modal",
-        (id) => {
+    it.each(["code:refresh", "code:diff"])("%s is live on the Code surface out of a field and a modal", (id) => {
+        const b = find(id);
+        expect(b.when!(code)).toBe(true);
+        expect(b.when!({ ...code, surface: "cockpit" })).toBe(false);
+        expect(b.when!({ ...code, editable: true })).toBe(false);
+        expect(b.when!({ ...code, modalOpen: true })).toBe(false);
+    });
+
+    it("code:back and code:forward are live on Code with focus in an editable field", () => {
+        for (const id of ["code:back", "code:forward"]) {
             const b = find(id);
-            expect(b.when!(code)).toBe(true);
+            expect(b.when!({ surface: "code", editable: true, modalOpen: false, leader: null })).toBe(true);
             expect(b.when!({ ...code, surface: "cockpit" })).toBe(false);
-            expect(b.when!({ ...code, editable: true })).toBe(false);
             expect(b.when!({ ...code, modalOpen: true })).toBe(false);
         }
-    );
+    });
+
+    it("code:diff lets the key pass in a plain folder", () => {
+        globalStore.set(codeIndexAtom, { paths: [], isRepo: false, truncated: false });
+        globalStore.set(codeViewModeAtom, "source");
+        expect(find("code:diff").run(code)).toBe(false);
+        expect(globalStore.get(codeViewModeAtom)).toBe("source");
+    });
 
     it("save is bound to the Code surface alone, whatever focus holds", () => {
         const b = find("code:save");

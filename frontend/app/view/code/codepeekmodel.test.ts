@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { NOT_TRACKED } from "./codeclassify";
 import {
+    binaryPeekMessage,
     initialPeekMode,
     PEEK_PREFERRED_PX,
     peekModes,
@@ -197,5 +198,12 @@ describe("peekPlacement", () => {
             side: "below",
             height: 182,
         });
+    });
+});
+
+describe("binaryPeekMessage", () => {
+    it("binaryPeekMessage names an image and a plain binary", () => {
+        expect(binaryPeekMessage("assets/logo.PNG")).toBe("Image — open it in Code");
+        expect(binaryPeekMessage("bin/blob.bin")).toBe("Binary file");
     });
 });

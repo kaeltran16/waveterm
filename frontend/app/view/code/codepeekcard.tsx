@@ -13,7 +13,7 @@ import { cn, fireAndForget } from "@/util/util";
 import { X } from "lucide-react";
 import type * as MonacoTypes from "monaco-editor";
 import { lazy, Suspense, useEffect, useMemo, useRef } from "react";
-import { peekModes, peekStat, type PeekFile, type PeekMode } from "./codepeekmodel";
+import { binaryPeekMessage, peekModes, peekStat, type PeekFile, type PeekMode } from "./codepeekmodel";
 import { closePeek, codePeekFocusedAtom, openPeekInCode, setPeekMode, type CodePeek } from "./codepeekstore";
 
 const MonacoDiffViewer = lazy(() => import("@/app/monaco/monaco-react").then((m) => ({ default: m.MonacoDiffViewer })));
@@ -59,7 +59,7 @@ function stateMessage(peek: CodePeek): string | null {
         case "missing":
             return `No such file: ${peek.abs}`;
         case "binary":
-            return "Binary file — open it in Code";
+            return binaryPeekMessage(file.open.rel);
         case "toolarge":
             return "Larger than the 2 MB view limit";
         case "error":

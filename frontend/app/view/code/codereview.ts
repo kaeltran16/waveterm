@@ -86,12 +86,14 @@ function lineRef(c: ReviewComment): string {
     return c.endLine === c.startLine ? `L${c.startLine}` : `L${c.startLine}-L${c.endLine}`;
 }
 
-export function reviewMarkdown(projectName: string, comments: readonly ReviewComment[]): string {
+// The paths below stay relative; the checkout line says once which tree they are relative to, since an
+// agent reading the review may sit in another checkout of the same project.
+export function reviewMarkdown(projectName: string, checkout: string, comments: readonly ReviewComment[]): string {
     const byPath = new Map<string, ReviewComment[]>();
     for (const c of comments) {
         byPath.set(c.path, [...(byPath.get(c.path) ?? []), c]);
     }
-    const parts = [`# Code review: ${projectName}`];
+    const parts = [`# Code review: ${projectName}`, `Checkout: ${checkout}`];
     for (const path of [...byPath.keys()].sort()) {
         parts.push(`## ${path}`);
         for (const c of byPath.get(path)!.sort((a, b) => a.startLine - b.startLine)) {
@@ -99,6 +101,64 @@ export function reviewMarkdown(projectName: string, comments: readonly ReviewCom
         }
     }
     return parts.join("\n\n") + "\n";
+}
+
+// the review list's rows: by path, then by line, as the review document orders them
+export function reviewListRows(
+    comments: readonly ReviewComment[]
+): { id: string; path: string; line: number; label: string; note: string }[] {
+    return [...comments]
+        .sort((a, b) => (a.path === b.path ? a.startLine - b.startLine : a.path < b.path ? -1 : 1))
+        .map((c) => ({ id: c.id, path: c.path, line: c.startLine, label: `${c.path}:${lineRef(c)}`, note: c.note }));
+}
+
+// Stored as [project, comments][] JSON. Anything that does not read as a comment is dropped on its own, so
+// one bad entry never costs the rest of the review.
+export function storedReviewsJson(r: Reviews): string {
+    return JSON.stringify([...r]);
+}
+
+export function parseStoredReviews(raw: string | null): Reviews {
+    const out = new Map<string, readonly ReviewComment[]>();
+    if (raw == null) {
+        return out;
+    }
+    let value: unknown;
+    try {
+        value = JSON.parse(raw);
+    } catch {
+        return out;
+    }
+    if (!Array.isArray(value)) {
+        return out;
+    }
+    for (const entry of value) {
+        if (!Array.isArray(entry) || typeof entry[0] !== "string" || entry[0] === "" || !Array.isArray(entry[1])) {
+            continue;
+        }
+        const comments = (entry[1] as unknown[]).filter(isStoredComment);
+        if (comments.length > 0) {
+            out.set(entry[0], comments);
+        }
+    }
+    return out;
+}
+
+function isStoredComment(c: unknown): c is ReviewComment {
+    if (c == null || typeof c !== "object") {
+        return false;
+    }
+    const v = c as Record<string, unknown>;
+    return (
+        typeof v.id === "string" &&
+        typeof v.path === "string" &&
+        typeof v.anchor === "string" &&
+        typeof v.note === "string" &&
+        Number.isInteger(v.startLine) &&
+        Number.isInteger(v.endLine) &&
+        (v.startLine as number) >= 1 &&
+        (v.endLine as number) >= (v.startLine as number)
+    );
 }
 
 // one line, as every handoff is (codehandoff.ts); the arc-view mod draws it as a row of its own

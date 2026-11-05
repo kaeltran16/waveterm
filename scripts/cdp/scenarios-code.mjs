@@ -19,10 +19,10 @@ import {
     polishNap,
     polishWaitFor,
     setFinderQuery,
-    skipStep,
     waitForProjectInConfig,
     waveService,
 } from "./scenarios-shared.mjs";
+import { makeCodeRepo, openFolderInCode, removeCodeRepo } from "./scenarios-code-kit.mjs";
 
 // --- code: content search ----------------------------------------------------------------------
 // Drives the real grep RPC, so it needs a backend built with GitGrepCommand (task build:backend).
@@ -42,21 +42,8 @@ const openProjectPicker = (h) =>
         return true;
     })()`);
 
-// Scoped to the picker's own container, never the whole document: the app bar's global search
-// button also carries a .font-mono child, so an unscoped query picks THAT and opens the command
-// palette instead of selecting a project.
-const chooseProjectRow = (h) =>
-    h.ev(`(() => {
-        const chip = document.querySelector('[data-code-project-picker]');
-        const scope = chip && chip.parentElement;
-        if (!scope) return false;
-        const rows = [...scope.querySelectorAll('button')].filter((b) => b !== chip && b.querySelector('.font-mono'));
-        if (!rows.length) return false;
-        rows[0].click();
-        return true;
-    })()`);
-
-// the picker row of one registered project, by name
+// the picker row of one registered project, by name, scoped to the picker's own container: the app bar's
+// global search button would otherwise match too
 const chooseProjectNamed = (h, name) =>
     h.ev(`(() => {
         const chip = document.querySelector('[data-code-project-picker]');
@@ -648,13 +635,19 @@ export const codeSidebar = {
     },
 };
 
+const GIT_STATUS_FILE = "notes.txt";
+
+// Final runs on a fresh store with no project, so the scenario opens its own repo: one committed file with an
+// uncommitted edit that both adds and removes lines, so the Changed row carries +N and -N
 export const codeGitStatus = {
     name: "code-git-status",
     surface: "code",
     async arrange() {
-        return {};
+        const dir = makeCodeRepo({ [GIT_STATUS_FILE]: "alpha\nbeta\ngamma\ndelta\n" });
+        writeFileSync(join(dir, GIT_STATUS_FILE), "alpha\ngamma\ndelta\nepsilon\nzeta\n");
+        return { dir };
     },
-    async assert(h) {
+    async assert(h, ctx) {
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         const steps = [];
         await h.goto("code");
@@ -664,12 +657,8 @@ export const codeGitStatus = {
             detail: `active=${await h.activeSurfaceLabel()}`,
         });
 
-        if ((await openProjectPicker(h)) === true) {
-            await sleep(300);
-            const picked = await chooseProjectRow(h);
-            steps.push({ step: "select a project", ok: picked === true, detail: `picked=${picked}` });
-            await sleep(1200); // the index is one git ls-files call, status one git status call
-        }
+        const opened = await openFolderInCode(h, ctx.dir);
+        steps.push({ step: "open the scenario's repository", ok: opened === true, detail: `opened=${opened}` });
 
         const switched = await h.ev(`(() => {
             const t = document.querySelector('[data-code-column-tab="changed"]');
@@ -743,8 +732,9 @@ export const codeGitStatus = {
         await h.shot("cdp-shots/code-git-status.png");
         return steps;
     },
-    async teardown(h) {
+    async teardown(h, ctx) {
         await h.goto("cockpit"); // leave the app where a human expects it
+        if (ctx?.dir) removeCodeRepo(ctx.dir);
     },
 };
 
@@ -955,7 +945,7 @@ export const codeDiff = {
         await h.goto("code");
         if ((await openProjectPicker(h)) === true) {
             await sleep(300);
-            // not chooseProjectRow: rows[0] may be any registered project, and the step-1 check pins policy.go
+            // by name, not the first row: that may be any registered project, and the step-1 check pins policy.go
             await chooseProjectNamed(h, ctx.name);
             await sleep(1200);
         }
@@ -1002,6 +992,22 @@ export const codeDiff = {
             detail: `toggled=${toDiff} mounted=${mounted} head=${onHead}`,
         });
         await h.shot("cdp-shots/code-diff.png");
+        // the header asks for the base on mount; on main there is none, so Branch base is disabled with its reason
+        const pick = await h.ev(`(async () => {
+            const base = () => document.querySelector('[data-code-diff-option="base"]');
+            for (let i = 0; i < 40 && base()?.disabled !== true; i++) await new Promise((r) => setTimeout(r, 150));
+            const head = document.querySelector('[data-code-diff-option="head"]');
+            return {
+                head: head ? head.getAttribute('aria-pressed') : null,
+                baseDisabled: base() ? base().disabled : null,
+                reason: base() ? base().title : '',
+            };
+        })()`);
+        steps.push({
+            step: "the diff header offers HEAD (pressed) and Branch base, disabled with its reason on the default branch",
+            ok: pick.head === "true" && pick.baseDisabled === true && pick.reason !== "",
+            detail: JSON.stringify(pick),
+        });
         steps.push(await floorStep(h, `no visible text on the Code surface's diff is under ${MIN_FONT_PX}px`, SURFACE_ROOT));
         // codediffview draws no button of its own; the mode toggle above it lives in codepathbar.tsx, outside the
         // focus pass, so whether it rings is recorded, not required
@@ -1481,13 +1487,15 @@ export const codeReview = {
             let wrote = null;
             Object.defineProperty(clip, 'writeText', { configurable: true, value: (t) => { wrote = t; return Promise.resolve(); } });
             (${COPY})?.click();
-            for (let i = 0; i < 20 && ${REVIEW_COUNT}; i++) await new Promise((r) => setTimeout(r, 50));
+            for (let i = 0; i < 20 && wrote == null; i++) await new Promise((r) => setTimeout(r, 50));
+            await new Promise((r) => setTimeout(r, 150));
             delete clip.writeText;
-            return { wrote, gone: !${REVIEW_COUNT} };
+            const send = document.querySelector('[data-code-review-send]');
+            return { wrote, count: ${REVIEW_COUNT}?.getAttribute('data-code-review-count') ?? null, label: send?.textContent?.trim() };
         })()`);
         rec(
-            "Copy review puts both comments on the clipboard and clears the count",
-            copied?.gone === true && /L4\b/.test(copied.wrote ?? "") && /L12\b/.test(copied.wrote ?? ""),
+            "Copy review puts both comments on the clipboard, keeps the count and shows Copied",
+            copied?.count === "2" && copied?.label === "Copied" && /L4\b/.test(copied.wrote ?? "") && /L12\b/.test(copied.wrote ?? ""),
             JSON.stringify(copied)
         );
         await h.shot("cdp-shots/code-review-sent.png");
@@ -1497,6 +1505,11 @@ export const codeReview = {
         const picker = await polishWaitFor(h, `(${SEND_COPY})?.textContent?.trim() === "Copy reference"`, 3000);
         rec("the path bar's Send to agent popover, drawn by AgentPicker, offers Copy reference", picker === true, `picker=${picker}`);
         await h.ev(`document.querySelector('[data-code-send-to-agent]')?.click()`);
+        // Copy review keeps the review, and reviews persist: the temp checkout's comments must not outlive it
+        await h.ev(`document.querySelector('[data-code-review-clear]')?.click()`);
+        await polishWaitFor(h, `!!${CONFIRM}`, 3000);
+        await h.ev(`${CONFIRM}?.click()`);
+        await polishWaitFor(h, `!${REVIEW_COUNT}`, 3000);
         return steps;
     },
     async teardown(h, ctx) {
@@ -1505,13 +1518,25 @@ export const codeReview = {
     },
 };
 
+// a heading and enough sections that the reopen step measures a real render, not an instant one
+const MARKDOWN_README = [
+    "# Markdown fixture",
+    "",
+    ...Array.from({ length: 120 }, (_, i) => [
+        `## Section ${i + 1}`,
+        "",
+        `Paragraph ${i + 1} of the fixture, with *emphasis*, \`code\` and a [link](https://example.com).`,
+        "",
+    ]).flat(),
+].join("\n");
+
 export const codeMarkdown = {
     name: "code-markdown",
     surface: "code",
     async arrange() {
-        return {};
+        return { dir: makeCodeRepo({ "README.md": MARKDOWN_README }) };
     },
-    async assert(h) {
+    async assert(h, ctx) {
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         const steps = [];
         await h.goto("code");
@@ -1521,12 +1546,8 @@ export const codeMarkdown = {
             detail: `active=${await h.activeSurfaceLabel()}`,
         });
 
-        if ((await openProjectPicker(h)) === true) {
-            await sleep(300);
-            const picked = await chooseProjectRow(h);
-            steps.push({ step: "select a project", ok: picked === true, detail: `picked=${picked}` });
-            await sleep(1200); // the index is one git ls-files call
-        }
+        const opened = await openFolderInCode(h, ctx.dir);
+        steps.push({ step: "open the scenario's repository", ok: opened === true, detail: `opened=${opened}` });
 
         // Ctrl+P on Code opens the search on its Files scope; Enter opens the top-ranked match
         await h.ev(
@@ -1646,8 +1667,9 @@ export const codeMarkdown = {
 
         return steps;
     },
-    async teardown(h) {
+    async teardown(h, ctx) {
         await h.goto("cockpit");
+        if (ctx?.dir) removeCodeRepo(ctx.dir);
     },
 };
 
@@ -1657,19 +1679,23 @@ export const codeTreeOnArrival = {
     name: "code-tree-on-arrival",
     surface: "code",
     async arrange() {
-        return {};
+        return { dir: makeCodeRepo({ "a.txt": "one\n", "b.txt": "two\n" }) };
     },
-    async assert(h) {
+    async assert(h, ctx) {
         await h.cdp("Emulation.setDeviceMetricsOverride", MODELS_VIEWPORT);
         // the tree learns it has focus from its focus event, which Chromium holds back while the dev
         // window is behind another one
         await h.cdp("Emulation.setFocusEmulationEnabled", { enabled: true });
-        await h.goto("code");
+        const opened = await openFolderInCode(h, ctx.dir);
         if (!(await h.ev(`document.querySelector('[data-code-tree]')?.checkVisibility() ?? false`))) {
-            return [skipStep("the Code surface shows its file tree", "no tree: pick a project on Code first")];
+            return [{ step: "the Code surface shows its file tree", ok: false, detail: `opened=${opened}` }];
         }
         await h.goto("agent");
-        await h.ev(focusAgentXterm);
+        // a fresh store has no agent terminal: the arrival then starts from the Agent surface with focus on
+        // the page, still outside the tree
+        const fromXterm = await h.ev(focusAgentXterm);
+        if (!fromXterm) await h.ev(`document.activeElement?.blur?.()`);
+        const from = fromXterm ? "agent xterm" : "agent surface, no terminal, focus on body";
         await h.goto("code");
         const r = await h.ev(`(() => {
             const a = document.activeElement;
@@ -1681,12 +1707,13 @@ export const codeTreeOnArrival = {
             {
                 step: "Agent -> nav click Code: the tree has focus and j moves its cursor",
                 ok: r.inTree === true && r.claimed === true,
-                detail: `active=${r.active} inTree=${r.inTree} claimed=${r.claimed}`,
+                detail: `from=${from} active=${r.active} inTree=${r.inTree} claimed=${r.claimed}`,
             },
         ];
     },
-    async teardown(h) {
+    async teardown(h, ctx) {
         await h.goto("cockpit");
+        if (ctx?.dir) removeCodeRepo(ctx.dir);
     },
 };
 
@@ -1705,8 +1732,11 @@ const lookStaleBar = (h) =>
         const bar = () => document.querySelector("[data-code-stale]");
         await until(() => bar() != null, 4000);
         await nap(200);
-        return bar() ? { text: flat(bar()), button: flat(bar().querySelector("button")) } : null;
+        return bar() ? { text: flat(bar()), buttons: [...bar().querySelectorAll("button")].map(flat) } : null;
     `);
+
+// the stale bar's button with this exact label
+const staleButton = (label) => `button(document.querySelector("[data-code-stale]"), /^${label}$/)`;
 
 export const codeStaleBarLook = {
     name: "code-stale-bar",
@@ -1740,10 +1770,10 @@ export const codeStaleBarLook = {
         await h.shot(lookShot("code-stale-bar"));
         steps.push({
             step: "a file changed on disk while open shows the stale bar with Reload",
-            ok: opened === true && clean != null && clean.text.includes(`${LOOK_STALE_FILE} changed on disk`) && clean.button === "Reload",
+            ok: opened === true && clean != null && clean.text.includes(`${LOOK_STALE_FILE} changed on disk`) && JSON.stringify(clean.buttons) === JSON.stringify(["Reload"]),
             detail: JSON.stringify({ opened, clean }),
         });
-        const reload = await tabOnto(h, `document.querySelector("[data-code-stale] button")`);
+        const reload = await tabOnto(h, `[...document.querySelectorAll("[data-code-stale] button")].find((b) => b.textContent.trim() === "Reload")`);
         await h.shot(lookShot("code-stale-bar-focus"));
         const unlabelled = await h.ev(unlabelledButtons(`document.querySelector("[data-code-stale]")`));
         steps.push({
@@ -1754,7 +1784,7 @@ export const codeStaleBarLook = {
         steps.push(await floorStep(h, `no visible text in the stale bar is under ${MIN_FONT_PX}px`, `document.querySelector("[data-code-stale]")`));
 
         const reloaded = await lookEval(h, `
-            document.querySelector("[data-code-stale] button")?.click();
+            ${staleButton("Reload")}?.click();
             return until(() => document.querySelector("[data-code-stale]") == null, 4000);
         `);
         steps.push({ step: "Reload reads the disk copy and clears the bar", ok: reloaded === true, detail: `cleared=${reloaded}` });
@@ -1771,12 +1801,15 @@ export const codeStaleBarLook = {
         const dirty = await lookStaleBar(h);
         await h.shot(lookShot("code-stale-bar-dirty"));
         steps.push({
-            step: "with an unsaved edit the bar says the edits are still here, and its button says what it destroys",
-            ok: dirty != null && /your unsaved edits are still here/.test(dirty.text) && dirty.button === "Discard my edits and reload",
+            step: "with an unsaved edit the bar says the edits are still here, its button says what it destroys, and Compare with disk follows it",
+            ok:
+                dirty != null &&
+                /your unsaved edits are still here/.test(dirty.text) &&
+                JSON.stringify(dirty.buttons) === JSON.stringify(["Discard my edits and reload", "Compare with disk"]),
             detail: JSON.stringify(dirty),
         });
         const discarded = await lookEval(h, `
-            document.querySelector("[data-code-stale] button")?.click();
+            ${staleButton("Discard my edits and reload")}?.click();
             return until(() => document.querySelector("[data-code-stale]") == null, 4000);
         `);
         steps.push({ step: "Discard my edits and reload clears the bar", ok: discarded === true, detail: `cleared=${discarded}` });

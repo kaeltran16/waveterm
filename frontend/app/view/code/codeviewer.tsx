@@ -4,14 +4,15 @@
 
 // Renders whichever variant the store resolved the opened file to. The text case hands off to the
 // existing Monaco wrapper, which derives the language from the filename — so Go, Rust and TypeScript
-// all highlight without a language map here. Only the text case is editable; every other variant
-// (binary, too large, missing, unreadable) stays a dead end by construction.
+// all highlight without a language map here. Only the text case is editable; an image file renders,
+// and every other variant (binary, too large, missing, unreadable) is read-only by construction.
 //
 // This is also the only module that touches Monaco directly. The store publishes a pending line and
 // a handoff asks for the current selection; both are served here so codestore.ts stays IO-and-atoms.
 
 import { ImageZoom, type ZoomImage } from "@/app/element/imagezoom";
 import { Markdown } from "@/app/element/markdown";
+import { resolveRemoteFile } from "@/app/element/markdown-util";
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { SurfaceEmptyState } from "@/app/view/agents/surfacescaffold";
@@ -23,32 +24,40 @@ import type * as MonacoTypes from "monaco-editor";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CodeBlameColumn, type EditorLineLayout } from "./codeblamecolumn";
 import { codeBlameOnAtom } from "./codeblamestore";
-import { isMarkdownPath } from "./codeclassify";
+import { isImagePath, isMarkdownPath } from "./codeclassify";
+import { missingView } from "./codedifftarget";
 import { CodeDiffView } from "./codediffview";
 import { remember } from "./codeeditorcache";
 import { langOf, type Lang } from "./codelang";
 import { resolveDocLink } from "./codelink";
 import { previewHeadingFor } from "./codeoutline";
+import { resolvePendingJump, type JumpResolution } from "./codependingjump";
 import { fileComments, reanchor } from "./codereview";
 import {
     cancelComment,
     codeCommentDraftAtom,
     codeReviewsAtom,
+    consumePendingComment,
     saveComment,
     setCommentSelectionReader,
+    startComment,
 } from "./codereviewstore";
 import {
     codeDraftsAtom,
     codeFileAtom,
+    codeIndexAtom,
     codeOutlineAtom,
-    codePendingLineAtom,
+    codePendingJumpAtom,
     codePlainAtom,
     codeProjectAtom,
+    codeStatusAtom,
     codeViewModeAtom,
     draftKey,
     editDraft,
+    goToLine,
     openInCode,
     refreshIndex,
+    revealFolder,
     setCaretLineReader,
     setCaretWordReader,
     type CodeProject,
@@ -59,6 +68,12 @@ function sizeLabel(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function copyPath(project: CodeProject | null, rel: string): void {
+    if (project != null) {
+        void navigator.clipboard?.writeText(joinRepoPath(project.path, rel));
+    }
 }
 
 // Module-scoped rather than a ref: the path bar's handoff control needs the same instance, and the
@@ -121,12 +136,28 @@ export function codeEditorWordAtCursor(): { word: string; lang: Lang } | null {
     return word == null ? null : { word, lang };
 }
 
+// The pending jump against the file showing, or null with nothing pending. A drop is cleared here, so a
+// jump whose file opened as binary, missing or an error can never fire later on another file.
+function resolveShowing(): JumpResolution | null {
+    const p = globalStore.get(codePendingJumpAtom);
+    if (p == null) {
+        return null;
+    }
+    const headings = globalStore.get(codeOutlineAtom).filter((s) => s.kind === "heading");
+    const r = resolvePendingJump(p, globalStore.get(codeFileAtom), headings);
+    if (r.kind === "drop") {
+        globalStore.set(codePendingJumpAtom, null);
+    }
+    return r;
+}
+
 function applyPendingLine(ed: MonacoTypes.editor.IStandaloneCodeEditor): void {
-    const line = globalStore.get(codePendingLineAtom);
-    if (line == null) {
+    const r = resolveShowing();
+    if (r?.kind !== "line") {
         return;
     }
-    globalStore.set(codePendingLineAtom, null);
+    globalStore.set(codePendingJumpAtom, null);
+    const line = r.line;
     // a history walk has usually just restored a view that already shows the line, and re-centering
     // it — or dropping the caret's column — would jolt what the reader left
     ed.revealLineInCenterIfOutsideViewport(line);
@@ -136,21 +167,60 @@ function applyPendingLine(ed: MonacoTypes.editor.IStandaloneCodeEditor): void {
 }
 
 // A rendered document has no lines, so a jump lands on the heading of the section holding the line —
-// which is all a Symbols heading row or an @ pick asks for.
-function revealPreviewLine(root: HTMLElement | null, line: number): void {
+// which is all a Symbols heading row or an @ pick asks for. "notready" while the document's headings are
+// not in the DOM yet; "off" when the scroll did not bring the heading into the preview's frame.
+type PreviewReveal = "notready" | "off" | "shown";
+
+function revealPreviewLine(root: HTMLElement | null, line: number): PreviewReveal {
     // the document itself rather than the scroller: which element scrolls is the Markdown component's
     // business, and scrollIntoView finds it
     const doc = root?.querySelector<HTMLElement>("[data-overlayscrollbars-viewport]");
-    if (doc == null) {
-        return;
+    const outline = globalStore.get(codeOutlineAtom);
+    const headings = Array.from(doc?.querySelectorAll<HTMLElement>(".heading") ?? []);
+    if (doc == null || (headings.length === 0 && outline.some((s) => s.kind === "heading"))) {
+        return "notready";
     }
-    const headings = Array.from(doc.querySelectorAll<HTMLElement>(".heading"));
     const at = previewHeadingFor(
-        globalStore.get(codeOutlineAtom),
+        outline,
         line,
         headings.map((h) => h.textContent ?? "")
     );
-    (at === -1 ? doc : headings[at]).scrollIntoView({ block: "start" });
+    const target = at === -1 ? doc : headings[at];
+    target.scrollIntoView({ block: "start" });
+    const shown = target.getBoundingClientRect();
+    const frame = root.getBoundingClientRect();
+    return shown.top >= frame.top - 1 && shown.top < frame.bottom ? "shown" : "off";
+}
+
+// A fresh document's scroller resets its offset a frame or two after it mounts, undoing a reveal made
+// on arrival, so the reveal is re-asserted each frame until it has held this many in a row.
+const PREVIEW_JUMP_SETTLE_FRAMES = 8;
+// the bound on that, after which a document that rendered gives the jump up
+const PREVIEW_JUMP_WAIT_MS = 3000;
+
+// The preview's half of applyPendingLine. The jump stays pending while it settles; one whose document
+// never rendered headings is kept, so a later attempt (or a Source toggle) still lands it.
+function revealPendingInPreview(root: HTMLElement | null): () => void {
+    const r = resolveShowing();
+    if (r?.kind !== "line") {
+        return () => {}; // nothing pending, dropped, or its file is not showing yet (the effect re-runs when it is)
+    }
+    const deadline = Date.now() + PREVIEW_JUMP_WAIT_MS;
+    let held = 0;
+    let rendered = false;
+    let frame = 0;
+    const step = () => {
+        const at = revealPreviewLine(root, r.line);
+        rendered ||= at !== "notready";
+        held = at === "shown" ? held + 1 : 0;
+        if (held >= PREVIEW_JUMP_SETTLE_FRAMES || (Date.now() >= deadline && rendered)) {
+            globalStore.set(codePendingJumpAtom, null);
+        } else if (Date.now() < deadline) {
+            frame = requestAnimationFrame(step);
+        }
+    };
+    step();
+    return () => cancelAnimationFrame(frame);
 }
 
 function restoreKept(ed: MonacoTypes.editor.IStandaloneCodeEditor, key: string): void {
@@ -192,11 +262,25 @@ function MarkdownPreview({
             if (target == null) {
                 return false;
             }
+            if (globalStore.get(codeIndexAtom)?.paths.some((p) => p.startsWith(`${target.rel}/`))) {
+                revealFolder(target.rel);
+                return true;
+            }
+            if (target.rel === path) {
+                // this document is already showing, so only the jump is left to do
+                if (target.line != null) {
+                    goToLine(target.line);
+                } else if (target.anchor != null) {
+                    globalStore.set(codePendingJumpAtom, { path, anchor: target.anchor });
+                }
+                return true;
+            }
             fireAndForget(() =>
                 openInCode(model, {
                     projectPath: project.path,
                     rel: target.rel,
                     line: target.line ?? undefined,
+                    anchor: target.anchor ?? undefined,
                 })
             );
             return true;
@@ -304,13 +388,37 @@ function CommentMarkers({ path, text }: { path: string; text: string }) {
     return null;
 }
 
+// room between the input's shadow and the code line below it
+const COMMENT_ZONE_GAP_PX = 4;
+
 // The note being written, drawn under the draft's last line. Enter and Escape are the input's own and
 // stop here; the window's Escape (back to Cockpit) already stands down while a field holds focus.
 function CommentInput({ path }: { path: string }) {
     const draft = useAtomValue(codeCommentDraftAtom);
+    const ed = useAtomValue(editorAtom);
     const layout = useEditorLineLayout();
     const [note, setNote] = useState("");
-    if (draft == null || draft.path !== path || layout == null) {
+    const boxRef = useRef<HTMLDivElement>(null);
+    const shown = draft != null && draft.path === path && layout != null;
+    // An empty view zone as tall as the input pushes the lines after the draft down, so the input sits in
+    // a gap rather than over code. The input stays outside the zone: Monaco would take its clicks and keys.
+    useEffect(() => {
+        const box = boxRef.current;
+        if (!shown || ed == null || box == null) {
+            return;
+        }
+        let id = "";
+        ed.changeViewZones((a) => {
+            id = a.addZone({
+                afterLineNumber: draft.endLine,
+                heightInPx: box.offsetHeight + COMMENT_ZONE_GAP_PX,
+                domNode: document.createElement("div"),
+            });
+        });
+        // a no-op on an editor already disposed by a file switch
+        return () => ed.changeViewZones((a) => a.removeZone(id));
+    }, [shown, ed, draft]);
+    if (!shown) {
         return null;
     }
     const close = (save: boolean) => {
@@ -325,6 +433,7 @@ function CommentInput({ path }: { path: string }) {
     const range = draft.endLine === draft.startLine ? `${draft.startLine}` : `${draft.startLine}-${draft.endLine}`;
     return (
         <div
+            ref={boxRef}
             style={{ top: layout.top(draft.endLine) + layout.height(draft.endLine, 1) }}
             className="absolute inset-x-3 z-10 rounded-[8px] border border-border bg-surface p-1.5 shadow-popover-md"
         >
@@ -348,14 +457,76 @@ function CommentInput({ path }: { path: string }) {
     );
 }
 
+// An image file, fetched the way a Markdown image is (wavesrv bytes as a blob url) and fit to the pane.
+function ImageView({ project, path, size }: { project: CodeProject | null; path: string; size: number }) {
+    const [src, setSrc] = useState<string | null>(null);
+    const [failed, setFailed] = useState(false);
+    const root = project?.path;
+    useEffect(() => {
+        if (root == null) {
+            return;
+        }
+        const { dir, file } = splitRepoPath(path);
+        let url: string | null = null;
+        let gone = false;
+        setSrc(null);
+        setFailed(false);
+        void resolveRemoteFile(file, { connName: "local", baseDir: joinRepoPath(root, dir) }).then((u) => {
+            url = u;
+            if (gone) {
+                if (u != null) {
+                    URL.revokeObjectURL(u);
+                }
+            } else if (u == null) {
+                setFailed(true);
+            } else {
+                setSrc(u);
+            }
+        });
+        return () => {
+            gone = true;
+            if (url != null) {
+                URL.revokeObjectURL(url);
+            }
+        };
+    }, [root, path]);
+    return (
+        <div data-code-image className="flex h-full flex-col items-center p-4">
+            <div className="flex min-h-0 w-full flex-1 items-center justify-center">
+                {failed ? (
+                    <p className="text-[12px] text-error">Could not load the image.</p>
+                ) : src != null ? (
+                    <img
+                        src={src}
+                        alt={path}
+                        onError={() => setFailed(true)}
+                        className="max-h-full max-w-full object-contain"
+                    />
+                ) : null}
+            </div>
+            <div className="flex flex-none items-center gap-2 pt-3 text-[12px] text-muted">
+                <span>{sizeLabel(size)}</span>
+                <button
+                    type="button"
+                    onClick={() => copyPath(project, path)}
+                    className="cursor-pointer rounded-[6px] px-2 py-0.5 hover:bg-surface-hover hover:text-primary"
+                >
+                    Copy path
+                </button>
+            </div>
+        </div>
+    );
+}
+
 export function CodeViewer({ model }: { model: AgentsViewModel }) {
     const file = useAtomValue(codeFileAtom);
     const project = useAtomValue(codeProjectAtom);
     const drafts = useAtomValue(codeDraftsAtom);
-    const pendingLine = useAtomValue(codePendingLineAtom);
+    const pendingJump = useAtomValue(codePendingJumpAtom);
     const mode = useAtomValue(codeViewModeAtom);
     const blameOn = useAtomValue(codeBlameOnAtom);
     const plain = useAtomValue(codePlainAtom);
+    const status = useAtomValue(codeStatusAtom);
     const previewRef = useRef<HTMLDivElement>(null);
 
     // Two paths, both needed. Monaco is keyed by file path, so opening a DIFFERENT file remounts it
@@ -363,19 +534,17 @@ export function CodeViewer({ model }: { model: AgentsViewModel }) {
     // in the file already open does not remount, so the effect covers that — and it cannot cover
     // the first mount, because Monaco lazy-loads and no re-render follows its arrival.
     useEffect(() => {
-        if (pendingLine == null) {
+        if (pendingJump == null) {
             return;
         }
         // consumed here too, so a later Source toggle does not half-open the file at a stale position
         if (file.kind === "text" && isMarkdownPath(file.path) && mode === "preview") {
-            globalStore.set(codePendingLineAtom, null);
-            revealPreviewLine(previewRef.current, pendingLine);
-            return;
+            return revealPendingInPreview(previewRef.current);
         }
         if (editor != null) {
             applyPendingLine(editor);
         }
-    }, [pendingLine, file, mode]);
+    }, [pendingJump, file, mode]);
 
     switch (file.kind) {
         case "none":
@@ -388,6 +557,20 @@ export function CodeViewer({ model }: { model: AgentsViewModel }) {
         case "loading":
             return <SurfaceEmptyState title="Opening…" body={file.path} />;
         case "missing":
+            // refreshing the index cannot help a deletion git still tracks, so it shows what was removed
+            if (missingView(status?.get(file.path), plain) === "deleted") {
+                return (
+                    <div data-code-deleted className="flex h-full flex-col">
+                        <div className="flex flex-none items-baseline gap-2 border-b border-border px-3 py-1.5 text-[12px]">
+                            <span className="font-semibold text-primary">Deleted in the working tree</span>
+                            <span className="min-w-0 truncate text-muted">{file.path}</span>
+                        </div>
+                        <div className="min-h-0 flex-1">
+                            <CodeDiffView key={file.path} path={file.path} text="" fixedTarget="head" />
+                        </div>
+                    </div>
+                );
+            }
             return (
                 <SurfaceEmptyState
                     title="File no longer exists"
@@ -396,20 +579,22 @@ export function CodeViewer({ model }: { model: AgentsViewModel }) {
                 />
             );
         case "binary":
-            return <SurfaceEmptyState title="Binary file" body={`${file.path} — ${sizeLabel(file.size)}`} />;
+            if (isImagePath(file.path)) {
+                return <ImageView key={file.path} project={project} path={file.path} size={file.size} />;
+            }
+            return (
+                <SurfaceEmptyState
+                    title="Binary file"
+                    body={`${file.path} — ${sizeLabel(file.size)}`}
+                    action={{ label: "Copy path", onClick: () => copyPath(project, file.path) }}
+                />
+            );
         case "toolarge":
             return (
                 <SurfaceEmptyState
                     title="File too large to display"
                     body={`${file.path} — ${sizeLabel(file.size)}`}
-                    action={{
-                        label: "Copy path",
-                        onClick: () => {
-                            if (project != null) {
-                                void navigator.clipboard?.writeText(joinRepoPath(project.path, file.path));
-                            }
-                        },
-                    }}
+                    action={{ label: "Copy path", onClick: () => copyPath(project, file.path) }}
                 />
             );
         case "error":
@@ -455,7 +640,16 @@ export function CodeViewer({ model }: { model: AgentsViewModel }) {
                         setEditor(ed);
                         restoreKept(ed, abs);
                         applyPendingLine(ed);
+                        const commentAction = ed.addAction({
+                            id: "arc.code.comment",
+                            label: "Add review comment",
+                            contextMenuGroupId: "navigation",
+                            run: () => startComment(),
+                        });
+                        // an Alt+M from Preview or Diff waited for this editor's caret
+                        consumePendingComment();
                         return () => {
+                            commentAction.dispose();
                             if (editor === ed) {
                                 setEditor(null);
                             }

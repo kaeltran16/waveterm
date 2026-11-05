@@ -16,7 +16,7 @@ export type SymbolKind = "func" | "type" | "class" | "const" | "var" | "heading"
 export interface OutlineSymbol {
     name: string;
     kind: SymbolKind;
-    line: number; // 1-based, as codePendingLineAtom takes it
+    line: number; // 1-based, as a pending jump (codePendingJumpAtom) takes it
     depth: number; // 0 at the top level; 1 for a member of an enclosing block
 }
 

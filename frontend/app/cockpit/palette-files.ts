@@ -13,7 +13,6 @@ import { rankSymbols } from "@/app/view/code/codeoutline";
 import {
     codeFileAtom,
     codeOutlineAtom,
-    codePendingLineAtom,
     goToLine,
     openInCode,
     type CodeIndex,
@@ -143,7 +142,7 @@ export function fileScopeGroups(input: FileScopeInput, deps: FileDeps): FileScop
                     echo: `Moves the open file to line ${line}`,
                     run: () => {
                         close();
-                        globalStore.set(codePendingLineAtom, line);
+                        goToLine(line);
                     },
                 },
             ],

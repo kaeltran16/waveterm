@@ -20,23 +20,30 @@ export interface TreeRow {
     expanded: boolean; // always false on a file row
 }
 
-export function buildTree(paths: readonly string[]): TreeNode[] {
+// `extraDirs` are folders with no file under them (git lists files only), shown as empty folder rows
+export function buildTree(paths: readonly string[], extraDirs: Iterable<string> = []): TreeNode[] {
     const root: TreeNode = { name: "", path: "", isDir: true, children: [] };
     // path -> node, so a directory with thousands of siblings costs a lookup, not a scan
     const index = new Map<string, TreeNode>();
-    for (const p of paths) {
+    const insert = (p: string, leafIsDir: boolean) => {
         const segs = p.split("/").filter((s) => s !== "");
         let parent = root;
         segs.forEach((seg, i) => {
             const path = parent.path === "" ? seg : `${parent.path}/${seg}`;
             let node = index.get(path);
             if (node == null) {
-                node = { name: seg, path, isDir: i < segs.length - 1, children: [] };
+                node = { name: seg, path, isDir: leafIsDir || i < segs.length - 1, children: [] };
                 parent.children.push(node);
                 index.set(path, node);
             }
             parent = node;
         });
+    };
+    for (const p of paths) {
+        insert(p, false);
+    }
+    for (const d of extraDirs) {
+        insert(d, true);
     }
     sortNodes(root);
     return root.children;

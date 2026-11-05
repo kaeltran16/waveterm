@@ -7,12 +7,15 @@ import {
     addComment,
     clearProject,
     fileComments,
+    parseStoredReviews,
     projectComments,
     reanchor,
     removeComment,
     reviewHandoffLine,
+    reviewListRows,
     reviewMarkdown,
     selectionLines,
+    storedReviewsJson,
     type ReviewComment,
     type Reviews,
 } from "./codereview";
@@ -132,11 +135,11 @@ describe("reanchor", () => {
 
 describe("reviewMarkdown", () => {
     it("opens with a title naming the project", () => {
-        expect(reviewMarkdown("arc", [comment()]).split("\n")[0]).toBe("# Code review: arc");
+        expect(reviewMarkdown("arc", "/repos/arc", [comment()]).split("\n")[0]).toBe("# Code review: arc");
     });
 
     it("groups by file with sorted paths and orders comments by start line", () => {
-        const md = reviewMarkdown("arc", [
+        const md = reviewMarkdown("arc", "/repos/arc", [
             comment({ id: "1", path: "b.ts", startLine: 9, endLine: 9, note: "late" }),
             comment({ id: "2", path: "a.ts", startLine: 5, endLine: 5, note: "second" }),
             comment({ id: "3", path: "a.ts", startLine: 2, endLine: 4, note: "first" }),
@@ -149,13 +152,60 @@ describe("reviewMarkdown", () => {
     });
 
     it("quotes the anchored line and then gives the note", () => {
-        const md = reviewMarkdown("arc", [comment()]);
+        const md = reviewMarkdown("arc", "/repos/arc", [comment()]);
         expect(md).toContain("### src/a.ts:L3\n\n> const x = 1;\n\nrename x");
     });
 
     it("preserves newlines in a note", () => {
-        const md = reviewMarkdown("arc", [comment({ note: "line one\nline two\n\nline four" })]);
+        const md = reviewMarkdown("arc", "/repos/arc", [comment({ note: "line one\nline two\n\nline four" })]);
         expect(md).toContain("line one\nline two\n\nline four");
+    });
+
+    it("reviewMarkdown states the checkout", () => {
+        const md = reviewMarkdown("arc", "C:\\wt\\arc-1", [comment()]);
+        expect(md.startsWith("# Code review: arc\n\nCheckout: C:\\wt\\arc-1\n\n## src/a.ts")).toBe(true);
+        // paths under it stay relative
+        expect(md).toContain("### src/a.ts:L3");
+        expect(md).not.toContain("C:\\wt\\arc-1\\src");
+    });
+});
+
+describe("stored reviews", () => {
+    it("reviews round-trip through storage", () => {
+        const r: Reviews = new Map([
+            ["/p", [comment(), comment({ id: "c2", path: "b.ts", startLine: 4, endLine: 6 })]],
+            ["C:\\q", [comment({ id: "c3", note: "multi\nline" })]],
+        ]);
+        expect(parseStoredReviews(storedReviewsJson(r))).toEqual(r);
+    });
+
+    it("parseStoredReviews ignores malformed input", () => {
+        expect(parseStoredReviews(null).size).toBe(0);
+        expect(parseStoredReviews("not json").size).toBe(0);
+        expect(parseStoredReviews('{"a":1}').size).toBe(0);
+        const raw = JSON.stringify([
+            ["/p", [comment(), { id: "bad", path: "x.ts" }, comment({ id: "c2", startLine: 0 })]],
+            ["/q", "nope"],
+            ["", [comment()]],
+            [7, [comment()]],
+            "junk",
+        ]);
+        expect(parseStoredReviews(raw)).toEqual(new Map([["/p", [comment()]]]));
+    });
+});
+
+describe("reviewListRows", () => {
+    it("sorts by path then line and labels each row", () => {
+        const rows = reviewListRows([
+            comment({ id: "1", path: "b.ts", startLine: 9, endLine: 9 }),
+            comment({ id: "2", path: "a.ts", startLine: 12, endLine: 14 }),
+            comment({ id: "3", path: "a.ts", startLine: 2, endLine: 2 }),
+        ]);
+        expect(rows.map((r) => [r.id, r.label])).toEqual([
+            ["3", "a.ts:L2"],
+            ["2", "a.ts:L12-L14"],
+            ["1", "b.ts:L9"],
+        ]);
     });
 });
 

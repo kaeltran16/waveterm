@@ -3,7 +3,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { blameClick, blameEntries, blameIsCurrent, type BlameEntry, type BlameState } from "./codeblame";
+import {
+    blameClick,
+    blameEntries,
+    blameIsCurrent,
+    mapBlameLines,
+    placeBlame,
+    type BlameEntry,
+    type BlameState,
+} from "./codeblame";
 
 const ZERO = "0".repeat(40);
 const A = "a".repeat(40);
@@ -107,5 +115,66 @@ describe("blameIsCurrent", () => {
         expect(blameIsCurrent({ kind: "loading", path: "a.go" }, "a.go", 10)).toBe(false);
         expect(blameIsCurrent({ kind: "error", path: "a.go", message: "x" }, "a.go", 10)).toBe(false);
         expect(blameIsCurrent({ kind: "idle" }, "a.go", 10)).toBe(false);
+    });
+});
+
+describe("mapBlameLines", () => {
+    const lines = (...ls: string[]) => ls.join("\n");
+
+    it("unchanged text maps every line to itself", () => {
+        const text = lines("one", "two", "three", "");
+        expect(mapBlameLines(text, text)).toEqual([1, 2, 3, 4]);
+    });
+
+    it("an insert at the top shifts every saved line down one", () => {
+        expect(mapBlameLines(lines("one", "two", "three"), lines("new", "one", "two", "three"))).toEqual([
+            null,
+            1,
+            2,
+            3,
+        ]);
+    });
+
+    it("an edited line maps to null", () => {
+        expect(mapBlameLines(lines("one", "two", "three"), lines("one", "TWO", "three"))).toEqual([1, null, 3]);
+    });
+
+    it("maps unchanged lines between edits in the middle", () => {
+        const saved = lines("a", "b", "c", "d", "e", "f");
+        const buffer = lines("a", "B", "c", "new", "d", "f");
+        expect(mapBlameLines(saved, buffer)).toEqual([1, null, 3, null, 4, 6]);
+    });
+
+    it("a huge middle falls back to null without a full diff", () => {
+        const xs = Array.from({ length: 2000 }, (_, i) => `x${i}`);
+        const saved = lines("head", ...xs, "tail");
+        // a diff would keep x0..x1998; the 2000 x 2001 middle is past the limit, so none of it maps
+        const buffer = lines("head", "new", ...xs.slice(0, -1), "edited", "tail");
+        const map = mapBlameLines(saved, buffer);
+        expect(map[0]).toBe(1);
+        expect(map[map.length - 1]).toBe(xs.length + 2);
+        expect(map.slice(1, -1).every((s) => s === null)).toBe(true);
+    });
+});
+
+describe("placeBlame", () => {
+    const entry = (start: number, lines: number, sha: string): BlameEntry => ({
+        start,
+        lines,
+        sha,
+        short: sha.slice(0, 7),
+        author: "Ada",
+        authorTime: 0,
+        subject: "s",
+        committed: true,
+    });
+
+    it("splits an entry around an inserted line and drops entries with no buffer line", () => {
+        // saved lines 1-3 are A, 4 is B; the buffer inserts a line after saved 2 and edits saved 4
+        const placed = placeBlame([entry(1, 3, A), entry(4, 1, B)], [1, 2, null, 3, null]);
+        expect(placed.map((p) => [p.start, p.lines, p.entry.sha])).toEqual([
+            [1, 2, A],
+            [4, 1, A],
+        ]);
     });
 });

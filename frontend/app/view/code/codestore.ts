@@ -20,7 +20,7 @@ import { atom, type PrimitiveAtom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import { debounce } from "throttle-debounce";
 import { classifyFile, hasNulByte, HEAD_BINARY, HEAD_TOOLARGE, MAX_VIEW_BYTES } from "./codeclassify";
-import { diffBaseOf, nextDiffStep, type DiffBase, type DiffStep } from "./codedifftarget";
+import { diffBaseOf, nextDiffStep, type DiffBase, type DiffStep, type DiffTarget } from "./codedifftarget";
 import {
     conflictMessage,
     conflictOf,
@@ -47,6 +47,7 @@ import { langGlobs, langOf, type Lang } from "./codelang";
 import { deleteWarning, renamedPath, targetDir } from "./codemutate";
 import { outlineOf } from "./codeoutline";
 import { cleanPathInput, pathErrorMessage, statPathError, validatePathInput } from "./codepathinput";
+import type { PendingJump } from "./codependingjump";
 import { pruneRecent, pushRecent } from "./coderecents";
 import { DEFAULT_SEARCH_OPTS, type SearchOpts } from "./codesearchopts";
 import {
@@ -62,6 +63,7 @@ import {
 import { changedDirs, statusByPath, type CodeStatus } from "./codestatus";
 import { definitionPattern, rankDefinitions } from "./codesymbolquery";
 import { ancestorsOf, buildTree, visibleRows } from "./codetree";
+import { worktreeFolders, type WorktreeFolder } from "./codeworktrees";
 
 export interface CodeProject {
     name: string;
@@ -115,6 +117,8 @@ export const codeFileAtom = atom<CodeFile>({ kind: "none" }) as PrimitiveAtom<Co
 export const codeHistoryAtom = atom<History>(EMPTY_HISTORY) as PrimitiveAtom<History>;
 // every checkout of the selected project's repository, main first; empty until loaded
 export const codeWorktreesAtom = atom<GitWorktree[]>([]) as PrimitiveAtom<GitWorktree[]>;
+// the browsed folder's counterpart in each of those checkouts, only where it exists as a directory
+export const codeWorktreeFoldersAtom = atom<WorktreeFolder[]>([]) as PrimitiveAtom<WorktreeFolder[]>;
 // persisted, so a worktree or a directory reached by path stays one click away after a restart
 export const codeRecentsAtom = atomWithStorage<CodeProject[]>("code.project.recents", [], undefined, {
     getOnInit: true,
@@ -168,9 +172,9 @@ export const codeSaveAtom = atom<SaveState>({ kind: "idle" }) as PrimitiveAtom<S
 // The tree's highlighted row — a file OR a directory. Deliberately separate from codeFileAtom: the
 // cursor used to BE the open file, which is why the cursor could never rest on a directory.
 export const codeCursorAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
-// A line a jump wants revealed once the file's text is in place. The store never touches Monaco;
-// codeviewer.tsx consumes this and clears it.
-export const codePendingLineAtom = atom<number | null>(null) as PrimitiveAtom<number | null>;
+// A line or heading a jump wants revealed once its file's text is in place. The store never touches
+// Monaco; codeviewer.tsx resolves this against the file showing (resolvePendingJump) and clears it.
+export const codePendingJumpAtom = atom<PendingJump | null>(null) as PrimitiveAtom<PendingJump | null>;
 // The viewer lends the store a reader for the caret's line, which history records as an entry is left.
 // A reader rather than an atom: the caret moves on every keystroke and nothing needs to re-render.
 let readCaretLine: () => number | null = () => null;
@@ -204,8 +208,8 @@ export const codeViewModeAtom = atom<"preview" | "source" | "diff">("preview") a
 
 // The left-hand side of the diff. One union rather than parallel booleans, for the same reason
 // CodeFile is one: the pane renders an exhaustive switch and cannot land in a contradictory pair.
-// `ref` is what the copy was read at ("HEAD" or the base's sha), so a read for the other target
-// never renders under this one's header.
+// `ref` is what the copy was read at ("HEAD", the base's sha, or DISK_REF for the file on disk), so
+// a read for another target never renders under this one's header.
 export type HeadText =
     | { kind: "idle" }
     | { kind: "loading"; path: string; ref: string }
@@ -215,11 +219,13 @@ export type HeadText =
 
 export const codeHeadAtom = atom<HeadText>({ kind: "idle" }) as PrimitiveAtom<HeadText>;
 
-// Which commit Diff compares against. Only meaningful while codeViewModeAtom is "diff"; entering diff
-// always starts on HEAD.
-export const codeDiffTargetAtom = atom<"head" | "base">("head") as PrimitiveAtom<"head" | "base">;
-// The base the last head→base step resolved: usable or an error, never "skip" (a skip never lands on base).
+// What Diff compares against. Only meaningful while codeViewModeAtom is "diff"; the Diff button
+// always starts on HEAD, and only the stale bar's Compare with disk enters "disk".
+export const codeDiffTargetAtom = atom<DiffTarget>("head") as PrimitiveAtom<DiffTarget>;
+// The base last resolved, by a step to it or by the header asking whether to offer it. The target is
+// never "base" on a skip: a skip only disables the header's Branch base.
 export const codeDiffBaseAtom = atom<DiffBase | null>(null) as PrimitiveAtom<DiffBase | null>;
+export const DISK_REF = "disk";
 
 // Set when the open file's bytes moved on disk since we read them. Never auto-reloads: the caret,
 // the scroll offset and the selection would jump under a reader's eyes with no action of theirs.
@@ -232,6 +238,9 @@ export const codeMutateErrorAtom = atom<string | null>(null) as PrimitiveAtom<st
 // eleven characters is friction, and the inline row shows WHERE the thing will land.
 export type CodeEdit = { kind: "rename"; path: string } | { kind: "create"; dir: string; isDir: boolean } | null;
 export const codeEditAtom = atom<CodeEdit>(null) as PrimitiveAtom<CodeEdit>;
+// Folders created this session (repo-relative) that no file sits under yet: `git ls-files` lists files
+// only, so without this a new folder has no row until something lands in it.
+export const codeSessionDirsAtom = atom<Set<string>>(new Set<string>()) as PrimitiveAtom<Set<string>>;
 
 // Working-tree status, keyed by repo-relative path. null = not loaded yet, which is a different
 // thing from an empty map (a clean tree) and different again from a failed read.
@@ -246,7 +255,7 @@ export const codeStatusDirsAtom = atom((get) => changedDirs(get(codeStatusAtom)?
 // The rendered row list. Derived rather than memoized inside the pane, because the keyboard bindings
 // have to agree with the pane about which rows exist and cannot see a component's useMemo.
 export const codeRowsAtom = atom((get) =>
-    visibleRows(buildTree(get(codeIndexAtom)?.paths ?? []), get(codeExpandedAtom))
+    visibleRows(buildTree(get(codeIndexAtom)?.paths ?? [], get(codeSessionDirsAtom)), get(codeExpandedAtom))
 );
 
 // The open file's declarations, derived from the buffer with the draft overlaid, so the outline
@@ -286,7 +295,7 @@ export async function selectProject(p: CodeProject | null): Promise<void> {
     globalStore.set(codeIndexAtom, null);
     globalStore.set(codeSaveAtom, { kind: "idle" });
     globalStore.set(codeCursorAtom, null);
-    globalStore.set(codePendingLineAtom, null);
+    globalStore.set(codePendingJumpAtom, null);
     globalStore.set(codeViewModeAtom, "preview");
     globalStore.set(codeStatusAtom, null);
     globalStore.set(codeStatusErrorAtom, null);
@@ -295,6 +304,9 @@ export async function selectProject(p: CodeProject | null): Promise<void> {
     globalStore.set(codeDiffBaseAtom, null);
     globalStore.set(codeStaleAtom, null);
     globalStore.set(codeWorktreesAtom, []);
+    globalStore.set(codeWorktreeFoldersAtom, []);
+    globalStore.set(codeEditAtom, null);
+    globalStore.set(codeSessionDirsAtom, new Set<string>());
     resetSearch(); // results belong to the repository they were found in
     // drafts survive on purpose — they are keyed by absolute path, so coming back to this project
     // brings your unsaved edits back with it
@@ -306,26 +318,37 @@ export async function selectProject(p: CodeProject | null): Promise<void> {
     await loadIndex(p);
 }
 
-// A stored selection restores only while the registry still knows its path — a project that was
-// renamed or removed must not silently reopen under a stale path (same rule as jarvis.subject.last).
-export function canRestoreProject(stored: CodeProject | null, registry: Record<string, ProjectKeywords>): boolean {
+export type RestoreKind = "registered" | "by-path" | "none";
+
+// How a stored selection comes back. A registered path restores under the registry's name; any other
+// path was reached by typing it or by a jump, has no name to go stale, and restores once a stat says it
+// is still a directory (restorePath).
+export function restoreKind(
+    stored: CodeProject | null,
+    registry: Record<string, ProjectKeywords> | undefined
+): RestoreKind {
     if (stored == null) {
-        return false;
+        return "none";
     }
     for (const v of Object.values(registry ?? {})) {
         if (v?.path != null && sameRepoPath(v.path, stored.path)) {
-            return true;
+            return "registered";
         }
     }
-    return false;
+    return "by-path";
+}
+
+// picking what is already shown only closes the picker; a reselect would reset the whole session
+export function isCurrentPick(current: CodeProject | null, path: string): boolean {
+    return current != null && sameRepoPath(current.path, path);
 }
 
 export type CodeBodyPhase = "no-projects" | "no-project" | "error" | "loading" | "ready";
 
 // What CodeBody shows. A stored project the restore effect is about to reopen is "loading": that effect
 // runs after the first paint, and "No project selected" there is a false claim. More states than LoadPhase
-// has, so this is Code's own union. A jump (openInCode) can select a repository the registry does not hold,
-// so an empty registry is only the answer when nothing is selected.
+// has, so this is Code's own union. A jump (openInCode) or a typed path can select a directory the registry
+// does not hold, so an empty registry is only the answer when nothing is selected or stored.
 export function codeBodyPhase(p: {
     registry: Record<string, ProjectKeywords> | undefined;
     project: CodeProject | null;
@@ -334,10 +357,10 @@ export function codeBodyPhase(p: {
     indexError: string | null;
 }): CodeBodyPhase {
     if (p.project == null) {
-        if (Object.keys(p.registry ?? {}).length === 0) {
-            return "no-projects";
+        if (restoreKind(p.stored, p.registry) !== "none") {
+            return "loading";
         }
-        return canRestoreProject(p.stored, p.registry ?? {}) ? "loading" : "no-project";
+        return Object.keys(p.registry ?? {}).length === 0 ? "no-projects" : "no-project";
     }
     if (p.indexError != null) {
         return "error";
@@ -371,6 +394,20 @@ export async function loadFileIndex(path: string): Promise<CodeIndex> {
     return idx;
 }
 
+// the ls-files in flight, so ensureIndex can tell "loading" from "nobody asked"
+let indexInFlight: { path: string; seq: number } | null = null;
+let indexSeq = 0;
+
+function setIndex(idx: CodeIndex): void {
+    globalStore.set(codeIndexAtom, idx);
+    // a session folder that now holds a file has a real row; keeping it would outlive a later delete
+    const dirs = globalStore.get(codeSessionDirsAtom);
+    const kept = [...dirs].filter((d) => !idx.paths.some((p) => p.startsWith(`${d}/`)));
+    if (kept.length !== dirs.size) {
+        globalStore.set(codeSessionDirsAtom, new Set(kept));
+    }
+}
+
 async function loadIndex(p: CodeProject): Promise<void> {
     const token = `index:${p.path}`;
     current.indexToken = token;
@@ -378,53 +415,67 @@ async function loadIndex(p: CodeProject): Promise<void> {
     void loadWorktrees();
     const cached = indexCache.get(p.path);
     if (cached != null) {
-        globalStore.set(codeIndexAtom, cached);
+        setIndex(cached);
         return;
     }
+    const flight = { path: p.path, seq: ++indexSeq };
+    indexInFlight = flight;
     try {
         const idx = await loadFileIndex(p.path);
         if (current.indexToken !== token) {
             return;
         }
-        globalStore.set(codeIndexAtom, idx);
+        setIndex(idx);
     } catch (e) {
         if (current.indexToken !== token) {
             return;
         }
         // a failed RPC is an error, not an empty repo — the Diff surface once conflated these
         globalStore.set(codeIndexErrorAtom, e instanceof Error ? e.message : String(e));
+    } finally {
+        if (indexInFlight === flight) {
+            indexInFlight = null;
+        }
     }
 }
 
+// The index on screen stays until the refetch lands: blanking it read as a cold start to the surface,
+// which then reselected the project and threw away the open file, the expanded folders and history.
 export async function refreshIndex(): Promise<void> {
     const p = globalStore.get(codeProjectAtom);
     if (p == null) {
         return;
     }
     indexCache.delete(p.path);
-    globalStore.set(codeIndexAtom, null);
     globalStore.set(codeIndexErrorAtom, null);
-    await loadIndex(p);
+    await loadIndex(p); // refetches ls-files and, alongside it, git status
 }
 
 // Returning to the surface is the other moment the cache is stale — an agent wrote while Code was
-// off-screen — but unlike the explicit refresh this one must not blank the tree: the index already on
-// screen stays until the refetch lands. Guarded against pile-up, since nav switching is a keystroke.
+// off-screen. Guarded against pile-up, since nav switching is a keystroke; refreshIndex is not, so a
+// mutation's refresh is never skipped.
 let revalidating = false;
 
 export async function revalidateIndex(): Promise<void> {
-    const p = globalStore.get(codeProjectAtom);
-    if (p == null || revalidating) {
+    if (revalidating) {
         return;
     }
     revalidating = true;
     try {
-        indexCache.delete(p.path);
-        globalStore.set(codeIndexErrorAtom, null);
-        await loadIndex(p); // refetches ls-files and, alongside it, git status
+        await refreshIndex();
     } finally {
         revalidating = false;
     }
+}
+
+// The current project's index when none is on screen, without the reset selectProject does. A no-op
+// while a load for this project is already running, which is the usual case right after a selection.
+export async function ensureIndex(): Promise<void> {
+    const p = globalStore.get(codeProjectAtom);
+    if (p == null || (indexInFlight != null && sameRepoPath(indexInFlight.path, p.path))) {
+        return;
+    }
+    await loadIndex(p);
 }
 
 // Status is decoration over the rows, so a failure degrades rather than blocks: the tree still
@@ -461,17 +512,36 @@ async function loadWorktrees(): Promise<void> {
     }
     const token = `worktrees:${p.path}`;
     current.worktreesToken = token;
+    let worktrees: GitWorktree[] = [];
     try {
         const res = await RpcApi.GitListWorktreesCommand(TabRpcClient, { cwd: p.path });
-        if (current.worktreesToken === token) {
-            globalStore.set(codeWorktreesAtom, res?.worktrees ?? []);
-        }
+        worktrees = res?.worktrees ?? [];
     } catch (e) {
         console.error("listing worktrees failed", p.path, e);
-        if (current.worktreesToken === token) {
-            globalStore.set(codeWorktreesAtom, []);
-        }
     }
+    if (current.worktreesToken !== token) {
+        return;
+    }
+    globalStore.set(codeWorktreesAtom, worktrees);
+    const folders = await existingFolders(worktreeFolders(p.path, worktrees));
+    if (current.worktreesToken === token) {
+        globalStore.set(codeWorktreeFoldersAtom, folders);
+    }
+}
+
+// a subfolder project may not exist in every checkout (another branch, or not created there yet)
+async function existingFolders(folders: WorktreeFolder[]): Promise<WorktreeFolder[]> {
+    const stats = await Promise.all(
+        folders.map(async (f) => {
+            try {
+                return statPathError(await RpcApi.FileInfoCommand(TabRpcClient, { info: { path: f.path } })) == null;
+            } catch (e) {
+                console.error("stat of worktree folder failed", f.path, e);
+                return false;
+            }
+        })
+    );
+    return folders.filter((_, i) => stats[i]);
 }
 
 // Binary and too-large are answers rather than failures, but from the diff's point of view both
@@ -531,6 +601,28 @@ export async function loadCommitted(rel: string, ref: string): Promise<void> {
     }
 }
 
+// The disk side of a Compare with disk: read fresh on every entry, since the point is what is there now.
+export async function loadDisk(rel: string): Promise<void> {
+    const project = globalStore.get(codeProjectAtom);
+    if (project == null) {
+        return;
+    }
+    const token = `head:${rel}:${DISK_REF}`;
+    current.headToken = token;
+    globalStore.set(codeHeadAtom, { kind: "loading", path: rel, ref: DISK_REF });
+    try {
+        const data = await RpcApi.FileReadCommand(TabRpcClient, { info: { path: draftKey(project, rel) } });
+        if (current.headToken === token) {
+            const text = base64ToString(data?.data64 ?? "");
+            globalStore.set(codeHeadAtom, { kind: "text", path: rel, ref: DISK_REF, text });
+        }
+    } catch (e) {
+        if (current.headToken === token) {
+            globalStore.set(codeHeadAtom, { kind: "error", path: rel, ref: DISK_REF, message: errorText(e) });
+        }
+    }
+}
+
 // The merge-base of HEAD with the default branch ListBranches resolves. Resolved on every head→base
 // step rather than cached: a commit or a branch switch moves it, and two git calls are cheap. A failed
 // RPC is an error the base step shows, never a silent skip.
@@ -584,6 +676,31 @@ export async function cycleDiff(): Promise<void> {
     }
     globalStore.set(codeDiffBaseAtom, base);
     globalStore.set(codeDiffTargetAtom, "base");
+}
+
+// The diff header's HEAD / Branch base pick. The base is resolved on the click, as the `d` step does;
+// a skip stays where it is (the header then shows Branch base disabled), an error lands so it is seen.
+export async function showDiffTarget(t: "head" | "base"): Promise<void> {
+    if (t === "head") {
+        globalStore.set(codeDiffTargetAtom, "head");
+        return;
+    }
+    const base = await resolveDiffBase();
+    globalStore.set(codeDiffBaseAtom, base);
+    if (base.kind !== "skip" && globalStore.get(codeViewModeAtom) === "diff") {
+        globalStore.set(codeDiffTargetAtom, "base");
+    }
+}
+
+// Whether the header offers Branch base, answered before any click.
+export async function probeDiffBase(): Promise<void> {
+    globalStore.set(codeDiffBaseAtom, await resolveDiffBase());
+}
+
+// The stale bar's way to see what a refused save would overwrite: the draft against the disk copy.
+export function compareWithDisk(): void {
+    globalStore.set(codeDiffTargetAtom, "disk");
+    globalStore.set(codeViewModeAtom, "diff");
 }
 
 // A re-stat of the ONE open file, on window focus and on tree focus. No watcher, by design: a
@@ -662,14 +779,19 @@ export async function createEntry(dir: string, name: string, isDir: boolean): Pr
         ok = false;
         globalStore.set(codeMutateErrorAtom, `Could not create ${rel}: ${errorText(e)}`);
     }
+    if (ok && isDir) {
+        // an empty directory is not in `git ls-files` output at all; the session set gives it its row
+        globalStore.set(codeSessionDirsAtom, (d) => new Set(d).add(rel));
+    }
     await refreshIndex();
     if (!ok) {
         return;
     }
     revealPath(rel);
     globalStore.set(codeCursorAtom, rel);
-    if (!isDir) {
-        // an empty directory is not in `git ls-files` output at all, so only a file has a row to open
+    if (isDir) {
+        globalStore.set(codeExpandedAtom, (e) => new Set(e).add(rel));
+    } else {
         await openPath(rel);
     }
 }
@@ -723,6 +845,7 @@ function carryRename(project: CodeProject, rel: string, next: string): void {
         stack: h.stack.map((e) => ({ ...e, path: renamedPath(e.path, rel, next) })),
         idx: h.idx,
     }));
+    globalStore.set(codeSessionDirsAtom, (d) => new Set([...d].map((p) => renamedPath(p, rel, next))));
     revealPath(next);
 }
 
@@ -741,7 +864,10 @@ export async function deletePath(rel: string, isDir: boolean): Promise<void> {
             recursive: isDir,
         });
     } catch (e) {
+        // nothing was deleted, so the open file stays open
         globalStore.set(codeMutateErrorAtom, `Could not delete ${rel}: ${errorText(e)}`);
+        await refreshIndex();
+        return;
     }
     const file = globalStore.get(codeFileAtom);
     if (file.kind !== "none" && underOrEqual(file.path, rel)) {
@@ -750,6 +876,7 @@ export async function deletePath(rel: string, isDir: boolean): Promise<void> {
         globalStore.set(codeFileAtom, { kind: "none" });
         globalStore.set(codeCursorAtom, null);
     }
+    globalStore.set(codeSessionDirsAtom, (d) => new Set([...d].filter((p) => !underOrEqual(p, rel))));
     await refreshIndex();
 }
 
@@ -795,6 +922,15 @@ export function revealPath(path: string): void {
     globalStore.set(codeExpandedAtom, next);
 }
 
+// A folder reached by a link or a path: shown and selected in the tree, with the open file and history
+// left as they were, since a folder is not something the viewer can show.
+export function revealFolder(rel: string): void {
+    revealPath(rel);
+    globalStore.set(codeExpandedAtom, (e) => new Set(e).add(rel));
+    globalStore.set(codeCursorAtom, rel);
+    globalStore.set(codeSearchModeAtom, "files");
+}
+
 const OPENING_PLACEHOLDER_DELAY_MS = 150;
 
 export async function openPath(rel: string, opts?: { pushHistory?: boolean; line?: number | null }): Promise<void> {
@@ -802,20 +938,33 @@ export async function openPath(rel: string, opts?: { pushHistory?: boolean; line
     if (project == null) {
         return;
     }
-    if (opts?.pushHistory !== false) {
-        globalStore.set(codeHistoryAtom, (h) => push(withLine(h, readCaretLine()), rel, opts?.line ?? null));
+    // a jump aimed at another file must not fire on this one
+    if (globalStore.get(codePendingJumpAtom)?.path !== rel) {
+        globalStore.set(codePendingJumpAtom, null);
     }
     const token = `file:${rel}`;
     current.fileToken = token;
-    globalStore.set(codeSaveAtom, { kind: "idle" });
-    globalStore.set(codeStaleAtom, null);
     const abs = joinRepoPath(project.path, rel);
+    // deferred until the path is known to be a file, so a folder leaves history and the save state alone
+    let begun = false;
+    const begin = () => {
+        if (begun) {
+            return;
+        }
+        begun = true;
+        if (opts?.pushHistory !== false) {
+            globalStore.set(codeHistoryAtom, (h) => push(withLine(h, readCaretLine()), rel, opts?.line ?? null));
+        }
+        globalStore.set(codeSaveAtom, { kind: "idle" });
+        globalStore.set(codeStaleAtom, null);
+    };
 
     // A file you have unsaved edits in is restored from its pinned base rather than re-read. Re-reading
     // would silently re-point the base at whatever is on disk NOW, which is exactly the state the
     // conflict guard exists to notice — a reopen would launder someone else's write into "no conflict".
     const draft = globalStore.get(codeDraftsAtom).get(abs);
     if (draft != null) {
+        begin();
         globalStore.set(codeFileAtom, {
             kind: "text",
             path: rel,
@@ -829,6 +978,7 @@ export async function openPath(rel: string, opts?: { pushHistory?: boolean; line
     // the previous file stays up until this one is ready: swapping to the placeholder first left it on
     // screen for the whole synchronous render of a large markdown document, a visible flash. The
     // placeholder only appears for a read slow enough to need one.
+    const before = globalStore.get(codeFileAtom);
     const placeholder = setTimeout(() => {
         if (current.fileToken === token) {
             globalStore.set(codeFileAtom, { kind: "loading", path: rel });
@@ -839,6 +989,16 @@ export async function openPath(rel: string, opts?: { pushHistory?: boolean; line
         if (current.fileToken !== token) {
             return;
         }
+        if (info?.isdir) {
+            // a slow stat may already have put the placeholder up over the file that was open
+            if (globalStore.get(codeFileAtom) !== before) {
+                globalStore.set(codeFileAtom, before);
+            }
+            globalStore.set(codePendingJumpAtom, null);
+            revealFolder(rel);
+            return;
+        }
+        begin();
         if (info?.notfound) {
             // the index is a snapshot; this is the visible consequence of having no watcher
             globalStore.set(codeFileAtom, { kind: "missing", path: rel });
@@ -868,6 +1028,7 @@ export async function openPath(rel: string, opts?: { pushHistory?: boolean; line
         if (current.fileToken !== token) {
             return;
         }
+        begin(); // a failed read still shows under this path, so it is a place Back returns to
         globalStore.set(codeFileAtom, {
             kind: "error",
             path: rel,
@@ -926,6 +1087,8 @@ export async function saveCurrent(): Promise<void> {
         const conflict = conflictOf(draft.base, latest);
         if (conflict !== "none") {
             globalStore.set(codeSaveAtom, { kind: "conflict", path: rel, message: conflictMessage(conflict) });
+            // the stale bar is the one "the disk moved" banner; it reads the refusal off codeSaveAtom
+            globalStore.set(codeStaleAtom, { path: rel });
             return;
         }
         await RpcApi.FileWriteCommand(TabRpcClient, { info: { path: abs }, data64: stringToBase64(draft.text) });
@@ -972,7 +1135,7 @@ export function goToLine(line: number): void {
         return;
     }
     globalStore.set(codeHistoryAtom, (h) => push(withLine(h, readCaretLine()), file.path, line));
-    globalStore.set(codePendingLineAtom, line);
+    globalStore.set(codePendingJumpAtom, { path: file.path, line });
 }
 
 // back/forward re-read from disk rather than replaying cached text: simpler, and it shows the file
@@ -998,7 +1161,7 @@ async function walkTo(h: History): Promise<void> {
     if (entry == null) {
         return;
     }
-    globalStore.set(codePendingLineAtom, entry.line);
+    globalStore.set(codePendingJumpAtom, entry.line != null ? { path: entry.path, line: entry.line } : null);
     await openPath(entry.path, { pushHistory: false });
 }
 
@@ -1015,6 +1178,10 @@ export async function selectPath(path: string): Promise<void> {
 // codePickerErrorAtom; a gone directory also leaves the Recent list here.
 export async function openPickedPath(raw: string): Promise<boolean> {
     const path = cleanPathInput(raw);
+    if (isCurrentPick(globalStore.get(codeProjectAtom), path)) {
+        globalStore.set(codePickerErrorAtom, null);
+        return true;
+    }
     let error = validatePathInput(path);
     if (error == null) {
         try {
@@ -1039,9 +1206,39 @@ export async function openPickedPath(raw: string): Promise<boolean> {
     return true;
 }
 
+// A by-path restore at launch: the folder may have been deleted since, and listing a gone folder is an
+// index error rather than an answer, so a failed stat forgets the stored folder instead.
+let restoringPath: string | null = null;
+
+export async function restorePath(path: string): Promise<void> {
+    if (restoringPath != null) {
+        return; // the surface re-runs its restore effect on any registry change while the stat is out
+    }
+    restoringPath = path;
+    try {
+        let ok = false;
+        try {
+            ok = statPathError(await RpcApi.FileInfoCommand(TabRpcClient, { info: { path } })) == null;
+        } catch (e) {
+            console.error("stat of the stored Code folder failed", path, e);
+        }
+        if (!ok) {
+            if (sameRepoPath(globalStore.get(lastCodeProjectAtom)?.path ?? "", path)) {
+                globalStore.set(lastCodeProjectAtom, null);
+            }
+            return;
+        }
+        if (globalStore.get(codeProjectAtom) == null) {
+            await selectPath(path);
+        }
+    } finally {
+        restoringPath = null;
+    }
+}
+
 export async function openInCode(
     model: AgentsViewModel,
-    target: { projectPath: string; rel: string; line?: number }
+    target: { projectPath: string; rel: string; line?: number; anchor?: string }
 ): Promise<void> {
     const project = resolveJumpProject(target.projectPath);
     const cur = globalStore.get(codeProjectAtom);
@@ -1054,8 +1251,15 @@ export async function openInCode(
     await selecting;
     revealPath(target.rel);
     globalStore.set(codeCursorAtom, target.rel);
-    // set before the read: the viewer honors this the moment the text lands
-    globalStore.set(codePendingLineAtom, target.line ?? null);
+    // set before the read: the viewer honors this once this path's text is the file showing
+    globalStore.set(
+        codePendingJumpAtom,
+        target.anchor != null
+            ? { path: target.rel, anchor: target.anchor }
+            : target.line != null
+              ? { path: target.rel, line: target.line }
+              : null
+    );
     await openPath(target.rel, { line: target.line ?? null });
 }
 

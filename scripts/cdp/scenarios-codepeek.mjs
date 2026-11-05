@@ -32,6 +32,8 @@ const NOT_TRACKED = "Not a git repository — no change tracking";
 const PREVIEW_REASON = "Preview is for markdown files";
 // rows the shell's prompt and a stray blank line can take beside the printed rows
 const ROW_SLACK = 3;
+// a 1x1 png: the peek classifies by mime, so the bytes only need to be a real image
+const PIXEL_PNG_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 const MORE_LINES = 5;
 const RENDERER_SETTLE_MS = 1500;
 
@@ -74,6 +76,7 @@ function makeRepo(dir) {
     writeFileSync(join(dir, "notes", "peek.md"), md.slice(0, PEEK_MD_LINES).join("\n") + "\n");
     git(dir, "add", "notes/peek.md");
     writeFileSync(join(dir, "bin", "blob.bin"), Buffer.from([0x41, 0, 0x42, 0, 0, 0x43]));
+    writeFileSync(join(dir, "bin", "pixel.png"), Buffer.from(PIXEL_PNG_B64, "base64"));
     writeFileSync(join(dir, "big", "huge.txt"), "x".repeat(2 * 1024 * 1024 + 4096));
 }
 
@@ -85,6 +88,7 @@ function peekRows(plainAbs, filler) {
         ["src/committed.ts:30", "line"],
         ["gone/missing.ts", "missing"],
         ["bin/blob.bin", "bin"],
+        ["bin/pixel.png", "png"],
         ["big/huge.txt", "big"],
         ["~/x.md", "tilde"],
         [plainAbs, "plain"],
@@ -203,20 +207,22 @@ async function peekAt(h, tag, until = `peekInfo().count > 0 && peekInfo().state 
 const ESCAPE = { key: "Escape", code: "Escape", keyCode: 27 };
 const ENTER = { key: "Enter", code: "Enter", keyCode: 13 };
 
-// as tui-leader does: a window capture probe added after the keybinding dispatcher sees only the keys it left alone
+// as tui-leader does: a window capture probe added after the keybinding dispatcher sees only the keys it left alone.
+// not __peekProbe: the Brief's dev hooks (linkingdevhooks.ts) own that name, and once the Brief had mounted the
+// probe was never added, so every key read as taken
 async function pressKey(h, { key, code, keyCode }) {
     await h.ev(`(() => {
-        window.__peekSeen = [];
-        if (!window.__peekProbe) {
-            window.__peekProbe = (e) => window.__peekSeen.push(e.key);
-            window.addEventListener("keydown", window.__peekProbe, true);
+        window.__codePeekKeysSeen = [];
+        if (!window.__codePeekKeyProbe) {
+            window.__codePeekKeyProbe = (e) => window.__codePeekKeysSeen.push(e.key);
+            window.addEventListener("keydown", window.__codePeekKeyProbe, true);
         }
     })()`);
     for (const type of ["keyDown", "keyUp"]) {
         await h.cdp("Input.dispatchKeyEvent", { type, key, code, windowsVirtualKeyCode: keyCode });
     }
     await polishNap(450);
-    return JSON.parse(await h.ev("JSON.stringify(window.__peekSeen || [])"));
+    return JSON.parse(await h.ev("JSON.stringify(window.__codePeekKeysSeen || [])"));
 }
 
 // a plain click left of the card, which xterm answers by focusing its textarea
@@ -293,7 +299,7 @@ export const codePeek = {
         // the shell's banner and first prompt land before the cls, so the rows print from the top
         await polishNap(2500);
         const termRows = await peekEval(h, `return termWrap().terminal.rows;`);
-        const filler = Math.max(0, termRows - 10 - ROW_SLACK);
+        const filler = Math.max(0, termRows - 11 - ROW_SLACK);
         ctx.linesFile = join(ctx.plainDir, "lines.txt");
         writeFileSync(ctx.linesFile, peekRows(ctx.plainAbs, filler).join("\n") + "\n");
         ctx.moreFile = join(ctx.plainDir, "more.txt");
@@ -477,8 +483,11 @@ export const codePeek = {
         rec("a path that does not exist shows missing", missing.info.state === "missing" && missing.info.message === `No such file: ${join(ctx.repo, "gone", "missing.ts")}`, missing.info);
         await h.shot(shotName("10-missing"));
         const binary = await peekAt(h, "bin");
-        rec("a binary file shows binary", binary.info.state === "binary" && binary.info.message === "Binary file — open it in Code", binary.info);
+        rec("a binary file shows binary", binary.info.state === "binary" && binary.info.message === "Binary file", binary.info);
         await h.shot(shotName("10-binary"));
+        const png = await peekAt(h, "png");
+        rec("an image file hints that Code shows it", png.info.state === "binary" && png.info.message === "Image — open it in Code", png.info);
+        await h.shot(shotName("10-image"));
         const big = await peekAt(h, "big");
         rec("a file over 2 MB shows too large", big.info.state === "toolarge" && big.info.message === "Larger than the 2 MB view limit", big.info);
         await h.shot(shotName("10-toolarge"));
@@ -564,15 +573,15 @@ export const codePeek = {
         await peekAt(h, "line");
         const landed = await peekEval(h, `
             card()?.querySelector("[data-peek-open]")?.click();
-            const { codeFileAtom, codePendingLineAtom } = await mod("app/view/code/codestore.ts");
+            const { codeFileAtom, codePendingJumpAtom } = await mod("app/view/code/codestore.ts");
             const { globalStore } = await mod("app/store/jotaiStore.ts");
             await until(() => globalStore.get(codeFileAtom)?.path === "src/committed.ts" && globalStore.get(codeFileAtom)?.kind === "text", 8000);
-            await until(() => flat(document.querySelector(".line-numbers.active-line-number")) === "30" || globalStore.get(codePendingLineAtom) === 30, 4000);
+            await until(() => flat(document.querySelector(".line-numbers.active-line-number")) === "30" || globalStore.get(codePendingJumpAtom)?.line === 30, 4000);
             // the card closes once the landing resolves, a moment after the file shows
             await until(() => card() == null, 3000);
             return {
                 file: globalStore.get(codeFileAtom)?.path ?? null,
-                pending: globalStore.get(codePendingLineAtom),
+                pending: globalStore.get(codePendingJumpAtom)?.line ?? null,
                 caret: flat(document.querySelector(".line-numbers.active-line-number")),
                 peekClosed: card() == null,
             };
@@ -624,14 +633,14 @@ export const codePeek = {
         const enterAt = await peekAt(h, "line");
         const enterSeen = await pressKey(h, ENTER);
         const entered = await peekEval(h, `
-            const { codeFileAtom, codePendingLineAtom } = await mod("app/view/code/codestore.ts");
+            const { codeFileAtom, codePendingJumpAtom } = await mod("app/view/code/codestore.ts");
             const { globalStore } = await mod("app/store/jotaiStore.ts");
             await until(() => globalStore.get(codeFileAtom)?.path === "src/committed.ts" && globalStore.get(codeFileAtom)?.kind === "text", 8000);
-            await until(() => flat(document.querySelector(".line-numbers.active-line-number")) === "30" || globalStore.get(codePendingLineAtom) === 30, 4000);
+            await until(() => flat(document.querySelector(".line-numbers.active-line-number")) === "30" || globalStore.get(codePendingJumpAtom)?.line === 30, 4000);
             await until(() => card() == null, 3000);
             return {
                 file: globalStore.get(codeFileAtom)?.path ?? null,
-                pending: globalStore.get(codePendingLineAtom),
+                pending: globalStore.get(codePendingJumpAtom)?.line ?? null,
                 caret: flat(document.querySelector(".line-numbers.active-line-number")),
                 peekClosed: card() == null,
             };
@@ -651,7 +660,7 @@ export const codePeek = {
     },
     async teardown(h, ctx) {
         await mouse(h, "mouseMoved", 1, 1, 0).catch(() => {});
-        await h.ev(`window.__peekProbe && (window.removeEventListener("keydown", window.__peekProbe, true), delete window.__peekProbe)`).catch(() => {});
+        await h.ev(`window.__codePeekKeyProbe && (window.removeEventListener("keydown", window.__codePeekKeyProbe, true), delete window.__codePeekKeyProbe)`).catch(() => {});
         await releaseRpc(h, "FileInfoCommand").catch(() => {});
         await releaseRpc(h, "FileReadCommand").catch(() => {});
         await h.ev(`window.__openExternal && (window.api.openExternal = window.__openExternal)`).catch(() => {});

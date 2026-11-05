@@ -2,9 +2,9 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// Review comments, module-scoped so they survive the surface unmounting (not a restart). Keyed by the
-// Code project's path rather than its name: a worktree browsed outside the registry has no name of its
-// own, and two checkouts of one repository hold different files.
+// Review comments, module-scoped so they survive the surface unmounting, and persisted so they survive a
+// restart the way drafts do. Keyed by the Code project's path rather than its name: a worktree browsed
+// outside the registry has no name of its own, and two checkouts of one repository hold different files.
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { modalsModel } from "@/app/store/modalmodel";
@@ -12,19 +12,23 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { atom, type PrimitiveAtom } from "jotai";
+import { debounce } from "throttle-debounce";
 import {
     addComment,
     clearProject,
+    parseStoredReviews,
     projectComments,
     reanchor,
     removeComment,
     reviewHandoffLine,
     reviewMarkdown,
     selectionLines,
+    storedReviewsJson,
     type ReviewComment,
     type Reviews,
 } from "./codereview";
-import { codeDraftsAtom, codeFileAtom, codeProjectAtom, draftKey } from "./codestore";
+import { codeDraftsAtom, codeFileAtom, codeProjectAtom, codeViewModeAtom, draftKey } from "./codestore";
+import { showsSourceEditor } from "./codeviewmode";
 
 export interface CommentDraft {
     path: string;
@@ -33,9 +37,41 @@ export interface CommentDraft {
     anchor: string;
 }
 
-export const codeReviewsAtom = atom<Reviews>(new Map()) as PrimitiveAtom<Reviews>;
+const REVIEWS_STORAGE_KEY = "code.reviews";
+// a comment save must not wait on a write, and a burst of deletes needs only the last one
+const REVIEWS_PERSIST_MS = 500;
+
+function readStoredReviews(): Reviews {
+    try {
+        return parseStoredReviews(window.localStorage.getItem(REVIEWS_STORAGE_KEY));
+    } catch {
+        return new Map(); // no localStorage: a restricted webview, or vitest's node
+    }
+}
+
+function writeStoredReviews(r: Reviews): void {
+    try {
+        window.localStorage.setItem(REVIEWS_STORAGE_KEY, storedReviewsJson(r));
+    } catch (e) {
+        console.warn("[code] review comments were not persisted", e);
+    }
+}
+
+export const codeReviewsAtom = atom<Reviews>(readStoredReviews()) as PrimitiveAtom<Reviews>;
+const persistReviewsSoon = debounce(REVIEWS_PERSIST_MS, () => writeStoredReviews(globalStore.get(codeReviewsAtom)));
+globalStore.sub(codeReviewsAtom, persistReviewsSoon);
+// a reload inside the debounce window would otherwise drop the last comment
+if (typeof window !== "undefined") {
+    window.addEventListener("pagehide", () => {
+        persistReviewsSoon.cancel();
+        writeStoredReviews(globalStore.get(codeReviewsAtom));
+    });
+}
 export const codeCommentDraftAtom = atom<CommentDraft | null>(null) as PrimitiveAtom<CommentDraft | null>;
 export const codeReviewSendOpenAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
+// A comment asked for outside the source editor: the view switches to Source, and the viewer starts the
+// comment once the editor has mounted and its caret can be read (consumePendingComment).
+export const codeCommentPendingAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
 
 // The viewer lends the store the editor's selection, or the caret as an empty one, the way codestore's
 // caret readers work: the store never touches Monaco.
@@ -62,8 +98,16 @@ export function openFileLines(): { path: string; lines: string[] } | null {
 
 export function startComment(): void {
     const open = openFileLines();
+    if (open == null) {
+        return;
+    }
+    if (!showsSourceEditor(globalStore.get(codeViewModeAtom), open.path)) {
+        globalStore.set(codeViewModeAtom, "source");
+        globalStore.set(codeCommentPendingAtom, true);
+        return;
+    }
     const sel = readSelection();
-    if (open == null || sel == null) {
+    if (sel == null) {
         return;
     }
     const { startLine, endLine } = selectionLines(sel);
@@ -73,6 +117,14 @@ export function startComment(): void {
         endLine,
         anchor: open.lines[startLine - 1] ?? "",
     });
+}
+
+export function consumePendingComment(): void {
+    if (!globalStore.get(codeCommentPendingAtom)) {
+        return;
+    }
+    globalStore.set(codeCommentPendingAtom, false);
+    startComment();
 }
 
 export function cancelComment(): void {
@@ -105,7 +157,7 @@ export async function sendReview(
     if (key == null || comments.length === 0) {
         return { ok: false, message: "There are no comments to send." };
     }
-    const markdown = reviewMarkdown(projectName, reanchored(comments));
+    const markdown = reviewMarkdown(projectName, key, reanchored(comments));
     try {
         if (target != null) {
             const { path } = await RpcApi.CodeReviewWriteCommand(TabRpcClient, { project: projectName, markdown });
@@ -120,9 +172,19 @@ export async function sendReview(
         const reason = e instanceof Error ? e.message : String(e);
         return { ok: false, message: `${target != null ? "Could not send" : "Could not copy"} the review: ${reason}` };
     }
-    // only what was sent: a comment added while the send was in flight stays
-    globalStore.set(codeReviewsAtom, (r) => comments.reduce((acc, c) => removeComment(acc, key, c.id), r));
+    // a copy is a look, not a handoff: the review stays until an agent has it
+    if (target != null) {
+        // only what was sent: a comment added while the send was in flight stays
+        globalStore.set(codeReviewsAtom, (r) => comments.reduce((acc, c) => removeComment(acc, key, c.id), r));
+    }
     return { ok: true };
+}
+
+export function deleteComment(id: string): void {
+    const key = reviewKey();
+    if (key != null) {
+        globalStore.set(codeReviewsAtom, (r) => removeComment(r, key, id));
+    }
 }
 
 export function confirmClearReview(): void {

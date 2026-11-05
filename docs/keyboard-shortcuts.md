@@ -235,11 +235,11 @@ outside it. The tree keys work while the file tree holds focus.
 
 | Keys | Action |
 |---|---|
-| `Alt`+`←` / `Alt`+`→` | Back / forward through opened files and jumps |
+| `Alt`+`←` / `Alt`+`→` | Back / forward through opened files and jumps (from the editor) |
 | `r` | Refresh the file index |
-| `d` | Cycle the diff: HEAD, branch base, off |
-| `b` | Toggle the blame column; a click on an entry opens the run that landed it, or copies the sha |
-| `Alt`+`M` | Comment on the selection, or the caret's line: `Enter` saves the note, `Esc` cancels (from the editor) |
+| `d` | Cycle the diff: HEAD, branch base, off; needs a git repo, so it does nothing in a plain folder |
+| `b` | Turn the blame column on in Source, switching to Source from Preview or Diff; again turns it off. A click on an entry opens the run that landed it, or copies the sha |
+| `Alt`+`M` | Comment on the selection, or the caret's line: `Enter` saves the note, `Esc` cancels. From Preview or Diff it switches to Source first; the editor's context menu has "Add review comment" (from the editor) |
 | `Alt`+`Shift`+`M` | Send the review: every comment in the project, to an agent or the clipboard (from the editor) |
 | `Ctrl`+`S` | Save the open file (from the editor) |
 | `Ctrl`+`Shift`+`F` | Search file contents (from the editor) |
@@ -252,6 +252,7 @@ outside it. The tree keys work while the file tree holds focus.
 | `Enter` in the tree | Open the file, or toggle the folder |
 | `n` / `Shift`+`N` in the tree | New file / new folder in the cursor's directory |
 | `F2` / `Del` in the tree | Rename / delete the cursor row |
+| `↑` / `↓` in the Changed list | Walk the rows; `Enter` opens |
 
 ### Sessions
 

@@ -19,9 +19,10 @@ import { joinRepoPath } from "@/util/paths";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { ChevronDown, ChevronRight, File, FilePlus, FolderPlus, Pencil, Trash2 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { projectDraftPaths } from "./codedraft";
 import { nameErrorMessage, provisionalIndex, validateName } from "./codemutate";
-import { statusGlyph, type CodeStatus } from "./codestatus";
+import { changedDirs, statusGlyph, type CodeStatus } from "./codestatus";
 import {
     cancelEdit,
     checkStale,
@@ -33,6 +34,7 @@ import {
     codePlainAtom,
     codeProjectAtom,
     codeRowsAtom,
+    codeSessionDirsAtom,
     codeStatusAtom,
     codeStatusDirsAtom,
     codeTreeFocusedAtom,
@@ -61,6 +63,11 @@ export function CodeTreePane({ model }: { model: AgentsViewModel }) {
     const edit = useAtomValue(codeEditAtom);
     const index = useAtomValue(codeIndexAtom);
     const plain = useAtomValue(codePlainAtom);
+    const sessionDirs = useAtomValue(codeSessionDirsAtom);
+    const draftDirs = useMemo(
+        () => changedDirs(project == null ? [] : projectDraftPaths(drafts, project.path)),
+        [drafts, project]
+    );
     const openFile = file.kind === "none" ? null : file.path;
     const rowRefs = useRef(new Map<string, HTMLDivElement>());
     const treeRef = useRef<HTMLDivElement>(null);
@@ -71,9 +78,13 @@ export function CodeTreePane({ model }: { model: AgentsViewModel }) {
         if (!focusClaimed()) {
             treeRef.current?.focus({ preventScroll: true });
         }
+        // an unmount fires no blur, so a tree that held focus would leave the flag set and its
+        // arrow bindings would take keys from whatever pane replaced it
+        return () => globalStore.set(codeTreeFocusedAtom, false);
     }, []);
 
-    const paths = index?.paths ?? [];
+    // an empty folder made this session is a row but not in the index, and mkdir fails on its name
+    const paths = useMemo(() => [...(index?.paths ?? []), ...sessionDirs], [index, sessionDirs]);
     const provisional = edit?.kind === "create" ? provisionalIndex(rows, edit.dir) : -1;
     const provisionalDepth =
         edit?.kind === "create" && edit.dir !== "" ? (rows.find((r) => r.path === edit.dir)?.depth ?? -1) + 1 : 0;
@@ -206,6 +217,13 @@ export function CodeTreePane({ model }: { model: AgentsViewModel }) {
                     <span
                         aria-label="Unsaved edits"
                         title="Unsaved edits"
+                        className="size-[6px] rounded-full bg-accent-soft"
+                    />
+                ) : null}
+                {row.kind === "dir" && !row.expanded && draftDirs.has(row.path) ? (
+                    <span
+                        aria-label="Contains unsaved edits"
+                        title="Contains unsaved edits"
                         className="size-[6px] rounded-full bg-accent-soft"
                     />
                 ) : null}

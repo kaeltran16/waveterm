@@ -17,14 +17,7 @@ vi.mock("@/app/view/code/codestore", async (importOriginal) => {
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import type { OutlineSymbol } from "@/app/view/code/codeoutline";
-import {
-    codeFileAtom,
-    codeOutlineAtom,
-    codePendingLineAtom,
-    goToLine,
-    openInCode,
-    type CodeIndex,
-} from "@/app/view/code/codestore";
+import { codeFileAtom, codeOutlineAtom, goToLine, openInCode, type CodeIndex } from "@/app/view/code/codestore";
 import type { PrimitiveAtom } from "jotai";
 import { assembleFileGroups, fileEcho, fileScopeGroups, type FileScopeInput } from "./palette-files";
 
@@ -142,7 +135,7 @@ describe("fileScopeGroups", () => {
         expect(run({}).groups.map((g) => g.key)).not.toContain("recent-files");
     });
 
-    it("reads a bare :line on Code as a line of the open file", () => {
+    it("a bare :152 on Code goes through goToLine", () => {
         const out = run({ query: ":152", surface: "code" });
         expect(out.groups[0]).toMatchObject({ key: "line", label: "Open file" });
         expect(out.groups[0].items[0]).toMatchObject({
@@ -152,7 +145,8 @@ describe("fileScopeGroups", () => {
             echo: "Moves the open file to line 152",
         });
         out.groups[0].items[0].run();
-        expect(globalStore.get(codePendingLineAtom)).toBe(152);
+        // goToLine is what tags the pending jump with the open file (codestore.test.ts covers that)
+        expect(goToLine).toHaveBeenCalledWith(152);
         expect(run({ query: ":152" }).groups.map((g) => g.key)).not.toContain("line");
     });
 

@@ -38,15 +38,20 @@ export type FileClass = "text" | "binary" | "toolarge";
 
 // an empty mimetype means the backend did not recognize the extension — Go, Rust and most config
 // files land there, so empty must be viewable or the surface would call this repo binary.
+// the MIME is checked before the size: a large font or archive is binary, and "too large" would
+// wrongly suggest a bigger limit would open it.
 export function classifyFile(size: number, mimeType: string): FileClass {
-    if (size > MAX_VIEW_BYTES) {
-        return "toolarge";
-    }
     const m = (mimeType ?? "").split(";")[0].trim().toLowerCase();
     if (m === "" || m.startsWith("text/") || TEXTISH_MIME.has(m)) {
-        return "text";
+        return size > MAX_VIEW_BYTES ? "toolarge" : "text";
     }
     return "binary";
+}
+
+const IMAGE_EXT = /\.(?:png|jpe?g|gif|webp|svg|bmp|ico|avif)$/i;
+
+export function isImagePath(path: string): boolean {
+    return IMAGE_EXT.test(path);
 }
 
 const NUL_SCAN_CHARS = 8192;
