@@ -827,7 +827,10 @@ When a worker finishes with a commit, the task goes to **reviewing** and the eng
 task's lane worktree, on the reviewer route (the lead's unless you picked one, see [Routes](#4-routes)). The
 reviewer reads the task, the spec, the worker's whole report and `git diff` of the task's commits. It checks the
 change against what the task asked for (missing requirements, contradictions of the spec, cut corners, changes
-outside the task), and ends with one command:
+outside the task), and ends with one command. The engine lists in its brief every path the task's commits change
+that the task's `**Files:**` line does not name; the reviewer fails each one the task does not call for unless
+Differs from plan names it. A requirement the report itself admits is unmet fails; a cosmetic point the task does
+not require passes with a note.
 
 - `wsh jarvis dag review pass "<summary>"`: the task lands as before. The reviewer checks the worker's For later tasks
   section instead of relaying it. `--downstream "<note>"` reaches the task's unfinished descendants (plus any

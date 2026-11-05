@@ -447,3 +447,13 @@ func TestParsePlanDependsReasons(t *testing.T) {
 		})
 	}
 }
+
+func TestTaskFilesReadsBackTheFilesLine(t *testing.T) {
+	p := mustParsePlan(t, "# P\n\n### Task 1: a\n**Files:** `pkg/a.go`, `web/b.ts`\n\nDo a.\n")
+	if got, want := TaskFiles(p.Tasks[0].Description), []string{"pkg/a.go", "web/b.ts"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("TaskFiles = %v, want %v", got, want)
+	}
+	if got := TaskFiles("Do a.\n**Files:** pkg/a.go"); got != nil {
+		t.Fatalf("an unparseable Files line must add none, got %v", got)
+	}
+}

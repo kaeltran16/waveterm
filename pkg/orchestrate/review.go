@@ -34,6 +34,8 @@ const (
 	// MaxReviewNoteLen bounds a verdict's note in runes: it goes into a worker's prompt and the lead's status. A
 	// longer note is refused, not clipped.
 	MaxReviewNoteLen = 2000
+	// maxUnlistedShown bounds the paths outside a task's **Files:** line that the reviewer's brief names.
+	maxUnlistedShown = 20
 	// reviewEvidenceWait is how long review waits for the worker's evidence seal, which runs off the completion
 	// RPC and carries the worker's closing note: the one account of its work the reviewer gets.
 	reviewEvidenceWait = time.Minute
@@ -122,6 +124,9 @@ func spawnReviewer(ctx, spawnCtx context.Context, g *waveobj.TaskGroup, t *waveo
 		return
 	}
 	prompt := reviewPrompt(g, t, worker, toldToTask(ctx, g, t.ID), goalpostsForTask(ctx, g, t.ID))
+	if section := unlistedSection(unlistedFiles(spawnCtx, worker.ProjectPath, t.ReviewBase, worker.EndCommit, t.Description)); section != "" {
+		prompt += "\n\n" + section
+	}
 	runID, sessionId := uuid.NewString(), uuid.NewString()
 	oref, err := spawnWorker(spawnCtx, capability, owner.WorkspaceId, "", worker.ProjectPath, prompt,
 		jarvis.RunWorkerOptions{SessionId: sessionId, RunId: runID, TaskId: t.ID, Label: "review " + t.ID, ShortCache: true})
@@ -593,6 +598,7 @@ func reviewPrompt(g *waveobj.TaskGroup, task *waveobj.TaskNode, worker *waveobj.
 	b.WriteString(". A worker finished it; judge its change against what the task asked for before it lands.\n")
 	fmt.Fprintf(&b, "The change: `git diff %s..%s` in this directory.\n", task.ReviewBase, worker.EndCommit)
 	b.WriteString("Check it against the task below and the spec: every requirement met, nothing that contradicts the spec, no corners cut (stubs, skipped cases, weakened or deleted tests, TODOs), nothing outside the task's scope. The plan's Verify runs the tests after the merge, so don't run the full suite; run a focused test only to settle a doubt.\n")
+	b.WriteString("A requirement the worker's report itself says is unmet (a known blocker, a gap left for later) is a fail, not a pass with a note. A cosmetic point the task does not require (comment wording, blank lines, punctuation) is not a fail: name it in the pass note.\n")
 	done, differs := sectionHeading(jarvis.ReportKeyDone), sectionHeading(jarvis.ReportKeyDiffers)
 	notVerified, forLater := sectionHeading(jarvis.ReportKeyNotVerified), sectionHeading(jarvis.ReportKeyForLater)
 	fmt.Fprintf(&b, "Check the worker's report against the diff too: %s matches the diff; %s names every departure the diff shows; %s names every check the task asked for that neither the diff nor %s shows done.\n", done, differs, notVerified, done)
@@ -634,6 +640,56 @@ func reviewPrompt(g *waveobj.TaskGroup, task *waveobj.TaskNode, worker *waveobj.
 		b.WriteString("\n\n")
 		b.WriteString(extra)
 	}
+	return b.String()
+}
+
+// unlistedFiles is what a task's commits change that its **Files:** lines do not list, a listed directory
+// covering what is under it. Code finds these because reviewers missed them reading the diff. A task with no
+// Files line, or a listing that fails, gives none: the reviewer then judges scope from the task text alone.
+func unlistedFiles(ctx context.Context, dir, base, head, description string) []string {
+	listed := jarvis.TaskFiles(description)
+	if len(listed) == 0 || base == "" || head == "" {
+		return nil
+	}
+	out, err := git(ctx, dir, "-c", "core.quotepath=false", "diff", "--name-only", "--no-renames", base, head)
+	if err != nil {
+		log.Printf("listing the paths changed between %s and %s in %s: %v", base, head, dir, err)
+		return nil
+	}
+	var unlisted []string
+	for _, p := range strings.Split(out, "\n") {
+		if p = strings.TrimSpace(p); p != "" && !listedPath(listed, p) {
+			unlisted = append(unlisted, p)
+		}
+	}
+	return unlisted
+}
+
+func listedPath(listed []string, p string) bool {
+	for _, l := range listed {
+		if p == l || strings.HasPrefix(p, l+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// unlistedSection is the reviewer's brief on unlistedFiles, cut at maxUnlistedShown paths so a task that
+// regenerates many files does not flood the prompt.
+func unlistedSection(paths []string) string {
+	if len(paths) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("The task's commits change these paths, which its **Files:** line does not list:")
+	for i, p := range paths {
+		if i == maxUnlistedShown {
+			fmt.Fprintf(&b, "\n- and %d more (`git diff --name-only`)", len(paths)-maxUnlistedShown)
+			break
+		}
+		fmt.Fprintf(&b, "\n- %s", p)
+	}
+	fmt.Fprintf(&b, "\nFail the review for each one the task does not call for, unless %s names it with a reason that holds. A file the task's own steps produce (a generated file, a synced copy of a listed source) is called for.", sectionHeading(jarvis.ReportKeyDiffers))
 	return b.String()
 }
 

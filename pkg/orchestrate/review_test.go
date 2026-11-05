@@ -1029,3 +1029,44 @@ func TestReviewerBriefCarriesWhatTheWorkerWasTold(t *testing.T) {
 		t.Fatalf("reviewer brief carries another task's message:\n%s", p)
 	}
 }
+
+func TestUnlistedFiles(t *testing.T) {
+	dir := newGitRepo(t)
+	base := gitCmd(t, dir, "rev-parse", "HEAD")
+	for _, p := range []string{"pkg/a.go", "pkg/gen/x.go", "stray/spec.md"} {
+		writeFile(t, filepath.Join(dir, filepath.FromSlash(p)), "x\n")
+	}
+	gitCmd(t, dir, "add", ".")
+	gitCmd(t, dir, "commit", "-m", "task")
+	head := gitCmd(t, dir, "rev-parse", "HEAD")
+	ctx := context.Background()
+
+	desc := "**Files:** `pkg/a.go`, `pkg/gen`\n\nDo a."
+	if got := unlistedFiles(ctx, dir, base, head, desc); len(got) != 1 || got[0] != "stray/spec.md" {
+		t.Fatalf("want only the unlisted path (a listed directory covers its files), got %v", got)
+	}
+	if got := unlistedFiles(ctx, dir, base, head, "Do a."); got != nil {
+		t.Fatalf("a task with no Files line must name nothing, got %v", got)
+	}
+	if got := unlistedFiles(ctx, dir, "nosuchrev", head, desc); got != nil {
+		t.Fatalf("a failed listing must name nothing, got %v", got)
+	}
+}
+
+func TestUnlistedSection(t *testing.T) {
+	if unlistedSection(nil) != "" {
+		t.Fatal("no paths must add no section")
+	}
+	got := unlistedSection([]string{"stray/spec.md"})
+	if !strings.Contains(got, "\n- stray/spec.md\n") || !strings.Contains(got, "Fail the review") {
+		t.Fatalf("section must list the path and say to fail it unless reported:\n%s", got)
+	}
+	many := make([]string, maxUnlistedShown+3)
+	for i := range many {
+		many[i] = fmt.Sprintf("gen/%d.go", i)
+	}
+	got = unlistedSection(many)
+	if strings.Contains(got, fmt.Sprintf("gen/%d.go", maxUnlistedShown)) || !strings.Contains(got, "and 3 more") {
+		t.Fatalf("section must cut at %d paths and count the rest:\n%s", maxUnlistedShown, got)
+	}
+}
