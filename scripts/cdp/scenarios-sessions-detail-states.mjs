@@ -24,6 +24,9 @@ const DAY_MS = 86_400_000;
 const NARROW_VIEWPORT = { width: 1000, height: 700, deviceScaleFactor: 1, mobile: false };
 const WIDE_VIEWPORT = { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false };
 const MIN_TITLE_WIDTH = 300;
+// the run member header's @max-[600px] wrap threshold (sessionsdetail.tsx), and the narrowest title it may leave
+const MEMBER_HEADER_WRAP_PX = 600;
+const MIN_MEMBER_TITLE_WIDTH = 200;
 const WAIT_MS = 10_000;
 // the live refetch runs every 5s (LIVE_REFRESH_MS); two rounds of it
 const LIVE_WAIT_MS = 12_000;
@@ -440,6 +443,57 @@ export default function (_kit) {
                         "14. at 1600x950 the solo header's actions sit on the title's row",
                         wide != null && wide.actionsOnTitleRow,
                         wide
+                    );
+                } finally {
+                    await h.cdp("Emulation.clearDeviceMetricsOverride", {});
+                }
+
+                // 15. the run member's header at the narrow viewport
+                try {
+                    await h.cdp("Emulation.setDeviceMetricsOverride", NARROW_VIEWPORT);
+                    await open(h, { sel: runSel, member: "t-2", view: "transcript", bodyKey: keyOf(fx.runBlocked) });
+                    await page(h, `await nap(600);`);
+                    const s15 = await page(
+                        h,
+                        `const header = document.querySelector("[data-sessions-member-header]");
+                        const title = header?.querySelector("h3");
+                        const actions = title?.nextElementSibling;
+                        if (header == null || title == null || actions == null) return null;
+                        const hs = getComputedStyle(header);
+                        const ts = getComputedStyle(title);
+                        const hr = header.getBoundingClientRect();
+                        const tr = title.getBoundingClientRect();
+                        const ar = actions.getBoundingClientRect();
+                        const buttons = [...actions.querySelectorAll("button")].map((b) => b.getBoundingClientRect());
+                        return {
+                            headerWidth: hr.width,
+                            // the @container query measures the content box
+                            containerWidth: header.clientWidth - parseFloat(hs.paddingLeft) - parseFloat(hs.paddingRight),
+                            titleWidth: tr.width,
+                            titleFits: title.scrollWidth <= title.clientWidth,
+                            titleEllipsis: ts.textOverflow === "ellipsis" && ts.whiteSpace === "nowrap",
+                            actionsBelow: ar.top >= tr.bottom - 0.5,
+                            actionsInlineClear: ar.top < tr.bottom - 1 && tr.right <= ar.left + 0.5,
+                            buttons: buttons.length,
+                            buttonsInside: buttons.every(
+                                (b) => b.left >= hr.left - 0.5 && b.right <= hr.right + 0.5 && b.top >= hr.top - 0.5 && b.bottom <= hr.bottom + 0.5
+                            ),
+                        };`
+                    );
+                    await h.shot(`cdp-shots/${NAME}-15-member-header-1000x700.png`);
+                    const wraps = s15 != null && s15.containerWidth < MEMBER_HEADER_WRAP_PX;
+                    const titleOk =
+                        s15 != null && s15.titleWidth >= MIN_MEMBER_TITLE_WIDTH && (s15.titleFits || s15.titleEllipsis);
+                    const layoutOk = s15 != null && (wraps ? s15.actionsBelow : s15.actionsInlineClear);
+                    rec(
+                        "15. at 1000x700 the run member header's actions sit below its title (or inline beside it above 600px), the title is not clipped, and every action stays inside the header",
+                        titleOk && layoutOk && s15.buttons >= 2 && s15.buttonsInside,
+                        {
+                            ...s15,
+                            layout: wraps
+                                ? "below 600px: actions wrap under the title"
+                                : "600px or wider: actions legitimately stay inline",
+                        }
                     );
                 } finally {
                     await h.cdp("Emulation.clearDeviceMetricsOverride", {});

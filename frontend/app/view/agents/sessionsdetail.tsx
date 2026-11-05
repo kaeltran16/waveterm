@@ -779,7 +779,7 @@ export function RunDetail({
                     >
                         <div className="mb-1.5 flex flex-wrap items-center gap-x-3 gap-y-2">
                             <h3 className="min-w-0 flex-1 truncate text-[15px] font-bold text-primary">{title}</h3>
-                            <div className="flex flex-none items-center gap-3 @max-[600px]:basis-full">
+                            <div className="flex min-w-0 flex-none items-center gap-3 @max-[600px]:basis-full">
                                 <ViewToggle model={model} />
                                 {memberSession ? <PrimaryButton model={model} session={memberSession} /> : null}
                             </div>
