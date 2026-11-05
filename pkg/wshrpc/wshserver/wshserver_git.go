@@ -103,7 +103,13 @@ func (ws *WshServer) GitGrepCommand(ctx context.Context, data wshrpc.CommandGitG
 }
 
 func (ws *WshServer) GitFileAtRefCommand(ctx context.Context, data wshrpc.CommandGitFileAtRefData) (*wshrpc.CommandGitFileAtRefRtnData, error) {
-	fc, err := gitinfo.FileAtRef(ctx, data.Cwd, data.Ref, data.Path, data.MaxBytes)
+	read := gitinfo.FileAtRef
+	if data.Worktree {
+		read = func(ctx context.Context, cwd, _, path string, maxBytes int64) (*gitinfo.FileContent, error) {
+			return gitinfo.FileInWorktree(ctx, cwd, path, maxBytes)
+		}
+	}
+	fc, err := read(ctx, data.Cwd, data.Ref, data.Path, data.MaxBytes)
 	if err != nil {
 		return nil, err
 	}

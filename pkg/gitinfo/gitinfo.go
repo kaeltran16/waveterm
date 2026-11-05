@@ -118,6 +118,34 @@ func GetRangeChanges(ctx context.Context, cwd, base, end string) (*Changes, erro
 	return &Changes{StatusZ: nameStatusToStatusZ(nameStatus), Numstat: numstat, IsRepo: true}, nil
 }
 
+// GetChangesTo is GetRangeChanges for a surface that stays open on the checkout: the list is bounded to
+// base..end, but Branch and Head are the checkout's, so the surface still notices a commit landing under it.
+func GetChangesTo(ctx context.Context, cwd, base, end string) (*Changes, error) {
+	ch, err := GetRangeChanges(ctx, cwd, base, end)
+	if err != nil || !ch.IsRepo {
+		return ch, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
+	defer cancel()
+	branch, _ := run(ctx, cwd, "rev-parse", "--abbrev-ref", "HEAD")
+	ch.Branch = strings.TrimSpace(branch)
+	if out, herr := run(ctx, cwd, "rev-parse", "HEAD"); herr == nil {
+		ch.Head = strings.TrimSpace(out)
+	}
+	return ch, nil
+}
+
+// HasRemote reports whether the repo has at least one remote.
+func HasRemote(ctx context.Context, cwd string) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
+	defer cancel()
+	out, err := run(ctx, cwd, "remote")
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(out) != "", nil
+}
+
 // GetCommitsChanges is GetRangeChanges narrowed to the commits in from..to whose sha keep accepts. On a
 // checkout shared with other sessions the range interleaves their commits with the ones being measured.
 // Counts are summed per path over the kept commits (each measured against its first parent), and a path
@@ -726,7 +754,9 @@ func HistoryLog(ctx context.Context, cwd string, opts HistoryOpts) (*History, er
 	if opts.Ref != "" {
 		args = append(args, opts.Ref)
 	} else {
-		args = append(args, "--all")
+		// the stash is a ref to WIP commits, not history: with --all it shows as a branch tip, and its
+		// index/untracked commits as phantom merges. --exclude only applies to the --all that follows it.
+		args = append(args, "--exclude=refs/stash", "--all")
 	}
 	// a pathspec must come last, after the revision
 	if opts.Path != "" {
@@ -981,6 +1011,40 @@ func FileAtRef(ctx context.Context, cwd, ref, path string, maxBytes int64) (*Fil
 		return &FileContent{IsRepo: true, Binary: true, Size: size, Root: root, Prefix: prefix}, nil
 	}
 	return &FileContent{IsRepo: true, Content: out, Size: size, Root: root, Prefix: prefix}, nil
+}
+
+// FileInWorktree is FileAtRef for the file on disk under cwd: the "after" side of a live diff, which a
+// blob read cannot give for an edit that is not committed (or staged). It answers the same states, and
+// also treats a NUL byte as binary, which git itself does for a worktree file.
+func FileInWorktree(ctx context.Context, cwd, path string, maxBytes int64) (*FileContent, error) {
+	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
+	defer cancel()
+	where, err := run(ctx, cwd, "rev-parse", "--is-inside-work-tree", "--show-toplevel", "--show-prefix")
+	lines := strings.Split(where, "\n")
+	if err != nil || len(lines) < 3 || strings.TrimSpace(lines[0]) != "true" {
+		return &FileContent{IsRepo: false}, nil
+	}
+	root, prefix := strings.TrimRight(lines[1], "\r"), strings.TrimRight(lines[2], "\r")
+	file := filepath.Join(cwd, filepath.FromSlash(path))
+	info, err := os.Stat(file)
+	if errors.Is(err, os.ErrNotExist) || (err == nil && info.IsDir()) {
+		return &FileContent{IsRepo: true, Missing: true, Root: root, Prefix: prefix}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	size := info.Size()
+	if maxBytes > 0 && size > maxBytes {
+		return &FileContent{IsRepo: true, TooLarge: true, Size: size, Root: root, Prefix: prefix}, nil
+	}
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return nil, err
+	}
+	if bytes.IndexByte(data, 0) >= 0 || !utf8.Valid(data) {
+		return &FileContent{IsRepo: true, Binary: true, Size: size, Root: root, Prefix: prefix}, nil
+	}
+	return &FileContent{IsRepo: true, Content: string(data), Size: size, Root: root, Prefix: prefix}, nil
 }
 
 // DefaultBranch resolves the repo's default branch as the ref the compare picker should open on:
