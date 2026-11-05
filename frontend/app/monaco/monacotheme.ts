@@ -31,6 +31,10 @@ export interface MonacoChrome {
 
 const SELECTION_ALPHA = 0.5;
 const LINE_HIGHLIGHT_ALPHA = 0.35;
+// --color-hover and --color-hoverbg: translucent, since the diff overview paints its change marks
+// beneath the slider, and over the code surface they land near the app scrollbar's thumb
+const SCROLL_THUMB = "#ffffff1a";
+const SCROLL_THUMB_HOVER = "#ffffff33";
 
 // token family -> cockpit role. "storage"/"control" read as keyword-family declarations
 // (let/const/type), "delimiter" joins "punctuation" (braces, brackets, separators).
@@ -76,6 +80,15 @@ export function monacoThemeFromTokens(
     }
     if (chrome.lineHighlight != null) {
         colors["editor.lineHighlightBackground"] = colord(chrome.lineHighlight).alpha(LINE_HIGHLIGHT_ALPHA).toHex();
+    }
+    if (dark) {
+        // vs-dark's slider is a light gray that, as the diff overview's 30px viewport box, fills the whole
+        // edge of any diff that fits on screen
+        colors["scrollbarSlider.background"] = SCROLL_THUMB;
+        colors["scrollbarSlider.hoverBackground"] = SCROLL_THUMB_HOVER;
+        colors["scrollbarSlider.activeBackground"] = SCROLL_THUMB_HOVER;
+        // the hairline between the editor and the diff overview reads as a second scrollbar track
+        colors["editorOverviewRuler.border"] = "#00000000";
     }
     // the diff bands are left to the base theme on purpose: vs-dark's olive and red at 20% are the
     // vs code / antigravity bands, which read better than the saturated +N/-N count colors

@@ -75,6 +75,14 @@ describe("monacoThemeFromTokens", () => {
         }
     });
 
+    it("draws a translucent scrollbar slider on dark, so the diff overview's marks show through it, and leaves light to the base", () => {
+        const dark = monacoThemeFromTokens(TOKENS, CHROME, true).colors;
+        expect(dark["scrollbarSlider.background"]).toBe("#ffffff1a");
+        expect(dark["scrollbarSlider.hoverBackground"]).toBe("#ffffff33");
+        expect(dark["scrollbarSlider.activeBackground"]).toBe("#ffffff33");
+        expect(monacoThemeFromTokens(TOKENS, CHROME, false).colors["scrollbarSlider.background"]).toBeUndefined();
+    });
+
     it("keeps the editor background transparent on dark and opaque on light", () => {
         expect(monacoThemeFromTokens(TOKENS, CHROME, true).colors["editor.background"]).toBe("#00000000");
         expect(monacoThemeFromTokens(TOKENS, CHROME, false).colors["editor.background"]).toBe("#fefefe");

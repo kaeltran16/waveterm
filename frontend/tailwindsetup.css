@@ -298,12 +298,13 @@ svg [aria-label="tip"] g path {
 /* Diff pane comments (diffcommentlayer.ts): the + on the hovered line's glyph margin, and the bar on
    a commented or drafted range. */
 .monaco-editor .diff-comment-plus {
-    display: flex;
-    align-items: center;
-    justify-content: center;
     cursor: pointer;
 }
+/* block, not a flex child: monaco writes display: block inline on the widget node, which left this an
+   inline box that ignored its size and shrank to a pill the width of the glyph */
 .monaco-editor .diff-comment-plus::before {
+    display: block;
+    margin: 0 auto;
     content: "+";
     width: 16px;
     height: 16px;
@@ -312,6 +313,20 @@ svg [aria-label="tip"] g path {
     color: var(--color-background);
     font: 700 14px/16px var(--font-sans);
     text-align: center;
+}
+/* A new file in the Diff pane: monaco draws an empty original as "replace line 1 with everything", so
+   every line wears the inserted line and text bands (stacked, which drowns the syntax colors) and line 1
+   the removed one. Each editor reads monaco's theme vars from its own .monaco-editor rule, hence both. */
+[data-diff-new-file] .monaco-diff-editor,
+[data-diff-new-file] .monaco-editor {
+    --vscode-diffEditor-insertedLineBackground: transparent;
+    --vscode-diffEditor-insertedTextBackground: transparent;
+    --vscode-diffEditor-removedLineBackground: transparent;
+    --vscode-diffEditor-removedTextBackground: transparent;
+}
+/* the old side's line number for that removed, empty line 1 */
+[data-diff-new-file] .original-in-monaco-diff-editor .line-numbers {
+    visibility: hidden;
 }
 .monaco-editor .diff-comment-range {
     box-shadow: inset 3px 0 0 var(--color-accent);

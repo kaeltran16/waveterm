@@ -38,12 +38,19 @@ export function splitHintText(splitAvailable: boolean): string {
 // was opened from. Off by default so the two agree; on is the opt-in for reading through a reformat.
 export const ignoreWsAtom = atom<boolean>(false);
 
-export function paneOptions(split: boolean, ignoreWs: boolean): MonacoTypes.editor.IDiffEditorOptions {
+// a new file (empty original) is one hunk that every line belongs to, so neither its + markers nor
+// its bands ([data-diff-new-file] in tailwindsetup.css) tell the reader anything
+export function isNewFile(original: string, modified: string): boolean {
+    return original === "" && modified !== "";
+}
+
+export function paneOptions(split: boolean, ignoreWs: boolean, newFile = false): MonacoTypes.editor.IDiffEditorOptions {
     return {
         readOnly: true,
         originalEditable: false,
         renderSideBySide: split,
         ignoreTrimWhitespace: ignoreWs,
+        renderIndicators: !newFile,
         hideUnchangedRegions: { enabled: true, contextLineCount: 3, minimumLineCount: 3, revealLineCount: 20 },
         scrollBeyondLastLine: false,
         minimap: { enabled: false },

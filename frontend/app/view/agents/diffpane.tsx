@@ -25,7 +25,14 @@ import { firstDifferingLine } from "./diffcontent";
 import { diffPairAtom, diffPairFailureAtom, retryDiffPair } from "./diffcontentstore";
 import { emptyDiffState, type EmptyDiff } from "./diffempty";
 import { changePosition, clearDiffNav, diffNavPosAtom, gotoChange, setDiffNav } from "./diffnav";
-import { ignoreWsAtom, paneHeaderLayout, paneOptions, splitAvailableAtom, splitViewAtom } from "./diffoptions";
+import {
+    ignoreWsAtom,
+    isNewFile,
+    paneHeaderLayout,
+    paneOptions,
+    splitAvailableAtom,
+    splitViewAtom,
+} from "./diffoptions";
 import { activeReviewAtom, markState, noteOpenPair, pairHash, reviewMarksAtom, toggleOpenFile } from "./reviewmarks";
 import { fmtBytes } from "./runcompletion";
 
@@ -140,7 +147,8 @@ export function DiffPane({
     const reviewTitle = reviewed ? "Unmark this file (v)" : "Mark reviewed and open the next file (v)";
     const layout = paneHeaderLayout(width);
     const splitShown = split && layout.split;
-    const options = useMemo(() => paneOptions(splitShown, ignoreWs), [splitShown, ignoreWs]);
+    const newFile = pair != null && isNewFile(pair.original, pair.modified);
+    const options = useMemo(() => paneOptions(splitShown, ignoreWs, newFile), [splitShown, ignoreWs, newFile]);
     useEffect(() => {
         globalStore.set(commentSplitAtom, splitShown);
     }, [splitShown]);
@@ -324,6 +332,7 @@ export function DiffPane({
             className="flex min-h-0 min-w-0 flex-1 flex-col"
             ref={hostRef}
             data-diff-pane
+            data-diff-new-file={newFile || undefined}
         >
             {path ? header() : null}
             {body()}

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { LABELLED_MIN_PX, paneHeaderLayout, paneOptions, SPLIT_MIN_PX, splitHintText } from "./diffoptions";
+import { isNewFile, LABELLED_MIN_PX, paneHeaderLayout, paneOptions, SPLIT_MIN_PX, splitHintText } from "./diffoptions";
 
 describe("the hint on removed lines in the unified view", () => {
     it("points at the split toggle when the pane can draw split", () => {
@@ -27,6 +27,19 @@ describe("the diff pane's view switches", () => {
     it("shows whitespace-only changes unless asked not to", () => {
         expect(paneOptions(false, false).ignoreTrimWhitespace).toBe(false);
         expect(paneOptions(false, true).ignoreTrimWhitespace).toBe(true);
+    });
+
+    // a new file is one all-lines hunk, so a + on every line says nothing
+    it("drops the per-line +/- markers only for a new file", () => {
+        expect(paneOptions(false, false).renderIndicators).toBe(true);
+        expect(paneOptions(false, false, true).renderIndicators).toBe(false);
+    });
+
+    it("calls a file new only when the original is empty and the modified is not", () => {
+        expect(isNewFile("", "a\n")).toBe(true);
+        expect(isNewFile("", "")).toBe(false);
+        expect(isNewFile("a\n", "b\n")).toBe(false);
+        expect(isNewFile("a\n", "")).toBe(false);
     });
 
     it("never lets either side be typed into", () => {
