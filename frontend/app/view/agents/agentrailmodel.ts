@@ -4,7 +4,8 @@
 // Pure: what the Agent details rail says in its context row, its footer action, its tool chips, its files summary
 // and the worktree line under its branch. No React.
 
-import { usageLevel, type AgentVM } from "./agentsviewmodel";
+import { usageLevel, type AgentEntry, type AgentState, type AgentVM } from "./agentsviewmodel";
+import type { ClassUsage } from "./usagestats";
 
 // a tool used this few times reads dimmer, so the verbs doing the work stand out
 const TOOL_DIM_AT = 3;
@@ -80,21 +81,57 @@ export function cacheRewriteTitle(pct: number | undefined, max: number | undefin
     return tokens ? `if the cache expires, the next turn rewrites ~${tokens}` : undefined;
 }
 
-export type RailAction = { kind: "resume" | "stop"; hint: string };
+export type RailAction = { kind: "resume" | "stop" | "none"; hint: string; tone?: "warning" };
 
-// railAction is the rail footer's one control: Resume nudges an idle agent, Stop interrupts a turn. An agent with
-// no live terminal has nothing to drive, and one standing by is waiting on its shell tasks, not on a nudge.
-export function railAction(state: AgentVM["state"], age: string, live: boolean, standingBy = false): RailAction | null {
+const MS_PER_MINUTE = 60_000;
+
+// railAction is the rail footer's one control: Resume nudges an agent whose last turn was interrupted, Stop
+// interrupts a turn. An agent with no live terminal has nothing to drive, and one standing by is waiting on its
+// shell tasks, not on a nudge. An asking agent is answered in its terminal's own picker, so the footer only says so;
+// an idle agent that finished its turn has nothing left to nudge.
+export function railAction(input: {
+    state: AgentState;
+    age: string;
+    live: boolean;
+    standingBy: boolean;
+    interrupted: boolean;
+    silentMs: number | null;
+}): RailAction | null {
+    const { state, age, live, standingBy, interrupted, silentMs } = input;
     if (!live || standingBy) {
         return null;
     }
-    if (state === "idle") {
-        return { kind: "resume", hint: `idle ${age} · nudge to continue` };
-    }
     if (state === "asking") {
-        return { kind: "stop", hint: "waiting on you · Esc in the terminal also stops" };
+        return { kind: "none", hint: "waiting on you · answer in the terminal" };
+    }
+    if (state === "idle") {
+        return interrupted ? { kind: "resume", hint: `idle ${age} · nudge to continue` } : null;
+    }
+    if (silentMs != null) {
+        const mins = Math.floor(silentMs / MS_PER_MINUTE);
+        return { kind: "stop", hint: `quiet · no output ${mins}m · Esc also stops`, tone: "warning" };
     }
     return { kind: "stop", hint: `working ${age} · Esc also stops` };
+}
+
+export function lastTurnInterrupted(entries: AgentEntry[]): boolean {
+    return entries[entries.length - 1]?.kind === "interrupted";
+}
+
+// railReloadKey changes when the rail's git read is stale: another agent or session, the agent's last file edit
+// (the block's agent:lasteditts), or a new idle episode, when a turn's Bash or codegen edits have settled
+export function railReloadKey(
+    agent: Pick<AgentVM, "id" | "transcriptPath" | "blockId" | "idleSince">,
+    lastEditTs?: number
+): string {
+    return [agent.id, agent.transcriptPath ?? "", agent.blockId ?? "", agent.idleSince ?? "", lastEditTs ?? ""].join(
+        "|"
+    );
+}
+
+// newTokens is what the session added rather than re-read: cache reads repeat the context every turn
+export function newTokens(classes: ClassUsage[]): number {
+    return classes.reduce((n, c) => (c.cls === "cacheRead" ? n : n + c.tokens), 0);
 }
 
 export function toolChips(byVerb: { verb: string; count: number }[]): { verb: string; count: number; dim: boolean }[] {

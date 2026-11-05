@@ -8,10 +8,11 @@ import {
     toggleAgentBackground,
 } from "@/app/view/agents/agentactions";
 import { agentDiffScope, openDiff } from "@/app/view/agents/agentdiffnav";
-import { contextLevel, offersContextReset, railAction } from "@/app/view/agents/agentrailmodel";
+import { contextLevel, lastTurnInterrupted, offersContextReset, railAction } from "@/app/view/agents/agentrailmodel";
 import { muteMode } from "@/app/view/agents/agentrowmodel";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { diffStatsByIdAtom } from "@/app/view/agents/cardgitstore";
+import { liveEntriesByIdAtom } from "@/app/view/agents/livetranscriptatoms";
 import { isEndedWorkerId } from "@/app/view/agents/runlineage";
 import { isStandingBy } from "@/app/view/agents/shelltasks";
 import { shellTasksByIdAtom } from "@/app/view/agents/shelltasksstore";
@@ -63,17 +64,22 @@ const actions: ThingAction<AgentThing>[] = [
         id: "agent:nudge",
         label: "Nudge (continue)",
         group: "steer",
+        // the rail's Resume rule: only a turn that was interrupted has something left to continue
         applies: ({ agent }) =>
-            railAction(
-                agent.state,
-                "",
-                live(agent),
-                isStandingBy(
+            railAction({
+                state: agent.state,
+                age: "",
+                live: live(agent),
+                standingBy: isStandingBy(
                     agent.state,
                     globalStore.get(shellTasksByIdAtom)[agent.id] ?? [],
                     globalStore.get(subagentsByIdAtom)[agent.id] ?? []
-                )
-            )?.kind === "resume",
+                ),
+                interrupted: lastTurnInterrupted(
+                    globalStore.get(liveEntriesByIdAtom)[agent.id] ?? agent.previousInfo ?? []
+                ),
+                silentMs: null,
+            })?.kind === "resume",
         run: ({ agent }) => driveAgent(agent.blockId, NUDGE_INPUT),
     },
     {

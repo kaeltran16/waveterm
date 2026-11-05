@@ -8,11 +8,15 @@ import {
     contextNote,
     contextTokens,
     filesSummary,
+    lastTurnInterrupted,
     linkedWorktree,
+    newTokens,
     offersContextReset,
     railAction,
+    railReloadKey,
     toolChips,
 } from "./agentrailmodel";
+import type { TokenClass } from "./usagestats";
 
 describe("contextLevel", () => {
     it("colors a big window by the tokens every turn re-reads, not by how full it is", () => {
@@ -91,20 +95,93 @@ describe("cacheRewriteTitle", () => {
 });
 
 describe("railAction", () => {
-    it("offers Resume for an idle agent and Stop for one mid-turn", () => {
-        expect(railAction("idle", "38m", true)).toEqual({ kind: "resume", hint: "idle 38m · nudge to continue" });
-        expect(railAction("working", "4m", true)).toEqual({ kind: "stop", hint: "working 4m · Esc also stops" });
-        expect(railAction("asking", "2m", true)?.kind).toBe("stop");
+    const base = {
+        state: "working" as const,
+        age: "4m",
+        live: true,
+        standingBy: false,
+        interrupted: false,
+        silentMs: null,
+    };
+
+    it("asking offers no stop", () => {
+        expect(railAction({ ...base, state: "asking" })).toEqual({
+            kind: "none",
+            hint: "waiting on you · answer in the terminal",
+        });
+    });
+
+    it("idle offers resume only after an interrupt", () => {
+        expect(railAction({ ...base, state: "idle", age: "38m" })).toBeNull();
+        expect(railAction({ ...base, state: "idle", age: "38m", interrupted: true })).toEqual({
+            kind: "resume",
+            hint: "idle 38m · nudge to continue",
+        });
+    });
+
+    it("quiet working warns and keeps stop", () => {
+        expect(railAction(base)).toEqual({ kind: "stop", hint: "working 4m · Esc also stops" });
+        expect(railAction({ ...base, silentMs: 4 * 60_000 + 30_000 })).toEqual({
+            kind: "stop",
+            hint: "quiet · no output 4m · Esc also stops",
+            tone: "warning",
+        });
+    });
+
+    it("standing by offers nothing", () => {
+        expect(railAction({ ...base, state: "idle", standingBy: true, interrupted: true })).toBeNull();
+        expect(railAction({ ...base, standingBy: true })).toBeNull();
     });
 
     it("offers nothing without a live terminal", () => {
-        expect(railAction("working", "4m", false)).toBeNull();
+        expect(railAction({ ...base, live: false })).toBeNull();
+        expect(railAction({ ...base, state: "idle", live: false, interrupted: true })).toBeNull();
+    });
+});
+
+describe("lastTurnInterrupted", () => {
+    it("is true when the last entry is an interrupt", () => {
+        expect(lastTurnInterrupted([{ kind: "user", text: "go" }, { kind: "interrupted" }])).toBe(true);
     });
 
-    it("offers nothing while standing by, and is unchanged when not", () => {
-        expect(railAction("idle", "38m", true, true)).toBeNull();
-        expect(railAction("idle", "38m", true, false)).toEqual(railAction("idle", "38m", true));
-        expect(railAction("working", "4m", true, false)).toEqual(railAction("working", "4m", true));
+    it("lastTurnInterrupted is false once a later turn ran", () => {
+        expect(
+            lastTurnInterrupted([
+                { kind: "interrupted" },
+                { kind: "user", text: "try again" },
+                { kind: "message", text: "done" },
+            ])
+        ).toBe(false);
+        expect(lastTurnInterrupted([])).toBe(false);
+    });
+});
+
+describe("railReloadKey", () => {
+    const agent = { id: "a", transcriptPath: "/t.jsonl", blockId: "b", idleSince: 1_000 };
+
+    it("railReloadKey changes with lasteditts and a new idle episode", () => {
+        const key = railReloadKey(agent, 500);
+        expect(railReloadKey(agent, 500)).toBe(key);
+        expect(railReloadKey(agent, 900)).not.toBe(key);
+        expect(railReloadKey({ ...agent, idleSince: 2_000 }, 500)).not.toBe(key);
+        expect(railReloadKey({ ...agent, idleSince: undefined }, 500)).not.toBe(key);
+        expect(railReloadKey(agent)).not.toBe(key);
+    });
+});
+
+describe("newTokens", () => {
+    it("newTokens leaves out cache reads", () => {
+        const c = (cls: TokenClass, tokens: number) => ({ cls, label: cls, tokens, spendUsd: 0 });
+        expect(
+            newTokens([
+                c("cacheRead", 1_000_000),
+                c("input", 10),
+                c("output", 200),
+                c("reasoning", 30),
+                c("cacheWrite", 4000),
+            ])
+        ).toBe(4240);
+        expect(newTokens([])).toBe(0);
     });
 });
 
