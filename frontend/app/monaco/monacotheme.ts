@@ -27,13 +27,15 @@ export interface MonacoChrome {
     foreground: string | null;
     selection: string | null;
     lineHighlight: string | null;
+    // the app scrollbar's thumb colors (::-webkit-scrollbar-thumb in tailwindsetup.css)
+    scrollThumb: string | null;
+    scrollThumbHover: string | null;
 }
 
 const SELECTION_ALPHA = 0.5;
 const LINE_HIGHLIGHT_ALPHA = 0.35;
-// the thumb colors of the app scrollbar (::-webkit-scrollbar-thumb in tailwindsetup.css)
-const SCROLL_THUMB = "#262c34";
-const SCROLL_THUMB_HOVER = "#343c46";
+// the share of --color-edge-strong in the thumb's hover color; the rest is --color-ink-faint
+const SCROLL_THUMB_HOVER_SHARE = 0.75;
 // GitHub Desktop's dark diff (app/styles/themes/_dark.scss): primer's green-900 / red-900 darkened for the
 // line and darker still for the gutter. Its changed-text fill (green-600 #22863a, red-700 #b31d28) left the
 // gray comment token at 1.06:1, so that is mixed only 30% of the way from the line color toward it.
@@ -93,9 +95,13 @@ export function monacoThemeFromTokens(
     }
     if (dark) {
         // vs-dark's slider is a light gray that stands out from every other scrollbar in the app
-        colors["scrollbarSlider.background"] = SCROLL_THUMB;
-        colors["scrollbarSlider.hoverBackground"] = SCROLL_THUMB_HOVER;
-        colors["scrollbarSlider.activeBackground"] = SCROLL_THUMB_HOVER;
+        if (chrome.scrollThumb != null) {
+            colors["scrollbarSlider.background"] = chrome.scrollThumb;
+        }
+        if (chrome.scrollThumbHover != null) {
+            colors["scrollbarSlider.hoverBackground"] = chrome.scrollThumbHover;
+            colors["scrollbarSlider.activeBackground"] = chrome.scrollThumbHover;
+        }
         // the overview ruler's hairline reads as a second scrollbar track
         colors["editorOverviewRuler.border"] = "#00000000";
         Object.assign(colors, DIFF_BANDS);
@@ -121,11 +127,26 @@ export function readSyntaxTokens(root: HTMLElement): SyntaxTokens {
     };
 }
 
+// the css thumb hover is color-mix(in srgb, edge-strong 75%, ink-faint), so the mix is per sRGB channel;
+// colord's mix plugin mixes in LAB and would land a different color
+export function scrollThumbHover(edgeStrong: string | null, inkFaint: string | null): string | null {
+    if (edgeStrong == null || inkFaint == null) {
+        return null;
+    }
+    const a = colord(edgeStrong).toRgb();
+    const b = colord(inkFaint).toRgb();
+    const mix = (x: number, y: number) => x * SCROLL_THUMB_HOVER_SHARE + y * (1 - SCROLL_THUMB_HOVER_SHARE);
+    return colord({ r: mix(a.r, b.r), g: mix(a.g, b.g), b: mix(a.b, b.b), a: mix(a.a, b.a) }).toHex();
+}
+
 export function readChromeRoles(root: HTMLElement): MonacoChrome {
+    const edgeStrong = cssVar(root, "--color-edge-strong");
     return {
         foreground: cssVar(root, "--color-foreground"),
         selection: cssVar(root, "--color-surface-selected"),
         lineHighlight: cssVar(root, "--color-surface-hover"),
+        scrollThumb: edgeStrong,
+        scrollThumbHover: scrollThumbHover(edgeStrong, cssVar(root, "--color-ink-faint")),
     };
 }
 
@@ -144,6 +165,8 @@ export function useSyncMonacoTheme(): void {
             foreground: vars["--color-foreground"],
             selection: vars["--color-surface-selected"],
             lineHighlight: vars["--color-surface-hover"],
+            scrollThumb: vars["--color-edge-strong"],
+            scrollThumbHover: scrollThumbHover(vars["--color-edge-strong"], vars["--color-ink-faint"]),
         };
         const tokens = readSyntaxTokens(document.documentElement);
         let cancelled = false;

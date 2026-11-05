@@ -2,7 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { monacoThemeFromTokens, readChromeRoles, type MonacoChrome, type SyntaxTokens } from "./monacotheme";
+import {
+    monacoThemeFromTokens,
+    readChromeRoles,
+    scrollThumbHover,
+    type MonacoChrome,
+    type SyntaxTokens,
+} from "./monacotheme";
 
 const TOKENS: SyntaxTokens = {
     keyword: "#aebfff",
@@ -17,6 +23,8 @@ const CHROME: MonacoChrome = {
     foreground: "#e2e8f0",
     selection: "#1a222c",
     lineHighlight: "#171c22",
+    scrollThumb: "#2a313a",
+    scrollThumbHover: "#3c434c",
 };
 
 describe("monacoThemeFromTokens", () => {
@@ -78,10 +86,19 @@ describe("monacoThemeFromTokens", () => {
 
     it("draws the scrollbar slider in the app scrollbar's thumb colors on dark, and leaves light to the base", () => {
         const dark = monacoThemeFromTokens(TOKENS, CHROME, true).colors;
-        expect(dark["scrollbarSlider.background"]).toBe("#262c34");
-        expect(dark["scrollbarSlider.hoverBackground"]).toBe("#343c46");
-        expect(dark["scrollbarSlider.activeBackground"]).toBe("#343c46");
+        expect(dark["scrollbarSlider.background"]).toBe("#2a313a");
+        expect(dark["scrollbarSlider.hoverBackground"]).toBe("#3c434c");
+        expect(dark["scrollbarSlider.activeBackground"]).toBe("#3c434c");
         expect(monacoThemeFromTokens(TOKENS, CHROME, false).colors["scrollbarSlider.background"]).toBeUndefined();
+    });
+
+    it("sets no scrollbar slider color when the thumb colors are null", () => {
+        const colors = monacoThemeFromTokens(
+            TOKENS,
+            { ...CHROME, scrollThumb: null, scrollThumbHover: null },
+            true
+        ).colors;
+        expect(Object.keys(colors).filter((k) => k.startsWith("scrollbarSlider."))).toEqual([]);
     });
 
     it("keeps the editor background transparent on dark and opaque on light", () => {
@@ -100,18 +117,32 @@ describe("monacoThemeFromTokens", () => {
     });
 });
 
+describe("scrollThumbHover", () => {
+    it("mixes edge-strong 75% with ink-faint per sRGB channel, as the css color-mix does", () => {
+        // 0.75 * 0x20 + 0.25 * 0x60 = 0x30; 0.75 * 0x40 + 0.25 * 0x80 = 0x50
+        expect(scrollThumbHover("#204060", "#6080a0")).toBe("#305070");
+    });
+
+    it("is null when either color is missing", () => {
+        expect(scrollThumbHover(null, "#6080a0")).toBeNull();
+        expect(scrollThumbHover("#204060", null)).toBeNull();
+    });
+});
+
 describe("readChromeRoles", () => {
     it("reads the chrome roles from their theme vars", () => {
         const vars: Record<string, string> = {
             "--color-foreground": "#e2e8f0",
             "--color-surface-selected": "#1a222c",
             "--color-surface-hover": "#171c22",
+            "--color-edge-strong": "#2a313a",
+            "--color-ink-faint": "#6e757e",
         };
         const root = {
             ownerDocument: {
                 defaultView: { getComputedStyle: () => ({ getPropertyValue: (n: string) => vars[n] ?? "" }) },
             },
         } as unknown as HTMLElement;
-        expect(readChromeRoles(root)).toEqual(CHROME);
+        expect(readChromeRoles(root)).toEqual({ ...CHROME, scrollThumbHover: scrollThumbHover("#2a313a", "#6e757e") });
     });
 });

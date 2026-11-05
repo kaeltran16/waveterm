@@ -388,6 +388,7 @@ runtime logos stay image assets.
   `element/motiontokens.ts` (`MOTION.durMacro` ~360ms on
   `cubic-bezier(0.22,1,0.36,1)`, micro ~140ms, exits ~280ms); card entrances
   animate opacity + scale, never x/y; `MotionConfig reducedMotion="user"`.
+- **Empty states** — `SurfaceEmptyState` (`view/agents/surfacescaffold.tsx`) at surface and pane scope alike.
 - **Modals** — `modalshell.tsx` with `role="dialog"` + `aria-modal`, Escape
   to close, focus trap; rendered centrally via `ModalsRenderer`.
 - **Tooltips** — a plain `title` attribute is the tooltip: `element/titletooltip.tsx` draws every one in the

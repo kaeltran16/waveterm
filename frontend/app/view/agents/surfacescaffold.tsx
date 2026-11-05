@@ -61,6 +61,7 @@ export function ToolbarFact({ children, className }: { children: ReactNode; clas
 // surface that owns its own horizontal measure passes it in; everyone else keeps the default.
 // children sit between the body and the buttons, for a state that has to show what it is working on.
 // secondaryAction sits beside the primary, or alone when a state has no accent action to offer.
+// data and action.data carry data-* hooks onto the root and the action button, for the scenarios.
 export function SurfaceEmptyState({
     glyph,
     title,
@@ -69,17 +70,26 @@ export function SurfaceEmptyState({
     secondaryAction,
     children,
     className,
+    data,
 }: {
     glyph?: ReactNode;
     title: string;
     body?: ReactNode;
-    action?: { label: ReactNode; onClick: () => void; hint?: ReactNode; disabled?: boolean };
+    action?: {
+        label: ReactNode;
+        onClick: () => void;
+        hint?: ReactNode;
+        disabled?: boolean;
+        data?: Record<string, string>;
+    };
     secondaryAction?: { label: ReactNode; onClick: () => void };
     children?: ReactNode;
     className?: string;
+    data?: Record<string, string>;
 }) {
     return (
         <motion.div
+            {...data}
             key="empty"
             variants={cardVariants}
             initial="initial"
@@ -101,6 +111,7 @@ export function SurfaceEmptyState({
                     <div className="flex items-center gap-2.5">
                         {action != null ? (
                             <button
+                                {...action.data}
                                 type="button"
                                 onClick={action.onClick}
                                 disabled={action.disabled}

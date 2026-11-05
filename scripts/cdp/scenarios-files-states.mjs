@@ -28,6 +28,16 @@ const BIG_LOG_BYTES = 3 * 1024 * 1024;
 const SPLIT_MIN_PX = 900;
 const NARROW_HINT = "Removed lines: collapse history (⇧H) or widen the window to use split view and comment on them";
 const PANE = "[data-diff-pane]";
+// the widths the visual revisit found the pane broken at (F1, F7)
+const NARROW = { width: 1000, height: 700 };
+const WIDE = { width: 1600, height: 950 };
+// over MonacoDiffViewer's 100ms layout debounce plus a ResizeObserver frame
+const LAYOUT_SETTLE_MS = 400;
+// rects round to subpixels
+const PX_SLACK = 2;
+// SurfaceEmptyState's title (the h2 in surfacescaffold.tsx); the pane's old local title was a 13px div
+const EMPTY_TITLE_PX = "25px";
+const NOTES_LINES = 80;
 const emptyIs = (kind) => `!!document.querySelector(${JSON.stringify(`${PANE} [data-diff-empty="${kind}"]`)})`;
 
 // opens a file and waits for the pane's empty state of that kind; returns what the pane says
@@ -182,14 +192,30 @@ export const STATES = {
     binary: "src/blob.bin",
     big: "big.log",
     empty: "src/empty.txt",
+    // committed, then edited in two places: a modified text file taller than the pane at either width
+    notes: "lib/notes.txt",
+    // untracked, with a name long enough to overrun the pane header at 1000 wide
+    longNew: "docs/2026-11-05-a-very-long-review-plus-fixes-design-with-a-longer-tail.md",
 };
+
+const notesText = (edit) =>
+    Array.from({ length: NOTES_LINES }, (_, i) => `line ${i + 1}${edit && (i === 4 || i === 69) ? " edited" : ""}\n`).join("");
+
+// a selector's bounding rect, rounded, or null when it is not on screen
+const rectOf = (h, sel) =>
+    h.ev(`(() => { const e = document.querySelector(${JSON.stringify(sel)}); if (!e) return null;
+        const r = e.getBoundingClientRect();
+        return { top: Math.round(r.top), bottom: Math.round(r.bottom), left: Math.round(r.left), right: Math.round(r.right), height: Math.round(r.height) }; })()`);
+const overlaps = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
 
 function seedStatesRepo() {
     const dir = mkdtempSync(join(tmpdir(), "verify-diff-states-"));
     git(dir, "init", "-q", "--initial-branch=main");
     mkdirSync(join(dir, "src"));
+    mkdirSync(join(dir, "lib"));
     writeFileSync(join(dir, STATES.deleted), "def old():\n    return 1\n");
     writeFileSync(join(dir, STATES.deletedEmpty), "");
+    writeFileSync(join(dir, STATES.notes), notesText(false));
     git(dir, "add", ".");
     git(dir, "commit", "-q", "-m", STATES.seed);
     git(dir, "commit", "-q", "--allow-empty", "-m", STATES.noFiles);
@@ -198,6 +224,9 @@ function seedStatesRepo() {
     writeFileSync(join(dir, STATES.binary), randomBytes(BLOB_BYTES));
     writeFileSync(join(dir, STATES.big), "x".repeat(BIG_LOG_BYTES - 1) + "\n");
     writeFileSync(join(dir, STATES.empty), "");
+    writeFileSync(join(dir, STATES.notes), notesText(true));
+    mkdirSync(join(dir, "docs"));
+    writeFileSync(join(dir, STATES.longNew), "# Review plus fixes\n\nA new file, so its diff is all inserts.\n");
     return dir;
 }
 
@@ -253,6 +282,135 @@ export const diffStates = {
             rec("scenario aborted", false, String(e?.message ?? e));
             return steps;
         }
+
+        const s1a = "1a. editor fits at 1000x700: a modified file's diff editor sits between the pane header and the hints footer";
+        await guard(s1a, async () => {
+            await setViewport(h, NARROW);
+            const picked = await pickFile(h, STATES.notes);
+            const diff = picked && (await until(h, `!!document.querySelector(${JSON.stringify(DIFF_EDITOR)})`));
+            await sleep(LAYOUT_SETTLE_MS);
+            const editor = await rectOf(h, DIFF_EDITOR);
+            const pane = await rectOf(h, PANE);
+            const header = await rectOf(h, `${PANE} [data-diff-header]`);
+            const footer = await rectOf(h, "[data-hints-footer]");
+            rec(
+                s1a,
+                diff &&
+                    editor != null &&
+                    pane != null &&
+                    header != null &&
+                    footer != null &&
+                    editor.top >= header.bottom - PX_SLACK &&
+                    editor.bottom <= pane.bottom + PX_SLACK &&
+                    editor.bottom <= footer.top + PX_SLACK,
+                JSON.stringify({ picked, diff, editor, pane, header, footer })
+            );
+            await h.shot("cdp-shots/diff-states-fit-narrow.png");
+        });
+
+        const s1b = "1b. editor re-lays out: grown to 1600x950, the diff editor fills the pane body (pane minus header) within 2px";
+        await guard(s1b, async () => {
+            await setViewport(h, WIDE);
+            await sleep(LAYOUT_SETTLE_MS);
+            const editor = await rectOf(h, DIFF_EDITOR);
+            const pane = await rectOf(h, PANE);
+            const header = await rectOf(h, `${PANE} [data-diff-header]`);
+            const body = pane != null && header != null ? pane.height - header.height : null;
+            rec(
+                s1b,
+                editor != null && body != null && Math.abs(editor.height - body) <= PX_SLACK,
+                JSON.stringify({ editor, pane, header, body })
+            );
+        });
+
+        const s1c = "1c. long filename at 1000x700: the name truncates and does not overprint +N, −N or the change counter";
+        await guard(s1c, async () => {
+            await setViewport(h, NARROW);
+            const picked = await pickFile(h, STATES.longNew);
+            const diff = picked && (await until(h, `!!document.querySelector(${JSON.stringify(DIFF_EDITOR)})`));
+            // the counter draws once monaco has computed the diff
+            const counted = diff && (await until(h, `!!document.querySelector("${PANE} [data-diff-nav]")`));
+            await sleep(LAYOUT_SETTLE_MS);
+            const name = await rectOf(h, `${PANE} [data-diff-filename]`);
+            const adds = await rectOf(h, `${PANE} [data-diff-adds]`);
+            const dels = await rectOf(h, `${PANE} [data-diff-dels]`);
+            const nav = await rectOf(h, `${PANE} [data-diff-nav]`);
+            const truncates = await h.ev(`(() => { const e = document.querySelector("${PANE} [data-diff-filename]");
+                return e ? { scrollWidth: e.scrollWidth, clientWidth: e.clientWidth } : null; })()`);
+            const parts = [name, adds, dels, nav];
+            const clear =
+                parts.every((r) => r != null) && parts.every((a, i) => parts.slice(i + 1).every((b) => !overlaps(a, b)));
+            rec(
+                s1c,
+                counted && clear && truncates != null && truncates.scrollWidth > truncates.clientWidth,
+                JSON.stringify({ picked, diff, counted, name, adds, dels, nav, truncates })
+            );
+            await h.shot("cdp-shots/diff-states-long-name.png");
+        });
+
+        const s1d = "1d. new file gutter: the new file's editors read transparent for both diff gutter band vars";
+        await guard(s1d, async () => {
+            const got = await h.ev(`(() => {
+                const pane = document.querySelector("${PANE}");
+                const e = pane?.querySelector(".monaco-editor");
+                if (!e) return null;
+                const cs = getComputedStyle(e);
+                return {
+                    newFile: pane.hasAttribute("data-diff-new-file"),
+                    inserted: cs.getPropertyValue("--vscode-diffEditorGutter-insertedLineBackground").trim(),
+                    removed: cs.getPropertyValue("--vscode-diffEditorGutter-removedLineBackground").trim(),
+                };
+            })()`);
+            const clear = (v) => v === "transparent" || v === "rgba(0, 0, 0, 0)";
+            rec(s1d, got != null && got.newFile && clear(got.inserted) && clear(got.removed), JSON.stringify(got));
+        });
+
+        const s1e = "1e. pane empty state: a binary file's empty state renders through SurfaceEmptyState";
+        await guard(s1e, async () => {
+            const got = await emptyStateOf(h, STATES.binary, "binary");
+            const title = await h.ev(`(() => {
+                const t = document.querySelector('${PANE} [data-diff-empty="binary"] h2');
+                if (!t) return null;
+                const cs = getComputedStyle(t);
+                return { text: t.textContent, fontSize: cs.fontSize, fontWeight: cs.fontWeight };
+            })()`);
+            rec(
+                s1e,
+                got.shown && title?.text === "Binary file" && title.fontSize === EMPTY_TITLE_PX,
+                JSON.stringify({ ...got, title })
+            );
+            await h.shot("cdp-shots/diff-states-empty-narrow.png");
+        });
+
+        const s1f = "1f. scrollbar tokens: the app's scrollbar thumb uses --color-edge-strong and the scrollbar corner is styled";
+        await guard(s1f, async () => {
+            const got = await h.ev(`(() => {
+                const rules = [];
+                const walk = (list) => {
+                    for (const r of list) {
+                        if (r.selectorText != null) rules.push(r);
+                        if (r.cssRules) walk(r.cssRules);
+                    }
+                };
+                for (const sheet of document.styleSheets) {
+                    try {
+                        walk(sheet.cssRules);
+                    } catch {
+                        /* a cross-origin sheet hides its rules */
+                    }
+                }
+                const thumb = rules.find((r) => r.selectorText === "::-webkit-scrollbar-thumb");
+                const corner = rules.find((r) => r.selectorText === "::-webkit-scrollbar-corner");
+                // the CSSOM reads a background shorthand holding a var() back as empty, so the rule's own
+                // source text is read from the style element that carries it
+                const source = thumb?.parentStyleSheet?.ownerNode?.textContent ?? "";
+                const decl = source.match(/::-webkit-scrollbar-thumb\\s*\\{([^}]*)\\}/)?.[1] ?? null;
+                return { found: thumb != null, thumb: decl?.replace(/\\s+/g, " ").trim() ?? null, corner: corner?.cssText ?? null };
+            })()`);
+            rec(s1f, !!got.thumb && /background:\s*var\(--color-edge-strong\)/.test(got.thumb) && got.corner != null, JSON.stringify(got));
+        });
+        // the steps below were written for the scenario's own viewport, whichever step above stopped short
+        await setViewport(h, WIDE).catch(() => {});
 
         const s2 = "2. untracked binary: the working-tree read says Binary file instead of drawing bytes";
         await guard(s2, async () => {
@@ -519,6 +677,7 @@ export const diffStates = {
                 put(${JSON.stringify(FLAGS_KEY)}, ${JSON.stringify(ctx.prevFlags ?? null)});
             })()`)
         );
+        await step("clear the viewport", () => h.cdp("Emulation.clearDeviceMetricsOverride", {}));
         await removeFixtures(h, ctx.names, ctx.dirs);
     },
 };

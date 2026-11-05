@@ -271,16 +271,21 @@ svg [aria-label="tip"] g path {
     height: 10px;
 }
 ::-webkit-scrollbar-thumb {
-    background: #262c34;
+    background: var(--color-edge-strong);
     border-radius: 6px;
     border: 2px solid transparent;
     background-clip: padding-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-    background: #343c46;
+    /* no token sits between edge-strong and ink-faint */
+    background: color-mix(in srgb, var(--color-edge-strong) 75%, var(--color-ink-faint));
     background-clip: padding-box;
 }
 ::-webkit-scrollbar-track {
+    background: transparent;
+}
+/* where a horizontal and a vertical scrollbar meet; the default paints it white */
+::-webkit-scrollbar-corner {
     background: transparent;
 }
 
@@ -324,6 +329,8 @@ svg [aria-label="tip"] g path {
     --vscode-diffEditor-insertedTextBackground: transparent;
     --vscode-diffEditor-removedLineBackground: transparent;
     --vscode-diffEditor-removedTextBackground: transparent;
+    --vscode-diffEditorGutter-insertedLineBackground: transparent;
+    --vscode-diffEditorGutter-removedLineBackground: transparent;
 }
 /* the old side's line number for that removed, empty line 1 */
 [data-diff-new-file] .original-in-monaco-diff-editor .line-numbers {
