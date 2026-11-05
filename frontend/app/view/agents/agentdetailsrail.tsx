@@ -21,7 +21,7 @@ import {
     cacheRewriteTitle,
     contextLevel,
     contextNote,
-    filesSummary,
+    fileTotals,
     lastTurnInterrupted,
     offersContextReset,
     railAction,
@@ -238,6 +238,20 @@ function FileRow({
     );
 }
 
+// FilesSummary keeps the deltas on one line in FileRow's colors, so a narrow rail wraps after the file count.
+function FilesSummary({ files, prefix }: { files: { adds: number; dels: number }[]; prefix?: string }) {
+    const { count, adds, dels } = fileTotals(files);
+    return (
+        <>
+            {prefix ? `${prefix} · ` : null}
+            {count}{" "}
+            <span className="whitespace-nowrap">
+                <span className="text-diff-added">+{adds}</span> <span className="text-diff-removed">−{dels}</span>
+            </span>
+        </>
+    );
+}
+
 // SealedFiles lists what a done task's run recorded it changed. The worktree is gone, so there is no diff to open.
 function SealedFiles({ files }: { files: EvidenceFile[] }) {
     if (files.length === 0) {
@@ -252,7 +266,9 @@ function SealedFiles({ files }: { files: EvidenceFile[] }) {
                     <FileRow key={f.path} status={f.status} path={f.path} adds={f.adds} dels={f.dels} />
                 ))}
             </div>
-            <div className="mt-[8px] font-mono text-[10.5px] text-muted">{filesSummary(changes)}</div>
+            <div className="mt-[8px] font-mono text-[10.5px] text-muted">
+                <FilesSummary files={changes} />
+            </div>
         </>
     );
 }
@@ -642,24 +658,26 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                                               />
                                           ))}
                                       </div>
-                                      <div className="mt-[8px] flex items-center gap-[10px] font-mono text-[10.5px]">
+                                      <div className="mt-[8px] flex items-center justify-between gap-[10px] font-mono text-[10.5px]">
                                           {/* a checkout's changes are every agent's in it, so they read as the repo's */}
                                           <span
                                               data-rail-files-summary
-                                              className="text-muted"
+                                              className="min-w-0 text-muted"
                                               title={
                                                   sharedBy > 1
                                                       ? `All changes in this checkout, shared by ${sharedBy} agents`
                                                       : undefined
                                               }
                                           >
-                                              {sharedBy > 1 ? `repo · ${filesSummary(changes)}` : filesSummary(changes)}
+                                              <FilesSummary
+                                                  files={changes}
+                                                  prefix={sharedBy > 1 ? "repo" : undefined}
+                                              />
                                           </span>
-                                          <span className="flex-1" />
                                           <button
                                               type="button"
                                               onClick={() => openFileDiff()}
-                                              className="inline-flex cursor-pointer items-center gap-[3px] rounded-[7px] px-[6px] py-[3px] font-semibold text-accent-soft hover:bg-surface-hover"
+                                              className="inline-flex flex-none cursor-pointer items-center gap-[3px] whitespace-nowrap rounded-[7px] px-[6px] py-[3px] font-semibold text-accent-soft hover:bg-surface-hover"
                                           >
                                               View diff
                                               <ArrowUpRight size={11} aria-hidden />
