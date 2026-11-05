@@ -40,6 +40,7 @@ import { runtimeMeta } from "./runtimemeta";
 import { isStandingBy } from "./shelltasks";
 import { shellReadAtByIdAtom, shellReadPending, shellTasksByIdAtom } from "./shelltasksstore";
 import { StatusDot } from "./statusdot";
+import { subagentsByIdAtom } from "./subagentsstore";
 
 const STATE_COLOR: Record<AgentVM["state"], string> = {
     asking: "var(--color-warning)",
@@ -132,7 +133,11 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
     // the final stage's own id is no session: it has no runtime, and its pane says its state
     const stage = isFinalStageId(agent.id);
     const landed = lineage?.kind === "worker" && lineage.task?.merged;
-    const standingBy = isStandingBy(agent.state, useAtomValue(shellTasksByIdAtom)[agent.id] ?? []);
+    const standingBy = isStandingBy(
+        agent.state,
+        useAtomValue(shellTasksByIdAtom)[agent.id] ?? [],
+        useAtomValue(subagentsByIdAtom)[agent.id] ?? []
+    );
     // a quick run's worker that completed its run reads as done, not as an idle session
     const runDone = agentRunDone(agent, standingBy);
     // standing by reads like its dot: accent, not the idle grey

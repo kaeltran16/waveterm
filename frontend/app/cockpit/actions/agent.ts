@@ -15,6 +15,7 @@ import { diffStatsByIdAtom } from "@/app/view/agents/cardgitstore";
 import { isEndedWorkerId } from "@/app/view/agents/runlineage";
 import { isStandingBy } from "@/app/view/agents/shelltasks";
 import { shellTasksByIdAtom } from "@/app/view/agents/shelltasksstore";
+import { subagentsByIdAtom } from "@/app/view/agents/subagentsstore";
 import type { ThingAction, ThingKindDef } from "./types";
 
 export type ContextLevel = ReturnType<typeof contextLevel>;
@@ -67,7 +68,11 @@ const actions: ThingAction<AgentThing>[] = [
                 agent.state,
                 "",
                 live(agent),
-                isStandingBy(agent.state, globalStore.get(shellTasksByIdAtom)[agent.id] ?? [])
+                isStandingBy(
+                    agent.state,
+                    globalStore.get(shellTasksByIdAtom)[agent.id] ?? [],
+                    globalStore.get(subagentsByIdAtom)[agent.id] ?? []
+                )
             )?.kind === "resume",
         run: ({ agent }) => driveAgent(agent.blockId, NUDGE_INPUT),
     },

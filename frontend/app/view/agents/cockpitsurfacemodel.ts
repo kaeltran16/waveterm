@@ -9,6 +9,7 @@
 import { isRecentlyIdle, matchesProjectFilter, projectsFromAgents, type AgentVM } from "./agentsviewmodel";
 import type { LoadPhase } from "./loadphase";
 import type { Lineage } from "./runlineage";
+import type { SubagentVM } from "./session-models/sessionviewmodel";
 import { isStandingBy, type ShellTask } from "./shelltasks";
 
 // a just-finished agent's dismissal is keyed by idle episode (id:idleSince) so a later re-idle re-shows it.
@@ -31,11 +32,13 @@ export function splitRecentlyIdle(
     idle: AgentVM[],
     now: number,
     dismissed: Set<string>,
-    shellTasks: Record<string, ShellTask[]> = {}
+    shellTasks: Record<string, ShellTask[]> = {},
+    subagents: Record<string, SubagentVM[]> = {}
 ): { recently: AgentVM[]; parked: AgentVM[] } {
     const recently = idle.filter(
         (a) =>
-            (isRecentlyIdle(a, now) || isStandingBy(a.state, shellTasks[a.id] ?? [])) && !dismissed.has(dismissKey(a))
+            (isRecentlyIdle(a, now) || isStandingBy(a.state, shellTasks[a.id] ?? [], subagents[a.id] ?? [])) &&
+            !dismissed.has(dismissKey(a))
     );
     const recentIds = new Set(recently.map((a) => a.id));
     const parked = idle.filter((a) => !recentIds.has(a.id));

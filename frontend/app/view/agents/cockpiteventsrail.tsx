@@ -40,6 +40,7 @@ import type { Lineage } from "./runlineage";
 import { SectionLabel } from "./sectionlabel";
 import { isStandingBy } from "./shelltasks";
 import { shellReadAtByIdAtom, shellReadPending, shellTasksByIdAtom } from "./shelltasksstore";
+import { subagentsByIdAtom } from "./subagentsstore";
 
 const snapsAtom = atom<Record<string, AgentSnap>>({}) as PrimitiveAtom<Record<string, AgentSnap>>;
 const agentEventsAtom = atom<RailEvent[]>([]) as PrimitiveAtom<RailEvent[]>;
@@ -59,8 +60,11 @@ const KIND: Record<RailKind, { icon: LucideIcon; verb: string; tone: string }> =
 export function useRailTracking(agents: AgentVM[], lineage: Lineage): void {
     const shellTasks = useAtomValue(shellTasksByIdAtom);
     const shellReadAt = useAtomValue(shellReadAtByIdAtom);
+    const subagents = useAtomValue(subagentsByIdAtom);
     const plain = agents.filter((a) => lineage.roles[a.id] == null);
-    const standingBy = new Set(plain.filter((a) => isStandingBy(a.state, shellTasks[a.id] ?? [])).map((a) => a.id));
+    const standingBy = new Set(
+        plain.filter((a) => isStandingBy(a.state, shellTasks[a.id] ?? [], subagents[a.id] ?? [])).map((a) => a.id)
+    );
     const pending = new Set(plain.filter((a) => shellReadPending(a, shellReadAt[a.id])).map((a) => a.id));
     const key = plain.map((a) => `${a.id}:${a.state}:${standingBy.has(a.id)}:${pending.has(a.id)}`).join(",");
     useEffect(() => {

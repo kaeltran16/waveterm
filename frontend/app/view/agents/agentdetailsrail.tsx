@@ -244,7 +244,7 @@ function SealedFiles({ files }: { files: EvidenceFile[] }) {
 export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
     const liveEntries = useAtomValue(entriesAtomFor(agent.id));
     const subs = useAtomValue(subagentsByIdAtom)[agent.id] ?? [];
-    const standingBy = isStandingBy(agent.state, useAtomValue(shellTasksByIdAtom)[agent.id] ?? []);
+    const standingBy = isStandingBy(agent.state, useAtomValue(shellTasksByIdAtom)[agent.id] ?? [], subs);
     const focusSub = useAtomValue(focusSubagentAtom);
     const sub = focusSub?.parentId === agent.id ? focusSub : null;
     const subVM = sub ? subs.find((s) => s.id === sub.agentId) : undefined;

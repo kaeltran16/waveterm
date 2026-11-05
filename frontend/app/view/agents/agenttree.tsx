@@ -565,7 +565,8 @@ function ParentRow({
     const branch = useAtomValue(agentBranchesAtom)[agent.id];
     const oref = `block:${agent.blockId}`;
     // drop children that finished (success/done) so a completed fan-out doesn't linger in the tree
-    const subs = visibleSubagents(useAtomValue(subagentsByIdAtom)[agent.id] ?? []);
+    const allSubs = useAtomValue(subagentsByIdAtom)[agent.id] ?? [];
+    const subs = visibleSubagents(allSubs);
     const expandOverride = useAtomValue(getSubagentExpandAtom(oref));
     const expanded = subagentExpanded(subs, expandOverride);
     const selected = focusId === agent.id;
@@ -574,7 +575,7 @@ function ParentRow({
     const brainstormFile = shownBrainstormFile(useAtomValue(brainstormAtom(agent.id)));
     const mark = lead != null ? leadMark(lead.run, agent) : null;
     const tasks = useAtomValue(shellTasksByIdAtom)[agent.id] ?? [];
-    const standing = isStandingBy(agent.state, tasks);
+    const standing = isStandingBy(agent.state, tasks, allSubs);
     const commitDone = useCommitDone(agent.blockId, agent.state === "idle" && !standing);
     const runDone = agentRunDone(agent, standing);
     // undefined until the user folds: open while a task runs, as the subagent fold defaults

@@ -72,6 +72,7 @@ import { useCardStreams } from "./usecardstreams";
 import { ProjectSwitcher } from "./projectswitcher";
 import { isStandingBy } from "./shelltasks";
 import { shellTasksByIdAtom } from "./shelltasksstore";
+import { subagentsByIdAtom } from "./subagentsstore";
 import { useSubagentTracking } from "./subagenttracking";
 import { SurfaceToolbar, ToolbarFact } from "./surfacescaffold";
 import { landOn } from "@/app/view/jarvis/returnsurface";
@@ -120,11 +121,13 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     const [dismissed] = useModelAtom(model.dismissedAtom);
     const [backgroundedIds, setBackgroundedIds] = useModelAtom(model.backgroundedIdsAtom);
     const shellTasks = useAtomValue(shellTasksByIdAtom);
+    const subagents = useAtomValue(subagentsByIdAtom);
     const { recently: recentlyIdle, parked: parkedIdle } = splitRecentlyIdle(
         idle,
         structuralNow,
         dismissed,
-        shellTasks
+        shellTasks,
+        subagents
     );
     // one unified list: asks stay in place alongside active working + just-finished (grace) rows,
     // minus anything backgrounded. Asking agents are passed in too: the pruning effect below drops a plain
@@ -211,7 +214,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     const counts = cockpitCounts(agents, projectFilter, (a) => needsHuman(a, answeredAsks));
     // an agent standing by (idle with a running shell task) is live: Live only keeps it, and it counts as working
     const standingByIds = new Set(
-        agents.filter((a) => isStandingBy(a.state, shellTasks[a.id] ?? [])).map((a) => a.id)
+        agents.filter((a) => isStandingBy(a.state, shellTasks[a.id] ?? [], subagents[a.id] ?? [])).map((a) => a.id)
     );
     const visibleOrdered = filterAgents(orderedAgents, projectFilter, liveOnly, standingByIds);
     // run events feed lead-down, review findings and the Events rail; digests feed lanes and question owners

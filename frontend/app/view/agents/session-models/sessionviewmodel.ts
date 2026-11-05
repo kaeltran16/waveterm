@@ -49,6 +49,7 @@ export interface SubagentVM {
     type: string;
     state: SubagentState;
     model?: string;
+    background?: boolean; // spawned with run_in_background: its tool result is only the launch ack
     transcriptPath?: string; // disk-backed source: the child's own transcript file (undefined for the legacy hook path)
 }
 

@@ -18,6 +18,7 @@ import {
     toggleInSet,
 } from "./cockpitsurfacemodel";
 import type { Lineage } from "./runlineage";
+import type { SubagentVM } from "./session-models/sessionviewmodel";
 import type { ShellTask } from "./shelltasks";
 
 function agent(over: Partial<AgentVM>): AgentVM {
@@ -73,6 +74,17 @@ describe("splitRecentlyIdle", () => {
         const { recently, parked } = splitRecentlyIdle([standing, done], now, new Set(), shellTasks);
         expect(recently.map((a) => a.id)).toEqual(["standing"]);
         expect(parked.map((a) => a.id)).toEqual(["done"]);
+    });
+    it("keeps an idle agent with a working background subagent", () => {
+        const standing = agent({ id: "standing", state: "idle", idleSince: now - 6 * 60_000 });
+        const other = agent({ id: "other", state: "idle", idleSince: now - 6 * 60_000 });
+        const subagents: Record<string, SubagentVM[]> = {
+            standing: [{ id: "s1", type: "general", state: "working", background: true }],
+            other: [{ id: "s2", type: "general", state: "working" }],
+        };
+        const { recently, parked } = splitRecentlyIdle([standing, other], now, new Set(), {}, subagents);
+        expect(recently.map((a) => a.id)).toEqual(["standing"]);
+        expect(parked.map((a) => a.id)).toEqual(["other"]);
     });
     it("still parks a dismissed agent that is standing by", () => {
         const standing = agent({ id: "standing", state: "idle", idleSince: now - 6 * 60_000 });

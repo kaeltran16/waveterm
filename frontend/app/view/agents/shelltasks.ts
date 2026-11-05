@@ -6,6 +6,7 @@
 // imports, so the transcript shapes are unit-testable on their own.
 
 import { formatAgeShort, formatAgo } from "./agentsviewmodel";
+import type { SubagentVM } from "./session-models/sessionviewmodel";
 
 export interface MonitorEvent {
     ts?: number;
@@ -290,8 +291,9 @@ function addEvent(
     task.events.push({ ...(Number.isFinite(ts) ? { ts } : {}), lines: event.body.split(/\r?\n/) });
 }
 
-export function isStandingBy(state: string, tasks: ShellTask[]): boolean {
-    return state === "idle" && tasks.length > 0;
+/** Pure: idle with a shell task running, or a background subagent still working. */
+export function isStandingBy(state: string, tasks: ShellTask[], subagents: SubagentVM[]): boolean {
+    return state === "idle" && (tasks.length > 0 || subagents.some((s) => s.background && s.state === "working"));
 }
 
 /** Pure: what to tell the user after a kill, or null when the row leaving says it. */
