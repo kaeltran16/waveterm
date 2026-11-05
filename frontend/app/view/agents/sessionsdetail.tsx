@@ -600,7 +600,7 @@ export function SoloDetail({ model, session }: { model: AgentsViewModel; session
                             items={[{ k: "project", v: session.projectname || "—" }, ...sessionMeta(session).slice(1)]}
                         />
                     </div>
-                    <div className="flex flex-none items-center gap-3.5 self-center @max-[600px]:basis-full @max-[600px]:pl-14">
+                    <div className="flex min-w-0 flex-none items-center gap-3.5 self-center @max-[600px]:basis-full @max-[600px]:pl-14">
                         <ViewToggle model={model} />
                         <PrimaryButton model={model} session={session} strong />
                     </div>

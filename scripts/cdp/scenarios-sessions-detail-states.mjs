@@ -24,9 +24,9 @@ const DAY_MS = 86_400_000;
 const NARROW_VIEWPORT = { width: 1000, height: 700, deviceScaleFactor: 1, mobile: false };
 const WIDE_VIEWPORT = { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false };
 const MIN_TITLE_WIDTH = 300;
-// the run member header's @max-[600px] wrap threshold (sessionsdetail.tsx), and the narrowest title it may leave
-const MEMBER_HEADER_WRAP_PX = 600;
-const MIN_MEMBER_TITLE_WIDTH = 200;
+// the solo and run member headers' @max-[600px] wrap threshold (sessionsdetail.tsx), and the narrowest title they may leave
+const HEADER_WRAP_PX = 600;
+const MIN_HEADER_TITLE_WIDTH = 200;
 const WAIT_MS = 10_000;
 // the live refetch runs every 5s (LIVE_REFRESH_MS); two rounds of it
 const LIVE_WAIT_MS = 12_000;
@@ -481,15 +481,71 @@ export default function (_kit) {
                         };`
                     );
                     await h.shot(`cdp-shots/${NAME}-15-member-header-1000x700.png`);
-                    const wraps = s15 != null && s15.containerWidth < MEMBER_HEADER_WRAP_PX;
+                    const wraps = s15 != null && s15.containerWidth < HEADER_WRAP_PX;
                     const titleOk =
-                        s15 != null && s15.titleWidth >= MIN_MEMBER_TITLE_WIDTH && (s15.titleFits || s15.titleEllipsis);
+                        s15 != null && s15.titleWidth >= MIN_HEADER_TITLE_WIDTH && (s15.titleFits || s15.titleEllipsis);
                     const layoutOk = s15 != null && (wraps ? s15.actionsBelow : s15.actionsInlineClear);
                     rec(
                         "15. at 1000x700 the run member header's actions sit below its title (or inline beside it above 600px), the title is not clipped, and every action stays inside the header",
                         titleOk && layoutOk && s15.buttons >= 2 && s15.buttonsInside,
                         {
                             ...s15,
+                            layout: wraps
+                                ? "below 600px: actions wrap under the title"
+                                : "600px or wider: actions legitimately stay inline",
+                        }
+                    );
+                } finally {
+                    await h.cdp("Emulation.clearDeviceMetricsOverride", {});
+                }
+
+                // 16. the blocked solo session's header at the narrow viewport
+                try {
+                    await h.cdp("Emulation.setDeviceMetricsOverride", NARROW_VIEWPORT);
+                    await solo(fx.blocked);
+                    await page(h, `await nap(600);`);
+                    const s16 = await page(
+                        h,
+                        `const header = document.querySelector("[data-sessions-solo-header]");
+                        const title = header?.querySelector("h2");
+                        // the title's column is the room the header gives it: the h2 itself only spans its text
+                        const col = title?.parentElement?.parentElement;
+                        const actions = col?.nextElementSibling;
+                        if (header == null || title == null || col == null || actions == null) return null;
+                        const hs = getComputedStyle(header);
+                        const ts = getComputedStyle(title);
+                        const hr = header.getBoundingClientRect();
+                        const cr = col.getBoundingClientRect();
+                        const ar = actions.getBoundingClientRect();
+                        const buttons = [...actions.querySelectorAll("button")];
+                        const rects = buttons.map((b) => b.getBoundingClientRect());
+                        return {
+                            headerWidth: hr.width,
+                            // the @container query measures the content box
+                            containerWidth: header.clientWidth - parseFloat(hs.paddingLeft) - parseFloat(hs.paddingRight),
+                            titleWidth: cr.width,
+                            titleTextWidth: title.getBoundingClientRect().width,
+                            titleFits: title.scrollWidth <= title.clientWidth,
+                            titleEllipsis: ts.textOverflow === "ellipsis" && ts.whiteSpace === "nowrap",
+                            actionsBelow: ar.top >= cr.bottom - 0.5,
+                            actionsInlineClear: ar.top < cr.bottom - 1 && cr.right <= ar.left + 0.5,
+                            buttons: buttons.length,
+                            resumeDisabled: buttons.some((b) => b.disabled && b.textContent.trim() === "Resume"),
+                            buttonsInside: rects.every(
+                                (b) => b.left >= hr.left - 0.5 && b.right <= hr.right + 0.5 && b.top >= hr.top - 0.5 && b.bottom <= hr.bottom + 0.5
+                            ),
+                        };`
+                    );
+                    await h.shot(`cdp-shots/${NAME}-16-solo-blocked-header-1000x700.png`);
+                    const wraps = s16 != null && s16.containerWidth < HEADER_WRAP_PX;
+                    const titleOk =
+                        s16 != null && s16.titleWidth >= MIN_HEADER_TITLE_WIDTH && (s16.titleFits || s16.titleEllipsis);
+                    const layoutOk = s16 != null && (wraps ? s16.actionsBelow : s16.actionsInlineClear);
+                    rec(
+                        "16. at 1000x700 the blocked solo session header's actions sit below its title (or inline beside it above 600px), the title is not clipped, and every action, the disabled Resume included, stays inside the header",
+                        titleOk && layoutOk && s16.resumeDisabled && s16.buttons >= 2 && s16.buttonsInside,
+                        {
+                            ...s16,
                             layout: wraps
                                 ? "below 600px: actions wrap under the title"
                                 : "600px or wider: actions legitimately stay inline",
