@@ -19,10 +19,10 @@ import {
     polishNap,
     polishWaitFor,
     setFinderQuery,
-    skipStep,
     waitForProjectInConfig,
     waveService,
 } from "./scenarios-shared.mjs";
+import { makeCodeRepo, openFolderInCode, removeCodeRepo } from "./scenarios-code-kit.mjs";
 
 // --- code: content search ----------------------------------------------------------------------
 // Drives the real grep RPC, so it needs a backend built with GitGrepCommand (task build:backend).
@@ -42,21 +42,8 @@ const openProjectPicker = (h) =>
         return true;
     })()`);
 
-// Scoped to the picker's own container, never the whole document: the app bar's global search
-// button also carries a .font-mono child, so an unscoped query picks THAT and opens the command
-// palette instead of selecting a project.
-const chooseProjectRow = (h) =>
-    h.ev(`(() => {
-        const chip = document.querySelector('[data-code-project-picker]');
-        const scope = chip && chip.parentElement;
-        if (!scope) return false;
-        const rows = [...scope.querySelectorAll('button')].filter((b) => b !== chip && b.querySelector('.font-mono'));
-        if (!rows.length) return false;
-        rows[0].click();
-        return true;
-    })()`);
-
-// the picker row of one registered project, by name
+// the picker row of one registered project, by name, scoped to the picker's own container: the app bar's
+// global search button would otherwise match too
 const chooseProjectNamed = (h, name) =>
     h.ev(`(() => {
         const chip = document.querySelector('[data-code-project-picker]');
@@ -648,13 +635,19 @@ export const codeSidebar = {
     },
 };
 
+const GIT_STATUS_FILE = "notes.txt";
+
+// Final runs on a fresh store with no project, so the scenario opens its own repo: one committed file with an
+// uncommitted edit that both adds and removes lines, so the Changed row carries +N and -N
 export const codeGitStatus = {
     name: "code-git-status",
     surface: "code",
     async arrange() {
-        return {};
+        const dir = makeCodeRepo({ [GIT_STATUS_FILE]: "alpha\nbeta\ngamma\ndelta\n" });
+        writeFileSync(join(dir, GIT_STATUS_FILE), "alpha\ngamma\ndelta\nepsilon\nzeta\n");
+        return { dir };
     },
-    async assert(h) {
+    async assert(h, ctx) {
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         const steps = [];
         await h.goto("code");
@@ -664,12 +657,8 @@ export const codeGitStatus = {
             detail: `active=${await h.activeSurfaceLabel()}`,
         });
 
-        if ((await openProjectPicker(h)) === true) {
-            await sleep(300);
-            const picked = await chooseProjectRow(h);
-            steps.push({ step: "select a project", ok: picked === true, detail: `picked=${picked}` });
-            await sleep(1200); // the index is one git ls-files call, status one git status call
-        }
+        const opened = await openFolderInCode(h, ctx.dir);
+        steps.push({ step: "open the scenario's repository", ok: opened === true, detail: `opened=${opened}` });
 
         const switched = await h.ev(`(() => {
             const t = document.querySelector('[data-code-column-tab="changed"]');
@@ -743,8 +732,9 @@ export const codeGitStatus = {
         await h.shot("cdp-shots/code-git-status.png");
         return steps;
     },
-    async teardown(h) {
+    async teardown(h, ctx) {
         await h.goto("cockpit"); // leave the app where a human expects it
+        if (ctx?.dir) removeCodeRepo(ctx.dir);
     },
 };
 
@@ -955,7 +945,7 @@ export const codeDiff = {
         await h.goto("code");
         if ((await openProjectPicker(h)) === true) {
             await sleep(300);
-            // not chooseProjectRow: rows[0] may be any registered project, and the step-1 check pins policy.go
+            // by name, not the first row: that may be any registered project, and the step-1 check pins policy.go
             await chooseProjectNamed(h, ctx.name);
             await sleep(1200);
         }
@@ -1528,13 +1518,25 @@ export const codeReview = {
     },
 };
 
+// a heading and enough sections that the reopen step measures a real render, not an instant one
+const MARKDOWN_README = [
+    "# Markdown fixture",
+    "",
+    ...Array.from({ length: 120 }, (_, i) => [
+        `## Section ${i + 1}`,
+        "",
+        `Paragraph ${i + 1} of the fixture, with *emphasis*, \`code\` and a [link](https://example.com).`,
+        "",
+    ]).flat(),
+].join("\n");
+
 export const codeMarkdown = {
     name: "code-markdown",
     surface: "code",
     async arrange() {
-        return {};
+        return { dir: makeCodeRepo({ "README.md": MARKDOWN_README }) };
     },
-    async assert(h) {
+    async assert(h, ctx) {
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         const steps = [];
         await h.goto("code");
@@ -1544,12 +1546,8 @@ export const codeMarkdown = {
             detail: `active=${await h.activeSurfaceLabel()}`,
         });
 
-        if ((await openProjectPicker(h)) === true) {
-            await sleep(300);
-            const picked = await chooseProjectRow(h);
-            steps.push({ step: "select a project", ok: picked === true, detail: `picked=${picked}` });
-            await sleep(1200); // the index is one git ls-files call
-        }
+        const opened = await openFolderInCode(h, ctx.dir);
+        steps.push({ step: "open the scenario's repository", ok: opened === true, detail: `opened=${opened}` });
 
         // Ctrl+P on Code opens the search on its Files scope; Enter opens the top-ranked match
         await h.ev(
@@ -1669,8 +1667,9 @@ export const codeMarkdown = {
 
         return steps;
     },
-    async teardown(h) {
+    async teardown(h, ctx) {
         await h.goto("cockpit");
+        if (ctx?.dir) removeCodeRepo(ctx.dir);
     },
 };
 
@@ -1680,19 +1679,23 @@ export const codeTreeOnArrival = {
     name: "code-tree-on-arrival",
     surface: "code",
     async arrange() {
-        return {};
+        return { dir: makeCodeRepo({ "a.txt": "one\n", "b.txt": "two\n" }) };
     },
-    async assert(h) {
+    async assert(h, ctx) {
         await h.cdp("Emulation.setDeviceMetricsOverride", MODELS_VIEWPORT);
         // the tree learns it has focus from its focus event, which Chromium holds back while the dev
         // window is behind another one
         await h.cdp("Emulation.setFocusEmulationEnabled", { enabled: true });
-        await h.goto("code");
+        const opened = await openFolderInCode(h, ctx.dir);
         if (!(await h.ev(`document.querySelector('[data-code-tree]')?.checkVisibility() ?? false`))) {
-            return [skipStep("the Code surface shows its file tree", "no tree: pick a project on Code first")];
+            return [{ step: "the Code surface shows its file tree", ok: false, detail: `opened=${opened}` }];
         }
         await h.goto("agent");
-        await h.ev(focusAgentXterm);
+        // a fresh store has no agent terminal: the arrival then starts from the Agent surface with focus on
+        // the page, still outside the tree
+        const fromXterm = await h.ev(focusAgentXterm);
+        if (!fromXterm) await h.ev(`document.activeElement?.blur?.()`);
+        const from = fromXterm ? "agent xterm" : "agent surface, no terminal, focus on body";
         await h.goto("code");
         const r = await h.ev(`(() => {
             const a = document.activeElement;
@@ -1704,12 +1707,13 @@ export const codeTreeOnArrival = {
             {
                 step: "Agent -> nav click Code: the tree has focus and j moves its cursor",
                 ok: r.inTree === true && r.claimed === true,
-                detail: `active=${r.active} inTree=${r.inTree} claimed=${r.claimed}`,
+                detail: `from=${from} active=${r.active} inTree=${r.inTree} claimed=${r.claimed}`,
             },
         ];
     },
-    async teardown(h) {
+    async teardown(h, ctx) {
         await h.goto("cockpit");
+        if (ctx?.dir) removeCodeRepo(ctx.dir);
     },
 };
 

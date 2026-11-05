@@ -58,7 +58,7 @@ async function mouse(h, x, y, button) {
 // the middle of a rendered source line, or null while it is not drawn
 function linePoint(h, n) {
     return h.ev(`(() => {
-        const line = [...document.querySelectorAll(".monaco-editor .view-line")].find((l) => l.textContent.replace(/00a0/g, " ").trim() === ${JSON.stringify(sourceLine(n))});
+        const line = [...document.querySelectorAll(".monaco-editor .view-line")].find((l) => l.textContent.replace(/\\u00a0/g, " ").trim() === ${JSON.stringify(sourceLine(n))});
         const b = line?.getBoundingClientRect();
         return b ? { x: b.left + 30, y: b.top + b.height / 2 } : null;
     })()`);
@@ -112,7 +112,7 @@ export const codeEditor = {
         await new Promise((r) => setTimeout(r, 300));
         const room = await h.ev(`(() => {
             const box = ${INPUT}?.parentElement?.getBoundingClientRect();
-            const next = [...document.querySelectorAll(".monaco-editor .view-line")].find((l) => l.textContent.replace(/00a0/g, " ").trim() === ${JSON.stringify(sourceLine(COMMENTED + 1))});
+            const next = [...document.querySelectorAll(".monaco-editor .view-line")].find((l) => l.textContent.replace(/\\u00a0/g, " ").trim() === ${JSON.stringify(sourceLine(COMMENTED + 1))});
             const top = next?.getBoundingClientRect().top;
             return box && top != null ? { inputTop: box.top, inputBottom: box.bottom, nextTop: top } : null;
         })()`);
@@ -125,8 +125,8 @@ export const codeEditor = {
         const closed = await cancelInput(h);
         const after = await h.ev(`(() => {
             const lines = [...document.querySelectorAll(".monaco-editor .view-line")];
-            const a = lines.find((l) => l.textContent.replace(/00a0/g, " ").trim() === ${JSON.stringify(sourceLine(COMMENTED))})?.getBoundingClientRect();
-            const b = lines.find((l) => l.textContent.replace(/00a0/g, " ").trim() === ${JSON.stringify(sourceLine(COMMENTED + 1))})?.getBoundingClientRect();
+            const a = lines.find((l) => l.textContent.replace(/\\u00a0/g, " ").trim() === ${JSON.stringify(sourceLine(COMMENTED))})?.getBoundingClientRect();
+            const b = lines.find((l) => l.textContent.replace(/\\u00a0/g, " ").trim() === ${JSON.stringify(sourceLine(COMMENTED + 1))})?.getBoundingClientRect();
             return a && b ? b.top - a.bottom : null;
         })()`);
         rec("Escape closes the input and its gap", closed && after != null && Math.abs(after) < 1, JSON.stringify({ closed, gap: after }));
