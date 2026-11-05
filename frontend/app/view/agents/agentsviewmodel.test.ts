@@ -1099,6 +1099,26 @@ describe("mergePendingLaunches", () => {
     it("returns the base unchanged when there are no pending launches", () => {
         expect(mergePendingLaunches(base, [], 1000)).toHaveLength(1);
     });
+
+    it("mergePendingLaunches overlays label and pinned", () => {
+        const pending: PendingLaunch[] = [
+            { tabId: "t1", blockId: "b1", name: "payments-api", project: "payments-api", ts: 0 },
+            { tabId: "t2", blockId: "b2", name: "loom", project: "loom", ts: 0 },
+        ];
+        const out = mergePendingLaunches(base, pending, 1000, { t1: { label: "fix auth", pinned: true } });
+        expect(out[1]).toMatchObject({ id: "t1", name: "fix auth", pinned: true, booting: true });
+        expect(out[2].name).toBe("loom");
+        expect(out[2].pinned).toBeFalsy();
+    });
+
+    it("mergePendingLaunches keeps the launch name for an empty label", () => {
+        const pending: PendingLaunch[] = [
+            { tabId: "t1", blockId: "b1", name: "payments-api", project: "payments-api", ts: 0 },
+        ];
+        const out = mergePendingLaunches(base, pending, 1000, { t1: { label: "", pinned: false } });
+        expect(out[1].name).toBe("payments-api");
+        expect(out[1].pinned).toBeFalsy();
+    });
 });
 
 describe("deriveTerminalVMs", () => {

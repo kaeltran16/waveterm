@@ -554,6 +554,37 @@ describe("buildDuplicateBlockMeta", () => {
         expect(out["session:label"]).toBeUndefined();
         expect(out["term:fontsize"]).toBeUndefined();
     });
+    it("duplicate drops the task and keeps the flags", () => {
+        const baseargs = ["--model", "opus", "--permission-mode", "plan"];
+        const src = {
+            view: "term",
+            controller: "cmd",
+            cmd: "claude",
+            "cmd:args": [...baseargs, "fix the bug"],
+            "cmd:cwd": "/x",
+            "agent:baseargs": baseargs,
+        };
+        const out = buildDuplicateBlockMeta(src);
+        expect(out["cmd:args"]).toEqual(baseargs);
+        expect(out["agent:baseargs"]).toEqual(baseargs);
+        // a copy, so editing the clone's args never reaches the source's baseargs
+        expect(out["cmd:args"]).not.toBe(baseargs);
+    });
+    it("duplicate keeps cmd:args without baseargs", () => {
+        const src = { view: "term", controller: "cmd", cmd: "claude", "cmd:args": ["--resume", "abc"], "cmd:cwd": "/x" };
+        expect(buildDuplicateBlockMeta(src)["cmd:args"]).toEqual(["--resume", "abc"]);
+    });
+    it("duplicate of an empty baseargs launch has no args", () => {
+        const src = {
+            view: "term",
+            controller: "cmd",
+            cmd: "claude",
+            "cmd:args": ["write the tests"],
+            "cmd:cwd": "/x",
+            "agent:baseargs": [],
+        };
+        expect(buildDuplicateBlockMeta(src)["cmd:args"]).toEqual([]);
+    });
     it("handles a null/empty source", () => {
         expect(buildDuplicateBlockMeta(undefined as any)).toEqual({ view: "term" });
         expect(buildDuplicateBlockMeta({})).toEqual({ view: "term" });

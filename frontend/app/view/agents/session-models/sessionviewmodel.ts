@@ -398,5 +398,9 @@ export function buildDuplicateBlockMeta(sourceMeta: Record<string, any>): Record
             meta[key] = sourceMeta[key];
         }
     }
+    // cmd:args carries the source's task prompt after its flags; a duplicate is a fresh session with the same flags
+    if (Array.isArray(sourceMeta?.["agent:baseargs"])) {
+        meta["cmd:args"] = [...sourceMeta["agent:baseargs"]];
+    }
     return meta;
 }

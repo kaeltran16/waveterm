@@ -20,6 +20,7 @@ import {
     withStartError,
     type AgentVM,
     type PendingLaunch,
+    type PendingTabMeta,
 } from "./agentsviewmodel";
 import { buildAgentTree, treeFocusOrder, type AgentTreeRow } from "./agenttreemodel";
 import { answerAgentAsk } from "./askanswer";
@@ -186,7 +187,13 @@ export class AgentsViewModel implements ViewModel {
             const now = Date.now();
             const brainstorms = get(brainstormsAtom);
             const runOf = (id: string) => get(WOS.getWaveObjectAtom<Run>(WOS.makeORef("run", id)));
-            return mergePendingLaunches(get(base), get(pendingAtom), now).map((agent) =>
+            const pending = get(pendingAtom);
+            const tabMeta: PendingTabMeta = {};
+            for (const p of pending) {
+                const meta = get(WOS.getWaveObjectAtom<Tab>(WOS.makeORef("tab", p.tabId)))?.meta;
+                tabMeta[p.tabId] = { label: meta?.["session:label"], pinned: meta?.["session:pinned"] === true };
+            }
+            return mergePendingLaunches(get(base), pending, now, tabMeta).map((agent) =>
                 withRunDone(
                     withBrainstorm(
                         agent.blockId ? withStartError(agent, get(getStartErrorAtom(agent.blockId))) : agent,

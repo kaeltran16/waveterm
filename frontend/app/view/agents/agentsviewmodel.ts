@@ -1050,11 +1050,32 @@ export function withStartError(agent: AgentVM, err: string | undefined): AgentVM
     return { ...agent, state: "idle", booting: false, startError: err };
 }
 
+/** A pending tab's own session meta (`session:label`, `session:pinned`), keyed by tab id. */
+export type PendingTabMeta = Record<string, { label?: string; pinned?: boolean }>;
+
 /** Pure: overlay booting launches onto the base roster. A pending entry whose tabId already exists in
- *  base is dropped (the real row supersedes it). Never mutates input. */
-export function mergePendingLaunches(base: AgentVM[], pending: PendingLaunch[], now: number): AgentVM[] {
+ *  base is dropped (the real row supersedes it). The tab's label and pin overlay the booting row, so a
+ *  Rename or Pin shows before the agent reports. Never mutates input. */
+export function mergePendingLaunches(
+    base: AgentVM[],
+    pending: PendingLaunch[],
+    now: number,
+    tabMeta: PendingTabMeta = {}
+): AgentVM[] {
     const baseIds = new Set(base.map((a) => a.id));
-    const overlay = pending.filter((p) => !baseIds.has(p.tabId)).map((p) => pendingToVM(p, now));
+    const overlay = pending
+        .filter((p) => !baseIds.has(p.tabId))
+        .map((p) => {
+            const vm = pendingToVM(p, now);
+            const meta = tabMeta[p.tabId];
+            if (meta?.label) {
+                vm.name = meta.label;
+            }
+            if (meta?.pinned) {
+                vm.pinned = true;
+            }
+            return vm;
+        });
     return [...base, ...overlay];
 }
 

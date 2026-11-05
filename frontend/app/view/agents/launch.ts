@@ -13,6 +13,11 @@ export function launchLanding(surface: SurfaceKey): SurfaceKey | null {
     return surface === "cockpit" ? null : "agent";
 }
 
+// a launched agent takes focus; a terminal does only on the Agent surface, where its pane shows
+export function launchFocuses(runtime: Runtime, surface: SurfaceKey): boolean {
+    return runtime !== "terminal" || surface === "agent";
+}
+
 // the project New agent preselects: the user's pick, then the Cockpit's scope when it can be launched
 // in, then the most recently used
 export function defaultLaunchProject(chosen: string, candidates: { name: string }[], scope: string): string {
@@ -82,8 +87,11 @@ export function composeStartupCommand(base: string, runtime: Runtime, enabled: R
     return [trimmed, ...flags].join(" ").trim();
 }
 
-export function runtimeLaunchLabel(runtime: Runtime): string {
-    return runtime === "terminal" ? "Open terminal" : "Launch agent";
+export function runtimeLaunchLabel(runtime: Runtime, surface: SurfaceKey): string {
+    if (runtime !== "terminal") {
+        return "Launch agent";
+    }
+    return launchFocuses(runtime, surface) ? "Open terminal" : "Add terminal";
 }
 
 export function runtimeShowsTask(runtime: Runtime): boolean {

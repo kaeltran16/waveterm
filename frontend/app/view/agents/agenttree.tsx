@@ -21,6 +21,7 @@ import {
     Pencil,
     Pin,
     PinOff,
+    Plus,
     Radio,
     SquareTerminal,
     Terminal,
@@ -30,6 +31,7 @@ import {
 import { AnimatePresence, motion } from "motion/react";
 import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { agentBranchesAtom, loadAgentBranch } from "./agentbranchstore";
+import { resumeRecentSession } from "./agentlaunchhero";
 import { confirmCloseRun, confirmCloseSession } from "./agentactions";
 import type { AgentsViewModel } from "./agents";
 import { rowFocusKey, stageSubline, treeAgentCount, type StageOutcome } from "./agenttreemodel";
@@ -40,7 +42,9 @@ import { isUnseen } from "./canvasmodel";
 import { canvasStateAtom, setCanvasMode } from "./canvasstore";
 import { nextSnap, type AgentSnap } from "./cockpitevents";
 import { CommitTick, useCommitDone } from "./committick";
+import { loadRecentSessions, recentSessionsAtom } from "./recentsessionsstore";
 import { renamingRowAtom } from "./rowrenameatom";
+import { RuntimeMark } from "./runtimemark";
 import { duplicateSession, renameSession, sessionCustomLabel, togglePin } from "./session-models/sessionsidebarmodel";
 import { agentRunDone, displayAgeMs, formatAgeShort, type AgentVM } from "./agentsviewmodel";
 import { docReviewAtom, parseDocReview } from "./docreview";
@@ -100,7 +104,6 @@ import {
 } from "./shelltasksstore";
 import { StatusDot } from "./statusdot";
 import { focusSubagentAtom, subagentsByIdAtom } from "./subagentsstore";
-import { useSubagentTracking } from "./subagenttracking";
 
 const SUB_COLOR: Record<SubagentState, string> = {
     working: "var(--color-accent)",
@@ -1220,6 +1223,62 @@ function TerminalRow({ model, terminal }: { model: AgentsViewModel; terminal: Ag
     );
 }
 
+// the tree is 248px wide: a few recent sessions fit under an empty AGENTS group, the hero lists the rest
+const RECENT_IN_TREE = 3;
+
+// With no agents the AGENTS group says so and offers the ways to start one: the New agent modal, or one of
+// the most recent sessions resumed as the hero resumes it.
+function EmptyAgents({ model }: { model: AgentsViewModel }) {
+    const sessions = useAtomValue(recentSessionsAtom);
+    useEffect(() => {
+        fireAndForget(loadRecentSessions);
+    }, []);
+    const recent = (sessions ?? []).slice(0, RECENT_IN_TREE);
+    return (
+        <div data-tree-empty className="flex flex-col gap-[2px]">
+            <div className="px-[11px] pb-[4px] pt-[6px] text-[12.5px] text-muted">No agents</div>
+            <button
+                type="button"
+                data-tree-new-agent
+                onClick={() => globalStore.set(model.newAgentOpenAtom, true)}
+                className="flex cursor-pointer items-center gap-[9px] rounded-[9px] px-[11px] py-[7px] text-left text-[13px] font-medium text-accent hover:bg-surface-hover"
+            >
+                <Slot>
+                    <Plus size={13} aria-hidden />
+                </Slot>
+                New agent
+            </button>
+            {recent.length > 0 ? (
+                <div className="px-[11px] pb-[4px] pt-[10px] font-mono text-[10.5px] font-semibold uppercase tracking-[.1em] text-muted">
+                    Recent
+                </div>
+            ) : null}
+            {recent.map((s) => (
+                <button
+                    key={s.id}
+                    type="button"
+                    data-tree-recent={s.id}
+                    title={`Resume in ${s.projectname || "its project"}`}
+                    onClick={() => resumeRecentSession(model, s)}
+                    className="flex cursor-pointer items-center gap-[9px] rounded-[9px] px-[11px] py-[7px] text-left hover:bg-surface-hover"
+                >
+                    <Slot>
+                        <RuntimeMark
+                            runtime={s.runtime}
+                            className="text-center text-[11px] leading-none text-muted"
+                            imageClassName="h-[13px] w-[13px]"
+                        />
+                    </Slot>
+                    <div className="min-w-0 flex-1">
+                        <div className="truncate text-[12.5px] text-ink-hi">{s.task || "(untitled session)"}</div>
+                        <div className="truncate font-mono text-[10.5px] text-muted">{s.projectname}</div>
+                    </div>
+                </button>
+            ))}
+        </div>
+    );
+}
+
 // memo: a surface switch re-renders AgentSurface in the same commit that flips it to display:none, and a
 // render there has motion measure every layout="position" row at (0,0) and start sliding it there, so
 // returning within the ~400ms tween shows the whole list shrinking back into place.
@@ -1238,8 +1297,6 @@ export const AgentTree = memo(function AgentTree({ model }: { model: AgentsViewM
     const headerAttn = multiProject ? 0 : groupRows.reduce((n, r) => n + (r.kind === "group" ? r.attn : 0), 0);
 
     useRunDigests(Object.values(lineage.runs));
-
-    useSubagentTracking(agents);
 
     // resolve each agent's real branch for its row (cached per cwd-source; see agentbranchstore.ts)
     useEffect(() => {
@@ -1271,6 +1328,11 @@ export const AgentTree = memo(function AgentTree({ model }: { model: AgentsViewM
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto p-[8px]">
                 <AnimatePresence mode="popLayout" initial={false}>
+                    {agents.length === 0 ? (
+                        <motion.div key="agents-empty" layout="position">
+                            <EmptyAgents model={model} />
+                        </motion.div>
+                    ) : null}
                     {visibleRows.map((r) => {
                         if (r.kind === "group") {
                             return (
