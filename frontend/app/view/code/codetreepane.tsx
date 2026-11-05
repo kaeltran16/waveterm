@@ -34,6 +34,7 @@ import {
     codePlainAtom,
     codeProjectAtom,
     codeRowsAtom,
+    codeSessionDirsAtom,
     codeStatusAtom,
     codeStatusDirsAtom,
     codeTreeFocusedAtom,
@@ -62,6 +63,7 @@ export function CodeTreePane({ model }: { model: AgentsViewModel }) {
     const edit = useAtomValue(codeEditAtom);
     const index = useAtomValue(codeIndexAtom);
     const plain = useAtomValue(codePlainAtom);
+    const sessionDirs = useAtomValue(codeSessionDirsAtom);
     const draftDirs = useMemo(
         () => changedDirs(project == null ? [] : projectDraftPaths(drafts, project.path)),
         [drafts, project]
@@ -76,9 +78,13 @@ export function CodeTreePane({ model }: { model: AgentsViewModel }) {
         if (!focusClaimed()) {
             treeRef.current?.focus({ preventScroll: true });
         }
+        // an unmount fires no blur, so a tree that held focus would leave the flag set and its
+        // arrow bindings would take keys from whatever pane replaced it
+        return () => globalStore.set(codeTreeFocusedAtom, false);
     }, []);
 
-    const paths = index?.paths ?? [];
+    // an empty folder made this session is a row but not in the index, and mkdir fails on its name
+    const paths = useMemo(() => [...(index?.paths ?? []), ...sessionDirs], [index, sessionDirs]);
     const provisional = edit?.kind === "create" ? provisionalIndex(rows, edit.dir) : -1;
     const provisionalDepth =
         edit?.kind === "create" && edit.dir !== "" ? (rows.find((r) => r.path === edit.dir)?.depth ?? -1) + 1 : 0;

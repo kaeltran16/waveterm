@@ -207,20 +207,22 @@ async function peekAt(h, tag, until = `peekInfo().count > 0 && peekInfo().state 
 const ESCAPE = { key: "Escape", code: "Escape", keyCode: 27 };
 const ENTER = { key: "Enter", code: "Enter", keyCode: 13 };
 
-// as tui-leader does: a window capture probe added after the keybinding dispatcher sees only the keys it left alone
+// as tui-leader does: a window capture probe added after the keybinding dispatcher sees only the keys it left alone.
+// not __peekProbe: the Brief's dev hooks (linkingdevhooks.ts) own that name, and once the Brief had mounted the
+// probe was never added, so every key read as taken
 async function pressKey(h, { key, code, keyCode }) {
     await h.ev(`(() => {
-        window.__peekSeen = [];
-        if (!window.__peekProbe) {
-            window.__peekProbe = (e) => window.__peekSeen.push(e.key);
-            window.addEventListener("keydown", window.__peekProbe, true);
+        window.__codePeekKeysSeen = [];
+        if (!window.__codePeekKeyProbe) {
+            window.__codePeekKeyProbe = (e) => window.__codePeekKeysSeen.push(e.key);
+            window.addEventListener("keydown", window.__codePeekKeyProbe, true);
         }
     })()`);
     for (const type of ["keyDown", "keyUp"]) {
         await h.cdp("Input.dispatchKeyEvent", { type, key, code, windowsVirtualKeyCode: keyCode });
     }
     await polishNap(450);
-    return JSON.parse(await h.ev("JSON.stringify(window.__peekSeen || [])"));
+    return JSON.parse(await h.ev("JSON.stringify(window.__codePeekKeysSeen || [])"));
 }
 
 // a plain click left of the card, which xterm answers by focusing its textarea
@@ -658,7 +660,7 @@ export const codePeek = {
     },
     async teardown(h, ctx) {
         await mouse(h, "mouseMoved", 1, 1, 0).catch(() => {});
-        await h.ev(`window.__peekProbe && (window.removeEventListener("keydown", window.__peekProbe, true), delete window.__peekProbe)`).catch(() => {});
+        await h.ev(`window.__codePeekKeyProbe && (window.removeEventListener("keydown", window.__codePeekKeyProbe, true), delete window.__codePeekKeyProbe)`).catch(() => {});
         await releaseRpc(h, "FileInfoCommand").catch(() => {});
         await releaseRpc(h, "FileReadCommand").catch(() => {});
         await h.ev(`window.__openExternal && (window.api.openExternal = window.__openExternal)`).catch(() => {});

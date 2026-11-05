@@ -87,6 +87,29 @@ export const codeChanged = {
             ok: editor.path === FILES[1] && editor.monaco,
             detail: JSON.stringify(editor),
         });
+
+        // the tree unmounts while it holds focus; its arrow bindings must not outlive it
+        const fromTree = await lookEval(h, `
+            document.querySelector('[data-code-column-tab="files"]')?.click();
+            await until(() => document.querySelector("[data-code-tree]") != null, 4000);
+            document.querySelector("[data-code-tree]")?.focus();
+            const treeHeld = document.activeElement?.matches?.("[data-code-tree]") ?? false;
+            document.querySelector('[data-code-column-tab="changed"]')?.click();
+            await until(() => document.querySelectorAll("[data-code-changed-row]").length === ${FILES.length}, 8000);
+            document.querySelector("[data-code-changed-row]")?.focus();
+            const { globalStore } = await mod("app/store/jotaiStore.ts");
+            const { codeTreeFocusedAtom } = await mod("app/view/code/codestore.ts");
+            return { treeHeld, treeFlag: globalStore.get(codeTreeFocusedAtom) };
+        `);
+        await lookKey(h, "ArrowDown", "ArrowDown", 40);
+        await new Promise((r) => setTimeout(r, 200));
+        const afterTree = await focusedRow(h);
+        await h.shot(lookShot("code-changed-from-tree"));
+        steps.push({
+            step: "code-changed: opened from a focused tree, a real ArrowDown moves the Changed list's focus",
+            ok: fromTree.treeHeld === true && fromTree.treeFlag === false && afterTree === FILES[1],
+            detail: JSON.stringify({ ...fromTree, focused: afterTree }),
+        });
         return steps;
     },
     async teardown(h, ctx) {
