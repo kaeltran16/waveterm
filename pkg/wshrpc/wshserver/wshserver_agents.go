@@ -73,17 +73,49 @@ func (ws *WshServer) GetUsageStatsCommand(ctx context.Context, data wshrpc.Comma
 }
 
 func (ws *WshServer) GetRecentSessionsCommand(ctx context.Context, data wshrpc.CommandGetRecentSessionsData) (*wshrpc.CommandGetRecentSessionsRtnData, error) {
-	sessions, _ := agentsessions.ScanSessions(data.WindowDays, data.Limit)
-	out := make([]wshrpc.SessionInfo, len(sessions))
-	for i, s := range sessions {
-		out[i] = wshrpc.SessionInfo{
-			ID: s.ID, Runtime: s.Runtime, ProjectPath: s.ProjectPath, ProjectName: s.ProjectName,
-			Branch: s.Branch, Task: s.Task, Model: s.Model, TokensTotal: s.TokensTotal,
-			LastActiveTs: s.LastActiveTs, ResumeCommand: s.ResumeCommand,
-			TranscriptPath: s.TranscriptPath, ResumeArgs: s.ResumeArgs,
+	windowDays := data.WindowDays
+	if windowDays <= 0 {
+		windowDays = agentsessions.IndexWindowDays
+	}
+	indexed, _ := agentsessions.Indexed(windowDays)
+	sessions := make([]agentsessions.SessionInfo, len(indexed))
+	for i, s := range indexed {
+		sessions[i] = s.Info
+	}
+	link := func(s []wshrpc.SessionActivity) error { return linkSessionsToRuns(ctx, s) }
+	out := recentSessions(sessions, data.Limit, agentsessions.NewDirCheck(statPath), link)
+	return &wshrpc.CommandGetRecentSessionsRtnData{Sessions: out}, nil
+}
+
+// recentSessions keeps the newest limit sessions (all when limit <= 0) the user can resume: not a run's
+// agent, and not one whose working directory is gone, as a landed run's cleaned-up tree is. A link error is
+// logged and the sessions are kept unlinked.
+func recentSessions(sessions []agentsessions.SessionInfo, limit int, check *agentsessions.DirCheck, link func([]wshrpc.SessionActivity) error) []wshrpc.SessionInfo {
+	var resumable []wshrpc.SessionActivity
+	for _, s := range sessions {
+		if a := sessionActivityOf(s, check); a.ResumeBlocker == "" {
+			resumable = append(resumable, a)
 		}
 	}
-	return &wshrpc.CommandGetRecentSessionsRtnData{Sessions: out}, nil
+	if err := link(resumable); err != nil {
+		log.Printf("recent sessions: %v", err)
+	}
+	out := []wshrpc.SessionInfo{}
+	for _, a := range resumable {
+		if isRunAgent(a.Role) {
+			continue
+		}
+		out = append(out, wshrpc.SessionInfo{
+			ID: a.ID, Runtime: a.Runtime, ProjectPath: a.ProjectPath, ProjectName: a.ProjectName,
+			Branch: a.Branch, Task: a.Task, Model: a.Model, TokensTotal: a.TokensTotal,
+			LastActiveTs: a.LastActiveTs, ResumeCommand: a.ResumeCommand,
+			TranscriptPath: a.TranscriptPath, ResumeArgs: a.ResumeArgs,
+		})
+		if len(out) == limit {
+			break
+		}
+	}
+	return out
 }
 
 func statPath(path string) error {
