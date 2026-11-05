@@ -127,6 +127,30 @@ describe("makeAmbientProvider", () => {
         expect(many.decisionsFor({ oref: "run:r1" }).map((d) => d.id)).toEqual(["dec-a", "dec-b", "dec-c"]);
     });
 
+    it("carries a task's ticket on its tags, by edge and by wikilink", () => {
+        const ticketed = makeAmbientProvider({
+            tasks: [
+                { id: "task-a", label: "ship the band", ticket: "PROJ-1739" },
+                { id: "task-b", label: "no ticket here" },
+            ],
+            edges: [
+                {
+                    oref: "run:r1",
+                    dossierid: "task-a",
+                    provenance: "ticket-match",
+                    bucket: "medium",
+                    state: "informing",
+                },
+                { oref: "run:r1", dossierid: "task-b", provenance: "structural", bucket: "weak", state: "informing" },
+            ],
+            decisions: [],
+        });
+        const tags = ticketed.tagsFor({ oref: "run:r1" });
+        expect(tags[0].ticket).toBe("PROJ-1739");
+        expect(tags[1].ticket).toBeUndefined();
+        expect(ticketed.tagsFor({ links: ["task-a"] })[0].ticket).toBe("PROJ-1739");
+    });
+
     it("degrades to nothing before the map loads", () => {
         const empty = makeAmbientProvider(null);
         expect(empty.tagsFor({ oref: "run:r1" })).toEqual([]);

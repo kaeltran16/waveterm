@@ -11,6 +11,8 @@ export interface AmbientTag {
     taskId: string;
     bucket: string; // weak | medium | strong
     state: string; // informing | confirmed
+    // the label is the record's objective, so two records on one ticket need it to tell them apart
+    ticket?: string;
 }
 
 // AmbientDecisionCard is the render shape (the wire type AmbientDecision is a generated global).
@@ -58,9 +60,15 @@ export function makeAmbientProvider(
     now: () => number = () => Date.now()
 ): AmbientProvider {
     const labels = new Map<string, string>();
+    const tickets = new Map<string, string>();
     for (const t of data?.tasks ?? []) {
         labels.set(t.id, t.label);
+        if (t.ticket) {
+            tickets.set(t.id, t.ticket);
+        }
     }
+    // spread only when present, so a tag without one stays the same shape it always was
+    const ticketOf = (id: string) => (tickets.has(id) ? { ticket: tickets.get(id) } : {});
     const edgesByORef = new Map<string, AmbientEdge[]>();
     for (const e of data?.edges ?? []) {
         const list = edgesByORef.get(e.oref);
@@ -93,13 +101,14 @@ export function makeAmbientProvider(
                 taskId: e.dossierid,
                 bucket: e.bucket,
                 state: e.state,
+                ...ticketOf(e.dossierid),
             });
         }
         for (const link of ref.links ?? []) {
             const label = labels.get(link);
             if (label == null || seen.has(link)) continue; // a link to a non-dossier note is not attribution
             seen.add(link);
-            out.push({ label, taskId: link, bucket: LINK_BUCKET, state: LINK_STATE });
+            out.push({ label, taskId: link, bucket: LINK_BUCKET, state: LINK_STATE, ...ticketOf(link) });
         }
         return out;
     };

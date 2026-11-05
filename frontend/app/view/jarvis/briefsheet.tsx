@@ -318,7 +318,7 @@ export function BriefSheet({ model }: { model: AgentsViewModel }) {
     const subjectId = subject?.id ?? null;
     const bandOpen = subjectId != null ? (bandsOpen[subjectId] ?? false) : false;
     const tags = run != null ? ambient.tagsFor({ oref: "run:" + run.id }) : [];
-    const band = recordBandCase({ kind: subject?.kind ?? "channel", tags });
+    const band = recordBandCase({ tags });
     const bandRecordId = band.case === "one" ? band.edge.taskId : band.case === "several" ? band.primary.taskId : null;
     // the band's record is loaded only once it is expanded — a collapsed band needs the edge, not the whole
     // dossier (the Stage's rule, moved with the band).
@@ -419,7 +419,6 @@ export function BriefSheet({ model }: { model: AgentsViewModel }) {
                     >
                         {face.kind === "channel" && face.body === "run" && run != null ? (
                             <RecordBand
-                                kind={subject?.kind ?? "channel"}
                                 tags={tags}
                                 detail={bandRecordId != null ? (recordDetails[bandRecordId] ?? null) : null}
                                 runORef={"run:" + run.id}

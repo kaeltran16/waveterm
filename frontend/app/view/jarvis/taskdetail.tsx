@@ -4,8 +4,10 @@
 import { ConfirmDialog } from "@/app/modals/confirmdialog";
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn } from "@/util/util";
-import { Lock } from "lucide-react";
+import { ChevronDown, ChevronUp, Lock } from "lucide-react";
 import { useState, type ReactNode } from "react";
+import { objectiveParts, statusConfirmCopy } from "./briefpeek";
+import { BODY_LINK } from "./briefstyle";
 import { DecisionLog } from "./decisionlog";
 import { pendingDecisionAnchorAtom } from "./petstore";
 import { setDossierStatus } from "./recordactions";
@@ -59,16 +61,13 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 
 // A ref is a decision this record logged (the dossier appends one per decision). It reads as that decision's
 // title and lights its card below; a ref naming nothing on this record stays a plain id.
-function RefChip({ id, decisions, linkable }: { id: string; decisions: DecisionCard[]; linkable: boolean }) {
+function RefChip({ id, decisions }: { id: string; decisions: DecisionCard[] }) {
     const card = decisions.find((d) => d.id === id);
     const chip = "rounded bg-surface-hover px-1.5 py-0.5";
     if (card == null) {
         return <span className={cn(chip, "font-mono")}>{id}</span>;
     }
     const label = decisionHeading(card).title || id;
-    if (!linkable) {
-        return <span className={chip}>{label}</span>;
-    }
     return (
         <button
             type="button"
@@ -107,8 +106,7 @@ function StatusControl({ dossierId, status }: { dossierId: string; status: strin
             {pending != null ? (
                 <ConfirmDialog
                     tone={pending === "archived" ? "danger" : "warning"}
-                    title={`Mark this task ${pending}?`}
-                    body={`This sets the dossier status to "${pending}". You can reactivate it later.`}
+                    {...statusConfirmCopy(pending)}
                     confirmLabel={`Yes, ${pending}`}
                     cancelLabel="Cancel"
                     onConfirm={() => {
@@ -122,20 +120,14 @@ function StatusControl({ dossierId, status }: { dossierId: string; status: strin
     );
 }
 
-// showDecisions=false when the caller renders the decision log itself: on the merged surface a dossier
-// subject's record band shows the record's fields while its thread below owns the record's activity.
-//
 // statusWritable=false is a read-only mount: a caller that writes the status itself must not render the
 // transitions twice.
-export function TaskDetail({
-    detail,
-    showDecisions = true,
-    statusWritable = true,
-}: {
-    detail: DossierDetail;
-    showDecisions?: boolean;
-    statusWritable?: boolean;
-}) {
+export function TaskDetail({ detail, statusWritable = true }: { detail: DossierDetail; statusWritable?: boolean }) {
+    // keyed by record, so a band that switches record opens the next one clamped
+    const [bodyOpenFor, setBodyOpenFor] = useState<string | null>(null);
+    const bodyOpen = bodyOpenFor === detail.id;
+    const objective = detail.objective?.trim() ?? "";
+    const parts = objective !== "" ? objectiveParts(objective) : null;
     // The dossier scaffold seeds an empty "## Notes" heading; the read projection keeps it. Strip that
     // redundant leading heading so the FE's own "Notes" section is the only heading and a dossier with
     // no real notes renders no Notes section at all.
@@ -152,9 +144,12 @@ export function TaskDetail({
                 <div className="flex items-center gap-2.5">
                     {/* not capped: a heading is scanned, not read line by line, so the reading measure buys
                         nothing here and costs a wrap — an objective that fits on one line was being broken
-                        into two with half the Stage empty beside it. */}
+                        into two with half the Stage empty beside it. The headline, not the whole objective:
+                        a long one made the heading a paragraph. */}
                     {/* it sits inside the run sheet, under the sheet's own title, so it must not outrank it */}
-                    <h2 className="m-0 text-[15px] font-semibold text-primary">{detail.objective}</h2>
+                    <h2 data-jarvis-detail-headline className="m-0 text-[15px] font-semibold text-primary">
+                        {parts?.headline ?? ""}
+                    </h2>
                     {detail.ticket ? (
                         <span className="flex-none rounded bg-surface-hover px-2 py-0.5 font-mono text-[11px] text-ink-mid">
                             {detail.ticket}
@@ -178,6 +173,31 @@ export function TaskDetail({
                     ) : null}
                     {statusWritable ? <StatusControl dossierId={detail.id} status={detail.status} /> : null}
                 </div>
+                {parts?.body != null ? (
+                    <div className="mt-3 flex flex-col gap-1.5">
+                        <p
+                            data-jarvis-detail-body
+                            className={cn(
+                                "m-0 whitespace-pre-line text-[13px] leading-[1.6] text-ink-mid",
+                                parts.bodyMore != null && !bodyOpen && "line-clamp-4"
+                            )}
+                        >
+                            {parts.body}
+                        </p>
+                        {parts.bodyMore != null ? (
+                            <button
+                                type="button"
+                                data-jarvis-detail-body-toggle
+                                aria-expanded={bodyOpen}
+                                onClick={() => setBodyOpenFor(bodyOpen ? null : detail.id)}
+                                className={BODY_LINK}
+                            >
+                                {bodyOpen ? "Show less" : parts.bodyMore}
+                                {bodyOpen ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+                            </button>
+                        ) : null}
+                    </div>
+                ) : null}
             </div>
 
             <Section title="Where it stands">
@@ -212,7 +232,7 @@ export function TaskDetail({
                         <MachineField label="Refs">
                             <div className="flex flex-wrap gap-1.5 text-[11.5px]">
                                 {refs.map((r) => (
-                                    <RefChip key={r} id={r} decisions={decisions} linkable={showDecisions} />
+                                    <RefChip key={r} id={r} decisions={decisions} />
                                 ))}
                             </div>
                         </MachineField>
@@ -226,11 +246,9 @@ export function TaskDetail({
                 </Section>
             ) : null}
 
-            {showDecisions ? (
-                <Section title="Decisions">
-                    <DecisionLog decisions={decisions} dossierId={detail.id} />
-                </Section>
-            ) : null}
+            <Section title="Decisions">
+                <DecisionLog decisions={decisions} dossierId={detail.id} />
+            </Section>
         </div>
     );
 }

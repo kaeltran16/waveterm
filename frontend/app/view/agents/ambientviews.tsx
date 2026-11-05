@@ -8,6 +8,7 @@
 // router, Ctrl peeking it.
 
 import { openOrPeek } from "@/app/view/jarvis/openref";
+import { edgeLabel } from "@/app/view/jarvis/recordband";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect, type MouseEvent } from "react";
@@ -38,7 +39,7 @@ function openRecord(model: AgentsViewModel, e: MouseEvent, dossierId: string, an
 }
 
 function tagTitle(tag: AmbientTag): string {
-    return `${tag.label} · ${tag.bucket} confidence · ${tag.state}`;
+    return `${tag.label} · ${edgeLabel(tag)}`;
 }
 
 type AmbientViewProps = AmbientRef & { model: AgentsViewModel };

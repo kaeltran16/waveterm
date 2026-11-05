@@ -3914,12 +3914,58 @@ const RECORD_BAND_LIB = `
     };
 `;
 
+// two records on one ticket, guessed onto a second run by that ticket in its channel's name (layer 2). The
+// second run's goal is the first's, so its capture collides with the record the first made and adds no
+// confirmed edge: both of its edges stay guesses. Objectives run past the detail's clamp, and neither names the
+// ticket, so a picker match on "1739" is a ticket match.
+const RECORD_BAND_TICKET = "VERIFY-1739";
+const RECORD_BAND_TWINS = [
+    { id: "verify-record-band-twin-a", head: "Verify record-band twin A shares a ticket with twin B." },
+    { id: "verify-record-band-twin-b", head: "Verify record-band twin B shares a ticket with twin A." },
+];
+const RECORD_BAND_FILLER = "This sentence is padding, so the record detail has a body long enough to clamp. ".repeat(7);
+const RECORD_BAND_PICKER = `${RECORD_BAND}?.querySelector("[data-jarvis-record-picker]")`;
+const RECORD_BAND_PICKER_INPUT = `${RECORD_BAND_PICKER}?.querySelector("input")`;
+const RECORD_BAND_GLYPH_TITLE = "Guessed by Jarvis: expand to confirm or detach it";
+
+// with the empty machine blocks renderDossier lays down: accepting an edge writes the refs block in place
+async function seedRecordBandTwins(h) {
+    const dir = join(await vaultRoot(h), "tasks", "active");
+    mkdirSync(dir, { recursive: true });
+    const stamp = Date.now() - 30 * DAY_MS;
+    return RECORD_BAND_TWINS.map((t) => {
+        const file = join(dir, `${t.id}.md`);
+        const block = (name) => [`<!-- jarvis:begin ${name} -->`, `<!-- jarvis:end ${name} -->`];
+        const lines = [
+            "---",
+            "status: active",
+            `ticket: ${RECORD_BAND_TICKET}`,
+            `objective: ${t.head} ${RECORD_BAND_FILLER.trim()}`,
+            "acceptance: []",
+            "confidence: med",
+            `created: ${stamp}`,
+            `updated: ${stamp}`,
+            "---",
+            ...block("state"),
+            ...block("refs"),
+            ...block("blockers"),
+            "",
+            "## Notes",
+            "",
+            "",
+        ];
+        writeFileSync(file, lines.join("\n"));
+        return file;
+    });
+}
+
 export const recordBandDetachRestore = {
     name: "record-band-detach-restore",
     surface: "jarvis",
     async arrange(h) {
         const ctx = { cwd: mkdtempSync(join(tmpdir(), "verify-record-band-")) };
         try {
+            ctx.twinFiles = await seedRecordBandTwins(h);
             const wslist = await h.rpc("workspacelist", null);
             const ch = await h.rpc("createchannel", { name: "verify-record-band", projectpath: ctx.cwd });
             ctx.channelId = ch.oid;
@@ -3935,6 +3981,23 @@ export const recordBandDetachRestore = {
             ctx.runORef = `run:${ctx.runId}`;
             // a later run finds the record already there and its capture fails, so attach explicitly
             await h.rpc("acceptdossieredge", { dossierid: RECORD_BAND_RECORD, runoref: ctx.runORef });
+            // its own project, so the first record's anchor repo adds no structural edge to it
+            ctx.guessed = { cwd: mkdtempSync(join(tmpdir(), "verify-record-band-guessed-")) };
+            const ch2 = await h.rpc("createchannel", {
+                name: `verify-record-band ${RECORD_BAND_TICKET}`,
+                projectpath: ctx.guessed.cwd,
+            });
+            ctx.guessed.channelId = ch2.oid;
+            const created2 = await h.rpc("createrun", {
+                channelid: ctx.guessed.channelId,
+                workspaceid: wslist[0].workspacedata.oid,
+                goal: RECORD_BAND_GOAL,
+                runtime: "claude",
+                mode: "quick",
+                deferstart: true,
+            });
+            ctx.guessed.runId = created2.run.id;
+            ctx.guessed.runORef = `run:${ctx.guessed.runId}`;
             // the Brief reads a boot-primed snapshot, so the RPC-created channel needs a reload
             await h.ev("location.reload()");
             await h.ev(`(async () => {
@@ -4021,7 +4084,205 @@ export const recordBandDetachRestore = {
             restored.ok === true && restored.detachedRow === false && !afterRestore.includes(RECORD_BAND_RECORD),
             JSON.stringify({ ...restored, stored: afterRestore })
         );
-        steps.push(await floorStep(h, `4. no visible text in the record band is under ${MIN_FONT_PX}px`, RECORD_BAND));
+        // pinned at verify's own size: a scenario before this one can leave the ~1000x700 window, and the
+        // detail's one-line headline read is width-sensitive
+        await h.cdp("Emulation.setDeviceMetricsOverride", MODELS_VIEWPORT);
+        // the band's line on a confirmed edge: the chip, worded for a person, and nothing before it
+        const confirmedLine = await h.ev(`(() => {
+            const line = ${RECORD_BAND}?.querySelector("[data-jarvis-band-toggle]");
+            const chip = line?.querySelector("[data-jarvis-edge-chip]");
+            const before = chip ? [...line.querySelectorAll("span")].filter((s) => s.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING && !s.contains(chip)) : [];
+            return {
+                chipTitle: chip?.getAttribute("title") ?? null,
+                label: chip?.querySelector("[data-jarvis-edge-label]")?.textContent?.trim() ?? null,
+                glyph: line?.querySelector("[data-jarvis-band-glyph]") != null,
+                textBefore: before.map((s) => (s.textContent || "").trim()).join(" ").trim(),
+                lineText: (line?.innerText || "").replace(/\\s+/g, " ").trim(),
+            };
+        })()`);
+        rec(
+            "4. a confirmed edge's line reads confirmed, has no glyph, and shows no record id before its chip",
+            confirmedLine.chipTitle === RECORD_BAND_RECORD &&
+                confirmedLine.label === "confirmed" &&
+                confirmedLine.glyph === false &&
+                confirmedLine.textBefore === "" &&
+                !confirmedLine.lineText.includes(RECORD_BAND_RECORD) &&
+                !/informing/.test(confirmedLine.lineText),
+            JSON.stringify(confirmedLine)
+        );
+
+        const picked = await h.ev(`(async () => {
+            ${RECORD_BAND_LIB}
+            bandButton("+ Attach another record")?.click();
+            const opened = await until(() => ${RECORD_BAND_PICKER}?.querySelector("[data-jarvis-record-picker-row]"));
+            const rows = () => [...(${RECORD_BAND_PICKER}?.querySelectorAll("[data-jarvis-record-picker-row]") ?? [])];
+            // the old column printed id.slice(0, 8) in its own span
+            const idColumn = rows().some((r) =>
+                [...r.querySelectorAll("span")].some((s) => (s.textContent || "").trim() === (r.getAttribute("title") || "").slice(0, 8))
+            );
+            const input = ${RECORD_BAND_PICKER_INPUT};
+            const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+            set.call(input, "1739");
+            input.dispatchEvent(new Event("input", { bubbles: true }));
+            const twins = ${JSON.stringify(RECORD_BAND_TWINS.map((t) => t.id))};
+            const narrowed = await until(() => rows().length > 0 && rows().every((r) => twins.includes(r.getAttribute("title"))));
+            const matched = rows().map((r) => ({ id: r.getAttribute("title"), text: (r.innerText || "").replace(/\\s+/g, " ").trim() }));
+            ${RECORD_BAND_PICKER_INPUT}?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true }));
+            const top = matched[0]?.id;
+            const attached = await until(() =>
+                !${RECORD_BAND_PICKER} && ${RECORD_BAND}?.querySelector('[data-jarvis-edge-chip][title="' + top + '"]')
+            );
+            return { opened: !!opened, idColumn, narrowed, matched, top, attached, text: bandText() };
+        })()`);
+        ctx.attachedTwin = picked.top ?? null;
+        await h.shot("cdp-shots/record-band-picker-attached.png");
+        rec(
+            "5. the picker shows no record id, finds both twins by a ticket fragment, and Enter attaches the top one",
+            picked.opened === true &&
+                picked.idColumn === false &&
+                picked.narrowed === true &&
+                picked.matched.length === RECORD_BAND_TWINS.length &&
+                picked.matched.every((m) => m.text.includes(RECORD_BAND_TICKET)) &&
+                picked.attached === true,
+            JSON.stringify(picked)
+        );
+
+        const escaped = await h.ev(`(async () => {
+            ${RECORD_BAND_LIB}
+            bandButton("+ Attach another record")?.click();
+            const opened = await until(() => ${RECORD_BAND_PICKER_INPUT});
+            ${RECORD_BAND_PICKER_INPUT}?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true }));
+            await new Promise((r) => setTimeout(r, 400));
+            return { opened: !!opened, picker: !!${RECORD_BAND_PICKER}, sheet: !!${RECORD_BAND}, attachButton: !!bandButton("+ Attach another record") };
+        })()`);
+        rec(
+            "6. Escape in the picker closes the picker and leaves the run sheet open",
+            escaped.opened === true && escaped.picker === false && escaped.sheet === true && escaped.attachButton === true,
+            JSON.stringify(escaped)
+        );
+
+        // the second run: two guessed edges from the shared ticket
+        const guessedLine = await h.ev(`(async () => {
+            ${RECORD_BAND_LIB}
+            const opened = await window.__openAddress(${JSON.stringify(ctx.guessed?.runORef ?? "")});
+            const twins = ${JSON.stringify(RECORD_BAND_TWINS.map((t) => t.id))};
+            const line = () => ${RECORD_BAND}?.querySelector("[data-jarvis-band-toggle]");
+            const chip = () => line()?.querySelector("[data-jarvis-edge-chip]");
+            const shown = await until(() => twins.includes(chip()?.getAttribute("title")) && /\\+1 more/.test(line()?.innerText || ""));
+            const glyph = line()?.querySelector("[data-jarvis-band-glyph]");
+            const lineText = (line()?.innerText || "").replace(/\\s+/g, " ").trim();
+            return {
+                opened,
+                shown,
+                expanded: line()?.getAttribute("aria-expanded"),
+                label: chip()?.querySelector("[data-jarvis-edge-label]")?.textContent?.trim() ?? null,
+                glyphTitle: glyph?.getAttribute("title") ?? null,
+                glyphBeforeChip: !!glyph && !!chip() && !!(glyph.compareDocumentPosition(chip()) & Node.DOCUMENT_POSITION_FOLLOWING),
+                idInLine: twins.some((id) => lineText.includes(id)),
+                informing: /informing/.test(bandText()),
+                lineText,
+            };
+        })()`);
+        await h.shot("cdp-shots/record-band-guessed.png");
+        rec(
+            "7. a guessed edge's line reads guessed with its confidence word and carries the Jarvis glyph",
+            guessedLine.opened?.ok === true &&
+                guessedLine.shown === true &&
+                guessedLine.expanded === "false" &&
+                /^guessed · (strong|likely|weak)$/.test(guessedLine.label ?? "") &&
+                guessedLine.glyphTitle === RECORD_BAND_GLYPH_TITLE &&
+                guessedLine.glyphBeforeChip === true &&
+                guessedLine.idInLine === false &&
+                guessedLine.informing === false,
+            JSON.stringify(guessedLine)
+        );
+
+        const twinRows = await h.ev(`(async () => {
+            ${RECORD_BAND_LIB}
+            const toggle = ${RECORD_BAND}?.querySelector("[data-jarvis-band-toggle]");
+            if (toggle && toggle.getAttribute("aria-expanded") !== "true") toggle.click();
+            const chips = () => [...(${RECORD_BAND}?.querySelectorAll("[data-jarvis-edge-chip]") ?? [])].filter((c) => !toggle?.contains(c));
+            const ok = await until(() => chips().length === ${RECORD_BAND_TWINS.length} && ${RECORD_BAND}?.querySelector("[data-jarvis-detail-headline]"));
+            const rows = chips().map((c) => ({
+                id: c.getAttribute("title"),
+                label: (c.querySelector(".truncate")?.textContent || "").trim(),
+                ticket: c.querySelector("[data-jarvis-edge-ticket]")?.textContent?.trim() ?? null,
+                edge: c.querySelector("[data-jarvis-edge-label]")?.textContent?.trim() ?? null,
+            }));
+            return { ok, rows, distinct: new Set(rows.map((r) => r.label)).size === rows.length };
+        })()`);
+        rec(
+            "8. expanded, two records on one ticket have distinct labels and each carries the ticket chip",
+            twinRows.ok === true &&
+                twinRows.distinct === true &&
+                twinRows.rows.every((r) => r.ticket === RECORD_BAND_TICKET && /^guessed · /.test(r.edge ?? "")),
+            JSON.stringify(twinRows)
+        );
+
+        const heads = RECORD_BAND_TWINS.map((t) => t.head);
+        const detailBody = await h.ev(`(async () => {
+            const band = ${RECORD_BAND};
+            const h2 = band?.querySelector("[data-jarvis-detail-headline]");
+            const body = band?.querySelector("[data-jarvis-detail-body]");
+            const toggle = band?.querySelector("[data-jarvis-detail-body-toggle]");
+            const lineHeight = h2 ? parseFloat(getComputedStyle(h2).lineHeight) : 0;
+            const read = () => ({
+                height: body?.getBoundingClientRect().height ?? 0,
+                clamped: body ? body.scrollHeight > body.clientHeight + 1 : false,
+                label: (toggle?.textContent || "").trim(),
+                expanded: toggle?.getAttribute("aria-expanded") ?? null,
+            });
+            const before = read();
+            const headline = (h2?.textContent || "").trim();
+            const bodyText = (body?.textContent || "").trim();
+            toggle?.click();
+            await new Promise((r) => setTimeout(r, 400));
+            const after = read();
+            toggle?.click();
+            return {
+                headline,
+                h2Lines: h2 && lineHeight > 0 ? Math.round(h2.getBoundingClientRect().height / lineHeight) : null,
+                bodyRepeatsHead: bodyText.includes(headline),
+                before,
+                after,
+            };
+        })()`);
+        await h.shot("cdp-shots/record-band-detail.png");
+        rec(
+            "9. the record detail heads with the one-line objective headline, its body clamped behind Show the full objective",
+            heads.includes(detailBody.headline) &&
+                detailBody.h2Lines === 1 &&
+                detailBody.bodyRepeatsHead === false &&
+                detailBody.before.clamped === true &&
+                detailBody.before.label.startsWith("Show the full objective") &&
+                detailBody.before.expanded === "false" &&
+                detailBody.after.height > detailBody.before.height &&
+                detailBody.after.clamped === false &&
+                detailBody.after.label === "Show less",
+            JSON.stringify(detailBody)
+        );
+
+        const confirmCopy = await h.ev(`(async () => {
+            ${RECORD_BAND_LIB}
+            bandButton("→ archived")?.click();
+            // the run sheet is a dialog too, and holds the confirm: the innermost match is the confirm
+            const dialog = () => [...document.querySelectorAll("[role=dialog], [role=alertdialog]")].filter((d) => /Mark this/.test(d.textContent || "")).pop();
+            await until(() => dialog());
+            const text = (dialog()?.textContent || "").replace(/\\s+/g, " ").trim();
+            const cancel = [...(dialog()?.querySelectorAll("button") ?? [])].find((b) => (b.textContent || "").trim().startsWith("Cancel"));
+            cancel?.click();
+            const closed = await until(() => !dialog());
+            return { text, closed, status: ${RECORD_BAND}?.querySelector("[data-record-status]")?.getAttribute("data-record-status") ?? null };
+        })()`);
+        rec(
+            "10. the detail's status confirm asks to mark this record, in the peek's words",
+            confirmCopy.text.includes("Mark this record archived?") &&
+                confirmCopy.text.includes(`the record's status`) &&
+                confirmCopy.closed === true &&
+                confirmCopy.status === "active",
+            JSON.stringify(confirmCopy)
+        );
+        steps.push(await floorStep(h, `11. no visible text in the record band is under ${MIN_FONT_PX}px`, RECORD_BAND));
         return steps;
     },
     async teardown(h, ctx) {
@@ -4030,6 +4291,17 @@ export const recordBandDetachRestore = {
             what: "detach the run from the record",
             fn: () => (ctx.runORef ? h.rpc("detachdossieredge", { dossierid: RECORD_BAND_RECORD, runoref: ctx.runORef }) : null),
         });
+        if (ctx.guessed?.channelId) {
+            await teardownFixtureRun(h, ctx.guessed, "record-band-detach-restore (guessed run)");
+        }
+        // the twins go whole, with any ref the picker step hardened into one
+        for (const file of ctx.twinFiles ?? []) {
+            try {
+                rmSync(file, { force: true });
+            } catch (e) {
+                console.error(`record-band-detach-restore teardown: remove ${file} failed: ${e?.message ?? e}`);
+            }
+        }
     },
 };
 

@@ -30,7 +30,7 @@ import {
     type PeekRunRow,
     type PeekStatusRow,
 } from "./briefpeek";
-import { MONO_FAINT, SMALL_BTN } from "./briefstyle";
+import { BODY_LINK, MONO_FAINT, SMALL_BTN } from "./briefstyle";
 import { DecisionLog } from "./decisionlog";
 import { fleetForRecord } from "./fleetscope";
 import { briefGraphRecordAtom, briefPeekRecordAtom, graphPeekOpenAtom } from "./jarvisstore";
@@ -68,10 +68,6 @@ export const RUN_TONE: Record<RunStatusTone, string> = {
     failed: "text-error",
     cancelled: "text-muted",
 };
-
-// LINK_BTN's type and hover without its border: a link inside the body, not a control beside it
-const BODY_LINK =
-    "inline-flex cursor-pointer items-center gap-1 self-start font-mono text-[10.5px] text-accent-soft hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
 
 const SEGMENT = "rounded-[6px] px-3 py-1 text-[11.5px] font-semibold";
 
