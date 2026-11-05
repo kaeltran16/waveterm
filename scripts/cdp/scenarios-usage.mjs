@@ -1822,12 +1822,16 @@ export const usageStates = {
             `press(groupButton("Range", "All time"));
             const panel = () => document.querySelector("[data-usage-detail] [data-usage-switch-failed]");
             const shown = await until(() => panel() != null);
+            const card = (harness) => document.querySelector('[data-usage-scopes] [data-usage-harness="' + harness + '"]');
             return {
                 shown,
                 text: text(panel()),
                 retry: [...(panel()?.querySelectorAll("button") ?? [])].map(text),
                 stats: document.querySelector("[data-usage-stats]") != null,
                 banner: document.querySelector("[data-surface-error]") != null,
+                allFigures: text(card("all")?.querySelector("[data-usage-figures]")),
+                claudeFigures: text(card("claude")?.querySelector("[data-usage-figures]")),
+                claudeLimits: card("claude")?.querySelectorAll("[data-usage-limit]").length ?? -1,
             };`
         );
         await h.shot("cdp-shots/usage-switch-failed.png");
@@ -1837,16 +1841,27 @@ export const usageStates = {
             `const panel = () => document.querySelector("[data-usage-detail] [data-usage-switch-failed]");
             press([...(panel()?.querySelectorAll("button") ?? [])].find((b) => text(b) === "Retry"));
             const recovered = await until(() => panel() == null && document.querySelector("[data-usage-stats]") != null);
-            return { recovered, range: pressedIn("Range"), banner: document.querySelector("[data-surface-error]") != null };`
+            return {
+                recovered,
+                range: pressedIn("Range"),
+                banner: document.querySelector("[data-surface-error]") != null,
+                allFigures: text(document.querySelector('[data-usage-scopes] [data-usage-harness="all"] [data-usage-figures]')),
+            };`
         );
+        // the held 7 days' figures must not read under the All time toggle; the quota bars are not range-bound
+        const heldFree = (s) => s !== "" && !s.includes("tok") && !s.includes("$");
         rec(
-            "5. failed switch shows switch-failed panel naming the range with Retry, and Retry recovers",
+            "5. failed switch shows switch-failed panel naming the range with Retry, the scope cards drop the held figures but keep the quota bars, and Retry recovers",
             switchFailed.shown &&
                 switchFailed.text.includes("all time") &&
                 switchFailed.retry.includes("Retry") &&
                 !switchFailed.stats &&
                 !switchFailed.banner &&
+                heldFree(switchFailed.allFigures) &&
+                heldFree(switchFailed.claudeFigures) &&
+                switchFailed.claudeLimits > 0 &&
                 retried.recovered &&
+                retried.allFigures.includes("tok") &&
                 retried.range === "All time" &&
                 !retried.banner,
             JSON.stringify({ switchFailed, retried })

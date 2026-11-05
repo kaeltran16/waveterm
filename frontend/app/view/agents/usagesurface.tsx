@@ -198,6 +198,8 @@ function QuotaRows({ row, now, projection }: { row: UsageRailRow; now: number; p
     );
 }
 
+const HELD_DASH = "—";
+
 // One card of the scope bar: dot, name and pill over the scope's tokens and estimate, then a fact on its
 // own line (a long fact truncates there rather than clipping the numbers). A provider with a quota reading
 // adds its bars below (`quota`). `harness`, `project` or `initiative` keys the card for the scenarios; All
@@ -217,6 +219,7 @@ function ScopeCard({
     estimate,
     fact,
     quota,
+    failed,
 }: {
     harness?: string;
     project?: string;
@@ -232,6 +235,7 @@ function ScopeCard({
     estimate: string; // estimateStr: "≈ $1.20", or "unpriced"
     fact?: string;
     quota?: ReactNode;
+    failed?: string; // why the range's figures are missing; the line then reads a dash under this title
 }) {
     return (
         <motion.button
@@ -258,10 +262,20 @@ function ScopeCard({
                     {pill}
                 </span>
             </span>
-            <span className="flex w-full gap-2 whitespace-nowrap font-mono text-[10.5px] text-muted">
-                <span className="text-secondary">{fmt(tokens)} tok</span>
-                <span>·</span>
-                <span>{estimate}</span>
+            <span
+                data-usage-figures
+                title={failed}
+                className="flex w-full gap-2 whitespace-nowrap font-mono text-[10.5px] text-muted"
+            >
+                {failed != null ? (
+                    <span>{HELD_DASH}</span>
+                ) : (
+                    <>
+                        <span className="text-secondary">{fmt(tokens)} tok</span>
+                        <span>·</span>
+                        <span>{estimate}</span>
+                    </>
+                )}
             </span>
             {fact != null ? (
                 <span data-usage-fact title={fact} className="w-full truncate font-mono text-[10.5px] text-muted">
@@ -777,6 +791,9 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
     const windowLabel = usageWindow === "7d" ? "last 7 days" : "all time";
     const list = useMemo(() => (work ? scopeList(attr, scope, windowLabel) : null), [work, attr, scope, windowLabel]);
     const listShows = list != null && hasHistory && loadView !== "skeleton" && loadView !== "switch-failed";
+    // the held buckets belong to the other range, so the cards show no figure from them
+    const switchFailed = loadView === "switch-failed" ? `The ${windowLabel} scan failed` : undefined;
+    const sharePill = (pct: number) => (switchFailed ? HELD_DASH : pctStr(pct));
 
     // By work's keyboard cursor walks the scope cards, then the rows the list shows when a row opens
     // something. A row cursor only marks its row; it holds for the page it was set on.
@@ -952,6 +969,7 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
                             allStats.totals.tokensWindow
                         )}
                         fact="every transcript"
+                        failed={switchFailed}
                     />
                     {work ? (
                         <>
@@ -964,14 +982,15 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
                                     onSelect={() => selectWork(p.key)}
                                     dot={p.fill}
                                     name={p.label}
-                                    pill={pctStr(p.sharePct)}
+                                    pill={sharePill(p.sharePct)}
                                     pillColor="var(--color-accent-soft)"
                                     tokens={p.tokens}
                                     estimate={estimateStr(p.spendUsd, p.pricedTokens, p.tokens)}
                                     fact={plural(p.count, "run or session", "runs and sessions")}
+                                    failed={switchFailed}
                                 />
                             ))}
-                            {attr.other.count > 0 ? (
+                            {attr.other.count > 0 && !switchFailed ? (
                                 <span
                                     data-usage-other
                                     className="min-w-[180px] max-w-[240px] flex-1 font-mono text-[10.5px] leading-[1.5] text-muted"
@@ -990,11 +1009,12 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
                                     onSelect={() => selectWork(i.key)}
                                     dot={INITIATIVE_DOT}
                                     name={i.label}
-                                    pill={pctStr(i.sharePct)}
+                                    pill={sharePill(i.sharePct)}
                                     pillColor="var(--color-accent-soft)"
                                     tokens={i.tokens}
                                     estimate={estimateStr(i.spendUsd, i.pricedTokens, i.tokens)}
                                     fact={plural(i.count, "run or session", "runs and sessions")}
+                                    failed={switchFailed}
                                 />
                             ))}
                         </>
@@ -1015,6 +1035,7 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
                                     tokens={r.tokens}
                                     estimate={estimateStr(r.spendUsd, r.pricedTokens, r.tokens)}
                                     fact={quotaFact(r, now)}
+                                    failed={switchFailed}
                                     quota={
                                         r.state === "none" ? null : (
                                             <QuotaRows
