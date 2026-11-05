@@ -478,6 +478,37 @@ func TestJudgeFileBoardsFromApproaches(t *testing.T) {
 	}
 }
 
+func TestJudgeFileSpikesFromApproaches(t *testing.T) {
+	approaches := []Approach{
+		{Name: "Spring", Spikes: BoardList{"spike/spring.html", "spike/shared.html"}},
+		{Name: "Fade", Spikes: BoardList{"spike/shared.html", "spike/fade.html"}},
+	}
+	report := judgeReport(t, func(r map[string]any) {
+		r["options"] = []any{
+			map[string]any{"label": "A", "detail": "d", "pick": true, "from": []any{"Fade", "Spring"}},
+			map[string]any{"label": "B", "detail": "d", "spikes": []any{"spike/judge.html"}},
+		}
+	})
+	out, err := judgeFileBytes(report, approaches)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Options []struct {
+			Spikes []string `json:"spikes"`
+		} `json:"options"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"spike/shared.html", "spike/fade.html", "spike/spring.html"}; !slices.Equal(got.Options[0].Spikes, want) {
+		t.Errorf("option A spikes = %v, want %v", got.Options[0].Spikes, want)
+	}
+	if got.Options[1].Spikes != nil {
+		t.Errorf("option B spikes = %v, want none: the judge's own spikes are discarded", got.Options[1].Spikes)
+	}
+}
+
 func TestJudgePromptListsApproachBoards(t *testing.T) {
 	in := JudgeInput{Approaches: []Approach{
 		{Name: "Left rail", Description: "d", Boards: BoardList{"Left-rail.dc.html", "Left-rail-failed.dc.html"}},
@@ -489,6 +520,20 @@ func TestJudgePromptListsApproachBoards(t *testing.T) {
 	}
 	if n := strings.Count(got, "Boards:"); n != 1 {
 		t.Errorf("prompt holds %d Boards lines, want 1: an approach with none gets no line", n)
+	}
+}
+
+func TestJudgePromptListsApproachSpikes(t *testing.T) {
+	in := JudgeInput{Approaches: []Approach{
+		{Name: "Spring", Description: "d", Spikes: BoardList{"spike/spring.html"}},
+		{Name: "Plain", Description: "d"},
+	}}
+	got := JudgePrompt(in, "", filepath.Join("tmp", "r.json"), keep)
+	if want := "1. Spring: d\n   Live spikes: spike/spring.html\n"; !strings.Contains(got, want) {
+		t.Errorf("prompt lacks %q under the approach", want)
+	}
+	if n := strings.Count(got, "Live spikes:"); n != 1 {
+		t.Errorf("prompt holds %d Live spikes lines, want 1: an approach with none gets no line", n)
 	}
 }
 
