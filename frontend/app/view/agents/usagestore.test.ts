@@ -14,6 +14,7 @@ import {
     loadForecastHistory,
     loadUsage,
     usageBucketsAtom,
+    usageEffortsAtom,
     usageErrorAtom,
     usageHeldWindowAtom,
     usageLensAtom,
@@ -67,6 +68,7 @@ afterEach(() => {
     getStats.mockReset();
     vi.unstubAllGlobals();
     globalStore.set(usageSessionsAtom, []);
+    globalStore.set(usageEffortsAtom, []);
     globalStore.set(usageLensAtom, "provider");
     globalStore.set(usageWorkScopeAtom, "all");
     globalStore.set(usageWorkItemAtom, null);
@@ -247,6 +249,43 @@ describe("loadUsage", () => {
             await loadUsage(0);
             expect(globalStore.get(usageBucketsAtom)).toEqual(buckets);
             expect(globalStore.get(usageSessionsAtom)).toEqual(daySessions);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("stores the reply's efforts, and none when it carries none", async () => {
+        const efforts = [{ oid: "e1", title: "Usage review" }];
+        getStats.mockResolvedValueOnce({ ...response, sessions, efforts });
+        await loadUsage(7);
+        expect(globalStore.get(usageEffortsAtom)).toEqual(efforts);
+        getStats.mockResolvedValueOnce(response);
+        await loadUsage(7);
+        expect(globalStore.get(usageEffortsAtom)).toEqual([]);
+    });
+
+    it("carries a dev fixture's efforts and every session wire field through the window cut", async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date(2026, 9, 13, 0, 30));
+        try {
+            const efforts = [{ oid: "e1", title: "Usage review" }];
+            const session = {
+                harness: "claude",
+                session: "s1",
+                effort: "e1",
+                tasktitle: "Wire types",
+                runchunk: "Chunk A",
+                leadharness: "claude",
+                leadsession: "lead",
+                projectname: "Arc",
+            };
+            const buckets = [{ ...response.buckets[0], day: "2026-10-13", session: "s1" }];
+            seedFixture(JSON.stringify({ buckets, sessions: [session], efforts }));
+            await loadUsage(7);
+            expect(globalStore.get(usageEffortsAtom)).toEqual(efforts);
+            expect(globalStore.get(usageSessionsAtom)).toEqual([session]);
+            await loadUsage(0);
+            expect(globalStore.get(usageEffortsAtom)).toEqual(efforts);
         } finally {
             vi.useRealTimers();
         }

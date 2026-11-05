@@ -11,6 +11,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type PrimitiveAtom } from "jotai";
+import { LIST_COLLAPSED_ROWS } from "./usageattribution";
 import { aggregateBuckets, windowStartDay } from "./usagestats";
 import type { DailyTokens } from "./weeklyforecast";
 
@@ -24,6 +25,8 @@ const USAGE_RPC_TIMEOUT_MS = 60_000;
 export const usageBucketsAtom = atom<UsageBucket[]>([]) as PrimitiveAtom<UsageBucket[]>;
 // what each bucket's session was: its title, project, run and role. set from the same reply as the buckets
 export const usageSessionsAtom = atom<UsageSession[]>([]) as PrimitiveAtom<UsageSession[]>;
+// the title of every effort a session names, from the same reply
+export const usageEffortsAtom = atom<UsageEffort[]>([]) as PrimitiveAtom<UsageEffort[]>;
 // the window days the held buckets were loaded for; null before the first success. Set only on success,
 // so after a failed switch it still names what the buckets cover
 export const usageHeldWindowAtom = atom<number | null>(null) as PrimitiveAtom<number | null>;
@@ -44,13 +47,13 @@ export const usageMetricAtom = atom<"tokens" | "spend">("tokens");
 export type UsageLens = "provider" | "work" | "workflow";
 export const usageLensAtom = atom<UsageLens>("provider");
 // By work: the rail scope ("all" or a project key), the run or session opened from a list with the
-// scope its Back returns to, and whether the ranked list is expanded
+// scope its Back returns to, and how many rows of the ranked list show
 export const usageWorkScopeAtom = atom<string>("all");
 export type UsageWorkItem = { key: string; back: string };
 export const usageWorkItemAtom = atom<UsageWorkItem | null>(null) as PrimitiveAtom<UsageWorkItem | null>;
-export const usageListExpandedAtom = atom<boolean>(false);
+export const usageListShownAtom = atom<number>(LIST_COLLAPSED_ROWS);
 
-// DEV-only fixture seam: a deterministic localStorage {buckets, sessions} object (see the usage-charts
+// DEV-only fixture seam: a deterministic localStorage {buckets, sessions, efforts?} object (see the usage-charts
 // CDP scenario). Compiled out behaviorally in production because import.meta.env.DEV is false. Malformed
 // or absent fixtures fall through to the RPC. `delayMs` holds the reply back so the skeleton shows, and
 // `fail: true` takes the failure path; fail is read before buckets, so `{ fail: true }` alone fails.
@@ -69,21 +72,22 @@ function devUsageFixture(): DevUsageFixture | undefined {
         if (value.fail === true) return { delayMs, fail: true };
         if (!Array.isArray(value.buckets)) return undefined;
         const sessions = Array.isArray(value.sessions) ? value.sessions : [];
-        return { reply: { buckets: value.buckets, sessions }, delayMs, fail: false };
+        const efforts = Array.isArray(value.efforts) ? value.efforts : [];
+        return { reply: { buckets: value.buckets, sessions, efforts }, delayMs, fail: false };
     } catch {
         return undefined;
     }
 }
 
 // the fixture's reply cut to the window the RPC would scan (windowStartDay; 0 is all time), keeping a
-// session only while one of its buckets survives
+// session only while one of its buckets survives. Efforts pass whole: a title nothing names is never read
 function windowedReply(reply: CommandGetUsageStatsRtnData, windowDays: number): CommandGetUsageStatsRtnData {
     const startKey = windowStartDay(windowDays, Date.now());
     if (startKey == null) return reply;
     const buckets = reply.buckets.filter((b) => b.day >= startKey);
     const kept = new Set(buckets.map((b) => `${b.harness}\u0000${b.session}`));
     const sessions = reply.sessions.filter((s) => kept.has(`${s.harness}\u0000${s.session}`));
-    return { buckets, sessions };
+    return { buckets, sessions, efforts: reply.efforts };
 }
 
 // one usage scan for a window: the dev fixture when set (its delay and failure included), else the RPC
@@ -142,6 +146,7 @@ export async function loadUsage(windowDays = DEFAULT_WINDOW_DAYS): Promise<void>
         }
         globalStore.set(usageBucketsAtom, reply.buckets ?? []);
         globalStore.set(usageSessionsAtom, reply.sessions ?? []);
+        globalStore.set(usageEffortsAtom, reply.efforts ?? []);
         globalStore.set(usageHeldWindowAtom, windowDays);
         globalStore.set(usageErrorAtom, false);
     } catch {

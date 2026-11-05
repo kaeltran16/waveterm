@@ -26,14 +26,21 @@ import { AVATAR_SURFACE_REACH_PX } from "@/app/view/jarvis/petview";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
 import { MotionConfig, motion } from "motion/react";
-import { useEffect, useMemo, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AgentsViewModel } from "./agents";
-import { formatReset, liveWindowAgents, providerPlanUsage, usageLevel } from "./agentsviewmodel";
+import {
+    formatReset,
+    liveWindowAgents,
+    providerPlanUsage,
+    USAGE_LEVEL_FILL,
+    USAGE_LEVEL_TEXT,
+    usageLevel,
+} from "./agentsviewmodel";
 import { providerDot, providerLabel } from "./cockpitrailmodel";
 import { DailyChart } from "./dailychart";
 import { harnessesAtom } from "./harnessstore";
 import { mergeRateLimitWindows, savedRateLimitsAtom } from "./ratelimitstore";
-import { SurfaceError, SurfaceToolbar, ToolbarFact } from "./surfacescaffold";
+import { SurfaceEmptyState, SurfaceError, SurfaceToolbar, ToolbarFact } from "./surfacescaffold";
 import {
     ALL_SCOPE,
     buildAttribution,
@@ -52,21 +59,28 @@ import {
     scopeSplit,
     splitTable,
     type WorkList,
+    type WorkRow,
     type WorkScope,
 } from "./usageattribution";
 import { modelLegend } from "./usagedaily";
+import { resolveUsageCursor, usageNavIds } from "./usagenav";
 import { buildUsageRail, countReporting, railRows, type UsageRailRow } from "./usagerail";
 import { SplitTable } from "./usagesplittable";
 import type { UsageStats } from "./usagestats";
-import { aggregateBuckets, fmt, pctStr, usd } from "./usagestats";
+import { aggregateBuckets, coverageStr, estimateStr, fmt, pctStr, usd, windowStartDay } from "./usagestats";
 import {
     allUsageStatsAtom,
+    forecastDailyAtom,
+    loadForecastHistory,
     loadUsage,
     usageBucketsAtom,
+    usageEffortsAtom,
     usageErrorAtom,
+    usageHeldWindowAtom,
     usageLensAtom,
-    usageListExpandedAtom,
+    usageListShownAtom,
     usageLoadedAtom,
+    usageLoadView,
     usageMetricAtom,
     usageSessionsAtom,
     usageWindowAtom,
@@ -78,17 +92,9 @@ import { formatProjectedDate, projectWeeklyExhaustion } from "./weeklyforecast";
 import { WorkflowLens } from "./workflowlensview";
 
 const ALL = "all";
+// an initiative is not a part of All usage's split, so its card dot names no lane
+const INITIATIVE_DOT = "bg-ink-faint";
 
-const LEVEL_FILL: Record<"ok" | "warn" | "hot", string> = {
-    ok: "bg-success",
-    warn: "bg-warning",
-    hot: "bg-error",
-};
-const LEVEL_TEXT: Record<"ok" | "warn" | "hot", string> = {
-    ok: "text-success",
-    warn: "text-warning",
-    hot: "text-error",
-};
 // Selected/idle treatment for a scope card, matching the Sessions rail rather than minting a second
 // selection vocabulary for one surface. Cards hold 220-340px; the bar scrolls sideways before it squashes.
 const CARD_BASE =
@@ -163,13 +169,18 @@ function QuotaRows({ row, now, projection }: { row: UsageRailRow; now: number; p
                         <span className="w-[18px] flex-none font-semibold text-ink-mid">{label}</span>
                         <Meter
                             pct={w.pct ?? 0}
-                            fill={has ? LEVEL_FILL[level] : "bg-edge-strong"}
+                            fill={has ? USAGE_LEVEL_FILL[level] : "bg-edge-strong"}
                             height={5}
                             radius={3}
                             track="bg-edge-strong"
                             className="min-w-0 flex-1"
                         />
-                        <span className={cn("w-[30px] flex-none text-right font-bold", has ? LEVEL_TEXT[level] : "")}>
+                        <span
+                            className={cn(
+                                "w-[30px] flex-none text-right font-bold",
+                                has ? USAGE_LEVEL_TEXT[level] : ""
+                            )}
+                        >
                             {has ? Math.round(w.pct!) + "%" : "—"}
                         </span>
                         <span className="w-[92px] flex-none whitespace-nowrap text-right">
@@ -179,18 +190,22 @@ function QuotaRows({ row, now, projection }: { row: UsageRailRow; now: number; p
                 );
             })}
             {projection != null ? (
-                <span className="pl-[26px] text-warning">weekly ~100% by {formatProjectedDate(projection)}</span>
+                <span data-usage-projection className="pl-[26px] text-warning">
+                    weekly ~100% by {formatProjectedDate(projection)}
+                </span>
             ) : null}
         </span>
     );
 }
 
-// One card of the scope bar: dot, name and pill over the scope's tokens and spend, and a right-hand fact.
-// A provider with a quota reading adds its bars below (`quota`).
-// `harness` or `project` keys the card for the scenarios; All usage carries harness "all" in both lenses.
+// One card of the scope bar: dot, name and pill over the scope's tokens and estimate, then a fact on its
+// own line (a long fact truncates there rather than clipping the numbers). A provider with a quota reading
+// adds its bars below (`quota`). `harness`, `project` or `initiative` keys the card for the scenarios; All
+// usage carries harness "all" in both lenses.
 function ScopeCard({
     harness,
     project,
+    initiative,
     title,
     active,
     onSelect,
@@ -199,12 +214,13 @@ function ScopeCard({
     pill,
     pillColor,
     tokens,
-    spendUsd,
+    estimate,
     fact,
     quota,
 }: {
     harness?: string;
     project?: string;
+    initiative?: string;
     title?: string;
     active: boolean;
     onSelect: () => void;
@@ -213,7 +229,7 @@ function ScopeCard({
     pill: string;
     pillColor: string; // a var() reference; it also tints the pill behind the text
     tokens: number;
-    spendUsd: number;
+    estimate: string; // estimateStr: "≈ $1.20", or "unpriced"
     fact?: string;
     quota?: ReactNode;
 }) {
@@ -226,6 +242,7 @@ function ScopeCard({
             type="button"
             data-usage-harness={harness}
             data-usage-project={project}
+            data-usage-initiative={initiative}
             aria-pressed={active}
             title={title}
             onClick={onSelect}
@@ -244,10 +261,13 @@ function ScopeCard({
             <span className="flex w-full gap-2 whitespace-nowrap font-mono text-[10.5px] text-muted">
                 <span className="text-secondary">{fmt(tokens)} tok</span>
                 <span>·</span>
-                <span>≈ {usd(spendUsd)}</span>
-                <span className="flex-1" />
-                {fact != null ? <span>{fact}</span> : null}
+                <span>{estimate}</span>
             </span>
+            {fact != null ? (
+                <span data-usage-fact title={fact} className="w-full truncate font-mono text-[10.5px] text-muted">
+                    {fact}
+                </span>
+            ) : null}
             {quota}
         </motion.button>
     );
@@ -287,7 +307,10 @@ function statsMeta(stats: UsageStats): [string, string][] {
     return [
         ["tokens", fmt(stats.totals.tokensWindow)],
         ["reported", reported],
-        ["api-equiv", `≈ ${usd(stats.totals.spendWindowUsd)}`],
+        [
+            "api-equiv",
+            estimateStr(stats.totals.spendWindowUsd, stats.totals.pricedTokensWindow, stats.totals.tokensWindow),
+        ],
         ["models", String(stats.models.length)],
     ];
 }
@@ -387,31 +410,42 @@ function Chevron({ back = false }: { back?: boolean }) {
 const LIST_ROW =
     "grid min-h-[48px] w-full grid-cols-[22px_minmax(0,1fr)_150px_64px_74px_14px] items-center gap-x-3.5 border-0 border-b border-edge-faint bg-transparent px-1 py-1.5 text-left";
 
-// The one ranked list of a By work page. On All usage and a project a row opens its run or session;
-// a run's own sessions are read-only rows.
+function rowCost(r: WorkRow): string {
+    if (r.reported) {
+        return usd(r.cost);
+    }
+    return r.unpriced ? "unpriced" : `≈ ${usd(r.cost)}`;
+}
+
+// The one ranked list of a By work page, paged: eight rows, then 25 more per press. On All usage, a
+// project and an initiative a row opens its run or session; a run's own sessions are read-only rows.
 function WorkListCard({
     list,
-    expanded,
+    shown,
+    cursor,
     onOpen,
-    onToggle,
+    onShown,
 }: {
     list: WorkList;
-    expanded: boolean;
+    shown: number;
+    cursor: string | undefined; // the row the keyboard cursor marks, not yet opened
     onOpen: (key: string) => void;
-    onToggle: () => void;
+    onShown: (shown: number) => void;
 }) {
-    const page = listPage(
-        list,
-        expanded ? nextShown(LIST_COLLAPSED_ROWS, list.rows.length) : LIST_COLLAPSED_ROWS
-    );
-    const toggleLabel = expanded ? page.lessLabel : page.moreLabel;
+    const page = listPage(list, shown);
+    const rowsRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        if (cursor != null) {
+            rowsRef.current?.querySelector("[data-usage-cursor]")?.scrollIntoView({ block: "nearest" });
+        }
+    }, [cursor]);
     return (
         <div data-usage-list className="rounded-[14px] border border-border bg-surface-raised px-5 py-[18px]">
             <SectionRule label={list.title} meta={list.meta} />
             {list.summary != null ? (
                 <p className="mb-2.5 max-w-[680px] text-[12.5px] leading-[1.55] text-secondary">{list.summary}</p>
             ) : null}
-            <div className="flex flex-col">
+            <div ref={rowsRef} className="flex flex-col">
                 {page.rows.map((r) => {
                     const cells = (
                         <>
@@ -425,7 +459,7 @@ function WorkListCard({
                             <Meter pct={r.pct} fill="bg-accent" height={7} radius={4} track="bg-edge-strong" />
                             <span className="text-right font-mono text-[11px] text-muted">{fmt(r.tokens)}</span>
                             <span className="flex flex-col items-end font-mono text-[12px] font-semibold text-secondary">
-                                <span>{r.reported ? usd(r.cost) : `≈ ${usd(r.cost)}`}</span>
+                                <span>{rowCost(r)}</span>
                                 {r.reported ? (
                                     <span data-usage-reported className="text-[10.5px] font-normal text-muted">
                                         reported
@@ -440,10 +474,12 @@ function WorkListCard({
                             key={r.key}
                             type="button"
                             data-usage-item={r.key}
+                            data-usage-cursor={r.key === cursor ? "" : undefined}
                             onClick={() => onOpen(r.key)}
                             className={cn(
                                 LIST_ROW,
-                                "cursor-pointer hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                                "cursor-pointer hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                                r.key === cursor && "rounded-[6px] ring-2 ring-inset ring-accent"
                             )}
                         >
                             {cells}
@@ -455,16 +491,29 @@ function WorkListCard({
                     );
                 })}
             </div>
-            {toggleLabel != null ? (
-                <button
-                    type="button"
-                    data-usage-more
-                    aria-expanded={expanded}
-                    onClick={onToggle}
-                    className={cn(QUIET_BUTTON, "mt-3 px-3 py-1.5 text-muted")}
-                >
-                    {toggleLabel}
-                </button>
+            {page.moreLabel != null || page.lessLabel != null ? (
+                <div className="mt-3 flex gap-2">
+                    {page.moreLabel != null ? (
+                        <button
+                            type="button"
+                            data-usage-more
+                            onClick={() => onShown(nextShown(shown, list.rows.length))}
+                            className={cn(QUIET_BUTTON, "px-3 py-1.5 text-muted")}
+                        >
+                            {page.moreLabel}
+                        </button>
+                    ) : null}
+                    {page.lessLabel != null ? (
+                        <button
+                            type="button"
+                            data-usage-less
+                            onClick={() => onShown(LIST_COLLAPSED_ROWS)}
+                            className={cn(QUIET_BUTTON, "px-3 py-1.5 text-muted")}
+                        >
+                            {page.lessLabel}
+                        </button>
+                    ) : null}
+                </div>
             ) : null}
         </div>
     );
@@ -500,6 +549,7 @@ function HistoryCards({
     const tokens = week ? t.tokensWeek : t.tokensWindow;
     const spend = week ? t.spendWeekUsd : t.spendWindowUsd;
     const coverage = week ? t.pricingCoverageWeekPct : t.pricingCoverageWindowPct;
+    const pricedTokens = week ? t.pricedTokensWeek : t.pricedTokensWindow;
     const reportedPresent = week ? t.reportedCostWeekPresent : t.reportedCostWindowPresent;
     const reportedUsd = week ? t.reportedCostWeekUsd : t.reportedCostWindowUsd;
     const sources = week ? t.reportedCostWeekHarnesses : t.reportedCostWindowHarnesses;
@@ -508,7 +558,7 @@ function HistoryCards({
     const allTokens = of ? (week ? of.totals.tokensWeek : of.totals.tokensWindow) : 0;
     const allSpend = of ? (week ? of.totals.spendWeekUsd : of.totals.spendWindowUsd) : 0;
     const tokenShare = of ? `${share(tokens, allTokens)} of all usage` : undefined;
-    const priced = coverage == null ? "no priced tokens" : `${Math.round(coverage)}% of tokens priced`;
+    const priced = coverage == null ? "no priced tokens" : `${coverageStr(coverage)} of tokens priced`;
     const reportedSub = !reportedPresent
         ? "no source reports cost"
         : of
@@ -527,7 +577,7 @@ function HistoryCards({
     const estimateCard = (
         <StatCard
             label={`API-equivalent · ${span}`}
-            value={`≈ ${usd(spend)}`}
+            value={estimateStr(spend, pricedTokens, tokens)}
             sub={of ? `${share(spend, allSpend)} of all spend · ${priced}` : priced}
         />
     );
@@ -615,8 +665,11 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
     const providerStats: UsageStats = useAtomValue(model.usageStatsAtom);
     const buckets = useAtomValue(usageBucketsAtom);
     const sessions = useAtomValue(usageSessionsAtom);
+    const efforts = useAtomValue(usageEffortsAtom);
     const loadError = useAtomValue(usageErrorAtom);
     const usageLoaded = useAtomValue(usageLoadedAtom);
+    const heldWindow = useAtomValue(usageHeldWindowAtom);
+    const forecastDaily = useAtomValue(forecastDailyAtom);
     const saved = useAtomValue(savedRateLimitsAtom);
     const now = useAtomValue(model.nowAtom);
     const [usageWindow, setUsageWindow] = useAtom(usageWindowAtom);
@@ -626,15 +679,20 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
     const [lens, setLens] = useAtom(usageLensAtom);
     const [workScope, setWorkScope] = useAtom(usageWorkScopeAtom);
     const [workItem, setWorkItem] = useAtom(usageWorkItemAtom);
-    const [listExpanded, setListExpanded] = useAtom(usageListExpandedAtom);
+    const [listShown, setListShown] = useAtom(usageListShownAtom);
     const work = lens === "work";
+    const requestedDays = usageWindow === "7d" ? 7 : 0;
+    const loadView = usageLoadView(requestedDays, heldWindow, usageLoaded, loadError);
 
     useEffect(() => {
-        const days = usageWindow === "7d" ? 7 : 0;
-        void loadUsage(days);
-        const refresh = setInterval(() => void loadUsage(days), 60_000);
+        void loadUsage(requestedDays);
+        const refresh = setInterval(() => void loadUsage(requestedDays), 60_000);
         return () => clearInterval(refresh);
-    }, [usageWindow]);
+    }, [requestedDays]);
+    // the weekly forecast reads its own fixed history, whatever the range; the loader keeps it to once an hour
+    useEffect(() => {
+        void loadForecastHistory(Date.now());
+    }, []);
 
     const harnesses = useAtomValue(harnessesAtom);
     const catalogOrder = useMemo(() => harnesses.map((h) => h.runtime), [harnesses]);
@@ -645,18 +703,21 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
     );
     const rows = useMemo(() => railRows(groups), [groups]);
 
-    const attr = useMemo(() => buildAttribution(buckets, sessions, []), [buckets, sessions]);
+    const attr = useMemo(() => buildAttribution(buckets, sessions, efforts), [buckets, sessions, efforts]);
     const scope = useMemo(() => resolveScope(attr, workScope, workItem?.key ?? null), [attr, workScope, workItem]);
-    const workStats = useMemo(
-        () => (scope.kind === "all" ? allStats : aggregateBuckets(scopeBuckets(buckets, attr, scope), Date.now())),
-        [allStats, buckets, attr, scope]
-    );
+    const workStats = useMemo(() => {
+        if (scope.kind === "all") {
+            return allStats;
+        }
+        const at = Date.now();
+        return aggregateBuckets(scopeBuckets(buckets, attr, scope), at, "all", windowStartDay(heldWindow, at));
+    }, [allStats, buckets, attr, scope, heldWindow]);
     const stats = work ? workStats : providerStats;
 
     const selectWork = (scopeKey: string) => {
         setWorkScope(scopeKey);
         setWorkItem(null);
-        setListExpanded(false);
+        setListShown(LIST_COLLAPSED_ROWS);
     };
     const pickLens = (next: UsageLens) => {
         setLens(next);
@@ -667,15 +728,18 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
         setUsageWindow(next);
         selectWork(ALL_SCOPE);
     };
-    const openItem = (key: string) => {
-        const item = attr.items.find((it) => it.key === key);
-        if (!item) {
-            return;
-        }
-        setWorkItem({ key, back: workScope });
-        setWorkScope(itemScopeKey(attr, item));
-        setListExpanded(false);
-    };
+    const openItem = useCallback(
+        (key: string) => {
+            const item = attr.items.find((it) => it.key === key);
+            if (!item) {
+                return;
+            }
+            setWorkItem({ key, back: workScope });
+            setWorkScope(itemScopeKey(attr, item));
+            setListShown(LIST_COLLAPSED_ROWS);
+        },
+        [attr, workScope, setWorkItem, setWorkScope, setListShown]
+    );
 
     // A window reload can remove the selected harness from the rail (e.g. its history falls outside
     // the window and it reports no quota). Fall back to the aggregate so the detail never points at a
@@ -686,55 +750,103 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
             setSel(ALL);
         }
     }, [usageLoaded, rows, sel, setSel]);
-    // the same for By work: a project that left the rail takes its drilled item with it, and an item
-    // the window no longer holds falls back to the scope it sat under
+    // the same for By work: a project or initiative that left the rail takes its drilled item with it, and
+    // an item the window no longer holds falls back to the scope it sat under
     useEffect(() => {
         if (!usageLoaded) {
             return;
         }
-        if (workScope !== ALL_SCOPE && !attr.projects.some((p) => p.key === workScope)) {
+        const onRail =
+            attr.projects.some((p) => p.key === workScope) || attr.initiatives.some((i) => i.key === workScope);
+        if (workScope !== ALL_SCOPE && !onRail) {
             setWorkScope(ALL_SCOPE);
             setWorkItem(null);
-            setListExpanded(false);
+            setListShown(LIST_COLLAPSED_ROWS);
         } else if (workItem != null && !attr.items.some((it) => it.key === workItem.key)) {
             setWorkItem(null);
         }
-    }, [usageLoaded, attr, workScope, workItem, setWorkScope, setWorkItem, setListExpanded]);
+    }, [usageLoaded, attr, workScope, workItem, setWorkScope, setWorkItem, setListShown]);
 
-    const listNav = useMemo<ListNavController | null>(
-        () =>
-            lens === "workflow"
-                ? null
-                : work
-                  ? {
-                        surface: "usage",
-                        navigableIds: [ALL_SCOPE, ...attr.projects.map((p) => p.key)],
-                        cursorId: workItem != null ? undefined : workScope,
-                        setCursor: (id) => {
-                            setWorkScope(id);
-                            setWorkItem(null);
-                            setListExpanded(false);
-                        },
-                    }
-                  : {
-                        surface: "usage",
-                        navigableIds: [ALL, ...rows.map((r) => r.harness)],
-                        cursorId: sel,
-                        setCursor: setSel,
-                    },
-        [lens, work, attr, workItem, workScope, rows, sel, setSel, setWorkScope, setWorkItem, setListExpanded]
+    // a new page starts at its top: the lens, range, scope or item changed (the 60s refresh changes none)
+    const detailRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        detailRef.current?.scrollTo(0, 0);
+    }, [lens, usageWindow, sel, workScope, workItem?.key]);
+
+    const hasHistory = stats.models.length > 0 || stats.totals.tokensWindow > 0;
+    const windowLabel = usageWindow === "7d" ? "last 7 days" : "all time";
+    const list = useMemo(() => (work ? scopeList(attr, scope, windowLabel) : null), [work, attr, scope, windowLabel]);
+    const listShows = list != null && hasHistory && loadView !== "skeleton" && loadView !== "switch-failed";
+
+    // By work's keyboard cursor walks the scope cards, then the rows the list shows when a row opens
+    // something. A row cursor only marks its row; it holds for the page it was set on.
+    const here = scopeId(scope);
+    const [rowCursor, setRowCursor] = useState<{ at: string; key: string } | null>(null);
+    const rowKeys = useMemo(
+        () => (listShows && list.nav ? listPage(list, listShown).rows.map((r) => r.key) : []),
+        [listShows, list, listShown]
     );
+    const cursorRow = rowCursor?.at === here && rowKeys.includes(rowCursor.key) ? rowCursor.key : undefined;
+
+    const listNav = useMemo<ListNavController | null>(() => {
+        if (lens === "workflow") {
+            return null;
+        }
+        if (!work) {
+            return {
+                surface: "usage",
+                navigableIds: [ALL, ...rows.map((r) => r.harness)],
+                cursorId: sel,
+                setCursor: setSel,
+            };
+        }
+        const scopeIds = [ALL_SCOPE, ...attr.projects.map((p) => p.key), ...attr.initiatives.map((i) => i.key)];
+        return {
+            surface: "usage",
+            navigableIds: usageNavIds(scopeIds, rowKeys),
+            cursorId: cursorRow ?? (workItem != null ? undefined : workScope),
+            setCursor: (id) => {
+                const cursor = resolveUsageCursor(id, scopeIds);
+                if (cursor.kind === "row") {
+                    setRowCursor({ at: here, key: cursor.id });
+                    return;
+                }
+                setRowCursor(null);
+                setWorkScope(cursor.id);
+                setWorkItem(null);
+                setListShown(LIST_COLLAPSED_ROWS);
+            },
+            activate: () => {
+                if (cursorRow != null) {
+                    openItem(cursorRow);
+                } else if (rowKeys.length > 0) {
+                    setRowCursor({ at: here, key: rowKeys[0] });
+                }
+            },
+        };
+    }, [
+        lens,
+        work,
+        attr,
+        rowKeys,
+        cursorRow,
+        here,
+        openItem,
+        workItem,
+        workScope,
+        rows,
+        sel,
+        setSel,
+        setWorkScope,
+        setWorkItem,
+        setListShown,
+    ]);
     useSurfaceListNav(listNav);
 
     const claudeRow = rows.find((r) => r.harness === "claude");
     const weeklyProjectionMs =
         claudeRow?.week.pct != null && claudeRow.week.reset != null
-            ? projectWeeklyExhaustion(
-                  allStats.daily.map((d) => ({ day: d.day, tokens: d.byHarness.claude?.tokens ?? 0 })),
-                  claudeRow.week.pct,
-                  claudeRow.week.reset,
-                  now
-              )
+            ? projectWeeklyExhaustion(forecastDaily ?? [], claudeRow.week.pct, claudeRow.week.reset, now)
             : null;
 
     const reporting = countReporting(groups);
@@ -742,7 +854,6 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
     // `all` is the unscoped page of whichever lens is on screen
     const all = work ? scope.kind === "all" : sel === ALL;
 
-    const hasHistory = stats.models.length > 0 || stats.totals.tokensWindow > 0;
     const revealHistory = useDidBecomeTrue(hasHistory);
     const legend = useMemo(
         () =>
@@ -753,13 +864,12 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
             ),
         [stats.models, rows, usageMetric]
     );
-    const windowLabel = usageWindow === "7d" ? "last 7 days" : "all time";
     const scopeLabel = work
         ? scope.kind === "item"
             ? scope.item.title
-            : scope.kind === "project"
-              ? scope.project.label
-              : "all usage"
+            : scope.kind === "all"
+              ? "all usage"
+              : scopeName(attr, workScope)
         : all
           ? "all usage"
           : providerLabel(sel);
@@ -787,7 +897,6 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
             </button>
         ) : null;
     const head = work ? workHead(scope, stats, openRun) : providerHead(sel, stats, reportingLabel);
-    const list = work ? scopeList(attr, scope, windowLabel) : null;
     const split = work ? scopeSplit(attr, scope, stats.split) : classSplit(stats.split);
     const selectAll = () => (work ? selectWork(ALL_SCOPE) : setSel(ALL));
 
@@ -818,7 +927,9 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
                     ) : null}
                 </SurfaceToolbar>
 
-                {loadError ? <SurfaceError message="Couldn’t refresh — showing the last loaded usage." /> : null}
+                {loadView === "data-with-error" ? (
+                    <SurfaceError message="Couldn’t refresh — showing the last loaded usage." />
+                ) : null}
 
                 <div
                     data-usage-scopes
@@ -835,7 +946,11 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
                         pill="All"
                         pillColor="var(--color-accent-soft)"
                         tokens={allStats.totals.tokensWindow}
-                        spendUsd={allStats.totals.spendWindowUsd}
+                        estimate={estimateStr(
+                            allStats.totals.spendWindowUsd,
+                            allStats.totals.pricedTokensWindow,
+                            allStats.totals.tokensWindow
+                        )}
                         fact="every transcript"
                     />
                     {work ? (
@@ -847,12 +962,12 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
                                     title={p.key}
                                     active={workScope === p.key}
                                     onSelect={() => selectWork(p.key)}
-                                    dot="bg-ink-faint"
+                                    dot={p.fill}
                                     name={p.label}
                                     pill={pctStr(p.sharePct)}
                                     pillColor="var(--color-accent-soft)"
                                     tokens={p.tokens}
-                                    spendUsd={p.spendUsd}
+                                    estimate={estimateStr(p.spendUsd, p.pricedTokens, p.tokens)}
                                     fact={plural(p.count, "run or session", "runs and sessions")}
                                 />
                             ))}
@@ -864,6 +979,24 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
                                     {otherFoldersText(attr.other)}
                                 </span>
                             ) : null}
+                            {attr.initiatives.length > 0 ? (
+                                <span aria-hidden="true" className="w-px flex-none bg-edge-faint" />
+                            ) : null}
+                            {attr.initiatives.map((i) => (
+                                <ScopeCard
+                                    key={i.key}
+                                    initiative={i.oid}
+                                    active={workScope === i.key}
+                                    onSelect={() => selectWork(i.key)}
+                                    dot={INITIATIVE_DOT}
+                                    name={i.label}
+                                    pill={pctStr(i.sharePct)}
+                                    pillColor="var(--color-accent-soft)"
+                                    tokens={i.tokens}
+                                    estimate={estimateStr(i.spendUsd, i.pricedTokens, i.tokens)}
+                                    fact={plural(i.count, "run or session", "runs and sessions")}
+                                />
+                            ))}
                         </>
                     ) : (
                         rows.map((r) => {
@@ -880,7 +1013,7 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
                                     pillColor={st.color}
                                     title={r.state === "none" ? NO_QUOTA_TITLE : undefined}
                                     tokens={r.tokens}
-                                    spendUsd={r.spendUsd}
+                                    estimate={estimateStr(r.spendUsd, r.pricedTokens, r.tokens)}
                                     fact={quotaFact(r, now)}
                                     quota={
                                         r.state === "none" ? null : (
@@ -897,83 +1030,104 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
                     )}
                 </div>
 
-                <div data-usage-detail={work ? scopeId(scope) : sel} className="min-h-0 flex-1 overflow-y-auto">
+                <div
+                    ref={detailRef}
+                    data-usage-detail={work ? scopeId(scope) : sel}
+                    className="min-h-0 flex-1 overflow-y-auto"
+                >
                     {/* the end clears the avatar by one gap-5, or it covers Where it goes' Total at full scroll */}
-                    <div className="flex flex-col gap-5 px-7 pt-[18px]" style={{ paddingBottom: AVATAR_SURFACE_REACH_PX + 20 }}>
-                        {work && workItem != null && scope.kind === "item" ? (
-                            <button
-                                type="button"
-                                data-usage-back
-                                onClick={() => selectWork(workItem.back)}
-                                className={cn(
-                                    QUIET_BUTTON,
-                                    "-mb-1.5 flex items-center gap-1.5 self-start py-[5px] pl-[7px] pr-[11px] text-ink-mid"
-                                )}
-                            >
-                                <Chevron back />
-                                Back to {scopeName(attr, workItem.back)}
-                            </button>
-                        ) : null}
-
-                        <DetailHeader head={head} />
-
-                        <section className="flex min-w-0 flex-col">
-                            <SectionRule label="Historical" meta={`durable · ${windowLabel}`} />
-                            {!usageLoaded ? (
-                                <StatsSkeleton />
-                            ) : !hasHistory ? (
-                                <div
-                                    data-usage-empty
-                                    className="flex min-h-[92px] flex-1 items-center justify-center text-[13px] text-muted"
-                                >
-                                    No usage in this window{all ? " — start an agent." : `${emptyFor}.`}
-                                </div>
-                            ) : (
-                                <HistoryCards
-                                    stats={stats}
-                                    window={usageWindow}
-                                    all={all}
-                                    of={work && !all ? allStats : undefined}
-                                    reveal={revealHistory}
+                    <div
+                        className="flex flex-col gap-5 px-7 pt-[18px]"
+                        style={{ paddingBottom: AVATAR_SURFACE_REACH_PX + 20 }}
+                    >
+                        {loadView === "switch-failed" ? (
+                            <div data-usage-switch-failed>
+                                <SurfaceEmptyState
+                                    className="px-0"
+                                    title={`Couldn’t load usage for ${usageWindow === "7d" ? "the last 7 days" : "all time"}`}
+                                    body="The usage scan for this range failed. The range loaded before it still holds its usage."
+                                    secondaryAction={{ label: "Retry", onClick: () => void loadUsage(requestedDays) }}
                                 />
-                            )}
-                        </section>
-
-                        {!usageLoaded ? (
-                            <ChartSkeleton />
-                        ) : hasHistory ? (
-                            <motion.div
-                                variants={cardVariants}
-                                initial={revealHistory ? "initial" : false}
-                                animate="animate"
-                                className="flex flex-col gap-5"
-                            >
-                                {list != null ? (
-                                    <WorkListCard
-                                        list={list}
-                                        expanded={listExpanded}
-                                        onOpen={openItem}
-                                        onToggle={() => setListExpanded(!listExpanded)}
-                                    />
+                            </div>
+                        ) : (
+                            <>
+                                {work && workItem != null && scope.kind === "item" ? (
+                                    <button
+                                        type="button"
+                                        data-usage-back
+                                        onClick={() => selectWork(workItem.back)}
+                                        className={cn(
+                                            QUIET_BUTTON,
+                                            "-mb-1.5 flex items-center gap-1.5 self-start py-[5px] pl-[7px] pr-[11px] text-ink-mid"
+                                        )}
+                                    >
+                                        <Chevron back />
+                                        Back to {scopeName(attr, workItem.back)}
+                                    </button>
                                 ) : null}
 
-                                <DailyChart
-                                    daily={stats.daily}
-                                    window={usageWindow}
-                                    metric={usageMetric}
-                                    onMetric={setUsageMetric}
-                                    legend={legend}
-                                />
+                                <DetailHeader head={head} />
 
-                                <div
-                                    data-usage-split
-                                    className="rounded-[14px] border border-border bg-surface-raised px-5 py-[18px]"
-                                >
-                                    <SectionRule label="Where it goes" meta={`${scopeLabel} · by spend`} />
-                                    <SplitTable table={splitTable(split)} />
-                                </div>
-                            </motion.div>
-                        ) : null}
+                                <section className="flex min-w-0 flex-col">
+                                    <SectionRule label="Historical" meta={`durable · ${windowLabel}`} />
+                                    {loadView === "skeleton" ? (
+                                        <StatsSkeleton />
+                                    ) : !hasHistory ? (
+                                        <div
+                                            data-usage-empty
+                                            className="flex min-h-[92px] flex-1 items-center justify-center text-[13px] text-muted"
+                                        >
+                                            No usage in this window{all ? " — start an agent." : `${emptyFor}.`}
+                                        </div>
+                                    ) : (
+                                        <HistoryCards
+                                            stats={stats}
+                                            window={usageWindow}
+                                            all={all}
+                                            of={work && !all ? allStats : undefined}
+                                            reveal={revealHistory}
+                                        />
+                                    )}
+                                </section>
+
+                                {loadView === "skeleton" ? (
+                                    <ChartSkeleton />
+                                ) : hasHistory ? (
+                                    <motion.div
+                                        variants={cardVariants}
+                                        initial={revealHistory ? "initial" : false}
+                                        animate="animate"
+                                        className="flex flex-col gap-5"
+                                    >
+                                        {list != null ? (
+                                            <WorkListCard
+                                                list={list}
+                                                shown={listShown}
+                                                cursor={cursorRow}
+                                                onOpen={openItem}
+                                                onShown={setListShown}
+                                            />
+                                        ) : null}
+
+                                        <DailyChart
+                                            daily={stats.daily}
+                                            window={usageWindow}
+                                            metric={usageMetric}
+                                            onMetric={setUsageMetric}
+                                            legend={legend}
+                                        />
+
+                                        <div
+                                            data-usage-split
+                                            className="rounded-[14px] border border-border bg-surface-raised px-5 py-[18px]"
+                                        >
+                                            <SectionRule label="Where it goes" meta={`${scopeLabel} · by spend`} />
+                                            <SplitTable table={splitTable(split)} />
+                                        </div>
+                                    </motion.div>
+                                ) : null}
+                            </>
+                        )}
                     </div>
                 </div>
             </div>
