@@ -19,6 +19,7 @@ import {
     clickByText,
     floorStep,
     fstWriteRun,
+    lookEval,
     notesClipStub,
     openAddressExpr,
     openPalette,
@@ -2733,6 +2734,8 @@ export const cockpitNeedsYouCrossChannel = {
 // Usage > Workflow (workflow-scan Main.dc.html and States.dc.html), each lens state seeded on a deferred quick run's
 // own record. No step clicks an enabled Scan workflow button: that starts a real Opus agent.
 const WFS_PROJECT = "verify-workflow-scan";
+const WFS_OTHER_PROJECT = "verify-workflow-scan-other";
+const wfsNorm = (p) => (p || "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 const WFS_LENS = (kind) => `document.querySelector('[data-workflow-lens="${kind}"]')`;
 const WFS_SCAN_BUTTON = `document.querySelector('[data-workflow-scan-button]')`;
 const WFS_SEND = `document.querySelector('[data-workflow-send]')`;
@@ -2889,11 +2892,22 @@ export const workflowScan = {
     name: "workflow-scan",
     surface: "usage",
     async arrange(h) {
-        const ctx = { cwd: mkdtempSync(join(tmpdir(), "verify-workflow-scan-")) };
+        const ctx = { cwd: mkdtempSync(join(tmpdir(), "verify-workflow-scan-")), otherCwd: mkdtempSync(join(tmpdir(), "verify-workflow-scan-other-")) };
         try {
             const wslist = await h.rpc("workspacelist", null);
-            const ch = await h.rpc("createchannel", { name: WFS_PROJECT, projectpath: ctx.cwd });
-            ctx.channelId = ch.oid;
+            // two registered projects, so the picker has a choice: the scan run lives in the first, and the second
+            // is the active one, so the default the picker shows is the scan's project, not the palette's rule
+            await h.rpc("createproject", { name: WFS_PROJECT, path: ctx.cwd });
+            ctx.projects = [WFS_PROJECT];
+            await waitForProjectInConfig(h, WFS_PROJECT);
+            await h.rpc("createproject", { name: WFS_OTHER_PROJECT, path: ctx.otherCwd });
+            ctx.projects.push(WFS_OTHER_PROJECT);
+            await waitForProjectInConfig(h, WFS_OTHER_PROJECT);
+            const channels = (await h.rpc("getchannels", null))?.channels ?? [];
+            const channelAt = (path) => channels.find((c) => wfsNorm(c.projectpath) === wfsNorm(path))?.oid;
+            ctx.channelId = channelAt(ctx.cwd);
+            ctx.otherChannelId = channelAt(ctx.otherCwd);
+            if (!ctx.channelId || !ctx.otherChannelId) throw new Error("createproject made no channel at a project's path");
             const created = await h.rpc("createrun", {
                 channelid: ctx.channelId,
                 workspaceid: wslist[0].workspacedata.oid,
@@ -2908,8 +2922,7 @@ export const workflowScan = {
             ctx.status = created.run.status;
             // lands on the Brief, which installs __openAddress, and re-primes the boot-primed channel list
             await polishReload(h);
-            // the fixture channel is the active one, so it is the home project the Scan button starts in
-            ctx.openedChannel = await h.ev(openAddressExpr(`channel:${ctx.channelId}`));
+            ctx.openedChannel = await h.ev(openAddressExpr(`channel:${ctx.otherChannelId}`));
             ctx.opened = await h.ev(openAddressExpr(`workflowscan:${ctx.runId}`));
             ctx.shown = await polishWaitFor(h, `!!${WFS_LENS("idle")}`, 10000);
         } catch (e) {
@@ -2943,6 +2956,40 @@ export const workflowScan = {
             "1. idle: the big Scan workflow button and the window line show, and the header button is enabled",
             idle?.big && idle.line && !idle.last && idleHeader === true,
             JSON.stringify({ idle, header: idleHeader })
+        );
+
+        // 1a. the picker: two registered projects, the other one active, the scan run in the first
+        const pickerField = `document.querySelector('[data-workflow-project] [aria-haspopup="listbox"]')`;
+        const pickerText = () => h.ev(`(${pickerField})?.innerText ?? null`);
+        const scanTitle = () => h.ev(`${WFS_SCAN_BUTTON}?.title ?? null`);
+        const activeName = await lookEval(h, `
+            const { globalStore } = await mod("app/store/jotaiStore.ts");
+            const { activeChannelAtom } = await mod("app/view/agents/channelsstore.ts");
+            return globalStore.get(activeChannelAtom)?.name ?? null;`);
+        const defaultText = await pickerText();
+        const defaultTitle = await scanTitle();
+        await h.ev(`${pickerField}?.click()`);
+        const listed = await polishWaitFor(h, `!!document.querySelector('[data-project-option="${WFS_OTHER_PROJECT}"]')`, 3000);
+        const options = await h.ev(`[...document.querySelectorAll('[data-project-option]')].map((o) => o.getAttribute('data-project-option'))`);
+        await shot("picker-open");
+        await h.ev(`document.querySelector('[data-project-option="${WFS_OTHER_PROJECT}"]')?.click()`);
+        const picked = await polishWaitFor(h, `(${WFS_SCAN_BUTTON}?.title ?? '').endsWith('#${WFS_OTHER_PROJECT}')`, 3000);
+        const pickedText = await pickerText();
+        const pickedTitle = await scanTitle();
+        await shot("picker-picked");
+        rec(
+            "1a. with two projects registered, the picker defaults to the newest scan's project, and a pick changes the button title",
+            activeName === WFS_OTHER_PROJECT &&
+                (defaultText ?? "").includes(WFS_PROJECT) &&
+                !(defaultText ?? "").includes(WFS_OTHER_PROJECT) &&
+                (defaultTitle ?? "").endsWith(`#${WFS_PROJECT}`) &&
+                listed &&
+                options.includes(WFS_PROJECT) &&
+                options.includes(WFS_OTHER_PROJECT) &&
+                picked &&
+                (pickedText ?? "").includes(WFS_OTHER_PROJECT) &&
+                (pickedTitle ?? "").endsWith(`#${WFS_OTHER_PROJECT}`),
+            JSON.stringify({ activeName, defaultText, defaultTitle, listed, options, picked, pickedText, pickedTitle })
         );
 
         // 2. scanning at the checking stage: the kept patterns under the Opus pane, a ticking clock
@@ -3157,13 +3204,28 @@ export const workflowScan = {
             return !!sheet && (sheet.innerText || '').includes('verify workflow-scan');
         })()`;
         await h.ev(`document.querySelector('[data-workflow-open-diff]')?.click()`);
-        const diffSheet = await polishWaitFor(h, runSheetOpen, 10000);
-        const diffSurface = await h.activeSurfaceLabel();
+        const diffScope = () =>
+            lookEval(h, `
+                const { globalStore } = await mod("app/store/jotaiStore.ts");
+                const { diffScopeAtom } = await mod("app/view/agents/diffscopeatom.ts");
+                const origin = globalStore.get(diffScopeAtom)?.repo.origin;
+                return origin == null ? null : { kind: origin.kind, runId: origin.runId, cwd: origin.cwd, base: origin.baseCommit };`);
+        let diffSurface = null;
+        for (let i = 0; i < 40 && diffSurface !== SURFACE_LABEL.files; i++) {
+            await polishNap(250);
+            diffSurface = await h.activeSurfaceLabel();
+        }
+        const origin = await diffScope();
+        const diffLanded = diffSurface === SURFACE_LABEL.files;
         await shot("open-in-diff");
         rec(
-            "7a. Open in Diff opens the scan run's sheet on the Brief",
-            diffSheet && diffSurface === SURFACE_LABEL.jarvis,
-            JSON.stringify({ diffSheet, diffSurface })
+            "7a. Open in Diff lands on the Diff surface for the scan run's commit",
+            diffLanded &&
+                diffSurface === SURFACE_LABEL.files &&
+                origin?.kind === "run" &&
+                origin.runId === ctx.runId &&
+                wfsNorm(origin.cwd) === wfsNorm(ctx.landPath || ctx.cwd),
+            JSON.stringify({ diffLanded, diffSurface, origin, landPath: ctx.landPath })
         );
         await h.goto("usage");
         const back = await polishWaitFor(h, `!!${WFS_LENS("done")}`, 5000);
@@ -3261,12 +3323,16 @@ export const workflowScan = {
         return steps;
     },
     async teardown(h, ctx) {
-        await teardownFixtureRun(
-            h,
-            ctx,
-            "workflow-scan",
-            ctx.clipStubbed ? { what: "restore the clipboard", fn: () => h.ev(NOTES_CLIP_RESTORE) } : undefined
-        );
+        await teardownFixtureRun(h, ctx, "workflow-scan", {
+            what: "restore the clipboard and delete the projects",
+            fn: async () => {
+                if (ctx.clipStubbed) await h.ev(NOTES_CLIP_RESTORE);
+                // deleteproject drops only the config entry, so the second project's channel would outlive the run
+                if (ctx.otherChannelId) await h.rpc("deletechannel", { channelid: ctx.otherChannelId });
+                for (const name of ctx.projects ?? []) await h.rpc("deleteproject", { name });
+            },
+        });
+        if (ctx.otherCwd) rmSync(ctx.otherCwd, { recursive: true, force: true });
     },
 };
 
