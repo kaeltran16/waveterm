@@ -966,3 +966,37 @@ func TestBuilderCheckRunLeavesSealDueFalse(t *testing.T) {
 		}
 	}
 }
+
+func TestCreateRunCommand_RecordsOriginTranscript(t *testing.T) {
+	ctx := context.Background()
+	stubRunServer(t, "pi", nil)
+	ch := designChannel(t, "createrun-origin")
+	const transcript = "C:/Users/me/.claude/projects/p/origin-session.jsonl"
+	_, blockId := seedAgentTab(t, ctx, nil)
+	oref := waveobj.MakeORef(waveobj.OType_Block, blockId)
+	if _, err := wstore.UpdateObjectMeta(ctx, oref, waveobj.MetaMapType{waveobj.MetaKey_AgentTranscriptPath: transcript}, false); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ name, origin, want string }{
+		{"a block with a transcript", blockId, transcript},
+		{"a block that does not exist", "no-such-block", ""},
+		{"no origin block", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rtn, err := (&WshServer{}).CreateRunCommand(ctx, wshrpc.CommandCreateRunData{
+				ChannelId: ch.OID, WorkspaceId: "ws", Goal: "g", Runtime: "pi",
+				Mode: jarvis.RunMode_Orchestrator, DeferStart: true, OriginBlockId: tc.origin,
+			})
+			if err != nil {
+				t.Fatalf("an origin link is advisory, the run must still be created: %v", err)
+			}
+			got, err := wstore.GetRun(ctx, ch.OID, rtn.Run.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.OriginTranscript != tc.want {
+				t.Fatalf("stored OriginTranscript = %q, want %q", got.OriginTranscript, tc.want)
+			}
+		})
+	}
+}
