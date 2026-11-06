@@ -8,7 +8,7 @@ import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { motion } from "motion/react";
-import { useEffect, type KeyboardEvent } from "react";
+import { useEffect, useState, type KeyboardEvent } from "react";
 import type { AgentsViewModel } from "./agents";
 import { PathTail } from "./pathtail";
 import { runtimeMeta } from "./runtimemeta";
@@ -18,6 +18,7 @@ import {
     Dot,
     ErrorBanner,
     FADE_IN,
+    FilePreview,
     HarnessMark,
     LoadFailed,
     SECTION_HEAD,
@@ -26,7 +27,6 @@ import {
 import {
     adoptSkills,
     loadSkills,
-    openSkillFile,
     selectSkill,
     setSkillKeep,
     setupSkillKeepAtom,
@@ -34,11 +34,15 @@ import {
     setupSkillSelectedAtom,
     setupSkillsErrorAtom,
 } from "./setupskillsstore";
-import { setupBusyAtom } from "./setupstore";
+import { setupBusyAtom, setupStatusAtom } from "./setupstore";
 import {
     adoptCount,
     copyDelta,
+    KEEP_LEAVE,
+    KEEP_VAULT,
+    keepHint,
     manageLabel,
+    piSkillsLine,
     skillFilePath,
     skillGroups,
     skillNote,
@@ -60,6 +64,7 @@ export function SkillsHeader() {
     const data = useAtomValue(setupSkillsAtom);
     const keep = useAtomValue(setupSkillKeepAtom);
     const busy = useAtomValue(setupBusyAtom);
+    const pi = piSkillsLine(useAtomValue(setupStatusAtom));
     if (data == null) {
         return null;
     }
@@ -67,6 +72,16 @@ export function SkillsHeader() {
     return (
         <>
             <span className="text-[12px] text-ink-mid">{skillsSummary(data)}</span>
+            {pi != null ? (
+                <span
+                    data-pi-line
+                    title={pi.text}
+                    className={cn("flex min-w-0 items-center gap-1.5 text-[12px]", TONE_TEXT[pi.tone])}
+                >
+                    <Dot tone={pi.tone} />
+                    <span className="truncate">{pi.text}</span>
+                </span>
+            ) : null}
             <button
                 type="button"
                 disabled={busy || n === 0}
@@ -184,109 +199,183 @@ function SkillsMatrix({
     );
 }
 
-function KeepChoice({ row }: { row: SkillRow }) {
+interface Choice {
+    value: string | null; // null is the row's default: nothing in the keep map
+    title: string;
+    hint: string;
+}
+
+const LEAVE_HINT = "Arc skips this skill; each harness keeps its own file.";
+
+// the rail's choices for a row, all held in the one keep map; a managed or linked row has none
+function rowChoices(row: SkillRow, columns: AgentSyncSkillColumn[]): Choice[] {
+    if (row.kind === "stray") {
+        return [
+            { value: null, title: "Leave the own copy", hint: "Arc keeps writing the vault copy everywhere else." },
+            {
+                value: KEEP_VAULT,
+                title: "Replace it with the vault copy",
+                hint: "The own copy is set aside under skills-replaced and the vault copy takes its place.",
+            },
+        ];
+    }
+    if (row.kind === "managed" || row.kind === "linked") {
+        return [];
+    }
+    if (row.needsKeep) {
+        return [
+            ...row.copies.map((c) => ({ value: c.runtime, title: `Keep ${c.label}'s copy`, hint: keepHint(columns) })),
+            { value: KEEP_LEAVE, title: "Leave these copies alone", hint: LEAVE_HINT },
+        ];
+    }
+    return [
+        { value: null, title: "Move it into the vault", hint: "Arc keeps one copy in the vault and writes it out." },
+        { value: KEEP_LEAVE, title: "Leave it where it is", hint: LEAVE_HINT },
+    ];
+}
+
+function KeepChoice({ row, columns }: { row: SkillRow; columns: AgentSyncSkillColumn[] }) {
     const keep = useAtomValue(setupSkillKeepAtom);
+    const choices = rowChoices(row, columns);
+    if (choices.length === 0) {
+        return null;
+    }
     const chosen = keep[row.name] ?? null;
-    const option = (runtime: string | null, title: string, hint: string) => (
-        <label
-            key={runtime ?? ""}
-            className={cn(
-                "flex cursor-pointer items-start gap-2 rounded px-2.5 py-2 text-[12.5px] text-secondary",
-                chosen === runtime ? "bg-surface-selected ring-1 ring-edge-strong ring-inset" : "hover:bg-surface-hover"
-            )}
-        >
-            <input
-                type="radio"
-                name={`skill-keep-${row.name}`}
-                checked={chosen === runtime}
-                onChange={() => setSkillKeep(row.name, runtime)}
-                className="mt-0.5 accent-accent"
-            />
-            <span className="flex flex-col gap-0.5">
-                <span className="font-semibold">{title}</span>
-                <span className="text-[11.5px] text-muted">{hint}</span>
-            </span>
-        </label>
-    );
     return (
         <fieldset className="m-0 flex flex-col gap-1.5 border-0 p-0">
-            <legend className={cn(SECTION_HEAD, "pb-1.5")}>When Arc manages it</legend>
-            {row.copies.map((c) =>
-                option(c.runtime, `Keep ${c.label}'s copy`, "Every harness gets it. The other copies are set aside.")
-            )}
-            {option(null, "Leave these copies alone", "Arc skips this skill; each harness keeps its own file.")}
+            <legend className={cn(SECTION_HEAD, "pb-1.5")}>
+                {row.kind === "stray" ? "The own copy" : "When Arc manages it"}
+            </legend>
+            {choices.map((o) => (
+                <label
+                    key={o.value ?? ""}
+                    className={cn(
+                        "flex cursor-pointer items-start gap-2 rounded px-2.5 py-2 text-[12.5px] text-secondary",
+                        chosen === o.value
+                            ? "bg-surface-selected ring-1 ring-edge-strong ring-inset"
+                            : "hover:bg-surface-hover"
+                    )}
+                >
+                    <input
+                        type="radio"
+                        name={`skill-keep-${row.name}`}
+                        checked={chosen === o.value}
+                        onChange={() => setSkillKeep(row.name, o.value)}
+                        className="mt-0.5 accent-accent"
+                    />
+                    <span className="flex flex-col gap-0.5">
+                        <span className="font-semibold">{o.title}</span>
+                        <span className="text-[11.5px] text-muted">{o.hint}</span>
+                    </span>
+                </label>
+            ))}
         </fieldset>
     );
 }
 
-function SkillRail({ model, row, skillsroot }: { model: AgentsViewModel; row: SkillRow; skillsroot: string }) {
+const CARD = "flex min-w-0 flex-col gap-[5px] rounded border border-border px-2.5 py-[9px]";
+
+function HarnessCardHead({ runtime, label, aside }: { runtime: string; label: string; aside?: string }) {
+    return (
+        <span className="flex items-center gap-2 text-[12.5px] font-semibold text-secondary">
+            <HarnessMark runtime={runtime} />
+            {label}
+            {aside != null ? <span className="ml-auto text-[11px] font-normal text-muted">{aside}</span> : null}
+        </span>
+    );
+}
+
+function VaultCard({ path }: { path: string }) {
+    return (
+        <div data-vault-card className={CARD}>
+            <span className="text-[12.5px] font-semibold text-secondary">Arc vault</span>
+            <PathTail path={path} />
+        </div>
+    );
+}
+
+function SkillCards({ row, path }: { row: SkillRow; path: string }) {
+    const differs = row.kind === "decide" || row.kind === "differs" || row.kind === "stray";
+    if (row.kind === "linked") {
+        return (
+            <>
+                {row.links.map((l) => (
+                    <div key={l.runtime} className={CARD}>
+                        <HarnessCardHead runtime={l.runtime} label={l.label} aside="Link" />
+                        <PathTail path={l.path} />
+                        <span title={l.target} className="truncate font-mono text-[10.5px] text-muted">
+                            Links to {l.target}
+                        </span>
+                    </div>
+                ))}
+            </>
+        );
+    }
+    return (
+        <>
+            {row.kind === "managed" || row.kind === "stray" ? <VaultCard path={path} /> : null}
+            {Object.entries(row.deltas).map(([runtime, over]) => (
+                <div key={runtime} className={CARD}>
+                    <HarnessCardHead runtime={runtime} label={runtimeMeta(runtime).label} />
+                    <span className="font-mono text-[10.5px] text-muted">Overrides {over.join(", ")}</span>
+                </div>
+            ))}
+            {row.copies.map((c) => (
+                <div key={c.runtime} className={CARD}>
+                    <HarnessCardHead runtime={c.runtime} label={c.label} aside={differs ? copyDelta(c) : undefined} />
+                    <PathTail path={c.path} />
+                </div>
+            ))}
+        </>
+    );
+}
+
+function SkillRail({
+    row,
+    columns,
+    skillsroot,
+}: {
+    row: SkillRow;
+    columns: AgentSyncSkillColumn[];
+    skillsroot: string;
+}) {
     const keep = useAtomValue(setupSkillKeepAtom);
-    const busy = useAtomValue(setupBusyAtom);
-    const differs = row.kind === "decide" || row.kind === "differs";
-    const card = "flex flex-col gap-[5px] rounded border border-border px-2.5 py-[9px]";
+    // the preview stays in the rail, so Setup keeps its place and Code's project is never repointed
+    const [preview, setPreview] = useState(false);
+    const path = skillFilePath(row, skillsroot, keep);
+    const differs = row.kind === "decide" || row.kind === "differs" || row.kind === "stray";
     return (
         <motion.aside
-            key={row.name}
             {...FADE_IN}
             aria-label="Skill detail"
             className="flex w-[360px] flex-none flex-col gap-3.5 overflow-y-auto border-l border-border bg-surface p-4"
         >
             <div className="flex flex-col gap-1.5">
                 <div className="font-mono text-[14px] font-medium text-primary">{row.name}</div>
-                <div className="text-[12.5px] leading-[1.5] text-ink-mid">{skillNote(row)}</div>
+                <div className="text-[12.5px] leading-[1.5] text-ink-mid">{skillNote(row, columns)}</div>
             </div>
             <div className="flex flex-col gap-2">
                 <div className={SECTION_HEAD}>{differs ? "What differs" : "Where it lives"}</div>
-                {row.kind === "managed" ? (
-                    <>
-                        <div className={card}>
-                            <span className="text-[12.5px] font-semibold text-secondary">Arc vault</span>
-                            <span className="truncate font-mono text-[10.5px] text-muted">
-                                {skillFilePath(row, skillsroot, keep)}
-                            </span>
-                        </div>
-                        {Object.entries(row.deltas).map(([runtime, over]) => (
-                            <div key={runtime} className={card}>
-                                <span className="flex items-center gap-2 text-[12.5px] font-semibold text-secondary">
-                                    <HarnessMark runtime={runtime} />
-                                    {runtimeMeta(runtime).label}
-                                </span>
-                                <span className="font-mono text-[10.5px] text-muted">Overrides {over.join(", ")}</span>
-                            </div>
-                        ))}
-                    </>
-                ) : (
-                    row.copies.map((c) => (
-                        <div key={c.runtime} className={card}>
-                            <span className="flex items-center gap-2 text-[12.5px] font-semibold text-secondary">
-                                <HarnessMark runtime={c.runtime} />
-                                {c.label}
-                                {differs ? (
-                                    <span className="ml-auto text-[11px] font-normal text-muted">{copyDelta(c)}</span>
-                                ) : null}
-                            </span>
-                            <PathTail path={c.path} />
-                        </div>
-                    ))
-                )}
+                <SkillCards row={row} path={path} />
             </div>
-            {row.needsKeep ? <KeepChoice row={row} /> : null}
-            <div className="flex-1" />
+            <KeepChoice row={row} columns={columns} />
+            {preview ? <FilePreview path={path} className="min-h-[240px] flex-1" /> : <div className="flex-1" />}
             <div className="flex gap-2">
                 <button
                     type="button"
-                    disabled={busy}
-                    onClick={() => fireAndForget(() => openSkillFile(model, skillFilePath(row, skillsroot, keep)))}
+                    aria-pressed={preview}
+                    onClick={() => setPreview((v) => !v)}
                     className={BTN_SECONDARY}
                 >
-                    Open SKILL.md
+                    Preview SKILL.md
                 </button>
             </div>
         </motion.aside>
     );
 }
 
-export function SkillsTab({ model }: { model: AgentsViewModel }) {
+// the model prop is the surface's common shape; the tab no longer opens anything in Code
+export function SkillsTab(_props: { model: AgentsViewModel }) {
     const { data, groups } = useSkillGroups();
     const selectedName = useAtomValue(setupSkillSelectedAtom);
     const error = useAtomValue(setupSkillsErrorAtom);
@@ -316,7 +405,13 @@ export function SkillsTab({ model }: { model: AgentsViewModel }) {
                             />
                         </div>
                         {selected != null ? (
-                            <SkillRail model={model} row={selected} skillsroot={data.skillsroot} />
+                            // keyed by skill, so a new pick fades in with its preview closed
+                            <SkillRail
+                                key={selected.name}
+                                row={selected}
+                                columns={data.columns ?? []}
+                                skillsroot={data.skillsroot}
+                            />
                         ) : null}
                     </>
                 )}

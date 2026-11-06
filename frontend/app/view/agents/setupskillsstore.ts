@@ -4,14 +4,13 @@
 // The Skills tab's state and its agentsync loaders. Module-level atoms, like setupstore.ts: the keep
 // choices must survive a surface switch.
 
-import { openFileInCode } from "@/app/cockpit/openfilestore";
+import { pushToast } from "@/app/cockpit/notificationstore";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type PrimitiveAtom } from "jotai";
-import type { AgentsViewModel } from "./agents";
 import { busy, errText, READ_TIMEOUT_MS } from "./setupstore";
-import { adoptKeep, type SkillKeep } from "./skillsmatrix";
+import { adoptKeep, adoptResultText, adoptSkip, KEEP_LEAVE, type SkillKeep } from "./skillsmatrix";
 
 export const setupSkillsAtom = atom<CommandAgentSyncSkillsRtnData | null>(
     null
@@ -37,29 +36,35 @@ export function selectSkill(name: string): void {
     globalStore.set(setupSkillSelectedAtom, name);
 }
 
-export function setSkillKeep(name: string, runtime: string | null): void {
+// choice is a runtime, KEEP_VAULT or KEEP_LEAVE; null returns the skill to its default
+export function setSkillKeep(name: string, choice: string | null): void {
     const { [name]: _, ...rest } = globalStore.get(setupSkillKeepAtom);
-    globalStore.set(setupSkillKeepAtom, runtime == null ? rest : { ...rest, [name]: runtime });
+    globalStore.set(setupSkillKeepAtom, choice == null ? rest : { ...rest, [name]: choice });
 }
 
-// Moves every adoptable skill into the vault; an undecided one without a keep stays where it is.
+// Moves every adoptable skill into the vault; an undecided or left-alone one stays where it is. The toast
+// counts what the reply says happened, not what the matrix showed before the click.
 export function adoptSkills(): Promise<void> {
     return busy(setupSkillsErrorAtom, async () => {
         const data = globalStore.get(setupSkillsAtom);
         if (data == null) {
             return;
         }
-        const keep = adoptKeep(data, globalStore.get(setupSkillKeepAtom));
+        const choices = globalStore.get(setupSkillKeepAtom);
+        const sent = { keep: adoptKeep(data, choices), skip: adoptSkip(data, choices) };
         // a failed adopt may have moved some skills already, so the matrix is re-read either way
         try {
-            await RpcApi.AgentSyncAdoptCommand(TabRpcClient, { apply: true, keep });
-            globalStore.set(setupSkillKeepAtom, {});
+            const rtn = await RpcApi.AgentSyncAdoptCommand(TabRpcClient, { apply: true, ...sent });
+            pushToast({ title: adoptResultText(rtn, sent), message: "", level: "info" });
+            // a snapshot moved nothing, so every choice still stands; otherwise only "leave it" outlives the move
+            if (!rtn.dryrun) {
+                globalStore.set(
+                    setupSkillKeepAtom,
+                    Object.fromEntries(Object.entries(choices).filter(([, c]) => c === KEEP_LEAVE))
+                );
+            }
         } finally {
             await loadSkills();
         }
     });
-}
-
-export function openSkillFile(model: AgentsViewModel, path: string): Promise<void> {
-    return busy(setupSkillsErrorAtom, () => openFileInCode(model, path));
 }

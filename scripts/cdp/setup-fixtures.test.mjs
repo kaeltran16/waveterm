@@ -500,6 +500,27 @@ describe("setup fixture adopt", () => {
         expect(unmanagedNames(rt).size).toBe(5);
     });
 
+    it("answers a snapshot adopt with what it would move, honoring keep and skip", async () => {
+        const { rt } = runtimeFor("setup-skills");
+        rt.control("snapshotStore", { on: true });
+        const res = await rt.call("agentsyncadopt", { apply: true, keep: { "commit-helper": "vault" }, skip: ["fm-delta"] });
+        expect(res.dryrun).toBe(true);
+        expect(new Set(res.moves.map((m) => m.name))).toEqual(
+            new Set(["identical-copy", "differs-body", "codex-only-skill", "commit-helper"])
+        );
+        expect(res.unresolved).toEqual(["differs-body"]);
+        expect(unmanagedNames(rt).size).toBe(5);
+    });
+
+    it("links a skill that is neither a vault skill nor a copy, to a folder under its own temp root", () => {
+        const { fixture } = runtimeFor("setup-skills");
+        const [link] = fixture.skills.linked;
+        const rel = relative(fixture.ownedDir, link.target);
+        expect(rel.startsWith("..") || rel === link.target).toBe(false);
+        expect(fixture.skills.skills.some((k) => k.name === link.name)).toBe(false);
+        expect(fixture.skills.unmanaged.some((m) => m.name === link.name)).toBe(false);
+    });
+
     it("compares each copy against the chosen seed, in both keep directions", async () => {
         const { rt } = runtimeFor();
         const movesFor = async (name, keep) =>
