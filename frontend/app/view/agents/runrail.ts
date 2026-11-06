@@ -39,10 +39,10 @@ function outcome(task: TaskNode): string {
     return task.merged ? "landed" : task.state;
 }
 
-// landingBranch is the branch a run's lanes land on: its own wave/<id> tree's branch, shortened as the lead card
-// names it, else the base it lands straight into. Unknown for a run that recorded neither.
+// landingBranch is the branch a run's lanes land on: its own tree's wave/<full run id>, the name pkg/orchestrate
+// gives it, else the base it lands straight into. Unknown for a run that recorded neither.
 export function landingBranch(run: Pick<RunInfo, "runId" | "landPath" | "base">): string | undefined {
-    return run.landPath ? `wave/${run.runId.slice(0, 8)}` : run.base || undefined;
+    return run.landPath ? `wave/${run.runId}` : run.base || undefined;
 }
 
 // endedLine is the banner over an ended task's transcript: what the task came to, and that its session is over.

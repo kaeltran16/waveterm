@@ -365,6 +365,10 @@ describe("leadStandingBy", () => {
         );
         expect(leadStandingBy({ atPrompt: true }, { ...run, dag: undefined })).toBe(false);
     });
+
+    it("never reads an asking lead as standing by: it waits on you, not the engine", () => {
+        expect(leadStandingBy({ atPrompt: true, state: "asking" }, run)).toBe(false);
+    });
 });
 
 describe("runEngineBusy", () => {
@@ -535,6 +539,15 @@ describe("runInfoOf", () => {
             dag,
             digest,
         });
+    });
+
+    it("carries the lead run's worker route, for the footer before a dag exists", () => {
+        const lead = { oid: "r-3", workerroute: { runtime: "claude", model: "claude-haiku-5-5" } } as unknown as Run;
+        expect(runInfoOf("r-3", lead, undefined, undefined).workerRoute).toEqual({
+            runtime: "claude",
+            model: "claude-haiku-5-5",
+        });
+        expect(runInfoOf("r-2", undefined, undefined, undefined).workerRoute).toBeUndefined();
     });
 
     it("reads a run it has not loaded as an untitled run with no base", () => {

@@ -4,7 +4,9 @@
 // has every task landed and its Final stage failed in round 1, finalizing. The roster is set in the page
 // (setPageRoster), and what only a live worker or the engine's event log would make is injected in the page too:
 // the digest's ask reasons, the child asks, and run events. Used by the Cockpit and Agent scenarios that check them.
-import { writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
     arrangeHeldRun,
@@ -56,7 +58,15 @@ export const LIVE_IDS = {
     r9: "fx-live-ar9",
     b1: "fx-live-b1",
     plain: "fx-live-plain",
+    leadD: "fx-live-lead-d",
+    leadE: "fx-live-lead-e",
 };
+const TASKS_D = [
+    { id: "t-1", label: "split the reader" },
+    { id: "t-2", label: "parse the header" },
+    { id: "t-3", label: "parse the body", deps: ["t-2"] },
+];
+export const PHASE2_WORKER_MODEL = "claude-haiku-5-5";
 
 // makes the three runs; ctx.live holds them by key, ctx.held (for teardown) every run made
 export async function arrangeLiveRuns(h, ctx) {
@@ -152,6 +162,65 @@ export function liveRoster(ctx) {
 }
 
 export const setLiveRoster = (h, ctx) => setPageRoster(h, liveRoster(ctx));
+
+// Phase 2's lead card states, made after phase 1's steps, whose layout checks count the cards on screen. Run D is held
+// with its plan under review in round 2, t-2 done but waiting on its lane's tip t-3, and its own landing tree; run E
+// is an orchestrator run still planning (no dag), created with a worker route. ctx.phase2 holds them; ctx.held (for
+// teardownHeldRuns) every run made.
+export async function arrangePhase2Runs(h, ctx) {
+    const now = Date.now();
+    const D = await arrangeHeldRun(h, ctx, { key: "D", title: "verify live-run D: plan review and lanes", tasks: TASKS_D });
+    const d2 = await heldStandIn(h, D, "t-2");
+    const d3 = await heldStandIn(h, D, "t-3");
+    const reviewer = await heldStandIn(h, D, "plan reviewer");
+    // mergerequired: a done task not at its lane's tip reads mergestate "waiting" in the engine's digest
+    await seedHeldRun(
+        h,
+        D,
+        {
+            "t-2": { state: "done", runid: d2, firstactivity: now - 8 * M },
+            "t-3": { state: "running", runid: d3, firstactivity: now - 3 * M, spawnedts: now - 3 * M },
+        },
+        {
+            mergerequired: true,
+            planreview: { state: "reviewing", round: 2, reviewers: [{ lens: "followup", state: "reviewing", runid: reviewer, startedts: now - 2 * M }] },
+        }
+    );
+    D.landPath = join(D.cwd, "land");
+    await fstWriteRun(h, D.runId, (r) => ({ ...r, landpath: D.landPath }));
+
+    // a planning run is a lead's run with no dag yet: arrangeHeldRun would submit one, so E is made here
+    const cwd = mkdtempSync(join(tmpdir(), "verify-held-E-"));
+    const E = { key: "E", title: "verify live-run E: planning", cwd, children: {} };
+    (ctx.held ??= []).push(E);
+    execFileSync("git", ["init", "-q", "--initial-branch=main"], { cwd, stdio: "pipe" });
+    E.ws = (await h.rpc("workspacelist", null))[0].workspacedata.oid;
+    E.channelId = (await h.rpc("createchannel", { name: "verify-held-E", projectpath: cwd })).oid;
+    const created = await h.rpc("createrun", {
+        channelid: E.channelId,
+        workspaceid: E.ws,
+        goal: `${E.title}: do nothing`,
+        runtime: "claude",
+        mode: "orchestrator",
+        deferstart: true,
+        workerroute: { runtime: "claude", model: PHASE2_WORKER_MODEL },
+    });
+    E.runId = created.run.id;
+    ctx.phase2 = { D, E };
+}
+
+// the live roster plus run D's and run E's leads, each at its prompt with transcript lines
+export function phase2Roster(ctx) {
+    const { D, E } = ctx.phase2;
+    const base = { project: "verify-live-run", agent: "claude", model: "opus", state: "working", atPrompt: true };
+    return [
+        ...liveRoster(ctx),
+        { ...base, id: LIVE_IDS.leadD, name: "live-run lead D", task: "lead run D", activeMs: 12 * M, runId: D.runId, blockId: "fx-blk-live-lead-d",
+            previousInfo: [msg("Submitted the plan: 3 tasks in 2 lanes."), msg("Waiting on the plan review.")] },
+        { ...base, id: LIVE_IDS.leadE, name: "live-run lead E", task: "lead run E", activeMs: 2 * M, runId: E.runId, blockId: "fx-blk-live-lead-e",
+            previousInfo: [msg("Reading the goal.")] },
+    ];
+}
 
 // the digest's ask reasons and the run's child asks: only a live worker's question makes them. The next digest load
 // or asks refresh replaces them, so a step re-injects before it reads them

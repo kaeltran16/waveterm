@@ -11,6 +11,8 @@ import { formatTokens, type AgentVM } from "./agentsviewmodel";
 import { workerNeedsYou } from "./agenttreemodel";
 import { finalRowFocusId, finalStageActivity, finalStageView, type FinalTone } from "./finalstage";
 import {
+    endedPlanReviewers,
+    endedReviewerId,
     endedWorkerId,
     failedWithTranscript,
     formatLeft,
@@ -27,8 +29,9 @@ import {
     type RunInfo,
 } from "./runlineage";
 import { finalFailedLine, finishedRunLabel, runComplete } from "./runmodel";
+import { landingBranch } from "./runrail";
 import { finalSlot, taskStrip, treeStripLabel, type TaskStrip } from "./runstrip";
-import { detailOf } from "./runtimeline";
+import { detailOf, planReviewLensTitle } from "./runtimeline";
 import { modelLabel } from "./session-models/sessionviewmodel";
 
 export type RowTone = "run" | "ask" | "soft" | "warn" | "err" | "ok" | "muted" | "wait";
@@ -74,8 +77,10 @@ export interface TaskRowVM {
     actions: RowAction[];
 }
 
-// the Final row's task id: task ids are plan ids, never this
+// the Final row's and the Plan review row's task ids: task ids are plan ids, never these
 export const FINAL_ROW_ID = "@final";
+export const PLAN_REVIEW_ROW_ID = "@planreview";
+const STAGE_ROW_IDS = new Set([FINAL_ROW_ID, PLAN_REVIEW_ROW_ID]);
 
 const FINAL_ROW_TONE: Record<FinalTone, RowTone> = { wait: "wait", run: "run", pass: "ok", fail: "err", warn: "warn" };
 const FINAL_ROW_TAG: Record<FinalTone, string> = {
@@ -105,7 +110,6 @@ export interface LeadCardVM {
     // reader; none before a plan exists
     bar?: { strip: TaskStrip; final?: FinalTone; label: string };
     progress: { done: number; total: number };
-    elapsed: string;
     // what the lead is doing, and what the run has cost so far
     activity: string;
     cost: string;
@@ -191,6 +195,23 @@ function taskRow(input: LeadCardInput, task: TaskNode): TaskRowVM {
                     tag: mergeWaitTag(td.mergegatets, now),
                     sub: join(task.id, laneText, "merge ready"),
                     openId: endedWorkerId(run.runId, task.id),
+                };
+            }
+            // done but behind its lane: it lands when the lane's tip does, so it has not landed yet
+            if (td?.mergestate === "waiting") {
+                const tip = laneTip(run.digest, task.id);
+                return {
+                    ...base,
+                    kind: "wait",
+                    tone: "muted",
+                    age: undefined,
+                    openId: undefined,
+                    sub: join(
+                        task.id,
+                        laneText,
+                        "done",
+                        tip && tip !== task.id ? `lands with ${tip}` : "waiting to land"
+                    ),
                 };
             }
             const ranMs = run.digest?.durations?.tasks?.find((t) => t.taskid === task.id)?.runms;
@@ -306,6 +327,11 @@ function taskRow(input: LeadCardInput, task: TaskNode): TaskRowVM {
     return { ...base, sub: join(task.id, laneText, worker.activity), actions: ["tell"] };
 }
 
+// the last task of a task's lane, which the lane lands with
+function laneTip(digest: DagStatusDigest | undefined, taskId: string): string | undefined {
+    return digest?.lanes?.find((lane) => lane.includes(taskId))?.at(-1);
+}
+
 /** Pure: what a waiting row waits for, short enough for the row's end. */
 export function waitTag(deps: string[], slot: boolean): string {
     if (deps.length > 1) {
@@ -328,7 +354,7 @@ export function mergeWaitTag(mergeGateTs: number | undefined, now: number): stri
 /** Pure: how many tasks a cancel would stop: a worker, a reviewer or a merge's Verify at work. A failed or stalled
  *  task waits on a judgment, and the merge gate's worker has finished. */
 export function runningCount(rows: Pick<TaskRowVM, "state" | "taskId">[]): number {
-    return rows.filter((r) => r.taskId !== FINAL_ROW_ID && CANCEL_STOPS.has(r.state)).length;
+    return rows.filter((r) => !STAGE_ROW_IDS.has(r.taskId) && CANCEL_STOPS.has(r.state)).length;
 }
 
 /** Pure: the cancel panel's question. */
@@ -372,21 +398,65 @@ function finalRow(input: LeadCardInput): TaskRowVM | undefined {
     };
 }
 
+/** Pure: the plan review's row on the card, before the tasks it gates: what is at work while it reviews, the lead's
+ *  decision once it failed, and folded with the done tasks once it passed or you accepted it. It opens the current
+ *  round's newest reviewer, live in the roster or read back from its transcript. */
+function planReviewRow(input: LeadCardInput): TaskRowVM | undefined {
+    const { run } = input;
+    const pr = run.dag?.planreview;
+    if (pr == null) {
+        return undefined;
+    }
+    const newest = (pr.reviewers ?? [])
+        .filter((r) => r.runid)
+        .sort((a, b) => (b.startedts ?? 0) - (a.startedts ?? 0))[0];
+    const live = newest ? input.roster.find((a) => a.runId === newest.runid) : undefined;
+    const ended = newest != null && endedPlanReviewers(run).includes(newest);
+    const base: TaskRowVM = {
+        key: rowKey(input.cardId, PLAN_REVIEW_ROW_ID),
+        taskId: PLAN_REVIEW_ROW_ID,
+        state: pr.state,
+        label: "Plan review",
+        sub: "",
+        tone: "run",
+        kind: "live",
+        tag: pr.round > 1 ? `round ${pr.round}` : undefined,
+        needsYou: false,
+        openId: live?.id ?? (ended ? endedReviewerId(run.runId, newest.runid) : undefined),
+        openLabel: live ? "Open reviewer" : "Open transcript",
+        actions: [],
+    };
+    switch (pr.state) {
+        case "failed":
+            return { ...base, tone: "wait", sub: "failed · lead deciding" };
+        case "passed":
+            return { ...base, kind: "done", tone: "ok", sub: "passed" };
+        case "accepted":
+            return { ...base, kind: "done", tone: "muted", sub: "accepted by you" };
+    }
+    const atWork = (pr.reviewers ?? []).filter((r) => r.state === "reviewing").map((r) => planReviewLensTitle(r.lens));
+    return { ...base, sub: atWork.join(", ") || "reviewing" };
+}
+
 /** Pure: a run's lead card. Rows keep plan order; live rows list first, then what waits, then what is done. The
  *  final stage's row closes the live rows, or the done ones once it passed. */
 export function buildLeadCard(input: LeadCardInput): LeadCardVM {
     const { run, lead } = input;
     const dag = run.dag;
-    const all = (dag?.tasks ?? []).map((t) => taskRow(input, t));
+    const review = planReviewRow(input);
+    const all = [...(review ? [review] : []), ...(dag?.tasks ?? []).map((t) => taskRow(input, t))];
     const final = finalRow(input);
     if (final) {
         all.push(final);
     }
     const askCount = all.filter((r) => r.needsYou).length;
-    const workers = dag?.workerroute;
-    const workerModel = modelLabel(workers?.model) || workers?.runtime || "default";
+    // no route means the workers inherit the lead's
+    const workers = dag?.workerroute ?? run.workerRoute;
+    const workerModel = modelLabel(workers?.model) || workers?.runtime || "as lead";
     const leadModel = lead ? `lead ${lead.model || lead.agent || ""}`.trim() : "no lead";
     const strip = taskStrip(dag, run.digest);
+    // only a run's own tree is named: one landing straight on its base names nothing new
+    const branch = run.landPath ? landingBranch(run) : undefined;
     return {
         rows: all.filter((r) => r.kind === "live"),
         waiting: all.filter((r) => r.kind === "wait"),
@@ -402,17 +472,16 @@ export function buildLeadCard(input: LeadCardInput): LeadCardVM {
         complete: runComplete(run),
         bar: strip ? { strip, final: finalSlot(dag), label: treeStripLabel(dag, run.digest) } : undefined,
         progress: runProgress(dag),
-        elapsed: runElapsed(run, input.now),
         activity: leadActivity(run, lead, input.leadDown),
         cost: runCost(run.digest?.report?.workerms, input.tokens),
         settings: [
             `${leadModel} · workers ${workerModel}`,
             dag ? `${dag.parallelism} at a time` : "",
-            run.landPath ? `lands on wave/${run.runId.slice(0, 8)}` : "",
+            branch ? `lands on ${branch}` : "",
         ]
             .filter(Boolean)
             .join(" · "),
-        settingsTitle: run.landPath ? `lands on wave/${run.runId}` : undefined,
+        settingsTitle: branch ? `lands on ${branch}` : undefined,
     };
 }
 
@@ -466,6 +535,9 @@ export function leadActivity(run: RunInfo, lead: AgentVM | undefined, leadDown: 
     if (lead?.startError != null) {
         return `lead failed to start · ${lead.startError}`;
     }
+    if (lead?.state === "asking") {
+        return "asking you";
+    }
     // past its tasks, the final stage is what the run is doing
     const final = run.dag?.final;
     if (final?.state === "failed") {
@@ -474,6 +546,10 @@ export function leadActivity(run: RunInfo, lead: AgentVM | undefined, leadDown: 
     const finalStep = finalStageActivity(final);
     if (finalStep != null) {
         return `final verification · ${finalStep}`;
+    }
+    const review = run.dag?.planreview;
+    if (review?.state === "reviewing") {
+        return `plan review · round ${review.round}`;
     }
     if (leadDown) {
         return "lead down · its events come to you";
@@ -492,7 +568,8 @@ export function leadActivity(run: RunInfo, lead: AgentVM | undefined, leadDown: 
 /** Pure: how long a run has gone, from its dag's creation; a finished run's from the digest, which knows when it ended. */
 export function runElapsed(run: RunInfo, now: number): string {
     const ms = runFinished(run) ? run.digest?.durations?.elapsedms : run.dag?.createdts ? now - run.dag.createdts : 0;
-    return ms ? formatElapsed(ms) : "";
+    // a dag stamped ahead of this clock has not started by it
+    return ms && ms > 0 ? formatElapsed(ms) : "";
 }
 
 /** Pure: what a run has cost so far, leaving out what is not known. */

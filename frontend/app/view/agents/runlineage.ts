@@ -33,6 +33,8 @@ export interface RunInfo {
     base?: string;
     // where the run's branch stands on its way back into its base, once the run is done
     land?: RunLand;
+    // the lead run's pin for its workers; the dag's own wins once it exists, and none means they run as the lead
+    workerRoute?: RoutePin;
     dag?: TaskGroup;
     digest?: DagStatusDigest;
 }
@@ -66,6 +68,7 @@ export function runInfoOf(
         landPath: leadRun?.landpath,
         base: leadRun?.basebranch || undefined,
         land: leadRun?.land,
+        workerRoute: leadRun?.workerroute,
         dag,
         digest,
     };
@@ -448,10 +451,20 @@ export function runProgress(dag: TaskGroup | undefined): { done: number; total: 
 }
 
 // leadStandingBy reports a lead sitting at its prompt while its run's plan executes: between wakes it only waits
-// for the engine, and the roster's folding of waiting into working would read that as busy.
-export function leadStandingBy(agent: Pick<AgentVM, "atPrompt">, run: RunInfo): boolean {
+// for the engine, and the roster's folding of waiting into working would read that as busy. An asking lead waits
+// on you, not the engine.
+export function leadStandingBy(
+    agent: Pick<AgentVM, "atPrompt"> & Partial<Pick<AgentVM, "state">>,
+    run: RunInfo
+): boolean {
     const status = run.dag?.status;
-    return agent.atPrompt === true && run.dag != null && status !== "done" && status !== "cancelled";
+    return (
+        agent.atPrompt === true &&
+        agent.state !== "asking" &&
+        run.dag != null &&
+        status !== "done" &&
+        status !== "cancelled"
+    );
 }
 
 // states in which the engine has a session or command at work: tasks.state, planreview.state, final.state

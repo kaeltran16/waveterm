@@ -261,9 +261,9 @@ describe("laneRows past the worker", () => {
 describe("endedLine", () => {
     it("says what a done task came to and that its session ended", () => {
         const digest = { report: { commits: [{ taskid: "t-1", commit: "a1b2c3d4e5f6" }] } } as DagStatusDigest;
-        const run = { runId: "0123456789abcdef", landPath: "/wt/01234567", digest };
+        const run = { runId: "b85abade-fc46-491e-89bf-533150cb7a47", landPath: "/wt/b85abade", digest };
         expect(endedLine(task("t-1", "done", { merged: true }), run)).toBe(
-            "t-1 · do t-1 landed on wave/01234567 as a1b2c3d · session ended"
+            "t-1 · do t-1 landed on wave/b85abade-fc46-491e-89bf-533150cb7a47 as a1b2c3d · session ended"
         );
         expect(endedLine(task("t-2", "done", { merged: true }), undefined)).toBe("t-2 · do t-2 landed · session ended");
         expect(endedLine(task("t-3", "done"), run)).toBe("t-3 · do t-3 done · session ended");
@@ -276,8 +276,10 @@ describe("endedLine", () => {
         );
         expect(endedLine(task("t-2", "verify-failed"), run)).toBe("t-2 · do t-2 verify failed · session ended");
     });
-    it("lands a run with its own tree on wave/<id>, else on its base, else names none", () => {
-        expect(landingBranch({ runId: "0123456789", landPath: "/x" })).toBe("wave/01234567");
+    it("lands a run with its own tree on wave/<full id>, the branch the engine creates, else on its base", () => {
+        expect(landingBranch({ runId: "b85abade-fc46-491e-89bf-533150cb7a47", landPath: "/x" })).toBe(
+            "wave/b85abade-fc46-491e-89bf-533150cb7a47"
+        );
         expect(landingBranch({ runId: "R", base: "main" })).toBe("main");
         expect(landingBranch({ runId: "R" })).toBeUndefined();
     });
