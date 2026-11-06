@@ -744,9 +744,50 @@ export const agentTreeRail = {
             nested != null && nested.sub && nested.subGuides === 1,
             JSON.stringify(nested)
         );
+
+        // the avatar at bottom-left sits over the foot of the tree: scrolled to its end, the last row clears it
+        ctx.prevCorner = await h.ev(`localStorage.getItem("wave:pet.corner")`);
+        const foot = await lookEval(h, `
+            const { setPetCorner } = await mod("app/view/jarvis/petstore.ts");
+            setPetCorner("bottom-left");
+            const avatar = () => document.querySelector('[aria-label="Jarvis condition"]');
+            const list = () => document.querySelector("[data-agent-tree] .overflow-y-auto");
+            await until(() => (avatar()?.getBoundingClientRect().left ?? 9999) < 330);
+            const l = list();
+            if (!l || l.lastElementChild == null) return { list: false };
+            l.scrollTop = l.scrollHeight;
+            await nap(300);
+            const last = l.lastElementChild.getBoundingClientRect();
+            const a = avatar().getBoundingClientRect();
+            const hit = last.left < a.right && last.right > a.left && last.top < a.bottom && last.bottom > a.top;
+            // a short roster never scrolls, so also check the room the list keeps below its last row
+            const room = l.getBoundingClientRect().bottom - parseFloat(getComputedStyle(l).paddingBottom);
+            return {
+                list: true,
+                scrollable: l.scrollHeight > l.clientHeight,
+                roomEnds: Math.round(room),
+                lastBottom: Math.round(last.bottom),
+                avatarTop: Math.round(a.top),
+                avatarLeft: Math.round(a.left),
+                hit,
+            };
+        `);
+        rec(
+            "10. avatar bottom-left: the Agent tree scrolled to its end leaves its last row clear of the avatar",
+            foot.list === true && foot.hit === false && foot.lastBottom <= foot.avatarTop && foot.roomEnds <= foot.avatarTop,
+            JSON.stringify(foot)
+        );
         return steps;
     },
     async teardown(h, ctx) {
+        // undefined: step 10 never moved the corner
+        if (ctx.prevCorner !== undefined) {
+            await lookEval(h, `
+                const { setPetCorner } = await mod("app/view/jarvis/petstore.ts");
+                setPetCorner(${JSON.stringify(ctx.prevCorner ?? "bottom-right")});
+            `);
+            if (ctx.prevCorner == null) await h.ev(`localStorage.removeItem("wave:pet.corner")`);
+        }
         await teardownFixtureRun(h, ctx, "agent-tree-rail", {
             what: "restore the rail preference",
             fn: () =>
@@ -2544,11 +2585,16 @@ export const termLinkTooltip = {
         }
         const shown = at != null && (await polishWaitFor(h, `/click to open link/.test(document.body.innerText)`, 2000));
         const look = shown === true ? await h.ev(LOOK_TOOLTIP_STYLE) : null;
+        const chip = shown === true ? await h.ev(`[...document.querySelectorAll("[data-tooltip] kbd")].map((k) => k.textContent).join("|")`) : null;
         await h.shot(lookShot("term-link-tooltip"));
         const modKey = process.platform === "darwin" ? "Cmd" : "Ctrl";
         return [
             { step, ok: ready && shown === true, detail: JSON.stringify({ ready, rect, at, shown }) },
-            { step: `the tooltip names this platform's modifier (${modKey}-click)`, ok: look?.text === `${modKey}-click to open link`, detail: JSON.stringify(look) },
+            {
+                step: `the tooltip reads ${modKey} + click to open link, the modifier in a kbd chip`,
+                ok: look?.text.replace(/\s+/g, " ").trim() === `${modKey} + click to open link` && chip === modKey,
+                detail: JSON.stringify({ look, chip }),
+            },
             { step: "it wears the shared tooltip look", ok: tooltipLookOk(look), detail: JSON.stringify(look) },
         ];
     },

@@ -135,6 +135,18 @@ describe("togglePeek", () => {
         expect(rpc.FileReadCommand).not.toHaveBeenCalled();
     });
 
+    it("gives a folder the folder state, opened in Code at its repo-relative path, without reading it", async () => {
+        rpc.FileInfoCommand.mockResolvedValue({ isdir: true, size: 4096, mimetype: "directory" });
+
+        await togglePeek({ ...anchor, raw: "src" });
+
+        expect(globalStore.get(codePeekAtom)?.file).toEqual({
+            kind: "folder",
+            open: { projectPath: "C:/repo", rel: "docs/src" },
+        });
+        expect(rpc.FileReadCommand).not.toHaveBeenCalled();
+    });
+
     it("gates a file over the view limit without reading it", async () => {
         rpc.FileInfoCommand.mockResolvedValue(fileInfo(MAX_VIEW_BYTES + 1));
 

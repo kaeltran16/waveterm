@@ -76,8 +76,9 @@ const RIPPLE_EVENT_KIND = "bg-agent-done";
 // xterm-viewport), while on Jarvis and Cockpit it covers only a generic scroll container. So the pet
 // design's finding survives the growth: the two corners are blocked on OPPOSITE surfaces, never the same
 // one. Bottom-right sits on the Agent terminal and is clear on Jarvis and Cockpit; bottom-left sits on the
-// Jarvis Stage's thread list and is clear on Agent and Cockpit. Dragging between them still escapes every
-// collision, which is the whole reason the corner pair is the escape hatch and no third corner is needed.
+// Jarvis Stage's thread list and on the bottom of the Agent tree (which pads its list to make room), and
+// is clear on Cockpit. Dragging between them still escapes every collision, which is the whole reason the
+// corner pair is the escape hatch and no third corner is needed.
 // Only bottom-right was re-probed at the new size; bottom-left rests against the thread list's own x-range
 // (86-331), which a 20px growth does not move it out of.
 const CORNER_CLASS: Record<PetCorner, string> = {

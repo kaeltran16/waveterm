@@ -115,6 +115,7 @@ describe("peekModes", () => {
             { kind: "toolarge", size: 10, open },
             { kind: "error", message: "boom" },
             { kind: "nocwd" },
+            { kind: "folder", open },
         ];
         for (const f of states) {
             const m = peekModes("C:\\repo\\a.md", f);

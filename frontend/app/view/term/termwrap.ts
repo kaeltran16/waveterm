@@ -36,7 +36,14 @@ import {
     handleOsc7Command,
     type ShellIntegrationStatus,
 } from "./osc-handlers";
-import { fileLinkRange, findFileLinks, isPeekModifier, type FileLinkMatch } from "./termfilelinks";
+import { HoverDelayMs } from "./term-tooltip";
+import {
+    findWrappedFileLinks,
+    isPeekModifier,
+    type FileLinkMatch,
+    type LinkRange,
+    type WrappedRow,
+} from "./termfilelinks";
 import {
     bufferLinesToText,
     createTempFileFromBlob,
@@ -69,6 +76,8 @@ function detectWebGLSupport(): boolean {
 export const WebGLSupported = detectWebGLSupport();
 let loggedWebGL = false;
 
+// bufferLine is the link's last row, so a card under it leaves a wrapped path in view; match offsets are into its
+// logical (wrap-joined) line
 export type FileLinkHit = { match: FileLinkMatch; bufferLine: number };
 
 export type FileLinkHandler = {
@@ -501,23 +510,63 @@ export class TermWrap {
         if (this.fileLinkHandler == null) {
             return undefined;
         }
+        const buf = this.terminal.buffer.active;
         const bufferLine = bufferLineNumber - 1;
-        const row = this.terminal.buffer.active.getLine(bufferLine);
-        if (row == null) {
+        if (buf.getLine(bufferLine) == null) {
             return undefined;
         }
-        const links = findFileLinks(row.translateToString(true)).map((m) => this.makeFileLink(m, bufferLine));
+        // the logical line: back while a row continues the one above it, forward while the next continues this one
+        let first = bufferLine;
+        while (first > 0 && buf.getLine(first)?.isWrapped) {
+            first--;
+        }
+        let last = bufferLine;
+        while (buf.getLine(last + 1)?.isWrapped) {
+            last++;
+        }
+        const rows: WrappedRow[] = [];
+        for (let y = first; y <= last; y++) {
+            rows.push(this.wrappedRow(buf.getLine(y), y === last));
+        }
+        const links = findWrappedFileLinks(rows, bufferLine - first, first).map(({ match, range }) =>
+            this.makeFileLink(match, range)
+        );
         return links.length > 0 ? links : undefined;
     }
 
-    private makeFileLink(match: FileLinkMatch, bufferLine: number): TermTypes.ILink {
+    // a row's text cell by cell, so a wide character maps to its own cell; only the logical line's last row is
+    // trimmed, since the trailing cells of a wrapped row are part of what continues on the next
+    private wrappedRow(line: TermTypes.IBufferLine | undefined, trim: boolean): WrappedRow {
+        let text = "";
+        const cells: number[] = [];
+        let cell: TermTypes.IBufferCell | undefined;
+        for (let x = 0; x < (line?.length ?? 0); x++) {
+            cell = line.getCell(x, cell);
+            // the right half of a wide character
+            if (cell == null || cell.getWidth() === 0) {
+                continue;
+            }
+            const chars = cell.getChars() || " ";
+            text += chars;
+            for (let i = 0; i < chars.length; i++) {
+                cells.push(x);
+            }
+        }
+        if (trim) {
+            text = text.trimEnd();
+            cells.length = text.length;
+        }
+        return { text, cells };
+    }
+
+    private makeFileLink(match: FileLinkMatch, range: LinkRange): TermTypes.ILink {
         let hover: TermTypes.IDisposable | null = null;
         const endHover = () => {
             hover?.dispose();
             hover = null;
         };
         const link: TermTypes.ILink = {
-            range: fileLinkRange(match, bufferLine),
+            range,
             text: match.path,
             decorations: { underline: false, pointerCursor: false },
             activate: (e) => {
@@ -525,11 +574,11 @@ export class TermWrap {
                     return;
                 }
                 e.preventDefault();
-                this.fileLinkHandler?.activate({ match, bufferLine });
+                this.fileLinkHandler?.activate({ match, bufferLine: range.end.y - 1 });
             },
             hover: (e) => {
                 endHover();
-                hover = this.hoverFileLink(link, match, bufferLine, e);
+                hover = this.hoverFileLink(link, range, e);
             },
             leave: () => {
                 // xterm still tracks this link during leave, so this clears its underline and cursor
@@ -542,26 +591,35 @@ export class TermWrap {
         return link;
     }
 
-    // underline, accent and hint follow the modifier for as long as the pointer is on the link,
-    // including a press or release mid-hover.
-    private hoverFileLink(
-        link: TermTypes.ILink,
-        match: FileLinkMatch,
-        bufferLine: number,
-        e: MouseEvent
-    ): TermTypes.IDisposable {
+    // underline and accent follow the modifier for as long as the pointer is on the link, including a press or
+    // release mid-hover; the hint shows at once with the modifier, or after the URL hint's delay without it.
+    private hoverFileLink(link: TermTypes.ILink, range: LinkRange, e: MouseEvent): TermTypes.IDisposable {
+        const hintRow = range.end.y - 1;
         let clientX = e.clientX;
         let held = false;
+        let delayed = false;
+        let hinted = false;
+        const syncHint = () => {
+            const show = held || delayed;
+            if (show || hinted) {
+                hinted = show;
+                this.fileLinkHandler?.hint(show ? this.belowRow(hintRow, clientX) : null);
+            }
+        };
+        const hintTimer = window.setTimeout(() => {
+            delayed = true;
+            syncHint();
+        }, HoverDelayMs);
         const apply = (nowHeld: boolean) => {
             held = nowHeld;
             link.decorations.underline = held;
             link.decorations.pointerCursor = held;
             if (held) {
-                this.holdFileLinkAccent(match, bufferLine);
+                this.holdFileLinkAccent(range);
             } else {
                 this.dropFileLinkAccent();
             }
-            this.fileLinkHandler?.hint(held ? this.belowRow(bufferLine, clientX) : null);
+            syncHint();
         };
         const onKey = (ke: KeyboardEvent) => {
             const nowHeld = isPeekModifier(ke, isMacOS());
@@ -572,9 +630,7 @@ export class TermWrap {
         };
         const onMove = (me: MouseEvent) => {
             clientX = me.clientX;
-            if (held) {
-                this.fileLinkHandler?.hint(this.belowRow(bufferLine, clientX));
-            }
+            syncHint();
         };
         // capture: a focused xterm stops key events from bubbling to window
         window.addEventListener("keydown", onKey, true);
@@ -590,11 +646,12 @@ export class TermWrap {
         return {
             dispose: () => {
                 disposed = true;
+                window.clearTimeout(hintTimer);
                 window.removeEventListener("keydown", onKey, true);
                 window.removeEventListener("keyup", onKey, true);
                 this.terminal.element?.removeEventListener("mousemove", onMove);
                 this.releaseFileLinkAccent();
-                if (held) {
+                if (hinted) {
                     this.fileLinkHandler?.hint(null);
                 }
             },
@@ -603,8 +660,8 @@ export class TermWrap {
 
     // The accent outlives a leave by a moment: registering it re-renders the viewport, and xterm then drops the link
     // under the pointer and hovers it again, so releasing it at once would re-register it on every frame.
-    private holdFileLinkAccent(match: FileLinkMatch, bufferLine: number) {
-        const key = `${bufferLine}:${match.start}:${match.end}`;
+    private holdFileLinkAccent(range: LinkRange) {
+        const key = `${range.start.y}:${range.start.x}:${range.end.y}:${range.end.x}`;
         const cur = this.fileLinkAccent;
         if (cur?.key === key) {
             window.clearTimeout(cur.releaseTimer);
@@ -612,7 +669,7 @@ export class TermWrap {
             return;
         }
         this.dropFileLinkAccent();
-        const deco = this.accentFileLink(match, bufferLine);
+        const deco = this.accentFileLink(range);
         if (deco != null) {
             this.fileLinkAccent = { key, deco };
         }
@@ -639,32 +696,44 @@ export class TermWrap {
         }
     }
 
-    // recolors the link's cells. The decoration goes before its marker: xterm finds a decoration to remove by its
-    // marker's line, which a disposed marker has lost, so disposing the marker first strands the decoration in
-    // xterm's sorted list and later decorations stop rendering.
-    private accentFileLink(match: FileLinkMatch, bufferLine: number): TermTypes.IDisposable | undefined {
+    // recolors the link's cells, one decoration per row it spans. Each decoration goes before its marker: xterm
+    // finds a decoration to remove by its marker's line, which a disposed marker has lost, so disposing the marker
+    // first strands the decoration in xterm's sorted list and later decorations stop rendering.
+    private accentFileLink(range: LinkRange): TermTypes.IDisposable | undefined {
         const color = fileLinkAccentHex();
-        const marker = color ? this.markLine(bufferLine) : undefined;
-        if (marker == null) {
+        if (color == null) {
             return undefined;
         }
-        const deco = this.terminal.registerDecoration({
-            marker,
-            x: match.start,
-            width: match.end - match.start,
-            foregroundColor: color,
-            layer: "top",
-        });
-        if (deco == null) {
-            marker.dispose();
-            return undefined;
-        }
-        return {
-            dispose: () => {
+        const parts: { deco: TermTypes.IDecoration; marker: TermTypes.IMarker }[] = [];
+        const dispose = () => {
+            for (const { deco, marker } of parts) {
                 deco.dispose();
                 marker.dispose();
-            },
+            }
         };
+        for (let y = range.start.y; y <= range.end.y; y++) {
+            const marker = this.markLine(y - 1);
+            if (marker == null) {
+                dispose();
+                return undefined;
+            }
+            const x = y === range.start.y ? range.start.x - 1 : 0;
+            const end = y === range.end.y ? range.end.x : this.terminal.cols;
+            const deco = this.terminal.registerDecoration({
+                marker,
+                x,
+                width: end - x,
+                foregroundColor: color,
+                layer: "top",
+            });
+            if (deco == null) {
+                marker.dispose();
+                dispose();
+                return undefined;
+            }
+            parts.push({ deco, marker });
+        }
+        return { dispose };
     }
 
     private belowRow(bufferLine: number, clientX: number): { x: number; y: number } | null {

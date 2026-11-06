@@ -9,13 +9,12 @@
 import { globalStore } from "@/app/store/jotaiStore";
 import { resolveCwd } from "@/app/view/agents/agentcwdresolve";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
-import { TermTooltip } from "@/app/view/term/term-tooltip";
+import { LinkHint, TermTooltip } from "@/app/view/term/term-tooltip";
 import type { FileLinkHit, TermWrap } from "@/app/view/term/termwrap";
-import { isMacOS } from "@/util/platformutil";
 import { fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { CodePeekCard, Kbd } from "./codepeekcard";
+import { CodePeekCard } from "./codepeekcard";
 import { peekPlacement, peekRow } from "./codepeekmodel";
 import { closePeek, codePeekAtom, togglePeek, type CodePeek } from "./codepeekstore";
 
@@ -88,8 +87,6 @@ function AttachedPeekHost({
         };
     }, [termWrap, blockId]);
 
-    // read per render: at module load setPlatform has not run yet, so the platform still reads as macOS
-    const modKey = isMacOS() ? "Cmd" : "Ctrl";
     return (
         <>
             {/* the hint is for opening a card; over an open one it would cover the card's header */}
@@ -97,8 +94,8 @@ function AttachedPeekHost({
                 mousePos={own == null ? hint : null}
                 placement="bottom-start"
                 content={
-                    <span data-peek-hint className="flex items-center gap-[6px]">
-                        <Kbd>{modKey}</Kbd> <span>+ click to peek</span>
+                    <span data-peek-hint>
+                        <LinkHint verb="peek" />
                     </span>
                 }
             />

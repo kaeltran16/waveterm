@@ -16,6 +16,7 @@ export type PeekFile =
     | { kind: "loading" }
     | { kind: "nocwd" }
     | { kind: "missing" }
+    | { kind: "folder"; open: PeekOpen }
     | { kind: "binary"; size: number; open: PeekOpen }
     | { kind: "toolarge"; size: number; open: PeekOpen }
     | { kind: "error"; message: string }

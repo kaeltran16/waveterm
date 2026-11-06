@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { fileLinkRange, findFileLinks, isPeekModifier } from "./termfilelinks";
+import { findFileLinks, findWrappedFileLinks, isPeekModifier } from "./termfilelinks";
 
 // the span is derived from the expected linked text, so a wrong offset fails the test.
 function expectOne(text: string, linked: string, path: string, line: number | null = null, col: number | null = null) {
@@ -89,6 +89,35 @@ describe("findFileLinks", () => {
         }
     );
 
+    it.each([
+        ["PS C:\\Users\\x\\repo>"],
+        ["PS C:\\Users\\x\\repo> "],
+        ["kael@box:~/src/repo$ "],
+        ["root@box:/etc/nginx# "],
+    ])("skips the prompt cwd in %s", (text) => {
+        expect(findFileLinks(text)).toEqual([]);
+    });
+
+    it("still links a path typed after a prompt", () => {
+        const text = "PS C:\\Users\\x\\repo> cat src/a.ts";
+        expect(findFileLinks(text).map((m) => m.path)).toEqual(["src/a.ts"]);
+    });
+
+    it.each([["GET /api/sessions/10/turn 200"], ['"POST /v1/messages HTTP/1.1" 201'], ["/api/runs/abc 404 12ms"]])(
+        "leaves the route on the HTTP log row %s unlinked",
+        (text) => {
+            expect(findFileLinks(text)).toEqual([]);
+        }
+    );
+
+    it("still links a rooted path with an extension on an HTTP log row", () => {
+        expect(findFileLinks("GET /static/app.js 200").map((m) => m.path)).toEqual(["/static/app.js"]);
+    });
+
+    it("still links a rooted extensionless path on a row that is not an HTTP log", () => {
+        expect(findFileLinks("run /usr/bin/env 2 times").map((m) => m.path)).toEqual(["/usr/bin/env"]);
+    });
+
     it("finds two paths on one row in order", () => {
         const text = "moved src/a.ts to 'lib/b.tsx',";
         const a = text.indexOf("src/a.ts");
@@ -100,15 +129,78 @@ describe("findFileLinks", () => {
     });
 });
 
-describe("fileLinkRange", () => {
-    it("maps a match to 1-based inclusive cells on the next row number", () => {
-        const match = { start: 7, end: 20, path: "x", line: null, col: null };
-        expect(fileLinkRange(match, 4)).toEqual({ start: { x: 8, y: 5 }, end: { x: 20, y: 5 } });
+// rows of a logical line soft-wrapped at cols, one cell per character
+function wrapAt(text: string, cols: number): { text: string; cells: number[] }[] {
+    const rows = [];
+    for (let i = 0; i < text.length; i += cols) {
+        const row = text.slice(i, i + cols);
+        rows.push({ text: row, cells: Array.from(row, (_, j) => j) });
+    }
+    return rows;
+}
+
+describe("findWrappedFileLinks", () => {
+    const Cols = 40;
+    const path = "C:/Users/kael02/IdeaProjects/waveterm/frontend/app/briefsurface.tsx";
+
+    it("links a path wrapped onto two rows once, with a two-row range, from either row", () => {
+        const head = "    Read(";
+        const short = "C:/Users/kael02/IdeaProjects/waveterm/app/briefsurface.tsx";
+        const line = `${head}${short})`;
+        const rows = wrapAt(line, Cols);
+        expect(rows).toHaveLength(2);
+        expect(rows[0].text.endsWith("/wa")).toBe(true);
+        const end = head.length + short.length;
+        const want = {
+            match: { start: head.length, end, path: short, line: null, col: null },
+            range: { start: { x: head.length + 1, y: 1 }, end: { x: end - Cols, y: 2 } },
+        };
+        expect(findWrappedFileLinks(rows, 0)).toEqual([want]);
+        expect(findWrappedFileLinks(rows, 1)).toEqual([want]);
     });
 
-    it("starts a match at column 0 on x 1", () => {
-        const match = { start: 0, end: 4, path: "a.go", line: null, col: null };
-        expect(fileLinkRange(match, 0)).toEqual({ start: { x: 1, y: 1 }, end: { x: 4, y: 1 } });
+    it("links a path spanning three rows, whose first row is itself a continuation, as one range", () => {
+        const line = `${"x".repeat(Cols)}${"y".repeat(30)} ${path} done`;
+        const rows = wrapAt(line, Cols);
+        expect(rows).toHaveLength(4);
+        const start = line.indexOf(path);
+        const end = start + path.length;
+        const want = [
+            {
+                match: { start, end, path, line: null, col: null },
+                range: {
+                    start: { x: start - Cols + 1, y: 2 },
+                    end: { x: end - 3 * Cols, y: 4 },
+                },
+            },
+        ];
+        for (const target of [1, 2, 3]) {
+            expect(findWrappedFileLinks(rows, target)).toEqual(want);
+        }
+        expect(findWrappedFileLinks(rows, 0)).toEqual([]);
+    });
+
+    it("offsets the rows by the logical line's first buffer row", () => {
+        const rows = wrapAt("see src/a.ts", Cols);
+        expect(findWrappedFileLinks(rows, 0, 9)[0].range).toEqual({ start: { x: 5, y: 10 }, end: { x: 12, y: 10 } });
+    });
+
+    it("returns only the matches that touch the target row", () => {
+        const line = "a.ts" + " ".repeat(Cols - 4) + "b.ts";
+        const rows = wrapAt(line, Cols);
+        expect(findWrappedFileLinks(rows, 0).map((l) => l.match.path)).toEqual(["a.ts"]);
+        expect(findWrappedFileLinks(rows, 1).map((l) => l.match.path)).toEqual(["b.ts"]);
+    });
+
+    it("maps a path after a wide character by cell, not by string index", () => {
+        // 中 and 文 take two cells each
+        const text = "中文 src/a.ts";
+        const cells = [0, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+        expect(cells).toHaveLength(text.length);
+        expect(findWrappedFileLinks([{ text, cells }], 0)[0].range).toEqual({
+            start: { x: 6, y: 1 },
+            end: { x: 13, y: 1 },
+        });
     });
 });
 

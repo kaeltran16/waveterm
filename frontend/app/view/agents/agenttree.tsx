@@ -9,6 +9,8 @@ import { cardVariants, composerReveal, computeEntrances, initialEntranceState } 
 import { globalStore } from "@/app/store/jotaiStore";
 import { ContextMenuModel } from "@/app/store/contextmenu";
 import { openTarget, peekTarget } from "@/app/view/jarvis/openref";
+import { petCornerAtom } from "@/app/view/jarvis/petstore";
+import { AVATAR_SURFACE_REACH_PX } from "@/app/view/jarvis/petview";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import {
@@ -1331,6 +1333,8 @@ export const AgentTree = memo(function AgentTree({ model }: { model: AgentsViewM
     const terminals = useAtomValue(model.terminalsAtom);
     const lineage = useAtomValue(model.lineageAtom);
     const rows = useAtomValue(model.treeRowsAtom);
+    // the avatar at bottom-left sits over the tree's foot: the list ends with its reach of room
+    const avatarOverTree = useAtomValue(petCornerAtom) === "bottom-left";
     // the project group only earns a row when several projects are live: with one, its name and count
     // just restate the header, so suppressing it reads the tree at two levels instead of three. Counts
     // come off the unfiltered rows, and the lone group's attention moves to the header with it.
@@ -1370,7 +1374,10 @@ export const AgentTree = memo(function AgentTree({ model }: { model: AgentsViewM
                     </div>
                 </div>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto p-[8px]">
+            <div
+                className="min-h-0 flex-1 overflow-y-auto p-[8px]"
+                style={avatarOverTree ? { paddingBottom: AVATAR_SURFACE_REACH_PX + 20 } : undefined}
+            >
                 <AnimatePresence mode="popLayout" initial={false}>
                     {agents.length === 0 ? (
                         <motion.div key="agents-empty" layout="position">
