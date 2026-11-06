@@ -8,6 +8,7 @@
 import { modelLabel } from "@/app/view/agents/session-models/sessionviewmodel";
 import { formatAgeShort, projectOf, type AgentVM } from "./agentsviewmodel";
 import { finalStageId, finalStageView } from "./finalstage";
+import { planReviewLensTitle } from "./runtimeline";
 
 // a stage session judges the whole run rather than one task: its plan reviewer, its final verifier
 export type RunRole =
@@ -185,8 +186,28 @@ export function workerEnded(task: TaskNode): boolean {
     return task.state === "done" || task.merged === true;
 }
 
-// endedRoles gives each task of the runs in view whose worker ended a worker role under its ended id, so the
-// header and the rail place an ended worker as they place a live one.
+const ENDED_REVIEWER_TAG = "review:";
+
+// endedReviewerId is what a plan reviewer with a verdict is focused by. The engine stops its session with its tab
+// once the verdict is recorded, so, like a done task's worker, it is read back from its transcript; it shares that
+// prefix so every check for an ended session takes it as one.
+export function endedReviewerId(runId: string, reviewerRunId: string): string {
+    return `${ENDED_WORKER_PREFIX}${runId}:${ENDED_REVIEWER_TAG}${reviewerRunId}`;
+}
+
+// endedPlanReviewers is the current round's plan reviewers that have a verdict and a run of their own. The dag
+// keeps only the current round.
+export function endedPlanReviewers(run: RunInfo): PlanReviewer[] {
+    return (run.dag?.planreview?.reviewers ?? []).filter((r) => r.runid && PLAN_REVIEWER_VERDICT[r.state] != null);
+}
+
+// endedReviewerOf is the ended plan reviewer of run that id names, if it names one.
+export function endedReviewerOf(run: RunInfo, id: string): PlanReviewer | undefined {
+    return endedPlanReviewers(run).find((r) => endedReviewerId(run.runId, r.runid) === id);
+}
+
+// endedRoles gives each task of the runs in view whose worker ended a worker role under its ended id, and each
+// ended plan reviewer a stage role under its own, so the header and the rail place them as they place live ones.
 export function endedRoles(runs: Record<string, RunInfo>): Record<string, RunRole> {
     const roles: Record<string, RunRole> = {};
     for (const run of Object.values(runs)) {
@@ -195,8 +216,31 @@ export function endedRoles(runs: Record<string, RunInfo>): Record<string, RunRol
                 roles[endedWorkerId(run.runId, task.id)] = { kind: "worker", leadRunId: run.runId, taskId: task.id };
             }
         }
+        for (const r of endedPlanReviewers(run)) {
+            roles[endedReviewerId(run.runId, r.runid)] = {
+                kind: "stage",
+                leadRunId: run.runId,
+                stageRole: PLAN_REVIEWER_ROLE,
+            };
+        }
     }
     return roles;
+}
+
+// endedReviewerVM is an ended plan reviewer as the Agent surface shows it, from its own run: idle since that run
+// completed, and read from the transcript its session wrote.
+export function endedReviewerVM(runId: string, reviewer: PlanReviewer, child?: Run, transcriptPath?: string): AgentVM {
+    return {
+        id: endedReviewerId(runId, reviewer.runid),
+        name: `${stageLabel(PLAN_REVIEWER_ROLE)} · ${planReviewLensTitle(reviewer.lens)}`,
+        task: "",
+        state: "idle",
+        agent: child?.runtime || undefined,
+        model: modelLabel(child?.model),
+        idleSince: child?.completedts,
+        transcriptPath: transcriptPath || undefined,
+        runId: reviewer.runid,
+    };
 }
 
 // endedWorkerVM is a done task's worker as the Agent surface shows it, from the child run the task last ran:
@@ -340,8 +384,10 @@ export const BUILDER_CHECK_ROLE = "builder-check";
 // a brainstorm's judge runs the same way: a run of its own, no lead
 export const BRAINSTORM_JUDGE_ROLE = "brainstorm-judge";
 
+export const PLAN_REVIEWER_ROLE = "plan-reviewer";
+
 const STAGE_LABELS: Record<string, string> = {
-    "plan-reviewer": "Plan review",
+    [PLAN_REVIEWER_ROLE]: "Plan review",
     verifier: "Final verification",
     [BUILDER_CHECK_ROLE]: "Builder check",
     [BRAINSTORM_JUDGE_ROLE]: "Judge",

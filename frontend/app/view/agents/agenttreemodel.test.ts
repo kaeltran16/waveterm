@@ -4,6 +4,7 @@ import {
     buildAgentTree,
     rowFocusKey,
     stageOutcome,
+    stageRowAge,
     stageSubline,
     treeAgentCount,
     treeFocusOrder,
@@ -12,7 +13,7 @@ import {
 } from "./agenttreemodel";
 import type { BuilderCheckRecord } from "./brainstormmodel";
 import { finalRowFocusId } from "./finalstage";
-import { endedWorkerId, type Lineage, type RunInfo } from "./runlineage";
+import { endedReviewerId, endedWorkerId, type Lineage, type RunInfo } from "./runlineage";
 
 function vm(id: string, state: AgentVM["state"], path?: string): AgentVM {
     return { id, name: id, task: "", state, transcriptPath: path };
@@ -487,8 +488,70 @@ describe("buildAgentTree with run lineage", () => {
                 );
                 expect(shape(rows).filter((s) => s.startsWith("stage:"))).toEqual([
                     "stage:plan-reviewer:spec@spec:failed",
+                    `stage:plan-reviewer:${endedReviewerId("run-1", "rv-order")}@order:failed`,
                     "stage:plan-reviewer:full@full:passed",
+                    `stage:plan-reviewer:${endedReviewerId("run-1", "rv-final")}@final:passed`,
                 ]);
+            });
+
+            // the engine stops a reviewer with its tab once its verdict is recorded, so the dag alone still has it
+            describe("whose tab the engine closed after its verdict", () => {
+                const failedRound = () => {
+                    const r = run("run-1", [task("t-1", "pending")]);
+                    r.dag.planreview = {
+                        state: "failed",
+                        round: 1,
+                        reviewers: [
+                            { lens: "full", state: "passed", runid: "rv-full" },
+                            { lens: "second", state: "failed", runid: "rv-second" },
+                        ],
+                    };
+                    return r;
+                };
+                const LEAD_ONLY: Lineage["roles"] = { lead: { kind: "lead", runId: "run-1" } };
+                const doneOpen = {
+                    collapsed: new Set<string>(),
+                    doneOpen: new Map([["run-1", 0]]),
+                    queuedOpen: new Set<string>(),
+                    extrasOpen: new Set<string>(),
+                };
+
+                it("keeps a row from the dag, with its lens and verdict, in the done fold", () => {
+                    const r = failedRound();
+                    expect(shape(buildAgentTree([agent("lead", "idle")], lineage([r], LEAD_ONLY)))).toEqual([
+                        "group:waveterm:1:0",
+                        "lead:run-1:0",
+                        "done:0+2:false",
+                        "queued:1:false",
+                    ]);
+                    const rows = buildAgentTree([agent("lead", "idle")], lineage([r], LEAD_ONLY), doneOpen);
+                    expect(shape(rows)).toEqual([
+                        "group:waveterm:1:0",
+                        "lead:run-1:0",
+                        "done:0+2:true",
+                        `stage:plan-reviewer:${endedReviewerId("run-1", "rv-second")}@second:failed`,
+                        `stage:plan-reviewer:${endedReviewerId("run-1", "rv-full")}@full:passed`,
+                        "queued:1:false",
+                    ]);
+                    const stage = rows.find((row) => row.kind === "stage");
+                    expect(stage && rowFocusKey(stage)).toBe(endedReviewerId("run-1", "rv-second"));
+                });
+
+                it("gives a reviewer whose tab is still in the roster only that tab's row", () => {
+                    const r = failedRound();
+                    const rows = buildAgentTree(
+                        [agent("lead", "idle"), stageAgent("full", "rv-full")],
+                        lineage([r], {
+                            ...LEAD_ONLY,
+                            full: { kind: "stage", leadRunId: "run-1", stageRole: "plan-reviewer" },
+                        }),
+                        doneOpen
+                    );
+                    expect(shape(rows).filter((s) => s.startsWith("stage:"))).toEqual([
+                        `stage:plan-reviewer:${endedReviewerId("run-1", "rv-second")}@second:failed`,
+                        "stage:plan-reviewer:full@full:passed",
+                    ]);
+                });
             });
         });
 
@@ -1075,5 +1138,17 @@ describe("stageSubline", () => {
     });
     it("is just the age while the stage is judging", () => {
         expect(stageSubline(undefined, "2m")).toBe("2m");
+    });
+});
+
+describe("stageRowAge", () => {
+    const NOW = 10 * 60_000;
+    it("is a live stage session's age", () => {
+        expect(stageRowAge({ ...vm("rev", "idle"), idleSince: NOW - 5 * 60_000 }, NOW)).toBe("5m");
+    });
+    it("is none for an ended reviewer, whose end the tree does not know", () => {
+        const ended = { ...vm(endedReviewerId("run-1", "rv-full"), "idle"), idleSince: NOW - 5 * 60_000 };
+        expect(stageRowAge(ended, NOW)).toBeUndefined();
+        expect(stageSubline("passed", stageRowAge(ended, NOW))).toBe("passed");
     });
 });

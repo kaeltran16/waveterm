@@ -15,7 +15,7 @@ import { FinalStepStrip } from "../agents/finalstageviews";
 import { glyphKind, kindOf, wordOf, type EdgeStyle, type GlyphKind, type NodeKind } from "./dagcanvas";
 import { FINAL_NODE_ID } from "./dagfinal";
 import { CARD_H, CARD_W, edgeGeo, type Point, type Rect } from "./daglayout";
-import type { DagViewNode } from "./dagstore";
+import { routeSourceLabel, type DagViewNode } from "./dagstore";
 import { DAG_META } from "./dagtext";
 
 export type DagCardData = {
@@ -120,7 +120,7 @@ export function DagCardNode({ data }: NodeProps) {
             data-dag-node-route={`${view.route.source}:${view.route.runtime}:${view.route.model}`}
             role="button"
             aria-pressed={selected}
-            aria-label={`${task.id} ${view.label}, ${word}, ${fact}`}
+            aria-label={`${task.id} ${view.label}, ${word}, ${fact}${view.tag ? `, ${view.tag}, ${routeSourceLabel(view.route.source)}` : ""}`}
             onPointerEnter={() => d.onHover(task.id)}
             onPointerLeave={() => d.onHover(null)}
             style={{ width: CARD_W, height: CARD_H }}
@@ -152,7 +152,10 @@ export function DagCardNode({ data }: NodeProps) {
                     <span className="flex-1" />
                 )}
                 {view.tag ? (
-                    <span className="flex-none rounded-[5px] border border-edge-mid bg-surface-raised px-[5px] text-[11.5px] text-accent-soft">
+                    <span
+                        data-dag-node-tag
+                        className="min-w-0 truncate rounded-[5px] border border-edge-mid bg-surface-raised px-[5px] text-[11.5px] text-accent-soft"
+                    >
                         {view.tag}
                     </span>
                 ) : null}

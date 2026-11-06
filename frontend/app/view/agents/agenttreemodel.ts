@@ -7,15 +7,19 @@
 // children are read from per-block atoms in the component (they're ephemeral and keyed by block ORef), so
 // they stay out of this pure helper.
 
-import { projectOf, type AgentVM } from "./agentsviewmodel";
+import { displayAgeMs, formatAgeShort, projectOf, type AgentVM } from "./agentsviewmodel";
 import type { BuilderCheckRecord } from "./brainstormmodel";
 import { finalRowFocusId, finalStageView } from "./finalstage";
 import {
     BRAINSTORM_JUDGE_ROLE,
     BUILDER_CHECK_ROLE,
+    endedPlanReviewers,
+    endedReviewerVM,
     endedWorkerId,
     holdsTask,
+    isEndedWorkerId,
     NO_LINEAGE,
+    PLAN_REVIEWER_ROLE,
     planReviewerOf,
     workerAsk,
     workerEnded,
@@ -143,8 +147,14 @@ export function stageOutcome(
 }
 
 // stageSubline is a stage row's second line: its verdict and age. the row's title already names the role.
-export function stageSubline(verdict: string | undefined, age: string): string {
+export function stageSubline(verdict: string | undefined, age: string | undefined): string {
     return [verdict, age].filter(Boolean).join(" · ");
+}
+
+// stageRowAge is a stage row's age. An ended reviewer's row has none: the tree has only the dag's record of it,
+// which says when it started, not when it ended, so any age would be wrong.
+export function stageRowAge(agent: AgentVM, now: number): string | undefined {
+    return isEndedWorkerId(agent.id) ? undefined : formatAgeShort(displayAgeMs(agent, now));
 }
 
 // history order: a plan review came before any task, a final verification after every one, and within a stage an
@@ -182,8 +192,12 @@ function runRows(
         : undefined;
     const finalRunning = finalRow != null && final.tone === "run";
     const finalPassed = finalRow != null && final.tone === "pass";
-    const judged = stages
-        .filter((s) => s.agent !== verifier)
+    // a plan reviewer with a verdict has no tab once the engine stops it, so the dag gives its row
+    const tabbed = new Set(stages.map((s) => s.agent.runId));
+    const endedReviewers: StageAgent[] = endedPlanReviewers(run)
+        .filter((r) => !tabbed.has(r.runid))
+        .map((r) => ({ agent: endedReviewerVM(run.runId, r), stageRole: PLAN_REVIEWER_ROLE }));
+    const judged = [...stages.filter((s) => s.agent !== verifier), ...endedReviewers]
         .map((s) => ({
             ...s,
             outcome: stageOutcome(run, s.stageRole, s.agent.runId),

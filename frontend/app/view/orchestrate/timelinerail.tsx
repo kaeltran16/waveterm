@@ -147,7 +147,7 @@ export function TimelineRail({ channelId, runId, layout, ended }: TimelineRailPr
             className={
                 layout === "rail"
                     ? "flex h-full w-[300px] flex-none flex-col border-l border-border bg-surface"
-                    : "flex max-h-[45%] flex-none flex-col border-t border-border bg-surface"
+                    : "flex max-h-[35%] flex-none flex-col border-t border-border bg-surface"
             }
         >
             <RailHeader

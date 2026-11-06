@@ -6,6 +6,10 @@ import type { AgentVM } from "./agentsviewmodel";
 import { finalStageId } from "./finalstage";
 import {
     agentProject,
+    endedPlanReviewers,
+    endedReviewerId,
+    endedReviewerOf,
+    endedReviewerVM,
     endedRoles,
     endedWorkerId,
     endedWorkerVM,
@@ -33,6 +37,7 @@ import {
     workerAsk,
     workerSubtext,
     type Lineage,
+    type RunInfo,
 } from "./runlineage";
 
 const dag = {
@@ -240,6 +245,64 @@ describe("ended workers", () => {
             agent: undefined,
             idleSince: undefined,
             transcriptPath: undefined,
+        });
+    });
+});
+
+describe("ended plan reviewers", () => {
+    const reviewers: PlanReviewer[] = [
+        { lens: "full", state: "passed", runid: "rv-full" },
+        { lens: "second", state: "failed", runid: "rv-second" },
+        { lens: "order", state: "lost", runid: "rv-order" },
+        { lens: "tests", state: "reviewing", runid: "rv-tests" },
+        { lens: "spec", state: "lost", runid: "" },
+    ];
+    const run: RunInfo = {
+        runId: "r1",
+        channelId: "c",
+        title: "",
+        project: "p",
+        dag: { tasks: [], planreview: { state: "failed", round: 1, reviewers } } as TaskGroup,
+    };
+
+    it("lists the round's reviewers with a verdict and a run, not one still reviewing or never started", () => {
+        expect(endedPlanReviewers(run).map((r) => r.runid)).toEqual(["rv-full", "rv-second", "rv-order"]);
+        expect(endedPlanReviewers({ ...run, dag: undefined })).toEqual([]);
+    });
+
+    it("gives each a plan-reviewer stage role under an ended id no roster agent has", () => {
+        const id = endedReviewerId("r1", "rv-full");
+        const roles = endedRoles({ r1: run });
+        expect(roles[id]).toEqual({ kind: "stage", leadRunId: "r1", stageRole: "plan-reviewer" });
+        expect(Object.keys(roles)).toHaveLength(3);
+        expect(roles[endedReviewerId("r1", "rv-tests")]).toBeUndefined();
+        expect(isEndedWorkerId(id)).toBe(true);
+    });
+
+    it("finds the reviewer an ended id names, and none for a worker's ended id", () => {
+        expect(endedReviewerOf(run, endedReviewerId("r1", "rv-second"))?.lens).toBe("second");
+        expect(endedReviewerOf(run, endedReviewerId("r1", "rv-tests"))).toBeUndefined();
+        expect(endedReviewerOf(run, endedWorkerId("r1", "t-1"))).toBeUndefined();
+    });
+
+    it("reads an ended reviewer from its own run, named by its lens", () => {
+        const child = { runtime: "claude", model: "claude-haiku-4-5", completedts: 7000 } as Run;
+        expect(endedReviewerVM("r1", reviewers[1], child, "C:/r.jsonl")).toEqual({
+            id: endedReviewerId("r1", "rv-second"),
+            name: "Plan review · Second pass",
+            task: "",
+            state: "idle",
+            agent: "claude",
+            model: "haiku",
+            idleSince: 7000,
+            transcriptPath: "C:/r.jsonl",
+            runId: "rv-second",
+        });
+        expect(endedReviewerVM("r1", reviewers[0])).toMatchObject({
+            agent: undefined,
+            idleSince: undefined,
+            transcriptPath: undefined,
+            runId: "rv-full",
         });
     });
 });

@@ -2172,7 +2172,39 @@ export const dagMotionScenario = {
 // three lanes of six beside the scenario's three tasks: 21 in all, wider than the pane holds at ZOOM_FLOOR
 const DAG_MOTION_LANES = 3;
 const DAG_MOTION_LANE_LEN = 6;
-const DAG_MOTION_PANE_MIN_PX = 300;
+// whole rows in view, not rows in the DOM: at 1000x700 the 487px body under a 125px graph header cannot hold a pane
+// taller than the drawer and a drawer showing 3 rows (its header, filters and now line take ~105px, a row ~36px)
+const DAG_MOTION_DRAWER_MIN_ROWS = 1;
+// the drawer against the modal body, its header and the graph pane, and which cards the pane cuts through
+const DAG_MOTION_DRAWER_READ = `(() => {
+    ${DAG_PEEK_LIB}
+    const rail = modal?.querySelector("[data-timeline-rail]");
+    const h = (el) => (el ? Math.round(el.getBoundingClientRect().height) : null);
+    const p = box(pane);
+    const nodes = [...(modal?.querySelectorAll("[data-dag-node]") ?? [])];
+    const rows = [...(rail?.querySelectorAll("[data-timeline-row]") ?? [])];
+    const clip = (el) => {
+        for (let a = el.parentElement; a && a !== rail; a = a.parentElement) {
+            if (/auto|scroll/.test(getComputedStyle(a).overflowY)) return a;
+        }
+        return rail;
+    };
+    return {
+        layout: rail?.getAttribute("data-timeline-rail") ?? null,
+        expanded: rail?.querySelector("button[aria-expanded]")?.getAttribute("aria-expanded") ?? null,
+        strip: modal?.querySelector("[data-timeline-strip]") != null,
+        bodyH: h(rail?.parentElement),
+        modalHeaderH: h(modal?.querySelector("#dag-modal-heading")?.parentElement?.parentElement),
+        // the graph column above its pane: the banner and the graph's own header
+        graphHeaderH: pane && rail ? h(rail.previousElementSibling) - h(pane) : null,
+        drawerH: h(rail),
+        paneH: h(pane),
+        rows: rows.length,
+        rowsShown: rows.filter((r) => inside(box(r), box(clip(r)))).length,
+        nodes: nodes.length,
+        cut: nodes.filter((n) => !inside(box(n), p)).map((n) => n.getAttribute("data-dag-node")),
+    };
+})()`;
 // the done dag F18 opens on: every task done, t-1 keeping its worker run so teardown's cancel still stops it
 function dagMotionLanes(dag) {
     const { runid: _run, reviewrunid: _review, ...base } = dag.tasks.find((t) => t.id === "t-3");
@@ -2193,25 +2225,27 @@ const DAG_MOTION_TASK_COUNT = DAG_MOTION_TASKS.length + DAG_MOTION_LANES * DAG_M
 async function dagMotionViewport(h, ctx, rec) {
     await h.cdp("Emulation.setDeviceMetricsOverride", RV_SHORT);
     const drawer = await polishWaitFor(h, `${RV_RAIL}?.getAttribute("data-timeline-rail") === "drawer"`, 5000);
+    await polishNap(600);
+    const collapsed = await h.ev(DAG_MOTION_DRAWER_READ);
     await h.ev(`${RV_RAIL}?.querySelector('button[aria-label="Expand lifecycle"]')?.click()`);
     await polishWaitFor(h, `(${RV_RAIL}?.querySelectorAll("[data-timeline-row]").length ?? 0) > 0`, 5000);
-    // the drawer animates open
-    await polishNap(800);
-    const d = await h.ev(`(() => {
-        ${DAG_PEEK_LIB}
-        const rail = modal?.querySelector("[data-timeline-rail]");
-        return {
-            layout: rail?.getAttribute("data-timeline-rail") ?? null,
-            expanded: rail?.querySelector("button[aria-expanded]")?.getAttribute("aria-expanded") ?? null,
-            strip: modal?.querySelector("[data-timeline-strip]") != null,
-            paneH: pane ? Math.round(pane.getBoundingClientRect().height) : null,
-        };
-    })()`);
+    // the drawer animates open, then the graph refits to the shorter pane
+    await polishNap(900);
+    await dagPeekSettled(h);
+    const d = await h.ev(DAG_MOTION_DRAWER_READ);
     await h.shot("cdp-shots/dag-motion-f17-drawer.png");
+    // the review's defect: the drawer outgrew the graph and cut cards through
     rec(
-        `5. F17: at 1000x700 the opened Lifecycle drawer draws no activity strip, and the graph pane stays at least ${DAG_MOTION_PANE_MIN_PX}px tall`,
-        drawer && d.layout === "drawer" && d.expanded === "true" && !d.strip && d.paneH >= DAG_MOTION_PANE_MIN_PX,
-        d
+        "5. F17: at 1000x700 the opened Lifecycle drawer draws no activity strip, leaves the graph pane taller than itself with every card inside it, and shows a whole row",
+        drawer &&
+            d.layout === "drawer" &&
+            d.expanded === "true" &&
+            !d.strip &&
+            d.paneH > d.drawerH &&
+            d.nodes > 0 &&
+            d.cut.length === 0 &&
+            d.rowsShown >= DAG_MOTION_DRAWER_MIN_ROWS,
+        { open: d, collapsed }
     );
 
     // opened wide, then narrowed with no pan or zoom: the opening view refits to the smaller pane
@@ -2605,12 +2639,14 @@ export const dagPeekScenario = {
         if (bgAt) await dagPeekMouse(h, "mouseMoved", bgAt);
         rec("l. hovering a node for 700ms opens nothing", () => nodeAt != null && hoverCard === false, { nodeAt, hoverCard });
 
-        // the tagged card: its chip passes the floor on one line, and the card keeps an untagged card's height
+        // the tagged card: its chip names the model only and passes the floor on one line, who pinned it is in the
+        // card's aria-label, and the card keeps an untagged card's height
         const chip = await paintEval(h, `
             const card = (id) => ${DAG_PEEK_MODAL}?.querySelector('[data-dag-node="' + id + '"]');
-            const tag = [...(card("t-4")?.querySelectorAll("span") ?? [])].find((s) => /pinned$/.test((s.textContent || "").trim()));
+            const tag = card("t-4")?.querySelector("[data-dag-node-tag]");
             return {
                 tag: tag?.textContent.trim() ?? null,
+                aria: card("t-4")?.getAttribute("aria-label") ?? null,
                 lines: tag ? tag.getClientRects().length : null,
                 // nothing clipped inside the chip, and the chip inside its card
                 fits: tag
@@ -2625,8 +2661,15 @@ export const dagPeekScenario = {
         `);
         await h.shot(lookShot("dag-peek-tag"));
         rec(
-            "m. a tagged card's chip passes the floor on one line, and the card is as tall as an untagged one",
-            () => chip.tag != null && chip.lines === 1 && chip.fits && floorOk(chip.floor) && chip.heights[0] != null && chip.heights[0] === chip.heights[1],
+            "m. a tagged card's chip names the model only and passes the floor on one line, and the card is as tall as an untagged one",
+            () =>
+                chip.tag === DAG_PEEK_TAG_MODEL &&
+                (chip.aria ?? "").endsWith(`, ${DAG_PEEK_TAG_MODEL}, pinned`) &&
+                chip.lines === 1 &&
+                chip.fits &&
+                floorOk(chip.floor) &&
+                chip.heights[0] != null &&
+                chip.heights[0] === chip.heights[1],
             { ...chip, floor: floorDetail(chip.floor) }
         );
 
@@ -2844,7 +2887,7 @@ async function dagPeekCardsAndKeys(h, ctx, rec) {
     const word = await h.ev(`(() => {
         const card = ${DAG_PEEK_MODAL}?.querySelector('[data-dag-node="t-4"]');
         const word = card?.querySelector("[data-dag-node-word]");
-        const tag = [...(card?.querySelectorAll("span") ?? [])].find((s) => /pinned$/.test((s.textContent || "").trim()));
+        const tag = card?.querySelector("[data-dag-node-tag]");
         const r = (el) => (el ? el.getBoundingClientRect() : null);
         const w = r(word);
         const c = r(card);
@@ -5094,9 +5137,9 @@ const pickRowExpr = (id) => `document.querySelector('${PICKS_PEEK} [data-model-p
 const pickToggleExpr = (id, sonnet) =>
     `[...(${pickRowExpr(id)}?.querySelectorAll('[role="group"] button') ?? [])].find((b) => (b.textContent.trim() === 'sonnet') === ${sonnet})`;
 const dagCardExpr = (id) => `document.querySelector('[data-dag-modal-kind] [data-dag-node="${id}"]')`;
-// a card's model tag is its own span, `<model> · <source>`
+// a card's model tag chip names the model; who put it there is the last clause of the card's aria-label
 const cardTagExpr = (id) =>
-    `([...(${dagCardExpr(id)}?.querySelectorAll('span') ?? [])].map((s) => s.textContent.trim()).find((t) => / · (plan|review|you|escalated|pinned)$/.test(t)) ?? null)`;
+    `((c) => { const t = c?.querySelector('[data-dag-node-tag]'); return t ? t.textContent.trim() + ' · ' + c.getAttribute('aria-label').split(', ').pop() : null; })(${dagCardExpr(id)})`;
 // the peek card's Worker row carries the same route attribute as the nodes
 const DAG_RAIL_ROUTE = `document.querySelector('${PICKS_PEEK} [data-dag-node-route]')`;
 const peekRouteExpr = (id) => `document.querySelector('[data-dag-modal-kind] [data-dag-task-peek="${id}"] [data-dag-node-route]')`;
@@ -5331,8 +5374,8 @@ export const modelPicks = {
         })`);
         rec(
             "3. the cards tag the plan's and the reviewer's picks, and the peek card's Worker row names the reviewer",
-            picked.t1 === "sonnet · plan" &&
-                picked.t2 === "sonnet · review" &&
+            picked.t1 === "sonnet · plan's pick" &&
+                picked.t2 === "sonnet · reviewer's pick" &&
                 picked.t3 == null &&
                 picked.rail.route === "reviewer:claude:sonnet" &&
                 picked.rail.text.includes("claude / sonnet") &&
@@ -5352,14 +5395,14 @@ export const modelPicks = {
 
         await h.ev(`${pickToggleExpr("t-2", true)}?.click()`);
         const onSonnet = await waitDagTask(h, ctx, "t-2", (t) => t.modelsource === "owner" && t.runspec?.model === "sonnet");
-        await polishWaitFor(h, `${cardTagExpr("t-2")} === 'sonnet · you'`, 3000);
+        await polishWaitFor(h, `${cardTagExpr("t-2")} === "sonnet · your pick"`, 3000);
         const yours = await h.ev(`({ tag: ${cardTagExpr("t-2")}, rail: ${railExpr} })`);
         await h.shot("cdp-shots/model-picks-2-yours.png");
         rec(
-            "5. toggling it back to sonnet tags the node `sonnet · you` and the peek card's Worker row names your pick",
+            "5. toggling it back to sonnet tags the node sonnet, labelled your pick, and the peek card's Worker row names your pick",
             onSonnet?.modelsource === "owner" &&
                 onSonnet.runspec?.model === "sonnet" &&
-                yours.tag === "sonnet · you" &&
+                yours.tag === "sonnet · your pick" &&
                 yours.rail.route === "owner:claude:sonnet" &&
                 yours.rail.text.includes("your pick"),
             JSON.stringify({ task: taskFacts(onSonnet), ...yours })

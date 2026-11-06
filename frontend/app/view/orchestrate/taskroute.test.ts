@@ -251,18 +251,18 @@ describe("cardModelTag", () => {
     });
     it("names a reviewer's sonnet pick on an opus lead", () => {
         const t = task({ modelsource: "reviewer", runspec: { ...LIGHT_PICK } });
-        expect(cardModelTag(t, lead, picksGroup)).toBe("sonnet · review");
+        expect(cardModelTag(t, lead, picksGroup)).toBe("sonnet");
     });
     it("names each pin source", () => {
         const on = (modelsource: string | undefined) => task({ modelsource, runspec: { ...pin } });
-        expect(cardModelTag(on("plan"), lead, picksGroup)).toBe("sonnet · plan");
-        expect(cardModelTag(on("owner"), lead, zeroGroup)).toBe("sonnet · you");
-        expect(cardModelTag(on("escalation"), lead, zeroGroup)).toBe("sonnet · escalated");
-        expect(cardModelTag(on(undefined), lead, zeroGroup)).toBe("sonnet · pinned");
+        expect(cardModelTag(on("plan"), lead, picksGroup)).toBe("sonnet");
+        expect(cardModelTag(on("owner"), lead, zeroGroup)).toBe("sonnet");
+        expect(cardModelTag(on("escalation"), lead, zeroGroup)).toBe("sonnet");
+        expect(cardModelTag(on(undefined), lead, zeroGroup)).toBe("sonnet");
     });
     it("shortens a claude id", () => {
         const t = task({ modelsource: "owner", runspec: { model: "claude-sonnet-5-5" } });
-        expect(cardModelTag(t, lead, zeroGroup)).toBe("sonnet-5-5 · you");
+        expect(cardModelTag(t, lead, zeroGroup)).toBe("sonnet-5-5");
     });
     it("is null on the workers route or the lead's", () => {
         expect(cardModelTag(task(), lead, workersGroup)).toBeNull();
