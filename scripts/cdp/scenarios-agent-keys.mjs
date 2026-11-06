@@ -53,7 +53,8 @@ const CHIPS = `[...(document.querySelector("[data-footer-chips]")?.children ?? [
 const chips = (h) => h.ev(CHIPS);
 
 // the chips at rest, focus on the surface wrapper: in a terminal the footer hides the agent keys whatever row is
-// focused, and a terminal row's xterm can take focus once it mounts, so the wrapper takes it back
+// focused, and a terminal row's xterm can take focus once it mounts, so the wrapper takes it back. The footer must
+// follow on its own: no focus event is sent for it
 const restChips = (h) =>
     agentPage(
         h,
@@ -64,10 +65,6 @@ const restChips = (h) =>
             await nap(200);
             atRest = document.activeElement === wrap;
         }
-        // the footer recomputes on focus events, and can miss focus leaving a terminal's xterm (it keeps showing its
-        // in-terminal posture with the wrapper focused), so one is sent once focus is at rest
-        window.dispatchEvent(new FocusEvent("focusin"));
-        await nap(200);
         return { atRest, chips: ${CHIPS} };`
     );
 
@@ -251,6 +248,11 @@ export default function (_kit) {
                     JSON.stringify({ before: rows, after, cockpitOrder })
                 );
 
+                // a page without OS focus fires no focus events, so the footer, which recomputes on them, would miss
+                // focus leaving the terminal's xterm in steps 5 and 6
+                await h.cdp("Emulation.setFocusEmulationEnabled", { enabled: true });
+                ctx.focusEmulated = true;
+
                 // 5. double Ctrl+C: no confirm on the terminal, the close confirm on an agent
                 await setFocus(h, ctx.termId);
                 const onTerm = await doubleCtrlC(h, ctx.termId);
@@ -289,6 +291,11 @@ export default function (_kit) {
                 return steps;
             },
             async teardown(h, ctx) {
+                if (ctx.focusEmulated) {
+                    await h
+                        .cdp("Emulation.setFocusEmulationEnabled", { enabled: false })
+                        .catch((e) => console.error(`${NAME}: turning focus emulation off failed: ${e?.message ?? e}`));
+                }
                 try {
                     await cancelModals(h);
                 } catch (e) {
