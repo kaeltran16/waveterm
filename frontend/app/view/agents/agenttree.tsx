@@ -38,7 +38,7 @@ import { agentBranchesAtom, loadAgentBranch } from "./agentbranchstore";
 import { resumeRecentSession } from "./agentlaunchhero";
 import { confirmCloseRun, confirmCloseSession } from "./agentactions";
 import type { AgentsViewModel } from "./agents";
-import { rowFocusKey, stageRowAge, stageSubline, treeAgentCount, type StageOutcome } from "./agenttreemodel";
+import { doneFoldLabel, rowFocusKey, stageRowAge, stageSubline, treeAgentCount, type StageOutcome } from "./agenttreemodel";
 import { isAsking, treeLine, type BrainstormFile, type BuilderCheckRecord } from "./brainstormmodel";
 import { runStepView, runTreeText } from "./brainstormrunmodel";
 import { brainstormAtom, setBrainstormMode, shownBrainstormFile } from "./brainstormstore";
@@ -409,8 +409,9 @@ function RunSubline({ run, open, live, leadless }: { run: RunInfo; open: boolean
         );
     }
     const { done, total } = runProgress(run.dag);
-    // not "N done": the done fold under the run says that, and this chip folds the whole run
-    const chip = live > 0 || done === 0 ? `${live} ${live === 1 ? "worker" : "workers"}` : `${total} tasks`;
+    // not "N done": the done fold under the run says that, and this chip folds the whole run. "live", not "workers":
+    // a task past its worker (failed, verifying) keeps its row with no session
+    const chip = live > 0 || done === 0 ? `${live} live` : `${total} tasks`;
     const progress = dagProgressLabel(run, leadless ?? false);
     return (
         <>
@@ -1481,12 +1482,7 @@ export const AgentTree = memo(function AgentTree({ model }: { model: AgentsViewM
                                 body = (
                                     <FoldRow
                                         glyph={<Check size={11} aria-hidden className="text-success" />}
-                                        label={[
-                                            r.count > 0 ? `${r.count} done` : "",
-                                            r.stages > 0 ? `${r.stages} ${r.stages === 1 ? "review" : "reviews"}` : "",
-                                        ]
-                                            .filter(Boolean)
-                                            .join(" · ")}
+                                        label={doneFoldLabel(r)}
                                         open={r.open}
                                         onToggle={() => toggleRunDoneOpen(r.run.runId, r.open, r.count)}
                                     />

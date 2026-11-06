@@ -464,6 +464,18 @@ describe("a task past its worker", () => {
         const runs = { r: { runId: "r", channelId: "ch", title: "t", project: "p", dag: { tasks } as TaskGroup } };
         expect(Object.keys(endedRoles(runs))).toEqual([endedWorkerId("r", "t-1")]);
     });
+
+    // a failed task's tab is reaped with its tree; its transcript is what says why it failed
+    it("gives a failed task that ran a child run an ended worker, but not a stalled one or one never run", () => {
+        const tasks = [
+            { id: "t-1", state: "failed", runid: "c1" },
+            { id: "t-2", state: "verify-failed", runid: "c2" },
+            { id: "t-3", state: "stalled", runid: "c3" },
+            { id: "t-4", state: "failed" },
+        ] as TaskNode[];
+        const runs = { r: { runId: "r", channelId: "ch", title: "t", project: "p", dag: { tasks } as TaskGroup } };
+        expect(Object.keys(endedRoles(runs))).toEqual([endedWorkerId("r", "t-1"), endedWorkerId("r", "t-2")]);
+    });
 });
 
 describe("the final stage's own id", () => {

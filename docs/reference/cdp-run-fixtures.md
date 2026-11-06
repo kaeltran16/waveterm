@@ -56,6 +56,25 @@ Add the scenario to `SCENARIOS`, or `verify.mjs` and a plan's Final never run it
   reloads onto the live roster and removes the temp dir. It attempts every step even when one fails. Pass
   `restore` (`{ what, fn }`) for UI state the scenario changed.
 
+## A run no model can start
+
+For any task state the engine would have to reach by running something (running, failed, review-failed, verifying,
+a failed Final), hold the run in an **unborn repo**: `arrangeHeldRun(h, ctx, { key, title, tasks })` makes a temp
+dir with `git init` and no commit, a channel and a deferred orchestrator run on it, and submits the plan. Every
+engine tick for the run fails at resolving the project head before it can spawn anything, so no worker, reviewer or
+lead starts, and a seed is never ticked over. It throws (after cancelling) if a task dispatched anyway.
+
+- `heldStandIn(h, run, name)` makes a task's child run: a deferred quick run linked by `dagoref`, which never starts
+  a session. `seedHeldRun(h, run, seeds, extra)` seeds each task by id, plus dag-level fields (`final`, `status`).
+- `setPageRoster(h, agents)` sets the roster in the page, with no fixture file; the next reload drops it.
+- `teardownHeldRuns(h, ctx, name)` cancels every held run and its stand-ins, deletes their channels and removes the
+  repos. A run made to look as if it had a lead (a worker oref on its phase) must have it taken off first: the
+  cancel fails on a tab that does not exist.
+- `live-run-fixture.mjs` builds the live-run review's three runs on these (one task per state, a leadless run, a
+  failed Final) with the page-only injections only a live worker makes: the digest's ask reasons, child asks and
+  run events. `lead-card-merge-gate` and `agent-tree-rail` use it.
+- Page events are replaced by the first load of a run's history: publish them again once the run's view is up.
+
 ## A run with a final stage
 
 `final-stage` is the example. Two things in the engine decide how such a fixture is built (`pkg/orchestrate/final.go`).

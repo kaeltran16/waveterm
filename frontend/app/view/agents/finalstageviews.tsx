@@ -61,6 +61,8 @@ const STATE_INK: Record<FinalTone, string> = {
     fail: "text-error",
     warn: "text-warning",
 };
+// a step cell's narrowest readable width: a narrow pane wraps its steps onto a second row rather than clip them
+const STEP_CELL_MIN_PX = 100;
 const LINK = "cursor-pointer font-mono text-[10.5px] font-semibold text-accent-soft hover:text-accent";
 
 function StepMark({ tone }: { tone: FinalTone }) {
@@ -200,7 +202,10 @@ export function FinalStepCells({
     onPick?: (key: FinalStepKey) => void;
 }) {
     return (
-        <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))` }}>
+        <div
+            className="grid gap-2"
+            style={{ gridTemplateColumns: `repeat(auto-fit, minmax(${STEP_CELL_MIN_PX}px, 1fr))` }}
+        >
             {steps.map((step) => {
                 const pickable = onPick != null && stepHasOutput(step);
                 return (

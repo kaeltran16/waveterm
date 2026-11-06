@@ -24,9 +24,12 @@ const nap = (h, ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
 // a full resource timing buffer drops later modules: derive their url from jotaiStore's
 const MOD = `
     const mod = async (path) => {
-        const names = performance.getEntriesByType("resource").map((e) => e.name.split("?")[0]);
-        const hit = names.filter((n) => n.endsWith("/" + path)).pop();
-        const base = names.find((n) => n.endsWith("/app/store/jotaiStore.ts"));
+        // the newest url keeps its ?t= query: a module HMR updated is a new instance there, and the bare url is a
+        // stale second copy whose atoms the app no longer reads
+        const names = performance.getEntriesByType("resource").map((e) => e.name);
+        const bare = (n) => n.split("?")[0];
+        const hit = names.filter((n) => bare(n).endsWith("/" + path)).pop();
+        const base = names.map(bare).find((n) => n.endsWith("/app/store/jotaiStore.ts"));
         if (hit == null && base == null) throw new Error("no app module url for " + path);
         return import(hit ?? base.replace("app/store/jotaiStore.ts", path));
     };
@@ -162,7 +165,8 @@ export default function (kit) {
                 );
                 return { prior, fx: fixtures() };
             },
-            async assert(h, { fx }) {
+            async assert(h, ctx) {
+                const { fx } = ctx;
                 const steps = [];
                 const rec = (step, ok, detail) =>
                     steps.push({ step, ok: !!ok, detail: typeof detail === "string" ? detail : JSON.stringify(detail) });
@@ -378,9 +382,60 @@ export default function (kit) {
                         );
                     }
                 }
+
+                // 10. the live-run review's F18: a failed task is a live lead's to judge, as the Cockpit's lead card
+                // says; only once the lead's session has ended is it yours. The lead is live through a page roster
+                // agent on its transcript path.
+                const failing = () => [
+                    { id: "t-1", state: "review-failed" },
+                    { id: "t-2", state: "failed" },
+                    { id: "t-3", state: "running" },
+                ];
+                const judged = fixtureRun({ tasks: failing() });
+                const alone = fixtureRun({ tasks: failing() });
+                const judgedSessions = runSessions(judged, "Fixture judged run");
+                await installRuns(h, [judged, alone]);
+                await installSessions(h, [...judgedSessions, ...runSessions(alone, "Fixture lead-gone run")]);
+                ctx.priorRoster = await withModel(h, `
+                    const D = await mod("app/view/agents/devmock.ts");
+                    const prior = globalStore.get(D.devMockAgentsAtom);
+                    globalStore.set(D.devMockAgentsAtom, [{ id: "fx-sessions-judge", name: "judging lead", task: "", state: "idle",
+                        transcriptPath: ${JSON.stringify(judgedSessions[0].transcriptpath)}, blockId: "fx-blk-sessions-judge" }]);
+                    return prior;
+                `);
+                ctx.rosterSet = true;
+                await h.cdp("Emulation.setDeviceMetricsOverride", VIEWPORT);
+                const judgedKey = `run:${judged.run.oid}`;
+                const aloneKey = `run:${alone.run.oid}`;
+                await until(h, `!!${card(judgedKey)} && !!${card(aloneKey)}`);
+                await nap(h, 400);
+                const needsOf = (key) => h.ev(`(() => {
+                    const c = ${card(key)};
+                    const head = c?.querySelector('button > span:first-child');
+                    return {
+                        head: head?.lastElementChild?.textContent?.trim() ?? null,
+                        needsRows: c ? c.querySelectorAll('[role="group"][aria-label^="Needs you in"] button').length : null,
+                    };
+                })()`);
+                const lead = await needsOf(judgedKey);
+                const gone = await needsOf(aloneKey);
+                await h.shot(`cdp-shots/${NAME}-10-lead-judging.png`);
+                rec(
+                    "a live lead's failed tasks are not flagged as needing you; with its lead gone they are (F18)",
+                    lead.needsRows === 0 && !/need/.test(lead.head ?? "") && gone.needsRows === 2 && gone.head === "2 need you",
+                    { lead, gone }
+                );
                 return steps;
             },
-            async teardown(h, { prior }) {
+            async teardown(h, ctx) {
+                const { prior } = ctx;
+                if (ctx.rosterSet) {
+                    await withModel(h, `
+                        const D = await mod("app/view/agents/devmock.ts");
+                        globalStore.set(D.devMockAgentsAtom, ${JSON.stringify(ctx.priorRoster ?? null)});
+                        return true;
+                    `);
+                }
                 await h.cdp("Emulation.clearDeviceMetricsOverride", {});
                 await restoreSearch(h);
                 await withModel(

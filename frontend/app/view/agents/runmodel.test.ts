@@ -137,6 +137,13 @@ describe("dagProgressLabel", () => {
             expect(dagProgressLabel(at(final), false)).toBe("2/2 · verifying");
         }
     });
+    // a failed stage runs nothing; "verifying" read as if the stage still ran
+    it("says the final stage failed rather than verifying", () => {
+        const allDone = [{ state: "done" }, { state: "done" }] as TaskGroup["tasks"];
+        const run = info("finalizing", allDone);
+        const failed = { ...run, dag: { ...run.dag, final: { state: "failed", round: 1 } } as TaskGroup };
+        expect(dagProgressLabel(failed, false)).toBe("2/2 · final failed");
+    });
     it("says whether a leadless run's lead has started", () => {
         expect(dagProgressLabel(info("running"), true)).toBe("2/3 · no lead yet");
         expect(dagProgressLabel(info("running", tasks, true), true)).toBe("2/3 · lead closed");

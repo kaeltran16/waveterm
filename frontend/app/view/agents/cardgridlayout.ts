@@ -17,24 +17,38 @@ export interface CardShare {
     minPx: number;
 }
 
-/** Pure: leads in column 1 and agents in column 2 when both are present, so a lead never trades places
- *  with an agent as states change. One kind alone alternates across two columns; a lone card spans. */
+// a run card holds a run's tasks, so it weighs as two agent cards when the columns are balanced
+const RUN_CARD_WEIGHT = 2;
+
+/** Pure: two columns of about equal weight. Runs are placed first, then plain agents, each in the lighter column
+ *  (the first on a tie), so a run card always sits above the agents of its column and a card changes column only
+ *  when the set of cards changes, never with a card's state. A lone card spans. */
 export function splitGridColumns<T>(items: T[], isRun: (t: T) => boolean): T[][] {
-    const runs = items.filter(isRun);
-    const plain = items.filter((t) => !isRun(t));
-    if (runs.length > 0 && plain.length > 0) {
-        return [runs, plain];
-    }
     if (items.length <= 1) {
         return items.length === 1 ? [items] : [];
     }
-    return [items.filter((_, i) => i % 2 === 0), items.filter((_, i) => i % 2 === 1)];
+    const cols: T[][] = [[], []];
+    const weight = [0, 0];
+    for (const t of [...items.filter(isRun), ...items.filter((t) => !isRun(t))]) {
+        const i = weight[1] < weight[0] ? 1 : 0;
+        cols[i].push(t);
+        weight[i] += isRun(t) ? RUN_CARD_WEIGHT : 1;
+    }
+    return cols;
 }
 
-/** Pure: a card's flex share of its column and its floor. */
-export function cardShare(isRun: boolean, needsYou: boolean): CardShare {
+// a run card's floor holds this many task rows beyond the two its base floor fits, then its rows scroll
+const RUN_ROW_PX = 34;
+const RUN_ROWS_IN_BASE = 2;
+const RUN_ROWS_FLOOR_MAX = 10;
+
+/** Pure: a card's flex share of its column and its floor. A run card's floor grows with the task rows it shows,
+ *  up to the grid's own height (capPx), so a run of many tasks is not squeezed to two rows. */
+export function cardShare(isRun: boolean, needsYou: boolean, rows = 0, capPx = Infinity): CardShare {
     if (isRun) {
-        return { grow: needsYou ? 2 : 1, minPx: needsYou ? CARD_MIN_PX.runAsk : CARD_MIN_PX.run };
+        const base = needsYou ? CARD_MIN_PX.runAsk : CARD_MIN_PX.run;
+        const extra = Math.min(Math.max(0, rows - RUN_ROWS_IN_BASE), RUN_ROWS_FLOOR_MAX) * RUN_ROW_PX;
+        return { grow: needsYou ? 2 : 1, minPx: Math.max(base, Math.min(base + extra, capPx)) };
     }
     return { grow: needsYou ? 2 : 1, minPx: needsYou ? CARD_MIN_PX.agentAsk : CARD_MIN_PX.agent };
 }
@@ -45,6 +59,15 @@ export type GridCard =
     | { kind: "run"; id: string; run: RunInfo; lead?: AgentVM };
 
 const LEADLESS_PREFIX = "run:";
+
+// a run's card with no lead in the roster goes by the run's address, which also opens its run sheet
+export function leadlessCardId(runId: string): string {
+    return `${LEADLESS_PREFIX}${runId}`;
+}
+
+export function isLeadlessCardId(id: string): boolean {
+    return id.startsWith(LEADLESS_PREFIX);
+}
 
 /** Pure: the grid's cards in the order of `shown`. A run's workers are rows of its card, never cards of their
  *  own. A run gets one card at the place of whichever of its lead or workers is shown first, and the card
@@ -64,7 +87,7 @@ export function buildGridCards(shown: AgentVM[], lineage: Lineage, roster: Agent
         }
         placed.add(runId);
         const lead = role?.kind === "lead" ? a : leadAgentOf(lineage, roster, runId);
-        cards.push({ kind: "run", id: lead?.id ?? `${LEADLESS_PREFIX}${runId}`, run: lineage.runs[runId], lead });
+        cards.push({ kind: "run", id: lead?.id ?? leadlessCardId(runId), run: lineage.runs[runId], lead });
     }
     return cards;
 }
@@ -81,6 +104,17 @@ export function withActiveRunLeads(shown: AgentVM[], scoped: AgentVM[], lineage:
         return !ids.has(a.id) && dag != null && !FINISHED_RUN.has(dag.status);
     });
     return extra.length > 0 ? [...shown, ...extra] : shown;
+}
+
+/** Pure: every roster id a shown run card owns: its lead, its workers and its stage sessions. They are the card's
+ *  rows, so they are never also listed as plain agents in Idle or Backgrounded. */
+export function runCardMemberIds(cards: GridCard[], lineage: Lineage): Set<string> {
+    const runs = new Set(cards.flatMap((c) => (c.kind === "run" ? [c.run.runId] : [])));
+    return new Set(
+        Object.entries(lineage.roles)
+            .filter(([, role]) => runs.has(roleRunId(role)))
+            .map(([id]) => id)
+    );
 }
 
 /** Pure: backgrounding a lead backgrounds its run's card, until something in the run needs you. */
@@ -141,6 +175,10 @@ export interface RowTarget {
     openId?: string;
     askAgentId?: string;
     actions: (() => void)[];
+    // the row's live worker, which space peeks
+    peekId?: string;
+    // opens the row's Tell input, which r is on a task row: a reply to its worker
+    tell?: () => void;
 }
 
 /** Pure: whose question the cursor is on: a card's own agent, or the asking worker of a task row. */

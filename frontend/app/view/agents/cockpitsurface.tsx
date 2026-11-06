@@ -32,7 +32,9 @@ import {
     chipCounts,
     columnNavIds,
     isBackgroundedRun,
+    isLeadlessCardId,
     resolveCursor,
+    runCardMemberIds,
     splitGridColumns,
     toggleChip,
     withActiveRunLeads,
@@ -57,7 +59,7 @@ import { answeredAskIdsAcross, needsHuman } from "./jarvisderive";
 import { IdleSection } from "./idlesection";
 import { LeadCard } from "./leadcard";
 import { rowAction } from "./leadcardactions";
-import { buildLeadCard, isLeadDown, rowKeyActions, stopSelector, type LeadCardVM } from "./leadcardmodel";
+import { buildLeadCard, isLeadDown, rowCardId, rowKeyActions, stopSelector, type LeadCardVM } from "./leadcardmodel";
 import { refreshCardGit } from "./cardgitstore";
 import { ensurePreviousInfo, rosterSeededAtom } from "./liveagents";
 import { CockpitEmptyState, CockpitGridNotice } from "./cockpitemptystate";
@@ -76,6 +78,7 @@ import { shellTasksByIdAtom } from "./shelltasksstore";
 import { subagentsByIdAtom } from "./subagentsstore";
 import { SurfaceToolbar, ToolbarFact } from "./surfacescaffold";
 import { landOn } from "@/app/view/jarvis/returnsurface";
+import { openAddress } from "@/app/view/jarvis/openref";
 
 // Status tabs (mockup A3): a tab's count takes its status color while it has any, the selected tab underlines
 const TAB_TONE: Record<ChipFilter, { text: string; line: string }> = {
@@ -253,6 +256,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                     leadDown: down,
                     now: structuralNow,
                     tokens: summarizeUsage(runUsage[c.run.runId]?.rows)?.total,
+                    events: runEvents[c.run.runId] ?? [],
                 }),
                 down,
             });
@@ -271,6 +275,10 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
         const vm = c.kind === "run" ? leadVMs.get(c.id) : undefined;
         return vm ? [...vm.rows, ...vm.waiting, ...vm.done] : [];
     };
+    // a run card owns its lead and workers: they are its rows, never also plain agents below the grid
+    const runMembers = runCardMemberIds(shownCards, lineage);
+    const ownParked = parkedIdle.filter((a) => !runMembers.has(a.id));
+    const ownBackgrounded = backgrounded.filter((a) => !runMembers.has(a.id));
     const navCols = columnNavIds(columns, (c) => rowsOf(c).map((r) => r.key));
     const navigableIds = navCols.flat();
     const rowTargets: Record<string, RowTarget> = {};
@@ -286,6 +294,11 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                 openId: r.openId,
                 askAgentId: r.inline === "ask" ? r.worker?.id : undefined,
                 actions: rowKeyActions(r).map((a) => () => run && fireAndForget(() => rowAction(run, r, a))),
+                peekId: r.worker?.id,
+                tell:
+                    r.actions.includes("tell") && run
+                        ? () => fireAndForget(() => rowAction(run, r, "tell"))
+                        : undefined,
             };
             if (r.worker) {
                 cursorAlias[r.worker.id] = r.key;
@@ -296,12 +309,12 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
         }
     }
     // idle/backgrounded sections share the project scope; live-only hides the parked-idle section
-    const shownParkedIdle = liveOnly ? [] : parkedIdle.filter((a) => matchesProjectFilter(a, projectFilter));
-    const shownBackgrounded = backgrounded.filter((a) => matchesProjectFilter(a, projectFilter));
+    const shownParkedIdle = liveOnly ? [] : ownParked.filter((a) => matchesProjectFilter(a, projectFilter));
+    const shownBackgrounded = ownBackgrounded.filter((a) => matchesProjectFilter(a, projectFilter));
     // an Events row names where a plain agent now sits when it is off the grid
     const railTags: Record<string, string> = {
-        ...Object.fromEntries(parkedIdle.map((a) => [a.id, "idle"])),
-        ...Object.fromEntries(backgrounded.map((a) => [a.id, "background"])),
+        ...Object.fromEntries(ownParked.map((a) => [a.id, "idle"])),
+        ...Object.fromEntries(ownBackgrounded.map((a) => [a.id, "background"])),
     };
 
     // keep the cursor on a visible stop as the set changes; a worker's id follows its row, else the first stop
@@ -411,7 +424,9 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     );
 
     const renderCard = (c: GridCard) => {
-        const share = cardShare(c.kind === "run", cardNeedsYou(c));
+        const vmRows = c.kind === "run" ? leadVMs.get(c.id)! : undefined;
+        const shownRows = vmRows ? vmRows.rows.length + vmRows.waiting.length : 0;
+        const share = cardShare(c.kind === "run", cardNeedsYou(c), shownRows, gridViewportPx || undefined);
         if (c.kind === "agent") {
             return renderAgent(c.agent, share);
         }
@@ -593,11 +608,19 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                 lineage={lineage}
                 runEvents={runEvents}
                 tags={railTags}
-                onSelectAgent={(id) => {
+                onSelectAgent={(picked) => {
+                    const onGrid = new Set([...navigableIds, ...Object.keys(cursorAlias)]);
+                    // a task's row off the grid (its card filtered out or backgrounded) falls back to its card
+                    const id = onGrid.has(picked) ? picked : rowCardId(picked);
+                    if (!onGrid.has(id) && isLeadlessCardId(id)) {
+                        // a run with no lead has no agent to open: its card's id is the run's address
+                        fireAndForget(() => openAddress(model, id));
+                        return;
+                    }
                     const target = railSelectTarget(id, {
-                        onGrid: new Set([...navigableIds, ...Object.keys(cursorAlias)]),
+                        onGrid,
                         backgrounded: backgroundedIds,
-                        parked: new Set(parkedIdle.map((a) => a.id)),
+                        parked: new Set(ownParked.map((a) => a.id)),
                     });
                     if (target === "terminal") {
                         model.openTerminal(id);

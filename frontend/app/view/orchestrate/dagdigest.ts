@@ -119,6 +119,24 @@ function blockerName(id: string, briefs?: Map<string, TaskBrief>): string {
 // back to the generic phrasing when the step carries no ids, and to the raw id when no label is known:
 // presentation only, and never a task name this UI invented. The digest contract stays typed and is
 // never re-derived here.
+// the engine's action ids (pkg/orchestrate/digest.go) in words; an id this map does not know reads as it is
+const ACTION_WORDS: Record<string, string> = {
+    answer: "answer",
+    merge: "merge",
+    "resolve-merge": "resolve and continue",
+    approve: "approve",
+    sendback: "send back",
+    retry: "retry",
+    skip: "skip",
+    escalate: "escalate",
+    "fix-round": "a fix round",
+};
+
+/** Pure: a next step's actions as words, "approve / send back / retry". */
+export function actionWords(actions: string[] | undefined): string {
+    return actions?.length ? actions.map((a) => ACTION_WORDS[a] ?? a.replace(/-/g, " ")).join(" / ") : "action";
+}
+
 export function nextStepText(next: DagNextStep, briefs?: Map<string, TaskBrief>): string {
     const named = nameList(next.taskids, briefs);
     switch (next.kind) {
@@ -126,12 +144,10 @@ export function nextStepText(next: DagNextStep, briefs?: Map<string, TaskBrief>)
             if (next.actions?.length === 1 && next.actions[0] === "retry-cleanup") {
                 return `worktrees not removed${named ? `: ${named}` : ""} — wsh jarvis dag retry-cleanup`;
             }
-            const actions = next.actions?.join(" / ") ?? "action";
-            return `waiting on you — ${actions}` + (named ? `: ${named}` : "");
+            return `waiting on you — ${actionWords(next.actions)}` + (named ? `: ${named}` : "");
         }
         case "lead-action": {
-            const actions = next.actions?.join(" / ") ?? "action";
-            return `waiting on the lead — ${actions}` + (named ? `: ${named}` : "");
+            return `waiting on the lead — ${actionWords(next.actions)}` + (named ? `: ${named}` : "");
         }
         case "plan-gate":
             return "waiting on you — approve the plan to start workers";

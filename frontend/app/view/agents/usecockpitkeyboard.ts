@@ -92,6 +92,22 @@ export function useCockpitKeyboard(deps: CockpitKeyDeps): (e: KeyboardEvent) => 
         // a run card can hold a lead the live list parked, so look the card up in the whole roster
         const cur = roster.find((a) => a.id === cursorId);
         const row = cursorId != null && isRowKey(cursorId) ? rowTargets[cursorId] : undefined;
+        // on a task row, space, r and b act on the row as they act on a card: peek its worker, reply to it with
+        // Tell, background its card. A row without one does nothing
+        if (row && (e.key === " " || e.key === "r" || e.key === "b")) {
+            e.preventDefault();
+            if (e.key === " " && row.peekId) {
+                void peekTarget(model, { kind: "agent", tabId: row.peekId });
+            } else if (e.key === "r") {
+                row.tell?.();
+            } else if (e.key === "b") {
+                const card = roster.find((a) => a.id === rowCardId(cursorId!));
+                if (card && card.state !== "asking") {
+                    toggleBackground(card.id);
+                }
+            }
+            return;
+        }
         if (row && (/^[1-9]$/.test(e.key) || e.key === "Enter" || e.key === "t")) {
             e.preventDefault();
             // a worker is not a grid card, so look it up in the whole roster

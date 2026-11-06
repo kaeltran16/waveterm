@@ -17,15 +17,28 @@ import { SectionLabel } from "./sectionlabel";
 const SHORT_COMMIT = 7;
 const NONE = "—";
 
-function Fact({ label, title, children }: { label: string; title?: string; children: React.ReactNode }) {
+// clipStart elides a long value's start instead of its end, for a path whose tail names it (the Details rail's
+// Worktree line does the same)
+function Fact({
+    label,
+    title,
+    clipStart,
+    children,
+}: {
+    label: string;
+    title?: string;
+    clipStart?: boolean;
+    children: React.ReactNode;
+}) {
     return (
         <div className="flex min-w-0 items-baseline gap-[10px] border-b border-edge-faint py-[5px]">
             <span className="shrink-0 text-[12px] text-muted">{label}</span>
             <span
                 title={title}
+                dir={clipStart ? "rtl" : undefined}
                 className="min-w-0 flex-1 truncate text-right font-mono text-[11.5px] font-medium text-secondary"
             >
-                {children}
+                {clipStart ? <bdi dir="ltr">{children}</bdi> : children}
             </span>
         </div>
     );
@@ -51,7 +64,7 @@ export function FinalStageRail({ model, run }: { model: AgentsViewModel; run: Ru
                 <Fact label="Commit" title={stage?.commit || undefined}>
                     {stage?.commit ? stage.commit.slice(0, SHORT_COMMIT) : NONE}
                 </Fact>
-                <Fact label="Tree" title={stage?.tree || undefined}>
+                <Fact label="Tree" title={stage?.tree || undefined} clipStart={!!stage?.tree}>
                     {stage?.tree || NONE}
                 </Fact>
                 <Fact label="Reviewers">

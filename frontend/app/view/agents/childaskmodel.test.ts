@@ -2,7 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { childAskAgent, childAskKey, childAskSent, newAskEventIds, userOwnedAsks } from "./childaskmodel";
+import {
+    askErrorText,
+    childAskAgent,
+    childAskKey,
+    childAskSent,
+    goneAskKeys,
+    newAskEventIds,
+    userOwnedAsks,
+} from "./childaskmodel";
 
 function entry(over: Partial<DagAskItem>): DagAskItem {
     return {
@@ -112,5 +120,27 @@ describe("newAskEventIds", () => {
             "child-answered-3",
             "child-ask-cleared-4",
         ]);
+    });
+});
+
+describe("goneAskKeys", () => {
+    const ask = (askid: string, taskid = "t-1") => ({ askid, taskid }) as DagAskItem;
+    // a Take over error outlived its ask; the refresh that drops the ask drops its error
+    it("names the asks a refresh dropped", () => {
+        expect(goneAskKeys([ask("a"), ask("b"), ask("", "t-3")], [ask("b")])).toEqual(["a", "t-3"]);
+        expect(goneAskKeys([], [ask("a")])).toEqual([]);
+    });
+});
+
+describe("askErrorText", () => {
+    // the review saw "Error: task t-3 has no question to take over"
+    it("drops the Error: prefix a stringified failure carries", () => {
+        expect(askErrorText(new Error("task t-3 has no question to take over"))).toBe(
+            "task t-3 has no question to take over"
+        );
+        expect(askErrorText("Error: task t-3 has no question to take over")).toBe(
+            "task t-3 has no question to take over"
+        );
+        expect(askErrorText("timeout")).toBe("timeout");
     });
 });

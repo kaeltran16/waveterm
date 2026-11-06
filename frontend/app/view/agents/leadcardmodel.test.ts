@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 import type { AgentVM } from "./agentsviewmodel";
 import {
     buildLeadCard,
+    cancelPrompt,
+    FINAL_ROW_ID,
     foldOpen,
     isLeadDown,
     leadActivity,
@@ -198,9 +200,11 @@ describe("buildLeadCard", () => {
     it("a failed review is the lead's to judge unless the lead is down", () => {
         const run = runInfo([task("t7", "review-failed")]);
         const judged = buildLeadCard(input(run));
-        expect(judged.rows[0]).toMatchObject({ inline: "review", needsYou: false, tag: "lead judging", tone: "err" });
+        // the rounds show, the choices do not: the lead is judging them, as it judges a failed task
+        expect(judged.rows[0]).toMatchObject({ inline: "findings", needsYou: false, tag: "lead judging", tone: "err" });
+        expect(rowKeyActions(judged.rows[0])).toEqual([]);
         const down = buildLeadCard(input(run, [], { leadDown: true }));
-        expect(down.rows[0]).toMatchObject({ needsYou: true, tag: "needs you" });
+        expect(down.rows[0]).toMatchObject({ inline: "review", needsYou: true, tag: "needs you" });
         expect(down.askCount).toBe(1);
     });
 
@@ -504,6 +508,12 @@ describe("runningCount", () => {
         expect(vm.rows).toHaveLength(2);
         expect(runningCount(vm.rows)).toBe(1);
     });
+    // the live-run review's "Stop 9 running tasks" with 5 at work: failed and stalled tasks wait on a judgment
+    it("counts only what a cancel stops: a worker, a reviewer or a Verify at work", () => {
+        const states = ["running", "reviewing", "verifying", "failed", "stalled", "review-failed", "verify-failed"];
+        const vm = buildLeadCard(input(runInfo(states.map((s, i) => task(`t${i}`, s)))));
+        expect(runningCount(vm.rows)).toBe(3);
+    });
 });
 
 describe("runElapsed", () => {
@@ -548,6 +558,9 @@ describe("leadActivity", () => {
     });
     it("says who holds the run's judgment when there is no lead or it is down", () => {
         expect(leadActivity(run(), undefined, false)).toBe("engine running · no lead, none needed yet");
+        expect(leadActivity({ ...run(), leadStarted: true }, undefined, false)).toBe(
+            "lead closed · its events come to you"
+        );
         expect(leadActivity(run(), lead, true)).toBe("lead down · its events come to you");
     });
     it("names a finished run's end", () => {
@@ -669,5 +682,116 @@ describe("runAdjustable", () => {
         expect(runAdjustable(runInfo([]))).toBe(true);
         expect(runAdjustable({ ...runInfo([]), dag: { ...runInfo([]).dag, status: "done" } })).toBe(false);
         expect(runAdjustable({ ...runInfo([]), dag: undefined })).toBe(false);
+    });
+});
+
+describe("cancelPrompt", () => {
+    it("pluralizes, and asks plainly when nothing is at work", () => {
+        expect(cancelPrompt(1)).toBe("Stop 1 running task and cancel this run?");
+        expect(cancelPrompt(3)).toBe("Stop 3 running tasks and cancel this run?");
+        expect(cancelPrompt(0)).toBe("Cancel this run?");
+    });
+});
+
+describe("lead card live-run fixes", () => {
+    const finalRun = (state: string, round = 1) => {
+        const r = runInfo([task("t1", "done", { merged: true }), task("t2", "done", { merged: true })]);
+        r.dag!.status = "finalizing";
+        r.dag!.final = { state, round } as FinalStage;
+        return r;
+    };
+
+    // a run whose Final failed read as complete: an all-green strip and "Done · 3"
+    it("rows the final stage once it has one, failed out of the done fold, passed in it", () => {
+        const failed = buildLeadCard(input(finalRun("failed")));
+        const row = failed.rows.find((r) => r.taskId === FINAL_ROW_ID);
+        expect(row).toMatchObject({
+            label: "Final verification",
+            tone: "err",
+            tag: "failed",
+            kind: "live",
+            openId: "final:R",
+            openLabel: "Open stage",
+        });
+        expect(failed.bar?.final).toBe("fail");
+        expect(failed.bar?.label).toContain("final verification failed");
+        const passed = buildLeadCard(input(finalRun("passed", 2)));
+        expect(passed.done.find((r) => r.taskId === FINAL_ROW_ID)).toMatchObject({
+            tone: "ok",
+            tag: "passed · round 2",
+        });
+        const none = buildLeadCard(input(runInfo([task("t1", "running")])));
+        expect([...none.rows, ...none.done].some((r) => r.taskId === FINAL_ROW_ID)).toBe(false);
+        expect(none.bar?.final).toBeUndefined();
+    });
+
+    it("opens the current round's verifier session when it is in the roster", () => {
+        const r = finalRun("verifying");
+        r.dag!.final!.verifierrunid = "vr";
+        const verifier = { id: "ver", name: "verifier", task: "", state: "working", runId: "vr" } as AgentVM;
+        const vm = buildLeadCard(input(r, [], { roster: [lead, verifier] }));
+        expect(vm.rows.find((x) => x.taskId === FINAL_ROW_ID)?.openId).toBe("ver");
+    });
+
+    it("lets a failed or running final stage drive the activity line", () => {
+        expect(leadActivity(finalRun("failed"), lead, false)).toBe("final failed · waiting on the lead's fix round");
+        expect(leadActivity(finalRun("failed"), undefined, false)).toBe("final failed · waiting on a fix round");
+        const checking = finalRun("checking");
+        checking.dag!.final!.step = "verify";
+        expect(leadActivity(checking, lead, false)).toBe("final verification · running Verify");
+    });
+
+    it("says a lead failed to start, and why", () => {
+        const failedLead = { ...lead, startError: "error getting block: not found" } as AgentVM;
+        expect(leadActivity(runInfo([task("t1", "running")]), failedLead, false)).toBe(
+            "lead failed to start · error getting block: not found"
+        );
+    });
+
+    it("names a leadless run's lead as closed once it has had one", () => {
+        const r = runInfo([task("t1", "running")]);
+        expect(buildLeadCard(input(r, [], { lead: undefined, cardId: "run:R" })).noLead.text).toBe("no lead");
+        expect(
+            buildLeadCard(input({ ...r, leadStarted: true }, [], { lead: undefined, cardId: "run:R" })).noLead.text
+        ).toBe("lead closed");
+    });
+
+    it("tags a verifying row as Verify, not as a worker at work", () => {
+        const vm = buildLeadCard(input(runInfo([task("t8", "verifying", { verifystartedts: NOW - 60_000 })])));
+        expect(vm.rows[0]).toMatchObject({ tone: "soft", tag: "verifying 1m" });
+    });
+
+    // a failed task's tab is reaped with its tree, so its row had nothing to read why it failed
+    it("opens a failed task's ended transcript, and shows a failed Verify's first line", () => {
+        const vm = buildLeadCard(
+            input(
+                runInfo([
+                    task("t5", "failed", { runid: "c5" }),
+                    task("t7", "verify-failed", {
+                        runid: "c7",
+                        verifyerror: "\ngo test ./pkg/api: FAIL TestRoutes\nmore",
+                    }),
+                    task("t9", "failed"),
+                ])
+            )
+        );
+        expect(vm.rows[0]).toMatchObject({ openId: "ended:R:t5", openLabel: "Open transcript" });
+        expect(vm.rows[1]).toMatchObject({ openId: "ended:R:t7", detail: "go test ./pkg/api: FAIL TestRoutes" });
+        // with no child run there is no transcript to open
+        expect(vm.rows[2].openId).toBeUndefined();
+    });
+
+    it("keeps a live worker's tab as a failed row's open target", () => {
+        const w = { id: "w5", name: "w", task: "t5", state: "idle" } as AgentVM;
+        const vm = buildLeadCard(input(runInfo([task("t5", "review-failed", { runid: "c5" })]), [w]));
+        expect(vm.rows[0]).toMatchObject({ openId: "w5" });
+        expect(vm.rows[0].openLabel).toBeUndefined();
+    });
+
+    // the keyboard's Enter opened a send-back's earlier tab the mouse could not reach
+    it("gives a waiting row nothing to open, even with an earlier attempt's tab", () => {
+        const w = { id: "w3", name: "w", task: "t3", state: "idle" } as AgentVM;
+        const vm = buildLeadCard(input(runInfo([task("t3", "pending")]), [w]));
+        expect(vm.waiting[0].openId).toBeUndefined();
     });
 });

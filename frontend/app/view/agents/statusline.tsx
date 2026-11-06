@@ -42,6 +42,10 @@ export function QuietDot({
 
 // StatusLine is the compact worker identity + liveness row shared by the agent card header and the
 // orchestrator overview's worker rows: state dot (with quiet aging), runtime mark, name, project chip.
+// below this card width the header's chips would crowd the name out, so they drop to their count (the card is the
+// @container). a chip's label leads with the count, so only its noun hides and the chip's text stays the label.
+export const WIDE_ONLY = "@max-[420px]:hidden";
+
 // Status is always conveyed by dot + text — never color alone. `mark` takes the dot's place (the lead card's
 // Workflow icon). `standing` draws the dot accent and still for an agent standing by.
 export function StatusLine({

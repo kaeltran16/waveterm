@@ -81,6 +81,16 @@ import {
     waitForProjectInConfig,
     waveService,
 } from "./scenarios-shared.mjs";
+import {
+    arrangeLiveRuns,
+    injectLiveAsks,
+    LIVE_IDS,
+    LIVE_VERIFY_ERROR,
+    markLeadClosed,
+    publishLiveEvents,
+    setLiveRoster,
+    teardownLiveRuns,
+} from "./live-run-fixture.mjs";
 
 const workerOf = (phase) => phase && phase.workerorefs && phase.workerorefs[0];
 
@@ -748,6 +758,232 @@ async function mergeGateStandIn(h, ctx, taskId) {
     return created.run.id;
 }
 
+// the cockpit's view model, found from the nav's props as the review's driver did
+const COCKPIT_MODEL = `(() => {
+    const nav = document.querySelector("nav");
+    const key = nav && Object.keys(nav).find((k) => k.startsWith("__reactFiber$"));
+    for (let f = key ? nav[key] : null; f; f = f.return) {
+        if (f.memoizedProps?.model?.cursorIdAtom) return f.memoizedProps.model;
+    }
+    return null;
+})()`;
+const liveCard = (id) => `document.querySelector('[data-cockpit-surface] [data-agent-id=${JSON.stringify(id)}]')`;
+const liveRow = (cardId, taskId) => `document.querySelector('[data-row-key=${JSON.stringify(`row:${cardId}:${taskId}`)}]')`;
+const LIVE_SMALL = { width: 1000, height: 700, deviceScaleFactor: 1, mobile: false };
+
+// The live-run review's Cockpit findings (cdp-shots/review/live-run, F1-F10, F16, F17, F19, F22, F23) on three held
+// runs (live-run-fixture.mjs): no model starts. Each step reads the card the finding was seen on, at the width it was
+// broken at.
+async function liveRunCardSteps(h, ctx) {
+    const steps = [];
+    const rec = (step, ok, detail) => steps.push({ step, ok: !!ok, detail: typeof detail === "string" ? detail : JSON.stringify(detail) });
+    if (ctx.liveError || !ctx.live) {
+        rec("L0. the live-run fixture's three held runs", false, ctx.liveError ?? "not arranged: the merge-gate arrange failed first");
+        return steps;
+    }
+    const { B } = ctx.live;
+    const cardB = `run:${B.runId}`;
+    await h.goto("cockpit");
+    await setLiveRoster(h, ctx);
+    ctx.leadClosed = true;
+    await markLeadClosed(h, B);
+    await publishLiveEvents(h, ctx);
+    const ready = await polishWaitFor(
+        h,
+        `!!${liveCard(LIVE_IDS.leadA)} && !!${liveCard(LIVE_IDS.leadC)} && !!${liveCard(cardB)} && !!${liveRow(LIVE_IDS.leadC, "@final")}`,
+        20_000
+    );
+    const asks = await injectLiveAsks(h, ctx);
+    // the first load of a run's history replaces the events the page holds, so publish again once the cards are up
+    await polishNap(1500);
+    await publishLiveEvents(h, ctx);
+    await polishNap(800);
+    rec("L0. the three held runs' cards render, no task dispatched", ready && asks === "ok", { ready, asks });
+    await h.shot("cdp-shots/lead-card-live-runs.png");
+
+    // F1: a run whose Final failed read as complete
+    const final = await lookEval(h, `
+        const card = ${liveCard(LIVE_IDS.leadC)};
+        const row = ${liveRow(LIVE_IDS.leadC, "@final")};
+        return {
+            row: flat(row),
+            slot: card?.querySelector("[data-final-slot]")?.getAttribute("data-final-slot") ?? null,
+            text: flat(card),
+        };`);
+    rec(
+        "L1. a failed Final stage has its row, its red strip slot and the activity line (F1)",
+        /Final verification/.test(final.row) && /failed/.test(final.row) && final.slot === "fail" && final.text.includes("final failed · waiting on the lead's fix round"),
+        final
+    );
+    // the row opens the stage pane on the Agent surface
+    const openStage = await lookEval(h, `
+        const row = ${liveRow(LIVE_IDS.leadC, "@final")};
+        row.click();
+        await nap(300);
+        const btn = button(row, /^Open stage$/);
+        if (!btn) return { error: "no Open stage button", row: flat(row) };
+        btn.click();
+        return await until(() => !!document.querySelector("[data-final-pane]"), 8000);`);
+    await h.shot("cdp-shots/lead-card-live-final-open.png");
+    rec("L2. the Final row's Open lands on the stage pane (F1)", openStage === true, openStage);
+    await h.goto("cockpit");
+    await injectLiveAsks(h, ctx);
+    await polishNap(500);
+
+    // F2: a run's idle workers are the card's rows, not also plain agents in Idle
+    const idle = await lookEval(h, `
+        const main = document.querySelector("[data-cockpit-surface]")?.firstElementChild;
+        const text = flat(main);
+        return { t4: text.includes("worker t-4"), t9: text.includes("worker t-9"), idle: /Idle\\s*\\d/.test(text) };`);
+    rec("L3. idle run workers are not listed in Idle beside their run card (F2)", !idle.t4 && !idle.t9, idle);
+
+    // F3: the leadless card reads a lead that closed
+    const leadless = await lookEval(h, `
+        const card = ${liveCard(cardB)};
+        await until(() => flat(card?.querySelector("[data-no-lead]")) === "lead closed", 6000);
+        const pill = card?.querySelector("[data-no-lead]");
+        return { pill: flat(pill), title: pill?.title ?? null, activity: flat(card).includes("lead closed · its events come to you") };`);
+    rec("L4. a leadless card whose lead closed says so (F3)", leadless.pill === "lead closed" && leadless.activity, leadless);
+
+    // F5 the chip counts what needs you; F7 a verifying row; F6 a judged review offers no choices
+    const rows = await lookEval(h, `
+        const card = ${liveCard(LIVE_IDS.leadA)};
+        const chip = flat(card?.querySelector("[data-need-you-chip]"));
+        const t8 = ${liveRow(LIVE_IDS.leadA, "t-8")};
+        const t4 = ${liveRow(LIVE_IDS.leadA, "t-4")};
+        t4?.click();
+        await nap(300);
+        return {
+            chip,
+            t8: flat(t8?.firstElementChild),
+            t4: flat(t4),
+            t4Buttons: [...(t4?.querySelectorAll("button") ?? [])].map((b) => flat(b)),
+        };`);
+    rec("L5. the header chip says what needs you, not who asks (F5)", /^\d+ need you$/.test(rows.chip), rows.chip);
+    rec("L6. a verifying row is tagged verifying, not aged as a worker (F7)", /verifying \d+m/.test(rows.t8), rows.t8);
+    rec(
+        "L7. a failed review the lead judges shows its rounds but none of its choices (F6)",
+        /lead judging/.test(rows.t4) && /Round 2/.test(rows.t4) && !rows.t4Buttons.some((b) => /Approve|Send back/.test(b)),
+        rows
+    );
+
+    // F8: a failed task opens its transcript; a failed Verify shows its error
+    const failed = await lookEval(h, `
+        const t5 = ${liveRow(LIVE_IDS.leadA, "t-5")};
+        t5?.click();
+        await nap(300);
+        const t5Open = [...(t5?.querySelectorAll("button") ?? [])].map((b) => flat(b));
+        const t7 = ${liveRow(LIVE_IDS.leadA, "t-7")};
+        t7?.click();
+        await nap(300);
+        return { t5Open, t7Detail: flat(t7?.querySelector("[data-row-detail]")) };`);
+    await h.shot("cdp-shots/lead-card-live-verify-failed.png");
+    rec(
+        "L8. a failed row opens its transcript and a failed Verify shows its first line (F8)",
+        failed.t5Open.includes("Open transcript") && failed.t7Detail === LIVE_VERIFY_ERROR,
+        failed
+    );
+
+    // F23: a waiting row has nothing to open, by mouse or Enter
+    const waiting = await lookEval(h, `
+        const row = ${liveRow(LIVE_IDS.leadA, "t-12")};
+        row?.click();
+        await nap(300);
+        const surface = document.querySelector("[data-cockpit-surface]");
+        surface.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+        await nap(600);
+        return { buttons: [...(row?.querySelectorAll("button") ?? [])].map((b) => flat(b)), stillCockpit: !!document.querySelector("[data-cockpit-surface]") };`);
+    rec("L9. a waiting row offers nothing to open and Enter stays put (F23)", waiting.buttons.length === 0 && waiting.stillCockpit, waiting);
+
+    // F22: r on a running row is a reply: it opens the row's Tell input
+    const keys = await lookEval(h, `
+        const row = ${liveRow(LIVE_IDS.leadA, "t-1")};
+        row?.click();
+        await nap(300);
+        const surface = document.querySelector("[data-cockpit-surface]");
+        surface.focus();
+        surface.dispatchEvent(new KeyboardEvent("keydown", { key: "r", bubbles: true }));
+        const tell = await until(() => !!row?.querySelector('input[placeholder^="tell t-1"]'), 3000);
+        row?.querySelector("input")?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+        return { tell };`);
+    rec("L10. r on a running task row opens Tell to its worker (F22)", keys.tell === true, keys);
+
+    // F4: the cancel panel counts what a cancel stops, pluralized
+    const cancel = await lookEval(h, `
+        const card = ${liveCard(LIVE_IDS.leadA)};
+        button(card, /^Cancel run$/)?.click();
+        await nap(400);
+        const text = [...card.querySelectorAll("span")].map((s) => flat(s)).find((t) => t.startsWith("Stop ")) ?? null;
+        button(card, /^Keep running$/)?.click();
+        return { text };`);
+    rec("L11. Cancel run counts the 5 tasks at work, not every live row (F4)", /^Stop 5 running tasks and cancel this run\?/.test(cancel.text ?? ""), cancel);
+
+    // F10: run cards spread over both columns, and a run of many tasks gives them room beside its lead's pane
+    const layout = await lookEval(h, `
+        const cards = [${liveCard(LIVE_IDS.leadA)}, ${liveCard(LIVE_IDS.leadC)}, ${liveCard(cardB)}, ${liveCard(LIVE_IDS.plain)}];
+        const lefts = cards.map((c) => Math.round(c?.getBoundingClientRect().left ?? -1));
+        const rowsBox = cards[0]?.querySelector("[data-lead-rows]");
+        return { columns: new Set(lefts).size, rowsPx: Math.round(rowsBox?.getBoundingClientRect().height ?? 0) };`);
+    await h.shot("cdp-shots/lead-card-live-layout-1600.png");
+    // the review measured 136px of task rows with the lead pane open
+    rec("L12. at 1600 the run cards use both columns and run A's task rows get 300px+ (F10)", layout.columns === 2 && layout.rowsPx >= 300, layout);
+
+    // F16, F17: the Events rail's run groups
+    await publishLiveEvents(h, ctx);
+    await polishNap(800);
+    const rail = await lookEval(h, `
+        const model = ${COCKPIT_MODEL};
+        const { globalStore } = await mod("app/store/jotaiStore.ts");
+        const rows = [...document.querySelectorAll("[data-cockpit-surface] [role=button]")].filter((r) => /Verify failed · t-7|Task failed · t-1/.test(flat(r)));
+        const texts = [...document.querySelectorAll("[data-cockpit-surface] [role=button]")].map((r) => flat(r));
+        const t7 = rows.find((r) => /t-7/.test(flat(r)));
+        t7?.click();
+        await nap(500);
+        const afterT7 = globalStore.get(model.cursorIdAtom);
+        const b = rows.find((r) => /Task failed · t-1/.test(flat(r)) && /leadless/.test(flat(r)));
+        b?.click();
+        await nap(500);
+        return { found: rows.length, afterT7, afterB: globalStore.get(model.cursorIdAtom), doubled: texts.some((t) => /failed Task failed|landed Task merged/.test(t)), more: texts.filter((t) => /more from|show less from/.test(t)) };`);
+    await h.shot("cdp-shots/lead-card-live-rail.png");
+    rec(
+        "L13. a run event lands on its task's row, a leadless run's on its card (F16)",
+        rail.afterT7 === `row:${LIVE_IDS.leadA}:t-7` && rail.afterB === `row:${cardB}:t-1`,
+        rail
+    );
+    rec("L14. run events read once, and their fold names no run twice (F17)", !rail.doubled && rail.more.length === 0, rail);
+
+    // F9, F10 at the dev window's 1000x700
+    await h.cdp("Emulation.setDeviceMetricsOverride", LIVE_SMALL);
+    await polishNap(800);
+    await injectLiveAsks(h, ctx);
+    await polishNap(400);
+    const small = await lookEval(h, `
+        const card = ${liveCard(LIVE_IDS.leadA)};
+        const header = card?.firstElementChild;
+        const chip = header?.querySelector("[data-need-you-chip]")?.getBoundingClientRect();
+        const status = header?.firstElementChild?.getBoundingClientRect();
+        const footer = card?.querySelector("[data-lead-footer]")?.getBoundingClientRect();
+        return {
+            overlap: chip && status ? Math.round(status.right - chip.left) : null,
+            footerH: footer ? Math.round(footer.height) : null,
+        };`);
+    await h.shot("cdp-shots/lead-card-live-1000.png");
+    rec("L15. at 1000x700 the header's name and project end before the chip (F9)", small.overlap != null && small.overlap <= 0, small);
+    rec("L16. at 1000x700 the card's footer stays on one line (F10)", small.footerH != null && small.footerH <= 26, small);
+    await h.cdp("Emulation.setDeviceMetricsOverride", OBS_WIDE);
+    await polishNap(500);
+
+    // F19: a lead that failed to start says why, on its card's mark and activity line
+    await lookEval(h, `window.__cockpitRosterFixture.patch(${JSON.stringify(LIVE_IDS.leadC)}, { startError: "error getting block: not found" }); return true;`);
+    const err = await lookEval(h, `
+        const card = ${liveCard(LIVE_IDS.leadC)};
+        await until(() => card?.querySelector('[data-lead-mark="error"]'), 4000);
+        const mark = card?.querySelector('[data-lead-mark="error"]');
+        return { mark: !!mark, title: mark?.querySelector("title")?.textContent ?? null, activity: flat(card).includes("lead failed to start · error getting block: not found") };`);
+    rec("L17. a lead that failed to start explains its red mark (F19)", err.mark && /failed to start/.test(err.title ?? "") && err.activity, err);
+    return steps;
+}
+
 export const leadCardMergeGate = {
     name: "lead-card-merge-gate",
     surface: "cockpit",
@@ -792,6 +1028,12 @@ export const leadCardMergeGate = {
                 await new Promise((r) => setTimeout(r, 1000));
             }
             ctx.doneMs = Date.now() - start;
+            // the live-run states: three runs held in unborn repos, which no tick can start
+            try {
+                await arrangeLiveRuns(h, ctx);
+            } catch (e) {
+                ctx.liveError = String(e?.message ?? e);
+            }
             // the fixture roster is read once at boot
             await h.ev("location.reload()");
             await h.ev(`(async () => {
@@ -849,7 +1091,7 @@ export const leadCardMergeGate = {
         await h.shot("cdp-shots/lead-card-merge-gate-cancel.png");
         rec(
             "3. the cancel panel counts only the running task",
-            shown.live === true && /^Stop 1 running tasks/.test(cancel.text ?? ""),
+            shown.live === true && /^Stop 1 running task and cancel this run\?/.test(cancel.text ?? ""),
             JSON.stringify({ live: shown.live, ...cancel })
         );
         await h.ev(`(() => {
@@ -881,9 +1123,12 @@ export const leadCardMergeGate = {
                 header === true,
             JSON.stringify({ ...opened, surface, header })
         );
+        steps.push(...(await liveRunCardSteps(h, ctx)));
         return steps;
     },
     async teardown(h, ctx) {
+        await h.cdp("Emulation.setDeviceMetricsOverride", OBS_WIDE).catch(() => {});
+        await teardownLiveRuns(h, ctx, "lead-card-merge-gate");
         await teardownFixtureRun(h, ctx, "lead-card-merge-gate");
     },
 };

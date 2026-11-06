@@ -63,7 +63,7 @@ export function EndedTranscript({ model, agent }: { model: AgentsViewModel; agen
             <div className="mx-[22px] mt-[12px] flex flex-none items-center gap-[10px] rounded-[6px] border border-edge-mid bg-surface-raised px-[12px] py-[8px] font-mono text-[11px] text-muted">
                 <span>●</span>
                 <span className="min-w-0 flex-1 truncate">
-                    {task ? endedLine(task, run?.digest) : "Session ended · read-only transcript"}
+                    {task ? endedLine(task, run) : "Session ended · read-only transcript"}
                 </span>
                 {lead ? (
                     <button

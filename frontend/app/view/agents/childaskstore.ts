@@ -14,7 +14,7 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { fireAndForget } from "@/util/util";
 import { atom } from "jotai";
 import { buildAskAnswers, canSubmitAsk, toAskQuestions, toggleSelection } from "./agentsviewmodel";
-import { childAskKey } from "./childaskmodel";
+import { askErrorText, childAskKey, goneAskKeys } from "./childaskmodel";
 
 // keyed by the owning run: two surfaces can show two runs' questions at once
 export const childAsksAtom = atom<Record<string, DagAskItem[]>>({});
@@ -53,7 +53,13 @@ export function refreshChildAsks(channelId: string, runId: string) {
     fireAndForget(async () => {
         try {
             const rtn = await RpcApi.DagAsksCommand(TabRpcClient, { channelid: channelId, runid: runId });
-            globalStore.set(childAsksAtom, (prev) => ({ ...prev, [runId]: rtn?.asks ?? [] }));
+            const asks = rtn?.asks ?? [];
+            const gone = goneAskKeys(globalStore.get(childAsksAtom)[runId] ?? [], asks);
+            globalStore.set(childAsksAtom, (prev) => ({ ...prev, [runId]: asks }));
+            // an error belongs to its ask: once the ask is answered or taken, it has nothing left to explain
+            if (gone.length > 0) {
+                globalStore.set(childAskErrorAtom, (prev) => withoutKeys(prev, gone));
+            }
         } catch {
             // dag may be gone; keep the current list
         }
@@ -86,8 +92,12 @@ export function setChildAnswerText(ask: DagAskItem, qi: number, value: string) {
 }
 
 function withoutKey<T>(rec: Record<string, T>, key: string): Record<string, T> {
+    return withoutKeys(rec, [key]);
+}
+
+function withoutKeys<T>(rec: Record<string, T>, keys: string[]): Record<string, T> {
     const next = { ...rec };
-    delete next[key];
+    keys.forEach((k) => delete next[k]);
     return next;
 }
 
@@ -114,7 +124,7 @@ export function submitChildAnswer(channelId: string, runId: string, ask: DagAskI
             });
         } catch (err) {
             globalStore.set(childAskSentAtom, withoutKey(globalStore.get(childAskSentAtom), key));
-            globalStore.set(childAskErrorAtom, { ...globalStore.get(childAskErrorAtom), [key]: String(err) });
+            globalStore.set(childAskErrorAtom, { ...globalStore.get(childAskErrorAtom), [key]: askErrorText(err) });
         }
         refreshChildAsks(channelId, runId);
     });
@@ -134,7 +144,7 @@ export function takeOverChildAsk(channelId: string, runId: string, ask: DagAskIt
                 action: "takeover",
             });
         } catch (err) {
-            globalStore.set(childAskErrorAtom, { ...globalStore.get(childAskErrorAtom), [key]: String(err) });
+            globalStore.set(childAskErrorAtom, { ...globalStore.get(childAskErrorAtom), [key]: askErrorText(err) });
         }
         refreshChildAsks(channelId, runId);
     });

@@ -7,6 +7,8 @@
 
 import { isFinishTransition } from "./agentrowmodel";
 import { matchesProjectFilter, type AgentState, type AgentVM } from "./agentsviewmodel";
+import { leadlessCardId } from "./cardgridlayout";
+import { rowKey } from "./leadcardmodel";
 import type { Lineage, RunInfo } from "./runlineage";
 import { detailOf, eventText } from "./runtimeline";
 
@@ -104,8 +106,11 @@ const RUN_KIND: Record<string, RailKind> = {
     "dag-cancelled": "finished",
 };
 
-/** Pure: a run's engine events as rail events. A failed review counts once, when its rounds are spent. */
+/** Pure: a run's engine events as rail events. A failed review counts once, when its rounds are spent. A click
+ *  lands on the task's row of the run's card when the event names a task, else on the card: the lead's, or the
+ *  run's own with no lead. */
 export function runRailEvents(run: RunInfo, events: RunEvent[], leadId?: string): RailEvent[] {
+    const cardId = leadId ?? leadlessCardId(run.runId);
     const out: RailEvent[] = [];
     for (const e of events) {
         let kind = RUN_KIND[e.kind];
@@ -115,9 +120,10 @@ export function runRailEvents(run: RunInfo, events: RunEvent[], leadId?: string)
         if (kind == null) {
             continue;
         }
+        const taskId = detailOf<{ taskid?: string }>(e)?.taskid;
         out.push({
             key: `${run.runId}:${e.id}`,
-            focusId: leadId,
+            focusId: taskId ? rowKey(cardId, taskId) : cardId,
             who: run.title,
             kind,
             text: eventText(e),
@@ -208,7 +214,8 @@ export function groupRailEvents(events: RailEvent[], open: Record<string, boolea
             out.push(e);
         } else if (!seen.has(g)) {
             seen.add(g);
-            out.push({ ...e, more: open[g] ? `show less from ${e.who}` : `+${count[g] - 1} more from ${e.who}` });
+            // the row above names the run, so the toggle need not
+            out.push({ ...e, more: open[g] ? "show less" : `+${count[g] - 1} more` });
         } else if (open[g]) {
             out.push(e);
         }
