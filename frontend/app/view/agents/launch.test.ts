@@ -21,8 +21,53 @@ import {
     runtimeStartupCommand,
     runtimeSupportsWorktree,
     sessionIdFromTranscript,
+    splitCommandLine,
     worktreeOutcome,
 } from "./launch";
+
+describe("splitCommandLine", () => {
+    it("keeps a double-quoted argument whole", () => {
+        expect(splitCommandLine('claude --model haiku "a b c"')).toEqual(["claude", "--model", "haiku", "a b c"]);
+    });
+    it("takes single quotes literally", () => {
+        expect(splitCommandLine(`'a "b"'`)).toEqual(['a "b"']);
+    });
+    it("unescapes a quote and a backslash inside double quotes", () => {
+        expect(splitCommandLine('"say \\"hi\\""')).toEqual(['say "hi"']);
+        expect(splitCommandLine('"a\\\\b"')).toEqual(["a\\b"]);
+    });
+    it("leaves a backslash outside quotes alone, so a Windows path survives", () => {
+        expect(splitCommandLine("C:\\tools\\claude.exe --x")).toEqual(["C:\\tools\\claude.exe", "--x"]);
+    });
+    it("runs an unclosed quote to the end", () => {
+        expect(splitCommandLine('"a b')).toEqual(["a b"]);
+    });
+    it("makes no empty tokens from extra whitespace or an empty string", () => {
+        expect(splitCommandLine("  claude   --x  ")).toEqual(["claude", "--x"]);
+        expect(splitCommandLine("")).toEqual([]);
+        expect(splitCommandLine("   ")).toEqual([]);
+    });
+    it("joins a quote that touches text into one token", () => {
+        expect(splitCommandLine('--msg="a b"')).toEqual(["--msg=a b"]);
+    });
+});
+
+describe("a quoted startup command", () => {
+    it("reaches cmd:args as one argument before the task", () => {
+        const m = buildLaunchMeta({
+            runtime: "claude",
+            startupCommand: 'claude --model haiku "a b c"',
+            task: "T",
+            cwd: "/x",
+        });
+        expect(m.cmd).toBe("claude");
+        expect(m["cmd:args"]).toEqual(["--model", "haiku", "a b c", "T"]);
+        expect(m["agent:baseargs"]).toEqual(["--model", "haiku", "a b c"]);
+    });
+    it("is not given a flag it already holds inside a quoted token", () => {
+        expect(composeStartupCommand('claude "--verbose"', "claude", { verbose: true })).toBe('claude "--verbose"');
+    });
+});
 
 describe("runtime helpers", () => {
     it("derives the startup command", () => {
