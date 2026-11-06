@@ -26,6 +26,12 @@ function landView(land: RunLand): { label: string; tone: RunStatusTone } | undef
 /** Pure: what a run whose plan finished is still doing. The dag finishing is not the run finishing: its lead
  *  wraps up and completes it, and only then does a run on its own branch land. */
 export function finishedRunLabel(run: Pick<RunInfo, "dag" | "status" | "land">): string {
+    // completing a run whose final stage failed cancels its dag and holds the land, which a forced land can
+    // still land later, so a done run's land outranks its dag's cancel
+    const landed = run.status === "done" && run.land ? landView(run.land) : undefined;
+    if (landed) {
+        return landed.label;
+    }
     if (run.dag?.status === "cancelled" || run.status === "cancelled") {
         return "run cancelled";
     }

@@ -95,6 +95,11 @@ describe("finishedRunLabel", () => {
     it("says a cancelled run is cancelled", () => {
         expect(finishedRunLabel(info("executing", undefined, "cancelled"))).toBe("run cancelled");
     });
+    // completing a run whose final stage failed cancels its dag and holds the land; a later forced land lands it
+    it("follows the land of a done run whose dag was cancelled", () => {
+        expect(finishedRunLabel(info("done", { state: "held" }, "cancelled"))).toBe("land held");
+        expect(finishedRunLabel(info("done", { state: "landed" }, "cancelled"))).toBe("landed");
+    });
 });
 
 describe("dagProgressLabel", () => {
@@ -154,6 +159,7 @@ describe("runComplete", () => {
     it("is complete once the plan is done and the run landed, or had nothing to land", () => {
         expect(runComplete(info("done"))).toBe(true);
         expect(runComplete(info("done", { state: "landed" }))).toBe(true);
+        expect(runComplete(info("done", { state: "landed" }, "cancelled"))).toBe(true);
     });
     it("is not complete while a land is in flight or held", () => {
         expect(runComplete(info("done", { state: "pending" }))).toBe(false);
@@ -167,6 +173,7 @@ describe("runComplete", () => {
         expect(runComplete(info("done", undefined, "cancelled"))).toBe(false);
         expect(runComplete(info("cancelled"))).toBe(false);
         expect(runComplete(info("done", undefined, "running"))).toBe(false);
+        expect(runComplete(info("done", { state: "held" }, "cancelled"))).toBe(false);
     });
     // no dag means the lead did the goal itself without workers: the run's own status and land are the only truth
     it("follows the run's own status and land without a dag", () => {
