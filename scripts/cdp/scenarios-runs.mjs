@@ -4328,6 +4328,26 @@ const fstHolds = (fn) => {
         return false;
     }
 };
+const FST_SUB_SECOND_MS = 211;
+const FST_SUB_SECOND_TEXT = "passed <1s";
+const FST_ENDED_BANNER = "Session ended · read-only transcript";
+
+// shared's fstPublishSteps is not exported: one passed final-step event, the way the page appends the engine's
+async function fstPublishStepMs(h, ctx, step, ms) {
+    const event = {
+        id: `fst-2-${step}-sub-second`,
+        runid: ctx.runId,
+        channelid: ctx.channelId,
+        ts: Date.now(),
+        kind: "final-step",
+        detail: JSON.stringify({ round: 2, step, ms, ok: true }),
+    };
+    await h.rpc("eventpublish", {
+        event: "run:event",
+        scopes: [`run:${ctx.runId}`],
+        data: { channelid: ctx.channelId, runid: ctx.runId, event },
+    });
+}
 const fstStates = (steps) => (steps ?? []).map((s) => s.state);
 const fstRepeat = (state, n) => Array(n).fill(state);
 const fstSame = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -4348,7 +4368,7 @@ const FST_LIB = `
     const pastOf = (root) =>
         [...(root?.querySelectorAll("[data-final-past-round]") ?? [])].map((p) => ({
             round: p.getAttribute("data-final-past-round"),
-            text: flat(p),
+            text: flat(p.querySelector("span.font-mono")),
         }));
     const outputOf = (root) => root?.querySelector("[data-final-output]")?.textContent ?? null;
     const shotsOf = (root) => flat(root?.querySelector("[data-final-shots-link]")) || null;
@@ -4962,6 +4982,53 @@ export const finalStageScenario = {
             { reloaded, row: a?.rows, stage: a?.stage, node: d?.node }
         );
         await shot("b10-no-total-dag");
+
+        // P10, P11: the verifier's tab is gone (no verifier agent in the roster), so the stage's own pane shows its
+        // steps. Tree is published at 211 ms by hand; fstShow publishes the other four
+        await fstBoot(h, ctx, false);
+        const shown = await fstShow(h, ctx, "passed", { skip: "tree" });
+        const publishTree = () => fstPublishStepMs(h, ctx, "tree", FST_SUB_SECOND_MS);
+        const republish = async () => {
+            await shown.nudge?.();
+            await publishTree();
+        };
+        await republish();
+        if (await h.ev(`${FST_ROW} == null && ${FST_FOLD} != null`)) await finalShotsClick(h, FST_FOLD);
+        await fstUntil(h, FST_AGENT, (s) => s.rows.length === 1);
+        await clickRow();
+        const subSecond = await fstUntil(h, FST_AGENT, (s) => s.pane?.steps?.[0]?.text === FST_SUB_SECOND_TEXT, {
+            nudge: republish,
+        });
+        await shot("b10b-sub-second-pane");
+        rec(
+            "P10. a step that ran 211 ms reads <1s in the pane, and the steps around it keep their times",
+            () =>
+                subSecond.pane.steps[0].key === "tree" &&
+                subSecond.pane.steps[0].text === FST_SUB_SECOND_TEXT &&
+                fstSame(subSecond.pane.steps.slice(1).map((s) => s.text), FST_STEP_TEXT.slice(1, 5)),
+            { steps: subSecond?.pane?.steps?.map((s) => [s.key, s.text]) }
+        );
+        const verifierCell = `${FST_PANE}?.querySelector('[data-final-step="verifier"]')`;
+        const clickable = await h.ev(`${verifierCell}?.getAttribute("role") === "button"`);
+        await finalShotsClick(h, verifierCell);
+        const opened = await fstUntil(
+            h,
+            `(() => {
+                const wrap = document.querySelector("[data-cockpit-surface-wrap]");
+                return {
+                    pane: ${FST_PANE} != null,
+                    ended: (wrap?.textContent ?? "").includes(${JSON.stringify(FST_ENDED_BANNER)}),
+                    text: (wrap?.textContent ?? "").includes("Verifier"),
+                };
+            })()`,
+            (s) => !s.pane && s.ended
+        );
+        await shot("b10c-verifier-transcript");
+        rec(
+            "P11. the Verifier step of a passed stage is a button, and a click opens the verifier's ended transcript in place of the pane",
+            () => clickable === true && opened.pane === false && opened.ended === true && opened.text === true,
+            { clickable, opened }
+        );
 
         // --- Part A: a dag really finalizing, run by the engine ---
         const live = await fstStartLive(h, ctx);

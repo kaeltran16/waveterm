@@ -10,6 +10,12 @@ describe("runcompletion derivations", () => {
         expect(fmtDuration(9000)).toBe("9s");
         expect(fmtBytes(214 * 1024)).toBe("214 KB");
     });
+    it("reads a sub-second duration as <1s, not a rounded 1s", () => {
+        expect(fmtDuration(211)).toBe("<1s");
+        expect(fmtDuration(999)).toBe("<1s");
+        expect(fmtDuration(1500)).toBe("2s");
+        expect(fmtDuration(0)).toBe("0s");
+    });
     it("counts verifications by result", () => {
         const counts = verifCounts([
             { cmd: "a", result: "pass" },

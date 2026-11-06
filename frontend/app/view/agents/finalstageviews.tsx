@@ -189,17 +189,20 @@ export function FinalStepList({ steps, showCommand }: { steps: FinalStep[]; show
 }
 
 // The pipeline: one bordered cell per step, the shown one accented, else the running one. showCommand adds each
-// step's command. With onPick, a step whose output can be opened is clickable.
+// step's command. With onPick, a step whose output can be opened is clickable, and so is the Verifier when
+// opensVerifier says its session can be.
 export function FinalStepCells({
     steps,
     showCommand,
     shown,
     onPick,
+    opensVerifier,
 }: {
     steps: FinalStep[];
     showCommand?: boolean;
     shown?: FinalStepKey;
     onPick?: (key: FinalStepKey) => void;
+    opensVerifier?: boolean;
 }) {
     return (
         <div
@@ -207,14 +210,15 @@ export function FinalStepCells({
             style={{ gridTemplateColumns: `repeat(auto-fit, minmax(${STEP_CELL_MIN_PX}px, 1fr))` }}
         >
             {steps.map((step) => {
-                const pickable = onPick != null && stepHasOutput(step);
+                const hasOutput = onPick != null && stepHasOutput(step);
+                const pickable = hasOutput || (onPick != null && opensVerifier === true && step.key === "verifier");
                 return (
                     <div
                         key={step.key}
                         data-final-step={step.key}
                         data-final-step-state={step.state}
                         role={pickable ? "button" : undefined}
-                        aria-pressed={pickable ? step.key === shown : undefined}
+                        aria-pressed={hasOutput ? step.key === shown : undefined}
                         onClick={pickable ? () => onPick(step.key) : undefined}
                         className={cn(
                             "flex min-w-0 flex-col gap-1 rounded-[8px] border px-2.5 py-2",

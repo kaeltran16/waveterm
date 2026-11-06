@@ -11,6 +11,9 @@ import {
     endedReviewerOf,
     endedReviewerVM,
     endedRoles,
+    endedVerifierId,
+    endedVerifierOf,
+    endedVerifierVM,
     endedWorkerId,
     endedWorkerVM,
     finalStageRoles,
@@ -34,6 +37,7 @@ import {
     taskElapsed,
     taskStateLabel,
     unmetDeps,
+    verifierStepTarget,
     workerAsk,
     workerSubtext,
     type Lineage,
@@ -555,5 +559,53 @@ describe("runInfoOf", () => {
         expect(info).toMatchObject({ runId: "r-2", channelId: "", title: "Orchestrator run", project: "" });
         expect(info.base).toBeUndefined();
         expect(info.leadStarted).toBe(false);
+    });
+});
+
+describe("ended verifier", () => {
+    const run: RunInfo = {
+        runId: "r1",
+        channelId: "c",
+        title: "",
+        project: "p",
+        dag: { tasks: [], final: { state: "passed", verifierrunid: "vr-1" } } as unknown as TaskGroup,
+    };
+    const noVerifier: RunInfo = { ...run, dag: { tasks: [], final: { state: "checking" } } as unknown as TaskGroup };
+
+    it("gives the current verifier a stage role under an ended id", () => {
+        const id = endedVerifierId("r1", "vr-1");
+        expect(endedRoles({ r1: run })[id]).toEqual({ kind: "stage", leadRunId: "r1", stageRole: "verifier" });
+        expect(isEndedWorkerId(id)).toBe(true);
+        expect(Object.keys(endedRoles({ r1: noVerifier }))).toEqual([]);
+    });
+
+    it("finds the verifier run an ended id names, and none for another id", () => {
+        expect(endedVerifierOf(run, endedVerifierId("r1", "vr-1"))).toBe("vr-1");
+        expect(endedVerifierOf(run, endedVerifierId("r1", "vr-0"))).toBeUndefined();
+        expect(endedVerifierOf(run, endedReviewerId("r1", "vr-1"))).toBeUndefined();
+        expect(endedVerifierOf(noVerifier, endedVerifierId("r1", ""))).toBeUndefined();
+    });
+
+    it("reads it from its own run, named for the stage", () => {
+        const child = { runtime: "claude", model: "claude-haiku-4-5", completedts: 7000 } as Run;
+        expect(endedVerifierVM("r1", "vr-1", child, "C:/v.jsonl")).toEqual({
+            id: endedVerifierId("r1", "vr-1"),
+            name: stageLabel("verifier"),
+            task: "",
+            state: "idle",
+            agent: "claude",
+            model: "haiku",
+            idleSince: 7000,
+            transcriptPath: "C:/v.jsonl",
+            runId: "vr-1",
+        });
+    });
+
+    it("opens the live verifier agent, else its ended transcript, else nothing without a verifier", () => {
+        expect(verifierStepTarget(run, [{ id: "tab-v", runId: "vr-1" }])).toBe("tab-v");
+        expect(verifierStepTarget(run, [{ id: "tab-old", runId: "vr-0" }])).toBe(endedVerifierId("r1", "vr-1"));
+        expect(verifierStepTarget(run, [])).toBe(endedVerifierId("r1", "vr-1"));
+        expect(verifierStepTarget(noVerifier, [{ id: "tab-v", runId: "vr-1" }])).toBeUndefined();
+        expect(verifierStepTarget({ ...run, dag: undefined }, [])).toBeUndefined();
     });
 });
