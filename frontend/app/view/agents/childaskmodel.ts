@@ -19,6 +19,17 @@ export function childAskKey(ask: DagAskItem): string {
     return ask.askid || ask.taskid;
 }
 
+// askErrorText is an RPC failure as a card shows it: the message, without the "Error: " a stringified error carries
+export function askErrorText(err: unknown): string {
+    return err instanceof Error ? err.message : String(err).replace(/^Error: /, "");
+}
+
+// goneAskKeys is the keys of the asks a refresh dropped: answered, taken over or cleared since the last read.
+export function goneAskKeys(prev: DagAskItem[], next: DagAskItem[]): string[] {
+    const kept = new Set(next.map(childAskKey));
+    return prev.map(childAskKey).filter((k) => !kept.has(k));
+}
+
 // userOwnedAsks is what the card shows, oldest first. A lead-held entry is the lead's to answer, and two
 // answerers on one question would race to type into the child.
 export function userOwnedAsks(asks: DagAskItem[]): DagAskItem[] {

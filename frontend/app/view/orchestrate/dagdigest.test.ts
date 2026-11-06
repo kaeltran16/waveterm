@@ -81,9 +81,21 @@ describe("shouldRefreshDigest", () => {
 });
 
 describe("nextStepText", () => {
+    // the live-run review read "approve / sendback / retry / skip / escalate" and "fix-round" raw
+    it("names the engine's actions in words, and reads an unknown one as it is", () => {
+        expect(
+            nextStepText({ kind: "human-action", actions: ["approve", "sendback", "retry", "skip", "escalate"] })
+        ).toBe("waiting on you — approve / send back / retry / skip / escalate");
+        expect(nextStepText({ kind: "lead-action", actions: ["fix-round"] })).toBe("waiting on the lead — a fix round");
+        expect(nextStepText({ kind: "human-action", actions: ["resolve-merge"] })).toBe(
+            "waiting on you — resolve and continue"
+        );
+        expect(nextStepText({ kind: "lead-action", actions: ["new-thing"] })).toBe("waiting on the lead — new thing");
+    });
+
     it("renders each typed next kind deterministically", () => {
         expect(nextStepText({ kind: "human-action", actions: ["approve", "sendback"] })).toBe(
-            "waiting on you — approve / sendback"
+            "waiting on you — approve / send back"
         );
         expect(nextStepText({ kind: "merge-ready" })).toBe("merge ready for review");
         expect(nextStepText({ kind: "dispatch" })).toBe("dispatching next task");
@@ -179,7 +191,7 @@ describe("explicit blockers (finding 6)", () => {
 
     it("names the task a human action is about", () => {
         expect(nextStepText({ kind: "human-action", taskids: ["t-a"], actions: ["approve", "sendback"] }, briefs)).toBe(
-            "waiting on you — approve / sendback: scaffold API"
+            "waiting on you — approve / send back: scaffold API"
         );
     });
 

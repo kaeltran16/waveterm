@@ -16,6 +16,7 @@ import {
     endedPlanReviewers,
     endedReviewerVM,
     endedWorkerId,
+    failedWithTranscript,
     holdsTask,
     isEndedWorkerId,
     NO_LINEAGE,
@@ -64,8 +65,19 @@ export type AgentTreeRow =
       }
     // the run's final stage, one per run: `agent` is the current round's verifier session while it is in the roster
     | { kind: "final"; project: string; run: RunInfo; agent?: AgentVM }
-    // the fold of what finished: `count` done tasks and `stages` stages with a verdict, the passed final stage included
-    | { kind: "done"; project: string; run: RunInfo; count: number; stages: number; open: boolean }
+    // the fold of what finished: `count` done tasks (`landed` of them merged), the tasks settled without landing
+    // (`skipped`, `cancelled`), and `stages` stages with a verdict, the passed final stage included
+    | {
+          kind: "done";
+          project: string;
+          run: RunInfo;
+          count: number;
+          landed: number;
+          skipped: number;
+          cancelled: number;
+          stages: number;
+          open: boolean;
+      }
     | { kind: "queued"; project: string; run: RunInfo; count: number; open: boolean };
 
 // TreeFolds is what the human folded: runs whose workers are hidden, runs whose done or queued tasks are listed,
@@ -177,6 +189,8 @@ function runRows(
         (t) => t.state !== "done" && (workers.has(t.id) || !(QUEUED.has(t.state) || DROPPED.has(t.state)))
     );
     const done = tasks.filter((t) => t.state === "done");
+    // settled without landing and with no tab left: listed in the done fold, which the run's progress counts them in
+    const dropped = tasks.filter((t) => DROPPED.has(t.state) && !workers.has(t.id));
     // tasks not dispatched yet have no session to open, so they fold away until asked for
     const queued = tasks.filter((t) => QUEUED.has(t.state) && !workers.has(t.id));
     const open = !folds.collapsed.has(run.runId);
@@ -231,7 +245,7 @@ function runRows(
         rows.push({ kind: "stage", agent, project, run, stageRole, outcome, lens });
     if (open) {
         // oldest first: what finished, what is running, what is still to come
-        if (done.length > 0 || finished.length > 0 || finalPassed) {
+        if (done.length > 0 || dropped.length > 0 || finished.length > 0 || finalPassed) {
             // the row being read keeps its fold open, or a landing or the stage passing would pull it out from
             // under the reader
             const doneOpen =
@@ -239,10 +253,21 @@ function runRows(
                 done.some((t) => endedWorkerId(run.runId, t.id) === focusId) ||
                 (finalPassed && finalRowFocusId(run, verifier ? [verifier] : []) === focusId);
             const stageCount = finished.length + (finalPassed ? 1 : 0);
-            rows.push({ kind: "done", project, run, count: done.length, stages: stageCount, open: doneOpen });
+            rows.push({
+                kind: "done",
+                project,
+                run,
+                count: done.length,
+                landed: done.filter((t) => t.merged).length,
+                skipped: dropped.filter((t) => t.state === "skipped").length,
+                cancelled: dropped.filter((t) => t.state === "cancelled").length,
+                stages: stageCount,
+                open: doneOpen,
+            });
             if (doneOpen) {
                 finished.filter((s) => s.stageRole === "plan-reviewer").forEach(pushStage);
                 done.forEach(pushTask);
+                dropped.forEach(pushTask);
                 finished.filter((s) => s.stageRole !== "plan-reviewer").forEach(pushStage);
                 if (finalPassed) {
                     rows.push(finalRow);
@@ -404,7 +429,10 @@ export function rowFocusKey(row: AgentTreeRow): string | undefined {
         case "stage":
             return row.agent.id;
         case "worker": {
-            const ended = !row.nested && (row.task.state === "done" || (row.agent == null && workerEnded(row.task)));
+            const ended =
+                !row.nested &&
+                (row.task.state === "done" ||
+                    (row.agent == null && (workerEnded(row.task) || failedWithTranscript(row.task))));
             return ended ? endedWorkerId(row.run.runId, row.task.id) : row.agent?.id;
         }
         case "final":
@@ -422,6 +450,22 @@ export function treeFocusOrder(rows: AgentTreeRow[], terminals: AgentVM[]): stri
 }
 
 /** Pure: the tree's total for its header, the sum of its groups' counts. */
+/** Pure: the done fold's words: what landed, what finished without a merge, what was settled without landing,
+ *  then the stages with a verdict. */
+export function doneFoldLabel(
+    row: Pick<Extract<AgentTreeRow, { kind: "done" }>, "count" | "landed" | "skipped" | "cancelled" | "stages">
+): string {
+    return [
+        row.landed > 0 ? `${row.landed} landed` : "",
+        row.count - row.landed > 0 ? `${row.count - row.landed} done` : "",
+        row.skipped > 0 ? `${row.skipped} skipped` : "",
+        row.cancelled > 0 ? `${row.cancelled} cancelled` : "",
+        row.stages > 0 ? `${row.stages} ${row.stages === 1 ? "review" : "reviews"}` : "",
+    ]
+        .filter(Boolean)
+        .join(" · ");
+}
+
 export function treeAgentCount(rows: AgentTreeRow[]): number {
     return rows.reduce((n, r) => n + (r.kind === "group" ? r.count : 0), 0);
 }

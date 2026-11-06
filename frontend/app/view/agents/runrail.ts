@@ -6,7 +6,8 @@
 
 import { formatAgeShort } from "./agentsviewmodel";
 import { ASK_OWNER_USER } from "./childaskmodel";
-import { laneLabel, workerAsk } from "./runlineage";
+import { laneLabel, taskStateLabel, workerAsk, type RunInfo } from "./runlineage";
+import { finalFailedWait } from "./runmodel";
 import { eventText } from "./runtimeline";
 
 // LaneState is where a lane's task in play stands; it picks the lane row's dot and the colour of its state text.
@@ -38,11 +39,23 @@ function outcome(task: TaskNode): string {
     return task.merged ? "landed" : task.state;
 }
 
-// endedLine is the banner over a done task's transcript: what the task came to, and that its session is over.
-export function endedLine(task: TaskNode, digest: DagStatusDigest | undefined): string {
+// landingBranch is the branch a run's lanes land on: its own wave/<id> tree's branch, shortened as the lead card
+// names it, else the base it lands straight into. Unknown for a run that recorded neither.
+export function landingBranch(run: Pick<RunInfo, "runId" | "landPath" | "base">): string | undefined {
+    return run.landPath ? `wave/${run.runId.slice(0, 8)}` : run.base || undefined;
+}
+
+// endedLine is the banner over an ended task's transcript: what the task came to, and that its session is over.
+export function endedLine(
+    task: TaskNode,
+    run: Pick<RunInfo, "runId" | "landPath" | "base" | "digest"> | undefined
+): string {
     const name = task.label ? `${task.id} · ${task.label}` : task.id;
-    const commit = landedCommit(digest, task.id);
-    const result = task.merged ? (commit ? `landed on main as ${commit}` : "landed on main") : task.state;
+    const commit = landedCommit(run?.digest, task.id);
+    const branch = run ? landingBranch(run) : undefined;
+    const result = task.merged
+        ? ["landed", branch ? `on ${branch}` : "", commit ? `as ${commit}` : ""].filter(Boolean).join(" ")
+        : task.state.replace(/-/g, " ");
     return `${name} ${result} · session ended`;
 }
 
@@ -82,7 +95,16 @@ export function runSegments(dag: TaskGroup | undefined, digest: DagStatusDigest 
     return (dag?.tasks ?? []).map((t) => segmentState(t, digest));
 }
 
-function laneRow(key: string, tasks: TaskNode[], byId: Map<string, TaskNode>, digest?: DagStatusDigest): LaneRow {
+// a task past its worker, under review or its merge's Verify: the lane says which, as the tree does
+const PAST_WORKER = new Set(["reviewing", "verifying"]);
+
+function laneRow(
+    key: string,
+    tasks: TaskNode[],
+    byId: Map<string, TaskNode>,
+    digest: DagStatusDigest | undefined,
+    now: number
+): LaneRow {
     const i = tasks.findIndex((t) => !FINISHED.has(t.state));
     const current = i === -1 ? tasks[tasks.length - 1] : tasks[i];
     const row = { key, taskId: current.id, name: taskName(current) };
@@ -102,7 +124,10 @@ function laneRow(key: string, tasks: TaskNode[], byId: Map<string, TaskNode>, di
         return { ...row, hist, state: "pending", text: "queued" };
     }
     if (FAILING.has(current.state)) {
-        return { ...row, hist: prior, state: "failed", text: current.state };
+        return { ...row, hist: prior, state: "failed", text: taskStateLabel(current, now) ?? current.state };
+    }
+    if (PAST_WORKER.has(current.state)) {
+        return { ...row, hist: prior, state: "working", text: taskStateLabel(current, now) ?? current.state };
     }
     const ask = workerAsk(digest, current.id);
     if (ask?.owner === "lead") {
@@ -115,11 +140,11 @@ function laneRow(key: string, tasks: TaskNode[], byId: Map<string, TaskNode>, di
 }
 
 // laneRows is the Run section's lane list: one row per lane naming its task in play and where that task stands.
-export function laneRows(dag: TaskGroup | undefined, digest: DagStatusDigest | undefined): LaneRow[] {
+export function laneRows(dag: TaskGroup | undefined, digest: DagStatusDigest | undefined, now: number): LaneRow[] {
     const byId = new Map((dag?.tasks ?? []).map((t) => [t.id, t] as const));
     return (digest?.lanes ?? []).flatMap((ids) => {
         const tasks = ids.map((id) => byId.get(id)).filter((t): t is TaskNode => t != null);
-        return tasks.length === 0 ? [] : [laneRow(laneLabel(digest, ids[0])!, tasks, byId, digest)];
+        return tasks.length === 0 ? [] : [laneRow(laneLabel(digest, ids[0])!, tasks, byId, digest, now)];
     });
 }
 
@@ -193,14 +218,22 @@ export function questionOrder(asks: DagAskItem[]): DagAskItem[] {
 
 const DAG_FINALIZING = "finalizing";
 
-// verifyingHeadline is the Run status line while the final stage runs. A question waiting on the human still
-// wins, so it yields; every other status keeps the line it had.
+// verifyingHeadline is the Run status line while the final stage runs, or after it failed: a failed stage runs
+// nothing until its fix round, which this Run section's lead plans. A question waiting on the human still wins,
+// so it yields; every other status keeps the line it had.
 export function verifyingHeadline(
     dagStatus: string | undefined,
     waitingOnYou: boolean,
-    next: string
+    next: string,
+    finalState?: string
 ): { text: string; tone: string; tail: string } | undefined {
-    if (dagStatus !== DAG_FINALIZING || waitingOnYou) {
+    if (waitingOnYou) {
+        return undefined;
+    }
+    if (finalState === "failed") {
+        return { text: "Final failed", tone: "text-error", tail: `· ${finalFailedWait(true)}` };
+    }
+    if (dagStatus !== DAG_FINALIZING) {
         return undefined;
     }
     return { text: "Verifying", tone: "text-accent", tail: next ? `· ${next}` : "" };

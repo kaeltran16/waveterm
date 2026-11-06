@@ -63,7 +63,7 @@ import { SubLabel } from "./sectionlabel";
 import type { SubagentState, SubagentVM } from "./session-models/sessionviewmodel";
 import { isStandingBy, shellTasksLabel, type ShellTask } from "./shelltasks";
 import { shellReadAtByIdAtom, shellReadPending, shellTasksByIdAtom } from "./shelltasksstore";
-import { ActivityLine, StatusLine } from "./statusline";
+import { ActivityLine, StatusLine, WIDE_ONLY } from "./statusline";
 import { JumpToLatestPill, useStickToBottom } from "./sticktobottom";
 import { subagentsByIdAtom } from "./subagentsstore";
 
@@ -74,10 +74,6 @@ const CTL_BOX =
 // the header's count chips (subagents, tasks, diff); each adds its own hover
 const CHIP =
     "flex h-5 shrink-0 cursor-pointer items-center gap-1 rounded-[5px] border border-edge-mid px-[7px] font-mono text-[10.5px] font-semibold text-ink-mid";
-
-// below this card width the header's chips would crowd the name out, so they drop to their count (the card is the
-// @container). the label leads with the count, so only its noun hides and the chip's text stays the label.
-const WIDE_ONLY = "@max-[420px]:hidden";
 
 // the Finished strip's button words: its two buttons would push the age out and clip Open on the narrowest card
 // (about 285px at 1000x700), so below this width the labels give way to the counts and the arrow

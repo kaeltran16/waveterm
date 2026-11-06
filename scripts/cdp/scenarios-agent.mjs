@@ -14,6 +14,7 @@ import {
     LOOK_TOOLTIP_STYLE,
     MIN_FONT_PX,
     MODELS_VIEWPORT,
+    OBS_WIDE,
     PALETTE,
     PALETTE_INPUT,
     PALETTE_STATE,
@@ -49,6 +50,7 @@ import {
     waitForProjectInConfig,
     waveService,
 } from "./scenarios-shared.mjs";
+import { arrangeLiveRuns, injectLiveAsks, LIVE_IDS, publishLiveEvents, setLiveRoster, teardownLiveRuns } from "./live-run-fixture.mjs";
 
 // --- terminal palette follows the cockpit theme -------------------------------------------------
 // Asserts against window.term (term.tsx assigns it) + the resolved custom properties, NOT pixels:
@@ -615,6 +617,154 @@ async function arrangeTreeRail(h, ctx) {
     await new Promise((r) => setTimeout(r, 1200));
 }
 
+// the app's view model, found from the nav's props
+const LIVE_MODEL = `(() => {
+    const nav = document.querySelector("nav");
+    const key = nav && Object.keys(nav).find((k) => k.startsWith("__reactFiber$"));
+    for (let f = key ? nav[key] : null; f; f = f.return) {
+        if (f.memoizedProps?.model?.focusIdAtom) return f.memoizedProps.model;
+    }
+    return null;
+})()`;
+const LIVE_RAIL = `document.querySelector('aside[aria-label="Agent details"]')`;
+const LIVE_TREE = `document.querySelector("[data-agent-tree]")`;
+const LIVE_NARROW = { width: 1000, height: 700, deviceScaleFactor: 1, mobile: false };
+
+// focuses an id on the Agent surface and waits for the rail to say it is there
+const liveFocus = (h, id, until) =>
+    lookEval(
+        h,
+        `const { globalStore } = await mod("app/store/jotaiStore.ts");
+        const model = ${LIVE_MODEL};
+        globalStore.set(model.focusIdAtom, ${JSON.stringify(id)});
+        return await until(() => ${until}, 8000);`
+    );
+
+// The live-run review's Agent surface findings (cdp-shots/review/live-run, F11-F15, F20, F21, F24-F26) on three
+// held runs (live-run-fixture.mjs): no model starts. Each step reads the tree row, rail section or pane the finding
+// was seen on, at the width it was broken at.
+async function liveRunAgentSteps(h, ctx) {
+    const steps = [];
+    const rec = (step, ok, detail) => steps.push({ step, ok: !!ok, detail: typeof detail === "string" ? detail : JSON.stringify(detail) });
+    if (ctx.liveError || !ctx.live) {
+        rec("L0. the live-run fixture's three held runs", false, ctx.liveError ?? "not arranged: the tree-rail arrange failed first");
+        return steps;
+    }
+    const { A, C } = ctx.live;
+    await h.goto("agent");
+    await setLiveRoster(h, ctx);
+    const focused = await liveFocus(h, LIVE_IDS.leadA, `!!${LIVE_RAIL} && /review failed/.test(flat(${LIVE_RAIL}))`);
+    await publishLiveEvents(h, ctx);
+    const asks = await injectLiveAsks(h, ctx);
+    await polishNap(800);
+    rec("L0. lead A is focused with its rail's lanes", focused === true && asks === "ok", { focused, asks });
+    await h.shot("cdp-shots/agent-tree-rail-live-lead.png");
+
+    // F11: the run line counts what it shows; the done fold lists what was skipped
+    const tree = await lookEval(h, `
+        const text = flat(${LIVE_TREE});
+        return { live: (text.match(/\\d+ live/) ?? [null])[0], workers: /\\d+ workers?\\b/.test(text), fold: /1 landed · 1 skipped/.test(text) };`);
+    rec("L1. the run line says what is live, and the done fold names the skipped task (F11)", tree.live != null && !tree.workers && tree.fold, tree);
+
+    // F12, F13: the lanes and the next step read in words
+    const rail = await lookEval(h, `
+        const text = flat(${LIVE_RAIL});
+        return {
+            words: ["review failed", "verify failed", "verifying"].filter((w) => text.includes(w)),
+            raw: (text.match(/review-failed|verify-failed|sendback|fix-round|resolve-merge/g) ?? []),
+        };`);
+    rec("L2. the rail's lanes and next step use words, not engine ids (F12, F13)", rail.words.length === 3 && rail.raw.length === 0, rail);
+
+    // F21: a lane's lead-ask keeps its time left whole, at both widths
+    const leftWhole = () =>
+        lookEval(h, `
+            await until(() => ${LIVE_RAIL}?.querySelector("[data-lane-ask-left]"), 4000);
+            const left = ${LIVE_RAIL}?.querySelector("[data-lane-ask-left]");
+            return left ? { text: flat(left), clipped: left.scrollWidth > left.clientWidth + 1 } : { missing: true };`);
+    const wide = await leftWhole();
+    await h.cdp("Emulation.setDeviceMetricsOverride", LIVE_NARROW);
+    await polishNap(800);
+    await injectLiveAsks(h, ctx);
+    const narrow = await leftWhole();
+    await h.shot("cdp-shots/agent-tree-rail-live-lane-ask-1000.png");
+    await h.cdp("Emulation.setDeviceMetricsOverride", OBS_WIDE);
+    await polishNap(500);
+    rec(
+        "L3. the lead-ask's time left is not truncated, at 1600 or 1000 (F21)",
+        /\dm/.test(wide.text ?? "") && !wide.clipped && /\dm/.test(narrow.text ?? "") && !narrow.clipped,
+        { wide, narrow }
+    );
+
+    // F25: a failed Take over says why without "Error:", and its error goes with the ask
+    await injectLiveAsks(h, ctx);
+    const takeover = await lookEval(h, `
+        const { globalStore } = await mod("app/store/jotaiStore.ts");
+        const CA = await mod("app/view/agents/childaskstore.ts");
+        const btn = button(${LIVE_RAIL}, /^Take over$/);
+        if (!btn) return { error: "no Take over button" };
+        btn.click();
+        await until(() => !globalStore.get(CA.childAsksAtom)[${JSON.stringify(A.runId)}]?.some((a) => a.askid === "fx-live-ask-a3"), 6000);
+        await nap(300);
+        return { errors: globalStore.get(CA.childAskErrorAtom), errorShown: /Error:/.test(flat(${LIVE_RAIL})) };`);
+    rec(
+        "L4. Take over on a question the engine no longer holds leaves no raw error behind (F25)",
+        takeover.error == null && !("fx-live-ask-a3" in (takeover.errors ?? {})) && !takeover.errorShown,
+        takeover
+    );
+
+    // F24: the lead's header links to its run
+    const link = await lookEval(h, `
+        const a = document.querySelector("[data-header-run-link]");
+        if (!a) return { error: "no run link in the lead's header" };
+        const text = flat(a);
+        a.click();
+        const sheet = await until(() => !!document.querySelector("[data-run-sheet]"), 8000);
+        return { text, sheet };`);
+    rec("L5. the lead's header names its run as a link that opens the run (F24)", link.sheet === true && /orchestrator run [0-9a-f]{8}/.test(link.text ?? ""), link);
+    await h.goto("agent");
+
+    // F14: a failed Final reads failed, not verifying, on the tree and the rail
+    const failedC = await liveFocus(h, LIVE_IDS.leadC, `/Final failed/.test(flat(${LIVE_RAIL}))`);
+    const cText = await lookEval(h, `
+        return { tree: /3\\/3 · final failed/.test(flat(${LIVE_TREE})), railVerifying: /\\bVerifying\\b/.test(flat(${LIVE_RAIL})) };`);
+    await h.shot("cdp-shots/agent-tree-rail-live-final-failed.png");
+    rec("L6. a run whose Final failed reads Final failed on its row and rail, not Verifying (F14)", failedC === true && cText.tree && !cText.railVerifying, { failedC, ...cText });
+
+    // F15: an ended worker's banner names the branch the run lands on
+    const ended = await liveFocus(h, `ended:${A.runId}:t-10`, `/session ended/.test(document.body.innerText)`);
+    const banner = await lookEval(h, `
+        const line = document.body.innerText.split("\\n").find((l) => /session ended/.test(l)) ?? "";
+        return { line };`);
+    const branch = `wave/${A.runId.slice(0, 8)}`;
+    rec("L7. a landed task's ended worker names the run's landing branch, not main (F15)", ended === true && banner.line.includes(`landed on ${branch}`), { ended, ...banner, branch });
+
+    // F26 and F20: the Final stage's rail Tree keeps its end; its pane fits at 1000x700
+    const stage = await liveFocus(h, `final:${C.runId}`, `!!document.querySelector("[data-final-pane]") && !!document.querySelector("[data-final-rail]")`);
+    const tree26 = await lookEval(h, `
+        const fact = [...document.querySelectorAll("[data-final-rail] span[title]")].find((s) => /-final$/.test(s.title));
+        return fact ? { dir: fact.getAttribute("dir"), text: flat(fact) } : { missing: true };`);
+    rec("L8. the Final rail's Tree path clips its start, keeping its -final end (F26)", stage === true && tree26.dir === "rtl" && /-final$/.test(tree26.text ?? ""), { stage, ...tree26 });
+    await h.cdp("Emulation.setDeviceMetricsOverride", LIVE_NARROW);
+    await polishNap(800);
+    const pane = await lookEval(h, `
+        const steps = document.querySelector("[data-final-pane] [data-final-step]")?.parentElement;
+        const head = document.querySelector("[data-final-headline]");
+        return {
+            stepsOverflow: steps ? steps.scrollWidth - steps.clientWidth : null,
+            cells: [...(steps?.children ?? [])].map((c) => c.scrollWidth - c.clientWidth),
+            headline: flat(head),
+            headClipped: head ? head.scrollWidth > head.clientWidth + 1 : null,
+        };`);
+    await h.shot("cdp-shots/agent-tree-rail-live-final-1000.png");
+    await h.cdp("Emulation.setDeviceMetricsOverride", OBS_WIDE);
+    rec(
+        "L9. at 1000x700 the Final pane's steps fit unclipped and its headline keeps its outcome (F20)",
+        pane.stepsOverflow === 0 && pane.cells.every((d) => d <= 1) && /failed at Final/.test(pane.headline) && pane.headClipped === false,
+        pane
+    );
+    return steps;
+}
+
 export const agentTreeRail = {
     name: "agent-tree-rail",
     surface: "agent",
@@ -624,6 +774,12 @@ export const agentTreeRail = {
         // a throw past this point still returns ctx, so teardown removes whatever was already made
         try {
             await arrangeTreeRail(h, ctx);
+            // the live-run states: three runs held in unborn repos, which no tick can start
+            try {
+                await arrangeLiveRuns(h, ctx);
+            } catch (e) {
+                ctx.liveError = String(e?.message ?? e);
+            }
         } catch (e) {
             ctx.arrangeError = String(e?.message ?? e);
         }
@@ -751,7 +907,7 @@ export const agentTreeRail = {
             "7. the lead's run line carries its workers chip, unclipped progress and the task strip",
             nested != null &&
                 /^\d+ of 3 tasks done/.test(nested.strip ?? "") &&
-                /workers?$/.test(nested.workersChip ?? "") &&
+                / live$/.test(nested.workersChip ?? "") &&
                 nested.progress != null &&
                 !nested.progress.clipped,
             JSON.stringify(nested)
@@ -799,6 +955,7 @@ export const agentTreeRail = {
             foot.list === true && foot.scrollable === true && foot.hit === false && foot.lastBottom <= foot.avatarTop && foot.roomEnds <= foot.avatarTop,
             JSON.stringify(foot)
         );
+        steps.push(...(await liveRunAgentSteps(h, ctx)));
         return steps;
     },
     async teardown(h, ctx) {
@@ -810,6 +967,8 @@ export const agentTreeRail = {
             `);
             if (ctx.prevCorner == null) await h.ev(`localStorage.removeItem("wave:pet.corner")`);
         }
+        await h.cdp("Emulation.setDeviceMetricsOverride", OBS_WIDE).catch(() => {});
+        await teardownLiveRuns(h, ctx, "agent-tree-rail");
         await teardownFixtureRun(h, ctx, "agent-tree-rail", {
             what: "restore the rail preference",
             fn: () =>

@@ -9,8 +9,10 @@ import { formatElapsed } from "../orchestrate/dagdigest";
 import { relaunchLeadAction } from "../orchestrate/relaunchlead";
 import { formatTokens, type AgentVM } from "./agentsviewmodel";
 import { workerNeedsYou } from "./agenttreemodel";
+import { finalRowFocusId, finalStageActivity, finalStageView, type FinalTone } from "./finalstage";
 import {
     endedWorkerId,
+    failedWithTranscript,
     formatLeft,
     laneLabel,
     leadStandingBy,
@@ -24,8 +26,8 @@ import {
     type Lineage,
     type RunInfo,
 } from "./runlineage";
-import { finishedRunLabel, runComplete } from "./runmodel";
-import { taskStrip, taskStripLabel, type TaskStrip } from "./runstrip";
+import { finalFailedLine, finishedRunLabel, runComplete } from "./runmodel";
+import { finalSlot, taskStrip, treeStripLabel, type TaskStrip } from "./runstrip";
 import { detailOf } from "./runtimeline";
 import { modelLabel } from "./session-models/sessionviewmodel";
 
@@ -48,6 +50,8 @@ export function rowKeyActions(row: Pick<TaskRowVM, "inline" | "actions">): strin
 export interface TaskRowVM {
     key: string;
     taskId: string;
+    // the task's engine state; the Final row's is its stage's
+    state: string;
     label: string;
     sub: string;
     tone: RowTone;
@@ -57,25 +61,49 @@ export interface TaskRowVM {
     kind: "live" | "wait" | "done";
     // a worker's question the lead holds; the row draws "→ lead" before its tag
     toLead?: boolean;
-    inline?: "ask" | "review";
+    // a failed review's rounds: "review" with its choices, "findings" alone while the lead judges them
+    inline?: "ask" | "review" | "findings";
     waitOn?: "deps" | "slot";
     needsYou: boolean;
     worker?: AgentVM;
     openId?: string;
+    // what the Open button says; by default a live worker's or a done task's transcript
+    openLabel?: string;
+    // why the task is stuck, a line the focused row shows before its actions
+    detail?: string;
     actions: RowAction[];
 }
+
+// the Final row's task id: task ids are plan ids, never this
+export const FINAL_ROW_ID = "@final";
+
+const FINAL_ROW_TONE: Record<FinalTone, RowTone> = { wait: "wait", run: "run", pass: "ok", fail: "err", warn: "warn" };
+const FINAL_ROW_TAG: Record<FinalTone, string> = {
+    wait: "waiting",
+    run: "running",
+    pass: "passed",
+    fail: "failed",
+    warn: "unverified",
+};
+
+// task states in which a cancel stops something at work: a worker, a reviewer or a merge's Verify
+const CANCEL_STOPS = new Set(["running", "reviewing", "verifying"]);
 
 export interface LeadCardVM {
     rows: TaskRowVM[];
     waiting: TaskRowVM[];
     done: TaskRowVM[];
+    // rows that wait on you: a question you hold, or a judgment with no lead to make it
     askCount: number;
+    // the header's words where a lead's name would be, for a run with no lead in the roster
+    noLead: { text: string; title: string };
     needsYou: boolean;
     planning: boolean;
     finished: boolean;
     complete: boolean;
-    // the run's task strip and its words for a screen reader; none before a plan exists
-    bar?: { strip: TaskStrip; label: string };
+    // the run's task strip, the final stage's slot once the stage has a row, and their words for a screen
+    // reader; none before a plan exists
+    bar?: { strip: TaskStrip; final?: FinalTone; label: string };
     progress: { done: number; total: number };
     elapsed: string;
     // what the lead is doing, and what the run has cost so far
@@ -97,6 +125,8 @@ export interface LeadCardInput {
     now: number;
     // every session of the run summed (runtokenstore); absent until loaded
     tokens?: number;
+    // the run's events: the final stage's step times come from them
+    events?: RunEvent[];
 }
 
 const ROW_KEY_PREFIX = "row:";
@@ -131,9 +161,15 @@ function taskRow(input: LeadCardInput, task: TaskNode): TaskRowVM {
     const laneText = lane ? `lane ${lane}` : "";
     const join = (...parts: (string | undefined)[]) => parts.filter(Boolean).join(" · ");
     const worker = taskAgentOf(lineage, roster, run.runId, task.id);
+    // a failed task's worker tab is reaped with its tree; its session's transcript is still there to read
+    const ended = worker == null && failedWithTranscript(task);
+    const failedOpen = ended
+        ? { openId: endedWorkerId(run.runId, task.id), openLabel: "Open transcript" }
+        : { openId: worker?.id };
     const base: TaskRowVM = {
         key: rowKey(input.cardId, task.id),
         taskId: task.id,
+        state: task.state,
         label: task.label || task.id,
         sub: join(task.id, laneText),
         tone: "run",
@@ -178,10 +214,12 @@ function taskRow(input: LeadCardInput, task: TaskNode): TaskRowVM {
                 openId: undefined,
             };
         case "review-failed":
+            // the rounds show either way; the choices are yours only when no lead judges them, as a failed task's
             return {
                 ...base,
+                ...failedOpen,
                 tone: "err",
-                inline: "review",
+                inline: judge ? "findings" : "review",
                 needsYou: !judge,
                 tag: judge ? "lead judging" : "needs you",
                 sub: join(task.id, "failed review"),
@@ -197,6 +235,7 @@ function taskRow(input: LeadCardInput, task: TaskNode): TaskRowVM {
         case "failed":
             return {
                 ...base,
+                ...failedOpen,
                 tone: task.state === "stalled" ? "warn" : "err",
                 sub: join(
                     task.id,
@@ -210,22 +249,32 @@ function taskRow(input: LeadCardInput, task: TaskNode): TaskRowVM {
         case "verify-failed":
             return {
                 ...base,
+                ...failedOpen,
                 tone: "err",
                 sub: join(task.id, laneText, task.state === "verify-failed" ? "Verify failed" : "merge conflict"),
+                detail: firstLine(task.verifyerror),
                 tag: judge ? "lead fixing" : "needs you",
                 needsYou: !judge,
                 // fixed in the project tree first; Continue then lands it or re-runs Verify
                 actions: judge ? [] : ["resolve"],
             };
         case "verifying":
-            return { ...base, sub: join(task.id, laneText, taskStateLabel(task, now)) };
+            // the worker is done and its merge is under Verify: not a worker at work
+            return {
+                ...base,
+                tone: "soft",
+                tag: taskStateLabel(task, now),
+                sub: join(task.id, laneText, "merged · Verify running"),
+            };
         case "pending":
         case "ready": {
-            // not running, even when a tab from an earlier attempt (a send-back) is still open on it
+            // not running, even when a tab from an earlier attempt (a send-back) is still open on it, so there is
+            // nothing to open: the keyboard's Enter went to that tab, which the mouse could not reach
             const waits = unmetDeps(run.dag, task) ?? [];
             const slot = run.digest?.tasks?.find((t) => t.taskid === task.id)?.waitreason === "parallelism";
             return {
                 ...base,
+                openId: undefined,
                 kind: "wait",
                 tone: "wait",
                 waitOn: waits.length > 0 ? "deps" : slot ? "slot" : undefined,
@@ -276,17 +325,63 @@ export function mergeWaitTag(mergeGateTs: number | undefined, now: number): stri
     return ms >= 1000 ? `merge waiting ${formatElapsed(ms)}` : "merge waiting";
 }
 
-/** Pure: how many live rows a cancel would stop. The merge gate is the one live row toned wait; its worker has
- *  finished and the engine lands it. */
-export function runningCount(rows: Pick<TaskRowVM, "tone">[]): number {
-    return rows.filter((r) => r.tone !== "wait").length;
+/** Pure: how many tasks a cancel would stop: a worker, a reviewer or a merge's Verify at work. A failed or stalled
+ *  task waits on a judgment, and the merge gate's worker has finished. */
+export function runningCount(rows: Pick<TaskRowVM, "state" | "taskId">[]): number {
+    return rows.filter((r) => r.taskId !== FINAL_ROW_ID && CANCEL_STOPS.has(r.state)).length;
 }
 
-/** Pure: a run's lead card. Rows keep plan order; live rows list first, then what waits, then what is done. */
+/** Pure: the cancel panel's question. */
+export function cancelPrompt(running: number): string {
+    if (running === 0) {
+        return "Cancel this run?";
+    }
+    return `Stop ${running} running task${running === 1 ? "" : "s"} and cancel this run?`;
+}
+
+function firstLine(text: string | undefined): string | undefined {
+    const line = text
+        ?.split("\n")
+        .map((l) => l.trim())
+        .find(Boolean);
+    return line || undefined;
+}
+
+/** Pure: the final stage's row on the card, from the moment the stage has one in the tree. It opens the stage
+ *  pane, or the current round's verifier session once that is in the roster. A passed stage folds with the done
+ *  tasks; a failed one stays out, since it is what the run waits on. */
+function finalRow(input: LeadCardInput): TaskRowVM | undefined {
+    const { run } = input;
+    const view = finalStageView(run.dag, input.events ?? [], input.now);
+    if (!view.visible) {
+        return undefined;
+    }
+    return {
+        key: rowKey(input.cardId, FINAL_ROW_ID),
+        taskId: FINAL_ROW_ID,
+        state: view.state,
+        label: "Final verification",
+        sub: view.subline,
+        tone: FINAL_ROW_TONE[view.tone],
+        tag: [FINAL_ROW_TAG[view.tone], view.round > 1 ? `round ${view.round}` : ""].filter(Boolean).join(" · "),
+        kind: view.tone === "pass" ? "done" : "live",
+        needsYou: false,
+        openId: finalRowFocusId(run, input.roster),
+        openLabel: "Open stage",
+        actions: [],
+    };
+}
+
+/** Pure: a run's lead card. Rows keep plan order; live rows list first, then what waits, then what is done. The
+ *  final stage's row closes the live rows, or the done ones once it passed. */
 export function buildLeadCard(input: LeadCardInput): LeadCardVM {
     const { run, lead } = input;
     const dag = run.dag;
     const all = (dag?.tasks ?? []).map((t) => taskRow(input, t));
+    const final = finalRow(input);
+    if (final) {
+        all.push(final);
+    }
     const askCount = all.filter((r) => r.needsYou).length;
     const workers = dag?.workerroute;
     const workerModel = modelLabel(workers?.model) || workers?.runtime || "default";
@@ -297,12 +392,15 @@ export function buildLeadCard(input: LeadCardInput): LeadCardVM {
         waiting: all.filter((r) => r.kind === "wait"),
         done: all.filter((r) => r.kind === "done"),
         askCount,
+        noLead: run.leadStarted
+            ? { text: "lead closed", title: "The run's lead has closed; its judgment events come to you" }
+            : { text: "no lead", title: "A lead starts at the run's first judgment event" },
         needsYou: askCount > 0 || lead?.state === "asking",
         // no dag on a finished run means its lead did the goal itself, not that a plan is still coming
         planning: dag == null && !runFinished(run),
         finished: runFinished(run),
         complete: runComplete(run),
-        bar: strip ? { strip, label: taskStripLabel(dag, run.digest) } : undefined,
+        bar: strip ? { strip, final: finalSlot(dag), label: treeStripLabel(dag, run.digest) } : undefined,
         progress: runProgress(dag),
         elapsed: runElapsed(run, input.now),
         activity: leadActivity(run, lead, input.leadDown),
@@ -365,11 +463,23 @@ export function leadActivity(run: RunInfo, lead: AgentVM | undefined, leadDown: 
     if (runFinished(run)) {
         return finishedRunLabel(run);
     }
+    if (lead?.startError != null) {
+        return `lead failed to start · ${lead.startError}`;
+    }
+    // past its tasks, the final stage is what the run is doing
+    const final = run.dag?.final;
+    if (final?.state === "failed") {
+        return finalFailedLine(lead != null && !leadDown);
+    }
+    const finalStep = finalStageActivity(final);
+    if (finalStep != null) {
+        return `final verification · ${finalStep}`;
+    }
     if (leadDown) {
         return "lead down · its events come to you";
     }
     if (lead == null) {
-        return "engine running · no lead, none needed yet";
+        return run.leadStarted ? "lead closed · its events come to you" : "engine running · no lead, none needed yet";
     }
     if (leadStandingBy(lead, run)) {
         const running =

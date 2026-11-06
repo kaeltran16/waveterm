@@ -155,9 +155,16 @@ export function CockpitEventsRail({
                             </span>
                         ) : null}
                     </div>
+                    {/* a run event's text names the event ("Task failed · t-1"), so its verb would repeat it */}
                     <span className={cn("text-[12px] leading-[1.4]", k.tone)}>
-                        {k.verb}
-                        {e.text ? <span className="text-ink-mid"> {e.text}</span> : null}
+                        {e.group != null && e.text ? (
+                            e.text
+                        ) : (
+                            <>
+                                {k.verb}
+                                {e.text ? <span className="text-ink-mid"> {e.text}</span> : null}
+                            </>
+                        )}
                     </span>
                     {e.more ? (
                         <button

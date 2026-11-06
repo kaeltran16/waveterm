@@ -39,7 +39,8 @@ export function FinalStagePane({ model, run }: { model: AgentsViewModel; run: Ru
     return (
         <div data-final-pane className="flex min-h-0 flex-1 flex-col bg-background">
             {/* not clipped: the end form opens under its button */}
-            <div className="flex flex-none items-center gap-[10px] border-b border-border px-[22px] py-[12px]">
+            {/* wraps rather than truncate: the headline's end is the outcome ("failed at Final") */}
+            <div className="flex flex-none flex-wrap items-center gap-x-[10px] gap-y-[6px] border-b border-border px-[22px] py-[12px]">
                 <span
                     aria-hidden
                     className={cn(
@@ -48,8 +49,9 @@ export function FinalStagePane({ model, run }: { model: AgentsViewModel; run: Ru
                     )}
                 />
                 <span className="flex-none text-[13px] font-semibold text-foreground">{stageLabel("verifier")}</span>
-                <span className="min-w-0 truncate font-mono text-[10.5px] text-ink-mid">{view.headline}</span>
-                <span className="flex-1" />
+                <span data-final-headline className="min-w-0 flex-1 font-mono text-[10.5px] text-ink-mid">
+                    {view.headline}
+                </span>
                 <EndFinalStage group={run.dag} channelId={run.channelId} runId={run.runId} />
                 <RerunFinalStage
                     group={run.dag}

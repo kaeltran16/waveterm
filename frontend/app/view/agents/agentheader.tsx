@@ -170,7 +170,20 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
         subline.push(<InitiativeLink model={model} agent={agent} />);
     }
     if (lineage?.kind === "lead") {
-        subline.push(`orchestrator run ${lineage.runId.slice(0, 8)}`);
+        // a link, as a worker's header links up to its lead: the run's sheet, ctrl+click peeks it
+        const runId = lineage.runId;
+        subline.push(
+            <button
+                type="button"
+                data-peek
+                data-header-run-link
+                onClick={(e) => fireAndForget(() => openOrPeek(model, { kind: "run", runId }, e))}
+                title="Open the run"
+                className="cursor-pointer text-accent-soft hover:underline"
+            >
+                orchestrator run {runId.slice(0, 8)}
+            </button>
+        );
     }
     if (lineage?.kind === "worker" || lineage?.kind === "stage") {
         subline.push(

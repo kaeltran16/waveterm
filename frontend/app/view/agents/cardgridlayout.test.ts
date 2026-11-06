@@ -14,6 +14,7 @@ import {
     columnNavIds,
     isBackgroundedRun,
     resolveCursor,
+    runCardMemberIds,
     splitGridColumns,
     toggleChip,
     withActiveRunLeads,
@@ -24,11 +25,22 @@ import type { Lineage, RunInfo } from "./runlineage";
 const isRun = (s: string) => s.startsWith("L");
 
 describe("splitGridColumns", () => {
-    it("puts runs in column 1 and agents in column 2 when both kinds are present", () => {
+    // a run card weighs two agent cards; runs go first so each column's runs sit above its agents
+    it("balances the columns by weight, runs above agents in each", () => {
         expect(splitGridColumns(["a1", "L1", "a2", "L2", "a3"], isRun)).toEqual([
-            ["L1", "L2"],
-            ["a1", "a2", "a3"],
+            ["L1", "a1", "a3"],
+            ["L2", "a2"],
         ]);
+    });
+    // the live-run review's case: three runs and one agent stacked every run in one column
+    it("spreads several runs over both columns rather than stacking them beside a lone agent", () => {
+        expect(splitGridColumns(["L1", "L2", "L3", "a1"], isRun)).toEqual([
+            ["L1", "L3"],
+            ["L2", "a1"],
+        ]);
+    });
+    it("keeps one run beside its agents", () => {
+        expect(splitGridColumns(["a1", "L1", "a2"], isRun)).toEqual([["L1"], ["a1", "a2"]]);
     });
     it("alternates one kind across both columns, as the old grid did", () => {
         expect(splitGridColumns(["a1", "a2", "a3"], isRun)).toEqual([["a1", "a3"], ["a2"]]);
@@ -48,6 +60,15 @@ describe("cardShare", () => {
         expect(cardShare(false, true)).toEqual({ grow: 2, minPx: CARD_MIN_PX.agentAsk });
         expect(cardShare(true, false)).toEqual({ grow: 1, minPx: CARD_MIN_PX.run });
         expect(cardShare(true, true)).toEqual({ grow: 2, minPx: CARD_MIN_PX.runAsk });
+    });
+    it("raises a run card's floor with its rows, up to a cap and the grid's height", () => {
+        expect(cardShare(true, false, 2).minPx).toBe(CARD_MIN_PX.run);
+        expect(cardShare(true, false, 5).minPx).toBe(CARD_MIN_PX.run + 3 * 34);
+        expect(cardShare(true, false, 40).minPx).toBe(CARD_MIN_PX.run + 10 * 34);
+        expect(cardShare(true, false, 40, 450).minPx).toBe(450);
+        // never below the base floor, however short the grid
+        expect(cardShare(true, true, 40, 100).minPx).toBe(CARD_MIN_PX.runAsk);
+        expect(cardShare(false, false, 40).minPx).toBe(CARD_MIN_PX.agent);
     });
 });
 
@@ -236,5 +257,25 @@ describe("toggleChip", () => {
         expect(toggleChip("asking", "asking")).toBe("all");
         expect(toggleChip("asking", "working")).toBe("working");
         expect(toggleChip("all", "all")).toBe("all");
+    });
+});
+
+describe("runCardMemberIds", () => {
+    // the live-run review's F2: a run's idle worker sat in the Idle section while also a row of its run's card
+    it("owns every role of a shown run card, and nothing of a run with no card", () => {
+        const lineage: Lineage = {
+            roles: {
+                L: { kind: "lead", runId: "R" },
+                w1: { kind: "worker", leadRunId: "R", taskId: "t1" },
+                v: { kind: "stage", leadRunId: "R", stageRole: "verifier" },
+                x: { kind: "worker", leadRunId: "S", taskId: "t1" },
+            },
+            runs: { R, S: { ...R, runId: "S" } },
+        };
+        const cards = [
+            { kind: "run" as const, id: "L", run: R },
+            { kind: "agent" as const, id: "p", agent: vm("p") },
+        ];
+        expect([...runCardMemberIds(cards, lineage)].sort()).toEqual(["L", "v", "w1"]);
     });
 });

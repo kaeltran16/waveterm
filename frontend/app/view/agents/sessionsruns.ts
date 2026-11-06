@@ -162,9 +162,10 @@ export function taskStatus(task: TaskNode, dag: TaskGroup | undefined, digest: D
     }
 }
 
-// the member keys a run's needs-you rows are drawn for
-export function needsYou(status: Status): boolean {
-    return status.key === "asking" || status.key === "failed";
+// the member keys a run's needs-you rows are drawn for. A failed task is the lead's to judge while the lead's
+// session is live, as on the Cockpit's lead card; only a question is yours whatever the lead does.
+export function needsYou(status: Status, leadJudges = false): boolean {
+    return status.key === "asking" || (status.key === "failed" && !leadJudges);
 }
 
 export interface RunMember {
@@ -269,7 +270,13 @@ function runOpen(run: Run | undefined, dag: TaskGroup | undefined): boolean {
 }
 
 // a cancelled run reads cancelled whatever its tasks were left at; an ended one asks nothing of you
-function headStatus(members: RunMember[], live: boolean, dag: TaskGroup | undefined, run: Run | undefined): Status {
+function headStatus(
+    members: RunMember[],
+    live: boolean,
+    dag: TaskGroup | undefined,
+    run: Run | undefined,
+    leadJudges: boolean
+): Status {
     if (runCancelled(run, dag)) {
         return { key: "muted", text: "cancelled" };
     }
@@ -279,7 +286,7 @@ function headStatus(members: RunMember[], live: boolean, dag: TaskGroup | undefi
         if (asking > 0) {
             return { key: "asking", text: `${asking} asking` };
         }
-        const failed = count("failed");
+        const failed = leadJudges ? 0 : count("failed");
         if (failed > 0) {
             return { key: "failed", text: `${failed} need${failed === 1 ? "s" : ""} you` };
         }
@@ -300,6 +307,7 @@ export function runView(input: RunViewInput): RunView {
     const { group, run, dag, digest } = input;
     const open = runOpen(run, dag);
     const lead = memberSession(group.lead);
+    const leadJudges = lead?.live === true;
     const members: RunMember[] = [
         {
             key: LEAD_MEMBER,
@@ -356,13 +364,13 @@ export function runView(input: RunViewInput): RunView {
         runtime: run?.runtime || lead?.runtime || "claude",
         live: group.live,
         open,
-        head: headStatus(members, group.live, dag, run),
+        head: headStatus(members, group.live, dag, run, leadJudges),
         complete: runComplete({ dag, status: run?.status, land: run?.land }),
         segs: taskMembers.map((m) => m.status.key),
         landed: taskMembers.filter((m) => m.status.key === "done").length,
         total: taskMembers.length,
         members: [...members, ...stageMembers],
-        needs: open ? members.filter((m) => needsYou(m.status)) : [],
+        needs: open ? members.filter((m) => needsYou(m.status, leadJudges)) : [],
         ask: askTask ? { member: askTask.key, num: askTask.num, text: askText || "" } : undefined,
         tokens: sum(group.sessions, (s) => s.tokenstotal),
         startedts: run?.createdts || Math.min(...group.sessions.map((s) => s.startedts || s.lastactivets)),

@@ -283,11 +283,14 @@ function LaneAsk({ model, run, ask }: { model: AgentsViewModel; run: RunInfo; as
     return (
         <div className="mb-[6px] ml-[35px] mr-[6px] rounded-[8px] border border-edge-mid bg-surface-raised px-[10px] py-[7px]">
             <div className="flex items-baseline gap-[8px] font-mono text-[10.5px] text-muted">
-                <span className="min-w-0 flex-1 truncate">
-                    {ask.deadline
-                        ? `asked the lead · ${formatLeft(Math.max(0, ask.deadline - now))}`
-                        : "asked the lead"}
-                </span>
+                {/* the time left is what changes, so the label truncates first */}
+                <span className="min-w-0 truncate">asked the lead</span>
+                {ask.deadline ? (
+                    <span data-lane-ask-left className="flex-none">
+                        · {formatLeft(Math.max(0, ask.deadline - now))}
+                    </span>
+                ) : null}
+                <span className="flex-1" />
                 <button
                     type="button"
                     onClick={() => takeOverChildAsk(run.channelId, run.runId, ask)}
@@ -307,7 +310,9 @@ function Lanes({ model, run, leadAsks }: { model: AgentsViewModel; run: RunInfo;
     const agents = useAtomValue(model.agentsAtom);
     const lineage = useAtomValue(model.lineageAtom);
     const focusId = useAtomValue(model.focusIdAtom);
-    const rows = laneRows(run.dag, run.digest);
+    // a verifying lane's text carries how long its Verify has run
+    const now = useAtomValue(model.nowAtom);
+    const rows = laneRows(run.dag, run.digest, now);
     if (rows.length === 0) {
         return null;
     }
@@ -437,7 +442,7 @@ function RunStatus({ run, waitingOnYou, finalNext }: { run: RunInfo; waitingOnYo
     const digest = run.digest;
     const state = { digest, loading: digest == null, stale: digestStale(digest, run.dag?.version) };
     const known = digest != null && !state.stale ? RUN_STATUS[digest.health] : undefined;
-    const verifying = verifyingHeadline(run.dag?.status, waitingOnYou, finalNext);
+    const verifying = verifyingHeadline(run.dag?.status, waitingOnYou, finalNext, run.dag?.final?.state);
     const status =
         verifying ??
         (waitingOnYou
@@ -484,7 +489,7 @@ export function RunSection({ model, run, asks }: { model: AgentsViewModel; run: 
     const usage = useRunUsage(run.channelId, run.runId);
     const spent = summarizeUsage(usage?.rows);
     const leadAsks = asks.filter((a) => a.owner !== ASK_OWNER_USER);
-    const laneTasks = new Set(laneRows(run.dag, digest).map((r) => r.taskId));
+    const laneTasks = new Set(laneRows(run.dag, digest, now).map((r) => r.taskId));
     // a lead question whose task is not any lane's task in play still needs somewhere to be taken over
     const looseAsks = leadAsks.filter((a) => !laneTasks.has(a.taskid));
 

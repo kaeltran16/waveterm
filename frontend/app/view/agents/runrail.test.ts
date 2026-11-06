@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 import {
     endedLine,
+    landingBranch,
     laneRows,
     questionOrder,
     runElapsedMs,
@@ -22,6 +23,17 @@ describe("verifyingHeadline", () => {
             tail: "· next Final, then the verifier",
         });
         expect(verifyingHeadline("finalizing", false, "")?.tail).toBe("");
+    });
+
+    // nothing runs after a failed stage: the run waits on the lead's fix round, whatever the dag's status
+    it("reads Final failed while the stage's failure waits on a fix round", () => {
+        expect(verifyingHeadline("finalizing", false, "next Final", "failed")).toEqual({
+            text: "Final failed",
+            tone: "text-error",
+            tail: "· waiting on the lead's fix round",
+        });
+        expect(verifyingHeadline("running", false, "", "failed")?.text).toBe("Final failed");
+        expect(verifyingHeadline("finalizing", true, "", "failed")).toBeUndefined();
     });
 
     it("leaves every other status to the line it had", () => {
@@ -61,7 +73,7 @@ const digest = {
 
 describe("laneRows", () => {
     it("names each lane's task in play and where it stands", () => {
-        expect(laneRows(dag, digest)).toEqual([
+        expect(laneRows(dag, digest, 0)).toEqual([
             { key: "A", taskId: "t-3", name: "t-3 · do t-3", hist: "t-1 landed", state: "working", text: "working" },
             { key: "B", taskId: "t-4", name: "t-4 · do t-4", hist: "t-2 landed", state: "lead", text: "lead" },
             {
@@ -77,7 +89,7 @@ describe("laneRows", () => {
 
     it("reads a question the human holds as asking you", () => {
         const held = { ...digest, tasks: [{ taskid: "t-4", waitreason: "ask" }] } as DagStatusDigest;
-        expect(laneRows(dag, held)[1]).toMatchObject({ state: "asking", text: "asks you" });
+        expect(laneRows(dag, held, 0)[1]).toMatchObject({ state: "asking", text: "asks you" });
     });
 
     it("shows a finished lane's tip with its landed commit", () => {
@@ -85,7 +97,7 @@ describe("laneRows", () => {
             tasks: [task("t-1", "done", { merged: true }), task("t-2", "done", { merged: true, deps: ["t-1"] })],
         } as TaskGroup;
         const d = { lanes: [["t-1", "t-2"]], report: { commits: [{ taskid: "t-2", commit: "9e04f1aa77" }] } };
-        expect(laneRows(finished, d as DagStatusDigest)).toEqual([
+        expect(laneRows(finished, d as DagStatusDigest, 0)).toEqual([
             { key: "A", taskId: "t-2", name: "t-2 · do t-2", hist: "9e04f1a", state: "done", text: "landed" },
         ]);
     });
@@ -95,7 +107,7 @@ describe("laneRows", () => {
             tasks: [task("t-1", "done", { merged: true }), task("t-2", "running"), task("t-3", "pending")],
         } as TaskGroup;
         const d = { lanes: [["t-1", "t-2", "t-3"]] } as DagStatusDigest;
-        expect(laneRows(g, d)).toEqual([
+        expect(laneRows(g, d, 0)).toEqual([
             { key: "A", taskId: "t-2", name: "t-2 · do t-2", hist: "t-1 landed", state: "working", text: "working" },
         ]);
     });
@@ -103,7 +115,7 @@ describe("laneRows", () => {
     it("mutes a finished lane whose last task was skipped rather than done", () => {
         const g = { tasks: [task("t-1", "done", { merged: true }), task("t-2", "skipped")] } as TaskGroup;
         const d = { lanes: [["t-1", "t-2"]] } as DagStatusDigest;
-        expect(laneRows(g, d)).toEqual([
+        expect(laneRows(g, d, 0)).toEqual([
             { key: "A", taskId: "t-2", name: "t-2 · do t-2", hist: "", state: "muted", text: "skipped" },
         ]);
     });
@@ -117,7 +129,7 @@ describe("laneRows", () => {
             ],
         } as TaskGroup;
         const d = { lanes: [["t-3"]] } as DagStatusDigest;
-        expect(laneRows(g, d)[0]).toEqual({
+        expect(laneRows(g, d, 0)[0]).toEqual({
             key: "A",
             taskId: "t-3",
             name: "t-3 · do t-3",
@@ -132,7 +144,7 @@ describe("laneRows", () => {
             tasks: [task("t-1", "done", { merged: true }), task("t-2", "ready", { deps: ["t-1"] })],
         } as TaskGroup;
         const d = { lanes: [["t-1", "t-2"]] } as DagStatusDigest;
-        expect(laneRows(g, d)[0]).toMatchObject({
+        expect(laneRows(g, d, 0)[0]).toMatchObject({
             taskId: "t-2",
             hist: "t-1 landed",
             state: "pending",
@@ -140,23 +152,23 @@ describe("laneRows", () => {
         });
     });
 
-    it("shows a failing task as failed, with its state as the text", () => {
+    it("shows a failing task as failed, with its state in words as the text", () => {
         const g = { tasks: [task("t-1", "done", { merged: true }), task("t-2", "verify-failed")] } as TaskGroup;
         const d = { lanes: [["t-1", "t-2"]] } as DagStatusDigest;
-        expect(laneRows(g, d)).toEqual([
+        expect(laneRows(g, d, 0)).toEqual([
             {
                 key: "A",
                 taskId: "t-2",
                 name: "t-2 · do t-2",
                 hist: "t-1 landed",
                 state: "failed",
-                text: "verify-failed",
+                text: "verify failed",
             },
         ]);
     });
 
     it("has no rows before the digest lists lanes", () => {
-        expect(laneRows(dag, undefined)).toEqual([]);
+        expect(laneRows(dag, undefined, 0)).toEqual([]);
     });
 });
 
@@ -231,15 +243,42 @@ describe("runLog", () => {
     });
 });
 
+describe("laneRows past the worker", () => {
+    // a reviewing or verifying task's worker is done; the lane says which, as the tree does, not "working"
+    it("names a task under review or under its merge's Verify", () => {
+        const g = {
+            tasks: [task("t-1", "verifying", { verifystartedts: 1_000 }), task("t-2", "reviewing")],
+        } as TaskGroup;
+        const d = { lanes: [["t-1"], ["t-2"]] } as DagStatusDigest;
+        const rows = laneRows(g, d, 61_000);
+        expect(rows.map((r) => [r.state, r.text])).toEqual([
+            ["working", "verifying 1m"],
+            ["working", "reviewing"],
+        ]);
+    });
+});
+
 describe("endedLine", () => {
     it("says what a done task came to and that its session ended", () => {
         const digest = { report: { commits: [{ taskid: "t-1", commit: "a1b2c3d4e5f6" }] } } as DagStatusDigest;
-        expect(endedLine(task("t-1", "done", { merged: true }), digest)).toBe(
-            "t-1 · do t-1 landed on main as a1b2c3d · session ended"
+        const run = { runId: "0123456789abcdef", landPath: "/wt/01234567", digest };
+        expect(endedLine(task("t-1", "done", { merged: true }), run)).toBe(
+            "t-1 · do t-1 landed on wave/01234567 as a1b2c3d · session ended"
         );
-        expect(endedLine(task("t-2", "done", { merged: true }), undefined)).toBe(
-            "t-2 · do t-2 landed on main · session ended"
+        expect(endedLine(task("t-2", "done", { merged: true }), undefined)).toBe("t-2 · do t-2 landed · session ended");
+        expect(endedLine(task("t-3", "done"), run)).toBe("t-3 · do t-3 done · session ended");
+    });
+    // a run with no tree of its own lands straight into its base, which need not be main
+    it("names the base a run lands straight into, and a failed task's state in words", () => {
+        const run = { runId: "R", base: "release/2.6", digest: undefined };
+        expect(endedLine(task("t-1", "done", { merged: true }), run)).toBe(
+            "t-1 · do t-1 landed on release/2.6 · session ended"
         );
-        expect(endedLine(task("t-3", "done"), digest)).toBe("t-3 · do t-3 done · session ended");
+        expect(endedLine(task("t-2", "verify-failed"), run)).toBe("t-2 · do t-2 verify failed · session ended");
+    });
+    it("lands a run with its own tree on wave/<id>, else on its base, else names none", () => {
+        expect(landingBranch({ runId: "0123456789", landPath: "/x" })).toBe("wave/01234567");
+        expect(landingBranch({ runId: "R", base: "main" })).toBe("main");
+        expect(landingBranch({ runId: "R" })).toBeUndefined();
     });
 });

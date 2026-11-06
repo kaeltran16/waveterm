@@ -220,6 +220,18 @@ describe("runView", () => {
     });
 
     // a blocked run still waits on a decision on its run sheet, whether or not its lead is still up
+    // the Cockpit's lead card marks these "lead judging"; Sessions must not call them yours meanwhile
+    it("leaves a failed task to a live lead's judgment, and asks you once the lead's session ends", () => {
+        const failing = dagOf([task("t-1", "done"), task("t-2", "review-failed"), task("t-3", "failed")]);
+        const live = runView({ group: groupRunSessions(sessions).runs[0], dag: failing });
+        expect(live.needs).toEqual([]);
+        expect(live.head.key).not.toBe("failed");
+        const ended = sessions.map((s) => ({ ...s, live: false }));
+        const alone = runView({ group: groupRunSessions(ended).runs[0], dag: failing });
+        expect(alone.needs.map((m) => m.key)).toEqual(["t-2", "t-3"]);
+        expect(alone.head).toEqual({ key: "failed", text: "2 need you" });
+    });
+
     it("blocked run with an ended lead keeps its needs", () => {
         const ended = sessions.map((s) => ({ ...s, live: false }));
         const blocked = dagOf([task("t-1", "done"), task("t-2", "failed")], { status: "blocked" });

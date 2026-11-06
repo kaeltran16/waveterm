@@ -186,6 +186,15 @@ export function workerEnded(task: TaskNode): boolean {
     return task.state === "done" || task.merged === true;
 }
 
+// failed states whose worker has stopped: its tab is reaped with its tree, and its session's transcript is what
+// says why it failed. A stalled worker's process is still alive.
+const FAILED_ENDED = new Set(["failed", "review-failed", "verify-failed", "blocked-merge"]);
+
+// failedWithTranscript reports a failed task whose ended worker can be read back: it ran a child run.
+export function failedWithTranscript(task: TaskNode): boolean {
+    return FAILED_ENDED.has(task.state) && !!task.runid;
+}
+
 const ENDED_REVIEWER_TAG = "review:";
 
 // endedReviewerId is what a plan reviewer with a verdict is focused by. The engine stops its session with its tab
@@ -212,7 +221,7 @@ export function endedRoles(runs: Record<string, RunInfo>): Record<string, RunRol
     const roles: Record<string, RunRole> = {};
     for (const run of Object.values(runs)) {
         for (const task of run.dag?.tasks ?? []) {
-            if (workerEnded(task)) {
+            if (workerEnded(task) || failedWithTranscript(task)) {
                 roles[endedWorkerId(run.runId, task.id)] = { kind: "worker", leadRunId: run.runId, taskId: task.id };
             }
         }

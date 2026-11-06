@@ -170,7 +170,15 @@ describe("runRailEvents", () => {
             "lead"
         );
         expect(out.map((e) => e.kind)).toEqual(["asked", "finished", "failed", "quiet"]);
-        expect(out[0]).toMatchObject({ key: "R:child-ask1", focusId: "lead", who: "Session auth", group: "R" });
+        expect(out[0]).toMatchObject({ key: "R:child-ask1", focusId: "row:lead:t3", who: "Session auth", group: "R" });
+    });
+
+    // a click lands on the task's row of the run's card; an event naming no task lands on the card
+    it("focuses the named task's row, or the card, a leadless run's by its address", () => {
+        const out = runRailEvents(run, [ev("task-failed", 1, { taskid: "t1" }), ev("dag-done", 2)], "lead");
+        expect(out.map((e) => e.focusId)).toEqual(["row:lead:t1", "lead"]);
+        const leadless = runRailEvents(run, [ev("task-failed", 1, { taskid: "t1" }), ev("dag-done", 2)]);
+        expect(leadless.map((e) => e.focusId)).toEqual(["row:run:R:t1", "run:R"]);
     });
 
     // a finished task has not landed while its merge waits; only the merge lands it
@@ -213,13 +221,13 @@ describe("groupRailEvents", () => {
     it("shows a run's newest event with a count of the rest, and plain agents' events as they are", () => {
         const rows = groupRailEvents(list, {});
         expect(rows.map((r) => r.key)).toEqual(["a", "p"]);
-        expect(rows[0].more).toBe("+2 more from auth-lead");
+        expect(rows[0].more).toBe("+2 more");
         expect(rows[1].more).toBeUndefined();
     });
     it("lists every event of an opened run, the first offering to fold them again", () => {
         const rows = groupRailEvents(list, { R: true });
         expect(rows.map((r) => r.key)).toEqual(["a", "p", "b", "c"]);
-        expect(rows[0].more).toBe("show less from auth-lead");
+        expect(rows[0].more).toBe("show less");
         expect(rows[2].more).toBeUndefined();
     });
     it("offers nothing for a run with a single event", () => {

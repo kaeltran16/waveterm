@@ -414,6 +414,8 @@ export const FINAL_SHOTS_UICTX = { windowid: "", activetabid: "" };
 const finalFingerprint = (final, past) =>
     JSON.stringify([final?.state, final?.round, final?.shots?.length ?? 0, (past ?? []).map((p) => p.shots?.length ?? 0)]);
 
+let seedStamp = 0;
+
 // Puts the stored dag into a state the engine has not reached: change maps the dag as read to the dag to
 // write, and print reduces a dag to what the seed must hold.
 export async function seedDag(h, ctx, change, print) {
@@ -430,9 +432,10 @@ export async function seedDag(h, ctx, change, print) {
     if (print(stored) !== want) {
         throw new Error(`the dag did not keep its seed: want ${want}, stored ${print(stored)}`);
     }
-    // UpdateObject publishes nothing; a meta write sends the whole stored dag to the page
-    ctx.seeds = (ctx.seeds ?? 0) + 1;
-    await h.rpc("setmeta", { oref, meta: { [FINAL_SHOTS_SEED_KEY]: ctx.seeds } });
+    // UpdateObject publishes nothing; a meta write sends the whole stored dag to the page, but only when the value
+    // changes: a per-ctx count restarted at 1 for a caller passing a fresh ctx, so the second seed never reached it
+    seedStamp = Math.max(seedStamp + 1, Date.now());
+    await h.rpc("setmeta", { oref, meta: { [FINAL_SHOTS_SEED_KEY]: seedStamp } });
 }
 
 export const seedFinalShots = (h, ctx, { final, pastfinals }) =>
@@ -578,6 +581,109 @@ export async function fstWriteRun(h, runId, change) {
     });
     return stored;
 }
+
+// A run the engine can never start: an orchestrator run held by deferstart in an unborn git repo (no commit). Every
+// engine tick for it fails at resolving the project head before it can spawn anything, so no worker, reviewer or
+// lead starts whatever its dag is seeded to, and the seed is never ticked over. ctx.held collects each run for
+// teardownHeldRuns, recorded before anything that can throw.
+export async function arrangeHeldRun(h, ctx, { key, title, tasks, parallelism = 2 }) {
+    const cwd = mkdtempSync(join(tmpdir(), `verify-held-${key}-`));
+    const run = { key, title, cwd, children: {} };
+    (ctx.held ??= []).push(run);
+    git(cwd, "init", "-q", "--initial-branch=main");
+    const wslist = await h.rpc("workspacelist", null);
+    run.ws = wslist[0].workspacedata.oid;
+    const ch = await h.rpc("createchannel", { name: `verify-held-${key}`, projectpath: cwd });
+    run.channelId = ch.oid;
+    const created = await h.rpc("createrun", {
+        channelid: run.channelId,
+        workspaceid: run.ws,
+        goal: `${title}: do nothing`,
+        runtime: "claude",
+        mode: "orchestrator",
+        deferstart: true,
+    });
+    run.runId = created.run.id;
+    run.landPath = created.run.landpath;
+    await h.rpc("dagsubmit", {
+        channelid: run.channelId,
+        runid: run.runId,
+        title,
+        parallelism,
+        tasks: tasks.map((t) => ({ id: t.id, label: t.label, description: "do nothing", deps: t.deps ?? [], state: "" })),
+    });
+    const group = (await h.rpc("dagstatus", { channelid: run.channelId, runid: run.runId })).group;
+    run.dagId = group.oid;
+    const dispatched = (group.tasks ?? []).filter((t) => t.runid).map((t) => t.id);
+    if (dispatched.length) {
+        // the unborn repo should have stopped every dispatch; stop the run at once if it did not
+        await h.rpc("cancelrun", { channelid: run.channelId, runid: run.runId });
+        throw new Error(`held run ${key} dispatched ${dispatched.join(", ")}: cancelled`);
+    }
+    return run;
+}
+
+// a task's child run for a held run: a deferred quick run, which never starts a session, linked to the run's dag
+export async function heldStandIn(h, run, name) {
+    const created = await h.rpc("createrun", {
+        channelid: run.channelId,
+        workspaceid: run.ws,
+        goal: `${run.title}: stand-in ${name}`,
+        runtime: "claude",
+        mode: "quick",
+        deferstart: true,
+    });
+    run.children[name] = created.run.id;
+    await fstWriteRun(h, created.run.id, (r) => ({ ...r, dagoref: run.dagId }));
+    return created.run.id;
+}
+
+// seeds each task of a held run's dag (by id) and any dag-level fields; the engine never ticks a held dag over it
+export const seedHeldRun = (h, run, seeds, extra = {}) =>
+    seedDag(
+        h,
+        { dagId: run.dagId },
+        (dag) => ({ ...dag, ...extra, tasks: dag.tasks.map((t) => ({ ...t, ...(seeds[t.id] ?? {}) })) }),
+        (dag) =>
+            JSON.stringify([
+                (dag?.tasks ?? []).map((t) => [t.id, t.state, t.runid ?? "", t.reviewrunid ?? ""]),
+                dag?.final?.state ?? "",
+            ])
+    );
+
+// cancels every held run and its stand-ins, deletes their channels and removes their repos; every step is tried
+export async function teardownHeldRuns(h, ctx, name) {
+    const step = async (what, fn) => {
+        try {
+            await fn();
+        } catch (e) {
+            console.error(`${name} teardown: ${what} failed: ${e?.message ?? e}`);
+        }
+    };
+    for (const run of ctx.held ?? []) {
+        if (run.runId) {
+            await step(`cancel held run ${run.key}`, () => h.rpc("cancelrun", { channelid: run.channelId, runid: run.runId }));
+        }
+        for (const id of Object.values(run.children)) {
+            await step(`cancel stand-in ${id}`, () => h.rpc("cancelrun", { channelid: run.channelId, runid: id }));
+        }
+        if (run.channelId) {
+            await step(`delete channel of ${run.key}`, () => h.rpc("deletechannel", { channelid: run.channelId }));
+        }
+        await step(`remove ${run.cwd}`, () => rmSync(run.cwd, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 }));
+    }
+}
+
+// the page's roster, set without a fixture file; a reload returns to the live roster or the file's
+export const setPageRoster = (h, agents) =>
+    lookEval(
+        h,
+        `const { globalStore } = await mod("app/store/jotaiStore.ts");
+        const D = await mod("app/view/agents/devmock.ts");
+        globalStore.set(D.devMockAgentsAtom, ${JSON.stringify(agents)});
+        return true;`
+    );
+
 export const polishNap = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export async function polishWaitFor(h, expr, ms) {
@@ -952,9 +1058,12 @@ export const focusAgentXterm = `(() => {
 
 export const LOOK_LIB = `
     const mod = async (path) => {
-        const names = performance.getEntriesByType("resource").map((e) => e.name.split("?")[0]);
-        const hit = names.filter((n) => n.endsWith("/" + path)).pop();
-        const base = names.find((n) => n.endsWith("/app/store/jotaiStore.ts"));
+        // the newest url keeps its ?t= query: a module HMR updated is a new instance there, and the bare url is a
+        // stale second copy whose atoms the app no longer reads
+        const names = performance.getEntriesByType("resource").map((e) => e.name);
+        const bare = (n) => n.split("?")[0];
+        const hit = names.filter((n) => bare(n).endsWith("/" + path)).pop();
+        const base = names.map(bare).find((n) => n.endsWith("/app/store/jotaiStore.ts"));
         if (hit == null && base == null) throw new Error("no app module url for " + path);
         return import(hit ?? base.replace("app/store/jotaiStore.ts", path));
     };

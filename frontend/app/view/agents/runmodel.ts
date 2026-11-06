@@ -41,6 +41,16 @@ export function finishedRunLabel(run: Pick<RunInfo, "dag" | "status" | "land">):
     return (run.land && landView(run.land)?.label) || "run complete";
 }
 
+/** Pure: what a run whose final stage failed waits on. Nothing runs until a fix round is planned: the lead's, or
+ *  with no lead to plan it, one the engine launches a lead for. */
+export function finalFailedLine(leadFixes: boolean): string {
+    return `final failed · ${finalFailedWait(leadFixes)}`;
+}
+
+export function finalFailedWait(leadFixes: boolean): string {
+    return leadFixes ? "waiting on the lead's fix round" : "waiting on a fix round";
+}
+
 /** Pure: a dag run's progress line in the Agents tree. Every task done is not the run done: the final stage
  *  still verifies the merged result, and a bare "5/5 done" there read as finished. Which step runs is the
  *  Final verification row's to say. */
@@ -51,6 +61,10 @@ export function dagProgressLabel(
     const { done, total } = runProgress(run.dag);
     if (run.dag?.status === "done") {
         return finishedRunLabel(run);
+    }
+    // a failed stage runs nothing: the run waits on a fix round
+    if (run.dag?.final?.state === "failed") {
+        return `${done}/${total} · final failed`;
     }
     if (run.dag?.status === "finalizing") {
         return `${done}/${total} · verifying`;

@@ -30,6 +30,8 @@ import { AnswerBar, DocReviewSummary } from "./answerbar";
 import { AttentionBanner } from "./attentioncard";
 import { diffStatsByIdAtom } from "./cardgitstore";
 import type { CardShare } from "./cardgridlayout";
+import { parseDocReview } from "./docreview";
+import type { FinalTone } from "./finalstage";
 import {
     dagAction,
     rowAction,
@@ -39,6 +41,7 @@ import {
     tellingRowAtom,
 } from "./leadcardactions";
 import {
+    cancelPrompt,
     foldOpen,
     LEAD_MARK_CLASS,
     leadMark,
@@ -57,10 +60,9 @@ import { NarrationTimeline } from "./narrationtimeline";
 import { clampParallelism } from "./runconfig";
 import type { RunInfo } from "./runlineage";
 import { openRunDag } from "./runrailsections";
-import { SEG_FILL, type TaskStrip } from "./runstrip";
+import { FINAL_FILL, SEG_FILL, type TaskStrip } from "./runstrip";
 import { SubLabel } from "./sectionlabel";
-import { parseDocReview } from "./docreview";
-import { StatusLine } from "./statusline";
+import { StatusLine, WIDE_ONLY } from "./statusline";
 import { JumpToLatestPill, useStickToBottom } from "./sticktobottom";
 
 const CTL_BOX =
@@ -160,7 +162,15 @@ export function LeadCard(p: LeadCardProps) {
     const parValue = par ?? run.dag?.parallelism ?? 1;
     const mark = leadMark(run, lead);
     const leadIcon = (
-        <Workflow size={13} aria-hidden className={cn("shrink-0", LEAD_MARK_CLASS[mark.tone], mark.pulse && PULSE)} />
+        <Workflow
+            size={13}
+            aria-hidden
+            data-lead-mark={mark.tone}
+            className={cn("shrink-0", LEAD_MARK_CLASS[mark.tone], mark.pulse && PULSE)}
+        >
+            {/* an svg shows a <title> child as its tooltip, not a title attribute */}
+            {lead?.startError != null ? <title>{`The lead failed to start: ${lead.startError}`}</title> : null}
+        </Workflow>
     );
 
     return (
@@ -173,7 +183,8 @@ export function LeadCard(p: LeadCardProps) {
             data-agent-id={p.cardId}
             onClick={() => p.onCursor(p.cardId)}
             className={cn(
-                "group relative flex cursor-pointer flex-col overflow-hidden rounded-[13px] border bg-lane",
+                // @container: the header's project chip hides when the card is too narrow for it and the name
+                "@container group relative flex cursor-pointer flex-col overflow-hidden rounded-[13px] border bg-lane",
                 vm.needsYou ? "border-warning/40" : "border-edge-mid",
                 p.isCursor &&
                     (vm.needsYou
@@ -184,7 +195,13 @@ export function LeadCard(p: LeadCardProps) {
         >
             <div className="flex shrink-0 items-center gap-2 border-b border-edge-mid bg-surface px-3 py-1.5">
                 {lead ? (
-                    <StatusLine agent={lead} nowAtom={model.nowAtom} mark={leadIcon} className="min-w-0 flex-1" />
+                    <StatusLine
+                        agent={lead}
+                        nowAtom={model.nowAtom}
+                        mark={leadIcon}
+                        className="min-w-0 flex-1 overflow-hidden"
+                        projectClassName={WIDE_ONLY}
+                    />
                 ) : (
                     <>
                         {leadIcon}
@@ -192,20 +209,22 @@ export function LeadCard(p: LeadCardProps) {
                             {run.title}
                         </b>
                         <span
-                            title="A lead starts at the run's first judgment event"
+                            data-no-lead
+                            title={vm.noLead.title}
                             className="shrink-0 font-mono text-[10.5px] text-muted"
                         >
-                            no lead
+                            {vm.noLead.text}
                         </span>
                         <div className="flex-1" />
                     </>
                 )}
                 {vm.askCount > 0 ? (
                     <span
-                        title="Questions answered in this card; n cycles them"
+                        data-need-you-chip
+                        title="Questions and decisions waiting on you in this card; n cycles them"
                         className="shrink-0 rounded-[5px] bg-askingbg px-[7px] py-px font-mono text-[10.5px] font-semibold text-warning"
                     >
-                        {vm.askCount} asking you
+                        {vm.askCount} need you
                     </span>
                 ) : null}
                 {diff && lead ? (
@@ -273,7 +292,7 @@ export function LeadCard(p: LeadCardProps) {
             ) : null}
 
             <div className="flex shrink-0 flex-col gap-2 px-[18px] pb-2.5 pt-3">
-                {vm.bar ? <LeadBar strip={vm.bar.strip} label={vm.bar.label} /> : null}
+                {vm.bar ? <LeadBar strip={vm.bar.strip} final={vm.bar.final} label={vm.bar.label} /> : null}
                 <div className="flex items-center gap-2 text-[11.5px] text-muted">
                     {vm.complete ? <Check size={12} aria-hidden className="shrink-0 text-success" /> : null}
                     <span
@@ -293,12 +312,7 @@ export function LeadCard(p: LeadCardProps) {
             </div>
 
             <div ref={bodyRef} className="flex min-h-0 flex-1 flex-col">
-                <div
-                    className={cn(
-                        "min-h-0 overflow-y-auto overflow-x-hidden px-2.5 pb-3",
-                        lead && paneOpen ? "max-h-[50%]" : "flex-1"
-                    )}
-                >
+                <div data-lead-rows className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-2.5 pb-3">
                     {p.leadDown ? (
                         <div className="mb-1.5 mt-0.5 flex flex-wrap items-center gap-2.5 rounded-[7px] border border-error/35 bg-error/[0.08] px-2.5 py-2">
                             <div className="min-w-[180px] flex-1">
@@ -366,7 +380,7 @@ export function LeadCard(p: LeadCardProps) {
                                         {answerBarFor(row.worker, "px-0 py-0")}
                                     </InlineBlock>
                                 ) : null}
-                                {row.inline === "review" ? (
+                                {row.inline === "review" || row.inline === "findings" ? (
                                     <InlineBlock>
                                         {reviewFindings(p.events, row.taskId).map((f) => (
                                             <div
@@ -381,45 +395,14 @@ export function LeadCard(p: LeadCardProps) {
                                                 </span>
                                             </div>
                                         ))}
-                                        <div className="flex flex-wrap gap-1.5">
-                                            {REVIEW_ACTIONS.map(([action, label], i) => (
-                                                <button
-                                                    key={action}
-                                                    type="button"
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        dag(
-                                                            row.taskId,
-                                                            action,
-                                                            action === "sendback"
-                                                                ? guide[row.taskId]?.trim()
-                                                                : undefined
-                                                        );
-                                                    }}
-                                                    className="flex cursor-pointer items-center gap-[7px] rounded-[6px] border border-edge-mid bg-transparent py-1 pl-1.5 pr-2.5 hover:border-warning"
-                                                >
-                                                    <span className="inline-flex h-4 w-4 items-center justify-center rounded-[4px] bg-surface-code font-mono text-[10.5px] text-secondary">
-                                                        {i + 1}
-                                                    </span>
-                                                    <span className="text-[12px] font-semibold text-primary">
-                                                        {label}
-                                                    </span>
-                                                </button>
-                                            ))}
-                                        </div>
-                                        <input
-                                            value={guide[row.taskId] ?? ""}
-                                            onClick={(e) => e.stopPropagation()}
-                                            onChange={(e) => setGuide((g) => ({ ...g, [row.taskId]: e.target.value }))}
-                                            onKeyDown={(e) => {
-                                                e.stopPropagation();
-                                                if (e.key === "Enter" && guide[row.taskId]?.trim()) {
-                                                    dag(row.taskId, "sendback", guide[row.taskId].trim());
-                                                }
-                                            }}
-                                            placeholder="guidance for the next round… (Enter sends back)"
-                                            className="w-full rounded-[6px] border border-edge-mid bg-surface-code px-[9px] py-[5px] text-[12px] text-primary outline-none"
-                                        />
+                                        {/* the choices are the lead's while it judges, as a failed task's are */}
+                                        {row.inline === "review" ? (
+                                            <ReviewChoices
+                                                guide={guide[row.taskId] ?? ""}
+                                                onGuide={(v) => setGuide((g) => ({ ...g, [row.taskId]: v }))}
+                                                onChoose={(action, notes) => dag(row.taskId, action, notes)}
+                                            />
+                                        ) : null}
                                     </InlineBlock>
                                 ) : null}
                             </TaskRow>
@@ -487,43 +470,46 @@ export function LeadCard(p: LeadCardProps) {
 
             <div
                 onClick={(e) => e.stopPropagation()}
-                className="flex shrink-0 flex-wrap items-center gap-1.5 border-t border-edge-mid py-[7px] pl-3.5 pr-3"
+                className="flex shrink-0 flex-col gap-1.5 border-t border-edge-mid py-[7px] pl-3.5 pr-3"
             >
-                <span
-                    title={vm.settingsTitle}
-                    className="min-w-[120px] flex-1 truncate font-mono text-[10.5px] text-muted"
-                >
-                    {vm.settings}
-                </span>
-                {runAdjustable(run) ? (
-                    <button
-                        type="button"
-                        onClick={() => setPanel((v) => (v === "adjust" ? null : "adjust"))}
-                        className={BTN}
+                {/* one line: the settings truncate before a button wraps */}
+                <div data-lead-footer className="flex min-w-0 items-center gap-1.5">
+                    <span
+                        title={vm.settingsTitle}
+                        className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-muted"
                     >
-                        Adjust
-                    </button>
-                ) : null}
-                {run.dag ? (
-                    <button
-                        type="button"
-                        data-peek
-                        onClick={(e) => openRunDag(model, run, undefined, e)}
-                        className={cn(BTN, "inline-flex items-center gap-[5px]")}
-                    >
-                        DAG
-                        <ArrowUpRight size={11} aria-hidden />
-                    </button>
-                ) : null}
-                {run.dag && !vm.finished ? (
-                    <button
-                        type="button"
-                        onClick={() => setPanel((v) => (v === "cancel" ? null : "cancel"))}
-                        className={cn(BTN, "text-error hover:border-error/45")}
-                    >
-                        Cancel run
-                    </button>
-                ) : null}
+                        {vm.settings}
+                    </span>
+                    {runAdjustable(run) ? (
+                        <button
+                            type="button"
+                            onClick={() => setPanel((v) => (v === "adjust" ? null : "adjust"))}
+                            className={BTN}
+                        >
+                            Adjust
+                        </button>
+                    ) : null}
+                    {run.dag ? (
+                        <button
+                            type="button"
+                            data-peek
+                            onClick={(e) => openRunDag(model, run, undefined, e)}
+                            className={cn(BTN, "inline-flex items-center gap-[5px]")}
+                        >
+                            DAG
+                            <ArrowUpRight size={11} aria-hidden />
+                        </button>
+                    ) : null}
+                    {run.dag && !vm.finished ? (
+                        <button
+                            type="button"
+                            onClick={() => setPanel((v) => (v === "cancel" ? null : "cancel"))}
+                            className={cn(BTN, "text-error hover:border-error/45")}
+                        >
+                            Cancel run
+                        </button>
+                    ) : null}
+                </div>
                 {panel === "adjust" ? (
                     <div className="flex w-full flex-wrap items-center gap-2 rounded-[7px] bg-background px-2.5 py-[7px]">
                         <span className="text-[11.5px] text-muted">Worker parallelism</span>
@@ -560,8 +546,7 @@ export function LeadCard(p: LeadCardProps) {
                 {panel === "cancel" ? (
                     <div className="flex w-full flex-wrap items-center gap-2 rounded-[7px] bg-error/[0.08] px-2.5 py-2">
                         <span className="min-w-[200px] flex-1 text-[11.5px] leading-[1.45] text-primary">
-                            Stop {runningCount(vm.rows)} running tasks and cancel this run? Landed tasks, transcripts
-                            and artifacts are kept.
+                            {cancelPrompt(runningCount(vm.rows))} Landed tasks, transcripts and artifacts are kept.
                         </span>
                         <button type="button" onClick={() => setPanel(null)} className={BTN}>
                             Keep running
@@ -672,6 +657,11 @@ function TaskRow({
                     <div className={cn("truncate text-[11.5px]", row.tone === "warn" ? "text-warning" : "text-muted")}>
                         {row.sub}
                     </div>
+                    {row.detail ? (
+                        <div data-row-detail title={row.detail} className="truncate font-mono text-[11px] text-error">
+                            {row.detail}
+                        </div>
+                    ) : null}
                     {tell ??
                         (row.actions.length > 0 || canOpen ? (
                             <div className="flex flex-wrap gap-1.5">
@@ -700,7 +690,7 @@ function TaskRow({
                                         }}
                                         className={cn(ROW_BTN, "pl-2.5")}
                                     >
-                                        {row.kind === "done" ? "Open transcript" : "Open worker"}
+                                        {row.openLabel ?? (row.kind === "done" ? "Open transcript" : "Open worker")}
                                     </button>
                                 ) : null}
                             </div>
@@ -712,22 +702,83 @@ function TaskRow({
     );
 }
 
-// the run's task strip, the one the agent tree and the rail draw: a segment per task, or one done/total bar
-function LeadBar({ strip, label }: { strip: TaskStrip; label: string }) {
-    if (strip.kind === "bar") {
-        return (
-            <div role="img" aria-label={label} className="flex h-[3px] overflow-hidden rounded-[2px]">
-                <span className="h-full bg-success" style={{ flex: strip.done }} />
-                <span className="h-full bg-edge-strong" style={{ flex: strip.total - strip.done }} />
-            </div>
-        );
-    }
+// the run's task strip, the one the agent tree and the rail draw: a segment per task, or one done/total bar, then
+// the final stage's slot once the stage has a row, as the tree's strip ends
+function LeadBar({ strip, final, label }: { strip: TaskStrip; final?: FinalTone; label: string }) {
     return (
         <div role="img" aria-label={label} className="flex h-[3px] gap-[3px]">
-            {strip.states.map((st, i) => (
-                <span key={i} className={cn("h-full flex-1 rounded-[2px]", SEG_FILL[st])} />
-            ))}
+            {strip.kind === "bar" ? (
+                <span className="flex h-full flex-1 overflow-hidden rounded-[2px]">
+                    <span className="h-full bg-success" style={{ flex: strip.done }} />
+                    <span className="h-full bg-edge-strong" style={{ flex: strip.total - strip.done }} />
+                </span>
+            ) : (
+                strip.states.map((st, i) => (
+                    <span key={i} className={cn("h-full flex-1 rounded-[2px]", SEG_FILL[st])} />
+                ))
+            )}
+            {final != null ? (
+                <>
+                    <span className="w-[4px] flex-none" />
+                    {/* twice a task's segment; a long plan's bar is one segment, so the slot is fixed there */}
+                    <span
+                        data-final-slot={final}
+                        className={cn(
+                            "h-full rounded-[2px]",
+                            strip.kind === "segments" ? "flex-[2]" : "w-[16px] flex-none",
+                            FINAL_FILL[final]
+                        )}
+                    />
+                </>
+            ) : null}
         </div>
+    );
+}
+
+// A failed review's numbered choices and the guidance a send-back carries; Enter in the input sends back.
+function ReviewChoices({
+    guide,
+    onGuide,
+    onChoose,
+}: {
+    guide: string;
+    onGuide: (v: string) => void;
+    onChoose: (action: string, notes?: string) => void;
+}) {
+    return (
+        <>
+            <div className="flex flex-wrap gap-1.5">
+                {REVIEW_ACTIONS.map(([action, label], i) => (
+                    <button
+                        key={action}
+                        type="button"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onChoose(action, action === "sendback" ? guide.trim() || undefined : undefined);
+                        }}
+                        className="flex cursor-pointer items-center gap-[7px] rounded-[6px] border border-edge-mid bg-transparent py-1 pl-1.5 pr-2.5 hover:border-warning"
+                    >
+                        <span className="inline-flex h-4 w-4 items-center justify-center rounded-[4px] bg-surface-code font-mono text-[10.5px] text-secondary">
+                            {i + 1}
+                        </span>
+                        <span className="text-[12px] font-semibold text-primary">{label}</span>
+                    </button>
+                ))}
+            </div>
+            <input
+                value={guide}
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => onGuide(e.target.value)}
+                onKeyDown={(e) => {
+                    e.stopPropagation();
+                    if (e.key === "Enter" && guide.trim()) {
+                        onChoose("sendback", guide.trim());
+                    }
+                }}
+                placeholder="guidance for the next round… (Enter sends back)"
+                className="w-full rounded-[6px] border border-edge-mid bg-surface-code px-[9px] py-[5px] text-[12px] text-primary outline-none"
+            />
+        </>
     );
 }
 
@@ -835,8 +886,9 @@ function LeadTranscript({
     onHide: (e: MouseEvent) => void;
 }) {
     const { scrollRef, onScroll, atBottom, jumpToBottom } = useStickToBottom(entries);
+    // as tall as its entries, up to a cap: a fixed half left a short transcript's space empty while the tasks scrolled
     return (
-        <div className="flex min-h-0 flex-1 flex-col border-t border-edge-mid bg-surface">
+        <div className="flex max-h-[45%] min-h-0 flex-none flex-col border-t border-edge-mid bg-surface">
             <div className="flex shrink-0 items-center gap-2 pb-1 pl-[18px] pr-3 pt-[9px]">
                 <SubLabel className="flex-1">Lead</SubLabel>
                 <button
@@ -849,11 +901,11 @@ function LeadTranscript({
                     Hide
                 </button>
             </div>
-            <div className="relative min-h-0 flex-1">
+            <div className="relative flex min-h-0 flex-1 flex-col">
                 <div
                     ref={scrollRef}
                     onScroll={onScroll}
-                    className="h-full overflow-y-auto overflow-x-hidden px-5 pb-3.5"
+                    className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-5 pb-3.5"
                 >
                     <NarrationTimeline entries={entries} accentLatest active={lead.state !== "idle"} />
                 </div>

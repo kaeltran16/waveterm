@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { AgentVM } from "./agentsviewmodel";
 import {
     buildAgentTree,
+    doneFoldLabel,
     rowFocusKey,
     stageOutcome,
     stageRowAge,
@@ -99,7 +100,19 @@ describe("rowFocusKey and treeFocusOrder", () => {
         expect(rowFocusKey({ kind: "lead", agent: a, project: "p", run: r, open: true, live: 0 })).toBe("a");
         expect(rowFocusKey({ kind: "stage", agent: a, project: "p", run: r, stageRole: "x" })).toBe("a");
         expect(rowFocusKey({ kind: "run", project: "p", run: r, open: true, live: 0 })).toBeUndefined();
-        expect(rowFocusKey({ kind: "done", project: "p", run: r, count: 1, stages: 0, open: true })).toBeUndefined();
+        expect(
+            rowFocusKey({
+                kind: "done",
+                project: "p",
+                run: r,
+                count: 1,
+                landed: 1,
+                skipped: 0,
+                cancelled: 0,
+                stages: 0,
+                open: true,
+            })
+        ).toBeUndefined();
         expect(rowFocusKey({ kind: "queued", project: "p", run: r, count: 1, open: true })).toBeUndefined();
         // a live worker is its tab; a done task, or one merged with its tab reaped, is its ended worker
         const [running, done, merged] = r.dag.tasks;
@@ -336,10 +349,12 @@ describe("buildAgentTree with run lineage", () => {
                 w2: { kind: "worker", leadRunId: "run-1", taskId: "t-2" },
             })
         );
-        // the verifying task is under way but has no session, so it is not counted as an agent
+        // the verifying task is under way but has no session, so it is not counted as an agent; the skipped one
+        // folds with what finished
         expect(shape(rows)).toEqual([
             "group:waveterm:2:0",
             "lead:run-1:2",
+            "done:0:false",
             "worker:t-1:-",
             "worker:t-2:w2",
             "queued:1:false",
@@ -1150,5 +1165,17 @@ describe("stageRowAge", () => {
         const ended = { ...vm(endedReviewerId("run-1", "rv-full"), "idle"), idleSince: NOW - 5 * 60_000 };
         expect(stageRowAge(ended, NOW)).toBeUndefined();
         expect(stageSubline("passed", stageRowAge(ended, NOW))).toBe("passed");
+    });
+});
+
+describe("doneFoldLabel", () => {
+    // "2/14 done" counted a skipped task the fold said nothing of ("1 done")
+    it("names what landed apart from what was skipped or cancelled", () => {
+        expect(doneFoldLabel({ count: 1, landed: 1, skipped: 1, cancelled: 0, stages: 0 })).toBe(
+            "1 landed · 1 skipped"
+        );
+        expect(doneFoldLabel({ count: 2, landed: 1, skipped: 0, cancelled: 2, stages: 1 })).toBe(
+            "1 landed · 1 done · 2 cancelled · 1 review"
+        );
     });
 });
