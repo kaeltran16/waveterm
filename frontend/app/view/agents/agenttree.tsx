@@ -674,17 +674,22 @@ function ParentRow({
                 )}
             >
                 <Slot>
-                    {agent.startError != null ? (
+                    {mark ? (
+                        // a run lead keeps its mark when it failed to start; leadMark tones it error
+                        <Workflow
+                            size={13}
+                            aria-hidden
+                            data-tree-start-error={agent.startError != null || undefined}
+                            className={cn(LEAD_MARK_CLASS[mark.tone], mark.pulse && PULSE)}
+                        >
+                            {/* an svg shows a <title> child as its tooltip, not a title attribute */}
+                            {agent.startError != null && <title>{agent.startError}</title>}
+                        </Workflow>
+                    ) : agent.startError != null ? (
                         <span
                             data-tree-start-error
                             title={agent.startError}
                             className="h-[7px] w-[7px] shrink-0 rounded-full bg-error"
-                        />
-                    ) : mark ? (
-                        <Workflow
-                            size={13}
-                            aria-hidden
-                            className={cn(LEAD_MARK_CLASS[mark.tone], mark.pulse && PULSE)}
                         />
                     ) : runDone || commitDone ? (
                         <CommitTick runDone={runDone} />
