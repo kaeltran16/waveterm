@@ -489,11 +489,24 @@ task titles stand in only when those messages are empty. Every agent that commit
 subject to 72 characters and put the detail in a body; a worker's subject that runs past it is cut, and its
 whole line opens the body. The engine's own subjects (docs snapshot, lane title, land merge) are cut the same way. Independent tasks and tasks after a fork or join start their own lane. Lanes are what
 parallelism counts. A task whose dependency is in another lane starts once that lane has merged, while the merge's
-Verify still runs; a failed Verify holds the next merge, not a dependent's start.
+Verify still runs; a failed Verify holds the next merge, not a dependent's start. A dag with merges has one
+exception, the **early start**: when the task's cross-lane dependencies sit in exactly one unmerged lane and that
+lane's workers are done (its tip may still be under review), the task starts at once, on that lane's branch tip,
+instead of waiting for the merge. It waits until the tip's report is sealed, so its prompt carries the
+predecessor's For later tasks section, and the reviewer's `--downstream` note reaches it as a note typed into its
+terminal. With two or more unmerged predecessor lanes the task waits for their merges. If the predecessor's review
+rejects the tip, or the lead retries or skips the predecessor, the dependent stops, its tree is discarded and it
+restarts from the fixed tip (or from the landing head once that lane has merged); that is counted as "restarted",
+not as a failure, and `dag status` prints the count. A predecessor in `review-failed` does not restart it, since
+the lead may approve the commit as it is (the lead's retry or skip then does), and a failed Verify of the
+predecessor never restarts it.
 
 **Merges batch.** When nothing holds the merge queue, every ready lane merges, each as its own squash commit,
 and one Verify judges them all, scoped from the oldest of them to `HEAD`. A lane whose dependency merged earlier
-in the same batch waits for the next one. A conflict ends the batch, and no Verify starts while the tree is
+in the same batch waits for the next one. A lane started on another lane's tip (an early start) merges only after
+that lane has merged, in the batch and for `dag merge` alike (which refuses, naming the base task); its squash
+lands the predecessor's identical changes cleanly, its message holds only its own workers' commits, and a real
+difference is an ordinary merge conflict. A conflict ends the batch, and no Verify starts while the tree is
 mid-merge: the lanes merged before it are verified with the conflicted one after the lead's `--continue`. If
 the Verify of a batch of two or more fails, the engine bisects it: it verifies prefixes of the batch in a
 detached tree, `arc-wt\<8>-bisect` (see [Where a run lands](#2-where-a-run-lands)), set up with the plan's Setup, until it finds the
