@@ -43,7 +43,7 @@ import { cardCwdByIdAtom, sharedCheckoutCount } from "./cardgitstore";
 import { ASK_OWNER_USER } from "./childaskmodel";
 import { finalRowFocusId, isFinalStageId } from "./finalstage";
 import { FinalStageRail } from "./finalstagerail";
-import { capFiles, statusColor } from "./gitstatus";
+import { capFiles, lineCountsShown, statusColor } from "./gitstatus";
 import { entriesAtomFor, liveEntriesByIdAtom } from "./livetranscriptatoms";
 import { prettyModel } from "./modellabel";
 import { loadRailForAgent, railStateAtom, railVisibleAtom } from "./railstore";
@@ -206,20 +206,22 @@ function FileRow({
     path,
     adds,
     dels,
+    counted = true,
     onClick,
 }: {
     status: string;
     path: string;
     adds: number;
     dels: number;
+    counted?: boolean;
     onClick?: () => void;
 }) {
     const body = (
         <>
             <span className={cn("flex-none font-bold", statusColor(status))}>{status}</span>
             <span className="min-w-0 flex-1 truncate">{path}</span>
-            <span className="flex-none text-[10.5px] text-diff-added">+{adds}</span>
-            {dels > 0 ? <span className="flex-none text-[10.5px] text-diff-removed">−{dels}</span> : null}
+            {counted ? <span className="flex-none text-[10.5px] text-diff-added">+{adds}</span> : null}
+            {counted && dels > 0 ? <span className="flex-none text-[10.5px] text-diff-removed">−{dels}</span> : null}
         </>
     );
     const cls =
@@ -239,15 +241,25 @@ function FileRow({
 }
 
 // FilesSummary keeps the deltas on one line in FileRow's colors, so a narrow rail wraps after the file count.
-function FilesSummary({ files, prefix }: { files: { adds: number; dels: number }[]; prefix?: string }) {
+function FilesSummary({
+    files,
+    prefix,
+    counted = true,
+}: {
+    files: { adds: number; dels: number }[];
+    prefix?: string;
+    counted?: boolean;
+}) {
     const { count, adds, dels } = fileTotals(files);
     return (
         <>
             {prefix ? `${prefix} · ` : null}
             {count}{" "}
-            <span className="whitespace-nowrap">
-                <span className="text-diff-added">+{adds}</span> <span className="text-diff-removed">−{dels}</span>
-            </span>
+            {counted ? (
+                <span className="whitespace-nowrap">
+                    <span className="text-diff-added">+{adds}</span> <span className="text-diff-removed">−{dels}</span>
+                </span>
+            ) : null}
         </>
     );
 }
@@ -352,6 +364,7 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
 
     const changes = railState?.changes?.files ?? [];
     const { shown: shownFiles } = capFiles(changes, RailFilesCap);
+    const counted = lineCountsShown(railState?.changes);
 
     // A path is only worth linking when the rail resolved a working directory to resolve it against.
     const openFileDiff = (path?: string) => {
@@ -654,6 +667,7 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                                                   path={f.path}
                                                   adds={f.adds}
                                                   dels={f.dels}
+                                                  counted={counted}
                                                   onClick={() => openFileDiff(f.path)}
                                               />
                                           ))}
@@ -672,6 +686,7 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                                               <FilesSummary
                                                   files={changes}
                                                   prefix={sharedBy > 1 ? "repo" : undefined}
+                                                  counted={counted}
                                               />
                                           </span>
                                           <button

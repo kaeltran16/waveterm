@@ -4,14 +4,16 @@
 // Pure: the Code peek card's state and the decisions it renders from: where a clicked path points,
 // which modes it offers, its diff stat, and where the card sits against the terminal line.
 
+import { lineCountsShown } from "@/app/view/agents/gitstatus";
 import { isImagePath, isMarkdownPath, NOT_TRACKED } from "./codeclassify";
 
 export type PeekMode = "preview" | "source" | "diff";
 export type PeekOpen = { projectPath: string; rel: string };
 export type PeekHead = { kind: "text"; text: string } | { kind: "absent" } | { kind: "error"; message: string };
+export type PeekChange = { adds: number; dels: number; lineCounts?: false };
 export type PeekGit =
     | { kind: "norepo" }
-    | { kind: "repo"; root: string; rel: string; head: PeekHead; change: { adds: number; dels: number } | null };
+    | { kind: "repo"; root: string; rel: string; head: PeekHead; change: PeekChange | null };
 export type PeekFile =
     | { kind: "loading" }
     | { kind: "nocwd" }
@@ -127,6 +129,9 @@ export function peekStat(file: PeekFile): { label: string; adds?: number; dels?:
     const { head, change } = file.git;
     if (head.kind === "absent") {
         return { label: "new file", adds: change?.adds ? change.adds : lineCount(file.text) };
+    }
+    if (change && !lineCountsShown(change)) {
+        return { label: "line counts unknown" };
     }
     if (change) {
         return { label: "", adds: change.adds, dels: change.dels };

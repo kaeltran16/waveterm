@@ -492,7 +492,10 @@ export async function loadStatus(): Promise<void> {
         if (current.statusToken !== token) {
             return;
         }
-        globalStore.set(codeStatusAtom, statusByPath(parseGitChanges(res?.statusz ?? "", res?.numstat ?? "")));
+        globalStore.set(
+            codeStatusAtom,
+            statusByPath(parseGitChanges(res?.statusz ?? "", res?.numstat ?? "", res?.numstaterror))
+        );
         globalStore.set(codeStatusErrorAtom, null);
     } catch (e) {
         if (current.statusToken !== token) {

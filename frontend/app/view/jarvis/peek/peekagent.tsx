@@ -4,6 +4,7 @@
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { resolveCwd } from "@/app/view/agents/agentcwdresolve";
+import { fileTotals } from "@/app/view/agents/agentrailmodel";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { ensureSessionStart } from "@/app/view/agents/agentsessionstore";
 import {
@@ -14,7 +15,7 @@ import {
     type AgentVM,
 } from "@/app/view/agents/agentsviewmodel";
 import { CommitTick } from "@/app/view/agents/committick";
-import { capFiles, parseGitChanges, statusColor, type GitChanges } from "@/app/view/agents/gitstatus";
+import { capFiles, lineCountsShown, parseGitChanges, statusColor, type GitChanges } from "@/app/view/agents/gitstatus";
 import { prettyModel } from "@/app/view/agents/modellabel";
 import { agentProject } from "@/app/view/agents/runlineage";
 import { cn } from "@/util/util";
@@ -53,7 +54,7 @@ function useAgentGit(agent: AgentVM | undefined): GitView | null {
             return {
                 cwd,
                 branch: ch.branch,
-                changes: ch.isrepo ? parseGitChanges(ch.statusz, ch.numstat) : null,
+                changes: ch.isrepo ? parseGitChanges(ch.statusz, ch.numstat, ch.numstaterror) : null,
             };
         };
         // the git facts are decoration: a failed read leaves the rows it could not fill out
@@ -92,6 +93,7 @@ export function PeekAgentBody({ model, target }: { model: AgentsViewModel; targe
     });
     const files = git?.changes?.files ?? [];
     const { shown } = capFiles(files, FILES_CAP);
+    const counted = lineCountsShown(git?.changes);
     const age = formatAgeShort(displayAgeMs(agent, now));
     return (
         <div className="flex flex-col">
@@ -126,18 +128,27 @@ export function PeekAgentBody({ model, target }: { model: AgentsViewModel; targe
                             </span>
                             <span className="h-px flex-1 bg-border" />
                             <span className="flex-none font-mono text-[10.5px] text-muted">
-                                {changedFilesSummary(files)}
+                                {counted ? changedFilesSummary(files) : fileTotals(files).count}
                             </span>
                         </div>
                         {shown.map((f) => (
                             <div
                                 key={f.path}
-                                className="grid grid-cols-[14px_minmax(0,1fr)_auto_auto] items-center gap-2.5 px-3 py-1.5 font-mono"
+                                className={cn(
+                                    "grid items-center gap-2.5 px-3 py-1.5 font-mono",
+                                    counted
+                                        ? "grid-cols-[14px_minmax(0,1fr)_auto_auto]"
+                                        : "grid-cols-[14px_minmax(0,1fr)]"
+                                )}
                             >
                                 <span className={cn("text-[10.5px] font-bold", statusColor(f.status))}>{f.status}</span>
                                 <span className="truncate text-[11.5px] text-secondary">{f.path}</span>
-                                <span className="text-[10.5px] text-diff-added">+{f.adds}</span>
-                                <span className="text-[10.5px] text-diff-removed">−{f.dels}</span>
+                                {counted ? (
+                                    <>
+                                        <span className="text-[10.5px] text-diff-added">+{f.adds}</span>
+                                        <span className="text-[10.5px] text-diff-removed">−{f.dels}</span>
+                                    </>
+                                ) : null}
                             </div>
                         ))}
                     </div>

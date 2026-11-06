@@ -149,6 +149,10 @@ describe("peekStat", () => {
             dels: 2,
         });
     });
+    it("reads a change with unknown line counts as uncounted, not as no changes", () => {
+        const change = { adds: 0, dels: 0, lineCounts: false as const };
+        expect(peekStat(textFile(repo({ kind: "text", text: "" }, change)))).toEqual({ label: "line counts unknown" });
+    });
     it("reads no changes for a tracked file with no entry", () => {
         expect(peekStat(textFile(repo({ kind: "text", text: "x\n" }, null)))).toEqual({ label: "no changes" });
     });

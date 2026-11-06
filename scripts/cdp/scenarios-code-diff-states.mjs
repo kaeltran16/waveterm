@@ -1,6 +1,8 @@
-// Code surface review fixes: code-diff-states (F6, F14, F17). A file git tracks but the working tree deleted
-// shows its HEAD copy as all removed; the diff header picks HEAD or the branch base and says when nothing
-// changed; a refused save's stale bar compares the draft with the copy on disk.
+// Code surface review fixes: code-diff-states (F6, F14, F17, F10). A file git tracks but the working tree
+// deleted shows its HEAD copy as all removed; the diff header picks HEAD or the branch base and says when
+// nothing changed; a refused save's stale bar compares the draft with the copy on disk; a file git cannot
+// count is listed in the Changed pane with no line counts.
+import { execFileSync } from "node:child_process";
 import { unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { git } from "./scenarios-shared.mjs";
@@ -9,6 +11,7 @@ import { codeEval, makeCodeRepo, openFileInCode, openFolderInCode, removeCodeRep
 const GONE = "gone.txt";
 const SAME = "same.txt";
 const NOTES = "notes.txt";
+const LOCKED = "locked.txt";
 const GONE_TEXT = "alpha line\nbeta line\ngamma line\n";
 const DRAFT = "first line\nmy unsaved edit\n";
 const ON_DISK = "first line\nan agent wrote this\n";
@@ -42,7 +45,12 @@ export const codeDiffStates = {
     name: "code-diff-states",
     surface: "code",
     async arrange() {
-        const dir = makeCodeRepo({ [GONE]: GONE_TEXT, [SAME]: "unchanged\n", [NOTES]: "first line\n" });
+        const dir = makeCodeRepo({
+            [GONE]: GONE_TEXT,
+            [SAME]: "unchanged\n",
+            [NOTES]: "first line\n",
+            [LOCKED]: "one\n",
+        });
         unlinkSync(join(dir, GONE));
         return { dir };
     },
@@ -181,6 +189,40 @@ export const codeDiffStates = {
             revertDraft();
             document.querySelector('[data-code-view-mode="source"]')?.click();
         `);
+
+        // the Changed row after a fresh status read; a count reads as +N or -N
+        const readLocked = `
+            const { loadStatus } = await mod("app/view/code/codestore.ts");
+            await loadStatus();
+            document.querySelector('[data-code-column-tab="changed"]')?.click();
+            const row = () => document.querySelector('[data-code-changed-row=${JSON.stringify(LOCKED)}]');
+            await until(() => row() != null, 8000);
+            // the pane re-renders from the new status after the atom is set
+            await nap(300);
+            const text = flat(row());
+            return { listed: row() != null, text, counted: /[+\\-\\u2212]\\d/.test(text) };
+        `;
+        const lockedPath = join(ctx.dir, LOCKED);
+        // a size the index does not hold, so git lists it as modified without hashing its bytes
+        writeFileSync(lockedPath, "one\ntwo\n");
+        // refreshes the index's stat for it, so later statuses never need to read it
+        git(ctx.dir, "status", "--porcelain");
+        const readable = await codeEval(h, readLocked);
+        let unreadable = null;
+        // read-data only: git still lists the file, but its line counts fail for every file
+        execFileSync("icacls", [lockedPath, "/deny", `${process.env.USERNAME}:(RD)`], { stdio: "pipe" });
+        try {
+            unreadable = await codeEval(h, readLocked);
+            await h.shot("cdp-shots/code-diff-states-uncounted.png");
+        } finally {
+            execFileSync("icacls", [lockedPath, "/remove:d", process.env.USERNAME], { stdio: "pipe" });
+            await codeEval(h, `document.querySelector('[data-code-column-tab="files"]')?.click();`);
+        }
+        rec(
+            "a modified file git cannot read is still listed in the Changed pane, with no + or − count where a readable one shows its counts",
+            readable?.counted === true && unreadable?.listed === true && unreadable.counted === false,
+            JSON.stringify({ readable, unreadable })
+        );
         return steps;
     },
     async teardown(h, ctx) {

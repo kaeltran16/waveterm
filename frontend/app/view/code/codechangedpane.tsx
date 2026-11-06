@@ -7,6 +7,7 @@
 // that opened diffs would be the Diff surface with a worse layout.
 
 import type { AgentsViewModel } from "@/app/view/agents/agents";
+import { lineCountsShown } from "@/app/view/agents/gitstatus";
 import { fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useState, type KeyboardEvent } from "react";
@@ -95,8 +96,12 @@ export function CodeChangedPane({ model }: { model: AgentsViewModel }) {
                             <span className="text-muted">{dir}</span>
                             <span className="text-secondary">{name}</span>
                         </span>
-                        <span className="flex-none font-mono text-[10.5px] text-diff-added">+{s.adds}</span>
-                        <span className="flex-none font-mono text-[10.5px] text-diff-removed">-{s.dels}</span>
+                        {lineCountsShown(s) ? (
+                            <>
+                                <span className="flex-none font-mono text-[10.5px] text-diff-added">+{s.adds}</span>
+                                <span className="flex-none font-mono text-[10.5px] text-diff-removed">-{s.dels}</span>
+                            </>
+                        ) : null}
                     </button>
                 );
             })}

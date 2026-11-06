@@ -78,7 +78,7 @@ export async function loadRailForAgent(
         if (current.id !== id) {
             return;
         }
-        const changes = ch.isrepo ? parseGitChanges(ch.statusz, ch.numstat) : null;
+        const changes = ch.isrepo ? parseGitChanges(ch.statusz, ch.numstat, ch.numstaterror) : null;
         const worktree = ch.isrepo ? linkedWorktree(cwd, wts?.worktrees ?? []) : undefined;
         globalStore.set(railStateAtom, { cwd, branch: ch.branch, isRepo: ch.isrepo, changes, worktree });
     } catch {

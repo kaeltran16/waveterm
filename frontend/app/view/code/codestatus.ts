@@ -14,6 +14,7 @@ export interface CodeStatus {
     status: string; // a porcelain letter: M, A, D, ?, R, C
     adds: number;
     dels: number;
+    lineCounts?: false; // carried from GitChanges: the counts are unknown, so they are not drawn
 }
 
 // git emits forward slashes and so does the index (git ls-files), so no separator normalization is
@@ -22,7 +23,8 @@ export function statusByPath(changes: GitChanges): Map<string, CodeStatus> {
     const out = new Map<string, CodeStatus>();
     for (const f of changes.files ?? []) {
         if (f.path) {
-            out.set(f.path, { status: f.status, adds: f.adds, dels: f.dels });
+            const s: CodeStatus = { status: f.status, adds: f.adds, dels: f.dels };
+            out.set(f.path, changes.lineCounts === false ? { ...s, lineCounts: false } : s);
         }
     }
     return out;
