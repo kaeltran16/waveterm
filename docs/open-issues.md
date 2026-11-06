@@ -87,6 +87,8 @@ Cockpit and surfaces:
 - **Collision guard for chats sharing one checkout** (2026-11-03) — revive when a collision on a file other
   than the scenario modules costs lost work; 10 chat pairs in a month, 26 of 31 hits on the since-split
   `scenarios.mjs`.
+- **Code peek: a stranded peek band after xterm disposes the marker** (2026-11-06) — revive when a band
+  shows with no peek open, after a long scroll or a `clear`.
 - **Incremental stateful transcript projection** — only if the capped re-project profiles hot (CDP /
   React-DevTools pass against a populated cockpit first).
 

@@ -374,3 +374,14 @@ evaluation 14 hit and one was useful; attribution layer 4 produced 0 of 352 edge
 - **Self-healing cleanup that must stay:** the `agent-memory-*` forms stay in `isManagedCommand`'s allowlist so
   a stale hook is recognized and pruned, and `install-agent-hooks` deletes a leftover
   `~/.pi/agent/extensions/waveterm-memory.ts`.
+
+## Code peek: a stranded peek band after xterm disposes the marker (2026-11-06)
+
+When xterm disposes the peek's marker itself (a scrollback trim or a clear), it disposes the band decoration
+after the marker, so the band can be left in xterm's decoration list. The marker's `onDispose` in
+`frontend/app/view/code/codepeekhost.tsx` closes the peek; the band stays until xterm's own order catches up.
+Rare and xterm-internal; never seen in use. Moved out of `effort:3f309f6d-eecd-4142-b0c8-9ffd0a5d642b`
+(Code peek: open issues), archived 2026-11-06.
+
+**Revive when a highlighted line band is seen with no peek open,** after a long scroll or a `clear`.
+Nothing was built, so there is nothing to recover.
