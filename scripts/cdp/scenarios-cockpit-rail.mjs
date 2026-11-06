@@ -1,10 +1,20 @@
 // Cockpit review scenarios: Events rail, hints bar and cheat sheet.
 // F19: an asked event recorded before its question arrived takes the question. F11: a project scope narrows the
 // rail. F20: the collapsed rail shows the unread count. F21: `?` opens the cheat sheet on the Cockpit group. F17: the
-// hints bar is one line, the `?` chip never clips, and it lists space peek but no esc back. The fixture roster is read
-// once at boot, so arrange writes it and reloads; state changes are patched into the loaded roster.
+// hints bar is one line, the `?` chip never clips, and it lists space peek but no esc back. P6: a held run's milestones
+// and its lead's own question reach the rail. The fixture roster is read once at boot, so arrange writes it and
+// reloads; state changes are patched into the loaded roster.
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { MODELS_VIEWPORT, TREE_RAIL_FIXTURE, lookEval, polishNap, polishReload, polishWaitFor } from "./scenarios-shared.mjs";
+import {
+    MODELS_VIEWPORT,
+    TREE_RAIL_FIXTURE,
+    arrangeHeldRun,
+    lookEval,
+    polishNap,
+    polishReload,
+    polishWaitFor,
+    teardownHeldRuns,
+} from "./scenarios-shared.mjs";
 
 const LATE_ID = "fx-rail-help-late";
 const OTHER_ID = "fx-rail-help-other";
@@ -15,6 +25,17 @@ const OTHER_QUESTION = "Keep the retry budget at three?";
 const DEV_WINDOW = { width: 1000, height: 700, deviceScaleFactor: 1, mobile: false };
 // a cold scan of every transcript root outlasts one CDP command, so it runs in the page and is polled
 const SESSIONS_SCAN_TIMEOUT_MS = 120_000;
+const RUN_LEAD_ID = "fx-rail-help-lead";
+const RUN_TITLE = "verify rail-help: run milestones";
+const RUN_QUESTION = "Land the rail-help run now, or wait for the docs task?";
+const M = 60_000;
+// the run's events as the engine records them, oldest first; the rail folds them under the newest
+const RUN_EVENTS = [
+    { id: "fx-rail-help-pr", kind: "plan-reviewed", detail: { state: "failed", round: 1 }, ago: 4 * M, text: "plan review failed" },
+    { id: "fx-rail-help-rf", kind: "task-review-failed", detail: { taskid: "t-1", round: 1, final: false, note: "no test" }, ago: 3 * M, text: "review sent back · t-1 · no test" },
+    { id: "fx-rail-help-fs", kind: "final-step", detail: { round: 1, step: "final", ms: 1000, ok: true }, ago: 2 * M, text: "Final command passed" },
+    { id: "fx-rail-help-ld", kind: "landed", detail: { commit: "c0ffee5", title: "rail-help" }, ago: M, text: "Run landed" },
+];
 
 // an agent with no transcript entries stays off the grid, and an empty grid shows no hints bar
 const roster = (transcriptPath) => [
@@ -95,6 +116,7 @@ export const cockpitRailHelp = {
         const ctx = {};
         try {
             const transcriptPath = await borrowTranscript(h);
+            ctx.transcriptPath = transcriptPath;
             mkdirSync(new URL(".", TREE_RAIL_FIXTURE), { recursive: true });
             writeFileSync(TREE_RAIL_FIXTURE, JSON.stringify(roster(transcriptPath), null, 2));
             ctx.wroteFixture = true;
@@ -197,9 +219,49 @@ export const cockpitRailHelp = {
             const ok = t.includes("spacepeek") && !t.includes("escback") && t.indexOf("spacepeek") === t.indexOf("nnext ask") + 1;
             return { ok, detail: JSON.stringify(t) };
         });
+
+        // last, since its run's events and its lead's ask would change the counts the steps above read
+        await run("P6: at 1600 the rail lists a held run's milestones and its lead's question", async () => {
+            const held = await arrangeHeldRun(h, ctx, { key: "rail-help", title: RUN_TITLE, tasks: [{ id: "t-1", label: "wire the rail" }] });
+            const lead = { id: RUN_LEAD_ID, name: "rail-help lead", project: "rail-help-run", task: "lead the run", state: "working", agent: "claude", model: "opus", activeMs: 60_000, runId: held.runId, blockId: "fx-blk-rail-help-lead", transcriptPath: ctx.transcriptPath };
+            writeFileSync(TREE_RAIL_FIXTURE, JSON.stringify([...roster(ctx.transcriptPath), lead], null, 2));
+            await h.cdp("Emulation.setDeviceMetricsOverride", MODELS_VIEWPORT);
+            await polishReload(h);
+            await h.goto("cockpit");
+            await polishWaitFor(h, `!!${MODEL} && !!window.__cockpitRosterFixture`, 15_000);
+            await setAtom(h, "railOpenAtom", true);
+            // the rail records the lead's ask only once it has seen the lead working
+            await polishNap(800);
+            // a run's history load replaces the page's events, so publish until the rail folds all four
+            const now = Date.now();
+            let folded = false;
+            for (let i = 0; i < 10 && !folded; i++) {
+                for (const e of RUN_EVENTS) {
+                    await h.rpc("eventpublish", {
+                        event: "run:event",
+                        scopes: [`run:${held.runId}`],
+                        data: { channelid: held.channelId, runid: held.runId, event: { id: e.id, kind: e.kind, ts: now - e.ago, runid: held.runId, channelid: held.channelId, detail: JSON.stringify(e.detail) } },
+                    });
+                }
+                folded = await polishWaitFor(h, `${railText()}.includes('+${RUN_EVENTS.length - 1} more')`, 1500);
+            }
+            await h.ev(`[...(${RAIL}?.querySelectorAll('button') ?? [])].find((b) => b.textContent.trim() === '+${RUN_EVENTS.length - 1} more')?.click()`);
+            await patch(h, RUN_LEAD_ID, { state: "asking", blockedMs: 0, ask: ask(RUN_LEAD_ID, RUN_QUESTION) });
+            await polishWaitFor(h, `${railText()}.includes(${JSON.stringify(RUN_QUESTION)})`, 5000);
+            const rows = await h.ev(`[...(${RAIL}?.querySelectorAll('[role="button"]') ?? [])].map((r) => ({ text: r.textContent.replace(/\\s+/g, ' '), tone: r.firstElementChild?.className ?? '' }))`);
+            await h.shot("cdp-shots/cockpit-rail-help-run-events.png");
+            const rowWith = (text) => rows.find((r) => r.text.includes(text));
+            const milestones = Object.fromEntries(RUN_EVENTS.map((e) => [e.kind, rowWith(e.text) != null]));
+            const askRow = rowWith(RUN_QUESTION);
+            const leadAsk = askRow != null && askRow.text.includes(RUN_TITLE) && askRow.text.includes("asked");
+            const sentbackTone = rowWith(RUN_EVENTS[1].text)?.tone.includes("text-warning") === true;
+            const ok = folded && Object.values(milestones).every(Boolean) && leadAsk && sentbackTone;
+            return { ok, detail: JSON.stringify({ folded, milestones, leadAsk, sentbackTone, rows: rows.map((r) => r.text) }) };
+        });
         return steps;
     },
     async teardown(h, ctx) {
+        await teardownHeldRuns(h, ctx, "cockpit-rail-help");
         if (ctx?.wroteFixture) rmSync(TREE_RAIL_FIXTURE, { force: true });
         await h.cdp("Emulation.clearDeviceMetricsOverride");
         // onto the live roster again, with the fixture's events gone with the page
