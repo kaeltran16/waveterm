@@ -831,7 +831,7 @@ export function PetPeek({
                                                     </h2>
                                                     <button
                                                         type="button"
-                                                        aria-label="Open full Jarvis view"
+                                                        aria-label="Open in Hub"
                                                         onClick={openJarvis}
                                                         className={cn(
                                                             "flex h-7 flex-none items-center gap-1 whitespace-nowrap rounded-[7px] px-2 text-[11px] font-medium text-muted hover:bg-surface-hover hover:text-primary",

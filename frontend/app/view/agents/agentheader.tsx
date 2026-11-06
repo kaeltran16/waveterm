@@ -98,7 +98,7 @@ function InitiativeLink({ model, agent }: { model: AgentsViewModel; agent: Agent
             type="button"
             data-peek
             onClick={(e) => fireAndForget(() => openOrPeek(model, { kind: "effort", effortId: agent.effortId! }, e))}
-            title={`Open ${effort?.title ?? "this initiative"} in Jarvis`}
+            title={`Open ${effort?.title ?? "this initiative"} in Hub`}
             className="cursor-pointer text-accent-soft hover:underline"
         >
             {initiativeLinkText(agent.name, effort)}

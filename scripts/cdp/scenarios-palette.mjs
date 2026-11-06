@@ -920,7 +920,7 @@ export const paletteActions = {
                 acts.drill.includes(ctx.stamp) &&
                 acts.placeholder === "Filter Run actions…" &&
                 labels.join(",") === "Open,Steer,Stop" &&
-                rows.some((r) => r.startsWith("Open in Jarvis")) &&
+                rows.some((r) => r.startsWith("Open in Hub")) &&
                 rows.some((r) => r.startsWith("Go autonomous")) &&
                 rows.some((r) => r.startsWith("Cancel run")) &&
                 /Not now: .*Message the lead/.test(acts.text),

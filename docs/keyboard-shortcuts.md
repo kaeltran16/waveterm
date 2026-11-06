@@ -24,7 +24,7 @@ Design spec: [`docs/superpowers/specs/2026-07-03-keyboard-operability-design.md`
 
 | Keys | Action |
 |---|---|
-| `Ctrl`+`1`…`7` | Jump to surface by position — in order: Cockpit, Jarvis, Agent, Code, Diff, Sessions, Usage |
+| `Ctrl`+`1`…`7` | Jump to surface by position — in order: Cockpit, Hub, Agent, Code, Diff, Sessions, Usage |
 | `Ctrl`+`P` | Search — opens on the Files scope on Code (see below) |
 | `Ctrl`+`N` | New agent |
 | `Ctrl`+`Tab` / `Ctrl`+`Shift`+`Tab` | Next / previous agent in the tree's order (terminals included) |
@@ -39,7 +39,7 @@ Setup and Settings have no `Ctrl`+number slot — the nine positions are bound t
 |---|---|
 | `g` `h` | Cockpit (home) |
 | `g` `a` | Agent |
-| `g` `c` | Jarvis — channels, records, recall |
+| `g` `c` | Hub — initiatives, runs, records |
 | `g` `s` | Sessions |
 | `g` `f` | Files |
 | `g` `u` | Usage |
@@ -86,7 +86,7 @@ cancelled now, in All and in Commands, so it never starts a run named "cancel".
 | `j` / `k` (or `↓` / `↑`) | Move the cursor within the active region |
 | `Enter` | Open / activate the item under the cursor |
 | `Space` | Peek the item under the cursor in the avatar popup, without leaving the surface (see Peek below) |
-| `Esc` | On a deep surface (Jarvis, Sessions, Files, Usage, Code), go back to the surface you jumped from (opening a run, file, diff or agent from elsewhere), else return to the Cockpit. On Usage's By work, first go Back from an item to its scope, then from a project or initiative to All usage. In a composer or text field, leave Type posture first. |
+| `Esc` | On a deep surface (Hub, Sessions, Files, Usage, Code), go back to the surface you jumped from (opening a run, file, diff or agent from elsewhere), else return to the Cockpit. On Usage's By work, first go Back from an item to its scope, then from a project or initiative to All usage. In a composer or text field, leave Type posture first. |
 
 ## Resource Manager (the popover opened from the footer's readout or `g` `m`)
 
@@ -175,7 +175,7 @@ A link inside an item view does a full open, even with `Ctrl` held.
 | `y` | In the review: keep the cursor decision's change; on a guess, confirm it |
 | `u` | In the review: put mine back |
 
-### Jarvis
+### Hub
 
 | Keys | Action |
 |---|---|

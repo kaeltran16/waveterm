@@ -141,7 +141,7 @@ export function startDefs(homeProject: string | null): StartDef[] {
 // the registry group holding a surface's own bindings
 export const SURFACE_GROUP: Partial<Record<SurfaceKey, string>> = {
     cockpit: "Cockpit",
-    jarvis: "Jarvis",
+    jarvis: "Hub",
     agent: "Agent",
     code: "Code",
     files: "Diff",

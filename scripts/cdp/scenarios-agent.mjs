@@ -269,7 +269,7 @@ export const tuiLeader = {
         const seenC = await pressKey(h, { key: "c", code: "KeyC", keyCode: 67 });
         const surfC = await h.activeSurfaceLabel();
         steps.push({
-            step: "5. Ctrl+G then c teleports to Jarvis from inside the terminal",
+            step: "5. Ctrl+G then c teleports to Hub from inside the terminal",
             ok: seenC.length === 0 && surfC === SURFACE_LABEL.jarvis,
             detail: `active=${surfC}, probe saw ${JSON.stringify(seenC)}`,
         });

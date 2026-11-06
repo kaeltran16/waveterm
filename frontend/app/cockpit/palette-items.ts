@@ -259,7 +259,7 @@ export function runRows(
             status: { label: runStatusLabel(r, view.label), tone: runTone(view.tone) },
             meta: label ? `#${label}` : undefined,
             verb: "Open",
-            echo: "Opens the run in Jarvis",
+            echo: "Opens the run in Hub",
             run: () => {
                 fireAndForget(() => openTarget(model, { kind: "run", runId: r.id }));
                 close();
@@ -288,9 +288,9 @@ function needsEcho(row: NeedsRow, t: NeedsTarget | null): string {
         case "dag":
             return "Opens the run’s task graph";
         case "run":
-            return "Opens the run in Jarvis";
+            return "Opens the run in Hub";
         case "channel":
-            return row.item.channelname ? `Opens #${row.item.channelname} in Jarvis` : "Opens its project in Jarvis";
+            return row.item.channelname ? `Opens #${row.item.channelname} in Hub` : "Opens its project in Hub";
         case "open":
             return t.target.kind === "workflowscan" ? "Opens Usage › Workflow" : "Opens it";
         default:

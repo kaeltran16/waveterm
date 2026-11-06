@@ -352,7 +352,7 @@ export default function (kit) {
                 RUN_WAIT_MS
             );
             const to = await h.activeSurfaceLabel();
-            rec("3. Open run opens the run", clicked === "clicked" && opened && from === "Agent" && to === "Jarvis", {
+            rec("3. Open run opens the run", clicked === "clicked" && opened && from === "Agent" && to === "Hub", {
                 clicked,
                 opened,
                 from,

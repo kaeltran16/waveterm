@@ -1761,11 +1761,11 @@ export const jarvisAvatar = {
         // exactly one control owns each accessible name; two would make a by-label query ambiguous, and
         // h.goto navigates the rail by exactly this label
         const named = await h.ev(`[...document.querySelectorAll('[aria-label="Jarvis condition"]')].length`);
-        const navNamed = await h.ev(`[...document.querySelectorAll('[aria-label="Jarvis"]')].length`);
+        const navNamed = await h.ev(`[...document.querySelectorAll('[aria-label="Hub"]')].length`);
         rec(
             "4. the avatar and the nav rail keep distinct accessible names",
             named === 1 && navNamed === 1,
-            `"Jarvis condition"=${named} "Jarvis"=${navNamed}`
+            `"Jarvis condition"=${named} "Hub"=${navNamed}`
         );
 
         // Two canvases by design: one element can only ever yield contexts of a single kind, so the 2D
@@ -2254,7 +2254,7 @@ export const jarvisPeek = {
         );
         rec(
             "2. Tab starts at Full view and reverse traversal stays inside the dialog",
-            firstTab.inside === true && firstTab.label === "Open full Jarvis view" && wrappedInside === true,
+            firstTab.inside === true && firstTab.label === "Open in Hub" && wrappedInside === true,
             JSON.stringify({ firstTab, wrappedInside })
         );
         // Each string below is one the old three-card panel rendered to report missing telemetry or repeat
@@ -2724,7 +2724,7 @@ export const jarvisVolunteer = {
         await h.ev("new Promise((r) => setTimeout(r, 500))");
         const landed = await h.activeSurfaceLabel();
         steps.push({
-            step: "Open navigates to the Jarvis surface",
+            step: "Open navigates to the Hub surface",
             ok: clicked === true && landed === SURFACE_LABEL.jarvis,
             detail: `clicked=${clicked} surface=${landed}`,
         });

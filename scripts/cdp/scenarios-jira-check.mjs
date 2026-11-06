@@ -141,7 +141,7 @@ const offsets = (frames) => [...new Set(frames.filter((f) => f.present).map((f) 
 async function createWhileAway(h, ctx, key, below) {
     await h.goto("agent");
     await createInitiative(h, ctx, key, BOARD_ROWS[key]);
-    const nav = `[...document.querySelectorAll('nav button')].find((b) => b.getAttribute('aria-label') === 'Jarvis' || (b.textContent || '').trim() === 'Jarvis')?.click()`;
+    const nav = `[...document.querySelectorAll('nav button')].find((b) => b.getAttribute('aria-label') === 'Hub' || (b.textContent || '').trim() === 'Hub')?.click()`;
     return motionSamples(h, { selector: ROW(below), props: ["transform"], ms: ROW_LEAVE_SAMPLE_MS, trigger: nav });
 }
 
@@ -464,8 +464,8 @@ export const jiraCheck = {
         await h.shot("cdp-shots/jira-check-10-palette-key.png");
         await h.ev(PEEKS_ESC);
         rec(
-            "10. Check Jira for my tickets is a Jarvis action the palette finds, Enter opens the dialog, and PAY-29 finds the ticketed initiative",
-            binding?.group === "Jarvis" && binding.label === "Check Jira for my tickets" && action != null && opened &&
+            "10. Check Jira for my tickets is a Hub action the palette finds, Enter opens the dialog, and PAY-29 finds the ticketed initiative",
+            binding?.group === "Hub" && binding.label === "Check Jira for my tickets" && action != null && opened &&
                 byKey?.groups.some((g) => /Initiatives/.test(g.label) && g.rows.some((r) => r.includes(COVERED.key) && r.includes(COVERED.title))),
             { binding, selected: action?.selected, opened, byKey: byKey?.groups }
         );

@@ -298,7 +298,7 @@ describe("runRows", () => {
             status: { label: "1/2", tone: "working" },
             meta: "#waveterm",
             verb: "Open",
-            echo: "Opens the run in Jarvis",
+            echo: "Opens the run in Hub",
         });
         expect(rows[1]).toMatchObject({ title: "(untitled run)", status: { label: "blocked", tone: "asking" } });
         expect(rows[1].meta).toBeUndefined();

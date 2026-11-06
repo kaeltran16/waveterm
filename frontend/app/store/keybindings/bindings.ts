@@ -168,7 +168,7 @@ function focusCodeSearchInput(): void {
 const GO_TARGETS: { letter: string; surface: SurfaceKey; label: string }[] = [
     { letter: "h", surface: "cockpit", label: "Cockpit (home)" },
     { letter: "a", surface: "agent", label: "Agent" },
-    { letter: "c", surface: "jarvis", label: "Jarvis (projects, records, recall)" },
+    { letter: "c", surface: "jarvis", label: "Hub (initiatives, runs, records)" },
     { letter: "s", surface: "sessions", label: "Sessions" },
     { letter: "f", surface: "files", label: "Diff" },
     { letter: "u", surface: "usage", label: "Usage" },
@@ -626,7 +626,7 @@ export function buildChannelsAskBindings(
     const digits: Binding[] = Array.from({ length: 9 }, (_, i) => i + 1).map((n) => ({
         id: `channels:answer-${n}`,
         keys: String(n),
-        group: "Jarvis",
+        group: "Hub",
         label: `Answer option ${n}`,
         paletteHidden: true,
         when: ready,
@@ -637,7 +637,7 @@ export function buildChannelsAskBindings(
         {
             id: "channels:submit",
             keys: "Enter",
-            group: "Jarvis",
+            group: "Hub",
             label: "Submit answer",
             paletteHidden: true,
             when: ready,
@@ -664,7 +664,7 @@ export function buildJarvisGraphBindings(): Binding[] {
         {
             id: "jarvis:graph-peek",
             keys: "Shift:g",
-            group: "Jarvis",
+            group: "Hub",
             label: "Graph peek (Esc closes)",
             when: onJarvis,
             run: toggleGraphPeek,
@@ -683,7 +683,7 @@ export function buildJarvisBindings(): Binding[] {
     const noteSidebarEscape: Binding = {
         id: "jarvis:close-notes",
         keys: "Escape",
-        group: "Jarvis",
+        group: "Hub",
         label: "Back out of the Chunk sidebar",
         when: (ctx) =>
             onJarvis(ctx) &&
@@ -703,7 +703,7 @@ export function buildJarvisBindings(): Binding[] {
     const trackerMenuEscape: Binding = {
         id: "jarvis:close-tracker-menu",
         keys: "Escape",
-        group: "Jarvis",
+        group: "Hub",
         label: "Close the plan menu",
         when: (ctx) => onJarvis(ctx) && globalStore.get(trackerMenuAtom) != null && noEscapeMenuOpen(),
         run: () => globalStore.set(trackerMenuAtom, null),
@@ -739,7 +739,7 @@ export function buildJarvisBindings(): Binding[] {
         {
             id: "jarvis:new-run",
             keys: "r",
-            group: "Jarvis",
+            group: "Hub",
             label: "New run",
             when: onStage,
             run: () => clickThrough("[data-new-run]"),
@@ -747,7 +747,7 @@ export function buildJarvisBindings(): Binding[] {
         {
             id: "jarvis:new-initiative",
             keys: "Shift:n",
-            group: "Jarvis",
+            group: "Hub",
             label: "New initiative",
             when: onStage,
             run: () => clickThrough("[data-jarvis-new-initiative]"),
@@ -755,7 +755,7 @@ export function buildJarvisBindings(): Binding[] {
         {
             id: "jarvis:check-jira",
             keys: "Shift:c",
-            group: "Jarvis",
+            group: "Hub",
             label: "Check Jira for my tickets",
             when: onStage,
             run: () => globalStore.set(checkJiraOpenAtom, true),
@@ -763,7 +763,7 @@ export function buildJarvisBindings(): Binding[] {
         {
             id: "jarvis:work-on",
             keys: "w",
-            group: "Jarvis",
+            group: "Hub",
             label: "Work on the initiative under the cursor, or go to its open agent",
             when: onStage,
             run: () => clickThrough('[data-jarvis-brief-cursor="true"] [data-jarvis-work-on]'),
@@ -771,7 +771,7 @@ export function buildJarvisBindings(): Binding[] {
         {
             id: "jarvis:record-band",
             keys: "e",
-            group: "Jarvis",
+            group: "Hub",
             label: "Expand / collapse the record band",
             when: onStage,
             run: () => clickThrough("[data-jarvis-band-toggle]"),
@@ -779,7 +779,7 @@ export function buildJarvisBindings(): Binding[] {
         {
             id: "jarvis:next-run",
             keys: "Shift:j",
-            group: "Jarvis",
+            group: "Hub",
             label: "Next run in this project",
             when: onStage,
             run: () => stepRun(1),
@@ -787,7 +787,7 @@ export function buildJarvisBindings(): Binding[] {
         {
             id: "jarvis:prev-run",
             keys: "Shift:k",
-            group: "Jarvis",
+            group: "Hub",
             label: "Previous run in this project",
             when: onStage,
             run: () => stepRun(-1),
@@ -795,7 +795,7 @@ export function buildJarvisBindings(): Binding[] {
         {
             id: "jarvis:chunk-up",
             keys: "Alt:ArrowUp",
-            group: "Jarvis",
+            group: "Hub",
             label: "Move the chunk up within its stage",
             when: (ctx) => onStage(ctx) && globalStore.get(chunkMoveAtom) != null,
             run: () => globalStore.get(chunkMoveAtom)?.("up"),
@@ -803,7 +803,7 @@ export function buildJarvisBindings(): Binding[] {
         {
             id: "jarvis:chunk-down",
             keys: "Alt:ArrowDown",
-            group: "Jarvis",
+            group: "Hub",
             label: "Move the chunk down within its stage",
             when: (ctx) => onStage(ctx) && globalStore.get(chunkMoveAtom) != null,
             run: () => globalStore.get(chunkMoveAtom)?.("down"),
@@ -811,7 +811,7 @@ export function buildJarvisBindings(): Binding[] {
         {
             id: "jarvis:focus-composer",
             keys: "i",
-            group: "Jarvis",
+            group: "Hub",
             label: "Focus the composer",
             when: onStage,
             run: () => {
@@ -827,7 +827,7 @@ export function buildJarvisBindings(): Binding[] {
         {
             id: "jarvis:filter",
             keys: "/",
-            group: "Jarvis",
+            group: "Hub",
             label: "Filter the Brief",
             when: onStage,
             run: () => {
@@ -841,7 +841,7 @@ export function buildJarvisBindings(): Binding[] {
         {
             id: "jarvis:blur-composer",
             keys: "Escape",
-            group: "Jarvis",
+            group: "Hub",
             label: "Leave the composer",
             paletteHidden: true,
             // the counterpart to `i`. Guarded on editable only, so `when` stays pure; run() checks *which*

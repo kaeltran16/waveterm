@@ -5,7 +5,6 @@ import { cn } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
 import {
     Bot,
-    Brain,
     FileCode2,
     FileCog,
     Gauge,
@@ -13,6 +12,7 @@ import {
     LayoutDashboard,
     Settings,
     SquareStack,
+    Waypoints,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import type { AgentsViewModel, SurfaceKey } from "./agents";
@@ -24,7 +24,7 @@ const iconProps = { size: 20, strokeWidth: 1.8 } as const;
 // Cockpit navigation icons. Runtime logos stay as image assets; app controls use Lucide components.
 export const ICON: Record<SurfaceKey, ReactNode> = {
     cockpit: <LayoutDashboard {...iconProps} />,
-    jarvis: <Brain {...iconProps} />,
+    jarvis: <Waypoints {...iconProps} />,
     agent: <Bot {...iconProps} />,
     sessions: <SquareStack {...iconProps} />,
     files: <GitCompare {...iconProps} />,
@@ -36,7 +36,7 @@ export const ICON: Record<SurfaceKey, ReactNode> = {
 
 export const ITEMS: { key: SurfaceKey; label: string }[] = [
     { key: "cockpit", label: "Cockpit" },
-    { key: "jarvis", label: "Jarvis" },
+    { key: "jarvis", label: "Hub" },
     { key: "agent", label: "Agent" },
     { key: "code", label: "Code" },
     { key: "files", label: "Diff" },

@@ -461,10 +461,9 @@ export function PetView({ model }: { model: AgentsViewModel }) {
                 }}
                 role="button"
                 tabIndex={0}
-                // not "Jarvis": the nav rail's entry-two button already owns that name, and the CDP harness
-                // navigates by it (scripts/cdp/attach.mjs SURFACE_LABEL). Two controls with one accessible
-                // name is ambiguous to a screen reader and makes a by-label query pick whichever comes
-                // first in the DOM — which is the nav button, not the avatar.
+                // distinct from every nav rail name (the CDP harness navigates by those, scripts/cdp/attach.mjs
+                // SURFACE_LABEL): two controls with one accessible name are ambiguous to a screen reader and
+                // make a by-label query pick whichever comes first in the DOM.
                 aria-label="Jarvis condition"
                 onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {

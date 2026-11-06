@@ -104,7 +104,7 @@ const isAutonomous = (t: RunThing) => runAutonomous(t.run, t.info?.dag ?? null);
 const RUN_ACTIONS: ThingAction<RunThing>[] = [
     {
         id: "run:open",
-        label: "Open in Jarvis",
+        label: "Open in Hub",
         group: "open",
         applies: () => true,
         run: async (t, { model }) => {

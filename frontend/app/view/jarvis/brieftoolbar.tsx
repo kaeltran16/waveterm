@@ -41,7 +41,7 @@ export function BriefToolbar({
     const filtering = query.trim() !== "";
     return (
         <SurfaceToolbar
-            title="Jarvis"
+            title="Hub"
             actions={
                 <>
                     <label

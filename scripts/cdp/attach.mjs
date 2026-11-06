@@ -11,7 +11,7 @@ import { basename, dirname } from "node:path";
 // to switch surfaces. Note: the "files" surface is labelled "Diff".
 export const SURFACE_LABEL = {
     cockpit: "Cockpit",
-    jarvis: "Jarvis",
+    jarvis: "Hub",
     agent: "Agent",
     sessions: "Sessions",
     files: "Diff",

@@ -2057,7 +2057,7 @@ export const attentionCrossChannel = {
         await settle(400);
         const jarvisBadge = () =>
             h.ev(`(() => {
-                const b = document.querySelector('nav button[aria-label="Jarvis"]');
+                const b = document.querySelector('nav button[aria-label="Hub"]');
                 if (!b) return null;
                 const s = [...b.querySelectorAll('span')].find((x) => /^\\d+$/.test((x.textContent || '').trim()));
                 return s ? Number(s.textContent.trim()) : 0;
@@ -2077,7 +2077,7 @@ export const attentionCrossChannel = {
         // blocked DAG in a channel that is not active
         const onUsage = await h.activeSurfaceLabel();
         rec(
-            "5. the Jarvis badge counts a blocked DAG in a non-active channel, read from Usage",
+            "5. the Hub badge counts a blocked DAG in a non-active channel, read from Usage",
             onUsage === "Usage" && badge >= 1,
             `surface=${onUsage} badge=${badge}`
         );
@@ -2479,7 +2479,7 @@ export const attentionPopup = {
         );
         const landed = await popupLanded(h, ctx, clickedAt);
         rec(
-            "5. a click on the card opens the run's sheet on Jarvis and brings the main window forward",
+            "5. a click on the card opens the run's sheet on Hub and brings the main window forward",
             popupLandedOk(before, landed, ctx),
             JSON.stringify({ before, landed, runId: ctx.runId })
         );

@@ -99,7 +99,7 @@ describe("RUN_KIND.entries", () => {
 });
 
 describe("run actions", () => {
-    it("open in Jarvis always applies", () => {
+    it("open in Hub always applies", () => {
         expect(applies("run:open", thing(run({ status: "done" }), []))).toBe(true);
     });
 
