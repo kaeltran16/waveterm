@@ -3,6 +3,7 @@
 
 // Every brainstorm action reaches the agent as one line, sent as a prompt; Arc never writes brainstorm.json.
 
+import { pushToast } from "@/app/cockpit/notificationstore";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
@@ -73,11 +74,17 @@ export async function sendBrainstorm(
     updateBrainstorm(agent.id, (s) => ({ ...s, sent: { at: now, modifiedMs, kind: sentKind(action) } }));
 }
 
+// a send with no component to hold an error line (a key, or a run id that lands after the pane is left) reports
+// through the cockpit toast, with the refusal's own words
+export function reportSendFailure(agentId: string, e: unknown): void {
+    console.warn("brainstorm: sending failed", agentId, e);
+    const message = e instanceof Error ? e.message : String(e);
+    pushToast({ title: "Brainstorm line not sent", message, level: "error" });
+}
+
 // the run's id goes back to the agent, which records it in the file: the tree and the pane then show the run
 function notifyRun(agent: AgentVM, runId: string, io: PromptIO): void {
-    sendBrainstorm(agent, { kind: "run", runId }, io).catch((e) =>
-        console.warn("brainstorm: telling the agent its run id failed", agent.id, runId, e)
-    );
+    sendBrainstorm(agent, { kind: "run", runId }, io).catch((e) => reportSendFailure(agent.id, e));
 }
 
 // Change on the approve bar: the launcher prefilled, with nothing typed into the agent

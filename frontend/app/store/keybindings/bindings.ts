@@ -27,7 +27,7 @@ import {
     type BrainstormAction,
     type ReviewRow,
 } from "@/app/view/agents/brainstormmodel";
-import { sendBrainstorm } from "@/app/view/agents/brainstormsend";
+import { reportSendFailure, sendBrainstorm } from "@/app/view/agents/brainstormsend";
 import {
     focusedBrainstorm,
     moveReviewCursor,
@@ -948,7 +948,7 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
         if (a == null || agent == null) {
             return false;
         }
-        sendBrainstorm(agent, a).catch((e) => console.warn("brainstorm review: sending failed", agent.id, a, e));
+        sendBrainstorm(agent, a).catch((e) => reportSendFailure(agent.id, e));
     };
     // the asked question's options the pane draws, each picked by its letter
     const pickable = () => {
