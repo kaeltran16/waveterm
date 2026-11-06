@@ -7,6 +7,7 @@ import {
     stageOutcome,
     stageRowAge,
     stageSubline,
+    stageVerdictText,
     treeAgentCount,
     treeFocusOrder,
     UNGROUPED_PROJECT,
@@ -110,6 +111,7 @@ describe("rowFocusKey and treeFocusOrder", () => {
                 skipped: 0,
                 cancelled: 0,
                 stages: 0,
+                planReviews: 0,
                 open: true,
             })
         ).toBeUndefined();
@@ -530,6 +532,28 @@ describe("buildAgentTree with run lineage", () => {
                     queuedOpen: new Set<string>(),
                     extrasOpen: new Set<string>(),
                 };
+
+                it("reads every row of a review the human accepted as accepted by you, in plan review words", () => {
+                    const r = failedRound();
+                    r.dag.planreview = { ...r.dag.planreview, state: "accepted", round: 2 };
+                    const rows = buildAgentTree(
+                        [agent("lead", "idle"), stageAgent("old", "rv-round-1")],
+                        lineage([r], {
+                            ...LEAD_ONLY,
+                            old: { kind: "stage", leadRunId: "run-1", stageRole: "plan-reviewer" },
+                        }),
+                        doneOpen
+                    );
+                    // the round-1 tab, older, stays first; the stage's accepted wins over a reviewer's own failed
+                    expect(shape(rows).filter((s) => s.startsWith("stage:"))).toEqual([
+                        "stage:plan-reviewer:old:accepted",
+                        `stage:plan-reviewer:${endedReviewerId("run-1", "rv-full")}@full:accepted`,
+                        `stage:plan-reviewer:${endedReviewerId("run-1", "rv-second")}@second:accepted`,
+                    ]);
+                    expect(stageVerdictText("accepted")).toBe("accepted by you");
+                    const done = rows.find((row) => row.kind === "done");
+                    expect(done?.kind === "done" && doneFoldLabel(done)).toBe("3 plan reviews");
+                });
 
                 it("keeps a row from the dag, with its lens and verdict, in the done fold", () => {
                     const r = failedRound();
@@ -1171,11 +1195,19 @@ describe("stageRowAge", () => {
 describe("doneFoldLabel", () => {
     // "2/14 done" counted a skipped task the fold said nothing of ("1 done")
     it("names what landed apart from what was skipped or cancelled", () => {
-        expect(doneFoldLabel({ count: 1, landed: 1, skipped: 1, cancelled: 0, stages: 0 })).toBe(
+        expect(doneFoldLabel({ count: 1, landed: 1, skipped: 1, cancelled: 0, stages: 0, planReviews: 0 })).toBe(
             "1 landed · 1 skipped"
         );
-        expect(doneFoldLabel({ count: 2, landed: 1, skipped: 0, cancelled: 2, stages: 1 })).toBe(
+        expect(doneFoldLabel({ count: 2, landed: 1, skipped: 0, cancelled: 2, stages: 1, planReviews: 0 })).toBe(
             "1 landed · 1 done · 2 cancelled · 1 review"
+        );
+    });
+    it("counts plan review sessions apart from the other stages", () => {
+        expect(doneFoldLabel({ count: 2, landed: 2, skipped: 0, cancelled: 0, stages: 3, planReviews: 2 })).toBe(
+            "2 landed · 2 plan reviews · 1 review"
+        );
+        expect(doneFoldLabel({ count: 0, landed: 0, skipped: 0, cancelled: 0, stages: 1, planReviews: 1 })).toBe(
+            "1 plan review"
         );
     });
 });

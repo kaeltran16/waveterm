@@ -526,7 +526,7 @@ export function RunSection({ model, run, asks }: { model: AgentsViewModel; run: 
                             {elapsed ? <FactRow label="Elapsed">{formatElapsed(elapsed)}</FactRow> : null}
                             <FactRow label="Worker time">{formatElapsed(report.workerms)}</FactRow>
                             <FactRow label="Answered">{report.answered}</FactRow>
-                            <FactRow label="Forwarded">{report.forwarded}</FactRow>
+                            <FactRow label="Handed to you">{report.forwarded}</FactRow>
                         </>
                     ) : null}
                     {spent ? <UsageRows spent={spent} sealed={usage.sealed} /> : null}

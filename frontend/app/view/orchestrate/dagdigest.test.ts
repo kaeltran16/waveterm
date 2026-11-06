@@ -317,6 +317,10 @@ describe("reportChips", () => {
             })
         ).toEqual(["workers 34m", "landed 1", "answered 1", "unverified"]);
     });
+    // a forward and a take-over both hand the question to the human, as the timeline says
+    it("says what was handed to you, not forwarded", () => {
+        expect(reportChips({ workerms: 0, answered: 0, forwarded: 1 })).toEqual(["to you 1"]);
+    });
 });
 
 describe("formatElapsed", () => {

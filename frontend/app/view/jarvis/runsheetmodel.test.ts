@@ -730,7 +730,7 @@ describe("daggedStatus", () => {
             muted("workers 31m"),
             muted("landed 1"),
             muted("answered 2"),
-            muted("forwarded 1"),
+            muted("to you 1"),
             warn("unverified"),
             warn("attention 1"),
             warn("merge 3"),

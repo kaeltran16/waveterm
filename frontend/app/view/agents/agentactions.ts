@@ -10,8 +10,9 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { fireAndForget, stringToBase64 } from "@/util/util";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
+import { closeSessionCopy } from "./closesession";
 import { dismissKey, toggleInSet } from "./cockpitsurfacemodel";
-import { leadRunTabIds } from "./runlineage";
+import { leadRunTabIds, runFinished } from "./runlineage";
 
 function closeTabs(workspaceId: string, tabIds: string[]): void {
     fireAndForget(async () => {
@@ -26,7 +27,8 @@ function closeTabs(workspaceId: string, tabIds: string[]): void {
 // Takes the VM rather than loose id/name strings so the prompt can never name one session while
 // closing another — and so a plain terminal, which has no agent to stop, gets its own wording.
 // Given the model, a lead whose run still holds other tabs is offered its whole run: closing the lead
-// alone leaves those tabs under a lead-less run row, which read as a close that did nothing.
+// alone leaves those tabs under a lead-less run row, which read as a close that did nothing. A finished run's
+// last open lead says that closing it closes the run.
 export function confirmCloseSession(
     vm: Pick<AgentVM, "id" | "name" | "kind">,
     model?: Pick<AgentsViewModel, "lineageAtom" | "agentsAtom">
@@ -35,14 +37,22 @@ export function confirmCloseSession(
     if (ws?.oid == null) {
         return;
     }
-    const runTabIds =
-        model && leadRunTabIds(globalStore.get(model.lineageAtom), globalStore.get(model.agentsAtom), vm.id);
+    const lineage = model ? globalStore.get(model.lineageAtom) : undefined;
+    const role = lineage?.roles[vm.id];
+    const run = role?.kind === "lead" ? lineage.runs[role.runId] : undefined;
+    const runTabIds = run ? leadRunTabIds(lineage, globalStore.get(model.agentsAtom), vm.id) : undefined;
+    const copy = closeSessionCopy({
+        isLead: run != null,
+        runFinished: run != null && runFinished(run),
+        // with no other tab the lead is its run's only one
+        runTabCount: runTabIds?.length ?? (run ? 1 : 0),
+        runTitle: run?.title ?? "",
+        name: vm.name,
+        isTerminal: vm.kind === "terminal",
+    });
     if (runTabIds) {
-        const others = runTabIds.length - 1;
         modalsModel.pushModal("ConfirmModal", {
-            title: "Close lead",
-            message: `"${vm.name}" leads a run with ${others === 1 ? "1 other open session" : `${others} other open sessions`}. Close the whole run, or only the lead and leave its workers running? This can't be undone.`,
-            confirmLabel: "Close run",
+            ...copy,
             altLabel: "Close lead only",
             destructive: true,
             onConfirm: () => closeTabs(ws.oid, runTabIds),
@@ -50,14 +60,8 @@ export function confirmCloseSession(
         });
         return;
     }
-    const isTerminal = vm.kind === "terminal";
-    const label = isTerminal ? "Close terminal" : "Close agent";
     modalsModel.pushModal("ConfirmModal", {
-        title: label,
-        message: isTerminal
-            ? `Close the terminal "${vm.name}"? This ends its shell and can't be undone.`
-            : `End the session for "${vm.name}"? This stops the agent and can't be undone.`,
-        confirmLabel: label,
+        ...copy,
         destructive: true,
         onConfirm: () => fireAndForget(() => WorkspaceService.CloseTab(ws.oid, vm.id)),
     });
