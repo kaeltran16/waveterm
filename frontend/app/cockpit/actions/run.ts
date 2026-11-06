@@ -32,7 +32,6 @@ import {
     leadAsker,
     runLiveWorkers,
 } from "@/app/view/agents/runmodel";
-import { openRunDag } from "@/app/view/agents/runrailsections";
 import { runSteerLead } from "@/app/view/jarvis/briefcomposertarget";
 import { openTarget } from "@/app/view/jarvis/openref";
 import { runAutonomous, settingsChangePayload, sheetFace } from "@/app/view/jarvis/runsettings";
@@ -116,8 +115,11 @@ const RUN_ACTIONS: ThingAction<RunThing>[] = [
         id: "run:dag",
         label: "Open the DAG",
         group: "open",
-        applies: (t) => t.info?.dag != null,
-        run: (t, { model }) => openRunDag(model, t.info),
+        // the run object always carries its dag; the lineage (t.info) holds only rostered runs
+        applies: (t) => !!t.run.dagoref,
+        run: async (t, { model }) => {
+            await openTarget(model, { kind: "dag", dagId: t.run.dagoref });
+        },
     },
     {
         id: "run:diff",

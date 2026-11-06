@@ -118,8 +118,6 @@ describe("deriveKeyContext", () => {
     function openDag(): void {
         globalStore.set(dagModalStateAtom, {
             kind: "live",
-            channelId: "ch-1",
-            runId: "run-1",
             dagOref: "dag:run-1",
             error: "",
         });

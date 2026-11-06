@@ -27,8 +27,14 @@ describe("parseAddress", () => {
         // an empty anchor is no anchor, not a highlight of nothing
         ["task:d-1", { anchor: "" }, { kind: "record", dossierId: "d-1" }],
         ["effort:e-1", undefined, { kind: "effort", effortId: "e-1" }],
+        ["dag:abc", undefined, { kind: "dag", dagId: "abc" }],
+        ["dag:abc#t-2", undefined, { kind: "dag", dagId: "abc", taskId: "t-2" }],
     ])("reads %s with hint %j", (address, hint, want) => {
         expect(parseAddress(address, hint)).toEqual(want);
+    });
+
+    it.each(["dag:", "dag:#t-2", "dag:abc#t-2#t-3"])("refuses the dag address %s", (address) => {
+        expect(parseAddress(address)).toEqual({ kind: "unsupported", message: CANNOT_OPEN });
     });
 
     // a pre-canonical vault: citation named a node without its collection; the card's source type recovers it

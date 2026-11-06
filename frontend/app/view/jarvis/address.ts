@@ -17,6 +17,7 @@ export type OpenTarget =
     | { kind: "brainstorm"; topic: string }
     | { kind: "memhygiene"; project: string }
     | { kind: "workflowscan"; runId: string }
+    | { kind: "dag"; dagId: string; taskId?: string }
     // built in code only (a terminal path peek's Open in Code); parseAddress never produces it
     | { kind: "code"; projectPath: string; rel: string; line?: number };
 
@@ -65,6 +66,8 @@ export function parseAddress(address: string, hint?: AddressHint): OpenTarget | 
             return parseCanvas(id);
         case "workflowscan":
             return { kind: "workflowscan", runId: id };
+        case "dag":
+            return parseDag(id);
         case "brainstorm":
             return isCanvasSegment(id)
                 ? { kind: "brainstorm", topic: id }
@@ -87,6 +90,15 @@ function parseVaultNode(id: string, sourceType: string | undefined): OpenTarget 
         return { kind: "unsupported", message: CANNOT_LOCATE_RECORD };
     }
     return { kind: "unsupported", message: CANNOT_OPEN };
+}
+
+// dag:<oid>[#<taskId>]: the graph, with one task selected when named
+function parseDag(id: string): OpenTarget | Unsupported {
+    const [dagId, taskId, ...rest] = id.split("#");
+    if (dagId === "" || taskId === "" || rest.length > 0) {
+        return { kind: "unsupported", message: CANNOT_OPEN };
+    }
+    return taskId != null ? { kind: "dag", dagId, taskId } : { kind: "dag", dagId };
 }
 
 // a design canvas topic and board are single path segments; anything that could walk the tree is refused here

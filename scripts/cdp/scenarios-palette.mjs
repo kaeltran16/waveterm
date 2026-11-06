@@ -21,8 +21,10 @@ import {
     UI_ROUTE,
     channelRuns,
     clickByText,
+    deleteChannelWorkerBlocks,
     flatText,
     floorStep,
+    fstWriteRun,
     lookEval,
     notesClipStub,
     openAddressExpr,
@@ -32,6 +34,7 @@ import {
     polishNap,
     polishReload,
     polishWaitFor,
+    seedDag,
     setInputExpr,
     skipStep,
     teardownFixtureRun,
@@ -935,13 +938,90 @@ export const paletteActions = {
                 (back.selected ?? "").includes(ctx.stamp),
             JSON.stringify({ token: back?.token, query: back?.query, selected: back?.selected })
         );
+
+        steps.push(await paletteOpensFinishedDag(h, ctx));
         return steps;
     },
     async teardown(h, ctx) {
         await h.ev(PEEKS_ESC).catch(() => {});
+        await h.cdp("Emulation.clearDeviceMetricsOverride", {}).catch((e) => {
+            console.error(`palette-actions teardown: clear the viewport override failed: ${e?.message ?? e}`);
+        });
         await teardownFixtureRun(h, ctx, "palette-actions");
     },
 };
+
+const DAG_MODAL_RUNID = `document.querySelector('[data-dag-modal-subtitle] [data-dag-modal-runid]')`;
+
+// F13: the run is given a one-task plan, then it and its dag are written done, and any worker the plan dispatched
+// first is deleted, so no roster agent links the run: the action must apply off the run's own dagoref.
+async function paletteOpensFinishedDag(h, ctx) {
+    const step = "6. a finished run off the roster offers Open the DAG among its actions, and running it opens that dag's modal";
+    try {
+        await h.ev(PEEKS_ESC);
+        await h.rpc("dagsubmit", {
+            channelid: ctx.channelId,
+            runid: ctx.runId,
+            title: `verify ${ctx.stamp}`,
+            parallelism: 1,
+            tasks: [{ id: "t-1", label: "noop", description: "do nothing, stop immediately", deps: [], state: "" }],
+        });
+        ctx.dagId = (await h.rpc("dagstatus", { channelid: ctx.channelId, runid: ctx.runId })).group?.oid;
+        if (!ctx.dagId) return { step, ok: false, detail: "the run has no dag" };
+        const runId = ctx.runId;
+        await fstWriteRun(h, runId, (r) => ({ ...r, status: "done", completedts: Date.now() }));
+        // a finished run cannot be cancelled; teardown's channel delete removes it
+        ctx.runId = null;
+        await seedDag(
+            h,
+            ctx,
+            (dag) => ({
+                ...dag,
+                status: "done",
+                tasks: dag.tasks.map(({ runid: _run, reviewrunid: _review, ...t }) => ({ ...t, state: "done", merged: true })),
+            }),
+            (dag) => `${dag?.status}|${(dag?.tasks ?? []).map((t) => t.state).join(",")}`
+        );
+        await deleteChannelWorkerBlocks(h, ctx.channelId);
+        await polishReload(h);
+        await h.goto("jarvis");
+        if (!(await openPalette(h))) return { step, ok: false, detail: "the palette did not open" };
+        await h.ev(setInputExpr(PALETTE_INPUT, "r:"));
+        await paletteStateWhen(h, (s) => s.token === "Runs", 2000);
+        await h.ev(setInputExpr(PALETTE_INPUT, ctx.stamp));
+        await paletteStateWhen(h, (s) => (s.selected ?? "").includes(ctx.stamp) && s.chip, 8000);
+        await h.ev(paletteKey("ArrowRight"));
+        const acts = await paletteStateWhen(h, (s) => s.drill != null && s.groups.length > 0, 3000);
+        const rows = acts?.groups.flatMap((g) => g.rows) ?? [];
+        const offered = rows.some((r) => r.startsWith("Open the DAG")) && !/Not now: .*Open the DAG/.test(acts?.text ?? "");
+        await h.ev(setInputExpr(PALETTE_INPUT, "Open the DAG"));
+        const picked = await paletteStateWhen(h, (s) => (s.selected ?? "").startsWith("Open the DAG"), 3000);
+        await h.ev(paletteKey("Enter"));
+        const want = runId.slice(0, 8);
+        const shown = await polishWaitFor(h, `(${DAG_MODAL_RUNID}?.textContent ?? '').trim() === ${JSON.stringify(want)}`, 10_000);
+        const modal = await lookEval(h, `
+            const S = await mod("app/store/jotaiStore.ts");
+            const D = await mod("app/view/orchestrate/dagmodalstate.ts");
+            return S.globalStore.get(D.dagModalStateAtom)?.dagOref ?? null;
+        `);
+        await h.shot("cdp-shots/palette-actions-finished-dag.png");
+        return {
+            step,
+            ok: offered && (picked?.selected ?? "").startsWith("Open the DAG") && shown && modal === `dag:${ctx.dagId}`,
+            detail: JSON.stringify({
+                rows,
+                notNow: (acts?.text ?? "").match(/Not now: .*/)?.[0] ?? null,
+                picked: picked?.selected,
+                runid: await h.ev(`(${DAG_MODAL_RUNID}?.textContent ?? '').trim()`),
+                want,
+                modal,
+                dag: ctx.dagId,
+            }),
+        };
+    } catch (e) {
+        return { step, ok: false, detail: String(e?.message ?? e) };
+    }
+}
 
 // --- palette-scope-indicator: the active scope's bar slides between tabs
 // (docs/superpowers/specs/2026-10-28-palette-scope-indicator-design.md)
