@@ -1,7 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const getDossier = vi.fn();
 const resolveScope = vi.fn();
@@ -28,6 +28,7 @@ const pushModal = vi.fn();
 vi.mock("@/app/store/modalmodel", () => ({ modalsModel: { pushModal: (...a: unknown[]) => pushModal(...a) } }));
 vi.mock("@/app/store/wos", () => ({ loadAndPinWaveObject: vi.fn().mockResolvedValue(null) }));
 
+import { toastsAtom } from "@/app/cockpit/notificationstore";
 import { globalStore } from "@/app/store/jotaiStore";
 import { statusConfirmCopy } from "./briefpeek";
 import { briefToastAtom } from "./briefundo";
@@ -42,8 +43,16 @@ import {
     detachEdge,
     loadDetachedEdges,
     setDossierStatus,
+    setRecordSurfaceReader,
 } from "./recordactions";
 import { tasksErrorAtom } from "./tasksstore";
+
+// the Brief-toast cases below run as if the Brief were the current surface
+let unregisterSurface: (() => void) | null = null;
+beforeEach(() => {
+    unregisterSurface = setRecordSurfaceReader(() => "jarvis");
+});
+afterEach(() => unregisterSurface?.());
 
 describe("afterRecordWrite", () => {
     beforeEach(() => {
@@ -127,6 +136,47 @@ describe("setDossierStatus", () => {
         expect(toast?.text).toContain("set the record's status");
         expect(toast?.text).toContain("disk full");
         expect(globalStore.get(tasksErrorAtom)).toBeNull();
+    });
+});
+
+describe("where a failed write is reported", () => {
+    beforeEach(() => {
+        setStatusCmd.mockReset().mockRejectedValue(new Error("disk full"));
+        globalStore.set(briefToastAtom, null);
+        globalStore.set(toastsAtom, []);
+    });
+
+    it("off the Brief, one cockpit error toast names the action and the error, and the Brief's toast stays empty", async () => {
+        unregisterSurface?.();
+        unregisterSurface = setRecordSurfaceReader(() => "cockpit");
+
+        setDossierStatus("task-a", "paused");
+
+        await vi.waitFor(() => expect(globalStore.get(toastsAtom)).toHaveLength(1));
+        const [toast] = globalStore.get(toastsAtom);
+        expect(toast.level).toBe("error");
+        expect(`${toast.title} ${toast.message}`).toContain("set the record's status");
+        expect(`${toast.title} ${toast.message}`).toContain("disk full");
+        expect(globalStore.get(briefToastAtom)).toBeNull();
+    });
+
+    it("with no surface reader registered, the cockpit toast carries it", async () => {
+        unregisterSurface?.();
+        unregisterSurface = null;
+
+        setDossierStatus("task-a", "paused");
+
+        await vi.waitFor(() => expect(globalStore.get(toastsAtom)).toHaveLength(1));
+        expect(globalStore.get(toastsAtom)[0].level).toBe("error");
+        expect(globalStore.get(briefToastAtom)).toBeNull();
+    });
+
+    it("on the Brief, the Brief's toast carries it and no cockpit toast is pushed", async () => {
+        setDossierStatus("task-a", "paused");
+
+        await vi.waitFor(() => expect(globalStore.get(briefToastAtom)).not.toBeNull());
+        expect(globalStore.get(briefToastAtom)?.error).toBe(true);
+        expect(globalStore.get(toastsAtom)).toEqual([]);
     });
 });
 

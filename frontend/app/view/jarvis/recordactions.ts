@@ -5,10 +5,12 @@
 // imports the record stores; nothing imports it but components, which is what keeps the stores from
 // having to import each other. Mirrors view/agents/runactions.ts.
 
+import { pushToast } from "@/app/cockpit/notificationstore";
 import { globalStore } from "@/app/store/jotaiStore";
 import { modalsModel } from "@/app/store/modalmodel";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
+import type { SurfaceKey } from "@/app/view/agents/agents";
 import { reloadAmbient } from "@/app/view/agents/ambientstore";
 import { fireAndForget } from "@/util/util";
 import { atom, type PrimitiveAtom } from "jotai";
@@ -29,12 +31,31 @@ export async function afterRecordWrite(dossierId: string): Promise<void> {
     await Promise.all([reloadRecordDetail(dossierId), reloadRecordScope(dossierId)]);
 }
 
-// A write that fails must say so rather than leaving the UI asserting a change that did not happen. The
-// Brief's toast carries it; tasksErrorAtom is not used because it is the record list's load error, which
-// openref reads, so a failed write there would make a missing record read as a failed load.
+// No global current-surface accessor exists, so the always-mounted shell hands one in (as it does for
+// subscribeEffortUpdates).
+let readSurface: (() => SurfaceKey) | null = null;
+
+export function setRecordSurfaceReader(read: () => SurfaceKey): () => void {
+    readSurface = read;
+    return () => {
+        if (readSurface === read) {
+            readSurface = null;
+        }
+    };
+}
+
+// A write that fails must say so rather than leaving the UI asserting a change that did not happen, on the
+// surface where it was made: the Brief's own toast only draws on the Brief, so any other surface (the
+// palette over it) gets the cockpit toast. tasksErrorAtom is not used because it is the record list's load
+// error, which openref reads, so a failed write there would make a missing record read as a failed load.
 function reportFailure(what: string, e: unknown): void {
     console.error(`couldn't ${what}`, e);
-    briefUndo.error(`Couldn't ${what}: ${e instanceof Error ? e.message : String(e)}`);
+    const message = e instanceof Error ? e.message : String(e);
+    if (readSurface?.() === "jarvis") {
+        briefUndo.error(`Couldn't ${what}: ${message}`);
+        return;
+    }
+    pushToast({ title: `Couldn't ${what}`, message, level: "error" });
 }
 
 async function write(dossierId: string, what: string, op: () => Promise<void>): Promise<boolean> {
