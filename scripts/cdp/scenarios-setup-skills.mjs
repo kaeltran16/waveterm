@@ -57,7 +57,12 @@ async function freshSkills(h, ctx, faults = [], metrics = WIDE) {
     for (const f of faults) await controlSetupFixture(h, "fail", f);
     await assertSetupFixtureInstalled(h);
     await h.goto("setup");
-    await clickSel(h, "#setup-tab-skills");
+    // the surface renders its tab strip a moment after the switch
+    const tab = "#setup-tab-skills";
+    if (!(await polishWaitFor(h, `!!document.querySelector(${q(tab)})`, 10000))) {
+        throw new Error(`${tab} never appeared after opening setup`);
+    }
+    await clickSel(h, tab);
 }
 
 const groupTitles = (h) =>

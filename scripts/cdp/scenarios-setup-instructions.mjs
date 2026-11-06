@@ -41,7 +41,12 @@ async function freshSetup(h, ctx, faults = [], viewport = WIDE) {
     for (const f of faults) await controlSetupFixture(h, "fail", f);
     await assertSetupFixtureInstalled(h);
     await h.goto("setup");
-    await clickSel(h, "#setup-tab-instructions");
+    // the surface renders its tab strip a moment after the switch
+    const tab = "#setup-tab-instructions";
+    if (!(await polishWaitFor(h, `!!document.querySelector(${q(tab)})`, 10000))) {
+        throw new Error(`${tab} never appeared after opening setup`);
+    }
+    await clickSel(h, tab);
 }
 
 async function clickSel(h, sel) {
