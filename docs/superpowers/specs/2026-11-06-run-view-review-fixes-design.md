@@ -37,7 +37,10 @@ the causes below were re-traced against it.
   stack, so "the DAG modal is the top modal" covers every overlay above the graph instead of naming the viewer's
   atom. A plain `anyModalOpen()` would not do: the run sheet behind the DAG modal is a `ModalShell` and stays
   registered while the modal is open, so it would silence every graph key. Registering also takes Escape from the
-  sheet's shell while the DAG modal is on top, which is the layering the modal already intends. Remounting the
+  sheet's shell while the DAG modal is on top, which is the layering the modal already intends. The sheet
+  registers only once its face loads, so it can land above a DAG modal opened with it (the `dag:` address and
+  palette paths); the modal re-registers whenever the sheet becomes visible (`briefSheetVisibleAtom`, set by
+  `briefsheet.tsx`), so it stays on top whichever mounted first. Remounting the
   viewer from the modal's state is not needed: with keys stopped, nothing else changes the selection while the
   viewer's backdrop covers the graph.
 
@@ -99,9 +102,12 @@ the causes below were re-traced against it.
 
 ## F9: model tag hides the card's state word
 
-- **Decision:** the card's meta row keeps `id · state word` in a `flex-none` span; only the fact truncates; the
-  tag stays `flex-none` on the right.
-- **Why:** DESIGN.md: status is never colour alone.
+- **Decision:** the card's meta row keeps `id · state word` in a `flex-none` span; only the fact truncates. The
+  model tag names the model only (`haiku`), `min-w-0 truncate` on the right; who put it there (`pinned`, `plan's
+  pick`, ...) is in the card's `aria-label` and the peek's route row. The tag has no `title`: the DAG modal
+  redesign (D7) allows none inside a graph node.
+- **Why:** DESIGN.md: status is never colour alone. With the word whole, `t-4 · waiting` and `haiku · pinned`
+  are wider than the card's 176px inner width, so the tag gives way, not the word.
 
 ## F10: "N/M done" counts skipped
 
@@ -146,10 +152,14 @@ the causes below were re-traced against it.
 
 ## F17: the drawer at 1000x700 and refit on resize
 
-- **Decision:** in the drawer layout the activity strip is not drawn (the rail keeps it). The graph refits to its
-  opening view when its pane resizes, until the user pans or zooms it (a move with a user event).
+- **Decision:** in the drawer layout the activity strip is not drawn (the rail keeps it), and the open drawer is
+  capped at `max-h-[35%]`. The graph refits to its opening view when its pane resizes, until the user pans or
+  zooms it (a move with a user event).
 - **Why:** the strip is the drawer's least useful 60 px; a resize that keeps a stale viewport hides the Final
-  node.
+  node. At 45% the rows refilled the strip's space and the pane stayed at 143px. Measured at 1000x700 with
+  35%: body 487px, graph header 125px, drawer 171px open, graph pane 191px open / 316px collapsed, no card
+  cut; one whole event row shows (three would need about 214px beside a pane taller than the drawer). The
+  `dag-motion` step checks exactly that: pane taller than the drawer, no card cut, at least one whole row.
 
 ## F18: the opening view clips large graphs
 
@@ -199,6 +209,14 @@ the causes below were re-traced against it.
 
 - **Decision:** the pet's floating sprite is hidden (`invisible`, still mounted, as its WebGL canvas must not
   unmount) while the DAG modal or the Final shots viewer is open.
+
+## Plan reviewers in the agent tree (found in Final)
+
+- **Decision:** a current-round plan reviewer with a verdict keeps a tree row built from
+  `dag.planreview.reviewers` under an ended id, as an ended worker's row is; focusing it shows its transcript.
+- **Why:** recording a verdict completes the reviewer's run and the engine stops its session (`f61abac2f`), so
+  its tab, the tree's only source for stage rows, is gone; `plan-review-rounds` step 4 failed in every app.
+  Keeping dead tabs would undo that cleanup. Only the current round shows: the dag keeps no earlier round.
 
 ## Out of scope
 
