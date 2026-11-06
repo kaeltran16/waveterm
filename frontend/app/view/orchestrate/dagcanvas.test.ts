@@ -280,19 +280,29 @@ describe("fitScale / openView / nodeInView", () => {
         expect(fitScale(new Map(), pane, false)).toBe(1);
     });
     it("opens an empty group on neutral values", () => {
-        expect(openView([], new Map(), pane, false)).toEqual({ fitIds: null, minZoom: ZOOM_MIN });
+        expect(openView([], new Map(), pane, false, false)).toEqual({ fitIds: null, minZoom: ZOOM_MIN });
     });
     it("fits everything while that stays above the floor", () => {
         const tasks = [task("t-0", "running"), task("t-1", "pending")];
-        expect(openView(tasks, row(2), pane, false).fitIds).toBeNull();
+        expect(openView(tasks, row(2), pane, false, false).fitIds).toBeNull();
     });
     it("fits the tasks that need you at the floor when everything would be too small", () => {
         const tasks = Array.from({ length: 8 }, (_, i) =>
             task(`t-${i}`, i === 5 ? "failed" : i === 6 ? "running" : "done")
         );
-        expect(openView(tasks, row(8), pane, false)).toEqual({ fitIds: ["t-5"], minZoom: ZOOM_FLOOR });
-        const settled = tasks.map((t) => ({ ...t, state: "done" }));
-        expect(openView(settled, row(8), pane, false)).toEqual({ fitIds: null, minZoom: ZOOM_FLOOR });
+        expect(openView(tasks, row(8), pane, false, false)).toEqual({ fitIds: ["t-5"], minZoom: ZOOM_FLOOR });
+    });
+    it("opens on the one live task at the floor when everything would be too small", () => {
+        const tasks = Array.from({ length: 8 }, (_, i) => task(`t-${i}`, i === 6 ? "running" : "done"));
+        expect(openView(tasks, row(8), pane, false, false)).toEqual({ fitIds: ["t-6"], minZoom: ZOOM_FLOOR });
+    });
+    it("fits a too-big graph whole, below the floor, once the dag has ended", () => {
+        const tasks = Array.from({ length: 8 }, (_, i) => task(`t-${i}`, i === 5 ? "failed" : "done"));
+        expect(openView(tasks, row(8), pane, false, true)).toEqual({ fitIds: null, minZoom: ZOOM_MIN });
+    });
+    it("fits a too-big graph whole when no task needs you, is live or ready", () => {
+        const settled = Array.from({ length: 8 }, (_, i) => task(`t-${i}`, "done"));
+        expect(openView(settled, row(8), pane, false, false)).toEqual({ fitIds: null, minZoom: ZOOM_MIN });
     });
     it("knows whether a node is comfortably on screen", () => {
         expect(nodeInView({ x: 0, y: 0, zoom: 1 }, { x: 100, y: 100 }, pane)).toBe(true);

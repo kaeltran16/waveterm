@@ -342,19 +342,22 @@ export function fitScale(pos: Map<string, Point>, pane: Pane, hasLanes: boolean)
 }
 
 // openView fits the whole graph unless that would shrink it below the floor; then it opens on the tasks
-// that need you, else the live ones, else the ready ones, at the floor (spec D9)
+// that need you, else the live ones, else the ready ones, at the floor (spec D9). An ended dag, or one
+// with no such task, has nothing to focus on, so it fits whole down to ZOOM_MIN rather than clip (spec F18).
 export function openView(
     tasks: TaskNode[],
     pos: Map<string, Point>,
     pane: Pane,
-    hasLanes: boolean
+    hasLanes: boolean,
+    ended: boolean
 ): { fitIds: string[] | null; minZoom: number } {
-    if (fitScale(pos, pane, hasLanes) >= ZOOM_FLOOR) return { fitIds: null, minZoom: ZOOM_MIN };
+    const whole = { fitIds: null, minZoom: ZOOM_MIN };
+    if (ended || fitScale(pos, pane, hasLanes) >= ZOOM_FLOOR) return whole;
     for (const kind of ["attention", "live", "ready"] as NodeKind[]) {
         const ids = tasks.filter((t) => kindOf(t) === kind).map((t) => t.id);
         if (ids.length > 0) return { fitIds: ids, minZoom: ZOOM_FLOOR };
     }
-    return { fitIds: null, minZoom: ZOOM_FLOOR };
+    return whole;
 }
 
 // margins that keep a node clear of the pane's header chips and bottom controls
