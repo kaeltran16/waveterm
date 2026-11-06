@@ -99,9 +99,14 @@ func TestReadyTasksStartsTheNextTaskInALaneBeforeAnyMerge(t *testing.T) {
 	if got := ReadyTasks(g); !reflect.DeepEqual(got, []string{"t-2"}) {
 		t.Fatalf("want [t-2], got %v", got)
 	}
-	g = laneGroup(t, true, map[string]string{"t-1": TaskState_Done, "t-2": TaskState_Done, "t-3": TaskState_Done})
+	g = laneGroup(t, true, map[string]string{"t-1": TaskState_Done, "t-2": TaskState_Done, "t-3": TaskState_ReviewFailed})
+	taskByID(g, "t-3").RunID = "run-t-3"
 	if got := ReadyTasks(g); len(got) != 0 {
-		t.Fatalf("tasks in another lane wait for the lane to merge, got %v", got)
+		t.Fatalf("tasks in another lane wait while its tip is the lead's to judge, got %v", got)
+	}
+	taskByID(g, "t-3").State = TaskState_Done
+	if got := ReadyTasks(g); !reflect.DeepEqual(got, []string{"t-4", "t-5"}) {
+		t.Fatalf("want [t-4 t-5] early, on the worker-done lane's tip, got %v", got)
 	}
 	markMerged(g, "t-1", "t-2", "t-3")
 	if got := ReadyTasks(g); !reflect.DeepEqual(got, []string{"t-4", "t-5"}) {

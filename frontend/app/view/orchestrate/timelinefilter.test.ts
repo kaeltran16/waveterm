@@ -97,6 +97,10 @@ describe("eventClickTarget", () => {
         expect(eventClickTarget(ev("task-verify-failed", { taskid: "t-6" }))).toEqual({ kind: "merge", taskId: "t-6" });
     });
 
+    it("routes a restarted task to its worker", () => {
+        expect(eventClickTarget(ev("task-restarted", { taskid: "t-7" }))).toEqual({ kind: "worker", taskId: "t-7" });
+    });
+
     it("routes cleanup kinds to the dag task", () => {
         expect(eventClickTarget(ev("task-cleanup-failed", { taskid: "t-5" }))).toEqual({
             kind: "dag-task",

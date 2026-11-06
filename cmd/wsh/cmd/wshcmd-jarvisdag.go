@@ -501,6 +501,9 @@ func mergeGateSignal(td wshrpc.DagTaskDigest, now int64) string {
 func reportLine(d wshrpc.DagStatusDigest) string {
 	line := fmt.Sprintf("report  elapsed=%s  workers=%s  commits=%d  answered=%d  forwarded=%d",
 		durOrZero(d.Durations.ElapsedMs), durOrZero(d.Report.WorkerMs), len(d.Report.Commits), d.Report.Answered, d.Report.Forwarded)
+	if d.Report.Restarted > 0 {
+		line += fmt.Sprintf("  restarted (predecessor review failed) %d", d.Report.Restarted)
+	}
 	if d.Report.Unverified {
 		line += "  unverified"
 	}

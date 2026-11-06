@@ -14,14 +14,22 @@ import (
 )
 
 // taskStartBase is the commit a task's first attempt started from, read from its oldest worker run in a tree: the
-// task's RunID moves on at every retry. Empty when no attempt of it ran in one.
+// task's RunID moves on at every retry. Empty when no attempt of it ran in one. Runs before the task's restart are
+// not its start: they ran on the discarded branch, whose base the new one descends from.
 func taskStartBase(ctx context.Context, g *waveobj.TaskGroup, taskID string) (string, error) {
 	runs, err := wstore.GetChannelRuns(ctx, g.ChannelId)
 	if err != nil {
 		return "", fmt.Errorf("loading task %s's runs: %w", taskID, err)
 	}
+	var restartTs int64
+	if t := taskByID(g, taskID); t != nil {
+		restartTs = t.RestartTs
+	}
 	// oldest first
 	for _, r := range runs {
+		if r.CreatedTs < restartTs {
+			continue
+		}
 		if r.DagORef == g.OID && r.TaskId == taskID && !r.Review && r.StageRole == "" && r.Branch != "" && r.BaseCommit != "" {
 			return r.BaseCommit, nil
 		}

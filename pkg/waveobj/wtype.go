@@ -572,6 +572,19 @@ type TaskNode struct {
 	LeadGuidance string   `json:"leadguidance,omitempty"`
 	LeadNotes    []string `json:"leadnotes,omitempty"`
 	LeadTold     []string `json:"leadtold,omitempty"`
+	// Early start (spec 2026-11-06-start-at-done-design): a lane head can start while its one unmerged predecessor
+	// lane is worker-done, on that lane's branch tip. EarlyBaseTask is that lane's tip task and EarlyBaseCommit its
+	// commit at the branch point; both stay through retries because the branch still holds the predecessor's work,
+	// and only a restart clears them.
+	EarlyBaseTask   string `json:"earlybasetask,omitempty"`
+	EarlyBaseCommit string `json:"earlybasecommit,omitempty"`
+	// EarlyRestarts counts the times the lane restarted because its base went back to work; it is not a failure.
+	EarlyRestarts int `json:"earlyrestarts,omitempty"`
+	// DiscardTree marks a lane whose branch and tree hold discarded work: the next dispatch removes them before
+	// creating the tree, because the removal is slow and the worker must have exited first.
+	DiscardTree bool `json:"discardtree,omitempty"`
+	// RestartTs is when the lane last restarted (UnixMilli): worker runs created before it are not the task's start.
+	RestartTs int64 `json:"restartts,omitempty"`
 }
 
 // RunSpec is the child-run launch form a task wants (runtime/mode/goal override).

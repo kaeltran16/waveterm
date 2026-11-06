@@ -52,6 +52,10 @@ func laneMergeReady(g *waveobj.TaskGroup, lane []string) *waveobj.TaskNode {
 	if tip == nil || tip.Merged || tip.RunID == "" {
 		return nil
 	}
+	// an early-started lane holds its base lane's commits, which must land first
+	if earlyBaseUnmerged(g, lane) != nil {
+		return nil
+	}
 	for _, id := range lane {
 		t := taskByID(g, id)
 		if t.State == TaskState_Skipped {
@@ -91,6 +95,71 @@ func laneMerged(g *waveobj.TaskGroup, lane []string) bool {
 		}
 	}
 	return true
+}
+
+// laneWorkerDone returns the lane's tip when its worker work is finished though the lane may not be merged:
+// every non-skipped task is done except the tip, which is under review, done or blocked on a merge, and has a
+// run. A tip in review-failed is the lead's to judge, so it does not count. Nil otherwise.
+func laneWorkerDone(g *waveobj.TaskGroup, lane []string) *waveobj.TaskNode {
+	tip := laneTip(g, lane)
+	if tip == nil || tip.RunID == "" {
+		return nil
+	}
+	switch tip.State {
+	case TaskState_Reviewing, TaskState_Done, TaskState_BlockedMerge:
+	default:
+		return nil
+	}
+	for _, id := range lane {
+		t := taskByID(g, id)
+		if t == nil || t.ID == tip.ID || t.State == TaskState_Skipped {
+			continue
+		}
+		if t.State != TaskState_Done {
+			return nil
+		}
+	}
+	return tip
+}
+
+// earlyBaseLive reports whether the work t's lane branched from is still standing: t has no early base, the
+// base's lane has merged, or the base task is past its worker and not sent back. A base that went back to
+// pending, or was skipped, or no longer exists, changed the work the dependent holds, so the lane restarts.
+func earlyBaseLive(g *waveobj.TaskGroup, t *waveobj.TaskNode) bool {
+	if t.EarlyBaseTask == "" {
+		return true
+	}
+	base := taskByID(g, t.EarlyBaseTask)
+	// before laneMerged, which counts a lane of skipped tasks as merged: the dependent's branch still holds the work
+	if base == nil || base.State == TaskState_Skipped {
+		return false
+	}
+	if laneMerged(g, laneOf(g, base.ID)) {
+		return true
+	}
+	switch base.State {
+	case TaskState_Reviewing, TaskState_ReviewFailed, TaskState_Done, TaskState_BlockedMerge,
+		TaskState_Verifying, TaskState_VerifyFailed:
+		return true
+	}
+	return false
+}
+
+// earlyBaseUnmerged returns the base task the lane's head branched from while that base's lane has not merged:
+// the lane may not merge before it. Nil for a lane with no early base, or one whose base has merged.
+func earlyBaseUnmerged(g *waveobj.TaskGroup, lane []string) *waveobj.TaskNode {
+	if len(lane) == 0 {
+		return nil
+	}
+	head := taskByID(g, lane[0])
+	if head == nil || head.EarlyBaseTask == "" {
+		return nil
+	}
+	base := taskByID(g, head.EarlyBaseTask)
+	if base == nil || laneMerged(g, laneOf(g, base.ID)) {
+		return nil
+	}
+	return base
 }
 
 // laneMergeMessage names every task the squash commit lands, in lane order.
