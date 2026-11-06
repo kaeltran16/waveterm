@@ -14,22 +14,23 @@ import { useKeybindings } from "@/app/store/keybindings/store";
 import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { RefreshCw, TriangleAlert } from "lucide-react";
+import { RefreshCw, TriangleAlert, X } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 import {
     applyAllIds,
     canApply,
     changeGroups,
     checkLine,
     closedText,
+    diffLabel,
     fileLabel,
     indexCards,
     isPending,
     kindLabel,
     kindTone,
-    LIMIT_BYTES,
-    LIMIT_LINES,
+    memoryDetailLayout,
+    railFoot,
     railOrder,
     railRow,
     resolveSelection,
@@ -37,6 +38,7 @@ import {
     statusOf,
     switchGate,
     toolbarStatus,
+    undoExpired,
     type ChangeGroup,
     type IndexCard,
     type KindTone,
@@ -49,11 +51,13 @@ import {
     memoryBulkAtom,
     memoryBusyAtom,
     memoryCheckResultAtom,
+    memoryDetailOpenAtom,
     memoryErrorAtom,
     memoryProjectsAtom,
     memorySelectedChangeAtom,
     memorySelectedProjectAtom,
-    selectMemoryChange,
+    memoryTabWidthAtom,
+    openMemoryChange,
     selectMemoryProject,
     subscribeMemory,
 } from "./memorystore";
@@ -187,9 +191,8 @@ function ProjectRail({ projects, selected }: { projects: MemHygieneProject[]; se
             })}
             {projects.length === 0 ? <div className="px-2 text-[12px] text-muted">No registered projects.</div> : null}
             <span className="flex-1" />
-            <p className="m-0 px-2 text-[11.5px] leading-[1.5] text-muted">
-                Claude Code loads the first {LIMIT_LINES} lines or {LIMIT_BYTES / 1000} KB of a project's MEMORY.md. Arc
-                checks every project once a week.
+            <p data-memory-rail-foot className="m-0 px-2 text-[11.5px] leading-[1.5] text-muted">
+                {railFoot(projects)}
             </p>
         </aside>
     );
@@ -199,10 +202,14 @@ function ProjectRail({ projects, selected }: { projects: MemHygieneProject[]; se
 
 function IndexCardView({ card }: { card: IndexCard }) {
     const stat = (label: string, value: string, pct: number) => (
-        <div className="flex flex-col gap-1.5">
-            <div className="flex justify-between text-[12px]">
-                <span className="text-ink-mid">{label}</span>
-                <span className="font-mono text-secondary">{value}</span>
+        <div className="flex min-w-0 flex-col gap-1.5">
+            <div className="flex justify-between gap-3 text-[12px]">
+                <span data-memory-stat-label className="flex-none text-ink-mid">
+                    {label}
+                </span>
+                <span data-memory-stat-value className="min-w-0 truncate font-mono text-secondary">
+                    {value}
+                </span>
             </div>
             <Meter pct={pct} />
         </div>
@@ -210,11 +217,13 @@ function IndexCardView({ card }: { card: IndexCard }) {
     return (
         <div
             data-memory-card
-            className="flex flex-col gap-2 rounded border border-edge-mid bg-surface-raised px-3.5 py-3"
+            className="flex min-w-0 flex-col gap-2 rounded border border-edge-mid bg-surface-raised px-3.5 py-3"
         >
             <div className="flex justify-between gap-3 text-[12px]">
-                <span className="font-semibold text-secondary">{card.label}</span>
-                <span className="text-muted">{card.role}</span>
+                <span className="flex-none font-semibold text-secondary">{card.label}</span>
+                <span title={card.role} className="min-w-0 truncate text-muted">
+                    {card.role}
+                </span>
             </div>
             <div className="grid grid-cols-2 gap-4">
                 {stat("Lines", card.lines, card.linesPct)}
@@ -283,13 +292,21 @@ function ChangeTable({ p, selected }: { p: MemHygieneProject; selected: string |
     const onKey = (e: KeyboardEvent, id: string) => {
         if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
-            selectMemoryChange(id);
+            openMemoryChange(id);
+        }
+    };
+    // on a narrow tab the detail sheet covers the table's right side; a click on the table outside a row
+    // dismisses it
+    const onTableClick = (e: MouseEvent) => {
+        if (!(e.target as Element).closest("[data-memory-change]")) {
+            globalStore.set(memoryDetailOpenAtom, false);
         }
     };
     return (
         <div
             role="table"
             aria-label="Proposed changes"
+            onClick={onTableClick}
             className="flex min-h-0 flex-1 flex-col overflow-hidden rounded border border-edge-mid bg-surface"
         >
             <div
@@ -327,7 +344,7 @@ function ChangeTable({ p, selected }: { p: MemHygieneProject; selected: string |
                                     tabIndex={0}
                                     data-memory-change={c.id}
                                     aria-selected={on}
-                                    onClick={() => selectMemoryChange(c.id)}
+                                    onClick={() => openMemoryChange(c.id)}
                                     onKeyDown={(e) => onKey(e, c.id)}
                                     className={cn(
                                         TABLE_GRID,
@@ -417,7 +434,7 @@ function ProjectPane({ p, selected }: { p: MemHygieneProject; selected: string |
             variants={viewFade}
             initial="initial"
             animate="animate"
-            className="flex min-w-0 flex-1 flex-col gap-3.5 px-5 pb-[18px] pt-4"
+            className="@container flex min-w-0 flex-1 flex-col gap-3.5 px-5 pb-[18px] pt-4"
         >
             <div className="flex items-center gap-3.5">
                 <div className="flex min-w-0 flex-col gap-[3px]">
@@ -447,7 +464,7 @@ function ProjectPane({ p, selected }: { p: MemHygieneProject; selected: string |
             {split ? <p className="m-0 text-[12.5px] leading-[1.5] text-secondary">{split}</p> : null}
             <section
                 aria-label="Index size"
-                className={cn("grid gap-3", cards.length > 1 ? "grid-cols-2" : "grid-cols-1")}
+                className={cn("grid grid-cols-1 gap-3", cards.length > 1 && "@min-[560px]:grid-cols-2")}
             >
                 {cards.map((c) => (
                     <IndexCardView key={c.label} card={c} />
@@ -482,11 +499,13 @@ function ConflictAlert({ p, change }: { p: MemHygieneProject; change: MemChange 
     );
 }
 
-function DiffBlock({ diff }: { diff: MemDiff }) {
+function DiffBlock({ p, diff }: { p: MemHygieneProject; diff: MemDiff }) {
     return (
-        <div className="overflow-hidden rounded border border-edge-mid bg-surface-code">
+        <div data-memory-diff className="overflow-hidden rounded border border-edge-mid bg-surface-code">
             <div className="flex h-7 items-center gap-2.5 border-b border-edge-faint px-2.5 font-mono text-[11px] text-muted">
-                <PathTail path={diff.path} className="text-[11px]" />
+                <span data-memory-diff-label title={diff.path} className="min-w-0 truncate">
+                    {diffLabel(p, diff.path)}
+                </span>
                 <span className="flex-1" />
                 <span className="flex-none">{diff.note}</span>
             </div>
@@ -501,7 +520,12 @@ function DiffBlock({ diff }: { diff: MemDiff }) {
                             )}
                         >
                             <span className="w-2 flex-none">{ln.sign}</span>
-                            <span className="whitespace-pre-wrap break-words">{ln.text}</span>
+                            <span
+                                data-memory-diff-text
+                                className="min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]"
+                            >
+                                {ln.text}
+                            </span>
                         </div>
                     ))}
                 </div>
@@ -517,6 +541,7 @@ function Verdict({ p, change }: { p: MemHygieneProject; change: MemChange }) {
     if (!isPending(change)) {
         const status = statusOf(change);
         const applied = change.status === "applied";
+        const expired = undoExpired(change, Date.now());
         return (
             <div className="flex items-center gap-3">
                 <div
@@ -532,7 +557,7 @@ function Verdict({ p, change }: { p: MemHygieneProject; change: MemChange }) {
                 <button
                     type="button"
                     data-memory-undo
-                    disabled={busy}
+                    disabled={busy || expired}
                     onClick={() => decide(applied ? "undo" : "reopen")}
                     className={BTN_SECONDARY}
                 >
@@ -577,7 +602,7 @@ function Verdict({ p, change }: { p: MemHygieneProject; change: MemChange }) {
     );
 }
 
-function ChangeDetail({ p, change }: { p: MemHygieneProject; change: MemChange }) {
+function ChangeDetail({ p, change, overlay }: { p: MemHygieneProject; change: MemChange; overlay: boolean }) {
     // up by the title with the conflict alert, not above the buttons: the avatar's bottom-right corner
     // sits over the rail's foot
     const gate = switchGate(p, change);
@@ -588,12 +613,28 @@ function ChangeDetail({ p, change }: { p: MemHygieneProject; change: MemChange }
             initial="initial"
             animate="animate"
             aria-label="Change detail"
-            data-memory-detail
-            className="flex w-[400px] flex-none flex-col gap-3.5 overflow-y-auto border-l border-border bg-surface p-4"
+            data-memory-detail={overlay ? "overlay" : "column"}
+            className={cn(
+                "flex flex-col gap-3.5 overflow-y-auto border-l border-border bg-surface p-4",
+                overlay
+                    ? "absolute inset-y-0 right-0 z-[4] w-[min(400px,92cqw)] shadow-sheet-side"
+                    : "w-[400px] flex-none"
+            )}
         >
             <div className="flex flex-col gap-1.5">
-                <span>
+                <span className="flex items-start justify-between gap-2">
                     <KindChip p={p} change={change} />
+                    {overlay ? (
+                        <button
+                            type="button"
+                            aria-label="Close the change detail"
+                            data-memory-detail-close
+                            onClick={() => globalStore.set(memoryDetailOpenAtom, false)}
+                            className="-mr-1 -mt-1 flex h-7 w-7 cursor-pointer items-center justify-center rounded border-0 bg-transparent text-muted hover:bg-surface-hover hover:text-primary"
+                        >
+                            <X size={15} />
+                        </button>
+                    ) : null}
                 </span>
                 <div className="text-[14px] font-semibold text-primary">{change.title}</div>
                 <div className="break-all font-mono text-[10.5px] text-muted">{fileLabel(change)}</div>
@@ -608,11 +649,22 @@ function ChangeDetail({ p, change }: { p: MemHygieneProject; change: MemChange }
                 <div className="flex flex-col gap-2">
                     <div className={SECTION_HEAD}>Why</div>
                     {change.evidence.map((e, i) => (
-                        <div key={i} className="flex items-start gap-2 text-[12px] leading-[1.5] text-secondary">
+                        <div
+                            key={i}
+                            data-memory-evidence
+                            className="flex items-start gap-2 text-[12px] leading-[1.5] text-secondary"
+                        >
                             <Dot tone={toTone(e.tone)} className="mt-1.5" />
-                            <span>
-                                {e.text}
-                                {e.code ? <span className="font-mono text-[11px] text-ink-hi">{e.code}</span> : null}
+                            <span className="flex min-w-0 flex-col gap-0.5">
+                                <span data-memory-evidence-text>{e.text}</span>
+                                {e.code ? (
+                                    <span
+                                        data-memory-evidence-code
+                                        className="font-mono text-[11px] text-ink-hi [overflow-wrap:anywhere]"
+                                    >
+                                        {e.code}
+                                    </span>
+                                ) : null}
                             </span>
                         </div>
                     ))}
@@ -622,7 +674,7 @@ function ChangeDetail({ p, change }: { p: MemHygieneProject; change: MemChange }
                 <div className="flex flex-col gap-2">
                     <div className={SECTION_HEAD}>Change</div>
                     {(change.diffs ?? []).map((d, i) => (
-                        <DiffBlock key={i} diff={d} />
+                        <DiffBlock key={i} p={p} diff={d} />
                     ))}
                     {change.note ? <p className="m-0 text-[11.5px] leading-[1.5] text-muted">{change.note}</p> : null}
                 </div>
@@ -640,6 +692,9 @@ export function MemoryTab() {
     const selectedName = useAtomValue(memorySelectedProjectAtom);
     const selectedChange = useAtomValue(memorySelectedChangeAtom);
     const error = useAtomValue(memoryErrorAtom);
+    const width = useAtomValue(memoryTabWidthAtom);
+    const sheetOpen = useAtomValue(memoryDetailOpenAtom);
+    const rootRef = useRef<HTMLDivElement>(null);
     // re-read on every visit, and on every state write while the tab is open. a failure from an earlier
     // visit must not leave its banner over fresh data.
     useEffect(() => {
@@ -647,12 +702,32 @@ export function MemoryTab() {
         fireAndForget(loadMemory);
         return subscribeMemory();
     }, []);
+    useEffect(() => {
+        const el = rootRef.current;
+        if (el == null) {
+            return;
+        }
+        const measure = () => globalStore.set(memoryTabWidthAtom, el.clientWidth);
+        const ro = new ResizeObserver(measure);
+        ro.observe(el);
+        measure();
+        return () => ro.disconnect();
+    }, []);
+    const layout = memoryDetailLayout(width);
+    // a sheet left open by clicks while wide must not cover the table the moment the tab narrows
+    useEffect(() => {
+        if (layout === "overlay") {
+            globalStore.set(memoryDetailOpenAtom, false);
+        }
+    }, [layout]);
     const bindings = useMemo(() => buildMemoryBindings(), []);
     useKeybindings(bindings);
     const { project: p, change } = resolveSelection(projects, selectedName, selectedChange);
+    const listFailed = projects == null && error != null;
+    const showDetail = p != null && change != null && (layout === "column" || sheetOpen);
     return (
-        <div className="flex min-w-0 flex-1 flex-col">
-            {error ? (
+        <div ref={rootRef} className="flex min-w-0 flex-1 flex-col">
+            {error && !listFailed ? (
                 <div
                     role="alert"
                     data-memory-error
@@ -661,14 +736,33 @@ export function MemoryTab() {
                     {error}
                 </div>
             ) : null}
-            <div className="flex min-h-0 flex-1">
-                {projects == null ? (
+            <div className="@container relative flex min-h-0 flex-1">
+                {listFailed ? (
+                    <div
+                        role="alert"
+                        data-memory-list-error
+                        className="flex flex-1 flex-col items-center justify-center gap-3 px-5 text-center text-[13px] text-error-soft"
+                    >
+                        <span>{error}</span>
+                        <button
+                            type="button"
+                            data-memory-retry
+                            onClick={() => {
+                                globalStore.set(memoryErrorAtom, null);
+                                fireAndForget(loadMemory);
+                            }}
+                            className={BTN_SECONDARY}
+                        >
+                            Retry
+                        </button>
+                    </div>
+                ) : projects == null ? (
                     <div className="flex flex-1 items-center justify-center text-[13px] text-muted">Reading…</div>
                 ) : (
                     <>
                         <ProjectRail projects={projects} selected={p?.project ?? ""} />
                         {p != null ? <ProjectPane p={p} selected={change?.id ?? null} /> : null}
-                        {p != null && change != null ? <ChangeDetail p={p} change={change} /> : null}
+                        {showDetail ? <ChangeDetail p={p} change={change} overlay={layout === "overlay"} /> : null}
                     </>
                 )}
             </div>

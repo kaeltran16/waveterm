@@ -40,10 +40,13 @@ function combine(primary, secondary, label) {
 // ---- the in-page simulation ----
 
 // Serialized with toString() and evaluated in the dev app, so it must stay self-contained: no imports,
-// no module-level references. Node tests run the same function directly.
+// no module-level references. Node tests run the same function directly. It speaks the agentsync wire
+// (pkg/wshrpc/wshrpctypes_agentsync.go): the shapes below are what the real RPCs take and return.
 export function createFixtureRuntime(fixture) {
     const copy = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
     const msg = (e) => String(e?.message ?? e);
+    // mirrors wshrpc.AgentSyncKeepVault: the keep value that picks the vault copy of a vault skill
+    const KEEP_VAULT = "vault";
     const s = {
         contents: copy(fixture.contents ?? {}),
         status: copy(fixture.status),
@@ -51,9 +54,9 @@ export function createFixtureRuntime(fixture) {
         disk: copy(fixture.steering),
         adopt: copy(fixture.adopt),
         variants: copy(fixture.variants ?? {}),
-        revision: 0,
         partialApply: null,
         partialAdopt: null,
+        snapshotStore: false,
     };
     const faults = {};
     const delays = {};
@@ -64,45 +67,34 @@ export function createFixtureRuntime(fixture) {
     let clock = s.disk.mtime || 0;
     let lastMutation = null;
 
+    // UnixMilli like the real RPC, and strictly increasing so a conflict check by mtime still sees each write
+    const tick = () => (clock = Math.max(clock + 1, Date.now()));
     const note = (entry) => log.push({ seq: ++seq, ...entry });
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-    const fnv = (str) => {
-        let hsh = 0x811c9dc5;
-        for (let i = 0; i < str.length; i++) {
-            hsh ^= str.charCodeAt(i);
-            hsh = Math.imul(hsh, 0x01000193) >>> 0;
-        }
-        return hsh.toString(16);
-    };
     const unique = (list) => [...new Set(list)];
     const presentHarnesses = () => s.status.harnesses.filter((h) => h.present);
-    const markStale = () => presentHarnesses().forEach((h) => (h.steering = "stale"));
+    // an empty shared doc leaves every harness blank, whatever its file holds
+    const docBlank = () => s.disk.content.trim() === "";
+    const markStale = () => presentHarnesses().forEach((h) => (h.steering = docBlank() ? "blank" : "stale"));
 
     // ---- steering ----
 
     const read = () => {
         note({ kind: "read", command: "agentsyncsteeringread", outcome: "ok" });
-        return { path: s.disk.path, content: s.disk.content, exists: s.disk.exists, mtime: s.disk.mtime };
+        return { path: s.disk.path, content: s.disk.content, mtime: s.disk.mtime };
     };
 
-    const write = (d, attempt) => {
-        const base = { kind: "write-attempt", data: attempt };
+    // like agentsync.WriteSteering: basemtime 0 skips the check (Overwrite), a missing doc never conflicts
+    const write = (d) => {
+        const basemtime = d.basemtime ?? 0;
+        const base = { kind: "write-attempt", data: { content: d.content, basemtime } };
         lastMutation = "save-failed";
-        if (d.overwrite !== true) {
-            if (d.baseexists === undefined || d.baseexists === null) {
-                if (!(d.basemtime > 0)) {
-                    note({ ...base, outcome: "error", accepted: false });
-                    throw new Error("steering write needs a baseline: read the document first");
-                }
-            }
-            const baseExists = d.baseexists ?? d.basemtime > 0;
-            if (baseExists !== s.disk.exists || (s.disk.exists && d.basemtime !== s.disk.mtime)) {
-                note({ ...base, outcome: "conflict", accepted: false });
-                return { mtime: s.disk.mtime, conflict: true };
-            }
+        if (basemtime !== 0 && s.disk.mtime > 0 && basemtime !== s.disk.mtime) {
+            note({ ...base, outcome: "conflict", accepted: false });
+            return { mtime: s.disk.mtime, conflict: true };
         }
-        s.disk = { ...s.disk, content: d.content, exists: true, mtime: ++clock };
-        diskWrites.push({ content: d.content, mtime: s.disk.mtime, overwrite: d.overwrite === true });
+        s.disk = { ...s.disk, content: d.content, mtime: tick() };
+        diskWrites.push({ content: d.content, mtime: s.disk.mtime, overwrite: basemtime === 0 });
         markStale();
         lastMutation = "save";
         note({ ...base, outcome: "accepted", accepted: true });
@@ -114,9 +106,8 @@ export function createFixtureRuntime(fixture) {
     const applyEntry = (d) => ({ kind: "apply", dryrun: d?.dryrun === true, afterSave: lastMutation === "save" });
     const adoptEntry = (d) => ({
         kind: d.apply === true ? "adopt-apply" : "adopt-review",
-        names: d.names,
         keep: d.keep ?? {},
-        acknowledged: d.acknowledged ?? [],
+        skip: d.skip ?? [],
         apply: d.apply === true,
     });
 
@@ -131,7 +122,7 @@ export function createFixtureRuntime(fixture) {
         }
         lastMutation = "apply";
         const converge = (h) => {
-            h.steering = s.disk.exists && s.disk.content.trim() !== "" ? "current" : "absent";
+            h.steering = docBlank() ? "blank" : "current";
         };
         if (s.partialApply) {
             const { after, message } = s.partialApply;
@@ -160,10 +151,8 @@ export function createFixtureRuntime(fixture) {
     // ---- adopt ----
 
     const unmanaged = () => s.skills.unmanaged ?? [];
-    const copiesOf = (name) => unmanaged().filter((m) => m.name === name);
-    const declarationsOf = (name) => (s.adopt.declarations ?? []).filter((x) => x.name === name);
     const recomputeUnresolved = () => {
-        s.skills.unresolved = unique(unmanaged().filter((m) => m.bodydiff).map((m) => m.name));
+        s.skills.unresolved = unique(unmanaged().filter((m) => m.bodydiff && !m.vault).map((m) => m.name));
     };
 
     // what each copy holds, so keys/files/bodydiff are derived against whichever copy seeds, not stored
@@ -186,70 +175,42 @@ export function createFixtureRuntime(fixture) {
         };
     };
 
-    // validates the request and derives the reviewed plan; shared by the dry-run and the apply
+    // like PlanAdopt: a skipped name contributes nothing, even when it also has a keep. A copy under a
+    // vault skill's name is compared against the vault and never unresolved; any other name's kept copy
+    // (else its first) seeds, and the rest are compared against it.
     const plan = (d) => {
-        const explicit = Array.isArray(d.names);
+        const skip = new Set(d.skip ?? []);
+        const keep = Object.fromEntries(Object.entries(d.keep ?? {}).filter(([n]) => !skip.has(n)));
         const canonical = new Set((s.skills.skills ?? []).map((k) => k.name));
-        const selected = explicit
-            ? unique(d.names)
-            : unique(unmanaged().map((m) => m.name)).filter((n) => declarationsOf(n).length === 0 && !canonical.has(n));
-        const keep = d.keep ?? {};
-        const acknowledged = d.acknowledged ?? [];
-        for (const n of selected) {
-            if (canonical.has(n)) {
-                throw new Error(`"${n}" is a managed skill; adoption cannot replace it`);
-            }
-            if (copiesOf(n).length === 0) {
-                throw new Error(`unknown skill "${n}"`);
-            }
-        }
+        const copies = unmanaged().filter((m) => !skip.has(m.name));
         for (const [n, rt] of Object.entries(keep)) {
-            if (!selected.includes(n) || !copiesOf(n).some((c) => c.runtime === rt)) {
-                throw new Error(`invalid keep "${rt}" for "${n}"`);
+            if (canonical.has(n) && rt !== KEEP_VAULT) {
+                throw new Error(`cannot keep ${rt}'s copy of "${n}": the skill is already managed by Arc`);
             }
-        }
-        for (const n of acknowledged) {
-            if (!selected.includes(n) || declarationsOf(n).length === 0) {
-                throw new Error(`invalid acknowledgement for "${n}"`);
+            if (!canonical.has(n) && (rt === KEEP_VAULT || !copies.some((c) => c.name === n && c.runtime === rt))) {
+                throw new Error(`cannot keep ${rt}'s copy of "${n}": ${rt} holds no unmanaged copy of it`);
             }
         }
         const moves = [];
         const unresolved = [];
-        for (const n of selected) {
-            const copies = copiesOf(n);
-            // like PlanAdopt: the kept copy (else the first) seeds, every other copy is compared against it
-            const seed = copies.find((c) => c.runtime === keep[n]) ?? copies[0];
-            const rows = copies.map((c) => compare(seed, c));
+        for (const n of unique(copies.map((c) => c.name))) {
+            const mine = copies.filter((c) => c.name === n);
+            if (canonical.has(n)) {
+                moves.push(...mine.map((c) => ({ ...c, seed: false, vault: true })));
+                continue;
+            }
+            const seed = mine.find((c) => c.runtime === keep[n]) ?? mine[0];
+            const rows = mine.map((c) => compare(seed, c));
             if (!keep[n] && rows.some((r) => r.bodydiff)) {
                 unresolved.push(n);
-                continue;
             }
             moves.push(...rows);
         }
-        const moved = unique(moves.map((m) => m.name));
-        const dests = s.adopt.destinations ?? {};
-        const targets = [];
-        for (const n of moved) {
-            for (const col of s.skills.columns ?? []) {
-                if (col.present && dests[col.runtime]) {
-                    targets.push({ name: n, runtime: col.runtime, path: `${dests[col.runtime]}/${n}` });
-                }
-            }
-        }
-        const warnings = selected.flatMap((n) => declarationsOf(n));
-        const reviewtoken =
-            "rv" +
-            fnv(
-                JSON.stringify({
-                    selected: [...selected].sort(),
-                    keep: Object.entries(keep).sort(),
-                    moves,
-                    canonical: [...canonical].sort(),
-                    revision: s.revision,
-                })
-            );
-        return { explicit, selected, acknowledged, moved, result: { moves, unresolved, reviewtoken, warnings, targets } };
+        return { keep, canonical, moves, unresolved };
     };
+
+    const presentStates = () =>
+        Object.fromEntries((s.skills.columns ?? []).filter((c) => c.present).map((c) => [c.runtime, "synced"]));
 
     const adopt = (d) => {
         const apply = d.apply === true;
@@ -257,53 +218,41 @@ export function createFixtureRuntime(fixture) {
         let p;
         try {
             p = plan(d);
-            if (apply && p.selected.length > 0) {
-                const missing = p.selected.filter((n) => declarationsOf(n).length > 0 && !p.acknowledged.includes(n));
-                if (missing.length > 0) {
-                    throw new Error(`"${missing[0]}" declares external management; acknowledge ownership to include it`);
-                }
-                if (p.explicit && !d.reviewtoken) {
-                    throw new Error("review the selection before applying it");
-                }
-                if (p.explicit && d.reviewtoken !== p.result.reviewtoken) {
-                    throw new Error("review changed: the reviewed copies differ now; review the selection again");
-                }
-            }
         } catch (e) {
             note({ ...entry, outcome: "rejected", reason: msg(e) });
             throw e;
         }
+        const result = { moves: p.moves, unresolved: p.unresolved };
         if (!apply) {
-            note({ ...entry, outcome: "ok", reviewtoken: p.result.reviewtoken });
-            return p.result;
+            note({ ...entry, outcome: "ok" });
+            return result;
         }
-        if (p.selected.length === 0) {
-            note({ ...entry, outcome: "noop" });
-            return { moves: [], unresolved: [], reviewtoken: p.result.reviewtoken, warnings: [], targets: [] };
+        // a snapshot store turns the apply into a dry run and says so
+        if (s.snapshotStore) {
+            note({ ...entry, outcome: "dryrun" });
+            return { ...result, dryrun: true };
         }
         lastMutation = "adopt";
+        // an unresolved name moves nothing; a vault skill's copy moves only when the vault copy was kept
+        const blocked = new Set(p.unresolved);
+        const movable = unique(p.moves.map((m) => m.name)).filter(
+            (n) => !blocked.has(n) && (!p.canonical.has(n) || p.keep[n] === KEEP_VAULT)
+        );
         const partial = s.partialAdopt;
         s.partialAdopt = null;
-        const names = partial ? p.moved.slice(0, partial.after) : p.moved;
+        const names = partial ? movable.slice(0, partial.after) : movable;
         for (const n of names) {
+            const leaving = unmanaged().filter((m) => m.name === n);
             s.skills.unmanaged = unmanaged().filter((m) => m.name !== n);
-            const states = {};
-            for (const col of s.skills.columns ?? []) {
-                if (col.present) {
-                    states[col.runtime] = "synced";
-                }
+            if (p.canonical.has(n)) {
+                // set aside under skills-replaced; the reconcile then writes the vault copy in its place
+                const row = s.skills.skills.find((k) => k.name === n);
+                leaving.forEach((m) => (row.states[m.runtime] = "synced"));
+                leaving.forEach((m) => (s.contents.dests[`${n}/${m.runtime}`] = s.contents.vault[n]));
+                continue;
             }
-            s.skills.skills.push({
-                name: n,
-                description: "Adopted by the fixture",
-                states,
-                sourcekind: "vault",
-                sourcepath: `${s.adopt.vaultRoot}/${n}/SKILL.md`,
-            });
+            s.skills.skills.push({ name: n, description: "Adopted by the fixture", states: presentStates() });
             s.contents.vault[n] = `adopted ${n}`;
-            if (s.skills.piskills) {
-                s.skills.piskills.states[n] = "available";
-            }
         }
         recomputeUnresolved();
         if (partial) {
@@ -311,7 +260,7 @@ export function createFixtureRuntime(fixture) {
             throw new Error(partial.message);
         }
         note({ ...entry, outcome: "ok", moved: names });
-        return p.result;
+        return result;
     };
 
     // ---- dispatch ----
@@ -326,8 +275,7 @@ export function createFixtureRuntime(fixture) {
             note({ kind: "read", command: "agentsyncskills", outcome: "ok" });
             return copy(s.skills);
         },
-        agentsyncsteeringwrite: (d) =>
-            write(d, { content: d.content, basemtime: d.basemtime, baseexists: d.baseexists, overwrite: d.overwrite === true }),
+        agentsyncsteeringwrite: write,
         agentsyncapply: apply,
         agentsyncadopt: adopt,
     };
@@ -347,7 +295,7 @@ export function createFixtureRuntime(fixture) {
             }
             // an attempted mutation is logged like any other attempt, so a no-mutation assertion cannot pass falsely
             if (command === "agentsyncsteeringwrite") {
-                note({ kind: "write-attempt", data: copy(data), outcome: "error", accepted: false });
+                note({ kind: "write-attempt", data: { content: data?.content, basemtime: data?.basemtime ?? 0 }, outcome: "error", accepted: false });
                 lastMutation = "save-failed";
             } else if (command === "agentsyncapply") {
                 note({ ...applyEntry(data), outcome: "error", reason: fault.message });
@@ -365,10 +313,13 @@ export function createFixtureRuntime(fixture) {
     // ---- scenario controls (outside the app's own call log) ----
 
     const ops = {
+        // an edit outside Arc: new content and a new mtime, so a save based on the old read conflicts.
+        // exists: false deletes the doc (mtime 0), which reads back empty
         setDisk: ({ content = "", exists = true }) => {
-            s.disk = { ...s.disk, content, exists, mtime: exists ? ++clock : 0 };
+            s.disk = { ...s.disk, content: exists ? content : "", mtime: exists ? tick() : 0 };
             markStale();
         },
+        // times: 1 fails only the next call, e.g. the first agentsyncstatus read a visit makes
         fail: ({ command, message, times }) => {
             if (message == null) {
                 delete faults[command];
@@ -385,8 +336,9 @@ export function createFixtureRuntime(fixture) {
         partialAdopt: (arg) => {
             s.partialAdopt = arg;
         },
-        changeReview: () => {
-            s.revision++;
+        // the store is an ARC_SNAPSHOT copy: an adopt apply moves nothing and returns dryrun
+        snapshotStore: ({ on = true }) => {
+            s.snapshotStore = on;
         },
         // the skill directory (with its SKILL.md) must already exist in the fixture's files, like every copy
         discoverNew: ({ name, runtime }) => {
@@ -395,7 +347,7 @@ export function createFixtureRuntime(fixture) {
         // a canonical edit lands in the vault source; shipped sources are read-only
         editSource: ({ name, content }) => {
             const row = (s.skills.skills ?? []).find((k) => k.name === name);
-            if (!row || row.sourcekind !== "vault") {
+            if (!row || s.contents.shipped[name] !== undefined) {
                 throw new Error(`setup fixture: "${name}" is not a user-owned vault skill`);
             }
             s.contents.vault[name] = content;
@@ -477,6 +429,11 @@ export function callSummary(snapshot) {
 // ---- datasets ----
 
 const SKILL_FILE = "SKILL.md";
+// the markers pkg/agentsync/steering.go writes around Arc's region of a harness file
+const STEERING_BEGIN = "<!-- ARC-STEERING:BEGIN (generated — do not edit; managed by Arc) -->";
+const STEERING_END = "<!-- ARC-STEERING:END -->";
+// one unbroken 200-character token, for a doc that must wrap rather than widen its box
+export const LONG_TOKEN = "0123456789".repeat(20);
 const skillDoc = (name, body, extra = "") => `---\nname: ${name}\ndescription: ${name} fixture skill\n${extra}---\n\n${body}\n`;
 
 function buildFixture(name, ownedDir) {
@@ -490,26 +447,20 @@ function buildFixture(name, ownedDir) {
     // content the in-page runtime rewrites on Apply: the vault body, what each harness holds, shipped sources
     const contents = { vault: {}, shipped: {}, dests: {}, deltas: {} };
 
-    // user-owned vault skills are real files so Open source has something canonical to open
+    // user-owned vault skills are real files so Open SKILL.md has something canonical to open
     const vaultSkill = (n, over = {}) => {
-        const path = join(vaultRoot, n, SKILL_FILE);
         const body = skillDoc(n, `${n} vault source body`);
-        addFile(path, body);
+        addFile(join(vaultRoot, n, SKILL_FILE), body);
         contents.vault[n] = body;
         for (const rt of Object.keys(roots)) {
+            // a link is no destination: Arc writes nothing through it
+            if (over.states?.[rt] === "linked") continue;
             contents.dests[`${n}/${rt}`] = over.states?.[rt] === "differs" ? skillDoc(n, `${n} stale harness body`) : body;
         }
-        return {
-            name: n,
-            description: `${n} fixture skill`,
-            states: { claude: "synced", codex: "synced" },
-            sourcekind: "vault",
-            sourcepath: path,
-            ...over,
-        };
+        return { name: n, description: `${n} fixture skill`, states: { claude: "synced", codex: "synced" }, ...over };
     };
     // the vault holds a stale replica of the shipped body plus the user's .arc deltas; Apply reseeds the
-    // body and must leave the deltas alone. sourcepath stays the repository-relative reference.
+    // body and must leave the deltas alone
     const shipped = (n, over = {}) => {
         const stale = skillDoc(n, `${n} shipped body v1`);
         const current = skillDoc(n, `${n} shipped body v2`);
@@ -525,25 +476,16 @@ function buildFixture(name, ownedDir) {
         }
         // claude loads a shipped skill from the arc plugin, so only codex holds a projected copy
         contents.dests[`${n}/codex`] = stale;
-        return {
-            name: n,
-            description: `${n} fixture skill`,
-            states: { claude: "plugin", codex: "differs" },
-            sourcekind: "shipped",
-            sourcepath: `skills/${n}/${SKILL_FILE}`,
-            ...over,
-        };
+        return { name: n, description: `${n} fixture skill`, states: { claude: "plugin", codex: "differs" }, ...over };
     };
 
-    const omitSourceKind = ({ sourcekind: _omitted, ...row }) => row;
     const managed = [
         vaultSkill("commit-helper", { deltas: { claude: ["model"] }, states: { claude: "synced", codex: "unmanaged" } }),
         vaultSkill("vault-drift", { states: { claude: "differs", codex: "synced" } }),
+        // codex's folder holds a link under this vault skill's name, listed in linked below
+        vaultSkill("vault-linked", { states: { claude: "synced", codex: "linked" } }),
         shipped("design", { deltas: { codex: ["agents/openai.yaml"] } }),
         shipped("cockpit"),
-        // ownership metadata that is unknown or absent must stay read-only even with a readable source path
-        vaultSkill("legacy-notes", { sourcekind: "unknown" }),
-        omitSourceKind(vaultSkill("plain-notes")),
     ];
 
     // moves[].from is the skill directory, as the RPC returns it; the SKILL.md sits beneath it. Bodies are
@@ -577,9 +519,9 @@ function buildFixture(name, ownedDir) {
             frontmatter: "model: fixture-model\n",
             extraFiles: { "agents/openai.yaml": "interface:\n  display_name: fixture\n" },
         }),
-        copyOf("claude", "ext-managed", { frontmatter: "managed-by: skills-manager\n" }),
-        // a local copy under a canonical name: shown as local/blocked, never adoptable over the vault skill
-        copyOf("codex", "commit-helper", { body: "commit-helper local shadow body" }),
+        // a local copy under a vault skill's name: compared against the vault, never unresolved, and moved
+        // (set aside) only when the vault copy is kept
+        copyOf("codex", "commit-helper", { body: "commit-helper local shadow body", vault: true, bodydiff: true }),
     ];
     // a shadow's destination holds the user's own bytes, not the vault body: sync must leave them alone
     for (const c of unmanagedCopies) {
@@ -590,88 +532,74 @@ function buildFixture(name, ownedDir) {
     // present on disk but not in the listing until a scenario calls discoverNew
     copyOf("claude", "late-arrival");
 
-    const piskills = {
-        sources: [
-            { entry: "~/.claude/skills", path: posix(roots.claude), runtime: "claude" },
-            { entry: "~/.arc/vault/skills", path: posix(vaultRoot) },
-            { entry: "npm:@fixture/pi-skills", path: "" },
-        ],
-        states: {
-            "commit-helper": "available",
-            "vault-drift": "not-synced",
-            "design": "available",
-            "cockpit": "available",
-            "legacy-notes": "unknown",
-            "plain-notes": "excluded",
-        },
-        note: "Global settings only: package, project and command-line sources are not evaluated here.",
-    };
-
     const columns = [
         { runtime: "claude", label: "Claude Code", present: true },
         { runtime: "codex", label: "Codex", present: true },
         { runtime: "opencode", label: "OpenCode", present: false },
     ];
+    // every link in a harness skills folder, a vault skill's name included: neither adopted nor written through
+    const link = (runtime, n) => ({ runtime, name: n, path: join(roots[runtime], n), target: join(ownedDir, "elsewhere", n) });
+    const linked = [link("claude", "linked-tool"), link("codex", "vault-linked")];
     const skills = {
         skills: managed,
         columns,
         skillsroot: vaultRoot,
         unmanaged: unmanagedCopies,
         unresolved: ["differs-body"],
-        piskills,
+        linked,
     };
-    const harness = (runtime, label, rel, present, steering) => ({
-        runtime,
-        label,
-        path: join(home, ...rel),
-        present,
-        steering,
-        skillsmanaged: 4,
-        skillsunmanaged: 2,
-    });
+
+    const sharedDoc = "# Shared instructions\n\nPrefer small diffs. Verify before claiming done.\n";
+    const longDoc = Array.from({ length: 60 }, (_, i) => `- rule ${i + 1}: keep changes small and verify them`).join("\n") + "\n";
+    const steering = {
+        path: join(ownedDir, "vault", "steering", "AGENTS.md"),
+        content: name === "setup-narrow" ? longDoc : sharedDoc,
+        // UnixMilli like the real RPC: saved an hour before the fixture was built
+        mtime: Date.now() - 60 * 60 * 1000,
+    };
+    // each present harness file holds the user's own lines and Arc's region, as the reconcile writes it
+    const region = (body) => `${STEERING_BEGIN}\n${body.trimEnd()}\n${STEERING_END}\n`;
+    const harnessFile = (runtime, steeringState) =>
+        `# My own ${runtime} notes\n\nKeep these.\n\n${region(steeringState === "stale" ? "# Shared instructions\n\nAn older version." : steering.content)}`;
+    const harness = (runtime, label, rel, present, steeringState, over = {}) => {
+        const path = join(home, ...rel);
+        if (present) {
+            addFile(path, harnessFile(runtime, steeringState));
+        }
+        return { runtime, label, path, present, steering: steeringState, skillsmanaged: 4, skillsunmanaged: 2, ...over };
+    };
     const status = {
         harnesses: [
             harness("claude", "Claude Code", [".claude", "CLAUDE.md"], true, "current"),
             harness("codex", "Codex", [".codex", "AGENTS.md"], true, "stale"),
+            harness("pi", "Pi", [".pi", "agent", "AGENTS.md"], true, "current", {
+                note: "pi settings do not point at the synced skills",
+                notetone: "warn",
+            }),
             harness("opencode", "OpenCode", [".config", "opencode", "AGENTS.md"], false, "absent"),
         ],
-        steeringdoc: join(ownedDir, "vault", "AGENTS.md"),
+        steeringdoc: steering.path,
         skillsroot: vaultRoot,
     };
-    const longDoc = Array.from({ length: 60 }, (_, i) => `- rule ${i + 1}: keep changes small and verify them`).join("\n") + "\n";
-    const steering = {
-        path: status.steeringdoc,
-        content: name === "setup-narrow" ? longDoc : "# Shared instructions\n\nPrefer small diffs. Verify before claiming done.\n",
-        exists: true,
-        mtime: 1000,
-    };
 
-    const patchSkills = (mutate) => {
-        const c = JSON.parse(JSON.stringify(skills));
+    const patch = (value, mutate) => {
+        const c = JSON.parse(JSON.stringify(value));
         mutate(c);
         return c;
     };
     const variants = {
-        "no-skills": { skills: patchSkills((c) => Object.assign(c, { skills: [], unmanaged: [], unresolved: [], piskills: { sources: [], states: {}, note: "No skills." } })) },
-        "unavailable-column": { skills: patchSkills((c) => c.columns.forEach((col) => (col.present = false))) },
-        "pi-direct-vault": {
-            skills: patchSkills((c) => {
-                c.piskills.sources = [{ entry: posix(vaultRoot), path: posix(vaultRoot) }];
-                Object.keys(c.piskills.states).forEach((k) => (c.piskills.states[k] = "available"));
-            }),
-        },
-        "pi-excluded-unknown": {
-            skills: patchSkills((c) => {
-                Object.keys(c.piskills.states).forEach((k, i) => (c.piskills.states[k] = i % 2 ? "unknown" : "excluded"));
-                c.piskills.note = "settings.json could not be parsed; availability is unknown.";
-            }),
-        },
-        "pi-unavailable": {
-            skills: patchSkills((c) => Object.keys(c.piskills.states).forEach((k) => (c.piskills.states[k] = "unavailable"))),
-        },
-        "pi-absent": { skills: patchSkills((c) => delete c.piskills) },
-        "doc-absent": { steering: { ...steering, content: "", exists: false, mtime: 0 } },
+        "no-skills": { skills: patch(skills, (c) => Object.assign(c, { skills: [], unmanaged: [], unresolved: [], linked: [] })) },
+        "unavailable-column": { skills: patch(skills, (c) => c.columns.forEach((col) => (col.present = false))) },
+        "doc-absent": { steering: { ...steering, content: "", mtime: 0 } },
         "long-doc": { steering: { ...steering, content: longDoc } },
+        // an empty shared doc: every present harness is blank, whatever its file holds
+        blank: {
+            steering: { ...steering, content: "" },
+            status: patch(status, (c) => c.harnesses.filter((x) => x.present).forEach((x) => (x.steering = "blank"))),
+        },
+        "long-token": { steering: { ...steering, content: `${LONG_TOKEN}\n` } },
+        // pi is set up but has not received the doc yet
+        "not-written": { status: patch(status, (c) => (c.harnesses.find((x) => x.runtime === "pi").steering = "absent")) },
     };
 
     return {
@@ -682,19 +610,7 @@ function buildFixture(name, ownedDir) {
         status,
         steering,
         skills,
-        adopt: {
-            trees,
-            vaultRoot: posix(vaultRoot),
-            destinations: { claude: posix(roots.claude), codex: posix(roots.codex) },
-            declarations: [
-                {
-                    name: "ext-managed",
-                    runtime: "claude",
-                    path: posix(join(roots.claude, "ext-managed", SKILL_FILE)),
-                    declaration: "managed-by: skills-manager",
-                },
-            ],
-        },
+        adopt: { trees, destinations: { claude: posix(roots.claude), codex: posix(roots.codex) } },
         variants,
     };
 }

@@ -76,6 +76,11 @@ function sharedRepo(p: MemHygieneProject): string {
     return repoName(p.path, p.formershared || p.folder);
 }
 
+function sameFolder(a: string, b: string): boolean {
+    const norm = (s: string) => s.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+    return a !== "" && norm(a) === norm(b);
+}
+
 // an undecided change: open, or found changed on disk and waiting on a fresh check. memhygiene.Pending
 // in pkg/memhygiene/split.go mirrors it.
 export function isPending(c: MemChange): boolean {
@@ -95,6 +100,12 @@ function switched(p: MemHygieneProject): boolean {
     return isSplit(p) && settingsChange(p)?.status === "applied";
 }
 
+// the user kept the shared memory: its move-here changes are moot until Review again, and the weekly
+// sweep skips it (sweepDue in pkg/memhygiene/sweep.go)
+function keptSharing(p: MemHygieneProject): boolean {
+    return isSplit(p) && settingsChange(p)?.status === "kept";
+}
+
 // the note beside Check now once a check the user started has ended. a check with nothing new to judge
 // ends in well under a second, so without it the click reads as dead. a failure's reason is on the check line.
 export function checkResult(p: MemHygieneProject): StatusText {
@@ -108,7 +119,7 @@ export function checkResult(p: MemHygieneProject): StatusText {
 }
 
 function hasPending(p: MemHygieneProject): boolean {
-    return p.changes.some(isPending);
+    return !keptSharing(p) && p.changes.some(isPending);
 }
 
 export function projectsToReview(projects: MemHygieneProject[]): number {
@@ -122,10 +133,28 @@ export function railOrder(projects: MemHygieneProject[]): MemHygieneProject[] {
 
 export function toolbarStatus(projects: MemHygieneProject[]): StatusText {
     const n = projectsToReview(projects);
-    if (n === 0) {
-        return { text: "Every project checked", tone: "ok" };
+    const failed = projects.filter((p) => p.lasterror).length;
+    const unchecked = projects.filter((p) => !p.checkedat && !p.lasterror).length;
+    if (n > 0) {
+        const tail = failed > 0 ? ` · ${count(failed, "check")} failed` : "";
+        return { text: `${count(n, "project")} to review${tail}`, tone: "warn" };
     }
-    return { text: `${count(n, "project")} to review`, tone: "warn" };
+    if (failed > 0) {
+        return { text: `${count(failed, "check")} failed`, tone: "warn" };
+    }
+    if (unchecked > 0) {
+        return { text: `${unchecked.toLocaleString("en-US")} not checked yet`, tone: "none" };
+    }
+    return { text: "Every project checked", tone: "ok" };
+}
+
+export function railFoot(projects: MemHygieneProject[]): string {
+    const kept = projects.filter(keptSharing).length;
+    const except = kept === 0 ? "" : `, except ${kept === 1 ? "one" : kept} kept sharing`;
+    return (
+        `Claude Code loads the first ${LIMIT_LINES} lines or ${LIMIT_BYTES / 1000} KB of a project's MEMORY.md. ` +
+        `Arc checks every project once a week${except}.`
+    );
 }
 
 export interface RailRow {
@@ -146,10 +175,11 @@ function railStatus(p: MemHygieneProject): StatusText {
     if (p.checking) {
         return { text: "Checking…", tone: "none" };
     }
+    // a state file that could not be read lists with only lasterror set
     if (!p.checkedat) {
-        return { text: "Not checked yet", tone: "none" };
+        return p.lasterror ? { text: "Last check failed", tone: "warn" } : { text: "Not checked yet", tone: "none" };
     }
-    if (isSplit(p) && settingsChange(p)?.status === "kept") {
+    if (keptSharing(p)) {
         return { text: "Kept sharing", tone: "none" };
     }
     const n = p.changes.filter(isPending).length;
@@ -167,7 +197,7 @@ export function railRow(p: MemHygieneProject): RailRow {
     const empty = tone === "ok" && !isSplit(p) && p.index.lines === 0;
     const row = { name: p.project, status, tone, empty };
     if (!p.checkedat) {
-        // the status already says "Not checked yet"; repeating it in the meter shows it twice
+        // the status already says why there is nothing to meter; repeating it shows it twice
         return { ...row, pct: 0, meter: "" };
     }
     if (isSplit(p) && !switched(p)) {
@@ -309,8 +339,8 @@ export function changeGroups(p: MemHygieneProject): ChangeGroup[] {
         },
         {
             key: "own",
-            label: "Already in its own folder",
-            hint: "Files left by the old memory harvester; no session loads them yet",
+            label: `${p.project}’s own memory`,
+            hint: switched(p) ? `Loaded by ${p.project} sessions` : "Loaded once you switch over",
             changes: [],
         },
         { key: "switch", label: "Switch over", hint: "", changes: [] },
@@ -326,10 +356,11 @@ function changeOrder(p: MemHygieneProject): MemChange[] {
     return changeGroups(p).flatMap((g) => g.changes);
 }
 
-// with nothing chosen yet, or the chosen one gone, open the first change still to review
+// with nothing chosen yet, or the chosen one gone, open the first change still to review. with nothing
+// pending, open none: a decided change shown unasked put a live Undo under a stray u.
 export function pickChange(p: MemHygieneProject, id: string | null): MemChange | null {
     const order = changeOrder(p);
-    return order.find((c) => c.id === id) ?? order.find(isPending) ?? order[0] ?? null;
+    return order.find((c) => c.id === id) ?? order.find(isPending) ?? null;
 }
 
 export interface MemorySelection {
@@ -420,9 +451,16 @@ export function switchGate(p: MemHygieneProject, change: MemChange): Gate {
     };
 }
 
+// an applied change whose backup is gone can't be undone (entryUndo refuses it)
+export function undoExpired(change: MemChange, now: number): boolean {
+    return change.status === "applied" && change.backupuntil > 0 && change.backupuntil < now;
+}
+
 export function closedText(p: MemHygieneProject, change: MemChange, now: number): string {
     if (change.status === "kept") {
-        return "Kept as is. The next check skips it unless the memory changes.";
+        return change.kind === "settings"
+            ? `Kept sharing. Arc no longer checks ${p.project} each week; Check now still does.`
+            : "Kept as is. The next check skips it unless the memory changes.";
     }
     if (change.status !== "applied") {
         return "";
@@ -437,7 +475,9 @@ export function closedText(p: MemHygieneProject, change: MemChange, now: number)
     if (settings) {
         text += ` New ${p.project} sessions load its own memory.`;
     }
-    if (change.backupuntil) {
+    if (undoExpired(change, now)) {
+        text += ` The backup expired on ${monthDay(change.backupuntil)}, so this can't be undone.`;
+    } else if (change.backupuntil) {
         text += ` Arc kept a copy of the old ${settings ? "settings" : "files"} until ${monthDay(change.backupuntil)}.`;
     }
     return text;
@@ -479,6 +519,32 @@ export function kindLabel(p: MemHygieneProject, change: MemChange): string {
         default:
             return change.kind;
     }
+}
+
+// a diff's file named by its role, as the index cards name them: a MEMORY.md in the shared (or former
+// shared) folder is the repo's, one in the own folder the project's; anything else goes by its name.
+export function diffLabel(p: MemHygieneProject, path: string): string {
+    const name = basename(path);
+    if (name !== "MEMORY.md") {
+        return name;
+    }
+    const dir = path.replace(/[\\/][^\\/]*$/, "");
+    if (sameFolder(p.formershared || (isSplit(p) ? p.folder : ""), dir)) {
+        return `${sharedRepo(p)}’s MEMORY.md`;
+    }
+    if (sameFolder(p.ownfolder, dir)) {
+        return `${p.project}’s MEMORY.md`;
+    }
+    return name;
+}
+
+// below this measured tab width the change detail overlays the table: at 1000x700 a 400px column left the
+// center 258px
+export const MEMORY_OVERLAY_PX = 1200;
+
+export function memoryDetailLayout(width: number): "column" | "overlay" {
+    // 0 = not measured yet; a column first avoids an overlay that flashes and vanishes
+    return width > 0 && width < MEMORY_OVERLAY_PX ? "overlay" : "column";
 }
 
 // the memory files a change acts on, for the table's second line.

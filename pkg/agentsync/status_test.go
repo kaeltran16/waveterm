@@ -4,6 +4,7 @@
 package agentsync
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -77,13 +78,43 @@ func TestStatusCountsManagedAndUnmanagedSkills(t *testing.T) {
 func TestPiSkillsNote(t *testing.T) {
 	claudeSkills := filepath.Join("C:", "Users", "k", ".claude", "skills")
 	vaultSkills := filepath.Join("C:", "vault", "skills")
-	if note := piSkillsNote([]string{claudeSkills, "!" + filepath.Join(claudeSkills, "simplify")}, claudeSkills, vaultSkills); !strings.Contains(note, "vault") {
+	if note, _ := piSkillsNote([]string{claudeSkills, "!" + filepath.Join(claudeSkills, "simplify")}, claudeSkills, vaultSkills); !strings.Contains(note, "vault") {
 		t.Errorf("note = %q: a pointer at the claude skills dir must say Arc's own skills are only in the vault", note)
 	}
-	if note := piSkillsNote([]string{vaultSkills}, claudeSkills, vaultSkills); note == "" {
+	if note, _ := piSkillsNote([]string{vaultSkills}, claudeSkills, vaultSkills); note == "" {
 		t.Error("a pointer straight at the vault must be reported as reaching the farm")
 	}
-	if note := piSkillsNote([]string{filepath.Join("C:", "elsewhere")}, claudeSkills, vaultSkills); note == "" {
+	if note, _ := piSkillsNote([]string{filepath.Join("C:", "elsewhere")}, claudeSkills, vaultSkills); note == "" {
 		t.Error("a pointer at neither must produce a warning note, not an empty one")
+	}
+}
+
+func TestPiNoteTone(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		skills func(p Paths) []string
+		tone   string
+	}{
+		{"vault direct", func(p Paths) []string { return []string{p.SkillsRoot} }, noteToneOK},
+		{"via claude", func(p Paths) []string { return []string{filepath.Join(p.Home, ".claude", "skills")} }, noteToneWarn},
+		{"no pointer", func(p Paths) []string { return nil }, noteToneWarn},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := testPaths(t, "canonical\n", filepath.Join(".pi", "agent"))
+			settings, err := json.Marshal(map[string]any{"skills": tc.skills(p)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, filepath.Join(p.Home, ".pi", "agent", "settings.json"), string(settings))
+			st, err := Status(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, s := range st {
+				if s.Runtime == "pi" && (s.NoteTone != tc.tone || s.Note == "") {
+					t.Fatalf("pi = %+v, want a note in the %s tone", s, tc.tone)
+				}
+			}
+		})
 	}
 }

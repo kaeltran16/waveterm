@@ -15,9 +15,23 @@ export const MEMORY_PROJECTS = {
     fresh: "verify-mem-new",
     failed: "verify-mem-failed",
     checking: "verify-mem-checking",
+    kept: "verify-mem-kept",
+    expired: "verify-mem-expired",
+    unreadable: "verify-mem-unreadable",
 };
 
 export const MEMORY_FAILED_ERROR = "judge returned malformed JSON";
+
+// the unreadable project's state file: not JSON, so the backend lists it with only lasterror set
+export const MEMORY_UNREADABLE_STATE = "{ this state file is not JSON";
+
+// an unbroken 120-character token on a diff line, which must wrap inside the diff block
+export const MEMORY_LONG_TOKEN = (
+    createHash("sha256").update("a").digest("hex") + createHash("sha256").update("b").digest("hex")
+).slice(0, 120);
+
+// an evidence item whose text runs straight into its code quote, with no space between
+export const MEMORY_TIGHT_EVIDENCE = { tone: "ok", text: "The build script names it", code: "scripts/build.mjs:12" };
 
 // the shared folder is named for this repo's slug, so the tab names the repo as the memory's owner
 export const MEMORY_SHARED_REPO = "monorepo";
@@ -248,7 +262,7 @@ export function buildMemoryFixture(root, now = Date.now()) {
             "name: Harvested note",
             "description: vitest needs --stack-size for tsc here",
             "source: codex",
-            "source_hash: 3f2a9c",
+            `source_hash: ${MEMORY_LONG_TOKEN}`,
             "harvested_at: 2026-08-02",
             "---",
             "",
@@ -273,6 +287,7 @@ export function buildMemoryFixture(root, now = Date.now()) {
             evidence: [
                 { tone: "none", text: "Records one past check (2026-07-24, commit 64bc188f), not a rule", code: "" },
                 { tone: "ok", text: "The reference still exists: ", code: "scripts/build.mjs" },
+                MEMORY_TIGHT_EVIDENCE,
             ],
             diffs: [
                 {
@@ -363,7 +378,7 @@ export function buildMemoryFixture(root, now = Date.now()) {
                 {
                     path: "harvested-note.md",
                     note: "frontmatter",
-                    lines: diffLines("-", "source: codex\nsource_hash: 3f2a9c\nharvested_at: 2026-08-02"),
+                    lines: diffLines("-", `source: codex\nsource_hash: ${MEMORY_LONG_TOKEN}\nharvested_at: 2026-08-02`),
                 },
             ],
             op: { folder: own, memories: ["harvested-note.md"], indexadd: line.harvested, stripharvester: true },
@@ -374,24 +389,33 @@ export function buildMemoryFixture(root, now = Date.now()) {
     const mono = repo(MEMORY_SHARED_REPO);
     const splitAPath = join(mono, "split-a");
     const splitBPath = join(mono, "split-b");
+    // split-c kept sharing: its switch-over is kept, so its move-here waits on Review again
+    const splitCPath = join(mono, "split-c");
     write(join(splitAPath, "README.md"), "# split-a\n");
     write(join(splitBPath, "README.md"), "# split-b\n");
+    write(join(splitCPath, "README.md"), "# split-c\n");
     const shared = claudeFolder(mono);
     const sharedIndex = join(shared, INDEX);
     const ownA = claudeFolder(splitAPath);
     const ownB = claudeFolder(splitBPath);
+    const ownC = claudeFolder(splitCPath);
     const sline = {
         build: "- [split-a build](split-a-build.md) — split-a builds with vite, not webpack",
         deploy: "- [split-a deploy](split-a-deploy.md) — split-a deploys from the release branch",
         lint: "- [Shared lint rule](shared-lint.md) — both subprojects lint with the root config",
         api: "- [split-b api](split-b-api.md) — split-b's api client is generated",
+        notes: "- [split-c notes](split-c-notes.md) — split-c ships as a static bundle",
     };
-    write(sharedIndex, ["# Memory index", "", sline.build, sline.deploy, sline.lint, sline.api, ""].join("\n"));
+    write(
+        sharedIndex,
+        ["# Memory index", "", sline.build, sline.deploy, sline.lint, sline.api, sline.notes, ""].join("\n")
+    );
     const sharedMemory = (name, body) => write(join(shared, name), memoryFile(name.replace(/\.md$/, ""), body, body));
     sharedMemory("split-a-build.md", "split-a builds with vite, not webpack");
     sharedMemory("split-a-deploy.md", "split-a deploys from the release branch");
     sharedMemory("shared-lint.md", "both subprojects lint with the root config");
     sharedMemory("split-b-api.md", "split-b's api client is generated");
+    sharedMemory("split-c-notes.md", "split-c ships as a static bundle");
     const leftover = write(
         join(ownA, "old-harvest.md"),
         memoryFile("old harvest", "a codex note", "A note the old harvester copied from codex.")
@@ -498,6 +522,49 @@ export function buildMemoryFixture(root, now = Date.now()) {
         decidedat: failedCheckedAt + HOUR_MS,
     });
 
+    // ---- split-c, kept sharing: a move-here still open behind a kept switch-over ----
+    const settingsC = join(splitCPath, ".claude", "settings.local.json");
+    const keptChanges = {
+        moveNotes: moveOrCopy("move-here", "split-c-notes.md", sline.notes, ownC, MEMORY_PROJECTS.kept, []),
+        settings: change("settings", {
+            paths: [[settingsC]],
+            group: "switch",
+            title: `Point Claude Code at ${MEMORY_PROJECTS.kept}’s memory`,
+            applylabel: "Switch memory",
+            effect: "1 setting",
+            diffs: [
+                {
+                    path: settingsC,
+                    note: "+1 key",
+                    lines: diffLines("+", `  "autoMemoryDirectory": ${JSON.stringify(ownC)},`),
+                },
+            ],
+            op: { settingspath: settingsC, settingsvalue: ownC },
+            status: "kept",
+            decidedat: checkedAt,
+        }),
+    };
+
+    // ---- an applied change whose backup has expired, so it can't be undone; nothing left to review ----
+    const expiredRepo = repo("expired-repo");
+    const expiredFolder = claudeFolder(expiredRepo);
+    const expiredIndex = write(join(expiredFolder, INDEX), "# Memory index\n");
+    const expiredDecidedAt = now - 40 * DAY_MS;
+    const expiredChange = change("delete", {
+        paths: [[join(expiredFolder, "stale-note.md"), true]],
+        title: "A stale note deleted last month",
+        applylabel: "Delete memory",
+        effect: "File −120 B",
+        evidence: [{ tone: "none", text: "Read in 0 of 30 sessions", code: "" }],
+        op: { folder: expiredFolder, memories: ["stale-note.md"] },
+        status: "applied",
+        decidedat: expiredDecidedAt,
+        backupuntil: now - 10 * DAY_MS,
+        applyid: "verify-mem-expired-apply",
+    });
+
+    const unreadableRepo = repo("unreadable-repo");
+
     const states = {
         [MEMORY_PROJECTS.own]: project(MEMORY_PROJECTS.own, ownRepo, {
             ...checked,
@@ -540,6 +607,24 @@ export function buildMemoryFixture(root, now = Date.now()) {
             changes: [failedKept],
         }),
         [MEMORY_PROJECTS.checking]: project(MEMORY_PROJECTS.checking, checkingRepo, { checking: true }),
+        [MEMORY_PROJECTS.kept]: project(MEMORY_PROJECTS.kept, splitCPath, {
+            ...checked,
+            memories: 5,
+            sessions: 6,
+            folder: shared,
+            sharedwith: [MEMORY_PROJECTS.splitA, MEMORY_PROJECTS.splitB],
+            ownfolder: ownC,
+            index: indexStats(sharedIndex),
+            ownindex: indexStats(join(ownC, INDEX)),
+            changes: Object.values(keptChanges),
+        }),
+        [MEMORY_PROJECTS.expired]: project(MEMORY_PROJECTS.expired, expiredRepo, {
+            ...checked,
+            sessions: 30,
+            folder: expiredFolder,
+            index: indexStats(expiredIndex),
+            changes: [expiredChange],
+        }),
     };
 
     return {
@@ -553,10 +638,22 @@ export function buildMemoryFixture(root, now = Date.now()) {
             { name: MEMORY_PROJECTS.fresh, path: freshRepo },
             { name: MEMORY_PROJECTS.failed, path: failedRepo },
             { name: MEMORY_PROJECTS.checking, path: checkingRepo },
+            { name: MEMORY_PROJECTS.kept, path: splitCPath },
+            { name: MEMORY_PROJECTS.expired, path: expiredRepo },
+            { name: MEMORY_PROJECTS.unreadable, path: unreadableRepo },
         ],
         states,
+        // written as is, beside states: a state file that is not JSON
+        brokenStates: { [MEMORY_PROJECTS.unreadable]: MEMORY_UNREADABLE_STATE },
+        // the state a project with no readable state file gets once checked, for settleMemoryStates
+        uncheckedStates: {
+            [MEMORY_PROJECTS.fresh]: project(MEMORY_PROJECTS.fresh, freshRepo, {}),
+            [MEMORY_PROJECTS.unreadable]: project(MEMORY_PROJECTS.unreadable, unreadableRepo, {}),
+        },
         ownChanges,
         splitChanges,
+        keptChanges,
+        expiredChange,
         paths: {
             own,
             ownIndex,
@@ -572,24 +669,30 @@ export function buildMemoryFixture(root, now = Date.now()) {
     };
 }
 
-// writeMemoryStates writes each state to <dataDir>/memhygiene/<FileName>.json and returns the paths.
+// writeMemoryStates writes each state to <dataDir>/memhygiene/<FileName>.json and returns the paths. A string
+// state is written as is.
 export function writeMemoryStates(dataDir, states) {
     const out = [];
     for (const [name, state] of Object.entries(states)) {
         const path = memoryStatePath(dataDir, name);
         mkdirSync(dirname(path), { recursive: true });
-        writeFileSync(path, JSON.stringify(state, null, 2));
+        writeFileSync(path, typeof state === "string" ? state : JSON.stringify(state, null, 2));
         out.push(path);
     }
     return out;
 }
 
-// settleMemoryStates returns the states with every undecided change kept, so no project has one to review.
+// settleMemoryStates returns the states with every undecided change kept and every project checked with no
+// failure, so the toolbar has nothing to count.
 export function settleMemoryStates(states, now = Date.now()) {
     const out = {};
     for (const [name, state] of Object.entries(states)) {
         out[name] = {
             ...state,
+            checking: false,
+            lasterror: "",
+            checkedat: state.checkedat || now,
+            nextcheckat: state.nextcheckat || now + CHECK_INTERVAL_MS,
             changes: state.changes.map((c) =>
                 c.status === "applied" || c.status === "kept"
                     ? c

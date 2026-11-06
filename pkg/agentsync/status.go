@@ -17,14 +17,21 @@ type HarnessStatus struct {
 	Runtime  string `json:"runtime"`
 	Label    string `json:"label"`
 	Present  bool   `json:"present"`
-	Steering string `json:"steering"` // current | stale | absent
+	Steering string `json:"steering"` // current | stale | absent | blank
 	// Path is the harness's steering file, whether or not it exists yet.
 	Path string `json:"path"`
 	// SkillsManaged counts skill directories Arc wrote; SkillsUnmanaged counts the user's own.
 	SkillsManaged   int    `json:"skillsmanaged"`
 	SkillsUnmanaged int    `json:"skillsunmanaged"`
 	Note            string `json:"note,omitempty"`
+	// NoteTone is ok | warn, decided here so the frontend never matches note text.
+	NoteTone string `json:"notetone,omitempty"`
 }
+
+const (
+	noteToneOK   = "ok"
+	noteToneWarn = "warn"
+)
 
 func Status(p Paths) ([]HarnessStatus, error) {
 	canonicalBody, err := os.ReadFile(p.SteeringDoc)
@@ -48,7 +55,7 @@ func Status(p Paths) ([]HarnessStatus, error) {
 			for _, e := range observed {
 				if e.Managed {
 					st.SkillsManaged++
-				} else if isSkillDir(dir, e.Name) {
+				} else if !e.Linked && isSkillDir(dir, e.Name) {
 					st.SkillsUnmanaged++
 				}
 			}
@@ -58,7 +65,7 @@ func Status(p Paths) ([]HarnessStatus, error) {
 			if cl, ok := harness.Lookup("claude"); ok {
 				claudeSkills = cl.SkillsPath(p.Home)
 			}
-			st.Note = piSkillsNote(piSettingsSkills(spec.ConfigRoot(p.Home)), claudeSkills, p.SkillsRoot)
+			st.Note, st.NoteTone = piSkillsNote(piSettingsSkills(spec.ConfigRoot(p.Home)), claudeSkills, p.SkillsRoot)
 		}
 		out = append(out, st)
 	}
@@ -88,8 +95,8 @@ func sameTarget(a, b string) bool {
 }
 
 // piSkillsNote describes how pi reaches the synced skills, or warns that it does not. A "!" prefix
-// is an exclusion entry, not a search path.
-func piSkillsNote(entries []string, claudeSkills, vaultSkills string) string {
+// is an exclusion entry, not a search path. The tone is ok only when pi reaches every synced skill.
+func piSkillsNote(entries []string, claudeSkills, vaultSkills string) (string, string) {
 	for _, e := range entries {
 		if strings.HasPrefix(e, "!") {
 			continue
@@ -100,11 +107,11 @@ func piSkillsNote(entries []string, claudeSkills, vaultSkills string) string {
 		}
 		if claudeSkills != "" && sameTarget(expanded, claudeSkills) {
 			// claude loads Arc's shipped skills from the arc plugin, so that directory never holds them
-			return "via " + claudeSkills + ", without Arc's own skills: point pi at the vault for those"
+			return "via " + claudeSkills + ", without Arc's own skills: point pi at the vault for those", noteToneWarn
 		}
 		if sameTarget(expanded, vaultSkills) {
-			return "via the vault directly"
+			return "via the vault directly", noteToneOK
 		}
 	}
-	return "pi settings do not point at the synced skills"
+	return "pi settings do not point at the synced skills", noteToneWarn
 }

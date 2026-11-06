@@ -14,6 +14,7 @@ import { atom, type PrimitiveAtom } from "jotai";
 import {
     checkResult,
     isPending,
+    memoryDetailLayout,
     nextPending,
     resolveSelection,
     type MemorySelection,
@@ -38,6 +39,10 @@ export const memoryBusyAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
 export const memoryCheckResultAtom = atom<CheckResult | null>(null) as PrimitiveAtom<CheckResult | null>;
 // an Apply all in flight: its group and how far it got
 export const memoryBulkAtom = atom<BulkProgress | null>(null) as PrimitiveAtom<BulkProgress | null>;
+// the tab's measured width (0 = not measured) and whether the detail sheet is open over a narrow tab, so
+// Escape can close the sheet only while there is one to close
+export const memoryTabWidthAtom = atom<number>(0) as PrimitiveAtom<number>;
+export const memoryDetailOpenAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
 
 export interface BulkProgress {
     project: string;
@@ -97,10 +102,23 @@ export function subscribeMemory(): () => void {
 export function selectMemoryProject(name: string): void {
     globalStore.set(memorySelectedProjectAtom, name);
     globalStore.set(memorySelectedChangeAtom, null);
+    globalStore.set(memoryDetailOpenAtom, false);
 }
 
 export function selectMemoryChange(id: string): void {
     globalStore.set(memorySelectedChangeAtom, id);
+}
+
+// a click or Enter on a row: select it and, on a narrow tab, open its sheet
+export function openMemoryChange(id: string): void {
+    selectMemoryChange(id);
+    globalStore.set(memoryDetailOpenAtom, true);
+}
+
+export function memorySheetOpen(): boolean {
+    return (
+        globalStore.get(memoryDetailOpenAtom) && memoryDetailLayout(globalStore.get(memoryTabWidthAtom)) === "overlay"
+    );
 }
 
 async function busy(fn: () => Promise<void>): Promise<void> {
@@ -176,9 +194,44 @@ function advanceFrom(updated: MemHygieneProject | null, changeId: string): void 
     }
 }
 
+interface Shown {
+    project: string | null;
+    change: string | null;
+    projectAtom: string | null;
+    changeAtom: string | null;
+}
+
+function shownNow(): Shown {
+    const sel = memorySelection();
+    return {
+        project: sel.project?.project ?? null,
+        change: sel.change?.id ?? null,
+        projectAtom: globalStore.get(memorySelectedProjectAtom),
+        changeAtom: globalStore.get(memorySelectedChangeAtom),
+    };
+}
+
+// a change shown by default leaves both atoms null, and once nothing is pending pickChange (and the rail
+// order) would drop it; pin what was shown so the decided change stays with its Undo. a selection the user
+// moved while the verdict ran is left alone.
+function pinShown(before: Shown, project: string, changeId: string): void {
+    if (
+        before.project !== project ||
+        before.change !== changeId ||
+        globalStore.get(memorySelectedProjectAtom) !== before.projectAtom ||
+        globalStore.get(memorySelectedChangeAtom) !== before.changeAtom
+    ) {
+        return;
+    }
+    globalStore.set(memorySelectedProjectAtom, project);
+    globalStore.set(memorySelectedChangeAtom, changeId);
+}
+
 export function decideMemory(project: string, changeId: string, verdict: MemVerdict): Promise<void> {
+    const before = shownNow();
     return busy(async () => {
         const updated = await decideOne(project, changeId, verdict);
+        pinShown(before, project, changeId);
         if (verdict === "apply" || verdict === "keep") {
             advanceFrom(updated, changeId);
         }
@@ -188,7 +241,7 @@ export function decideMemory(project: string, changeId: string, verdict: MemVerd
 // one apply at a time: each rewrites the same MEMORY.md. a failure stops the run where it is; a change found
 // changed on disk is marked so and the run goes on.
 export function applyMemoryGroup(project: string, group: string, ids: string[]): Promise<void> {
-    const shownBefore = memorySelection().change?.id ?? null;
+    const before = shownNow();
     return busy(async () => {
         let updated: MemHygieneProject | null = null;
         try {
@@ -198,8 +251,12 @@ export function applyMemoryGroup(project: string, group: string, ids: string[]):
             }
         } finally {
             globalStore.set(memoryBulkAtom, null);
-            if (shownBefore != null) {
-                advanceFrom(updated, shownBefore);
+            // the run advances from what was shown, never from its own last id
+            if (before.change != null && ids.includes(before.change)) {
+                pinShown(before, project, before.change);
+            }
+            if (before.change != null) {
+                advanceFrom(updated, before.change);
             }
         }
     });

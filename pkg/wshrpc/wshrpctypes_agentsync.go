@@ -15,14 +15,17 @@ type AgentSyncCommands interface {
 }
 
 type AgentSyncHarness struct {
-	Runtime         string `json:"runtime"`
-	Label           string `json:"label"`
-	Path            string `json:"path"`
-	Present         bool   `json:"present"`
+	Runtime string `json:"runtime"`
+	Label   string `json:"label"`
+	Path    string `json:"path"`
+	Present bool   `json:"present"`
+	// Steering is current | stale | absent | blank (blank: the shared doc is empty).
 	Steering        string `json:"steering"`
 	SkillsManaged   int    `json:"skillsmanaged"`
 	SkillsUnmanaged int    `json:"skillsunmanaged"`
 	Note            string `json:"note,omitempty"`
+	// NoteTone is ok | warn: the backend knows which note is a warning, the frontend must not match text.
+	NoteTone string `json:"notetone,omitempty"`
 }
 
 type AgentSyncAction struct {
@@ -50,7 +53,12 @@ type CommandAgentSyncAdoptData struct {
 	Apply bool `json:"apply,omitempty"`
 	// Keep maps a skill name to the runtime whose copy seeds it; every other copy is set aside.
 	Keep map[string]string `json:"keep,omitempty"`
+	// Skip names the user chose to leave alone: nothing of them moves or is set aside, even with a keep.
+	Skip []string `json:"skip,omitempty"`
 }
+
+// AgentSyncKeepVault is the keep value that picks the vault copy for a vault skill's stray copies.
+const AgentSyncKeepVault = "vault"
 
 // AgentSyncSkillMove is one harness-local skill tree folded into the vault. Seed marks the copy that
 // becomes the shared tree; Keys and Files are what a later copy overrides.
@@ -62,11 +70,15 @@ type AgentSyncSkillMove struct {
 	Keys     []string `json:"keys,omitempty"`
 	Files    []string `json:"files,omitempty"`
 	BodyDiff bool     `json:"bodydiff"`
+	// Vault marks a copy whose name is already a vault skill.
+	Vault bool `json:"vault,omitempty"`
 }
 
 type CommandAgentSyncAdoptRtnData struct {
 	Moves      []AgentSyncSkillMove `json:"moves,omitempty"`
 	Unresolved []string             `json:"unresolved,omitempty"`
+	// DryRun is true when nothing was moved (a snapshot).
+	DryRun bool `json:"dryrun,omitempty"`
 }
 
 type CommandAgentSyncSteeringReadRtnData struct {
@@ -89,7 +101,7 @@ type CommandAgentSyncSteeringWriteRtnData struct {
 type AgentSyncSkill struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
-	// States maps runtime -> synced | differs | unmanaged | absent.
+	// States maps runtime -> synced | differs | unmanaged | linked | absent.
 	States map[string]string `json:"states"`
 	// Deltas maps runtime -> the frontmatter keys and sidecar files it overrides.
 	Deltas map[string][]string `json:"deltas,omitempty"`
@@ -102,6 +114,15 @@ type AgentSyncSkillColumn struct {
 	Present bool   `json:"present"`
 }
 
+// AgentSyncSkillLink is a link in a harness skills folder, a vault skill's name included: Arc never adopts
+// it or writes through it.
+type AgentSyncSkillLink struct {
+	Runtime string `json:"runtime"`
+	Name    string `json:"name"`
+	Path    string `json:"path"`
+	Target  string `json:"target"`
+}
+
 type CommandAgentSyncSkillsRtnData struct {
 	Skills     []AgentSyncSkill       `json:"skills"`
 	Columns    []AgentSyncSkillColumn `json:"columns"`
@@ -109,4 +130,7 @@ type CommandAgentSyncSkillsRtnData struct {
 	// Unmanaged and Unresolved are what an adopt would do, ungrouped: the frontend groups them.
 	Unmanaged  []AgentSyncSkillMove `json:"unmanaged"`
 	Unresolved []string             `json:"unresolved"`
+	// Linked is every link in a present harness's skills folder, which Arc never adopts or writes through,
+	// a vault skill's name included.
+	Linked []AgentSyncSkillLink `json:"linked"`
 }

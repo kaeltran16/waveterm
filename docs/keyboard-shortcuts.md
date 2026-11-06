@@ -44,7 +44,7 @@ Setup and Settings have no `Ctrl`+number slot — the nine positions are bound t
 | `g` `f` | Files |
 | `g` `u` | Usage |
 | `g` `b` | Code — browse source |
-| `g` `.` | Setup — instructions and skills |
+| `g` `.` | Setup (instructions, skills, memory) |
 | `g` `,` | Settings |
 | `g` `p` | Search |
 | `g` `m` | Resource Manager (the popover over the footer's `Arc … CPU` readout) |
@@ -270,6 +270,12 @@ A session opened from a search hit shows a find bar over its transcript, with th
 | `Enter` | By work: on a row, open it; on a card, move the cursor to its first row |
 | `Esc` | By work: from an item, Back to its scope; from a project or initiative, to All usage; on All usage, leave the surface |
 
+### Setup: Instructions tab
+
+| Keys | Action |
+|---|---|
+| `Ctrl`+`S` | Save the shared doc to every harness (from the editor) |
+
 ### Setup: Memory tab
 
 | Keys | Action |
@@ -277,7 +283,8 @@ A session opened from a search hit shows a find bar over its transcript, with th
 | `j` / `k` (or `↓` / `↑`) | Next / previous change in the table |
 | `a` | Apply the selected change (when its Apply button is enabled), then move to the next change to review |
 | `x` | Keep the selected change as is, then move to the next change to review |
-| `u` | Undo an applied change, or review a kept one again |
+| `u` | Undo an applied change (not once its backup has expired), or review a kept one again |
+| `Esc` | On a tab under 1200 px wide, close the change detail sheet |
 
 ### Route DAG (the orchestrator run's graph)
 

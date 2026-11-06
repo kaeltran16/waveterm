@@ -40,14 +40,17 @@ live.
   any other host is refused. `WriteTempFileCommand` stays open: it writes under the OS temp dir;
 - refuse Jira writes; reads and the search POST go through (`pkg/jira/client.go`);
 - run agent sync (launch-time steering and skills) and skill adoption as dry runs, since both would write the
-  real harness homes in `~` (`wshserver_agentsync.go`).
+  real harness homes in `~` (`wshserver_agentsync.go`);
+- refuse the Memory tab's Check (it calls a model), Apply and Undo (they write the real memory folders and repo
+  settings); Keep and Review again write only the copied state and go through (`wshserver_memhygiene.go`).
 
 Every refusal is an error starting `snapshot store:` that names the path and the allowed folder, shown by the
 action that hit it (a toast for a launch, the pane's or review bar's error line). A refused process start is
 also logged in `arc-snap\data\waveapp.log` (`snapshot store: not starting a process`); a copied terminal
 opened in a real checkout opens on its old scrollback.
 
-Not guarded: actions that call a model directly (a run's judge, a consult, a brainstorm judge) spend tokens,
+Not guarded: actions that call a model directly (a run's judge, a consult, a brainstorm judge; the Memory tab's
+check is the exception, now refused) spend tokens,
 and agents launched in the snapshot write their transcripts to the real `~/.claude/projects`. With the watchdog
 off, runs stay frozen as they were copied, so a review sees a run's state but not its progress.
 

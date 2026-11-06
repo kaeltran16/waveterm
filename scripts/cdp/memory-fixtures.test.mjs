@@ -5,7 +5,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
     buildMemoryFixture,
     indexStats,
+    MEMORY_LONG_TOKEN,
     MEMORY_PROJECTS,
+    MEMORY_TIGHT_EVIDENCE,
+    MEMORY_UNREADABLE_STATE,
     memoryChangeId,
     memoryFileName,
     memoryStatePath,
@@ -74,7 +77,7 @@ describe("buildMemoryFixture", () => {
     it("hashes every file a change names as it is on disk, and ids the change the way the backend does", () => {
         const fx = buildMemoryFixture(tempRoot());
         const changes = Object.values(fx.states).flatMap((s) => s.changes);
-        expect(changes.length).toBe(12);
+        expect(changes.length).toBe(15);
         for (const c of changes) {
             for (const f of c.files) {
                 expect(f.sha256, f.path).toBe(sha256File(f.path));
@@ -116,6 +119,38 @@ describe("buildMemoryFixture", () => {
         expect(fx.states[MEMORY_PROJECTS.checking].checking).toBe(true);
     }, 30_000);
 
+    it("gives the setup review steps what they read (D5)", () => {
+        const fx = buildMemoryFixture(tempRoot(), 1_000_000_000_000);
+        const changes = Object.values(fx.states).flatMap((s) => s.changes);
+        // F20: an evidence text runs straight into its code quote
+        const tight = changes.flatMap((c) => c.evidence).find((e) => e.code !== "" && !/\s$/.test(e.text));
+        expect(tight).toEqual(MEMORY_TIGHT_EVIDENCE);
+        // F21: a move-here with the shared folder's and the own folder's MEMORY.md
+        const move = fx.splitChanges.moveBuild;
+        expect(move.diffs.map((d) => d.path)).toEqual([join(fx.paths.shared, "MEMORY.md"), join(fx.paths.ownA, "MEMORY.md")]);
+        // F23: a diff line with an unbroken 120-character token
+        expect(MEMORY_LONG_TOKEN).toMatch(/^\S{120}$/);
+        const lines = changes.flatMap((c) => c.diffs.flatMap((d) => d.lines.map((l) => l.text)));
+        expect(lines.some((t) => t.includes(MEMORY_LONG_TOKEN))).toBe(true);
+        expect(readFileSync(fx.paths.harvested, "utf8")).toContain(MEMORY_LONG_TOKEN);
+        // F10: an applied change whose backup is past
+        expect(fx.expiredChange).toMatchObject({ status: "applied" });
+        expect(fx.expiredChange.backupuntil).toBeGreaterThan(0);
+        expect(fx.expiredChange.backupuntil).toBeLessThan(1_000_000_000_000);
+        expect(fx.states[MEMORY_PROJECTS.expired].changes).toEqual([fx.expiredChange]);
+        // F8: a kept-sharing project with a pending shared change
+        const kept = fx.states[MEMORY_PROJECTS.kept];
+        expect(kept.sharedwith.length).toBeGreaterThan(0);
+        expect(kept.changes.map((c) => `${c.group}:${c.kind}:${c.status}`)).toEqual([
+            "shared:move-here:open",
+            "switch:settings:kept",
+        ]);
+        // F12: a registered project whose state file is not JSON
+        expect(fx.projects.map((p) => p.name)).toContain(MEMORY_PROJECTS.unreadable);
+        expect(fx.states[MEMORY_PROJECTS.unreadable]).toBeUndefined();
+        expect(() => JSON.parse(fx.brokenStates[MEMORY_PROJECTS.unreadable])).toThrow();
+    }, 30_000);
+
     it("has a trim whose passage occurs once in a crlf file", () => {
         const fx = buildMemoryFixture(tempRoot());
         const text = readFileSync(fx.paths.trim, "utf8");
@@ -137,6 +172,13 @@ describe("writeMemoryStates", () => {
             fx.states[MEMORY_PROJECTS.own]
         );
     }, 30_000);
+
+    it("writes a broken state as is", () => {
+        const fx = buildMemoryFixture(tempRoot());
+        const dataDir = tempRoot("memory-fixtures-data-");
+        writeMemoryStates(dataDir, fx.brokenStates);
+        expect(readFileSync(memoryStatePath(dataDir, MEMORY_PROJECTS.unreadable), "utf8")).toBe(MEMORY_UNREADABLE_STATE);
+    }, 30_000);
 });
 
 describe("settleMemoryStates", () => {
@@ -149,5 +191,17 @@ describe("settleMemoryStates", () => {
         const failed = settled[MEMORY_PROJECTS.failed].changes[0];
         expect(failed).toEqual(fx.states[MEMORY_PROJECTS.failed].changes[0]);
         expect(settled[MEMORY_PROJECTS.own].changes[0].decidedat).toBe(1234);
+    }, 30_000);
+
+    it("leaves every project checked with no failure, the unchecked ones included", () => {
+        const fx = buildMemoryFixture(tempRoot());
+        const settled = settleMemoryStates({ ...fx.states, ...fx.uncheckedStates }, 1234);
+        expect(Object.keys(settled).sort()).toEqual(Object.values(MEMORY_PROJECTS).sort());
+        for (const s of Object.values(settled)) {
+            expect(s.checkedat, s.project).toBeGreaterThan(0);
+            expect(s.lasterror, s.project).toBe("");
+            expect(s.checking, s.project).toBe(false);
+        }
+        expect(settled[MEMORY_PROJECTS.own].checkedat).toBe(fx.states[MEMORY_PROJECTS.own].checkedat);
     }, 30_000);
 });

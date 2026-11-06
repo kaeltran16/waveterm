@@ -1213,6 +1213,12 @@ describe("leader reachability and the fullscreen chord", () => {
         expect(b.when?.(inTerm) ?? true).toBe(true);
     });
 
+    it("names every Setup tab on the . leader entry", () => {
+        const go = buildGlobalBindings(model).find((x) => x.id === "go:setup")!;
+        expect(go.keys).toBe("g .");
+        expect(go.label).toBe("Setup (instructions, skills, memory)");
+    });
+
     it("surface teleports are dormant in the terminal but live under the leader", () => {
         const go = buildGlobalBindings(model).find((x) => x.id === "go:agent")!;
         expect(go.when!(inTerm)).toBe(false);

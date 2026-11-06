@@ -219,6 +219,19 @@ describe("launchAgent", () => {
         expect(agentSyncApply).toHaveBeenCalledWith({}, { dryrun: false });
     });
 
+    it("warns with a toast when the launch-time sync fails, and launches anyway", async () => {
+        agentSyncApply.mockRejectedValueOnce(new Error("boom"));
+        await expect(launchAgent(fakeModel(), agentOpts)).resolves.toBe("tab-1");
+        await vi.waitFor(() =>
+            expect(pushToast).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    level: "warn",
+                    message: "Harness sync failed: boom. Setup → Instructions has Sync now.",
+                })
+            )
+        );
+    });
+
     it("tags the tab with the agent, project, label and initiative", async () => {
         await launchAgent(fakeModel(), { ...agentOpts, label: "Fix login", effortORef: "effort:e1" });
         expect(metaOf("tab:tab-1")).toStrictEqual({
