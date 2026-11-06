@@ -16,6 +16,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/usagestats"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/wcore"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
@@ -284,6 +285,78 @@ func TestUsageSessionsTabEffort(t *testing.T) {
 	if got[1].Effort != "" || got[2].Effort != "" {
 		t.Fatalf("an untagged tab, or another harness's session, has no effort: got %q and %q", got[1].Effort, got[2].Effort)
 	}
+}
+
+// setTabTranscript names transcript on a seeded agent tab's block
+func setTabTranscript(t *testing.T, ctx context.Context, blockId, transcript string) {
+	t.Helper()
+	if _, err := wstore.UpdateObjectMeta(ctx, waveobj.MakeORef(waveobj.OType_Block, blockId),
+		waveobj.MetaMapType{waveobj.MetaKey_AgentTranscriptPath: transcript}, false); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// a session whose tab closed keeps the initiative recorded at close, unless an open tab tags it otherwise
+func TestUsageCountsClosedTabSessionInEffort(t *testing.T) {
+	ctx := context.Background()
+	closed, reopened := uuid.NewString(), uuid.NewString()
+	for _, session := range []string{closed, reopened} {
+		tab := &waveobj.Tab{OID: uuid.NewString(), Meta: waveobj.MetaMapType{
+			waveobj.MetaKey_SessionAgent: "claude", waveobj.MetaKey_SessionEffort: "effort:closed-effort",
+		}}
+		block := &waveobj.Block{OID: uuid.NewString(), ParentORef: "tab:" + tab.OID}
+		if err := wstore.DBInsert(ctx, block); err != nil {
+			t.Fatal(err)
+		}
+		tab.BlockIds = []string{block.OID}
+		setTabTranscript(t, ctx, block.OID, filepath.Join("projects", "C--repo", session+".jsonl"))
+		if err := wstore.RecordTabSessionEffort(ctx, tab); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, blockId := seedAgentTab(t, ctx, waveobj.MetaMapType{
+		waveobj.MetaKey_SessionAgent: "claude", waveobj.MetaKey_SessionEffort: "effort:open-effort",
+	})
+	setTabTranscript(t, ctx, blockId, filepath.Join("projects", "C--repo", reopened+".jsonl"))
+
+	got := usageSessionsOf(t, claudeMeta(closed), claudeMeta(reopened))
+	if got[0].Effort != "closed-effort" {
+		t.Fatalf("the closed tab's session: effort %q, want closed-effort", got[0].Effort)
+	}
+	if got[1].Effort != "open-effort" {
+		t.Fatalf("an open tab's tag wins: effort %q, want open-effort", got[1].Effort)
+	}
+}
+
+// closing a tagged agent tab through wcore.DeleteTab records its session's initiative before the block goes
+func TestDeleteTabPersistsSessionEffort(t *testing.T) {
+	ctx := context.Background()
+	session := uuid.NewString()
+	transcript := filepath.Join("projects", "C--repo", session+".jsonl")
+	tabId, blockId := seedAgentTab(t, ctx, waveobj.MetaMapType{
+		waveobj.MetaKey_SessionAgent: "claude", waveobj.MetaKey_SessionEffort: "effort:kept",
+	})
+	setTabTranscript(t, ctx, blockId, transcript)
+	ws := &waveobj.Workspace{OID: uuid.NewString(), TabIds: []string{tabId}}
+	if err := wstore.DBInsert(ctx, ws); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := wcore.DeleteTab(ctx, ws.OID, tabId, false); err != nil {
+		t.Fatalf("closing tab %s: %v", tabId, err)
+	}
+	rows, err := wstore.GetSessionEfforts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rows {
+		if r.Transcript == transcript {
+			if r.Harness != "claude" || r.EffortOID != "kept" {
+				t.Fatalf("got %+v, want claude and effort kept", r)
+			}
+			return
+		}
+	}
+	t.Fatalf("no row for the closed tab's transcript %s", transcript)
 }
 
 func TestUsageSessionsEffortTitles(t *testing.T) {
