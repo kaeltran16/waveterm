@@ -784,6 +784,11 @@ func dispatchTasks(ctx context.Context, budget *spawnBudget, g *waveobj.TaskGrou
 	var spawned []spawnedWorkerInfo
 	for _, taskID := range next {
 		task := taskByID(g, taskID)
+		earlyTip, _ := startBase(g, taskID)
+		// a tip enters reviewing before its evidence is sealed, and the handoff reads its For later section from it
+		if earlyTip != nil && (runs[earlyTip.RunID] == nil || runs[earlyTip.RunID].Evidence == nil) {
+			continue
+		}
 		pin := effectiveTaskRoute(task, owner, g)
 		capability, routeErr := runroute.Resolve(pin)
 		if routeErr != nil {
@@ -807,7 +812,12 @@ func dispatchTasks(ctx context.Context, budget *spawnBudget, g *waveobj.TaskGrou
 			// a lane's tasks share one tree, so each starts from the commits of the task before it
 			key := LaneWorktreeKey(g, taskID)
 			wtStart := time.Now()
-			wt, head, _, werr := EnsureRunWorktree(spawnCtx, owner.ProjectPath, key, spawnBase)
+			treeBase, terr := earlyTreeBase(spawnCtx, g, owner, task, earlyTip, key, spawnBase)
+			if terr != nil {
+				failDispatch(ctx, g, taskID, FailureKindWorktree, terr, afterCommit)
+				continue
+			}
+			wt, head, _, werr := EnsureRunWorktree(spawnCtx, owner.ProjectPath, key, treeBase)
 			worktreeMs = time.Since(wtStart).Milliseconds()
 			// what holds a stale tree is reaped by the cleanup path, outside the dag lock this tick holds: each
 			// worker a reap stops exits into that lock. Debt on the task is what sends the tree there, and what
@@ -925,6 +935,24 @@ func dispatchTasks(ctx context.Context, budget *spawnBudget, g *waveobj.TaskGrou
 		})
 	}
 	return spawned, nil
+}
+
+// earlyTreeBase is the commit a lane's new tree is cut from: the early-start tip's branch head when the task starts
+// on an unmerged predecessor lane (recorded on the task as its early base), else spawnBase. An existing branch is a
+// retry, which reuses the branch and so keeps the base it was cut from and its record.
+func earlyTreeBase(ctx context.Context, g *waveobj.TaskGroup, owner *waveobj.Run, task, tip *waveobj.TaskNode, key, spawnBase string) (string, error) {
+	if tip == nil {
+		return spawnBase, nil
+	}
+	if _, err := WorktreeHeadCommit(ctx, owner.ProjectPath, key); err == nil {
+		return spawnBase, nil
+	}
+	head, err := WorktreeHeadCommit(ctx, owner.ProjectPath, LaneWorktreeKey(g, tip.ID))
+	if err != nil {
+		return "", fmt.Errorf("reading the branch tip of %s to start on: %w", tip.ID, err)
+	}
+	task.EarlyBaseTask, task.EarlyBaseCommit = tip.ID, head
+	return head, nil
 }
 
 // notifyCondition announces the dag's condition once: blocked, or done with the run-finished wake.
@@ -1059,8 +1087,8 @@ const (
 // scheduleLocked built for DeriveTaskStates, keyed by child run id.
 //
 // The commit is citable from the dependent's own tree: a dependency in the same lane committed it in the
-// tree the dependent now works in, and one in another lane is satisfied only once its lane merged onto the
-// project branch the dependent's tree branches from (depSatisfied).
+// tree the dependent now works in, and one in another lane either merged onto the project branch the dependent's
+// tree branches from (depSatisfied), or is the worker-done lane whose branch tip the tree branches from (startBase).
 // Evidence can still be nil — cleanup or the seal may have failed and the backfill retries — so the
 // files and the note degrade to the commit line alone.
 //

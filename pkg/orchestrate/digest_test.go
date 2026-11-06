@@ -241,19 +241,19 @@ func TestNextStalled(t *testing.T) {
 }
 
 func TestNextMergeReady(t *testing.T) {
-	// t-0 has two dependents, so it is a lane of its own: done and unmerged, it blocks both
+	// t-2 joins two lanes, both done and unmerged: an early start takes one unmerged lane at most, so they block it
 	g := digestGroup(t, true, []waveobj.TaskNode{
 		{ID: "t-0", Label: "a"},
-		{ID: "t-1", Label: "b", Deps: []string{"t-0"}},
-		{ID: "t-2", Label: "c", Deps: []string{"t-0"}},
+		{ID: "t-1", Label: "b"},
+		{ID: "t-2", Label: "c", Deps: []string{"t-0", "t-1"}},
 	})
-	setTaskStates(g, map[string]string{"t-0": TaskState_Done})
+	setTaskStates(g, map[string]string{"t-0": TaskState_Done, "t-1": TaskState_Done})
 	d := BuildDigest(digestSnapshot(g, nil, nil, nil, digestNow))
 	if d.Next.Kind != "merge-ready" {
 		t.Fatalf("merge-required dag with unmerged blocking task must be merge-ready, got %q", d.Next.Kind)
 	}
-	if len(d.Next.TaskIds) != 1 || d.Next.TaskIds[0] != "t-0" {
-		t.Fatalf("merge-ready must name the unmerged task, got %+v", d.Next.TaskIds)
+	if !sameStrings(d.Next.TaskIds, []string{"t-0", "t-1"}) {
+		t.Fatalf("merge-ready must name the unmerged tasks, got %+v", d.Next.TaskIds)
 	}
 }
 

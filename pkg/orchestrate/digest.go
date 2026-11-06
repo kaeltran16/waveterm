@@ -237,13 +237,9 @@ func buildCounts(g *waveobj.TaskGroup, askByTask map[string]wshrpc.DagAskItem, r
 	return c
 }
 
+// hasUnsatDep reports a task its dependencies hold back: one an early start lets begin is not waiting on them.
 func hasUnsatDep(g *waveobj.TaskGroup, t *waveobj.TaskNode) bool {
-	for _, d := range t.Deps {
-		if !depSatisfied(g, t.ID, d) {
-			return true
-		}
-	}
-	return false
+	return !taskReady(g, t)
 }
 
 // buildHealth derives aggregate health strictly per spec §5.2 precedence: needs-you (ask, unreleased
@@ -308,7 +304,12 @@ func mergeReadyBlocking(g *waveobj.TaskGroup) []string {
 	return out
 }
 
+// depChainReachesMergeReady reports a task its dependencies hold back on a merge somewhere up the chain. A task
+// that may start, early or not, is not held by any merge.
 func depChainReachesMergeReady(g *waveobj.TaskGroup, t *waveobj.TaskNode, mergeReady map[string]bool) bool {
+	if taskReady(g, t) {
+		return false
+	}
 	for _, d := range t.Deps {
 		if mergeReady[d] {
 			return true
@@ -484,15 +485,14 @@ func dependencyWait(g *waveobj.TaskGroup) ([]string, []string) {
 		if t.State != TaskState_Pending {
 			continue
 		}
-		hasBlock := false
+		if !hasUnsatDep(g, t) {
+			continue
+		}
+		waiting = append(waiting, t.ID)
 		for _, d := range t.Deps {
 			if !depSatisfied(g, t.ID, d) {
-				hasBlock = true
 				blockingSet[d] = true
 			}
-		}
-		if hasBlock {
-			waiting = append(waiting, t.ID)
 		}
 	}
 	var blocking []string
@@ -595,12 +595,8 @@ func taskIsParallelismCapped(g *waveobj.TaskGroup, t *waveobj.TaskNode) bool {
 }
 
 func taskReady(g *waveobj.TaskGroup, t *waveobj.TaskNode) bool {
-	for _, d := range t.Deps {
-		if !depSatisfied(g, t.ID, d) {
-			return false
-		}
-	}
-	return true
+	_, ok := startBase(g, t.ID)
+	return ok
 }
 
 func taskBlockingIds(g *waveobj.TaskGroup, t *waveobj.TaskNode) []string {
