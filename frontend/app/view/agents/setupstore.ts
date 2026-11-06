@@ -94,6 +94,20 @@ export function reloadShared(): Promise<void> {
     });
 }
 
+// The doc as it is on disk, for the conflict notice to list what the outside edit changed. A failed read
+// leaves disk null, which the notice says, so Reload and Overwrite stay the way out.
+async function readDiskAfterConflict(): Promise<void> {
+    try {
+        const r = await RpcApi.AgentSyncSteeringReadCommand(TabRpcClient, { timeout: READ_TIMEOUT_MS });
+        const ed = globalStore.get(setupSharedAtom);
+        if (ed.conflict) {
+            globalStore.set(setupSharedAtom, { ...ed, disk: r.content ?? "" });
+        }
+    } catch (e) {
+        console.error("reading the shared doc after a save conflict:", e);
+    }
+}
+
 // Write, then project at once: a doc the harnesses have not received is the stale state this exists to
 // remove. A conflict stops before the apply and leaves the draft for Reload or Overwrite.
 export function saveShared(overwrite: boolean): Promise<void> {
@@ -106,8 +120,18 @@ export function saveShared(overwrite: boolean): Promise<void> {
         });
         globalStore.set(setupSharedAtom, editorSaved(globalStore.get(setupSharedAtom), written, res));
         if (res.conflict) {
+            await readDiskAfterConflict();
             return;
         }
+        await RpcApi.AgentSyncApplyCommand(TabRpcClient, {});
+        await load();
+    });
+}
+
+// Projects the saved doc into every harness without a save: the way to bring a stale or unwritten
+// harness up to date when there is nothing to edit.
+export function syncNow(): Promise<void> {
+    return busy(setupInstructionsErrorAtom, async () => {
         await RpcApi.AgentSyncApplyCommand(TabRpcClient, {});
         await load();
     });
