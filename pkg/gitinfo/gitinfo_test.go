@@ -195,6 +195,56 @@ func TestGetChangesEmptyRepoHasNoHead(t *testing.T) {
 	}
 }
 
+// A ref git cannot resolve is a failed read. Returning an empty change list instead reads as "nothing
+// changed", which the Diff surface would draw as a clean checkout.
+func TestGetChangesRefModeUnknownRefErrors(t *testing.T) {
+	dir, _ := repoCommittedOnBase(t)
+	ch, err := GetChanges(context.Background(), dir, "deadbeef")
+	if err == nil {
+		t.Fatalf("GetChanges with an unknown ref = %+v, want an error", ch)
+	}
+	if ch != nil {
+		t.Fatalf("GetChanges returned changes %+v alongside the error", ch)
+	}
+	if !strings.Contains(err.Error(), "deadbeef") {
+		t.Fatalf("error %q does not say which ref failed", err)
+	}
+}
+
+// With no commits `diff --numstat HEAD` fails by nature; that must keep listing the untracked files.
+func TestGetChangesNoCommitsStillLists(t *testing.T) {
+	dir := initRepo(t)
+	writeFile(t, dir, "fresh.txt", "one\ntwo\n")
+	ch, err := GetChanges(context.Background(), dir, "")
+	if err != nil {
+		t.Fatalf("GetChanges on a repo with no commits: %v", err)
+	}
+	if !strings.Contains(ch.StatusZ, "fresh.txt") || !strings.Contains(ch.Numstat, "2\t0\tfresh.txt") {
+		t.Fatalf("untracked file not listed: statusz %q numstat %q", ch.StatusZ, ch.Numstat)
+	}
+}
+
+// status only compares hashes, so it succeeds while `diff --numstat HEAD` cannot read the committed
+// blob of a modified file: the numstat failure must surface, not become "no line counts".
+func TestGetChangesLiveModeNumstatFailureErrors(t *testing.T) {
+	dir := repoWithChange(t) // a.txt modified over its committed content
+	blob := gitRun(t, dir, "rev-parse", "HEAD:a.txt")
+	obj := filepath.Join(dir, ".git", "objects", blob[:2], blob[2:])
+	if err := os.Chmod(obj, 0o666); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(obj); err != nil {
+		t.Fatalf("removing the loose blob: %v", err)
+	}
+	ch, err := GetChanges(context.Background(), dir, "")
+	if err == nil {
+		t.Fatalf("GetChanges = %+v, want the numstat error", ch)
+	}
+	if !strings.Contains(err.Error(), "diff --numstat") {
+		t.Fatalf("error %q does not name the failing command", err)
+	}
+}
+
 // repoCommittedOnBase makes a repo with an initial commit, records that SHA as the base, then commits
 // a modification and a new file on top. Returns (dir, baseSHA). No uncommitted changes remain.
 func repoCommittedOnBase(t *testing.T) (string, string) {

@@ -7,6 +7,7 @@ package jarvisattrib
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"sort"
 	"strings"
@@ -303,8 +304,12 @@ func claimedByOther(claimants map[string]bool, dossierID string) bool {
 	return false
 }
 
+// loadDossierFn is a seam so a test can make one record fail: against a real vault the load cannot, since
+// the node was listed from the same graph it is read from.
+var loadDossierFn = jarvisdossier.LoadDossier
+
 // taskDossiers loads every dossier in the tasks collection, skipping any that fails to load (tolerant,
-// mirroring the tasks-collection projection). It reads the vault only: no git.
+// mirroring the tasks-collection projection) and logging the skip. It reads the vault only: no git.
 func taskDossiers(v *wavevault.Vault) ([]*jarvisdossier.Dossier, error) {
 	r := v.Retriever(wavevault.Scope{Collections: []string{wavevault.CollTasks}})
 	nodes, err := r.Query(wavevault.Filter{})
@@ -313,9 +318,12 @@ func taskDossiers(v *wavevault.Vault) ([]*jarvisdossier.Dossier, error) {
 	}
 	out := make([]*jarvisdossier.Dossier, 0, len(nodes))
 	for _, n := range nodes {
-		if d, err := jarvisdossier.LoadDossier(r, n.ID); err == nil {
-			out = append(out, d)
+		d, err := loadDossierFn(r, n.ID)
+		if err != nil {
+			log.Printf("jarvisattrib: skipping record %s (%s): %v", n.ID, n.Path, err)
+			continue
 		}
+		out = append(out, d)
 	}
 	return out, nil
 }

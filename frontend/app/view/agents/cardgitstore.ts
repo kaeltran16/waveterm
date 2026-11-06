@@ -105,8 +105,10 @@ export async function refreshCardGit(id: string, transcriptPath: string | undefi
         }
         const stats = diffStatsFromChanges(parseGitChanges(ch.statusz, ch.numstat));
         setStats(id, stats.files > 0 ? stats : null);
-    } catch {
+    } catch (err) {
         if (loadSeq.get(id) === seq) {
+            // no stats rather than fake zeros, but not silently: a failed read looks like a clean card
+            console.warn(`cardgit: git changes failed for agent ${id}`, err);
             setStats(id, null);
         }
     }
