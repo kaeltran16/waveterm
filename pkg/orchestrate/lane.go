@@ -130,7 +130,8 @@ func earlyBaseLive(g *waveobj.TaskGroup, t *waveobj.TaskNode) bool {
 		return true
 	}
 	base := taskByID(g, t.EarlyBaseTask)
-	if base == nil {
+	// before laneMerged, which counts a lane of skipped tasks as merged: the dependent's branch still holds the work
+	if base == nil || base.State == TaskState_Skipped {
 		return false
 	}
 	if laneMerged(g, laneOf(g, base.ID)) {

@@ -496,8 +496,12 @@ func scheduleLocked(ctx context.Context, dagID string) ([]stalledTask, error) {
 	advanceBaseCheck(ctx, g, owner, &afterCommit)
 	stalled := recordTaskTransitions(ctx, g, runs, prevStates, now, &afterCommit)
 	countFailures(ctx, g, runs, prevStates, &afterCommit)
+	// after the reviews: a reject sends the base back to work. A restarted lane waits a tick, as its worker is stopped
+	// only after the commit, and its stall is not retried.
+	restarted := restartEarlyDependents(ctx, g, &afterCommit)
+	stalled = slices.DeleteFunc(stalled, func(s stalledTask) bool { return slices.Contains(restarted, s.taskID) })
 	// what the cap holds back stays pending, and a later tick dispatches it once a worker or memory frees up
-	next := NextToSpawn(g)
+	next := slices.DeleteFunc(NextToSpawn(g), func(id string) bool { return slices.Contains(restarted, id) })
 	next = next[:claimWorkers(ctx, g, len(next))]
 	defer releaseWorkerClaim(g.OID)
 	spawned, err := dispatchTasks(ctx, &budget, g, owner, spawnBase, runs, recorded, next, now, &afterCommit)
@@ -812,6 +816,17 @@ func dispatchTasks(ctx context.Context, budget *spawnBudget, g *waveobj.TaskGrou
 			// a lane's tasks share one tree, so each starts from the commits of the task before it
 			key := LaneWorktreeKey(g, taskID)
 			wtStart := time.Now()
+			// before earlyTreeBase, which takes an existing branch for a retry: a restarted lane's branch holds the
+			// discarded base
+			if task.DiscardTree {
+				if derr := discardLaneTree(spawnCtx, owner.ProjectPath, key); derr != nil {
+					failDispatch(ctx, g, taskID, FailureKindWorktree, derr, afterCommit)
+					continue
+				}
+				task.DiscardTree = false
+				// the removal can take tens of seconds on Windows, and is not the checkout's to pay
+				spawnCtx = budget.next()
+			}
 			treeBase, terr := earlyTreeBase(spawnCtx, g, owner, task, earlyTip, key, spawnBase)
 			if terr != nil {
 				failDispatch(ctx, g, taskID, FailureKindWorktree, terr, afterCommit)
