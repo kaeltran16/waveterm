@@ -318,6 +318,7 @@ function judgeWaitScenario(kit) {
                 rows: [...(pane?.querySelectorAll("[data-brainstorm-approach]") ?? [])].map((b) => ({
                     option: b.getAttribute("data-brainstorm-option"),
                     text: flat(b),
+                    facts: [...(b.parentElement?.querySelectorAll("[data-brainstorm-facts] li") ?? [])].map((li) => flat(li.lastElementChild)),
                 })),
                 focused: document.activeElement?.getAttribute?.("data-brainstorm-option") ?? null,
                 placeholder: box?.getAttribute("placeholder") ?? null,
@@ -329,8 +330,8 @@ function judgeWaitScenario(kit) {
                 treeLine: flat(${BS_TREE_LINE}),
             };
         })()`);
-    const rowText = (a, i) => `${String.fromCharCode(65 + i)} ${a.name} ${a.description} ${a.facts.length} ${a.facts.length === 1 ? "fact" : "facts"}`;
-    const wantRows = WAIT_APPROACHES.map((a, i) => ({ option: String(i), text: rowText(a, i) }));
+    const rowText = (a, i) => `${String.fromCharCode(65 + i)} ${a.name} ${a.description}`;
+    const wantRows = WAIT_APPROACHES.map((a, i) => ({ option: String(i), text: rowText(a, i), facts: a.facts }));
     const drawn = (w) => w.judging && w.status === WAIT_WORKING && eqJson(w.rows, wantRows);
     const ROW = (i) => `${BS_PANE}?.querySelector('[data-brainstorm-approach][data-brainstorm-option="${i}"]')`;
 
@@ -387,7 +388,7 @@ function judgeWaitScenario(kit) {
             const w1 = await waitFor(h, drawn);
             await h.shot("cdp-shots/brainstorm-judge-wait-1.png");
             rec(
-                "1. the wait: the question and its why, the status line, What the judge is weighing · 7, the 7 approaches in file order with their facts counts and a letter on each, the box open with its placeholder, no Guess for me, and the agent's tree line names the judge",
+                "1. the wait: the question and its why, the status line, What the judge is weighing · 7, the 7 approaches in file order with their facts listed under each and a letter on each, the box open with its placeholder, no Guess for me, and the agent's tree line names the judge",
                 s1.ok &&
                     w1.ok &&
                     w1.treeLine === `judge weighing question ${WAIT_Q.n}` &&
@@ -398,6 +399,20 @@ function judgeWaitScenario(kit) {
                     !w1.buttons.includes("Guess for me") &&
                     w1.buttons.includes("Skip the questions"),
                 { ...bsBrief(s1), why: s1.why, wait: w1 }
+            );
+
+            // 1b. Hide facts folds every approach's facts away, Show facts brings them back; neither sends anything
+            const FACTS_TOGGLE = `${BS_PANE}?.querySelector("[data-brainstorm-facts-toggle]")`;
+            const factsMark = await bsMark(h, ctx, null);
+            await h.ev(`${FACTS_TOGGLE}?.click()`);
+            const hidden = await waitFor(h, (w) => w.judging && w.rows.every((r) => r.facts.length === 0) && w.buttons.includes("Show facts"), 3000);
+            await h.ev(`${FACTS_TOGGLE}?.click()`);
+            const shownAgain = await waitFor(h, (w) => drawn(w) && w.buttons.includes("Hide facts"), 3000);
+            const factsQuiet = await bsNothingTyped(h, factsMark);
+            rec(
+                "1b. Hide facts hides every approach's facts, Show facts brings them back, and the toggle sends nothing",
+                hidden.ok && shownAgain.ok && factsQuiet.ok,
+                { hidden: hidden.ok, shownAgain: shownAgain.ok, quiet: factsQuiet }
             );
 
             // 2. Design over the wait, and back

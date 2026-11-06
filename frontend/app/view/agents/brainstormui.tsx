@@ -19,7 +19,6 @@ import {
     partSpikes,
     partTitle,
     phaseSteps,
-    plural,
     progressView,
     questionBoardLayout,
     questionSpikes,
@@ -905,6 +904,8 @@ export function JudgingMain({
     const approaches = q.approaches!;
     const ans = useAnswer(agent);
     const { shared, rowBoards } = questionBoards(agent.id, s, f, true);
+    const [factsShown, setFactsShown] = useState(true);
+    const hasFacts = approaches.some((a) => a.facts.length > 0);
     return (
         <div data-brainstorm-question data-brainstorm-judging className="flex min-h-0 flex-1 flex-col">
             <Track segments={questionTrack(f)} />
@@ -923,14 +924,24 @@ export function JudgingMain({
                 <SharedBoards shared={shared} heading={true} />
                 <div className="flex flex-col gap-[8px]">
                     <div className="flex items-baseline gap-[8px]">
-                        <h2 data-brainstorm-judge-list className={SECTION_HEAD}>
+                        <h2 data-brainstorm-judge-list className={cn(SECTION_HEAD, "flex-1")}>
                             What the judge is weighing · {approaches.length}
                         </h2>
-                        <span className="text-[12px] text-muted">
-                            the agent’s list, unranked; click one to answer now, or wait for the judge’s options and
-                            pick
-                        </span>
+                        {hasFacts ? (
+                            <button
+                                type="button"
+                                data-brainstorm-facts-toggle
+                                aria-expanded={factsShown}
+                                onClick={() => setFactsShown(!factsShown)}
+                                className={cn(CHIP, "flex-none")}
+                            >
+                                {factsShown ? "Hide facts" : "Show facts"}
+                            </button>
+                        ) : null}
                     </div>
+                    <span className="text-[12px] text-muted">
+                        the agent’s list, unranked; click one to answer now, or wait for the judge’s options and pick
+                    </span>
                     <div role="group" aria-label="Approaches" className="flex flex-col gap-[6px]">
                         {approaches.map((a, i) => {
                             const side = rowBoards(i);
@@ -960,12 +971,18 @@ export function JudgingMain({
                                         <span className="min-w-0 flex-1 text-[12.5px] leading-[1.45] text-ink-mid">
                                             {a.description}
                                         </span>
-                                        {a.facts.length > 0 ? (
-                                            <span className="flex-none text-[12px] text-accent-soft">
-                                                {plural(a.facts.length, "fact", "facts")}
-                                            </span>
-                                        ) : null}
                                     </button>
+                                    {factsShown && a.facts.length > 0 ? (
+                                        <div data-brainstorm-facts className="pb-[10px] pl-[50px] pr-[12px]">
+                                            <ReasonList
+                                                label={`${a.name}: facts`}
+                                                mark="·"
+                                                tone="text-muted"
+                                                items={a.facts}
+                                                compact={true}
+                                            />
+                                        </div>
+                                    ) : null}
                                     {side != null ? (
                                         <div
                                             data-brainstorm-row-boards
