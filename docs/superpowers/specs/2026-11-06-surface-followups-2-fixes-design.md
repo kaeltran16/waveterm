@@ -130,10 +130,12 @@ count (`railstore` → `agentdetailsrail.tsx`, `codestore` → `codechangedpane.
 `codepeekcard.tsx`, `peekagent.tsx`) pass `numstaterror` and their renderers draw no `+N −N` (per file and in
 totals) when `lineCounts` is false; the file list and file counts stay, as the Diff surface does. Root cause in the shared parser, so a future caller cannot repeat the mistake by forgetting a
 check. `cardgitstore` keeps its own drop of the chip. A `code-diff-states` step denies read on one changed file
-(the `icacls` trick `diff-states` step 7 uses) and asserts the Code changed pane lists it with no counts, and that
-the Code peek on that file shows no `+`/`−` stat. The Agent details rail and the Hub agent peek are proven by
-the `lineCountsShown` unit tests only (both need a live agent in a repo with an unreadable file; recorded as not
-verified live).
+(the `icacls` trick `diff-states` step 7 uses) and asserts the Code changed pane lists it with no counts. The
+Code peek is not checked live (revised after plan review): denying read fails the peek's file read before its
+change is computed, so a live step would pass without the fix. Instead `peekStat` (`codepeekmodel.ts`) returns a
+"line counts unknown" result for a `lineCounts: false` change, not "no changes", pinned by a unit test. The Agent
+details rail and the Hub agent peek are proven by the `lineCountsShown` unit tests only (both need a live agent in
+a repo with an unreadable file; recorded as not verified live).
 
 ### D11. F13: the notice leads with git's error line
 
