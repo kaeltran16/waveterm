@@ -122,7 +122,8 @@ export async function steps(h, ctx) {
             origintranscript: origin.transcriptpath.replace(/\\/g, "/").toUpperCase(),
             land: { state: "landed" },
         },
-        { id: randomUUID(), goal: "History cockpit run", createdts: now - 3 * 60 * MIN },
+        // an orchestrator run, so a lead in the roster puts it in the lineage (runRoleOf) and it gets a Cockpit card
+        { id: randomUUID(), goal: "History cockpit run", createdts: now - 3 * 60 * MIN, mode: "orchestrator" },
         { id: randomUUID(), goal: "History cancelled run", createdts: now - 2 * DAY, status: "cancelled" },
     ];
     const [nested, cockpit, cancelled] = runs;
@@ -159,6 +160,9 @@ export async function steps(h, ctx) {
                 main?.head === "History | 3 sessions | last 7 days" &&
                 JSON.stringify(main.rows) === JSON.stringify(wantRows) &&
                 main.warnClass === " · cancelled" &&
+                // a cancelled run with no dag names the cancel once
+                main.cancelledLine.includes("run · cancelled") &&
+                !main.cancelledLine.includes("cancelled · cancelled") &&
                 main.nestedLine.includes("run · merged") &&
                 main.sessionLine.includes("claude · 9m · 1k tokens") &&
                 main.link === "older sessions in Sessions ↗",
@@ -251,6 +255,29 @@ export async function steps(h, ctx) {
             toRun
         );
         await restoreMockRoster(h);
+        await openOverview(h, ctx.project);
+        await settled(h);
+
+        // an ended run (no member in the roster, so out of the lineage) has no Cockpit card: its row opens the run's
+        // sheet on the Hub and leaves the Cockpit cursor where it was
+        const toSheet = await hEval(h, `
+            const cursorBefore = S.globalStore.get(model.cursorIdAtom);
+            region().querySelector('[data-history-run="${cancelled.id}"]').click();
+            const gone = await until(() => overview() == null, 4000);
+            await until(() => S.globalStore.get(model.surfaceAtom) === "jarvis", 4000);
+            return {
+                gone,
+                surface: S.globalStore.get(model.surfaceAtom),
+                cursorBefore,
+                cursor: S.globalStore.get(model.cursorIdAtom),
+            };
+        `);
+        await shot(h, "history-to-run-sheet");
+        step(
+            "Main board, history: an ended run's row opens its sheet on the Hub, the modal closed",
+            toSheet?.gone === true && toSheet.surface === "jarvis" && toSheet.cursor === toSheet.cursorBefore,
+            toSheet
+        );
         await openOverview(h, ctx.project);
         await settled(h);
 

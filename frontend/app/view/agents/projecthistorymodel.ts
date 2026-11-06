@@ -4,9 +4,10 @@
 // The project Overview's History (projecthistory.tsx): the last 7 days of the project's ended sessions, newest
 // first, each with the runs it started nested under it. A run with no listed origin session stands on its own.
 
-import { formatAgeShort, formatTokens } from "./agentsviewmodel";
+import { formatAgeShort, formatTokens, type AgentVM } from "./agentsviewmodel";
+import { leadlessCardId } from "./cardgridlayout";
 import { samePath } from "./projectoverviewmodel";
-import { runProgress, runTitle } from "./runlineage";
+import { leadAgentOf, runProgress, runTitle, type Lineage } from "./runlineage";
 import { runtimeMeta } from "./runtimemeta";
 import type { LiveSession } from "./sessionsarchivestore";
 import { sessionKey } from "./sessionsruns";
@@ -38,6 +39,8 @@ export function historyRuns(runs: Run[], now: number): Run[] {
     return runs.filter((r) => !r.taskid && !r.stagerole && !r.parentleadoref && r.createdts >= since);
 }
 
+const CANCELLED_WARN = " · cancelled";
+
 // a failed Final cancels the dag and holds the land, so it names the cause before either
 function runWarn(run: Run, dag: TaskGroup | undefined): Pick<HistoryRunItem, "warn" | "tone"> {
     if (dag?.final?.state === "failed" || run.evidence?.verification?.state === "failed") {
@@ -47,17 +50,21 @@ function runWarn(run: Run, dag: TaskGroup | undefined): Pick<HistoryRunItem, "wa
         return { warn: " · land held", tone: "warn" };
     }
     if (run.status === "cancelled" || dag?.status === "cancelled") {
-        return { warn: " · cancelled", tone: "muted" };
+        return { warn: CANCELLED_WARN, tone: "muted" };
     }
     return { warn: "", tone: "ok" };
 }
 
 export function runItem(run: Run, dag?: TaskGroup): HistoryRunItem {
     const landed = run.land?.state === "landed";
+    const warn = runWarn(run, dag);
     let line: string;
     if (dag != null) {
         const { done, total } = runProgress(dag);
         line = `${done}/${total} tasks${landed ? " · merged" : ""}`;
+    } else if (warn.warn === CANCELLED_WARN) {
+        // the warn already names the cancel, so the status would only repeat it
+        line = "";
     } else {
         line = landed ? "merged" : run.status;
     }
@@ -67,9 +74,18 @@ export function runItem(run: Run, dag?: TaskGroup): HistoryRunItem {
         runId: run.id,
         title: runTitle(run, undefined),
         line,
-        ...runWarn(run, dag),
+        ...warn,
         ts: run.createdts,
     };
+}
+
+// the run's Cockpit card, as the Now region opens it: its lead's, or the run's own with no lead in the roster.
+// a run out of the lineage (no member in the roster) has no card.
+export function runCardId(lineage: Lineage, roster: AgentVM[], runId: string): string | undefined {
+    if (lineage.runs[runId] == null) {
+        return undefined;
+    }
+    return leadAgentOf(lineage, roster, runId)?.id ?? leadlessCardId(runId);
 }
 
 export function sessionLine(s: LiveSession): string {

@@ -9,25 +9,25 @@ import * as WOS from "@/app/store/wos";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { LINK_BTN, MONO_FAINT, MONO_META, ROW_BORDER } from "@/app/view/jarvis/briefstyle";
+import { openTarget } from "@/app/view/jarvis/openref";
 import { landOn } from "@/app/view/jarvis/returnsurface";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtomValue } from "jotai";
 import { Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { formatAgeShort } from "./agentsviewmodel";
-import { leadlessCardId } from "./cardgridlayout";
 import { RegionAlert, RegionHead, RegionNote, RegionSkeleton, type OverviewRegionProps } from "./overviewregion";
 import {
     HISTORY_PAGE,
     historyEntries,
     historyRuns,
+    runCardId,
     sessionLine,
     sessionTitle,
     type HistoryEntry,
     type HistoryRunItem,
 } from "./projecthistorymodel";
 import { projectListAtom } from "./projectsstore";
-import { leadAgentOf } from "./runlineage";
 import { runtimeMeta } from "./runtimemeta";
 import {
     loadSessionsArchive,
@@ -160,10 +160,15 @@ export function ProjectHistory({ model, project, path, close }: OverviewRegionPr
         landOn(model.surfaceAtom, "sessions");
         close();
     };
-    // the run's card on the Cockpit, as the Now region opens it: its lead's, or the run's own with no lead in the roster
+    // the run's Cockpit card while it has one; an ended run has none, so its sheet on the Hub
     const openRun = (runId: string) => {
-        globalStore.set(model.cursorIdAtom, leadAgentOf(lineage, roster, runId)?.id ?? leadlessCardId(runId));
-        globalStore.set(model.surfaceAtom, "cockpit");
+        const cardId = runCardId(lineage, roster, runId);
+        if (cardId != null) {
+            globalStore.set(model.cursorIdAtom, cardId);
+            globalStore.set(model.surfaceAtom, "cockpit");
+        } else {
+            fireAndForget(() => openTarget(model, { kind: "run", runId }));
+        }
         close();
     };
     const openSessions = () => {
@@ -323,7 +328,8 @@ function RunRow({
             <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <span className="truncate text-[12.5px] text-secondary">{run.title}</span>
                 <span className={MONO_META}>
-                    <span className="text-accent-soft">run</span> · {run.line}
+                    <span className="text-accent-soft">run</span>
+                    {run.line ? ` · ${run.line}` : null}
                     <span className="text-warning">{run.warn}</span>
                 </span>
             </span>

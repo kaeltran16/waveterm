@@ -2,7 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { HISTORY_WINDOW_MS, historyEntries, runItem, sessionLine, type HistoryEntry } from "./projecthistorymodel";
+import type { AgentVM } from "./agentsviewmodel";
+import { leadlessCardId } from "./cardgridlayout";
+import {
+    HISTORY_WINDOW_MS,
+    historyEntries,
+    runCardId,
+    runItem,
+    sessionLine,
+    type HistoryEntry,
+} from "./projecthistorymodel";
+import type { Lineage, RunInfo } from "./runlineage";
 import type { LiveSession } from "./sessionsarchivestore";
 
 const NOW = Date.UTC(2026, 10, 6, 12, 0, 0);
@@ -212,6 +222,40 @@ describe("runItem", () => {
     it("a run with no dag says merged when landed, else its status", () => {
         expect(runItem(run("r", { land: { state: "landed" } }))).toMatchObject({ line: "merged", tone: "ok" });
         expect(runItem(run("r", { status: "executing" }))).toMatchObject({ line: "executing", warn: "" });
+        expect(runItem(run("r", { status: "cancelled" }))).toMatchObject({
+            line: "",
+            warn: " · cancelled",
+            tone: "muted",
+        });
+        expect(runItem(run("r", { status: "done", land: { state: "held" } }))).toMatchObject({
+            line: "done",
+            warn: " · land held",
+        });
+    });
+
+    it("a cancelled run with a dag keeps its task count", () => {
+        const item = runItem(run("r", { status: "cancelled" }), dag(["done", "done", "pending"]));
+        expect(item).toMatchObject({ line: "2/3 tasks", warn: " · cancelled" });
+    });
+});
+
+describe("runCardId", () => {
+    const info = (runId: string): RunInfo => ({ runId, channelId: "c", title: runId, project: PATH });
+    const lead = { id: "lead1", name: "lead", task: "", state: "working" } as AgentVM;
+
+    it("a run in the lineage with its lead in the roster opens the lead's card", () => {
+        const lineage: Lineage = { roles: { lead1: { kind: "lead", runId: "r1" } }, runs: { r1: info("r1") } };
+        expect(runCardId(lineage, [lead], "r1")).toBe("lead1");
+    });
+
+    it("a run in the lineage with no lead in the roster opens its leadless card", () => {
+        const lineage: Lineage = { roles: {}, runs: { r1: info("r1") } };
+        expect(runCardId(lineage, [lead], "r1")).toBe(leadlessCardId("r1"));
+    });
+
+    it("a run not in the lineage has no card", () => {
+        const lineage: Lineage = { roles: { lead1: { kind: "lead", runId: "r1" } }, runs: {} };
+        expect(runCardId(lineage, [lead], "r1")).toBeUndefined();
     });
 });
 
