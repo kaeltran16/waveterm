@@ -3509,6 +3509,11 @@ declare global {
         leadguidance?: string;
         leadnotes?: string[];
         leadtold?: string[];
+        earlybasetask?: string;
+        earlybasecommit?: string;
+        earlyrestarts?: number;
+        discardtree?: boolean;
+        restartts?: number;
     };
 
     // waveobj.TermSize

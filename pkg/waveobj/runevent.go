@@ -29,6 +29,10 @@ const (
 	RunEventKindDagDone           = "dag-done"
 	RunEventKindTaskRetried       = "task-retried"
 
+	// task-restarted: an early-started lane went back to pending because its base task went back to work
+	// ("taskid", "basetask", "reason"). Not a failure.
+	RunEventKindTaskRestarted = "task-restarted"
+
 	// task-suspect: a running worker is active but not progressing (its worktree unchanged while active, or the
 	// same failure repeated) ("taskid", "unchangedms", "command", "count"). The lead judges it; the engine does not act.
 	RunEventKindTaskSuspect = "task-suspect"
