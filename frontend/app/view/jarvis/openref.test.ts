@@ -157,6 +157,67 @@ describe("run and channel landings", () => {
     });
 });
 
+// a run hidden from the lists (isEngineChild) opens where its owner's sheet is, never on whatever run the channel
+// falls back to
+describe("hidden run landings", () => {
+    beforeEach(() => {
+        objects.set("channel:c1", { oid: "c1" });
+        objects.set("run:lead", { oid: "lead", channeloid: "c1", mode: "orchestrator", dagoref: "d1" });
+        objects.set("dag:d1", { oid: "d1", runid: "lead", channelid: "c1", tasks: [{ id: "t-1", runid: "w1" }] });
+    });
+
+    it("opens a stage session's run on its dag owner's sheet", async () => {
+        const model = makeModel();
+        objects.set("run:v1", { oid: "v1", channeloid: "c1", mode: "quick", dagoref: "d1", stagerole: "verifier" });
+        expect(await openTarget(model, { kind: "run", runId: "v1" })).toEqual({ ok: true });
+        expect(globalStore.get(activeSubjectAtom)).toEqual({ kind: "channel", id: "c1" });
+        expect(globalStore.get(activeRunIdAtom)["c1"]).toBe("lead");
+        expect(globalStore.get(briefSheetOpenAtom)).toBe(true);
+    });
+
+    it("opens a run that is not an engine child on its own sheet, a dag's lead included", async () => {
+        const model = makeModel();
+        expect(await openTarget(model, { kind: "run", runId: "lead" })).toEqual({ ok: true });
+        expect(globalStore.get(activeRunIdAtom)["c1"]).toBe("lead");
+    });
+
+    // its own sheet offers Open in the run's DAG on its task (dag-lifecycle step 10)
+    it("keeps a task child, worker or reviewer, on its own sheet", async () => {
+        const model = makeModel();
+        objects.set("run:w1", { oid: "w1", channeloid: "c1", mode: "quick", dagoref: "d1", taskid: "t-1" });
+        objects.set("run:rv1", {
+            oid: "rv1",
+            channeloid: "c1",
+            mode: "quick",
+            dagoref: "d1",
+            taskid: "t-1",
+            review: true,
+        });
+        expect(await openTarget(model, { kind: "run", runId: "w1" })).toEqual({ ok: true });
+        expect(globalStore.get(activeRunIdAtom)["c1"]).toBe("w1");
+        expect(await openTarget(model, { kind: "run", runId: "rv1" })).toEqual({ ok: true });
+        expect(globalStore.get(activeRunIdAtom)["c1"]).toBe("rv1");
+    });
+
+    // the channel's run list leaves brainstorm sessions out, so selecting one landed on another run's sheet
+    it.each([
+        ["a brainstorm judge", { stagerole: "brainstorm-judge" }],
+        ["a stage session whose dag is gone", { stagerole: "verifier", dagoref: "d-gone" }],
+    ])("refuses %s, which has no owner sheet, and selects nothing", async (_name, fields) => {
+        const model = makeModel();
+        objects.set("run:j1", { oid: "j1", channeloid: "c1", mode: "quick", ...fields });
+        expect(await openTarget(model, { kind: "run", runId: "j1" })).toEqual({
+            ok: false,
+            reason: "unavailable",
+            message: "That run is part of another run and has no sheet of its own",
+        });
+        expect(globalStore.get(activeSubjectAtom)).toBeNull();
+        expect(globalStore.get(activeRunIdAtom)).toEqual({});
+        expect(globalStore.get(briefSheetOpenAtom)).toBe(false);
+        expect(globalStore.get(model.surfaceAtom)).toBe("cockpit");
+    });
+});
+
 describe("dag landing", () => {
     afterEach(() => dismissDagModal());
 

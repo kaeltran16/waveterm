@@ -39,11 +39,6 @@ Status legend:
   that loaded the dag before the seed writes its snapshot back over it after `seedDag`'s check; the final row then
   vanishes and `agentsurface.tsx` moves the focus to the lead for good. The window is a tick's length, which load
   stretches. Next time it fails, read the stored dag's `updatedts` against the seed times before fixing.
-- **Opening a hidden run by oref lands on another run's sheet** (2026-11-05). A run that is hidden from the
-  lists (a stage role, a review child or a task child), opened by oref, e.g. `wsh ui reveal run:<judge run>`,
-  shows a different run's sheet. The code is in `frontend/app/view/jarvis/openref.ts`, which run 8028cea5 owns.
-  Since F18 of the brainstorm and records review fixes, records no longer link to such runs, so only a
-  hand-typed oref reaches it.
 
 Tracked in their own initiatives, not here:
 
