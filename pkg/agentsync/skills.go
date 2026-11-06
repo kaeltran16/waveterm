@@ -683,7 +683,7 @@ func SkillRows(p Paths) ([]SkillRow, error) {
 	return rows, nil
 }
 
-// SkillLink is a link in a harness skills directory whose name is not a vault skill. Arc leaves it
+// SkillLink is a link in a harness skills directory, a vault skill's name included. Arc leaves it
 // alone: it is not adopted, and nothing is written through it.
 type SkillLink struct {
 	Runtime string `json:"runtime"`
@@ -692,17 +692,9 @@ type SkillLink struct {
 	Target  string `json:"target"`
 }
 
-// SkillLinks lists the links in every present harness's skills directory that the matrix has no row
-// for: harnesses in catalog order, names sorted within each.
+// SkillLinks lists every link in each present harness's skills directory, a vault skill's included so
+// its matrix cell can show the target: harnesses in catalog order, names sorted within each.
 func SkillLinks(p Paths) ([]SkillLink, error) {
-	canonical, err := canonicalSkills(p.SkillsRoot)
-	if err != nil {
-		return nil, err
-	}
-	vault := make(map[string]bool, len(canonical))
-	for _, name := range canonical {
-		vault[name] = true
-	}
 	var out []SkillLink
 	for _, spec := range harness.List() {
 		dir := spec.SkillsPath(p.Home)
@@ -714,7 +706,7 @@ func SkillLinks(p Paths) ([]SkillLink, error) {
 			return nil, err
 		}
 		for _, e := range observed {
-			if e.Linked && !vault[e.Name] {
+			if e.Linked {
 				out = append(out, SkillLink{Runtime: spec.Runtime, Name: e.Name, Path: filepath.Join(dir, e.Name), Target: e.Target})
 			}
 		}

@@ -345,6 +345,30 @@ describe("links", () => {
         expect(skillRows(d, {})[0].cells[1]).toMatchObject({ label: "Link", tone: "warn" });
     });
 
+    it("titles a vault skill's Link cell with its link's target, as no row of its own", () => {
+        const d = data({
+            skills: [{ name: "vaulted", states: { claude: "synced", codex: "linked" } }],
+            linked: [link("codex", "vaulted", "\\??\\D:\\tools\\vaulted")],
+        });
+        const rows = skillRows(d, {});
+        expect(rows).toHaveLength(1);
+        expect(rows[0].cells[1]).toEqual({
+            runtime: "codex",
+            label: "Link",
+            tone: "warn",
+            title: "D:\\tools\\vaulted",
+        });
+        expect(groupsOf(d).map((g) => g.title)).not.toContain("Linked from another folder");
+        expect(adoptCount(d, {})).toBe(0);
+    });
+
+    it("falls back to a fixed title when an older backend lists no link for a vault skill", () => {
+        const d = data({ skills: [{ name: "vaulted", states: { claude: "synced", codex: "linked" } }] });
+        expect(skillRows(d, {})[0].cells[1].title).toBe(
+            "A link to another folder: Arc leaves it alone and does not write this skill here"
+        );
+    });
+
     it("says in the rail that Arc leaves links alone", () => {
         const d = data({ linked: [link("codex", "shared-tool", "D:\\tools\\shared-tool")] });
         const note = skillNote(skillRows(d, {})[0], COLUMNS);

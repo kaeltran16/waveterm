@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import * as nodeFs from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
@@ -297,10 +297,35 @@ describe("setup fixture steering", () => {
         expect(await rt.call("agentsyncsteeringread")).toEqual({
             path: fixture.steering.path,
             content: fixture.steering.content,
-            mtime: 1000,
+            mtime: fixture.steering.mtime,
         });
         rt.control("useVariant", { key: "doc-absent" });
         expect(await rt.call("agentsyncsteeringread")).toMatchObject({ content: "", mtime: 0 });
+    });
+
+    it("stamps the doc and every write in UnixMilli near now, each later than the last", async () => {
+        const before = Date.now();
+        const { rt, fixture } = runtimeFor("setup-instructions");
+        const hour = 60 * 60 * 1000;
+        expect(fixture.steering.mtime).toBeGreaterThan(before - 2 * hour);
+        expect(fixture.steering.mtime).toBeLessThanOrEqual(Date.now());
+        const first = await rt.call("agentsyncsteeringwrite", { content: "a", basemtime: fixture.steering.mtime });
+        const second = await rt.call("agentsyncsteeringwrite", { content: "b", basemtime: first.mtime });
+        rt.control("setDisk", { content: "c" });
+        const third = rt.snapshot().disk.mtime;
+        expect([first.conflict, second.conflict]).toEqual([false, false]);
+        expect(first.mtime).toBeGreaterThanOrEqual(before);
+        expect(second.mtime).toBeGreaterThan(first.mtime);
+        expect(third).toBeGreaterThan(second.mtime);
+        expect(third).toBeLessThan(Date.now() + 1000);
+    });
+
+    it("leaves pi set up but not written under the not-written variant", async () => {
+        const { rt } = runtimeFor("setup-instructions");
+        rt.control("useVariant", { key: "not-written" });
+        const pi = (await rt.call("agentsyncstatus")).harnesses.find((x) => x.runtime === "pi");
+        expect(pi).toMatchObject({ present: true, steering: "absent" });
+        expect(await presentSteering(rt)).toEqual(["current", "stale", "absent"]);
     });
 
     it("conflicts on a disk edit since the read, and basemtime 0 overwrites it", async () => {
@@ -364,10 +389,10 @@ describe("setup fixture steering", () => {
     });
 
     it("fails a read once and then serves it again", async () => {
-        const { rt, summary } = runtimeFor();
+        const { rt, summary, fixture } = runtimeFor();
         rt.control("fail", { command: "agentsyncsteeringread", message: "read failed", times: 1 });
         await expect(rt.call("agentsyncsteeringread")).rejects.toThrow(/read failed/);
-        expect((await rt.call("agentsyncsteeringread")).mtime).toBe(1000);
+        expect((await rt.call("agentsyncsteeringread")).mtime).toBe(fixture.steering.mtime);
         expect(summary()).toMatchObject({ writeAttempts: 0, applies: 0, diskWrites: 0 });
         expect(summary().reads.agentsyncsteeringread).toBe(1);
     });
@@ -521,6 +546,18 @@ describe("setup fixture adopt", () => {
         expect(fixture.skills.unmanaged.some((m) => m.name === link.name)).toBe(false);
     });
 
+    it("also lists a link under a vault skill's name, whose state in that column is linked", () => {
+        const { fixture } = runtimeFor("setup-skills");
+        const link = fixture.skills.linked.find((l) => fixture.skills.skills.some((k) => k.name === l.name));
+        expect(link).toMatchObject({ runtime: "codex", name: "vault-linked" });
+        const rel = relative(fixture.ownedDir, link.target);
+        expect(rel.startsWith("..") || rel === link.target).toBe(false);
+        const skill = fixture.skills.skills.find((k) => k.name === link.name);
+        expect(skill.states[link.runtime]).toBe("linked");
+        // nothing is written through a link
+        expect(fixture.contents.dests[`${link.name}/${link.runtime}`]).toBeUndefined();
+    });
+
     it("compares each copy against the chosen seed, in both keep directions", async () => {
         const { rt } = runtimeFor();
         const movesFor = async (name, keep) =>
@@ -663,7 +700,10 @@ describe("setup fixture data", () => {
         const skills = fixture.skills;
         expect("piskills" in skills).toBe(false);
         expect(skills.skills.every((k) => !("sourcekind" in k) && !("sourcepath" in k))).toBe(true);
-        expect(skills.linked).toEqual([expect.objectContaining({ runtime: "claude", name: "linked-tool" })]);
+        expect(skills.linked).toEqual([
+            expect.objectContaining({ runtime: "claude", name: "linked-tool" }),
+            expect.objectContaining({ runtime: "codex", name: "vault-linked" }),
+        ]);
         expect(Object.keys(fixture.steering).sort()).toEqual(["content", "mtime", "path"]);
         const pi = fixture.status.harnesses.find((x) => x.runtime === "pi");
         expect(pi).toMatchObject({ present: true, note: "pi settings do not point at the synced skills", notetone: "warn" });

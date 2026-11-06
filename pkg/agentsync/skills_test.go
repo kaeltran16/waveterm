@@ -632,11 +632,11 @@ func TestSkillRowsLinkedState(t *testing.T) {
 	}
 }
 
-func TestSkillLinksListsNonVaultLinks(t *testing.T) {
+func TestSkillLinksListsEveryLink(t *testing.T) {
 	p := testPaths(t, "canonical\n", ".claude", ".codex")
 	seedSkill(t, p, "graphify")
 	dir := filepath.Join(p.Home, ".claude", "skills")
-	linkedSkill(t, p, dir, "graphify")
+	vaultLink, vaultTarget := linkedSkill(t, p, dir, "graphify")
 	link, target := linkedSkill(t, p, dir, "notes")
 	writeFile(t, filepath.Join(p.Home, ".codex", "skills", "plain", skillFile), "mine\n")
 
@@ -644,11 +644,18 @@ func TestSkillLinksListsNonVaultLinks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(links) != 1 || links[0].Runtime != "claude" || links[0].Name != "notes" || links[0].Path != link {
-		t.Fatalf("links = %+v, want only claude's non-vault link notes at %s", links, link)
+	if len(links) != 2 {
+		t.Fatalf("links = %+v, want claude's links graphify and notes", links)
 	}
-	// a junction's target may read back with the \??\ NT prefix
-	if !strings.EqualFold(filepath.Clean(strings.TrimPrefix(links[0].Target, `\??\`)), filepath.Clean(target)) {
-		t.Fatalf("target = %q, want %q", links[0].Target, target)
+	want := []struct{ name, path, target string }{{"graphify", vaultLink, vaultTarget}, {"notes", link, target}}
+	for i, w := range want {
+		got := links[i]
+		if got.Runtime != "claude" || got.Name != w.name || got.Path != w.path {
+			t.Fatalf("links[%d] = %+v, want claude's %s at %s", i, got, w.name, w.path)
+		}
+		// a junction's target may read back with the \??\ NT prefix
+		if !strings.EqualFold(filepath.Clean(strings.TrimPrefix(got.Target, `\??\`)), filepath.Clean(w.target)) {
+			t.Fatalf("links[%d].Target = %q, want %q", i, got.Target, w.target)
+		}
 	}
 }

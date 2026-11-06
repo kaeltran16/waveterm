@@ -156,7 +156,12 @@ function linkCell(link: SkillLinkEntry): SkillCell {
     return { runtime: link.runtime, label: "Link", tone: "none", title: link.target };
 }
 
-function managedCell(skill: AgentSyncSkill, col: AgentSyncSkillColumn, replaced: boolean): SkillCell {
+function managedCell(
+    skill: AgentSyncSkill,
+    col: AgentSyncSkillColumn,
+    replaced: boolean,
+    links: SkillLinkEntry[]
+): SkillCell {
     const state = col.present ? skill.states?.[col.runtime] : "absent";
     const over = skill.deltas?.[col.runtime] ?? [];
     const title = over.length > 0 ? `Overrides ${over.join(", ")}` : undefined;
@@ -170,12 +175,14 @@ function managedCell(skill: AgentSyncSkill, col: AgentSyncSkillColumn, replaced:
                 ? { runtime: col.runtime, ...REPLACED }
                 : { runtime: col.runtime, label: "Own copy", tone: "none" };
         case "linked":
-            // the wire lists no target for a vault skill's link, so the title says what Arc does with it
+            // an older backend lists no link for a vault skill, so the title then says what Arc does with it
             return {
                 runtime: col.runtime,
                 label: "Link",
                 tone: "warn",
-                title: "A link to another folder: Arc leaves it alone and does not write this skill here",
+                title:
+                    links.find((l) => l.runtime === col.runtime)?.target ??
+                    "A link to another folder: Arc leaves it alone and does not write this skill here",
             };
         case "plugin":
             return {
@@ -250,7 +257,7 @@ export function skillRows(data: SkillsData, keep: SkillKeep): SkillRow[] {
             copies,
             links: [],
             deltas: s.deltas ?? {},
-            cells: columns.map((col) => managedCell(s, col, replaced)),
+            cells: columns.map((col) => managedCell(s, col, replaced, links.get(s.name) ?? [])),
         };
     });
     for (const [name, copies] of unmanaged) {

@@ -204,6 +204,31 @@ async function setupSkillsAssert(h, ctx) {
         };
     });
 
+    await run("4b. F4: a vault skill's link reads Link in the warn tone, titled with the link's target", async () => {
+        const link = ctx.fx.fixture.skills.linked.find((l) => ctx.fx.fixture.skills.skills.some((k) => k.name === l.name));
+        const col = ctx.fx.fixture.skills.columns.findIndex((c) => c.runtime === link.runtime);
+        const cell = await h.ev(`(() => {
+            const c = [...((${rowSel(link.name)})?.querySelectorAll('[role="cell"]') ?? [])].slice(1)[${col}];
+            if (!c) return null;
+            return {
+                text: c.textContent.trim(),
+                title: c.getAttribute("title"),
+                warnText: c.classList.contains("text-warning-soft"),
+                warnDot: !!c.querySelector(".bg-warning"),
+            };
+        })()`);
+        const groups = await groupTitles(h);
+        return {
+            ok:
+                cell?.text === "Link" &&
+                cell.title === link.target &&
+                cell.warnText &&
+                cell.warnDot &&
+                JSON.stringify(groups) === JSON.stringify(GROUPS),
+            detail: { link, cell, groups },
+        };
+    });
+
     await run("5. F6: a vault skill's own copy has its own group; Replace raises Manage by one and the adopt sends keep vault", async () => {
         await freshSkills(h, ctx);
         await polishWaitFor(h, `!!${MATRIX}`, 10000);

@@ -114,7 +114,8 @@ type AgentSyncSkillColumn struct {
 	Present bool   `json:"present"`
 }
 
-// AgentSyncSkillLink is a link in a harness skills folder whose target is gone: neither a skill nor written through.
+// AgentSyncSkillLink is a link in a harness skills folder, a vault skill's name included: Arc never adopts
+// it or writes through it.
 type AgentSyncSkillLink struct {
 	Runtime string `json:"runtime"`
 	Name    string `json:"name"`
@@ -129,5 +130,7 @@ type CommandAgentSyncSkillsRtnData struct {
 	// Unmanaged and Unresolved are what an adopt would do, ungrouped: the frontend groups them.
 	Unmanaged  []AgentSyncSkillMove `json:"unmanaged"`
 	Unresolved []string             `json:"unresolved"`
-	Linked     []AgentSyncSkillLink `json:"linked"`
+	// Linked is every link in a present harness's skills folder, which Arc never adopts or writes through,
+	// a vault skill's name included.
+	Linked []AgentSyncSkillLink `json:"linked"`
 }

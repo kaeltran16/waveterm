@@ -195,6 +195,19 @@ async function setupInstructionsAssert(h, ctx) {
         };
     });
 
+    await run("4b. a set-up harness that has not received the doc is counted as not written yet", async () => {
+        await controlSetupFixture(h, "useVariant", { key: "not-written" });
+        await h.goto("cockpit");
+        await h.goto("setup");
+        const shown = await polishWaitFor(h, `(${HEADER}?.firstElementChild?.textContent ?? "").includes("· 1 not written yet")`, 10000);
+        const header = await h.ev(`${HEADER}?.firstElementChild?.textContent ?? ""`);
+        await h.shot("cdp-shots/setup-instructions-not-written.png");
+        // the steps after this one read the default status
+        await freshSetup(h, ctx);
+        await polishWaitFor(h, `${EDITOR}?.value === ${q(ctx.fx.fixture.steering.content)}`, 10000);
+        return { ok: shown && header === "1 out of date · 1 not written yet", detail: { shown, header } };
+    });
+
     await run("5. Pi's note shows under its row in the warn tone (F3)", async () => {
         const pi = ctx.fx.fixture.status.harnesses.find((r) => r.runtime === "pi");
         const got = await h.ev(`(() => {
@@ -266,6 +279,12 @@ async function setupInstructionsAssert(h, ctx) {
             ok: armed && keptWhileArmed && cancelled && disarmedByTyping && discardedFive && oneAtOnce && wrote,
             detail: { armed, keptWhileArmed, cancelled, disarmedByTyping, discardedFive, oneAtOnce, wrote },
         };
+    });
+
+    await run("8b. after a save, Last saved reads a recent time, never days ago", async () => {
+        const fresh = await polishWaitFor(h, `/^Last saved just now/.test(document.querySelector("[data-last-saved]")?.textContent.trim() ?? "")`, 5000);
+        const last = await h.ev(`document.querySelector("[data-last-saved]")?.textContent.trim() ?? null`);
+        return { ok: fresh && !!last && /^Last saved /.test(last) && !/\d+d ago/.test(last), detail: { last } };
     });
 
     await run("9. an outside edit then Save shows the conflict listing the outside line as added (F24)", async () => {

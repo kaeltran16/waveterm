@@ -67,6 +67,8 @@ export function createFixtureRuntime(fixture) {
     let clock = s.disk.mtime || 0;
     let lastMutation = null;
 
+    // UnixMilli like the real RPC, and strictly increasing so a conflict check by mtime still sees each write
+    const tick = () => (clock = Math.max(clock + 1, Date.now()));
     const note = (entry) => log.push({ seq: ++seq, ...entry });
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const unique = (list) => [...new Set(list)];
@@ -91,7 +93,7 @@ export function createFixtureRuntime(fixture) {
             note({ ...base, outcome: "conflict", accepted: false });
             return { mtime: s.disk.mtime, conflict: true };
         }
-        s.disk = { ...s.disk, content: d.content, mtime: ++clock };
+        s.disk = { ...s.disk, content: d.content, mtime: tick() };
         diskWrites.push({ content: d.content, mtime: s.disk.mtime, overwrite: basemtime === 0 });
         markStale();
         lastMutation = "save";
@@ -314,7 +316,7 @@ export function createFixtureRuntime(fixture) {
         // an edit outside Arc: new content and a new mtime, so a save based on the old read conflicts.
         // exists: false deletes the doc (mtime 0), which reads back empty
         setDisk: ({ content = "", exists = true }) => {
-            s.disk = { ...s.disk, content: exists ? content : "", mtime: exists ? ++clock : 0 };
+            s.disk = { ...s.disk, content: exists ? content : "", mtime: exists ? tick() : 0 };
             markStale();
         },
         // times: 1 fails only the next call, e.g. the first agentsyncstatus read a visit makes
@@ -451,6 +453,8 @@ function buildFixture(name, ownedDir) {
         addFile(join(vaultRoot, n, SKILL_FILE), body);
         contents.vault[n] = body;
         for (const rt of Object.keys(roots)) {
+            // a link is no destination: Arc writes nothing through it
+            if (over.states?.[rt] === "linked") continue;
             contents.dests[`${n}/${rt}`] = over.states?.[rt] === "differs" ? skillDoc(n, `${n} stale harness body`) : body;
         }
         return { name: n, description: `${n} fixture skill`, states: { claude: "synced", codex: "synced" }, ...over };
@@ -478,6 +482,8 @@ function buildFixture(name, ownedDir) {
     const managed = [
         vaultSkill("commit-helper", { deltas: { claude: ["model"] }, states: { claude: "synced", codex: "unmanaged" } }),
         vaultSkill("vault-drift", { states: { claude: "differs", codex: "synced" } }),
+        // codex's folder holds a link under this vault skill's name, listed in linked below
+        vaultSkill("vault-linked", { states: { claude: "synced", codex: "linked" } }),
         shipped("design", { deltas: { codex: ["agents/openai.yaml"] } }),
         shipped("cockpit"),
     ];
@@ -531,10 +537,9 @@ function buildFixture(name, ownedDir) {
         { runtime: "codex", label: "Codex", present: true },
         { runtime: "opencode", label: "OpenCode", present: false },
     ];
-    // a link in a harness skills folder whose name is no vault skill: neither a skill nor written through
-    const linked = [
-        { runtime: "claude", name: "linked-tool", path: join(roots.claude, "linked-tool"), target: join(ownedDir, "elsewhere", "linked-tool") },
-    ];
+    // every link in a harness skills folder, a vault skill's name included: neither adopted nor written through
+    const link = (runtime, n) => ({ runtime, name: n, path: join(roots[runtime], n), target: join(ownedDir, "elsewhere", n) });
+    const linked = [link("claude", "linked-tool"), link("codex", "vault-linked")];
     const skills = {
         skills: managed,
         columns,
@@ -549,7 +554,8 @@ function buildFixture(name, ownedDir) {
     const steering = {
         path: join(ownedDir, "vault", "steering", "AGENTS.md"),
         content: name === "setup-narrow" ? longDoc : sharedDoc,
-        mtime: 1000,
+        // UnixMilli like the real RPC: saved an hour before the fixture was built
+        mtime: Date.now() - 60 * 60 * 1000,
     };
     // each present harness file holds the user's own lines and Arc's region, as the reconcile writes it
     const region = (body) => `${STEERING_BEGIN}\n${body.trimEnd()}\n${STEERING_END}\n`;
@@ -592,6 +598,8 @@ function buildFixture(name, ownedDir) {
             status: patch(status, (c) => c.harnesses.filter((x) => x.present).forEach((x) => (x.steering = "blank"))),
         },
         "long-token": { steering: { ...steering, content: `${LONG_TOKEN}\n` } },
+        // pi is set up but has not received the doc yet
+        "not-written": { status: patch(status, (c) => (c.harnesses.find((x) => x.runtime === "pi").steering = "absent")) },
     };
 
     return {
