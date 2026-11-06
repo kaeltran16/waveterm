@@ -179,7 +179,7 @@ func TestUpdateRewritesTitleAndBodyAndKeepsTheID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Update(note.ID, "Final title", "new body"); err != nil {
+	if _, err := Update(note.ID, "Final title", "new body", ""); err != nil {
 		t.Fatal(err)
 	}
 	notes, err := List()
@@ -194,7 +194,7 @@ func TestUpdateRewritesTitleAndBodyAndKeepsTheID(t *testing.T) {
 func TestUpdateAndDeleteOfAMissingNoteAreNotFound(t *testing.T) {
 	useTempRoot(t)
 	missing := testDay + "-missing"
-	if err := Update(missing, "t", "b"); !errors.Is(err, wstore.ErrNotFound) {
+	if _, err := Update(missing, "t", "b", ""); !errors.Is(err, wstore.ErrNotFound) {
 		t.Fatalf("update err = %v", err)
 	}
 	if err := Delete(missing); !errors.Is(err, wstore.ErrNotFound) {
@@ -229,11 +229,71 @@ func TestAnIDThatWouldLeaveTheNotesDirIsRejected(t *testing.T) {
 		if err := Delete(id); err == nil || errors.Is(err, wstore.ErrNotFound) {
 			t.Errorf("delete %q: err = %v, want an invalid id", id, err)
 		}
-		if err := Update(id, "t", "b"); err == nil || errors.Is(err, wstore.ErrNotFound) {
+		if _, err := Update(id, "t", "b", ""); err == nil || errors.Is(err, wstore.ErrNotFound) {
 			t.Errorf("update %q: err = %v, want an invalid id", id, err)
 		}
 	}
 	if b, err := os.ReadFile(outside); err != nil || string(b) != "keep" {
 		t.Fatalf("a file outside notes/ was touched: %q, %v", b, err)
+	}
+}
+
+func TestListSetsRev(t *testing.T) {
+	useTempRoot(t)
+	added, err := Add("Rev", "body")
+	if err != nil {
+		t.Fatal(err)
+	}
+	notes, err := List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notes) != 1 || len(notes[0].Rev) != revLen || notes[0].Rev != added.Rev {
+		t.Fatalf("list rev %+v, add rev %q", notes, added.Rev)
+	}
+	rev, err := Update(added.ID, "Rev", "changed", added.Rev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	notes, _ = List()
+	if rev == added.Rev || notes[0].Rev != rev {
+		t.Fatalf("update rev %q, list rev %q, old %q", rev, notes[0].Rev, added.Rev)
+	}
+}
+
+func TestUpdateRefusesStaleRev(t *testing.T) {
+	root := useTempRoot(t)
+	note, err := Add("Shared", "first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, NotesDir, note.ID+".md")
+	outside := "# Shared\n\nwritten elsewhere\n"
+	if err := os.WriteFile(path, []byte(outside), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Update(note.ID, "Shared", "mine", note.Rev); !errors.Is(err, ErrNoteConflict) {
+		t.Fatalf("err = %v, want ErrNoteConflict", err)
+	}
+	if b, _ := os.ReadFile(path); string(b) != outside {
+		t.Fatalf("a refused update wrote the file: %q", b)
+	}
+}
+
+func TestUpdateEmptyBaseRevOverwrites(t *testing.T) {
+	root := useTempRoot(t)
+	note, err := Add("Shared", "first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, NotesDir, note.ID+".md")
+	if err := os.WriteFile(path, []byte("# Shared\n\nwritten elsewhere\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Update(note.ID, "Shared", "mine", ""); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(path); string(b) != "# Shared\n\nmine\n" {
+		t.Fatalf("file = %q", b)
 	}
 }

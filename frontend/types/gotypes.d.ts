@@ -1486,6 +1486,12 @@ declare global {
         id: string;
         title: string;
         body?: string;
+        baserev?: string;
+    };
+
+    // wshrpc.CommandNoteUpdateRtnData
+    type CommandNoteUpdateRtnData = {
+        rev: string;
     };
 
     // wshrpc.CommandPostChannelMessageData
@@ -3615,6 +3621,7 @@ declare global {
         title: string;
         body?: string;
         day: string;
+        rev?: string;
     };
 
     // wshrpc.VaultStatusRtnData

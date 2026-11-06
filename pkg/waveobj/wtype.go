@@ -1004,6 +1004,7 @@ type UserNote struct {
 	Title string `json:"title"`
 	Body  string `json:"body,omitempty"` // markdown
 	Day   string `json:"day"`            // the day it was added, YYYY-MM-DD
+	Rev   string `json:"rev,omitempty"`  // a hash of the file as read: an update's base rev
 }
 
 func (t *Tab) GetBlockORefs() []ORef {

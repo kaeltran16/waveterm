@@ -2,13 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // The Notes scope's writing side: the draft the palette edits in place of its search, the armed second press
-// (del to delete, esc to discard), and saving and deleting. The rules are in palette-notes.ts.
+// (del to delete, esc to discard, ctrl ⏎ to overwrite a note changed elsewhere), and saving and deleting. The
+// rules are in palette-notes.ts.
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { errorText, runPaletteAction } from "./palette-action";
 import type { PaletteDeps } from "./palette-items";
 import {
+    armAfterSave,
     draftDirty,
     noteTitleError,
     pressArm,
@@ -84,13 +86,19 @@ export function useNoteEditor(open: boolean, inputRef: RefObject<HTMLInputElemen
         }
         setPaletteError(undefined);
         savingRef.current = true;
+        const overwrite = armed?.key === "save";
         let id: string;
         void runPaletteAction(async () => {
-            id = await saveNoteDraft(draft);
+            id = (await saveNoteDraft(draft, overwrite)).id;
         }).then((result) => {
             savingRef.current = false;
             if ("error" in result) {
-                setPaletteError(`Save failed: ${errorText(result.error)}`);
+                // a conflict keeps the draft and asks for a second ctrl ⏎
+                const arm = armAfterSave(result.error, overwrite);
+                setArmed(arm);
+                if (arm == null) {
+                    setPaletteError(`Save failed: ${errorText(result.error)}`);
+                }
                 return;
             }
             setDraft(null);

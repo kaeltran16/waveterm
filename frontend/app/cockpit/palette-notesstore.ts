@@ -28,14 +28,28 @@ async function reloadAfter<T>(write: () => Promise<T>): Promise<T> {
     }
 }
 
-export function saveNoteDraft(d: NoteDraft): Promise<string> {
+// Resolves the draft as saved, with the note's id and its new rev. overwrite: save over a note changed since
+// it was opened, sending no base rev.
+export function saveNoteDraft(d: NoteDraft, overwrite = false): Promise<NoteDraft> {
+    const saved = { title: d.title, body: d.body };
     return reloadAfter(async () => {
         if (d.id == null) {
             const note = await RpcApi.NoteAddCommand(TabRpcClient, { title: d.title, body: d.body });
-            return note.id;
+            return { ...d, id: note.id, rev: note.rev, saved };
         }
-        await RpcApi.NoteUpdateCommand(TabRpcClient, { id: d.id, title: d.title, body: d.body });
-        return d.id;
+        const { rev } = await RpcApi.NoteUpdateCommand(TabRpcClient, {
+            id: d.id,
+            title: d.title,
+            body: d.body,
+            baserev: overwrite ? undefined : d.rev,
+        });
+        // the new rev reaches the list now, not by the reload alone: a failed reload must not leave a reopened
+        // note on the rev this save replaced, which the next save would take for a conflict
+        const id = d.id;
+        globalStore.set(paletteNotesAtom, (notes) =>
+            notes?.map((n) => (n.id === id ? { ...n, title: d.title.trim(), body: d.body.trim(), rev } : n))
+        );
+        return { ...d, rev, saved };
     });
 }
 
