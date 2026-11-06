@@ -44,7 +44,7 @@ import {
     type LinkedGroupRead,
     type RunSettingsDraft,
 } from "./runsettings";
-import { approvalsWord, autonomousResolvedNote, configLine, configNote } from "./runsheetmodel";
+import { approvalsWord, autonomousResolvedNote, configNote } from "./runsheetmodel";
 
 const META_ROW = "flex flex-wrap items-center gap-x-3.5 gap-y-1 font-mono text-[10.5px]";
 const FIELD = "rounded-[7px] border border-border bg-background px-2 py-1 text-[11.5px] text-ink-hi";
@@ -164,6 +164,8 @@ type ConfigProps = {
     // inline only: what the reading prints ahead of the configuration on the same row
     meta?: ReactNode;
     waiting?: WaitingQuestion | null;
+    // not inline: the host owns the Adjust toggle (the DAG modal's header), so only the dials render, while open
+    open?: boolean;
 };
 
 // The question the run's status says is waiting on the human, which saving Approvals on hands back to the
@@ -195,6 +197,7 @@ function LoadedConfig({
     inline,
     meta,
     waiting,
+    open: hostOpen = false,
 }: ConfigProps & { group: TaskGroup | null; groupRead: LinkedGroupRead }) {
     const [open, setOpen] = useState(false);
     const [draft, setDraft] = useState<RunSettingsDraft | null>(null);
@@ -238,19 +241,21 @@ function LoadedConfig({
             );
         }
         return (
-            <div data-jarvis-brief-sheet-state={readState} className="flex items-start gap-[9px] px-4 py-[11px]">
-                <span
-                    className={cn(
-                        "mt-1 h-1.5 w-1.5 flex-none rounded-full",
-                        note.tone === "error" ? "bg-error" : note.tone === "muted" ? "bg-muted" : "bg-edge-strong",
-                        note.pulse && "pulse-soft"
-                    )}
-                />
-                <div className="flex min-w-0 flex-col gap-[3px]">
-                    <span className="text-[11.5px] font-semibold text-secondary">{note.title}</span>
-                    {note.body ? <span className="text-[11px] leading-[1.5] text-muted">{note.body}</span> : null}
+            <PaneReveal open={hostOpen}>
+                <div data-jarvis-brief-sheet-state={readState} className="flex items-start gap-[9px] px-4 py-[11px]">
+                    <span
+                        className={cn(
+                            "mt-1 h-1.5 w-1.5 flex-none rounded-full",
+                            note.tone === "error" ? "bg-error" : note.tone === "muted" ? "bg-muted" : "bg-edge-strong",
+                            note.pulse && "pulse-soft"
+                        )}
+                    />
+                    <div className="flex min-w-0 flex-col gap-[3px]">
+                        <span className="text-[11.5px] font-semibold text-secondary">{note.title}</span>
+                        {note.body ? <span className="text-[11px] leading-[1.5] text-muted">{note.body}</span> : null}
+                    </div>
                 </div>
-            </div>
+            </PaneReveal>
         );
     }
     if (draft == null || baseline == null) {
@@ -490,32 +495,13 @@ function LoadedConfig({
 
     return (
         <div data-jarvis-brief-sheet-config="editable">
-            <div className="flex items-center gap-2.5 px-4 py-[11px]">
-                <span
-                    title={configLine(run, shown, notSaved)}
-                    className={cn(
-                        "min-w-0 flex-1 truncate font-mono text-[10.5px]",
-                        notSaved ? "text-error" : "text-muted"
-                    )}
-                >
-                    {configLine(run, shown, notSaved)}
-                </span>
-                <button
-                    type="button"
-                    aria-expanded={open}
-                    onClick={() => setOpen((o) => !o)}
-                    className={cn(SHEET_BTN, "flex-none rounded-[6px] px-[9px] py-[3px] text-[10.5px]")}
-                >
-                    {open ? "Done" : "Adjust"}
-                </button>
-            </div>
             {resolvedHeader != null ? (
-                <div className="px-4 pb-[11px]">
+                <div className="px-4 pt-[11px]">
                     <ResolvedNote header={resolvedHeader} />
                 </div>
             ) : null}
-            <PaneReveal open={open}>
-                <div className="flex flex-col gap-3 border-t border-edge-faint px-4 pb-3.5 pt-[11px]">{dials}</div>
+            <PaneReveal open={hostOpen}>
+                <div className="flex flex-col gap-3 px-4 pb-3.5 pt-[11px]">{dials}</div>
             </PaneReveal>
         </div>
     );
@@ -532,9 +518,9 @@ function LinkedRunConfig({ dagId, ...props }: ConfigProps & { dagId: string }) {
     return <LoadedConfig {...props} group={group ?? null} groupRead={groupRead} />;
 }
 
-// The run's configuration for whichever run the sheet is showing: a dock of its own, or, inline, the tail of
-// the reading's meta row. The linked/unlinked split is a component boundary rather than a hook inside a
-// branch: useDagGroup has to be called unconditionally.
+// A run's configuration: inline, the tail of the run sheet's meta row with its own adjust toggle; otherwise
+// just the dials, opened by the host's toggle (the DAG modal's header). The linked/unlinked split is a
+// component boundary rather than a hook inside a branch: useDagGroup has to be called unconditionally.
 export function RunSettingsPanel(props: ConfigProps) {
     const dagId = props.run.dagoref ?? "";
     if (dagId !== "") {

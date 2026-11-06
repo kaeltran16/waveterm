@@ -444,6 +444,33 @@ export const dagLifecycle = {
         })()`);
         rec("5e. Timeline rows render", timeline.rows > 0, JSON.stringify(timeline));
 
+        // the header's Adjust opens the run sheet's dials under it; a saved width reaches the dag and the header
+        const DAG_HEADER_ADJUST = `document.querySelector('[data-dag-modal-kind] [data-dag-adjust]')`;
+        const DAG_ADJUST_WIDTH = `document.querySelector('[data-dag-modal-kind] [data-jarvis-brief-sheet-config] input[type="number"]')`;
+        const DAG_ADJUST_SAVED = `document.querySelector('[data-dag-modal-kind] [data-jarvis-brief-sheet-state="saved"]')`;
+        await h.ev(`${DAG_HEADER_ADJUST}?.click()`);
+        const dialsShown = await polishWaitFor(h, `!!${DAG_ADJUST_WIDTH}`, 3000);
+        await h.ev(setInputExpr(DAG_ADJUST_WIDTH, String(dagParallelism + 1)));
+        await h.ev(clickByText(`document.querySelector('[data-dag-modal-kind]')`, "button", "Save settings"));
+        const savedShown = await polishWaitFor(h, `!!${DAG_ADJUST_SAVED}`, 8000);
+        await h.shot("cdp-shots/dag-modal-adjust.png");
+        const adjusted = {
+            dialsShown,
+            savedShown,
+            saved: await h.ev(flatText(DAG_ADJUST_SAVED)),
+            header: await h.ev(flatText(`document.querySelector('[data-dag-modal-kind] [data-dag-progress]')?.parentElement`)),
+            width: (await h.rpc("dagstatus", { channelid: ctx.channelId, runid: runId })).group.parallelism,
+        };
+        rec(
+            "5g. Adjust in the DAG header saves a new worker parallelism to the dag and the header reads it",
+            dialsShown &&
+                adjusted.saved === "Saved. Applies to future dispatches." &&
+                adjusted.width === dagParallelism + 1 &&
+                adjusted.header.startsWith(`parallelism ${dagParallelism + 1}`),
+            JSON.stringify(adjusted)
+        );
+        await h.ev(`${DAG_HEADER_ADJUST}?.click()`);
+
         // escape dismisses the modal (the modal state machine refuses close while launching, which is
         // not in play here; the Close button and backdrop click share the same path)
         const esc = await h.ev(`(async () => {

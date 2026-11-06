@@ -1,4 +1,5 @@
 import { globalStore } from "@/app/store/jotaiStore";
+import { RunSettingsPanel } from "@/app/view/jarvis/briefrunsheet";
 import { useAtomValue } from "jotai";
 import { useState } from "react";
 import { confirmCancelRun } from "../agents/runactions";
@@ -53,8 +54,8 @@ const PILL_TONE: Record<DagStatusPill["tone"], string> = {
 };
 
 // graph header: the owning run's goal, the summary chips, the workers and reviewers routes, the derived status
-// pill, cancel. No back button: the modal header above it already closes, and a second close one row down read
-// as two different exits.
+// pill, Adjust (the run sheet's settings dials, opened under the header), cancel. No back button: the modal
+// header above it already closes, and a second close one row down read as two different exits.
 // No dag id either: the modal subtitle names the run, and the dag's uuid identified it to nobody.
 export function DagGraphHeader({ group, owner }: { group: TaskGroup; owner: Run }) {
     const pill = dagStatusPill(group);
@@ -62,53 +63,69 @@ export function DagGraphHeader({ group, owner }: { group: TaskGroup; owner: Run 
     const label = pill.label;
     const ended = runFinished({ dag: group, status: group.status });
     const [cancelError, setCancelError] = useState("");
+    const [adjusting, setAdjusting] = useState(false);
     const usage = useRunUsage(group.channelid, group.runid);
     const spent = summarizeUsage(usage?.rows);
     return (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border bg-background px-4 py-2.5">
-            <div className="min-w-48 flex-1">
-                <div className="truncate text-[14px] font-bold tracking-[-0.01em] text-primary">
-                    {group.title || "orchestration dag"}
+        <div className="border-b border-border bg-background">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5">
+                <div className="min-w-48 flex-1">
+                    <div className="truncate text-[14px] font-bold tracking-[-0.01em] text-primary">
+                        {group.title || "orchestration dag"}
+                    </div>
+                    <div className={DAG_META}>
+                        parallelism {group.parallelism} · <span data-dag-progress>{progressText(group.tasks)}</span>
+                        {spent ? ` · ${usageText(spent, usage.sealed)}` : ""}
+                    </div>
+                    {spent ? <div className={`truncate ${DAG_META}`}>{modelsText(spent)}</div> : null}
                 </div>
-                <div className={DAG_META}>
-                    parallelism {group.parallelism} · <span data-dag-progress>{progressText(group.tasks)}</span>
-                    {spent ? ` · ${usageText(spent, usage.sealed)}` : ""}
-                </div>
-                {spent ? <div className={`truncate ${DAG_META}`}>{modelsText(spent)}</div> : null}
-            </div>
-            <SummaryChips tasks={group.tasks} ended={ended} />
-            <span className={ROUTE_CHIP}>{workersChip(group, owner)}</span>
-            <span className={ROUTE_CHIP}>{reviewersChip(group, owner)}</span>
-            <span
-                className={`rounded-[5px] border px-2 py-0.5 font-mono text-[11.5px] uppercase tracking-wide ${tone}`}
-            >
-                {label}
-            </span>
-            {/* awaiting-plan is cancellable too: abandoning a run at its gate is a normal answer, and the
-                alternative would be approving work you do not want in order to be allowed to stop it */}
-            {group.status === "running" ||
-            group.status === "awaiting-plan" ||
-            group.status === "plan-review" ||
-            group.status === "finalizing" ? (
-                <>
-                    {cancelError ? (
-                        <span data-dag-cancel-error className="text-[12px] text-warning">
-                            {cancelError}
-                        </span>
-                    ) : null}
+                <SummaryChips tasks={group.tasks} ended={ended} />
+                <span className={ROUTE_CHIP}>{workersChip(group, owner)}</span>
+                <span className={ROUTE_CHIP}>{reviewersChip(group, owner)}</span>
+                <span
+                    className={`rounded-[5px] border px-2 py-0.5 font-mono text-[11.5px] uppercase tracking-wide ${tone}`}
+                >
+                    {label}
+                </span>
+                {/* the same rule as the lead card's Adjust: an engine run's dials change until it finishes */}
+                {!ended ? (
                     <button
                         type="button"
-                        data-dag-cancel
-                        onClick={() => {
-                            setCancelError("");
-                            confirmCancelRun(group.channelid, group.runid, liveSessions(group), setCancelError);
-                        }}
-                        className="rounded border border-edge-mid px-2.5 py-1 text-[12px] font-semibold text-secondary hover:border-warning/60 hover:text-warning"
+                        data-dag-adjust
+                        aria-expanded={adjusting}
+                        onClick={() => setAdjusting((v) => !v)}
+                        className="rounded border border-edge-mid px-2.5 py-1 text-[12px] font-semibold text-secondary hover:border-edge-strong hover:text-primary"
                     >
-                        Cancel
+                        {adjusting ? "Done" : "Adjust"}
                     </button>
-                </>
-            ) : null}
+                ) : null}
+                {/* awaiting-plan is cancellable too: abandoning a run at its gate is a normal answer, and the
+                    alternative would be approving work you do not want in order to be allowed to stop it */}
+                {group.status === "running" ||
+                group.status === "awaiting-plan" ||
+                group.status === "plan-review" ||
+                group.status === "finalizing" ? (
+                    <>
+                        {cancelError ? (
+                            <span data-dag-cancel-error className="text-[12px] text-warning">
+                                {cancelError}
+                            </span>
+                        ) : null}
+                        <button
+                            type="button"
+                            data-dag-cancel
+                            onClick={() => {
+                                setCancelError("");
+                                confirmCancelRun(group.channelid, group.runid, liveSessions(group), setCancelError);
+                            }}
+                            className="rounded border border-edge-mid px-2.5 py-1 text-[12px] font-semibold text-secondary hover:border-warning/60 hover:text-warning"
+                        >
+                            Cancel
+                        </button>
+                    </>
+                ) : null}
+            </div>
+            {!ended ? <RunSettingsPanel run={owner} open={adjusting} /> : null}
         </div>
     );
 }

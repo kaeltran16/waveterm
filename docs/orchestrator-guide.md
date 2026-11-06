@@ -987,10 +987,10 @@ could not relaunch or has already relaunched 3 times; its questions then come to
 Gatekeeper still stays out of orchestrator runs, the engine plan reviewer still reviews the plan, and **Take over**
 on a worker question still works.
 
-The setting can change mid-run, from the run sheet's Adjust panel or the palette's **Go autonomous** / **Ask me
-again**. Turning it on answers the lead's own waiting question (`Needs a design`, plan review, the land question) with
-one line telling it to decide, wakes it with the autonomous rules, and hands the worker questions you were holding
-back to the lead; a waiting question whose picker takes no typed answer stays with you, and the save says so.
+The setting can change mid-run, from the Adjust panel (run sheet or Route DAG modal) or the palette's **Go
+autonomous** / **Ask me again**. Turning it on answers the lead's own waiting question (`Needs a design`, plan
+review, the land question) with one line telling it to decide, wakes it with the autonomous rules, and hands the
+worker questions you were holding back to the lead; a waiting question whose picker takes no typed answer stays with you, and the save says so.
 Turning it off wakes the lead to ask you again from its next decision; calls it already made stand. A run with no
 lead yet gets no wake: its lead reads the setting when it starts.
 
@@ -1000,9 +1000,9 @@ lead yet gets no wake: its lead reads the setting when it starts.
 
 - **Talk to a worker.** Type into its terminal on the Agent surface. What you type is logged on the lead's run
   as a `you told t-2 · …` row and in `dag status`, so the lead sees it at its next wake. It wakes nobody.
-- **Change parallelism or the workers' route.** **Adjust** on the settings line → **Worker parallelism**,
-  **Worker route** → **Save settings**. It applies to dispatches from then on. **Use for new runs**
-  saves the run's settings to the project's Profile, so the next run starts this way (a finished run offers
+- **Change parallelism or the workers' route.** **Adjust** on the settings line, or in the Route DAG modal's
+  header → **Worker parallelism**, **Worker route** → **Save settings**. It applies to dispatches from then on.
+  **Use for new runs** saves the run's settings to the project's Profile, so the next run starts this way (a finished run offers
   the same button in its dock, under **Ran with**). Shape, machine and the lead's route are fixed at launch, and nothing
   already running changes. The **Worker route** picker also offers **Reviewer picks**, and a **Reviewers**
   picker beside it sets the reviewer route ([Routes](#4-routes)). The profile's run defaults set the same pair
