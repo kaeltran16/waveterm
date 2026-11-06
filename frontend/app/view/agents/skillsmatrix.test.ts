@@ -26,7 +26,7 @@ function move(runtime: string, name: string, over: Partial<AgentSyncSkillMove> =
 }
 
 function data(over: Partial<CommandAgentSyncSkillsRtnData> = {}): CommandAgentSyncSkillsRtnData {
-    return { skills: [], columns: COLUMNS, skillsroot: "C:\\vault\\skills", unmanaged: [], unresolved: [], ...over };
+    return { skills: [], columns: COLUMNS, skillsroot: "C:\\vault\\skills", unmanaged: [], unresolved: [], linked: [], ...over };
 }
 
 // one skill of each kind: translate (body differs), lint (key delta), commit + wrangler (same in two),

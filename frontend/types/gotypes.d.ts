@@ -106,6 +106,7 @@ declare global {
         skillsmanaged: number;
         skillsunmanaged: number;
         note?: string;
+        notetone?: string;
     };
 
     // wshrpc.AgentSyncSkill
@@ -123,6 +124,14 @@ declare global {
         present: boolean;
     };
 
+    // wshrpc.AgentSyncSkillLink
+    type AgentSyncSkillLink = {
+        runtime: string;
+        name: string;
+        path: string;
+        target: string;
+    };
+
     // wshrpc.AgentSyncSkillMove
     type AgentSyncSkillMove = {
         runtime: string;
@@ -132,6 +141,7 @@ declare global {
         keys?: string[];
         files?: string[];
         bodydiff: boolean;
+        vault?: boolean;
     };
 
     // wshrpc.AgentTranscriptUpdate
@@ -396,12 +406,14 @@ declare global {
     type CommandAgentSyncAdoptData = {
         apply?: boolean;
         keep?: {[key: string]: string};
+        skip?: string[];
     };
 
     // wshrpc.CommandAgentSyncAdoptRtnData
     type CommandAgentSyncAdoptRtnData = {
         moves?: AgentSyncSkillMove[];
         unresolved?: string[];
+        dryrun?: boolean;
     };
 
     // wshrpc.CommandAgentSyncApplyData
@@ -421,6 +433,7 @@ declare global {
         skillsroot: string;
         unmanaged: AgentSyncSkillMove[];
         unresolved: string[];
+        linked: AgentSyncSkillLink[];
     };
 
     // wshrpc.CommandAgentSyncStatusRtnData
