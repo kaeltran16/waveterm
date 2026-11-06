@@ -262,11 +262,15 @@ export function planReviewReviewers(detail: unknown): PlanReviewReviewerRow[] {
     return out;
 }
 
-export function tsLabel(ts: number): string {
+// fixed English abbreviations rather than the locale's, so a dated label reads the same on every machine
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+// withDate is for times that span days, where a bare HH:MM would misorder rows to the eye
+export function tsLabel(ts: number, withDate = false): string {
     const d = new Date(ts);
     const hh = String(d.getHours()).padStart(2, "0");
     const mm = String(d.getMinutes()).padStart(2, "0");
-    return `${hh}:${mm}`;
+    return withDate ? `${MONTHS[d.getMonth()]} ${d.getDate()} ${hh}:${mm}` : `${hh}:${mm}`;
 }
 
 export function toneFor(kind: string): string {

@@ -65,6 +65,20 @@ describe("finalStageView, the States board", () => {
         expect(v.waitsOn).toEqual(["t-5", "t-6", "t-7"]);
     });
 
+    it("a run cancelled before the stage started: the node did not run", () => {
+        const tasks = [...sevenDone.slice(0, 4), task("t-5", "skipped"), task("t-6", "pending")];
+        const v = finalStageView(dag(undefined, { status: "cancelled", tasks }), [], NOW);
+        expect(v.headline).toBe("did not run · run cancelled");
+        expect(v.nodeMeta).toBe("did not run · run cancelled");
+        expect(v.subline).toBe("did not run");
+    });
+
+    it("a running dag with tasks pending still waits on every task", () => {
+        const tasks = [...sevenDone.slice(0, 6), task("t-7", "pending")];
+        const v = finalStageView(dag(undefined, { status: "running", tasks }), [], NOW);
+        expect(v.headline).toBe("waits on every task");
+    });
+
     it("preparing the tree", () => {
         const final = { state: "checking", round: 1, step: "tree", stepts: NOW - 22 * S, startedts: NOW - 22 * S };
         const v = finalStageView(dag(final), [], NOW);
@@ -376,9 +390,26 @@ describe("finalStageView, the steps", () => {
         ] as FinalStage[];
         const v = finalStageView(dag({ state: "", round: 3 }, { pastfinals }), [ev("final", S, false, 1)], NOW);
         expect(v.past).toEqual([
-            { round: 1, tone: "fail", text: "round 1 · failed at Final" },
-            { round: 2, tone: "warn", text: "round 2 · unverified" },
+            {
+                round: 1,
+                tone: "fail",
+                text: "round 1 · failed at Final",
+                detail: "Final `x` failed (exit 1):\nnope",
+                hasShots: false,
+            },
+            { round: 2, tone: "warn", text: "round 2 · unverified", detail: "", hasShots: false },
         ]);
+    });
+
+    it("a past round failed at Verify keeps its detail and has no screenshots", () => {
+        const detail = "Verify `node scripts/verify.mjs ./pkg/x` failed on the merged result (exit 1):\nFAIL";
+        const pastfinals = [
+            { state: "failed", round: 1, detail, shots: [{ name: "s", files: [] }] },
+            { state: "passed", round: 2, shots: [{ name: "s", files: ["s.png"] }] },
+        ] as FinalStage[];
+        const v = finalStageView(dag({ state: "", round: 3 }, { pastfinals }), [], NOW);
+        expect(v.past[0]).toMatchObject({ round: 1, text: "round 1 · failed at Verify", detail, hasShots: false });
+        expect(v.past[1]).toMatchObject({ round: 2, detail: "", hasShots: true });
     });
 
     it("points each command step that ended at the output it kept, versioned by its end", () => {

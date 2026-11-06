@@ -284,24 +284,61 @@ export function FinalOutput({ output, lines, className }: { output: string; line
     );
 }
 
-function PastRound({ line }: { line: FinalRoundLine }) {
+// A click on a round with a failure detail opens it beneath; a round that kept screenshots links to them.
+function PastRound({ line, group }: { line: FinalRoundLine; group: TaskGroup }) {
+    const [open, setOpen] = useState(false);
+    const [viewing, setViewing] = useState(false);
+    const opens = line.detail !== "";
     return (
-        <div data-final-past-round={line.round} className="flex items-center gap-[9px] py-1">
-            <StepMark tone={line.tone} />
-            <span className="font-mono text-[10.5px] text-ink-mid">{line.text}</span>
+        <div className="flex flex-col">
+            <div
+                data-final-past-round={line.round}
+                role={opens ? "button" : undefined}
+                aria-expanded={opens ? open : undefined}
+                onClick={opens ? () => setOpen(!open) : undefined}
+                className={cn("flex items-center gap-[9px] py-1", opens && "cursor-pointer")}
+            >
+                <StepMark tone={line.tone} />
+                <span className="font-mono text-[10.5px] text-ink-mid">{line.text}</span>
+                {line.hasShots ? (
+                    <button
+                        type="button"
+                        data-final-past-round-shots
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setViewing(true);
+                        }}
+                        className={cn(LINK, "ml-auto")}
+                    >
+                        screenshots
+                    </button>
+                ) : null}
+            </div>
+            {open ? (
+                <div
+                    data-final-past-round-detail
+                    className="sc mb-1.5 max-h-[240px] overflow-auto whitespace-pre rounded-[6px] border border-edge-mid bg-surface-code px-[9px] py-[7px] font-mono text-[10.5px] leading-[1.55] text-ink-mid"
+                >
+                    {line.detail}
+                </div>
+            ) : null}
+            {/* outside the line: the portaled viewer's clicks still bubble through the React tree */}
+            {viewing ? (
+                <FinalShotsViewer group={group} initial={{ round: line.round }} onClose={() => setViewing(false)} />
+            ) : null}
         </div>
     );
 }
 
 // a line per earlier round, oldest first
-export function FinalPastRounds({ past }: { past: FinalRoundLine[] }) {
+export function FinalPastRounds({ past, group }: { past: FinalRoundLine[]; group: TaskGroup }) {
     if (past.length === 0) {
         return null;
     }
     return (
         <div className="flex flex-col">
             {past.map((line) => (
-                <PastRound key={line.round} line={line} />
+                <PastRound key={line.round} line={line} group={group} />
             ))}
         </div>
     );
@@ -311,10 +348,12 @@ export function FinalPastRounds({ past }: { past: FinalRoundLine[] }) {
 // round, under pastLabel when given. Long text scrolls inside it, never cut.
 export function FinalOutcome({
     view,
+    group,
     pastLabel,
     className,
 }: {
     view: FinalStageView;
+    group: TaskGroup;
     pastLabel?: string;
     className?: string;
 }) {
@@ -341,10 +380,10 @@ export function FinalOutcome({
             {pastLabel != null && view.past.length > 0 ? (
                 <div className="flex flex-col">
                     <span className="pb-0.5 text-[11px] text-ink-mid">{pastLabel}</span>
-                    <FinalPastRounds past={view.past} />
+                    <FinalPastRounds past={view.past} group={group} />
                 </div>
             ) : (
-                <FinalPastRounds past={view.past} />
+                <FinalPastRounds past={view.past} group={group} />
             )}
         </div>
     );

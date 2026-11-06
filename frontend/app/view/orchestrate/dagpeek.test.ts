@@ -69,12 +69,25 @@ describe("taskPeek", () => {
             briefs,
             NOW
         );
-        expect(peek.rows).toEqual([{ text: "first activity 12m ago · last 40s ago", tone: "muted" }]);
+        expect(peek.rows).toEqual([{ text: "first activity 12m ago · last 40s ago", tone: "muted", activity: true }]);
+    });
+
+    it("says how long a finished task worked rather than how long ago", () => {
+        const first = 1_000_000;
+        expect(
+            taskPeek(
+                task({ state: "done", firstactivity: first, lastactivity: first + 8 * MIN }),
+                undefined,
+                briefs,
+                NOW
+            ).rows
+        ).toEqual([{ text: "worked 8m", tone: "muted", activity: true }]);
+        expect(taskPeek(task({ state: "done", lastactivity: first }), undefined, briefs, NOW).rows).toEqual([]);
     });
 
     it("says no activity was observed for a running task with no stamps, rather than dating nothing", () => {
         expect(taskPeek(task({ state: "running" }), undefined, briefs, NOW).rows).toEqual([
-            { text: "no activity observed", tone: "muted" },
+            { text: "no activity observed", tone: "muted", activity: true },
         ]);
         expect(taskPeek(task({ state: "done" }), undefined, briefs, NOW).rows).toEqual([]);
     });
@@ -158,6 +171,11 @@ describe("verifySection", () => {
         ).toEqual({ heading: "Verify output", tail: "FAIL pkg/a", tone: "warning" });
     });
 
+    it("strips colour escapes from legacy output", () => {
+        const out = "\x1b[2m > \x1b[22mok\x1b[32m ✓\x1b[39m";
+        expect(verifySection(task({ state: "done", verifyoutput: out }), NOW)?.tail).toBe("> ok ✓");
+    });
+
     it("has nothing for a task that never verified", () => {
         expect(verifySection(task({ state: "done" }), NOW)).toBeNull();
         expect(verifySection(task({ state: "running" }), NOW)).toBeNull();
@@ -174,7 +192,24 @@ describe("taskPeek review rows", () => {
             briefs,
             NOW
         );
-        expect(peek.rows).toContainEqual({ text: "review fail: misses empty input", tone: "warning" });
+        expect(peek.rows).toContainEqual({
+            text: "review fail: misses empty input\nsee parse.ts",
+            tone: "warning",
+            clamp: true,
+        });
+    });
+
+    it("carries the whole review note in one clamped row, its verdict first", () => {
+        const rows = taskPeek(
+            task({ state: "done", reviewverdict: "pass", reviewnote: "verdict line\nsecond\nthird" }),
+            undefined,
+            briefs,
+            NOW
+        ).rows.filter((r) => r.clamp);
+        expect(rows).toHaveLength(1);
+        expect(rows[0].text.startsWith("review")).toBe(true);
+        expect(rows[0].text).toContain("second");
+        expect(rows[0].text).toContain("third");
     });
 });
 
@@ -203,12 +238,14 @@ describe("taskPeek states and tones", () => {
     it("warns about a review that failed or whose verdict is fail, and mutes any other", () => {
         const note = (over: Partial<TaskNode>) =>
             taskPeek(task({ reviewnote: "misses empty input", ...over }), undefined, briefs, NOW).rows;
-        expect(note({ state: "review-failed" })).toEqual([{ text: "review: misses empty input", tone: "warning" }]);
+        expect(note({ state: "review-failed" })).toEqual([
+            { text: "review: misses empty input", tone: "warning", clamp: true },
+        ]);
         expect(note({ state: "done", reviewverdict: "fail" })).toEqual([
-            { text: "review fail: misses empty input", tone: "warning" },
+            { text: "review fail: misses empty input", tone: "warning", clamp: true },
         ]);
         expect(note({ state: "done", reviewverdict: "pass" })).toEqual([
-            { text: "review pass: misses empty input", tone: "muted" },
+            { text: "review pass: misses empty input", tone: "muted", clamp: true },
         ]);
     });
 });
@@ -314,6 +351,12 @@ describe("peekMiddleware", () => {
     it("reports a node panned out of the pane as hidden", async () => {
         const p = await place({ x: -400, y: 100 }, pane);
         expect(p.middlewareData.hide?.referenceHidden).toBe(true);
+    });
+
+    it("shifts on the cross axis too, so the controls strip holds when neither side fits", () => {
+        const shiftMw = peekMiddleware(pane, PEEK_PAD_PX).find((m) => m.name === "shift");
+        // the react wrapper keeps its options as [options, deps]
+        expect(shiftMw?.options?.[0]).toMatchObject({ crossAxis: true });
     });
 
     it("never reaches into the controls strip on the right", async () => {

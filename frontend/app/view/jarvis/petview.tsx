@@ -15,6 +15,7 @@ import { wsLinkAtom } from "@/app/store/wslink";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { attentionAtom } from "@/app/view/agents/attentionstore";
 import { savedRateLimitsAtom } from "@/app/view/agents/ratelimitstore";
+import { dagModalStateAtom } from "@/app/view/orchestrate/dagmodalstate";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { motion, useMotionValue, useReducedMotion } from "motion/react";
@@ -22,6 +23,7 @@ import { useEffect, useRef, useState } from "react";
 import { drawSceneToCanvas, resolveTone } from "./avatarcanvas";
 import { approachMood, buildAvatarScene, settledMood, type AvatarScene, type RenderMood } from "./avatarscene";
 import type { AvatarThree } from "./avatarthree";
+import { finalShotsViewerOpenAtom } from "./finalshotsstore";
 import { openTarget } from "./openref";
 import { closePeek } from "./peekstore";
 import { PetBubble } from "./petbubble";
@@ -144,6 +146,11 @@ export function PetView({ model }: { model: AgentsViewModel }) {
     const draggingRef = useRef(false);
     // over a surface's control, the avatar fades and lets the pointer through to it (petyield.ts)
     const [yielding, setYielding] = useState(false);
+    // the sprite stays out of the dag modal and the Final shots viewer; hidden, not unmounted, so the
+    // WebGL canvas keeps its context (spec F26)
+    const dagModalOpen = useAtomValue(dagModalStateAtom) != null;
+    const shotsOpen = useAtomValue(finalShotsViewerOpenAtom);
+    const overlaid = dagModalOpen || shotsOpen;
     const x = useMotionValue(0);
     const y = useMotionValue(0);
 
@@ -467,11 +474,13 @@ export function PetView({ model }: { model: AgentsViewModel }) {
                 // opacity is animated above rather than set here: an inline style beats a utility class,
                 // so leaving the quiet/hover opacity in the class list would have left two owners for it
                 // and the class would always have lost.
+                data-pet-sprite
                 data-pet-yielding={yielding ? "" : undefined}
                 className={cn(
                     "fixed z-[60] flex cursor-grab items-center justify-center rounded-full outline-none active:cursor-grabbing",
                     CORNER_CLASS[corner],
-                    yielding && "pointer-events-none"
+                    yielding && "pointer-events-none",
+                    overlaid && "invisible"
                 )}
             >
                 {/* The idle renderer's canvas is hidden rather than unmounted: unmounting the WebGL one

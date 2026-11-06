@@ -13,6 +13,7 @@ import { petPeekOpenAtom } from "./petstore";
 export type PeekTarget = Exclude<
     OpenTarget,
     | { kind: "channel" }
+    | { kind: "dag" }
     | { kind: "canvas" }
     | { kind: "brainstorm" }
     | { kind: "memhygiene" }

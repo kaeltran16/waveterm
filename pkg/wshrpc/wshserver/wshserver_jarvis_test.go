@@ -134,4 +134,18 @@ func TestJarvisRunEventsCommand(t *testing.T) {
 	if rtn.Events[0].PhaseIdx == nil || *rtn.Events[0].PhaseIdx != 0 {
 		t.Fatalf("phaseidx not preserved: %v", rtn.Events[0].PhaseIdx)
 	}
+
+	const total = 250
+	for i := 0; i < total-1; i++ {
+		if _, err := wstore.AppendRunEvent(ctx, ch.OID, "r-events-1", waveobj.RunEventKindCreated, nil, nil); err != nil {
+			t.Fatalf("append event: %v", err)
+		}
+	}
+	rtn, err = ws.JarvisRunEventsCommand(ctx, wshrpc.CommandJarvisRunEventsData{ChannelId: ch.OID, RunId: "r-events-1"})
+	if err != nil {
+		t.Fatalf("command without limit: %v", err)
+	}
+	if len(rtn.Events) != total {
+		t.Fatalf("no limit want all %d events, got %d", total, len(rtn.Events))
+	}
 }

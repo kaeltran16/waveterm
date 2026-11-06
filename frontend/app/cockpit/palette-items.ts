@@ -21,7 +21,6 @@ import { naFlagsAtom } from "@/app/view/agents/naflagsstore";
 import { channelProjectLabel } from "@/app/view/agents/projectlabel";
 import { rowsWithChannel, type ProjectRow } from "@/app/view/agents/projectsstore";
 import { runStatusView, type RunStatusTone } from "@/app/view/agents/runmodel";
-import { openRunDag } from "@/app/view/agents/runrailsections";
 import { openSessionHit } from "@/app/view/agents/sessionsfind";
 import { resumeLaunchOpts } from "@/app/view/agents/sessionsruns";
 import { themePresetAtom } from "@/app/view/agents/themestore";
@@ -311,17 +310,8 @@ function openNeeds(t: NeedsTarget | null, { model, close }: PaletteDeps) {
             globalStore.set(docReviewAtom, t.agentId);
             break;
         case "dag":
-            // openRunDag reads only the dag's oid off the run's dag
-            openRunDag(
-                model,
-                {
-                    runId: t.runId,
-                    channelId: t.channelId,
-                    title: "",
-                    project: "",
-                    dag: { oid: t.dagId } as TaskGroup,
-                },
-                t.taskId
+            fireAndForget(() =>
+                openTarget(model, { kind: "dag", dagId: t.dagId, ...(t.taskId ? { taskId: t.taskId } : {}) })
             );
             break;
         case "run":

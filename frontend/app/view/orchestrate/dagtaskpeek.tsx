@@ -12,7 +12,7 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { cn } from "@/util/util";
 import { atom, useAtomValue, type Atom } from "jotai";
 import { CircleAlert } from "lucide-react";
-import { useState, type MouseEvent, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import type { AgentsViewModel } from "../agents/agents";
 import { runAtom } from "../agents/channelsstore";
 import { InlineMarkdown } from "../agents/inlinemarkdown";
@@ -26,7 +26,7 @@ import { descriptionLead } from "./dagdescription";
 import type { TaskBrief } from "./dagdigest";
 import { closeDagModal, dagModalAgentsContextAtom } from "./dagmodalstate";
 import { wordTone } from "./dagnodes";
-import { peekActions, taskPeek, type PeekAction } from "./dagpeek";
+import { peekActions, taskPeek, type PeekAction, type PeekRow } from "./dagpeek";
 import {
     DagPeekCard,
     PEEK_BTN,
@@ -118,7 +118,9 @@ export function DagTaskPeek({
                     {view.meta ? (
                         <>
                             <span>·</span>
-                            <span className="min-w-0 truncate">{view.meta}</span>
+                            <span data-peek-meta className="min-w-0 truncate">
+                                {view.meta}
+                            </span>
                         </>
                     ) : null}
                 </>
@@ -162,17 +164,19 @@ export function DagTaskPeek({
             {worker.agent && agentsCtx ? <ActivityLine agent={worker.agent} nowAtom={agentsCtx.model.nowAtom} /> : null}
             {peek.rows.length > 0 ? (
                 <div className="flex flex-col gap-1">
-                    {peek.rows.map((row, i) => (
-                        <div
-                            key={i}
-                            className={cn(
-                                "font-mono text-[11.5px] leading-[17px]",
-                                row.tone === "warning" ? "text-warning" : "text-ink-mid"
-                            )}
-                        >
-                            {row.text}
-                        </div>
-                    ))}
+                    {peek.rows.map((row, i) =>
+                        row.clamp ? (
+                            <ClampedRow key={i} row={row} />
+                        ) : (
+                            <div
+                                key={i}
+                                data-peek-activity={row.activity || undefined}
+                                className={cn(ROW_TEXT, rowTone(row))}
+                            >
+                                {row.text}
+                            </div>
+                        )
+                    )}
                 </div>
             ) : null}
             {agentsCtx ? <WorkerSession worker={worker} model={agentsCtx.model} role="Worker" /> : null}
@@ -212,6 +216,7 @@ export function DagTaskPeek({
                     </div>
                     {peek.verify.tail ? (
                         <pre
+                            data-peek-verify-tail
                             className={cn(
                                 "m-0 max-h-[100px] overflow-auto whitespace-pre-wrap break-all rounded-md border border-edge-mid bg-surface-code px-2.5 py-2 font-mono text-[11.5px] leading-[17px]",
                                 peek.verify.tone === "warning" ? "text-warning" : "text-secondary"
@@ -229,6 +234,48 @@ export function DagTaskPeek({
             />
             <Description text={task.description} />
         </DagPeekCard>
+    );
+}
+
+const ROW_TEXT = "font-mono text-[11.5px] leading-[17px]";
+const TOGGLE_BTN =
+    "cursor-pointer self-start border-0 bg-transparent p-0 text-[12px] font-semibold text-accent-soft hover:text-accent";
+
+function rowTone(row: PeekRow): string {
+    return row.tone === "warning" ? "text-warning" : "text-ink-mid";
+}
+
+// ClampedRow is a row of long prose (the review note) cut to three lines, with a toggle only when the cut hides
+// something
+function ClampedRow({ row }: { row: PeekRow }) {
+    const [open, setOpen] = useState(false);
+    const [overflows, setOverflows] = useState(false);
+    const ref = useRef<HTMLDivElement>(null);
+    useLayoutEffect(() => {
+        const el = ref.current;
+        if (el && !open) setOverflows(el.scrollHeight > el.clientHeight);
+    }, [row.text, open]);
+    return (
+        <div className="flex flex-col gap-1">
+            <div
+                ref={ref}
+                data-peek-review-note
+                className={cn(ROW_TEXT, rowTone(row), "whitespace-pre-line break-words", !open && "line-clamp-3")}
+            >
+                {row.text}
+            </div>
+            {overflows ? (
+                <button
+                    type="button"
+                    data-peek-review-toggle
+                    onClick={() => setOpen(!open)}
+                    aria-expanded={open}
+                    className={TOGGLE_BTN}
+                >
+                    {open ? "Show less" : "Show the whole note"}
+                </button>
+            ) : null}
+        </div>
     );
 }
 
@@ -276,12 +323,7 @@ function Description({ text }: { text: string | undefined }) {
                 </div>
             )}
             {more ? (
-                <button
-                    type="button"
-                    onClick={() => setOpen(!open)}
-                    aria-expanded={open}
-                    className="cursor-pointer self-start border-0 bg-transparent p-0 text-[12px] font-semibold text-accent-soft hover:text-accent"
-                >
+                <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} className={TOGGLE_BTN}>
                     {open ? "Show less" : "Read the full description"}
                 </button>
             ) : null}

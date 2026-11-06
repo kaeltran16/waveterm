@@ -237,6 +237,15 @@ func TestLastOutputLineIsTheLastNonBlankLine(t *testing.T) {
 	}
 }
 
+func TestLastOutputLineStripsANSI(t *testing.T) {
+	if got := lastOutputLine("ok\n\x1b[32m✓\x1b[39m done\n"); got != "✓ done" {
+		t.Fatalf("want the escapes stripped, got %q", got)
+	}
+	if got := lastOutputLine("real line\n\x1b[39m\x1b[22m\n"); got != "real line" {
+		t.Fatalf("a line of only escapes is skipped, got %q", got)
+	}
+}
+
 // A sink that declines must leave the tail unsent, or it goes unpublished until the output changes
 // again — which for a Verify that has gone quiet means never.
 func TestTailBufferRepublishesATailTheSinkDeclined(t *testing.T) {

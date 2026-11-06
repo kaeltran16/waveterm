@@ -7,6 +7,10 @@ import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import type { Lineage, RunInfo } from "@/app/view/agents/runlineage";
 import { atom, createStore } from "jotai";
 import { describe, expect, it, vi } from "vitest";
+
+vi.mock("@/app/view/jarvis/openref", () => ({ openTarget: vi.fn() }));
+
+import { openTarget } from "@/app/view/jarvis/openref";
 import { allRunsAtom } from "../palette-data";
 import { buildRunThing, RUN_KIND, type RunThing } from "./run";
 
@@ -99,10 +103,21 @@ describe("run actions", () => {
         expect(applies("run:open", thing(run({ status: "done" }), []))).toBe(true);
     });
 
-    it("the DAG opens only with a dag", () => {
+    // the run object always carries its dag; the lineage holds only rostered runs, so a finished run has none
+    it("the DAG opens for any run that has a dag, rostered or not", () => {
         expect(applies("run:dag", thing(orchestrator(), [lead], lineage(info())))).toBe(true);
-        expect(applies("run:dag", thing(orchestrator(), [lead], lineage(info({ dag: undefined }))))).toBe(false);
-        expect(applies("run:dag", thing(orchestrator()))).toBe(false);
+        expect(applies("run:dag", thing(orchestrator({ status: "done" }), []))).toBe(true);
+        expect(applies("run:dag", thing(run({ dagoref: undefined }), [lead], lineage(info())))).toBe(false);
+    });
+
+    it("the DAG opens through the dag's own address", async () => {
+        const model = {} as AgentsViewModel;
+        await RUN_KIND.actions
+            .find((a) => a.id === "run:dag")!
+            .run(thing(orchestrator({ status: "done" }), []), {
+                model,
+            } as never);
+        expect(openTarget).toHaveBeenCalledWith(model, { kind: "dag", dagId: "D" });
     });
 
     it("the diff opens where the run sheet offers it: a done run's parsed report or sealed evidence", () => {

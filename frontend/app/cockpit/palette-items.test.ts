@@ -7,7 +7,6 @@ vi.mock("@/app/view/jarvis/openref", () => ({ openAddress: vi.fn(), openTarget: 
 vi.mock("@/app/cockpit/cockpit-actions", () => ({ launchAgentOrToast: vi.fn() }));
 vi.mock("@/app/view/agents/askanswer", () => ({ answerAgentAsk: vi.fn() }));
 vi.mock("@/app/view/agents/channelactions", () => ({ sendChannelMessage: vi.fn() }));
-vi.mock("@/app/view/agents/runrailsections", () => ({ openRunDag: vi.fn() }));
 vi.mock("@/app/view/jarvis/initiativeworkaction", () => ({ workOnInitiative: vi.fn() }));
 vi.mock("@/app/view/agents/sessionsfind", () => ({ openSessionHit: vi.fn() }));
 vi.mock("@/app/view/agents/workflowscanstart", () => ({ startWorkflowScan: vi.fn() }));
@@ -21,7 +20,6 @@ import { answerAgentAsk } from "@/app/view/agents/askanswer";
 import { docReviewAtom } from "@/app/view/agents/docreview";
 import { harnessesAtom } from "@/app/view/agents/harnessstore";
 import { naFlagsAtom } from "@/app/view/agents/naflagsstore";
-import { openRunDag } from "@/app/view/agents/runrailsections";
 import { openSessionHit } from "@/app/view/agents/sessionsfind";
 import { THEMES } from "@/app/view/agents/themes";
 import { themeOverridesAtom, themePresetAtom } from "@/app/view/agents/themestore";
@@ -349,7 +347,7 @@ describe("needsPaletteRows", () => {
             echo: "Opens the run’s task graph",
         });
         inScope[1].run();
-        expect(vi.mocked(openRunDag).mock.calls[0][1]).toMatchObject({ runId: "r1", channelId: "c1" });
+        expect(vi.mocked(openTarget).mock.calls[0][1]).toEqual({ kind: "dag", dagId: "d1" });
         expect(deps.close).toHaveBeenCalled();
     });
 

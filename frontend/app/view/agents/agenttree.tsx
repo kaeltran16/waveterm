@@ -36,7 +36,7 @@ import { agentBranchesAtom, loadAgentBranch } from "./agentbranchstore";
 import { resumeRecentSession } from "./agentlaunchhero";
 import { confirmCloseRun, confirmCloseSession } from "./agentactions";
 import type { AgentsViewModel } from "./agents";
-import { rowFocusKey, stageSubline, treeAgentCount, type StageOutcome } from "./agenttreemodel";
+import { rowFocusKey, stageRowAge, stageSubline, treeAgentCount, type StageOutcome } from "./agenttreemodel";
 import { isAsking, treeLine, type BrainstormFile, type BuilderCheckRecord } from "./brainstormmodel";
 import { runStepView, runTreeText } from "./brainstormrunmodel";
 import { brainstormAtom, setBrainstormMode, shownBrainstormFile } from "./brainstormstore";
@@ -55,6 +55,7 @@ import type { FinalTone } from "./finalstage";
 import { useFinalStageView } from "./finalstageviews";
 import { LEAD_MARK_CLASS, leadMark } from "./leadcardmodel";
 import {
+    isEndedWorkerId,
     laneLabel,
     runAgentsOf,
     runProgress,
@@ -1042,7 +1043,8 @@ function StageRow({
             data-tree-agent={agent.id}
             data-tree-stage={stageRole}
             onClick={select}
-            onContextMenu={onContextMenu}
+            // an ended session has no tab left to close
+            onContextMenu={isEndedWorkerId(agent.id) ? undefined : onContextMenu}
             className={cn(
                 "relative flex cursor-pointer items-center gap-[9px] rounded-[9px] py-[7px] pl-[28px] pr-[11px] transition-colors duration-[140ms]",
                 selected ? "bg-accentbg" : "hover:bg-surface-hover"
@@ -1063,7 +1065,7 @@ function StageRow({
                     {lens ? `${stageLabel(stageRole)} · ${planReviewLensTitle(lens)}` : stageLabel(stageRole)}
                 </div>
                 <div className="mt-[3px] truncate font-mono text-[10.5px] text-muted">
-                    {stageSubline(verdict ?? outcome, formatAgeShort(displayAgeMs(agent, now)))}
+                    {stageSubline(verdict ?? outcome, stageRowAge(agent, now))}
                 </div>
             </div>
         </div>

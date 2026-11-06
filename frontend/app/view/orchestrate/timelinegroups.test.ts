@@ -1,14 +1,20 @@
 import { describe, expect, it } from "vitest";
+import { taskLifecycle } from "./peeklifecycle";
 import {
+    axisEnd,
+    eventCount,
     eventDetail,
     filterGroups,
     glyphOf,
     groupEvents,
+    groupHasDetail,
     groupSnippet,
+    needsDate,
     phaseOf,
     priority,
     railRows,
     snippetOf,
+    spanText,
     stepLabel,
     stripTicks,
 } from "./timelinegroups";
@@ -163,5 +169,88 @@ describe("stepLabel / glyphOf / stripTicks", () => {
             [0, false],
             [0.5, true],
         ]);
+    });
+    it("puts an ended run's last event at the end of its axis", () => {
+        const evs = [ev(0, "task-spawned", "t-1"), ev(4, "task-done", "t-1"), ev(8, "dag-done")];
+        const t = stripTicks(evs, axisEnd(evs, true, 30 * 24 * 60 * MIN));
+        expect(t.map((x) => x.frac)).toEqual([0, 0.5, 1]);
+    });
+});
+
+describe("spanText / axisEnd / needsDate", () => {
+    const HOUR = 60 * MIN;
+    const DAY = 24 * HOUR;
+    it("reads a duration in the largest unit that keeps it short", () => {
+        expect(spanText(45_000)).toBe("45s");
+        expect(spanText(12 * MIN)).toBe("12m");
+        expect(spanText(77 * MIN)).toBe("1h17m");
+        expect(spanText(29 * DAY + 19 * HOUR)).toBe("29d");
+    });
+    it("ends an ended run's axis at its last event and a live run's at now", () => {
+        const evs = [ev(3, "task-done", "t-1"), ev(1, "task-spawned", "t-1")];
+        expect(axisEnd(evs, true, 100 * MIN)).toBe(3 * MIN);
+        expect(axisEnd(evs, false, 100 * MIN)).toBe(100 * MIN);
+    });
+    it("dates the labels when the events span days or are not from today", () => {
+        const at = (d: number, h: number, m = 0): RunEvent => ({
+            id: `${d}:${h}:${m}`,
+            runid: "r",
+            channelid: "c",
+            ts: new Date(2026, 9, d, h, m).getTime(),
+            kind: "task-done",
+        });
+        const now = new Date(2026, 9, 16, 15, 0).getTime();
+        expect(needsDate([at(15, 23, 50), at(16, 0, 10)], now)).toBe(true);
+        expect(needsDate([at(16, 9), at(16, 14)], now)).toBe(false);
+        expect(needsDate([at(15, 9), at(15, 14)], now)).toBe(true);
+        expect(needsDate([], now)).toBe(false);
+    });
+});
+
+describe("eventDetail / groupHasDetail (rows that only repeat their title)", () => {
+    it("gives a failed lead wake its reason and the lines behind it", () => {
+        expect(eventDetail(ev(0, "lead-wake-failed", undefined, { reason: "lead exited", lines: ["a", "b"] }))).toEqual(
+            {
+                text: "lead exited",
+                pre: "a\nb",
+            }
+        );
+    });
+    it("is empty for a sealed evidence row with no note", () => {
+        expect(eventDetail(ev(0, "evidence-sealed"))).toEqual({ text: "", pre: "" });
+    });
+    it("drops a detail that only repeats the title", () => {
+        expect(eventDetail(ev(0, "task-told", "t-1", { text: "You told a worker" }))).toEqual({ text: "", pre: "" });
+    });
+    it("expands only a row with something beyond its title", () => {
+        const [sealed] = groupEvents([ev(0, "evidence-sealed")]);
+        expect(groupHasDetail(sealed)).toBe(false);
+        const [wake] = groupEvents([ev(0, "lead-wake-failed", undefined, { reason: "lead exited" })]);
+        expect(groupHasDetail(wake)).toBe(true);
+        const [reviewed] = groupEvents([
+            ev(0, "plan-reviewed", undefined, { reviewers: [{ lens: "full", state: "approved" }] }),
+        ]);
+        expect(groupHasDetail(reviewed)).toBe(true);
+        const [burst] = groupEvents([ev(0, "task-spawned", "t-1"), ev(1, "task-first-activity", "t-1")]);
+        expect(groupHasDetail(burst)).toBe(true);
+    });
+});
+
+describe("eventCount", () => {
+    it("counts a task's events as the peek's Lifecycle does, not its bursts", () => {
+        const evs = [
+            ev(0, "task-spawned", "t-3"),
+            ev(1, "task-first-activity", "t-3"),
+            ev(2, "task-spawned", "t-1"),
+            ev(10, "task-done", "t-3"),
+            ev(11, "task-verify-started", "t-3"),
+            ev(12, "task-verify-passed", "t-3"),
+            ev(30, "task-told", "t-3"),
+            ev(31, "dag-done"),
+        ];
+        const groups = filterGroups(groupEvents(evs), "task", "t-3");
+        expect(groups.length).toBeLessThan(taskLifecycle(evs, "t-3").length);
+        expect(eventCount(groups)).toBe(taskLifecycle(evs, "t-3").length);
+        expect(eventCount(groupEvents(evs))).toBe(evs.length);
     });
 });

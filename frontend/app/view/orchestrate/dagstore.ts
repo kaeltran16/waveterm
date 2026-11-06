@@ -1,6 +1,7 @@
 import { atom, type PrimitiveAtom } from "jotai";
 import { useWaveObjectValue } from "../../store/wos";
 import { capabilityFor } from "../agents/route";
+import { runFinished } from "../agents/runlineage";
 import { canEscalate } from "./escalate";
 import { cardModelTag, reviewerRouteOf, reviewStateText, taskRoute, type RouteSource } from "./taskroute";
 
@@ -89,17 +90,21 @@ export function buildViewData(
     const reviewer = reviewerRouteOf(group, owner);
     const reviewerModel = capabilityFor(reviewer.route, harnesses)?.resolvedmodel ?? "unavailable";
     const reviewerLabel = reviewer.custom ? "reviewer route" : "same as lead";
+    // the engine refuses every task action on an ended dag, so a button for one would only fail
+    const ended = runFinished({ dag: group, status: group.status });
     const nodes: DagViewNode[] = group.tasks.map((t) => {
         let actions = ACTION_BY_STATE[t.state] ?? [];
         if (mergeReady.has(t.id)) actions = ["merge"];
         if (canEscalate(t)) actions = [...new Set([...actions, "escalate"])];
+        if (ended) actions = [];
+        const branchGone = ended || t.merged || t.state === "skipped" || t.state === "cancelled";
         const { route: effective, source } = taskRoute(t, owner, group);
         const capability = capabilityFor(effective, harnesses);
         return {
             id: t.id,
             label: t.label ?? t.id,
             state: t.state,
-            meta: t.runid ? `wave/${t.runid}` : "",
+            meta: t.runid && !branchGone ? `wave/${t.runid}` : "",
             actions,
             route: {
                 source,

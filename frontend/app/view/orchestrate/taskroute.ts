@@ -66,20 +66,14 @@ export function routeSourceLabel(source: RouteSource): string {
     }
 }
 
-const CARD_TAG: Partial<Record<RouteSource, string>> = {
-    plan: "plan",
-    reviewer: "review",
-    owner: "you",
-    escalation: "escalated",
-    pinned: "pinned",
-};
+const CARD_TAG_SOURCES = new Set<RouteSource>(["plan", "reviewer", "owner", "escalation", "pinned"]);
 
-// cardModelTag marks a card whose task runs off the run's workers model, and says who put it there.
+// cardModelTag marks a card whose task runs off the run's workers model. It names the model only: the chip
+// shares one line with the id and state word, and who put the model there is in the card's aria-label and the peek.
 export function cardModelTag(task: TaskNode, owner: Run, group: TaskGroup): string | null {
     const { route: r, source } = taskRoute(task, owner, group);
-    const tag = CARD_TAG[source];
-    if (tag == null || (r.model ?? "") === (workersRoute(group, owner).model ?? "")) return null;
-    return `${shortModel(r.model)} · ${tag}`;
+    if (!CARD_TAG_SOURCES.has(source) || (r.model ?? "") === (workersRoute(group, owner).model ?? "")) return null;
+    return shortModel(r.model);
 }
 
 export function reviewStateText(task: TaskNode): string {

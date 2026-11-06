@@ -1,5 +1,6 @@
 // Run scenarios: DAG lifecycle and peek, run sheet, Final stage, plan review, model picks, task detail.
 import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
@@ -58,6 +59,7 @@ import {
     lookOpen,
     lookPlaceholders,
     lookShot,
+    openAddressExpr,
     openPalette,
     openProfileOn,
     paintEval,
@@ -81,6 +83,67 @@ import {
 } from "./scenarios-shared.mjs";
 
 const workerOf = (phase) => phase && phase.workerorefs && phase.workerorefs[0];
+
+// --- the run view's live-pass fixes (docs/superpowers/specs/2026-11-06-run-view-review-fixes-design.md) --------
+// Shared by the F-numbered steps in the scenarios below, each run at the size its finding broke at.
+const RV_WIDE = { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false };
+const RV_SHORT = { width: 1000, height: 700, deviceScaleFactor: 1, mobile: false };
+const RV_MODAL = `document.querySelector("[data-dag-modal-kind]")`;
+const RV_RAIL = `${RV_MODAL}?.querySelector("[data-timeline-rail]")`;
+const RV_OPEN_DAG = `document.querySelector("[data-run-sheet] [data-run-sheet-open-dag]")`;
+// the graph's selection: aria-pressed mirrors a card's selected border
+const RV_PRESSED = `[...(${RV_MODAL}?.querySelectorAll("[data-dag-node][aria-pressed='true']") ?? [])].map((n) => n.getAttribute("data-dag-node"))`;
+const RV_CLOSE = `[...(${RV_MODAL}?.querySelectorAll("button") ?? [])].find((b) => b.textContent.trim() === "Close · Esc")`;
+const RV_COUNT = `parseInt(${RV_RAIL}?.querySelector("[data-timeline-count]")?.textContent ?? "", 10)`;
+const rvFilterCount = (id) =>
+    `parseInt(${RV_RAIL}?.querySelector('[data-timeline-filter-count="${id}"]')?.textContent ?? "", 10)`;
+// a card's fact without the separator the card draws before it
+const rvFact = (nodeExpr) =>
+    `(${nodeExpr}?.querySelector("[data-dag-node-fact]")?.textContent ?? "").replace(/\\s+/g, " ").replace(/^\\s*·\\s*/, "").trim()`;
+
+// opens the run's sheet, then its DAG from the dock; true once the graph shows a card
+async function rvOpenDag(h, runId) {
+    if ((await h.activeSurfaceLabel()) !== SURFACE_LABEL.jarvis) await h.goto("jarvis");
+    await h.ev(openAddressExpr(`run:${runId}`));
+    const sheet = await polishWaitFor(h, `!!${RV_OPEN_DAG}`, 15000);
+    if (sheet) await h.ev(`${RV_OPEN_DAG}.click()`);
+    return sheet && (await polishWaitFor(h, `!!${RV_MODAL}?.querySelector("[data-dag-node]")`, 10000));
+}
+
+async function rvCloseDag(h) {
+    await h.ev(`${RV_CLOSE}?.click()`);
+    return polishWaitFor(h, `!${RV_MODAL}`, 3000);
+}
+
+// published run:events stand in for the engine's until the page's next reload; each is { kind, detail, ts }
+async function rvPublish(h, ctx, tag, events) {
+    for (const [i, e] of events.entries()) {
+        const event = {
+            id: `${tag}-${i}-${e.ts}`,
+            runid: ctx.runId,
+            channelid: ctx.channelId,
+            ts: e.ts,
+            kind: e.kind,
+            detail: JSON.stringify(e.detail),
+        };
+        await h.rpc("eventpublish", {
+            event: "run:event",
+            scopes: [`run:${ctx.runId}`],
+            data: { channelid: ctx.channelId, runid: ctx.runId, event },
+        });
+    }
+}
+
+// a DOM key event at the focused element, bubbling to the window listeners the graph and the viewer use: CDP's
+// Input.dispatchKeyEvent often never reaches the WebView
+const rvKey = (h, key, code) =>
+    h.ev(`(() => {
+        const target = document.activeElement ?? document.body;
+        const init = { key: ${JSON.stringify(key)}, code: ${JSON.stringify(code)}, bubbles: true, cancelable: true };
+        target.dispatchEvent(new KeyboardEvent("keydown", init));
+        target.dispatchEvent(new KeyboardEvent("keyup", init));
+        return true;
+    })()`);
 
 // --- dag lifecycle: engine + graph surface ----------------------------------------------------
 // Drives the real DagSubmit/DagAction/DagMerge RPCs through an orchestrator-mode run, then opens
@@ -421,9 +484,22 @@ export const dagLifecycle = {
             repeatedDag.status === "cancelled" && repeatedOwner && repeatedOwner.status === "cancelled",
             JSON.stringify({ owner: repeatedOwner && repeatedOwner.status, dag: repeatedDag.status })
         );
+
+        await dagLifecycleWaysIn(h, ctx, rec, runId, g.id);
         return steps;
     },
     async teardown(h, ctx) {
+        // the stand-in worker run; the channel delete below removes it
+        if (ctx.standInId) {
+            try {
+                await h.rpc("cancelrun", { channelid: ctx.channelId, runid: ctx.standInId });
+            } catch (e) {
+                console.error(`dag-lifecycle teardown: cancel the stand-in run failed: ${e?.message ?? e}`);
+            }
+        }
+        await h.cdp("Emulation.clearDeviceMetricsOverride").catch((e) => {
+            console.error(`dag-lifecycle teardown: clear the viewport override failed: ${e?.message ?? e}`);
+        });
         try {
             await deleteChannelWorkerBlocks(h, ctx.channelId);
         } catch (e) {
@@ -441,6 +517,90 @@ export const dagLifecycle = {
         }
     },
 };
+
+// the line under the graph header naming the owner run's route
+const RV_ROUTE = `(([...(${RV_MODAL}?.querySelectorAll("span") ?? [])].find((s) => s.textContent.trim().startsWith("Run route ·"))?.textContent) ?? "").replace(/\\s+/g, " ").trim()`;
+const RV_MODAL_DAG = `
+    const S = await mod("app/store/jotaiStore.ts");
+    const D = await mod("app/view/orchestrate/dagmodalstate.ts");
+    return S.globalStore.get(D.dagModalStateAtom)?.dagOref ?? null;
+`;
+
+// F25, F3, F14 on the cancelled dag above, at 1600x950: whichever way the modal opens, its owner and subtitle come
+// off the dag. The stand-in worker run is on haiku, so a modal that took its opener for the owner would say haiku.
+async function dagLifecycleWaysIn(h, ctx, rec, runId, dagId) {
+    await h.cdp("Emulation.setDeviceMetricsOverride", RV_WIDE);
+    const owner = (await channelRuns(h, ctx.channelId)).find((r) => r.id === runId);
+    const wantRoute = `Run route · ${owner?.runtime || "unavailable"} / ${owner?.model || "default"}`;
+    const wantId = runId.slice(0, 8).toLowerCase();
+    const created = await h.rpc("createrun", {
+        channelid: ctx.channelId,
+        workspaceid: ctx.workspaceId,
+        goal: "verify dag-lifecycle: stand-in worker run of t-1",
+        runtime: "claude",
+        model: "haiku",
+        mode: "quick",
+        deferstart: true,
+    });
+    ctx.standInId = created.run.id;
+    await fstWriteRun(h, ctx.standInId, (r) => ({ ...r, dagoref: dagId, taskid: "t-1" }));
+    await polishReload(h);
+    const opened = await h.ev(openAddressExpr(`run:${ctx.standInId}`));
+    const sheet = await polishWaitFor(h, `!!${RV_OPEN_DAG}`, 15000);
+    const label = await h.ev(`(${RV_OPEN_DAG}?.textContent ?? "").trim()`);
+    if (sheet) await h.ev(`${RV_OPEN_DAG}.click()`);
+    await polishWaitFor(h, `${RV_PRESSED}.length > 0 && ${RV_ROUTE} !== ""`, 10000);
+    const modal = await h.ev(`(() => {
+        const id = ${RV_MODAL}?.querySelector("[data-dag-modal-subtitle] [data-dag-modal-runid]");
+        return {
+            runid: (id?.textContent ?? "").trim(),
+            transform: id ? getComputedStyle(id).textTransform : null,
+            route: ${RV_ROUTE},
+            pressed: ${RV_PRESSED},
+        };
+    })()`);
+    await h.shot("cdp-shots/dag-lifecycle-worker-sheet-dag.png");
+    rec(
+        "9. F25: the modal subtitle's run id is the owner run's first 8 characters, lowercase, with no text transform",
+        modal.runid === wantId && modal.transform === "none",
+        JSON.stringify({ want: wantId, runid: modal.runid, transform: modal.transform })
+    );
+    rec(
+        "10. F3: a worker run's sheet offers Open in the run's DAG, which opens the owner run's dag (its id and route) with the worker's t-1 selected",
+        opened?.ok === true &&
+            label === "Open in the run's DAG" &&
+            modal.runid === wantId &&
+            modal.route === wantRoute &&
+            JSON.stringify(modal.pressed) === JSON.stringify(["t-1"]),
+        JSON.stringify({ opened, standIn: ctx.standInId, label, wantRoute, ...modal })
+    );
+
+    await rvCloseDag(h);
+    const byAddress = await h.ev(openAddressExpr(`dag:${dagId}#t-2`));
+    const onT2 = await polishWaitFor(h, `JSON.stringify(${RV_PRESSED}) === '["t-2"]'`, 10000);
+    const dagOref = await lookEval(h, RV_MODAL_DAG);
+    // the address opens the sheet and the modal in one tick: j moving the selection proves the modal is on top
+    await rvKey(h, "j", "KeyJ");
+    const moved = await polishWaitFor(h, `${RV_PRESSED}.length === 1 && ${RV_PRESSED}[0] !== "t-2"`, 3000);
+    const afterJ = await h.ev(RV_PRESSED);
+    await h.shot("cdp-shots/dag-lifecycle-dag-address.png");
+    rec(
+        "11. F14: dag:<oid>#t-2 opens that dag's modal with t-2 selected, and j then moves the selection off t-2",
+        byAddress?.ok === true && onT2 && dagOref === `dag:${dagId}` && moved,
+        JSON.stringify({ byAddress, onT2, dagOref, want: `dag:${dagId}`, afterJ })
+    );
+
+    await rvCloseDag(h);
+    const missingId = randomUUID();
+    const missing = await h.ev(openAddressExpr(`dag:${missingId}`));
+    await polishNap(1000);
+    const modalAfter = await h.ev(`!!${RV_MODAL}`);
+    rec(
+        "12. F14: dag:<an id no dag has> opens no modal and reports that the DAG no longer exists",
+        missing?.ok === false && /no longer exists/.test(missing?.message ?? "") && modalAfter === false,
+        JSON.stringify({ missingId, missing, modalAfter })
+    );
+}
 
 // the root engine trees live under, as pkg/orchestrate/worktreeroot.go resolves it from os.UserCacheDir
 function arcWorktreeRoot() {
@@ -1473,12 +1633,160 @@ export const dagObservability = {
             landed != null && landed.modalGone && landed.onAgent,
             JSON.stringify(landed)
         );
+
+        await dagObservabilityRail(h, ctx, rec);
         return steps;
     },
     async teardown(h, ctx) {
+        await h.cdp("Emulation.clearDeviceMetricsOverride").catch((e) => {
+            console.error(`dag-observability teardown: clear the viewport override failed: ${e?.message ?? e}`);
+        });
         await teardownFixtureRun(h, ctx, "dag-observability");
     },
 };
+
+// more than the 200 the live append once kept
+const OBS_F1_EVENTS = 230;
+const OBS_F1_KINDS = ["task-spawned", "task-verify-started", "task-verify-passed", "task-done"];
+const OBS_WAKE_REASON = "dag-observability: the lead's pane is gone";
+const OBS_WAKE_LINES = ["wake 1: no pane", "wake 2: no pane"];
+const OBS_MONTH_TIME = /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{1,2} \d{2}:\d{2}/;
+const OBS_DAY_MS = 24 * 60 * 60_000;
+const OBS_HOUR_MS = 60 * 60_000;
+const obsRow = (title) =>
+    `[...(${RV_RAIL}?.querySelectorAll("[data-timeline-row]") ?? [])].find((b) => (b.firstElementChild?.firstElementChild?.textContent ?? "").trim() === ${JSON.stringify(title)})`;
+
+// F1, F21, F5, F20 at 1600x950, on the DAG reopened from the run sheet after step 8 left for the Agent surface
+async function dagObservabilityRail(h, ctx, rec) {
+    await h.cdp("Emulation.setDeviceMetricsOverride", RV_WIDE);
+    const opened = await rvOpenDag(h, ctx.runId);
+    // a run:event published before the history loads is overwritten by the load
+    const live = await polishWaitFor(h, `${RV_RAIL}?.querySelector('[data-timeline-status="live"]') != null`, 15000);
+    const before = await h.ev(RV_COUNT);
+    const start = Date.now() - OBS_F1_EVENTS * 1000;
+    await rvPublish(
+        h,
+        ctx,
+        "obs-f1",
+        Array.from({ length: OBS_F1_EVENTS }, (_, i) => ({
+            kind: OBS_F1_KINDS[i % OBS_F1_KINDS.length],
+            detail: { taskid: `t-${(i % 3) + 1}` },
+            ts: start + i * 1000,
+        }))
+    );
+    const grew = await polishWaitFor(h, `${RV_COUNT} >= ${before + OBS_F1_EVENTS}`, 20000);
+    const f1 = await h.ev(`({ count: ${RV_COUNT}, all: ${rvFilterCount("all")} })`);
+    await h.shot("cdp-shots/dag-observability-f1-count.png");
+    rec(
+        `9. F1: ${OBS_F1_EVENTS} published events all reach the rail: its header counts them, and the All chip counts the same`,
+        opened && live && grew && f1.count >= before + OBS_F1_EVENTS && f1.all === f1.count,
+        JSON.stringify({ opened, live, before, published: OBS_F1_EVENTS, ...f1 })
+    );
+
+    await h.ev(`${RV_MODAL}?.querySelector('[data-dag-node="t-1"]')?.click()`);
+    await polishWaitFor(
+        h,
+        `!!${OBS_PEEK("t-1")}?.querySelector("[data-dag-peek-lifecycle-count]") && !Number.isNaN(${rvFilterCount("task")})`,
+        5000
+    );
+    await polishNap(400);
+    const f21 = await h.ev(`({
+        chip: (${RV_RAIL}?.querySelector('[data-timeline-filter-count="task"]')?.closest("button")?.textContent ?? "").replace(/\\s+/g, " ").trim(),
+        task: ${rvFilterCount("task")},
+        peek: (${OBS_PEEK("t-1")}?.querySelector("[data-dag-peek-lifecycle-count]")?.textContent ?? "").trim(),
+    })`);
+    rec(
+        "10. F21: with t-1 selected, the Task · t-1 chip counts the events its peek's Lifecycle counts",
+        f21.chip.startsWith("Task · t-1") && f21.task > 0 && f21.task === parseInt(f21.peek, 10),
+        JSON.stringify(f21)
+    );
+    // the dag-level rows below show under All, which clearing the selection returns to
+    await h.ev(`${OBS_PEEK("t-1")}?.querySelector('button[aria-label="Close task details"]')?.click()`);
+    await polishWaitFor(h, `!${OBS_PEEK("t-1")}`, 3000);
+
+    // a run that ended yesterday: its events span two days ending at noon yesterday
+    const status = (await h.rpc("dagstatus", { channelid: ctx.channelId, runid: ctx.runId })).group;
+    ctx.dagId = status?.oid ?? status?.id;
+    let seeded = "ok";
+    try {
+        await seedDag(h, ctx, (dag) => ({ ...dag, status: "done" }), (dag) => dag?.status ?? "");
+    } catch (e) {
+        seeded = String(e?.message ?? e);
+    }
+    const noon = new Date();
+    noon.setDate(noon.getDate() - 1);
+    noon.setHours(12, 0, 0, 0);
+    const end = noon.getTime();
+    await rvPublish(h, ctx, "obs-f5", [
+        { kind: "task-spawned", detail: { taskid: "t-2" }, ts: end - OBS_DAY_MS - 2 * OBS_HOUR_MS },
+        { kind: "task-done", detail: { taskid: "t-2" }, ts: end - OBS_DAY_MS - OBS_HOUR_MS },
+        { kind: "task-spawned", detail: { taskid: "t-3" }, ts: end - OBS_HOUR_MS },
+        { kind: "task-done", detail: { taskid: "t-3" }, ts: end },
+    ]);
+    await polishWaitFor(
+        h,
+        `(${RV_RAIL}?.querySelector("[data-timeline-strip-end]")?.textContent ?? "").startsWith("ended") && ${RV_RAIL}?.querySelector("[data-timeline-gap]") != null`,
+        10000
+    );
+    const f5 = await h.ev(`(() => {
+        const rail = ${RV_RAIL};
+        const flat = (el) => (el?.textContent ?? "").replace(/\\s+/g, " ").trim();
+        return {
+            end: flat(rail?.querySelector("[data-timeline-strip-end]")),
+            now: rail?.querySelector("[data-timeline-now]") != null,
+            status: rail?.querySelector("[data-timeline-status]")?.getAttribute("data-timeline-status") ?? null,
+            times: [...(rail?.querySelectorAll("[data-timeline-row]") ?? [])].map((r) => flat(r.firstElementChild?.lastElementChild)),
+            gaps: [...(rail?.querySelectorAll("[data-timeline-gap]") ?? [])].map(flat),
+        };
+    })()`);
+    await h.shot("cdp-shots/dag-observability-f5-ended.png");
+    const undated = f5.times.filter((t) => !OBS_MONTH_TIME.test(t));
+    rec(
+        "11. F5: a done run whose events span two days ending yesterday: the strip ends at ended HH:MM with no now marker or live pill, every row time carries its date, and quiet gaps read in h or d, never min",
+        seeded === "ok" &&
+            f5.end.startsWith("ended") &&
+            !f5.now &&
+            f5.status !== "live" &&
+            f5.times.length > 0 &&
+            undated.length === 0 &&
+            f5.gaps.length > 0 &&
+            f5.gaps.every((g) => !g.includes("min")) &&
+            f5.gaps.some((g) => /^\d+(h\d+m|d) quiet$/.test(g)),
+        JSON.stringify({ seeded, end: f5.end, now: f5.now, status: f5.status, rows: f5.times.length, undated, gaps: f5.gaps })
+    );
+
+    const now = Date.now();
+    await rvPublish(h, ctx, "obs-f20", [
+        { kind: "evidence-sealed", detail: {}, ts: now - 60_000 },
+        { kind: "lead-wake-failed", detail: { reason: OBS_WAKE_REASON, lines: OBS_WAKE_LINES }, ts: now },
+    ]);
+    const rows = await polishWaitFor(h, `!!${obsRow("Lead wake failed")} && !!${obsRow("Evidence sealed")}`, 10000);
+    const wake = await h.ev(`(async () => {
+        const row = () => ${obsRow("Lead wake failed")};
+        if (!row()) return null;
+        const expand = row().getAttribute("aria-expanded");
+        row().click();
+        const detail = () => row()?.parentElement?.querySelector("[data-timeline-row-detail]");
+        for (let i = 0; i < 20 && !detail(); i++) await new Promise((r) => setTimeout(r, 100));
+        return { expand, detail: (detail()?.textContent ?? "").replace(/\\s+/g, " ").trim() || null };
+    })()`);
+    const evidence = await h.ev(`(() => {
+        const row = ${obsRow("Evidence sealed")};
+        return row ? { expand: row.hasAttribute("aria-expanded") } : null;
+    })()`);
+    await h.shot("cdp-shots/dag-observability-f20-rows.png");
+    await h.ev(`${obsRow("Evidence sealed")}?.click()`);
+    const closed = await polishWaitFor(h, `!document.querySelector("[data-dag-modal-subtitle]")`, 3000);
+    rec(
+        "12. F20: a lead-wake-failed row expands to its reason; the Evidence sealed row has no expand and its click closes the modal",
+        rows &&
+            wake?.expand === "false" &&
+            (wake.detail ?? "").includes(OBS_WAKE_REASON) &&
+            evidence?.expand === false &&
+            closed,
+        JSON.stringify({ rows, wake, evidence, closed })
+    );
+}
 
 // --- dag-peek: the card a DAG node click opens beside the node (Main.dc.html, Final.dc.html) ------------------
 // Four tasks at parallelism 1: only t-1 dispatches. One seed makes t-2 a done task and t-3 a failed task, and gives
@@ -1849,12 +2157,143 @@ export const dagMotionScenario = {
             refiltered
         );
         await h.ev(`window.__dagMotion && (window.__dagMotion.on = false)`);
+
+        await dagMotionViewport(h, ctx, rec);
         return steps;
     },
     async teardown(h, ctx) {
+        await h.cdp("Emulation.clearDeviceMetricsOverride").catch((e) => {
+            console.error(`dag-motion teardown: clear the viewport override failed: ${e?.message ?? e}`);
+        });
         await teardownFixtureRun(h, ctx, "dag-motion");
     },
 };
+
+// three lanes of six beside the scenario's three tasks: 21 in all, wider than the pane holds at ZOOM_FLOOR
+const DAG_MOTION_LANES = 3;
+const DAG_MOTION_LANE_LEN = 6;
+// whole rows in view, not rows in the DOM: at 1000x700 the 487px body under a 125px graph header cannot hold a pane
+// taller than the drawer and a drawer showing 3 rows (its header, filters and now line take ~105px, a row ~36px)
+const DAG_MOTION_DRAWER_MIN_ROWS = 1;
+// the drawer against the modal body, its header and the graph pane, and which cards the pane cuts through
+const DAG_MOTION_DRAWER_READ = `(() => {
+    ${DAG_PEEK_LIB}
+    const rail = modal?.querySelector("[data-timeline-rail]");
+    const h = (el) => (el ? Math.round(el.getBoundingClientRect().height) : null);
+    const p = box(pane);
+    const nodes = [...(modal?.querySelectorAll("[data-dag-node]") ?? [])];
+    const rows = [...(rail?.querySelectorAll("[data-timeline-row]") ?? [])];
+    const clip = (el) => {
+        for (let a = el.parentElement; a && a !== rail; a = a.parentElement) {
+            if (/auto|scroll/.test(getComputedStyle(a).overflowY)) return a;
+        }
+        return rail;
+    };
+    return {
+        layout: rail?.getAttribute("data-timeline-rail") ?? null,
+        expanded: rail?.querySelector("button[aria-expanded]")?.getAttribute("aria-expanded") ?? null,
+        strip: modal?.querySelector("[data-timeline-strip]") != null,
+        bodyH: h(rail?.parentElement),
+        modalHeaderH: h(modal?.querySelector("#dag-modal-heading")?.parentElement?.parentElement),
+        // the graph column above its pane: the banner and the graph's own header
+        graphHeaderH: pane && rail ? h(rail.previousElementSibling) - h(pane) : null,
+        drawerH: h(rail),
+        paneH: h(pane),
+        rows: rows.length,
+        rowsShown: rows.filter((r) => inside(box(r), box(clip(r)))).length,
+        nodes: nodes.length,
+        cut: nodes.filter((n) => !inside(box(n), p)).map((n) => n.getAttribute("data-dag-node")),
+    };
+})()`;
+// the done dag F18 opens on: every task done, t-1 keeping its worker run so teardown's cancel still stops it
+function dagMotionLanes(dag) {
+    const { runid: _run, reviewrunid: _review, ...base } = dag.tasks.find((t) => t.id === "t-3");
+    const lanes = [];
+    for (let l = 0; l < DAG_MOTION_LANES; l++) {
+        for (let s = 0; s < DAG_MOTION_LANE_LEN; s++) {
+            const n = 4 + l * DAG_MOTION_LANE_LEN + s;
+            lanes.push({ ...base, id: `t-${n}`, label: `lane ${l + 1} step ${s + 1}`, deps: s === 0 ? [] : [`t-${n - 1}`], state: "done" });
+        }
+    }
+    const kept = dag.tasks.filter((t) => !lanes.some((x) => x.id === t.id)).map((t) => ({ ...t, state: "done" }));
+    return { ...dag, status: "done", tasks: [...kept, ...lanes] };
+}
+const dagMotionLanesPrint = (dag) => `${dag?.status}|${(dag?.tasks ?? []).map((t) => `${t.id}:${t.state}`).join(",")}`;
+const DAG_MOTION_TASK_COUNT = DAG_MOTION_TASKS.length + DAG_MOTION_LANES * DAG_MOTION_LANE_LEN;
+
+// F17 at 1000x700, then F18 at 1600x950, on the scenario's open DAG
+async function dagMotionViewport(h, ctx, rec) {
+    await h.cdp("Emulation.setDeviceMetricsOverride", RV_SHORT);
+    const drawer = await polishWaitFor(h, `${RV_RAIL}?.getAttribute("data-timeline-rail") === "drawer"`, 5000);
+    await polishNap(600);
+    const collapsed = await h.ev(DAG_MOTION_DRAWER_READ);
+    await h.ev(`${RV_RAIL}?.querySelector('button[aria-label="Expand lifecycle"]')?.click()`);
+    await polishWaitFor(h, `(${RV_RAIL}?.querySelectorAll("[data-timeline-row]").length ?? 0) > 0`, 5000);
+    // the drawer animates open, then the graph refits to the shorter pane
+    await polishNap(900);
+    await dagPeekSettled(h);
+    const d = await h.ev(DAG_MOTION_DRAWER_READ);
+    await h.shot("cdp-shots/dag-motion-f17-drawer.png");
+    // the review's defect: the drawer outgrew the graph and cut cards through
+    rec(
+        "5. F17: at 1000x700 the opened Lifecycle drawer draws no activity strip, leaves the graph pane taller than itself with every card inside it, and shows a whole row",
+        drawer &&
+            d.layout === "drawer" &&
+            d.expanded === "true" &&
+            !d.strip &&
+            d.paneH > d.drawerH &&
+            d.nodes > 0 &&
+            d.cut.length === 0 &&
+            d.rowsShown >= DAG_MOTION_DRAWER_MIN_ROWS,
+        { open: d, collapsed }
+    );
+
+    // opened wide, then narrowed with no pan or zoom: the opening view refits to the smaller pane
+    await rvCloseDag(h);
+    await h.cdp("Emulation.setDeviceMetricsOverride", RV_WIDE);
+    await polishNap(600);
+    const wide = await rvOpenDag(h, ctx.runId);
+    await dagPeekSettled(h);
+    await h.cdp("Emulation.setDeviceMetricsOverride", RV_SHORT);
+    await polishNap(900);
+    await dagPeekSettled(h);
+    const refit = await h.ev(`(() => {
+        ${DAG_PEEK_LIB}
+        const final = box(modal?.querySelector('[data-dag-node="final"]'));
+        return { final, pane: box(pane), inside: inside(final, box(pane)), innerWidth };
+    })()`);
+    await h.shot("cdp-shots/dag-motion-f17-refit.png");
+    rec(
+        "6. F17: the DAG opened at 1600x950 and narrowed to 1000x700 without a pan or zoom keeps the Final node inside the graph pane",
+        wide && refit.innerWidth === RV_SHORT.width && refit.inside,
+        { wide, ...refit }
+    );
+
+    await rvCloseDag(h);
+    await h.cdp("Emulation.setDeviceMetricsOverride", RV_WIDE);
+    let seeded = "ok";
+    try {
+        await seedDag(h, ctx, dagMotionLanes, dagMotionLanesPrint);
+    } catch (e) {
+        seeded = String(e?.message ?? e);
+    }
+    const reopened = await rvOpenDag(h, ctx.runId);
+    // the tasks and the final node
+    await polishWaitFor(h, `(${RV_MODAL}?.querySelectorAll("[data-dag-node]").length ?? 0) === ${DAG_MOTION_TASK_COUNT + 1}`, 10000);
+    await dagPeekSettled(h);
+    const fit = await h.ev(`(() => {
+        ${DAG_PEEK_LIB}
+        const p = box(pane);
+        const nodes = [...(modal?.querySelectorAll("[data-dag-node]") ?? [])].map((n) => ({ id: n.getAttribute("data-dag-node"), box: box(n) }));
+        return { pane: p, count: nodes.length, outside: nodes.filter((n) => !inside(n.box, p)).map((n) => n.id) };
+    })()`);
+    await h.shot("cdp-shots/dag-motion-f18-fit.png");
+    rec(
+        `7. F18: a done ${DAG_MOTION_TASK_COUNT}-task dag in lanes opens at 1600x950 with every card inside the graph pane`,
+        seeded === "ok" && reopened && fit.count === DAG_MOTION_TASK_COUNT + 1 && fit.pane != null && fit.outside.length === 0,
+        { seeded, reopened, ...fit }
+    );
+}
 
 export const dagPeekScenario = {
     name: "dag-peek",
@@ -2200,12 +2639,14 @@ export const dagPeekScenario = {
         if (bgAt) await dagPeekMouse(h, "mouseMoved", bgAt);
         rec("l. hovering a node for 700ms opens nothing", () => nodeAt != null && hoverCard === false, { nodeAt, hoverCard });
 
-        // the tagged card: its chip passes the floor on one line, and the card keeps an untagged card's height
+        // the tagged card: its chip names the model only and passes the floor on one line, who pinned it is in the
+        // card's aria-label, and the card keeps an untagged card's height
         const chip = await paintEval(h, `
             const card = (id) => ${DAG_PEEK_MODAL}?.querySelector('[data-dag-node="' + id + '"]');
-            const tag = [...(card("t-4")?.querySelectorAll("span") ?? [])].find((s) => /pinned$/.test((s.textContent || "").trim()));
+            const tag = card("t-4")?.querySelector("[data-dag-node-tag]");
             return {
                 tag: tag?.textContent.trim() ?? null,
+                aria: card("t-4")?.getAttribute("aria-label") ?? null,
                 lines: tag ? tag.getClientRects().length : null,
                 // nothing clipped inside the chip, and the chip inside its card
                 fits: tag
@@ -2220,8 +2661,15 @@ export const dagPeekScenario = {
         `);
         await h.shot(lookShot("dag-peek-tag"));
         rec(
-            "m. a tagged card's chip passes the floor on one line, and the card is as tall as an untagged one",
-            () => chip.tag != null && chip.lines === 1 && chip.fits && floorOk(chip.floor) && chip.heights[0] != null && chip.heights[0] === chip.heights[1],
+            "m. a tagged card's chip names the model only and passes the floor on one line, and the card is as tall as an untagged one",
+            () =>
+                chip.tag === DAG_PEEK_TAG_MODEL &&
+                (chip.aria ?? "").endsWith(`, ${DAG_PEEK_TAG_MODEL}, pinned`) &&
+                chip.lines === 1 &&
+                chip.fits &&
+                floorOk(chip.floor) &&
+                chip.heights[0] != null &&
+                chip.heights[0] === chip.heights[1],
             { ...chip, floor: floorDetail(chip.floor) }
         );
 
@@ -2278,15 +2726,321 @@ export const dagPeekScenario = {
                 railAll.pressed[0].startsWith("All"),
             { openedLc, lc, railTask, floor: floorDetail(read.floor), mutedText: read.mutedText, closedLc, railAll }
         );
+
+        await dagPeekFinishedTask(h, ctx, rec);
+        await dagPeekCardsAndKeys(h, ctx, rec);
+        await dagPeekEnded(h, ctx, rec);
         return steps;
     },
     async teardown(h, ctx) {
+        await h.cdp("Emulation.clearDeviceMetricsOverride").catch((e) => {
+            console.error(`dag-peek teardown: clear the viewport override failed: ${e?.message ?? e}`);
+        });
+        // t-2's stand-in run is one of the dag's task runs, so the run cancel below cancels it
         await teardownFixtureRun(h, ctx, "dag-peek", {
             what: "restore RpcApi.DagActionCommand",
             fn: () => h.ev(DAG_PEEK_RESTORE),
         });
+        if (ctx.shotsDir) rmSync(ctx.shotsDir, { recursive: true, force: true });
     },
 };
+
+// t-2 finished and merged: a review note far past three lines, 8 minutes of work, and Verify output stored with the
+// colour escapes the engine used to keep. Its run is a deferred stand-in, so the merged task has a branch to forget.
+const DAG_PEEK_NOTE_LINES = 30;
+const DAG_PEEK_NOTE = Array.from(
+    { length: DAG_PEEK_NOTE_LINES },
+    (_, i) => `line ${i + 1}: dag-peek's review note runs long, so the card shows its first three lines`
+).join("\n");
+const DAG_PEEK_WORKED_MS = 8 * 60_000;
+const DAG_PEEK_ANSI = "\x1b[2m > \x1b[22mok\x1b[32m ✓\x1b[39m";
+const DAG_PEEK_NOTE_CLAMP = 3;
+const dagPeekT2Print = (dag) => {
+    const t = (dag?.tasks ?? []).find((x) => x.id === "t-2");
+    return JSON.stringify([t?.state, t?.merged, t?.runid, (t?.reviewnote ?? "").length, t?.firstactivity, t?.lastactivity, t?.verifyoutput]);
+};
+const DAG_PEEK_SHOT = "dag-peek-shot";
+// a crop of the app as the one screenshot the seeded Final round kept
+const DAG_PEEK_SHOT_CLIP = { x: 0, y: 0, width: 480, height: 320, scale: 1 };
+const DAG_PEEK_GRAPH_KEYS = [
+    ["k", "KeyK"],
+    ["j", "KeyJ"],
+    ["f", "KeyF"],
+    ["+", "Equal"],
+];
+const DAG_PEEK_STATE = (dag) => dag?.status ?? "";
+const DAG_PEEK_SEED_TRIES = 3;
+const DAG_PEEK_SHOTS_LINK = `${DAG_PEEK_MODAL}?.querySelector("[data-dag-final-peek] [data-final-shots-link]")`;
+
+// F7, F8, F6 on t-2's card at 1600x950
+async function dagPeekFinishedTask(h, ctx, rec) {
+    await h.cdp("Emulation.setDeviceMetricsOverride", RV_WIDE);
+    let seeded = "ok";
+    try {
+        const created = await h.rpc("createrun", {
+            channelid: ctx.channelId,
+            workspaceid: (await h.rpc("workspacelist", null))[0].workspacedata.oid,
+            goal: "verify dag-peek: stand-in run of the merged t-2",
+            runtime: "claude",
+            mode: "quick",
+            deferstart: true,
+        });
+        ctx.t2RunId = created.run.id;
+        const first = Date.now() - 2 * DAG_PEEK_WORKED_MS;
+        await seedDag(
+            h,
+            ctx,
+            (dag) => ({
+                ...dag,
+                tasks: dag.tasks.map((t) =>
+                    t.id === "t-2"
+                        ? {
+                              ...t,
+                              state: "done",
+                              merged: true,
+                              runid: ctx.t2RunId,
+                              reviewverdict: "pass",
+                              reviewnote: DAG_PEEK_NOTE,
+                              firstactivity: first,
+                              lastactivity: first + DAG_PEEK_WORKED_MS,
+                              verifyoutput: DAG_PEEK_ANSI,
+                          }
+                        : t
+                ),
+            }),
+            dagPeekT2Print
+        );
+    } catch (e) {
+        seeded = String(e?.message ?? e);
+    }
+    const t2 = dagPeekTaskSel("t-2");
+    const opened = await dagPeekOpen(h, t2, "t-2");
+    await polishWaitFor(
+        h,
+        `!!${dagPeekCard(t2)}?.querySelector("[data-peek-review-note]") && !!${dagPeekCard(t2)}?.querySelector("[data-peek-verify-tail]")`,
+        5000
+    );
+    await polishNap(400);
+    const card = await h.ev(`(() => {
+        const card = ${dagPeekCard(t2)};
+        const note = card?.querySelector("[data-peek-review-note]");
+        const body = note?.closest(".overflow-y-auto");
+        const verify = card?.querySelector('[data-dag-peek-verify="t-2"]');
+        const r = (el) => (el ? el.getBoundingClientRect() : null);
+        const b = r(body);
+        const v = r(verify);
+        const c = r(card);
+        const meta = card?.querySelector("[data-peek-meta]");
+        return {
+            noteH: note ? Math.round(note.getBoundingClientRect().height) : null,
+            lineH: note ? parseFloat(getComputedStyle(note).lineHeight) : null,
+            toggle: card?.querySelector("[data-peek-review-toggle]") != null,
+            scrollTop: body?.scrollTop ?? null,
+            verifyInView: !!(b && v && c && v.top >= b.top - 1 && v.bottom <= b.bottom + 1 && v.bottom <= c.bottom + 1),
+            activity: (card?.querySelector("[data-peek-activity]")?.textContent ?? "").trim(),
+            meta: meta ? meta.textContent.trim() : null,
+            tail: card?.querySelector("[data-peek-verify-tail]")?.textContent ?? null,
+        };
+    })()`);
+    await h.shot("cdp-shots/dag-peek-f7-review-note.png");
+    await h.ev(`${dagPeekCard(t2)}?.querySelector("[data-peek-review-toggle]")?.click()`);
+    const grew = await polishWaitFor(
+        h,
+        `(${dagPeekCard(t2)}?.querySelector("[data-peek-review-note]")?.getBoundingClientRect().height ?? 0) > ${(card.noteH ?? 0) + 1}`,
+        3000
+    );
+    const grownH = await h.ev(`Math.round(${dagPeekCard(t2)}?.querySelector("[data-peek-review-note]")?.getBoundingClientRect().height ?? 0)`);
+    // the clamp back, so the card is its usual size for the steps after
+    await h.ev(`${dagPeekCard(t2)}?.querySelector("[data-peek-review-toggle]")?.click()`);
+    rec(
+        "o. F7: t-2's 30-line review note shows at most three lines with Verify in view and nothing scrolled; Show the whole note grows it",
+        () =>
+            seeded === "ok" &&
+            opened &&
+            card.noteH != null &&
+            card.noteH <= DAG_PEEK_NOTE_CLAMP * card.lineH + 2 &&
+            card.toggle &&
+            card.scrollTop === 0 &&
+            card.verifyInView &&
+            grew,
+        { seeded, opened, noteH: card.noteH, lineH: card.lineH, toggle: card.toggle, scrollTop: card.scrollTop, verifyInView: card.verifyInView, grownH }
+    );
+    rec(
+        "p. F8: the merged t-2, 8 minutes between its first and last activity, says how long it worked with no ago, and names no branch",
+        () => card.activity.startsWith("worked") && !card.activity.includes("ago") && (card.meta == null || card.meta === ""),
+        { activity: card.activity, meta: card.meta, runid: ctx.t2RunId }
+    );
+    rec(
+        "q. F6: t-2's Verify output, stored with colour escapes, shows none of them",
+        () =>
+            card.tail != null &&
+            card.tail.includes("ok") &&
+            !card.tail.includes("\x1b") &&
+            !card.tail.includes("[2m") &&
+            !card.tail.includes("[22m"),
+        { tail: card.tail }
+    );
+}
+
+// F9, F23, F2 at 1600x950
+async function dagPeekCardsAndKeys(h, ctx, rec) {
+    const word = await h.ev(`(() => {
+        const card = ${DAG_PEEK_MODAL}?.querySelector('[data-dag-node="t-4"]');
+        const word = card?.querySelector("[data-dag-node-word]");
+        const tag = card?.querySelector("[data-dag-node-tag]");
+        const r = (el) => (el ? el.getBoundingClientRect() : null);
+        const w = r(word);
+        const c = r(card);
+        const t = r(tag);
+        return {
+            word: word ? word.textContent.replace(/\\s+/g, " ").trim() : null,
+            tag: tag?.textContent.trim() ?? null,
+            unclipped: word ? word.scrollWidth <= word.clientWidth : null,
+            inCard: !!(w && c && w.left >= c.left - 1 && w.right <= c.right + 1 && w.top >= c.top - 1 && w.bottom <= c.bottom + 1),
+            beforeTag: !!(w && t && w.right <= t.left + 1),
+        };
+    })()`);
+    rec(
+        "r. F9: the tagged t-4 card shows its id and state word whole, inside the card, before the tag",
+        () => (word.word ?? "").startsWith("t-4 · ") && word.tag != null && word.unclipped && word.inCard && word.beforeTag,
+        word
+    );
+
+    const t3 = dagPeekTaskSel("t-3");
+    const openedT3 = await dagPeekOpen(h, t3, "t-3");
+    await h.ev(`${dagPeekCard(t3)}?.querySelector('[data-dag-peek-action="escalate"]')?.click()`);
+    const ESC = `${dagPeekCard(t3)}?.querySelector("[data-dag-peek-escalate]")`;
+    await polishWaitFor(h, `!!${ESC}?.querySelector("[data-route-picker-empty]")`, 3000);
+    const empty = await h.ev(`(${ESC}?.querySelector("[data-route-picker-empty]")?.textContent ?? "").trim()`);
+    await h.shot("cdp-shots/dag-peek-f23-escalate.png");
+    await h.ev(`[...(${ESC}?.querySelectorAll("button") ?? [])].find((x) => x.textContent.trim() === "Cancel")?.click()`);
+    await polishWaitFor(h, `!${ESC}`, 3000);
+    rec("s. F23: t-3's Escalate… picker reads Pick a model before a route is picked", () => openedT3 && empty === "Pick a model", {
+        openedT3,
+        empty,
+    });
+
+    // with nothing over the graph a key moves the selection, so the check below is not vacuous
+    const t1 = dagPeekTaskSel("t-1");
+    const openedT1 = await dagPeekOpen(h, t1, "t-1");
+    await polishWaitFor(h, `JSON.stringify(${RV_PRESSED}) === '["t-1"]'`, 3000);
+    await rvKey(h, "j", "KeyJ");
+    const moved = await polishWaitFor(h, `${RV_PRESSED}.length === 1 && ${RV_PRESSED}[0] !== "t-1"`, 3000);
+    const afterJ = await h.ev(RV_PRESSED);
+
+    let seeded = "ok";
+    try {
+        ctx.shotsDir = mkdtempSync(join(tmpdir(), "verify-dag-peek-shots-"));
+        const { data } = await h.cdp("Page.captureScreenshot", { format: "png", clip: DAG_PEEK_SHOT_CLIP });
+        writeFileSync(join(ctx.shotsDir, `${DAG_PEEK_SHOT}.png`), Buffer.from(data, "base64"));
+        const final = {
+            state: "unverified",
+            round: 1,
+            outdir: ctx.shotsDir.replace(/\\/g, "/"),
+            shots: [{ name: DAG_PEEK_SHOT, files: [`${DAG_PEEK_SHOT}.png`] }],
+            shotsmanifest: false,
+        };
+        // the blocked dag's watchdog tick can land over the seed after seedDag read it back, so seed until it shows
+        for (let i = 0; i < DAG_PEEK_SEED_TRIES; i++) {
+            await seedDag(h, ctx, (dag) => ({ ...dag, final }), (dag) => JSON.stringify([dag?.final?.state ?? null, dag?.final?.shots?.length ?? 0]));
+            await dagPeekOpen(h, DAG_PEEK_FINAL_SEL, "final");
+            if (await polishWaitFor(h, `!!${DAG_PEEK_SHOTS_LINK}`, 5000)) break;
+        }
+    } catch (e) {
+        seeded = String(e?.message ?? e);
+    }
+    const openedFinal = await dagPeekOpen(h, DAG_PEEK_FINAL_SEL, "final");
+    const LINK = DAG_PEEK_SHOTS_LINK;
+    await polishWaitFor(h, `!!${LINK}`, 5000);
+    await h.ev(`${LINK}?.click()`);
+    const viewer = await polishWaitFor(h, `!!${FS_VIEWER}`, 5000);
+    await polishNap(400);
+    const before = await h.ev(`({ pressed: ${RV_PRESSED}, frame: ${DAG_PEEK_FRAME} })`);
+    for (const [key, code] of DAG_PEEK_GRAPH_KEYS) {
+        await rvKey(h, key, code);
+        await polishNap(150);
+    }
+    await polishNap(500);
+    const after = await h.ev(`({ viewer: !!${FS_VIEWER}, pressed: ${RV_PRESSED}, frame: ${DAG_PEEK_FRAME} })`);
+    await h.shot("cdp-shots/dag-peek-f2-viewer-keys.png");
+    await h.ev(`${FS_VIEWER}?.querySelector('button[aria-label="Close"]')?.click()`);
+    const viewerClosed = await polishWaitFor(h, `!${FS_VIEWER}`, 3000);
+    rec(
+        "t. F2: with nothing over the graph j moves the selection off t-1; with the Final screenshots viewer over it, k, j, f and + leave the viewer open, the Final node selected and the viewport still",
+        () =>
+            openedT1 &&
+            moved &&
+            seeded === "ok" &&
+            openedFinal &&
+            viewer &&
+            fstSame(before.pressed, ["final"]) &&
+            after.viewer &&
+            fstSame(after.pressed, before.pressed) &&
+            after.frame.transform === before.frame.transform &&
+            viewerClosed,
+        { openedT1, afterJ, seeded, openedFinal, viewer, before, after, viewerClosed }
+    );
+}
+
+// F16 at 1000x700, then F4 and F26 at 1600x950
+async function dagPeekEnded(h, ctx, rec) {
+    await h.cdp("Emulation.setDeviceMetricsOverride", RV_SHORT);
+    await polishNap(900);
+    const t4 = dagPeekTaskSel("t-4");
+    const openedT4 = await dagPeekOpen(h, t4, "t-4");
+    await dagPeekSettled(h);
+    await polishNap(400);
+    const geom = await h.ev(dagPeekGeom(t4, "t-4"));
+    await h.shot("cdp-shots/dag-peek-f16-short.png");
+    rec(
+        "u. F16: at 1000x700 t-4's card stays clear of the zoom controls",
+        () => openedT4 && geom.visible && geom.card != null && geom.controls != null && geom.clearControls,
+        { openedT4, innerWidth: await h.ev("innerWidth"), ...geom }
+    );
+    await h.cdp("Emulation.setDeviceMetricsOverride", RV_WIDE);
+    await polishNap(900);
+
+    let seeded = "ok";
+    try {
+        await seedDag(h, ctx, (dag) => ({ ...dag, status: "cancelled" }), DAG_PEEK_STATE);
+    } catch (e) {
+        seeded = String(e?.message ?? e);
+    }
+    const T3_NODE = `${DAG_PEEK_MODAL}?.querySelector('[data-dag-node="t-3"]')`;
+    await polishWaitFor(h, `${rvFact(T3_NODE)} === "run cancelled"`, 10000);
+    const t3 = dagPeekTaskSel("t-3");
+    const openedT3 = await dagPeekOpen(h, t3, "t-3");
+    await polishNap(300);
+    const ended = await h.ev(`({
+        bar: ${dagPeekBar(t3)},
+        fact: ${rvFact(T3_NODE)},
+        chips: [...(${DAG_PEEK_MODAL}?.querySelectorAll('button[title^="Select the next task that is"]') ?? [])].map((b) => b.textContent.trim()),
+    })`);
+    await h.shot("cdp-shots/dag-peek-f4-cancelled.png");
+    rec(
+        "v. F4: on a cancelled dag t-3's card offers no Retry, Skip or Escalate, its card's fact reads run cancelled, and no header chip says need you",
+        () =>
+            seeded === "ok" &&
+            openedT3 &&
+            !ended.bar.some((b) => ["retry", "skip", "escalate"].includes(b.action)) &&
+            ended.fact === "run cancelled" &&
+            ended.chips.length > 0 &&
+            ended.chips.every((c) => !c.includes("need you")),
+        { seeded, openedT3, ...ended }
+    );
+
+    const PET = `document.querySelector("[data-pet-sprite]")`;
+    const sprite = `(${PET} ? getComputedStyle(${PET}).visibility : null)`;
+    const overModal = await h.ev(sprite);
+    const closed = await rvCloseDag(h);
+    await polishWaitFor(h, `${sprite} === "visible"`, 3000);
+    const afterClose = await h.ev(sprite);
+    rec(
+        "w. F26: the avatar's sprite is hidden while the DAG modal is open, and visible once it closes",
+        () => overModal === "hidden" && closed && afterClose === "visible",
+        { overModal, closed, afterClose }
+    );
+}
 
 // --- dag-reviewer-session: the task peek's reviewer box ---------------------------------------------------------
 // t-1 is seeded reviewing, its worker and reviewer stand-in runs each recording a tab that the fixture roster holds,
@@ -2934,13 +3688,72 @@ export const finalShotsScenario = {
             JSON.stringify({ viewer: s?.viewer != null, sheet: s?.sheet, dock: s?.dock })
         );
         await h.shot("cdp-shots/final-shots-9-closed.png");
+
+        await finalShotsPastRounds(h, ctx, rec);
         return steps;
     },
     async teardown(h, ctx) {
+        await h.cdp("Emulation.clearDeviceMetricsOverride").catch((e) => {
+            console.error(`final-shots teardown: clear the viewport override failed: ${e?.message ?? e}`);
+        });
         if (ctx.cwd) await teardownFixtureRun(h, ctx, "final-shots");
         rmSync(ctx.out, { recursive: true, force: true });
     },
 };
+
+// round 2 failed at Verify, so its Final command never ran and it kept no screenshots; the engine writes the detail so
+const FS_VERIFY_FAILED = "Verify `node scripts/verify.mjs ./pkg/waveobj` failed (exit 1):\nFAIL\tpkg/waveobj\t0.4s";
+const FS_ROUND2_EMPTY = "Round 2 ended at Verify, before the Final command ran.";
+const FS_PAST = (round) => `${dagPeekCard(DAG_PEEK_FINAL_SEL)}?.querySelector('[data-final-past-round="${round}"]')`;
+const fsRoundButton = (prefix) =>
+    `[...(${FS_VIEWER}?.querySelectorAll('[role="group"][aria-label="Round"] button') ?? [])].find((b) => b.innerText.trim().startsWith(${JSON.stringify(prefix)}))`;
+
+// F22 at 1600x950: an earlier round's line in the DAG's Final peek, and a round that ended before it took any shots
+async function finalShotsPastRounds(h, ctx, rec) {
+    await h.cdp("Emulation.setDeviceMetricsOverride", RV_WIDE);
+    let seeded = "ok";
+    try {
+        // round 1 as the main seed kept it, with its failure detail so its line opens
+        const round1 = { ...ctx.stages.main.pastfinals[0], detail: FST_DETAIL };
+        await seedFinalShots(h, ctx, { final: { state: "failed", round: 2, detail: FS_VERIFY_FAILED }, pastfinals: [round1] });
+    } catch (e) {
+        seeded = String(e?.message ?? e);
+    }
+    const opened = await rvOpenDag(h, ctx.runId);
+    const peek = await dagPeekOpen(h, DAG_PEEK_FINAL_SEL, "final");
+    await polishWaitFor(h, `!!${FS_PAST(1)}?.querySelector("[data-final-past-round-shots]")`, 5000);
+    await h.ev(`${FS_PAST(1)}?.click()`);
+    const detailShown = await polishWaitFor(h, `!!${FS_PAST(1)}?.parentElement?.querySelector("[data-final-past-round-detail]")`, 3000);
+    const detail = await h.ev(`(${FS_PAST(1)}?.parentElement?.querySelector("[data-final-past-round-detail]")?.textContent ?? "").trim()`);
+    await h.shot("cdp-shots/final-shots-10-past-round.png");
+    await h.ev(`${FS_PAST(1)}?.querySelector("[data-final-past-round-shots]")?.click()`);
+    let s = await finalShotsUntil(h, (x) => x.viewer?.rounds.some((r) => r.on) === true);
+    const onRound = s?.viewer?.rounds.find((r) => r.on)?.text ?? null;
+    rec(
+        "10. F22: in the DAG's Final peek, round 1's line opens its failure detail, and its screenshots link opens the viewer on round 1",
+        seeded === "ok" &&
+            opened &&
+            peek &&
+            detailShown &&
+            detail.startsWith(FST_DETAIL.split("\n")[0]) &&
+            (onRound ?? "").startsWith("Round 1"),
+        JSON.stringify({ seeded, opened, peek, detailShown, detail: detail.slice(0, 120), onRound, rounds: s?.viewer?.rounds })
+    );
+
+    await finalShotsClick(h, fsRoundButton("Round 2"));
+    await polishWaitFor(h, `!!${FS_VIEWER}?.querySelector("[data-final-shots-empty]")`, 3000);
+    const empty = await h.ev(`(${FS_VIEWER}?.querySelector("[data-final-shots-empty]")?.textContent ?? "").trim()`);
+    s = await h.ev(FS_READ);
+    await h.shot("cdp-shots/final-shots-11-round-2-empty.png");
+    rec(
+        "11. F22: the viewer on round 2, which failed at Verify, says where the round ended",
+        (s?.viewer?.rounds.find((r) => r.on)?.text ?? "").startsWith("Round 2") && empty === FS_ROUND2_EMPTY,
+        JSON.stringify({ empty, rounds: s?.viewer?.rounds })
+    );
+    await finalShotsClick(h, `${FS_VIEWER}?.querySelector('button[aria-label="Close"]')`);
+    await finalShotsUntil(h, (x) => x.viewer == null, 3000);
+    await rvCloseDag(h);
+}
 
 // --- final-rerun: a failed final stage runs again from the run sheet ------------------------------------------
 // The dag is seeded with a failed round 1 while t-1 is still at work, so the engine leaves the stage alone. The
@@ -4324,9 +5137,9 @@ const pickRowExpr = (id) => `document.querySelector('${PICKS_PEEK} [data-model-p
 const pickToggleExpr = (id, sonnet) =>
     `[...(${pickRowExpr(id)}?.querySelectorAll('[role="group"] button') ?? [])].find((b) => (b.textContent.trim() === 'sonnet') === ${sonnet})`;
 const dagCardExpr = (id) => `document.querySelector('[data-dag-modal-kind] [data-dag-node="${id}"]')`;
-// a card's model tag is its own span, `<model> · <source>`
+// a card's model tag chip names the model; who put it there is the last clause of the card's aria-label
 const cardTagExpr = (id) =>
-    `([...(${dagCardExpr(id)}?.querySelectorAll('span') ?? [])].map((s) => s.textContent.trim()).find((t) => / · (plan|review|you|escalated|pinned)$/.test(t)) ?? null)`;
+    `((c) => { const t = c?.querySelector('[data-dag-node-tag]'); return t ? t.textContent.trim() + ' · ' + c.getAttribute('aria-label').split(', ').pop() : null; })(${dagCardExpr(id)})`;
 // the peek card's Worker row carries the same route attribute as the nodes
 const DAG_RAIL_ROUTE = `document.querySelector('${PICKS_PEEK} [data-dag-node-route]')`;
 const peekRouteExpr = (id) => `document.querySelector('[data-dag-modal-kind] [data-dag-task-peek="${id}"] [data-dag-node-route]')`;
@@ -4561,8 +5374,8 @@ export const modelPicks = {
         })`);
         rec(
             "3. the cards tag the plan's and the reviewer's picks, and the peek card's Worker row names the reviewer",
-            picked.t1 === "sonnet · plan" &&
-                picked.t2 === "sonnet · review" &&
+            picked.t1 === "sonnet · plan's pick" &&
+                picked.t2 === "sonnet · reviewer's pick" &&
                 picked.t3 == null &&
                 picked.rail.route === "reviewer:claude:sonnet" &&
                 picked.rail.text.includes("claude / sonnet") &&
@@ -4582,14 +5395,14 @@ export const modelPicks = {
 
         await h.ev(`${pickToggleExpr("t-2", true)}?.click()`);
         const onSonnet = await waitDagTask(h, ctx, "t-2", (t) => t.modelsource === "owner" && t.runspec?.model === "sonnet");
-        await polishWaitFor(h, `${cardTagExpr("t-2")} === 'sonnet · you'`, 3000);
+        await polishWaitFor(h, `${cardTagExpr("t-2")} === "sonnet · your pick"`, 3000);
         const yours = await h.ev(`({ tag: ${cardTagExpr("t-2")}, rail: ${railExpr} })`);
         await h.shot("cdp-shots/model-picks-2-yours.png");
         rec(
-            "5. toggling it back to sonnet tags the node `sonnet · you` and the peek card's Worker row names your pick",
+            "5. toggling it back to sonnet tags the node sonnet, labelled your pick, and the peek card's Worker row names your pick",
             onSonnet?.modelsource === "owner" &&
                 onSonnet.runspec?.model === "sonnet" &&
-                yours.tag === "sonnet · you" &&
+                yours.tag === "sonnet · your pick" &&
                 yours.rail.route === "owner:claude:sonnet" &&
                 yours.rail.text.includes("your pick"),
             JSON.stringify({ task: taskFacts(onSonnet), ...yours })
@@ -4606,6 +5419,8 @@ export const modelPicks = {
             JSON.stringify(chips)
         );
 
+        // step 2 left t-2 selected, which narrows the rail to t-2's events; Plan reviewed is the run's, under All
+        await h.ev(`${DAG_RAIL}?.querySelector('[data-timeline-filter-count="all"]')?.closest('button')?.click()`);
         const reviewed = await h.ev(railGroupExpr("Plan reviewed"));
         await h.shot("cdp-shots/model-picks-4-plan-reviewed.png");
         rec(
@@ -4814,6 +5629,9 @@ export const planReviewRounds = {
         );
         if (reviewing.length !== 1) return steps;
 
+        // while round 2's reviewer is in flight: measured now, as step 6 ends the review
+        await planReviewInFlight(h, ctx, rec);
+
         let recorded = "ok";
         try {
             await recordPlanReviewRound(h, ctx, 2, { followup: { verdict: "pass", notes: "verify plan-review-rounds: the plan is unchanged" } });
@@ -4828,13 +5646,139 @@ export const planReviewRounds = {
             recorded === "ok" && passed.length === 1 && passed[0].lens === "followup" && passed[0].state === "passed",
             JSON.stringify({ recorded, chips: passed })
         );
+
+        await planReviewEnded(h, ctx, rec);
         return steps;
     },
     async teardown(h, ctx) {
         await h.ev(PEEKS_ESC).catch(() => {});
+        await h.cdp("Emulation.clearDeviceMetricsOverride").catch((e) => {
+            console.error(`plan-review-rounds teardown: clear the viewport override failed: ${e?.message ?? e}`);
+        });
         await teardownFixtureRun(h, ctx, "plan-review-rounds");
     },
 };
+
+const PRR_WAITS = "waits on plan review";
+// a confirm on the modal stack, above the DAG modal: its own dialog, not the modal's panel
+// the cancel button also carries its "esc" key hint
+const PRR_KEEP = `[...(d?.querySelectorAll("button") ?? [])].find((b) => b.textContent.trim().startsWith("Keep running"))`;
+const PRR_CONFIRM = `[...document.querySelectorAll('[role="dialog"]')].find((d) => !d.closest("[data-dag-modal-kind]") && ${PRR_KEEP} != null)`;
+const PRR_REVIEWERS = 5;
+const PRR_EXTRA_LENSES = ["full", "second", "spec", "order", "tests"];
+// the round's own reviewers kept, with their runs, so teardown's cancel still stops them; others added up to five
+function prrFiveReviewers(dag) {
+    const kept = dag.planreview?.reviewers ?? [];
+    const extra = PRR_EXTRA_LENSES.filter((lens) => !kept.some((r) => r.lens === lens))
+        .slice(0, Math.max(0, PRR_REVIEWERS - kept.length))
+        .map((lens) => ({ lens, state: "passed", text: "verify plan-review-rounds" }));
+    return { ...dag, planreview: { ...dag.planreview, reviewers: [...kept, ...extra] } };
+}
+const prrGroup = async (h, ctx) => (await h.rpc("dagstatus", { channelid: ctx.channelId, runid: ctx.runId })).group;
+const PRR_CARDS = `[...(${RV_MODAL}?.querySelectorAll("[data-dag-node]:not([data-dag-node='final'])") ?? [])]`;
+
+// F19 and F15 at 1600x950, while round 2's follow-up reviewer is still reviewing
+async function planReviewInFlight(h, ctx, rec) {
+    await h.cdp("Emulation.setDeviceMetricsOverride", RV_WIDE);
+    const g = await prrGroup(h, ctx);
+    const pending = (g?.tasks ?? []).filter((t) => t.state === "pending" || t.state === "ready").map((t) => t.id);
+    const facts = await h.ev(
+        `${PRR_CARDS}.map((n) => ({ id: n.getAttribute("data-dag-node"), fact: ${rvFact("n")} }))`
+    );
+    const pendingFacts = facts.filter((f) => pending.includes(f.id));
+    await h.shot("cdp-shots/plan-review-rounds-f19-facts.png");
+    rec(
+        "7. F19: while the dag is in plan review, every pending card's fact reads waits on plan review",
+        g?.status === "plan-review" &&
+            pending.length > 0 &&
+            pendingFacts.length === pending.length &&
+            pendingFacts.every((f) => f.fact === PRR_WAITS),
+        JSON.stringify({ status: g?.status, pending, facts })
+    );
+
+    const before = g?.status;
+    await h.ev(`${RV_MODAL}?.querySelector("[data-dag-cancel]")?.click()`);
+    const asked = await polishWaitFor(h, `!!${PRR_CONFIRM}`, 3000);
+    const message = await h.ev(`(${PRR_CONFIRM}?.textContent ?? "").replace(/\\s+/g, " ").trim()`);
+    await h.shot("cdp-shots/plan-review-rounds-f15-confirm.png");
+    await h.ev(`((d) => ${PRR_KEEP})(${PRR_CONFIRM})?.click()`);
+    const dismissed = await polishWaitFor(h, `!${PRR_CONFIRM}`, 3000);
+    // a cancel that went through anyway would land within this
+    await polishNap(1500);
+    const after = (await prrGroup(h, ctx))?.status;
+    rec(
+        "8. F15: the graph header's Cancel, with the plan reviewer in flight, asks first, and Keep running leaves the dag as it was",
+        asked && message.includes("Stop 1 running worker") && dismissed && after === before && after === "plan-review",
+        JSON.stringify({ asked, message, dismissed, before, after })
+    );
+}
+
+// F10, F11, F12 and F24 at 1600x950, once the review is over: the dag cancelled with every task skipped and no
+// Final stage, then given five plan reviewers. Each task keeps its run, so teardown's cancel still stops a worker.
+async function planReviewEnded(h, ctx, rec) {
+    await h.cdp("Emulation.setDeviceMetricsOverride", RV_WIDE);
+    const g = await prrGroup(h, ctx);
+    ctx.dagId = g?.oid ?? g?.id;
+    const n = g?.tasks?.length ?? 0;
+    let seeded = "ok";
+    try {
+        await seedDag(
+            h,
+            ctx,
+            (dag) => {
+                const { final: _final, ...rest } = dag;
+                return { ...rest, status: "cancelled", tasks: dag.tasks.map((t) => ({ ...t, state: "skipped" })) };
+            },
+            (dag) => `${dag?.status}|${dag?.final ? "final" : ""}|${(dag?.tasks ?? []).map((t) => t.state).join(",")}`
+        );
+    } catch (e) {
+        seeded = String(e?.message ?? e);
+    }
+    const graph = (await h.ev(`!!${RV_MODAL}`)) ? { ok: true } : await openRunGraph(h, ctx);
+    await polishWaitFor(h, `(${RV_MODAL}?.querySelector("[data-dag-progress]")?.textContent ?? "").includes("skipped")`, 10000);
+    const ended = await h.ev(`(() => {
+        const flat = (el) => (el?.textContent ?? "").replace(/\\s+/g, " ").trim();
+        return {
+            progress: flat(${RV_MODAL}?.querySelector("[data-dag-progress]")),
+            final: flat(${RV_MODAL}?.querySelector('[data-dag-node="final"]')),
+            byYou: [...(${RV_MODAL}?.querySelectorAll("[data-dag-node]") ?? [])].filter((c) => flat(c).includes("by you")).map((c) => c.getAttribute("data-dag-node")),
+            facts: ${PRR_CARDS}.map((c) => ({ id: c.getAttribute("data-dag-node"), fact: ${rvFact("c")} })),
+        };
+    })()`);
+    await h.shot("cdp-shots/plan-review-rounds-f10-cancelled.png");
+    rec(
+        "9. F10, F11, F12: cancelled with every task skipped and no Final stage: the header reads 0/n done · n skipped, the Final node did not run · run cancelled, and every card's fact is run cancelled with no by you",
+        seeded === "ok" &&
+            graph.ok &&
+            n > 0 &&
+            ended.progress.includes(`0/${n} done · ${n} skipped`) &&
+            ended.final.includes("did not run · run cancelled") &&
+            ended.byYou.length === 0 &&
+            ended.facts.length === n &&
+            ended.facts.every((f) => f.fact === "run cancelled"),
+        JSON.stringify({ seeded, graph: graph.ok, n, ...ended })
+    );
+
+    let five = "ok";
+    try {
+        await seedDag(h, ctx, prrFiveReviewers, (dag) => (dag?.planreview?.reviewers ?? []).map((r) => r.lens).join(","));
+    } catch (e) {
+        five = String(e?.message ?? e);
+    }
+    await polishWaitFor(h, `${RV_MODAL}?.querySelectorAll("[data-plan-reviewer]").length === ${PRR_REVIEWERS}`, 10000);
+    const lines = await h.ev(
+        `[...(${RV_MODAL}?.querySelectorAll("[data-dag-stage-entry], [data-plan-reviewer]") ?? [])].map((el) => ({
+            key: el.getAttribute("data-dag-stage-entry") ?? el.getAttribute("data-plan-reviewer"),
+            rects: el.getClientRects().length,
+        }))`
+    );
+    await h.shot("cdp-shots/plan-review-rounds-f24-stage-line.png");
+    rec(
+        "10. F24: with five plan reviewers, the stage line's entry and each reviewer sit on one line apiece",
+        five === "ok" && lines.length === PRR_REVIEWERS + 1 && lines.every((l) => l.rects === 1),
+        JSON.stringify({ five, lines })
+    );
+}
 
 // --- run-sheet-designing: a run waiting on its design session (docs/superpowers/specs/2026-10-27-lead-plans-from-approved-design-design.md)
 // Three real Design first runs, each with the session the server starts for it: step 3 closes one mock-up session's
