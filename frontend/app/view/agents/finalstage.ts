@@ -5,6 +5,7 @@
 // node all read this one view. Derived from the dag's FinalStage and the run's final-step events, which alone
 // keep a finished step's duration and result. No React, no store.
 
+import { stageHasShots } from "@/app/view/jarvis/finalshotsmodel";
 import type { AgentVM } from "./agentsviewmodel";
 import { fmtDuration } from "./runcompletion";
 import { detailOf } from "./runtimeline";
@@ -32,6 +33,9 @@ export interface FinalRoundLine {
     round: number;
     tone: FinalTone;
     text: string;
+    // the round's failure detail, "" when none
+    detail: string;
+    hasShots: boolean;
 }
 
 export interface FinalStageView {
@@ -73,6 +77,7 @@ const FINAL_STEP_EVENT = "final-step";
 // the engine's finalEndedByHuman, trimmed: what opens the reason of a stage a human ended
 const ENDED_BY_HUMAN = "ended by the human:";
 const RUNNING_STATES = new Set(["checking", "final", "verifying"]);
+const DID_NOT_RUN = "did not run";
 const TASK_FINISHED = new Set(["done", "skipped"]);
 
 const LABELS: Record<FinalStepKey, string> = {
@@ -387,6 +392,9 @@ export function finalStageView(
         const time = total == null ? undefined : fmtDuration(total);
         subline = joinDot([state, time]);
         nodeMeta = headline = joinDot([roundText, state, time]);
+    } else if (stage == null && group.status === "cancelled") {
+        subline = DID_NOT_RUN;
+        nodeMeta = headline = joinDot([DID_NOT_RUN, "run cancelled"]);
     } else if (round > 1) {
         subline = waitsOn.length > 0 ? `${roundText} after ${plural(waitsOn.length, "fix task")}` : roundText;
         nodeMeta = headline = waitsOn.length > 0 ? `${roundText} waits on ${waitsOn.join(", ")}` : roundText;
@@ -406,6 +414,8 @@ export function finalStageView(
                 round: p.round,
                 tone: STAGE_TONES[p.state] ?? "wait",
                 text: joinDot([`round ${p.round}`, outcomeText(p, pastSteps)]),
+                detail: p.detail ?? "",
+                hasShots: stageHasShots(p),
             };
         });
 

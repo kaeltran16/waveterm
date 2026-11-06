@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 import {
     clampSelection,
+    emptyRoundText,
     finalCheckEntry,
     roundLabel,
     roundTally,
@@ -318,5 +319,23 @@ describe("clampSelection", () => {
         expect(clampSelection({ ...round, scenarios: [], shotCount: 0 }, 2, 2)).toEqual({ s: 0, k: 0 });
         const empty: ShotRound = { ...round, scenarios: [{ name: "x", files: [], steps: [], verdict: "pass" }] };
         expect(clampSelection(empty, 0, 3)).toEqual({ s: 0, k: 0 });
+    });
+});
+
+describe("emptyRoundText", () => {
+    it("names the step a round ended at before the Final command", () => {
+        const verify = {
+            ...stage("failed", 2),
+            detail: "Verify `go test ./...` failed on the merged result (exit 1):\nFAIL",
+        };
+        expect(emptyRoundText(verify)).toBe("Round 2 ended at Verify, before the Final command ran.");
+        const check = { ...stage("failed", 1), detail: "Check `go build ./...` failed (exit 2):\nboom" };
+        expect(emptyRoundText(check)).toBe("Round 1 ended at Check, before the Final command ran.");
+    });
+
+    it("says no screenshots otherwise", () => {
+        expect(emptyRoundText(undefined)).toBe("No screenshots");
+        expect(emptyRoundText(stage("passed", 1))).toBe("No screenshots");
+        expect(emptyRoundText({ ...stage("failed", 1), detail: "Final `x` failed (exit 1)" })).toBe("No screenshots");
     });
 });

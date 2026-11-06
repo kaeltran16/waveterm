@@ -90,7 +90,7 @@ export function FinalStagePane({ model, run }: { model: AgentsViewModel; run: Ru
                     </>
                 ) : (
                     <>
-                        <FinalOutcome view={view} />
+                        {run.dag ? <FinalOutcome view={view} group={run.dag} /> : null}
                         {view.state === "failed" ? (
                             <span className="flex-none text-[12px] text-muted">
                                 The lead has this failure and decides what happens next.

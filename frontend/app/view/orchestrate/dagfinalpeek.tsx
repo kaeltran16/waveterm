@@ -154,7 +154,7 @@ export function DagFinalPeek({
                 </div>
             ) : null}
             <PeekLifecycle rows={finalLifecycle(events)} status={status} emptyText="The final stage has not run yet" />
-            <FinalOutcome view={view} pastLabel={PAST_LABEL} className="flex-none" />
+            <FinalOutcome view={view} group={group} pastLabel={PAST_LABEL} className="flex-none" />
             <FinalShotsLink group={group} />
         </DagPeekCard>
     );
