@@ -1,5 +1,5 @@
 import { execFile, spawn } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, fstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer as createHttpServer } from "node:http";
 import { createServer } from "node:net";
 import { homedir, tmpdir } from "node:os";
@@ -18,6 +18,7 @@ import {
     inUse,
     pickPort,
     pickVitePort,
+    releaseDevApp,
     sweepStaleStores,
     unlinkBuildJunctions,
     writeFinalManifest,
@@ -521,6 +522,53 @@ describe("closeMainWindow", () => {
             await host.stop();
         }
     });
+});
+
+describe("releaseDevApp", () => {
+    let dir;
+    afterEach(() => {
+        if (dir) rmSync(dir, { recursive: true, force: true });
+        dir = undefined;
+    });
+
+    // the dev app as main() spawns it: stdin an open pipe, output to a log fd, and a build lock held beside it
+    async function startDev() {
+        dir = mkdtempSync(join(tmpdir(), "final-release-"));
+        const log = openSync(join(dir, "dev-app.log"), "a");
+        const dev = spawn(process.execPath, ["-e", `console.log("up"); setInterval(() => {}, 1000);`], {
+            stdio: ["pipe", log, log],
+        });
+        await new Promise((resolve) => dev.once("spawn", resolve));
+        const lock = await listen(0);
+        return { dev, lock, log };
+    }
+
+    it("resolves only after the dev app exited and its stdin, lock and log are closed", async () => {
+        const { dev, lock, log } = await startDev();
+        const closed = [];
+        dev.once("exit", () => closed.push("exit"));
+        dev.stdin.once("close", () => closed.push("stdin"));
+
+        await releaseDevApp(dev, lock, log);
+
+        expect(closed.sort()).toEqual(["exit", "stdin"]);
+        expect(alive(dev.pid)).toBe(false);
+        expect(lock.listening).toBe(false);
+        expect(() => fstatSync(log)).toThrow(/EBADF/);
+    }, 30_000);
+
+    // the "exited before answering" path: the dev app is gone before the release starts
+    it("resolves for a dev app that already exited and a lock already closed", async () => {
+        const { dev, lock, log } = await startDev();
+        dev.kill("SIGKILL");
+        await new Promise((resolve) => dev.once("exit", resolve));
+        await close(lock);
+
+        await releaseDevApp(dev, lock, log);
+
+        expect(dev.stdin.closed).toBe(true);
+        expect(() => fstatSync(log)).toThrow(/EBADF/);
+    }, 30_000);
 });
 
 describe("finalManifest", () => {
