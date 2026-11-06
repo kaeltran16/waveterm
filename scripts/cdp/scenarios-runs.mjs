@@ -5419,6 +5419,8 @@ export const modelPicks = {
             JSON.stringify(chips)
         );
 
+        // step 2 left t-2 selected, which narrows the rail to t-2's events; Plan reviewed is the run's, under All
+        await h.ev(`${DAG_RAIL}?.querySelector('[data-timeline-filter-count="all"]')?.closest('button')?.click()`);
         const reviewed = await h.ev(railGroupExpr("Plan reviewed"));
         await h.shot("cdp-shots/model-picks-4-plan-reviewed.png");
         rec(
