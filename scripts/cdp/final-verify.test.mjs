@@ -52,6 +52,11 @@ function run(env) {
     });
 }
 
+// removing a dir a just-exited child used: windows can refuse the first delete of a file the child held, and
+// verify runs these while workers build, so the hook needs the same load allowance as the tests
+const CHILD_DIR_RM = { recursive: true, force: true, maxRetries: 3 };
+const CHILD_DIR_RM_TIMEOUT_MS = 30_000;
+
 function alive(pid) {
     try {
         process.kill(pid, 0);
@@ -100,9 +105,9 @@ describe("inUse", () => {
 describe("final-verify.mjs", () => {
     let dir;
     afterEach(() => {
-        if (dir) rmSync(dir, { recursive: true, force: true });
+        if (dir) rmSync(dir, CHILD_DIR_RM);
         dir = undefined;
-    });
+    }, CHILD_DIR_RM_TIMEOUT_MS);
 
     it("is unverified when ARC_FINAL_OUT is not set", async () => {
         const env = { ...process.env };
@@ -194,9 +199,9 @@ fs.writeFileSync(path.join(data, "waveapp.log"), "boot log");
 describe("final-verify.mjs build slots", () => {
     let dir;
     afterEach(() => {
-        if (dir) rmSync(dir, { recursive: true, force: true });
+        if (dir) rmSync(dir, CHILD_DIR_RM);
         dir = undefined;
-    });
+    }, CHILD_DIR_RM_TIMEOUT_MS);
 
     // a dev app that logs its start and end to a shared file, records its env in its out dir and exits after holdMs
     function fakeDevEnv(name, logFile, holdMs) {
