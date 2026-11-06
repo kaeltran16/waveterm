@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/baseds"
+	"github.com/wavetermdev/waveterm/pkg/memhygiene"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -213,5 +214,46 @@ func TestNoSnapshotLeavesHandlersOpen(t *testing.T) {
 	sent := scriptAgents(t, threeAgents())
 	if err := ws.AgentPromptCommand(ctx, wshrpc.CommandAgentPromptData{BlockId: blockId, Text: "hi"}); err != nil || len(*sent) != 1 {
 		t.Errorf("prompt: err %v, delivered %+v", err, *sent)
+	}
+}
+
+func TestSnapshotRefusesMemoryCheck(t *testing.T) {
+	useSnapshotBase(t, true)
+	err := (&WshServer{}).CheckMemoryHygieneCommand(context.Background(), wshrpc.CommandCheckMemoryHygieneData{Project: "snapmem"})
+	if err == nil || !strings.HasPrefix(err.Error(), snapshotRefusal) || !strings.Contains(err.Error(), "model") {
+		t.Errorf("memory check: err = %v, want a %q refusal saying it calls a model", err, snapshotRefusal)
+	}
+	if _, statErr := os.Stat(memhygiene.StateDir()); !os.IsNotExist(statErr) {
+		t.Errorf("a refused check touched the state dir (stat: %v)", statErr)
+	}
+}
+
+func TestSnapshotRefusesMemoryApplyUndo(t *testing.T) {
+	useSnapshotBase(t, true)
+	ws := &WshServer{}
+	for _, verdict := range []string{wshrpc.MemVerdict_Apply, wshrpc.MemVerdict_Undo} {
+		_, err := ws.DecideMemoryChangeCommand(context.Background(), wshrpc.CommandDecideMemoryChangeData{Project: "snapmem", ChangeId: "c1", Verdict: verdict})
+		if err == nil || !strings.HasPrefix(err.Error(), snapshotRefusal) {
+			t.Errorf("memory %s: err = %v, want a %q refusal", verdict, err, snapshotRefusal)
+		}
+	}
+	if _, statErr := os.Stat(memhygiene.StateDir()); !os.IsNotExist(statErr) {
+		t.Errorf("a refused apply or undo touched the state dir (stat: %v)", statErr)
+	}
+}
+
+func TestSnapshotAllowsMemoryKeepReopen(t *testing.T) {
+	useSnapshotBase(t, true)
+	if _, err := memhygiene.Update("snapmem", func(st *memhygiene.State) error {
+		st.Changes = []wshrpc.MemChange{{Id: "c1", Title: "Drop a.md", Status: "open"}}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ws := &WshServer{}
+	for _, verdict := range []string{wshrpc.MemVerdict_Keep, wshrpc.MemVerdict_Reopen} {
+		if _, err := ws.DecideMemoryChangeCommand(context.Background(), wshrpc.CommandDecideMemoryChangeData{Project: "snapmem", ChangeId: "c1", Verdict: verdict}); err != nil {
+			t.Errorf("memory %s under a snapshot: %v", verdict, err)
+		}
 	}
 }

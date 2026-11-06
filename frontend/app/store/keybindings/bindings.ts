@@ -71,11 +71,13 @@ import {
 } from "@/app/view/agents/githistorystore";
 import { canHandToPhone } from "@/app/view/agents/handtophone";
 import { anyFilterActive } from "@/app/view/agents/historyquery";
-import { canApply, isPending, stepChange } from "@/app/view/agents/memorymodel";
+import { canApply, isPending, stepChange, undoExpired } from "@/app/view/agents/memorymodel";
 import {
     decideMemory,
     memoryBusyAtom,
+    memoryDetailOpenAtom,
     memorySelection,
+    memorySheetOpen,
     selectMemoryChange,
     type MemVerdict,
 } from "@/app/view/agents/memorystore";
@@ -173,7 +175,7 @@ const GO_TARGETS: { letter: string; surface: SurfaceKey; label: string }[] = [
     { letter: "f", surface: "files", label: "Diff" },
     { letter: "u", surface: "usage", label: "Usage" },
     { letter: "b", surface: "code", label: "Code (browse source)" },
-    { letter: ".", surface: "setup", label: "Setup (instructions and skills)" },
+    { letter: ".", surface: "setup", label: "Setup (instructions, skills, memory)" },
     { letter: ",", surface: "settings", label: "Settings" },
 ];
 
@@ -2040,8 +2042,17 @@ export function buildMemoryBindings(): Binding[] {
         ),
         bind("undo", "u", "Undo an applied change, or review a kept one again", () => {
             const c = memorySelection().change;
-            return decide(c?.status === "applied" ? "undo" : "reopen", (_p, ch) => !isPending(ch))();
+            return decide(
+                c?.status === "applied" ? "undo" : "reopen",
+                (_p, ch) => !isPending(ch) && !undoExpired(ch, Date.now())
+            )();
         }),
+        {
+            ...bind("close-detail", "Escape", "Close the change detail", () =>
+                globalStore.set(memoryDetailOpenAtom, false)
+            ),
+            when: (ctx) => on(ctx) && memorySheetOpen() && noEscapeMenuOpen(),
+        },
     ];
 }
 

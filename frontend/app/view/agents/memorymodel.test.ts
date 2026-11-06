@@ -9,15 +9,19 @@ import {
     checkLine,
     checkResult,
     closedText,
+    diffLabel,
     fileLabel,
     indexCards,
     kindLabel,
     kindTone,
     LIMIT_BYTES,
     LIMIT_LINES,
+    MEMORY_OVERLAY_PX,
+    memoryDetailLayout,
     nextPending,
     pickChange,
     projectsToReview,
+    railFoot,
     railOrder,
     railRow,
     resolveSelection,
@@ -26,6 +30,7 @@ import {
     stepChange,
     switchGate,
     toolbarStatus,
+    undoExpired,
 } from "./memorymodel";
 
 // local-time stamps, so the day names don't depend on the machine's zone
@@ -539,12 +544,7 @@ describe("changeGroups", () => {
         const groups = changeGroups(splitProject([s, o, m]));
         expect(groups.map((g) => [g.key, g.label, g.hint, g.changes.map((c) => c.id)])).toEqual([
             ["shared", "From SIEM’s memory", "Memories about cyber_assistant, out of SIEM’s 198", ["m1"]],
-            [
-                "own",
-                "Already in its own folder",
-                "Files left by the old memory harvester; no session loads them yet",
-                ["c1"],
-            ],
+            ["own", "cyber_assistant’s own memory", "Loaded once you switch over", ["c1"]],
             ["switch", "Switch over", "", ["s1"]],
         ]);
         expect(changeGroups(splitProject([s])).map((g) => g.key)).toEqual(["switch"]);
@@ -654,5 +654,116 @@ describe("kindLabel and fileLabel", () => {
         );
         expect(fileLabel(change("1", { files: [{ path: "C:\\m\\x.md", sha256: "" }] }))).toBe("x.md");
         expect(fileLabel(settings())).toBe(`${SPLIT_PATH}\\.claude\\settings.local.json`);
+    });
+});
+
+describe("setup review fixes (D5)", () => {
+    const decided = new Date(2026, 9, 1, 17, 42).getTime();
+    const expiredAt = new Date(2026, 9, 10, 17, 42).getTime();
+    const keptSharing = () =>
+        splitProject([
+            change("m1", { kind: "move-here", group: "shared" }),
+            { ...settings("kept"), decidedat: decided },
+        ]);
+
+    it("F7: labels the own group by the project, and says when it is loaded", () => {
+        const own = change("c1", { kind: "delete", group: "own" });
+        const before = changeGroups(splitProject([own, settings()])).find((g) => g.key === "own")!;
+        expect([before.label, before.hint]).toEqual(["cyber_assistant’s own memory", "Loaded once you switch over"]);
+        const after = changeGroups(splitProject([own, settings("applied")])).find((g) => g.key === "own")!;
+        expect([after.label, after.hint]).toEqual([
+            "cyber_assistant’s own memory",
+            "Loaded by cyber_assistant sessions",
+        ]);
+    });
+
+    it("F8: a kept settings change says Arc stops its weekly check", () => {
+        const p = keptSharing();
+        expect(closedText(p, p.changes[1], NOW)).toBe(
+            "Kept sharing. Arc no longer checks cyber_assistant each week; Check now still does."
+        );
+    });
+
+    it("F8: a kept-sharing project has nothing to review and sorts with the done half", () => {
+        const ps = [keptSharing(), project({ project: "a" }), project({ project: "b", changes: [change("1")] })];
+        expect(projectsToReview(ps)).toBe(1);
+        expect(railOrder(ps).map((p) => p.project)).toEqual(["b", "cyber_assistant", "a"]);
+        expect(toolbarStatus([keptSharing()])).toEqual({ text: "Every project checked", tone: "ok" });
+    });
+
+    it("F8: the rail foot names the kept-sharing projects Arc no longer checks", () => {
+        expect(railFoot([project()])).toBe(
+            "Claude Code loads the first 200 lines or 25 KB of a project's MEMORY.md. Arc checks every project once a week."
+        );
+        expect(railFoot([project(), keptSharing()])).toBe(
+            "Claude Code loads the first 200 lines or 25 KB of a project's MEMORY.md. Arc checks every project once a week, except one kept sharing."
+        );
+        expect(railFoot([keptSharing(), keptSharing()])).toMatch(/once a week, except 2 kept sharing\.$/);
+    });
+
+    it("F9: the toolbar counts projects to review, failed checks and unchecked projects", () => {
+        const pending = (name: string) => project({ project: name, changes: [change("1")] });
+        const failed = (name: string) => project({ project: name, lasterror: "boom" });
+        const unchecked = (name: string) => project({ project: name, checkedat: 0, nextcheckat: 0 });
+        expect(toolbarStatus([pending("a"), pending("b"), failed("c")])).toEqual({
+            text: "2 projects to review · 1 check failed",
+            tone: "warn",
+        });
+        expect(toolbarStatus([failed("a"), failed("b"), unchecked("c")])).toEqual({
+            text: "2 checks failed",
+            tone: "warn",
+        });
+        expect(toolbarStatus([project(), unchecked("c")])).toEqual({ text: "1 not checked yet", tone: "none" });
+        expect(toolbarStatus([project()])).toEqual({ text: "Every project checked", tone: "ok" });
+    });
+
+    it("F10: Undo expires once an applied change's backup has", () => {
+        const applied = change("1", { status: "applied", decidedat: decided, backupuntil: expiredAt });
+        expect(undoExpired(applied, NOW)).toBe(true);
+        expect(undoExpired({ ...applied, backupuntil: NOW + 1000 }, NOW)).toBe(false);
+        expect(undoExpired({ ...applied, backupuntil: 0 }, NOW)).toBe(false);
+        expect(undoExpired({ ...applied, status: "kept" }, NOW)).toBe(false);
+        expect(closedText(project(), applied, NOW)).toMatch(
+            /^Applied Oct 1 at 17:42\. .*The backup expired on Oct 10, so this can't be undone\.$/
+        );
+    });
+
+    it("F11: nothing pending opens no change, an explicit pick still selects", () => {
+        const done = project({ changes: [change("1", { status: "applied" }), change("2", { status: "kept" })] });
+        expect(pickChange(done, null)).toBeNull();
+        expect(pickChange(done, "gone")).toBeNull();
+        expect(pickChange(done, "1")?.id).toBe("1");
+        expect(resolveSelection([done], null, null)).toEqual({ project: done, change: null });
+    });
+
+    it("F12: a never-checked project whose read failed reads Last check failed", () => {
+        expect(
+            railRow(project({ checkedat: 0, nextcheckat: 0, lasterror: "Could not read its saved state: x" }))
+        ).toMatchObject({
+            status: "Last check failed",
+            tone: "warn",
+            meter: "",
+        });
+    });
+
+    it("F21: a diff header names MEMORY.md by its role, on either separator", () => {
+        const p = splitProject([]);
+        const back = (s: string) => s.replace(/\//g, "\\");
+        expect(diffLabel(p, `${SHARED_FOLDER}/MEMORY.md`)).toBe("SIEM’s MEMORY.md");
+        expect(diffLabel(p, back(`${SHARED_FOLDER}/MEMORY.md`))).toBe("SIEM’s MEMORY.md");
+        expect(diffLabel(p, `${p.ownfolder}/MEMORY.md`)).toBe("cyber_assistant’s MEMORY.md");
+        expect(diffLabel(p, back(`${p.ownfolder}/MEMORY.md`))).toBe("cyber_assistant’s MEMORY.md");
+        expect(diffLabel(p, back(`${SHARED_FOLDER}/split-a-build.md`))).toBe("split-a-build.md");
+        expect(diffLabel(p, "C:/x/settings.local.json")).toBe("settings.local.json");
+        expect(diffLabel(project(), "MEMORY.md")).toBe("MEMORY.md");
+        const switched = project({ path: SPLIT_PATH, folder: "D:/own/memory", formershared: SHARED_FOLDER });
+        expect(diffLabel(switched, `${SHARED_FOLDER}/MEMORY.md`)).toBe("SIEM’s MEMORY.md");
+    });
+
+    it("F14: the detail becomes an overlay below 1200 px, a column once measured wide or not yet", () => {
+        expect(MEMORY_OVERLAY_PX).toBe(1200);
+        expect(memoryDetailLayout(1199)).toBe("overlay");
+        expect(memoryDetailLayout(1200)).toBe("column");
+        expect(memoryDetailLayout(0)).toBe("column");
     });
 });

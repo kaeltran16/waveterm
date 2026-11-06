@@ -20,6 +20,7 @@ import (
 const (
 	entryBackupDir  = "backups"
 	entryBackupKeep = 30 * 24 * time.Hour
+	entryDateLayout = "2 Jan 2006"
 )
 
 // the two seams every test sets, so no test reads the real ~/.claude or the live registry
@@ -59,7 +60,7 @@ func Decide(project, changeID, verdict string) (*wshrpc.MemHygieneProject, error
 				return err
 			}
 		case wshrpc.MemVerdict_Undo:
-			if err := entryUndo(st, c); err != nil {
+			if err := entryUndo(st, c, now); err != nil {
 				return err
 			}
 		case wshrpc.MemVerdict_Keep:
@@ -114,9 +115,12 @@ func entryApply(st *State, c *wshrpc.MemChange, now time.Time) error {
 	return nil
 }
 
-func entryUndo(st *State, c *wshrpc.MemChange) error {
+func entryUndo(st *State, c *wshrpc.MemChange, now time.Time) error {
 	if c.Status != checkStatusApplied {
 		return fmt.Errorf("memory hygiene: %q in %s isn't applied, so there's nothing to undo", c.Title, st.Project)
+	}
+	if c.BackupUntil > 0 && c.BackupUntil <= now.UnixMilli() {
+		return fmt.Errorf("memory hygiene: can't undo %q in %s: its backup expired on %s", c.Title, st.Project, time.UnixMilli(c.BackupUntil).Format(entryDateLayout))
 	}
 	conflict, err := Undo(entryBackupRoot(), c.ApplyId)
 	if err != nil {

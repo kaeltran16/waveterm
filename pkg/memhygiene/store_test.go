@@ -182,3 +182,43 @@ func TestListIncludesUncheckedProjects(t *testing.T) {
 		t.Errorf("List wrote state files: %d in the state dir", len(entries))
 	}
 }
+
+func TestListMarksUnreadableProject(t *testing.T) {
+	storeSetup(t)
+	if _, err := Update("good", func(st *State) error { st.CheckedAt = 7; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, statePath("bad"), "{not json")
+	got, err := List(map[string]string{"good": `C:\good`, "bad": `C:\bad`})
+	if err != nil {
+		t.Fatalf("one unreadable state file failed the whole list: %v", err)
+	}
+	if len(got) != 2 || got[0].Project != "bad" || got[1].Project != "good" {
+		t.Fatalf("List = %+v, want bad then good", got)
+	}
+	bad := got[0]
+	if !strings.HasPrefix(bad.LastError, "Could not read its saved state:") || bad.Path != `C:\bad` {
+		t.Errorf("unreadable project: path %q, lasterror %q", bad.Path, bad.LastError)
+	}
+	if bad.Changes == nil || len(bad.Changes) != 0 || bad.SharedWith == nil || len(bad.SharedWith) != 0 {
+		t.Errorf("unreadable project must carry empty arrays, got changes %v sharedwith %v", bad.Changes, bad.SharedWith)
+	}
+	if got[1].CheckedAt != 7 || got[1].LastError != "" {
+		t.Errorf("readable project disturbed: %+v", got[1])
+	}
+}
+
+func TestListSortsCaseInsensitively(t *testing.T) {
+	storeSetup(t)
+	got, err := List(map[string]string{"MP-Frontend": "x", "cyber_b": "x", "cyber_a": "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, p := range got {
+		names = append(names, p.Project)
+	}
+	if want := "cyber_a,cyber_b,MP-Frontend"; strings.Join(names, ",") != want {
+		t.Fatalf("order = %v, want %s", names, want)
+	}
+}

@@ -282,7 +282,8 @@ A session opened from a search hit shows a find bar over its transcript, with th
 | `j` / `k` (or `↓` / `↑`) | Next / previous change in the table |
 | `a` | Apply the selected change (when its Apply button is enabled), then move to the next change to review |
 | `x` | Keep the selected change as is, then move to the next change to review |
-| `u` | Undo an applied change, or review a kept one again |
+| `u` | Undo an applied change (not once its backup has expired), or review a kept one again |
+| `Esc` | On a tab under 1200 px wide, close the change detail sheet |
 
 ### Route DAG (the orchestrator run's graph)
 

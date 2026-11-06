@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -126,14 +127,23 @@ func List(registry map[string]string) ([]wshrpc.MemHygieneProject, error) {
 	for name := range registry {
 		names = append(names, name)
 	}
-	sort.Strings(names)
+	sort.Slice(names, func(i, j int) bool {
+		a, b := strings.ToLower(names[i]), strings.ToLower(names[j])
+		if a != b {
+			return a < b
+		}
+		return names[i] < names[j]
+	})
 	out := make([]wshrpc.MemHygieneProject, 0, len(names))
 	for _, name := range names {
-		st, err := Load(name)
-		if err != nil {
-			return nil, err
+		var p wshrpc.MemHygieneProject
+		if st, err := Load(name); err != nil {
+			// one corrupt file must not blank the whole tab: list the project with the reason
+			log.Printf("memhygiene: listing %s: %v\n", name, err)
+			p = wshrpc.MemHygieneProject{Project: name, LastError: "Could not read its saved state: " + err.Error()}
+		} else {
+			p = st.MemHygieneProject
 		}
-		p := st.MemHygieneProject
 		p.Path = registry[name]
 		// the frontend reads these as arrays, never null
 		if p.Changes == nil {
