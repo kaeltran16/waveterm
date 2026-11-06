@@ -61,7 +61,7 @@ func TestAllEdgesMatchesEdgesForAcrossDossiers(t *testing.T) {
 		t.Fatalf("dossier with no attribution must be omitted, got %+v", all[id3])
 	}
 	for _, id := range []string{id1, id2} {
-		want, err := EdgesFor(ctx, v, id)
+		want, _, err := EdgesFor(ctx, v, id)
 		if err != nil {
 			t.Fatalf("EdgesFor %s: %v", id, err)
 		}

@@ -196,9 +196,10 @@ func Accept(ctx context.Context, v *wavevault.Vault, dossierID, runORef string) 
 	return hardenEdge(v, d, runORef)
 }
 
-// gatherLookups loads all Runs and builds the wstore/gitinfo-backed resolvers the pure core needs.
+// gatherLookups loads all Runs and builds the wstore/gitinfo-backed resolvers the pure core needs. The runs are
+// shared (decoded once per version) and read only: a full decode was ~0.7 s of every call on a 3,200-run profile.
 func gatherLookups(ctx context.Context) (edgeLookups, []*waveobj.Run, error) {
-	runs, err := wstore.DBGetAllObjsByType[*waveobj.Run](ctx, waveobj.OType_Run)
+	runs, err := wstore.GetAllRunsShared(ctx)
 	if err != nil {
 		return edgeLookups{}, nil, err
 	}
@@ -330,26 +331,28 @@ func taskDossiers(v *wavevault.Vault) ([]*jarvisdossier.Dossier, error) {
 
 // EdgesFor is the D->C seam: the unified, confidence-descending dossier->Run edges (canonical layer-1
 // refs + inferred layers 2-3), with the human override log applied and detached edges dropped.
-// Read-only — it performs no writes (hardening is Harden/Accept).
-func EdgesFor(ctx context.Context, v *wavevault.Vault, dossierID string) ([]AttributedEdge, error) {
+// Read-only — it performs no writes (hardening is Harden/Accept). It also returns every Run it loaded, so a
+// caller that needs the edges' runs indexes these instead of reading the whole run table a second time. The
+// runs are shared with other readers: never modify one.
+func EdgesFor(ctx context.Context, v *wavevault.Vault, dossierID string) ([]AttributedEdge, []*waveobj.Run, error) {
 	d, err := loadDossier(v, dossierID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	lk, runs, err := gatherLookups(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	ov, err := readOverrides(v)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	// every record's refs, so a run another record claims is no guess of this one
 	all, err := taskDossiers(v)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return edgesForDossier(ctx, d, runs, lk, ov, claimedRuns(all, runs, ov), nowFn()), nil
+	return edgesForDossier(ctx, d, runs, lk, ov, claimedRuns(all, runs, ov), nowFn()), runs, nil
 }
 
 // AllEdges is EdgesFor over every dossier in the vault, sharing one run load, one override read and one

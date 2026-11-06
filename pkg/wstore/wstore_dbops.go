@@ -141,7 +141,7 @@ func DBGetAllObjsByType[T waveobj.WaveObj](ctx context.Context, otype string) ([
 }
 
 // sharedObjs holds the objects the Shared readers have decoded, each at the version it was read.
-// ponytail: a deleted row's entry stays until wavesrv exits; drop it in DBDelete if deletes ever add up.
+// DBDelete drops a row's entry; a bulk delete (DeleteChannel) leaves its rows' entries until wavesrv exits.
 var sharedObjs = struct {
 	sync.Mutex
 	byORef map[waveobj.ORef]waveobj.WaveObj
@@ -227,6 +227,10 @@ func DBDelete(ctx context.Context, otype string, id string) error {
 	if err != nil {
 		return err
 	}
+	// a re-insert under the same oid starts again at version 1, which a held copy would match
+	sharedObjs.Lock()
+	delete(sharedObjs.byORef, waveobj.ORef{OType: otype, OID: id})
+	sharedObjs.Unlock()
 	go func() {
 		defer func() {
 			panichandler.PanicHandler("DBDelete:filestore.DeleteZone", recover())

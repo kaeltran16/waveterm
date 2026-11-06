@@ -20,6 +20,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/jarvisstate"
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
 	"github.com/wavetermdev/waveterm/pkg/runroute"
+	"github.com/wavetermdev/waveterm/pkg/storagereport"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wavevault"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
@@ -394,25 +395,17 @@ func (ws *WshServer) ResolveFocusScopeCommand(ctx context.Context, data wshrpc.C
 	if data.Id == "" {
 		return nil, fmt.Errorf("id is required")
 	}
-	runs, err := wstore.DBGetAllObjsByType[*waveobj.Run](ctx, waveobj.OType_Run)
-	if err != nil {
-		return nil, fmt.Errorf("loading runs: %w", err)
-	}
 	switch data.Kind {
 	case "task":
 		v, err := wavevault.OpenVault(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("opening vault: %w", err)
 		}
-		edges, err := jarvisattrib.EdgesFor(ctx, v, data.Id)
+		edges, runs, err := jarvisattrib.EdgesFor(ctx, v, data.Id)
 		if err != nil {
 			return nil, fmt.Errorf("resolving edges: %w", err)
 		}
-		byORef := make(map[string]*waveobj.Run, len(runs))
-		for _, run := range runs {
-			byORef["run:"+run.OID] = run
-		}
-		scope := buildSpaceScope(edges, byORef)
+		scope := buildSpaceScope(edges, runsByORef(runs))
 		return &scope, nil
 	default:
 		// an unknown kind must not return an empty bundle: empty is indistinguishable from a real
@@ -645,12 +638,17 @@ func nodeKind(collection string) string {
 	}
 }
 
-// nodeLabel is the human label: a task's objective, else a frontmatter title, else the id.
+// nodeLabel is the human label: a task's objective, a decision's summary, else a frontmatter title, else the id.
 func nodeLabel(n wavevault.Node, kind string) string {
-	if kind == "task" {
-		if s, ok := n.Frontmatter["objective"].(string); ok && s != "" {
-			return s
-		}
+	lead := ""
+	switch kind {
+	case "task":
+		lead = "objective"
+	case "decision":
+		lead = "summary"
+	}
+	if s, ok := n.Frontmatter[lead].(string); ok && s != "" {
+		return s
 	}
 	if s, ok := n.Frontmatter["title"].(string); ok && s != "" {
 		return s
@@ -675,26 +673,53 @@ func (ws *WshServer) ResolveDossierEdgesCommand(ctx context.Context, data wshrpc
 	if err != nil {
 		return nil, fmt.Errorf("opening vault: %w", err)
 	}
-	edges, err := jarvisattrib.EdgesFor(ctx, v, data.DossierId)
+	edges, runs, err := jarvisattrib.EdgesFor(ctx, v, data.DossierId)
 	if err != nil {
 		return nil, fmt.Errorf("resolving edges: %w", err)
 	}
-	runs, err := wstore.DBGetAllObjsByType[*waveobj.Run](ctx, waveobj.OType_Run)
-	if err != nil {
-		return nil, fmt.Errorf("loading runs: %w", err)
-	}
+	byORef := runsByORef(runs)
+	out := buildDossierGraph(data.DossierId, edges, byORef, bloomedRunTitles(ctx, edges, byORef))
+	return &out, nil
+}
+
+func runsByORef(runs []*waveobj.Run) map[string]*waveobj.Run {
 	byORef := make(map[string]*waveobj.Run, len(runs))
 	for _, run := range runs {
 		byORef["run:"+run.OID] = run
 	}
-	out := buildDossierGraph(data.DossierId, edges, byORef)
-	return &out, nil
+	return byORef
 }
+
+// bloomedRunTitles titles only the runs the edges reach: a title may read the run's dag, and the run table
+// holds thousands of runs a bloom never shows.
+func bloomedRunTitles(ctx context.Context, edges []jarvisattrib.AttributedEdge, byORef map[string]*waveobj.Run) map[string]string {
+	titles := map[string]string{}
+	for _, e := range edges {
+		if run := byORef[e.RunORef]; run != nil {
+			if _, ok := titles[e.RunORef]; !ok {
+				titles[e.RunORef] = storagereport.RunTitle(ctx, run)
+			}
+		}
+	}
+	return titles
+}
+
+// runNodeLabel is "<title> · <short oid>": run titles repeat (a re-run keeps its goal), the short id tells them apart.
+func runNodeLabel(title, oid string) string {
+	short := oid[:min(runShortIDLen, len(oid))]
+	if title == "" {
+		return short
+	}
+	return title + " · " + short
+}
+
+const runShortIDLen = 8
 
 // buildDossierGraph is the pure edge->graph core: one run node per attributed run (skipping a run
 // missing from byORef, but still surfacing its edge) and one typed attribution link per edge carrying
-// provenance + confidence bucket + state. Order-stable by edge order; dedups run nodes by oref.
-func buildDossierGraph(dossierID string, edges []jarvisattrib.AttributedEdge, byORef map[string]*waveobj.Run) wshrpc.CommandResolveDossierEdgesRtnData {
+// provenance + confidence bucket + state. Order-stable by edge order; dedups run nodes by oref. titles maps a
+// run oref to its run title (storagereport.RunTitle), filled by the caller so this stays free of store reads.
+func buildDossierGraph(dossierID string, edges []jarvisattrib.AttributedEdge, byORef map[string]*waveobj.Run, titles map[string]string) wshrpc.CommandResolveDossierEdgesRtnData {
 	out := wshrpc.CommandResolveDossierEdgesRtnData{Runs: []wshrpc.GraphNode{}, Links: []wshrpc.GraphLink{}}
 	seenRun := map[string]bool{}
 	for _, e := range edges {
@@ -717,7 +742,7 @@ func buildDossierGraph(dossierID string, edges []jarvisattrib.AttributedEdge, by
 		out.Runs = append(out.Runs, wshrpc.GraphNode{
 			Id:      e.RunORef,
 			Kind:    "run",
-			Label:   run.Goal,
+			Label:   runNodeLabel(titles[e.RunORef], run.OID),
 			Status:  run.Status,
 			Updated: run.CreatedTs,
 		})

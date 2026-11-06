@@ -75,14 +75,14 @@ func (s *scanner) runFor(runID string) *runFacts {
 	if err != nil {
 		log.Printf("storage scan: reading run %s: %v", runID, err)
 	} else if run != nil {
-		rf.title = runTitle(s.ctx, run)
+		rf.title = RunTitle(s.ctx, run)
 	}
 	s.runs[runID] = rf
 	return rf
 }
 
-// runTitle is the run's dag title, else the first line of its goal.
-func runTitle(ctx context.Context, run *waveobj.Run) string {
+// RunTitle is the run's dag title, else the first line of its goal.
+func RunTitle(ctx context.Context, run *waveobj.Run) string {
 	if oref, err := waveobj.ParseORef(run.DagORef); err == nil {
 		if obj, err := wstore.DBGetORef(ctx, oref); err == nil {
 			if tg, ok := obj.(*waveobj.TaskGroup); ok && tg.Title != "" {

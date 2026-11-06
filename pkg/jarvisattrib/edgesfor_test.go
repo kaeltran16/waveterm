@@ -42,7 +42,7 @@ func TestEdgesForEndToEnd(t *testing.T) {
 	}
 
 	// 1) inferred layer-2 edge, informing
-	edges, err := EdgesFor(ctx, v, id)
+	edges, _, err := EdgesFor(ctx, v, id)
 	if err != nil {
 		t.Fatalf("EdgesFor: %v", err)
 	}
@@ -55,7 +55,7 @@ func TestEdgesForEndToEnd(t *testing.T) {
 	if err := Detach(ctx, v, id, "run:"+runID); err != nil {
 		t.Fatalf("Detach: %v", err)
 	}
-	edges, _ = EdgesFor(ctx, v, id)
+	edges, _, _ = EdgesFor(ctx, v, id)
 	if findEdge(edges, "run:"+runID) != nil {
 		t.Fatalf("detached edge still present: %+v", edges)
 	}
@@ -97,7 +97,7 @@ func TestEdgesForReadsTheChannelName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateDossier: %v", err)
 	}
-	edges, err := EdgesFor(ctx, v, id)
+	edges, _, err := EdgesFor(ctx, v, id)
 	if err != nil {
 		t.Fatalf("EdgesFor: %v", err)
 	}
@@ -144,12 +144,81 @@ func TestEdgesForReadsCommitSubjectsOfAFullRange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateDossier: %v", err)
 	}
-	edges, err := EdgesFor(ctx, v, id)
+	edges, _, err := EdgesFor(ctx, v, id)
 	if err != nil {
 		t.Fatalf("EdgesFor: %v", err)
 	}
 	if want := []AttributedEdge{ticketEdge(id, full)}; !reflect.DeepEqual(edges, want) {
 		t.Fatalf("edges = %+v, want %+v", edges, want)
+	}
+}
+
+// the handlers index the returned runs instead of loading the run table again, so every edge's run must be among them
+func TestEdgesForReturnsRuns(t *testing.T) {
+	ctx := context.Background()
+	v := testVault(t)
+	mk := func(oid, goal string) *waveobj.Run {
+		return &waveobj.Run{OID: oid, ID: oid, Goal: goal, Status: "done",
+			CreatedTs: nowFn() - 2000, CompletedTs: nowFn() - 1000, Meta: make(waveobj.MetaMapType)}
+	}
+	hit := "bbbbbbbb-0000-0000-0000-000000000041"
+	insertObjs(t, mk(hit, "PROJ-513 import"), mk("bbbbbbbb-0000-0000-0000-000000000042", "unrelated"))
+	id, _, err := jarvisdossier.CreateDossier(v, jarvisdossier.DossierFacts{Ticket: "PROJ-513", Objective: "import"})
+	if err != nil {
+		t.Fatalf("CreateDossier: %v", err)
+	}
+	edges, runs, err := EdgesFor(ctx, v, id)
+	if err != nil {
+		t.Fatalf("EdgesFor: %v", err)
+	}
+	if len(edges) == 0 {
+		t.Fatalf("no edges: the run %s should be attributed by its ticket", hit)
+	}
+	byORef := runsByORef(runs)
+	for _, e := range edges {
+		r := byORef[e.RunORef]
+		if r == nil {
+			t.Fatalf("edge to %s, but that run is not among the %d returned", e.RunORef, len(runs))
+		}
+		if r.Goal != "PROJ-513 import" {
+			t.Fatalf("run %s goal = %q, want the stored run", e.RunORef, r.Goal)
+		}
+	}
+}
+
+// runs are read through a per-version shared cache: a run written after one EdgesFor must reach the next
+func TestEdgesForSeesARunWrite(t *testing.T) {
+	ctx := context.Background()
+	v := testVault(t)
+	oid := "bbbbbbbb-0000-0000-0000-000000000051"
+	run := &waveobj.Run{OID: oid, ID: oid, Goal: "unrelated", Status: "done",
+		CreatedTs: nowFn() - 2000, CompletedTs: nowFn() - 1000, Meta: make(waveobj.MetaMapType)}
+	insertObjs(t, run)
+	id, _, err := jarvisdossier.CreateDossier(v, jarvisdossier.DossierFacts{Ticket: "PROJ-614", Objective: "write"})
+	if err != nil {
+		t.Fatalf("CreateDossier: %v", err)
+	}
+	if edges, _, err := EdgesFor(ctx, v, id); err != nil || findEdge(edges, "run:"+oid) != nil {
+		t.Fatalf("before the write: edges=%+v err=%v, want no edge", edges, err)
+	}
+
+	stored, err := wstore.DBMustGet[*waveobj.Run](ctx, oid)
+	if err != nil {
+		t.Fatalf("read run: %v", err)
+	}
+	stored.Goal = "PROJ-614 write"
+	if err := wstore.DBUpdate(ctx, stored); err != nil {
+		t.Fatalf("update run: %v", err)
+	}
+	edges, runs, err := EdgesFor(ctx, v, id)
+	if err != nil {
+		t.Fatalf("EdgesFor: %v", err)
+	}
+	if findEdge(edges, "run:"+oid) == nil {
+		t.Fatalf("after the write: edges=%+v, want the run attributed by its new goal", edges)
+	}
+	if r := runsByORef(runs)["run:"+oid]; r == nil || r.Goal != "PROJ-614 write" {
+		t.Fatalf("returned run = %+v, want the written goal", r)
 	}
 }
 
