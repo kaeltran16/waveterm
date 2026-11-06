@@ -550,8 +550,30 @@ function writeLeadTranscript(cwd) {
     return parent;
 }
 
+// idle rows in a project that already has its asking agent, so step 1's badges hold; enough that the tree scrolls,
+// which step 10 needs to show the last row scrolling clear of the avatar
+const TREE_RAIL_FILLER_COUNT = 30;
+
+function appendTreeRailFiller(now) {
+    const roster = JSON.parse(readFileSync(TREE_RAIL_FIXTURE, "utf8"));
+    for (let i = 1; i <= TREE_RAIL_FILLER_COUNT; i++) {
+        roster.push({
+            id: `fx-filler-${i}`,
+            name: `filler scribe ${i}`,
+            project: "siem-platform",
+            task: `filler task ${i}`,
+            state: "idle",
+            model: "sonnet",
+            idleSince: now - 60_000 - i * 1000,
+            blockId: `fx-blk-filler-${i}`,
+        });
+    }
+    writeFileSync(TREE_RAIL_FIXTURE, JSON.stringify(roster, null, 2));
+}
+
 async function arrangeTreeRail(h, ctx) {
     await arrangeFixtureRun(h, ctx, "tree-rail", TREE_RAIL_LEAD, { transcriptPath: writeLeadTranscript(ctx.cwd) });
+    appendTreeRailFiller(Date.now());
     await h.rpc("dagsubmit", {
         channelid: ctx.channelId,
         runid: ctx.runId,
@@ -760,7 +782,7 @@ export const agentTreeRail = {
             const last = l.lastElementChild.getBoundingClientRect();
             const a = avatar().getBoundingClientRect();
             const hit = last.left < a.right && last.right > a.left && last.top < a.bottom && last.bottom > a.top;
-            // a short roster never scrolls, so also check the room the list keeps below its last row
+            // also check the room the list keeps below its last row
             const room = l.getBoundingClientRect().bottom - parseFloat(getComputedStyle(l).paddingBottom);
             return {
                 list: true,
@@ -774,7 +796,7 @@ export const agentTreeRail = {
         `);
         rec(
             "10. avatar bottom-left: the Agent tree scrolled to its end leaves its last row clear of the avatar",
-            foot.list === true && foot.hit === false && foot.lastBottom <= foot.avatarTop && foot.roomEnds <= foot.avatarTop,
+            foot.list === true && foot.scrollable === true && foot.hit === false && foot.lastBottom <= foot.avatarTop && foot.roomEnds <= foot.avatarTop,
             JSON.stringify(foot)
         );
         return steps;
@@ -1904,8 +1926,60 @@ async function resmonSeedRoster(h, ctx) {
     await resmonSet(h, resmonFixture());
 }
 
+// after ?: the help button precedes the readout, and only the remote chip (absent unless its status shows it) and
+// the readouts' wrapper sit between them
+const RESMON_COCKPIT_ORDER = `(() => {
+    const bar = ${RESMON_COCKPIT_HINTS};
+    const r = ${resmonReadout(RESMON_COCKPIT_HINTS)};
+    const help = bar?.querySelector('[data-cockpit-help]');
+    const pill = bar?.querySelector('[data-remote-pill]');
+    const follows = (a, b) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const between = r && help
+        ? [...bar.querySelectorAll('*')].filter((el) =>
+              follows(help, el) && follows(el, r) && !help.contains(el) && !el.contains(r) && !el.closest('[data-remote-pill]'))
+        : null;
+    return {
+        readout: !!r,
+        afterHelp: !!r && !!help && follows(help, r) && between.length === 0,
+        between: between?.map((el) => el.tagName + (el.textContent.trim() ? ':' + el.textContent.trim() : '')) ?? null,
+        remote: !!pill,
+        chipBefore: !!pill && !!r && !!help && follows(help, pill) && follows(pill, r),
+        footer: !!${RESMON_FOOTER},
+    };
+})()`;
+
+// clicks the cockpit readout, reads where the popover opened, then closes it
+async function resmonCockpitOpen(h, ctx) {
+    await h.ev(resmonClick(resmonReadout(RESMON_COCKPIT_HINTS)));
+    await resmonNap(RESMON_REVEAL_MS);
+    const above = await h.ev(`(() => {
+        const p = ${RESMON_POPOVER};
+        const bar = ${RESMON_COCKPIT_HINTS};
+        if (!p || !bar) return { open: !!p, bar: !!bar };
+        return { open: true, bottom: p.getBoundingClientRect().bottom, barTop: bar.getBoundingClientRect().top };
+    })()`);
+    await resmonBlur(h);
+    await resmonKey(h, ctx, "Escape");
+    await resmonNap(RESMON_REVEAL_MS);
+    return above;
+}
+
+// a status that draws the chip as Remote off: remote mode stays off, and nothing is missing from its setup
+const RESMON_REMOTE_OFF = { on: false, tunnel: "", subscriptions: 0 };
+
+// sets the status the remote chip reads and returns the one it replaced
+const resmonSwapRemote = (h, status) =>
+    lookEval(h, `
+        const { globalStore } = await mod("app/store/jotaiStore.ts");
+        const { remoteStatusAtom } = await mod("app/view/agents/remotestore.ts");
+        const prev = globalStore.get(remoteStatusAtom);
+        globalStore.set(remoteStatusAtom, ${JSON.stringify(status)});
+        return prev;
+    `);
+
 async function resmonTeardown(h, ctx) {
     await h.ev(`window.__resmonFixture?.clear()`).catch(() => {});
+    if (ctx?.remoteSwapped) await resmonSwapRemote(h, ctx.prevRemote ?? null);
     if (ctx?.wroteFixture) {
         rmSync(TREE_RAIL_FIXTURE, { force: true });
         await h.ev("location.reload()");
@@ -2042,25 +2116,7 @@ export const resmonFooter = {
         await resmonSeedRoster(h, ctx);
         await h.goto("cockpit");
         await polishWaitFor(h, `!!${RESMON_COCKPIT_HINTS}`, 10000);
-        // after ?: the help button precedes the readout, and only the remote chip (absent when remote mode is off)
-        // and the readouts' wrapper sit between them
-        const cockpit = await h.ev(`(() => {
-            const bar = ${RESMON_COCKPIT_HINTS};
-            const r = ${resmonReadout(RESMON_COCKPIT_HINTS)};
-            const help = bar?.querySelector('[data-cockpit-help]');
-            const follows = (a, b) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
-            const between = r && help
-                ? [...bar.querySelectorAll('*')].filter((el) =>
-                      follows(help, el) && follows(el, r) && !help.contains(el) && !el.contains(r) && !el.closest('[data-remote-pill]'))
-                : null;
-            return {
-                readout: !!r,
-                afterHelp: !!r && !!help && follows(help, r) && between.length === 0,
-                between: between?.map((el) => el.tagName + (el.textContent.trim() ? ':' + el.textContent.trim() : '')) ?? null,
-                remote: !!bar?.querySelector('[data-remote-pill]'),
-                footer: !!${RESMON_FOOTER},
-            };
-        })()`);
+        const cockpit = await h.ev(RESMON_COCKPIT_ORDER);
         await shot("6-cockpit");
         rec("6. Cockpit: the readout sits in the cockpit hints bar, after ?",
             cockpit.readout && cockpit.afterHelp && !cockpit.footer, JSON.stringify(cockpit));
@@ -2077,20 +2133,26 @@ export const resmonFooter = {
             cockpitLeader.leader && cockpitLeader.readouts === 1 && cockpitLeader.inBar, JSON.stringify(cockpitLeader));
         await resmonKey(h, ctx, "Escape");
 
-        await h.ev(resmonClick(resmonReadout(RESMON_COCKPIT_HINTS)));
-        await resmonNap(RESMON_REVEAL_MS);
-        const above = await h.ev(`(() => {
-            const p = ${RESMON_POPOVER};
-            const bar = ${RESMON_COCKPIT_HINTS};
-            if (!p || !bar) return { open: !!p, bar: !!bar };
-            return { open: true, bottom: p.getBoundingClientRect().bottom, barTop: bar.getBoundingClientRect().top };
-        })()`);
+        const above = await resmonCockpitOpen(h, ctx);
         await shot("6b-cockpit-open");
         rec("6b. Cockpit: clicking that readout opens the popover above the hints bar",
             above.open && above.bottom <= above.barTop, JSON.stringify(above));
-        await resmonBlur(h);
-        await resmonKey(h, ctx, "Escape");
-        await resmonNap(RESMON_REVEAL_MS);
+
+        // 6 and 6b again with the remote chip beside the readout, set through the state the chip reads: remote
+        // mode itself stays off, and teardown puts the prior status back
+        ctx.prevRemote = await resmonSwapRemote(h, RESMON_REMOTE_OFF);
+        ctx.remoteSwapped = true;
+        await polishWaitFor(h, `!!${RESMON_COCKPIT_HINTS}?.querySelector('[data-remote-pill]')`, 5000);
+        const withChip = await h.ev(RESMON_COCKPIT_ORDER);
+        await shot("6c-cockpit-remote");
+        rec("6c. Cockpit with the remote chip shown: the readout sits in the cockpit hints bar, after ? and the chip",
+            withChip.remote && withChip.chipBefore && withChip.readout && withChip.afterHelp && !withChip.footer,
+            JSON.stringify(withChip));
+
+        const aboveChip = await resmonCockpitOpen(h, ctx);
+        await shot("6d-cockpit-remote-open");
+        rec("6d. Cockpit with the remote chip shown: clicking the readout opens the popover above the hints bar",
+            aboveChip.open && aboveChip.bottom <= aboveChip.barTop, JSON.stringify(aboveChip));
 
         await h.goto("agent");
         await resmonBlur(h);
