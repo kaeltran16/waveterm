@@ -2,13 +2,13 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// The two repository states that take over the whole Diff surface. They are deliberately different
-// screens: "not a repository" is a calm fact about the source you picked, while "the read failed" is
+// The repository states of the Diff surface. Two of them take over the whole body, and they are deliberately
+// different screens: "not a repository" is a calm fact about the source you picked, while "the read failed" is
 // a fault worth acting on, so it carries the failing command, its exit code, stderr verbatim, and a
 // retry. Collapsing them into one banner is the failure mode the design brief called out.
 
 import { cn, fireAndForget } from "@/util/util";
-import { CircleAlert, Copy, Folder, X } from "lucide-react";
+import { CircleAlert, Copy, Folder, RotateCw, X } from "lucide-react";
 import type { ReactNode } from "react";
 
 // -1 means the failure was not an exit status at all (git missing, a timeout, a dropped socket).
@@ -31,7 +31,8 @@ export function SurfaceBanner({
     icon: ReactNode;
     children: ReactNode;
     action?: { label: string; onClick: () => void };
-    onDismiss: () => void;
+    // absent: the banner lasts as long as its cause, so there is nothing to dismiss
+    onDismiss?: () => void;
 } & { [data: `data-${string}`]: boolean }) {
     return (
         <div
@@ -56,14 +57,16 @@ export function SurfaceBanner({
                     {action.label}
                 </button>
             ) : null}
-            <button
-                onClick={onDismiss}
-                title="Dismiss"
-                aria-label="Dismiss"
-                className="flex flex-none text-muted hover:text-foreground"
-            >
-                <X size={14} />
-            </button>
+            {onDismiss ? (
+                <button
+                    onClick={onDismiss}
+                    title="Dismiss"
+                    aria-label="Dismiss"
+                    className="flex flex-none text-muted hover:text-foreground"
+                >
+                    <X size={14} />
+                </button>
+            ) : null}
         </div>
     );
 }
@@ -87,18 +90,23 @@ export function NotARepoPanel({ path, onChooseSource }: { path: string; onChoose
     );
 }
 
-// A git command that failed WITHOUT invalidating what is on screen — a fetch, so far. The panel below
-// takes over the surface because a failed read leaves nothing to show; a failed fetch leaves the
-// comparison intact and merely not freshened, and blanking the screen would throw that away. Same
-// words from git, a banner instead of a takeover.
+// A git command that failed WITHOUT invalidating what is on screen: a fetch, or a history read while the
+// working tree is still good and the commit column is folded to a rail. The panel below takes over the
+// surface because a failed read leaves nothing to show; these leave the panes intact, and blanking the
+// screen would throw that away. Same words from git, a banner instead of a takeover.
 export function GitFailureNotice({
+    title,
+    note,
     failure,
     onRetry,
     onDismiss,
 }: {
+    title: string;
+    // what is still on screen despite the failure
+    note: string;
     failure: GitFailure;
     onRetry: () => void;
-    onDismiss: () => void;
+    onDismiss?: () => void;
 }) {
     return (
         <SurfaceBanner
@@ -108,8 +116,8 @@ export function GitFailureNotice({
             action={{ label: "Retry", onClick: onRetry }}
             onDismiss={onDismiss}
         >
-            <span className="flex-none font-semibold text-error">Fetch failed</span>
-            <span className="flex-none text-ink-mid">· showing refs as of the last fetch</span>
+            <span className="flex-none font-semibold text-error">{title}</span>
+            <span className="flex-none text-ink-mid">· {note}</span>
             <span
                 // one line of what can be several; the full text is a hover away rather than cut off
                 title={failure.stderr || undefined}
@@ -159,6 +167,43 @@ export function GitFailurePanel({ failure, onRetry }: { failure: GitFailure; onR
                 onClick={onRetry}
                 className="rounded-[7px] bg-accent px-[14px] py-[6px] text-[12px] font-semibold text-background hover:bg-accenthover"
             >
+                Retry
+            </button>
+        </div>
+    );
+}
+
+// A failed history read while the change list is good: the same evidence as the panel above, sized to the
+// history column, so the working-tree row, the change list and the diff stay usable beside it.
+export function GitFailureColumn({ failure, onRetry }: { failure: GitFailure; onRetry: () => void }) {
+    return (
+        <div
+            data-git-failure-column
+            className="flex flex-none flex-col gap-[8px] border-b border-edge-faint px-[14px] py-[12px]"
+        >
+            <div className="flex items-center gap-[8px]">
+                <CircleAlert size={14} className="flex-none text-error" />
+                <span className="min-w-0 flex-1 text-[12.5px] font-semibold text-ink-hi">
+                    Couldn’t read the history
+                </span>
+                <span className="flex-none rounded-[5px] border border-error/25 bg-error/12 px-[7px] py-[2px] font-mono text-[10.5px] font-semibold text-error">
+                    {exitLabel(failure)}
+                </span>
+            </div>
+            <div title={failure.command} className="select-text truncate font-mono text-[11px] text-ink-mid">
+                {failure.command}
+            </div>
+            {failure.stderr ? (
+                <pre className="max-h-[120px] select-text overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-[1.5] text-muted">
+                    {failure.stderr}
+                </pre>
+            ) : null}
+            <button
+                data-git-failure-column-retry
+                onClick={onRetry}
+                className="flex h-[26px] items-center gap-[6px] self-start rounded-[7px] border border-edge-mid px-[9px] text-[11.5px] font-semibold text-ink-mid hover:border-edge-strong hover:text-foreground"
+            >
+                <RotateCw size={12} />
                 Retry
             </button>
         </div>

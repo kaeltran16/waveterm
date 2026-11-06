@@ -861,6 +861,20 @@ describe("a commit's file list that fails to read", () => {
         expect(gitCommitChanges).toHaveBeenLastCalledWith({}, { cwd: CWD, hash: "bbb2222" });
         expect(globalStore.get(selectedFileAtom)).toBe("x.ts");
     });
+
+    // a null list with no failure is an endless skeleton (F12)
+    it("records isrepo:false as a failure, and Retry reads again", async () => {
+        gitCommitChanges.mockResolvedValueOnce({ isrepo: false });
+        await selectCommit(CWD, "bbb2222");
+        expect(globalStore.get(commitChangesFailureAtom)).toBeTruthy();
+
+        gitCommitChanges.mockResolvedValue({ isrepo: true, statusz: "M  x.ts\0", numstat: "1\t0\tx.ts\n" });
+        retrySelectedCommit();
+        await settle();
+        expect(gitCommitChanges).toHaveBeenCalledTimes(2);
+        expect(globalStore.get(commitChangesFailureAtom)).toBeNull();
+        expect(globalStore.get(selectedFileAtom)).toBe("x.ts");
+    });
 });
 
 describe("the first file opened", () => {

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { HISTORY_COLLAPSE_PX, historyLayout, resolveCollapsed } from "./difflayout";
+import { HISTORY_COLLAPSE_PX, diffBody, historyLayout, resolveCollapsed } from "./difflayout";
 
 describe("resolveCollapsed", () => {
     it("collapses by default below the threshold — the shipped window is 1000px wide", () => {
@@ -53,5 +53,31 @@ describe("historyLayout", () => {
     it("is a column on an unmeasured width", () => {
         expect(historyLayout(null, 0)).toBe("column");
         expect(historyLayout(false, 0)).toBe("column");
+    });
+});
+
+describe("diffBody", () => {
+    const loaded = { cwd: "/repo", isRepo: true, changes: { files: [] } };
+
+    // F6: a broken history read must not take the working tree with it
+    it("keeps the body and puts a history failure in its column when the change list is good", () => {
+        expect(diffBody(true, loaded)).toBe("history-failure-in-column");
+    });
+
+    // the change-list read that failed is the one that would have said isRepo, so nothing is good to keep
+    it("takes over the body on a history failure with no good change list", () => {
+        expect(diffBody(true, { cwd: "/repo", isRepo: false, changes: null })).toBe("whole-body-failure");
+        expect(diffBody(true, { cwd: "/repo", isRepo: true, changes: null })).toBe("whole-body-failure");
+        expect(diffBody(true, null)).toBe("whole-body-failure");
+    });
+
+    it("says not-a-repo for a folder git does not read as one", () => {
+        expect(diffBody(false, { cwd: "/plain", isRepo: false, changes: null })).toBe("not-a-repo");
+    });
+
+    it("draws the body otherwise, including while the change list is still loading", () => {
+        expect(diffBody(false, loaded)).toBe("body");
+        expect(diffBody(false, null)).toBe("body");
+        expect(diffBody(false, { cwd: null, isRepo: false, changes: null })).toBe("body");
     });
 });

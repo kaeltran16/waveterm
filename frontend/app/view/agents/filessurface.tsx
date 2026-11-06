@@ -14,7 +14,7 @@ import { MotionConfig } from "motion/react";
 import { buildFilesBindings } from "@/app/store/keybindings/bindings";
 import { useSurfaceListNav, type ListNavController } from "@/app/store/keybindings/listnav";
 import { useKeybindings } from "@/app/store/keybindings/store";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSyncMonacoTheme } from "@/app/monaco/monacotheme";
 import { openInCode } from "@/app/view/code/codestore";
 import type { AgentsViewModel } from "./agents";
@@ -44,7 +44,7 @@ import {
 import { availableRanges, historyOptsFor, rangeKey, scopeKey, summaryLine } from "./diffscope";
 import { agentDiffScope, projectDiffScope } from "./agentdiffnav";
 import { setDiffRange } from "./diffscopeatom";
-import { filesSurfaceWidthAtom, historyCollapsedAtom, historyLayout } from "./difflayout";
+import { diffBody, filesSurfaceWidthAtom, historyCollapsedAtom, historyLayout } from "./difflayout";
 import { HistoryRail } from "./historyrail";
 import { peekSessionStart } from "./agentsessionstore";
 import { RangeStrip } from "./rangestrip";
@@ -107,7 +107,7 @@ import {
     setHistoryOpts,
     startFromTop,
 } from "./githistorystore";
-import { GitFailureNotice, GitFailurePanel, NotARepoPanel, SurfaceBanner } from "./gitstatepanels";
+import { GitFailureColumn, GitFailureNotice, GitFailurePanel, NotARepoPanel, SurfaceBanner } from "./gitstatepanels";
 import { HistoryPane } from "./historypane";
 import { RESTORE_DISMISS_MS, countLabel } from "./historyquery";
 import { WORKING_TREE, commitCount, worktreeCaption } from "./historyrows";
@@ -153,7 +153,9 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
     // The history column folds to a rail below a width threshold. Measured on the surface root rather
     // than the window: the surface does not own the whole window, and the rail's whole purpose is to
     // leave the diff pane something to render in.
-    const surfaceRef = useRef<HTMLDivElement>(null);
+    // state, not a ref: the first render can be the empty state, which has no root to measure, so the
+    // observer attaches whenever the root actually mounts (F7)
+    const [surfaceEl, setSurfaceEl] = useState<HTMLDivElement | null>(null);
     const surfaceWidth = useAtomValue(filesSurfaceWidthAtom);
     const layout = historyLayout(useAtomValue(historyCollapsedAtom), surfaceWidth);
 
@@ -227,16 +229,15 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
     useEffect(() => startChangesPoll(), []);
 
     useEffect(() => {
-        const el = surfaceRef.current;
-        if (el == null) {
+        if (surfaceEl == null) {
             return;
         }
-        const measure = () => globalStore.set(filesSurfaceWidthAtom, el.clientWidth);
+        const measure = () => globalStore.set(filesSurfaceWidthAtom, surfaceEl.clientWidth);
         const ro = new ResizeObserver(measure);
-        ro.observe(el);
+        ro.observe(surfaceEl);
         measure();
         return () => ro.disconnect();
-    }, []);
+    }, [surfaceEl]);
 
     useEffect(() => {
         if (restoreMsg == null) {
@@ -466,6 +467,9 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
     const endedScope =
         subject === "ended" && origin?.kind === "agent" ? endedAgentScope(agentCwdOf(origin.id), projects) : null;
     const endedPath = endedScope?.repo.origin.kind === "project" ? endedScope.repo.origin.path : "";
+    const body = diffBody(historyFailure != null, state);
+    // compare reads no history, so a history failure has nothing to replace there
+    const historyFailedInColumn = body === "history-failure-in-column" && !compareOn;
 
     const notReady = () =>
         subject === "pick" ? (
@@ -488,6 +492,26 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
             />
         );
 
+    const historyPane = () => (
+        <HistoryPane
+            rows={historyRows ?? []}
+            selected={selectedCommit}
+            // a filtered set mostly lacks its own parents, so lane assignment would sprawl to the fold
+            // limit and draw edges to commits that are not there
+            graphOn={graphOn && !historyFiltered}
+            loading={historyRows == null}
+            countLabel={countLabel(historyFilters, commitCount(historyRows ?? []), historyRows == null)}
+            filtered={historyFiltered}
+            initialScroll={historyScroll}
+            hasMore={historyHasMore}
+            appendState={historyAppend}
+            onSelect={(hash) => state?.cwd && fireAndForget(() => selectCommit(state.cwd!, hash))}
+            onScroll={(top) => globalStore.set(historyScrollAtom, top)}
+            onLoadMore={() => fireAndForget(() => loadMoreHistory())}
+            onCollapse={collapseHistory}
+        />
+    );
+
     const historyColumn = () =>
         compareOn ? (
             <CompareColumn
@@ -500,24 +524,15 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                 loading={compareSides == null && compareError == null}
                 onSelect={(id) => state?.cwd && fireAndForget(() => selectCompareRow(state.cwd!, id))}
             />
+        ) : historyFailedInColumn ? (
+            // in place of the commit list; the working-tree row is the only row a failed read leaves, and with
+            // no row the pane would read "No commits", which is not what happened
+            <div className="flex min-h-0 flex-1 flex-col">
+                <GitFailureColumn failure={historyFailure} onRetry={retryHistory} />
+                {(historyRows?.length ?? 0) > 0 ? historyPane() : null}
+            </div>
         ) : (
-            <HistoryPane
-                rows={historyRows ?? []}
-                selected={selectedCommit}
-                // a filtered set mostly lacks its own parents, so lane assignment would sprawl to the fold
-                // limit and draw edges to commits that are not there
-                graphOn={graphOn && !historyFiltered}
-                loading={historyRows == null}
-                countLabel={countLabel(historyFilters, commitCount(historyRows ?? []), historyRows == null)}
-                filtered={historyFiltered}
-                initialScroll={historyScroll}
-                hasMore={historyHasMore}
-                appendState={historyAppend}
-                onSelect={(hash) => state?.cwd && fireAndForget(() => selectCommit(state.cwd!, hash))}
-                onScroll={(top) => globalStore.set(historyScrollAtom, top)}
-                onLoadMore={() => fireAndForget(() => loadMoreHistory())}
-                onCollapse={collapseHistory}
-            />
+            historyPane()
         );
 
     const historyRail = () => (
@@ -541,7 +556,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
 
     return (
         <MotionConfig reducedMotion="user">
-            <div ref={surfaceRef} className="absolute inset-0 flex min-h-0 flex-col">
+            <div ref={setSurfaceEl} data-files-surface className="absolute inset-0 flex min-h-0 flex-col">
                 {/* subject bar: which repository, and which range within it. The toolbar wraps because
                     compare adds two controls to it: at the shipped 1000x700 the ref picker's editing form
                     plus Fetch need more than one row, and a nowrap row pays for that by squeezing the
@@ -675,6 +690,8 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
 
                         {fetchState.failure ? (
                             <GitFailureNotice
+                                title="Fetch failed"
+                                note="showing refs as of the last fetch"
                                 failure={fetchState.failure}
                                 onRetry={() => state?.cwd && fireAndForget(() => runFetch(state.cwd!))}
                                 onDismiss={() => state?.cwd && dismissFetchFailure(state.cwd)}
@@ -686,11 +703,22 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                             <SurfaceError message="Couldn’t read this repository." />
                         ) : null}
 
-                        {/* a broken read is checked first: it also reports isRepo:false, and showing it as an
-                            absent repository would hide the reason behind a screen that reads like normality */}
-                        {historyFailure ? (
+                        {/* a folded column has no room for the failure, so it says so here and stays until the
+                            read succeeds */}
+                        {historyFailedInColumn && layout === "rail" ? (
+                            <GitFailureNotice
+                                title="Couldn’t read the history"
+                                note="the working tree is still current"
+                                failure={historyFailure}
+                                onRetry={retryHistory}
+                            />
+                        ) : null}
+
+                        {/* a broken read is checked first (diffBody): it also reports isRepo:false, and showing it
+                            as an absent repository would hide the reason behind a screen that reads like normality */}
+                        {body === "whole-body-failure" ? (
                             <GitFailurePanel failure={historyFailure} onRetry={() => retryHistory()} />
-                        ) : state?.isRepo === false && state?.cwd ? (
+                        ) : body === "not-a-repo" ? (
                             <NotARepoPanel path={state.cwd} onChooseSource={chooseSource} />
                         ) : (
                             <div className="relative flex min-h-0 flex-1 border-t border-edge-faint">
