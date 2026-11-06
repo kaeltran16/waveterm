@@ -7,9 +7,11 @@ import {
     glyphKind,
     graphKey,
     kindOf,
+    liveSessions,
     nodeInView,
     openView,
     pickNext,
+    progressText,
     relatives,
     selectionNeedsPan,
     wordOf,
@@ -26,6 +28,7 @@ const ctx = (tasks: TaskNode[], extra: Partial<FactCtx> = {}): FactCtx => ({
     digest: undefined,
     mergeReady: new Set(),
     nowMs: 10 * 60_000,
+    dagStatus: "running",
     ...extra,
 });
 
@@ -88,6 +91,29 @@ describe("factOf", () => {
     it("shows the first line of a failed Verify", () => {
         const t = task("t-1", "verify-failed", { verifyerror: "exit 1: FAIL\nmore" });
         expect(factOf(t, ctx([t]))).toBe("exit 1: FAIL");
+    });
+    it("says a failed or stalled task of an ended dag cannot be acted on", () => {
+        const f = task("t-1", "failed", { attempts: 1 });
+        const s = task("t-2", "stalled");
+        expect(factOf(f, ctx([f], { dagStatus: "cancelled" }))).toBe("run cancelled");
+        expect(factOf(s, ctx([s], { dagStatus: "done" }))).toBe("run ended");
+        expect(factOf(f, ctx([f], { dagStatus: "running" }))).toBe("attempt 1 · retry or skip");
+    });
+    it("blames the cancelled run for a skip, and no one else", () => {
+        const t = task("t-1", "skipped");
+        expect(factOf(t, ctx([t], { dagStatus: "cancelled" }))).toBe("run cancelled");
+        expect(factOf(t, ctx([t], { dagStatus: "running" }))).toBe("");
+        expect(factOf(t, ctx([t], { dagStatus: "done" }))).toBe("");
+    });
+    it("waits on the plan review while the plan is under review", () => {
+        const t = task("t-1", "pending", { deps: ["t-0"] });
+        const done = task("t-0", "done");
+        const all = [done, t];
+        expect(factOf(t, ctx(all, { dagStatus: "plan-review" }))).toBe("waits on plan review");
+        expect(factOf(t, ctx(all, { dagStatus: "awaiting-plan" }))).toBe("waits on plan review");
+        expect(factOf(t, ctx(all, { dagStatus: "running" }))).toBe("next to start");
+        const asked = { taskid: "t-1", waitreason: "ask", mergestate: "", cleanupstate: "" };
+        expect(factOf(t, ctx(all, { dagStatus: "plan-review", digest: asked }))).toBe("asked you");
     });
 });
 
@@ -204,17 +230,45 @@ describe("graphKey", () => {
 describe("chipGroups / pickNext", () => {
     const tasks = [task("a", "failed"), task("b", "running"), task("c", "stalled"), task("d", "pending")];
     it("counts only the non-empty groups, need-you first", () => {
-        expect(chipGroups(tasks).map((g) => [g.key, g.count])).toEqual([
+        expect(chipGroups(tasks, false).map((g) => [g.key, g.count])).toEqual([
             ["attention", 2],
             ["live", 1],
             ["waiting", 1],
         ]);
+    });
+    it("labels the attention group failed once the dag has ended", () => {
+        const failed = [task("a", "failed")];
+        expect(chipGroups(failed, false)[0].label).toBe("need you");
+        expect(chipGroups(failed, true)[0].label).toBe("failed");
+        expect(chipGroups([task("b", "running")], true)[0].label).toBe("working");
     });
     it("cycles through a group", () => {
         expect(pickNext(tasks, ["attention"], null)).toBe("a");
         expect(pickNext(tasks, ["attention"], "a")).toBe("c");
         expect(pickNext(tasks, ["attention"], "c")).toBe("a");
         expect(pickNext(tasks, ["done"], null)).toBeNull();
+    });
+});
+
+describe("progressText", () => {
+    it("counts done only, and names the skipped", () => {
+        const skipped = Array.from({ length: 7 }, (_, i) => task(`t-${i}`, "skipped"));
+        expect(progressText(skipped)).toBe("0/7 done · 7 skipped");
+        const mixed = [task("a", "done"), task("b", "done"), task("c", "done"), task("d", "pending")];
+        expect(progressText(mixed)).toBe("3/4 done");
+    });
+});
+
+describe("liveSessions", () => {
+    const group = (tasks: TaskNode[], extra: Partial<TaskGroup> = {}) => ({ tasks, ...extra }) as TaskGroup;
+    it("counts working tasks, a plan review in flight and a Final stage in flight", () => {
+        const tasks = [task("a", "running"), task("b", "verifying"), task("c", "done")];
+        expect(liveSessions(group(tasks, { planreview: { state: "reviewing" } as PlanReviewStage }))).toBe(3);
+        expect(liveSessions(group(tasks, { final: { state: "checking" } as FinalStage }))).toBe(3);
+        expect(liveSessions(group([task("a", "reviewing")], { final: { state: "failed" } as FinalStage }))).toBe(1);
+    });
+    it("counts nothing for a dag that is all done", () => {
+        expect(liveSessions(group([task("a", "done"), task("b", "skipped")]))).toBe(0);
     });
 });
 

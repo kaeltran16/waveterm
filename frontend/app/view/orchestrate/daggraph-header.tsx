@@ -1,11 +1,11 @@
 import { globalStore } from "@/app/store/jotaiStore";
-import { RpcApi } from "@/app/store/wshclientapi";
-import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { useAtomValue } from "jotai";
-import { runProgress } from "../agents/runlineage";
+import { useState } from "react";
+import { confirmCancelRun } from "../agents/runactions";
+import { runFinished } from "../agents/runlineage";
 import { useRunUsage } from "../agents/runtokenstore";
 import { modelsText, summarizeUsage, usageText } from "../agents/runusage";
-import { chipGroups, pickNext, type ChipGroup } from "./dagcanvas";
+import { chipGroups, liveSessions, pickNext, progressText, type ChipGroup } from "./dagcanvas";
 import { selectedTaskIdAtom } from "./dagstore";
 import { DAG_META } from "./dagtext";
 import { dagStatusPill, reviewersChip, workersChip, type DagStatusPill } from "./taskroute";
@@ -20,11 +20,11 @@ const CHIP_DOT = new Map<ChipGroup["key"], string>([
 ]);
 
 // the summary chips: how many tasks are in each group, and a click steps the selection through that group
-function SummaryChips({ tasks }: { tasks: TaskNode[] }) {
+function SummaryChips({ tasks, ended }: { tasks: TaskNode[]; ended: boolean }) {
     const selected = useAtomValue(selectedTaskIdAtom);
     return (
         <div className="flex flex-none items-center gap-1.5">
-            {chipGroups(tasks).map((g) => (
+            {chipGroups(tasks, ended).map((g) => (
                 <button
                     key={g.key}
                     type="button"
@@ -60,7 +60,8 @@ export function DagGraphHeader({ group, owner }: { group: TaskGroup; owner: Run 
     const pill = dagStatusPill(group);
     const tone = PILL_TONE[pill.tone];
     const label = pill.label;
-    const { done } = runProgress(group);
+    const ended = runFinished({ dag: group, status: group.status });
+    const [cancelError, setCancelError] = useState("");
     const usage = useRunUsage(group.channelid, group.runid);
     const spent = summarizeUsage(usage?.rows);
     return (
@@ -70,12 +71,12 @@ export function DagGraphHeader({ group, owner }: { group: TaskGroup; owner: Run 
                     {group.title || "orchestration dag"}
                 </div>
                 <div className={DAG_META}>
-                    parallelism {group.parallelism} · {done}/{group.tasks.length} done
+                    parallelism {group.parallelism} · <span data-dag-progress>{progressText(group.tasks)}</span>
                     {spent ? ` · ${usageText(spent, usage.sealed)}` : ""}
                 </div>
                 {spent ? <div className={`truncate ${DAG_META}`}>{modelsText(spent)}</div> : null}
             </div>
-            <SummaryChips tasks={group.tasks} />
+            <SummaryChips tasks={group.tasks} ended={ended} />
             <span className={ROUTE_CHIP}>{workersChip(group, owner)}</span>
             <span className={ROUTE_CHIP}>{reviewersChip(group, owner)}</span>
             <span
@@ -89,20 +90,24 @@ export function DagGraphHeader({ group, owner }: { group: TaskGroup; owner: Run 
             group.status === "awaiting-plan" ||
             group.status === "plan-review" ||
             group.status === "finalizing" ? (
-                <button
-                    type="button"
-                    onClick={() =>
-                        void RpcApi.DagActionCommand(TabRpcClient, {
-                            channelid: group.channelid,
-                            runid: group.runid,
-                            taskid: "",
-                            action: "cancel",
-                        })
-                    }
-                    className="rounded border border-edge-mid px-2.5 py-1 text-[12px] font-semibold text-secondary hover:border-warning/60 hover:text-warning"
-                >
-                    Cancel
-                </button>
+                <>
+                    {cancelError ? (
+                        <span data-dag-cancel-error className="text-[12px] text-warning">
+                            {cancelError}
+                        </span>
+                    ) : null}
+                    <button
+                        type="button"
+                        data-dag-cancel
+                        onClick={() => {
+                            setCancelError("");
+                            confirmCancelRun(group.channelid, group.runid, liveSessions(group), setCancelError);
+                        }}
+                        className="rounded border border-edge-mid px-2.5 py-1 text-[12px] font-semibold text-secondary hover:border-warning/60 hover:text-warning"
+                    >
+                        Cancel
+                    </button>
+                </>
             ) : null}
         </div>
     );

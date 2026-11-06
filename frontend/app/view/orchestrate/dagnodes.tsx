@@ -140,9 +140,17 @@ export function DagCardNode({ data }: NodeProps) {
                 </span>
             </div>
             <div className={`flex items-center gap-1.5 leading-4 ${DAG_META}`}>
-                <span className="min-w-0 flex-1 truncate">
-                    {task.id} · <span className={look.word}>{word}</span> · {fact}
+                <span data-dag-node-word className="flex-none">
+                    {task.id} · <span className={look.word}>{word}</span>
                 </span>
+                {fact ? (
+                    <span data-dag-node-fact className="min-w-0 flex-1 truncate">
+                        {" · "}
+                        {fact}
+                    </span>
+                ) : (
+                    <span className="flex-1" />
+                )}
                 {view.tag ? (
                     <span className="flex-none rounded-[5px] border border-edge-mid bg-surface-raised px-[5px] text-[11.5px] text-accent-soft">
                         {view.tag}

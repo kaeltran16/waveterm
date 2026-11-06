@@ -178,7 +178,7 @@ function DagGraphInner({ oref, owner, harnesses }: { oref: string; owner: Run; h
             const data: DagCardData = {
                 task,
                 view: v,
-                fact: factOf(task, { byId, digest: digestById.get(v.id), mergeReady, nowMs }),
+                fact: factOf(task, { byId, digest: digestById.get(v.id), mergeReady, nowMs, dagStatus: group.status }),
                 selected: v.id === selectedId,
                 dimmed: !inRel(v.id),
                 hovered: hovered?.id === v.id,
