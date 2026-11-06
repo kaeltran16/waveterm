@@ -2769,13 +2769,110 @@ export const jarvisVolunteer = {
 // control at all because B5 has not given runs a Stage sheet yet. It used to open by priming an attached
 // thread from a memory note's "Ask Jarvis"; that entry point went with the Vault surface, and the exits
 // below never depended on it. The surviving contextual entry is a run.
+// Steps 4-10 (the graph peek's bloom states, deduped edges, Find and the linked-only canvas) run on fixtures written
+// straight into the vault: a record and a decision that each wikilink the other, a record no link reaches, and a run
+// attached to the first record. The run's goal slugs to the record's id, so its capture collides and stays out.
+// Labels stay inside the canvas's 40-character title cut, the only part Find matches and the edge rows show.
+const GRAPH_MAP_RECORD = "verify-graph-map-linked-record";
+const GRAPH_MAP_GOAL = "verify graph map linked record";
+const GRAPH_MAP_DECISION = "verify-graph-map-decision";
+const GRAPH_MAP_DECISION_SUMMARY = "Graph-map decision, linked both ways";
+const GRAPH_MAP_ISOLATED = "verify-graph-map-isolated";
+const GRAPH_MAP_ISOLATED_QUERY = "isolated graph-map record";
+
+async function seedGraphMapVault(h) {
+    const root = await vaultRoot(h);
+    const stamp = Date.now() - 30 * DAY_MS;
+    const record = (objective, body) =>
+        [
+            "---",
+            "status: active",
+            'ticket: ""',
+            `objective: ${JSON.stringify(objective)}`,
+            "acceptance: []",
+            "confidence: med",
+            `created: ${stamp}`,
+            `updated: ${stamp}`,
+            "---",
+            // the machine blocks a captured record has: acceptdossieredge writes into refs
+            ...["state", "refs", "blockers"].flatMap((name) => [`<!-- jarvis:begin ${name} -->`, `<!-- jarvis:end ${name} -->`]),
+            "",
+            "## Notes",
+            "",
+            body,
+            "",
+        ].join("\n");
+    const tasks = join(root, "tasks", "active");
+    const decisions = join(root, "decisions");
+    mkdirSync(tasks, { recursive: true });
+    mkdirSync(decisions, { recursive: true });
+    const files = [
+        [
+            join(tasks, `${GRAPH_MAP_RECORD}.md`),
+            record("Verify graph-map: a record linked both ways to its decision.", `See [[${GRAPH_MAP_DECISION}]].`),
+        ],
+        [
+            join(tasks, `${GRAPH_MAP_ISOLATED}.md`),
+            record("Isolated graph-map record, no links", ""),
+        ],
+        [
+            join(decisions, `${GRAPH_MAP_DECISION}.md`),
+            [
+                "---",
+                `id: ${GRAPH_MAP_DECISION}`,
+                `created: ${stamp}`,
+                `summary: ${JSON.stringify(GRAPH_MAP_DECISION_SUMMARY)}`,
+                "actor: human",
+                "provenance: human-submit",
+                "status: active",
+                "---",
+                "",
+                `Written back to [[${GRAPH_MAP_RECORD}]], so the pair links both ways.`,
+                "",
+            ].join("\n"),
+        ],
+    ];
+    for (const [file, text] of files) writeFileSync(file, text);
+    return files.map(([file]) => file);
+}
+
+// what the canvas draws, from the same derive the peek hands it: the merged graph cut by visibleGraph
+const GRAPH_DRAWN = `
+    const { globalStore } = await mod("app/store/jotaiStore.ts");
+    const st = await mod("app/view/jarvis/jarvisgraphstore.ts");
+    const d = await mod("app/view/jarvis/jarvisgraphderive.ts");
+    const merged = d.mergeGraph(globalStore.get(st.graphBaseAtom) ?? { nodes: [], links: [] }, globalStore.get(st.graphBloomAtom));
+    const selected = globalStore.get(st.graphSelectedIdAtom);
+    const drawn = d.visibleGraph(merged, selected).nodes;
+    return { selected, total: merged.nodes.length, drawn: drawn.map((n) => n.id), kinds: d.presentKinds(drawn) };
+`;
+
 export const briefContextualMap = {
     name: "brief-contextual-map",
     surface: "jarvis",
-    async arrange() {
-        return {};
+    async arrange(h) {
+        const ctx = { cwd: mkdtempSync(join(tmpdir(), "verify-graph-map-")) };
+        try {
+            ctx.files = await seedGraphMapVault(h);
+            const wslist = await h.rpc("workspacelist", null);
+            const ch = await h.rpc("createchannel", { name: "verify-graph-map", projectpath: ctx.cwd });
+            ctx.channelId = ch.oid;
+            const created = await h.rpc("createrun", {
+                channelid: ctx.channelId,
+                workspaceid: wslist[0].workspacedata.oid,
+                goal: GRAPH_MAP_GOAL,
+                runtime: "claude",
+                mode: "quick",
+                deferstart: true,
+            });
+            ctx.runId = created.run.id;
+            await h.rpc("acceptdossieredge", { dossierid: GRAPH_MAP_RECORD, runoref: `run:${ctx.runId}` });
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
     },
-    async assert(h) {
+    async assert(h, ctx) {
         const steps = [];
         const rec = (step, ok, detail) => steps.push({ step, ok, detail });
         const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
@@ -2894,12 +2991,215 @@ export const briefContextualMap = {
             backToPeek === true && landed.peek === true && landed.graph === false,
             JSON.stringify({ backToPeek, landed })
         );
+
+        await graphMapSteps(h, ctx, rec, settle);
         return steps;
     },
-    async teardown(h) {
+    async teardown(h, ctx) {
+        const step = async (what, fn) => {
+            try {
+                await fn();
+            } catch (e) {
+                console.error(`brief-contextual-map teardown: ${what} failed: ${e?.message ?? e}`);
+            }
+        };
+        await step("release the bloom RPC", () => releaseRpc(h, "ResolveDossierEdgesCommand"));
+        await step("clear the viewport", () => h.cdp("Emulation.clearDeviceMetricsOverride", {}));
+        await step("close the graph peek", () =>
+            lookEval(h, `const s = await mod("app/view/jarvis/jarvisstore.ts"); s.closeGraphPeek();`)
+        );
+        if (ctx?.runId) await step("cancel the run", () => h.rpc("cancelrun", { channelid: ctx.channelId, runid: ctx.runId }));
+        if (ctx?.channelId) await step("delete the channel", () => h.rpc("deletechannel", { channelid: ctx.channelId }));
+        for (const f of ctx?.files ?? []) await step(`remove ${f}`, () => rmSync(f, { force: true }));
+        if (ctx?.cwd) await step("remove the temp dir", () => rmSync(ctx.cwd, { recursive: true, force: true }));
         await h.goto("cockpit");
     },
 };
+
+// Steps 4-10: the graph peek opened on a record with a run. The bloom is held, then refused, then let through, so
+// each Edges state is seen; then the deduped decision edge, an edge row's click, Find onto a record the canvas does
+// not draw, Shift+G's close and reopen, and the legend at 1000x700.
+async function graphMapSteps(h, ctx, rec, settle) {
+    if (ctx?.arrangeError) {
+        rec("4. the graph-map fixtures were seeded", false, ctx.arrangeError);
+        return;
+    }
+    const PEEK = `document.querySelector('[data-jarvis-graph-peek]')`;
+    const EDGES = `${PEEK}?.querySelector('[data-jarvis-graph-edges]')`;
+    const pressShiftG = () =>
+        h.ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'G', code: 'KeyG', shiftKey: true, bubbles: true }))`);
+    const pressEscape = () =>
+        h.ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }))`);
+    const readEdges = () =>
+        h.ev(`(() => {
+            const el = ${EDGES};
+            if (!el) return null;
+            return {
+                state: el.querySelector('[data-jarvis-graph-edges-state]')?.dataset.jarvisGraphEdgesState ?? null,
+                retry: el.querySelector('[data-jarvis-graph-retry]') != null,
+                rows: [...el.querySelectorAll('[data-jarvis-graph-edge]')].map((b) => ({
+                    id: b.dataset.jarvisGraphEdge,
+                    text: (b.textContent || '').replace(/\\s+/g, ' ').trim(),
+                })),
+                text: (el.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 300),
+            };
+        })()`);
+    // through the record peek's map button, the route a user takes; the record's bloom is dropped first, so an
+    // earlier step that bloomed it cannot answer from cache
+    const openFromRecord = async () => {
+        await lookEval(h, `const st = await mod("app/view/jarvis/jarvisgraphstore.ts"); st.invalidateBloom(${JSON.stringify(GRAPH_MAP_RECORD)});`);
+        await h.ev(`window.__openAddress?.(${JSON.stringify("task:" + GRAPH_MAP_RECORD)})`);
+        const mapReady = await polishWaitFor(h, `document.querySelector('[data-jarvis-peek-open-graph]') != null`, 6000);
+        await h.ev(`document.querySelector('[data-jarvis-peek-open-graph]')?.click()`);
+        const opened = await polishWaitFor(h, `${EDGES} != null`, 6000);
+        return mapReady && opened;
+    };
+    const closePeek = async () => {
+        await pressEscape();
+        await polishWaitFor(h, `${PEEK} == null`, 3000);
+    };
+
+    // 4. held: the bloom is in flight, so Edges says so rather than claiming the record has none
+    await holdRpc(h, "ResolveDossierEdgesCommand");
+    const heldOpen = await openFromRecord();
+    await settle(400);
+    const held = await readEdges();
+    await h.shot("cdp-shots/brief-graph-edges-loading.png");
+    rec(
+        "4a. a record's bloom in flight reads Loading edges…, never No edge reaches this node",
+        heldOpen === true && held?.state === "loading" && /Loading edges…/.test(held.text) && !/No edge reaches/.test(held.text),
+        JSON.stringify({ heldOpen, held })
+    );
+    await closePeek();
+
+    // refused: the failure is shown with a Retry, and a Retry once the RPC answers lands the run rows
+    await releaseRpc(h, "ResolveDossierEdgesCommand");
+    await failRpc(h, "ResolveDossierEdgesCommand", "verify: bloom refused");
+    const failedOpen = await openFromRecord();
+    await polishWaitFor(h, `${EDGES}?.querySelector('[data-jarvis-graph-retry]') != null`, 4000);
+    const failed = await readEdges();
+    await h.shot("cdp-shots/brief-graph-edges-failed.png");
+    await releaseRpc(h, "ResolveDossierEdgesCommand");
+    await h.ev(`${EDGES}?.querySelector('[data-jarvis-graph-retry]')?.click()`);
+    const runOref = `run:${ctx.runId}`;
+    await polishWaitFor(h, `${EDGES}?.querySelector('[data-jarvis-graph-edge=${JSON.stringify(runOref)}]') != null`, 20000);
+    const retried = await readEdges();
+    rec(
+        "4b. a refused bloom reads Couldn't load edges with Retry; Retry lands the record's run row",
+        failedOpen === true &&
+            failed?.state === "failed" &&
+            failed.retry === true &&
+            /Couldn.t load edges/.test(failed.text) &&
+            retried?.state == null &&
+            retried.rows.some((r) => r.id === runOref),
+        JSON.stringify({ failed, retried })
+    );
+
+    // 5. the decision wikilinks the record and the record wikilinks it back: one row, named by its summary
+    const decisionRows = (retried?.rows ?? []).filter((r) => r.id === GRAPH_MAP_DECISION);
+    rec(
+        "5. a decision linked both ways lists one edge row, labelled by its summary",
+        decisionRows.length === 1 && decisionRows[0].text.includes(GRAPH_MAP_DECISION_SUMMARY),
+        JSON.stringify({ decisionRows })
+    );
+
+    // 6. an edge row is a way to the node at its other end
+    await h.ev(`${EDGES}?.querySelector('[data-jarvis-graph-edge=${JSON.stringify(GRAPH_MAP_DECISION)}]')?.click()`);
+    const selectedDecision = await polishWaitFor(
+        h,
+        `${PEEK}?.querySelector('[data-jarvis-graph-selected=${JSON.stringify(GRAPH_MAP_DECISION)}]') != null`,
+        3000
+    );
+    await h.shot("cdp-shots/brief-graph-edge-select.png");
+    rec("6. clicking an edge row selects the node at its other end", selectedDecision === true, "");
+
+    // 7. F4: the canvas draws what is linked plus the selection, and the header says how many it leaves out
+    const before = await lookEval(h, GRAPH_DRAWN);
+    const count = await h.ev(flatText(`${PEEK}?.querySelector('[data-jarvis-graph-count]')`));
+    const m = /^(\d+) of (\d+) nodes$/.exec(count ?? "");
+    rec(
+        "7. the header reads <shown> of <total> nodes, and a record no link reaches is not drawn",
+        m != null &&
+            Number(m[1]) === before.drawn.length &&
+            Number(m[2]) === before.total &&
+            before.drawn.length < before.total &&
+            !before.drawn.includes(GRAPH_MAP_ISOLATED),
+        JSON.stringify({ count, drawn: before.drawn.length, total: before.total })
+    );
+
+    // 8. Find onto that record: the pick shows the selected node, keeps the query one control away, and draws it
+    const FIND = `${PEEK}?.querySelector('input[aria-label="Find a node"]')`;
+    await h.ev(setInputExpr(FIND, GRAPH_MAP_ISOLATED_QUERY));
+    await polishWaitFor(h, `${PEEK}?.querySelector('[data-jarvis-graph-match=${JSON.stringify(GRAPH_MAP_ISOLATED)}]') != null`, 3000);
+    const matchCount = await h.ev(`${PEEK}?.querySelectorAll('[data-jarvis-graph-match]').length ?? 0`);
+    await h.ev(`${PEEK}?.querySelector('[data-jarvis-graph-match=${JSON.stringify(GRAPH_MAP_ISOLATED)}]')?.click()`);
+    await settle(500);
+    const pickedView = await h.ev(`(() => ({
+        selected: ${PEEK}?.querySelector('[data-jarvis-graph-selected]')?.dataset.jarvisGraphSelected ?? null,
+        list: ${PEEK}?.querySelector('[data-jarvis-graph-matches]') != null,
+        back: (${PEEK}?.querySelector('[data-jarvis-graph-back]')?.textContent || '').trim(),
+        query: ${FIND}?.value ?? null,
+    }))()`);
+    const after = await lookEval(h, GRAPH_DRAWN);
+    await h.shot("cdp-shots/brief-graph-find-pick.png");
+    rec(
+        "8. picking a Find match shows the selected node with Back to N matches, and draws it on the canvas",
+        pickedView.selected === GRAPH_MAP_ISOLATED &&
+            pickedView.list === false &&
+            pickedView.back === `← Back to ${matchCount} match${matchCount === 1 ? "" : "es"}` &&
+            pickedView.query === GRAPH_MAP_ISOLATED_QUERY &&
+            after.drawn.includes(GRAPH_MAP_ISOLATED),
+        JSON.stringify({ matchCount, pickedView, drawnIsolated: after.drawn.includes(GRAPH_MAP_ISOLATED) })
+    );
+
+    // 9. Shift+G closes the peek and forgets the record it was opened on, so the next Shift+G opens on nothing
+    await h.ev(`document.activeElement?.blur()`);
+    await pressShiftG();
+    const closedByKey = await polishWaitFor(h, `${PEEK} == null`, 3000);
+    await pressShiftG();
+    await polishWaitFor(h, `${PEEK} != null`, 3000);
+    await settle(600);
+    const reopened = await lookEval(
+        h,
+        `const { globalStore } = await mod("app/store/jotaiStore.ts");
+        const s = await mod("app/view/jarvis/jarvisstore.ts");
+        const st = await mod("app/view/jarvis/jarvisgraphstore.ts");
+        return {
+            record: globalStore.get(s.briefGraphRecordAtom),
+            selected: globalStore.get(st.graphSelectedIdAtom),
+            panel: document.querySelector('[data-jarvis-graph-peek] [data-jarvis-graph-selected]') != null,
+        };`
+    );
+    rec(
+        "9. Shift+G closes the peek, and Shift+G again opens it with no record selected",
+        closedByKey === true && reopened.record == null && reopened.selected == null && reopened.panel === false,
+        JSON.stringify({ closedByKey, reopened })
+    );
+    await closePeek();
+
+    // 10. at 1000x700, focused on the record: the legend names only the kinds the canvas draws
+    await h.cdp("Emulation.setDeviceMetricsOverride", BRIEF_PEEK_NARROW);
+    try {
+        await settle(400);
+        await openFromRecord();
+        // read once the bloom has landed, so the drawn set and the legend describe the same graph
+        await polishWaitFor(h, `${EDGES}?.querySelector('[data-jarvis-graph-edge=${JSON.stringify(runOref)}]') != null`, 20000);
+        await settle(600);
+        const drawn = await lookEval(h, GRAPH_DRAWN);
+        const legend = await h.ev(
+            `[...(${PEEK}?.querySelectorAll('[data-jarvis-graph-legend] [data-kind]') ?? [])].map((e) => e.dataset.kind)`
+        );
+        await h.shot("cdp-shots/brief-graph-legend-narrow.png");
+        rec(
+            "10. at 1000x700 the legend lists only the kinds drawn",
+            Array.isArray(legend) && legend.length > 0 && JSON.stringify(legend) === JSON.stringify(drawn.kinds),
+            JSON.stringify({ legend, kinds: drawn.kinds })
+        );
+        await closePeek();
+    } finally {
+        await h.cdp("Emulation.clearDeviceMetricsOverride", {}).catch(() => {});
+    }
+}
 
 // --- brief-composer-steer-only: no composer without a live lead to message --------------------------
 // The Brief's composer only steers a running session's lead (briefcomposertarget.ts); the Ask audiences it

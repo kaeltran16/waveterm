@@ -18,7 +18,6 @@ import {
     labelBudget,
     labelZoomThreshold,
     seedPosition,
-    truncateTitle,
     type XY,
 } from "@/app/view/jarvis/memgraphlayout";
 import { cn, fireAndForget } from "@/util/util";
@@ -26,8 +25,8 @@ import { useAtomValue } from "jotai";
 import { Maximize, Minus, Plus } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { GraphSkeleton } from "./graphskeleton";
-import { attributionStyle, mergeGraph, type GKind, type GLink, type GNode } from "./jarvisgraphderive";
-import { focusDossier, graphBaseAtom, graphBloomAtom, graphSelectedIdAtom, selectNode } from "./jarvisgraphstore";
+import { attributionStyle, nodeTitle, presentKinds, type GKind, type GLink, type GNode } from "./jarvisgraphderive";
+import { graphSelectedIdAtom, pickNode } from "./jarvisgraphstore";
 
 const ForceGraph2D = lazy(() => import("react-force-graph-2d"));
 
@@ -48,8 +47,6 @@ const DASH_INFORMING = [3, 3]; // dash pattern for a provisional (informing) att
 const nodeRadius = (deg: number) => 3 + Math.min(Math.sqrt(deg) * 2.2, 12);
 // runs render as squares (evidence), markdown nodes as circles (notes)
 const halfExtent = (n: GNode) => (n.kind === "run" ? nodeRadius(n.deg) * RUN_SQUARE_SCALE : nodeRadius(n.deg));
-
-const KINDS = ["task", "decision", "memory", "run"] as const;
 
 const idOf = (e: string | GNode) => (typeof e === "object" ? e.id : e);
 
@@ -113,9 +110,8 @@ function CtrlBtn({ label, onClick, children }: { label: string; onClick: () => v
     );
 }
 
-export function JarvisGraph() {
-    const base = useAtomValue(graphBaseAtom);
-    const blooms = useAtomValue(graphBloomAtom);
+// `graph` is what the canvas draws: the peek passes visibleGraph's linked nodes plus the selection.
+export function JarvisGraph({ graph }: { graph: { nodes: GraphNode[]; links: GraphLink[] } }) {
     const selectedId = useAtomValue(graphSelectedIdAtom);
     const colors = useThemeColors();
     const reducedMotion = useMemo(() => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false, []);
@@ -187,19 +183,18 @@ export function JarvisGraph() {
     }, [fgApi]);
 
     // The rendered graph is the base wikilink map plus every bloomed dossier's runs + attribution
-    // edges. Gate the node/link rebuild on the structural signature (not the identity of `merged`,
-    // a fresh object every render): reuse the same node/link objects — and thus the sim's live x/y —
-    // whenever the set is unchanged. Nodes seed from the position cache so a bloom wobbles locally
-    // instead of re-exploding the layout.
-    const merged = useMemo(() => mergeGraph(base ?? { nodes: [], links: [] }, blooms), [base, blooms]);
+    // edges, cut to what visibleGraph draws. Gate the node/link rebuild on the structural signature (not
+    // the identity of `graph`, a fresh object every render): reuse the same node/link objects — and thus
+    // the sim's live x/y — whenever the set is unchanged. Nodes seed from the position cache so a bloom
+    // wobbles locally instead of re-exploding the layout.
     const sig = graphSignature(
-        merged.nodes.map((n) => n.id),
-        merged.links
+        graph.nodes.map((n) => n.id),
+        graph.links
     );
     const data = useMemo(() => {
-        const deg = degreeMap(merged.links);
-        const nodes: GNode[] = merged.nodes.map((n) => {
-            const seed = seedPosition(n.id, merged.links, posCache);
+        const deg = degreeMap(graph.links);
+        const nodes: GNode[] = graph.nodes.map((n) => {
+            const seed = seedPosition(n.id, graph.links, posCache);
             return {
                 id: n.id,
                 kind: n.kind as GKind,
@@ -209,7 +204,7 @@ export function JarvisGraph() {
                 ...(seed ?? {}),
             };
         });
-        const links: GLink[] = merged.links.map((e) => ({
+        const links: GLink[] = graph.links.map((e) => ({
             source: e.from,
             target: e.to,
             kind: e.kind as GLink["kind"],
@@ -357,7 +352,7 @@ export function JarvisGraph() {
             const withinBudget = (data.rank.get(node.id) ?? Infinity) < labelBudget(scale);
             const la = forced ? 1 : scale > thr && withinBudget ? Math.min(1, (scale - thr) / LABEL_FADE) : 0;
             if (la > 0.05) {
-                const title = truncateTitle(node.label);
+                const title = nodeTitle(node.label);
                 const fs = 12.5 / scale;
                 ctx.font = `600 ${fs}px ui-monospace, monospace`;
                 const tw = ctx.measureText(title).width;
@@ -485,13 +480,7 @@ export function JarvisGraph() {
                         linkDirectionalParticleWidth={PARTICLE_WIDTH}
                         linkDirectionalParticleColor={particleColor as any}
                         onNodeHover={onNodeHover as any}
-                        onNodeClick={
-                            ((node: GNode) => {
-                                // a task focus also resolves + caches its attribution bloom; other kinds just select
-                                if (node.kind === "task") fireAndForget(() => focusDossier(node.id));
-                                else selectNode(node.id);
-                            }) as any
-                        }
+                        onNodeClick={((node: GNode) => pickNode(node)) as any}
                         onNodeDragEnd={(() => savePositions()) as any}
                         onRenderFramePre={
                             (() => {
@@ -529,10 +518,13 @@ export function JarvisGraph() {
                 </CtrlBtn>
             </div>
 
-            {/* node-kind legend — pinned overlay */}
-            <div className="pointer-events-none absolute bottom-[10px] left-[12px] flex gap-[15px] rounded-[9px] border border-edge-faint bg-surface/80 px-[13px] py-[8px]">
-                {KINDS.map((k) => (
-                    <div key={k} className="flex items-center gap-[6px]">
+            {/* node-kind legend — pinned overlay; only the kinds drawn */}
+            <div
+                data-jarvis-graph-legend
+                className="pointer-events-none absolute bottom-[10px] left-[12px] flex gap-[15px] rounded-[9px] border border-edge-faint bg-surface/80 px-[13px] py-[8px]"
+            >
+                {presentKinds(graph.nodes).map((k) => (
+                    <div key={k} data-kind={k} className="flex items-center gap-[6px]">
                         <div
                             className="h-[8px] w-[8px]"
                             style={{ background: colors.fill(k), borderRadius: k === "run" ? 0 : 9999 }}

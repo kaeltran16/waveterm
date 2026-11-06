@@ -4,6 +4,7 @@
 // Jarvis surface state. The surface UNMOUNTS on nav-switch (only the agent surface stays mounted), so
 // every survive-worthy value lives here as a module atom, never component useState.
 
+import { globalStore } from "@/app/store/jotaiStore";
 import { atom, type PrimitiveAtom } from "jotai";
 import type { EffortIndex } from "./briefrows";
 
@@ -54,6 +55,17 @@ export const graphPeekOpenAtom = atom(false);
 // because a map button names an object to centre on. Cleared with the peek, so the next unaddressed open
 // does not re-centre on a record the user has left.
 export const briefGraphRecordAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
+
+// The one close path for the graph peek (Shift+G, Esc, Close): it forgets the record it was opened on.
+export function closeGraphPeek(): void {
+    globalStore.set(graphPeekOpenAtom, false);
+    globalStore.set(briefGraphRecordAtom, null);
+}
+
+export function toggleGraphPeek(): void {
+    if (globalStore.get(graphPeekOpenAtom)) closeGraphPeek();
+    else globalStore.set(graphPeekOpenAtom, true);
+}
 
 // the Brief's effort titles and chunk stages by oid, for the run sheet's ↳ chunk line (it mounts outside
 // the Brief's snapshot)
