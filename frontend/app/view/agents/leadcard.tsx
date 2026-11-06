@@ -473,7 +473,7 @@ export function LeadCard(p: LeadCardProps) {
                 >
                     <AgentComposer
                         blockId={lead.blockId}
-                        placeholder={`message ${lead.name}…`}
+                        placeholder={`message ${leadDisplayName(lead, run)}…`}
                         onEscape={p.onComposerEscape}
                         className="border-t-0 px-0 py-0"
                     />

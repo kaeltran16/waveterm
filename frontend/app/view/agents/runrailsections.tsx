@@ -27,7 +27,7 @@ import { ASK_OWNER_USER, childAskKey } from "./childaskmodel";
 import { bindChildAsks, childAskErrorAtom, childAsksAtom, takeOverChildAsk } from "./childaskstore";
 import { useFinalStageView } from "./finalstageviews";
 import { useRunEvents } from "./runeventstore";
-import { formatLeft, leadAgentOf, runProgress, taskAgentOf, type RunInfo } from "./runlineage";
+import { formatLeft, leadAgentOf, leadDisplayName, runProgress, taskAgentOf, type RunInfo } from "./runlineage";
 import { runStatusView } from "./runmodel";
 import {
     laneRows,
@@ -591,7 +591,7 @@ export function TaskSection({
                             className="inline-flex cursor-pointer items-center gap-[3px] text-accent-soft hover:underline"
                         >
                             <ArrowUp size={11} aria-hidden />
-                            {lead.name}
+                            {leadDisplayName(lead, run)}
                         </button>
                     ) : (
                         <span className="inline-flex items-center gap-[3px]">

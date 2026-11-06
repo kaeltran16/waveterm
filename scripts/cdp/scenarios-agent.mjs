@@ -1103,7 +1103,10 @@ export const agentTreeRail = {
             globalStore.set(model.focusIdAtom, ${JSON.stringify(workerTab.id)});
             const btn = () => ${HEADER}?.querySelector('button[title="Go to the lead"]');
             await until(() => btn(), 8000);
-            return { text: flat(btn()), header: flat(${HEADER}) };`);
+            // the rail's Task section names the lead the same way
+            const railLead = () => [...(${LIVE_RAIL}?.querySelectorAll("span") ?? [])].find((s) => s.textContent.trim() === "Lead")?.nextElementSibling;
+            await until(() => railLead(), 8000);
+            return { text: flat(btn()), header: flat(${HEADER}), railLead: flat(railLead()) };`);
         await h.shot("cdp-shots/agent-tree-rail-p12-worker-header.png");
         if (t1Run != null) {
             await lookEval(h, `
@@ -1115,8 +1118,11 @@ export const agentTreeRail = {
                 return true;`);
         }
         rec(
-            "9b. t-1's worker header's Go to the lead reads the run's plan title, not the lead's tab name (D12)",
-            toLead.text === `↑ ${TREE_RAIL_TITLE}` && !toLead.text.includes(TREE_RAIL_LEAD),
+            "9b. t-1's worker header's Go to the lead and its rail's Lead row read the run's plan title, not the lead's tab name (D12)",
+            toLead.text === `↑ ${TREE_RAIL_TITLE}` &&
+                !toLead.text.includes(TREE_RAIL_LEAD) &&
+                toLead.railLead === TREE_RAIL_TITLE &&
+                !toLead.railLead.includes(TREE_RAIL_LEAD),
             JSON.stringify(toLead)
         );
 

@@ -1130,6 +1130,27 @@ async function phase2CardSteps(h, ctx, cardB) {
         title === D.title && title !== "live-run lead D",
         { title, want: D.title }
     );
+
+    // P12: the card's message box names the lead by the plan title too; the composer is closed again after
+    const composer = await lookEval(h, `
+        const model = ${COCKPIT_MODEL};
+        const { globalStore } = await mod("app/store/jotaiStore.ts");
+        window.__leadCardPrevComposer = globalStore.get(model.openComposerIdAtom);
+        globalStore.set(model.openComposerIdAtom, ${JSON.stringify(LIVE_IDS.leadD)});
+        const box = () => ${liveCard(LIVE_IDS.leadD)}?.querySelector("textarea");
+        await until(() => !!box(), 4000);
+        return box()?.placeholder ?? null;`);
+    await h.shot("cdp-shots/lead-card-live-p12-composer.png");
+    await lookEval(h, `
+        const { globalStore } = await mod("app/store/jotaiStore.ts");
+        globalStore.set(${COCKPIT_MODEL}.openComposerIdAtom, window.__leadCardPrevComposer);
+        delete window.__leadCardPrevComposer;
+        return true;`);
+    rec(
+        "L25b. the lead card's message box names the lead by its plan title, not its tab name (P12)",
+        composer === `message ${D.title}…` && !composer.includes("live-run lead D"),
+        { placeholder: composer, want: `message ${D.title}…` }
+    );
     return steps;
 }
 
