@@ -104,6 +104,8 @@ import {
     settingsVaultSync,
     setupMemory,
 } from "./scenarios-settings.mjs";
+import { setupInstructions } from "./scenarios-setup-instructions.mjs";
+import { setupSkills } from "./scenarios-setup-skills.mjs";
 import {
     briefComposerSteerOnly,
     briefContextualMap,
@@ -356,6 +358,8 @@ export const SCENARIOS = [
     resmonStates,
     resmonLive,
     setupMemory,
+    setupInstructions,
+    setupSkills,
     settingsReviewFixes,
     cockpitEmptyState,
     agentLaunchHero,

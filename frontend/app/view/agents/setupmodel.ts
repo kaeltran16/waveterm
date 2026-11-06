@@ -3,7 +3,7 @@
 
 // Pure derivations behind the Setup surface's Instructions tab: each harness row's state, the header
 // status, the save count, and the editor's conflict transitions. setupstore.ts feeds these the agentsync
-// RPC results; setupsurface.tsx renders them.
+// RPC results; setupinstructions.tsx renders them.
 
 export type HarnessRowState = "in-sync" | "out-of-date" | "not-written" | "not-set-up";
 

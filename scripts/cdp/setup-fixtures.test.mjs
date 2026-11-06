@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+    LONG_TOKEN,
     SETUP_SCENARIO_NAMES,
     arrangeSetupFixture,
     assertSetupFixtureInstalled,
@@ -73,9 +74,9 @@ const AGENTSYNC = [
     ["agentsyncstatus", null],
     ["agentsyncsteeringread", null],
     ["agentsyncskills", null],
-    ["agentsyncsteeringwrite", { content: "x", basemtime: 1000, baseexists: true }],
+    ["agentsyncsteeringwrite", { content: "x", basemtime: 1000 }],
     ["agentsyncapply", {}],
-    ["agentsyncadopt", { apply: false, names: [] }],
+    ["agentsyncadopt", { apply: false }],
 ];
 
 describe("setup fixture safety", () => {
@@ -258,6 +259,15 @@ describe("setup fixture safety", () => {
         await expect(readSetupFixture(h)).rejects.toThrow(/not intercepting/);
         await expect(controlSetupFixture(h, "resetLog")).rejects.toThrow(/not intercepting/);
     });
+
+    it("fails only the first status read when the fault is armed after install, so the probe never eats it", async () => {
+        const { h, api } = fakePage();
+        await installSetupFixture(h, createSetupFixture("setup-instructions", tempRoot()));
+        await controlSetupFixture(h, "fail", { command: "agentsyncstatus", message: "status unreadable", times: 1 });
+        await expect(api.call(null, "agentsyncstatus", null)).rejects.toThrow(/status unreadable/);
+        await expect(api.call(null, "agentsyncstatus", null)).resolves.toMatchObject({ harnesses: expect.any(Array) });
+        await expect(api.call(null, "agentsyncsteeringread", null)).resolves.toBeDefined();
+    });
 });
 
 function runtimeFor(name = "setup-import") {
@@ -267,98 +277,106 @@ function runtimeFor(name = "setup-import") {
     return { fixture, rt, summary };
 }
 
-describe("setup fixture transitions", () => {
+const presentSteering = async (rt) =>
+    (await rt.call("agentsyncstatus")).harnesses.filter((x) => x.present).map((x) => x.steering);
+
+describe("setup fixture steering", () => {
     it("separates apply-only from save then apply", async () => {
         const { rt, summary } = runtimeFor();
         await rt.call("agentsyncapply", {});
         expect(summary()).toMatchObject({ applies: 1, applyOnly: 1, applyAfterSave: 0, diskWrites: 0 });
         const read = await rt.call("agentsyncsteeringread");
-        await rt.call("agentsyncsteeringwrite", { content: "new", basemtime: read.mtime, baseexists: read.exists });
+        await rt.call("agentsyncsteeringwrite", { content: "new", basemtime: read.mtime });
         await rt.call("agentsyncapply", {});
         expect(summary()).toMatchObject({ applies: 2, applyOnly: 1, applyAfterSave: 1, diskWrites: 1 });
-        const status = await rt.call("agentsyncstatus");
-        expect(status.harnesses.filter((x) => x.present).map((x) => x.steering)).toEqual(["current", "current"]);
+        expect(await presentSteering(rt)).toEqual(["current", "current", "current"]);
+    });
+
+    it("reads the doc as the wire carries it: path, content, mtime", async () => {
+        const { rt, fixture } = runtimeFor("setup-instructions");
+        expect(await rt.call("agentsyncsteeringread")).toEqual({
+            path: fixture.steering.path,
+            content: fixture.steering.content,
+            mtime: 1000,
+        });
+        rt.control("useVariant", { key: "doc-absent" });
+        expect(await rt.call("agentsyncsteeringread")).toMatchObject({ content: "", mtime: 0 });
+    });
+
+    it("conflicts on a disk edit since the read, and basemtime 0 overwrites it", async () => {
+        const { rt, summary } = runtimeFor();
+        const read = await rt.call("agentsyncsteeringread");
+        rt.control("setDisk", { content: "external edit" });
+        const edited = rt.snapshot().disk;
+        expect(edited.content).toBe("external edit");
+        expect(edited.mtime).toBeGreaterThan(read.mtime);
+        expect(await presentSteering(rt)).toEqual(["stale", "stale", "stale"]);
+
+        const res = await rt.call("agentsyncsteeringwrite", { content: "mine", basemtime: read.mtime });
+        expect(res).toEqual({ mtime: edited.mtime, conflict: true });
+        expect(rt.snapshot().disk.content).toBe("external edit");
+        expect(summary()).toMatchObject({ writeAttempts: 1, writeConflicts: 1, diskWrites: 0, applies: 0 });
+
+        const forced = await rt.call("agentsyncsteeringwrite", { content: "mine", basemtime: 0 });
+        expect(forced.conflict).toBe(false);
+        expect(forced.mtime).toBeGreaterThan(edited.mtime);
+        expect(rt.snapshot().disk.content).toBe("mine");
+        expect(summary()).toMatchObject({ writeAttempts: 2, diskWrites: 1, overwriteWrites: 1 });
+        expect(summary().lastWrite.data).toEqual({ content: "mine", basemtime: 0 });
+    });
+
+    it("writes a doc that is not on disk whatever the base, like WriteSteering", async () => {
+        const { rt, summary } = runtimeFor();
+        rt.control("setDisk", { exists: false });
+        expect(await rt.call("agentsyncsteeringread")).toMatchObject({ content: "", mtime: 0 });
+        const res = await rt.call("agentsyncsteeringwrite", { content: "fresh", basemtime: 1000 });
+        expect(res.conflict).toBe(false);
+        expect(summary()).toMatchObject({ diskWrites: 1, overwriteWrites: 0 });
     });
 
     it("answers an apply with no preceding save as apply-only even after a failed save", async () => {
         const { rt, summary } = runtimeFor();
         rt.control("setDisk", { content: "external" });
-        await rt.call("agentsyncsteeringwrite", { content: "mine", basemtime: 1000, baseexists: true });
+        await rt.call("agentsyncsteeringwrite", { content: "mine", basemtime: 1000 });
         await rt.call("agentsyncapply", {});
         expect(summary()).toMatchObject({ applyOnly: 1, applyAfterSave: 0 });
     });
 
-    it("conflicts without writing when the disk changed, and keeps the draft's disk untouched", async () => {
-        const { rt, summary } = runtimeFor();
-        rt.control("setDisk", { content: "external edit" });
-        const res = await rt.call("agentsyncsteeringwrite", { content: "mine", basemtime: 1000, baseexists: true });
-        expect(res.conflict).toBe(true);
-        const snap = rt.snapshot();
-        expect(snap.disk.content).toBe("external edit");
-        expect(summary()).toMatchObject({ writeAttempts: 1, writeConflicts: 1, diskWrites: 0, applies: 0 });
+    it("marks every present harness blank while the shared doc is empty", async () => {
+        const { rt } = runtimeFor("setup-instructions");
+        rt.control("useVariant", { key: "blank" });
+        expect((await rt.call("agentsyncsteeringread")).content).toBe("");
+        expect(await presentSteering(rt)).toEqual(["blank", "blank", "blank"]);
+        await rt.call("agentsyncapply", {});
+        expect(await presentSteering(rt)).toEqual(["blank", "blank", "blank"]);
+        await rt.call("agentsyncsteeringwrite", { content: "now something", basemtime: 0 });
+        await rt.call("agentsyncapply", {});
+        expect(await presentSteering(rt)).toEqual(["current", "current", "current"]);
     });
 
-    it("pins absent-to-present and present-to-deleted as no-write conflicts, and overwrite as the explicit bypass", async () => {
-        const absent = runtimeFor();
-        absent.rt.control("useVariant", { key: "doc-absent" });
-        const read = await absent.rt.call("agentsyncsteeringread");
-        expect(read).toMatchObject({ exists: false, mtime: 0, content: "" });
-        absent.rt.control("setDisk", { content: "created elsewhere" });
-        const created = await absent.rt.call("agentsyncsteeringwrite", { content: "mine", basemtime: 0, baseexists: false });
-        expect(created.conflict).toBe(true);
-        expect(absent.summary().diskWrites).toBe(0);
-
-        const present = runtimeFor();
-        present.rt.control("setDisk", { exists: false, content: "" });
-        const deleted = await present.rt.call("agentsyncsteeringwrite", { content: "mine", basemtime: 1000, baseexists: true });
-        expect(deleted.conflict).toBe(true);
-        expect(present.summary().diskWrites).toBe(0);
-
-        const forced = await present.rt.call("agentsyncsteeringwrite", {
-            content: "mine",
-            basemtime: 1000,
-            baseexists: true,
-            overwrite: true,
-        });
-        expect(forced.conflict).toBe(false);
-        expect(present.summary()).toMatchObject({ diskWrites: 1, overwriteWrites: 1 });
-        expect(present.rt.snapshot().disk).toMatchObject({ exists: true, content: "mine" });
-    });
-
-    it("treats basemtime 0 without a baseline as read-first, never as an overwrite", async () => {
-        const { rt, summary } = runtimeFor();
-        await expect(rt.call("agentsyncsteeringwrite", { content: "x", basemtime: 0 })).rejects.toThrow(/read the document first/);
-        expect(summary()).toMatchObject({ writeAttempts: 1, diskWrites: 0 });
-        const legacy = await rt.call("agentsyncsteeringwrite", { content: "x", basemtime: 1000 });
-        expect(legacy.conflict).toBe(false);
-    });
-
-    it("logs a stat-error write attempt separately from disk writes and never applies", async () => {
+    it("logs a faulted write attempt separately from disk writes and never applies", async () => {
         const { rt, summary } = runtimeFor();
         rt.control("fail", { command: "agentsyncsteeringwrite", message: "stat failed: access denied" });
-        await expect(rt.call("agentsyncsteeringwrite", { content: "x", basemtime: 1000, baseexists: true, overwrite: true })).rejects.toThrow(
-            /access denied/
-        );
+        await expect(rt.call("agentsyncsteeringwrite", { content: "x", basemtime: 0 })).rejects.toThrow(/access denied/);
         expect(summary()).toMatchObject({ writeAttempts: 1, diskWrites: 0, applies: 0 });
+        expect(summary().lastWrite.data).toEqual({ content: "x", basemtime: 0 });
         expect(rt.snapshot().disk.content).toContain("Shared instructions");
     });
 
-    it("invokes neither write nor apply after a failed prerequisite read and a Discard reread", async () => {
+    it("fails a read once and then serves it again", async () => {
         const { rt, summary } = runtimeFor();
         rt.control("fail", { command: "agentsyncsteeringread", message: "read failed", times: 1 });
         await expect(rt.call("agentsyncsteeringread")).rejects.toThrow(/read failed/);
-        const reread = await rt.call("agentsyncsteeringread");
-        expect(reread.exists).toBe(true);
+        expect((await rt.call("agentsyncsteeringread")).mtime).toBe(1000);
         expect(summary()).toMatchObject({ writeAttempts: 0, applies: 0, diskWrites: 0 });
         expect(summary().reads.agentsyncsteeringread).toBe(1);
     });
 
-    it("sees a Discard reread pick up a disk change", async () => {
-        const { rt } = runtimeFor();
-        rt.control("setDisk", { content: "changed under the draft" });
-        const reread = await rt.call("agentsyncsteeringread");
-        expect(reread.content).toBe("changed under the draft");
-        expect(reread.mtime).toBeGreaterThan(1000);
+    it("fails only the first status read under the status fault", async () => {
+        const { rt } = runtimeFor("setup-instructions");
+        rt.control("fail", { command: "agentsyncstatus", message: "status unreadable", times: 1 });
+        await expect(rt.call("agentsyncstatus")).rejects.toThrow(/status unreadable/);
+        expect((await rt.call("agentsyncstatus")).harnesses).toHaveLength(4);
     });
 
     it("surfaces independent read failures per command and clears them", async () => {
@@ -383,168 +401,111 @@ describe("setup fixture transitions", () => {
         rt.control("setDisk", { content: "doc" });
         rt.control("partialApply", { after: 1, message: "write to Codex failed" });
         await expect(rt.call("agentsyncapply", {})).rejects.toThrow(/Codex failed/);
-        const status = await rt.call("agentsyncstatus");
-        expect(status.harnesses.filter((x) => x.present).map((x) => x.steering)).toEqual(["current", "stale"]);
+        expect(await presentSteering(rt)).toEqual(["current", "stale", "stale"]);
         expect(summary().applies).toBe(1);
     });
 
-    it("separates an adopt review from an actual apply and records the selection and acknowledgements", async () => {
+    it("logs a faulted apply as an attempted mutation, after a save only when one preceded it", async () => {
         const { rt, summary } = runtimeFor();
-        const names = ["identical-copy", "differs-body", "ext-managed"];
-        const keep = { "differs-body": "claude" };
-        const review = await rt.call("agentsyncadopt", { apply: false, names, keep });
+        rt.control("fail", { command: "agentsyncapply", message: "apply exploded", times: 1 });
+        await expect(rt.call("agentsyncapply", {})).rejects.toThrow(/apply exploded/);
+        expect(summary()).toMatchObject({ applies: 1, applyErrors: 1, applyOnly: 1 });
+        const read = await rt.call("agentsyncsteeringread");
+        await rt.call("agentsyncsteeringwrite", { content: "n", basemtime: read.mtime });
+        rt.control("fail", { command: "agentsyncapply", message: "boom" });
+        await expect(rt.call("agentsyncapply", {})).rejects.toThrow(/boom/);
+        expect(summary()).toMatchObject({ applies: 2, applyAfterSave: 1, applyErrors: 2 });
+    });
+});
+
+const adoptPlan = (rt, data = {}) => rt.call("agentsyncadopt", { apply: false, ...data });
+const unmanagedNames = (rt) => new Set(rt.snapshot().skills.unmanaged.map((m) => m.name));
+const managedNames = (rt) => rt.snapshot().skills.skills.map((k) => k.name);
+
+describe("setup fixture adopt", () => {
+    it("plans every unmanaged copy and leaves a body-differing name unresolved until a keep picks a copy", async () => {
+        const { rt, summary } = runtimeFor();
+        const plan = await adoptPlan(rt);
+        expect(plan.unresolved).toEqual(["differs-body"]);
+        expect(new Set(plan.moves.map((m) => m.name))).toEqual(
+            new Set(["identical-copy", "differs-body", "codex-only-skill", "fm-delta", "commit-helper"])
+        );
+        expect(plan.dryrun).toBeUndefined();
         expect(summary()).toMatchObject({ adoptReviews: 1, adoptApplies: 0 });
-        expect(summary().lastReview).toMatchObject({ names, keep, acknowledged: [] });
-        expect(review.warnings).toEqual([expect.objectContaining({ name: "ext-managed", declaration: "managed-by: skills-manager" })]);
-        expect(review.targets.map((t) => `${t.name}:${t.runtime}`)).toContain("differs-body:claude");
-        expect(review.unresolved).toEqual([]);
-
-        await expect(
-            rt.call("agentsyncadopt", { apply: true, names, keep, reviewtoken: review.reviewtoken })
-        ).rejects.toThrow(/acknowledge ownership/);
-        expect(rt.snapshot().skills.unmanaged.map((m) => m.name)).toContain("ext-managed");
-
-        await rt.call("agentsyncadopt", {
-            apply: true,
-            names,
-            keep,
-            reviewtoken: review.reviewtoken,
-            acknowledged: ["ext-managed"],
-        });
-        expect(summary()).toMatchObject({ adoptApplies: 2, adoptAppliesMoved: 1, adoptRejected: 1 });
-        expect(summary().lastAdoptApply).toMatchObject({ names, keep, acknowledged: ["ext-managed"] });
-        const after = rt.snapshot().skills;
-        expect(after.skills.map((k) => k.name)).toEqual(expect.arrayContaining(names));
-        expect(new Set(after.unmanaged.map((m) => m.name))).toEqual(new Set(["codex-only-skill", "fm-delta", "commit-helper"]));
+        const kept = await adoptPlan(rt, { keep: { "differs-body": "codex" } });
+        expect(kept.unresolved).toEqual([]);
+        expect(kept.moves.find((m) => m.name === "differs-body" && m.seed).runtime).toBe("codex");
     });
 
-    it("rejects a changed review with no moves and does not adopt newly discovered names", async () => {
+    it("moves the resolved names on apply and leaves the unresolved one and the vault skill's copy", async () => {
         const { rt, summary } = runtimeFor();
-        const names = ["identical-copy"];
-        const review = await rt.call("agentsyncadopt", { apply: false, names });
-        rt.control("changeReview");
-        rt.control("discoverNew", { name: "late-arrival", runtime: "claude" });
-        await expect(rt.call("agentsyncadopt", { apply: true, names, reviewtoken: review.reviewtoken })).rejects.toThrow(/review changed/);
-        expect(rt.snapshot().skills.unmanaged.map((m) => m.name)).toContain("identical-copy");
+        await rt.call("agentsyncadopt", { apply: true });
+        expect(unmanagedNames(rt)).toEqual(new Set(["differs-body", "commit-helper"]));
+        expect(managedNames(rt)).toEqual(expect.arrayContaining(["identical-copy", "codex-only-skill", "fm-delta"]));
+        expect(summary()).toMatchObject({ adoptApplies: 1, adoptAppliesMoved: 1 });
+        expect(summary().lastAdoptApply).toMatchObject({ keep: {}, skip: [], apply: true });
+    });
+
+    it("skips a skipped name entirely, even one that also has a keep", async () => {
+        const { rt, summary } = runtimeFor();
+        const skip = ["differs-body", "identical-copy"];
+        const keep = { "differs-body": "claude" };
+        const plan = await adoptPlan(rt, { keep, skip });
+        expect(plan.moves.some((m) => skip.includes(m.name))).toBe(false);
+        expect(plan.unresolved).toEqual([]);
+        // a keep naming a copy that does not exist is not checked for a skipped name either
+        await expect(adoptPlan(rt, { keep: { "identical-copy": "opencode" }, skip: ["identical-copy"] })).resolves.toBeDefined();
+
+        await rt.call("agentsyncadopt", { apply: true, keep, skip });
+        const left = unmanagedNames(rt);
+        expect(left.has("differs-body")).toBe(true);
+        expect(left.has("identical-copy")).toBe(true);
+        // both copies of each skipped name stay where they are
+        expect(rt.snapshot().skills.unmanaged.filter((m) => skip.includes(m.name))).toHaveLength(4);
+        expect(managedNames(rt)).not.toContain("differs-body");
+        expect(managedNames(rt)).toEqual(expect.arrayContaining(["codex-only-skill", "fm-delta"]));
+        expect(summary().lastAdoptApply).toMatchObject({ keep, skip });
+    });
+
+    it("rejects a runtime keep for a vault skill, a vault keep for any other name, and a keep with no copy", async () => {
+        const { rt, summary } = runtimeFor();
+        await expect(adoptPlan(rt, { keep: { "commit-helper": "codex" } })).rejects.toThrow(/already managed by Arc/);
+        await expect(adoptPlan(rt, { keep: { "identical-copy": "vault" } })).rejects.toThrow(/holds no unmanaged copy/);
+        await expect(adoptPlan(rt, { keep: { "identical-copy": "opencode" } })).rejects.toThrow(/holds no unmanaged copy/);
+        await expect(rt.call("agentsyncadopt", { apply: true, keep: { "commit-helper": "codex" } })).rejects.toThrow(
+            /already managed/
+        );
         expect(summary().adoptRejected).toBe(1);
-
-        const again = await rt.call("agentsyncadopt", { apply: false, names });
-        expect(again.reviewtoken).not.toBe(review.reviewtoken);
-        await rt.call("agentsyncadopt", { apply: true, names, reviewtoken: again.reviewtoken });
-        const left = rt.snapshot().skills.unmanaged.map((m) => m.name);
-        expect(left).toContain("late-arrival");
-        expect(left).not.toContain("identical-copy");
+        expect(unmanagedNames(rt).size).toBe(5);
     });
 
-    it("refuses an apply with no review token for an explicit selection", async () => {
-        const { rt } = runtimeFor();
-        await expect(rt.call("agentsyncadopt", { apply: true, names: ["identical-copy"] })).rejects.toThrow(/review the selection/);
-    });
-
-    it("leaves a body-differing skill unresolved until a keep is chosen", async () => {
-        const { rt } = runtimeFor();
-        const review = await rt.call("agentsyncadopt", { apply: false, names: ["differs-body"] });
-        expect(review.unresolved).toEqual(["differs-body"]);
-        expect(review.moves).toEqual([]);
-        const kept = await rt.call("agentsyncadopt", { apply: false, names: ["differs-body"], keep: { "differs-body": "codex" } });
-        expect(kept.moves.find((m) => m.seed).runtime).toBe("codex");
-    });
-
-    it("treats an empty selection as a no-op and rejects bad names, keeps, acknowledgements and canonical collisions", async () => {
-        const { rt, summary } = runtimeFor();
-        const empty = await rt.call("agentsyncadopt", { apply: true, names: [] });
-        expect(empty.moves).toEqual([]);
-        expect(rt.snapshot().skills.unmanaged).toHaveLength(9);
-        expect(summary().lastAdoptApply).toMatchObject({ outcome: "noop" });
-        await expect(rt.call("agentsyncadopt", { apply: false, names: ["ghost"] })).rejects.toThrow(/unknown skill/);
-        await expect(rt.call("agentsyncadopt", { apply: false, names: ["commit-helper"] })).rejects.toThrow(/managed skill/);
-        await expect(rt.call("agentsyncadopt", { apply: false, names: ["design"] })).rejects.toThrow(/managed skill/);
-        await expect(
-            rt.call("agentsyncadopt", { apply: false, names: ["identical-copy"], keep: { "identical-copy": "opencode" } })
-        ).rejects.toThrow(/invalid keep/);
-        await expect(
-            rt.call("agentsyncadopt", { apply: false, names: ["identical-copy"], acknowledged: ["identical-copy"] })
-        ).rejects.toThrow(/invalid acknowledgement/);
-    });
-
-    it("keeps legacy adoption off externally declared copies", async () => {
-        const { rt } = runtimeFor();
-        await rt.call("agentsyncadopt", { apply: true });
-        // the body-differing skill has no keep, so it stays too; only the declared copy is the point here
-        const left = new Set(rt.snapshot().skills.unmanaged.map((m) => m.name));
-        expect(left).toEqual(new Set(["differs-body", "ext-managed", "commit-helper"]));
-    });
-
-    it("leaves a canonical-name local shadow alone through sync, adoption and a canonical edit", async () => {
-        const { fixture, rt } = runtimeFor("setup-skills");
-        const shadow = (snap) => snap.skills.unmanaged.filter((m) => m.name === "commit-helper");
-        expect(shadow(rt.snapshot())).toEqual([expect.objectContaining({ runtime: "codex" })]);
-        const file = fixture.files.find((f) => f.path === join(shadow(rt.snapshot())[0].from, "SKILL.md"));
-        expect(file.content).toContain("local shadow body");
-        await rt.call("agentsyncapply", {});
-        await rt.call("agentsyncadopt", { apply: true });
-        rt.control("editSource", { name: "commit-helper", content: "edited" });
-        await rt.call("agentsyncapply", {});
-        const snap = rt.snapshot();
-        expect(shadow(snap)).toHaveLength(1);
-        expect(snap.skills.skills.filter((k) => k.name === "commit-helper")).toHaveLength(1);
-        expect(snap.contents.vault["commit-helper"]).toBe("edited");
-        await expect(rt.call("agentsyncadopt", { apply: false, names: ["commit-helper"] })).rejects.toThrow(/managed skill/);
-    });
-
-    it("reseeds a shipped body on apply, keeps its .arc deltas, and refuses a canonical edit of a shipped skill", async () => {
-        const { fixture, rt } = runtimeFor("setup-skills");
-        const before = rt.snapshot().contents;
-        expect(before.vault["design"]).toContain("shipped body v1");
-        expect(Object.keys(before.deltas).length).toBeGreaterThan(0);
-        const onDisk = fixture.files.find((f) => f.path.endsWith(join("design", "SKILL.md")));
-        expect(onDisk.content).toBe(before.vault["design"]);
-        expect(fixture.files.some((f) => f.path.includes(join("design", ".arc", "codex", "agents", "openai.yaml")))).toBe(true);
-        expect(() => rt.control("editSource", { name: "design", content: "x" })).toThrow(/not a user-owned vault skill/);
-        await rt.call("agentsyncapply", {});
-        const after = rt.snapshot().contents;
-        expect(after.vault["design"]).toContain("shipped body v2");
-        expect(after.dests["design/codex"]).toBe(after.vault["design"]);
-        expect(after.dests["design/claude"]).toBeUndefined();
-        expect(after.deltas).toEqual(before.deltas);
-    });
-
-    it("rewrites managed harness copies after a canonical edit and sync, and leaves the unmanaged shadow's bytes and state", async () => {
-        const { fixture, rt } = runtimeFor("setup-skills");
-        const states = (snap) => snap.skills.skills.find((k) => k.name === "commit-helper").states;
-        const before = rt.snapshot();
-        const shadowBytes = fixture.files.find((f) => f.path.endsWith(join("codex", "skills", "commit-helper", "SKILL.md"))).content;
-        expect(shadowBytes).toContain("local shadow body");
-        expect(before.contents.dests["commit-helper/codex"]).toBe(shadowBytes);
-        expect(before.contents.dests["commit-helper/codex"]).not.toBe(before.contents.vault["commit-helper"]);
-        expect(states(before)).toEqual({ claude: "synced", codex: "unmanaged" });
-
-        rt.control("editSource", { name: "commit-helper", content: "new body" });
-        const edited = rt.snapshot();
-        expect(states(edited)).toEqual({ claude: "differs", codex: "unmanaged" });
-        expect(edited.contents.dests["commit-helper/codex"]).toBe(shadowBytes);
-
-        await rt.call("agentsyncapply", {});
-        const after = rt.snapshot();
-        expect(states(after)).toEqual({ claude: "synced", codex: "unmanaged" });
-        expect(after.contents.dests["commit-helper/claude"]).toBe("new body");
-        expect(after.contents.dests["commit-helper/codex"]).toBe(shadowBytes);
-    });
-
-    it("rewrites every managed destination of an edited skill that has no shadow", async () => {
+    it("plans a vault skill's copy against the vault, never unresolved, and sets it aside only for a vault keep", async () => {
         const { rt } = runtimeFor("setup-skills");
-        rt.control("editSource", { name: "vault-drift", content: "drift body" });
-        await rt.call("agentsyncapply", {});
-        const after = rt.snapshot();
-        expect(after.skills.skills.find((k) => k.name === "vault-drift").states).toEqual({ claude: "synced", codex: "synced" });
-        expect(after.contents.dests["vault-drift/claude"]).toBe("drift body");
-        expect(after.contents.dests["vault-drift/codex"]).toBe("drift body");
+        const shadow = (await adoptPlan(rt)).moves.filter((m) => m.name === "commit-helper");
+        expect(shadow).toEqual([expect.objectContaining({ runtime: "codex", vault: true, seed: false, bodydiff: true })]);
+        await rt.call("agentsyncadopt", { apply: true });
+        expect(unmanagedNames(rt).has("commit-helper")).toBe(true);
+        await rt.call("agentsyncadopt", { apply: true, keep: { "commit-helper": "vault" } });
+        const snap = rt.snapshot();
+        expect(unmanagedNames(rt).has("commit-helper")).toBe(false);
+        expect(snap.skills.skills.find((k) => k.name === "commit-helper").states.codex).toBe("synced");
+        expect(snap.contents.dests["commit-helper/codex"]).toBe(snap.contents.vault["commit-helper"]);
+    });
+
+    it("turns an apply into a dry run in a snapshot store and moves nothing", async () => {
+        const { rt } = runtimeFor();
+        rt.control("snapshotStore", { on: true });
+        const res = await rt.call("agentsyncadopt", { apply: true });
+        expect(res.dryrun).toBe(true);
+        expect(unmanagedNames(rt).size).toBe(5);
     });
 
     it("compares each copy against the chosen seed, in both keep directions", async () => {
         const { rt } = runtimeFor();
         const movesFor = async (name, keep) =>
-            Object.fromEntries((await rt.call("agentsyncadopt", { apply: false, names: [name], keep })).moves.map((m) => [m.runtime, m]));
+            Object.fromEntries(
+                (await adoptPlan(rt, { keep })).moves.filter((m) => m.name === name).map((m) => [m.runtime, m])
+            );
 
         const keepClaude = await movesFor("differs-body", { "differs-body": "claude" });
         expect(keepClaude.claude).toMatchObject({ seed: true, bodydiff: false });
@@ -560,8 +521,6 @@ describe("setup fixture transitions", () => {
         expect(fmClaude.codex).toMatchObject({ seed: false, bodydiff: false, keys: ["model"], files: ["agents/openai.yaml"] });
         const fmCodex = await movesFor("fm-delta", { "fm-delta": "codex" });
         expect(fmCodex.codex).toMatchObject({ seed: true, bodydiff: false });
-        expect(fmCodex.codex.keys).toBeUndefined();
-        expect(fmCodex.claude).toMatchObject({ seed: false, bodydiff: false });
         expect(fmCodex.claude.keys).toBeUndefined();
         expect(fmCodex.claude.files).toBeUndefined();
 
@@ -573,54 +532,49 @@ describe("setup fixture transitions", () => {
 
     it("lists default-plan flags that agree with the comparison the plan makes", async () => {
         const { fixture, rt } = runtimeFor();
+        const planned = (await adoptPlan(rt)).moves;
         for (const name of ["identical-copy", "fm-delta", "codex-only-skill"]) {
-            const planned = (await rt.call("agentsyncadopt", { apply: false, names: [name] })).moves;
-            const listed = fixture.skills.unmanaged.filter((m) => m.name === name);
-            expect(planned.map((m) => [m.runtime, m.bodydiff, m.keys, m.files])).toEqual(
-                listed.map((m) => [m.runtime, m.bodydiff, m.keys, m.files])
-            );
+            const pick = (list) => list.filter((m) => m.name === name).map((m) => [m.runtime, m.bodydiff, m.keys, m.files]);
+            expect(pick(planned)).toEqual(pick(fixture.skills.unmanaged));
         }
-        const diff = (await rt.call("agentsyncadopt", { apply: false, names: ["differs-body"] })).unresolved;
-        expect(diff).toEqual(fixture.skills.unresolved);
+        expect((await adoptPlan(rt)).unresolved).toEqual(fixture.skills.unresolved);
     });
 
-    it("logs a faulted apply and adopt as attempted mutations with their request and error", async () => {
+    it("logs a faulted adopt as an attempted mutation with its request and error", async () => {
         const { rt, summary } = runtimeFor();
-        rt.control("fail", { command: "agentsyncapply", message: "apply exploded" });
-        await expect(rt.call("agentsyncapply", {})).rejects.toThrow(/apply exploded/);
-        expect(summary()).toMatchObject({ applies: 1, applyErrors: 1, applyOnly: 1 });
         rt.control("fail", { command: "agentsyncadopt", message: "adopt exploded" });
-        const names = ["identical-copy"];
-        await expect(rt.call("agentsyncadopt", { apply: true, names, keep: {}, acknowledged: [], reviewtoken: "t" })).rejects.toThrow(/adopt exploded/);
-        await expect(rt.call("agentsyncadopt", { apply: false, names })).rejects.toThrow(/adopt exploded/);
+        await expect(rt.call("agentsyncadopt", { apply: true, keep: {}, skip: ["fm-delta"] })).rejects.toThrow(
+            /adopt exploded/
+        );
+        await expect(adoptPlan(rt)).rejects.toThrow(/adopt exploded/);
         expect(summary()).toMatchObject({ adoptApplies: 1, adoptErrors: 1, adoptReviews: 1 });
-        expect(summary().lastAdoptApply).toMatchObject({ names, apply: true, outcome: "error", reason: "adopt exploded" });
-        expect(summary().lastReview).toMatchObject({ names, apply: false, outcome: "error" });
+        expect(summary().lastAdoptApply).toMatchObject({ skip: ["fm-delta"], apply: true, outcome: "error", reason: "adopt exploded" });
+        expect(unmanagedNames(rt).size).toBe(5);
     });
 
-    it("keeps failed apply attempts out of the apply-after-save count unless a save preceded them", async () => {
-        const { rt, summary } = runtimeFor();
-        const read = await rt.call("agentsyncsteeringread");
-        await rt.call("agentsyncsteeringwrite", { content: "n", basemtime: read.mtime, baseexists: true });
-        rt.control("fail", { command: "agentsyncapply", message: "boom" });
-        await expect(rt.call("agentsyncapply", {})).rejects.toThrow(/boom/);
-        expect(summary()).toMatchObject({ applies: 1, applyAfterSave: 1, applyErrors: 1 });
+    it("keeps the rest after a partial adopt", async () => {
+        const { rt } = runtimeFor();
+        rt.control("partialAdopt", { after: 1, message: "move failed halfway" });
+        await expect(rt.call("agentsyncadopt", { apply: true })).rejects.toThrow(/halfway/);
+        expect(managedNames(rt)).toContain("identical-copy");
+        expect([...unmanagedNames(rt)]).toEqual(
+            expect.arrayContaining(["fm-delta", "differs-body", "codex-only-skill", "commit-helper"])
+        );
     });
 
-    it("keeps body flags truthful against the files: identical and delta-only copies share a body", () => {
-        const { fixture } = runtimeFor("setup-skills");
-        const bodyOf = (path) => fixture.files.find((f) => f.path === path).content.split(/\n---\n/)[1];
-        const byName = {};
-        for (const c of fixture.skills.unmanaged) (byName[c.name] ??= []).push(c);
-        for (const [name, copies] of Object.entries(byName)) {
-            const bodies = new Set(copies.map((c) => bodyOf(join(c.from, "SKILL.md"))));
-            expect([name, copies.some((c) => c.bodydiff)]).toEqual([name, bodies.size > 1]);
-        }
-        expect(byName["identical-copy"].map((c) => c.bodydiff)).toEqual([false, false]);
-        const fm = byName["fm-delta"];
-        expect(fm.some((c) => c.bodydiff)).toBe(false);
-        const codexFm = fixture.files.find((f) => f.path === join(fm.find((c) => c.runtime === "codex").from, "SKILL.md")).content;
-        expect(codexFm).toContain("model: fixture-model");
+    it("explains a rejected adoption through the installed page runtime, not module scope", async () => {
+        const { h, api } = fakePage();
+        await installSetupFixture(h, createSetupFixture("setup-import", tempRoot()));
+        // the page copy is built from createFixtureRuntime.toString(); a stray module reference would throw ReferenceError
+        await expect(api.call(null, "agentsyncadopt", { apply: true, keep: { "commit-helper": "codex" } })).rejects.toThrow(
+            /already managed/
+        );
+        await expect(api.call(null, "agentsyncadopt", { apply: false, keep: { ghost: "claude" } })).rejects.toThrow(
+            /holds no unmanaged copy/
+        );
+        const snap = await readSetupFixture(h);
+        expect(callSummary(snap)).toMatchObject({ adoptRejected: 1, adoptAppliesMoved: 0 });
+        expect(snap.log.filter((e) => e.outcome === "rejected").every((e) => !/not defined/.test(e.reason))).toBe(true);
     });
 
     it("hands out skill directories that hold a SKILL.md, for every copy and the discoverable one", async () => {
@@ -638,81 +592,95 @@ describe("setup fixture transitions", () => {
         expect(existsSync(join(late.from, "SKILL.md"))).toBe(true);
         await restoreSetupFixture(h, handle);
     });
+});
 
-    it("explains a rejected adoption through the installed page runtime, not module scope", async () => {
-        const { h, api } = fakePage();
-        await installSetupFixture(h, createSetupFixture("setup-import", tempRoot()));
-        // the page copy is built from createFixtureRuntime.toString(); a stray module reference would throw ReferenceError
-        await expect(api.call(null, "agentsyncadopt", { apply: true, names: ["identical-copy"] })).rejects.toThrow(/review the selection/);
-        await expect(api.call(null, "agentsyncadopt", { apply: true, names: ["identical-copy"], reviewtoken: "stale" })).rejects.toThrow(/review changed/);
-        await expect(
-            api.call(null, "agentsyncadopt", { apply: true, names: ["ext-managed"], reviewtoken: "x" })
-        ).rejects.toThrow(/acknowledge ownership/);
-        await expect(api.call(null, "agentsyncadopt", { apply: false, names: ["ghost"] })).rejects.toThrow(/unknown skill/);
-        const snap = await readSetupFixture(h);
-        expect(callSummary(snap)).toMatchObject({ adoptRejected: 3, adoptAppliesMoved: 0 });
-        expect(snap.log.filter((e) => e.outcome === "rejected").every((e) => typeof e.reason === "string" && !/not defined/.test(e.reason))).toBe(true);
+describe("setup fixture data", () => {
+    it("reseeds a shipped body on apply, keeps its .arc deltas, and refuses a canonical edit of a shipped skill", async () => {
+        const { fixture, rt } = runtimeFor("setup-skills");
+        const before = rt.snapshot().contents;
+        expect(before.vault["design"]).toContain("shipped body v1");
+        expect(Object.keys(before.deltas).length).toBeGreaterThan(0);
+        const onDisk = fixture.files.find((f) => f.path.endsWith(join("design", "SKILL.md")));
+        expect(onDisk.content).toBe(before.vault["design"]);
+        expect(() => rt.control("editSource", { name: "design", content: "x" })).toThrow(/not a user-owned vault skill/);
+        await rt.call("agentsyncapply", {});
+        const after = rt.snapshot().contents;
+        expect(after.vault["design"]).toContain("shipped body v2");
+        expect(after.dests["design/codex"]).toBe(after.vault["design"]);
+        expect(after.dests["design/claude"]).toBeUndefined();
+        expect(after.deltas).toEqual(before.deltas);
     });
 
-    it("keeps unselected local copies untouched and survives a partial adopt", async () => {
-        const { rt } = runtimeFor();
-        const names = ["identical-copy", "fm-delta"];
-        const review = await rt.call("agentsyncadopt", { apply: false, names });
-        rt.control("partialAdopt", { after: 1, message: "move failed halfway" });
-        await expect(rt.call("agentsyncadopt", { apply: true, names, reviewtoken: review.reviewtoken })).rejects.toThrow(/halfway/);
-        const snap = rt.snapshot();
-        expect(snap.skills.skills.map((k) => k.name)).toContain("identical-copy");
-        expect(snap.skills.unmanaged.map((m) => m.name)).toEqual(
-            expect.arrayContaining(["fm-delta", "differs-body", "codex-only-skill", "ext-managed"])
-        );
+    it("rewrites managed harness copies after a canonical edit and sync, and leaves the vault skill's local copy", async () => {
+        const { fixture, rt } = runtimeFor("setup-skills");
+        const states = (snap) => snap.skills.skills.find((k) => k.name === "commit-helper").states;
+        const shadowBytes = fixture.files.find((f) => f.path.endsWith(join("codex", "skills", "commit-helper", "SKILL.md"))).content;
+        expect(rt.snapshot().contents.dests["commit-helper/codex"]).toBe(shadowBytes);
+        rt.control("editSource", { name: "commit-helper", content: "new body" });
+        expect(states(rt.snapshot())).toEqual({ claude: "differs", codex: "unmanaged" });
+        await rt.call("agentsyncapply", {});
+        const after = rt.snapshot();
+        expect(states(after)).toEqual({ claude: "synced", codex: "unmanaged" });
+        expect(after.contents.dests["commit-helper/claude"]).toBe("new body");
+        expect(after.contents.dests["commit-helper/codex"]).toBe(shadowBytes);
     });
 
-    it("supports dirty and conflict import-guard flows: multi-selection with keep and ack, a normal save conflict, no apply", async () => {
-        const { rt, summary } = runtimeFor();
-        const names = ["identical-copy", "differs-body", "ext-managed"];
-        const keep = { "differs-body": "codex" };
-        await rt.call("agentsyncadopt", { apply: false, names, keep });
-        rt.control("setDisk", { content: "changed on disk" });
-        const res = await rt.call("agentsyncsteeringwrite", { content: "draft", basemtime: 1000, baseexists: true });
-        expect(res.conflict).toBe(true);
-        expect(summary()).toMatchObject({ adoptReviews: 1, adoptApplies: 0, applies: 0, diskWrites: 0 });
-        expect(summary().lastReview).toMatchObject({ names, keep });
+    it("keeps body flags truthful against the files among a name's own copies", () => {
+        const { fixture } = runtimeFor("setup-skills");
+        const bodyOf = (path) => fixture.files.find((f) => f.path === path).content.split(/\n---\n/)[1];
+        const byName = {};
+        // a vault skill's copy is compared against the vault, not its siblings
+        for (const c of fixture.skills.unmanaged.filter((m) => !m.vault)) (byName[c.name] ??= []).push(c);
+        for (const [name, copies] of Object.entries(byName)) {
+            const bodies = new Set(copies.map((c) => bodyOf(join(c.from, "SKILL.md"))));
+            expect([name, copies.some((c) => c.bodydiff)]).toEqual([name, bodies.size > 1]);
+        }
+    });
+
+    it("carries the current wire's fields and none of the dropped ones", () => {
+        const { fixture } = runtimeFor("setup-instructions");
+        const skills = fixture.skills;
+        expect("piskills" in skills).toBe(false);
+        expect(skills.skills.every((k) => !("sourcekind" in k) && !("sourcepath" in k))).toBe(true);
+        expect(skills.linked).toEqual([expect.objectContaining({ runtime: "claude", name: "linked-tool" })]);
+        expect(Object.keys(fixture.steering).sort()).toEqual(["content", "mtime", "path"]);
+        const pi = fixture.status.harnesses.find((x) => x.runtime === "pi");
+        expect(pi).toMatchObject({ present: true, note: "pi settings do not point at the synced skills", notetone: "warn" });
+        expect(fixture.status.steeringdoc).toBe(fixture.steering.path);
+    });
+
+    it("writes each present harness's file under the temp home, with Arc's region", async () => {
+        const root = tempRoot();
+        const fixture = createSetupFixture("setup-instructions", root);
+        const { h } = fakePage();
+        const handle = await installSetupFixture(h, fixture);
+        for (const row of fixture.status.harnesses) {
+            expect(relative(fixture.ownedDir, row.path).startsWith("..")).toBe(false);
+            expect(existsSync(row.path)).toBe(row.present);
+        }
+        const claude = fixture.status.harnesses.find((x) => x.runtime === "claude");
+        const text = readFileSync(claude.path, "utf8");
+        expect(text).toContain("ARC-STEERING:BEGIN");
+        expect(text).toContain("Prefer small diffs.");
+        expect(text).toContain("My own claude notes");
+        expect(claude.path.endsWith(join(".claude", "CLAUDE.md"))).toBe(true);
+        await restoreSetupFixture(h, handle);
+        expect(existsSync(claude.path)).toBe(false);
     });
 
     it("renders each variant's dataset", async () => {
-        const { rt } = runtimeFor("setup-skills");
+        const { rt } = runtimeFor("setup-instructions");
+        rt.control("useVariant", { key: "long-token" });
+        const doc = (await rt.call("agentsyncsteeringread")).content;
+        expect(doc.trim()).toBe(LONG_TOKEN);
+        expect(LONG_TOKEN).toHaveLength(200);
+        expect(/\s/.test(LONG_TOKEN)).toBe(false);
         rt.control("useVariant", { key: "no-skills" });
         expect((await rt.call("agentsyncskills")).skills).toEqual([]);
-        rt.control("useVariant", { key: "pi-absent" });
-        expect((await rt.call("agentsyncskills")).piskills).toBeUndefined();
         rt.control("useVariant", { key: "unavailable-column" });
         expect((await rt.call("agentsyncskills")).columns.every((c) => !c.present)).toBe(true);
         expect(() => rt.control("useVariant", { key: "nope" })).toThrow(/unknown variant/);
         expect(() => rt.control("nope")).toThrow(/unknown control/);
-    });
-
-    it("covers every ownership and Pi case the boards leave undrawn", () => {
-        const { fixture } = runtimeFor("setup-skills");
-        const byName = Object.fromEntries(fixture.skills.skills.map((k) => [k.name, k]));
-        expect(byName["commit-helper"]).toMatchObject({ sourcekind: "vault" });
-        expect(byName["commit-helper"].sourcepath).toContain("commit-helper");
-        expect(byName["design"]).toMatchObject({ sourcekind: "shipped", sourcepath: "skills/design/SKILL.md" });
-        expect(byName["legacy-notes"].sourcekind).toBe("unknown");
-        expect("sourcekind" in byName["plain-notes"]).toBe(false);
-        // both carry a real, inspectable source, so read-only can only come from ownership, not a missing path
-        for (const n of ["legacy-notes", "plain-notes"]) {
-            const file = fixture.files.find((f) => f.path === byName[n].sourcepath);
-            expect(file?.content).toContain(`${n} vault source body`);
-            expect(relative(fixture.ownedDir, byName[n].sourcepath).startsWith("..")).toBe(false);
-        }
-        expect(byName["design"].deltas).toEqual({ codex: ["agents/openai.yaml"] });
-        expect(fixture.skills.piskills.sources.some((s) => s.runtime === "claude" && s.entry.startsWith("~/"))).toBe(true);
-        expect(fixture.skills.piskills.sources.every((s) => !s.path.includes("\\"))).toBe(true);
-        const states = new Set(Object.values(fixture.skills.piskills.states));
-        expect([...states]).toEqual(expect.arrayContaining(["available", "not-synced", "excluded", "unknown"]));
-        const copies = fixture.skills.unmanaged;
-        expect(copies.filter((c) => c.name === "codex-only-skill")).toHaveLength(1);
-        expect(copies.some((c) => c.name === "fm-delta" && c.keys?.length && c.files?.length && !c.bodydiff)).toBe(true);
     });
 
     it("keeps every source file under the fixture's own temp folder and removes only that folder", async () => {
@@ -721,21 +689,15 @@ describe("setup fixture transitions", () => {
         writeFileSync(sibling, "mine");
         const fixture = createSetupFixture("setup-skills", root);
         for (const f of fixture.files) {
-            const rel = relative(fixture.ownedDir, f.path);
-            expect(rel.startsWith("..")).toBe(false);
+            expect(relative(fixture.ownedDir, f.path).startsWith("..")).toBe(false);
         }
         const { h } = fakePage();
         const handle = await installSetupFixture(h, fixture);
-        const vault = fixture.skills.skills.find((k) => k.name === "commit-helper");
-        expect(existsSync(vault.sourcepath)).toBe(true);
-        expect(vault.sourcepath.startsWith(root)).toBe(true);
-        const ownership = fixture.skills.skills.filter((k) => k.name === "legacy-notes" || k.name === "plain-notes");
-        expect(ownership).toHaveLength(2);
-        for (const row of ownership) {
-            expect(readFileSync(row.sourcepath, "utf8")).toContain(`${row.name} vault source body`);
-        }
+        const source = join(fixture.skills.skillsroot, "commit-helper", "SKILL.md");
+        expect(readFileSync(source, "utf8")).toContain("commit-helper vault source body");
+        expect(source.startsWith(root)).toBe(true);
         await restoreSetupFixture(h, handle);
-        ownership.forEach((row) => expect(existsSync(row.sourcepath)).toBe(false));
+        expect(existsSync(source)).toBe(false);
         expect(existsSync(fixture.ownedDir)).toBe(false);
         expect(existsSync(sibling)).toBe(true);
         expect(existsSync(root)).toBe(true);
@@ -758,3 +720,4 @@ describe("setup fixture transitions", () => {
         expect(Object.keys(win).sort()).toEqual(["TabRpcClient", "__arcSetupFixture"]);
     });
 });
+
