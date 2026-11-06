@@ -24,7 +24,7 @@ export function peekMiddleware(boundary: Element | Rect, rightInsetPx: number): 
     return [
         offset(PEEK_GAP_PX),
         flip({ boundary, padding, fallbackPlacements: [PEEK_FALLBACK] }),
-        shift({ boundary, padding }),
+        shift({ boundary, padding, crossAxis: true }),
         size({
             boundary,
             padding,
@@ -66,7 +66,9 @@ export function nextSelection(current: string | null, clicked: string, clickCoun
     return current === clicked ? null : clicked;
 }
 
-export type PeekRow = { text: string; tone: "muted" | "warning" };
+// a clamped row is long prose the card cuts to a few lines, with a toggle to read it all; activity marks the
+// worker's time row
+export type PeekRow = { text: string; tone: "muted" | "warning"; clamp?: boolean; activity?: boolean };
 // what a task's Verify has to show: a heading, and the output tail the plan's command left behind
 export type VerifySection = { heading: string; tail: string; tone: "muted" | "warning" };
 export type TaskPeek = { title: string; description: string; rows: PeekRow[]; verify: VerifySection | null };
@@ -87,7 +89,7 @@ export function taskPeek(
     }
     const activity = activityText(task, nowMs);
     if (activity) {
-        rows.push({ text: activity, tone: "muted" });
+        rows.push({ text: activity, tone: "muted", activity: true });
     }
     if (task.lastfailurekind) {
         const attempt = (task.attempts ?? 0) > 1 ? ` · attempt ${task.attempts}` : "";
@@ -100,11 +102,11 @@ export function taskPeek(
             tone: "muted",
         });
     }
-    const reviewNote = firstLine(task.reviewnote);
+    const reviewNote = (task.reviewnote ?? "").trim();
     if (reviewNote) {
         const failed = task.state === "review-failed" || task.reviewverdict === "fail";
         const verdict = task.reviewverdict ? ` ${task.reviewverdict}` : "";
-        rows.push({ text: `review${verdict}: ${reviewNote}`, tone: failed ? "warning" : "muted" });
+        rows.push({ text: `review${verdict}: ${reviewNote}`, tone: failed ? "warning" : "muted", clamp: true });
     }
     for (const err of [task.verifyerror, task.mergeerror, task.cleanuperror]) {
         const line = firstLine(err);
@@ -120,10 +122,15 @@ export function taskPeek(
     };
 }
 
+// colour and cursor escapes in output stored before the engine stripped them at capture; the CSI rule of
+// utilfn.StripANSI
+// eslint-disable-next-line no-control-regex
+const CSI_RE = /\x1b\[[0-9;?]*[ -/]*[@-~]/g;
+
 // verifySection decides what the peek's Verify block shows. A failed Verify's reason is already a row, so
 // its section is the output alone; a task that never verified, or passed before output was kept, has none.
 export function verifySection(task: TaskNode, nowMs: number): VerifySection | null {
-    const tail = (task.verifyoutput ?? "").trim();
+    const tail = (task.verifyoutput ?? "").replace(CSI_RE, "").trim();
     switch (task.state) {
         case "verifying":
             return { heading: verifyHeading(task.verifystartedts, nowMs), tail, tone: "muted" };
@@ -136,9 +143,17 @@ export function verifySection(task: TaskNode, nowMs: number): VerifySection | nu
     }
 }
 
+const ACTIVE_STATES = new Set(["running", "stalled", "verifying", "reviewing"]);
+
 // the stamps are sampled transcript writes; a running task with neither has written nothing the watchdog
-// can read (or its runtime has no readable transcript), which is not the same as idle
+// can read (or its runtime has no readable transcript), which is not the same as idle. A task past its work
+// says how long it worked: how long ago is a fact about the reader's clock.
 function activityText(task: TaskNode, nowMs: number): string | null {
+    if (!ACTIVE_STATES.has(task.state)) {
+        return task.firstactivity && task.lastactivity
+            ? `worked ${formatElapsed(Math.max(0, task.lastactivity - task.firstactivity))}`
+            : null;
+    }
     const parts: string[] = [];
     if (task.firstactivity) {
         parts.push(`first activity ${ago(nowMs, task.firstactivity)} ago`);

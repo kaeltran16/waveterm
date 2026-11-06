@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { pickerTitleFor } from "./route";
+import { emptyRouteLabel, pickerTitleFor } from "./route";
 
 describe("pickerTitleFor — A1 compact", () => {
     it("returns custom title when provided", () => {
@@ -13,5 +13,19 @@ describe("pickerTitleFor — A1 compact", () => {
     it("falls back to Run route when no custom title", () => {
         expect(pickerTitleFor(undefined)).toBe("Run route");
         expect(pickerTitleFor("")).toBe("Run route");
+    });
+});
+
+describe("emptyRouteLabel", () => {
+    it("asks for a model when nothing can be inherited", () => {
+        expect(emptyRouteLabel(false)).toBe("Pick a model");
+    });
+
+    it("offers to inherit when a route can be", () => {
+        expect(emptyRouteLabel(true)).toBe("Inherit route");
+    });
+
+    it("lets an explicit label win", () => {
+        expect(emptyRouteLabel(false, "Same as lead")).toBe("Same as lead");
     });
 });
