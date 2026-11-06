@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -303,5 +304,84 @@ func TestDispatchDiscardsTreeBeforeRebranching(t *testing.T) {
 	}
 	if got := f.taskRun(t, "t-2").BaseCommit; got != newTip {
 		t.Fatalf("t-2's new run starts at the fixed tip %s, not the discarded branch point, got %s", newTip, got)
+	}
+}
+
+// the defect: a skipped head is never dispatched again, so the discard set on it never ran, and the lane's next task
+// reused the branch holding the base's rejected commits.
+func TestRestartWithSkippedHeadDiscardsTreeForNextTask(t *testing.T) {
+	// t-2 -> t-3 is one lane, early-based on t-1's; t-4 makes t-1 a fork so t-2 is not in its lane
+	f := newMergeFixture(t, []waveobj.TaskNode{
+		{ID: "t-1", Label: "schema"},
+		{ID: "t-2", Label: "api", Deps: []string{"t-1"}},
+		{ID: "t-4", Label: "ui", Deps: []string{"t-1"}},
+		{ID: "t-3", Label: "client", Deps: []string{"t-2"}},
+	})
+	var spawned []string
+	stubSpawn(t, &spawned)
+	stubStopWorkers(t)
+	f.dispatch(t, "t-1")
+	baseTip := commitInTree(t, worktreeDir(f.project, TaskWorktreeKey(f.ownerID, "t-1")), "schema.txt")
+	if err := wstore.UpdateRun(f.ctx, f.channel, taskByID(f.dag(t), "t-1").RunID, func(r *waveobj.Run) error {
+		r.Status, r.EndCommit = jarvis.RunStatus_Done, baseTip
+		r.Evidence = &waveobj.RunEvidence{CapturedTs: time.Now().UnixMilli()}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	f.setTaskState(t, "t-1", TaskState_Reviewing)
+	f.dispatch(t, "t-2")
+	if task := taskByID(f.dag(t), "t-2"); task.EarlyBaseTask != "t-1" {
+		t.Fatalf("t-2 starts early on t-1, got %+v", *task)
+	}
+	key := TaskWorktreeKey(f.ownerID, "t-2")
+	commitInTree(t, worktreeDir(f.project, key), "api.txt")
+	f.setTaskState(t, "t-2", TaskState_Skipped)
+	f.dispatch(t, "t-3")
+	if s := taskByID(f.dag(t), "t-3").State; s != TaskState_Running {
+		t.Fatalf("t-3 runs on the lane's branch, got %s", s)
+	}
+	oldHead := commitInTree(t, worktreeDir(f.project, key), "client.txt")
+
+	// the reviewer rejects t-1; outside the dag's write, as in the tick, since cancelling t-3's run writes the store
+	g := f.dag(t)
+	base := taskByID(g, "t-1")
+	base.State, base.RunID, base.ReviewRound = TaskState_Pending, "", 1
+	var afterCommit []func()
+	if got := restartEarlyDependents(f.ctx, g, &afterCommit); !slices.Equal(got, []string{"t-3"}) {
+		t.Fatalf("want t-3 restarted, got %v", got)
+	}
+	if err := wstore.UpdateDag(f.ctx, f.dagID, func(cur *waveobj.TaskGroup) error {
+		*cur = *g
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	runAfterCommit(afterCommit)
+
+	g = f.dag(t)
+	if head := taskByID(g, "t-2"); head.State != TaskState_Skipped || head.DiscardTree {
+		t.Fatalf("the skipped head keeps its state and is not marked, got %s discard %v", head.State, head.DiscardTree)
+	}
+	if next := taskByID(g, "t-3"); next.State != TaskState_Pending || !next.DiscardTree {
+		t.Fatalf("t-3 is the first task to dispatch on the branch and discards it, got %s discard %v", next.State, next.DiscardTree)
+	}
+
+	f.dispatch(t, "t-3")
+
+	if task := taskByID(f.dag(t), "t-3"); task.State != TaskState_Running || task.DiscardTree {
+		t.Fatalf("t-3 starts again with its tree discarded, got %s discard %v (%s)", task.State, task.DiscardTree, task.LastFailureKind)
+	}
+	if branchHead, err := WorktreeHeadCommit(f.ctx, f.project, key); err != nil || branchHead == oldHead {
+		t.Fatalf("the old branch is gone, got head %s err %v", branchHead, err)
+	}
+	wt := laneTree(f.ctx, f.project, key)
+	if got := gitCmd(t, wt, "rev-parse", "HEAD"); got == oldHead {
+		t.Fatalf("t-3's new tree is not cut from the old branch %s", oldHead)
+	}
+	for _, name := range []string{"schema.txt", "api.txt", "client.txt"} {
+		if _, err := os.Stat(filepath.Join(wt, name)); !os.IsNotExist(err) {
+			t.Fatalf("the discarded branch's %s is gone from the tree, stat: %v", name, err)
+		}
 	}
 }

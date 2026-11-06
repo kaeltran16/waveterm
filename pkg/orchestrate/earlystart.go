@@ -66,7 +66,11 @@ func restartLane(ctx context.Context, g *waveobj.TaskGroup, lane []string, head 
 		t.RestartTs = now
 		ids = append(ids, id)
 	}
-	head.DiscardTree = true
+	// on the first task to dispatch on the branch: dispatch discards only for the task it starts, and a skipped or
+	// cancelled head never starts again. With none, nothing dispatches on the branch
+	if len(ids) > 0 {
+		taskByID(g, ids[0]).DiscardTree = true
+	}
 	head.EarlyRestarts++
 	head.EarlyBaseTask, head.EarlyBaseCommit = "", ""
 	headID := head.ID
