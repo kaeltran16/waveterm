@@ -164,6 +164,7 @@ type claudeLine struct {
 	Origin           *claudeOrigin    `json:"origin"`
 	Attachment       claudeAttachment `json:"attachment"`
 	Message          struct {
+		ID      string          `json:"id"`
 		Model   string          `json:"model"`
 		Content json.RawMessage `json:"content"`
 		Usage   *struct {
@@ -196,6 +197,8 @@ func claudeSessionFrom(id string, recs []claudeLine) *SessionInfo {
 	s := &SessionInfo{ID: id}
 	hasTask := false
 	fallback := ""
+	// claude writes one record per content block of a message, each repeating the message's usage
+	byMessage := map[string]*struct{ total, output int }{}
 	for _, rec := range recs {
 		if agentobserve.IsHeadlessEntrypoint(rec.Entrypoint) {
 			return nil
@@ -212,7 +215,12 @@ func claudeSessionFrom(id string, recs []claudeLine) *SessionInfo {
 		}
 		if rec.Message.Usage != nil {
 			u := rec.Message.Usage
-			s.TokensTotal += u.InputTokens + u.OutputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens
+			total := u.InputTokens + u.OutputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens
+			if rec.Message.ID == "" {
+				s.TokensTotal += total
+			} else if cur := byMessage[rec.Message.ID]; cur == nil || u.OutputTokens > cur.output {
+				byMessage[rec.Message.ID] = &struct{ total, output int }{total, u.OutputTokens}
+			}
 		}
 		if !hasTask && rec.Type == "user" {
 			raw := stringContent(rec.Message.Content)
@@ -227,6 +235,9 @@ func claudeSessionFrom(id string, recs []claudeLine) *SessionInfo {
 				hasTask = true
 			}
 		}
+	}
+	for _, m := range byMessage {
+		s.TokensTotal += m.total
 	}
 	if !hasTask && fallback != "" {
 		s.Task = trimTo(fallback, maxTaskLen)

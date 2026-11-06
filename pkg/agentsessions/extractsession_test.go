@@ -3,6 +3,7 @@ package agentsessions
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 )
 
@@ -38,6 +39,26 @@ func TestExtractSessionClaudeDone(t *testing.T) {
 	}
 	if s.Status != "done" {
 		t.Errorf("status = %q, want done", s.Status)
+	}
+}
+
+func TestExtractSessionDedupesUsageByMessageId(t *testing.T) {
+	usage := func(out int) string {
+		return `"usage":{"input_tokens":10,"output_tokens":` + strconv.Itoa(out) + `,"cache_read_input_tokens":100}`
+	}
+	path := writeTranscript(t, []string{
+		`{"type":"user","cwd":"/repo","message":{"content":"count once"}}`,
+		`{"type":"assistant","message":{"id":"m1","content":[{"type":"text","text":"a"}],` + usage(5) + `}}`,
+		`{"type":"assistant","message":{"id":"m1","content":[{"type":"text","text":"b"}],` + usage(7) + `}}`,
+		`{"type":"assistant","message":{"id":"m1","content":[{"type":"text","text":"c"}],` + usage(5) + `}}`,
+		`{"type":"assistant","message":{"content":[{"type":"text","text":"d"}],"usage":{"input_tokens":3}}}`,
+	})
+	s, err := ExtractSession(path, "claude")
+	if err != nil || s == nil {
+		t.Fatalf("session = %v, err = %v", s, err)
+	}
+	if want := 10 + 7 + 100 + 3; s.TokensTotal != want {
+		t.Errorf("TokensTotal = %d, want %d", s.TokensTotal, want)
 	}
 }
 

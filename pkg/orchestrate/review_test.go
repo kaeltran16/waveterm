@@ -55,10 +55,11 @@ func stubReviewTree(t *testing.T, head string) *int {
 }
 
 type spawnCall struct {
-	cap    runroute.Capability
-	cwd    string
-	prompt string
-	opts   jarvis.RunWorkerOptions
+	cap     runroute.Capability
+	project string
+	cwd     string
+	prompt  string
+	opts    jarvis.RunWorkerOptions
 }
 
 // captureSpawns records every worker and reviewer the engine starts.
@@ -67,8 +68,8 @@ func captureSpawns(t *testing.T) *[]spawnCall {
 	allowWorkerHarnessForTest(t)
 	var calls []spawnCall
 	old := spawnWorker
-	spawnWorker = func(_ context.Context, cap runroute.Capability, _, _, cwd, prompt string, opts jarvis.RunWorkerOptions) (string, error) {
-		calls = append(calls, spawnCall{cap: cap, cwd: cwd, prompt: prompt, opts: opts})
+	spawnWorker = func(_ context.Context, cap runroute.Capability, _, project, cwd, prompt string, opts jarvis.RunWorkerOptions) (string, error) {
+		calls = append(calls, spawnCall{cap: cap, project: project, cwd: cwd, prompt: prompt, opts: opts})
 		return waveobj.MakeORef(waveobj.OType_Tab, uuid.NewString()).String(), nil
 	}
 	restoreAfterStages(t, func() { spawnWorker = old })
@@ -151,6 +152,21 @@ func TestFinishedWorkerIsReviewedBeforeItCountsAsDone(t *testing.T) {
 	schedule(t, ctx, dag.OID)
 	if len(*calls) != 1 {
 		t.Fatalf("a second tick must not spawn another reviewer, got %d", len(*calls))
+	}
+}
+
+// a reviewer's tab is grouped under its project like the worker's: the channel's name, not ""
+func TestReviewerCarriesTheChannelsProjectName(t *testing.T) {
+	ctx, dag, worker := seedReviewDag(t)
+	stubReviewTree(t, worker.EndCommit)
+	calls := captureSpawns(t)
+	schedule(t, ctx, dag.OID)
+	ch, err := wstore.DBMustGet[*waveobj.Channel](ctx, dag.ChannelId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(*calls) != 1 || ch.Name == "" || (*calls)[0].project != ch.Name {
+		t.Fatalf("reviewer project = %+v, want the channel's name %q", *calls, ch.Name)
 	}
 }
 

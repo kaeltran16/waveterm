@@ -44,6 +44,13 @@ func TestSpawnStageSessionRecordsARunWithItsRoleAndNoTask(t *testing.T) {
 	if c.cap.Runtime != runroute.DefaultRuntime(owner.Runtime) {
 		t.Fatalf("the session runs on the lead's route, got %q", c.cap.Runtime)
 	}
+	ch, err := wstore.DBMustGet[*waveobj.Channel](ctx, dag.ChannelId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ch.Name == "" || c.project != ch.Name {
+		t.Fatalf("stage session project = %q, want the channel's name %q", c.project, ch.Name)
+	}
 	run, err := wstore.GetRun(ctx, dag.ChannelId, runID)
 	if err != nil {
 		t.Fatal(err)

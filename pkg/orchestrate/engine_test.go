@@ -413,8 +413,10 @@ func TestScheduleOnceLabelsAWorkerWithItsTask(t *testing.T) {
 	labels := map[string]string{}
 	shortCache := map[string]bool{}
 	launch := map[string]jarvis.RunWorkerOptions{}
+	projects := map[string]string{}
 	old := spawnWorker
-	spawnWorker = func(_ context.Context, _ runroute.Capability, _, _, _, _ string, opts jarvis.RunWorkerOptions) (string, error) {
+	spawnWorker = func(_ context.Context, _ runroute.Capability, _, project, _, _ string, opts jarvis.RunWorkerOptions) (string, error) {
+		projects[opts.TaskId] = project
 		labels[opts.TaskId] = opts.Label
 		shortCache[opts.TaskId] = opts.ShortCache
 		launch[opts.TaskId] = opts
@@ -427,6 +429,10 @@ func TestScheduleOnceLabelsAWorkerWithItsTask(t *testing.T) {
 	}
 	if labels["t-0"] != "Chunk sidebar" || labels["t-1"] != "Run sheet" {
 		t.Fatalf("labels = %v", labels)
+	}
+	// the project name groups a worker's tab with its run's other members
+	if projects["t-0"] != ch.Name || projects["t-1"] != ch.Name || ch.Name == "" {
+		t.Fatalf("worker projects = %v, want the channel's name %q", projects, ch.Name)
 	}
 	// a worker runs its turns back to back, so the 1-hour prompt cache only costs more
 	if !shortCache["t-0"] || !shortCache["t-1"] {
