@@ -95,6 +95,10 @@ const current = { token: "" };
 // The scope key the selection was last settled for. A load for a different one is a new subject (a run
 // link opened over a project), so the remembered row gives way to the default; "" = none yet.
 const settled = { scope: "" };
+// A commit a caller wants the Diff to open on (the project Overview's Branches rows); the commit twin of
+// filesstore's file link. Claimed by the next load for its scope, which spends it whether or not the page
+// holds the commit, so a link the page could not honour never hijacks a later visit.
+const pendingCommitLink = { scope: "", hash: "" };
 let filterTimer: ReturnType<typeof setTimeout> | null = null;
 
 // Owned by diffscope.ts, where it is derived from the range; re-exported for the pane's convenience.
@@ -151,7 +155,8 @@ function synthFailure(command: string, e: unknown): GitFailure {
 }
 
 // scope: which subject this load is for, as scopeKey(scope) from diffscope.ts. Used only to claim a
-// pending file deep link — from a sealed run's evidence card, or from an agent's changed-file rail.
+// pending file deep link — from a sealed run's evidence card, or from an agent's changed-file rail — or a
+// pending commit link from the project Overview.
 // Deliberately not part of opts: opts is stored for the filter reload to reissue, and a one-shot link
 // must not be.
 export async function loadHistory(
@@ -237,6 +242,9 @@ function settleSelection(cwd: string, scope?: string): void {
     const files = globalStore.get(filesStateAtom)?.changes?.files ?? [];
     const linked = scope ? consumeFileLink(scope, files.map((f) => f.path)) : undefined;
     if (linked) {
+        if (pendingCommitLink.scope === scope) {
+            pendingCommitLink.scope = "";
+        }
         settled.scope = scope;
         globalStore.set(selectedCommitAtom, WORKING_TREE);
         selectCommitFile(WORKING_TREE, linked);
@@ -245,8 +253,15 @@ function settleSelection(cwd: string, scope?: string): void {
     const moved = !!scope && !!settled.scope && settled.scope !== scope;
     // The remount read lands while the new scope's change list is still loading: its synthetic row is
     // missing only because the count is unknown, so choosing now would park on the tip. The read that
-    // follows the change list decides.
+    // follows the change list decides. It may also be reading the outgoing scope's directory, so a commit
+    // link waits for that read too.
     if (moved && globalStore.get(filesStateAtom) == null) {
+        return;
+    }
+    const commit = scope ? consumeCommitLink(scope, rows) : undefined;
+    if (commit) {
+        settled.scope = scope;
+        void selectCommit(cwd, commit);
         return;
     }
     if (scope) {
@@ -268,6 +283,30 @@ function settleSelection(cwd: string, scope?: string): void {
     if (pick !== prev || globalStore.get(selectedFileAtom) == null) {
         void selectCommit(cwd, pick);
     }
+}
+
+// The caller opens the Diff on `scope` right after. When the history already settled on that scope, the
+// surface's load effect has nothing new to key on and would never claim the link, so select it now.
+export function requestCommitLink(scope: string, hash: string): void {
+    const cwd = globalStore.get(filesStateAtom)?.cwd;
+    const rows = globalStore.get(historyRowsAtom) ?? [];
+    if (cwd && scope && settled.scope === scope && rows.some((r) => !r.workingTree && r.hash === hash)) {
+        pendingCommitLink.scope = "";
+        void selectCommit(cwd, hash);
+        return;
+    }
+    pendingCommitLink.scope = scope;
+    pendingCommitLink.hash = hash;
+}
+
+function consumeCommitLink(scope: string, rows: HistoryRow[]): string | undefined {
+    if (pendingCommitLink.scope !== scope || !pendingCommitLink.hash) {
+        return undefined;
+    }
+    const hash = pendingCommitLink.hash;
+    pendingCommitLink.scope = "";
+    pendingCommitLink.hash = "";
+    return rows.some((r) => !r.workingTree && r.hash === hash) ? hash : undefined;
 }
 
 function announceRestore(): void {

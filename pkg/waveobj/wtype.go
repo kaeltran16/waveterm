@@ -257,6 +257,9 @@ type Run struct {
 	// ParentLeadORef is the tab oref ("tab:<id>") of the orchestrator lead that spawned this child run
 	// via `wsh jarvis run`. Empty for human-started runs. Drives the terminal-status notify-back.
 	ParentLeadORef string `json:"parentleadoref,omitempty"`
+	// OriginTranscript is the transcript of the agent session whose `wsh runs start` created the run. Empty
+	// for runs started from the cockpit and for runs from before the field.
+	OriginTranscript string `json:"origintranscript,omitempty"`
 	// EffortRef links a run to the effort chunk it executes (set by the composer's effort picker or
 	// `wsh effort chunk attach --run`). Advisory: the run never ticks the chunk automatically.
 	EffortRef *RunEffortRef `json:"effortref,omitempty"`

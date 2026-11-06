@@ -3,6 +3,7 @@
 import { modelLabel, type SubagentVM } from "@/app/view/agents/session-models/sessionviewmodel";
 import type { BuilderCheckRecord } from "./brainstormmodel";
 import { sessionIdFromTranscript } from "./launch";
+import { registeredProjectFor } from "./projectlabel";
 import { projectNameFromTranscriptPath } from "./projectname";
 import { isStandingBy, type ShellTask } from "./shelltasks";
 
@@ -607,6 +608,8 @@ export interface TerminalRowInput {
     brainstormFile?: string; // session:brainstorm on the tab
     builderCheck?: BuilderCheckRecord; // brainstorm:check* on the tab
     brainstormJudge?: BuilderCheckRecord; // brainstorm:judge* on the tab
+    cwd?: string; // the terminal's cwd, which resolves its registered project
+    projectLabel?: string; // launch-time project name, for a cwd outside every registered project
 }
 
 /** Pure: the plain-terminal sessions — rows that own a term block but never emitted an agent status
@@ -615,7 +618,8 @@ export interface TerminalRowInput {
  *  `hasAgentStatus(oref)` reports whether that block has a live agent:status (i.e. it's a real agent). */
 export function deriveTerminalVMs(
     rows: TerminalRowInput[],
-    hasAgentStatus: (termBlockOref: string) => boolean
+    hasAgentStatus: (termBlockOref: string) => boolean,
+    projects: Record<string, { path?: string }> = {}
 ): AgentVM[] {
     const out: AgentVM[] = [];
     // terminals are named after their folder, so several in one project share a name; number the repeats
@@ -629,6 +633,8 @@ export function deriveTerminalVMs(
         }
         const n = (seen.get(row.label) ?? 0) + 1;
         seen.set(row.label, n);
+        // the agents' rule (liveagents.ts): the registry at the cwd, else the launch-time tag
+        const project = registeredProjectFor(row.cwd ?? "", projects) || row.projectLabel;
         out.push({
             id: row.tabId,
             name: n === 1 ? row.label : `${row.label} ${n}`,
@@ -637,6 +643,7 @@ export function deriveTerminalVMs(
             kind: "terminal",
             agent: "terminal", // selects the "Terminal" pill in the header (runtimeMeta)
             blockId: row.termBlockOref.split(":")[1],
+            ...(project ? { project } : {}),
             ...(row.brainstormFile ? { brainstormFile: row.brainstormFile } : {}),
             ...(row.builderCheck ? { builderCheck: row.builderCheck } : {}),
             ...(row.brainstormJudge ? { brainstormJudge: row.brainstormJudge } : {}),

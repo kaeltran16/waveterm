@@ -328,6 +328,15 @@ While the viewer is open these are the only cockpit keys: the surface underneath
 These are the zoom view's own keys, not cockpit bindings, so the cheat sheet does not list them; the surface
 underneath takes no keys while it is open.
 
+### Project Overview (opened from the project switcher's "Overview of <project>" entry)
+
+| Keys | Action |
+|---|---|
+| `/` | Focus History's search field (anywhere in the modal but a field) |
+| `←` `→` `↑` `↓` on the Activity calendar | Move between days, never past today; the focused day shows its tooltip |
+
+Like the zoom view's keys, these belong to the modal, so the cheat sheet does not list them.
+
 ## Help
 
 | Keys | Action |

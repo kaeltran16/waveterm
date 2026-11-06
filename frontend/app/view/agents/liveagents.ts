@@ -88,7 +88,11 @@ export const liveAgentBaseAtom: Atom<AgentVM[]> = atom((get) => {
 // (own tree group + focus pane), so they never pollute agentsAtom / the cockpit grid counts.
 export const liveTerminalsAtom: Atom<AgentVM[]> = atom((get) => {
     const vm = get(sessionSidebarViewModelAtom);
-    return deriveTerminalVMs(flattenVisualOrder(vm), (oref) => !!get(getAgentStatusAtom(oref))?.state);
+    return deriveTerminalVMs(
+        flattenVisualOrder(vm),
+        (oref) => !!get(getAgentStatusAtom(oref))?.state,
+        get(projectsAtom)
+    );
 });
 
 // The workspace, its tabs, and their blocks have loaded, and every terminal in the sidebar has either a status

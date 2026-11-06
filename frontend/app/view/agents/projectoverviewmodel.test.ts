@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { changesLabel, overviewTarget } from "./projectoverviewmodel";
+import { changesLabel, overviewTarget, samePath } from "./projectoverviewmodel";
 
 describe("changesLabel", () => {
     it("says nothing before the repo is read", () => {
@@ -24,5 +24,18 @@ describe("overviewTarget", () => {
     });
     it("targets the scoped project", () => {
         expect(overviewTarget("waveterm")).toBe("waveterm");
+    });
+});
+
+describe("samePath", () => {
+    it("matches one folder spelled with other slashes, case and a trailing slash", () => {
+        expect(samePath("C:\\Repo\\X\\", "c:/repo/x")).toBe(true);
+    });
+    it("does not match a sibling that shares a prefix", () => {
+        expect(samePath("C:\\Repo\\X", "C:\\Repo\\Xy")).toBe(false);
+    });
+    it("never matches an empty side", () => {
+        expect(samePath("", "")).toBe(false);
+        expect(samePath("C:\\Repo\\X", "")).toBe(false);
     });
 });

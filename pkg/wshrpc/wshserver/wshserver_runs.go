@@ -508,6 +508,13 @@ func (ws *WshServer) createRun(ctx context.Context, data wshrpc.CommandCreateRun
 	}
 	run.EffortRef = effortRef
 	run.WorkflowScan = scan
+	if data.OriginBlockId != "" {
+		transcript, terr := readBlockTranscriptMeta(ctx, data.OriginBlockId)
+		if terr != nil {
+			log.Printf("CreateRun: reading origin transcript of block %s for run %s (non-fatal): %v", data.OriginBlockId, run.ID, terr)
+		}
+		run.OriginTranscript = transcript
+	}
 	if err := wstore.AppendRun(ctx, data.ChannelId, run); err != nil {
 		return nil, fmt.Errorf("appending run: %w", err)
 	}
