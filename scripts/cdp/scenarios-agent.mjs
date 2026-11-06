@@ -1089,6 +1089,37 @@ export const agentTreeRail = {
             JSON.stringify(nested)
         );
 
+        // P12: a worker's header names its lead by the run's plan title, not the lead's tab name
+        // the boot roster has no tab for t-1's worker, so one is added in the page for this step and removed after
+        await h.cdp("Emulation.setDeviceMetricsOverride", OBS_WIDE);
+        const t1Run = (await h.rpc("dagstatus", { channelid: ctx.channelId, runid: ctx.runId })).group?.tasks?.find((t) => t.id === "t-1")?.runid;
+        const workerTab = { id: "fx-tree-worker-t1", name: "tree-rail worker", project: "waveterm", agent: "claude", model: "sonnet", task: "noop", state: "working", runId: t1Run, blockId: "fx-blk-tree-worker-t1" };
+        const toLead = t1Run == null ? { error: "t-1 has no worker run" } : await lookEval(h, `
+            const { globalStore } = await mod("app/store/jotaiStore.ts");
+            const D = await mod("app/view/agents/devmock.ts");
+            const model = ${LIVE_MODEL};
+            window.__treeRailPrevFocus = globalStore.get(model.focusIdAtom);
+            globalStore.set(D.devMockAgentsAtom, (cur) => [...(cur ?? []), ${JSON.stringify(workerTab)}]);
+            globalStore.set(model.focusIdAtom, ${JSON.stringify(workerTab.id)});
+            const btn = () => ${HEADER}?.querySelector('button[title="Go to the lead"]');
+            await until(() => btn(), 8000);
+            return { text: flat(btn()), header: flat(${HEADER}) };`);
+        await h.shot("cdp-shots/agent-tree-rail-p12-worker-header.png");
+        if (t1Run != null) {
+            await lookEval(h, `
+                const { globalStore } = await mod("app/store/jotaiStore.ts");
+                const D = await mod("app/view/agents/devmock.ts");
+                globalStore.set(D.devMockAgentsAtom, (cur) => (cur ?? []).filter((a) => a.id !== ${JSON.stringify(workerTab.id)}));
+                globalStore.set(${LIVE_MODEL}.focusIdAtom, window.__treeRailPrevFocus);
+                delete window.__treeRailPrevFocus;
+                return true;`);
+        }
+        rec(
+            "9b. t-1's worker header's Go to the lead reads the run's plan title, not the lead's tab name (D12)",
+            toLead.text === `↑ ${TREE_RAIL_TITLE}` && !toLead.text.includes(TREE_RAIL_LEAD),
+            JSON.stringify(toLead)
+        );
+
         // the avatar at bottom-left sits over the foot of the tree: scrolled to its end, the last row clears it
         ctx.prevCorner = await h.ev(`localStorage.getItem("wave:pet.corner")`);
         const foot = await lookEval(h, `

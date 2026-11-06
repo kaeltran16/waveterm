@@ -196,7 +196,7 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                     title="Go to the lead"
                     className="cursor-pointer text-accent-soft hover:underline"
                 >
-                    ↑ {lineage.lead.name}
+                    ↑ {leadDisplayName(lineage.lead, lineage.run)}
                 </button>
             ) : (
                 <span>↑ {lineage.run?.title ?? "no lead"}</span>
