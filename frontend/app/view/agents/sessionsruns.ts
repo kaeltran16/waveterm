@@ -228,10 +228,13 @@ function leadStatus(input: RunViewInput): Status {
         if (lead.needsAttention) {
             return { key: "asking", text: "asking" };
         }
-        const dagOpen = input.dag != null && input.dag.status !== "done" && input.dag.status !== "cancelled";
-        return input.leadAtPrompt && dagOpen
-            ? { key: "idle", text: "waiting on engine" }
-            : { key: "running", text: "working" };
+        // without a dag the lead is still planning, so a prompt there is not idle
+        if (input.leadAtPrompt && input.dag != null) {
+            return runOpen(input.run, input.dag)
+                ? { key: "idle", text: "waiting on engine" }
+                : { key: "idle", text: "idle" };
+        }
+        return { key: "running", text: "working" };
     }
     return lead ? { key: "done", text: "done" } : { key: "pending", text: "no session" };
 }
@@ -240,15 +243,19 @@ const STAGE_VERDICTS: Record<string, Status> = {
     passed: { key: "done", text: "passed" },
     failed: { key: "failed", text: "failed" },
     // the review failed and the lead went ahead anyway
-    accepted: { key: "muted", text: "accepted" },
+    accepted: { key: "muted", text: "accepted by you" },
     unverified: { key: "muted", text: "unverified" },
 };
 
 // stageStatus reads the dag's current round of a stage: the round its newest session judged. A plan reviewer of
-// that round reads its own verdict, since one lens can pass in a round another failed.
+// that round reads its own verdict, since one lens can pass in a round another failed, unless the human accepted
+// the review: that outranks any reviewer's failed verdict.
 function stageStatus(role: string, session: LiveSession | undefined, dag: TaskGroup | undefined): Status {
     if (session?.live) {
         return { key: "review", text: role === "verifier" ? "verifying" : "reviewing" };
+    }
+    if (role === "plan-reviewer" && dag?.planreview?.state === "accepted") {
+        return STAGE_VERDICTS.accepted;
     }
     const verdict =
         role === "plan-reviewer" ? planReviewerOf(dag?.planreview, session?.stagerunid)?.verdict : undefined;
@@ -298,6 +305,9 @@ function headStatus(
         return { key: "running", text: `${running} running` };
     }
     if (live) {
+        if (!runOpen(run, dag)) {
+            return { key: "idle", text: "lead idle" };
+        }
         return { key: "running", text: dag ? "working" : "planning" };
     }
     return { key: "done", text: "" };
