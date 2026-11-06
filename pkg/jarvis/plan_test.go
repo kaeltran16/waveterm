@@ -47,6 +47,13 @@ func TestParsePlanDependencies(t *testing.T) {
 			t.Fatalf("got %v, want %v", got, want)
 		}
 	})
+	// an explicit Depends line naming the task before is not the default edge, though the two read the same
+	t.Run("implicit edges are the tasks with no Depends line", func(t *testing.T) {
+		p := mustParsePlan(t, "### Task 1: a\n### Task 2: b\n### Task 3: c\n**Depends on:** Task 2\n### Task 4: d\n**Depends on:** none\n### Task 5: e\n")
+		if want := []string{"t-2", "t-5"}; !reflect.DeepEqual(p.ImplicitDeps, want) {
+			t.Fatalf("ImplicitDeps = %v, want %v", p.ImplicitDeps, want)
+		}
+	})
 }
 
 func TestParsePlanRejects(t *testing.T) {

@@ -1,8 +1,11 @@
 You are the plan reviewer for run run-1234. Before any worker starts, judge whether the plan can be run as written.
 Read the spec at C:/work/app/docs/superpowers/specs/2026-11-04-coach-design.md, the plan at C:/work/app/docs/superpowers/plans/2026-11-04-coach.md, and the files they name.
+The engine parsed these dependency edges from the plan (t-N is its Task N); a task starts only after each task it waits for, and tasks with no chain of edges between them run at the same time:
+- t-3 waits for nothing
+- t-4 waits for nothing
 Check that:
 - every requirement in the spec has a task;
-- no two tasks edit the same file without a Depends between them, since tasks with nothing between them run at the same time. Submit already refused any path two such tasks both list on their Files lines, so look for what those lines leave out: a task with no Files line, and a file a task's text edits that its Files line omits;
+- no two tasks that can run at the same time edit the same file. A task waits for each task its Depends line lists, and a task with no Depends line waits for the one before it, so only tasks with no chain of edges between them run at the same time. Submit already refused any path two such tasks both list on their Files lines, so look for what those lines leave out: a task with no Files line, and a file a task's text edits that its Files line omits;
 - types, functions and flags have the same names in every task that mentions them;
 - each claim the plan makes about existing code (what a function calls, who calls it, what a test asserts) holds in the tree: grep the callers of what a task changes or removes; a claim that does not hold is a finding;
 - no task waits for another's long implementation when it needs only that task's interface (a type, a wire field, a table, a function's signature): the interface can land first as its own small task, so the implementation and the tasks that use it run beside each other;

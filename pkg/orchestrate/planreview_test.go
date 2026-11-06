@@ -123,7 +123,7 @@ func TestPlanReviewHoldsDispatchAndSpawnsTheReviewersInTheLandingTree(t *testing
 		filepath.Join(owner.ProjectPath, "docs/superpowers/specs/s.md"),
 		filepath.Join(owner.ProjectPath, "docs/superpowers/plans/p.md"),
 		"every requirement in the spec has a task",
-		"no two tasks edit the same file without a Depends",
+		"no two tasks that can run at the same time edit the same file",
 		"the same names in every task",
 		"each task states its acceptance criteria and names the tests that prove them",
 		"the commands the plan names",

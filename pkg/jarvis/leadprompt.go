@@ -61,8 +61,12 @@ const AutonomousOnWake = "wake: approvals for this run are now autonomous and th
 // AutonomousOffWake tells a running lead its run is back to asking the human.
 const AutonomousOffWake = "wake: approvals for this run are back to Ask me: from your next decision, put the decisions these rules give the human to the human again; calls you already made stand."
 
+// planCallersStep is the plan step round-1 plan reviews most often fail without: a task changed a signature and a
+// caller or test it breaks was on no task's Files line, so Check failed (runs 9eb0edaa, cad1a593, 5638249e and more).
+const planCallersStep = "Before you submit, for every symbol whose signature, type shape or name a task changes, grep its references across the repo, tests and `scripts/` included, and put each file that must change on that task's Files line. "
+
 // writePlan is the plan step every planning lead takes; only the submit command after it varies.
-const writePlan = "write the plan with superpowers:writing-plans in the plan format below, except its complete-code rule: a task carries the design decisions it makes, the files it owns, any interface or signature another task relies on, and its acceptance criteria with the focused tests that prove them, but not the implementation, which its worker writes. Break it up by what can proceed independently: the engine runs those tasks at the same time, and a plan that is one serial chain gets none of that. Don't commit the spec or plan yourself (the engine commits the spec and plan to the run's branch at submit, and they land with the run) and don't execute the plan: "
+const writePlan = "write the plan with superpowers:writing-plans in the plan format below, except its complete-code rule: a task carries the design decisions it makes, the files it owns, any interface or signature another task relies on, and its acceptance criteria with the focused tests that prove them, but not the implementation, which its worker writes. Break it up by what can proceed independently: the engine runs those tasks at the same time, and a plan that is one serial chain gets none of that. " + planCallersStep + "Don't commit the spec or plan yourself (the engine commits the spec and plan to the run's branch at submit, and they land with the run) and don't execute the plan: "
 
 // writePlanAndSubmit is the plan step and its submit. spec is the `--spec` argument, a placeholder or the run's
 // path; empty submits without one.

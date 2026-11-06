@@ -268,6 +268,25 @@ func TestEngineLaunchPromptPlansCarryDecisionsNotCode(t *testing.T) {
 	}
 }
 
+// the most common round-1 plan review finding was a caller or test of a changed signature on no task's Files line,
+// so every path that writes a plan tells the lead to grep the references before submit
+func TestEveryPlanningPromptListsCallersOfChangedSignatures(t *testing.T) {
+	want := "for every symbol whose signature, type shape or name a task changes, grep its references across the repo, tests and `scripts/` included, and put each file that must change on that task's Files line"
+	for _, runtime := range []string{"claude", "pi"} {
+		for _, autonomous := range []bool{false, true} {
+			runs := map[string]waveobj.Run{
+				"from the goal":   {Goal: "ship auth", Runtime: runtime, Autonomous: autonomous},
+				"from the design": {Goal: "ship auth", Runtime: runtime, Autonomous: autonomous, Spec: "C:/p/docs/spec.md"},
+			}
+			for name, run := range runs {
+				if p := BuildOrchestratePrompt(&run); !strings.Contains(p, want) {
+					t.Errorf("%s %s autonomous=%v: plan step missing the caller grep:\n%s", runtime, name, autonomous, p)
+				}
+			}
+		}
+	}
+}
+
 // a run carrying an approved design plans from it (spec decision 2): the design was settled upstream, so the
 // lead neither brainstorms nor classifies nor puts it up for review again, and submits the spec only when there is one
 func TestPlanFromDesignPrompt(t *testing.T) {

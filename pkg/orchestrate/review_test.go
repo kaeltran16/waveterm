@@ -178,6 +178,10 @@ func TestReviewerRunsOnTheLeadsRouteInTheLaneTree(t *testing.T) {
 	if c.cap.Model != "opus" || c.cwd != worker.ProjectPath || c.opts.Label != "review t-0" || c.opts.TaskId != "t-0" || !c.opts.ShortCache {
 		t.Fatalf("reviewer must run on the lead's route in the lane tree, got model %q cwd %q opts %+v", c.cap.Model, c.cwd, c.opts)
 	}
+	// a reviewer only reads and gives its verdict: no MCP server and no skills listing
+	if !c.opts.StrictMCP || !c.opts.NoSlashCommands {
+		t.Fatalf("reviewer launches with its startup context untrimmed: %+v", c.opts)
+	}
 }
 
 func TestReviewWaitsForTheWorkersEvidence(t *testing.T) {
