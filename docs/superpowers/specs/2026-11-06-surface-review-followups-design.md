@@ -53,8 +53,9 @@ Applied at the server boundary, so every UI path that reaches it is covered:
   `cmd:cwd` is not inside scratch. The copied agents' tabs are real sessions' tabs; an agent the reviewer
   launches in scratch still takes prompts. Approve sends its line before it opens the launcher, so a refused
   send keeps the launcher closed with no further change.
-- `launchAgent` (cockpit-actions.ts): when any step after `CreateTab` throws, it deletes the tab it made and
-  rethrows. Without this a refused launch leaves an empty terminal tab behind (true of any launch failure, so
+- `launchAgent` (cockpit-actions.ts): when a step between `CreateTab` and the controller start throws, it deletes
+  the tab it made and rethrows. A refused controller start keeps its tab, so its "failed to start" row still shows
+  (decided during the run; the cwd guard refuses a snapshot launch before the start anyway). Without this a refused launch leaves an empty terminal tab behind (true of any launch failure, so
   it is not snapshot-only code). The palette resume and New agent paths already surface a thrown launch
   error; the worker confirms that each of the four reported paths shows the refusal. A swallowing caller
   inside the task's files (`codereviewstore.ts`) is fixed; one outside them is reported as an open issue, not
@@ -76,9 +77,12 @@ the synthetic `focusin` is removed and step 6 must pass without it.
 
 ### D3. F4: a git read that fails is an error, except a repo with no commits
 
-`GetChanges` returns the numstat error in live mode when HEAD resolves (head != ""), and the name-status and
-numstat errors in ref mode. The no-commits case keeps today's behavior (status is still the answer). The error
-carries git's stderr. Callers already handle an error: the Cockpit card's catch drops the chip (no fake +0 -0)
+In ref mode `GetChanges` returns the name-status and numstat errors. In live mode with a HEAD, a numstat failure
+does not fail the read: `git diff --numstat HEAD` exits 128 when one file's bytes cannot be read ("cannot hash"),
+while status still lists every file, so failing the whole read would hide the list and the per-file "Couldn't read
+this file" state the Diff pane already has (round 1's Final caught this on diff-states step 7). `GetChanges` then
+returns the list with `NumstatError` set, and the line counts are shown as unknown, never as zeros. The no-commits
+case keeps today's behavior (status is still the answer). The error carries git's stderr. Callers already handle an error: the Cockpit card's catch drops the chip (no fake +0 -0)
 and now logs the error with the agent id; the Diff surface shows its failure state. `pkg/jarvis/evidence.go`
 falls back to `GetChanges` when the range read fails: an unresolvable base now fails evidence with the error
 instead of reporting zero files, which is the honest result.
