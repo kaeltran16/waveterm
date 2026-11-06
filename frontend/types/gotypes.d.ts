@@ -1125,6 +1125,7 @@ declare global {
         isrepo: boolean;
         ref?: string;
         head?: string;
+        numstaterror?: string;
     };
 
     // wshrpc.CommandGitCommitChangesData

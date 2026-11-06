@@ -75,4 +75,7 @@ type CommandGitChangesRtnData struct {
 	// built from, so a commit landing under the surface costs one log re-read and a quiet tick costs
 	// nothing.
 	Head string `json:"head,omitempty"`
+	// NumstatError is set when the live read listed the files but `diff --numstat` failed (one
+	// unreadable file fails it for all): the list is valid, its line counts are not.
+	NumstatError string `json:"numstaterror,omitempty"`
 }

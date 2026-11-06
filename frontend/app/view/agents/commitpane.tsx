@@ -85,6 +85,7 @@ export function CommitPane({
     review,
     failure = null,
     onRetry,
+    lineCounts = true,
 }: {
     row: HistoryRow;
     changes: GitChanges | null;
@@ -96,6 +97,8 @@ export function CommitPane({
     // the file list's read failed
     failure?: string | null;
     onRetry?: () => void;
+    // false when git listed the files but could not count their lines
+    lineCounts?: boolean;
 }) {
     const isWorkingTree = row.hash === WORKING_TREE;
     const count = changes?.files.length ?? 0;
@@ -110,8 +113,16 @@ export function CommitPane({
                         {count} {count === 1 ? "file" : "files"}
                     </SubLabel>
                     <div className="flex-1" />
-                    <span className="font-mono text-[11px] font-semibold text-diff-added">+{changes?.adds ?? 0}</span>
-                    <span className="font-mono text-[11px] font-semibold text-diff-removed">−{changes?.dels ?? 0}</span>
+                    {lineCounts ? (
+                        <>
+                            <span className="font-mono text-[11px] font-semibold text-diff-added">
+                                +{changes?.adds ?? 0}
+                            </span>
+                            <span className="font-mono text-[11px] font-semibold text-diff-removed">
+                                −{changes?.dels ?? 0}
+                            </span>
+                        </>
+                    ) : null}
                     <TreeModeToggle />
                 </div>
                 <ReviewProgress review={review} changes={changes} />
@@ -124,6 +135,7 @@ export function CommitPane({
                     review={review}
                     failure={failure}
                     onRetry={onRetry}
+                    lineCounts={lineCounts}
                 />
             </div>
         </div>

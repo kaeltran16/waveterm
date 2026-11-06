@@ -25,6 +25,23 @@ describe("refreshCardGit", () => {
         expect(String(warn.mock.calls[0][0])).toContain("a1");
         expect(warn.mock.calls[0]).toContainEqual(expect.objectContaining({ message: "git exploded" }));
     });
+
+    it("logs a numstat failure and leaves no stats rather than a +0 -0 chip", async () => {
+        globalStore.set(diffStatsByIdAtom, { a1: { files: 3, adds: 4, dels: 5 } });
+        vi.mocked(RpcApi.GitChangesCommand).mockResolvedValueOnce({
+            branch: "main",
+            statusz: " M src/old.py\0",
+            numstat: "",
+            isrepo: true,
+            numstaterror: "git diff --numstat --relative HEAD: exit status 128: fatal: cannot hash src/old.py",
+        });
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        await refreshCardGit("a1", "t.jsonl");
+        expect("a1" in globalStore.get(diffStatsByIdAtom)).toBe(false);
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(String(warn.mock.calls[0][0])).toContain("a1");
+        expect(warn.mock.calls[0].join(" ")).toContain("cannot hash src/old.py");
+    });
 });
 
 describe("diffStatsFromChanges", () => {

@@ -34,6 +34,9 @@ type Changes struct {
 	// the open surface has to be noticeable, and comparing one sha is what lets the surface re-read the
 	// log only when the log has actually changed.
 	Head string
+	// Live mode only: why `diff --numstat` failed while status listed the files (one unreadable file
+	// fails the whole numstat). The list stays usable; Numstat's tracked rows then cannot be trusted.
+	NumstatError string
 }
 
 func run(ctx context.Context, cwd string, args ...string) (string, error) {
@@ -88,16 +91,19 @@ func GetChanges(ctx context.Context, cwd, ref string) (*Changes, error) {
 		// live mode: working tree vs HEAD, plus synthetic rows for untracked files.
 		// --relative scopes to cwd and prints cwd-relative paths, matching the stripped status above.
 		// `diff --numstat HEAD` errors by nature on a repo with no commits yet (head == ""); status is
-		// still meaningful there. With a HEAD the error is a real failed read and is returned: dropping
-		// it would show the files with no line counts, as if they had none.
-		numstat, nerr := run(ctx, cwd, "diff", "--numstat", "--relative", "HEAD")
+		// still meaningful there. With a HEAD the error is a real failed read, but one unreadable file
+		// fails it for every file, so it is carried beside the list rather than replacing it: dropping it
+		// would show the files with no line counts, as if they had none.
+		numstatArgs := []string{"diff", "--numstat", "--relative", "HEAD"}
+		numstat, nerr := run(ctx, cwd, numstatArgs...)
+		numstatError := ""
 		if nerr != nil && head != "" {
-			return nil, describeGitError([]string{"diff", "--numstat", "--relative", "HEAD"}, nerr)
+			numstatError = describeGitError(numstatArgs, nerr).Error()
 		}
 		// git diff omits untracked files (nothing in HEAD/index to diff), so a new file would show +0.
 		// Append synthetic numstat rows for untracked files so their added lines count in the totals.
 		numstat += untrackedNumstat(cwd, statusZ)
-		return &Changes{Branch: strings.TrimSpace(branch), StatusZ: statusZ, Numstat: numstat, IsRepo: true, Head: head}, nil
+		return &Changes{Branch: strings.TrimSpace(branch), StatusZ: statusZ, Numstat: numstat, IsRepo: true, Head: head, NumstatError: numstatError}, nil
 	}
 	// ref mode: tracked changes come from the base diff (committed + uncommitted); untracked files
 	// are not in the base, so their ?? rows are carried over from status verbatim.

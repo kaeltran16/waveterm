@@ -520,10 +520,18 @@ export const diffStates = {
             let failed = false;
             let failedText = "";
             let recovered = false;
+            let listed = false;
+            let countsNotice = false;
             try {
                 await pressKey(h, "r", "KeyR", 82);
                 failed = await until(h, `${emptyIs("failed")} && !!document.querySelector("[data-diff-retry]")`);
                 failedText = await textOf(h, PANE);
+                // the unreadable file fails git's line counts for every file, but the list itself must stay
+                countsNotice = await until(
+                    h,
+                    `[...document.querySelectorAll("[data-git-failure-notice]")].some((e) => e.textContent.includes("Line counts unavailable"))`
+                );
+                listed = await h.ev(`!!document.querySelector(${JSON.stringify(fileRowSel(STATES.deleted))})`);
                 await h.shot("cdp-shots/diff-states-read-failure.png");
             } finally {
                 execFileSync("icacls", [winPath, "/remove:d", process.env.USERNAME], { stdio: "pipe" });
@@ -537,8 +545,8 @@ export const diffStates = {
             }
             rec(
                 s7,
-                diff && failed && failedText.includes("Couldn’t read this file") && recovered,
-                JSON.stringify({ picked, diff, failed, failedText: failedText.slice(0, 200), recovered })
+                diff && failed && failedText.includes("Couldn’t read this file") && recovered && listed && countsNotice,
+                JSON.stringify({ picked, diff, failed, failedText: failedText.slice(0, 200), recovered, listed, countsNotice })
             );
         });
 

@@ -225,8 +225,9 @@ func TestGetChangesNoCommitsStillLists(t *testing.T) {
 }
 
 // status only compares hashes, so it succeeds while `diff --numstat HEAD` cannot read the committed
-// blob of a modified file: the numstat failure must surface, not become "no line counts".
-func TestGetChangesLiveModeNumstatFailureErrors(t *testing.T) {
+// blob of a modified file: the list must survive, with the numstat failure carried beside it rather
+// than read as "no line counts".
+func TestGetChangesLiveModeNumstatFailureKeepsList(t *testing.T) {
 	dir := repoWithChange(t) // a.txt modified over its committed content
 	blob := gitRun(t, dir, "rev-parse", "HEAD:a.txt")
 	obj := filepath.Join(dir, ".git", "objects", blob[:2], blob[2:])
@@ -237,11 +238,17 @@ func TestGetChangesLiveModeNumstatFailureErrors(t *testing.T) {
 		t.Fatalf("removing the loose blob: %v", err)
 	}
 	ch, err := GetChanges(context.Background(), dir, "")
-	if err == nil {
-		t.Fatalf("GetChanges = %+v, want the numstat error", ch)
+	if err != nil {
+		t.Fatalf("GetChanges: %v, want the list with the numstat error beside it", err)
 	}
-	if !strings.Contains(err.Error(), "diff --numstat") {
-		t.Fatalf("error %q does not name the failing command", err)
+	if !strings.Contains(ch.StatusZ, "a.txt") {
+		t.Fatalf("modified file missing from statusz %q", ch.StatusZ)
+	}
+	if !strings.Contains(ch.NumstatError, "diff --numstat") {
+		t.Fatalf("NumstatError %q does not name the failing command", ch.NumstatError)
+	}
+	if !strings.Contains(ch.Numstat, "1\t0\tb.txt") {
+		t.Fatalf("untracked synthetic row missing from numstat %q", ch.Numstat)
 	}
 }
 

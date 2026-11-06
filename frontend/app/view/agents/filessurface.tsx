@@ -38,6 +38,7 @@ import {
     filesRefreshFailedAtom,
     filesStateAtom,
     loadFilesForScope,
+    reloadChanges,
     startChangesPoll,
     type FilesProject,
 } from "./filesstore";
@@ -698,6 +699,17 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                             />
                         ) : null}
 
+                        {/* git listed the working tree's files but one it could not read failed every line
+                            count; the exit status is already inside git's text */}
+                        {state?.numstatError ? (
+                            <GitFailureNotice
+                                title="Line counts unavailable"
+                                note="the changed files are still listed"
+                                failure={{ command: "git diff --numstat", exitcode: -1, stderr: state.numstatError }}
+                                onRetry={() => fireAndForget(() => reloadChanges(state.cwd))}
+                            />
+                        ) : null}
+
                         {/* the detailed panel below says the same thing with git's own words behind it */}
                         {loadError && historyFailure == null ? (
                             <SurfaceError message="Couldn’t read this repository." />
@@ -790,6 +802,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                                 // the working-tree row's list is the change list, which fails as a whole
                                                 failure={selectedCommit === WORKING_TREE ? null : commitFailure}
                                                 onRetry={retrySelectedCommit}
+                                                lineCounts={selectedCommit !== WORKING_TREE || !state?.numstatError}
                                             />
                                         )}
                                     </div>
