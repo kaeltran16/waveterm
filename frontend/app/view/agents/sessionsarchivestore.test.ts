@@ -279,6 +279,36 @@ describe("pins: prune gate and the unloaded client", () => {
         // both pins are still in the window, so none is pruned
         expect(RpcApi.SetMetaCommand).not.toHaveBeenCalled();
     });
+
+    it("a call during a held load runs the load once more after it, and a pin added meanwhile is kept", async () => {
+        const clientAtom = ClientModel.getInstance().clientAtom as unknown as PrimitiveAtom<Client>;
+        const setPins = (pins: string[]) =>
+            globalStore.set(clientAtom, { meta: { "sessions:pinned": pins } } as unknown as Client);
+        const get = vi.mocked(RpcApi.GetSessionsActivityCommand);
+        get.mockReset();
+        vi.mocked(RpcApi.SetMetaCommand).mockClear();
+        let release: () => void;
+        const held = new Promise<void>((r) => (release = r));
+        get.mockImplementationOnce(async () => {
+            await held;
+            return { sessions: [mk({ id: "x" })], incomplete: false };
+        });
+        get.mockResolvedValue({ sessions: [mk({ id: "x" }), mk({ id: "y" })], incomplete: false });
+        setPins(["claude:x"]);
+
+        const first = loadSessionsArchive();
+        await loadSessionsArchive();
+        await loadSessionsArchive();
+        expect(get).toHaveBeenCalledTimes(1);
+        setPins(["claude:x", "claude:y"]);
+        release();
+        await first;
+
+        expect(get).toHaveBeenCalledTimes(2);
+        expect(get.mock.calls[1][1].pinned).toEqual(["claude:x", "claude:y"]);
+        // the held load was not asked about claude:y, so it does not prune it
+        expect(RpcApi.SetMetaCommand).not.toHaveBeenCalled();
+    });
 });
 
 describe("mergedFeed + totalEvents", () => {

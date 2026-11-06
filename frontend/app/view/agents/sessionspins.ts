@@ -26,8 +26,10 @@ export function togglePinnedRow(pins: string[], row: Row): string[] {
     return lead ? [...pins, row.key, sessionKey(lead)] : [...pins, row.key];
 }
 
-// returns the input array itself when nothing is dropped, so a caller can test `next !== pins`
-export function prunePins(pins: string[], sessions: SessionActivity[]): string[] {
+// drops a pin only if the load was sent it and returned no session for it: a pin added while the load ran was
+// never asked about. Returns the input array itself when nothing is dropped, so a caller can test `next !== pins`
+export function prunePins(pins: string[], sessions: SessionActivity[], sent: readonly string[]): string[] {
+    const asked = new Set(sent);
     const known = new Set<string>();
     for (const s of sessions) {
         known.add(sessionKey(s));
@@ -35,6 +37,6 @@ export function prunePins(pins: string[], sessions: SessionActivity[]): string[]
             known.add(runSelKey(s.runid));
         }
     }
-    const kept = pins.filter((k) => known.has(k));
+    const kept = pins.filter((k) => !asked.has(k) || known.has(k));
     return kept.length === pins.length ? pins : kept;
 }

@@ -94,22 +94,37 @@ describe("togglePinnedRow", () => {
 
 describe("prunePins", () => {
     const sessions = [sess({ id: "a" }), sess({ id: "m1", runid: "r1" })];
+    const all = ["claude:a", "claude:gone", "run:r1", "run:r9"];
 
     it("keeps a solo key present in sessions and a run key whose run id appears on any session", () => {
-        expect(prunePins(["claude:a", "run:r1"], sessions)).toEqual(["claude:a", "run:r1"]);
+        expect(prunePins(["claude:a", "run:r1"], sessions, all)).toEqual(["claude:a", "run:r1"]);
     });
 
-    it("drops a key with no matching session or run", () => {
-        expect(prunePins(["claude:a", "claude:gone", "run:r9"], sessions)).toEqual(["claude:a"]);
+    it("drops a sent key with no matching session or run", () => {
+        expect(prunePins(["claude:a", "claude:gone", "run:r9"], sessions, all)).toEqual(["claude:a"]);
     });
 
     it("returns the same array when nothing is dropped", () => {
         const pins = ["claude:a", "run:r1"];
-        expect(prunePins(pins, sessions)).toBe(pins);
+        expect(prunePins(pins, sessions, all)).toBe(pins);
     });
 
     it("gives [] for []", () => {
-        expect(prunePins([], sessions)).toEqual([]);
-        expect(prunePins([], [])).toEqual([]);
+        expect(prunePins([], sessions, all)).toEqual([]);
+        expect(prunePins([], [], [])).toEqual([]);
+    });
+
+    // the load that answered was never asked about a pin added while it ran
+    it("keeps a pin added during the load, dropping only the sent pin the scan did not return", () => {
+        expect(prunePins(["claude:pa", "claude:pb"], [], ["claude:pa"])).toEqual(["claude:pb"]);
+    });
+
+    it("does not bring back a pin the user removed during the load", () => {
+        expect(prunePins(["claude:pb"], [sess({ id: "pb" })], ["claude:pa", "claude:pb"])).toEqual(["claude:pb"]);
+    });
+
+    it("returns the same instance when the sent pin is still returned", () => {
+        const pins = ["claude:pa"];
+        expect(prunePins(pins, [sess({ id: "pa" })], ["claude:pa"])).toBe(pins);
     });
 });
