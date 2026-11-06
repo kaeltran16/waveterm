@@ -108,6 +108,7 @@ describe("deriveKeyContext", () => {
             newRunOpenAtom: atom(false),
             newInitiativeOpenAtom: atom(false),
             newProjectOpenAtom: atom(false),
+            projectOverviewAtom: atom<string | null>(null),
         } as unknown as AgentsViewModel;
     }
 
@@ -234,6 +235,7 @@ describe("the Final check viewer over the Jarvis surface", () => {
             newRunOpenAtom: atom(false),
             newInitiativeOpenAtom: atom(false),
             newProjectOpenAtom: atom(false),
+            projectOverviewAtom: atom<string | null>(null),
             focusIdAtom: atom<string | undefined>(undefined),
         } as unknown as AgentsViewModel;
         globalStore.set(listNavAtom, { surface: "jarvis", navigableIds: ["a", "b"], cursorId: "a", setCursor() {} });
@@ -317,6 +319,7 @@ describe("a control reached with Tab keeps Enter and Space", () => {
                 newRunOpenAtom: atom(false),
                 newInitiativeOpenAtom: atom(false),
                 newProjectOpenAtom: atom(false),
+                projectOverviewAtom: atom<string | null>(null),
             } as unknown as AgentsViewModel;
             const activate = vi.fn();
             globalStore.set(listNavAtom, {
