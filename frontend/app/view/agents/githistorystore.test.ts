@@ -18,7 +18,7 @@ vi.mock("@/app/store/wshclientapi", () => ({
 }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 
-import { scopeKey } from "./diffscope";
+import { defaultRangeFor, scopeKey } from "./diffscope";
 import { filesStateAtom, requestFileLink } from "./filesstore";
 import { treeModeAtom } from "./filetree";
 import {
@@ -37,6 +37,7 @@ import {
     loadMoreHistory,
     refreshHistory,
     refreshHistoryIfMoved,
+    requestCommitLink,
     resetHistory,
     restoreNoticeAtom,
     retryHistory,
@@ -250,6 +251,76 @@ describe("agent-scoped file deep link", () => {
         await loadHistory(CWD, RUN_OPTS, RUN);
         await settle();
         expect(globalStore.get(selectedFileAtom)).toBe("pkg/jarvis/evidence.go");
+    });
+});
+
+// The project Overview's Branches rows name a commit, not a file: the Diff opens on that commit.
+describe("commit deep link", () => {
+    const origin = { kind: "project" as const, name: "arc", path: CWD };
+    const PROJECT = scopeKey({ repo: { origin, label: "arc" }, range: defaultRangeFor(origin) });
+
+    it("selects the linked commit over the default, once", async () => {
+        requestCommitLink(PROJECT, "bbb2222");
+        await loadHistory(CWD, {}, PROJECT);
+        await settle();
+        expect(globalStore.get(selectedCommitAtom)).toBe("bbb2222");
+        // consumed: a reload with no remembered row falls back to the default
+        globalStore.set(selectedCommitAtom, null);
+        globalStore.set(selectedFileAtom, null);
+        await loadHistory(CWD, {}, PROJECT);
+        await settle();
+        expect(globalStore.get(selectedCommitAtom)).toBe(WORKING_TREE);
+    });
+
+    it("is ignored by a load for another scope, which leaves it for its own", async () => {
+        requestCommitLink(PROJECT, "bbb2222");
+        await loadHistory(CWD, RUN_OPTS, RUN);
+        await settle();
+        expect(globalStore.get(selectedCommitAtom)).toBe(WORKING_TREE);
+        await loadHistory(CWD, {}, PROJECT);
+        await settle();
+        expect(globalStore.get(selectedCommitAtom)).toBe("bbb2222");
+    });
+
+    it("keeps the default and is dropped when the page lacks the commit", async () => {
+        requestCommitLink(PROJECT, "ccc3333");
+        await loadHistory(CWD, {}, PROJECT);
+        await settle();
+        expect(globalStore.get(selectedCommitAtom)).toBe(WORKING_TREE);
+        // the commit turns up on a later read, but the link was already spent
+        gitHistory.mockResolvedValue({
+            isrepo: true,
+            head: "ccc3333",
+            commits: [commit("ccc3333", "new tip"), commit("aaa1111", "tip commit")],
+        });
+        globalStore.set(selectedCommitAtom, null);
+        globalStore.set(selectedFileAtom, null);
+        await loadHistory(CWD, {}, PROJECT);
+        await settle();
+        expect(globalStore.get(selectedCommitAtom)).toBe(WORKING_TREE);
+    });
+
+    it("loses to a pending file link", async () => {
+        requestFileLink(PROJECT, "pkg/jarvis/evidence.go");
+        requestCommitLink(PROJECT, "bbb2222");
+        await loadHistory(CWD, {}, PROJECT);
+        await settle();
+        expect(globalStore.get(selectedCommitAtom)).toBe(WORKING_TREE);
+        expect(globalStore.get(selectedFileAtom)).toBe("pkg/jarvis/evidence.go");
+    });
+
+    it("selects at once when the Diff already shows the scope, which no load would follow", async () => {
+        await loadHistory(CWD, {}, PROJECT);
+        await settle();
+        expect(globalStore.get(selectedCommitAtom)).toBe(WORKING_TREE);
+        requestCommitLink(PROJECT, "bbb2222");
+        await settle();
+        expect(globalStore.get(selectedCommitAtom)).toBe("bbb2222");
+        // and nothing stays pending to override a later choice
+        globalStore.set(selectedCommitAtom, "aaa1111");
+        await loadHistory(CWD, {}, PROJECT);
+        await settle();
+        expect(globalStore.get(selectedCommitAtom)).toBe("aaa1111");
     });
 });
 
