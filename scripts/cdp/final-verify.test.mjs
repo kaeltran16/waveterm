@@ -1,5 +1,5 @@
 import { execFile, spawn } from "node:child_process";
-import { copyFileSync, existsSync, fstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, fstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer as createHttpServer } from "node:http";
 import { createServer } from "node:net";
 import { homedir, tmpdir } from "node:os";
@@ -534,17 +534,32 @@ describe("releaseDevApp", () => {
     // the dev app as main() spawns it: stdin an open pipe, output to a log fd, and a build lock held beside it
     async function startDev() {
         dir = mkdtempSync(join(tmpdir(), "final-release-"));
-        const log = openSync(join(dir, "dev-app.log"), "a");
+        const logPath = join(dir, "dev-app.log");
+        const log = openSync(logPath, "a");
         const dev = spawn(process.execPath, ["-e", `console.log("up"); setInterval(() => {}, 1000);`], {
             stdio: ["pipe", log, log],
         });
         await new Promise((resolve) => dev.once("spawn", resolve));
         const lock = await listen(0);
-        return { dev, lock, log };
+        return { dev, lock, log, logPath };
+    }
+
+    // A closed fd's number can be handed to another open in this worker before the check runs, so a stat that
+    // succeeds is a failure only when it is still the log file.
+    function expectLogClosed(log, logPath) {
+        const file = statSync(logPath, { bigint: true });
+        let open;
+        try {
+            open = fstatSync(log, { bigint: true });
+        } catch (err) {
+            expect(err.code).toBe("EBADF");
+            return;
+        }
+        expect(open.dev === file.dev && open.ino === file.ino).toBe(false);
     }
 
     it("resolves only after the dev app exited and its stdin, lock and log are closed", async () => {
-        const { dev, lock, log } = await startDev();
+        const { dev, lock, log, logPath } = await startDev();
         const closed = [];
         dev.once("exit", () => closed.push("exit"));
         dev.stdin.once("close", () => closed.push("stdin"));
@@ -554,12 +569,12 @@ describe("releaseDevApp", () => {
         expect(closed.sort()).toEqual(["exit", "stdin"]);
         expect(alive(dev.pid)).toBe(false);
         expect(lock.listening).toBe(false);
-        expect(() => fstatSync(log)).toThrow(/EBADF/);
+        expectLogClosed(log, logPath);
     }, 30_000);
 
     // the "exited before answering" path: the dev app is gone before the release starts
     it("resolves for a dev app that already exited and a lock already closed", async () => {
-        const { dev, lock, log } = await startDev();
+        const { dev, lock, log, logPath } = await startDev();
         dev.kill("SIGKILL");
         await new Promise((resolve) => dev.once("exit", resolve));
         await close(lock);
@@ -567,7 +582,7 @@ describe("releaseDevApp", () => {
         await releaseDevApp(dev, lock, log);
 
         expect(dev.stdin.closed).toBe(true);
-        expect(() => fstatSync(log)).toThrow(/EBADF/);
+        expectLogClosed(log, logPath);
     }, 30_000);
 });
 
