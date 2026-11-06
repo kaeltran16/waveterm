@@ -202,6 +202,18 @@ describe("chipCounts", () => {
         );
         expect(counts).toEqual({ asking: 1, working: 3, idle: 1, all: 6 });
     });
+    // the header's need-you number is this count: a lead relaying its worker's ask is one card that needs you,
+    // where counting agents read two
+    it("counts a run whose lead relays a worker's ask as one card that needs you", () => {
+        const lead = vm("L", "asking");
+        const worker = vm("w1", "asking");
+        const cards: GridCard[] = [
+            { kind: "run", id: "L", run: { ...R, dag: { status: "running" } as RunInfo["dag"] }, lead },
+            { kind: "agent", id: "solo", agent: vm("solo", "asking") },
+        ];
+        const needsYou = (c: GridCard) => (c.kind === "run" ? [lead, worker].some((a) => a.state === "asking") : true);
+        expect(chipCounts(cards, needsYou, () => false).asking).toBe(2);
+    });
 });
 
 describe("columnNavIds", () => {

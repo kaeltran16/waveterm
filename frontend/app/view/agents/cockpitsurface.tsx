@@ -50,6 +50,7 @@ import {
     prunedBackgrounded,
     railSelectTarget,
     rosterLoadPhase,
+    rowPeekId,
     splitRecentlyIdle,
 } from "./cockpitsurfacemodel";
 import { BackgroundAgentsStrip } from "./backgroundagentsstrip";
@@ -212,8 +213,8 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     // status chips narrow what the grid renders; cursor/order still operate over the full set
     const projectFilter = useAtomValue(model.projectFilterAtom);
     const liveOnly = useAtomValue(model.liveOnlyAtom);
-    // the toolbar counts every agent in scope, whatever its card shows
-    const counts = cockpitCounts(agents, projectFilter, (a) => needsHuman(a, answeredAsks));
+    // the toolbar counts every agent in scope, whatever its card shows; its need-you number is the cards' (tabCounts)
+    const counts = cockpitCounts(agents, projectFilter, () => false);
     // an agent standing by (idle with a running shell task) is live: Live only keeps it, and it counts as working
     const standingByIds = new Set(
         agents.filter((a) => isStandingBy(a.state, shellTasks[a.id] ?? [], subagents[a.id] ?? [])).map((a) => a.id)
@@ -294,7 +295,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                 openId: r.openId,
                 askAgentId: r.inline === "ask" ? r.worker?.id : undefined,
                 actions: rowKeyActions(r).map((a) => () => run && fireAndForget(() => rowAction(run, r, a))),
-                peekId: r.worker?.id,
+                peekId: rowPeekId(r),
                 tell:
                     r.actions.includes("tell") && run
                         ? () => fireAndForget(() => rowAction(run, r, "tell"))
@@ -505,8 +506,8 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
                     >
                         <ToolbarFact>
                             {plural(counts.agents, "agent")} · {plural(counts.projects, "project")} ·{" "}
-                            <span data-need-you className={cn(counts.needsYou > 0 && "font-semibold text-warning")}>
-                                <RollingCount value={counts.needsYou} /> need you
+                            <span data-need-you className={cn(tabCounts.asking > 0 && "font-semibold text-warning")}>
+                                <RollingCount value={tabCounts.asking} /> need you
                             </span>
                         </ToolbarFact>
                     </SurfaceToolbar>
