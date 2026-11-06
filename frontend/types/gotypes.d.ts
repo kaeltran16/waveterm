@@ -677,6 +677,7 @@ declare global {
         designfirst?: string;
         autonomous?: boolean;
         worktree?: string;
+        originblockid?: string;
     };
 
     // wshrpc.CommandCreateRunRtnData
@@ -3056,6 +3057,7 @@ declare global {
         land?: RunLand;
         verificationackts?: number;
         parentleadoref?: string;
+        origintranscript?: string;
         effortref?: RunEffortRef;
         dagoref?: string;
         sessionid?: string;

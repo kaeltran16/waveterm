@@ -91,7 +91,7 @@ function windowedReply(reply: CommandGetUsageStatsRtnData, windowDays: number): 
 }
 
 // one usage scan for a window: the dev fixture when set (its delay and failure included), else the RPC
-async function fetchUsage(windowDays: number): Promise<CommandGetUsageStatsRtnData> {
+export async function fetchUsage(windowDays: number): Promise<CommandGetUsageStatsRtnData> {
     const fixture = devUsageFixture();
     if (fixture != null && fixture.delayMs > 0) {
         await new Promise((resolve) => setTimeout(resolve, fixture.delayMs));

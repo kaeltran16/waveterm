@@ -68,6 +68,9 @@ type CommandCreateRunData struct {
 	// Worktree is a directory in a linked worktree of the channel's repository: the run works in the project's
 	// place in that checkout, branches from its head and lands back into its branch. Empty = the channel's project.
 	Worktree string `json:"worktree,omitempty"`
+	// OriginBlockId is the block of the agent session that ran `wsh runs start`; its transcript is stored on the
+	// run so the Overview can nest the run under that session. Advisory: an unknown block is ignored.
+	OriginBlockId string `json:"originblockid,omitempty"`
 }
 
 // CommandRunDesignAttachData is a design session's Approve / Build this…: BlockId is the session's block.

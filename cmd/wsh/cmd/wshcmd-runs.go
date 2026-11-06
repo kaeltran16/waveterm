@@ -214,6 +214,7 @@ func runsStartRun(cmd *cobra.Command, args []string) error {
 		workerRuntime: flag("worker-runtime"), workerModel: flag("worker-model"), reviewerPicks: reviewerPicks,
 		reviewerRuntime: flag("reviewer-runtime"), reviewerModel: flag("reviewer-model"),
 		effort: flag("effort"), chunk: flag("chunk"), prototype: flag("prototype"), spec: flag("spec"), autonomous: autonomous,
+		originBlock: os.Getenv("WAVETERM_BLOCKID"),
 	}
 	data, err := runsStartData(opts)
 	if err != nil {
@@ -269,6 +270,7 @@ type runsStartOpts struct {
 	effort, chunk                  string
 	prototype, spec                string
 	autonomous                     bool
+	originBlock                    string // WAVETERM_BLOCKID, read by the caller so runsStartData stays pure
 }
 
 // runsStartData applies the flag rules; the parts that need the RPC client (channel, workspace, route,
@@ -326,6 +328,7 @@ func runsStartData(o runsStartOpts) (wshrpc.CommandCreateRunData, error) {
 		s.Autonomous = &o.autonomous
 	}
 	s.EffortOID, s.ChunkLabel = effort, o.chunk
+	s.OriginBlockId = o.originBlock
 	return s, nil
 }
 

@@ -65,7 +65,6 @@ import { refreshCardGit } from "./cardgitstore";
 import { ensurePreviousInfo, rosterSeededAtom } from "./liveagents";
 import { CockpitEmptyState, CockpitGridNotice } from "./cockpitemptystate";
 import { CockpitRail } from "./cockpitrail";
-import { useRailTracking } from "./cockpiteventsrail";
 import { HintsBar } from "./cockpithelp";
 import { RollingCount } from "./rollingcount";
 import { ensureRunEvents, runEventsAtom } from "./runeventstore";
@@ -233,7 +232,6 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
         [runKey]
     );
     const runEvents = useAtomValue(runEventsAtomForView) as Record<string, RunEvent[]>;
-    useRailTracking(agents, lineage);
     const runUsage = useAtomValue(runUsageAtom);
     useEffect(() => {
         runsInView.forEach((r) => fireAndForget(() => loadRunUsage(r.channelId, r.runId, Date.now())));

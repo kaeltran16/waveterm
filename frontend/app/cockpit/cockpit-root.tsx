@@ -12,6 +12,7 @@ import { useKeybindings } from "@/app/store/keybindings/store";
 import { getTabModelByTabId } from "@/app/store/tab-model";
 import { AgentsViewModel } from "@/app/view/agents/agents";
 import { coerceStartupSurface, startupSurfaceAtom } from "@/app/view/agents/cockpitprefsstore";
+import { useRailTracking } from "@/app/view/agents/cockpiteventsrail";
 import { useApplyCockpitTheme } from "@/app/view/agents/themestore";
 import { useApplyCockpitFonts } from "@/app/view/agents/fontstore";
 import { CockpitShell } from "@/app/view/agents/cockpitshell";
@@ -30,7 +31,7 @@ import { setRecordSurfaceReader } from "@/app/view/jarvis/recordactions";
 import { PetView } from "@/app/view/jarvis/petview";
 import { WaveEnv, WaveEnvContext } from "@/app/waveenv/waveenv";
 import { makeWaveEnvImpl } from "@/app/waveenv/waveenvimpl";
-import { Provider } from "jotai";
+import { Provider, useAtomValue } from "jotai";
 import { useEffect, useMemo, useRef } from "react";
 import { CockpitAppBar } from "./app-bar";
 import { CommandPalette } from "./command-palette";
@@ -59,6 +60,14 @@ export function CockpitRoot() {
             </WaveEnvContext.Provider>
         </Provider>
     );
+}
+
+// The Events rail's plain-agent tracking, kept off every surface: the project Overview reads its finishes over any
+// surface, and a finish while the Cockpit was unmounted would otherwise never be recorded. Its own component, so a
+// roster change re-renders only it.
+function RailTracker({ model }: { model: AgentsViewModel }) {
+    useRailTracking(useAtomValue(model.agentsAtom), useAtomValue(model.lineageAtom));
+    return null;
 }
 
 // Inside the Provider so useAtomValue resolves to globalStore (the boot store), not jotai's default.
@@ -130,6 +139,7 @@ function CockpitBody({ waveEnv }: { waveEnv: WaveEnv }) {
     return (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <NowTicker model={model} />
+            <RailTracker model={model} />
             <BackgroundAgentsPoller />
             <RemoteStatusPoller />
             <AttentionPoller model={model} />

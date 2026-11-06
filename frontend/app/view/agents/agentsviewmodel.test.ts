@@ -1178,6 +1178,16 @@ describe("deriveTerminalVMs", () => {
             "waveterm 3",
         ]);
     });
+
+    it("tags a terminal with the registered project at its cwd, else its launch-time project", () => {
+        const projects = { waveterm: { path: "C:\\Code\\WaveTerm\\" } };
+        const rows = [
+            { tabId: "t1", label: "a", termBlockOref: "block:b1", cwd: "c:/code/waveterm/pkg", projectLabel: "x" },
+            { tabId: "t2", label: "b", termBlockOref: "block:b2", cwd: "C:/elsewhere", projectLabel: "siem" },
+            { tabId: "t3", label: "c", termBlockOref: "block:b3", cwd: "C:/elsewhere" },
+        ];
+        expect(deriveTerminalVMs(rows, none, projects).map((t) => t.project)).toEqual(["waveterm", "siem", undefined]);
+    });
 });
 
 describe("answerHint", () => {

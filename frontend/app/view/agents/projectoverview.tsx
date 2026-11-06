@@ -3,7 +3,7 @@
 
 // A project's Overview: a modal over the current surface, opened from the project switcher's "Overview of
 // <project>" entry (projectswitcher.tsx). The header names the project, its branch, its uncommitted changes and
-// its path; the body holds the project's cards.
+// its path; the body holds the project's regions: Activity, Now, Branches and History.
 
 import { ModalShell } from "@/app/modals/modalshell";
 import { globalStore } from "@/app/store/jotaiStore";
@@ -15,6 +15,11 @@ import { useEffect, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { diffStatsFromChanges } from "./cardgitstore";
 import { parseGitChanges } from "./gitstatus";
+import type { OverviewRegionProps } from "./overviewregion";
+import { ProjectActivity } from "./projectactivity";
+import { ProjectBranches } from "./projectbranches";
+import { ProjectHistory } from "./projecthistory";
+import { ProjectNow } from "./projectnow";
 import { changesLabel } from "./projectoverviewmodel";
 import { projectsAtom } from "./projectsstore";
 
@@ -53,12 +58,12 @@ export function ProjectOverviewModal({ model }: { model: AgentsViewModel }) {
             className="flex max-h-[84vh] w-[min(1120px,94vw)] flex-col"
             topClass="pt-[7vh]"
         >
-            {project != null ? <OverviewBody project={project} close={close} /> : null}
+            {project != null ? <OverviewBody model={model} project={project} close={close} /> : null}
         </ModalShell>
     );
 }
 
-function OverviewBody({ project, close }: { project: string; close: () => void }) {
+function OverviewBody({ model, project, close }: { model: AgentsViewModel; project: string; close: () => void }) {
     const registry = useAtomValue(projectsAtom);
     const path = registry?.[project]?.path;
     const git = useProjectGit(path);
@@ -95,7 +100,46 @@ function OverviewBody({ project, close }: { project: string; close: () => void }
                     <X size={15} strokeWidth={2} />
                 </button>
             </header>
-            <div data-overview-body className="min-h-0 flex-1 overflow-y-auto px-[18px] py-4" />
+            <div
+                data-overview-body
+                className="flex min-h-0 flex-1 flex-col gap-[26px] overflow-y-auto px-5 pb-[22px] pt-[18px]"
+            >
+                {/* a registry entry removed while the modal is open leaves no folder to read */}
+                {path ? (
+                    <OverviewRegions
+                        model={model}
+                        project={project}
+                        path={path}
+                        close={close}
+                        changedFiles={git?.files ?? 0}
+                    />
+                ) : null}
+            </div>
         </div>
+    );
+}
+
+// Activity across the top; under it Now above Branches on the left, History on the right. The data-overview-region
+// wrappers are the scenario's hooks, so the regions own only their insides.
+function OverviewRegions({ changedFiles, ...props }: OverviewRegionProps & { changedFiles: number }) {
+    return (
+        <>
+            <div data-overview-region="activity">
+                <ProjectActivity {...props} />
+            </div>
+            <div className="flex items-start gap-7">
+                <div className="flex min-w-0 flex-[2] flex-col gap-6">
+                    <div data-overview-region="now">
+                        <ProjectNow {...props} />
+                    </div>
+                    <div data-overview-region="branches">
+                        <ProjectBranches {...props} changedFiles={changedFiles} />
+                    </div>
+                </div>
+                <div data-overview-region="history" className="min-w-0 flex-[3]">
+                    <ProjectHistory {...props} />
+                </div>
+            </div>
+        </>
     );
 }

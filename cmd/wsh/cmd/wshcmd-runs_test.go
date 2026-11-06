@@ -668,3 +668,16 @@ func TestRunsShowLinesAutonomous(t *testing.T) {
 		t.Fatalf("an autonomous run does not say so:\n%s", out)
 	}
 }
+
+func TestRunsStartData_OriginBlock(t *testing.T) {
+	d, err := runsStartData(runsStartOpts{goal: "g", originBlock: "blk-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.OriginBlockId != "blk-1" {
+		t.Fatalf("OriginBlockId = %q, want blk-1", d.OriginBlockId)
+	}
+	if d, err = runsStartData(runsStartOpts{goal: "g"}); err != nil || d.OriginBlockId != "" {
+		t.Fatalf("no block: OriginBlockId = %q, err = %v; want empty", d.OriginBlockId, err)
+	}
+}

@@ -98,7 +98,7 @@ const ARCHIVE_POLL_MS = 3000;
 
 // how many of `total` rows to render: `page` more each time the sentinel at the list's end scrolls into view.
 // The observer is rebuilt on every growth, so a sentinel still in view after one page grows another.
-function usePaging(page: number, total: number) {
+export function usePaging(page: number, total: number) {
     const [count, setCount] = useState(page);
     const sentinelRef = useRef<HTMLDivElement>(null);
     useEffect(() => {
