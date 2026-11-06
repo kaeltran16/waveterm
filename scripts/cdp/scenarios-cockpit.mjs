@@ -3611,10 +3611,140 @@ export const notificationToasts = {
             },
             { step: "no toast sits under the Jarvis avatar", ok: shown.underAvatar === 0, detail: `underAvatar=${shown.underAvatar}` },
             { step: "a click dismisses a toast", ok: dismissed === true, detail: `dismissed=${dismissed}` },
+            ...(await toastBubbleAndBriefSteps(h)),
         ];
     },
-    async teardown() {},
+    async teardown(h) {
+        await lookEval(h, `
+            const { globalStore } = await mod("app/store/jotaiStore.ts");
+            const pet = await mod("app/view/jarvis/petstore.ts");
+            globalStore.set(pet.petBubbleAtom, null);
+            if (window.__toastCorner) pet.setPetCorner(window.__toastCorner);
+            globalStore.set((await mod("app/view/jarvis/briefundo.ts")).briefToastAtom, null);
+        `).catch(() => {});
+        await h.cdp("Emulation.setDeviceMetricsOverride", MODELS_VIEWPORT).catch(() => {});
+    },
 };
+
+// F8, F17 and F19 were seen at both sizes: the bubble over the stack, the Brief's error by colour alone and unbounded,
+// and a second Brief toast stranding a pending delete's Undo
+const TOAST_NARROW = { width: 1000, height: 700, deviceScaleFactor: 1, mobile: false };
+const TOAST_LONG_ERROR =
+    "EC-LAST-CHUNK: cannot remove the last chunk of an initiative; add another chunk first, or archive the initiative instead of deleting its only chunk";
+
+async function toastBubbleAndBriefSteps(h) {
+    const steps = [];
+    for (const [name, viewport] of [["1000x700", TOAST_NARROW], ["1600x950", MODELS_VIEWPORT]]) {
+        await h.cdp("Emulation.setDeviceMetricsOverride", viewport);
+        try {
+            await h.goto("cockpit");
+            const b = await lookEval(h, `
+                const { globalStore } = await mod("app/store/jotaiStore.ts");
+                const pet = await mod("app/view/jarvis/petstore.ts");
+                const { pushToast } = await mod("app/cockpit/notificationstore.ts");
+                window.__toastCorner ??= globalStore.get(pet.petCornerAtom);
+                pet.setPetCorner("bottom-right");
+                globalStore.set(pet.petBubbleAtom, { id: "notify:cdp-toasts:${name}", at: Date.now(), kind: "notify", level: "info", text: "cdp notification-toasts: the bubble speaks over the corner the toast stack shares, two lines of it at least" });
+                for (const t of ${JSON.stringify(LOOK_TOASTS)}) pushToast(t);
+                const toasts = () => [...document.querySelectorAll("[data-notification-toast]")];
+                const bubble = () => document.querySelector("[data-pet-bubble]");
+                await until(() => bubble() != null && toasts().length === ${LOOK_TOASTS.length}, 3000);
+                await nap(700); // the bubble's reveal and the toasts' entrance
+                const br = bubble()?.getBoundingClientRect();
+                const hits = (r) => br != null && r.left < br.right && r.right > br.left && r.top < br.bottom && r.bottom > br.top;
+                const out = {
+                    bubble: br ? [Math.round(br.top), Math.round(br.bottom), Math.round(br.height)] : null,
+                    toasts: toasts().map((t) => Math.round(t.getBoundingClientRect().bottom)),
+                    overlaps: toasts().filter((t) => hits(t.getBoundingClientRect())).length,
+                    inView: toasts().every((t) => t.getBoundingClientRect().top >= 0),
+                };
+                return out;
+            `);
+            await h.shot(lookShot(`notification-toasts-bubble-${name}`));
+            await lookEval(h, `
+                const { globalStore } = await mod("app/store/jotaiStore.ts");
+                globalStore.set((await mod("app/view/jarvis/petstore.ts")).petBubbleAtom, null);
+                for (const t of [...document.querySelectorAll("[data-notification-toast]")]) t.click();
+            `);
+            steps.push({
+                step: `${name}: with the pet's bubble up, the toast stack rises clear of it and stays on screen`,
+                ok: b.bubble != null && b.bubble[2] > 0 && b.toasts.length === LOOK_TOASTS.length && b.overlaps === 0 && b.inView,
+                detail: JSON.stringify(b),
+            });
+
+            await h.goto("jarvis");
+            const e = await lookEval(h, `
+                const { briefUndo } = await mod("app/view/jarvis/briefundo.ts");
+                briefUndo.error(${JSON.stringify(TOAST_LONG_ERROR)});
+                const toast = () => document.querySelector('[data-jarvis-brief-toast="error"]');
+                await until(() => toast() != null, 3000);
+                await nap(500);
+                const el = toast();
+                const text = [...(el?.querySelectorAll("span") ?? [])].find((s) => s.textContent.startsWith("EC-LAST-CHUNK"));
+                const range = document.createRange();
+                if (text) range.selectNodeContents(text);
+                const lines = text ? new Set([...range.getClientRects()].map((r) => Math.round(r.top))).size : 0;
+                return {
+                    icon: el?.querySelector('svg[role="img"][aria-label="Error"]') != null,
+                    width: Math.round(el?.getBoundingClientRect().width ?? 0),
+                    lines,
+                    chars: ${TOAST_LONG_ERROR.length},
+                };
+            `);
+            await h.shot(lookShot(`notification-toasts-brief-error-${name}`));
+            steps.push({
+                step: `${name}: a long Brief error names its level on an icon, wraps, and is at most 560px wide`,
+                ok: e.icon && e.lines > 1 && e.width > 0 && e.width <= 560,
+                detail: JSON.stringify(e),
+            });
+        } finally {
+            await h.cdp("Emulation.setDeviceMetricsOverride", MODELS_VIEWPORT);
+        }
+    }
+
+    // both toast systems keep an error past the 6 s an info toast lives
+    const kept = await lookEval(h, `
+        const { pushToast } = await mod("app/cockpit/notificationstore.ts");
+        const { briefUndo } = await mod("app/view/jarvis/briefundo.ts");
+        pushToast({ title: "cdp notification-toasts error", message: "kept", level: "error" });
+        briefUndo.error("cdp notification-toasts: kept past 7 s");
+        await nap(7000);
+        return {
+            global: document.querySelector('[data-notification-toast="error"]') != null,
+            brief: document.querySelector('[data-jarvis-brief-toast="error"]') != null,
+        };
+    `);
+    steps.push({
+        step: "an error toast is still up after 7 s, in the global stack and on the Brief",
+        ok: kept.global && kept.brief,
+        detail: JSON.stringify(kept),
+    });
+
+    const f19 = await lookEval(h, `
+        const { briefUndo, briefToastAtom, UNDO_WINDOW_MS } = await mod("app/view/jarvis/briefundo.ts");
+        const { globalStore } = await mod("app/store/jotaiStore.ts");
+        for (const t of [...document.querySelectorAll("[data-notification-toast]")]) t.click();
+        globalStore.set(briefToastAtom, null);
+        window.__f19Commits = [];
+        briefUndo.schedule(["cdp:f19:a"], "Deleted a", async () => void window.__f19Commits.push("a"));
+        briefUndo.schedule(["cdp:f19:b"], "Deleted b", async () => void window.__f19Commits.push("b"));
+        briefUndo.error("cdp notification-toasts: a second edit failed");
+        const pending = () => document.querySelector('[data-jarvis-brief-toast="error"] [data-jarvis-toast-undo="pending"]');
+        await until(() => pending() != null, 3000);
+        await nap(400);
+        const label = flat(pending());
+        pending()?.click();
+        const hidden = await until(() => document.querySelector("[data-jarvis-brief-toast]") == null, 2000);
+        await nap(UNDO_WINDOW_MS + 1000);
+        return { label, hidden, commits: window.__f19Commits };
+    `);
+    steps.push({
+        step: "an error over two pending deletes shows Undo 2; clicking it hides the toast and neither delete commits",
+        ok: f19.label === "Undo 2" && f19.hidden === true && f19.commits.length === 0,
+        detail: JSON.stringify(f19),
+    });
+    return steps;
+}
 
 // every row kind the menu draws: header, accelerator, sublabel, checkbox, radio (in the submenu), separator,
 // disabled and danger

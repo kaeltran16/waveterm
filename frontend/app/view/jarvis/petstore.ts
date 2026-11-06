@@ -110,6 +110,10 @@ export function removePetEvent(id: string): void {
 // What the bubble is showing, or null. Session-scoped: a bubble is a moment, not a state to restore.
 export const petBubbleAtom = atom<PetEvent | null>(null) as PrimitiveAtom<PetEvent | null>;
 
+// The bubble's rendered height while one shows, null otherwise: the toast stack in the same corner rises by it
+// (toaststack.ts) rather than sitting under it.
+export const petBubbleHeightAtom = atom<number | null>(null) as PrimitiveAtom<number | null>;
+
 // The unread marker. Set when a bubble auto-dismisses without being opened, cleared by the peek — the
 // creature keeps the KIND of what happened, never a count of it (design §3).
 export const petUnreadAtom = atom(false);

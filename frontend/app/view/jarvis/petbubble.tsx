@@ -6,14 +6,16 @@
 // to resent over a live terminal. Auto-dismiss loses nothing — the peek reads back everything it said,
 // and the creature keeps an unread marker until you look.
 
+import { PET_BUBBLE_OFFSET_PX } from "@/app/cockpit/toaststack";
 import { PopoverReveal } from "@/app/element/popoverreveal";
+import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { InlineMarkdown } from "@/app/view/agents/inlinemarkdown";
 import { autoUpdate, offset, shift, useFloating, type Placement } from "@floating-ui/react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { BUBBLE_MS, BubbleCard, BubbleLabel } from "./bubblecard";
 import { bubbleAgent } from "./petjoin";
-import type { PetCorner } from "./petstore";
+import { petBubbleHeightAtom, type PetCorner } from "./petstore";
 import { eventLabel, type NotifyLevel, type PetEvent } from "./petvoice";
 
 export { BUBBLE_MS };
@@ -95,15 +97,37 @@ export function PetBubble({
         // fixed, like the creature it hangs off: the cockpit body clips its overflow, and an
         // absolutely-positioned bubble in a corner is exactly what that clip would cut in half
         strategy: "fixed",
-        middleware: [offset(10), shift({ padding: 8 })],
+        middleware: [offset(PET_BUBBLE_OFFSET_PX), shift({ padding: 8 })],
         whileElementsMounted: autoUpdate,
     });
     useEffect(() => {
         refs.setPositionReference(anchor);
     }, [anchor, refs]);
 
+    const floatingEl = useRef<HTMLDivElement | null>(null);
+    const setFloating = useCallback(
+        (el: HTMLDivElement | null) => {
+            floatingEl.current = el;
+            refs.setFloating(el);
+        },
+        [refs]
+    );
+    const open = event != null;
+    useEffect(() => {
+        const el = floatingEl.current;
+        if (!open || el == null) {
+            return;
+        }
+        const ro = new ResizeObserver(() => globalStore.set(petBubbleHeightAtom, el.offsetHeight));
+        ro.observe(el);
+        return () => {
+            ro.disconnect();
+            globalStore.set(petBubbleHeightAtom, null);
+        };
+    }, [open]);
+
     return (
-        <div ref={refs.setFloating} style={floatingStyles} className="z-[61]">
+        <div ref={setFloating} style={floatingStyles} className="z-[61]">
             {/* unconditional, driven by `open` — a `{open ? … : null}` caller defeats PopoverReveal's
                 AnimatePresence and the exit never plays */}
             <PopoverReveal open={event != null} origin={ORIGIN[corner]}>

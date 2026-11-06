@@ -7,6 +7,7 @@
 // window closes, and Undo simply cancels. Reversible edits (status, archive, move) commit at once and
 // their Undo sends the inverse op instead — see notify().
 
+import { ERROR_TOAST_TTL_MS } from "@/app/cockpit/toaststack";
 import { globalStore } from "@/app/store/jotaiStore";
 import { atom, type PrimitiveAtom } from "jotai";
 import { chunkKey } from "./briefingmodel";
@@ -15,7 +16,16 @@ export { chunkKey };
 
 export const UNDO_WINDOW_MS = 5000;
 
-export type BriefToast = { id: number; text: string; undo?: () => void; error?: boolean };
+// There is one toast, so a newer one replaces the toast a pending delete put up. Every toast shown while a delete
+// is pending therefore carries pendingUndo, which cancels all of them; without it the replaced delete's Undo
+// was gone while the delete still waited to commit. `undo` is the toast's own (a reversible edit's inverse).
+export type BriefToast = {
+    id: number;
+    text: string;
+    undo?: () => void;
+    error?: boolean;
+    pendingUndo?: { count: number; undo: () => void };
+};
 
 type Pending = { keys: string[]; commit: () => Promise<void>; timer: ReturnType<typeof setTimeout> };
 
@@ -26,41 +36,68 @@ export function createUndoQueue(io: {
 }) {
     const windowMs = io.windowMs ?? UNDO_WINDOW_MS;
     const pending = new Map<number, Pending>();
+    let committing = 0;
     let nextId = 1;
     let toastId = 0;
+    let toast: Omit<BriefToast, "pendingUndo"> | null = null;
+    let expired = false;
     let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
     const publish = () => io.setHidden(new Set([...pending.values()].flatMap((p) => p.keys)));
+    const cancel = (id: number) => {
+        clearTimeout(pending.get(id)?.timer);
+        pending.delete(id);
+    };
     const clearToast = () => {
         clearTimeout(toastTimer);
+        toast = null;
         io.setToast(null);
     };
-    const show = (t: Omit<BriefToast, "id">) => {
-        clearTimeout(toastTimer);
-        const id = ++toastId;
-        io.setToast({ ...t, id });
-        // only clear the toast this call put up; a newer one keeps its own lifetime
-        toastTimer = setTimeout(() => {
-            if (toastId === id) {
-                io.setToast(null);
-            }
-        }, windowMs);
+    const undoPending = () => {
+        [...pending.keys()].forEach(cancel);
+        publish();
+        clearToast();
     };
-    const error = (text: string) => show({ text, error: true });
+    // a toast past its own lifetime stays while a delete is still pending or committing, so the last word on
+    // a delete is never taken down before the delete has landed
+    const render = () => {
+        if (toast == null) {
+            return;
+        }
+        if (expired && pending.size === 0 && committing === 0) {
+            clearToast();
+            return;
+        }
+        io.setToast(pending.size === 0 ? toast : { ...toast, pendingUndo: { count: pending.size, undo: undoPending } });
+    };
+    const show = (t: Omit<BriefToast, "id" | "pendingUndo">, ttlMs = windowMs) => {
+        clearTimeout(toastTimer);
+        toast = { ...t, id: ++toastId };
+        expired = false;
+        toastTimer = setTimeout(() => {
+            expired = true;
+            render();
+        }, ttlMs);
+        render();
+    };
+    const error = (text: string) => show({ text, error: true }, ERROR_TOAST_TTL_MS);
 
     const run = async (id: number): Promise<void> => {
         const p = pending.get(id);
         if (p == null) {
             return;
         }
-        clearTimeout(p.timer);
-        pending.delete(id);
+        cancel(id);
+        committing++;
+        render();
         try {
             await p.commit();
         } catch (e) {
             error(e instanceof Error ? e.message : String(e));
         } finally {
+            committing--;
             publish();
+            render();
         }
     };
 
@@ -70,18 +107,7 @@ export function createUndoQueue(io: {
             const timer = setTimeout(() => void run(id), windowMs);
             pending.set(id, { keys, commit, timer });
             publish();
-            show({
-                text,
-                undo: () => {
-                    const p = pending.get(id);
-                    if (p != null) {
-                        clearTimeout(p.timer);
-                        pending.delete(id);
-                        publish();
-                    }
-                    clearToast();
-                },
-            });
+            show({ text });
         },
         notify(text: string, undo?: () => void): void {
             show({
@@ -90,7 +116,13 @@ export function createUndoQueue(io: {
                     undo == null
                         ? undefined
                         : () => {
-                              clearToast();
+                              // a pending delete's Undo stays up until that delete lands. before the inverse, so
+                              // a toast the inverse puts up keeps its own lifetime
+                              if (toast != null) {
+                                  toast = { ...toast, undo: undefined };
+                                  expired = true;
+                              }
+                              render();
                               undo();
                           },
             });

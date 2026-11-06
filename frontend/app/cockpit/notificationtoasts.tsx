@@ -1,30 +1,32 @@
 // Toast stack for transient cockpit notifications. Thin render over toastsAtom; colors come
 // from @theme tokens only.
 import { cardVariants } from "@/app/element/motiontokens";
-import { petCornerAtom } from "@/app/view/jarvis/petstore";
+import { petBubbleHeightAtom, petCornerAtom } from "@/app/view/jarvis/petstore";
 import { AVATAR_WINDOW_REACH_PX } from "@/app/view/jarvis/petview";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { CircleAlert, Info, TriangleAlert } from "lucide-react";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { dismissToast, toastsAtom, type ToastNotification } from "./notificationstore";
+import { toastStackBottom } from "./toaststack";
 
 // the level is said three ways (icon, tinted edge, the icon's accessible name), never by colour alone. the name
-// rides on the icon, not as hidden text, so a toast's textContent stays its title and message.
-const LEVEL: Record<ToastNotification["level"], { Icon: typeof Info; tone: string; edge: string; label: string }> = {
+// rides on the icon, not as hidden text, so a toast's textContent stays its title and message. the Brief's toast
+// reads it too, so both toast systems say a level one way.
+export const TOAST_LEVEL: Record<
+    ToastNotification["level"],
+    { Icon: typeof Info; tone: string; edge: string; label: string }
+> = {
     error: { Icon: CircleAlert, tone: "text-error", edge: "border-error/40", label: "Error" },
     warn: { Icon: TriangleAlert, tone: "text-warning", edge: "border-warning/40", label: "Warning" },
     info: { Icon: Info, tone: "text-accent-soft", edge: "border-edge-strong", label: "Info" },
 };
 
-// clear of the 28px hints footer, or of the avatar when it shares the right corner
-const STACK_GAP_PX = 12;
-const FOOTER_PX = 28;
-
 export function NotificationToasts(): React.JSX.Element {
     const toasts = useAtomValue(toastsAtom);
     const corner = useAtomValue(petCornerAtom);
-    const bottom = (corner === "bottom-right" ? AVATAR_WINDOW_REACH_PX : FOOTER_PX) + STACK_GAP_PX;
+    const bubbleHeight = useAtomValue(petBubbleHeightAtom);
+    const bottom = toastStackBottom(corner, bubbleHeight, AVATAR_WINDOW_REACH_PX);
     // the stack stays mounted while empty so the last toast can play its exit; popLayout takes a leaving toast
     // out of flow at once, so the rest slide into its place instead of waiting for it
     return (
@@ -37,7 +39,7 @@ export function NotificationToasts(): React.JSX.Element {
             >
                 <AnimatePresence mode="popLayout">
                     {toasts.map((t) => {
-                        const level = LEVEL[t.level];
+                        const level = TOAST_LEVEL[t.level];
                         return (
                             <motion.button
                                 key={t.id}
