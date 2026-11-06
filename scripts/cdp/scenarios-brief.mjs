@@ -2087,6 +2087,8 @@ export const jarvisAvatarActivity = {
 };
 
 const JARVIS_PEEK_PROJECT = "verify-jarvis-peek";
+// DEV_ATTENTION_ITEMS_KEY in frontend/app/view/agents/attentionstore.ts
+const JARVIS_PEEK_DEV_ITEMS_KEY = "wave:dev-attention-items";
 
 // a registered project is the composer's destination (petpeek.tsx: projectListAtom's rows with a channel), and
 // createproject makes its channel. The channel snapshot is boot-primed, so the frontend reloads to see it, and
@@ -2231,7 +2233,7 @@ export const jarvisPeek = {
             "1. keyboard open renders a labelled dialog of header/queue/composer and focuses its container",
             creatureFocused === true &&
                 structure?.role === "dialog" &&
-                structure?.label === "Nothing waiting on you" &&
+                structure?.label === "No runs or questions waiting" &&
                 structure?.shape === "quiet" &&
                 structure?.header === true &&
                 structure?.queue === true &&
@@ -2265,7 +2267,7 @@ export const jarvisPeek = {
             ctx.reset === true &&
                 structure?.updatesDrawer === false &&
                 ABSENCE.test(structure?.text ?? "") === false &&
-                structure?.text.includes("Nothing waiting on you") === true &&
+                structure?.text.includes("No runs or questions waiting") === true &&
                 // the fix: dead only when there is genuinely nowhere to send. The composer used to read the
                 // Jarvis surface's selection, which nothing sets at boot, so it was dead on every surface.
                 structure?.inputDisabled === !structure?.destPresent &&
@@ -2504,6 +2506,70 @@ export const jarvisPeek = {
         const stayed = (await h.activeSurfaceLabel()) === SURFACE_LABEL.cockpit;
         rec("8. dismissing the global peek stays on the current surface", stayed, String(stayed));
         rec(`9. no visible text in the busy peek is under ${MIN_FONT_PX}px`, floorOk(busyFloor), floorDetail(busyFloor));
+
+        // 10-11 run at the harness width. The items ride the DEV localStorage seam (attentionstore.ts) because
+        // setAttention is overwritten by the next 10s poll; teardown removes the key.
+        await h.cdp("Emulation.setDeviceMetricsOverride", { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false });
+        await settle(450);
+        const waitingItem = (kind, key, action, over) =>
+            JSON.stringify({ key, kind, source: `cdp ${kind}`, text: "x", action, waitingsince: Date.now() - 90000, channelid: "", runid: `cdp-${kind}`, phaseidx: 0, ...over });
+        const SCAN_KEY = "workflow-scan:cdp-scan";
+        const UNVERIFIED_KEY = "run-unverified:cdp-unverified";
+        await h.ev(`localStorage.setItem(${JSON.stringify(JARVIS_PEEK_DEV_ITEMS_KEY)}, JSON.stringify([
+            ${waitingItem("workflow-scan", SCAN_KEY, "Decide", { oref: "workflowscan:cdp-scan", runid: "cdp-scan" })},
+            ${waitingItem("run-unverified", UNVERIFIED_KEY, "Review", { channelid: "cdp-channel" })},
+        ]))`);
+        await h.ev(`document.querySelector('[aria-label="Jarvis condition"]')?.focus()`);
+        await press("Enter", "Enter", 13);
+        const rowSel = (key) => `[data-pet-peek] [data-pet-row="${key}"]`;
+        const rowsShown = await polishWaitFor(
+            h,
+            `document.querySelector(${JSON.stringify(rowSel(SCAN_KEY))}) != null && document.querySelector(${JSON.stringify(rowSel(UNVERIFIED_KEY))}) != null`,
+            15000
+        );
+        const kindRows = await h.ev(`(() => {
+            const read = (sel) => {
+                const meta = document.querySelector(sel)?.querySelector('.font-mono');
+                return meta == null ? null : { text: (meta.textContent || '').trim(), dot: meta.querySelector('span')?.className ?? '' };
+            };
+            return {
+                title: (document.querySelector('[data-pet-peek] h2')?.textContent || '').trim(),
+                scan: read(${JSON.stringify(rowSel(SCAN_KEY))}),
+                unverified: read(${JSON.stringify(rowSel(UNVERIFIED_KEY))}),
+            };
+        })()`);
+        const toned = (row, tone) => row != null && row.dot.includes(tone) && !row.dot.includes("bg-edge-strong");
+        await h.shot("cdp-shots/jarvis-peek-kinds.png");
+        rec(
+            "10. a workflow scan and an unverified run read by name with a toned dot, under a title that counts runs or questions",
+            rowsShown === true &&
+                kindRows.scan?.text.startsWith("Workflow scan · ") === true &&
+                kindRows.unverified?.text.startsWith("Unverified · ") === true &&
+                toned(kindRows.scan, "bg-accent") &&
+                toned(kindRows.unverified, "bg-warning") &&
+                /^\d+ runs or questions waiting$/.test(kindRows.title),
+            JSON.stringify({ rowsShown, kindRows })
+        );
+
+        const decideClicked = await h.ev(`(() => {
+            const b = document.querySelector('[data-pet-peek] [data-pet-act="${SCAN_KEY}:open"]');
+            if (!b) return false;
+            b.click();
+            return true;
+        })()`);
+        const onUsage = await polishWaitFor(h, `document.querySelector('[data-workflow-lens]') != null`, 8000);
+        // the peek leaves through an exit animation
+        const peekGone = await polishWaitFor(h, `document.querySelector('[data-pet-peek]') == null`, 4000);
+        const landed = await h.ev(`(() => ({
+            peekGone: ${peekGone},
+            runSheet: document.querySelector('[data-jarvis-brief-band]') != null,
+        }))()`);
+        const landedSurface = await h.activeSurfaceLabel();
+        rec(
+            "11. Decide on the workflow scan lands on Usage > Workflow, not a run sheet",
+            decideClicked === true && onUsage === true && landedSurface === SURFACE_LABEL.usage && landed.peekGone && !landed.runSheet,
+            JSON.stringify({ decideClicked, onUsage, landedSurface, landed })
+        );
         return steps;
     },
     async teardown(h, ctx) {
@@ -2514,6 +2580,7 @@ export const jarvisPeek = {
             mobile: false,
         });
         await h.ev(`(() => {
+            localStorage.removeItem(${JSON.stringify(JARVIS_PEEK_DEV_ITEMS_KEY)});
             document.querySelector('button[aria-label="Close Jarvis panel"]')?.click();
             globalThis.__wavePetStore?.setAttention([]);
             return true;

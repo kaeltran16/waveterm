@@ -37,10 +37,20 @@ const ROW_KIND_LABEL: Record<string, string> = {
     "dag-blocked": "Blocked",
     ask: "Question",
     "run-land-held": "Land held",
+    "workflow-scan": "Workflow scan",
+    "run-unverified": "Unverified",
 };
 
 export function rowKindLabel(kind: string): string {
     return ROW_KIND_LABEL[kind] ?? kind;
+}
+
+// The pet counts runs and questions, which is not the Brief's "things waiting on you", so it says what it counts.
+export function peekTitle(n: number): string {
+    if (n === 0) {
+        return "No runs or questions waiting";
+    }
+    return `${n} ${n === 1 ? "run or question" : "runs or questions"} waiting`;
 }
 
 // An ask with no run behind it is still answerable where it was raised: the agent's terminal, found by the

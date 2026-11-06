@@ -11,6 +11,7 @@
 
 // type-only, so the purity above holds: petvoice.ts is itself pure, so PetEventSource adds no impure
 // dependency either
+import { parseAddress } from "./address";
 import type { PetEventSource } from "./petvoice";
 
 // Where an escort lands; every landing is an address that goes through openAddress.
@@ -25,6 +26,16 @@ export type PetAct =
 // pkg/jarvis/attention.go AttentionRunUnverified, AttentionRunLandHeld
 const RUN_UNVERIFIED_KIND = "run-unverified";
 const RUN_LAND_HELD_KIND = "run-land-held";
+const WORKFLOW_SCAN_KIND = "workflow-scan";
+
+// A scan's run is its agent's; what waits on the user is the scan's picks, in Usage › Workflow. So a workflow-scan
+// item opens by its own oref, never by its run. null for any other kind, or an oref the router cannot open.
+export function workflowScanOref(item: { kind: string; oref?: string }): string | null {
+    if (item.kind !== WORKFLOW_SCAN_KIND || !item.oref || parseAddress(item.oref).kind === "unsupported") {
+        return null;
+    }
+    return item.oref;
+}
 
 // An act's transient outcome, keyed by act id in petstore.ts. Transient on purpose: the row's real value
 // comes from its own poll, and letting an act's return value become the row's value would drift from the
@@ -42,6 +53,10 @@ export interface PetActState {
 // Dismiss is the way out for a branch that will never land. Everything else needs a written answer or a
 // picked option, neither of which is a button, so the escort alone covers it.
 export function actsForAttention(item: AttentionItem): PetAct[] {
+    const scanOref = item ? workflowScanOref(item) : null;
+    if (scanOref != null) {
+        return [{ id: `${item.key}:open`, verb: "open", label: "Open", target: { kind: "oref", ref: scanOref } }];
+    }
     if (!item?.runid) {
         return []; // nothing addressable: an item with no run cannot be opened or resolved
     }
