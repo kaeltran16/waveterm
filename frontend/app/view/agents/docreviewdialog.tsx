@@ -18,7 +18,7 @@ import { ICON_BTN } from "./agentheader";
 import type { AgentsViewModel } from "./agents";
 import { askSentKey, type AgentVM } from "./agentsviewmodel";
 import { cleanLabel } from "./answerbar";
-import { DOC_REVIEW_COPY, docReviewAtom, parseDocReview, type DocReview } from "./docreview";
+import { countItems, DOC_REVIEW_COPY, docReviewAtom, parseDocReview, type DocReview } from "./docreview";
 import {
     addNote,
     composeAnswer,
@@ -358,7 +358,7 @@ function AskPane({ review, children }: { review: DocReview; children?: ReactNode
         <div className="flex w-[460px] flex-none flex-col bg-surface-raised">
             <div className="sc flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-5 pb-5 pt-4">
                 <div className="font-mono text-[10.5px] font-bold uppercase tracking-[0.1em] text-muted">
-                    {DOC_REVIEW_COPY[review.kind].list} · {review.items.length}
+                    {DOC_REVIEW_COPY[review.kind].list} · {countItems(review)}
                 </div>
                 {review.intro.length > 0 ? (
                     <MarkdownMessage
@@ -367,11 +367,20 @@ function AskPane({ review, children }: { review: DocReview; children?: ReactNode
                     />
                 ) : null}
                 <ol className="m-0 flex list-none flex-col gap-3 p-0">
-                    {review.items.map((item, i) => (
-                        <li key={i}>
-                            <MarkdownMessage text={item} className="text-[13px] leading-[1.5] text-secondary" />
-                        </li>
-                    ))}
+                    {review.entries.map((entry, i) =>
+                        entry.kind === "heading" ? (
+                            <li key={i} data-doc-heading className="pt-1 text-[12px] font-semibold text-muted">
+                                {entry.text}
+                            </li>
+                        ) : (
+                            <li key={i}>
+                                <MarkdownMessage
+                                    text={entry.text}
+                                    className="text-[13px] leading-[1.5] text-secondary"
+                                />
+                            </li>
+                        )
+                    )}
                 </ol>
             </div>
             {children}

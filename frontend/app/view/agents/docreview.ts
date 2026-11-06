@@ -44,14 +44,22 @@ const kindOf = (header: string | undefined): DocReviewKind | null => {
     );
 };
 
+// a non-item line after the first item is a section line over the items below it
+export interface DocReviewEntry {
+    kind: "item" | "heading";
+    text: string;
+}
+
 export interface DocReview {
     kind: DocReviewKind;
     path: string;
     intro: string[];
-    items: string[];
+    entries: DocReviewEntry[];
     approveIndex: number;
     requestIndex: number;
 }
+
+export const countItems = (review: DocReview): number => review.entries.filter((e) => e.kind === "item").length;
 
 const ITEM_PREFIX = "- ";
 const REQUEST_LABEL = "request changes";
@@ -75,11 +83,16 @@ export function parseDocReview(ask: AgentAsk | undefined): DocReview | null {
     const rest = lines.slice(1);
     const firstItem = rest.findIndex((l) => l.startsWith(ITEM_PREFIX));
     const introLines = firstItem < 0 ? rest : rest.slice(0, firstItem);
-    const items = rest.filter((l) => l.startsWith(ITEM_PREFIX)).map((l) => l.slice(ITEM_PREFIX.length).trim());
+    const entries = (firstItem < 0 ? [] : rest.slice(firstItem)).map(
+        (l): DocReviewEntry =>
+            l.startsWith(ITEM_PREFIX)
+                ? { kind: "item", text: l.slice(ITEM_PREFIX.length).trim() }
+                : { kind: "heading", text: l }
+    );
     const labels = (qs[0].options ?? []).map((o) => o.label.replace(RECOMMENDED, " ").trim().toLowerCase());
     const requestIndex = labels.findIndex((l) => l.startsWith(REQUEST_LABEL));
     const approveIndex = labels.findIndex((_, i) => i !== requestIndex);
-    return { kind, path, intro: introLines, items, approveIndex, requestIndex };
+    return { kind, path, intro: introLines, entries, approveIndex, requestIndex };
 }
 
 // the id of the agent whose doc-review ask the dialog shows; null = closed
