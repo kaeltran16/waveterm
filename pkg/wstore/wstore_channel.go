@@ -112,13 +112,22 @@ func EnsureChannelAtPath(ctx context.Context, name, projectPath string) (*waveob
 // DeleteChannel deletes the channel with the rows that belong to it: its runs, their events and dags, and
 // its messages.
 func DeleteChannel(ctx context.Context, channelId string) error {
-	return WithTx(ctx, func(tx *TxWrap) error {
+	var runIds, dagIds []string
+	err := WithTx(ctx, func(tx *TxWrap) error {
+		tx.Select(&runIds, `SELECT oid FROM db_run WHERE json_extract(data, '$.channeloid') = ?`, channelId)
+		tx.Select(&dagIds, `SELECT oid FROM db_dag WHERE json_extract(data, '$.channelid') = ?`, channelId)
 		tx.Exec(`DELETE FROM db_run WHERE json_extract(data, '$.channeloid') = ?`, channelId)
 		tx.Exec(`DELETE FROM db_channelmessage WHERE json_extract(data, '$.channeloid') = ?`, channelId)
 		tx.Exec(`DELETE FROM db_runevent WHERE channelid = ?`, channelId)
 		tx.Exec(`DELETE FROM db_dag WHERE json_extract(data, '$.channelid') = ?`, channelId)
 		return DBDelete(tx.Context(), waveobj.OType_Channel, channelId)
 	})
+	if err != nil {
+		return err
+	}
+	forgetShared(waveobj.OType_Run, runIds...)
+	forgetShared(waveobj.OType_Dag, dagIds...)
+	return nil
 }
 
 func GetChannels(ctx context.Context) ([]*waveobj.Channel, error) {

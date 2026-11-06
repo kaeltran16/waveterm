@@ -141,11 +141,21 @@ func DBGetAllObjsByType[T waveobj.WaveObj](ctx context.Context, otype string) ([
 }
 
 // sharedObjs holds the objects the Shared readers have decoded, each at the version it was read.
-// DBDelete drops a row's entry; a bulk delete (DeleteChannel) leaves its rows' entries until wavesrv exits.
+// DBDelete drops a row's entry, and a bulk delete (DeleteChannel) drops the entries of the rows it deletes.
 var sharedObjs = struct {
 	sync.Mutex
 	byORef map[waveobj.ORef]waveobj.WaveObj
 }{byORef: map[waveobj.ORef]waveobj.WaveObj{}}
+
+// forgetShared drops the held copies of the otype rows ids: a re-insert under the same oid starts again at
+// version 1, which a held copy would match.
+func forgetShared(otype string, ids ...string) {
+	sharedObjs.Lock()
+	defer sharedObjs.Unlock()
+	for _, id := range ids {
+		delete(sharedObjs.byORef, waveobj.ORef{OType: otype, OID: id})
+	}
+}
 
 // sharedFetchChunk keeps one IN list under sqlite's bound-parameter limit.
 const sharedFetchChunk = 500
@@ -227,10 +237,7 @@ func DBDelete(ctx context.Context, otype string, id string) error {
 	if err != nil {
 		return err
 	}
-	// a re-insert under the same oid starts again at version 1, which a held copy would match
-	sharedObjs.Lock()
-	delete(sharedObjs.byORef, waveobj.ORef{OType: otype, OID: id})
-	sharedObjs.Unlock()
+	forgetShared(otype, id)
 	go func() {
 		defer func() {
 			panichandler.PanicHandler("DBDelete:filestore.DeleteZone", recover())
