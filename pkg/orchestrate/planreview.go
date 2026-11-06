@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -96,7 +97,8 @@ const planReviewSpecGap = "Also report gaps in the spec, and places where the sp
 // planReviewChecklist is the one source of the checklist every plan reviewer's brief lists, in this order.
 var planReviewChecklist = []string{
 	"every requirement in the spec has a task;",
-	"no two tasks edit the same file without a Depends between them, since tasks with nothing between them run at the same time. Submit already refused any path two such tasks both list on their Files lines, so look for what those lines leave out: a task with no Files line, and a file a task's text edits that its Files line omits;",
+	// reviewers failed plans for "Task N has no Depends line, so it runs beside Task M" (runs 957d9a1f, 690cc20a)
+	"no two tasks that can run at the same time edit the same file. A task waits for each task its Depends line lists, and a task with no Depends line waits for the one before it, so only tasks with no chain of edges between them run at the same time. Submit already refused any path two such tasks both list on their Files lines, so look for what those lines leave out: a task with no Files line, and a file a task's text edits that its Files line omits;",
 	"types, functions and flags have the same names in every task that mentions them;",
 	// false plan claims about callers and tests reached workers, who stopped to ask the lead (workflow scan p7, 2026-11-03)
 	"each claim the plan makes about existing code (what a function calls, who calls it, what a test asserts) holds in the tree: grep the callers of what a task changes or removes; a claim that does not hold is a finding;",
@@ -252,6 +254,41 @@ func writePlanReviewOpening(b *strings.Builder, g *waveobj.TaskGroup, tree strin
 		b.WriteString("There is no spec file. Read ")
 	}
 	fmt.Fprintf(b, "the plan at %s, and the files they name.\n", DocPath(g, tree, g.PlanPath))
+	writeDependsEdges(b, g)
+}
+
+// writeDependsEdges lists the edges the engine runs the plan by, one line per task. Reviewers read a task with no
+// Depends line as running beside the one before it, when it waits for it (runs 957d9a1f, 690cc20a, 8028cea5, f537df33).
+func writeDependsEdges(b *strings.Builder, g *waveobj.TaskGroup) {
+	if len(g.Tasks) == 0 {
+		return
+	}
+	implicit := implicitDeps(g)
+	b.WriteString("The engine parsed these dependency edges from the plan (t-N is its Task N); a task starts only after each task it waits for, and tasks with no chain of edges between them run at the same time:\n")
+	for _, t := range g.Tasks {
+		switch {
+		case len(t.Deps) == 0:
+			fmt.Fprintf(b, "- %s waits for nothing\n", t.ID)
+		case slices.Contains(implicit, t.ID):
+			fmt.Fprintf(b, "- %s waits for %s (implicit: no Depends line)\n", t.ID, strings.Join(t.Deps, ", "))
+		default:
+			fmt.Fprintf(b, "- %s waits for %s\n", t.ID, strings.Join(t.Deps, ", "))
+		}
+	}
+}
+
+// implicitDeps is the ids of the tasks the round's plan text gives no Depends line. The tasks carry only their
+// edges, so the text is parsed again; a text that no longer parses marks none implicit, and the edges stand.
+func implicitDeps(g *waveobj.TaskGroup) []string {
+	if g.PlanReview == nil || g.PlanReview.PlanText == "" {
+		return nil
+	}
+	plan, err := jarvis.ParsePlan(g.PlanReview.PlanText)
+	if err != nil {
+		log.Printf("dag %s: parsing the plan for its reviewer's dependency edges: %v", g.OID, err)
+		return nil
+	}
+	return plan.ImplicitDeps
 }
 
 // planReviewReadOnly is the line every plan reviewer's brief ends its checks with.

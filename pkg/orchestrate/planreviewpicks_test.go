@@ -63,18 +63,20 @@ func TestPlanReviewPromptAsksForPicks(t *testing.T) {
 			t.Errorf("the brief must contain %q:\n%s", want, prompt)
 		}
 	}
-	if strings.Contains(prompt, "t-3") {
+	if strings.Contains(prompt, "- t-3: ") || strings.Contains(prompt, `"t-3=`) {
 		t.Errorf("a task with a Model line is not the reviewer's to pick:\n%s", prompt)
 	}
 }
 
 func TestPlanReviewPromptUnchangedWithoutPicks(t *testing.T) {
 	g := &waveobj.TaskGroup{RunID: "run-1", SpecPath: "s.md", PlanPath: "p.md", Tasks: picksTasks()}
-	want := "You are the plan reviewer for run run-1. Before any worker starts, judge whether the plan can be run as written.\n" +
-		"Read the spec at " + DocPath(g, "tree", "s.md") + ", the plan at " + DocPath(g, "tree", "p.md") + ", and the files they name.\n" +
-		"Check that:\n" +
+	head := "You are the plan reviewer for run run-1. Before any worker starts, judge whether the plan can be run as written.\n" +
+		"Read the spec at " + DocPath(g, "tree", "s.md") + ", the plan at " + DocPath(g, "tree", "p.md") + ", and the files they name.\n"
+	edges := "The engine parsed these dependency edges from the plan (t-N is its Task N); a task starts only after each task it waits for, and tasks with no chain of edges between them run at the same time:\n" +
+		"- t-1 waits for nothing\n- t-2 waits for nothing\n- t-3 waits for nothing\n"
+	want := "Check that:\n" +
 		"- every requirement in the spec has a task;\n" +
-		"- no two tasks edit the same file without a Depends between them, since tasks with nothing between them run at the same time. Submit already refused any path two such tasks both list on their Files lines, so look for what those lines leave out: a task with no Files line, and a file a task's text edits that its Files line omits;\n" +
+		"- no two tasks that can run at the same time edit the same file. A task waits for each task its Depends line lists, and a task with no Depends line waits for the one before it, so only tasks with no chain of edges between them run at the same time. Submit already refused any path two such tasks both list on their Files lines, so look for what those lines leave out: a task with no Files line, and a file a task's text edits that its Files line omits;\n" +
 		"- types, functions and flags have the same names in every task that mentions them;\n" +
 		"- each claim the plan makes about existing code (what a function calls, who calls it, what a test asserts) holds in the tree: grep the callers of what a task changes or removes; a claim that does not hold is a finding;\n" +
 		"- no task waits for another's long implementation when it needs only that task's interface (a type, a wire field, a table, a function's signature): the interface can land first as its own small task, so the implementation and the tasks that use it run beside each other;\n" +
@@ -91,12 +93,13 @@ func TestPlanReviewPromptUnchangedWithoutPicks(t *testing.T) {
 		"- `wsh jarvis dag planreview pass \"<summary>\"`;\n" +
 		"- `wsh jarvis dag planreview fail \"<findings: each problem, where it is, and the fix>\"`.\n" +
 		fmt.Sprintf("Keep the text within %d characters; a longer one is refused.", MaxReviewNoteLen)
-	if got := planReviewPrompt(g, "tree"); got != want {
-		t.Fatalf("a group not on Reviewer picks gets today's brief:\n%s\nwant:\n%s", got, want)
+	if got := planReviewPrompt(g, "tree"); got != head+edges+want {
+		t.Fatalf("a group not on Reviewer picks gets today's brief:\n%s\nwant:\n%s", got, head+edges+want)
 	}
+	// beyond their edges, the tasks must not change the brief of a group not on Reviewer picks
 	zero := &waveobj.TaskGroup{RunID: "run-1", SpecPath: "s.md", PlanPath: "p.md"}
-	if planReviewPrompt(zero, "tree") != want {
-		t.Fatal("the tasks must not change the brief of a group not on Reviewer picks")
+	if got := planReviewPrompt(zero, "tree"); got != head+want {
+		t.Fatalf("a group with no tasks lists no edges:\n%s", got)
 	}
 }
 

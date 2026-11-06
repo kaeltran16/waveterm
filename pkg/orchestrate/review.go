@@ -129,7 +129,7 @@ func spawnReviewer(ctx, spawnCtx context.Context, g *waveobj.TaskGroup, t *waveo
 	}
 	runID, sessionId := uuid.NewString(), uuid.NewString()
 	oref, err := spawnWorker(spawnCtx, capability, owner.WorkspaceId, "", worker.ProjectPath, prompt,
-		jarvis.RunWorkerOptions{SessionId: sessionId, RunId: runID, TaskId: t.ID, Label: "review " + t.ID, ShortCache: true})
+		jarvis.RunWorkerOptions{SessionId: sessionId, RunId: runID, TaskId: t.ID, Label: "review " + t.ID, ShortCache: true, StrictMCP: true, NoSlashCommands: true})
 	if err != nil {
 		spendReviewRespawn(ctx, g, t, "reviewer could not start: "+err.Error(), afterCommit)
 		return

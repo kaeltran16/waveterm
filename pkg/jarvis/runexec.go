@@ -36,9 +36,10 @@ type RunWorkerSpec struct {
 
 // RunWorkerSpecFor resolves the unattended worker launch form from one validated capability. The
 // capability authority owns runtime/model compatibility and model selection; this adapter only supplies
-// each runtime's unattended base arguments. A non-empty sessionId names the worker's session: both
-// runtimes take --session-id and name the transcript by it.
-func RunWorkerSpecFor(cap runroute.Capability, sessionId, prompt string) (RunWorkerSpec, bool) {
+// each runtime's unattended base arguments. A non-empty opts.SessionId names the worker's session: both
+// runtimes take --session-id and name the transcript by it. opts.StrictMCP and opts.NoSlashCommands apply to
+// claude only; pi has neither an MCP config nor a skills listing to trim.
+func RunWorkerSpecFor(cap runroute.Capability, opts RunWorkerOptions, prompt string) (RunWorkerSpec, bool) {
 	if !runroute.IsValid(cap) {
 		return RunWorkerSpec{}, false
 	}
@@ -50,14 +51,20 @@ func RunWorkerSpecFor(cap runroute.Capability, sessionId, prompt string) (RunWor
 	switch cap.Runtime {
 	case "claude":
 		args = []string{"--dangerously-skip-permissions"}
+		if opts.StrictMCP {
+			args = append(args, "--strict-mcp-config")
+		}
+		if opts.NoSlashCommands {
+			args = append(args, "--disable-slash-commands")
+		}
 	case "pi":
 		args = nil
 	default:
 		return RunWorkerSpec{}, false
 	}
 	baseArgs := append(append([]string{}, args...), cap.ModelArgs...)
-	if sessionId != "" {
-		args = append(args, "--session-id", sessionId)
+	if opts.SessionId != "" {
+		args = append(args, "--session-id", opts.SessionId)
 	}
 	args = append(args, cap.ModelArgs...)
 	args = append(args, prompt)
@@ -147,6 +154,13 @@ type RunWorkerOptions struct {
 	// ShortCache gives the session claude's 5-minute prompt cache: for an engine session that works its turns
 	// back to back and exits, never one a person may pause in (consult.PromptCacheTTLEnv).
 	ShortCache bool
+	// StrictMCP launches a claude session with --strict-mcp-config, so no MCP server the account or project
+	// configures loads (~2.1k tokens of startup context): for an engine worker or judge, which use none.
+	StrictMCP bool
+	// NoSlashCommands launches a claude session with --disable-slash-commands, which also drops the skills
+	// listing (~4.6k tokens): only for a session whose prompt invokes no skill and that is never typed a slash
+	// command, so never a lead (writing-plans, /compact) or a worker (may use skills).
+	NoSlashCommands bool
 }
 
 // createWorkerTab is the tab-creation seam, so tests make a tab without a layout or a live workspace.
@@ -255,7 +269,7 @@ var SpawnRunWorker = func(ctx context.Context, cap runroute.Capability, workspac
 	if err != nil {
 		return "", err
 	}
-	spec, ok := RunWorkerSpecFor(cap, opts.SessionId, prompt)
+	spec, ok := RunWorkerSpecFor(cap, opts, prompt)
 	if !ok {
 		return "", fmt.Errorf("no unattended run worker adapter for runtime %q model %q", cap.Runtime, cap.Model)
 	}

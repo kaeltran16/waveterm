@@ -161,7 +161,7 @@ func TestPlanReviewSecondPassPromptHasTheWholeChecklist(t *testing.T) {
 	if !strings.Contains(second, "You are one of two plan reviewers working independently at the same time") || !strings.Contains(second, "`wsh jarvis dag planreview pass \"<summary>\"`") {
 		t.Fatalf("the brief says it is one of two independent reviewers and names the verdict:\n%s", second)
 	}
-	if strings.Contains(second, "--pick") || strings.Contains(second, "t-1") {
+	if strings.Contains(second, "--pick") || strings.Contains(second, "- t-1: ") {
 		t.Fatalf("the second pass picks no models:\n%s", second)
 	}
 	if strings.Contains(full, "one of two plan reviewers") {
@@ -543,5 +543,34 @@ func TestPlanReviewChecksThePlansClaimsAboutExistingCode(t *testing.T) {
 	g := &waveobj.TaskGroup{RunID: "run-1", SpecPath: "s.md", PlanPath: "p.md"}
 	if p := planReviewPrompt(g, "tree"); !strings.Contains(p, "grep the callers of what a task changes or removes") {
 		t.Fatalf("the reviewer must check the plan's claims about existing code against the tree:\n%s", p)
+	}
+}
+
+// reviewers failed plans for "Task N has no Depends line, so it runs beside Task M" (runs 957d9a1f, 690cc20a): every
+// brief lists the edges the engine parsed, the default one marked implicit, and says what a missing line means
+func TestPlanReviewPromptsListTheParsedDependsEdges(t *testing.T) {
+	const text = "# Plan\n\n### Task 1: a\n**Depends on:** none\n\n### Task 2: b\n\n### Task 3: c\n**Depends on:** Task 1\n"
+	plan, err := jarvis.ParsePlan(text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := &waveobj.TaskGroup{RunID: "run-1", PlanPath: "p.md", Tasks: plan.Tasks,
+		PlanReview: &waveobj.PlanReviewStage{Round: 2, PlanText: text, Prior: &waveobj.PlanReviewPrior{PlanText: text}}}
+	followup, err := planFollowupPrompt(context.Background(), g, "tree")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prompts := map[string]string{"full": planReviewPrompt(g, "tree"), "second": planSecondPassPrompt(g, "tree"), "followup": followup}
+	for lens, p := range prompts {
+		for _, want := range []string{
+			"- t-1 waits for nothing\n",
+			"- t-2 waits for t-1 (implicit: no Depends line)\n",
+			"- t-3 waits for t-1\n",
+			"a task with no Depends line waits for the one before it",
+		} {
+			if !strings.Contains(p, want) {
+				t.Errorf("%s brief missing %q:\n%s", lens, want, p)
+			}
+		}
 	}
 }

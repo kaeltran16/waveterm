@@ -35,7 +35,7 @@ func TestRunWorkerSpecFor(t *testing.T) {
 		if err != nil {
 			t.Fatalf("resolve %s: %v", tt.runtime, err)
 		}
-		spec, ok := RunWorkerSpecFor(cap, "", "do work")
+		spec, ok := RunWorkerSpecFor(cap, RunWorkerOptions{}, "do work")
 		if !ok || spec.Bin != tt.bin || !reflect.DeepEqual(spec.Args, tt.args) {
 			t.Errorf("%s spec = %+v, ok=%v", tt.runtime, spec, ok)
 		}
@@ -60,7 +60,7 @@ func TestRunWorkerSpecFor_CapabilityArgs(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			spec, ok := RunWorkerSpecFor(cap, "", "do work")
+			spec, ok := RunWorkerSpecFor(cap, RunWorkerOptions{}, "do work")
 			if !ok || spec.Bin != tt.runtime || !reflect.DeepEqual(spec.Args, tt.args) {
 				t.Fatalf("spec = %+v, ok=%v", spec, ok)
 			}
@@ -73,16 +73,54 @@ func TestRunWorkerSpecFor_CapabilityArgs(t *testing.T) {
 		{Runtime: "pi"},
 		{Runtime: "mystery", ResolvedModel: "operator default"},
 	} {
-		if _, ok := RunWorkerSpecFor(invalid, "", "do work"); ok {
+		if _, ok := RunWorkerSpecFor(invalid, RunWorkerOptions{}, "do work"); ok {
 			t.Errorf("mismatched/unsupported capability %+v produced a worker spec", cap)
 		}
+	}
+}
+
+// engine sessions start at ~40k tokens: a judge drops the MCP and skills listings, a worker (which may use skills)
+// only the MCP one, and a lead neither; pi has neither listing, so it takes no flag
+func TestRunWorkerSpecForStartupTrim(t *testing.T) {
+	judge := RunWorkerOptions{StrictMCP: true, NoSlashCommands: true}
+	worker := RunWorkerOptions{StrictMCP: true}
+	tests := []struct {
+		name     string
+		runtime  string
+		opts     RunWorkerOptions
+		baseArgs []string
+	}{
+		{"claude judge", "claude", judge, []string{"--dangerously-skip-permissions", "--strict-mcp-config", "--disable-slash-commands"}},
+		{"claude worker", "claude", worker, []string{"--dangerously-skip-permissions", "--strict-mcp-config"}},
+		{"claude lead", "claude", RunWorkerOptions{}, []string{"--dangerously-skip-permissions"}},
+		{"pi judge", "pi", judge, []string{}},
+		{"pi worker", "pi", worker, []string{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cap, err := runroute.Resolve(waveobj.RoutePin{Runtime: tt.runtime})
+			if err != nil {
+				t.Fatal(err)
+			}
+			spec, ok := RunWorkerSpecFor(cap, tt.opts, "do work")
+			if !ok {
+				t.Fatal("no spec")
+			}
+			// BaseArgs carries the flags too, so a resumed session keeps them
+			if !reflect.DeepEqual(append([]string{}, spec.BaseArgs...), tt.baseArgs) {
+				t.Errorf("BaseArgs = %v, want %v", spec.BaseArgs, tt.baseArgs)
+			}
+			if want := append(append([]string{}, tt.baseArgs...), "do work"); !reflect.DeepEqual(spec.Args, want) {
+				t.Errorf("Args = %v, want %v", spec.Args, want)
+			}
+		})
 	}
 }
 
 func TestRunWorkerSpecForRejectsUnsupportedRuntimes(t *testing.T) {
 	for _, runtime := range []string{"codex", "opencode"} {
 		cap := runroute.Capability{Runtime: runtime, ResolvedModel: "operator default"}
-		if spec, ok := RunWorkerSpecFor(cap, "", "do work"); ok {
+		if spec, ok := RunWorkerSpecFor(cap, RunWorkerOptions{}, "do work"); ok {
 			t.Errorf("%s must have no run worker adapter, got %+v", runtime, spec)
 		}
 	}
@@ -105,7 +143,7 @@ func TestRunWorkerSpecForSessionId(t *testing.T) {
 		if err != nil {
 			t.Fatalf("resolve %s: %v", tt.runtime, err)
 		}
-		spec, ok := RunWorkerSpecFor(cap, id, "do work")
+		spec, ok := RunWorkerSpecFor(cap, RunWorkerOptions{SessionId: id}, "do work")
 		if !ok || !reflect.DeepEqual(spec.Args, tt.args) {
 			t.Errorf("%s args = %v, ok=%v, want %v", tt.runtime, spec.Args, ok, tt.args)
 		}
@@ -162,6 +200,12 @@ func TestEnsureWorkersPassesKeepOnExitOnlyForOrchestrator(t *testing.T) {
 
 	if len(got) != 2 || !got[0].KeepOnExit || got[1].KeepOnExit {
 		t.Fatalf("worker options = %+v", got)
+	}
+	// a lead runs writing-plans and is typed /compact, so it keeps its MCP servers and slash commands
+	for _, opts := range got {
+		if opts.StrictMCP || opts.NoSlashCommands {
+			t.Fatalf("a lead launches with its startup context trimmed: %+v", opts)
+		}
 	}
 }
 
@@ -296,7 +340,7 @@ func TestRunWorkerSpecFor_piModelPinPassesQualifiedID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-	spec, ok := RunWorkerSpecFor(cap, "", "do work")
+	spec, ok := RunWorkerSpecFor(cap, RunWorkerOptions{}, "do work")
 	if !ok {
 		t.Fatal("pi model pin must produce a worker spec")
 	}
