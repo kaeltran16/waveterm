@@ -52,6 +52,10 @@ func laneMergeReady(g *waveobj.TaskGroup, lane []string) *waveobj.TaskNode {
 	if tip == nil || tip.Merged || tip.RunID == "" {
 		return nil
 	}
+	// an early-started lane holds its base lane's commits, which must land first
+	if earlyBaseUnmerged(g, lane) != nil {
+		return nil
+	}
 	for _, id := range lane {
 		t := taskByID(g, id)
 		if t.State == TaskState_Skipped {
