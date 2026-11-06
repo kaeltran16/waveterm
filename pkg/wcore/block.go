@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/filestore"
 	"github.com/wavetermdev/waveterm/pkg/util/utilfn"
+	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wps"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -35,6 +36,11 @@ func CreateBlock(ctx context.Context, tabId string, blockDef *waveobj.BlockDef, 
 	}
 	if blockDef.Meta == nil || blockDef.Meta.GetString(waveobj.MetaKey_View, "") == "" {
 		return nil, fmt.Errorf("no view provided for new block")
+	}
+	if _, ok := blockDef.Meta[waveobj.MetaKey_CmdCwd]; ok {
+		if cwd := blockDef.Meta.GetString(waveobj.MetaKey_CmdCwd, ""); !wavebase.SnapshotMayStart(cwd) {
+			return nil, fmt.Errorf("snapshot store: not creating a block in %q, only inside %s", cwd, wavebase.SnapshotScratchDir())
+		}
 	}
 	blockData, err := createBlockObj(ctx, tabId, blockDef, rtOpts)
 	if err != nil {

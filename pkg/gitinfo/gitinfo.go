@@ -34,12 +34,26 @@ type Changes struct {
 	// the open surface has to be noticeable, and comparing one sha is what lets the surface re-read the
 	// log only when the log has actually changed.
 	Head string
+	// Live mode only: why `diff --numstat` failed while status listed the files (one unreadable file
+	// fails the whole numstat). The list stays usable; Numstat's tracked rows then cannot be trusted.
+	NumstatError string
 }
 
 func run(ctx context.Context, cwd string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", cwd}, args...)...)
 	out, err := cmd.Output()
 	return string(out), err
+}
+
+// describeGitError names the command and carries git's own stderr, which run's bare exit status lacks.
+func describeGitError(args []string, err error) error {
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		if stderr := strings.TrimSpace(string(ee.Stderr)); stderr != "" {
+			return fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, stderr)
+		}
+	}
+	return fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
 }
 
 func GetChanges(ctx context.Context, cwd, ref string) (*Changes, error) {
@@ -74,21 +88,38 @@ func GetChanges(ctx context.Context, cwd, ref string) (*Changes, error) {
 	}
 	statusZ = stripPrefixZ(statusZ, prefix)
 	if ref == "" {
-		// live mode (unchanged): working tree vs HEAD, plus synthetic rows for untracked files.
+		// live mode: working tree vs HEAD, plus synthetic rows for untracked files.
 		// --relative scopes to cwd and prints cwd-relative paths, matching the stripped status above.
-		// `diff --numstat HEAD` errors on a repo with no commits yet; status is still meaningful.
-		numstat, _ := run(ctx, cwd, "diff", "--numstat", "--relative", "HEAD")
+		// `diff --numstat HEAD` errors by nature on a repo with no commits yet (head == ""); status is
+		// still meaningful there. With a HEAD the error is a real failed read, but one unreadable file
+		// fails it for every file, so it is carried beside the list rather than replacing it: dropping it
+		// would show the files with no line counts, as if they had none.
+		numstatArgs := []string{"diff", "--numstat", "--relative", "HEAD"}
+		numstat, nerr := run(ctx, cwd, numstatArgs...)
+		numstatError := ""
+		if nerr != nil && head != "" {
+			numstatError = describeGitError(numstatArgs, nerr).Error()
+		}
 		// git diff omits untracked files (nothing in HEAD/index to diff), so a new file would show +0.
 		// Append synthetic numstat rows for untracked files so their added lines count in the totals.
 		numstat += untrackedNumstat(cwd, statusZ)
-		return &Changes{Branch: strings.TrimSpace(branch), StatusZ: statusZ, Numstat: numstat, IsRepo: true, Head: head}, nil
+		return &Changes{Branch: strings.TrimSpace(branch), StatusZ: statusZ, Numstat: numstat, IsRepo: true, Head: head, NumstatError: numstatError}, nil
 	}
 	// ref mode: tracked changes come from the base diff (committed + uncommitted); untracked files
 	// are not in the base, so their ?? rows are carried over from status verbatim.
-	nameStatus, _ := run(ctx, cwd, "diff", "--name-status", "-z", "--relative", ref)
+	// an unresolvable ref errors here; an empty list would read as "nothing changed"
+	nameStatusArgs := []string{"diff", "--name-status", "-z", "--relative", ref}
+	nameStatus, err := run(ctx, cwd, nameStatusArgs...)
+	if err != nil {
+		return nil, describeGitError(nameStatusArgs, err)
+	}
 	trackedZ := nameStatusToStatusZ(nameStatus)
 	untrackedZ := untrackedEntriesZ(statusZ)
-	numstat, _ := run(ctx, cwd, "diff", "--numstat", "--relative", ref)
+	numstatArgs := []string{"diff", "--numstat", "--relative", ref}
+	numstat, err := run(ctx, cwd, numstatArgs...)
+	if err != nil {
+		return nil, describeGitError(numstatArgs, err)
+	}
 	numstat += untrackedNumstat(cwd, untrackedZ)
 	return &Changes{Branch: strings.TrimSpace(branch), StatusZ: trackedZ + untrackedZ, Numstat: numstat, IsRepo: true, Head: head}, nil
 }

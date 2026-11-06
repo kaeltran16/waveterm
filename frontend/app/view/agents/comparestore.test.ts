@@ -558,6 +558,19 @@ describe("a commit row's file list", () => {
         expect(globalStore.get(compareSelectedFileAtom)).toBe("a.ts");
     });
 
+    // a null list with no failure is an endless skeleton (F12)
+    it("records isrepo:false as a failure, and a retry reads again", async () => {
+        commitChanges.mockResolvedValueOnce({ isrepo: false });
+        await selectCompareRow("/repo", "abc1234def");
+        expect(globalStore.get(compareCommitFailureAtom)).toContain("abc1234");
+
+        commitChanges.mockResolvedValue(changedFiles("a.ts"));
+        retryCompareRow("/repo");
+        await vi.waitFor(() => expect(globalStore.get(compareSelectedFileAtom)).toBe("a.ts"));
+        expect(commitChanges).toHaveBeenCalledTimes(2);
+        expect(globalStore.get(compareCommitFailureAtom)).toBeNull();
+    });
+
     it("clears the failure when another row is picked", async () => {
         commitChanges.mockRejectedValueOnce(new Error("boom"));
         await selectCompareRow("/repo", "abc1234def");

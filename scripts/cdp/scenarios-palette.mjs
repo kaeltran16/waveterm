@@ -2463,6 +2463,59 @@ export const paletteReviewFixes = {
                     after.overrides?.accent === REVIEW_ACCENT,
                 JSON.stringify({ target, footer: /keeping your color overrides/.test(drill?.text ?? ""), after })
             );
+
+            // 6. F10 of the 2026-11-06 follow-ups: off the Brief, a failed status change from the palette shows a
+            // cockpit error toast. The fixture record joins the real list read and only its status write is refused.
+            await h.ev(PEEKS_ESC);
+            await h.goto("cockpit");
+            const rec6 = { id: `${s}-record`, objective: `${s} palette status record`, ticket: "", status: "active", updated: Date.now() };
+            await lookEval(h, `
+                const { RpcApi } = await mod("app/store/wshclientapi.ts");
+                const list = RpcApi.ListTaskDossiersCommand;
+                RpcApi.ListTaskDossiersCommand = async (...a) => {
+                    const rtn = await list.apply(RpcApi, a);
+                    return { ...rtn, dossiers: [...(rtn?.dossiers ?? []), ${JSON.stringify(rec6)}] };
+                };
+                const set = RpcApi.SetDossierStatusCommand;
+                RpcApi.SetDossierStatusCommand = (client, data, opts) =>
+                    data?.dossierid === ${JSON.stringify(rec6.id)}
+                        ? Promise.reject(new Error("stubbed status failure"))
+                        : set.call(RpcApi, client, data, opts);
+            `);
+            await openPalette(h);
+            await h.ev(setInputExpr(PALETTE_INPUT, rec6.objective));
+            const recRow = await paletteStateWhen(h, (st) => (st.selected ?? "").includes(rec6.objective) && st.chip, 8000);
+            await h.ev(paletteKey("ArrowRight"));
+            await paletteStateWhen(h, (st) => st.drill != null && st.groups.length > 0, 3000);
+            await h.ev(setInputExpr(PALETTE_INPUT, "change status"));
+            const action = await paletteStateWhen(h, (st) => (st.selected ?? "").startsWith("Change status"), 3000);
+            await h.ev(paletteKey("Enter"));
+            await paletteStateWhen(h, (st) => st.groups.some((g) => g.rows.some((r) => r.startsWith("paused"))), 3000);
+            await h.ev(setInputExpr(PALETTE_INPUT, "paused"));
+            const pick = await paletteStateWhen(h, (st) => (st.selected ?? "").startsWith("paused"), 3000);
+            await h.ev(paletteKey("Enter"));
+            const toastShown = await polishWaitFor(
+                h,
+                `[...document.querySelectorAll('[data-notification-toast="error"]')].some((t) => /Couldn't set the record's status/.test(t.textContent) && /stubbed status failure/.test(t.textContent))`,
+                5000
+            );
+            await h.shot("cdp-shots/palette-review-status-failure-toast.png");
+            const briefToast = await lookEval(h, `
+                const S = await mod("app/store/jotaiStore.ts");
+                const B = await mod("app/view/jarvis/briefundo.ts");
+                return S.globalStore.get(B.briefToastAtom);
+            `);
+            rec(
+                "6. on the cockpit surface, a record status change from the palette whose write fails shows an error toast naming the action and the error, not the Brief's toast",
+                toastShown === true && briefToast == null,
+                JSON.stringify({
+                    record: recRow?.selected,
+                    action: action?.selected,
+                    pick: pick?.selected,
+                    toastShown,
+                    briefToast,
+                })
+            );
         } catch (e) {
             rec("scenario aborted", false, String(e?.message ?? e));
         }

@@ -329,7 +329,12 @@ export async function selectCompareRow(cwd: string, rowId: string): Promise<void
         if (globalStore.get(compareSelectionAtom) !== rowId) {
             return; // selection moved on
         }
-        const changes = ch.isrepo ? parseGitChanges(ch.statusz, ch.numstat) : null;
+        if (!ch.isrepo) {
+            // the comparison just listed this commit, so a refusal now is a failed read, not an absent repo
+            globalStore.set(compareCommitFailureAtom, `Couldn’t read the files of ${rowId.slice(0, 7)}.`);
+            return;
+        }
+        const changes = parseGitChanges(ch.statusz, ch.numstat);
         globalStore.set(commitChangesAtom, changes);
         const first = firstFile(changes);
         if (first) {

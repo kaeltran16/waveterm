@@ -2,7 +2,10 @@
 package jarvisattrib
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -93,6 +96,48 @@ func TestDetachSuppressesAndSurvivesRebuild(t *testing.T) {
 	edges = applyOverrides(assembleEdges(d, runs, lk, now), mustOverrides(t, v))
 	if len(edges) != 0 {
 		t.Fatalf("detached edge resurrected after rebuild: %+v", edges)
+	}
+}
+
+func TestTaskDossiersLogsUnparsableRecord(t *testing.T) {
+	v := testVault(t)
+	good, _, err := jarvisdossier.CreateDossier(v, jarvisdossier.DossierFacts{Ticket: "PROJ-9", Objective: "good one"})
+	if err != nil {
+		t.Fatalf("CreateDossier: %v", err)
+	}
+	bad, _, err := jarvisdossier.CreateDossier(v, jarvisdossier.DossierFacts{Ticket: "PROJ-10", Objective: "bad one"})
+	if err != nil {
+		t.Fatalf("CreateDossier: %v", err)
+	}
+	nb, err := v.Retriever(wavevault.AllScope()).Read(bad)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	real := loadDossierFn
+	defer func() { loadDossierFn = real }()
+	loadDossierFn = func(r *wavevault.Retriever, id string) (*jarvisdossier.Dossier, error) {
+		if id == bad {
+			return nil, errors.New("frontmatter: did not find expected key")
+		}
+		return real(r, id)
+	}
+
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	defer log.SetOutput(os.Stderr)
+
+	got, err := taskDossiers(v)
+	if err != nil {
+		t.Fatalf("taskDossiers: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != good {
+		t.Fatalf("taskDossiers = %+v, want only %s", got, good)
+	}
+	line := buf.String()
+	for _, want := range []string{"skipping record " + bad, nb.Node.Path, "did not find expected key"} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("log %q does not contain %q", line, want)
+		}
 	}
 }
 

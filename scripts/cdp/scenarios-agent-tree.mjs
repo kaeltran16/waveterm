@@ -1,7 +1,8 @@
 // Agent review scenario `agent-tree` (F3, F6, F15, F16): with no agents the tree's AGENTS group offers New agent and
 // recent sessions; Rename and Pin show on a booting row at once; Duplicate starts a fresh session with the source's
 // launch flags and not its task; a terminal launched on the Agent surface is focused there, and New agent names it
-// "Add terminal" anywhere else. The roster is a fixture of [] beside one real plain terminal tab; the booting and
+// "Add terminal" anywhere else; a launch whose startup command quotes an argument (F5) keeps it whole in cmd:args.
+// The roster is a fixture of [] beside one real plain terminal tab; the booting and
 // duplicated tabs are pending launches with no agent controller, so nothing an agent runs is started. The duplicate
 // runs `node -e ""`, which exits at once.
 
@@ -264,6 +265,34 @@ export default function (_kit) {
                         onCockpit.surface === "cockpit" &&
                         onCockpit.label.startsWith("Add terminal"),
                     JSON.stringify({ onAgent, pane, onCockpit })
+                );
+
+                // 5. a quoted startup command reaches the block as one argument (F5); node exits at once
+                const quoted = await agentPage(
+                    h,
+                    `const { launchAgent } = await mod("app/cockpit/cockpit-actions.ts");
+                    try {
+                        const tabId = await launchAgent(agentsModel(), {
+                            runtime: "claude",
+                            startupCommand: 'node -e "void 0; void 1"',
+                            task: "",
+                            projectPath: ${JSON.stringify(ctx.dir)},
+                            projectName: ${JSON.stringify(`tree-quote-${ctx.tag}`)},
+                        });
+                        const tab = WOS.getWaveObjectAtom(WOS.makeORef("tab", tabId));
+                        const blockId = globalStore.get(tab)?.blockids?.[0];
+                        const block = globalStore.get(WOS.getWaveObjectAtom(WOS.makeORef("block", blockId)));
+                        return { tabId, cmd: block?.meta?.cmd ?? null, args: block?.meta?.["cmd:args"] ?? null };
+                    } catch (e) {
+                        return { error: String(e?.message ?? e) };
+                    }`
+                );
+                if (quoted.tabId) ctx.tabIds.push(quoted.tabId);
+                await h.shot(SHOT(5, "quoted-command"));
+                rec(
+                    "5. a quoted startup command launches with the quoted text as one cmd:args entry",
+                    quoted.cmd === "node" && JSON.stringify(quoted.args) === JSON.stringify(["-e", "void 0; void 1"]),
+                    JSON.stringify(quoted)
                 );
                 return steps;
             },

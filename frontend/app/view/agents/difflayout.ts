@@ -5,7 +5,8 @@
 // Pure: how wide the Diff surface is -> whether the commit column is a column or a rail. The
 // surface ships in a 1000x700 window (src-tauri/tauri.conf.json), where a fixed 460px history plus
 // a 300px file list leaves the diff pane about 240px — unreadable. One threshold on one column is
-// the whole of it; the rest of the folding cascade stays declined (docs/deferred.md).
+// the whole of it; the rest of the folding cascade stays declined (docs/deferred.md). Also which body the
+// surface draws (diffBody).
 
 import { atom, type PrimitiveAtom } from "jotai";
 
@@ -36,4 +37,23 @@ export function historyLayout(explicit: boolean | null, width: number): HistoryL
         return "rail";
     }
     return width > 0 && width < HISTORY_COLLAPSE_PX ? "overlay" : "column";
+}
+
+export type DiffBody = "history-failure-in-column" | "whole-body-failure" | "not-a-repo" | "body";
+
+// What the surface's body draws. A history failure takes over the whole body only when the change list has
+// no good read to keep: then the read that failed is also the one that would say whether this is a repo. With
+// a good change list the failure stays in the history column and the working tree stays usable.
+export function diffBody(
+    historyFailed: boolean,
+    changeList: { cwd: string | null; isRepo: boolean; changes: unknown } | null
+): DiffBody {
+    if (historyFailed) {
+        const good = changeList?.isRepo === true && changeList.changes != null;
+        return good ? "history-failure-in-column" : "whole-body-failure";
+    }
+    if (changeList?.isRepo === false && changeList.cwd) {
+        return "not-a-repo";
+    }
+    return "body";
 }

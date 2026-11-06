@@ -61,6 +61,11 @@ func (ws *WshServer) UpdateWorkspaceTabIdsCommand(ctx context.Context, workspace
 
 func (ws *WshServer) SetMetaCommand(ctx context.Context, data wshrpc.CommandSetMetaData) error {
 	oref := data.ORef
+	if cwd, ok := data.Meta[waveobj.MetaKey_CmdCwd]; ok && cwd != nil && oref.OType == waveobj.OType_Block {
+		if s, _ := cwd.(string); !wavebase.SnapshotMayStart(s) {
+			return fmt.Errorf("snapshot store: not setting block %s's cwd to %q, only inside %s", oref.OID, s, wavebase.SnapshotScratchDir())
+		}
+	}
 	changed, err := wstore.UpdateObjectMeta(ctx, oref, data.Meta, false)
 	if err != nil {
 		return fmt.Errorf("error updating object meta: %w", err)

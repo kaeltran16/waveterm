@@ -1,6 +1,48 @@
-import { describe, expect, it } from "vitest";
-import { diffStatsFromChanges, sharedCheckoutCount } from "./cardgitstore";
+import { globalStore } from "@/app/store/jotaiStore";
+import { RpcApi } from "@/app/store/wshclientapi";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { diffStatsByIdAtom, diffStatsFromChanges, refreshCardGit, sharedCheckoutCount } from "./cardgitstore";
 import type { GitChanges } from "./gitstatus";
+
+vi.mock("@/app/store/wshclientapi", () => ({ RpcApi: { GitChangesCommand: vi.fn() } }));
+vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
+vi.mock("./agentcwdresolve", () => ({ resolveCwd: vi.fn(async () => "C:/src/demo") }));
+vi.mock("./agentsessionstore", () => ({ ensureSessionStart: vi.fn(async () => null) }));
+
+describe("refreshCardGit", () => {
+    afterEach(() => {
+        vi.restoreAllMocks();
+        globalStore.set(diffStatsByIdAtom, {});
+    });
+
+    it("logs a failed read and leaves no stats for the id", async () => {
+        globalStore.set(diffStatsByIdAtom, { a1: { files: 3, adds: 4, dels: 5 } });
+        vi.mocked(RpcApi.GitChangesCommand).mockRejectedValueOnce(new Error("git exploded"));
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        await refreshCardGit("a1", "t.jsonl");
+        expect("a1" in globalStore.get(diffStatsByIdAtom)).toBe(false);
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(String(warn.mock.calls[0][0])).toContain("a1");
+        expect(warn.mock.calls[0]).toContainEqual(expect.objectContaining({ message: "git exploded" }));
+    });
+
+    it("logs a numstat failure and leaves no stats rather than a +0 -0 chip", async () => {
+        globalStore.set(diffStatsByIdAtom, { a1: { files: 3, adds: 4, dels: 5 } });
+        vi.mocked(RpcApi.GitChangesCommand).mockResolvedValueOnce({
+            branch: "main",
+            statusz: " M src/old.py\0",
+            numstat: "",
+            isrepo: true,
+            numstaterror: "git diff --numstat --relative HEAD: exit status 128: fatal: cannot hash src/old.py",
+        });
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        await refreshCardGit("a1", "t.jsonl");
+        expect("a1" in globalStore.get(diffStatsByIdAtom)).toBe(false);
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(String(warn.mock.calls[0][0])).toContain("a1");
+        expect(warn.mock.calls[0].join(" ")).toContain("cannot hash src/old.py");
+    });
+});
 
 describe("diffStatsFromChanges", () => {
     it("counts files from the change list and passes through add/del totals", () => {

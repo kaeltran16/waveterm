@@ -187,6 +187,22 @@ describe("loadFilesForScope outcomes", () => {
         expect(globalStore.get(filesErrorAtom)).toBe(false);
     });
 
+    it("keeps the change list and carries a numstat failure beside it, not as a failed read", async () => {
+        const numstaterror = "git diff --numstat --relative HEAD: exit status 128: fatal: cannot hash src/old.py";
+        gitChanges.mockResolvedValue({ ...clean, statusz: " M src/old.py\0", numstaterror });
+        await loadFilesForScope(projectScopeVal("proj"));
+
+        const state = globalStore.get(filesStateAtom);
+        expect(state?.changes?.files.map((f) => f.path)).toEqual(["src/old.py"]);
+        expect(state?.numstatError).toBe(numstaterror);
+        expect(globalStore.get(filesErrorAtom)).toBe(false);
+        expect(globalStore.get(filesRefreshFailedAtom)).toBe(false);
+
+        gitChanges.mockResolvedValue(clean);
+        await reloadChanges("/repo");
+        expect(globalStore.get(filesStateAtom)?.numstatError).toBeUndefined();
+    });
+
     it("selects nothing on a first load that has no changed file", async () => {
         gitChanges.mockResolvedValue(clean);
         await loadFilesForScope(projectScopeVal("proj"));

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 )
 
@@ -31,7 +32,11 @@ func (ws *WshServer) CodeReviewWriteCommand(ctx context.Context, data wshrpc.Com
 	if err != nil {
 		return nil, fmt.Errorf("resolving the home directory: %w", err)
 	}
-	path, err := writeReview(filepath.Join(home, ".arc", "review"), data.Project, data.Markdown, time.Now())
+	root := filepath.Join(home, ".arc", "review")
+	if !wavebase.SnapshotMayWrite(root) {
+		return nil, fmt.Errorf("snapshot store: not writing a review to %s, only inside %s", root, wavebase.SnapshotBaseDir())
+	}
+	path, err := writeReview(root, data.Project, data.Markdown, time.Now())
 	if err != nil {
 		return nil, err
 	}

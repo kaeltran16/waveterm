@@ -88,6 +88,49 @@ export async function launchAgent(model: AgentsViewModel, opts: LaunchAgentOpts)
         throw new Error("no active workspace");
     }
     const tabId = await WorkspaceService.CreateTab(ws.oid, opts.projectName, false);
+    let blockId: string;
+    try {
+        blockId = await configureLaunchTab(tabId, opts, cwd);
+    } catch (e) {
+        await closeFailedLaunchTab(ws.oid, tabId);
+        throw e;
+    }
+    const agentPanel = runtimeCreatesAgentPanel(opts.runtime);
+    if (!isTerminal) {
+        // the shared start path, so a refusal reads "failed to start" on the Agent and Sessions surfaces too
+        await resyncController({ tabid: tabId, blockid: blockId });
+    }
+    if (agentPanel) {
+        // named as the roster will name its row, so the name does not jump when that row replaces it
+        const taken = flattenVisualOrder(globalStore.get(sessionSidebarViewModelAtom))
+            .filter((r) => r.projectNamed && r.tabId !== tabId)
+            .map((r) => r.label);
+        const pending: PendingLaunch = {
+            tabId,
+            blockId,
+            name: opts.label || numberedName(opts.projectName, taken),
+            project: opts.projectName,
+            ts: Date.now(),
+            runtime: opts.runtime,
+        };
+        globalStore.set(model.pendingLaunchesAtom, [...globalStore.get(model.pendingLaunchesAtom), pending]);
+    }
+    // An agent is focused; from anywhere but the Cockpit it also lands on the Agent surface. A terminal
+    // is focused only on the Agent surface, where its pane shows and starts it; from anywhere else it
+    // stays in the background under the Agent tree's "Terminals" group and starts when first opened.
+    const surface = globalStore.get(model.surfaceAtom);
+    if (launchFocuses(opts.runtime, surface)) {
+        globalStore.set(model.focusIdAtom, tabId);
+        const landing = launchLanding(surface);
+        if (landing) {
+            globalStore.set(model.surfaceAtom, landing);
+        }
+    }
+    return tabId;
+}
+
+// configureLaunchTab turns the new tab's default block into the launch and tags the tab; returns the block id.
+async function configureLaunchTab(tabId: string, opts: LaunchAgentOpts, cwd: string): Promise<string> {
     const tab = globalStore.get(WOS.getWaveObjectAtom<Tab>(WOS.makeORef("tab", tabId)));
     const blockId = tab?.blockids?.[0];
     if (blockId == null) {
@@ -126,37 +169,17 @@ export async function launchAgent(model: AgentsViewModel, opts: LaunchAgentOpts)
         tabMeta[SESSION_BRAINSTORM] = opts.brainstormFile;
     }
     await RpcApi.SetMetaCommand(TabRpcClient, { oref: WOS.makeORef("tab", tabId), meta: tabMeta });
-    if (!isTerminal) {
-        // the shared start path, so a refusal reads "failed to start" on the Agent and Sessions surfaces too
-        await resyncController({ tabid: tabId, blockid: blockId });
+    return blockId;
+}
+
+// a launch that failed before its process started leaves nothing in its tab worth keeping. A failed start keeps
+// its tab, where the block's start error shows.
+async function closeFailedLaunchTab(workspaceId: string, tabId: string): Promise<void> {
+    try {
+        await WorkspaceService.CloseTab(workspaceId, tabId);
+    } catch (e) {
+        console.error(`closing tab ${tabId} of a failed launch:`, e);
     }
-    if (agentPanel) {
-        // named as the roster will name its row, so the name does not jump when that row replaces it
-        const taken = flattenVisualOrder(globalStore.get(sessionSidebarViewModelAtom))
-            .filter((r) => r.projectNamed && r.tabId !== tabId)
-            .map((r) => r.label);
-        const pending: PendingLaunch = {
-            tabId,
-            blockId,
-            name: opts.label || numberedName(opts.projectName, taken),
-            project: opts.projectName,
-            ts: Date.now(),
-            runtime: opts.runtime,
-        };
-        globalStore.set(model.pendingLaunchesAtom, [...globalStore.get(model.pendingLaunchesAtom), pending]);
-    }
-    // An agent is focused; from anywhere but the Cockpit it also lands on the Agent surface. A terminal
-    // is focused only on the Agent surface, where its pane shows and starts it; from anywhere else it
-    // stays in the background under the Agent tree's "Terminals" group and starts when first opened.
-    const surface = globalStore.get(model.surfaceAtom);
-    if (launchFocuses(opts.runtime, surface)) {
-        globalStore.set(model.focusIdAtom, tabId);
-        const landing = launchLanding(surface);
-        if (landing) {
-            globalStore.set(model.surfaceAtom, landing);
-        }
-    }
-    return tabId;
 }
 
 // launchAgentOrToast is launchAgent for a click that has nowhere else to say why it failed

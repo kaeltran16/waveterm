@@ -1032,6 +1032,26 @@ describe("unified active work", () => {
         expect(after).toEqual(before);
     });
 
+    it("keys a keyless run row from the row alone, not from the other keyless rows", () => {
+        const blank = (goal: string, ts: number) => run({ oref: "run:", oid: "", goal, ts });
+        const keyOf = (rows: ReturnType<typeof mergeActiveWork>, goal: string) =>
+            rows.find((r) => r.name === goal)?.key;
+        const alone = mergeActiveWork({ activeRuns: [blank("one", T0 - HOUR)], blockers: [], directAgents: [] });
+        const withSecond = mergeActiveWork({
+            activeRuns: [blank("one", T0 - HOUR), blank("two", T0)],
+            blockers: [],
+            directAgents: [],
+        });
+        expect(keyOf(withSecond, "one")).toBe(keyOf(alone, "one"));
+        expect(keyOf(withSecond, "two")).not.toBe(keyOf(withSecond, "one"));
+        const sameTs = mergeActiveWork({
+            activeRuns: [blank("a", T0), blank("b", T0)],
+            blockers: [],
+            directAgents: [],
+        });
+        expect(sameTs[0].key).not.toBe(sameTs[1].key);
+    });
+
     it("stays deterministic when timestamps collide", () => {
         const rows = mergeActiveWork({
             activeRuns: [run({ oref: "run:z", ts: T0 }), run({ oref: "run:a", ts: T0 })],

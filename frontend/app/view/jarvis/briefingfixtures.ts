@@ -18,7 +18,9 @@ export type BriefingFixtureName =
     | "failed"
     | "act"
     | "review"
-    | "initiatives";
+    | "initiatives"
+    | "keyless-one"
+    | "keyless-two";
 export interface BriefingFixture {
     load: BriefingLoadState;
     agents: AgentVM[];
@@ -553,6 +555,22 @@ const initiativesState: WorkState = {
     ),
 };
 
+// "keyless-one" / "keyless-two": run items with no navtarget, whose rows have no id of their own. The second adds a
+// newer keyless run above the first, so a row key that leaned on the other keyless rows would change (F11).
+export const KEYLESS_RUN_GOAL = "Keyless run: started before its run id was known";
+const keylessRun = (title: string, ts: number): ActiveWorkItem => ({
+    project: "waveterm",
+    kind: "run",
+    title,
+    detail: "status: executing",
+    ts,
+});
+const keylessState = (items: ActiveWorkItem[]): WorkState => ({
+    projects: [{ project: "waveterm", active: items, shipped: [], events: [], delta: [] }],
+    sources: { runs: true, sessions: true, dossiers: true, efforts: true, attention: "volatile" },
+});
+const keylessFirst = keylessRun(KEYLESS_RUN_GOAL, NOW - 2 * HOUR);
+
 export const BRIEFING_FIXTURES: Record<BriefingFixtureName, BriefingFixture> = {
     normal: { load: loaded(normalState), agents, attention: [] },
     attention: { load: loaded(attentionState), agents, attention: attentionItems },
@@ -562,4 +580,10 @@ export const BRIEFING_FIXTURES: Record<BriefingFixtureName, BriefingFixture> = {
     act: { load: loaded(actState), agents: [], attention: [] },
     review: { load: loaded(reviewState), agents: [REVIEW_ASKER], attention: reviewAttention },
     initiatives: { load: loaded(initiativesState), agents: [], attention: reviewAttention },
+    "keyless-one": { load: loaded(keylessState([keylessFirst])), agents: [], attention: [] },
+    "keyless-two": {
+        load: loaded(keylessState([keylessFirst, keylessRun("Keyless run: a second one, newer", NOW - HOUR)])),
+        agents: [],
+        attention: [],
+    },
 };

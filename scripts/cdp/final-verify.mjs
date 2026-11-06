@@ -63,6 +63,11 @@ const DEFAULT_LOCK_WAIT_MS = 600_000;
 // how long the app gets to exit by itself once its main window is closed
 const CLOSE_EXIT_MS = 15_000;
 const STAYED_ALIVE = "the dev app stayed alive after its main window was closed";
+// how long the killed dev app gets to report its exit and close its stdin
+const RELEASE_MS = 10_000;
+const LATE = Symbol("late");
+// how long the loop gets to drain after the result before the stage exits anyway
+const DRAIN_MS = 15_000;
 
 // the dev app's store. wavesrv binds <store>/data/wave.sock and windows caps a unix socket path at 108 bytes, which
 // a store under ARC_FINAL_OUT (itself under %TEMP%) can pass, so it lives under a short path keyed by the out dir
@@ -214,6 +219,25 @@ export function killTree(pid) {
     } catch {
         // already gone
     }
+}
+
+// kills the dev app and closes what the stage opened for it, awaiting each close: process.exit with a handle still
+// closing aborts node on windows (UV_HANDLE_CLOSING, src/win/async.c:76) and turned a passing Final into exit 127.
+// Runs in a finally, so a dev app that never reports its exit is logged and left rather than waited on forever
+export async function releaseDevApp(dev, lock, log, waitMs = RELEASE_MS) {
+    const exited = dev.exitCode === null && dev.signalCode === null ? new Promise((r) => dev.once("exit", r)) : null;
+    const stdinClosed = dev.stdin.closed ? null : new Promise((r) => dev.stdin.once("close", r));
+    killTree(dev.pid);
+    dev.stdin.destroy();
+    let timer;
+    const late = new Promise((r) => (timer = setTimeout(r, waitMs, LATE)));
+    if ((await Promise.race([Promise.all([exited, stdinClosed]), late])) === LATE) {
+        console.log(`the dev app (pid ${dev.pid}) did not report its exit within ${waitMs / 1000}s of being killed`);
+    }
+    clearTimeout(timer);
+    // a lock already closed calls back with ERR_SERVER_NOT_RUNNING, which is just as released
+    await new Promise((r) => lock.close(r));
+    closeSync(log);
 }
 
 async function answers(port) {
@@ -405,13 +429,10 @@ async function main() {
             ARC_DEV_NO_GLOBAL_INSTALL: "1",
         },
     });
-    const stop = () => {
-        killTree(dev.pid);
-        lock.close();
-    };
     for (const sig of ["SIGINT", "SIGTERM"]) {
         process.on(sig, () => {
-            stop();
+            killTree(dev.pid);
+            lock.close();
             process.exit(1);
         });
     }
@@ -436,14 +457,17 @@ async function main() {
             close = await closeMainWindow(port);
         }
     } finally {
-        stop();
+        await releaseDevApp(dev, lock, log);
         dropStore(store, out);
     }
-    if (reason) unverified(reason);
-    const outcome = finalOutcome(code, close);
-    if (outcome.code === EXIT_UNVERIFIED) unverified(outcome.line);
+    const outcome = reason ? { code: EXIT_UNVERIFIED, line: reason } : finalOutcome(code, close);
     if (outcome.line) console.log(outcome.line);
-    process.exit(outcome.code);
+    // not process.exit: the loop drains by itself now that the stage let go of everything
+    process.exitCode = outcome.code;
+    setTimeout(() => {
+        console.error(`final-verify: still holding ${process.getActiveResourcesInfo().join(", ")} ${DRAIN_MS / 1000}s after its result; exiting`);
+        process.exit();
+    }, DRAIN_MS).unref();
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

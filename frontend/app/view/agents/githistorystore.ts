@@ -440,9 +440,14 @@ export async function selectCommit(cwd: string, hash: string): Promise<void> {
         if (globalStore.get(selectedCommitAtom) !== hash) {
             return; // selection moved on
         }
-        const changes = ch.isrepo ? parseGitChanges(ch.statusz, ch.numstat) : null;
+        if (!ch.isrepo) {
+            // the history just listed this commit, so a refusal now is a failed read, not an absent repo
+            globalStore.set(commitChangesFailureAtom, `Git no longer reads ${cwd} as a repository.`);
+            return;
+        }
+        const changes = parseGitChanges(ch.statusz, ch.numstat);
         globalStore.set(commitChangesAtom, changes);
-        const first = changes ? firstInList(changes.files, tree) : undefined;
+        const first = firstInList(changes.files, tree);
         if (first) {
             selectCommitFile(hash, first);
         }

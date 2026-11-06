@@ -92,6 +92,7 @@ import { briefRestorePlan } from "./briefrestore";
 import {
     behindGroups,
     capBehind,
+    filterCount,
     filterLines,
     initiativeLine,
     initiativeProjects,
@@ -514,16 +515,16 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         behindOpen,
         filtering,
     ]);
-    // Waiting's card summarizes the rows the filter keeps, "N of M" of the whole queue
-    const queueSummary = useMemo(() => {
+    // Waiting's card and head count the rows the filter keeps, "N of M" of the whole queue
+    const waitingMatching = useMemo(() => {
         const ids = new Set(lines.waiting.map((l) => l.id));
-        return waitingSummary(
-            queue,
-            queue.filter((q) => ids.has("waiting:" + q.key)),
-            filtering,
-            Date.now()
-        );
-    }, [queue, lines.waiting, filtering]);
+        return queue.filter((q) => ids.has("waiting:" + q.key));
+    }, [queue, lines.waiting]);
+    const queueSummary = useMemo(
+        () => waitingSummary(queue, waitingMatching, filtering, Date.now()),
+        [queue, waitingMatching, filtering]
+    );
+    const waitingCount = queue.length > 0 ? filterCount(waitingMatching.length, queue.length, filtering) : undefined;
     // Shipped's kind chips: every shipped run, and while filtering the ones whose line the filter keeps
     const shippedCounts = useMemo(() => {
         const all = model_?.shipped ?? [];
@@ -1167,6 +1168,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                 {view.shows("waiting") ? (
                                     <WaitingRegion
                                         queue={queue}
+                                        countLabel={waitingCount}
                                         lines={lines.waiting}
                                         summary={queueSummary}
                                         open={waitingOpen}

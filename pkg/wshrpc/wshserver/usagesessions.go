@@ -188,11 +188,18 @@ func tabAgentSession(ctx context.Context, tab *waveobj.Tab) (harness, session st
 	return harness, usagestats.SessionIdOf(harness, transcript), true
 }
 
-// tabEffort is the initiative the tab of the agent running harness's session is tagged with. The tag is tab meta,
-// so a closed tab takes it along. The map is built from every tagged tab on first use.
+// tabEffort is the initiative the tab of the agent running harness's session is tagged with. A closed tab's tag
+// was recorded when it closed; an open tab's live tag overrides it. The map is built on first use.
 func (d *usageDir) tabEffort(ctx context.Context, harness, session string) string {
 	if d.tabEfforts == nil {
 		d.tabEfforts = map[string]string{}
+		closed, err := wstore.GetSessionEfforts(ctx)
+		if err != nil {
+			log.Printf("usage: loading the initiatives of closed tabs' sessions: %v", err)
+		}
+		for _, se := range closed {
+			d.tabEfforts[se.Harness+":"+usagestats.SessionIdOf(se.Harness, se.Transcript)] = se.EffortOID
+		}
 		tabs, err := wstore.DBGetAllObjsByType[*waveobj.Tab](ctx, waveobj.OType_Tab)
 		if err != nil {
 			log.Printf("usage: loading tabs for their initiatives: %v", err)

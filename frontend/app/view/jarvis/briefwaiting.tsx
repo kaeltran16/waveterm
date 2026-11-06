@@ -14,6 +14,7 @@ import { SMALL_BTN } from "./briefstyle";
 
 export function WaitingRegion({
     queue,
+    countLabel,
     lines,
     summary,
     open,
@@ -29,6 +30,8 @@ export function WaitingRegion({
     onAct,
 }: {
     queue: QueueRow[];
+    // the head's count, "N of M" while a filter is active
+    countLabel: string | undefined;
     lines: BriefLine[];
     summary: QueueSummary | null;
     // the summary's own toggle
@@ -51,7 +54,7 @@ export function WaitingRegion({
         <Region
             id="waiting"
             alert={queue.length > 0}
-            count={queue.length || undefined}
+            count={countLabel}
             empty={queue.length === 0}
             gap="gap-[9px]"
             meta="gates before asks"

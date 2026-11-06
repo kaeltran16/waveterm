@@ -19,6 +19,8 @@ export const EFFORT_CAP = 6;
 export const ACTIVE_CAP = 8;
 export const DELTA_CAP = 5;
 export const SHIPPED_CAP = 3;
+// a run item with no navtarget: its row has no id of its own
+const KEYLESS_RUN_OREF = "run:";
 
 export interface CappedRows<T> {
     rows: T[];
@@ -499,7 +501,8 @@ export function mergeActiveWork(input: {
     const agentOrder = new Map(input.directAgents.map((a, i) => ["agent:" + a.id, i]));
     const rows: ActiveWorkRow[] = [
         ...input.activeRuns.map((r) => ({
-            key: "run:" + r.oref,
+            // a run with no navtarget has no id of its own: its ts names it, so its key never waits on another row
+            key: r.oref === KEYLESS_RUN_OREF ? "run:" + r.oref + ":" + r.ts : "run:" + r.oref,
             kind: "run" as const,
             oref: r.oref,
             name: r.goal,
@@ -557,23 +560,17 @@ export function mergeActiveWork(input: {
 }
 
 // A key names the thing, never where it sits: a position suffix moved every later row's id when a row arrived
-// above it, so the cursor fell back to the first row and the rest replayed their entrance. Only rows that share a
-// key (run items with no navtarget all read "run:") take their ts, then an ordinal among the identical ones.
+// above it, so the cursor fell back to the first row and the rest replayed their entrance. Only rows whose key is
+// exactly equal (two keyless runs with one ts) take an ordinal among the identical ones.
 function uniqueKeys(rows: ActiveWorkRow[]): ActiveWorkRow[] {
-    const counted = (keys: string[]) => {
-        const n = new Map<string, number>();
-        for (const k of keys) {
-            n.set(k, (n.get(k) ?? 0) + 1);
-        }
-        return n;
-    };
-    const byKey = counted(rows.map((r) => r.key));
-    const timed = rows.map((r) => ((byKey.get(r.key) ?? 0) > 1 ? r.key + ":" + r.ts : r.key));
-    const byTimed = counted(timed);
+    const byKey = new Map<string, number>();
+    for (const r of rows) {
+        byKey.set(r.key, (byKey.get(r.key) ?? 0) + 1);
+    }
     const seen = new Map<string, number>();
-    return rows.map((r, i) => {
-        let key = timed[i];
-        if ((byTimed.get(key) ?? 0) > 1) {
+    return rows.map((r) => {
+        let key = r.key;
+        if ((byKey.get(key) ?? 0) > 1) {
             const ordinal = seen.get(key) ?? 0;
             seen.set(key, ordinal + 1);
             key += ":" + ordinal;
@@ -661,7 +658,7 @@ export function projectBriefing(input: BriefingModelInput): BriefingModel {
     const runItems = projects.flatMap((p) => p.active ?? []).filter((a) => a.kind === "run");
     const activeRuns: RunRow[] = sortBy(
         runItems.map((a) => ({
-            oref: a.navtarget ?? "run:",
+            oref: a.navtarget ?? KEYLESS_RUN_OREF,
             oid: (a.navtarget ?? "").replace(/^run:/, ""),
             goal: a.title,
             project: a.project,

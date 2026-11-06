@@ -29,13 +29,23 @@ live.
   the watchdog, the loose-end and memory-hygiene sweeps, and remote mode (`cmd/server/main-server.go`);
 - start a block's process only when its cwd is inside `arc-snap\scratch` (`pkg/blockcontroller`): every other
   cwd in the copy is a real checkout;
+- refuse a block cwd outside `arc-snap\scratch` where it is given: a created block's `cmd:cwd`
+  (`wcore.CreateBlock`) and a `cmd:cwd` set on a block (`SetMetaCommand`), so a palette resume or New agent in
+  a real repo fails before its tab exists;
+- refuse a prompt to an agent whose block cwd is outside `arc-snap\scratch` (`AgentPromptCommand`: pane Approve,
+  Keep talking, every brainstorm line), since a copied agent's tab is a real session's;
+- refuse file writes outside `arc-snap` (`wavebase.SnapshotMayWrite`): Send review's `~/.arc/review` file
+  (`CodeReviewWriteCommand`), and the file RPCs write, create, mkdir, delete and move, source and destination
+  (`wshserver_files.go`; brainstorm Close deletes through them). A connection URI is checked on its local path;
+  any other host is refused. `WriteTempFileCommand` stays open: it writes under the OS temp dir;
 - refuse Jira writes; reads and the search POST go through (`pkg/jira/client.go`);
 - run agent sync (launch-time steering and skills) and skill adoption as dry runs, since both would write the
   real harness homes in `~` (`wshserver_agentsync.go`).
 
-A refused process start is logged in `arc-snap\data\waveapp.log` (`snapshot store: not starting a process`),
-but the UI does not show it yet: the terminal opens on its old scrollback, or a launched agent reads
-"working".
+Every refusal is an error starting `snapshot store:` that names the path and the allowed folder, shown by the
+action that hit it (a toast for a launch, the pane's or review bar's error line). A refused process start is
+also logged in `arc-snap\data\waveapp.log` (`snapshot store: not starting a process`); a copied terminal
+opened in a real checkout opens on its old scrollback.
 
 Not guarded: actions that call a model directly (a run's judge, a consult, a brainstorm judge) spend tokens,
 and agents launched in the snapshot write their transcripts to the real `~/.claude/projects`. With the watchdog

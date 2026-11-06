@@ -10,6 +10,7 @@ import { atoms } from "@/app/store/global-atoms";
 
 const h = vi.hoisted(() => ({ tab: { blockids: ["blk-1"] } as { blockids?: string[] } | undefined }));
 const createTab = vi.fn();
+const closeTab = vi.fn().mockResolvedValue(undefined);
 const createWorktree = vi.fn();
 const setMeta = vi.fn().mockResolvedValue(undefined);
 const reloadWaveObject = vi.fn().mockResolvedValue(undefined);
@@ -18,7 +19,12 @@ const agentSyncApply = vi.fn().mockResolvedValue({ actions: [] });
 const pushToast = vi.fn();
 const controllerResync = vi.fn().mockResolvedValue(undefined);
 
-vi.mock("@/app/store/services", () => ({ WorkspaceService: { CreateTab: (...a: any[]) => createTab(...a) } }));
+vi.mock("@/app/store/services", () => ({
+    WorkspaceService: {
+        CreateTab: (...a: any[]) => createTab(...a),
+        CloseTab: (...a: any[]) => closeTab(...a),
+    },
+}));
 vi.mock("@/app/store/wshclientapi", () => ({
     RpcApi: {
         SetMetaCommand: (...a: any[]) => setMeta(...a),
@@ -60,6 +66,7 @@ function fakeModel(surface = "cockpit") {
 
 beforeEach(() => {
     createTab.mockReset().mockResolvedValue("tab-1");
+    closeTab.mockReset().mockResolvedValue(undefined);
     setMeta.mockClear();
     reloadWaveObject.mockClear();
     fileInfo.mockReset().mockResolvedValue({});
@@ -298,6 +305,33 @@ describe("launchAgent", () => {
         controllerResync.mockRejectedValue(new Error("snapshot refused"));
         await expect(launchAgent(fakeModel(), agentOpts)).rejects.toThrow("snapshot refused");
         expect(globalStore.get(getStartErrorAtom("blk-1"))).toBe("snapshot refused");
+    });
+
+    it("closes the tab it made when configuring it fails, and rejects with the original error", async () => {
+        setMeta.mockRejectedValueOnce(new Error("snapshot store: not setting block blk-1's cwd"));
+        const model = fakeModel();
+        await expect(launchAgent(model, agentOpts)).rejects.toThrow("snapshot store: not setting block blk-1's cwd");
+        expect(closeTab).toHaveBeenCalledWith("ws1", "tab-1");
+        expect(controllerResync).not.toHaveBeenCalled();
+        expect(globalStore.get(model.pendingLaunchesAtom)).toStrictEqual([]);
+    });
+
+    it("rejects with the original error when closing the failed tab also fails", async () => {
+        setMeta.mockRejectedValueOnce(new Error("meta refused"));
+        closeTab.mockRejectedValueOnce(new Error("close failed"));
+        const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+            await expect(launchAgent(fakeModel(), agentOpts)).rejects.toThrow("meta refused");
+            expect(logged.mock.calls.flat().join(" ")).toContain("tab-1");
+        } finally {
+            logged.mockRestore();
+        }
+    });
+
+    it("keeps the tab of a refused controller start, where its start error shows", async () => {
+        controllerResync.mockRejectedValue(new Error("snapshot refused"));
+        await expect(launchAgent(fakeModel(), agentOpts)).rejects.toThrow("snapshot refused");
+        expect(closeTab).not.toHaveBeenCalled();
     });
 
     it("leaves a terminal to start when it is first opened", async () => {

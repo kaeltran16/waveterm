@@ -207,6 +207,9 @@ export interface SummaryInput {
     mergeBase: string;
     commit: string | null;
     changes: GitChanges | null;
+    // false while git could not count lines (the working tree's numstat failed): the delta is then
+    // unknown, not zero, so the caption stops at the file count. Omitted = known.
+    lineCounts?: boolean;
 }
 
 // The subject row's right-hand caption. It follows the selection: a caption that kept describing the
@@ -214,8 +217,8 @@ export interface SummaryInput {
 export function summaryLine(i: SummaryInput): string {
     const n = i.changes?.files.length ?? 0;
     const files = `${n} ${n === 1 ? "file" : "files"}`;
-    const delta = `+${i.changes?.adds ?? 0} −${i.changes?.dels ?? 0}`;
-    const counts = `${files} · ${delta}`;
+    const delta = i.lineCounts === false ? "" : ` · +${i.changes?.adds ?? 0} −${i.changes?.dels ?? 0}`;
+    const counts = `${files}${delta}`;
     if (i.commit != null) {
         return `${shortSha(i.commit)} · ${counts}`;
     }
@@ -232,11 +235,11 @@ export function summaryLine(i: SummaryInput): string {
         case "session":
             return i.ref
                 ? `worktree against ${shortSha(i.ref)} · ${counts}`
-                : `${files} against HEAD (no session start yet) · ${delta}`;
+                : `${files} against HEAD (no session start yet)${delta}`;
         case "working": {
             // measured against HEAD, whatever branch that is — never "against main"
             const where = i.branch && i.branch !== "HEAD" ? `on ${i.branch}` : "against HEAD";
-            return `${n} uncommitted ${n === 1 ? "file" : "files"} ${where} · ${delta}`;
+            return `${n} uncommitted ${n === 1 ? "file" : "files"} ${where}${delta}`;
         }
     }
 }

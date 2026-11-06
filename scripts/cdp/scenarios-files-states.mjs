@@ -126,6 +126,51 @@ async function launchAskingAgent(h, project) {
     `);
 }
 
+// answers the named wshrpc commands with canned values in the page, every other command as before; unstubRpc puts
+// the client back, and teardown calls it too
+const stubRpc = (h, answers) =>
+    h.ev(`(() => {
+        const c = window.TabRpcClient;
+        if (!c.__dsStubOrig) c.__dsStubOrig = c.wshRpcCall;
+        const call = c.__dsStubOrig.bind(c);
+        const answers = ${JSON.stringify(answers)};
+        c.wshRpcCall = (command, data, opts) => (command in answers ? Promise.resolve(answers[command]) : call(command, data, opts));
+    })()`);
+const unstubRpc = (h) =>
+    h.ev(`(() => { const c = window.TabRpcClient; if (c?.__dsStubOrig) { c.wshRpcCall = c.__dsStubOrig; delete c.__dsStubOrig; } })()`);
+
+const HISTORY_FAILURE = { command: "git log --stubbed", exitcode: 128, stderr: "fatal: stubbed history failure" };
+// the empty state's title (FilesSurface's early return, before the measured root exists)
+const EMPTY_SURFACE_TITLE = "No changes to show";
+
+// the Diff surface with no agent and no project: the dev roster fixture set to none, the projects taken out of the
+// config, no scope; returns what to put back. Dev builds only, which is what Final runs against.
+const emptyTheSurface = (h) =>
+    lookEval(h, `
+        const { globalStore } = await mod("app/store/jotaiStore.ts");
+        const { atoms } = await mod("app/store/global-atoms.ts");
+        const { devMockAgentsAtom } = await mod("app/view/agents/devmock.ts");
+        const model = ${MODEL};
+        const prev = { roster: globalStore.get(devMockAgentsAtom), projects: globalStore.get(atoms.fullConfigAtom)?.projects ?? null };
+        globalStore.set(devMockAgentsAtom, []);
+        globalStore.set(atoms.fullConfigAtom, { ...globalStore.get(atoms.fullConfigAtom), projects: {} });
+        globalStore.set(model.diffScopeAtom, null);
+        window.__dsEmptied = prev;
+        return true;
+    `);
+const refillTheSurface = (h) =>
+    lookEval(h, `
+        const prev = window.__dsEmptied;
+        if (prev == null) return false;
+        const { globalStore } = await mod("app/store/jotaiStore.ts");
+        const { atoms } = await mod("app/store/global-atoms.ts");
+        const { devMockAgentsAtom } = await mod("app/view/agents/devmock.ts");
+        globalStore.set(devMockAgentsAtom, prev.roster);
+        globalStore.set(atoms.fullConfigAtom, { ...globalStore.get(atoms.fullConfigAtom), projects: prev.projects ?? undefined });
+        delete window.__dsEmptied;
+        return true;
+    `);
+
 const agentState = (h, tabId) =>
     lookEval(h, `
         const { globalStore } = await mod("app/store/jotaiStore.ts");
@@ -475,10 +520,23 @@ export const diffStates = {
             let failed = false;
             let failedText = "";
             let recovered = false;
+            let listed = false;
+            let countsNotice = false;
+            let summary = "";
+            let headerCounts = true;
             try {
                 await pressKey(h, "r", "KeyR", 82);
                 failed = await until(h, `${emptyIs("failed")} && !!document.querySelector("[data-diff-retry]")`);
                 failedText = await textOf(h, PANE);
+                // the unreadable file fails git's line counts for every file, but the list itself must stay
+                countsNotice = await until(
+                    h,
+                    `[...document.querySelectorAll("[data-git-failure-notice]")].some((e) => e.textContent.includes("Line counts unavailable"))`
+                );
+                listed = await h.ev(`!!document.querySelector(${JSON.stringify(fileRowSel(STATES.deleted))})`);
+                // unknown counts are absent everywhere, never +0 −0: the toolbar caption and the pane header
+                summary = await h.ev(`document.querySelector("[data-files-range-summary]")?.textContent ?? ""`);
+                headerCounts = await h.ev(`!!document.querySelector("[data-diff-adds]")`);
                 await h.shot("cdp-shots/diff-states-read-failure.png");
             } finally {
                 execFileSync("icacls", [winPath, "/remove:d", process.env.USERNAME], { stdio: "pipe" });
@@ -492,8 +550,16 @@ export const diffStates = {
             }
             rec(
                 s7,
-                diff && failed && failedText.includes("Couldn’t read this file") && recovered,
-                JSON.stringify({ picked, diff, failed, failedText: failedText.slice(0, 200), recovered })
+                diff &&
+                    failed &&
+                    failedText.includes("Couldn’t read this file") &&
+                    recovered &&
+                    listed &&
+                    countsNotice &&
+                    summary !== "" &&
+                    !/[+−]\d/.test(summary) &&
+                    !headerCounts,
+                JSON.stringify({ picked, diff, failed, failedText: failedText.slice(0, 200), recovered, listed, countsNotice, summary, headerCounts })
             );
         });
 
@@ -657,6 +723,115 @@ export const diffStates = {
                 JSON.stringify({ agent: { name: agent.name, project: agent.project }, asked, listed, scoped, scope, opened, drafting, waiting, bar, prompts })
             );
         });
+
+        // the steps below are on the project again, wide enough for the history column
+        const backOnProject = async () => {
+            await h.goto("files");
+            await setViewport(h, WIDE);
+            const opened = await openOnDiff(h, STATES.project);
+            const column = await until(h, `!document.querySelector('[aria-label="Expand history"]')`);
+            return opened && column;
+        };
+        const workingTreeSubject = () =>
+            lookEval(h, `
+                const { globalStore } = await mod("app/store/jotaiStore.ts");
+                const hs = await mod("app/view/agents/githistorystore.ts");
+                return (globalStore.get(hs.historyRowsAtom) ?? []).find((r) => r.workingTree)?.subject ?? null;
+            `);
+
+        const s12 = "12. history failure in its column: a failed history read with a loaded working tree shows in the history column, and the working-tree row stays selectable";
+        await guard(s12, async () => {
+            const opened = await backOnProject();
+            const listed = await until(h, `!!document.querySelector(${JSON.stringify(fileRowSel(STATES.binary))})`);
+            const subject = await workingTreeSubject();
+            let got = null;
+            try {
+                await stubRpc(h, { githistory: { isrepo: true, failure: HISTORY_FAILURE } });
+                await lookEval(h, `(await mod("app/view/agents/githistorystore.ts")).refreshHistory();`);
+                const inColumn = await until(h, `!!document.querySelector("[data-git-failure-column] [data-git-failure-column-retry]")`);
+                const takeover = await h.ev(`!!document.querySelector("[data-git-failure]")`);
+                const failureText = await textOf(h, "[data-git-failure-column]");
+                const picked = subject != null && (await pickHistoryRow(h, subject));
+                const selectable = picked && (await pickFile(h, STATES.binary));
+                await h.shot("cdp-shots/diff-states-history-failure-column.png");
+                await unstubRpc(h);
+                await h.ev(`document.querySelector("[data-git-failure-column-retry]")?.click()`);
+                const recovered = await until(
+                    h,
+                    `!document.querySelector("[data-git-failure-column]") && [...document.querySelectorAll("[data-history-row]")].some((r) => r.textContent.includes(${JSON.stringify(STATES.seed)}))`
+                );
+                got = { opened, listed, subject, inColumn, takeover, failureText: failureText.slice(0, 160), picked, selectable, recovered };
+            } finally {
+                await unstubRpc(h);
+            }
+            rec(
+                s12,
+                got.opened &&
+                    got.listed &&
+                    got.inColumn &&
+                    !got.takeover &&
+                    got.failureText.includes(HISTORY_FAILURE.stderr) &&
+                    got.selectable &&
+                    got.recovered,
+                JSON.stringify(got)
+            );
+        });
+
+        const s13 = "13. commit read refused: a commit whose file read returns isrepo:false shows the failure with Retry, not a skeleton, and Retry reads it";
+        await guard(s13, async () => {
+            const opened = await backOnProject();
+            const subject = await workingTreeSubject();
+            // off the seed commit first, so picking it reads its files again
+            if (subject != null) await pickHistoryRow(h, subject);
+            let got = null;
+            try {
+                await stubRpc(h, { gitcommitchanges: { isrepo: false } });
+                const picked = await pickHistoryRow(h, STATES.seed);
+                const failed = await until(h, `!!document.querySelector("[data-file-list-failure] [data-file-list-retry]")`);
+                const message = await textOf(h, "[data-file-list-failure]");
+                await h.shot("cdp-shots/diff-states-commit-refused.png");
+                await unstubRpc(h);
+                await h.ev(`document.querySelector("[data-file-list-retry]")?.click()`);
+                const recovered = await until(
+                    h,
+                    `!document.querySelector("[data-file-list-failure]") && !!document.querySelector(${JSON.stringify(fileRowSel(STATES.deleted))})`
+                );
+                got = { opened, picked, failed, message: message.slice(0, 160), recovered };
+            } finally {
+                await unstubRpc(h);
+            }
+            rec(s13, got.opened && got.failed && got.recovered, JSON.stringify(got));
+        });
+
+        const s14 = "14. late mount measured: the surface first drawn empty, then given a repo, sets filesSurfaceWidthAtom to its root's width";
+        await guard(s14, async () => {
+            const widthAtom = (set) =>
+                lookEval(h, `
+                    const { globalStore } = await mod("app/store/jotaiStore.ts");
+                    const { filesSurfaceWidthAtom } = await mod("app/view/agents/difflayout.ts");
+                    ${set ? "globalStore.set(filesSurfaceWidthAtom, 0);" : ""}
+                    return globalStore.get(filesSurfaceWidthAtom);
+                `);
+            let got = null;
+            try {
+                await h.goto("settings");
+                await emptyTheSurface(h);
+                await h.goto("files");
+                const empty = await until(h, `document.body.innerText.includes(${JSON.stringify(EMPTY_SURFACE_TITLE)})`);
+                const noRoot = await h.ev(`!document.querySelector("[data-files-surface]")`);
+                // 0 is "not measured": only an observer attached to the root that mounts next can change it
+                await widthAtom(true);
+                await refillTheSurface(h);
+                const opened = await openOnDiff(h, STATES.project);
+                await sleep(LAYOUT_SETTLE_MS);
+                const root = await h.ev(`document.querySelector("[data-files-surface]")?.clientWidth ?? 0`);
+                const width = await widthAtom(false);
+                got = { empty, noRoot, opened, root, width };
+            } finally {
+                await refillTheSurface(h);
+            }
+            rec(s14, got.empty && got.noRoot && got.opened && got.root > 0 && got.width === got.root, JSON.stringify(got));
+        });
         return steps;
     },
     async teardown(h, ctx) {
@@ -667,6 +842,8 @@ export const diffStates = {
                 console.error(`diff-states teardown: ${what} failed: ${e?.message ?? e}`);
             }
         };
+        await step("put back the rpc client", () => unstubRpc(h));
+        await step("put back the roster and projects", () => refillTheSurface(h));
         if (ctx.agent?.tabId) {
             await step("close the agent", () => waveService(h, "workspace", "CloseTab", [ctx.agent.workspaceId, ctx.agent.tabId, false]));
         }

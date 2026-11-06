@@ -20,6 +20,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/orchestrate"
 	"github.com/wavetermdev/waveterm/pkg/util/utilfn"
+	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wps"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -286,7 +287,26 @@ func (ws *WshServer) AgentPromptCommand(ctx context.Context, data wshrpc.Command
 	if data.BlockId == "" || text == "" {
 		return fmt.Errorf("a block id and a prompt are required")
 	}
+	if err := snapshotRefusesPrompt(ctx, data.BlockId); err != nil {
+		return err
+	}
 	deliverAgentMessage(data.BlockId, text)
+	return nil
+}
+
+// snapshotRefusesPrompt keeps a snapshot app's prompts to agents it started in scratch: a copied agent's tab is
+// a real session working in a real checkout.
+func snapshotRefusesPrompt(ctx context.Context, blockId string) error {
+	if !wavebase.IsSnapshot() {
+		return nil
+	}
+	block, err := wstore.DBMustGet[*waveobj.Block](ctx, blockId)
+	if err != nil {
+		return fmt.Errorf("snapshot store: not prompting block %s, its cwd is unknown: %w", blockId, err)
+	}
+	if cwd := block.Meta.GetString(waveobj.MetaKey_CmdCwd, ""); !wavebase.SnapshotMayStart(cwd) {
+		return fmt.Errorf("snapshot store: not prompting the agent in %q, only agents inside %s", cwd, wavebase.SnapshotScratchDir())
+	}
 	return nil
 }
 

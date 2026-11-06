@@ -29,6 +29,8 @@ export interface FilesState {
     head: string;
     // a bounded run's tip: the list stops there instead of HEAD and the working tree; "" = live
     end: string;
+    // git's error when the files listed but `diff --numstat` failed: the list is valid, its counts are not
+    numstatError?: string;
 }
 
 // A registered project the Diff surface can scope to, resolved from the config registry (name -> path).
@@ -102,6 +104,7 @@ async function loadChangesForCwd(token: string, cwd: string | null, opts: LoadOp
             ref,
             head: ch.head ?? "",
             end: opts.end ?? "",
+            ...(ch.numstaterror ? { numstatError: ch.numstaterror } : {}),
         });
         globalStore.set(filesErrorAtom, false);
         globalStore.set(filesRefreshFailedAtom, false);
