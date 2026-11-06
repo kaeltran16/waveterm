@@ -16,13 +16,12 @@ import { boundNumber, cn, useAtomValueSafe } from "@/util/util";
 import clsx from "clsx";
 import { Atom } from "jotai";
 import { OverlayScrollbarsComponent, OverlayScrollbarsComponentRef } from "overlayscrollbars-react";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import ReactMarkdown, { Components } from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import rehypeSlug from "rehype-slug";
-import RemarkFlexibleToc, { TocItem } from "remark-flexible-toc";
 import remarkGfm from "remark-gfm";
 import { openLink } from "../store/global";
 import { IconButton } from "./iconbutton";
@@ -328,7 +327,6 @@ const MarkdownImg = ({
 type MarkdownProps = {
     text?: string;
     textAtom?: Atom<string> | Atom<Promise<string>>;
-    showTocAtom?: Atom<boolean>;
     style?: React.CSSProperties;
     className?: string;
     contentClassName?: string;
@@ -347,7 +345,6 @@ type MarkdownProps = {
 const Markdown = memo(function Markdown({
     text,
     textAtom,
-    showTocAtom,
     style,
     className,
     contentClassName,
@@ -361,8 +358,6 @@ const Markdown = memo(function Markdown({
     onClickImage,
 }: MarkdownProps) {
     const textAtomValue = useAtomValueSafe<string>(textAtom);
-    const tocRef = useRef<TocItem[]>([]);
-    const showToc = useAtomValueSafe(showTocAtom) ?? false;
     const contentsOsRef = useRef<OverlayScrollbarsComponentRef>(null);
     const [focusedHeading, setFocusedHeading] = useState<string>(null);
 
@@ -426,34 +421,6 @@ const Markdown = memo(function Markdown({
         return <Mermaid chart={chartText} />;
     };
 
-    const toc = useMemo(() => {
-        if (showToc) {
-            if (tocRef.current.length > 0) {
-                return tocRef.current.map((item) => {
-                    return (
-                        <a
-                            key={item.href}
-                            className="toc-item text-accent hover:underline"
-                            style={{ "--indent-factor": item.depth } as React.CSSProperties}
-                            onClick={() => setFocusedHeading(item.href)}
-                        >
-                            {item.value}
-                        </a>
-                    );
-                });
-            } else {
-                return (
-                    <div
-                        className="toc-item toc-empty text-secondary"
-                        style={{ "--indent-factor": 2 } as React.CSSProperties}
-                    >
-                        No sub-headings found
-                    </div>
-                );
-            }
-        }
-    }, [showToc, tocRef]);
-
     let rehypePlugins = null;
     if (rehype) {
         rehypePlugins = [
@@ -491,7 +458,6 @@ const Markdown = memo(function Markdown({
     const remarkPlugins: any = [
         remarkMermaidToTag,
         remarkGfm,
-        [RemarkFlexibleToc, { tocRef: tocRef.current }],
         [createContentBlockPlugin, { blocks: contentBlocksMap }],
     ];
 
@@ -526,14 +492,6 @@ const Markdown = memo(function Markdown({
                 </OverlayScrollbarsComponent>
             ) : (
                 <div className={cn("content non-scrollable", contentClassName)}>{rendered}</div>
-            )}
-            {toc && (
-                <OverlayScrollbarsComponent className="toc mt-1" options={{ scrollbars: { autoHide: "leave" } }}>
-                    <div className="toc-inner">
-                        <h4 className="font-bold">Table of Contents</h4>
-                        {toc}
-                    </div>
-                </OverlayScrollbarsComponent>
             )}
         </div>
     );
