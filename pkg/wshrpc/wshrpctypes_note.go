@@ -14,7 +14,7 @@ import (
 type NoteCommands interface {
 	NoteAddCommand(ctx context.Context, data CommandNoteAddData) (*waveobj.UserNote, error)
 	NoteListCommand(ctx context.Context) ([]*waveobj.UserNote, error)
-	NoteUpdateCommand(ctx context.Context, data CommandNoteUpdateData) error
+	NoteUpdateCommand(ctx context.Context, data CommandNoteUpdateData) (*CommandNoteUpdateRtnData, error)
 	NoteDeleteCommand(ctx context.Context, data CommandNoteDeleteData) error
 }
 
@@ -27,6 +27,12 @@ type CommandNoteUpdateData struct {
 	ID    string `json:"id"`
 	Title string `json:"title"`
 	Body  string `json:"body,omitempty"`
+	// the rev the editor read; set, an update of a note changed since is refused. empty overwrites
+	BaseRev string `json:"baserev,omitempty"`
+}
+
+type CommandNoteUpdateRtnData struct {
+	Rev string `json:"rev"`
 }
 
 type CommandNoteDeleteData struct {

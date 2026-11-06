@@ -139,7 +139,7 @@ func TestEdgesForDropsAGuessAnotherRecordClaims(t *testing.T) {
 	a := mkDossier("alpha", "run-"+rA)
 	b := mkDossier("beta", "run-"+rB)
 
-	edges, err := EdgesFor(ctx, v, b)
+	edges, _, err := EdgesFor(ctx, v, b)
 	if err != nil {
 		t.Fatalf("EdgesFor: %v", err)
 	}

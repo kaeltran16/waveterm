@@ -4,6 +4,7 @@
 
 import { atom } from "jotai";
 import { globalStore } from "@/app/store/jotaiStore";
+import { ERROR_TOAST_TTL_MS } from "./toaststack";
 
 export interface ToastNotification {
     id: number;
@@ -21,7 +22,7 @@ const MAX_TOASTS = 5;
 export function pushToast(n: Omit<ToastNotification, "id">): void {
     const toast = { ...n, id: nextId++ };
     globalStore.set(toastsAtom, (prev) => [...prev.slice(-(MAX_TOASTS - 1)), toast]);
-    setTimeout(() => dismissToast(toast.id), TOAST_TTL_MS);
+    setTimeout(() => dismissToast(toast.id), n.level === "error" ? ERROR_TOAST_TTL_MS : TOAST_TTL_MS);
 }
 
 export function dismissToast(id: number): void {

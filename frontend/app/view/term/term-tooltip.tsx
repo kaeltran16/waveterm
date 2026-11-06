@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { TOOLTIP_SURFACE } from "@/app/element/tooltip";
+import { Kbd } from "@/app/view/code/codepeekcard";
 import { isMacOS } from "@/util/platformutil";
 import { cn } from "@/util/util";
 import { FloatingPortal, Placement, VirtualElement, flip, offset, shift, useFloating } from "@floating-ui/react";
@@ -71,6 +72,17 @@ export const TermTooltip = React.memo(function TermTooltip({
     );
 });
 
+// the one hint grammar for a terminal link: a URL opens, a file path peeks
+export function LinkHint({ verb }: { verb: string }) {
+    // read per render: at module load setPlatform has not run yet, so the platform still reads as macOS
+    const modKey = isMacOS() ? "Cmd" : "Ctrl";
+    return (
+        <span className="flex items-center gap-[6px]">
+            <Kbd>{modKey}</Kbd> <span>+ click to {verb}</span>
+        </span>
+    );
+}
+
 // ── wired-up sub-component ───────────────────────────────────────────────────
 
 function clearTimeoutRef(ref: React.RefObject<number | null>) {
@@ -81,7 +93,7 @@ function clearTimeoutRef(ref: React.RefObject<number | null>) {
     ref.current = null;
 }
 
-const HoverDelayMs = 600;
+export const HoverDelayMs = 600;
 const MaxHoverTimeMs = 2200;
 
 interface TermLinkTooltipProps {
@@ -137,7 +149,5 @@ export const TermLinkTooltip = React.memo(function TermLinkTooltip({ termWrap }:
         };
     }, [termWrap]);
 
-    // read per render: at module load setPlatform has not run yet, so the platform still reads as macOS
-    const modKey = isMacOS() ? "Cmd" : "Ctrl";
-    return <TermTooltip mousePos={mousePos} content={<span>{modKey}-click to open link</span>} />;
+    return <TermTooltip mousePos={mousePos} content={<LinkHint verb="open link" />} />;
 });

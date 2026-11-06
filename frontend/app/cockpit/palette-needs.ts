@@ -7,6 +7,7 @@
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { parseDocReview } from "@/app/view/agents/docreview";
 import { parseAddress, type OpenTarget } from "@/app/view/jarvis/address";
+import { workflowScanOref } from "@/app/view/jarvis/petacts";
 
 export type NeedsGroup = "asks" | "reviews" | "blocked";
 
@@ -79,13 +80,10 @@ export function needsTarget(row: NeedsRow): NeedsTarget | null {
     if (row.agent != null) {
         return { kind: row.review ? "review" : "agent", agentId: row.agent.id };
     }
-    const { kind, key, channelid, runid, taskid, oref } = row.item;
-    // a scan's run is its agent's; what waits on the user is the scan's picks, in Usage › Workflow
-    if (kind === "workflow-scan" && oref) {
-        const parsed = parseAddress(oref);
-        if (parsed.kind !== "unsupported") {
-            return { kind: "open", target: parsed };
-        }
+    const { kind, key, channelid, runid, taskid } = row.item;
+    const scanOref = workflowScanOref(row.item);
+    if (scanOref != null) {
+        return { kind: "open", target: parseAddress(scanOref) as OpenTarget };
     }
     if (!channelid) {
         return null;

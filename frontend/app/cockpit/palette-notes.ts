@@ -47,11 +47,12 @@ export interface NoteDraft {
     title: string;
     body: string;
     saved: { title: string; body: string }; // what it was opened with
+    rev?: string; // the file's rev as last read or saved: an update is refused once the file has another
 }
 
 export function draftOf(note: UserNote): NoteDraft {
     const body = note.body ?? "";
-    return { id: note.id, title: note.title, body, saved: { title: note.title, body } };
+    return { id: note.id, title: note.title, body, saved: { title: note.title, body }, rev: note.rev };
 }
 
 export function newDraft(query: string): NoteDraft {
@@ -64,7 +65,7 @@ export function draftDirty(d: NoteDraft): boolean {
 
 // one armed confirmation at a time: a second press of the same key on the same target fires it,
 // anything else disarms
-export type ArmKey = "del" | "esc";
+export type ArmKey = "del" | "esc" | "save";
 export interface Armed {
     key: ArmKey;
     target: string; // a note key, or "" for esc
@@ -75,6 +76,21 @@ export function pressArm(armed: Armed | null, key: ArmKey, target: string): { ar
         return { armed: null, fire: true };
     }
     return { armed: { key, target }, fire: false };
+}
+
+// notestore.ErrNoteConflict's text: the RPC rejects with the error's message only
+const NOTE_CONFLICT_TEXT = "changed since it was opened";
+
+export function isNoteConflict(err: unknown): boolean {
+    return String(err).includes(NOTE_CONFLICT_TEXT);
+}
+
+// armed by a save the store refused as a conflict: the next ctrl ⏎ overwrites
+export const OVERWRITE_ARM: Armed = { key: "save", target: "" };
+
+// what a failed save arms: a conflict on a plain save arms the overwrite; a failed overwrite is only an error
+export function armAfterSave(error: string, overwrite: boolean): Armed | null {
+    return !overwrite && isNoteConflict(error) ? OVERWRITE_ARM : null;
 }
 
 // where the selection lands after the note at index i leaves a list of n notes

@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
 import { globalStore } from "@/app/store/jotaiStore";
-import { dismissToast, pushToast, toastsAtom } from "./notificationstore";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { dismissToast, pushToast, TOAST_TTL_MS, toastsAtom } from "./notificationstore";
+import { ERROR_TOAST_TTL_MS } from "./toaststack";
 
 describe("notificationstore", () => {
     beforeEach(() => {
@@ -19,6 +20,15 @@ describe("notificationstore", () => {
         for (let i = 0; i < 6; i++) pushToast({ title: `t${i}`, message: "", level: "info" });
         expect(globalStore.get(toastsAtom)).toHaveLength(5);
         vi.advanceTimersByTime(7000);
+        expect(globalStore.get(toastsAtom)).toHaveLength(0);
+    });
+
+    it("keeps an error toast past the info lifetime, until the error lifetime", () => {
+        pushToast({ title: "info", message: "", level: "info" });
+        pushToast({ title: "error", message: "", level: "error" });
+        vi.advanceTimersByTime(TOAST_TTL_MS);
+        expect(globalStore.get(toastsAtom).map((t) => t.title)).toEqual(["error"]);
+        vi.advanceTimersByTime(ERROR_TOAST_TTL_MS - TOAST_TTL_MS);
         expect(globalStore.get(toastsAtom)).toHaveLength(0);
     });
 

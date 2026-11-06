@@ -14,6 +14,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wavevault"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
+	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
 func seedGraphVault(t *testing.T) *wavevault.Vault {
@@ -72,7 +73,7 @@ func TestBuildDossierGraphMapsRunsAndTypedEdges(t *testing.T) {
 		"run:r1": {OID: "r1", Goal: "add PKCE", Status: "done"},
 		"run:r2": {OID: "r2", Goal: "refactor auth", Status: "executing"},
 	}
-	got := buildDossierGraph("task-1", edges, byORef)
+	got := buildDossierGraph("task-1", edges, byORef, map[string]string{"run:r1": "add PKCE", "run:r2": "refactor auth"})
 
 	// two run nodes (missing run contributes an edge but no node).
 	if len(got.Runs) != 2 {
@@ -82,8 +83,8 @@ func TestBuildDossierGraphMapsRunsAndTypedEdges(t *testing.T) {
 	for _, n := range got.Runs {
 		byId[n.Id] = n
 	}
-	if byId["run:r1"].Kind != "run" || byId["run:r1"].Label != "add PKCE" || byId["run:r1"].Status != "done" {
-		t.Fatalf("run:r1 = %+v, want kind=run label='add PKCE' status=done", byId["run:r1"])
+	if byId["run:r1"].Kind != "run" || byId["run:r1"].Label != "add PKCE · r1" || byId["run:r1"].Status != "done" {
+		t.Fatalf("run:r1 = %+v, want kind=run label='add PKCE · r1' status=done", byId["run:r1"])
 	}
 	// three attribution edges (all edges surfaced, incl. the one to the missing run).
 	if len(got.Links) != 3 {
@@ -101,6 +102,61 @@ func TestBuildDossierGraphMapsRunsAndTypedEdges(t *testing.T) {
 	}
 	if byTo["run:r2"].Bucket != "weak" || byTo["run:r2"].State != "informing" || byTo["run:r2"].Provenance != "structural" {
 		t.Fatalf("edge->r2 = %+v, want bucket=weak state=informing provenance=structural", byTo["run:r2"])
+	}
+}
+
+func TestNodeLabelDecisionSummary(t *testing.T) {
+	fm := func(kv ...string) map[string]any {
+		m := map[string]any{}
+		for i := 0; i+1 < len(kv); i += 2 {
+			m[kv[i]] = kv[i+1]
+		}
+		return m
+	}
+	cases := []struct {
+		name string
+		fm   map[string]any
+		want string
+	}{
+		{"summary wins over title and id", fm("summary", "drop worktrees for runs", "title", "worktree call"), "drop worktrees for runs"},
+		{"title when no summary", fm("title", "worktree call"), "worktree call"},
+		{"id when neither", fm(), "d-1"},
+	}
+	for _, c := range cases {
+		if got := nodeLabel(wavevault.Node{ID: "d-1", Frontmatter: c.fm}, "decision"); got != c.want {
+			t.Errorf("%s: nodeLabel = %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+// the run label is the storagereport run title (dag title, else the goal's first line) plus the short oid
+func TestBuildDossierGraphRunLabel(t *testing.T) {
+	ctx := context.Background()
+	dagOID := "5d1f0c3a-0000-4000-8000-000000000001"
+	dag := &waveobj.TaskGroup{OID: dagOID, ID: dagOID, Title: "Leftovers review fixes", Meta: make(waveobj.MetaMapType)}
+	if err := wstore.DBInsert(ctx, dag); err != nil {
+		t.Fatalf("insert dag: %v", err)
+	}
+	t.Cleanup(func() { _ = wstore.DBDelete(ctx, waveobj.OType_Dag, dagOID) })
+
+	plain := &waveobj.Run{OID: "21c7720e-0000-4000-8000-000000000001", Goal: "Workflow scan\nYou are the lead of…"}
+	titled := &waveobj.Run{OID: "9a0b1c2d-0000-4000-8000-000000000002", Goal: "Fix the review\nYou are…", DagORef: "dag:" + dagOID}
+	edges := []jarvisattrib.AttributedEdge{
+		{DossierID: "task-1", RunORef: "run:" + plain.OID, Layers: []int{1}, State: jarvisattrib.StateConfirmed},
+		{DossierID: "task-1", RunORef: "run:" + titled.OID, Layers: []int{1}, State: jarvisattrib.StateConfirmed},
+	}
+	byORef := runsByORef([]*waveobj.Run{plain, titled})
+	got := buildDossierGraph("task-1", edges, byORef, bloomedRunTitles(ctx, edges, byORef))
+
+	labels := map[string]string{}
+	for _, n := range got.Runs {
+		labels[n.Id] = n.Label
+	}
+	if want := "Workflow scan · 21c7720e"; labels["run:"+plain.OID] != want {
+		t.Errorf("goal-titled run label = %q, want %q", labels["run:"+plain.OID], want)
+	}
+	if want := "Leftovers review fixes · 9a0b1c2d"; labels["run:"+titled.OID] != want {
+		t.Errorf("dag-titled run label = %q, want %q", labels["run:"+titled.OID], want)
 	}
 }
 

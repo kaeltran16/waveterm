@@ -603,6 +603,18 @@ describe("leadMark", () => {
         expect(leadMark(run, leadOf({ state: "asking" }))).toEqual({ tone: "warning", pulse: true });
         expect(leadMark(run, leadOf({ state: "idle" }))).toEqual(MUTED);
     });
+    it("is error and still for a lead that failed to start, unless the run is complete", () => {
+        const failed = leadOf({ state: "working", startError: "error getting block: not found" });
+        expect(leadMark(runInfo([task("t-1", "running")]), failed)).toEqual({ tone: "error", pulse: false });
+        expect(leadMark(ended("done", "done", { state: "landed" } as RunLand), failed)).toEqual({
+            tone: "success",
+            pulse: false,
+        });
+        expect(leadMark(runInfo([task("t-1", "running")]), leadOf({ state: "working" }))).toEqual({
+            tone: "accent",
+            pulse: true,
+        });
+    });
 });
 
 describe("runFlowing", () => {

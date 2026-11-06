@@ -7,6 +7,8 @@
 package notestore
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -36,7 +38,11 @@ const (
 	maxSlugLen    = 60
 	maxTitleLen   = 200
 	maxCollisions = 1000
+	revLen        = 12 // hex chars of the file's sha256
 )
+
+// ErrNoteConflict: an update's base rev is not the file's, so someone else wrote the note since it was read.
+var ErrNoteConflict = errors.New("changed since it was opened")
 
 var (
 	// an id is the day the note was added and a slug of its first title; it also keeps ids inside notes/
@@ -111,11 +117,17 @@ func render(title, body string) []byte {
 	return []byte(titlePrefix + title + "\n\n" + body + "\n")
 }
 
+// a content hash, not the mtime: a checkout gives every file a fresh mtime
+func revOf(content []byte) string {
+	sum := sha256.Sum256(content)
+	return hex.EncodeToString(sum[:])[:revLen]
+}
+
 // parse reads a note file. A file with no heading on its first line (one edited by hand) is all body,
 // titled by its id.
 func parse(id string, content []byte) *waveobj.UserNote {
 	text := strings.ReplaceAll(string(content), "\r\n", "\n")
-	note := &waveobj.UserNote{ID: id, Title: id, Day: id[:len(dayLayout)]}
+	note := &waveobj.UserNote{ID: id, Title: id, Day: id[:len(dayLayout)], Rev: revOf(content)}
 	first, rest, _ := strings.Cut(text, "\n")
 	if title, ok := strings.CutPrefix(first, titlePrefix); ok && strings.TrimSpace(title) != "" {
 		note.Title = strings.TrimSpace(title)
@@ -234,26 +246,34 @@ func List() ([]*waveobj.UserNote, error) {
 	return notes, nil
 }
 
-// Update rewrites a note's title and body. Its id, and so its day, stay.
-func Update(id, title, body string) error {
+// Update rewrites a note's title and body and returns its new rev. Its id, and so its day, stay. A non-empty
+// baseRev is the rev the caller read; a file that no longer has it is refused with ErrNoteConflict.
+func Update(id, title, body, baseRev string) (string, error) {
 	title, err := cleanTitle(title)
 	if err != nil {
-		return err
+		return "", err
 	}
 	mu.Lock()
 	defer mu.Unlock()
 	path, err := notePath(id)
 	if err != nil {
-		return err
+		return "", err
 	}
-	found, err := exists(path)
+	current, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", notFound(id)
+	}
 	if err != nil {
-		return fmt.Errorf("note file %s: %w", path, err)
+		return "", fmt.Errorf("note file %s: %w", path, err)
 	}
-	if !found {
-		return notFound(id)
+	if baseRev != "" && baseRev != revOf(current) {
+		return "", fmt.Errorf("note %s %w", id, ErrNoteConflict)
 	}
-	return write(path, render(title, body))
+	content := render(title, body)
+	if err := write(path, content); err != nil {
+		return "", err
+	}
+	return revOf(content), nil
 }
 
 func Delete(id string) error {

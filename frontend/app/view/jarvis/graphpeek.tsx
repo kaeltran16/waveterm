@@ -12,21 +12,24 @@ import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { Search, Waypoints } from "lucide-react";
 import { motion } from "motion/react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { SHEET_BTN } from "./briefrunsheet";
 import { REGION_LABEL } from "./briefstyle";
 import type { PeekFocus } from "./graphfocus";
 import { GraphSkeleton } from "./graphskeleton";
 import { JarvisGraph } from "./jarvisgraph";
-import { attributionStyle, mergeGraph } from "./jarvisgraphderive";
+import { attributionStyle, linkKey, matchNodes, mergeGraph, nodeTitle, visibleGraph } from "./jarvisgraphderive";
 import {
     focusDossier,
     graphBaseAtom,
     graphBloomAtom,
+    graphBloomStatusAtom,
     graphErrorAtom,
     graphLoadedAtom,
     graphSelectedIdAtom,
     loadGraph,
+    pickNode,
+    retryBloom,
     selectBloomedRun,
     selectNode,
 } from "./jarvisgraphstore";
@@ -91,7 +94,10 @@ export function GraphPeek({
     const loaded = useAtomValue(graphLoadedAtom);
     const error = useAtomValue(graphErrorAtom);
     const selectedId = useAtomValue(graphSelectedIdAtom);
+    const bloomStatus = useAtomValue(graphBloomStatusAtom);
     const [query, setQuery] = useState("");
+    // a pick from the match list shows the picked node; the query stays, one control away
+    const [picked, setPicked] = useState(false);
 
     // refetch on every open, not only the first: a record captured since (every new run makes one) has no node
     // in a cached graph, so its map button would land on an empty panel. The cached graph stays on screen
@@ -130,14 +136,21 @@ export function GraphPeek({
         return () => window.removeEventListener("keydown", onKey);
     }, [onClose]);
 
-    const merged = mergeGraph(base ?? { nodes: [], links: [] }, blooms);
-    const node = selectedId != null ? merged.nodes.find((n) => n.id === selectedId) : undefined;
+    const merged = useMemo(() => mergeGraph(base ?? { nodes: [], links: [] }, blooms), [base, blooms]);
+    const visible = useMemo(() => visibleGraph(merged, selectedId), [merged, selectedId]);
+    const nodeById = useMemo(() => new Map(merged.nodes.map((n) => [n.id, n])), [merged]);
+    const node = selectedId != null ? nodeById.get(selectedId) : undefined;
     const edges = selectedId != null ? merged.links.filter((l) => l.from === selectedId || l.to === selectedId) : [];
+    // a bloom that has landed is the truth; until then its status says why there are no run rows yet
+    const edgeStatus = node != null && !blooms.has(node.id) ? bloomStatus.get(node.id) : undefined;
+    const canOpen = node != null && ((node.kind === "run" && canOpenRuns) || node.kind === "task");
 
     // the way in when the subject resolves to no node — an unattributed run, a memory thread, or
-    // no subject at all. Selecting a match is enough: the canvas recenters on an off-screen selection.
-    const q = query.trim().toLowerCase();
-    const matches = q === "" ? [] : merged.nodes.filter((n) => n.label.toLowerCase().includes(q));
+    // no subject at all — and to the isolated records the canvas does not draw. Picking one draws it,
+    // and the canvas recenters on an off-screen selection.
+    const q = query.trim();
+    const matches = matchNodes(merged.nodes, q);
+    const showMatches = q !== "" && !picked;
 
     // a peek shows the run over the graph, so the graph stays for the user to come back to
     const openRun = (runORef: string, e: React.MouseEvent) => {
@@ -160,7 +173,11 @@ export function GraphPeek({
                 <Waypoints size={14} className="flex-none text-accent-soft" />
                 <span className={cn(REGION_LABEL, "text-accent-soft")}>graph</span>
                 {/* the count only: a task node's label is its record's whole objective, up to 10k characters */}
-                <span className="font-mono text-[10.5px] text-muted">{merged.nodes.length} nodes</span>
+                <span data-jarvis-graph-count className="font-mono text-[10.5px] text-muted">
+                    {visible.nodes.length < merged.nodes.length
+                        ? `${visible.nodes.length} of ${merged.nodes.length} nodes`
+                        : `${merged.nodes.length} nodes`}
+                </span>
                 <div className="flex-1" />
                 {/* no legend here: the canvas draws one in its bottom-left, sitting with the nodes it
                     labels. Two legends disagreed on case and order for the same four kinds. */}
@@ -184,8 +201,16 @@ export function GraphPeek({
                                 Records, decisions and memory appear here as they’re captured.
                             </span>
                         </div>
+                    ) : visible.nodes.length === 0 ? (
+                        <div
+                            data-jarvis-graph-empty
+                            className="flex h-full flex-col items-center justify-center gap-1.5 text-muted"
+                        >
+                            <span className="text-[14px] font-semibold text-primary">No links between records yet</span>
+                            <span className="text-[12px]">Find a record above, or open the map from a record.</span>
+                        </div>
                     ) : (
-                        <JarvisGraph />
+                        <JarvisGraph graph={visible} />
                     )}
                 </div>
                 <div className="flex w-[288px] flex-none flex-col gap-3 border-l border-border bg-surface p-3.5">
@@ -196,14 +221,17 @@ export function GraphPeek({
                         />
                         <input
                             value={query}
-                            onChange={(e) => setQuery(e.target.value)}
+                            onChange={(e) => {
+                                setQuery(e.target.value);
+                                setPicked(false);
+                            }}
                             placeholder="Find a node…"
                             aria-label="Find a node"
                             className="w-full rounded-[7px] border border-edge-mid bg-background py-1.5 pl-[30px] pr-2.5 text-[12px] text-primary placeholder:text-muted focus:border-accent focus:outline-none"
                         />
                     </div>
-                    {q !== "" ? (
-                        <div className="flex min-h-0 flex-col gap-1 overflow-y-auto">
+                    {showMatches ? (
+                        <div data-jarvis-graph-matches className="flex min-h-0 flex-col gap-1 overflow-y-auto">
                             <SubLabel>
                                 {matches.length === 0
                                     ? "No node matches"
@@ -213,7 +241,11 @@ export function GraphPeek({
                                 <button
                                     key={n.id}
                                     type="button"
-                                    onClick={() => selectNode(n.id)}
+                                    data-jarvis-graph-match={n.id}
+                                    onClick={() => {
+                                        pickNode(n);
+                                        setPicked(true);
+                                    }}
                                     className={cn(
                                         "flex cursor-pointer items-center gap-2 rounded-[7px] px-2 py-1.5 text-left hover:bg-surface-hover",
                                         n.id === selectedId && "bg-accentbg"
@@ -228,7 +260,7 @@ export function GraphPeek({
                                         {n.kind}
                                     </span>
                                     <span className="min-w-0 flex-1 truncate text-[11.5px] text-secondary">
-                                        {n.label}
+                                        {nodeTitle(n.label)}
                                     </span>
                                 </button>
                             ))}
@@ -242,7 +274,17 @@ export function GraphPeek({
                         <span className="text-[12px] leading-[1.5] text-muted">Click a node, or find one above.</span>
                     ) : (
                         <>
-                            <div className="flex flex-col gap-1.5">
+                            {q !== "" ? (
+                                <button
+                                    type="button"
+                                    data-jarvis-graph-back
+                                    onClick={() => setPicked(false)}
+                                    className="flex-none cursor-pointer self-start font-mono text-[10.5px] text-muted hover:text-primary"
+                                >
+                                    ← Back to {matches.length} match{matches.length === 1 ? "" : "es"}
+                                </button>
+                            ) : null}
+                            <div data-jarvis-graph-selected={node.id} className="flex flex-col gap-1.5">
                                 <SubLabel>Selected node</SubLabel>
                                 <span className="flex gap-2">
                                     <span
@@ -264,53 +306,90 @@ export function GraphPeek({
                                 </span>
                             </div>
                             <div className="h-px bg-border" />
-                            <div className="flex flex-col gap-2">
+                            <div data-jarvis-graph-edges className="flex min-h-0 flex-col gap-2 overflow-y-auto">
                                 <SubLabel>Edges</SubLabel>
-                                {edges.length === 0 ? (
-                                    <span className="text-[11.5px] text-muted">No edge reaches this node.</span>
-                                ) : (
-                                    edges.map((l) => {
-                                        const other = l.from === node.id ? l.to : l.from;
-                                        const s = l.kind === "attribution" ? attributionStyle(l) : null;
-                                        return (
-                                            <div key={l.kind + other} className="flex items-center gap-2">
-                                                <span
-                                                    className="w-[22px] flex-none text-secondary"
-                                                    style={{
-                                                        borderTopStyle: s?.dashed ? "dashed" : "solid",
-                                                        borderTopWidth: s?.width ?? 1,
-                                                        borderTopColor: "currentColor",
-                                                        opacity: s?.opacity ?? 1,
-                                                    }}
-                                                />
-                                                <span className="min-w-0 flex-1 truncate text-[11.5px] text-secondary">
-                                                    {merged.nodes.find((n) => n.id === other)?.label ?? other}
-                                                </span>
-                                                <span className="flex-none font-mono text-[10.5px] text-muted">
-                                                    {l.kind === "attribution" ? `${l.state} · ${l.bucket}` : "wikilink"}
-                                                </span>
-                                            </div>
-                                        );
-                                    })
-                                )}
-                            </div>
-                            <div className="h-px bg-border" />
-                            <div className="flex flex-col gap-1.5">
-                                <SubLabel>Open</SubLabel>
-                                {node.kind === "run" && canOpenRuns ? (
-                                    <ActionButton label="Open run" primary peek onClick={(e) => openRun(node.id, e)} />
+                                {edges.map((l) => {
+                                    const other = l.from === node.id ? l.to : l.from;
+                                    const otherNode = nodeById.get(other);
+                                    const s = l.kind === "attribution" ? attributionStyle(l) : null;
+                                    return (
+                                        <button
+                                            key={linkKey(l)}
+                                            type="button"
+                                            data-jarvis-graph-edge={other}
+                                            disabled={otherNode == null}
+                                            onClick={() => otherNode && pickNode(otherNode)}
+                                            className="flex cursor-pointer items-center gap-2 rounded-[7px] px-1 py-1 text-left hover:bg-surface-hover"
+                                        >
+                                            <span
+                                                className="w-[22px] flex-none text-secondary"
+                                                style={{
+                                                    borderTopStyle: s?.dashed ? "dashed" : "solid",
+                                                    borderTopWidth: s?.width ?? 1,
+                                                    borderTopColor: "currentColor",
+                                                    opacity: s?.opacity ?? 1,
+                                                }}
+                                            />
+                                            <span className="min-w-0 flex-1 truncate text-[11.5px] text-secondary">
+                                                {otherNode != null ? nodeTitle(otherNode.label) : other}
+                                            </span>
+                                            <span className="flex-none font-mono text-[10.5px] text-muted">
+                                                {l.kind === "attribution" ? `${l.state} · ${l.bucket}` : "wikilink"}
+                                            </span>
+                                        </button>
+                                    );
+                                })}
+                                {edgeStatus === "loading" ? (
+                                    <span data-jarvis-graph-edges-state="loading" className="text-[11.5px] text-muted">
+                                        Loading edges…
+                                    </span>
+                                ) : edgeStatus === "failed" ? (
+                                    <span
+                                        data-jarvis-graph-edges-state="failed"
+                                        className="flex items-center gap-2 text-[11.5px] text-muted"
+                                    >
+                                        Couldn’t load edges
+                                        <button
+                                            type="button"
+                                            data-jarvis-graph-retry
+                                            onClick={() => fireAndForget(() => retryBloom(node.id))}
+                                            className={SHEET_BTN}
+                                        >
+                                            Retry
+                                        </button>
+                                    </span>
+                                ) : edges.length === 0 ? (
+                                    <span data-jarvis-graph-edges-state="empty" className="text-[11.5px] text-muted">
+                                        No edge reaches this node.
+                                    </span>
                                 ) : null}
-                                {node.kind === "task" ? (
-                                    <ActionButton
-                                        label="Open record"
-                                        primary
-                                        onClick={() => {
-                                            onOpenRecord(node.id);
-                                            onClose();
-                                        }}
-                                    />
-                                ) : null}
                             </div>
+                            {canOpen ? (
+                                <>
+                                    <div className="h-px bg-border" />
+                                    <div className="flex flex-col gap-1.5">
+                                        <SubLabel>Open</SubLabel>
+                                        {node.kind === "run" && canOpenRuns ? (
+                                            <ActionButton
+                                                label="Open run"
+                                                primary
+                                                peek
+                                                onClick={(e) => openRun(node.id, e)}
+                                            />
+                                        ) : null}
+                                        {node.kind === "task" ? (
+                                            <ActionButton
+                                                label="Open record"
+                                                primary
+                                                onClick={() => {
+                                                    onOpenRecord(node.id);
+                                                    onClose();
+                                                }}
+                                            />
+                                        ) : null}
+                                    </div>
+                                </>
+                            ) : null}
                         </>
                     )}
                 </div>

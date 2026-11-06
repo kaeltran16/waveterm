@@ -496,6 +496,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                     draft={editor.draft}
                     error={paletteError}
                     discardArmed={editor.armed?.key === "esc"}
+                    overwriteArmed={editor.armed?.key === "save"}
                     titleRef={inputRef}
                     bodyRef={editor.bodyRef}
                     onChange={editor.editDraft}

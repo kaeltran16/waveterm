@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { actsForAttention, actsForEvent } from "./petacts";
+import { actsForAttention, actsForEvent, workflowScanOref } from "./petacts";
 
 function gate(): AttentionItem {
     return {
@@ -66,6 +66,31 @@ describe("actsForAttention", () => {
     it("offers nothing at all for an item with no run to address", () => {
         const orphan = { ...gate(), runid: "" } as AttentionItem;
         expect(actsForAttention(orphan)).toEqual([]);
+    });
+
+    // a scan's run is its agent's, so Decide on it used to land on a run sheet instead of the scan's picks
+    it("escorts a workflow scan to its oref, not its run", () => {
+        const scan = { ...gate(), kind: "workflow-scan", key: "workflow-scan:run1", oref: "workflowscan:run1" } as AttentionItem; // prettier-ignore
+        expect(actsForAttention(scan)).toEqual([
+            { id: "workflow-scan:run1:open", verb: "open", label: "Open", target: { kind: "oref", ref: "workflowscan:run1" } }, // prettier-ignore
+        ]);
+    });
+
+    it("falls back to the run for a workflow scan with no usable oref", () => {
+        const scan = { ...gate(), kind: "workflow-scan", key: "workflow-scan:run1" } as AttentionItem;
+        expect(actsForAttention(scan)[0]).toMatchObject({ target: { ref: "run:run1" } });
+        expect(actsForAttention({ ...scan, oref: "nonsense" } as AttentionItem)[0]).toMatchObject({
+            target: { ref: "run:run1" },
+        });
+    });
+});
+
+describe("workflowScanOref", () => {
+    it("names the oref of a workflow scan only", () => {
+        expect(workflowScanOref({ kind: "workflow-scan", oref: "workflowscan:r1" })).toBe("workflowscan:r1");
+        expect(workflowScanOref({ kind: "gate", oref: "workflowscan:r1" })).toBeNull();
+        expect(workflowScanOref({ kind: "workflow-scan" })).toBeNull();
+        expect(workflowScanOref({ kind: "workflow-scan", oref: "bogus" })).toBeNull();
     });
 });
 

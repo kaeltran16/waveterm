@@ -16,6 +16,7 @@ import {
     failRpc,
     floorDetail,
     floorOk,
+    flatText,
     floorStep,
     holdRpc,
     lookEval,
@@ -2086,6 +2087,8 @@ export const jarvisAvatarActivity = {
 };
 
 const JARVIS_PEEK_PROJECT = "verify-jarvis-peek";
+// DEV_ATTENTION_ITEMS_KEY in frontend/app/view/agents/attentionstore.ts
+const JARVIS_PEEK_DEV_ITEMS_KEY = "wave:dev-attention-items";
 
 // a registered project is the composer's destination (petpeek.tsx: projectListAtom's rows with a channel), and
 // createproject makes its channel. The channel snapshot is boot-primed, so the frontend reloads to see it, and
@@ -2230,7 +2233,7 @@ export const jarvisPeek = {
             "1. keyboard open renders a labelled dialog of header/queue/composer and focuses its container",
             creatureFocused === true &&
                 structure?.role === "dialog" &&
-                structure?.label === "Nothing waiting on you" &&
+                structure?.label === "No runs or questions waiting" &&
                 structure?.shape === "quiet" &&
                 structure?.header === true &&
                 structure?.queue === true &&
@@ -2264,7 +2267,7 @@ export const jarvisPeek = {
             ctx.reset === true &&
                 structure?.updatesDrawer === false &&
                 ABSENCE.test(structure?.text ?? "") === false &&
-                structure?.text.includes("Nothing waiting on you") === true &&
+                structure?.text.includes("No runs or questions waiting") === true &&
                 // the fix: dead only when there is genuinely nowhere to send. The composer used to read the
                 // Jarvis surface's selection, which nothing sets at boot, so it was dead on every surface.
                 structure?.inputDisabled === !structure?.destPresent &&
@@ -2503,6 +2506,70 @@ export const jarvisPeek = {
         const stayed = (await h.activeSurfaceLabel()) === SURFACE_LABEL.cockpit;
         rec("8. dismissing the global peek stays on the current surface", stayed, String(stayed));
         rec(`9. no visible text in the busy peek is under ${MIN_FONT_PX}px`, floorOk(busyFloor), floorDetail(busyFloor));
+
+        // 10-11 run at the harness width. The items ride the DEV localStorage seam (attentionstore.ts) because
+        // setAttention is overwritten by the next 10s poll; teardown removes the key.
+        await h.cdp("Emulation.setDeviceMetricsOverride", { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false });
+        await settle(450);
+        const waitingItem = (kind, key, action, over) =>
+            JSON.stringify({ key, kind, source: `cdp ${kind}`, text: "x", action, waitingsince: Date.now() - 90000, channelid: "", runid: `cdp-${kind}`, phaseidx: 0, ...over });
+        const SCAN_KEY = "workflow-scan:cdp-scan";
+        const UNVERIFIED_KEY = "run-unverified:cdp-unverified";
+        await h.ev(`localStorage.setItem(${JSON.stringify(JARVIS_PEEK_DEV_ITEMS_KEY)}, JSON.stringify([
+            ${waitingItem("workflow-scan", SCAN_KEY, "Decide", { oref: "workflowscan:cdp-scan", runid: "cdp-scan" })},
+            ${waitingItem("run-unverified", UNVERIFIED_KEY, "Review", { channelid: "cdp-channel" })},
+        ]))`);
+        await h.ev(`document.querySelector('[aria-label="Jarvis condition"]')?.focus()`);
+        await press("Enter", "Enter", 13);
+        const rowSel = (key) => `[data-pet-peek] [data-pet-row="${key}"]`;
+        const rowsShown = await polishWaitFor(
+            h,
+            `document.querySelector(${JSON.stringify(rowSel(SCAN_KEY))}) != null && document.querySelector(${JSON.stringify(rowSel(UNVERIFIED_KEY))}) != null`,
+            15000
+        );
+        const kindRows = await h.ev(`(() => {
+            const read = (sel) => {
+                const meta = document.querySelector(sel)?.querySelector('.font-mono');
+                return meta == null ? null : { text: (meta.textContent || '').trim(), dot: meta.querySelector('span')?.className ?? '' };
+            };
+            return {
+                title: (document.querySelector('[data-pet-peek] h2')?.textContent || '').trim(),
+                scan: read(${JSON.stringify(rowSel(SCAN_KEY))}),
+                unverified: read(${JSON.stringify(rowSel(UNVERIFIED_KEY))}),
+            };
+        })()`);
+        const toned = (row, tone) => row != null && row.dot.includes(tone) && !row.dot.includes("bg-edge-strong");
+        await h.shot("cdp-shots/jarvis-peek-kinds.png");
+        rec(
+            "10. a workflow scan and an unverified run read by name with a toned dot, under a title that counts runs or questions",
+            rowsShown === true &&
+                kindRows.scan?.text.startsWith("Workflow scan · ") === true &&
+                kindRows.unverified?.text.startsWith("Unverified · ") === true &&
+                toned(kindRows.scan, "bg-accent") &&
+                toned(kindRows.unverified, "bg-warning") &&
+                /^\d+ runs or questions waiting$/.test(kindRows.title),
+            JSON.stringify({ rowsShown, kindRows })
+        );
+
+        const decideClicked = await h.ev(`(() => {
+            const b = document.querySelector('[data-pet-peek] [data-pet-act="${SCAN_KEY}:open"]');
+            if (!b) return false;
+            b.click();
+            return true;
+        })()`);
+        const onUsage = await polishWaitFor(h, `document.querySelector('[data-workflow-lens]') != null`, 8000);
+        // the peek leaves through an exit animation
+        const peekGone = await polishWaitFor(h, `document.querySelector('[data-pet-peek]') == null`, 4000);
+        const landed = await h.ev(`(() => ({
+            peekGone: ${peekGone},
+            runSheet: document.querySelector('[data-jarvis-brief-band]') != null,
+        }))()`);
+        const landedSurface = await h.activeSurfaceLabel();
+        rec(
+            "11. Decide on the workflow scan lands on Usage > Workflow, not a run sheet",
+            decideClicked === true && onUsage === true && landedSurface === SURFACE_LABEL.usage && landed.peekGone && !landed.runSheet,
+            JSON.stringify({ decideClicked, onUsage, landedSurface, landed })
+        );
         return steps;
     },
     async teardown(h, ctx) {
@@ -2513,6 +2580,7 @@ export const jarvisPeek = {
             mobile: false,
         });
         await h.ev(`(() => {
+            localStorage.removeItem(${JSON.stringify(JARVIS_PEEK_DEV_ITEMS_KEY)});
             document.querySelector('button[aria-label="Close Jarvis panel"]')?.click();
             globalThis.__wavePetStore?.setAttention([]);
             return true;
@@ -2701,13 +2769,110 @@ export const jarvisVolunteer = {
 // control at all because B5 has not given runs a Stage sheet yet. It used to open by priming an attached
 // thread from a memory note's "Ask Jarvis"; that entry point went with the Vault surface, and the exits
 // below never depended on it. The surviving contextual entry is a run.
+// Steps 4-10 (the graph peek's bloom states, deduped edges, Find and the linked-only canvas) run on fixtures written
+// straight into the vault: a record and a decision that each wikilink the other, a record no link reaches, and a run
+// attached to the first record. The run's goal slugs to the record's id, so its capture collides and stays out.
+// Labels stay inside the canvas's 40-character title cut, the only part Find matches and the edge rows show.
+const GRAPH_MAP_RECORD = "verify-graph-map-linked-record";
+const GRAPH_MAP_GOAL = "verify graph map linked record";
+const GRAPH_MAP_DECISION = "verify-graph-map-decision";
+const GRAPH_MAP_DECISION_SUMMARY = "Graph-map decision, linked both ways";
+const GRAPH_MAP_ISOLATED = "verify-graph-map-isolated";
+const GRAPH_MAP_ISOLATED_QUERY = "isolated graph-map record";
+
+async function seedGraphMapVault(h) {
+    const root = await vaultRoot(h);
+    const stamp = Date.now() - 30 * DAY_MS;
+    const record = (objective, body) =>
+        [
+            "---",
+            "status: active",
+            'ticket: ""',
+            `objective: ${JSON.stringify(objective)}`,
+            "acceptance: []",
+            "confidence: med",
+            `created: ${stamp}`,
+            `updated: ${stamp}`,
+            "---",
+            // the machine blocks a captured record has: acceptdossieredge writes into refs
+            ...["state", "refs", "blockers"].flatMap((name) => [`<!-- jarvis:begin ${name} -->`, `<!-- jarvis:end ${name} -->`]),
+            "",
+            "## Notes",
+            "",
+            body,
+            "",
+        ].join("\n");
+    const tasks = join(root, "tasks", "active");
+    const decisions = join(root, "decisions");
+    mkdirSync(tasks, { recursive: true });
+    mkdirSync(decisions, { recursive: true });
+    const files = [
+        [
+            join(tasks, `${GRAPH_MAP_RECORD}.md`),
+            record("Verify graph-map: a record linked both ways to its decision.", `See [[${GRAPH_MAP_DECISION}]].`),
+        ],
+        [
+            join(tasks, `${GRAPH_MAP_ISOLATED}.md`),
+            record("Isolated graph-map record, no links", ""),
+        ],
+        [
+            join(decisions, `${GRAPH_MAP_DECISION}.md`),
+            [
+                "---",
+                `id: ${GRAPH_MAP_DECISION}`,
+                `created: ${stamp}`,
+                `summary: ${JSON.stringify(GRAPH_MAP_DECISION_SUMMARY)}`,
+                "actor: human",
+                "provenance: human-submit",
+                "status: active",
+                "---",
+                "",
+                `Written back to [[${GRAPH_MAP_RECORD}]], so the pair links both ways.`,
+                "",
+            ].join("\n"),
+        ],
+    ];
+    for (const [file, text] of files) writeFileSync(file, text);
+    return files.map(([file]) => file);
+}
+
+// what the canvas draws, from the same derive the peek hands it: the merged graph cut by visibleGraph
+const GRAPH_DRAWN = `
+    const { globalStore } = await mod("app/store/jotaiStore.ts");
+    const st = await mod("app/view/jarvis/jarvisgraphstore.ts");
+    const d = await mod("app/view/jarvis/jarvisgraphderive.ts");
+    const merged = d.mergeGraph(globalStore.get(st.graphBaseAtom) ?? { nodes: [], links: [] }, globalStore.get(st.graphBloomAtom));
+    const selected = globalStore.get(st.graphSelectedIdAtom);
+    const drawn = d.visibleGraph(merged, selected).nodes;
+    return { selected, total: merged.nodes.length, drawn: drawn.map((n) => n.id), kinds: d.presentKinds(drawn) };
+`;
+
 export const briefContextualMap = {
     name: "brief-contextual-map",
     surface: "jarvis",
-    async arrange() {
-        return {};
+    async arrange(h) {
+        const ctx = { cwd: mkdtempSync(join(tmpdir(), "verify-graph-map-")) };
+        try {
+            ctx.files = await seedGraphMapVault(h);
+            const wslist = await h.rpc("workspacelist", null);
+            const ch = await h.rpc("createchannel", { name: "verify-graph-map", projectpath: ctx.cwd });
+            ctx.channelId = ch.oid;
+            const created = await h.rpc("createrun", {
+                channelid: ctx.channelId,
+                workspaceid: wslist[0].workspacedata.oid,
+                goal: GRAPH_MAP_GOAL,
+                runtime: "claude",
+                mode: "quick",
+                deferstart: true,
+            });
+            ctx.runId = created.run.id;
+            await h.rpc("acceptdossieredge", { dossierid: GRAPH_MAP_RECORD, runoref: `run:${ctx.runId}` });
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
     },
-    async assert(h) {
+    async assert(h, ctx) {
         const steps = [];
         const rec = (step, ok, detail) => steps.push({ step, ok, detail });
         const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
@@ -2826,12 +2991,215 @@ export const briefContextualMap = {
             backToPeek === true && landed.peek === true && landed.graph === false,
             JSON.stringify({ backToPeek, landed })
         );
+
+        await graphMapSteps(h, ctx, rec, settle);
         return steps;
     },
-    async teardown(h) {
+    async teardown(h, ctx) {
+        const step = async (what, fn) => {
+            try {
+                await fn();
+            } catch (e) {
+                console.error(`brief-contextual-map teardown: ${what} failed: ${e?.message ?? e}`);
+            }
+        };
+        await step("release the bloom RPC", () => releaseRpc(h, "ResolveDossierEdgesCommand"));
+        await step("clear the viewport", () => h.cdp("Emulation.clearDeviceMetricsOverride", {}));
+        await step("close the graph peek", () =>
+            lookEval(h, `const s = await mod("app/view/jarvis/jarvisstore.ts"); s.closeGraphPeek();`)
+        );
+        if (ctx?.runId) await step("cancel the run", () => h.rpc("cancelrun", { channelid: ctx.channelId, runid: ctx.runId }));
+        if (ctx?.channelId) await step("delete the channel", () => h.rpc("deletechannel", { channelid: ctx.channelId }));
+        for (const f of ctx?.files ?? []) await step(`remove ${f}`, () => rmSync(f, { force: true }));
+        if (ctx?.cwd) await step("remove the temp dir", () => rmSync(ctx.cwd, { recursive: true, force: true }));
         await h.goto("cockpit");
     },
 };
+
+// Steps 4-10: the graph peek opened on a record with a run. The bloom is held, then refused, then let through, so
+// each Edges state is seen; then the deduped decision edge, an edge row's click, Find onto a record the canvas does
+// not draw, Shift+G's close and reopen, and the legend at 1000x700.
+async function graphMapSteps(h, ctx, rec, settle) {
+    if (ctx?.arrangeError) {
+        rec("4. the graph-map fixtures were seeded", false, ctx.arrangeError);
+        return;
+    }
+    const PEEK = `document.querySelector('[data-jarvis-graph-peek]')`;
+    const EDGES = `${PEEK}?.querySelector('[data-jarvis-graph-edges]')`;
+    const pressShiftG = () =>
+        h.ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'G', code: 'KeyG', shiftKey: true, bubbles: true }))`);
+    const pressEscape = () =>
+        h.ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }))`);
+    const readEdges = () =>
+        h.ev(`(() => {
+            const el = ${EDGES};
+            if (!el) return null;
+            return {
+                state: el.querySelector('[data-jarvis-graph-edges-state]')?.dataset.jarvisGraphEdgesState ?? null,
+                retry: el.querySelector('[data-jarvis-graph-retry]') != null,
+                rows: [...el.querySelectorAll('[data-jarvis-graph-edge]')].map((b) => ({
+                    id: b.dataset.jarvisGraphEdge,
+                    text: (b.textContent || '').replace(/\\s+/g, ' ').trim(),
+                })),
+                text: (el.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 300),
+            };
+        })()`);
+    // through the record peek's map button, the route a user takes; the record's bloom is dropped first, so an
+    // earlier step that bloomed it cannot answer from cache
+    const openFromRecord = async () => {
+        await lookEval(h, `const st = await mod("app/view/jarvis/jarvisgraphstore.ts"); st.invalidateBloom(${JSON.stringify(GRAPH_MAP_RECORD)});`);
+        await h.ev(`window.__openAddress?.(${JSON.stringify("task:" + GRAPH_MAP_RECORD)})`);
+        const mapReady = await polishWaitFor(h, `document.querySelector('[data-jarvis-peek-open-graph]') != null`, 6000);
+        await h.ev(`document.querySelector('[data-jarvis-peek-open-graph]')?.click()`);
+        const opened = await polishWaitFor(h, `${EDGES} != null`, 6000);
+        return mapReady && opened;
+    };
+    const closePeek = async () => {
+        await pressEscape();
+        await polishWaitFor(h, `${PEEK} == null`, 3000);
+    };
+
+    // 4. held: the bloom is in flight, so Edges says so rather than claiming the record has none
+    await holdRpc(h, "ResolveDossierEdgesCommand");
+    const heldOpen = await openFromRecord();
+    await settle(400);
+    const held = await readEdges();
+    await h.shot("cdp-shots/brief-graph-edges-loading.png");
+    rec(
+        "4a. a record's bloom in flight reads Loading edges…, never No edge reaches this node",
+        heldOpen === true && held?.state === "loading" && /Loading edges…/.test(held.text) && !/No edge reaches/.test(held.text),
+        JSON.stringify({ heldOpen, held })
+    );
+    await closePeek();
+
+    // refused: the failure is shown with a Retry, and a Retry once the RPC answers lands the run rows
+    await releaseRpc(h, "ResolveDossierEdgesCommand");
+    await failRpc(h, "ResolveDossierEdgesCommand", "verify: bloom refused");
+    const failedOpen = await openFromRecord();
+    await polishWaitFor(h, `${EDGES}?.querySelector('[data-jarvis-graph-retry]') != null`, 4000);
+    const failed = await readEdges();
+    await h.shot("cdp-shots/brief-graph-edges-failed.png");
+    await releaseRpc(h, "ResolveDossierEdgesCommand");
+    await h.ev(`${EDGES}?.querySelector('[data-jarvis-graph-retry]')?.click()`);
+    const runOref = `run:${ctx.runId}`;
+    await polishWaitFor(h, `${EDGES}?.querySelector('[data-jarvis-graph-edge=${JSON.stringify(runOref)}]') != null`, 20000);
+    const retried = await readEdges();
+    rec(
+        "4b. a refused bloom reads Couldn't load edges with Retry; Retry lands the record's run row",
+        failedOpen === true &&
+            failed?.state === "failed" &&
+            failed.retry === true &&
+            /Couldn.t load edges/.test(failed.text) &&
+            retried?.state == null &&
+            retried.rows.some((r) => r.id === runOref),
+        JSON.stringify({ failed, retried })
+    );
+
+    // 5. the decision wikilinks the record and the record wikilinks it back: one row, named by its summary
+    const decisionRows = (retried?.rows ?? []).filter((r) => r.id === GRAPH_MAP_DECISION);
+    rec(
+        "5. a decision linked both ways lists one edge row, labelled by its summary",
+        decisionRows.length === 1 && decisionRows[0].text.includes(GRAPH_MAP_DECISION_SUMMARY),
+        JSON.stringify({ decisionRows })
+    );
+
+    // 6. an edge row is a way to the node at its other end
+    await h.ev(`${EDGES}?.querySelector('[data-jarvis-graph-edge=${JSON.stringify(GRAPH_MAP_DECISION)}]')?.click()`);
+    const selectedDecision = await polishWaitFor(
+        h,
+        `${PEEK}?.querySelector('[data-jarvis-graph-selected=${JSON.stringify(GRAPH_MAP_DECISION)}]') != null`,
+        3000
+    );
+    await h.shot("cdp-shots/brief-graph-edge-select.png");
+    rec("6. clicking an edge row selects the node at its other end", selectedDecision === true, "");
+
+    // 7. F4: the canvas draws what is linked plus the selection, and the header says how many it leaves out
+    const before = await lookEval(h, GRAPH_DRAWN);
+    const count = await h.ev(flatText(`${PEEK}?.querySelector('[data-jarvis-graph-count]')`));
+    const m = /^(\d+) of (\d+) nodes$/.exec(count ?? "");
+    rec(
+        "7. the header reads <shown> of <total> nodes, and a record no link reaches is not drawn",
+        m != null &&
+            Number(m[1]) === before.drawn.length &&
+            Number(m[2]) === before.total &&
+            before.drawn.length < before.total &&
+            !before.drawn.includes(GRAPH_MAP_ISOLATED),
+        JSON.stringify({ count, drawn: before.drawn.length, total: before.total })
+    );
+
+    // 8. Find onto that record: the pick shows the selected node, keeps the query one control away, and draws it
+    const FIND = `${PEEK}?.querySelector('input[aria-label="Find a node"]')`;
+    await h.ev(setInputExpr(FIND, GRAPH_MAP_ISOLATED_QUERY));
+    await polishWaitFor(h, `${PEEK}?.querySelector('[data-jarvis-graph-match=${JSON.stringify(GRAPH_MAP_ISOLATED)}]') != null`, 3000);
+    const matchCount = await h.ev(`${PEEK}?.querySelectorAll('[data-jarvis-graph-match]').length ?? 0`);
+    await h.ev(`${PEEK}?.querySelector('[data-jarvis-graph-match=${JSON.stringify(GRAPH_MAP_ISOLATED)}]')?.click()`);
+    await settle(500);
+    const pickedView = await h.ev(`(() => ({
+        selected: ${PEEK}?.querySelector('[data-jarvis-graph-selected]')?.dataset.jarvisGraphSelected ?? null,
+        list: ${PEEK}?.querySelector('[data-jarvis-graph-matches]') != null,
+        back: (${PEEK}?.querySelector('[data-jarvis-graph-back]')?.textContent || '').trim(),
+        query: ${FIND}?.value ?? null,
+    }))()`);
+    const after = await lookEval(h, GRAPH_DRAWN);
+    await h.shot("cdp-shots/brief-graph-find-pick.png");
+    rec(
+        "8. picking a Find match shows the selected node with Back to N matches, and draws it on the canvas",
+        pickedView.selected === GRAPH_MAP_ISOLATED &&
+            pickedView.list === false &&
+            pickedView.back === `← Back to ${matchCount} match${matchCount === 1 ? "" : "es"}` &&
+            pickedView.query === GRAPH_MAP_ISOLATED_QUERY &&
+            after.drawn.includes(GRAPH_MAP_ISOLATED),
+        JSON.stringify({ matchCount, pickedView, drawnIsolated: after.drawn.includes(GRAPH_MAP_ISOLATED) })
+    );
+
+    // 9. Shift+G closes the peek and forgets the record it was opened on, so the next Shift+G opens on nothing
+    await h.ev(`document.activeElement?.blur()`);
+    await pressShiftG();
+    const closedByKey = await polishWaitFor(h, `${PEEK} == null`, 3000);
+    await pressShiftG();
+    await polishWaitFor(h, `${PEEK} != null`, 3000);
+    await settle(600);
+    const reopened = await lookEval(
+        h,
+        `const { globalStore } = await mod("app/store/jotaiStore.ts");
+        const s = await mod("app/view/jarvis/jarvisstore.ts");
+        const st = await mod("app/view/jarvis/jarvisgraphstore.ts");
+        return {
+            record: globalStore.get(s.briefGraphRecordAtom),
+            selected: globalStore.get(st.graphSelectedIdAtom),
+            panel: document.querySelector('[data-jarvis-graph-peek] [data-jarvis-graph-selected]') != null,
+        };`
+    );
+    rec(
+        "9. Shift+G closes the peek, and Shift+G again opens it with no record selected",
+        closedByKey === true && reopened.record == null && reopened.selected == null && reopened.panel === false,
+        JSON.stringify({ closedByKey, reopened })
+    );
+    await closePeek();
+
+    // 10. at 1000x700, focused on the record: the legend names only the kinds the canvas draws
+    await h.cdp("Emulation.setDeviceMetricsOverride", BRIEF_PEEK_NARROW);
+    try {
+        await settle(400);
+        await openFromRecord();
+        // read once the bloom has landed, so the drawn set and the legend describe the same graph
+        await polishWaitFor(h, `${EDGES}?.querySelector('[data-jarvis-graph-edge=${JSON.stringify(runOref)}]') != null`, 20000);
+        await settle(600);
+        const drawn = await lookEval(h, GRAPH_DRAWN);
+        const legend = await h.ev(
+            `[...(${PEEK}?.querySelectorAll('[data-jarvis-graph-legend] [data-kind]') ?? [])].map((e) => e.dataset.kind)`
+        );
+        await h.shot("cdp-shots/brief-graph-legend-narrow.png");
+        rec(
+            "10. at 1000x700 the legend lists only the kinds drawn",
+            Array.isArray(legend) && legend.length > 0 && JSON.stringify(legend) === JSON.stringify(drawn.kinds),
+            JSON.stringify({ legend, kinds: drawn.kinds })
+        );
+        await closePeek();
+    } finally {
+        await h.cdp("Emulation.clearDeviceMetricsOverride", {}).catch(() => {});
+    }
+}
 
 // --- brief-composer-steer-only: no composer without a live lead to message --------------------------
 // The Brief's composer only steers a running session's lead (briefcomposertarget.ts); the Ask audiences it
@@ -2980,9 +3348,189 @@ export const briefRestore = {
 };
 
 // --- brief-profile: both scopes of the profile modal -------------------------------------------
-// Read-only on purpose: it never presses Save, so nothing is written into whatever config dir the dev app is
-// pointed at. A store with no projects opens the modal on Global only, so the scenario registers one of its own.
+// It never presses Save, so the global profile is never written. A store with no projects opens the modal on
+// Global only, so the scenario registers two of its own; the principles editor steps write the first one's
+// override over RPC, and teardown clears it with the project.
 const BRIEF_PROFILE_PROJECT = "verify-brief-profile";
+const BRIEF_PROFILE_PROJECT_2 = "verify-brief-profile-2";
+// a disabled id no global principle has, so the project carries a missing-disabled stale row
+const BRIEF_PROFILE_MISSING_ID = "verify-brief-profile-removed-principle";
+
+// the profile modal's footer, its principle editors' markers, and whether an error sits above the scroll body
+const PROFILE_FOOTER = `(() => {
+    const m = ${PROFILE_MODAL};
+    if (!m) return null;
+    const flat = (el) => (el?.textContent ?? '').replace(/\\s+/g, ' ').trim();
+    const footer = m.querySelector('footer');
+    const buttons = [...(footer?.querySelectorAll('button') ?? [])];
+    const body = m.querySelector('.overflow-y-auto');
+    const err = m.querySelector('[data-jarvis-brief-modal-state="error"]');
+    const meta = [...m.querySelectorAll('section')].find((s) => flat(s.querySelector('h2')) === 'Principles')?.querySelector('h2 + span');
+    return {
+        scope: m.dataset.jarvisProfileScope,
+        status: flat(footer?.firstElementChild),
+        confirm: flat(footer?.querySelector('[data-jarvis-profile-confirm]')) || null,
+        buttons: buttons.map((b) => flat(b)),
+        saveDisabled: buttons.at(-1)?.disabled ?? null,
+        blankNotes: m.querySelectorAll('[data-jarvis-principle-blank]').length,
+        errorAbove: !!err && !!body && err.getBoundingClientRect().bottom <= body.getBoundingClientRect().top,
+        principlesMeta: flat(meta),
+        customizing: !!m.querySelector('textarea[aria-label="Customized principle text"]'),
+        additions: m.querySelectorAll('textarea[aria-label="Project principle text"]').length,
+        removed: [...m.querySelectorAll('[data-jarvis-removed-principle]')].map(flat),
+        stale: [...m.querySelectorAll('[data-jarvis-stale-principle] > span')].map(flat),
+    };
+})()`;
+const profileButton = (label) => `[...(${PROFILE_MODAL}?.querySelectorAll('button') ?? [])].filter((b) => b.textContent.trim() === ${JSON.stringify(label)})`;
+const clickProfileButton = (h, label, which = "[0]") => h.ev(`${profileButton(label)}${which}?.click()`);
+const setTextareaExpr = (elExpr, value) => `(() => {
+    const el = ${elExpr};
+    if (!el) return false;
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(el, ${JSON.stringify(value)});
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+})()`;
+// the removed note's copy cuts a principle to its first line
+const firstLine = (text) => {
+    const lines = text.trim().split("\n");
+    return lines[0].trim() + (lines.length > 1 ? "…" : "");
+};
+
+// Steps 7-12, the principles editors (leftovers review F1, F2, F11, F12), at the harness's 1600 width.
+async function principlesEditorSteps(h, ctx, rec) {
+    const footer = () => h.ev(PROFILE_FOOTER);
+    const waitFooter = (cond, ms = 3000) => polishWaitFor(h, `(() => { const f = ${PROFILE_FOOTER}; return !!f && (${cond}); })()`, ms);
+    const global = (await h.rpc("getjarvisprofile", { channelid: ctx.channelId }))?.global?.principles ?? [];
+
+    // 7. (F1) a blank project principle holds Save and the footer names it; the error is not up in the body
+    await openProfileOn(h, BRIEF_PROFILE_PROJECT);
+    await clickProfileButton(h, "Add a project principle");
+    await waitFooter(`f.status.endsWith('is empty')`);
+    const blank = await footer();
+    const blankWant = `Principle ${global.length + 1} is empty`;
+    rec(
+        "7. a blank project principle disables Save, the footer names it, and no error sits above the viewport",
+        blank?.status === blankWant && blank.saveDisabled === true && blank.blankNotes === 1 && blank.errorAbove === false,
+        JSON.stringify({ want: blankWant, ...blank })
+    );
+    await h.ev(`${PROFILE_MODAL}?.querySelector('[data-jarvis-principle-blank]')?.scrollIntoView({ block: 'center' })`);
+    await h.shot("cdp-shots/brief-profile-blank.png");
+    await clickProfileButton(h, "Delete", ".at(-1)");
+
+    // 8. (F2) an unsaved project edit is named from Global, and Esc arms the discard confirm instead of closing
+    await clickProfileButton(h, "Customize");
+    await h.ev(setTextareaExpr(`${PROFILE_MODAL}?.querySelector('textarea[aria-label="Customized principle text"]')`, "verify edited wording"));
+    await h.ev(`${PROFILE_MODAL}?.querySelector('[data-jarvis-profile-tab="global"]')?.click()`);
+    await waitFooter(`f.scope === 'global' && f.status.startsWith('Unsaved')`);
+    const fromGlobal = await footer();
+    await h.ev(PEEKS_ESC);
+    await waitFooter(`f.confirm != null`);
+    const armed = await footer();
+    await h.shot("cdp-shots/brief-profile-discard-confirm.png");
+    await clickProfileButton(h, "Keep editing");
+    await waitFooter(`f.confirm == null`);
+    const kept = await footer();
+    rec(
+        "8. a project edit reads 'Unsaved changes · Project' from Global; Esc asks to discard and Keep editing keeps the modal",
+        fromGlobal?.status === "Unsaved changes · Project" &&
+            armed?.confirm === "Discard unsaved changes to Project?" &&
+            armed.buttons.join(",") === "Keep editing,Discard" &&
+            kept?.status === "Unsaved changes · Project",
+        JSON.stringify({ fromGlobal: fromGlobal?.status, armed: armed && { confirm: armed.confirm, buttons: armed.buttons }, kept: kept?.status })
+    );
+    const discarded = await closeProfile(h);
+
+    // 9. (F11) Customize alone changes nothing
+    await openProfileOn(h, BRIEF_PROFILE_PROJECT);
+    await clickProfileButton(h, "Customize");
+    await waitFooter(`f.customizing`);
+    const customize = await footer();
+    await clickProfileButton(h, "Cancel");
+    const closedClean = await polishWaitFor(h, `!${PROFILE_MODAL}`, 3000);
+    rec(
+        "9. Customize without editing is not customized and not a change, and Cancel closes at once",
+        discarded === true &&
+            customize?.customizing === true &&
+            !customize.principlesMeta.includes("customized") &&
+            customize.status === "No changes" &&
+            closedClean === true,
+        JSON.stringify({ discardedBefore: discarded, meta: customize?.principlesMeta, status: customize?.status, closedClean })
+    );
+    if (!closedClean) await closeProfile(h);
+
+    if (global.length === 0) {
+        for (const step of ["10. deleting a principle a project disables notes it", "11. a stale missing-disabled row names no id"]) {
+            rec(step, false, "the global profile has no principles - seed one before reading this as a pass");
+        }
+    } else {
+        await h.rpc("setchannelprofile", {
+            channelid: ctx.channelId,
+            override: { principles: { disabled: [global[0].id, BRIEF_PROFILE_MISSING_ID] } },
+        });
+        ctx.wroteOverride = true;
+
+        // 10. (F12) a global delete names the project that disabled the principle
+        await openProfileOn(h, BRIEF_PROFILE_PROJECT);
+        await h.ev(`${PROFILE_MODAL}?.querySelector('[data-jarvis-profile-tab="global"]')?.click()`);
+        // the per-project overrides load after the face: the first principle's note says when they are in
+        await polishWaitFor(h, `${flatText(`${PROFILE_MODAL}?.querySelector('[data-jarvis-global-principles="editor"]')`)}.includes('Disabled in')`, 5000);
+        await h.ev(`${PROFILE_MODAL}?.querySelector('button[aria-label="Delete principle 1"]')?.click()`);
+        await waitFooter(`f.removed.length > 0`);
+        const removed = await footer();
+        const removedWant = `Removed "${firstLine(global[0].text)}" · disabled in `;
+        rec(
+            "10. deleting a global principle a project disables notes it under the editor",
+            (removed?.removed ?? []).some((t) => t.startsWith(removedWant)) && removed.status === "Unsaved changes · Global",
+            JSON.stringify({ want: removedWant, removed: removed?.removed, status: removed?.status })
+        );
+        await h.ev(`${PROFILE_MODAL}?.querySelector('[data-jarvis-removed-principle]')?.scrollIntoView({ block: 'center' })`);
+        await h.shot("cdp-shots/brief-profile-removed.png");
+        await closeProfile(h);
+
+        // 11. (F12) the project's stale row says what it did, not which id
+        await openProfileOn(h, BRIEF_PROFILE_PROJECT);
+        await waitFooter(`f.stale.length > 0`);
+        const stale = await footer();
+        rec(
+            "11. a principle the project disabled and global removed reads as such, with no raw id",
+            (stale?.stale ?? []).includes("This project disabled a principle that was removed from the global set.") &&
+                stale.stale.every((t) => !t.includes(BRIEF_PROFILE_MISSING_ID)),
+            JSON.stringify(stale?.stale)
+        );
+        await closeProfile(h);
+    }
+
+    // 12. (F2) a project switch with a dirty project draft asks first; Discard lands on the picked project clean
+    await openProfileOn(h, BRIEF_PROFILE_PROJECT);
+    await clickProfileButton(h, "Add a project principle");
+    await h.ev(setTextareaExpr(`[...(${PROFILE_MODAL}?.querySelectorAll('textarea[aria-label="Project principle text"]') ?? [])].at(-1)`, "verify chip switch"));
+    await waitFooter(`f.status === 'Unsaved changes · Project'`);
+    const chip2 = `${PROFILE_MODAL}?.querySelector('button[title="${BRIEF_PROFILE_PROJECT_2}"]')`;
+    if (!(await h.ev(`!!${chip2}`))) {
+        await h.ev(setInputExpr(`${PROFILE_MODAL}?.querySelector('input[aria-label="Search projects"]')`, BRIEF_PROFILE_PROJECT_2));
+        await polishWaitFor(h, `!!${chip2}`, 3000);
+    }
+    await h.ev(`${chip2}?.click()`);
+    await waitFooter(`f.confirm != null`);
+    const held = await footer();
+    const heldPressed = await h.ev(`${chip2}?.getAttribute('aria-pressed')`);
+    await clickProfileButton(h, "Discard");
+    await polishWaitFor(h, `${chip2}?.getAttribute('aria-pressed') === 'true' && !!${PROFILE_MODAL}?.querySelector('[role="group"][aria-label="Approvals"]')`, 5000);
+    await polishNap(300);
+    const switched = await footer();
+    const switchedPressed = await h.ev(`${chip2}?.getAttribute('aria-pressed')`);
+    rec(
+        "12. a chip click with a dirty project draft asks to discard, and Discard opens the picked project clean",
+        held?.confirm === "Discard unsaved changes to Project?" &&
+            held.additions === 1 &&
+            heldPressed !== "true" &&
+            switchedPressed === "true" &&
+            switched?.status === "No changes" &&
+            switched.additions === 0,
+        JSON.stringify({ held: held && { confirm: held.confirm, additions: held.additions }, heldPressed, switchedPressed, switched: switched && { status: switched.status, additions: switched.additions } })
+    );
+    await closeProfile(h);
+}
 
 // the run-defaults rows: a row is the grid holding a label, its control and the source or reach cell
 const PROFILE_STATE = `(() => {
@@ -3032,6 +3580,12 @@ export const briefProfile = {
             await waitForProjectInConfig(h, BRIEF_PROFILE_PROJECT);
             const ch = await h.rpc("createchannel", { name: BRIEF_PROFILE_PROJECT, projectpath: cwd });
             ctx.channelId = ch.oid;
+            ctx.cwd2 = mkdtempSync(join(tmpdir(), "verify-brief-profile-2-"));
+            await h.rpc("createproject", { name: BRIEF_PROFILE_PROJECT_2, path: ctx.cwd2 });
+            ctx.project2 = BRIEF_PROFILE_PROJECT_2;
+            await waitForProjectInConfig(h, BRIEF_PROFILE_PROJECT_2);
+            const ch2 = await h.rpc("createchannel", { name: BRIEF_PROFILE_PROJECT_2, projectpath: ctx.cwd2 });
+            ctx.channelId2 = ch2.oid;
             // the modal lists projects from the boot-primed channel list
             await polishReload(h);
         } catch (e) {
@@ -3115,14 +3669,20 @@ export const briefProfile = {
         await releaseRpc(h, "GetJarvisProfileCommand");
         await closeProfile(h);
         steps.push(placeholderStep("6. while the profile reads, the modal holds its 96px block", loading, { height: 96, radius: "8px" }));
+
+        await principlesEditorSteps(h, ctx, rec);
         return steps;
     },
     async teardown(h, ctx) {
         const undo = [
             ["close the profile", () => closeProfile(h)],
+            ["clear the project's override", () => ctx.wroteOverride && h.rpc("setchannelprofile", { channelid: ctx.channelId, override: {} })],
             ["delete the channel", () => ctx.channelId && h.rpc("deletechannel", { channelid: ctx.channelId })],
             ["delete the project", () => ctx.project && h.rpc("deleteproject", { name: ctx.project })],
             ["remove the temp dir", () => rmSync(ctx.cwd, { recursive: true, force: true })],
+            ["delete the second channel", () => ctx.channelId2 && h.rpc("deletechannel", { channelid: ctx.channelId2 })],
+            ["delete the second project", () => ctx.project2 && h.rpc("deleteproject", { name: ctx.project2 })],
+            ["remove the second temp dir", () => ctx.cwd2 && rmSync(ctx.cwd2, { recursive: true, force: true })],
         ];
         for (const [what, fn] of undo) {
             try {

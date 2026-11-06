@@ -859,7 +859,7 @@ export class RpcApiType {
     }
 
     // command "noteupdate" [call]
-    NoteUpdateCommand(client: WshClient, data: CommandNoteUpdateData, opts?: RpcOpts): Promise<void> {
+    NoteUpdateCommand(client: WshClient, data: CommandNoteUpdateData, opts?: RpcOpts): Promise<CommandNoteUpdateRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "noteupdate", data, opts);
         return client.wshRpcCall("noteupdate", data, opts);
     }

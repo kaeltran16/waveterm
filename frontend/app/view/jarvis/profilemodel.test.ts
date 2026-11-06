@@ -2,11 +2,15 @@ import { describe, expect, it } from "vitest";
 import {
     applyApprovals,
     approvalsRow,
+    blankMessage,
+    blankPrinciples,
     defaultReach,
     DIAGNOSTIC_MISSING_DISABLED,
     DIAGNOSTIC_MISSING_REPLACEMENT,
+    discardPrompt,
     isDirty,
     lightReviewerRow,
+    normalizePrinciplePatch,
     overrideSummary,
     principleNote,
     principleRows,
@@ -15,8 +19,13 @@ import {
     type ProjectOverride,
     reduceGlobalPrinciples,
     reducePrinciplePatch,
+    removedPrincipleNotes,
     resetActionState,
     resetRow,
+    saveScopes,
+    staleRowText,
+    unsavedLabel,
+    unsavedScopes,
 } from "./profilemodel";
 
 const G: Principle[] = [
@@ -349,21 +358,21 @@ describe("defaultReach", () => {
 
 describe("principleNote", () => {
     it("is null when no project touches the principle", () => {
-        expect(principleNote([P("opal")], "a", false)).toBeNull();
+        expect(principleNote([P("opal")], "a", "Alpha", false)).toBeNull();
     });
     it("names rewording and disabling projects", () => {
         const projects = [
             P("opal", { principles: { replacements: { a: "A2" } } }),
             P("wave", { principles: { disabled: ["a"] } }),
         ];
-        expect(principleNote(projects, "a", false)).toEqual({
+        expect(principleNote(projects, "a", "Alpha", false)).toEqual({
             text: "opal uses its own wording · Disabled in wave",
             warn: false,
         });
     });
     it("lets a disable win over a replacement in the same project", () => {
         const projects = [P("opal", { principles: { replacements: { a: "A2" }, disabled: ["a"] } })];
-        expect(principleNote(projects, "a", false)?.text).toBe("Disabled in opal");
+        expect(principleNote(projects, "a", "Alpha", false)?.text).toBe("Disabled in opal");
     });
     it("warns while the principle is edited", () => {
         const projects = [
@@ -371,7 +380,164 @@ describe("principleNote", () => {
             P("wave", { principles: { replacements: { a: "A3" } } }),
             P("zinc", { principles: { disabled: ["a"] } }),
         ];
-        expect(principleNote(projects, "a", true)).toEqual({ text: "This edit won't reach 3 projects", warn: true });
+        expect(principleNote(projects, "a", "Alpha", true)).toEqual({
+            text: "This edit won't reach 3 projects",
+            warn: true,
+        });
+    });
+    it("ignores a stored replacement equal to the global text", () => {
+        const projects = [P("opal", { principles: { replacements: { a: "Alpha" } } })];
+        expect(principleNote(projects, "a", "Alpha", false)).toBeNull();
+        expect(principleNote(projects, "a", "Alpha", true)).toBeNull();
+    });
+});
+
+describe("normalizePrinciplePatch", () => {
+    it("drops a replacement equal to the global text and keeps a real one", () => {
+        expect(normalizePrinciplePatch({ replacements: { a: "Alpha", b: "B2" } }, G)).toEqual({
+            replacements: { b: "B2" },
+        });
+    });
+    it("cleans a patch left with nothing to undefined", () => {
+        expect(normalizePrinciplePatch({ replacements: { a: "Alpha" } }, G)).toBeUndefined();
+        expect(normalizePrinciplePatch(undefined, G)).toBeUndefined();
+    });
+    it("keeps a stale replacement whose principle is gone", () => {
+        expect(normalizePrinciplePatch({ replacements: { gone: "Old" } }, G)).toEqual({
+            replacements: { gone: "Old" },
+        });
+    });
+    it("makes Customize with unchanged text neither dirty nor customized", () => {
+        const customized = reducePrinciplePatch(undefined, { type: "override", id: "a", text: "Alpha" });
+        const draft: ProfileOverride = { principles: normalizePrinciplePatch(customized, G) };
+        expect(isDirty(draft, {})).toBe(false);
+        expect(principleSummary(principleRows(G, draft.principles, []))).toBe("3 from global, no changes here");
+    });
+});
+
+describe("blankPrinciples", () => {
+    it("finds a blank project addition and a whitespace-only replacement with their row numbers", () => {
+        const patch: PrinciplePatch = {
+            replacements: { b: "   " },
+            disabled: ["a"],
+            additions: [
+                { id: "p1", text: "Fine" },
+                { id: "p2", text: "" },
+            ],
+        };
+        // active rows: b (1), c (2), p1 (3), p2 (4); the disabled a is not numbered
+        expect(blankPrinciples(principleRows(G, patch, []), null)).toEqual([
+            { scope: "project", index: 1, id: "b" },
+            { scope: "project", index: 4, id: "p2" },
+        ]);
+    });
+    it("finds blank global principles by list position", () => {
+        const global: Principle[] = [
+            { id: "a", text: "Alpha" },
+            { id: "n", text: " \n" },
+        ];
+        expect(blankPrinciples(principleRows(G, undefined, []), global)).toEqual([
+            { scope: "global", index: 2, id: "n" },
+        ]);
+    });
+    it("names the first blank in the shown scope, or the other scope's with its name", () => {
+        const blanks = [
+            { scope: "project" as const, index: 3, id: "p" },
+            { scope: "global" as const, index: 2, id: "g" },
+        ];
+        expect(blankMessage(blanks, "project")).toBe("Principle 3 is empty");
+        expect(blankMessage(blanks, "global")).toBe("Principle 2 is empty");
+        expect(blankMessage([blanks[1]], "project")).toBe("Global principle 2 is empty");
+        expect(blankMessage([], "project")).toBeNull();
+    });
+});
+
+describe("unsavedScopes", () => {
+    it("names each dirty scope in the footer and the discard confirm", () => {
+        expect(unsavedScopes(true, true)).toEqual(["Project", "Global"]);
+        expect(unsavedLabel(unsavedScopes(true, true))).toBe("Unsaved changes · Project and Global");
+        expect(discardPrompt(unsavedScopes(true, true))).toBe("Discard unsaved changes to Project and Global?");
+        expect(unsavedLabel(unsavedScopes(false, true))).toBe("Unsaved changes · Global");
+        expect(unsavedScopes(false, false)).toEqual([]);
+    });
+});
+
+describe("removedPrincipleNotes", () => {
+    it("notes a deleted global principle one project disables", () => {
+        const projects = [P("opal", { principles: { disabled: ["b"] } }), P("wave")];
+        expect(removedPrincipleNotes(G, [G[0], G[2]], projects)).toEqual([
+            { id: "b", text: 'Removed "Bravo" · disabled in opal' },
+        ]);
+    });
+    it("notes a rewording, cuts the text to one line, and skips a replacement equal to the global text", () => {
+        const loaded: Principle[] = [{ id: "m", text: "First line\nsecond line" }, ...G];
+        const projects = [
+            P("opal", { principles: { replacements: { m: "Mine" } } }),
+            P("wave", { principles: { replacements: { a: "Alpha" } } }),
+        ];
+        expect(removedPrincipleNotes(loaded, [G[1], G[2]], projects)).toEqual([
+            { id: "m", text: 'Removed "First line…" · opal uses its own wording' },
+        ]);
+    });
+    it("says nothing for a deleted principle no project touches", () => {
+        expect(removedPrincipleNotes(G, [], [P("opal")])).toEqual([]);
+    });
+});
+
+describe("staleRowText", () => {
+    it("words a missing-disabled row without its id", () => {
+        const [row] = principleRows(G, { disabled: ["gone-123"] }, [
+            { principleid: "gone-123", code: DIAGNOSTIC_MISSING_DISABLED } as PrincipleDiagnostic,
+        ]).filter((r) => r.kind === "stale");
+        const text = staleRowText(row);
+        expect(text).toBe("This project disabled a principle that was removed from the global set.");
+        expect(text).not.toContain("gone-123");
+    });
+    it("quotes a missing replacement's own text", () => {
+        const [row] = principleRows(G, { replacements: { "gone-9": "My wording" } }, [
+            { principleid: "gone-9", code: DIAGNOSTIC_MISSING_REPLACEMENT } as PrincipleDiagnostic,
+        ]).filter((r) => r.kind === "stale");
+        expect(staleRowText(row)).toBe('This project reworded a principle that was removed: "My wording"');
+    });
+});
+
+describe("saveScopes", () => {
+    it("runs global then project", async () => {
+        const order: string[] = [];
+        const result = await saveScopes({
+            global: async () => void order.push("global"),
+            project: async () => void order.push("project"),
+        });
+        expect(order).toEqual(["global", "project"]);
+        expect(result).toEqual({ saved: ["global", "project"] });
+    });
+    it("reports the landed global and the project's error without the Error prefix", async () => {
+        const result = await saveScopes({
+            global: async () => {},
+            project: async () => {
+                throw new Error("validating principle patch: addition has blank text");
+            },
+        });
+        expect(result).toEqual({
+            saved: ["global"],
+            error: { scope: "project", message: "validating principle patch: addition has blank text" },
+        });
+    });
+    it("never calls project after a global failure", async () => {
+        let projectCalled = false;
+        const result = await saveScopes({
+            global: async () => {
+                throw "Error: refused";
+            },
+            project: async () => {
+                projectCalled = true;
+            },
+        });
+        expect(projectCalled).toBe(false);
+        expect(result).toEqual({ saved: [], error: { scope: "global", message: "refused" } });
+    });
+    it("writes only the scopes it is given", async () => {
+        expect(await saveScopes({ project: async () => {} })).toEqual({ saved: ["project"] });
     });
 });
 

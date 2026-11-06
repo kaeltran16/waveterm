@@ -13,6 +13,7 @@ export interface NoteEditorProps {
     draft: NoteDraft;
     error?: string;
     discardArmed: boolean; // one leave was pressed over unsaved changes
+    overwriteArmed: boolean; // a save was refused: the note changed elsewhere since it was opened
     titleRef: RefObject<HTMLInputElement>;
     bodyRef: RefObject<HTMLTextAreaElement>;
     onChange: (patch: { title?: string; body?: string }) => void;
@@ -21,7 +22,7 @@ export interface NoteEditorProps {
 }
 
 export function PaletteNoteEditor(props: NoteEditorProps) {
-    const { draft, error, discardArmed, titleRef, bodyRef, onChange, onKeyDown, onLeave } = props;
+    const { draft, error, discardArmed, overwriteArmed, titleRef, bodyRef, onChange, onKeyDown, onLeave } = props;
     const title = draft.title.trim();
     return (
         <div data-note-editor className="flex min-h-0 flex-1 flex-col" onKeyDown={onKeyDown}>
@@ -83,6 +84,13 @@ export function PaletteNoteEditor(props: NoteEditorProps) {
                     </span>
                 </div>
                 {discardArmed ? <FooterKeyLine k="esc" text="esc again discards your changes" arm /> : null}
+                {overwriteArmed ? (
+                    <FooterKeyLine
+                        k="ctrl ⏎"
+                        text="Changed elsewhere since you opened it · Ctrl+Enter again to overwrite"
+                        arm
+                    />
+                ) : null}
             </div>
         </div>
     );

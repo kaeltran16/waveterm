@@ -36,6 +36,10 @@ const ROW_SLACK = 3;
 const PIXEL_PNG_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 const MORE_LINES = 5;
 const RENDERER_SETTLE_MS = 1500;
+// cells of the wrapped path left on its first row
+const WRAP_HEAD = 9;
+// a cell inside a prompt row's path, past "PS "
+const PROMPT_CELL = 5.5;
 
 const git = (cwd, ...args) =>
     execFileSync("git", ["-c", "user.name=verify", "-c", "user.email=verify@example.com", "-c", "core.autocrlf=false", ...args], {
@@ -345,6 +349,9 @@ export const codePeek = {
         await mouse(h, "mouseMoved", md.x, md.y, 0);
         await polishNap(400);
         const plain = await peekEval(h, triggerRead);
+        // past the URL hint's 600 ms delay the plain hover shows the hint too, still with no underline or recolor
+        await polishNap(400);
+        const plainLate = await peekEval(h, triggerRead);
         await moveOff(h, md.row);
         await mouse(h, "mouseMoved", md.x, md.y, CTRL);
         await polishNap(400);
@@ -352,6 +359,11 @@ export const codePeek = {
         await h.shot(shotName("1-trigger"));
         rec(first, held.pointer && held.hint === "Ctrl + click to peek" && held.underline && held.recolor, held);
         rec("without Ctrl there is no hint, no underline and no recolor", !plain.pointer && plain.hint == null && !plain.underline && !plain.recolor, plain);
+        rec(
+            "a plain hover held 800 ms shows the hint, still with no underline and no recolor",
+            plainLate.hint === "Ctrl + click to peek" && !plainLate.pointer && !plainLate.underline && !plainLate.recolor,
+            plainLate
+        );
         await moveOff(h);
         await peekEval(h, `termWrap().setTermRenderer("webgl"); await nap(${RENDERER_SETTLE_MS});`);
 
@@ -656,6 +668,68 @@ export const codePeek = {
                 entered.peekClosed,
             { cardFocused: enterAt.info.focused, enterSeen, surface, ...entered }
         );
+
+        // 22. a wrapped path, a prompt's cwd, a folder
+        await h.goto("agent");
+        await h.ev(`${row}?.click()`);
+        await polishWaitFor(h, TERM_READY, PEEK_WAIT_MS);
+        await polishNap(400);
+        const cols = await peekEval(h, `return termWrap().terminal.cols;`);
+        ctx.extraFile = join(ctx.plainDir, "extra.txt");
+        // src/committed.ts starts WRAP_HEAD cells before the row's end, so its tail and the tag wrap onto the next row
+        const wrapLine = `${"x".repeat(cols - WRAP_HEAD - 1)} src/committed.ts #wrap`;
+        writeFileSync(ctx.extraFile, [wrapLine, `PS ${ctx.repo}> #prompt`, `${join(ctx.repo, "src")} #folder`].join("\n") + "\n");
+        await typeLine(h, ctx, `cls; Get-Content -LiteralPath '${ctx.extraFile}'`);
+        const extraPrinted = await polishWaitFor(h, `(() => { ${PEEK_LIB} return rowOf("folder") != null; })()`, PEEK_WAIT_MS);
+        await polishNap(600);
+        const wrapRows = await peekEval(h, `
+            const r = rowOf("wrap");
+            const b = termWrap().terminal.buffer.active;
+            return r ? { second: r.text, wrapped: b.getLine(r.y)?.isWrapped ?? false, first: b.getLine(r.y - 1)?.translateToString(true).slice(-${WRAP_HEAD}) } : null;
+        `);
+        const wrapped = extraPrinted ? await peekAt(h, "wrap") : { info: {} };
+        await h.shot(shotName("22-wrapped"));
+        rec(
+            "Ctrl+click on the second row of a wrapped path peeks the whole path (src/committed.ts), not No such file",
+            wrapRows?.wrapped && wrapped.info.state === "text" && wrapped.info.path === "src/committed.ts",
+            { cols, wrapRows, info: wrapped.info }
+        );
+        await closePeekByButton(h);
+
+        // the prompt's path starts past "PS ", so its sixth cell is inside it
+        const promptAt = await peekEval(h, `
+            const r = rowOf("prompt");
+            const t = termWrap()?.terminal;
+            const s = screenEl()?.getBoundingClientRect();
+            if (!r || !t || !s) return null;
+            const row = r.y - t.buffer.active.viewportY;
+            return { row, x: Math.round(s.left + PROMPT_CELL * (s.width / t.cols)), y: Math.round(s.top + (row + 0.5) * (s.height / t.rows)) };
+        `.replace("PROMPT_CELL", String(PROMPT_CELL)));
+        if (promptAt) {
+            await moveOff(h, promptAt.row);
+            await mouse(h, "mouseMoved", promptAt.x, promptAt.y, CTRL);
+            await polishNap(400);
+        }
+        const promptHover = await peekEval(h, `return { pointer: screenEl()?.classList.contains("xterm-cursor-pointer") ?? false, hint: document.querySelector("[data-peek-hint]") != null };`);
+        if (promptAt) await ctrlClick(h, promptAt);
+        await polishNap(600);
+        const promptCards = await peekEval(h, `return document.querySelectorAll("[data-code-peek]").length;`);
+        await h.shot(shotName("22-prompt"));
+        rec(
+            "a printed PS <repo>> prompt row yields no link: no pointer or hint under Ctrl, and Ctrl+click opens no card",
+            promptAt != null && !promptHover.pointer && !promptHover.hint && promptCards === 0,
+            { promptAt, promptHover, promptCards }
+        );
+
+        const folder = await peekAt(h, "folder");
+        const folderOpen = await peekEval(h, `return flat(card()?.querySelector("[data-peek-open]"));`);
+        await h.shot(shotName("22-folder"));
+        rec(
+            "Ctrl+click on a folder path opens a card that reads Folder, with Open folder in Code",
+            folder.info.state === "folder" && folder.info.message === "Folder" && folderOpen === "Open folder in Code",
+            { info: folder.info, folderOpen }
+        );
+        await closePeekByButton(h);
         return steps;
     },
     async teardown(h, ctx) {

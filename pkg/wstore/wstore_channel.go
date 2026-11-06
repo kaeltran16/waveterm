@@ -286,6 +286,13 @@ func GetChannelRunsShared(ctx context.Context, channelId string) ([]*waveobj.Run
 	return runs, nil
 }
 
+// GetAllRunsShared is every run, for a caller that only reads: the runs are shared, not copies (see
+// selectShared). A whole-table read re-decodes only the rows written since the last one, which is what keeps
+// a graph bloom over thousands of runs under a second.
+func GetAllRunsShared(ctx context.Context) ([]*waveobj.Run, error) {
+	return selectShared[*waveobj.Run](ctx, `SELECT oid, version FROM db_run`)
+}
+
 // GetChannelRunChanges returns the id of every run in the channel, and the rows of only those whose version
 // is not the one the caller holds in known. A caller that keeps a channel's run list refreshes it with this
 // instead of re-reading every row: the id-and-version pass never touches a row's data. Pure read (read pool).

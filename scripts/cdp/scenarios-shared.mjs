@@ -99,8 +99,13 @@ export async function openProfileOn(h, name) {
     );
 }
 
+// Cancel with unsaved changes arms the footer's discard confirm, so a close that finds it armed discards
 export async function closeProfile(h) {
-    await h.ev(`[...(${PROFILE_MODAL}?.querySelectorAll('footer button') ?? [])].find((b) => b.textContent.trim() === 'Cancel')?.click()`);
+    const footerButton = (label) => `[...(${PROFILE_MODAL}?.querySelectorAll('footer button') ?? [])].find((b) => b.textContent.trim() === '${label}')`;
+    await h.ev(`${footerButton("Cancel")}?.click()`);
+    if (await polishWaitFor(h, `!${PROFILE_MODAL} || !!${footerButton("Discard")}`, 3000)) {
+        await h.ev(`${footerButton("Discard")}?.click()`);
+    }
     return polishWaitFor(h, `!${PROFILE_MODAL}`, 3000);
 }
 

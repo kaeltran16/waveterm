@@ -304,6 +304,44 @@ func TestSharedReadersDecodeOnlyChangedRows(t *testing.T) {
 	}
 }
 
+// a row deleted and inserted again under its oid is back at version 1, the version the held copy carries
+func TestGetAllRunsSharedAfterDeleteAndReinsert(t *testing.T) {
+	ctx := context.Background()
+	oid := "5e1a2b3c-0000-4000-8000-0000000000a1"
+	insert := func(goal string) {
+		t.Helper()
+		if err := DBInsert(ctx, &waveobj.Run{OID: oid, ID: oid, Goal: goal, Meta: make(waveobj.MetaMapType)}); err != nil {
+			t.Fatalf("insert %q: %v", goal, err)
+		}
+	}
+	goalOf := func() string {
+		t.Helper()
+		runs, err := GetAllRunsShared(ctx)
+		if err != nil {
+			t.Fatalf("GetAllRunsShared: %v", err)
+		}
+		for _, r := range runs {
+			if r.OID == oid {
+				return r.Goal
+			}
+		}
+		t.Fatalf("run %s missing", oid)
+		return ""
+	}
+	insert("first")
+	if g := goalOf(); g != "first" {
+		t.Fatalf("goal = %q, want first", g)
+	}
+	if err := DBDelete(ctx, waveobj.OType_Run, oid); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	insert("second")
+	t.Cleanup(func() { _ = DBDelete(ctx, waveobj.OType_Run, oid) })
+	if g := goalOf(); g != "second" {
+		t.Fatalf("goal = %q after delete and re-insert, want second", g)
+	}
+}
+
 func TestGetChannelMessages(t *testing.T) {
 	ctx := context.Background()
 	ch, err := CreateChannel(ctx, "msgs-query", "/p")

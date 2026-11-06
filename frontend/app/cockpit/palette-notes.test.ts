@@ -3,13 +3,16 @@
 
 import { describe, expect, it } from "vitest";
 import {
+    armAfterSave,
     draftDirty,
     draftOf,
+    isNoteConflict,
     newDraft,
     noteDayLabel,
     noteKey,
     noteMarkdown,
     noteTitleError,
+    OVERWRITE_ARM,
     pressArm,
     selectionAfterDelete,
 } from "./palette-notes";
@@ -89,6 +92,40 @@ describe("pressArm", () => {
             armed: { key: "esc", target: "" },
             fire: false,
         });
+    });
+});
+
+describe("draftOf rev", () => {
+    it("keeps the rev the note was read with; a new note has none", () => {
+        expect(draftOf(note({ rev: "r1" })).rev).toBe("r1");
+        expect(newDraft("x").rev).toBeUndefined();
+    });
+});
+
+describe("isNoteConflict", () => {
+    it("is the store's conflict refusal, as the RPC rejects with it", () => {
+        expect(isNoteConflict("Error: note 2026-10-08-a changed since it was opened")).toBe(true);
+        expect(isNoteConflict(new Error("note 2026-10-08-a changed since it was opened"))).toBe(true);
+    });
+    it("is not any other failure", () => {
+        expect(isNoteConflict("Error: note 2026-10-08-a: not found")).toBe(false);
+        expect(isNoteConflict(undefined)).toBe(false);
+    });
+});
+
+describe("armAfterSave", () => {
+    const conflict = "Error: note 2026-10-08-a changed since it was opened";
+    it("a conflict on a plain save arms the overwrite", () => {
+        expect(armAfterSave(conflict, false)).toEqual(OVERWRITE_ARM);
+    });
+    it("any other failure arms nothing", () => {
+        expect(armAfterSave("Error: not found", false)).toBeNull();
+    });
+    it("a failed overwrite does not arm again", () => {
+        expect(armAfterSave(conflict, true)).toBeNull();
+    });
+    it("another key disarms the overwrite, as with del and esc", () => {
+        expect(pressArm(OVERWRITE_ARM, "esc", "")).toEqual({ armed: { key: "esc", target: "" }, fire: false });
     });
 });
 

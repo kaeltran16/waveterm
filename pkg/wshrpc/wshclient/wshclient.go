@@ -853,9 +853,9 @@ func NoteListCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) ([]*waveobj.UserNo
 }
 
 // command "noteupdate", wshserver.NoteUpdateCommand
-func NoteUpdateCommand(w *wshutil.WshRpc, data wshrpc.CommandNoteUpdateData, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "noteupdate", data, opts)
-	return err
+func NoteUpdateCommand(w *wshutil.WshRpc, data wshrpc.CommandNoteUpdateData, opts *wshrpc.RpcOpts) (*wshrpc.CommandNoteUpdateRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandNoteUpdateRtnData](w, "noteupdate", data, opts)
+	return resp, err
 }
 
 // command "notify", wshserver.NotifyCommand

@@ -170,6 +170,7 @@ import {
     briefRunListAtom,
     briefSheetOpenAtom,
     chunkMoveAtom,
+    closeGraphPeek,
     graphPeekOpenAtom,
     noteChunkAtom,
     readingNoteAtom,
@@ -939,12 +940,6 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     const graphRecord = useAtomValue(briefGraphRecordAtom);
     const graphOpen = useAtomValue(graphPeekOpenAtom);
     const graphFocus = useMemo<PeekFocus>(() => ({ dossierId: graphRecord ?? null, runORef: null }), [graphRecord]);
-    // closing clears the explicit record too: leaving it set would re-centre every later open on a record
-    // the user has moved on from
-    const closeBriefGraph = () => {
-        globalStore.set(graphPeekOpenAtom, false);
-        globalStore.set(briefGraphRecordAtom, null);
-    };
     const projectCount = workProjectCount(snapshot?.state.projects?.map((p) => p.project) ?? [], projects ?? {});
     const initiativesHead = initiativesMeta(projectEfforts, Date.now());
     const liveN = view.sessionLines.filter((l) => !l.stale).length;
@@ -1356,7 +1351,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                         focus={graphFocus}
                         canOpenRuns
                         onOpenRecord={(id) => globalStore.set(briefPeekRecordAtom, id)}
-                        onClose={closeBriefGraph}
+                        onClose={closeGraphPeek}
                     />
                 ) : null}
             </AnimatePresence>

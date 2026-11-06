@@ -2351,6 +2351,37 @@ export const paletteNotes = {
             closed && copied?.length === 1 && copied[0] === want && !lingering.includes("failed"),
             JSON.stringify({ closed, copied, want, lingering })
         );
+
+        // F21: the note is rewritten behind the open editor, as an agent's or another machine's write would
+        const outside = `written behind the editor, ${stamp}`;
+        const mine = `typed in the editor, ${stamp}`;
+        await openPalette(h);
+        await h.ev(`${PALETTE}?.querySelector('[data-palette-scope="notes"]')?.click()`);
+        await type(`${stamp} markdown`);
+        await notesStateWhen(h, selectedIs(ids.markdown), 3000);
+        await key("Enter", CTRL);
+        await notesStateWhen(h, inEditor, 3000);
+        await h.rpc("noteupdate", { id: ids.markdown, title: fixtures.markdown.title, body: outside });
+        await typeBody(mine);
+        await notesStateWhen(h, (s) => s.editor?.body === mine, 3000);
+        await editorKey("body", "Enter", CTRL);
+        const conflict = await notesStateWhen(h, (s) => s.arm != null || s.error != null || !inEditor(s), 5000);
+        await h.shot("cdp-shots/palette-notes-conflict.png");
+        const kept = await noteOf(ids.markdown);
+        await editorKey("body", "Enter", CTRL);
+        const overwrote = await notesStateWhen(h, inList, 5000);
+        const overwritten = await noteOf(ids.markdown);
+        rec(
+            "24. a save over a note changed since it was opened asks once, then overwrites",
+            conflict?.arm?.key === "ctrl ⏎" &&
+                conflict.arm.text.includes("Changed elsewhere since you opened it · Ctrl+Enter again to overwrite") &&
+                conflict.error == null &&
+                conflict.editor?.body === mine &&
+                (kept?.body ?? "").trim() === outside &&
+                overwrote?.editor == null &&
+                (overwritten?.body ?? "").trim() === mine,
+            `${editorBrief(conflict)} by RPC then: ${JSON.stringify(kept?.body)} after the second ctrl ⏎: ${editorBrief(overwrote)} by RPC: ${JSON.stringify(overwritten?.body)}`
+        );
         return steps;
     },
     async teardown(h, ctx) {

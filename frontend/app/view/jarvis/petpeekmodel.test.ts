@@ -7,6 +7,7 @@ import {
     peekActForCommand,
     peekConditions,
     peekKeyCommand,
+    peekTitle,
     queueRows,
     rowKindLabel,
     rowPeekTarget,
@@ -282,6 +283,33 @@ describe("peekConditions — every standing condition, readout marked", () => {
 describe("rowKindLabel — a row names its kind in a word", () => {
     it("reads every queue kind", () => {
         expect(["escalation", "dag-blocked", "ask"].map(rowKindLabel)).toEqual(["Escalation", "Blocked", "Question"]);
+    });
+
+    it("words the kinds that used to show their raw id", () => {
+        expect(rowKindLabel("workflow-scan")).toBe("Workflow scan");
+        expect(rowKindLabel("run-unverified")).toBe("Unverified");
+    });
+});
+
+describe("peekTitle — the pet says what it counts", () => {
+    it("reads quiet, one and many", () => {
+        expect(peekTitle(0)).toBe("No runs or questions waiting");
+        expect(peekTitle(1)).toBe("1 run or question waiting");
+        expect(peekTitle(3)).toBe("3 runs or questions waiting");
+    });
+});
+
+describe("a workflow scan row", () => {
+    it("opens the scan by its oref", () => {
+        const scan = item({
+            kind: "workflow-scan",
+            key: "workflow-scan:r1",
+            action: "Decide",
+            oref: "workflowscan:r1",
+        });
+        const [row] = queueRows([scan]);
+        expect(row.primary).toMatchObject({ verb: "open", label: "Decide", target: { ref: "workflowscan:r1" } });
+        expect(rowPeekTarget(row)).toEqual({ kind: "oref", ref: "workflowscan:r1" });
     });
 });
 

@@ -123,6 +123,7 @@ import {
     graphPeekOpenAtom,
     noteChunkAtom,
     readingNoteAtom,
+    toggleGraphPeek,
     trackerMenuAtom,
 } from "@/app/view/jarvis/jarvisstore";
 import { activeRunIdAtom, activeSubjectAtom, setActiveRunId } from "@/app/view/jarvis/jarvissubjectstore";
@@ -666,7 +667,7 @@ export function buildJarvisGraphBindings(): Binding[] {
             group: "Jarvis",
             label: "Graph peek (Esc closes)",
             when: onJarvis,
-            run: () => globalStore.set(graphPeekOpenAtom, (v) => !v),
+            run: toggleGraphPeek,
         },
     ];
 }

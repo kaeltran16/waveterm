@@ -61,6 +61,7 @@ import {
     peekActForCommand,
     peekConditions,
     peekKeyCommand,
+    peekTitle,
     queueRows,
     rowKindLabel,
     rowPeekTarget,
@@ -104,6 +105,8 @@ const ROW_DOT: Record<string, string> = {
     "dag-blocked": "bg-error",
     ask: "bg-accent",
     "run-land-held": "bg-warning",
+    "workflow-scan": "bg-accent",
+    "run-unverified": "bg-warning",
 };
 
 const FOCUS_RING = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
@@ -824,9 +827,7 @@ export function PetPeek({
                                                         id={titleId}
                                                         className="min-w-0 flex-1 truncate text-[13px] font-bold text-primary"
                                                     >
-                                                        {quiet
-                                                            ? "Nothing waiting on you"
-                                                            : `${rows.length} waiting on you`}
+                                                        {peekTitle(rows.length)}
                                                     </h2>
                                                     <button
                                                         type="button"

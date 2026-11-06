@@ -65,6 +65,7 @@ import {
 import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
 import { finalShotsViewerOpenAtom } from "@/app/view/jarvis/finalshotsstore";
 import {
+    briefGraphRecordAtom,
     briefPeekRecordAtom,
     chunkMoveAtom,
     graphPeekOpenAtom,
@@ -604,6 +605,16 @@ describe("jarvis surface bindings", () => {
         expect(g.when!(jarvisCtx)).toBe(true); // its own toggle stays reachable behind the overlay
         g.run(jarvisCtx);
         expect(globalStore.get(graphPeekOpenAtom)).toBe(false);
+    });
+
+    // the Brief's map button opens the peek on a record; closing it with Shift+G must forget that record, or
+    // the next bare Shift+G re-centres on a record the user has left
+    it("clears the record the peek was opened on when Shift:g closes it", () => {
+        globalStore.set(briefGraphRecordAtom, "task-418");
+        globalStore.set(graphPeekOpenAtom, true);
+        byId("jarvis:graph-peek").run(jarvisCtx);
+        expect(globalStore.get(graphPeekOpenAtom)).toBe(false);
+        expect(globalStore.get(briefGraphRecordAtom)).toBeNull();
     });
 
     it("suppresses the surface keys while the graph peek owns the surface", () => {

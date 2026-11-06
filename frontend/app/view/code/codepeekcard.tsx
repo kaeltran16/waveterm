@@ -58,6 +58,8 @@ function stateMessage(peek: CodePeek): string | null {
             return `Reading ${peek.abs ?? peek.raw}…`;
         case "missing":
             return `No such file: ${peek.abs}`;
+        case "folder":
+            return "Folder";
         case "binary":
             return binaryPeekMessage(file.open.rel);
         case "toolarge":
@@ -75,9 +77,9 @@ function stateMessage(peek: CodePeek): string | null {
 
 export function Kbd({ children }: { children: string }) {
     return (
-        <span className="rounded-[4px] border border-edge-strong px-[5px] font-mono text-[10.5px] text-ink-mid">
+        <kbd className="rounded-[4px] border border-edge-strong px-[5px] font-mono text-[10.5px] text-ink-mid">
             {children}
-        </span>
+        </kbd>
     );
 }
 
@@ -193,6 +195,7 @@ export function CodePeekCard({
     const modes = useMemo(() => peekModes(peek.abs ?? peek.raw, peek.file), [peek.abs, peek.raw, peek.file]);
     const path = headerPath(peek);
     const canOpen = "open" in peek.file;
+    const isFolder = peek.file.kind === "folder";
 
     // a new anchor is a new card: it takes focus so Enter and Esc reach it
     useEffect(() => {
@@ -218,7 +221,7 @@ export function CodePeekCard({
         >
             <div className="flex min-h-[44px] flex-none items-center gap-[10px] border-b border-border pr-[8px] pl-[14px]">
                 <span className="font-mono text-[10.5px] font-bold tracking-[0.1em] text-accent-soft uppercase">
-                    File
+                    {isFolder ? "Folder" : "File"}
                 </span>
                 <span
                     data-peek-path
@@ -276,7 +279,7 @@ export function CodePeekCard({
                     onClick={() => fireAndForget(() => openPeekInCode(model))}
                     className="cursor-pointer rounded-[7px] bg-accent px-[13px] py-[7px] text-[12px] font-semibold text-background disabled:cursor-default disabled:opacity-50"
                 >
-                    Open in Code
+                    {isFolder ? "Open folder in Code" : "Open in Code"}
                 </button>
                 <span className="flex-1" />
                 <span className="flex items-center gap-[6px] text-[11px] text-muted">

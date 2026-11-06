@@ -123,6 +123,9 @@ async function loadFile(abs: string, current: () => boolean): Promise<PeekFile |
     const inRepo = at?.isrepo === true && !!at.root;
     const rel = inRepo ? (at.prefix ?? "") + base : base;
     const open: PeekOpen = inRepo ? { projectPath: at.root, rel } : { projectPath: dir, rel: base };
+    if (info.isdir) {
+        return { kind: "folder", open };
+    }
     const size = info.size ?? 0;
     const klass = classifyFile(size, info.mimetype ?? "");
     if (klass !== "text") {

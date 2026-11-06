@@ -9,8 +9,10 @@
 import { cn } from "@/util/util";
 import {
     DIAGNOSTIC_MISSING_DISABLED,
+    isBlankPrinciple,
     principleRows,
     reducePrinciplePatch,
+    staleRowText,
     type PrinciplePatchAction,
     type PrincipleRow,
 } from "./profilemodel";
@@ -31,7 +33,8 @@ export const PROFILE_PANEL =
 export const PRINCIPLE_ADD_BTN =
     "flex h-[38px] w-full cursor-pointer items-center justify-center gap-1.5 text-[12.5px] text-ink-mid hover:bg-surface-raised hover:text-secondary";
 const EDIT_BOX =
-    "field-sizing-content min-h-[52px] w-full resize-none rounded-[6px] border border-edge-mid bg-background px-[9px] py-[7px] text-[13px] leading-[1.5] text-primary placeholder:text-muted outline-none focus:border-accent/40";
+    "field-sizing-content min-h-[52px] w-full resize-none rounded-[6px] border bg-background px-[9px] py-[7px] text-[13px] leading-[1.5] text-primary placeholder:text-muted outline-none";
+const editBox = (blank: boolean) => cn(EDIT_BOX, blank ? "border-error" : "border-edge-mid focus:border-accent/40");
 const ROW_BTN = "h-[22px] cursor-pointer rounded-[5px] px-[7px] text-[12px] hover:bg-surface-raised";
 const mutedBtn = `${ROW_BTN} text-ink-mid hover:text-secondary`;
 const accentBtn = `${ROW_BTN} text-accent-soft hover:text-accent`;
@@ -52,6 +55,15 @@ export function PlusIcon() {
         >
             <path d="M12 5v14M5 12h14" />
         </svg>
+    );
+}
+
+// under a blank row in either editor: the server refuses blank text, so the row says so before Save does
+export function BlankNote() {
+    return (
+        <span data-jarvis-principle-blank="" className="text-[11.5px] leading-[1.4] text-error">
+            Empty: write it or delete it
+        </span>
     );
 }
 
@@ -93,6 +105,7 @@ function ActiveRow({ row, dispatch }: { row: PrincipleRow; dispatch: (a: Princip
             </div>
         );
     }
+    const blank = isBlankPrinciple(row.text);
     if (row.kind === "modified") {
         return (
             <div className={EDITING_ROW}>
@@ -107,8 +120,9 @@ function ActiveRow({ row, dispatch }: { row: PrincipleRow; dispatch: (a: Princip
                     aria-label="Customized principle text"
                     value={row.text}
                     onChange={(e) => dispatch({ type: "override", id: row.id, text: e.target.value })}
-                    className={EDIT_BOX}
+                    className={editBox(blank)}
                 />
+                {blank ? <BlankNote /> : null}
                 <span className="whitespace-pre-wrap text-[11.5px] leading-[1.4] text-muted">
                     Global: {row.originalText}
                 </span>
@@ -134,8 +148,9 @@ function ActiveRow({ row, dispatch }: { row: PrincipleRow; dispatch: (a: Princip
                 value={row.text}
                 onChange={(e) => dispatch({ type: "update-addition", id: row.id, text: e.target.value })}
                 placeholder="Project principle…"
-                className={EDIT_BOX}
+                className={editBox(blank)}
             />
+            {blank ? <BlankNote /> : null}
         </div>
     );
 }
@@ -185,11 +200,10 @@ export function PrinciplesEditor({ global, patch, diagnostics, onChange, disable
             {stale.map((row) => (
                 <div
                     key={row.id}
+                    data-jarvis-stale-principle=""
                     className="flex items-start gap-2 rounded-[8px] border border-warning/40 bg-warning/10 px-3.5 py-2.5"
                 >
-                    <span className="flex-1 text-[12px] leading-[1.45] text-warning">
-                        This project customized a principle ({row.id}) that no longer exists in the global set.
-                    </span>
+                    <span className="flex-1 text-[12px] leading-[1.45] text-warning">{staleRowText(row)}</span>
                     <button
                         type="button"
                         onClick={() =>

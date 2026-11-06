@@ -19,8 +19,12 @@ func (ws *WshServer) NoteListCommand(ctx context.Context) ([]*waveobj.UserNote, 
 	return notestore.List()
 }
 
-func (ws *WshServer) NoteUpdateCommand(ctx context.Context, data wshrpc.CommandNoteUpdateData) error {
-	return notestore.Update(data.ID, data.Title, data.Body)
+func (ws *WshServer) NoteUpdateCommand(ctx context.Context, data wshrpc.CommandNoteUpdateData) (*wshrpc.CommandNoteUpdateRtnData, error) {
+	rev, err := notestore.Update(data.ID, data.Title, data.Body, data.BaseRev)
+	if err != nil {
+		return nil, err
+	}
+	return &wshrpc.CommandNoteUpdateRtnData{Rev: rev}, nil
 }
 
 func (ws *WshServer) NoteDeleteCommand(ctx context.Context, data wshrpc.CommandNoteDeleteData) error {

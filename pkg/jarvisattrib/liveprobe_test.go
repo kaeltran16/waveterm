@@ -22,8 +22,13 @@ package jarvisattrib
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"runtime"
 	"sort"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/wavevault"
@@ -135,4 +140,87 @@ func TestLiveCorpusShape(t *testing.T) {
 		t.Fatal("no attributed edges: the profile copy is empty or the vault path is wrong, so every " +
 			"figure above is vacuous")
 	}
+}
+
+// TestLiveEdgesForStages times each stage of one EdgesFor (the graph bloom's server half) for 5 records, cold
+// (first call in the process) and warm (the same record again), so a slow bloom names the stage to fix.
+//
+//	CGO_ENABLED=1 \
+//	WAVETERM_CONFIG_HOME=<copy>/config WAVETERM_DATA_HOME=<copy>/data \
+//	go test -tags liveprobe,osusergo,sqlite_omit_load_extension -run TestLiveEdgesForStages -v ./pkg/jarvisattrib/
+//
+// <copy>/data holds the VACUUM INTO snapshot at db/waveterm.db and the profile's memory-vault-root.txt. The
+// vault is opened at that root without OpenVault's legacy-memory migration, so the probe writes nothing to it.
+func TestLiveEdgesForStages(t *testing.T) {
+	if err := wavebase.CacheAndRemoveEnvVars(); err != nil {
+		t.Fatalf("bootstrap: %v (set WAVETERM_CONFIG_HOME and WAVETERM_DATA_HOME)", err)
+	}
+	if err := wstore.InitWStore(); err != nil {
+		t.Fatalf("init wstore against the profile copy: %v", err)
+	}
+	ctx := context.Background()
+	rootFile, err := os.ReadFile(filepath.Join(wavebase.GetWaveDataDir(), "memory-vault-root.txt"))
+	if err != nil {
+		t.Fatalf("vault root: %v", err)
+	}
+	v, err := wavevault.OpenVaultAt(ctx, strings.TrimSpace(string(rootFile)))
+	if err != nil {
+		t.Fatalf("open vault: %v", err)
+	}
+	all, err := taskDossiers(v)
+	if err != nil {
+		t.Fatalf("taskDossiers: %v", err)
+	}
+	// the records with the most refs: the ones a bloom has the most to draw for
+	sort.Slice(all, func(i, j int) bool { return len(all[i].Refs) > len(all[j].Refs) })
+	if len(all) > 5 {
+		all = all[:5]
+	}
+	if len(all) == 0 {
+		t.Fatal("no task records: the vault path is wrong")
+	}
+	var before runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	for _, pass := range []string{"cold", "warm"} {
+		for _, d := range all {
+			var st struct{ runs, dossiers, claims, assemble, total time.Duration }
+			t0 := time.Now()
+			lk, runs, err := gatherLookups(ctx)
+			if err != nil {
+				t.Fatalf("gatherLookups: %v", err)
+			}
+			st.runs = time.Since(t0)
+			ov, err := readOverrides(v)
+			if err != nil {
+				t.Fatalf("readOverrides: %v", err)
+			}
+			t1 := time.Now()
+			ds, err := taskDossiers(v)
+			if err != nil {
+				t.Fatalf("taskDossiers: %v", err)
+			}
+			st.dossiers = time.Since(t1)
+			t2 := time.Now()
+			claims := claimedRuns(ds, runs, ov)
+			st.claims = time.Since(t2)
+			t3 := time.Now()
+			edges := edgesForDossier(ctx, d, runs, lk, ov, claims, nowFn())
+			st.assemble = time.Since(t3)
+			st.total = time.Since(t0)
+			t4 := time.Now()
+			if _, _, err := EdgesFor(ctx, v, d.ID); err != nil {
+				t.Fatalf("EdgesFor %s: %v", d.ID, err)
+			}
+			t.Logf("%s %s runs=%d records=%d edges=%d | runs load %v, dossiers %v, claims %v, assemble+git %v | stages %v, EdgesFor %v",
+				pass, d.ID, len(runs), len(ds), len(edges), st.runs.Round(time.Millisecond), st.dossiers.Round(time.Millisecond),
+				st.claims.Round(time.Millisecond), st.assemble.Round(time.Millisecond), st.total.Round(time.Millisecond),
+				time.Since(t4).Round(time.Millisecond))
+		}
+	}
+	// the run reader keeps what it decodes, so the heap it holds is part of the price of a warm bloom
+	var after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&after)
+	t.Logf("heap held after the calls: %.1f MB (before %.1f MB)", float64(after.HeapAlloc)/1e6, float64(before.HeapAlloc)/1e6)
 }
