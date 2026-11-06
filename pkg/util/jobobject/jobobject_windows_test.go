@@ -376,3 +376,41 @@ func TestJobObjectKillsDescendants(t *testing.T) {
 	}
 	t.Fatalf("descendant %d still alive after job kill", childPid)
 }
+
+func priorityClass(t *testing.T, pid int) uint32 {
+	t.Helper()
+	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+	if err != nil {
+		t.Fatalf("OpenProcess(%d): %v", pid, err)
+	}
+	defer windows.CloseHandle(h)
+	class, err := windows.GetPriorityClass(h)
+	if err != nil {
+		t.Fatalf("GetPriorityClass(%d): %v", pid, err)
+	}
+	return class
+}
+
+func TestLowerPriorityKeepsKillOnClose(t *testing.T) {
+	cmd := startSleeper(t)
+	job, err := Attach(cmd.Process)
+	if err != nil {
+		t.Fatalf("Attach: %v", err)
+	}
+	blockId := "block-" + strconv.Itoa(cmd.Process.Pid)
+	Register(job, cmd.Process.Pid, Owner{Kind: OwnerKind_Block, Id: blockId})
+	if err := LowerPriority(blockId); err != nil {
+		t.Fatalf("LowerPriority: %v", err)
+	}
+	if got := priorityClass(t, cmd.Process.Pid); got != windows.BELOW_NORMAL_PRIORITY_CLASS {
+		t.Fatalf("priority class = %#x, want BELOW_NORMAL (%#x)", got, windows.BELOW_NORMAL_PRIORITY_CLASS)
+	}
+	Close(job)
+	waitForExit(t, cmd.Process.Pid)
+}
+
+func TestLowerPriorityNoLiveJob(t *testing.T) {
+	if err := LowerPriority("no-such-block"); !errors.Is(err, ErrNotMember) {
+		t.Fatalf("LowerPriority(unregistered block) = %v, want ErrNotMember", err)
+	}
+}
