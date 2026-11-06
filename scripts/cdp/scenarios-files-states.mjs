@@ -70,6 +70,9 @@ const DOWN = "\x1b[B";
 // Claude Code's input box: a rule line, then its prompt glyph (a shell prompt draws no rule)
 const INPUT_BOX = /─{20,}\s*❯/;
 const AGENT_READY_MS = 60_000;
+const PROJECT_LISTED_MS = 30_000;
+const CONTROLLER_STARTED_MS = 60_000;
+const READY_POLL_MS = 250;
 const AGENT_ASKING_MS = 120_000;
 const AGENT_POLL_MS = 1000;
 const KEY_GAP_MS = 800;
@@ -171,6 +174,28 @@ const refillTheSurface = (h) =>
         return true;
     `);
 
+// the project as the app's registry holds it, or null while the config update has not reached the page
+const listedProject = (h, name) =>
+    lookEval(h, `
+        const { globalStore } = await mod("app/store/jotaiStore.ts");
+        const { projectsAtom } = await mod("app/view/agents/projectsstore.ts");
+        return globalStore.get(projectsAtom)?.[${JSON.stringify(name)}] ?? null;
+    `);
+
+// polls read() until ok(value) or ms passes; returns { ok, value } with the last value seen
+async function untilValue(read, ok, ms) {
+    let value = null;
+    for (let waited = 0; waited < ms; waited += READY_POLL_MS) {
+        value = await read().catch((e) => `read failed: ${e?.message ?? e}`);
+        if (ok(value)) return { ok: true, value };
+        await sleep(READY_POLL_MS);
+    }
+    return { ok: false, value };
+}
+
+const controllerStatus = (h, blockId) =>
+    waveService(h, "block", "GetControllerStatus", [blockId]).then((rs) => rs?.shellprocstatus ?? null);
+
 const agentState = (h, tabId) =>
     lookEval(h, `
         const { globalStore } = await mod("app/store/jotaiStore.ts");
@@ -256,6 +281,9 @@ const overlaps = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bot
 function seedStatesRepo() {
     const dir = mkdtempSync(join(tmpdir(), "verify-diff-states-"));
     git(dir, "init", "-q", "--initial-branch=main");
+    // LF files under autocrlf make git warn ahead of its error in step 7 (lib/notes.txt sorts before
+    // src/old.py), whatever the machine's own git config says
+    git(dir, "config", "core.autocrlf", "true");
     mkdirSync(join(dir, "src"));
     mkdirSync(join(dir, "lib"));
     writeFileSync(join(dir, STATES.deleted), "def old():\n    return 1\n");
@@ -281,6 +309,13 @@ export const diffStates = {
     async arrange(h) {
         const dir = seedStatesRepo();
         await h.rpc("createproject", { name: STATES.project, path: dir });
+        // the reload must see the project: a reload before the config update reaches the page boots without it
+        const listed = await untilValue(() => listedProject(h, STATES.project), (p) => p?.path != null, PROJECT_LISTED_MS);
+        if (!listed.ok) {
+            // a throw here skips teardown, so the fixture goes first
+            await removeFixtures(h, [STATES.project], [dir]);
+            throw new Error(`arrange: ${STATES.project} not listed by the app after ${PROJECT_LISTED_MS}ms; last seen ${JSON.stringify(listed.value)}`);
+        }
         // the comment store reads its key once, at module load, so it is cleared before the reload; teardown puts
         // back the user's comments and remembered launch flags
         const prevComments = await h.ev(`localStorage.getItem(${JSON.stringify(COMMENT_STORAGE_KEY)})`);
@@ -501,7 +536,7 @@ export const diffStates = {
             await h.shot("cdp-shots/diff-states-narrow-hint.png");
         });
 
-        const s7 = "7. diff read failure: a modified file denied read-data says Couldn’t read this file with Retry, and Retry reads it once readable";
+        const s7 = "7. diff read failure: a modified file denied read-data says Couldn’t read this file with Retry, the Line counts notice leads with git's error line, and Retry reads it once readable";
         await guard(s7, async () => {
             const path = join(ctx.dir, STATES.deleted);
             const winPath = path.replace(/\//g, "\\");
@@ -522,6 +557,7 @@ export const diffStates = {
             let recovered = false;
             let listed = false;
             let countsNotice = false;
+            let countsLine = null;
             let summary = "";
             let headerCounts = true;
             try {
@@ -533,6 +569,12 @@ export const diffStates = {
                     h,
                     `[...document.querySelectorAll("[data-git-failure-notice]")].some((e) => e.textContent.includes("Line counts unavailable"))`
                 );
+                // the notice's one visible line is git's error, though git printed a CRLF warning ahead of it
+                countsLine = await h.ev(`(() => {
+                    const n = [...document.querySelectorAll("[data-git-failure-notice]")].find((e) => e.textContent.includes("Line counts unavailable"));
+                    const l = n?.querySelector("[data-git-failure-headline]");
+                    return l ? { text: l.textContent, title: l.getAttribute("title") ?? "" } : null;
+                })()`);
                 listed = await h.ev(`!!document.querySelector(${JSON.stringify(fileRowSel(STATES.deleted))})`);
                 // unknown counts are absent everywhere, never +0 −0: the toolbar caption and the pane header
                 summary = await h.ev(`document.querySelector("[data-files-range-summary]")?.textContent ?? ""`);
@@ -556,10 +598,15 @@ export const diffStates = {
                     recovered &&
                     listed &&
                     countsNotice &&
+                    countsLine != null &&
+                    /^(fatal|error):/.test(countsLine.text) &&
+                    // the warning is really ahead of the error in git's text, so the order is what is tested
+                    countsLine.title.indexOf("warning:") >= 0 &&
+                    countsLine.title.indexOf("warning:") < countsLine.title.indexOf(countsLine.text) &&
                     summary !== "" &&
                     !/[+−]\d/.test(summary) &&
                     !headerCounts,
-                JSON.stringify({ picked, diff, failed, failedText: failedText.slice(0, 200), recovered, listed, countsNotice, summary, headerCounts })
+                JSON.stringify({ picked, diff, failed, failedText: failedText.slice(0, 200), recovered, listed, countsNotice, countsLine, summary, headerCounts })
             );
         });
 
@@ -630,6 +677,12 @@ export const diffStates = {
             ctx.agent = agent;
             if (agent.tabId == null) {
                 rec(s11, false, `the launch did not start: ${JSON.stringify(agent)}`);
+                return;
+            }
+            // the terminal reads below go to a controller that has to be up first
+            const started = await untilValue(() => controllerStatus(h, agent.blockId), (s) => s === "running", CONTROLLER_STARTED_MS);
+            if (!started.ok) {
+                rec(s11, false, `the agent's controller did not start within ${CONTROLLER_STARTED_MS}ms; last status ${JSON.stringify(started.value)}`);
                 return;
             }
             const asked = await untilAsking(h, agent);
