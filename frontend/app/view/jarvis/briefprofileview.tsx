@@ -42,19 +42,28 @@ import {
     applyApprovals,
     applyWorkersChoice,
     approvalsRow,
+    blankMessage,
+    blankPrinciples,
     defaultReach,
+    discardPrompt,
+    errorMessage,
     globalProfileIsDirty,
     isDirty,
     lightReviewerRow,
+    normalizePrinciplePatch,
     overridesRow,
     overrideSummary,
     principleNote,
     principleRows,
     principleSummary,
     profileOverrideIsEmpty,
+    removedPrincipleNotes,
     resetActionState,
     resetRow,
     reviewerRow,
+    saveScopes,
+    unsavedLabel,
+    unsavedScopes,
     workersRow,
     type GlobalDefaultKey,
     type ProfileDefaults,
@@ -90,6 +99,8 @@ const APPROVALS_NOTE = {
 
 type Scope = "project" | "global";
 type Loaded = { global: JarvisProfile; override: ProfileOverride; diagnostics: PrincipleDiagnostic[] };
+// an action held by the footer's discard confirm: closing the modal, or switching to another project
+type Pending = { kind: "close" } | { kind: "project"; oid: string };
 
 // the chips name projects, the modal edits channels: project name -> its channel's oid
 function channelOptionsOf(rows: ProjectRow[]): Map<string, string> {
@@ -392,6 +403,37 @@ function SectionHeader({ title, meta, metaTitle }: { title: string; meta: string
     );
 }
 
+// the footer's left side, most urgent first: a save or load error, a blank principle holding Save, what is unsaved
+function FooterStatus({
+    error,
+    blank,
+    scopes,
+}: {
+    error: string | null;
+    blank: string | null;
+    scopes: ("Project" | "Global")[];
+}) {
+    if (error != null || blank != null) {
+        return (
+            <span
+                data-jarvis-brief-modal-state={error != null ? "error" : "blank"}
+                className="min-w-0 flex-1 text-[12px] leading-[1.4] text-error"
+            >
+                {error ?? blank}
+            </span>
+        );
+    }
+    if (scopes.length > 0) {
+        return (
+            <span className="flex flex-1 items-center gap-[7px] text-[12px] text-asking">
+                <span className="h-1.5 w-1.5 rounded-full bg-asking" />
+                {unsavedLabel(scopes)}
+            </span>
+        );
+    }
+    return <span className="flex-1 text-[12px] text-muted">No changes</span>;
+}
+
 // initialChannelId "" opens on the first project; the caller keys the modal by it so a new one takes effect
 export function BriefProfileModal({
     open,
@@ -418,10 +460,21 @@ export function BriefProfileModal({
     const [overridesError, setOverridesError] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [pending, setPending] = useState<Pending | null>(null);
 
     useEffect(() => {
         if (open) {
             fireAndForget(loadChannels);
+        }
+    }, [open]);
+
+    // the global draft outlives a project switch but not a close: the modal stays mounted between opens,
+    // and a reopen starts from the stored profile
+    useEffect(() => {
+        if (!open) {
+            setGlobalLoaded(null);
+            setGlobalDraft(null);
+            setPending(null);
         }
     }, [open]);
 
@@ -450,16 +503,19 @@ export function BriefProfileModal({
         }
         let live = true;
         setLoaded(null);
-        setGlobalLoaded(null);
-        setGlobalDraft(null);
         setError(null);
+        // the global profile is the same for every project, so a project switch keeps its draft; only a
+        // first load seeds it
+        const seedGlobal = (g: JarvisProfile) => {
+            setGlobalLoaded((cur) => cur ?? g);
+            setGlobalDraft((cur) => cur ?? g);
+        };
         fireAndForget(async () => {
             try {
                 if (channelId === "") {
                     const g = await getGlobalProfile();
                     if (live) {
-                        setGlobalLoaded(g);
-                        setGlobalDraft(g);
+                        seedGlobal(g);
                     }
                     return;
                 }
@@ -470,11 +526,10 @@ export function BriefProfileModal({
                 setLoaded({ global: p.global, override: p.override ?? {}, diagnostics: p.principlediagnostics ?? [] });
                 setDraft(p.override ?? {});
                 // p.global is LoadGlobalProfile()'s own result — seed global scope without a second call.
-                setGlobalLoaded(p.global);
-                setGlobalDraft(p.global);
+                seedGlobal(p.global);
             } catch (e) {
                 if (live) {
-                    setError(String(e));
+                    setError(errorMessage(e));
                 }
             }
         });
@@ -520,65 +575,132 @@ export function BriefProfileModal({
     const channel = channels?.find((c) => c.oid === channelId) ?? null;
     const isGlobal = scope === "global";
     const ready = isGlobal ? globalDraft != null : loaded != null;
-    const dirty = isGlobal
-        ? globalLoaded != null && globalDraft != null && globalProfileIsDirty(globalDraft, globalLoaded)
-        : loaded != null && isDirty(draft, loaded.override);
+    const inheritedPrinciples = loaded?.global.principles ?? [];
+    // Customize alone pins nothing, so dirty, the summary and the save all read the normalized patch
+    const normalized = (o: ProfileOverride): ProfileOverride => ({
+        ...o,
+        principles: normalizePrinciplePatch(o.principles, inheritedPrinciples),
+    });
+    const projectDirty = loaded != null && isDirty(normalized(draft), normalized(loaded.override));
+    const globalDirty = globalLoaded != null && globalDraft != null && globalProfileIsDirty(globalDraft, globalLoaded);
+    const scopes = unsavedScopes(projectDirty, globalDirty);
+    const projectRows = loaded != null ? principleRows(inheritedPrinciples, draft.principles, loaded.diagnostics) : [];
+    const blank = blankMessage(blankPrinciples(projectRows, globalDraft?.principles ?? null), scope);
+    const canSave = !saving && scopes.length > 0 && blank == null;
 
-    const set = (patch: Partial<ProfileOverride>) => setDraft((d) => ({ ...d, ...patch }));
+    // every edit drops a stale error and an armed confirm, whose held action no longer matches the draft
+    const touched = () => {
+        setError(null);
+        setPending(null);
+    };
+    const editDraft = (fn: (d: ProfileOverride) => ProfileOverride) => {
+        touched();
+        setDraft(fn);
+    };
+    const editGlobal = (fn: (g: JarvisProfile) => JarvisProfile) => {
+        touched();
+        setGlobalDraft((g) => (g ? fn(g) : g));
+    };
+    const set = (patch: Partial<ProfileOverride>) => editDraft((d) => ({ ...d, ...patch }));
     const drop = (key: keyof ProfileOverride) =>
-        setDraft((d) => {
+        editDraft((d) => {
             const next = { ...d };
             delete next[key];
             return next;
         });
-    const setGlobal = (patch: Partial<JarvisProfile>) => setGlobalDraft((g) => (g ? { ...g, ...patch } : g));
+    const setGlobal = (patch: Partial<JarvisProfile>) => editGlobal((g) => ({ ...g, ...patch }));
     const dropGlobal = (key: GlobalDefaultKey) =>
-        setGlobalDraft((g) => {
-            if (g == null) {
-                return g;
-            }
+        editGlobal((g) => {
             const next = { ...g };
             delete next[key];
             return next;
         });
 
-    // a landed save closes the modal and says so in the Brief's toast (design L1734); a refused one keeps
-    // the draft standing with the server's message
-    const save = (scopeLabel: string) => {
-        const saved = () => {
-            briefUndo.notify(`Profile saved for ${scopeLabel} · applies to future runs`);
+    // Cancel, Esc and the backdrop arm the footer's confirm while anything is unsaved; on an armed confirm
+    // they mean Keep editing
+    const requestClose = () => {
+        if (pending != null) {
+            setPending(null);
+        } else if (projectDirty || globalDirty) {
+            setPending({ kind: "close" });
+        } else {
             onClose();
-        };
+        }
+    };
+    // a project switch loses only the project draft, so only that arms the confirm
+    const pickProject = (oid: string) => {
+        if (saving || oid === channelId) {
+            return;
+        }
+        if (projectDirty) {
+            setPending({ kind: "project", oid });
+        } else {
+            touched();
+            setChannelId(oid);
+        }
+    };
+    const discard = () => {
+        const held = pending;
+        setPending(null);
+        if (held?.kind === "close") {
+            onClose();
+        } else if (held?.kind === "project") {
+            setChannelId(held.oid);
+        }
+    };
+    const pickScope = (s: Scope) => {
+        touched();
+        setScope(s);
+    };
+
+    // Every dirty scope is written, global first since the project resolves against it. Full success closes
+    // with one toast; a failure leaves its scope dirty with the server's message in the footer, while a scope
+    // that landed before it reads saved.
+    const save = () => {
+        const globalSnapshot = globalDirty ? globalDraft : null;
+        const override = projectDirty ? normalized(draft) : null;
         setSaving(true);
-        setError(null);
+        touched();
         fireAndForget(async () => {
             try {
-                if (isGlobal) {
-                    if (globalDraft == null) {
-                        return;
-                    }
-                    await setGlobalProfile(globalDraft);
-                    setGlobalLoaded(globalDraft);
-                    // the project face reads its inherited baseline off loaded.global, and every profile
-                    // cached anywhere was resolved against the list this write just replaced.
-                    setLoaded((l) => (l ? { ...l, global: globalDraft } : l));
-                    clearResolvedProfiles();
-                    if (channelId !== "") {
-                        await refreshResolvedProfile(channelId);
-                    }
-                    saved();
+                const result = await saveScopes({
+                    global:
+                        globalSnapshot == null
+                            ? undefined
+                            : async () => {
+                                  await setGlobalProfile(globalSnapshot);
+                                  setGlobalLoaded(globalSnapshot);
+                                  // the project face reads its inherited baseline off loaded.global, and every
+                                  // profile cached anywhere was resolved against the list this write replaced.
+                                  setLoaded((l) => (l ? { ...l, global: globalSnapshot } : l));
+                                  clearResolvedProfiles();
+                              },
+                    project:
+                        override == null
+                            ? undefined
+                            : async () => {
+                                  await setChannelProfile(channelId, override);
+                                  // mirror Go's own emptiness rule: a structurally empty override is stored as
+                                  // no override at all, so the modal must not go on believing it saved one.
+                                  setLoaded((l) =>
+                                      l ? { ...l, override: profileOverrideIsEmpty(override) ? {} : override } : l
+                                  );
+                              },
+                });
+                // refresh only after a write landed: a cache refreshed on a refused save would describe a
+                // profile that does not exist.
+                if (result.saved.length > 0 && channelId !== "") {
+                    await refreshResolvedProfile(channelId);
+                }
+                if (result.error != null) {
+                    setError(result.error.message);
                     return;
                 }
-                await setChannelProfile(channelId, draft);
-                // mirror Go's own emptiness rule: a structurally empty override is stored as no override at
-                // all, so the modal must not go on believing it saved one.
-                setLoaded((l) => (l ? { ...l, override: profileOverrideIsEmpty(draft) ? {} : draft } : l));
-                // refresh only after the write landed: a cache refreshed on a refused save would describe
-                // a profile that does not exist.
-                await refreshResolvedProfile(channelId);
-                saved();
+                const names = result.saved.map((s) => (s === "global" ? "global" : projectLabel));
+                briefUndo.notify(`Profile saved for ${names.join(" and ")} · applies to future runs`);
+                onClose();
             } catch (e) {
-                setError(String(e));
+                setError(errorMessage(e));
             } finally {
                 setSaving(false);
             }
@@ -590,7 +712,7 @@ export function BriefProfileModal({
             label={label}
             inherited={!overridesRow(draft, key)}
             saving={saving}
-            onReset={() => setDraft((d) => resetRow(d, key))}
+            onReset={() => editDraft((d) => resetRow(d, key))}
         />
     );
     const leadRouteRow =
@@ -620,12 +742,22 @@ export function BriefProfileModal({
     const principleNotes = Object.fromEntries(
         (globalDraft?.principles ?? []).map((p) => [
             p.id,
-            principleNote(projectOverrides ?? [], p.id, loadedText.has(p.id) && loadedText.get(p.id) !== p.text),
+            principleNote(
+                projectOverrides ?? [],
+                p.id,
+                loadedText.get(p.id),
+                loadedText.has(p.id) && loadedText.get(p.id) !== p.text
+            ),
         ])
+    );
+    const removedNotes = removedPrincipleNotes(
+        globalLoaded?.principles ?? [],
+        globalDraft?.principles ?? [],
+        projectOverrides ?? []
     );
 
     return (
-        <ModalShell open={open} onClose={onClose} className="flex max-h-[86vh] w-[min(620px,93vw)] flex-col">
+        <ModalShell open={open} onClose={requestClose} className="flex max-h-[86vh] w-[min(620px,93vw)] flex-col">
             <div
                 data-jarvis-brief-modal="profile"
                 data-jarvis-profile-scope={scope}
@@ -646,7 +778,7 @@ export function BriefProfileModal({
                                 data-jarvis-profile-tab={s}
                                 aria-pressed={scope === s}
                                 disabled={saving || (s === "project" && noProjects)}
-                                onClick={() => setScope(s)}
+                                onClick={() => pickScope(s)}
                                 className={cn(
                                     SEGMENT,
                                     "h-[26px] rounded-[6px] px-3 text-[12px]",
@@ -668,18 +800,13 @@ export function BriefProfileModal({
                                 recent={null}
                                 onPick={(label) => {
                                     const oid = channelOptions.get(label);
-                                    if (oid != null && !saving) {
-                                        setChannelId(oid);
+                                    if (oid != null) {
+                                        pickProject(oid);
                                     }
                                 }}
                                 columns={1}
                             />
                         </div>
-                    ) : null}
-                    {error != null ? (
-                        <p data-jarvis-brief-modal-state="error" className="text-[12px] text-error">
-                            {error}
-                        </p>
                     ) : null}
                     {!ready && error == null ? <Skeleton className="h-24 rounded-[8px]" /> : null}
                     {isGlobal && globalDraft != null ? (
@@ -702,10 +829,8 @@ export function BriefProfileModal({
                                     set={setGlobal}
                                     drop={dropGlobal}
                                     aside={globalReach}
-                                    setWorkers={(choice) =>
-                                        setGlobalDraft((g) => (g ? applyWorkersChoice(g, choice, false) : g))
-                                    }
-                                    setApprovals={(on) => setGlobalDraft((g) => (g ? applyApprovals(g, on, false) : g))}
+                                    setWorkers={(choice) => editGlobal((g) => applyWorkersChoice(g, choice, false))}
+                                    setApprovals={(on) => editGlobal((g) => applyApprovals(g, on, false))}
                                 />
                                 <p className="m-0 text-[11.5px] leading-[1.45] text-muted">
                                     Lead route is set per project; autonomy lives in the Brief header.
@@ -719,6 +844,17 @@ export function BriefProfileModal({
                                     disabled={saving}
                                     onChange={(principles) => setGlobal({ principles })}
                                 />
+                                {removedNotes.map((n) => (
+                                    <span
+                                        key={n.id}
+                                        data-jarvis-removed-principle=""
+                                        title={n.text}
+                                        className="flex min-w-0 items-center gap-1.5 pl-2 text-[11.5px] text-asking"
+                                    >
+                                        <span className="h-[5px] w-[5px] flex-none rounded-full bg-asking" />
+                                        <span className="min-w-0 truncate">{n.text}</span>
+                                    </span>
+                                ))}
                             </section>
                         </>
                     ) : null}
@@ -735,8 +871,8 @@ export function BriefProfileModal({
                                     drop={drop}
                                     aside={sourceCell}
                                     routeRow={leadRouteRow}
-                                    setWorkers={(choice) => setDraft((d) => applyWorkersChoice(d, choice, true))}
-                                    setApprovals={(on) => setDraft((d) => applyApprovals(d, on, true))}
+                                    setWorkers={(choice) => editDraft((d) => applyWorkersChoice(d, choice, true))}
+                                    setApprovals={(on) => editDraft((d) => applyApprovals(d, on, true))}
                                 />
                             </section>
                             <section className="flex flex-col gap-2">
@@ -744,8 +880,8 @@ export function BriefProfileModal({
                                     title="Principles"
                                     meta={principleSummary(
                                         principleRows(
-                                            loaded.global.principles ?? [],
-                                            draft.principles,
+                                            inheritedPrinciples,
+                                            normalized(draft).principles,
                                             loaded.diagnostics
                                         )
                                     )}
@@ -762,37 +898,55 @@ export function BriefProfileModal({
                     ) : null}
                 </div>
                 <footer className="flex flex-none items-center gap-2 border-t border-border bg-surface-raised px-5 py-3">
-                    {dirty ? (
-                        <span className="flex flex-1 items-center gap-[7px] text-[12px] text-asking">
-                            <span className="h-1.5 w-1.5 rounded-full bg-asking" />
-                            {isGlobal
-                                ? "Unsaved · reaches every project that inherits it"
-                                : "Unsaved changes · apply to future runs"}
-                        </span>
+                    {pending != null ? (
+                        <>
+                            <span data-jarvis-profile-confirm="" className="flex-1 text-[12px] text-asking">
+                                {discardPrompt(pending.kind === "close" ? scopes : ["Project"])}
+                            </span>
+                            <button
+                                type="button"
+                                onClick={() => setPending(null)}
+                                className={cn(
+                                    FOOTER_BTN,
+                                    "border border-border bg-surface-raised text-secondary hover:text-primary"
+                                )}
+                            >
+                                Keep editing
+                            </button>
+                            <button
+                                type="button"
+                                onClick={discard}
+                                className={cn(FOOTER_BTN, "bg-error/15 text-error-soft hover:bg-error/25")}
+                            >
+                                Discard
+                            </button>
+                        </>
                     ) : (
-                        <span className="flex-1 text-[12px] text-muted">No changes</span>
+                        <>
+                            <FooterStatus error={error} blank={blank} scopes={scopes} />
+                            <button
+                                type="button"
+                                onClick={requestClose}
+                                className={cn(
+                                    FOOTER_BTN,
+                                    "border border-border bg-surface-raised text-secondary hover:text-primary"
+                                )}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={save}
+                                disabled={!canSave}
+                                className={cn(
+                                    FOOTER_BTN,
+                                    canSave ? "bg-accent text-background hover:bg-accenthover" : "bg-border text-muted"
+                                )}
+                            >
+                                {saving ? "Saving…" : isGlobal ? "Save global profile" : "Save profile"}
+                            </button>
+                        </>
                     )}
-                    <button
-                        type="button"
-                        onClick={onClose}
-                        className={cn(
-                            FOOTER_BTN,
-                            "border border-border bg-surface-raised text-secondary hover:text-primary"
-                        )}
-                    >
-                        Cancel
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => save(isGlobal ? "global" : projectLabel)}
-                        disabled={saving || !dirty || !ready}
-                        className={cn(
-                            FOOTER_BTN,
-                            dirty && ready ? "bg-accent text-background hover:bg-accenthover" : "bg-border text-muted"
-                        )}
-                    >
-                        {saving ? "Saving…" : isGlobal ? "Save global profile" : "Save profile"}
-                    </button>
                 </footer>
             </div>
         </ModalShell>

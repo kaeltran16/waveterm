@@ -16,6 +16,7 @@ import {
     failRpc,
     floorDetail,
     floorOk,
+    flatText,
     floorStep,
     holdRpc,
     lookEval,
@@ -2980,9 +2981,189 @@ export const briefRestore = {
 };
 
 // --- brief-profile: both scopes of the profile modal -------------------------------------------
-// Read-only on purpose: it never presses Save, so nothing is written into whatever config dir the dev app is
-// pointed at. A store with no projects opens the modal on Global only, so the scenario registers one of its own.
+// It never presses Save, so the global profile is never written. A store with no projects opens the modal on
+// Global only, so the scenario registers two of its own; the principles editor steps write the first one's
+// override over RPC, and teardown clears it with the project.
 const BRIEF_PROFILE_PROJECT = "verify-brief-profile";
+const BRIEF_PROFILE_PROJECT_2 = "verify-brief-profile-2";
+// a disabled id no global principle has, so the project carries a missing-disabled stale row
+const BRIEF_PROFILE_MISSING_ID = "verify-brief-profile-removed-principle";
+
+// the profile modal's footer, its principle editors' markers, and whether an error sits above the scroll body
+const PROFILE_FOOTER = `(() => {
+    const m = ${PROFILE_MODAL};
+    if (!m) return null;
+    const flat = (el) => (el?.textContent ?? '').replace(/\\s+/g, ' ').trim();
+    const footer = m.querySelector('footer');
+    const buttons = [...(footer?.querySelectorAll('button') ?? [])];
+    const body = m.querySelector('.overflow-y-auto');
+    const err = m.querySelector('[data-jarvis-brief-modal-state="error"]');
+    const meta = [...m.querySelectorAll('section')].find((s) => flat(s.querySelector('h2')) === 'Principles')?.querySelector('h2 + span');
+    return {
+        scope: m.dataset.jarvisProfileScope,
+        status: flat(footer?.firstElementChild),
+        confirm: flat(footer?.querySelector('[data-jarvis-profile-confirm]')) || null,
+        buttons: buttons.map((b) => flat(b)),
+        saveDisabled: buttons.at(-1)?.disabled ?? null,
+        blankNotes: m.querySelectorAll('[data-jarvis-principle-blank]').length,
+        errorAbove: !!err && !!body && err.getBoundingClientRect().bottom <= body.getBoundingClientRect().top,
+        principlesMeta: flat(meta),
+        customizing: !!m.querySelector('textarea[aria-label="Customized principle text"]'),
+        additions: m.querySelectorAll('textarea[aria-label="Project principle text"]').length,
+        removed: [...m.querySelectorAll('[data-jarvis-removed-principle]')].map(flat),
+        stale: [...m.querySelectorAll('[data-jarvis-stale-principle] > span')].map(flat),
+    };
+})()`;
+const profileButton = (label) => `[...(${PROFILE_MODAL}?.querySelectorAll('button') ?? [])].filter((b) => b.textContent.trim() === ${JSON.stringify(label)})`;
+const clickProfileButton = (h, label, which = "[0]") => h.ev(`${profileButton(label)}${which}?.click()`);
+const setTextareaExpr = (elExpr, value) => `(() => {
+    const el = ${elExpr};
+    if (!el) return false;
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(el, ${JSON.stringify(value)});
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+})()`;
+// the removed note's copy cuts a principle to its first line
+const firstLine = (text) => {
+    const lines = text.trim().split("\n");
+    return lines[0].trim() + (lines.length > 1 ? "…" : "");
+};
+
+// Steps 7-12, the principles editors (leftovers review F1, F2, F11, F12), at the harness's 1600 width.
+async function principlesEditorSteps(h, ctx, rec) {
+    const footer = () => h.ev(PROFILE_FOOTER);
+    const waitFooter = (cond, ms = 3000) => polishWaitFor(h, `(() => { const f = ${PROFILE_FOOTER}; return !!f && (${cond}); })()`, ms);
+    const global = (await h.rpc("getjarvisprofile", { channelid: ctx.channelId }))?.global?.principles ?? [];
+
+    // 7. (F1) a blank project principle holds Save and the footer names it; the error is not up in the body
+    await openProfileOn(h, BRIEF_PROFILE_PROJECT);
+    await clickProfileButton(h, "Add a project principle");
+    await waitFooter(`f.status.endsWith('is empty')`);
+    const blank = await footer();
+    const blankWant = `Principle ${global.length + 1} is empty`;
+    rec(
+        "7. a blank project principle disables Save, the footer names it, and no error sits above the viewport",
+        blank?.status === blankWant && blank.saveDisabled === true && blank.blankNotes === 1 && blank.errorAbove === false,
+        JSON.stringify({ want: blankWant, ...blank })
+    );
+    await h.ev(`${PROFILE_MODAL}?.querySelector('[data-jarvis-principle-blank]')?.scrollIntoView({ block: 'center' })`);
+    await h.shot("cdp-shots/brief-profile-blank.png");
+    await clickProfileButton(h, "Delete", ".at(-1)");
+
+    // 8. (F2) an unsaved project edit is named from Global, and Esc arms the discard confirm instead of closing
+    await clickProfileButton(h, "Customize");
+    await h.ev(setTextareaExpr(`${PROFILE_MODAL}?.querySelector('textarea[aria-label="Customized principle text"]')`, "verify edited wording"));
+    await h.ev(`${PROFILE_MODAL}?.querySelector('[data-jarvis-profile-tab="global"]')?.click()`);
+    await waitFooter(`f.scope === 'global' && f.status.startsWith('Unsaved')`);
+    const fromGlobal = await footer();
+    await h.ev(PEEKS_ESC);
+    await waitFooter(`f.confirm != null`);
+    const armed = await footer();
+    await h.shot("cdp-shots/brief-profile-discard-confirm.png");
+    await clickProfileButton(h, "Keep editing");
+    await waitFooter(`f.confirm == null`);
+    const kept = await footer();
+    rec(
+        "8. a project edit reads 'Unsaved changes · Project' from Global; Esc asks to discard and Keep editing keeps the modal",
+        fromGlobal?.status === "Unsaved changes · Project" &&
+            armed?.confirm === "Discard unsaved changes to Project?" &&
+            armed.buttons.join(",") === "Keep editing,Discard" &&
+            kept?.status === "Unsaved changes · Project",
+        JSON.stringify({ fromGlobal: fromGlobal?.status, armed: armed && { confirm: armed.confirm, buttons: armed.buttons }, kept: kept?.status })
+    );
+    const discarded = await closeProfile(h);
+
+    // 9. (F11) Customize alone changes nothing
+    await openProfileOn(h, BRIEF_PROFILE_PROJECT);
+    await clickProfileButton(h, "Customize");
+    await waitFooter(`f.customizing`);
+    const customize = await footer();
+    await clickProfileButton(h, "Cancel");
+    const closedClean = await polishWaitFor(h, `!${PROFILE_MODAL}`, 3000);
+    rec(
+        "9. Customize without editing is not customized and not a change, and Cancel closes at once",
+        discarded === true &&
+            customize?.customizing === true &&
+            !customize.principlesMeta.includes("customized") &&
+            customize.status === "No changes" &&
+            closedClean === true,
+        JSON.stringify({ discardedBefore: discarded, meta: customize?.principlesMeta, status: customize?.status, closedClean })
+    );
+    if (!closedClean) await closeProfile(h);
+
+    if (global.length === 0) {
+        for (const step of ["10. deleting a principle a project disables notes it", "11. a stale missing-disabled row names no id"]) {
+            rec(step, false, "the global profile has no principles - seed one before reading this as a pass");
+        }
+    } else {
+        await h.rpc("setchannelprofile", {
+            channelid: ctx.channelId,
+            override: { principles: { disabled: [global[0].id, BRIEF_PROFILE_MISSING_ID] } },
+        });
+        ctx.wroteOverride = true;
+
+        // 10. (F12) a global delete names the project that disabled the principle
+        await openProfileOn(h, BRIEF_PROFILE_PROJECT);
+        await h.ev(`${PROFILE_MODAL}?.querySelector('[data-jarvis-profile-tab="global"]')?.click()`);
+        // the per-project overrides load after the face: the first principle's note says when they are in
+        await polishWaitFor(h, `${flatText(`${PROFILE_MODAL}?.querySelector('[data-jarvis-global-principles="editor"]')`)}.includes('Disabled in')`, 5000);
+        await h.ev(`${PROFILE_MODAL}?.querySelector('button[aria-label="Delete principle 1"]')?.click()`);
+        await waitFooter(`f.removed.length > 0`);
+        const removed = await footer();
+        const removedWant = `Removed "${firstLine(global[0].text)}" · disabled in `;
+        rec(
+            "10. deleting a global principle a project disables notes it under the editor",
+            (removed?.removed ?? []).some((t) => t.startsWith(removedWant)) && removed.status === "Unsaved changes · Global",
+            JSON.stringify({ want: removedWant, removed: removed?.removed, status: removed?.status })
+        );
+        await h.ev(`${PROFILE_MODAL}?.querySelector('[data-jarvis-removed-principle]')?.scrollIntoView({ block: 'center' })`);
+        await h.shot("cdp-shots/brief-profile-removed.png");
+        await closeProfile(h);
+
+        // 11. (F12) the project's stale row says what it did, not which id
+        await openProfileOn(h, BRIEF_PROFILE_PROJECT);
+        await waitFooter(`f.stale.length > 0`);
+        const stale = await footer();
+        rec(
+            "11. a principle the project disabled and global removed reads as such, with no raw id",
+            (stale?.stale ?? []).includes("This project disabled a principle that was removed from the global set.") &&
+                stale.stale.every((t) => !t.includes(BRIEF_PROFILE_MISSING_ID)),
+            JSON.stringify(stale?.stale)
+        );
+        await closeProfile(h);
+    }
+
+    // 12. (F2) a project switch with a dirty project draft asks first; Discard lands on the picked project clean
+    await openProfileOn(h, BRIEF_PROFILE_PROJECT);
+    await clickProfileButton(h, "Add a project principle");
+    await h.ev(setTextareaExpr(`[...(${PROFILE_MODAL}?.querySelectorAll('textarea[aria-label="Project principle text"]') ?? [])].at(-1)`, "verify chip switch"));
+    await waitFooter(`f.status === 'Unsaved changes · Project'`);
+    const chip2 = `${PROFILE_MODAL}?.querySelector('button[title="${BRIEF_PROFILE_PROJECT_2}"]')`;
+    if (!(await h.ev(`!!${chip2}`))) {
+        await h.ev(setInputExpr(`${PROFILE_MODAL}?.querySelector('input[aria-label="Search projects"]')`, BRIEF_PROFILE_PROJECT_2));
+        await polishWaitFor(h, `!!${chip2}`, 3000);
+    }
+    await h.ev(`${chip2}?.click()`);
+    await waitFooter(`f.confirm != null`);
+    const held = await footer();
+    const heldPressed = await h.ev(`${chip2}?.getAttribute('aria-pressed')`);
+    await clickProfileButton(h, "Discard");
+    await polishWaitFor(h, `${chip2}?.getAttribute('aria-pressed') === 'true' && !!${PROFILE_MODAL}?.querySelector('[role="group"][aria-label="Approvals"]')`, 5000);
+    await polishNap(300);
+    const switched = await footer();
+    const switchedPressed = await h.ev(`${chip2}?.getAttribute('aria-pressed')`);
+    rec(
+        "12. a chip click with a dirty project draft asks to discard, and Discard opens the picked project clean",
+        held?.confirm === "Discard unsaved changes to Project?" &&
+            held.additions === 1 &&
+            heldPressed !== "true" &&
+            switchedPressed === "true" &&
+            switched?.status === "No changes" &&
+            switched.additions === 0,
+        JSON.stringify({ held: held && { confirm: held.confirm, additions: held.additions }, heldPressed, switchedPressed, switched: switched && { status: switched.status, additions: switched.additions } })
+    );
+    await closeProfile(h);
+}
 
 // the run-defaults rows: a row is the grid holding a label, its control and the source or reach cell
 const PROFILE_STATE = `(() => {
@@ -3032,6 +3213,12 @@ export const briefProfile = {
             await waitForProjectInConfig(h, BRIEF_PROFILE_PROJECT);
             const ch = await h.rpc("createchannel", { name: BRIEF_PROFILE_PROJECT, projectpath: cwd });
             ctx.channelId = ch.oid;
+            ctx.cwd2 = mkdtempSync(join(tmpdir(), "verify-brief-profile-2-"));
+            await h.rpc("createproject", { name: BRIEF_PROFILE_PROJECT_2, path: ctx.cwd2 });
+            ctx.project2 = BRIEF_PROFILE_PROJECT_2;
+            await waitForProjectInConfig(h, BRIEF_PROFILE_PROJECT_2);
+            const ch2 = await h.rpc("createchannel", { name: BRIEF_PROFILE_PROJECT_2, projectpath: ctx.cwd2 });
+            ctx.channelId2 = ch2.oid;
             // the modal lists projects from the boot-primed channel list
             await polishReload(h);
         } catch (e) {
@@ -3115,14 +3302,20 @@ export const briefProfile = {
         await releaseRpc(h, "GetJarvisProfileCommand");
         await closeProfile(h);
         steps.push(placeholderStep("6. while the profile reads, the modal holds its 96px block", loading, { height: 96, radius: "8px" }));
+
+        await principlesEditorSteps(h, ctx, rec);
         return steps;
     },
     async teardown(h, ctx) {
         const undo = [
             ["close the profile", () => closeProfile(h)],
+            ["clear the project's override", () => ctx.wroteOverride && h.rpc("setchannelprofile", { channelid: ctx.channelId, override: {} })],
             ["delete the channel", () => ctx.channelId && h.rpc("deletechannel", { channelid: ctx.channelId })],
             ["delete the project", () => ctx.project && h.rpc("deleteproject", { name: ctx.project })],
             ["remove the temp dir", () => rmSync(ctx.cwd, { recursive: true, force: true })],
+            ["delete the second channel", () => ctx.channelId2 && h.rpc("deletechannel", { channelid: ctx.channelId2 })],
+            ["delete the second project", () => ctx.project2 && h.rpc("deleteproject", { name: ctx.project2 })],
+            ["remove the second temp dir", () => ctx.cwd2 && rmSync(ctx.cwd2, { recursive: true, force: true })],
         ];
         for (const [what, fn] of undo) {
             try {

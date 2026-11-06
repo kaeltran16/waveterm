@@ -7,12 +7,12 @@
 // reduceGlobalPrinciples is its pure reducer.
 
 import { cn } from "@/util/util";
-import { PlusIcon, PRINCIPLE_ADD_BTN, PROFILE_PANEL } from "./principleseditor";
-import { reduceGlobalPrinciples, type GlobalPrincipleAction } from "./profilemodel";
+import { BlankNote, PlusIcon, PRINCIPLE_ADD_BTN, PROFILE_PANEL } from "./principleseditor";
+import { isBlankPrinciple, reduceGlobalPrinciples, type GlobalPrincipleAction } from "./profilemodel";
 
 // text that reads as plain until hovered or focused, so the list is a list and not a stack of inputs
 const INLINE_BOX =
-    "field-sizing-content min-h-[34px] w-full resize-none rounded-[6px] border px-2 py-1.5 text-[13px] leading-[1.5] text-ink-hi placeholder:text-muted outline-none focus:border-accent/40 focus:bg-background";
+    "field-sizing-content min-h-[34px] w-full resize-none rounded-[6px] border px-2 py-1.5 text-[13px] leading-[1.5] text-ink-hi placeholder:text-muted outline-none focus:bg-background";
 const ICON_BTN =
     "flex h-6 w-6 cursor-pointer items-center justify-center rounded-[5px] text-ink-mid hover:bg-surface-raised hover:text-secondary disabled:cursor-default disabled:text-edge-strong disabled:hover:bg-transparent";
 
@@ -84,6 +84,7 @@ export function GlobalPrinciplesEditor({
                 {principles.map((p, i) => {
                     const num = i + 1;
                     const note = notes[p.id];
+                    const blank = isBlankPrinciple(p.text);
                     return (
                         <div key={p.id} className="flex items-start gap-2 py-2 pr-2.5 pl-1.5">
                             <span
@@ -100,11 +101,16 @@ export function GlobalPrinciplesEditor({
                                     placeholder="New principle…"
                                     className={cn(
                                         INLINE_BOX,
-                                        p.text === ""
-                                            ? "border-dashed border-edge-strong bg-background"
-                                            : "border-transparent bg-transparent hover:border-edge-mid"
+                                        blank
+                                            ? "border-error bg-background"
+                                            : "border-transparent bg-transparent hover:border-edge-mid focus:border-accent/40"
                                     )}
                                 />
+                                {blank ? (
+                                    <span className="pl-2">
+                                        <BlankNote />
+                                    </span>
+                                ) : null}
                                 {note != null ? (
                                     <span
                                         className={cn(

@@ -111,6 +111,109 @@ export function principleRows(
     return rows;
 }
 
+// A replacement that repeats the global wording changes nothing (Customize alone), so it is dropped before
+// dirty, summary and save read the patch. The editor still gets the raw patch, so the row stays open.
+export function normalizePrinciplePatch(
+    patch: PrinciplePatch | undefined,
+    global: Principle[]
+): PrinciplePatch | undefined {
+    if (patch?.replacements == null) {
+        return cleanPatch(patch);
+    }
+    const globalText = new Map(global.map((p) => [p.id, p.text]));
+    const replacements = Object.fromEntries(
+        Object.entries(patch.replacements).filter(([id, text]) => globalText.get(id) !== text)
+    );
+    return cleanPatch({ ...patch, replacements });
+}
+
+// the server refuses blank principle text, so the editors flag it and the modal holds Save
+export function isBlankPrinciple(text: string): boolean {
+    return text.trim() === "";
+}
+
+export type PrincipleScope = "project" | "global";
+export type BlankPrinciple = { scope: PrincipleScope; index: number; id: string };
+
+// Blank rows in both drafts, numbered 1-based in the order each editor lists its rows (project: the active
+// rows; global: the list). `global` is null when the global draft is not loaded.
+export function blankPrinciples(projectRows: PrincipleRow[], global: Principle[] | null): BlankPrinciple[] {
+    const out: BlankPrinciple[] = [];
+    projectRows
+        .filter((r) => r.kind === "inherited" || r.kind === "modified" || r.kind === "project")
+        .forEach((r, i) => {
+            if (r.kind !== "inherited" && isBlankPrinciple(r.text)) {
+                out.push({ scope: "project", index: i + 1, id: r.id });
+            }
+        });
+    (global ?? []).forEach((p, i) => {
+        if (isBlankPrinciple(p.text)) {
+            out.push({ scope: "global", index: i + 1, id: p.id });
+        }
+    });
+    return out;
+}
+
+const SCOPE_LABEL: Record<PrincipleScope, "Project" | "Global"> = { project: "Project", global: "Global" };
+
+// The footer names the first blank in the scope on screen; one only in the other scope says which scope it is in.
+export function blankMessage(blanks: BlankPrinciple[], shown: PrincipleScope): string | null {
+    const here = blanks.find((b) => b.scope === shown);
+    if (here != null) {
+        return `Principle ${here.index} is empty`;
+    }
+    const other = blanks[0];
+    return other == null ? null : `${SCOPE_LABEL[other.scope]} principle ${other.index} is empty`;
+}
+
+export function unsavedScopes(projectDirty: boolean, globalDirty: boolean): ("Project" | "Global")[] {
+    return [...(projectDirty ? (["Project"] as const) : []), ...(globalDirty ? (["Global"] as const) : [])];
+}
+
+export function unsavedLabel(scopes: ("Project" | "Global")[]): string {
+    return `Unsaved changes · ${scopes.join(" and ")}`;
+}
+
+export function discardPrompt(scopes: ("Project" | "Global")[]): string {
+    return `Discard unsaved changes to ${scopes.join(" and ")}?`;
+}
+
+// the stale row's line, worded by what the project did to the principle that is gone; never its raw id
+export function staleRowText(row: PrincipleRow): string {
+    return row.diagnostic === DIAGNOSTIC_MISSING_DISABLED
+        ? "This project disabled a principle that was removed from the global set."
+        : `This project reworded a principle that was removed: "${row.text}"`;
+}
+
+export type SaveResult = { saved: PrincipleScope[]; error?: { scope: PrincipleScope; message: string } };
+
+// an RPC failure as the footer shows it: the message, without the `Error: ` a stringified error carries
+export function errorMessage(e: unknown): string {
+    return e instanceof Error ? e.message : String(e).replace(/^Error: /, "");
+}
+
+// Global first, since the project resolves against it; the first failure stops the rest, so a failed global
+// never writes a project patch made against the list it failed to store.
+export async function saveScopes(io: {
+    global?: () => Promise<void>;
+    project?: () => Promise<void>;
+}): Promise<SaveResult> {
+    const saved: PrincipleScope[] = [];
+    for (const scope of ["global", "project"] as const) {
+        const write = io[scope];
+        if (write == null) {
+            continue;
+        }
+        try {
+            await write();
+        } catch (e) {
+            return { saved, error: { scope, message: errorMessage(e) } };
+        }
+        saved.push(scope);
+    }
+    return { saved };
+}
+
 // Compare normalized overrides so a structurally empty patch reads equal to no patch at all.
 export function isDirty(a: ProfileOverride, b: ProfileOverride): boolean {
     return JSON.stringify(normalizeOverride(a)) !== JSON.stringify(normalizeOverride(b));
@@ -385,17 +488,36 @@ function nameList(names: string[]): string {
     return names.length <= 2 ? names.join(" and ") : `${names.length} projects`;
 }
 
-// the line under a global principle naming the projects an edit to it will not reach. A disable wins over a
-// replacement, as it does in principleRows. `edited` turns it into a warning while the draft differs.
+// the projects that disable a global principle, and those that reword it (a disable wins, as in principleRows).
+// A replacement equal to the global text is no rewording: it is what Customize alone used to store.
+function principleUsers(
+    projects: ProjectOverride[],
+    id: string,
+    globalText: string | undefined
+): { disabled: string[]; reworded: string[] } {
+    const disabled = projects.filter((p) => p.override.principles?.disabled?.includes(id)).map((p) => p.name);
+    const reworded = projects
+        .filter((p) => {
+            const text = p.override.principles?.replacements?.[id];
+            return text != null && text !== globalText && !disabled.includes(p.name);
+        })
+        .map((p) => p.name);
+    return { disabled, reworded };
+}
+
+function usesOwnWording(names: string[]): string {
+    return `${nameList(names)} ${names.length === 1 ? "uses its" : "use their"} own wording`;
+}
+
+// the line under a global principle naming the projects an edit to it will not reach. `globalText` is the
+// stored global wording. `edited` turns it into a warning while the draft differs.
 export function principleNote(
     projects: ProjectOverride[],
     id: string,
+    globalText: string | undefined,
     edited: boolean
 ): { text: string; warn: boolean } | null {
-    const disabled = projects.filter((p) => p.override.principles?.disabled?.includes(id)).map((p) => p.name);
-    const reworded = projects
-        .filter((p) => p.override.principles?.replacements?.[id] != null && !disabled.includes(p.name))
-        .map((p) => p.name);
+    const { disabled, reworded } = principleUsers(projects, id, globalText);
     if (disabled.length === 0 && reworded.length === 0) {
         return null;
     }
@@ -404,12 +526,40 @@ export function principleNote(
     }
     const parts: string[] = [];
     if (reworded.length > 0) {
-        parts.push(`${nameList(reworded)} ${reworded.length === 1 ? "uses its" : "use their"} own wording`);
+        parts.push(usesOwnWording(reworded));
     }
     if (disabled.length > 0) {
         parts.push(`Disabled in ${nameList(disabled)}`);
     }
     return { text: parts.join(" · "), warn: false };
+}
+
+// Global scope: each principle the draft deletes that some project disables or rewords, since the delete
+// turns that project's patch entry into a stale row. Only the first line of the text, so a note stays one line.
+export function removedPrincipleNotes(
+    loaded: Principle[],
+    draft: Principle[],
+    projects: ProjectOverride[]
+): { id: string; text: string }[] {
+    const kept = new Set(draft.map((p) => p.id));
+    return loaded
+        .filter((p) => !kept.has(p.id))
+        .flatMap((p) => {
+            const { disabled, reworded } = principleUsers(projects, p.id, p.text);
+            if (disabled.length === 0 && reworded.length === 0) {
+                return [];
+            }
+            const lines = p.text.trim().split("\n");
+            const head = lines[0].trim() + (lines.length > 1 ? "…" : "");
+            const parts = [`Removed "${head}"`];
+            if (disabled.length > 0) {
+                parts.push(`disabled in ${nameList(disabled)}`);
+            }
+            if (reworded.length > 0) {
+                parts.push(usesOwnWording(reworded));
+            }
+            return [{ id: p.id, text: parts.join(" · ") }];
+        });
 }
 
 // The kinds a playbook phase can be authored as. Deliberately not Go's full PhaseKind set: the profile
