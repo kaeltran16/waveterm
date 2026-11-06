@@ -1119,6 +1119,17 @@ async function phase2CardSteps(h, ctx, cardB) {
         return { asking: flat(card).includes("asking you"), standing: /standing by/i.test(flat(card)) };`);
     await h.shot("cdp-shots/lead-card-live-p16-asking.png");
     rec("L24. a lead that is asking reads \"asking you\", not \"standing by\" (P16)", asking.asking && !asking.standing, asking);
+
+    // P12: a lead's header names its run by the plan's title; the roster still calls the tab by its goal
+    const title = await lookEval(h, `
+        const card = ${liveCard(LIVE_IDS.leadD)};
+        await until(() => !!card?.querySelector("b"), 4000);
+        return card?.querySelector("b")?.textContent?.trim() ?? null;`);
+    rec(
+        "L25. a lead whose tab is named from the goal shows its plan title on the card header (P12)",
+        title === D.title && title !== "live-run lead D",
+        { title, want: D.title }
+    );
     return steps;
 }
 
@@ -4297,6 +4308,8 @@ export const finalRerunScenario = {
 // stage is ended from its pane. The fixture's temp dir is a git repository, which the stage's tree needs.
 const FST_VIEWPORT = { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false };
 const FST_LEAD = "final-stage lead";
+// the tree names a lead by its run's plan title, which dagsubmit sets below (D12)
+const FST_TITLE = "verify final-stage";
 const FST_VERIFIER = "final-stage verifier";
 const FST_VERIFIER_ID = "fx-final-verifier";
 // t-1 fans out to two sinks, so the final node takes two edges; at parallelism 1 only t-1 dispatches
@@ -4384,7 +4397,7 @@ const FST_SHEET = `document.querySelector("[data-run-sheet]")`;
 const FST_FOLD = `[...(${FST_TREE}?.querySelectorAll("div.cursor-pointer") ?? [])].find((d) => /^\\d+ (done|reviews?)/.test(d.textContent.trim()))`;
 const FST_LEAD_ROW = `(() => {
     const name = [...(${FST_TREE}?.querySelectorAll("div") ?? [])].find(
-        (d) => d.children.length === 0 && d.textContent.trim() === ${JSON.stringify(FST_LEAD)}
+        (d) => d.children.length === 0 && d.textContent.trim() === ${JSON.stringify(FST_TITLE)}
     );
     return name ? name.closest(".cursor-pointer") : null;
 })()`;
@@ -4591,7 +4604,7 @@ async function arrangeFinalStage(h, ctx) {
     await h.rpc("dagsubmit", {
         channelid: ctx.channelId,
         runid: ctx.runId,
-        title: "verify final-stage",
+        title: FST_TITLE,
         parallelism: 1,
         tasks: FST_TASKS,
     });

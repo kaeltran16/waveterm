@@ -577,13 +577,16 @@ function appendTreeRailFiller(now) {
     writeFileSync(TREE_RAIL_FIXTURE, JSON.stringify(roster, null, 2));
 }
 
+// the lead row is named by its run's plan title, not the tab's name (D12)
+const TREE_RAIL_TITLE = "verify tree-rail";
+
 async function arrangeTreeRail(h, ctx) {
     await arrangeFixtureRun(h, ctx, "tree-rail", TREE_RAIL_LEAD, { transcriptPath: writeLeadTranscript(ctx.cwd) });
     appendTreeRailFiller(Date.now());
     await h.rpc("dagsubmit", {
         channelid: ctx.channelId,
         runid: ctx.runId,
-        title: "verify tree-rail",
+        title: TREE_RAIL_TITLE,
         parallelism: 1,
         tasks: RUN_SHEET_POLISH_TASKS,
     });
@@ -603,7 +606,7 @@ async function arrangeTreeRail(h, ctx) {
         const leadRow = () => {
             const tree = document.querySelector("[data-agent-tree]");
             const name = tree && [...tree.querySelectorAll("div")].find(
-                (d) => d.textContent.trim() === ${JSON.stringify(TREE_RAIL_LEAD)} && d.children.length === 0
+                (d) => d.textContent.trim() === ${JSON.stringify(TREE_RAIL_TITLE)} && d.children.length === 0
             );
             return name ? name.closest(".cursor-pointer") : null;
         };
@@ -827,8 +830,23 @@ async function landedRunSteps(h, ctx) {
         ...liveRoster(ctx),
         { ...LANDED_LEAD, project: "verify-live-run", agent: "claude", model: "opus", task: "lead run D", state: "idle", idleSince: Date.now() - 5 * 60_000, runId: D.runId },
     ]);
-    const focused = await liveFocus(h, LANDED_LEAD.id, `!!${LIVE_RAIL} && flat(document.querySelector("[data-agent-header]")).includes(${JSON.stringify(LANDED_LEAD.name)})`);
+    const focused = await liveFocus(h, LANDED_LEAD.id, `!!${LIVE_RAIL} && flat(document.querySelector("[data-agent-header]")).includes(${JSON.stringify(LANDED_TITLE)})`);
     const injected = await injectLandedReport(h, ctx);
+
+    // P12: the lead stands for its run, so the tree's row and the header name it by the plan's title, not the tab's
+    const named = await lookEval(h, `
+        const row = ${LIVE_TREE}?.querySelector(${JSON.stringify(`[data-tree-agent="${LANDED_LEAD.id}"]`)});
+        const header = document.querySelector("[data-agent-header]");
+        return { row: flat(row), header: flat(header) };`);
+    await h.shot("cdp-shots/agent-tree-rail-p12-run-name.png");
+    rec(
+        "P12. the tree's lead row and the agent header name the run by its plan title, not the lead's tab name (D12)",
+        named.row.includes(LANDED_TITLE) &&
+            named.header.includes(LANDED_TITLE) &&
+            !named.row.includes(LANDED_LEAD.name) &&
+            !named.header.includes(LANDED_LEAD.name),
+        { focused, ...named }
+    );
 
     // P14: the accepted plan review's row, in run D's done fold
     const accepted = await lookEval(h, `
@@ -979,7 +997,7 @@ export const agentTreeRail = {
         const mark = await h.ev(`(() => {
             const tree = ${TREE};
             const name = tree && [...tree.querySelectorAll("div")].find(
-                (d) => d.textContent.trim() === ${JSON.stringify(TREE_RAIL_LEAD)} && d.children.length === 0
+                (d) => d.textContent.trim() === ${JSON.stringify(TREE_RAIL_TITLE)} && d.children.length === 0
             );
             const row = name && name.closest(".cursor-pointer");
             const slot = row && row.firstElementChild;
@@ -1035,7 +1053,7 @@ export const agentTreeRail = {
             };
             const guides = (row) =>
                 row ? [...row.children].filter((c) => c.tagName === "SPAN" && getComputedStyle(c).width === "1px").length : 0;
-            const lead = rowOf(${JSON.stringify(TREE_RAIL_LEAD)});
+            const lead = rowOf(${JSON.stringify(TREE_RAIL_TITLE)});
             const worker = rowOf(${JSON.stringify(RUN_SHEET_POLISH_TASKS[0].label)});
             const sub = rowOf(${JSON.stringify(TREE_RAIL_SUBAGENT_PROMPT)});
             return {

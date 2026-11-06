@@ -359,6 +359,12 @@ export function runTitle(run: Run | undefined, dag: TaskGroup | undefined): stri
     return stripEffortRefs(run?.goal?.trim().split("\n")[0] ?? "") || "Orchestrator run";
 }
 
+// leadDisplayName is what a run's lead is called wherever it stands for its run: the plan's title once the run has
+// a dag, as the events and the rail name the run. The lead's tab name comes from the goal and is left as it is.
+export function leadDisplayName(agent: Pick<AgentVM, "name">, run: Pick<RunInfo, "title" | "dag"> | undefined): string {
+    return run?.dag != null ? run.title : agent.name;
+}
+
 // laneLabel is the letter a task's lane goes by, in the plan order the digest lists lanes in.
 export function laneLabel(digest: DagStatusDigest | undefined, taskId: string): string | undefined {
     const i = (digest?.lanes ?? []).findIndex((lane) => lane.includes(taskId));

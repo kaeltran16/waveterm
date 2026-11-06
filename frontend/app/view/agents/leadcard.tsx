@@ -60,7 +60,7 @@ import { leadPaneShown } from "./leadpane";
 import { entriesAtomFor } from "./livetranscriptatoms";
 import { NarrationTimeline } from "./narrationtimeline";
 import { clampParallelism } from "./runconfig";
-import type { RunInfo } from "./runlineage";
+import { leadDisplayName, type RunInfo } from "./runlineage";
 import { openRunDag } from "./runrailsections";
 import { FINAL_FILL, SEG_FILL, type TaskStrip } from "./runstrip";
 import { SubLabel } from "./sectionlabel";
@@ -215,6 +215,7 @@ export function LeadCard(p: LeadCardProps) {
                         agent={lead}
                         nowAtom={model.nowAtom}
                         mark={leadIcon}
+                        name={leadDisplayName(lead, run)}
                         className="min-w-0 flex-1 overflow-hidden"
                         projectClassName={WIDE_ONLY}
                     />

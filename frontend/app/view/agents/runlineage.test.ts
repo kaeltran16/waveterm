@@ -23,6 +23,7 @@ import {
     isEndedWorkerId,
     laneLabel,
     leadAgentOf,
+    leadDisplayName,
     leadRunTabIds,
     leadStandingBy,
     runAgentsOf,
@@ -79,6 +80,17 @@ describe("runRoleOf", () => {
 const EFFORT = "89d8c1f2-3a4b-4c5d-8e9f-0a1b2c3d4e5f";
 
 describe("run facts", () => {
+    it("names a run lead by its run's title once the run has a plan", () => {
+        const agent = { name: "make the live-run fixes" };
+        expect(leadDisplayName(agent, { title: "Resource linking", dag: { tasks: [] } as TaskGroup })).toBe(
+            "Resource linking"
+        );
+        expect(leadDisplayName(agent, { title: "Make the live-run fixes", dag: undefined })).toBe(
+            "make the live-run fixes"
+        );
+        expect(leadDisplayName(agent, undefined)).toBe("make the live-run fixes");
+    });
+
     it("titles a run by its plan, else its goal's first line", () => {
         expect(runTitle({ goal: "ignored" } as Run, { title: "Resource linking" } as TaskGroup)).toBe(
             "Resource linking"

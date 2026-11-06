@@ -53,12 +53,14 @@ export function StatusLine({
     nowAtom,
     mark,
     standing,
+    name,
     className,
     projectClassName,
 }: {
     agent: AgentVM;
     nowAtom: Atom<number>;
     mark?: ReactNode;
+    name?: string; // a run lead shows its run's title in place of the tab's name
     standing?: boolean;
     className?: string;
     projectClassName?: string; // the agent card hides the project chip when it is too narrow for it and the name
@@ -75,7 +77,7 @@ export function StatusLine({
                 />
             </span>
             <b className="min-w-[30px] flex-1 truncate font-sans text-[13.5px] font-semibold text-primary">
-                {agent.name}
+                {name ?? agent.name}
             </b>
             {project ? (
                 <span

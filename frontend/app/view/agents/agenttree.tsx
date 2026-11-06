@@ -67,6 +67,7 @@ import { LEAD_MARK_CLASS, leadMark } from "./leadcardmodel";
 import {
     isEndedWorkerId,
     laneLabel,
+    leadDisplayName,
     runAgentsOf,
     runProgress,
     stageLabel,
@@ -723,7 +724,7 @@ function ParentRow({
                         ) : (
                             <>
                                 <div className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink-hi">
-                                    {agent.name}
+                                    {lead != null ? leadDisplayName(agent, lead.run) : agent.name}
                                 </div>
                                 {agent.pinned ? (
                                     <Pin size={11} aria-label="Pinned" className="flex-none text-muted" />
