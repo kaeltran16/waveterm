@@ -87,8 +87,10 @@ export function startTranscriptStream(id: string, path: string, agent?: string):
                     globalStore.set(tasksByIdAtom, { ...globalStore.get(tasksByIdAtom), [id]: tasks });
                 }
             }
-        } catch {
-            // stream ended or errored — keep the last entries, just stop updating
+        } catch (err) {
+            // keep the last entries and do not restart: the errors left (permissions, a path with no existing
+            // ancestor) would fail again on every retry
+            console.error("transcript stream ended", id, path, err);
         } finally {
             // a stale generator (from a stream restarted mid-flight, e.g. on ws reconnect) may
             // resolve after its replacement is already registered; only delete if we're still it
