@@ -413,6 +413,11 @@ export function kindLabels(
     return { all: label("all"), orchestrator: label("orchestrator"), quick: label("quick") };
 }
 
+// kind chips over nothing of any kind filter nothing; a kind still picked keeps them, as the way back to all
+export function kindFilterShown(total: number, kind: RunKindFilter): boolean {
+    return total > 0 || kind !== "all";
+}
+
 // the project chips' labels, the same way: matched is the initiatives the filter keeps, null with no filter
 export function projectCountLabels(
     cards: { project?: string }[],

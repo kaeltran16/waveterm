@@ -31,6 +31,7 @@ export function BehindRegion({
     shippedKind,
     onShippedKind,
     shippedCounts,
+    shippedFilterShown,
     shippedOpen,
     onToggleShipped,
     filtering,
@@ -60,6 +61,7 @@ export function BehindRegion({
     onShippedKind: (k: RunKindFilter) => void;
     // each kind chip's count label (kindLabels)
     shippedCounts: Record<RunKindFilter, string>;
+    shippedFilterShown: boolean;
     shippedOpen: boolean;
     onToggleShipped: () => void;
     filtering: boolean;
@@ -68,7 +70,7 @@ export function BehindRegion({
     stageRunId: string | undefined;
 }) {
     const deltaRowsN = groups.reduce((n, g) => n + g.lines.length, 0);
-    const shippedFilter = runKindFilter(shippedKind, onShippedKind, shippedCounts);
+    const shippedFilter = shippedFilterShown ? runKindFilter(shippedKind, onShippedKind, shippedCounts) : null;
     return (
         <section ref={sectionRef} data-jarvis-brief-region="behind" className="flex flex-col gap-[9px]">
             {/* the head is the same show-only button the other regions have; since and mark seen sit beside
@@ -117,11 +119,13 @@ export function BehindRegion({
                 <div className="flex items-center gap-2 px-[11px] pb-0.5 pt-3 font-mono text-[10.5px] font-bold uppercase tracking-[.09em] text-muted">
                     <span>{SHIPPED_LABEL}</span>
                     <span className="font-normal tracking-[.04em]">{shippedTotal}</span>
-                    {shippedFilter.menu ? (
+                    {shippedFilter?.menu ? (
                         <span className="ml-auto font-normal normal-case tracking-normal">{shippedFilter.node}</span>
                     ) : null}
                 </div>
-                {shippedFilter.menu ? null : <div className="px-[11px] pb-1">{shippedFilter.node}</div>}
+                {shippedFilter != null && !shippedFilter.menu ? (
+                    <div className="px-[11px] pb-1">{shippedFilter.node}</div>
+                ) : null}
                 {shippedMissing ? <LegMissing what="shipped runs" /> : null}
                 {shippedTotal === 0 && !shippedMissing ? (
                     <div className="px-[11px] py-[7px] text-[12.5px] text-ink-mid">

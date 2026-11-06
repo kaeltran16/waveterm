@@ -6657,7 +6657,7 @@ export const briefAct = {
         });
 
         // 26. a cursor move that scrolls the rows is not the user moving on: Where we were stays open. The stale fold
-        // is opened first so the last row sits below the fold.
+        // is opened first so the last Runs row sits below the fold (Behind you's rows may sit in the right column, in view).
         await actFixture(h, "review");
         await h.ev(`document.querySelector('[data-jarvis-brief-stale][aria-expanded="false"]')?.click()`);
         const f20 = await lookEval(h, `${ACT_BRIEF_LIB}
@@ -6669,7 +6669,7 @@ export const briefAct = {
             const shown = globalStore.get(petBubbleAtom) != null;
             const top0 = scroll.scrollTop;
             const ids = globalStore.get(listNavAtom)?.navigableIds ?? [];
-            globalStore.get(listNavAtom)?.setCursor(ids[ids.length - 1]);
+            globalStore.get(listNavAtom)?.setCursor(ids.filter((id) => id.startsWith("sessions:")).pop());
             await nap(600);
             return { shown, top0, top: scroll.scrollTop, open: globalStore.get(petBubbleAtom) != null };
         `);
@@ -7140,7 +7140,8 @@ export const briefAct = {
             detail: JSON.stringify(f8),
         });
 
-        // 40. a filter matching nothing reads 0 of N on Waiting's summary and head, Initiatives' all chip and Shipped's;
+        // 40. a filter matching nothing reads 0 of N on Waiting's summary and head (unfiltered the head drops its count,
+        // which the summary already says), Initiatives' all chip and Shipped's;
         // cleared, the counts read as before
         const f16Counts = () =>
             h.ev(`(() => {
@@ -7161,10 +7162,10 @@ export const briefAct = {
         const f16after = await f16Counts();
         const waitingN = /^(\d+) things? (?:is|are) waiting on you$/.exec(f16before.waiting)?.[1] ?? null;
         steps.push({
-            step: "40. F16 + F14: a filter matching nothing reads 0 of N on the Waiting summary and head, the Initiatives all chip and the Shipped all chip; cleared, they read N again",
+            step: "40. F16 + F14: a filter matching nothing reads 0 of N on the Waiting summary and head, the Initiatives all chip and the Shipped all chip; cleared, they read N again and the Waiting head has no count",
             ok:
                 waitingN != null &&
-                f16before.waitingHead === waitingN &&
+                f16before.waitingHead === "" &&
                 f16before.initiatives === "10" &&
                 f16before.shipped === "3" &&
                 f16during.waiting === `0 of ${waitingN} waiting match the filter` &&

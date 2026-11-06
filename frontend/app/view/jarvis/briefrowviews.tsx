@@ -415,7 +415,9 @@ export function DeltaRowView({
                 </span>
                 {line.detail ? <span className={cn("truncate", MONO_FAINT)}>{line.detail}</span> : null}
             </div>
-            <span className="w-12 flex-none text-right font-mono text-[11px] text-ink-mid">{line.state}</span>
+            <span className="min-w-12 flex-none whitespace-nowrap text-right font-mono text-[11px] text-ink-mid">
+                {line.state}
+            </span>
         </div>
     );
 }
@@ -470,7 +472,9 @@ export function ShippedRowView({
                 {line.detail ? <span className={cn("truncate", MONO_FAINT)}>{line.detail}</span> : null}
             </div>
             {line.hasReport ? <span className="flex-none font-mono text-[10.5px] text-ink-mid">report</span> : null}
-            <span className="w-12 flex-none text-right font-mono text-[11px] text-ink-mid">{line.state}</span>
+            <span className="min-w-12 flex-none whitespace-nowrap text-right font-mono text-[11px] text-ink-mid">
+                {line.state}
+            </span>
         </div>
     );
 }

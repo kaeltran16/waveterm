@@ -17,7 +17,7 @@ import {
     Region,
     runKindFilter,
 } from "./briefprimitives";
-import type { BriefLine, LineTarget, RunKindFilter } from "./briefrows";
+import { kindFilterShown, type BriefLine, type LineTarget, type RunKindFilter } from "./briefrows";
 import { LINK_BTN } from "./briefstyle";
 
 export function RunsRegion({
@@ -28,6 +28,7 @@ export function RunsRegion({
     runKind,
     onRunKind,
     runCounts,
+    runTotal,
     liveN,
     only,
     onOnly,
@@ -54,6 +55,8 @@ export function RunsRegion({
     onRunKind: (k: RunKindFilter) => void;
     // each kind chip's count label (kindLabels)
     runCounts: Record<RunKindFilter, string>;
+    // every live run of any kind, before the kind filter
+    runTotal: number;
     liveN: number;
     only: boolean;
     onOnly: () => void;
@@ -81,7 +84,7 @@ export function RunsRegion({
             meta={`${liveN} live`}
             only={only}
             onOnly={onOnly}
-            filter={runKindFilter(runKind, onRunKind, runCounts)}
+            filter={kindFilterShown(runTotal, runKind) ? runKindFilter(runKind, onRunKind, runCounts) : undefined}
         >
             <div className="flex flex-col">
                 {missing ? <LegMissing what="runs" /> : null}

@@ -99,6 +99,7 @@ import {
     initiativesMeta,
     keepsProject,
     keepsRunKind,
+    kindFilterShown,
     kindLabels,
     lineKindCounts,
     liveRunKindCounts,
@@ -397,16 +398,16 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     );
     // the chips count what the head's "N live" counts; the stale fold states the rest. While filtering, each
     // counts its live lines the filter keeps, of every kind, since the chips are how you switch kind.
-    const runCounts = useMemo(() => {
+    const runKinds = useMemo(() => {
         const now = Date.now();
         const total = liveRunKindCounts(model_ ?? { activeRuns: [], directAgents: [] }, now);
         if (model_ == null || !filtering) {
-            return kindLabels(total, null);
+            return { total: total.all, labels: kindLabels(total, null) };
         }
         const live = sessionWindow(model_, true, now)
             .rows.map((r) => sessionLine(r, now))
             .filter((l) => !l.stale);
-        return kindLabels(total, lineKindCounts(filterLines(live, query)));
+        return { total: total.all, labels: kindLabels(total, lineKindCounts(filterLines(live, query))) };
     }, [model_, filtering, query]);
     // moment 1: which rows are new to YOU. Excludes `behind` deliberately — that region is entirely
     // since-your-last-visit by construction, so marking it would mark every row and its own label
@@ -525,7 +526,9 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
         () => waitingSummary(queue, waitingMatching, filtering, Date.now()),
         [queue, waitingMatching, filtering]
     );
-    const waitingCount = queue.length > 0 ? filterCount(waitingMatching.length, queue.length, filtering) : undefined;
+    // unfiltered, the summary card's title already says how many
+    const waitingCount =
+        queue.length > 0 && filtering ? filterCount(waitingMatching.length, queue.length, filtering) : undefined;
     // Shipped's kind chips: every shipped run, and while filtering the ones whose line the filter keeps
     const shippedCounts = useMemo(() => {
         const all = model_?.shipped ?? [];
@@ -620,6 +623,8 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     );
     const selected = tracker.rows.find((r) => r.kind === "chunk" && r.id === noteChunk);
     const selectedChunk = selected?.kind === "chunk" ? selected : null;
+    // one region alone, or the docked chunk sidebar, takes the width a second column would
+    const twoColumn = only == null && selectedChunk == null;
     const closeNotes = useCallback(() => {
         setNoteChunk(null);
         setReadingNote(new Set());
@@ -1179,140 +1184,167 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                         onAct={(q, l, act) => fireAndForget(() => actOnQueue(queueDeps, q, l, act))}
                                     />
                                 ) : null}
-                                {view.shows("initiatives") ? (
-                                    <InitiativesRegion
-                                        lines={lines.initiatives}
-                                        empty={efforts.length === 0 && archivedCards.length === 0}
-                                        missing={missingLegs.includes("Initiatives")}
-                                        meta={initiativesHead}
-                                        only={only === "initiatives"}
-                                        onOnly={() => toggleOnly("initiatives")}
-                                        projects={{
-                                            options: projectOptions,
-                                            labels: projectLabels,
-                                            picked: project,
-                                            onPick: setPickedProject,
-                                        }}
-                                        filtering={filtering}
-                                        entering={entering}
-                                        fresh={freshInitiatives}
-                                        cursor={cursor}
-                                        openInitiative={openInitiative}
-                                        rename={
-                                            renamingTitle != null && openInitiative != null
-                                                ? {
-                                                      title: renamingTitle,
-                                                      onChange: (title) =>
-                                                          setRenaming({ lineId: openInitiative, title }),
-                                                      onCommit: () => {
-                                                          const t = renamingTitle.trim();
-                                                          setRenaming(null);
-                                                          if (
-                                                              t !== "" &&
-                                                              openEffortORef != null &&
-                                                              t !== openEffort?.title
-                                                          ) {
-                                                              runMutation(() => renameEffort(openEffortORef, t));
-                                                          }
-                                                      },
-                                                      onCancel: () => setRenaming(null),
-                                                  }
-                                                : null
-                                        }
-                                        resumeOf={resumeOf}
-                                        onWork={(l) => {
-                                            const c = cardOf(l);
-                                            if (c != null) {
-                                                void workOnInitiative(model, c);
-                                            }
-                                        }}
-                                        onContextMenu={showMenuFor}
-                                        onOpen={(l) => {
-                                            setCursor(l.id);
-                                            toggleInitiative(l.id);
-                                        }}
-                                        edits={edits}
-                                        detail={tracker.detail}
-                                        onSelectChunk={(id) => {
-                                            setCursor(id);
-                                            setNoteChunk(id);
-                                            setReadingNote(new Set());
-                                        }}
-                                        onToggleStage={(id, open) =>
-                                            setStageOverrides((cur) => ({
-                                                ...cur,
-                                                [id]: open,
-                                            }))
-                                        }
-                                        mutateError={mutateError}
-                                        loadError={planLoadError}
-                                        onRetryLoad={loadPlan}
-                                        sidebarOpen={selectedChunk != null}
-                                        more={effortWindow.more}
-                                        expanded={initiativesOpen}
-                                        onToggleMore={() => toggleRegion("initiatives")}
-                                        archived={archivedShown.length}
-                                        showArchived={showArchived}
-                                        onToggleArchived={() => setShowArchived(!showArchived)}
-                                    />
-                                ) : null}
-                                {view.shows("sessions") ? (
-                                    <RunsRegion
-                                        model={model}
-                                        lines={view.sessionLines}
-                                        empty={sessions.rows.length === 0}
-                                        missing={missingLegs.includes("Runs")}
-                                        runKind={runKind}
-                                        onRunKind={setRunKind}
-                                        runCounts={runCounts}
-                                        liveN={liveN}
-                                        only={only === "sessions"}
-                                        onOnly={() => toggleOnly("sessions")}
-                                        filtering={filtering}
-                                        entering={entering}
-                                        cursor={cursor}
-                                        sheetOpen={sheetOpen}
-                                        stageRunId={stageRun?.id}
-                                        openLine={openLine}
-                                        onOpenChunk={revealChunk}
-                                        staleCount={staleCount}
-                                        staleOpen={staleOpen}
-                                        onToggleStale={() => setStaleOpen(!staleOpen)}
-                                        more={sessions.more}
-                                        expanded={sessionsOpen}
-                                        onToggleMore={() => toggleRegion("sessions")}
-                                    />
-                                ) : null}
-                                {view.shows("behind") ? (
-                                    <BehindRegion
-                                        sectionRef={setBehindEl}
-                                        since={sinceLabel(
-                                            cursorTs,
-                                            snapshot?.queryStartedAt ?? Date.now(),
-                                            visitCursor == null
+                                {/* the past (Behind you, Shipped) takes a column of its own beside what needs you now,
+                                    on the band where the docked chunk sidebar would otherwise hold that slot */}
+                                <div
+                                    className={cn(
+                                        "flex flex-col gap-[26px]",
+                                        twoColumn &&
+                                            "@min-[1281px]:flex-row @min-[1281px]:items-start @min-[1281px]:gap-7"
+                                    )}
+                                >
+                                    <div
+                                        className={cn(
+                                            "flex min-w-0 flex-col gap-[26px]",
+                                            twoColumn && "@min-[1281px]:flex-1"
                                         )}
-                                        deltaTotal={model_.delta.length}
-                                        only={only === "behind"}
-                                        onOnly={() => toggleOnly("behind")}
-                                        groups={lines.behind.filter((g) => g.label !== SHIPPED_LABEL)}
-                                        cursor={cursor}
-                                        openLine={openLine}
-                                        more={lines.behindMore}
-                                        expanded={behindOpen}
-                                        onToggleMore={() => toggleRegion("behind")}
-                                        shippedTotal={shippedAll.length}
-                                        shippedMissing={missingLegs.includes("Runs")}
-                                        shippedLines={shippedLines}
-                                        shippedKind={shippedKind}
-                                        onShippedKind={setShippedKind}
-                                        shippedCounts={shippedCounts}
-                                        shippedOpen={shippedOpen}
-                                        onToggleShipped={() => setShippedOpen(!shippedOpen)}
-                                        filtering={filtering}
-                                        sheetOpen={sheetOpen}
-                                        stageRunId={stageRun?.id}
-                                    />
-                                ) : null}
+                                    >
+                                        {view.shows("initiatives") ? (
+                                            <InitiativesRegion
+                                                lines={lines.initiatives}
+                                                empty={efforts.length === 0 && archivedCards.length === 0}
+                                                missing={missingLegs.includes("Initiatives")}
+                                                meta={initiativesHead}
+                                                only={only === "initiatives"}
+                                                onOnly={() => toggleOnly("initiatives")}
+                                                projects={{
+                                                    options: projectOptions,
+                                                    labels: projectLabels,
+                                                    picked: project,
+                                                    onPick: setPickedProject,
+                                                }}
+                                                filtering={filtering}
+                                                entering={entering}
+                                                fresh={freshInitiatives}
+                                                cursor={cursor}
+                                                openInitiative={openInitiative}
+                                                rename={
+                                                    renamingTitle != null && openInitiative != null
+                                                        ? {
+                                                              title: renamingTitle,
+                                                              onChange: (title) =>
+                                                                  setRenaming({ lineId: openInitiative, title }),
+                                                              onCommit: () => {
+                                                                  const t = renamingTitle.trim();
+                                                                  setRenaming(null);
+                                                                  if (
+                                                                      t !== "" &&
+                                                                      openEffortORef != null &&
+                                                                      t !== openEffort?.title
+                                                                  ) {
+                                                                      runMutation(() =>
+                                                                          renameEffort(openEffortORef, t)
+                                                                      );
+                                                                  }
+                                                              },
+                                                              onCancel: () => setRenaming(null),
+                                                          }
+                                                        : null
+                                                }
+                                                resumeOf={resumeOf}
+                                                onWork={(l) => {
+                                                    const c = cardOf(l);
+                                                    if (c != null) {
+                                                        void workOnInitiative(model, c);
+                                                    }
+                                                }}
+                                                onContextMenu={showMenuFor}
+                                                onOpen={(l) => {
+                                                    setCursor(l.id);
+                                                    toggleInitiative(l.id);
+                                                }}
+                                                edits={edits}
+                                                detail={tracker.detail}
+                                                onSelectChunk={(id) => {
+                                                    setCursor(id);
+                                                    setNoteChunk(id);
+                                                    setReadingNote(new Set());
+                                                }}
+                                                onToggleStage={(id, open) =>
+                                                    setStageOverrides((cur) => ({
+                                                        ...cur,
+                                                        [id]: open,
+                                                    }))
+                                                }
+                                                mutateError={mutateError}
+                                                loadError={planLoadError}
+                                                onRetryLoad={loadPlan}
+                                                sidebarOpen={selectedChunk != null}
+                                                more={effortWindow.more}
+                                                expanded={initiativesOpen}
+                                                onToggleMore={() => toggleRegion("initiatives")}
+                                                archived={archivedShown.length}
+                                                showArchived={showArchived}
+                                                onToggleArchived={() => setShowArchived(!showArchived)}
+                                            />
+                                        ) : null}
+                                        {view.shows("sessions") ? (
+                                            <RunsRegion
+                                                model={model}
+                                                lines={view.sessionLines}
+                                                empty={sessions.rows.length === 0}
+                                                missing={missingLegs.includes("Runs")}
+                                                runKind={runKind}
+                                                onRunKind={setRunKind}
+                                                runCounts={runKinds.labels}
+                                                runTotal={runKinds.total}
+                                                liveN={liveN}
+                                                only={only === "sessions"}
+                                                onOnly={() => toggleOnly("sessions")}
+                                                filtering={filtering}
+                                                entering={entering}
+                                                cursor={cursor}
+                                                sheetOpen={sheetOpen}
+                                                stageRunId={stageRun?.id}
+                                                openLine={openLine}
+                                                onOpenChunk={revealChunk}
+                                                staleCount={staleCount}
+                                                staleOpen={staleOpen}
+                                                onToggleStale={() => setStaleOpen(!staleOpen)}
+                                                more={sessions.more}
+                                                expanded={sessionsOpen}
+                                                onToggleMore={() => toggleRegion("sessions")}
+                                            />
+                                        ) : null}
+                                    </div>
+                                    {view.shows("behind") ? (
+                                        <div
+                                            className={cn(
+                                                twoColumn && "@min-[1281px]:w-[440px] @min-[1281px]:flex-none"
+                                            )}
+                                        >
+                                            <BehindRegion
+                                                sectionRef={setBehindEl}
+                                                since={sinceLabel(
+                                                    cursorTs,
+                                                    snapshot?.queryStartedAt ?? Date.now(),
+                                                    visitCursor == null
+                                                )}
+                                                deltaTotal={model_.delta.length}
+                                                only={only === "behind"}
+                                                onOnly={() => toggleOnly("behind")}
+                                                groups={lines.behind.filter((g) => g.label !== SHIPPED_LABEL)}
+                                                cursor={cursor}
+                                                openLine={openLine}
+                                                more={lines.behindMore}
+                                                expanded={behindOpen}
+                                                onToggleMore={() => toggleRegion("behind")}
+                                                shippedTotal={shippedAll.length}
+                                                shippedMissing={missingLegs.includes("Runs")}
+                                                shippedLines={shippedLines}
+                                                shippedKind={shippedKind}
+                                                onShippedKind={setShippedKind}
+                                                shippedCounts={shippedCounts}
+                                                shippedFilterShown={kindFilterShown(model_.shipped.length, shippedKind)}
+                                                shippedOpen={shippedOpen}
+                                                onToggleShipped={() => setShippedOpen(!shippedOpen)}
+                                                filtering={filtering}
+                                                sheetOpen={sheetOpen}
+                                                stageRunId={stageRun?.id}
+                                            />
+                                        </div>
+                                    ) : null}
+                                </div>
                             </motion.div>
                         ) : null}
                     </AnimatePresence>

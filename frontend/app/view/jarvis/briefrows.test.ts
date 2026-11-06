@@ -15,6 +15,7 @@ import {
     initiativesMeta,
     keepsProject,
     keepsRunKind,
+    kindFilterShown,
     kindLabels,
     lineKindCounts,
     lineOpenTarget,
@@ -1207,6 +1208,11 @@ describe("filter chip labels", () => {
             orchestrator: "0 of 2",
             quick: "1 of 3",
         });
+    });
+    it("hides the kind chips over no runs, unless a kind is still picked", () => {
+        expect(kindFilterShown(0, "all")).toBe(false);
+        expect(kindFilterShown(0, "orchestrator")).toBe(true);
+        expect(kindFilterShown(3, "all")).toBe(true);
     });
     it("labels each project with its initiatives, or its matching ones while filtering", () => {
         const cards = [{ project: "a" }, { project: "a" }, { project: "" }];
