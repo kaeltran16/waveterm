@@ -97,7 +97,12 @@ export function useCockpitKeyboard(deps: CockpitKeyDeps): (e: KeyboardEvent) => 
         if (row && (e.key === " " || e.key === "r" || e.key === "b")) {
             e.preventDefault();
             if (e.key === " " && row.peekId) {
-                void peekTarget(model, { kind: "agent", tabId: row.peekId });
+                // the peek renders only a live roster agent, so an ended transcript opens as enter does
+                if (roster.some((a) => a.id === row.peekId)) {
+                    void peekTarget(model, { kind: "agent", tabId: row.peekId });
+                } else {
+                    openFocus(row.peekId, false);
+                }
             } else if (e.key === "r") {
                 row.tell?.();
             } else if (e.key === "b") {

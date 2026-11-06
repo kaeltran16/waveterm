@@ -4,7 +4,7 @@
 // file holding a few tool calls and a running run_in_background Bash call. Nothing runs and nothing is written
 // into ~/.claude/projects.
 
-import { appendFileSync, mkdtempSync, rmSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -25,6 +25,7 @@ const PROJECT = "fx-streams";
 const SHELL_TASK_ID = "bstreams01";
 const NARRATION = "Streams fixture: reading the config before the edit.";
 const WAIT_MS = 10_000;
+const STREAM_OPEN_MS = 1_500;
 
 const TREE_ROW = (id) => `document.querySelector('[data-agent-tree] [data-tree-agent="${id}"]')`;
 const RAIL = `document.querySelector('aside[aria-label="Agent details"]')`;
@@ -80,7 +81,7 @@ export default function (_kit) {
                     await h.ev(`localStorage.setItem(${JSON.stringify(RAIL_VISIBLE_KEY)}, "true")`);
                     await h.reload();
                     await h.goto("agent");
-                    await setRoster(h, [
+                    ctx.roster = [
                         {
                             id: ctx.id,
                             name: `streams-${tag}`,
@@ -93,7 +94,8 @@ export default function (_kit) {
                             // no blockId: a made-up block fails its controller resync and reads failed to start
                             transcriptPath: ctx.path,
                         },
-                    ]);
+                    ];
+                    await setRoster(h, ctx.roster);
                     await focusAgent(h, ctx.id);
                 } catch (e) {
                     ctx.arrangeError = String(e?.message ?? e);
@@ -146,6 +148,46 @@ export default function (_kit) {
                     "3. after a Cockpit visit (its card showed the transcript) and back, the chip and Tools used stay and the stream still delivers",
                     carded && hasChip(back) && ["read", "edited", "ran", "grep", "glob"].every((v) => back.verbs.includes(v)),
                     JSON.stringify({ carded, ...back })
+                );
+
+                // P1: a run member reports its transcript path before Claude makes the project folder, two levels
+                // here, so the stream opens on a missing folder and must still deliver once it appears
+                const lateId = `${ctx.id}-late`;
+                const lateDir = join(ctx.dir, "late-project", "nested");
+                const latePath = join(lateDir, "late.jsonl");
+                const lateLines = ["Late folder fixture: first line.", "Late folder fixture: second line."];
+                await setRoster(h, [
+                    ...ctx.roster,
+                    {
+                        id: lateId,
+                        name: `${ctx.roster[0].name}-late`,
+                        project: PROJECT,
+                        task: "",
+                        state: "working",
+                        agent: "claude",
+                        model: "opus",
+                        activeMs: 60_000,
+                        transcriptPath: latePath,
+                    },
+                ]);
+                await h.goto("cockpit");
+                const lateCard = await polishWaitFor(h, `${COCKPIT_CARD(lateId)} != null`, WAIT_MS);
+                // the card mounting starts the stream; give its rpc time to reach the backend before the folder exists
+                await new Promise((r) => setTimeout(r, STREAM_OPEN_MS));
+                const missingAtOpen = !existsSync(join(ctx.dir, "late-project"));
+                mkdirSync(lateDir, { recursive: true });
+                appendFileSync(latePath, lateLines.map((t) => assistantText(t)).join("\n") + "\n");
+                const lateText = `(${COCKPIT_CARD(lateId)}?.textContent ?? "")`;
+                const rendered = await polishWaitFor(
+                    h,
+                    `${JSON.stringify(lateLines)}.every((t) => ${lateText}.includes(t))`,
+                    WAIT_MS
+                );
+                await h.shot("cdp-shots/agent-streams-4-late-folder.png");
+                rec(
+                    "4. an agent whose transcript folder did not exist when its stream opened shows both lines written once the folder appears",
+                    lateCard && missingAtOpen && rendered,
+                    JSON.stringify({ lateCard, missingAtOpen, rendered, card: await h.ev(lateText) })
                 );
                 return steps;
             },

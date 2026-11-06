@@ -14,6 +14,7 @@ import {
     prunedBackgrounded,
     railSelectTarget,
     rosterLoadPhase,
+    rowPeekId,
     splitRecentlyIdle,
     toggleInSet,
 } from "./cockpitsurfacemodel";
@@ -164,6 +165,18 @@ describe("cockpitCounts", () => {
     });
     it("counts an agent with no transcript", () => {
         expect(cockpitCounts([agent({ id: "boot", project: "demo", booting: true })], "all", asking).agents).toBe(1);
+    });
+});
+
+describe("rowPeekId", () => {
+    it("peeks the live worker first", () => {
+        expect(rowPeekId({ worker: { id: "w1" }, openId: "ended:R:t1" })).toBe("w1");
+    });
+    it("falls back to the row's ended transcript", () => {
+        expect(rowPeekId({ openId: "ended:R:t1" })).toBe("ended:R:t1");
+    });
+    it("leaves a row with neither inert", () => {
+        expect(rowPeekId({})).toBeUndefined();
     });
 });
 

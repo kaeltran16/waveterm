@@ -27,7 +27,7 @@ import { ASK_OWNER_USER, childAskKey } from "./childaskmodel";
 import { bindChildAsks, childAskErrorAtom, childAsksAtom, takeOverChildAsk } from "./childaskstore";
 import { useFinalStageView } from "./finalstageviews";
 import { useRunEvents } from "./runeventstore";
-import { formatLeft, leadAgentOf, runProgress, taskAgentOf, type RunInfo } from "./runlineage";
+import { formatLeft, leadAgentOf, leadDisplayName, runProgress, taskAgentOf, type RunInfo } from "./runlineage";
 import { runStatusView } from "./runmodel";
 import {
     laneRows,
@@ -526,7 +526,7 @@ export function RunSection({ model, run, asks }: { model: AgentsViewModel; run: 
                             {elapsed ? <FactRow label="Elapsed">{formatElapsed(elapsed)}</FactRow> : null}
                             <FactRow label="Worker time">{formatElapsed(report.workerms)}</FactRow>
                             <FactRow label="Answered">{report.answered}</FactRow>
-                            <FactRow label="Forwarded">{report.forwarded}</FactRow>
+                            <FactRow label="Handed to you">{report.forwarded}</FactRow>
                         </>
                     ) : null}
                     {spent ? <UsageRows spent={spent} sealed={usage.sealed} /> : null}
@@ -591,7 +591,7 @@ export function TaskSection({
                             className="inline-flex cursor-pointer items-center gap-[3px] text-accent-soft hover:underline"
                         >
                             <ArrowUp size={11} aria-hidden />
-                            {lead.name}
+                            {leadDisplayName(lead, run)}
                         </button>
                     ) : (
                         <span className="inline-flex items-center gap-[3px]">

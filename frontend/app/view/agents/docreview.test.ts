@@ -12,7 +12,32 @@ const ask = (header: string, question: string, options = OPTIONS, askId = "a1"):
     questions: [{ question, header, options }],
 });
 
+const items = (texts: string[]) => texts.map((text) => ({ kind: "item", text }));
+
 describe("parseDocReview", () => {
+    // the ask from the source run: path, intro, three items, a section line, two more items
+    it("keeps a section line between items as a heading, in order", () => {
+        const q = [
+            "C:/repo/docs/plans/2026-11-06-x.md",
+            "The reviewer raised five findings; I would fix three.",
+            "- R1-2 the Verify line misses a package",
+            "- R1-3 task 4 has no test",
+            "- R1-5 setup is absent",
+            "Findings I would not accept:",
+            "- R1-1 split task 2",
+            "- R1-4 rename the helper",
+        ].join("\n");
+        const r = parseDocReview(ask("Plan review", q));
+        expect(r?.intro).toEqual(["The reviewer raised five findings; I would fix three."]);
+        expect(r?.entries).toEqual([
+            { kind: "item", text: "R1-2 the Verify line misses a package" },
+            { kind: "item", text: "R1-3 task 4 has no test" },
+            { kind: "item", text: "R1-5 setup is absent" },
+            { kind: "heading", text: "Findings I would not accept:" },
+            { kind: "item", text: "R1-1 split task 2" },
+            { kind: "item", text: "R1-4 rename the helper" },
+        ]);
+    });
     it("reads a Plan review ask and splits intro from items", () => {
         const q =
             "C:/repo/docs/plans/2026-09-30-x.md\nThe reviewer found four problems; the plan now fixes them.\n- Task 3 depended on Task 5\n- Verify line missed the wsh package\n- Task 2 had no test\n- Setup was absent";
@@ -20,12 +45,12 @@ describe("parseDocReview", () => {
             kind: "review",
             path: "C:/repo/docs/plans/2026-09-30-x.md",
             intro: ["The reviewer found four problems; the plan now fixes them."],
-            items: [
+            entries: items([
                 "Task 3 depended on Task 5",
                 "Verify line missed the wsh package",
                 "Task 2 had no test",
                 "Setup was absent",
-            ],
+            ]),
             approveIndex: 0,
             requestIndex: 1,
         });
@@ -39,7 +64,7 @@ describe("parseDocReview", () => {
             kind: "approval",
             path: "C:/wt/opal-watch/docs/superpowers/plans/2026-10-30-watch-workout-remote.md",
             intro: ["Build the Watch remote on the phone's session."],
-            items: ["HR and kcal in two new columns", "distance into distance_km"],
+            entries: items(["HR and kcal in two new columns", "distance into distance_km"]),
             approveIndex: 0,
             requestIndex: 1,
         });
@@ -53,16 +78,18 @@ describe("parseDocReview", () => {
         const r = parseDocReview(ask("Plan review", "\n\n/r/plan.md\n\nA note.\n\n- one"));
         expect(r?.path).toBe("/r/plan.md");
         expect(r?.intro).toEqual(["A note."]);
-        expect(r?.items).toEqual(["one"]);
+        expect(r?.entries).toEqual(items(["one"]));
     });
     it("trims each line, so indented text and trailing spaces still read", () => {
         const r = parseDocReview(ask("Plan review", "  /r/plan.md  \n   Some intro   \n   - one  "));
         expect(r?.path).toBe("/r/plan.md");
         expect(r?.intro).toEqual(["Some intro"]);
-        expect(r?.items).toEqual(["one"]);
+        expect(r?.entries).toEqual(items(["one"]));
     });
     it("takes the whole text after the dash as the item, without its padding", () => {
-        expect(parseDocReview(ask("Plan review", "/r/plan.md\n-   padded item"))?.items).toEqual(["padded item"]);
+        expect(parseDocReview(ask("Plan review", "/r/plan.md\n-   padded item"))?.entries).toEqual(
+            items(["padded item"])
+        );
     });
     it("keeps every intro line when there are no items", () => {
         expect(parseDocReview(ask("Plan review", "/r/plan.md\nline one\nline two"))?.intro).toEqual([

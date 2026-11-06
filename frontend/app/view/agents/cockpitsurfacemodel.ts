@@ -76,6 +76,11 @@ export function cockpitCounts(
     };
 }
 
+// space on a task row peeks its live worker, else its ended transcript; a waiting row with neither stays inert
+export function rowPeekId(row: { worker?: { id: string }; openId?: string }): string | undefined {
+    return row.worker?.id ?? row.openId;
+}
+
 export interface GridNotice {
     kind: "loading" | "empty-roster" | "empty-scope" | "nothing-live" | "none";
     idle?: number;

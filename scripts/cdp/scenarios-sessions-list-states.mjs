@@ -425,6 +425,75 @@ export default function (kit) {
                     lead.needsRows === 0 && !/need/.test(lead.head ?? "") && gone.needsRows === 2 && gone.head === "2 need you",
                     { lead, gone }
                 );
+
+                // 11. the phase-2 review's P19 and P14: a finished run whose lead is live at its prompt reads
+                // "lead idle", not "working"; a plan review the human accepted reads "accepted by you" even where
+                // the reviewer's own verdict is failed
+                const finished = fixtureRun({
+                    status: "done",
+                    dagStatus: "done",
+                    tasks: [{ id: "t-1", state: "done", merged: true }],
+                });
+                finished.dag.title = "Fixture idle-lead run";
+                const accepted = fixtureRun({
+                    status: "done",
+                    dagStatus: "done",
+                    tasks: [{ id: "t-1", state: "done", merged: true }],
+                });
+                accepted.dag.title = "Fixture accepted-review run";
+                accepted.dag.planreview = {
+                    state: "accepted",
+                    round: 1,
+                    reviewers: [{ lens: "spec", state: "failed", runid: "fx-rv-spec" }],
+                };
+                const finishedSessions = runSessions(finished, "Fixture idle-lead run");
+                const acceptedSessions = [
+                    ...runSessions(accepted, "Fixture accepted-review run"),
+                    fixtureSession({
+                        runid: accepted.run.oid,
+                        channelid: accepted.run.channeloid,
+                        role: "plan-reviewer",
+                        stagerunid: "fx-rv-spec",
+                        task: "Plan review",
+                    }),
+                ];
+                await installRuns(h, [finished, accepted]);
+                await installSessions(h, [...finishedSessions, ...acceptedSessions]);
+                await withModel(h, `
+                    const D = await mod("app/view/agents/devmock.ts");
+                    globalStore.set(D.devMockAgentsAtom, [{ id: "fx-sessions-idle-lead", name: "idle lead", task: "", state: "idle",
+                        atPrompt: true, transcriptPath: ${JSON.stringify(finishedSessions[0].transcriptpath)}, blockId: "fx-blk-sessions-idle" }]);
+                    return true;
+                `);
+                const finishedKey = `run:${finished.run.oid}`;
+                const acceptedKey = `run:${accepted.run.oid}`;
+                await until(h, `!!${card(finishedKey)} && !!${card(acceptedKey)}`);
+                await nap(h, 400);
+                const headOf = (key) =>
+                    h.ev(`${card(key)}?.querySelector('button > span:first-child')?.lastElementChild?.textContent?.trim() ?? null`);
+                const memberText = (key) =>
+                    h.ev(`document.querySelector('[data-sessions-member="' + ${JSON.stringify(key)} + '"]')?.textContent?.trim() ?? null`);
+                const selectRun = (key) =>
+                    withModel(h, `globalStore.set(model.sessionsSelAtom, ${JSON.stringify(key)}); return true;`);
+                const idleHead = await headOf(finishedKey);
+                await selectRun(finishedKey);
+                await until(h, `!!document.querySelector('[data-sessions-member="lead"]')`);
+                const idleLead = await memberText("lead");
+                await h.shot(`cdp-shots/${NAME}-11-lead-idle.png`);
+                rec(
+                    "a finished run with a live lead at its prompt reads lead idle and never working",
+                    idleHead === "lead idle" && /idle/.test(idleLead ?? "") && !/working/.test(`${idleHead} ${idleLead}`),
+                    { idleHead, idleLead }
+                );
+                await selectRun(acceptedKey);
+                await until(h, `!!document.querySelector('[data-sessions-member="plan-reviewer"]')`);
+                const stage = await memberText("plan-reviewer");
+                await h.shot(`cdp-shots/${NAME}-11-plan-review-accepted.png`);
+                rec(
+                    "an accepted plan review reads accepted by you, not the reviewer's failed",
+                    /accepted by you/.test(stage ?? "") && !/failed/.test(stage ?? ""),
+                    { stage }
+                );
                 return steps;
             },
             async teardown(h, ctx) {

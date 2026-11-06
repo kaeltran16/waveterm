@@ -332,6 +332,23 @@ describe("stage sessions", () => {
         expect(statusOf("rv-gone", { ...failedRound, state: "passed" })).toEqual({ key: "done", text: "passed" });
     });
 
+    it("reads an accepted plan review as accepted by you, over a reviewer's own failed verdict", () => {
+        const group = groupRunSessions([
+            mk({ id: "lead", runid: "r1", role: "lead" }),
+            mk({ id: "pr", runid: "r1", role: "plan-reviewer", stagerunid: "rv-spec" }),
+        ]).runs[0];
+        const review: PlanReviewStage = {
+            state: "accepted",
+            round: 1,
+            reviewers: [{ lens: "spec", state: "failed", runid: "rv-spec" }],
+        };
+        const status = (r: PlanReviewStage) =>
+            runView({ group, dag: { ...dag, planreview: r } }).members.find((m) => m.key === "plan-reviewer")?.status;
+        expect(status(review)).toEqual({ key: "muted", text: "accepted by you" });
+        // until it is accepted the reviewer's own verdict shows
+        expect(status({ ...review, state: "failed" })).toEqual({ key: "failed", text: "failed" });
+    });
+
     it("leaves the run's task counts and needs-you rows to its tasks", () => {
         const v = runView({ group: groupRunSessions(sessions).runs[0], dag });
         expect(v.total).toBe(1);
@@ -582,8 +599,17 @@ describe("runView lead status", () => {
         expect(statusOf({}, { dag: open, leadAtPrompt: false })).toEqual(working);
         expect(statusOf({}, { dag: open })).toEqual(working);
         expect(statusOf({}, { leadAtPrompt: true })).toEqual(working);
-        expect(statusOf({}, { dag: dagOf([], { status: "done" }), leadAtPrompt: true })).toEqual(working);
-        expect(statusOf({}, { dag: dagOf([], { status: "cancelled" }), leadAtPrompt: true })).toEqual(working);
+    });
+
+    it("reads a live lead at its prompt on an ended dag as idle, not working", () => {
+        const idle = { key: "idle", text: "idle" };
+        expect(statusOf({}, { dag: dagOf([], { status: "done" }), leadAtPrompt: true })).toEqual(idle);
+        expect(statusOf({}, { dag: dagOf([], { status: "cancelled" }), leadAtPrompt: true })).toEqual(idle);
+        // not at its prompt, the lead is working whatever the dag
+        expect(statusOf({}, { dag: dagOf([], { status: "done" }), leadAtPrompt: false })).toEqual({
+            key: "running",
+            text: "working",
+        });
     });
 });
 
@@ -618,6 +644,16 @@ describe("runView head status", () => {
         const dag = dagOf([task("t-1", "done")], { status: "running" });
         expect(headOf([lead({ live: true })], { dag })).toEqual({ key: "running", text: "working" });
         expect(headOf([lead({ live: true })])).toEqual({ key: "running", text: "planning" });
+    });
+
+    it("reads a live lead on a run that is not open as lead idle, not working", () => {
+        const done = dagOf([task("t-1", "done")], { status: "done" });
+        expect(headOf([lead({ live: true })], { dag: done })).toEqual({ key: "idle", text: "lead idle" });
+        const ended = dagOf([task("t-1", "done")], { status: "running" });
+        expect(headOf([lead({ live: true })], { dag: ended, run: { status: "done" } as Run })).toEqual({
+            key: "idle",
+            text: "lead idle",
+        });
     });
 
     // its age is the card's and the detail's to render, from view.lastactivets

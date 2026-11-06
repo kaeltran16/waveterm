@@ -48,6 +48,7 @@ import {
     REVIEW_ACTIONS,
     reviewFindings,
     runAdjustable,
+    runElapsed,
     runFlowing,
     runningCount,
     type LeadCardVM,
@@ -55,10 +56,11 @@ import {
     type RowTone,
     type TaskRowVM,
 } from "./leadcardmodel";
+import { leadPaneShown } from "./leadpane";
 import { entriesAtomFor } from "./livetranscriptatoms";
 import { NarrationTimeline } from "./narrationtimeline";
 import { clampParallelism } from "./runconfig";
-import type { RunInfo } from "./runlineage";
+import { leadDisplayName, type RunInfo } from "./runlineage";
 import { openRunDag } from "./runrailsections";
 import { FINAL_FILL, SEG_FILL, type TaskStrip } from "./runstrip";
 import { SubLabel } from "./sectionlabel";
@@ -78,6 +80,8 @@ const LEAD_PANE_MIN_BODY_PX = 320;
 
 // the lead pane's open state per run id, set only once you toggle it; the card unmounts on a surface switch
 const leadPaneOpenAtom = atom<Record<string, boolean>>({}) as PrimitiveAtom<Record<string, boolean>>;
+// per run id, the ask during which you opened the lead pane; a new ask folds it again
+const leadPaneAskOpenAtom = atom<Record<string, string>>({}) as PrimitiveAtom<Record<string, string>>;
 
 const TONE_DOT: Record<RowTone, string> = {
     run: "bg-accent pulse-dot",
@@ -131,6 +135,7 @@ export function LeadCard(p: LeadCardProps) {
     const [bodyRef, , bodyRect] = useDimensionsWithCallbackRef<HTMLDivElement>(null);
     const paneOpen =
         useAtomValue(leadPaneOpenAtom)[run.runId] ?? (bodyRect == null || bodyRect.height >= LEAD_PANE_MIN_BODY_PX);
+    const paneAskOpen = useAtomValue(leadPaneAskOpenAtom)[run.runId];
     const telling = useAtomValue(tellingRowAtom);
     const [guide, setGuide] = useState<Record<string, string>>({});
 
@@ -159,6 +164,17 @@ export function LeadCard(p: LeadCardProps) {
     const leadAsking = lead?.state === "asking";
     const review = leadAsking ? parseDocReview(lead.ask) : null;
     const question = lead?.ask?.questions?.[answerTab[lead.id] ?? 0]?.question;
+    // the asks the card shows, the lead's own and its workers'; the pane yields its room to them
+    const askKey = [
+        ...(leadAsking ? [askSentKey(lead) ?? lead.id] : []),
+        ...vm.rows.flatMap((r) => (r.inline === "ask" && r.worker ? [askSentKey(r.worker) ?? r.worker.id] : [])),
+    ].join(",");
+    const hasAsk = askKey !== "";
+    const paneUserOpened = hasAsk && paneAskOpen === askKey;
+    const togglePane = () =>
+        hasAsk
+            ? globalStore.set(leadPaneAskOpenAtom, (prev) => ({ ...prev, [run.runId]: paneUserOpened ? "" : askKey }))
+            : globalStore.set(leadPaneOpenAtom, (prev) => ({ ...prev, [run.runId]: !paneOpen }));
     const parValue = par ?? run.dag?.parallelism ?? 1;
     const mark = leadMark(run, lead);
     const leadIcon = (
@@ -199,6 +215,7 @@ export function LeadCard(p: LeadCardProps) {
                         agent={lead}
                         nowAtom={model.nowAtom}
                         mark={leadIcon}
+                        name={leadDisplayName(lead, run)}
                         className="min-w-0 flex-1 overflow-hidden"
                         projectClassName={WIDE_ONLY}
                     />
@@ -303,11 +320,7 @@ export function LeadCard(p: LeadCardProps) {
                     >
                         {vm.activity}
                     </span>
-                    <span className="shrink-0 font-mono text-[10.5px]">
-                        {[vm.progress.total > 0 ? `${vm.progress.done}/${vm.progress.total}` : "", vm.elapsed, vm.cost]
-                            .filter(Boolean)
-                            .join(" · ")}
-                    </span>
+                    <RunMeta run={run} vm={vm} nowAtom={model.nowAtom} />
                 </div>
             </div>
 
@@ -442,10 +455,9 @@ export function LeadCard(p: LeadCardProps) {
                 {lead ? (
                     <LeadPane
                         lead={lead}
-                        open={paneOpen}
-                        onToggle={() =>
-                            globalStore.set(leadPaneOpenAtom, (prev) => ({ ...prev, [run.runId]: !paneOpen }))
-                        }
+                        hasAsk={hasAsk}
+                        open={hasAsk ? paneUserOpened : paneOpen}
+                        onToggle={togglePane}
                         nowAtom={model.structuralNowAtom}
                     />
                 ) : null}
@@ -461,7 +473,7 @@ export function LeadCard(p: LeadCardProps) {
                 >
                     <AgentComposer
                         blockId={lead.blockId}
-                        placeholder={`message ${lead.name}…`}
+                        placeholder={`message ${leadDisplayName(lead, run)}…`}
                         onEscape={p.onComposerEscape}
                         className="border-t-0 px-0 py-0"
                     />
@@ -833,14 +845,29 @@ function Fold({
     );
 }
 
+// the run's progress, elapsed time and cost: its own component so only it re-renders on the 1 s clock
+function RunMeta({ run, vm, nowAtom }: { run: RunInfo; vm: LeadCardVM; nowAtom: Atom<number> }) {
+    const now = useAtomValue(nowAtom);
+    return (
+        <span data-run-meta className="shrink-0 font-mono text-[10.5px]">
+            {[vm.progress.total > 0 ? `${vm.progress.done}/${vm.progress.total}` : "", runElapsed(run, now), vm.cost]
+                .filter(Boolean)
+                .join(" · ")}
+        </span>
+    );
+}
+
 // The lead's own transcript under the tasks. Hidden, it stays as one line holding its newest message.
 function LeadPane({
     lead,
+    hasAsk,
     open,
     onToggle,
     nowAtom,
 }: {
     lead: AgentVM;
+    hasAsk: boolean;
+    // whether you have the pane open: during an ask, only if you opened it during that ask
     open: boolean;
     onToggle: () => void;
     nowAtom: Atom<number>;
@@ -852,7 +879,11 @@ function LeadPane({
         e.stopPropagation();
         onToggle();
     };
-    if (open) {
+    const shown = leadPaneShown({ hasAsk, hasLines: entries.length > 0, userOpened: open });
+    if (shown === "none") {
+        return null;
+    }
+    if (shown === "full" && open) {
         return <LeadTranscript lead={lead} entries={entries} onHide={toggle} />;
     }
     // an idle lead's newest message is from when it went idle; a busy lead's has no time of its own
@@ -862,6 +893,7 @@ function LeadPane({
             type="button"
             onClick={toggle}
             aria-expanded={false}
+            data-lead-pane="collapsed"
             title="Show the lead's transcript"
             className="flex w-full shrink-0 cursor-pointer items-center gap-2.5 border-0 border-t border-edge-mid bg-surface py-[9px] pl-[18px] pr-3 text-left hover:bg-surface-hover"
         >
@@ -888,7 +920,10 @@ function LeadTranscript({
     const { scrollRef, onScroll, atBottom, jumpToBottom } = useStickToBottom(entries);
     // as tall as its entries, up to a cap: a fixed half left a short transcript's space empty while the tasks scrolled
     return (
-        <div className="flex max-h-[45%] min-h-0 flex-none flex-col border-t border-edge-mid bg-surface">
+        <div
+            data-lead-pane="full"
+            className="flex max-h-[45%] min-h-0 flex-none flex-col border-t border-edge-mid bg-surface"
+        >
             <div className="flex shrink-0 items-center gap-2 pb-1 pl-[18px] pr-3 pt-[9px]">
                 <SubLabel className="flex-1">Lead</SubLabel>
                 <button

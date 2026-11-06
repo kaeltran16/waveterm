@@ -22,11 +22,12 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { AgentsViewModel } from "./agents";
-import { formatAgeShort, type AgentVM } from "./agentsviewmodel";
+import { formatAgeShort, type AgentState, type AgentVM } from "./agentsviewmodel";
 import {
     agentTransitions,
     fillAskedText,
     groupRailEvents,
+    leadAskEvents,
     mergeRailEvents,
     RAIL_MAX,
     runRailEvents,
@@ -44,6 +45,7 @@ import { shellReadAtByIdAtom, shellReadPending, shellTasksByIdAtom } from "./she
 import { subagentsByIdAtom } from "./subagentsstore";
 
 const snapsAtom = atom<Record<string, AgentSnap>>({}) as PrimitiveAtom<Record<string, AgentSnap>>;
+const leadSnapsAtom = atom<Record<string, AgentState>>({}) as PrimitiveAtom<Record<string, AgentState>>;
 // exported for reading only (the project Overview's Finished region); the rail alone writes them
 export const agentEventsAtom = atom<RailEvent[]>([]) as PrimitiveAtom<RailEvent[]>;
 export const seenTsAtom = atom<number>(0) as PrimitiveAtom<number>;
@@ -56,14 +58,28 @@ const KIND: Record<RailKind, { icon: LucideIcon; verb: string; tone: string }> =
     failed: { icon: X, verb: "failed", tone: "text-error" },
     told: { icon: MessageSquare, verb: "you told", tone: "text-accent-soft" },
     landed: { icon: GitMerge, verb: "landed", tone: "text-success" },
+    sentback: { icon: CornerDownRight, verb: "review sent back", tone: "text-warning" },
 };
 
-// useRailTracking observes plain agents' state changes. Workers and leads are covered by their run's events.
+// useRailTracking observes plain agents' state changes, and a run lead's own questions. Workers and reviewers
+// are covered by their run's events.
 export function useRailTracking(agents: AgentVM[], lineage: Lineage): void {
     const shellTasks = useAtomValue(shellTasksByIdAtom);
     const shellReadAt = useAtomValue(shellReadAtByIdAtom);
     const subagents = useAtomValue(subagentsByIdAtom);
     const plain = agents.filter((a) => lineage.roles[a.id] == null);
+    const leads = agents.flatMap((a) => {
+        const role = lineage.roles[a.id];
+        return role?.kind === "lead" ? [{ agent: a, title: lineage.runs[role.runId]?.title || a.name }] : [];
+    });
+    const leadsKey = leads.map((l) => `${l.agent.id}:${l.agent.state}`).join(",");
+    useEffect(() => {
+        const { events, next } = leadAskEvents(globalStore.get(leadSnapsAtom), leads, Date.now());
+        globalStore.set(leadSnapsAtom, next);
+        if (events.length > 0) {
+            globalStore.set(agentEventsAtom, (prev) => mergeRailEvents([events, prev], RAIL_MAX));
+        }
+    }, [leadsKey]);
     const standingBy = new Set(
         plain.filter((a) => isStandingBy(a.state, shellTasks[a.id] ?? [], subagents[a.id] ?? [])).map((a) => a.id)
     );
@@ -77,13 +93,14 @@ export function useRailTracking(agents: AgentVM[], lineage: Lineage): void {
         }
     }, [key]);
     // an ask's question can land after the state change that recorded it
-    const questionsKey = plain
+    const askers = [...plain, ...leads.map((l) => l.agent)];
+    const questionsKey = askers
         .filter((a) => a.state === "asking")
         .map((a) => `${a.id}:${a.ask?.questions?.[0]?.question ?? ""}`)
         .join("\n");
     useEffect(() => {
-        globalStore.set(agentEventsAtom, (prev) => fillAskedText(prev, plain));
-    }, [key, questionsKey]);
+        globalStore.set(agentEventsAtom, (prev) => fillAskedText(prev, askers));
+    }, [key, leadsKey, questionsKey]);
 }
 
 // useRailRows is the rail's list: plain-agent and run events merged, narrowed to the project scope, and split

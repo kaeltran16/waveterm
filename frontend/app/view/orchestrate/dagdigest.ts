@@ -238,7 +238,8 @@ export function reportChips(report: DagReportDigest | undefined): string[] {
         chips.push(`answered ${report.answered}`);
     }
     if (report.forwarded > 0) {
-        chips.push(`forwarded ${report.forwarded}`);
+        // a forward and a take-over both hand the question to the human: the timeline's words
+        chips.push(`to you ${report.forwarded}`);
     }
     if (report.unverified) {
         chips.push("unverified");

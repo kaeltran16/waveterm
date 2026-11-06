@@ -74,7 +74,9 @@ import {
     restoreLocalStorage,
     seedDag,
     seedFinalShots,
+    seedHeldRun,
     setInputExpr,
+    setPageRoster,
     teardownFixtureRun,
     treeRailRoster,
     waitForDispatch,
@@ -83,10 +85,12 @@ import {
 } from "./scenarios-shared.mjs";
 import {
     arrangeLiveRuns,
+    arrangePhase2Runs,
     injectLiveAsks,
     LIVE_IDS,
     LIVE_VERIFY_ERROR,
     markLeadClosed,
+    phase2Roster,
     publishLiveEvents,
     setLiveRoster,
     teardownLiveRuns,
@@ -981,6 +985,172 @@ async function liveRunCardSteps(h, ctx) {
         const mark = card?.querySelector('[data-lead-mark="error"]');
         return { mark: !!mark, title: mark?.querySelector("title")?.textContent ?? null, activity: flat(card).includes("lead failed to start · error getting block: not found") };`);
     rec("L17. a lead that failed to start explains its red mark (F19)", err.mark && /failed to start/.test(err.title ?? "") && err.activity, err);
+    steps.push(...(await phase2CardSteps(h, ctx, cardB)));
+    return steps;
+}
+
+// a run card's meta line split into its parts; an elapsed part is formatElapsed's, signed or not
+const META_PARTS = (card) => `(flat(${card}?.querySelector("[data-run-meta]")) || "").split(" · ").filter(Boolean)`;
+const ELAPSED_PART = /^-?\d+(s|m|h\d+m)$/;
+
+// The live-run review's phase 2 lead card findings (P3, P5, P7, P9, P13, P15, P16). The 1000x700 steps run first, on
+// phase 1's runs, before runs D and E add cards that would crowd them.
+async function phase2CardSteps(h, ctx, cardB) {
+    const steps = [];
+    const rec = (step, ok, detail) => steps.push({ step, ok: !!ok, detail: typeof detail === "string" ? detail : JSON.stringify(detail) });
+
+    // P15: an ask takes the lead pane's room at the dev window's 1000x700
+    await h.cdp("Emulation.setDeviceMetricsOverride", LIVE_SMALL);
+    await polishNap(800);
+    await injectLiveAsks(h, ctx);
+    await polishNap(500);
+    const pane = await lookEval(h, `
+        const card = ${liveCard(LIVE_IDS.leadA)};
+        const rowsBox = card?.querySelector("[data-lead-rows]");
+        const t2 = ${liveRow(LIVE_IDS.leadA, "t-2")};
+        await until(() => !!t2?.querySelector("button") && !!card?.querySelector("[data-lead-pane]"), 4000);
+        const mode = card?.querySelector("[data-lead-pane]")?.getAttribute("data-lead-pane") ?? null;
+        t2?.scrollIntoView({ block: "start" });
+        await nap(300);
+        const box = rowsBox?.getBoundingClientRect();
+        const last = [...(t2?.querySelectorAll("button") ?? [])].filter((b) => /per-route only/.test(flat(b))).pop()?.getBoundingClientRect();
+        const visibleRows = [...(card?.querySelectorAll("[data-row-key]") ?? [])].filter((r) => {
+            const b = r.firstElementChild?.getBoundingClientRect();
+            return box && b && b.height > 0 && b.top >= box.top - 1 && b.bottom <= box.bottom + 1;
+        }).length;
+        // the toggle opens the pane during this ask, and Hide folds it again
+        card?.querySelector('[data-lead-pane="collapsed"]')?.click();
+        const opened = await until(() => !!card?.querySelector('[data-lead-pane="full"]'), 3000);
+        button(card?.querySelector('[data-lead-pane="full"]'), /^Hide$/)?.click();
+        const refolded = await until(() => !!card?.querySelector('[data-lead-pane="collapsed"]'), 3000);
+        return {
+            mode,
+            lastOption: last && box ? { top: Math.round(last.top), bottom: Math.round(last.bottom), boxTop: Math.round(box.top), boxBottom: Math.round(box.bottom) } : null,
+            visibleRows,
+            opened,
+            refolded,
+        };`);
+    await h.shot("cdp-shots/lead-card-live-p15-1000.png");
+    rec(
+        "L23. at 1000x700 an open child ask folds the lead pane: its last option shows in full beside a task row (P15)",
+        pane.mode === "collapsed" &&
+            pane.lastOption != null &&
+            pane.lastOption.top >= pane.lastOption.boxTop &&
+            pane.lastOption.bottom <= pane.lastOption.boxBottom &&
+            pane.visibleRows >= 1 &&
+            pane.opened === true &&
+            pane.refolded === true,
+        pane
+    );
+
+    // P7: a dag stamped ahead of this clock shows no negative elapsed time
+    const { B } = ctx.live;
+    const before = await lookEval(h, `return ${META_PARTS(liveCard(cardB))};`);
+    await seedHeldRun(h, B, {}, { createdts: Date.now() + 10 * 60_000 });
+    const after = await lookEval(h, `
+        const parts = () => ${META_PARTS(liveCard(cardB))};
+        await until(() => !parts().some((p) => ${ELAPSED_PART}.test(p)), 8000);
+        return parts();`);
+    rec(
+        "L20. at 1000x700 a dag created ahead of this clock shows no \"-\" elapsed (P7)",
+        before.some((p) => ELAPSED_PART.test(p)) && !after.some((p) => ELAPSED_PART.test(p)) && !after.join(" ").includes("-"),
+        { before, after }
+    );
+    await h.cdp("Emulation.setDeviceMetricsOverride", OBS_WIDE);
+    await polishNap(500);
+
+    try {
+        await arrangePhase2Runs(h, ctx);
+    } catch (e) {
+        rec("L18. run D and run E arrange", false, String(e?.message ?? e));
+        return steps;
+    }
+    const { D } = ctx.phase2;
+    await setPageRoster(h, phase2Roster(ctx));
+    const ready = await polishWaitFor(h, `!!${liveRow(LIVE_IDS.leadD, "@planreview")} && !!${liveCard(LIVE_IDS.leadE)}`, 20_000);
+
+    // P3: the plan review stage has its row, and the lead is not standing by while it runs
+    const review = await lookEval(h, `
+        const card = ${liveCard(LIVE_IDS.leadD)};
+        const row = ${liveRow(LIVE_IDS.leadD, "@planreview")};
+        return { ready: ${ready}, row: flat(row?.firstElementChild), text: flat(card) };`);
+    await h.shot("cdp-shots/lead-card-live-p3-plan-review.png");
+    rec(
+        "L18. a run whose plan is under review shows its Plan review row, not \"Standing by\" (P3)",
+        review.ready &&
+            /^Plan review/.test(review.row) &&
+            /round 2/.test(review.row) &&
+            review.text.includes("plan review · round 2") &&
+            !/standing by/i.test(review.text),
+        review
+    );
+
+    // P5: a done task behind its lane's tip waits to land with it
+    const lane = await lookEval(h, `
+        await until(() => !!${liveRow(LIVE_IDS.leadD, "t-2")}, 4000);
+        const row = ${liveRow(LIVE_IDS.leadD, "t-2")};
+        row?.click();
+        await nap(300);
+        return flat(row);`);
+    rec("L19. a done task waiting on its lane reads \"lands with t-3\", not \"landed\" (P5)", /lands with t-3/.test(lane) && !/landed/.test(lane), lane);
+
+    // P9: a planning run's footer names the worker route it was created with
+    const route = await lookEval(h, `
+        const card = ${liveCard(LIVE_IDS.leadE)};
+        await until(() => /workers haiku/.test(flat(card?.querySelector("[data-lead-footer]"))), 6000);
+        return flat(card?.querySelector("[data-lead-footer]"));`);
+    rec("L21. a planning run created with a worker route reads \"workers haiku\" (P9)", /workers haiku/.test(route), route);
+
+    // P13: the footer's title names the real landing branch, wave/<full run id>
+    const branch = await lookEval(h, `
+        const card = ${liveCard(LIVE_IDS.leadD)};
+        await until(() => !!card?.querySelector("[data-lead-footer] [title]"), 6000);
+        return card?.querySelector("[data-lead-footer] [title]")?.title ?? null;`);
+    rec("L22. the footer's title holds the full landing branch wave/<run id> (P13)", branch === `lands on wave/${D.runId}`, { branch, want: `lands on wave/${D.runId}` });
+
+    // P16: an asking lead asks you rather than standing by
+    await lookEval(h, `window.__cockpitRosterFixture.patch(${JSON.stringify(LIVE_IDS.leadD)}, {
+        state: "asking",
+        ask: { askId: "fx-live-ask-lead-d", oref: "block:fx-blk-live-lead-d", questions: [{ header: "Scope", question: "Keep the body parser in this run?", options: [{ label: "keep it" }, { label: "split it out" }] }] },
+    }); return true;`);
+    const asking = await lookEval(h, `
+        const card = ${liveCard(LIVE_IDS.leadD)};
+        await until(() => flat(card).includes("asking you"), 4000);
+        return { asking: flat(card).includes("asking you"), standing: /standing by/i.test(flat(card)) };`);
+    await h.shot("cdp-shots/lead-card-live-p16-asking.png");
+    rec("L24. a lead that is asking reads \"asking you\", not \"standing by\" (P16)", asking.asking && !asking.standing, asking);
+
+    // P12: a lead's header names its run by the plan's title; the roster still calls the tab by its goal
+    const title = await lookEval(h, `
+        const card = ${liveCard(LIVE_IDS.leadD)};
+        await until(() => !!card?.querySelector("b"), 4000);
+        return card?.querySelector("b")?.textContent?.trim() ?? null;`);
+    rec(
+        "L25. a lead whose tab is named from the goal shows its plan title on the card header (P12)",
+        title === D.title && title !== "live-run lead D",
+        { title, want: D.title }
+    );
+
+    // P12: the card's message box names the lead by the plan title too; the composer is closed again after
+    const composer = await lookEval(h, `
+        const model = ${COCKPIT_MODEL};
+        const { globalStore } = await mod("app/store/jotaiStore.ts");
+        window.__leadCardPrevComposer = globalStore.get(model.openComposerIdAtom);
+        globalStore.set(model.openComposerIdAtom, ${JSON.stringify(LIVE_IDS.leadD)});
+        const box = () => ${liveCard(LIVE_IDS.leadD)}?.querySelector("textarea");
+        await until(() => !!box(), 4000);
+        return box()?.placeholder ?? null;`);
+    await h.shot("cdp-shots/lead-card-live-p12-composer.png");
+    await lookEval(h, `
+        const { globalStore } = await mod("app/store/jotaiStore.ts");
+        globalStore.set(${COCKPIT_MODEL}.openComposerIdAtom, window.__leadCardPrevComposer);
+        delete window.__leadCardPrevComposer;
+        return true;`);
+    rec(
+        "L25b. the lead card's message box names the lead by its plan title, not its tab name (P12)",
+        composer === `message ${D.title}…` && !composer.includes("live-run lead D"),
+        { placeholder: composer, want: `message ${D.title}…` }
+    );
     return steps;
 }
 
@@ -4159,6 +4329,8 @@ export const finalRerunScenario = {
 // stage is ended from its pane. The fixture's temp dir is a git repository, which the stage's tree needs.
 const FST_VIEWPORT = { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false };
 const FST_LEAD = "final-stage lead";
+// the tree names a lead by its run's plan title, which dagsubmit sets below (D12)
+const FST_TITLE = "verify final-stage";
 const FST_VERIFIER = "final-stage verifier";
 const FST_VERIFIER_ID = "fx-final-verifier";
 // t-1 fans out to two sinks, so the final node takes two edges; at parallelism 1 only t-1 dispatches
@@ -4190,6 +4362,26 @@ const fstHolds = (fn) => {
         return false;
     }
 };
+const FST_SUB_SECOND_MS = 211;
+const FST_SUB_SECOND_TEXT = "passed <1s";
+const FST_ENDED_BANNER = "Session ended · read-only transcript";
+
+// shared's fstPublishSteps is not exported: one passed final-step event, the way the page appends the engine's
+async function fstPublishStepMs(h, ctx, step, ms) {
+    const event = {
+        id: `fst-2-${step}-sub-second`,
+        runid: ctx.runId,
+        channelid: ctx.channelId,
+        ts: Date.now(),
+        kind: "final-step",
+        detail: JSON.stringify({ round: 2, step, ms, ok: true }),
+    };
+    await h.rpc("eventpublish", {
+        event: "run:event",
+        scopes: [`run:${ctx.runId}`],
+        data: { channelid: ctx.channelId, runid: ctx.runId, event },
+    });
+}
 const fstStates = (steps) => (steps ?? []).map((s) => s.state);
 const fstRepeat = (state, n) => Array(n).fill(state);
 const fstSame = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -4210,7 +4402,7 @@ const FST_LIB = `
     const pastOf = (root) =>
         [...(root?.querySelectorAll("[data-final-past-round]") ?? [])].map((p) => ({
             round: p.getAttribute("data-final-past-round"),
-            text: flat(p),
+            text: flat(p.querySelector("span.font-mono")),
         }));
     const outputOf = (root) => root?.querySelector("[data-final-output]")?.textContent ?? null;
     const shotsOf = (root) => flat(root?.querySelector("[data-final-shots-link]")) || null;
@@ -4226,7 +4418,7 @@ const FST_SHEET = `document.querySelector("[data-run-sheet]")`;
 const FST_FOLD = `[...(${FST_TREE}?.querySelectorAll("div.cursor-pointer") ?? [])].find((d) => /^\\d+ (done|reviews?)/.test(d.textContent.trim()))`;
 const FST_LEAD_ROW = `(() => {
     const name = [...(${FST_TREE}?.querySelectorAll("div") ?? [])].find(
-        (d) => d.children.length === 0 && d.textContent.trim() === ${JSON.stringify(FST_LEAD)}
+        (d) => d.children.length === 0 && d.textContent.trim() === ${JSON.stringify(FST_TITLE)}
     );
     return name ? name.closest(".cursor-pointer") : null;
 })()`;
@@ -4433,7 +4625,7 @@ async function arrangeFinalStage(h, ctx) {
     await h.rpc("dagsubmit", {
         channelid: ctx.channelId,
         runid: ctx.runId,
-        title: "verify final-stage",
+        title: FST_TITLE,
         parallelism: 1,
         tasks: FST_TASKS,
     });
@@ -4824,6 +5016,53 @@ export const finalStageScenario = {
             { reloaded, row: a?.rows, stage: a?.stage, node: d?.node }
         );
         await shot("b10-no-total-dag");
+
+        // P10, P11: the verifier's tab is gone (no verifier agent in the roster), so the stage's own pane shows its
+        // steps. Tree is published at 211 ms by hand; fstShow publishes the other four
+        await fstBoot(h, ctx, false);
+        const shown = await fstShow(h, ctx, "passed", { skip: "tree" });
+        const publishTree = () => fstPublishStepMs(h, ctx, "tree", FST_SUB_SECOND_MS);
+        const republish = async () => {
+            await shown.nudge?.();
+            await publishTree();
+        };
+        await republish();
+        if (await h.ev(`${FST_ROW} == null && ${FST_FOLD} != null`)) await finalShotsClick(h, FST_FOLD);
+        await fstUntil(h, FST_AGENT, (s) => s.rows.length === 1);
+        await clickRow();
+        const subSecond = await fstUntil(h, FST_AGENT, (s) => s.pane?.steps?.[0]?.text === FST_SUB_SECOND_TEXT, {
+            nudge: republish,
+        });
+        await shot("b10b-sub-second-pane");
+        rec(
+            "P10. a step that ran 211 ms reads <1s in the pane, and the steps around it keep their times",
+            () =>
+                subSecond.pane.steps[0].key === "tree" &&
+                subSecond.pane.steps[0].text === FST_SUB_SECOND_TEXT &&
+                fstSame(subSecond.pane.steps.slice(1).map((s) => s.text), FST_STEP_TEXT.slice(1, 5)),
+            { steps: subSecond?.pane?.steps?.map((s) => [s.key, s.text]) }
+        );
+        const verifierCell = `${FST_PANE}?.querySelector('[data-final-step="verifier"]')`;
+        const clickable = await h.ev(`${verifierCell}?.getAttribute("role") === "button"`);
+        await finalShotsClick(h, verifierCell);
+        const opened = await fstUntil(
+            h,
+            `(() => {
+                const wrap = document.querySelector("[data-cockpit-surface-wrap]");
+                return {
+                    pane: ${FST_PANE} != null,
+                    ended: (wrap?.textContent ?? "").includes(${JSON.stringify(FST_ENDED_BANNER)}),
+                    text: (wrap?.textContent ?? "").includes("Verifier"),
+                };
+            })()`,
+            (s) => !s.pane && s.ended
+        );
+        await shot("b10c-verifier-transcript");
+        rec(
+            "P11. the Verifier step of a passed stage is a button, and a click opens the verifier's ended transcript in place of the pane",
+            () => clickable === true && opened.pane === false && opened.ended === true && opened.text === true,
+            { clickable, opened }
+        );
 
         // --- Part A: a dag really finalizing, run by the engine ---
         const live = await fstStartLive(h, ctx);

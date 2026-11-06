@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -307,6 +308,130 @@ func TestStreamTranscriptFileCreatedLater(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("streamTranscript did not return after cancel")
+	}
+}
+
+// runTranscriptStream starts streamTranscript on path and returns its channel and a channel that yields
+// its return value.
+func runTranscriptStream(ctx context.Context, path string) (chan wshrpc.RespOrErrorUnion[wshrpc.AgentTranscriptUpdate], chan error) {
+	ch := make(chan wshrpc.RespOrErrorUnion[wshrpc.AgentTranscriptUpdate], 16)
+	done := make(chan error, 1)
+	go func() { done <- streamTranscript(ctx, path, 100, ch) }()
+	return ch, done
+}
+
+// collectTranscriptLines reads chunks until want lines arrived, failing on an error, an early return or
+// the timeout.
+func collectTranscriptLines(t *testing.T, ch chan wshrpc.RespOrErrorUnion[wshrpc.AgentTranscriptUpdate], done chan error, want int, timeout time.Duration) []string {
+	t.Helper()
+	var got []string
+	deadline := time.After(timeout)
+	for len(got) < want {
+		select {
+		case msg := <-ch:
+			if msg.Error != nil {
+				t.Fatalf("stream error: %v", msg.Error)
+			}
+			got = append(got, msg.Response.Lines...)
+		case err := <-done:
+			t.Fatalf("streamTranscript returned early after %v: %v", got, err)
+		case <-deadline:
+			t.Fatalf("timeout: want %d lines, got %v", want, got)
+		}
+	}
+	return got
+}
+
+// P1: a run member reports its transcript path before Claude creates ~/.claude/projects/<slug>/, so the
+// stream must wait for the missing folders (here two levels) rather than fail on the watch.
+func TestStreamTranscriptWaitsForMissingDir(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "a", "b")
+	path := filepath.Join(dir, "s.jsonl")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ch, done := runTranscriptStream(ctx, path)
+
+	select {
+	case msg := <-ch:
+		if msg.Error != nil || len(msg.Response.Lines) != 0 {
+			t.Fatalf("want one empty backlog, got %+v", msg)
+		}
+	case err := <-done:
+		t.Fatalf("streamTranscript returned on a missing folder: %v", err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for empty backlog")
+	}
+
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, path, `{"type":"user","n":1}`+"\n"+`{"type":"user","n":2}`+"\n")
+	got := collectTranscriptLines(t, ch, done, 2, 5*time.Second)
+	if len(got) != 2 {
+		t.Fatalf("want exactly 2 lines, got %v", got)
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("cancel: want nil, got %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("streamTranscript did not return after cancel")
+	}
+}
+
+// the folder and a line can both land before the stream watches the folder: the backlog read at the final
+// level must pick the line up.
+func TestStreamTranscriptReadsLinesWrittenBeforeWatch(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "a")
+	path := filepath.Join(dir, "s.jsonl")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ch, done := runTranscriptStream(ctx, path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, path, `{"type":"user","n":1}`+"\n")
+
+	got := collectTranscriptLines(t, ch, done, 1, 5*time.Second)
+	if len(got) != 1 {
+		t.Fatalf("want exactly 1 line, got %v", got)
+	}
+}
+
+// a path with no existing ancestor at all is broken: the stream fails instead of waiting forever.
+func TestStreamTranscriptNoAncestorFails(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("every absolute path has / as an existing ancestor off Windows")
+	}
+	var volume string
+	for c := 'Z'; c >= 'D'; c-- {
+		if _, err := os.Stat(string(c) + `:\`); os.IsNotExist(err) {
+			volume = string(c) + `:\`
+			break
+		}
+	}
+	if volume == "" {
+		t.Skip("no unused drive letter")
+	}
+	path := filepath.Join(volume, "nope", "s.jsonl")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	_, done := runTranscriptStream(ctx, path)
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("want an error for a path with no existing ancestor")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("streamTranscript hung on a path with no existing ancestor")
 	}
 }
 

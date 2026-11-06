@@ -45,7 +45,7 @@ describe("runStepView", () => {
         expect(v.state).toBe("final-failed");
         expect(v.headline).toBe("The run built every task, but its final check failed");
         expect(v.detail).toBe(
-            "All 10 tasks landed on wave/9c6eb723. The final check failed in round 2, so nothing has merged into main yet. The run shows what failed and reruns the check."
+            "All 10 tasks landed on wave/9c6eb723-1111-4222-8333-444455556666. The final check failed in round 2, so nothing has merged into main yet. The run shows what failed and reruns the check."
         );
         expect(v.tree).toBe("final failed");
         expect(v.merged).toBe(false);
@@ -58,7 +58,7 @@ describe("runStepView", () => {
         const run = runOf(BLOCKED_ID, { done: 9, total: 10, final: { state: "failed", round: 1 } });
         const v = runStepView(BLOCKED_ID, run, true);
         expect(v.headline).toBe("The run’s final check failed");
-        expect(v.detail.startsWith("9 of 10 tasks landed on wave/9c6eb723.")).toBe(true);
+        expect(v.detail.startsWith(`9 of 10 tasks landed on wave/${BLOCKED_ID}.`)).toBe(true);
     });
 
     it("reads the final from the digest when the dag carries none", () => {

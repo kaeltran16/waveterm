@@ -24,11 +24,13 @@ import {
     TREE_RAIL_LEAD,
     UI_ROUTE,
     arrangeFixtureRun,
+    arrangeHeldRun,
     floorDetail,
     floorOk,
     floorStep,
     fstWriteRun,
     git,
+    heldStandIn,
     lookEval,
     lookHover,
     lookOpen,
@@ -40,8 +42,10 @@ import {
     polishNap,
     polishWaitFor,
     pressCanvasKey,
+    seedHeldRun,
     setFinderQuery,
     setInputExpr,
+    setPageRoster,
     skipStep,
     teardownFixtureRun,
     tooltipLookOk,
@@ -50,7 +54,7 @@ import {
     waitForProjectInConfig,
     waveService,
 } from "./scenarios-shared.mjs";
-import { arrangeLiveRuns, injectLiveAsks, LIVE_IDS, publishLiveEvents, setLiveRoster, teardownLiveRuns } from "./live-run-fixture.mjs";
+import { arrangeLiveRuns, injectLiveAsks, LIVE_IDS, liveRoster, publishLiveEvents, setLiveRoster, teardownLiveRuns } from "./live-run-fixture.mjs";
 
 // --- terminal palette follows the cockpit theme -------------------------------------------------
 // Asserts against window.term (term.tsx assigns it) + the resolved custom properties, NOT pixels:
@@ -573,13 +577,16 @@ function appendTreeRailFiller(now) {
     writeFileSync(TREE_RAIL_FIXTURE, JSON.stringify(roster, null, 2));
 }
 
+// the lead row is named by its run's plan title, not the tab's name (D12)
+const TREE_RAIL_TITLE = "verify tree-rail";
+
 async function arrangeTreeRail(h, ctx) {
     await arrangeFixtureRun(h, ctx, "tree-rail", TREE_RAIL_LEAD, { transcriptPath: writeLeadTranscript(ctx.cwd) });
     appendTreeRailFiller(Date.now());
     await h.rpc("dagsubmit", {
         channelid: ctx.channelId,
         runid: ctx.runId,
-        title: "verify tree-rail",
+        title: TREE_RAIL_TITLE,
         parallelism: 1,
         tasks: RUN_SHEET_POLISH_TASKS,
     });
@@ -599,7 +606,7 @@ async function arrangeTreeRail(h, ctx) {
         const leadRow = () => {
             const tree = document.querySelector("[data-agent-tree]");
             const name = tree && [...tree.querySelectorAll("div")].find(
-                (d) => d.textContent.trim() === ${JSON.stringify(TREE_RAIL_LEAD)} && d.children.length === 0
+                (d) => d.textContent.trim() === ${JSON.stringify(TREE_RAIL_TITLE)} && d.children.length === 0
             );
             return name ? name.closest(".cursor-pointer") : null;
         };
@@ -765,6 +772,159 @@ async function liveRunAgentSteps(h, ctx) {
     return steps;
 }
 
+// The live-run review's phase 2 findings on the tree and the rail (P14, P17, P2, P18), on a fourth held run: run D
+// has finished and landed, its plan review was accepted by the human after it failed, and only its lead is open.
+const LANDED_LEAD = { id: "fx-tree-lead-d", name: "tree-rail lead D", blockId: "fx-blk-tree-lead-d" };
+const LANDED_TITLE = "verify tree-rail D: landed run";
+const LANDED_TASKS = [
+    { id: "t-1", label: "split the router" },
+    { id: "t-2", label: "wire the router" },
+];
+const LANDED_COMMIT = "d29f0d2".padEnd(40, "0");
+const LANDED_TASK_COMMIT = "a91c4f2".padEnd(40, "0");
+
+async function arrangeLandedRun(h, ctx) {
+    const now = Date.now();
+    const D = await arrangeHeldRun(h, ctx, { key: "D", title: LANDED_TITLE, tasks: LANDED_TASKS });
+    const t1 = await heldStandIn(h, D, "t-1");
+    const t2 = await heldStandIn(h, D, "t-2");
+    const rv = await heldStandIn(h, D, "plan reviewer");
+    await seedHeldRun(
+        h,
+        D,
+        {
+            "t-1": { state: "done", merged: true, runid: t1, firstactivity: now - 30 * 60_000 },
+            "t-2": { state: "done", merged: true, runid: t2, firstactivity: now - 20 * 60_000 },
+        },
+        { status: "done", planreview: { state: "accepted", round: 1, reviewers: [{ lens: "full", state: "failed", runid: rv }] } }
+    );
+    await fstWriteRun(h, D.runId, (r) => ({ ...r, basebranch: "main", land: { state: "landed", commit: LANDED_COMMIT } }));
+    ctx.landed = D;
+}
+
+// the digest's report: a held run's stand-ins never commit and no question was ever handed over, so only the page
+// can hold the landed commit and the count. The next digest load replaces it, so a step injects before it reads
+const injectLandedReport = (h, ctx) =>
+    lookEval(
+        h,
+        `const { globalStore } = await mod("app/store/jotaiStore.ts");
+        const L = await mod("app/view/agents/runlineagestore.ts");
+        const id = ${JSON.stringify(ctx.landed.runId)};
+        if (!(await until(() => globalStore.get(L.runDigestsAtom)[id], 15000))) return "no digest for run D";
+        globalStore.set(L.runDigestsAtom, (prev) => ({ ...prev, [id]: { ...prev[id], health: "done",
+            report: { ...prev[id].report, commits: [{ taskid: "t-1", commit: ${JSON.stringify(LANDED_TASK_COMMIT)} }], answered: 1, forwarded: 1 } } }));
+        return "ok";`
+    );
+
+async function landedRunSteps(h, ctx) {
+    const steps = [];
+    const rec = (step, ok, detail) => steps.push({ step, ok: !!ok, detail: typeof detail === "string" ? detail : JSON.stringify(detail) });
+    if (ctx.landedError || !ctx.landed) {
+        rec("P0. run D, finished and landed with an accepted plan review", false, ctx.landedError ?? "not arranged: an earlier arrange failed first");
+        return steps;
+    }
+    const D = ctx.landed;
+    await h.cdp("Emulation.setDeviceMetricsOverride", OBS_WIDE);
+    await h.goto("agent");
+    await setPageRoster(h, [
+        ...liveRoster(ctx),
+        { ...LANDED_LEAD, project: "verify-live-run", agent: "claude", model: "opus", task: "lead run D", state: "idle", idleSince: Date.now() - 5 * 60_000, runId: D.runId },
+    ]);
+    const focused = await liveFocus(h, LANDED_LEAD.id, `!!${LIVE_RAIL} && flat(document.querySelector("[data-agent-header]")).includes(${JSON.stringify(LANDED_TITLE)})`);
+    const injected = await injectLandedReport(h, ctx);
+
+    // P12: the lead stands for its run, so the tree's row and the header name it by the plan's title, not the tab's
+    const named = await lookEval(h, `
+        const row = ${LIVE_TREE}?.querySelector(${JSON.stringify(`[data-tree-agent="${LANDED_LEAD.id}"]`)});
+        const header = document.querySelector("[data-agent-header]");
+        return { row: flat(row), header: flat(header) };`);
+    await h.shot("cdp-shots/agent-tree-rail-p12-run-name.png");
+    rec(
+        "P12. the tree's lead row and the agent header name the run by its plan title, not the lead's tab name (D12)",
+        named.row.includes(LANDED_TITLE) &&
+            named.header.includes(LANDED_TITLE) &&
+            !named.row.includes(LANDED_LEAD.name) &&
+            !named.header.includes(LANDED_LEAD.name),
+        { focused, ...named }
+    );
+
+    // P14: the accepted plan review's row, in run D's done fold
+    const accepted = await lookEval(h, `
+        const L = await mod("app/view/agents/runlineagestore.ts");
+        L.toggleRunDoneOpen(${JSON.stringify(D.runId)}, false, ${LANDED_TASKS.length});
+        await until(() => ${LIVE_TREE}?.querySelector('[data-tree-stage="plan-reviewer"]'), 8000);
+        const row = ${LIVE_TREE}?.querySelector('[data-tree-stage="plan-reviewer"]');
+        if (!row) return { missing: true };
+        const dot = row.querySelector("span.rounded-full");
+        return {
+            text: flat(row),
+            dot: dot ? getComputedStyle(dot).backgroundColor : null,
+            muted: getComputedStyle(document.documentElement).getPropertyValue("--color-muted").trim(),
+            // the fold row's label is its own text; flat() of the whole tree runs it into the next row's title
+            fold: [...(${LIVE_TREE}?.querySelectorAll("div.cursor-pointer") ?? [])].map(flat).find((t) => /^2 landed · 1 plan review$/.test(t)) ?? null,
+        };`);
+    const mutedRgb = (hex) => (/^#[0-9a-f]{6}$/i.test(hex ?? "") ? `rgb(${[1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(", ")})` : hex);
+    await h.shot("cdp-shots/agent-tree-rail-p14-accepted.png");
+    rec(
+        "P14. an accepted plan review's row reads \"accepted by you\" with a muted dot, not failed, and the fold says plan review (D14)",
+        /accepted by you/.test(accepted.text ?? "") && !/failed/.test(accepted.text ?? "") && accepted.dot === mutedRgb(accepted.muted) && accepted.fold != null,
+        { focused, injected, ...accepted }
+    );
+
+    // P17: the landed lead's rail reads its run's landing, not its removed worktree
+    await injectLandedReport(h, ctx);
+    const landedRail = await lookEval(h, `
+        await until(() => ${LIVE_RAIL}?.querySelector("[data-rail-landed]"), 8000);
+        const files = ${LIVE_RAIL}?.querySelector("[data-rail-landed]");
+        const text = flat(${LIVE_RAIL});
+        return {
+            branch: (text.match(/landed on main · [0-9a-f]{7}/) ?? [null])[0],
+            // one line per child: the note, then each commit's sha and subject
+            lines: [...(files?.children ?? [])].map((c) => (c.children.length ? [...c.children].map(flat).join(" ") : flat(c))),
+            notRepo: /Not a git repository/.test(text),
+        };`);
+    await h.shot("cdp-shots/agent-tree-rail-p17-landed-lead.png");
+    rec(
+        "P17. a landed lead's rail reads \"worktree removed after landing\" and lists a landed commit (D17)",
+        landedRail.branch === `landed on main · ${LANDED_COMMIT.slice(0, 7)}` &&
+            landedRail.lines?.[0] === "worktree removed after landing" &&
+            landedRail.lines.includes(`${LANDED_TASK_COMMIT.slice(0, 7)} split the router`) &&
+            !landedRail.notRepo,
+        landedRail
+    );
+
+    // P2: a forward or a take-over reads as handed to the human
+    await injectLandedReport(h, ctx);
+    const handed = await lookEval(h, `
+        await until(() => /Handed to you/.test(flat(${LIVE_RAIL})), 8000);
+        const text = flat(${LIVE_RAIL});
+        return { handed: /Handed to you\\s*1/.test(text), forwarded: /Forwarded/.test(text) };`);
+    rec("P2. the run rail's fact row reads \"Handed to you\", not \"Forwarded\" (D2)", handed.handed && !handed.forwarded, handed);
+
+    // P18: the header's Close on the finished run's only tab says it closes the run; the dialog is cancelled
+    const close = await lookEval(h, `
+        const btn = [...(document.querySelector("[data-agent-header]")?.querySelectorAll("button") ?? [])].find((b) => /^Close agent/.test(b.title));
+        if (!btn) return { error: "no Close button in the lead's header" };
+        btn.click();
+        await until(() => /Close run/.test(flat(dialog())), 4000);
+        const d = dialog();
+        const out = { title: flat(d?.querySelector("h2")), body: flat(d), confirm: !!button(d, /^Close run/) };
+        button(d, /^Cancel/)?.click();
+        out.closed = await until(() => !/Close run/.test(flat(dialog())), 4000);
+        return out;`);
+    await h.shot("cdp-shots/agent-tree-rail-p18-close-run.png");
+    rec(
+        "P18. the header Close on a finished run's last lead tab opens a \"Close run\" dialog, then Cancel closes it (D18)",
+        close.title === "Close run" &&
+            // the run's title is whatever name the run goes by; the rest is the spec's copy
+            /"[^"]+" has finished and its lead is its last open session\. Close it\? This can't be undone\./.test(close.body ?? "") &&
+            close.confirm &&
+            close.closed,
+        close
+    );
+    return steps;
+}
+
 export const agentTreeRail = {
     name: "agent-tree-rail",
     surface: "agent",
@@ -779,6 +939,12 @@ export const agentTreeRail = {
                 await arrangeLiveRuns(h, ctx);
             } catch (e) {
                 ctx.liveError = String(e?.message ?? e);
+            }
+            // a fourth held run, finished and landed; in ctx.held, so teardownLiveRuns removes it with the others
+            try {
+                await arrangeLandedRun(h, ctx);
+            } catch (e) {
+                ctx.landedError = String(e?.message ?? e);
             }
         } catch (e) {
             ctx.arrangeError = String(e?.message ?? e);
@@ -831,7 +997,7 @@ export const agentTreeRail = {
         const mark = await h.ev(`(() => {
             const tree = ${TREE};
             const name = tree && [...tree.querySelectorAll("div")].find(
-                (d) => d.textContent.trim() === ${JSON.stringify(TREE_RAIL_LEAD)} && d.children.length === 0
+                (d) => d.textContent.trim() === ${JSON.stringify(TREE_RAIL_TITLE)} && d.children.length === 0
             );
             const row = name && name.closest(".cursor-pointer");
             const slot = row && row.firstElementChild;
@@ -887,7 +1053,7 @@ export const agentTreeRail = {
             };
             const guides = (row) =>
                 row ? [...row.children].filter((c) => c.tagName === "SPAN" && getComputedStyle(c).width === "1px").length : 0;
-            const lead = rowOf(${JSON.stringify(TREE_RAIL_LEAD)});
+            const lead = rowOf(${JSON.stringify(TREE_RAIL_TITLE)});
             const worker = rowOf(${JSON.stringify(RUN_SHEET_POLISH_TASKS[0].label)});
             const sub = rowOf(${JSON.stringify(TREE_RAIL_SUBAGENT_PROMPT)});
             return {
@@ -923,6 +1089,43 @@ export const agentTreeRail = {
             JSON.stringify(nested)
         );
 
+        // P12: a worker's header names its lead by the run's plan title, not the lead's tab name
+        // the boot roster has no tab for t-1's worker, so one is added in the page for this step and removed after
+        await h.cdp("Emulation.setDeviceMetricsOverride", OBS_WIDE);
+        const t1Run = (await h.rpc("dagstatus", { channelid: ctx.channelId, runid: ctx.runId })).group?.tasks?.find((t) => t.id === "t-1")?.runid;
+        const workerTab = { id: "fx-tree-worker-t1", name: "tree-rail worker", project: "waveterm", agent: "claude", model: "sonnet", task: "noop", state: "working", runId: t1Run, blockId: "fx-blk-tree-worker-t1" };
+        const toLead = t1Run == null ? { error: "t-1 has no worker run" } : await lookEval(h, `
+            const { globalStore } = await mod("app/store/jotaiStore.ts");
+            const D = await mod("app/view/agents/devmock.ts");
+            const model = ${LIVE_MODEL};
+            window.__treeRailPrevFocus = globalStore.get(model.focusIdAtom);
+            globalStore.set(D.devMockAgentsAtom, (cur) => [...(cur ?? []), ${JSON.stringify(workerTab)}]);
+            globalStore.set(model.focusIdAtom, ${JSON.stringify(workerTab.id)});
+            const btn = () => ${HEADER}?.querySelector('button[title="Go to the lead"]');
+            await until(() => btn(), 8000);
+            // the rail's Task section names the lead the same way
+            const railLead = () => [...(${LIVE_RAIL}?.querySelectorAll("span") ?? [])].find((s) => s.textContent.trim() === "Lead")?.nextElementSibling;
+            await until(() => railLead(), 8000);
+            return { text: flat(btn()), header: flat(${HEADER}), railLead: flat(railLead()) };`);
+        await h.shot("cdp-shots/agent-tree-rail-p12-worker-header.png");
+        if (t1Run != null) {
+            await lookEval(h, `
+                const { globalStore } = await mod("app/store/jotaiStore.ts");
+                const D = await mod("app/view/agents/devmock.ts");
+                globalStore.set(D.devMockAgentsAtom, (cur) => (cur ?? []).filter((a) => a.id !== ${JSON.stringify(workerTab.id)}));
+                globalStore.set(${LIVE_MODEL}.focusIdAtom, window.__treeRailPrevFocus);
+                delete window.__treeRailPrevFocus;
+                return true;`);
+        }
+        rec(
+            "9b. t-1's worker header's Go to the lead and its rail's Lead row read the run's plan title, not the lead's tab name (D12)",
+            toLead.text === `↑ ${TREE_RAIL_TITLE}` &&
+                !toLead.text.includes(TREE_RAIL_LEAD) &&
+                toLead.railLead === TREE_RAIL_TITLE &&
+                !toLead.railLead.includes(TREE_RAIL_LEAD),
+            JSON.stringify(toLead)
+        );
+
         // the avatar at bottom-left sits over the foot of the tree: scrolled to its end, the last row clears it
         ctx.prevCorner = await h.ev(`localStorage.getItem("wave:pet.corner")`);
         const foot = await lookEval(h, `
@@ -956,6 +1159,7 @@ export const agentTreeRail = {
             JSON.stringify(foot)
         );
         steps.push(...(await liveRunAgentSteps(h, ctx)));
+        steps.push(...(await landedRunSteps(h, ctx)));
         return steps;
     },
     async teardown(h, ctx) {

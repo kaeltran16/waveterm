@@ -8,6 +8,7 @@ import {
     fillAskedText,
     finishes,
     groupRailEvents,
+    leadAskEvents,
     mergeRailEvents,
     nextSnap,
     runRailEvents,
@@ -169,7 +170,7 @@ describe("runRailEvents", () => {
             ],
             "lead"
         );
-        expect(out.map((e) => e.kind)).toEqual(["asked", "finished", "failed", "quiet"]);
+        expect(out.map((e) => e.kind)).toEqual(["asked", "finished", "sentback", "failed", "quiet"]);
         expect(out[0]).toMatchObject({ key: "R:child-ask1", focusId: "row:lead:t3", who: "Session auth", group: "R" });
     });
 
@@ -185,6 +186,84 @@ describe("runRailEvents", () => {
     it("reads a task-done as finished and a task-merged as landed", () => {
         const out = runRailEvents(run, [ev("task-done", 1, { taskid: "t1" }), ev("task-merged", 2, { taskid: "t1" })]);
         expect(out.map((e) => e.kind)).toEqual(["finished", "landed"]);
+    });
+
+    it("reads a passed plan review as finished and a failed one as failed", () => {
+        const out = runRailEvents(run, [
+            ev("plan-reviewed", 1, { state: "passed" }),
+            ev("plan-reviewed", 2, { state: "failed" }),
+        ]);
+        expect(out.map((e) => [e.kind, e.text])).toEqual([
+            ["finished", "plan review passed"],
+            ["failed", "plan review failed"],
+        ]);
+    });
+
+    // the failure was already on the rail; the lead going on past it is no new state
+    it("leaves an accepted plan review off the rail", () => {
+        expect(runRailEvents(run, [ev("plan-reviewed", 1, { state: "accepted" })])).toEqual([]);
+    });
+
+    it("reads a review that sends the task back as sentback, and the final one as failed", () => {
+        const out = runRailEvents(run, [
+            ev("task-review-failed", 1, { taskid: "t7", round: 1, final: false, note: "no test" }),
+            ev("task-review-failed", 2, { taskid: "t7", round: 2, final: true }),
+        ]);
+        expect(out.map((e) => [e.kind, e.text])).toEqual([
+            ["sentback", "review sent back · t7 · no test"],
+            ["failed", "Review failed · t7"],
+        ]);
+    });
+
+    it("reads the Final command passing as finished, any failed step as failed, and other passes as nothing", () => {
+        const out = runRailEvents(run, [
+            ev("final-step", 1, { step: "tree", ok: true }),
+            ev("final-step", 2, { step: "check", ok: true }),
+            ev("final-step", 3, { step: "verify", ok: true }),
+            ev("final-step", 4, { step: "final", ok: true }),
+            ev("final-step", 5, { step: "check", ok: false }),
+            ev("final-step", 6, { step: "final", ok: false }),
+        ]);
+        expect(out.map((e) => [e.kind, e.text])).toEqual([
+            ["finished", "Final command passed"],
+            ["failed", "Final Check failed"],
+            ["failed", "Final command failed"],
+        ]);
+    });
+
+    it("reads a landed run as landed and a held land as failed with its reason", () => {
+        const out = runRailEvents(run, [
+            ev("landed", 1, { commit: "abc123" }),
+            ev("land-held", 2, { reason: "the checkout has local changes" }),
+        ]);
+        expect(out.map((e) => [e.kind, e.text])).toEqual([
+            ["landed", "Run landed"],
+            ["failed", "land held · the checkout has local changes"],
+        ]);
+    });
+});
+
+describe("leadAskEvents", () => {
+    const lead = (over: Partial<AgentVM>) => ({
+        agent: a({ id: "lead", name: "claude", ...over }),
+        title: "Session auth",
+    });
+    it("records nothing for a lead seen the first time", () => {
+        const { events, next } = leadAskEvents({}, [lead({ state: "asking" })], 100);
+        expect(events).toEqual([]);
+        expect(next).toEqual({ lead: "asking" });
+    });
+    it("records one asked event when a lead turns to asking, named by its run and focused on its card", () => {
+        const asking = lead({ state: "asking", blockedMs: 10, ask: { questions: [{ question: "land now?" }] } });
+        const first = leadAskEvents({ lead: "working" }, [asking], 100);
+        expect(first.events).toEqual([
+            { key: "lead:asked:90", focusId: "lead", who: "Session auth", kind: "asked", text: "land now?", ts: 90 },
+        ]);
+        expect(leadAskEvents(first.next, [asking], 200).events).toEqual([]);
+    });
+    it("records nothing when a lead stops asking or goes idle", () => {
+        expect(leadAskEvents({ lead: "asking" }, [lead({ state: "working" })], 100).events).toEqual([]);
+        expect(leadAskEvents({ lead: "working" }, [lead({ state: "idle" })], 100).events).toEqual([]);
     });
 });
 

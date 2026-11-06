@@ -25,7 +25,7 @@ import {
     stopSelector,
     waitTag,
 } from "./leadcardmodel";
-import type { Lineage, RunInfo } from "./runlineage";
+import { endedReviewerId, type Lineage, type RunInfo } from "./runlineage";
 
 const NOW = 1_000_000;
 
@@ -360,13 +360,109 @@ describe("buildLeadCard", () => {
     });
 
     it("names the branch a run lands on when it has its own", () => {
-        const run = { ...runInfo([]), runId: "0123456789abcdef", landPath: "/p/.waveterm/worktrees/0123456789abcdef" };
+        const id = "b85abade-fc46-491e-89bf-533150cb7a47";
+        const run = { ...runInfo([]), runId: id, landPath: `/p/.waveterm/worktrees/${id}` };
+        // the full name is what a human types into git; the footer truncates it visually
         expect(buildLeadCard(input(run)).settings).toBe(
-            "lead opus · workers sonnet · 3 at a time · lands on wave/01234567"
+            `lead opus · workers sonnet · 3 at a time · lands on wave/${id}`
         );
-        // the label is shortened; the full name is what a human types into git
-        expect(buildLeadCard(input(run)).settingsTitle).toBe("lands on wave/0123456789abcdef");
+        expect(buildLeadCard(input(run)).settingsTitle).toBe(`lands on wave/${id}`);
         expect(buildLeadCard(input(runInfo([]))).settingsTitle).toBeUndefined();
+    });
+
+    it("names the workers' route from the run while it plans, else says they run as the lead", () => {
+        const planning: RunInfo = { runId: "R", channelId: "C", title: "t", project: "arc" };
+        expect(
+            buildLeadCard(input({ ...planning, workerRoute: { runtime: "claude", model: "claude-haiku-5-5" } }))
+                .settings
+        ).toBe("lead opus · workers haiku");
+        expect(buildLeadCard(input(planning)).settings).toBe("lead opus · workers as lead");
+    });
+});
+
+describe("buildLeadCard plan review row", () => {
+    const reviewing = (over: Partial<PlanReviewStage> = {}): RunInfo => {
+        const run = runInfo([task("t1", "pending")]);
+        run.dag!.planreview = {
+            state: "reviewing",
+            round: 2,
+            reviewers: [
+                { lens: "followup", state: "passed", runid: "pr-1", startedts: NOW - 60_000 },
+                { lens: "second", state: "reviewing", runid: "pr-2", startedts: NOW - 30_000 },
+            ],
+            ...over,
+        };
+        return run;
+    };
+
+    it("lists the plan review first while it reviews, naming the lenses still at work", () => {
+        const vm = buildLeadCard(input(reviewing()));
+        expect(vm.rows[0]).toMatchObject({ label: "Plan review", tag: "round 2", tone: "run", kind: "live" });
+        expect(vm.rows[0].sub).toBe("Second pass");
+        expect(vm.activity).toBe("plan review · round 2");
+    });
+
+    it("does not stand the lead by while the plan is under review", () => {
+        const idle = { ...lead, state: "idle", atPrompt: true } as AgentVM;
+        expect(buildLeadCard(input(reviewing(), [], { lead: idle })).activity).toBe("plan review · round 2");
+    });
+
+    it("tags round 1 with nothing", () => {
+        expect(buildLeadCard(input(reviewing({ round: 1 }))).rows[0].tag).toBeUndefined();
+    });
+
+    it("waits on the lead's decision after a failed review", () => {
+        const row = buildLeadCard(input(reviewing({ state: "failed" }))).rows[0];
+        expect(row).toMatchObject({ label: "Plan review", tone: "wait", kind: "live", sub: "failed · lead deciding" });
+    });
+
+    it("folds a passed review into done, and an accepted one muted as yours", () => {
+        const passed = buildLeadCard(input(reviewing({ state: "passed" })));
+        expect(passed.rows.some((r) => r.label === "Plan review")).toBe(false);
+        expect(passed.done[0]).toMatchObject({ label: "Plan review", tone: "ok", kind: "done" });
+        const accepted = buildLeadCard(input(reviewing({ state: "accepted" }))).done[0];
+        expect(accepted).toMatchObject({ label: "Plan review", tone: "muted", kind: "done", sub: "accepted by you" });
+    });
+
+    it("opens the round's newest reviewer: live in the roster, else ended", () => {
+        const live = { id: "rev-tab", name: "rev", task: "", state: "working", runId: "pr-2" } as AgentVM;
+        expect(buildLeadCard(input(reviewing(), [], { roster: [lead, live] })).rows[0].openId).toBe("rev-tab");
+        const done = reviewing({
+            state: "failed",
+            reviewers: [
+                { lens: "full", state: "failed", runid: "pr-1", startedts: NOW - 60_000 },
+                { lens: "second", state: "passed", runid: "pr-2", startedts: NOW - 30_000 },
+            ],
+        });
+        expect(buildLeadCard(input(done)).rows[0].openId).toBe(endedReviewerId("R", "pr-2"));
+    });
+
+    it("is not a running task a cancel stops", () => {
+        expect(runningCount(buildLeadCard(input(reviewing())).rows)).toBe(0);
+    });
+});
+
+describe("buildLeadCard lane wait", () => {
+    const laned = (mergestate: string, lanes = [["t-1"], ["t-2", "t-3"]]) =>
+        runInfo([task("t-2", "done"), task("t-3", "running")], {
+            lanes,
+            tasks: [{ taskid: "t-2", mergestate } as DagTaskDigest],
+        });
+
+    it("reads a done task waiting on its lane as waiting to land with the lane's tip", () => {
+        const vm = buildLeadCard(input(laned("waiting")));
+        const row = vm.waiting.find((r) => r.taskId === "t-2");
+        expect(row).toMatchObject({ kind: "wait", tone: "muted", sub: "t-2 · lane B · done · lands with t-3" });
+        expect(vm.done.some((r) => r.taskId === "t-2")).toBe(false);
+    });
+
+    it("never says a single-task lane lands with itself", () => {
+        const vm = buildLeadCard(input(laned("waiting", [["t-1"], ["t-2"], ["t-3"]])));
+        expect(vm.waiting.find((r) => r.taskId === "t-2")?.sub).toBe("t-2 · lane B · done · waiting to land");
+    });
+
+    it("reads a merged task as landed", () => {
+        expect(buildLeadCard(input(laned("merged"))).done[0].sub).toBe("t-2 · lane B · landed");
     });
 });
 
@@ -531,6 +627,11 @@ describe("runElapsed", () => {
     it("is empty when the run has no dag yet", () => {
         expect(runElapsed({ runId: "R", channelId: "C", title: "t", project: "arc" }, NOW)).toBe("");
     });
+    it("is empty, never negative, for a dag stamped ahead of this clock", () => {
+        const run = runInfo([task("t1", "running")]);
+        run.dag!.createdts = NOW + 10_000;
+        expect(runElapsed(run, NOW)).toBe("");
+    });
 });
 
 describe("stopSelector", () => {
@@ -562,6 +663,10 @@ describe("leadActivity", () => {
             "lead closed · its events come to you"
         );
         expect(leadActivity(run(), lead, true)).toBe("lead down · its events come to you");
+    });
+    it("says an asking lead asks you, not that it stands by", () => {
+        const asking = { ...lead, state: "asking", atPrompt: true, activity: "waiting" } as AgentVM;
+        expect(leadActivity(run(), asking, false)).toBe("asking you");
     });
     it("names a finished run's end", () => {
         expect(leadActivity(run("done"), { ...lead, atPrompt: true } as AgentVM, false)).toBe("run complete");

@@ -38,7 +38,15 @@ import { agentBranchesAtom, loadAgentBranch } from "./agentbranchstore";
 import { resumeRecentSession } from "./agentlaunchhero";
 import { confirmCloseRun, confirmCloseSession } from "./agentactions";
 import type { AgentsViewModel } from "./agents";
-import { doneFoldLabel, rowFocusKey, stageRowAge, stageSubline, treeAgentCount, type StageOutcome } from "./agenttreemodel";
+import {
+    doneFoldLabel,
+    rowFocusKey,
+    stageRowAge,
+    stageSubline,
+    stageVerdictText,
+    treeAgentCount,
+    type StageOutcome,
+} from "./agenttreemodel";
 import { isAsking, treeLine, type BrainstormFile, type BuilderCheckRecord } from "./brainstormmodel";
 import { runStepView, runTreeText } from "./brainstormrunmodel";
 import { brainstormAtom, setBrainstormMode, shownBrainstormFile } from "./brainstormstore";
@@ -59,6 +67,7 @@ import { LEAD_MARK_CLASS, leadMark } from "./leadcardmodel";
 import {
     isEndedWorkerId,
     laneLabel,
+    leadDisplayName,
     runAgentsOf,
     runProgress,
     stageLabel,
@@ -715,7 +724,7 @@ function ParentRow({
                         ) : (
                             <>
                                 <div className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink-hi">
-                                    {agent.name}
+                                    {lead != null ? leadDisplayName(agent, lead.run) : agent.name}
                                 </div>
                                 {agent.pinned ? (
                                     <Pin size={11} aria-label="Pinned" className="flex-none text-muted" />
@@ -1007,6 +1016,7 @@ function WorkerRow({
 const STAGE_OUTCOME_DOT: Record<Exclude<StageOutcome, "passed">, string> = {
     unverified: "bg-warning",
     failed: "bg-error",
+    accepted: "bg-muted",
 };
 
 // a builder check's or judge's record, drawn as a stage's verdict: an answered one is its session's work done
@@ -1073,7 +1083,7 @@ function StageRow({
                     {lens ? `${stageLabel(stageRole)} · ${planReviewLensTitle(lens)}` : stageLabel(stageRole)}
                 </div>
                 <div className="mt-[3px] truncate font-mono text-[10.5px] text-muted">
-                    {stageSubline(verdict ?? outcome, stageRowAge(agent, now))}
+                    {stageSubline(verdict ?? stageVerdictText(outcome), stageRowAge(agent, now))}
                 </div>
             </div>
         </div>

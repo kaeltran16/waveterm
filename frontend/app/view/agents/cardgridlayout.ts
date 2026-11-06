@@ -175,7 +175,7 @@ export interface RowTarget {
     openId?: string;
     askAgentId?: string;
     actions: (() => void)[];
-    // the row's live worker, which space peeks
+    // what space shows: the row's live worker, else its ended transcript (rowPeekId)
     peekId?: string;
     // opens the row's Tell input, which r is on a task row: a reply to its worker
     tell?: () => void;

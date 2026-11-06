@@ -436,11 +436,18 @@ const DOC_REVIEW_DECISIONS = [
     "Esc hides it and the ask stays open",
     "It auto-opens once on the lead",
 ];
+// a section line the doc-review ask carries between its second and third finding
+const DOC_REVIEW_SECTION = "Findings I would not accept:";
+const DOC_REVIEW_SECTION_AFTER = 2;
+const DOC_REVIEW_NARROW = { width: 1000, height: 700, deviceScaleFactor: 1, mobile: false };
+const DOC_REVIEW_WIDE = { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false };
 const DOC_REVIEW_TAG_TITLE = "Open the plan review";
 const DOC_REVIEW_CHIP = "Plan review";
 const DOC_REVIEW_PANEL = `document.querySelector("[data-doc-review]")?.closest('[role="dialog"]')`;
 
-function docReviewRoster(runId, docPath, decisions = DOC_REVIEW_DECISIONS, header = DOC_REVIEW_CHIP) {
+function docReviewRoster(runId, docPath, decisions = DOC_REVIEW_DECISIONS, header = DOC_REVIEW_CHIP, sectionAfter = null) {
+    const lines = decisions.map((d) => `- ${d}`);
+    if (sectionAfter != null) lines.splice(sectionAfter, 0, DOC_REVIEW_SECTION);
     return [
         {
             id: DOC_REVIEW_WORKER_ID,
@@ -472,7 +479,7 @@ function docReviewRoster(runId, docPath, decisions = DOC_REVIEW_DECISIONS, heade
                 questions: [
                     {
                         header,
-                        question: [docPath, ...decisions.map((d) => `- ${d}`)].join("\n"),
+                        question: [docPath, ...lines].join("\n"),
                         options: [{ label: "Approve" }, { label: "Request changes" }],
                     },
                 ],
@@ -525,7 +532,7 @@ const docReviewFocusRow = (h, name) =>
     })()`);
 
 // the doc-review roster with its lead asking under header, on a plan this writes; the cockpit shows the worker's card
-async function arrangeDocReview(h, name, header) {
+async function arrangeDocReview(h, name, header, sectionAfter = null) {
     const cwd = mkdtempSync(join(tmpdir(), `verify-${name}-`));
     const ctx = { cwd };
     try {
@@ -537,7 +544,7 @@ async function arrangeDocReview(h, name, header) {
         );
         writeFileSync(
             TREE_RAIL_FIXTURE,
-            JSON.stringify(docReviewRoster(ctx.runId, ctx.specPath, DOC_REVIEW_DECISIONS, header), null, 2)
+            JSON.stringify(docReviewRoster(ctx.runId, ctx.specPath, DOC_REVIEW_DECISIONS, header, sectionAfter), null, 2)
         );
         // the fixture roster is read once at boot
         await h.ev("location.reload()");
@@ -561,7 +568,7 @@ async function arrangeDocReview(h, name, header) {
 export const docReview = {
     name: "doc-review",
     surface: "cockpit",
-    arrange: (h) => arrangeDocReview(h, "doc-review", DOC_REVIEW_CHIP),
+    arrange: (h) => arrangeDocReview(h, "doc-review", DOC_REVIEW_CHIP, DOC_REVIEW_SECTION_AFTER),
     async assert(h, ctx) {
         const steps = [];
         const rec = (step, ok, detail) => steps.push({ step, ok, detail });
@@ -603,7 +610,7 @@ export const docReview = {
             if (!p) return null;
             return {
                 heading: p.querySelector("h1")?.textContent.trim() ?? null,
-                items: p.querySelectorAll("ol > li").length,
+                items: p.querySelectorAll("ol > li:not([data-doc-heading])").length,
             };
         })()`);
         const names2 = await docReviewHeaderNames(h);
@@ -616,6 +623,46 @@ export const docReview = {
                 names2.worker &&
                 !names2.lead,
             JSON.stringify({ panel: panel2, header: names2 })
+        );
+
+        // the section line sits between the two groups of findings, whole and in view, at both widths
+        const sectionLayout = () =>
+            h.ev(`(() => {
+                const p = ${DOC_REVIEW_PANEL};
+                const lis = [...(p?.querySelectorAll("ol > li") ?? [])];
+                const at = lis.findIndex((li) => li.hasAttribute("data-doc-heading"));
+                const rect = (li) => li?.getBoundingClientRect();
+                const head = rect(lis[at]);
+                const before = rect(lis[at - 1]);
+                const after = rect(lis[at + 1]);
+                const pane = lis[at]?.closest(".sc")?.getBoundingClientRect();
+                return {
+                    at,
+                    total: lis.length,
+                    text: lis[at]?.textContent.trim() ?? null,
+                    between: !!head && !!before && !!after && before.bottom <= head.top && head.bottom <= after.top,
+                    inView: !!head && !!pane && head.top >= pane.top && head.bottom <= pane.bottom && head.width > 0,
+                    numbered: lis.filter((li) => !li.hasAttribute("data-doc-heading")).length,
+                };
+            })()`);
+        const sections = {};
+        for (const [label, viewport] of [["1000x700", DOC_REVIEW_NARROW], ["1600x950", DOC_REVIEW_WIDE]]) {
+            await h.cdp("Emulation.setDeviceMetricsOverride", viewport);
+            await nap(400);
+            sections[label] = await sectionLayout();
+            await h.shot(`cdp-shots/doc-review-section-${label}.png`);
+        }
+        rec(
+            "2b. the section line sits between the findings it divides, at 1000x700 and at 1600x950",
+            Object.values(sections).every(
+                (s) =>
+                    s.at === DOC_REVIEW_SECTION_AFTER &&
+                    s.text === DOC_REVIEW_SECTION &&
+                    s.numbered === DOC_REVIEW_DECISIONS.length &&
+                    s.between &&
+                    s.inView
+            ),
+            JSON.stringify(sections)
         );
 
         await docReviewEscape(h);

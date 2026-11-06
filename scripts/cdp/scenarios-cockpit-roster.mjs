@@ -2,6 +2,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { arrangeLiveRuns, injectLiveAsks, LIVE_IDS, setLiveRoster, teardownLiveRuns } from "./live-run-fixture.mjs";
 import {
     lookEval,
     lookOpen,
@@ -354,10 +355,67 @@ async function assert(h, ctx) {
     });
 
     await h.shot("cdp-shots/cockpit-roster-counts.png");
+    steps.push(...(await liveRunCountSteps(h, ctx)));
+    return steps;
+}
+
+// the live-run fixture's held runs (live-run-fixture.mjs), arranged last so the steps above count only their own
+// roster; no model starts
+async function liveRunCountSteps(h, ctx) {
+    const steps = [];
+    const rec = (step, ok, detail) => steps.push({ step, ok: !!ok, detail: JSON.stringify(detail) });
+    try {
+        await arrangeLiveRuns(h, ctx);
+    } catch (e) {
+        rec("P8. the live-run fixture's held runs", false, String(e?.message ?? e));
+        return steps;
+    }
+    const { A } = ctx.live;
+    await setLiveRoster(h, ctx);
+    // lead A relays t-2's question while t-2 asks too: two agents, one card that needs you
+    await lookEval(h, `
+        ${APP}
+        S.set(model.projectFilterAtom, "all");
+        S.set(model.liveOnlyAtom, false);
+        S.set(D.devMockAgentsAtom, S.get(D.devMockAgentsAtom).map((a) => a.id === ${JSON.stringify(LIVE_IDS.leadA)}
+            ? { ...a, state: "asking", blockedMs: 60000, ask: { askId: "fx-roster-relay", questions: [{ header: "t-2", question: "Should the cache key include the tenant id?", options: [{ label: "include the tenant id" }, { label: "per-route only" }] }] } }
+            : a));
+        return true;
+    `);
+    const asks = await injectLiveAsks(h, ctx);
+    const counts = await lookEval(h, `
+        ${APP}
+        await until(() => surface().querySelector('[data-agent-id=${JSON.stringify(LIVE_IDS.leadA)}]') != null, 15000);
+        await nap(${SETTLE_MS});
+        return { fact: fact(), tabs: tabs(), width: innerWidth };
+    `);
+    const header = Number((counts.fact ?? "").match(/(\d+) need you/)?.[1]);
+    rec(
+        "P8. a lead relaying a worker's ask: the header's need-you number equals the tab's",
+        asks === "ok" && header === 1 && counts.tabs["need you"] === 1,
+        { ...counts, asks }
+    );
+    await h.shot("cdp-shots/cockpit-roster-relay-count.png");
+
+    // P22: space on a done row shows its ended transcript (the peek cannot render one, so it opens as enter does)
+    const ended = `ended:${A.runId}:t-10`;
+    const space = await lookEval(h, `
+        ${APP}
+        S.set(model.cursorIdAtom, ${JSON.stringify(`row:${LIVE_IDS.leadA}:t-10`)});
+        await nap(300);
+        surface().focus();
+        surface().dispatchEvent(new KeyboardEvent("keydown", { key: " ", code: "Space", bubbles: true, cancelable: true }));
+        const shown = await until(() => S.get(model.surfaceAtom) === "agent" && S.get(model.focusIdAtom) === ${JSON.stringify(ended)}, 8000);
+        return { shown: !!shown, surface: S.get(model.surfaceAtom), focus: S.get(model.focusIdAtom) ?? null, width: innerWidth };
+    `);
+    await h.shot("cdp-shots/cockpit-roster-done-row-space.png");
+    rec("P22. space on a focused done row shows that task's ended transcript", space.shown, space);
+    await h.goto("cockpit");
     return steps;
 }
 
 async function teardown(h, ctx) {
+    await teardownLiveRuns(h, ctx, "cockpit-roster-counts");
     if (ctx.wroteFixture) rmSync(TREE_RAIL_FIXTURE, { force: true });
     const step = async (what, fn) => {
         try {

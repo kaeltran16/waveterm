@@ -6,6 +6,7 @@
 
 import { canvasDir, join } from "./canvasmodel";
 import { runProgress, type RunInfo } from "./runlineage";
+import { landingBranch } from "./runrail";
 
 export type RunStepState =
     | "missing"
@@ -76,7 +77,7 @@ export function runStepView(runId: string, run: RunInfo | undefined, loaded: boo
     const { done, total } = runProgress(run.dag);
     const into = run.base ?? "its base";
     // a run on its own branch lands its tasks there; one without lands them straight on its base
-    const where = run.landPath ? `wave/${id8}` : into;
+    const where = landingBranch(run) ?? into;
     const notMerged = run.landPath ? `, so nothing has merged into ${into} yet` : "";
     const base: Base = { merged: false, canClose: false, closeOff: null, done, total, round: final?.round };
 

@@ -20,6 +20,8 @@ import {
     endedReviewerOf,
     endedReviewerVM,
     endedRoles,
+    endedVerifierOf,
+    endedVerifierVM,
     endedWorkerVM,
     finalStageRoles,
     finalStageVM,
@@ -189,6 +191,12 @@ export function endedWorkerAtomFor(
         }
         if (role?.kind === "stage") {
             const run = lineage.runs[role.leadRunId];
+            const verifierRunId = run ? endedVerifierOf(run, id) : undefined;
+            if (verifierRunId != null) {
+                const child = get(WOS.getWaveObjectAtom<Run>(WOS.makeORef("run", verifierRunId)));
+                const path = get(runTranscriptPathsAtom)[verifierRunId];
+                return { agent: endedVerifierVM(run.runId, verifierRunId, child, path), files: [] };
+            }
             const reviewer = run ? endedReviewerOf(run, id) : undefined;
             if (reviewer == null) {
                 return undefined;

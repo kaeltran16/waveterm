@@ -33,6 +33,8 @@ export interface RunInfo {
     base?: string;
     // where the run's branch stands on its way back into its base, once the run is done
     land?: RunLand;
+    // the lead run's pin for its workers; the dag's own wins once it exists, and none means they run as the lead
+    workerRoute?: RoutePin;
     dag?: TaskGroup;
     digest?: DagStatusDigest;
 }
@@ -66,6 +68,7 @@ export function runInfoOf(
         landPath: leadRun?.landpath,
         base: leadRun?.basebranch || undefined,
         land: leadRun?.land,
+        workerRoute: leadRun?.workerroute,
         dag,
         digest,
     };
@@ -215,6 +218,33 @@ export function endedReviewerOf(run: RunInfo, id: string): PlanReviewer | undefi
     return endedPlanReviewers(run).find((r) => endedReviewerId(run.runId, r.runid) === id);
 }
 
+const ENDED_VERIFIER_TAG = "verifier:";
+
+// endedVerifierId is what a final stage's verifier session is focused by once its tab is gone, so its transcript
+// can be read back. It shares the ended prefix so every check for an ended session takes it as one.
+export function endedVerifierId(runId: string, verifierRunId: string): string {
+    return `${ENDED_WORKER_PREFIX}${runId}:${ENDED_VERIFIER_TAG}${verifierRunId}`;
+}
+
+// endedVerifierOf is the current round's verifier run of run that id names, if it names it.
+export function endedVerifierOf(run: RunInfo, id: string): string | undefined {
+    const verifierRunId = run.dag?.final?.verifierrunid;
+    return verifierRunId && endedVerifierId(run.runId, verifierRunId) === id ? verifierRunId : undefined;
+}
+
+// verifierStepTarget is what a click on the Verifier step focuses: the verifier's live agent when it is in the
+// roster, else its ended transcript; none while the stage has no verifier run.
+export function verifierStepTarget(
+    run: Pick<RunInfo, "runId" | "dag">,
+    agents: Pick<AgentVM, "id" | "runId">[]
+): string | undefined {
+    const verifierRunId = run.dag?.final?.verifierrunid;
+    if (!verifierRunId) {
+        return undefined;
+    }
+    return agents.find((a) => a.runId === verifierRunId)?.id ?? endedVerifierId(run.runId, verifierRunId);
+}
+
 // endedRoles gives each task of the runs in view whose worker ended a worker role under its ended id, and each
 // ended plan reviewer a stage role under its own, so the header and the rail place them as they place live ones.
 export function endedRoles(runs: Record<string, RunInfo>): Record<string, RunRole> {
@@ -230,6 +260,14 @@ export function endedRoles(runs: Record<string, RunInfo>): Record<string, RunRol
                 kind: "stage",
                 leadRunId: run.runId,
                 stageRole: PLAN_REVIEWER_ROLE,
+            };
+        }
+        const verifierRunId = run.dag?.final?.verifierrunid;
+        if (verifierRunId) {
+            roles[endedVerifierId(run.runId, verifierRunId)] = {
+                kind: "stage",
+                leadRunId: run.runId,
+                stageRole: VERIFIER_ROLE,
             };
         }
     }
@@ -249,6 +287,21 @@ export function endedReviewerVM(runId: string, reviewer: PlanReviewer, child?: R
         idleSince: child?.completedts,
         transcriptPath: transcriptPath || undefined,
         runId: reviewer.runid,
+    };
+}
+
+// endedVerifierVM is a final stage's ended verifier as the Agent surface shows it, from its own run.
+export function endedVerifierVM(runId: string, verifierRunId: string, child?: Run, transcriptPath?: string): AgentVM {
+    return {
+        id: endedVerifierId(runId, verifierRunId),
+        name: stageLabel(VERIFIER_ROLE),
+        task: "",
+        state: "idle",
+        agent: child?.runtime || undefined,
+        model: modelLabel(child?.model),
+        idleSince: child?.completedts,
+        transcriptPath: transcriptPath || undefined,
+        runId: verifierRunId,
     };
 }
 
@@ -304,6 +357,12 @@ export function runTitle(run: Run | undefined, dag: TaskGroup | undefined): stri
         return title;
     }
     return stripEffortRefs(run?.goal?.trim().split("\n")[0] ?? "") || "Orchestrator run";
+}
+
+// leadDisplayName is what a run's lead is called wherever it stands for its run: the plan's title once the run has
+// a dag, as the events and the rail name the run. The lead's tab name comes from the goal and is left as it is.
+export function leadDisplayName(agent: Pick<AgentVM, "name">, run: Pick<RunInfo, "title" | "dag"> | undefined): string {
+    return run?.dag != null ? run.title : agent.name;
 }
 
 // laneLabel is the letter a task's lane goes by, in the plan order the digest lists lanes in.
@@ -448,10 +507,20 @@ export function runProgress(dag: TaskGroup | undefined): { done: number; total: 
 }
 
 // leadStandingBy reports a lead sitting at its prompt while its run's plan executes: between wakes it only waits
-// for the engine, and the roster's folding of waiting into working would read that as busy.
-export function leadStandingBy(agent: Pick<AgentVM, "atPrompt">, run: RunInfo): boolean {
+// for the engine, and the roster's folding of waiting into working would read that as busy. An asking lead waits
+// on you, not the engine.
+export function leadStandingBy(
+    agent: Pick<AgentVM, "atPrompt"> & Partial<Pick<AgentVM, "state">>,
+    run: RunInfo
+): boolean {
     const status = run.dag?.status;
-    return agent.atPrompt === true && run.dag != null && status !== "done" && status !== "cancelled";
+    return (
+        agent.atPrompt === true &&
+        agent.state !== "asking" &&
+        run.dag != null &&
+        status !== "done" &&
+        status !== "cancelled"
+    );
 }
 
 // states in which the engine has a session or command at work: tasks.state, planreview.state, final.state

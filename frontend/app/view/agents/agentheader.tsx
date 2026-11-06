@@ -37,7 +37,7 @@ import { isFinalStageId } from "./finalstage";
 import { canHandToPhone, isHandedOver } from "./handtophone";
 import { railVisibleAtom, terminalFullscreenAtom } from "./railstore";
 import { remoteStatusAtom, toggleHandToPhone } from "./remotestore";
-import { agentProject, isEndedWorkerId, leadAgentOf } from "./runlineage";
+import { agentProject, isEndedWorkerId, leadAgentOf, leadDisplayName } from "./runlineage";
 import { RuntimeMark } from "./runtimemark";
 import { runtimeMeta } from "./runtimemeta";
 import { isStandingBy } from "./shelltasks";
@@ -69,7 +69,7 @@ function useRunLineage(model: AgentsViewModel, agent: AgentVM) {
         return null;
     }
     if (role.kind === "lead") {
-        return { kind: "lead" as const, runId: role.runId };
+        return { kind: "lead" as const, runId: role.runId, run: lineage.runs[role.runId] };
     }
     const run = lineage.runs[role.leadRunId];
     const lead = leadAgentOf(lineage, agents, role.leadRunId);
@@ -121,7 +121,9 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
     const name =
         lineage?.kind === "worker" && lineage.task
             ? `${lineage.task.id} · ${lineage.task.label || lineage.task.id}`
-            : agent.name;
+            : lineage?.kind === "lead"
+              ? leadDisplayName(agent, lineage.run)
+              : agent.name;
     const rt = runtimeMeta(agent.agent);
     const blockId = agent.blockId;
     // a done task's worker reads as what its task came to, not as an idle session
@@ -194,7 +196,7 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                     title="Go to the lead"
                     className="cursor-pointer text-accent-soft hover:underline"
                 >
-                    ↑ {lineage.lead.name}
+                    ↑ {leadDisplayName(lineage.lead, lineage.run)}
                 </button>
             ) : (
                 <span>↑ {lineage.run?.title ?? "no lead"}</span>

@@ -200,24 +200,47 @@ func streamTranscript(ctx context.Context, path string, tailLines int, ch chan w
 		return fmt.Errorf("creating watcher: %w", err)
 	}
 	defer watcher.Close()
-	if err := watcher.Add(filepath.Dir(path)); err != nil {
+	target := filepath.Clean(path)
+	dir := filepath.Dir(target)
+	// a run member reports its transcript path before Claude creates its project folder, so watch the
+	// nearest existing ancestor and move the watch down as each missing folder appears.
+	watched, err := nearestExistingDir(dir)
+	if err != nil {
 		return fmt.Errorf("watching transcript dir: %w", err)
+	}
+	if err := watcher.Add(watched); err != nil {
+		return fmt.Errorf("watching transcript dir: %w", err)
+	}
+	if watched != dir {
+		if watched, err = descendWatch(watcher, watched, dir); err != nil {
+			return err
+		}
 	}
 
 	tailer := &transcriptTailer{}
-	backlog, err := tailer.readNew(path)
-	// a not-yet-existing file is expected: a freshly-spawned worker reports its transcript path before
-	// Claude creates the JSONL. Stay open with an empty backlog and let the dir watch pick up the file's
-	// Create event — don't abort, or the stream dies permanently until the panel remounts.
-	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("reading transcript: %w", err)
+	sendBacklog := func() error {
+		backlog, err := tailer.readNew(path)
+		// a not-yet-existing file is expected: a freshly-spawned worker reports its transcript path before
+		// Claude creates the JSONL. Stay open with an empty backlog and let the dir watch pick up the file's
+		// Create event — don't abort, or the stream dies permanently until the panel remounts.
+		if err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("reading transcript: %w", err)
+		}
+		if tailLines > 0 && len(backlog) > tailLines {
+			backlog = backlog[len(backlog)-tailLines:]
+		}
+		ch <- wshrpc.RespOrErrorUnion[wshrpc.AgentTranscriptUpdate]{Response: wshrpc.AgentTranscriptUpdate{Lines: backlog}}
+		return nil
 	}
-	if tailLines > 0 && len(backlog) > tailLines {
-		backlog = backlog[len(backlog)-tailLines:]
+	if watched == dir {
+		if err := sendBacklog(); err != nil {
+			return err
+		}
+	} else {
+		// the caller sees an open stream at once, as for a missing file
+		ch <- wshrpc.RespOrErrorUnion[wshrpc.AgentTranscriptUpdate]{Response: wshrpc.AgentTranscriptUpdate{Lines: nil}}
 	}
-	ch <- wshrpc.RespOrErrorUnion[wshrpc.AgentTranscriptUpdate]{Response: wshrpc.AgentTranscriptUpdate{Lines: backlog}}
 
-	target := filepath.Clean(path)
 	for {
 		select {
 		case <-ctx.Done():
@@ -225,6 +248,21 @@ func streamTranscript(ctx context.Context, path string, tailLines int, ch chan w
 		case event, ok := <-watcher.Events:
 			if !ok {
 				return nil
+			}
+			if watched != dir {
+				if event.Op&fsnotify.Create == 0 || filepath.Clean(event.Name) != nextPathDir(watched, dir) {
+					continue
+				}
+				if watched, err = descendWatch(watcher, watched, dir); err != nil {
+					return err
+				}
+				// lines written before the final watch arrived are read from offset 0 here
+				if watched == dir {
+					if err := sendBacklog(); err != nil {
+						return err
+					}
+				}
+				continue
 			}
 			if filepath.Clean(event.Name) != target {
 				continue
@@ -248,6 +286,68 @@ func streamTranscript(ctx context.Context, path string, tailLines int, ch chan w
 			log.Printf("transcript watcher error: %v\n", werr)
 		}
 	}
+}
+
+// nearestExistingDir returns dir or its closest existing ancestor. A path with no existing ancestor at
+// all is broken, so it errors rather than leaving a stream waiting forever.
+func nearestExistingDir(dir string) (string, error) {
+	for p := dir; ; {
+		info, err := os.Stat(p)
+		if err == nil {
+			if !info.IsDir() {
+				return "", fmt.Errorf("%s is not a directory", p)
+			}
+			return p, nil
+		}
+		if !os.IsNotExist(err) {
+			return "", err
+		}
+		parent := filepath.Dir(p)
+		if parent == p {
+			return "", fmt.Errorf("no existing ancestor of %s", dir)
+		}
+		p = parent
+	}
+}
+
+// nextPathDir returns the child of ancestor on the way down to dir.
+func nextPathDir(ancestor, dir string) string {
+	p := dir
+	for parent := filepath.Dir(p); parent != ancestor && parent != p; parent = filepath.Dir(p) {
+		p = parent
+	}
+	return p
+}
+
+// descendWatch moves the watch from watched down toward dir through every folder that exists by now, and
+// returns the deepest one watched. The deeper watch is added before the old one goes, so a failed add
+// keeps the stream watching where it was.
+func descendWatch(watcher *fsnotify.Watcher, watched, dir string) (string, error) {
+	for watched != dir {
+		next := nextPathDir(watched, dir)
+		info, err := os.Stat(next)
+		if os.IsNotExist(err) {
+			return watched, nil
+		}
+		if err != nil {
+			return watched, fmt.Errorf("watching transcript dir: %w", err)
+		}
+		if !info.IsDir() {
+			return watched, fmt.Errorf("watching transcript dir: %s is not a directory", next)
+		}
+		if err := watcher.Add(next); err != nil {
+			// removed again between the stat and the add: keep waiting on the current level
+			if os.IsNotExist(err) {
+				return watched, nil
+			}
+			return watched, fmt.Errorf("watching transcript dir: %w", err)
+		}
+		if err := watcher.Remove(watched); err != nil {
+			log.Printf("transcript watcher: removing watch on %s: %v\n", watched, err)
+		}
+		watched = next
+	}
+	return watched, nil
 }
 
 // subagentsDir derives the Claude Code subagents directory for a parent transcript path:

@@ -44,6 +44,7 @@ import { ASK_OWNER_USER } from "./childaskmodel";
 import { finalRowFocusId, isFinalStageId } from "./finalstage";
 import { FinalStageRail } from "./finalstagerail";
 import { capFiles, lineCountsShown, statusColor } from "./gitstatus";
+import { leadLandFacts } from "./leadland";
 import { entriesAtomFor, liveEntriesByIdAtom } from "./livetranscriptatoms";
 import { prettyModel } from "./modellabel";
 import { loadRailForAgent, railStateAtom, railVisibleAtom } from "./railstore";
@@ -377,7 +378,9 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
     const isClaude = (agent.agent || "claude") === "claude";
     // "—" is a cache nobody has read yet; the line leaves it out rather than say so
     const cacheCountdown = isClaude ? formatCacheCountdown(cacheStatus, now) : "—";
-    const branch = ended ? ended.branch : railState?.branch;
+    // a land removes the run's worktree, so a landed lead's rail reads its run's landing, not its own checkout
+    const landed = role?.kind === "lead" ? leadLandFacts(roleRun) : null;
+    const branch = ended ? ended.branch : (landed?.branch ?? railState?.branch);
     const worktree = ended ? undefined : railState?.worktree;
     const live = agent.blockId != null && !ended;
     const action = sub
@@ -647,6 +650,21 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
                               </div>
                               {ended ? (
                                   <SealedFiles files={ended.files} />
+                              ) : landed ? (
+                                  <div data-rail-landed className="flex flex-col gap-[7px]">
+                                      <div className="text-[11.5px] text-muted">{landed.files}</div>
+                                      {landed.commits.map((c) => (
+                                          <div
+                                              key={c.sha}
+                                              className="flex min-w-0 items-baseline gap-[8px] font-mono text-[11px]"
+                                          >
+                                              <span className="flex-none text-muted">{c.sha}</span>
+                                              <span className="min-w-0 truncate text-secondary" title={c.subject}>
+                                                  {c.subject}
+                                              </span>
+                                          </div>
+                                      ))}
+                                  </div>
                               ) : railState == null ? (
                                   <div aria-hidden="true" className="flex flex-col gap-2">
                                       {["w-[80%]", "w-[60%]", "w-[70%]"].map((w, i) => (

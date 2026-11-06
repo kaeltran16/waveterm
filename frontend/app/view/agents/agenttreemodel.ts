@@ -66,7 +66,8 @@ export type AgentTreeRow =
     // the run's final stage, one per run: `agent` is the current round's verifier session while it is in the roster
     | { kind: "final"; project: string; run: RunInfo; agent?: AgentVM }
     // the fold of what finished: `count` done tasks (`landed` of them merged), the tasks settled without landing
-    // (`skipped`, `cancelled`), and `stages` stages with a verdict, the passed final stage included
+    // (`skipped`, `cancelled`), and `stages` stages with a verdict, the passed final stage included, `planReviews` of
+    // them plan review sessions
     | {
           kind: "done";
           project: string;
@@ -76,6 +77,7 @@ export type AgentTreeRow =
           skipped: number;
           cancelled: number;
           stages: number;
+          planReviews: number;
           open: boolean;
       }
     | { kind: "queued"; project: string; run: RunInfo; count: number; open: boolean };
@@ -130,7 +132,15 @@ const DROPPED = new Set(["skipped", "cancelled"]);
 
 type StageAgent = { agent: AgentVM; stageRole: string };
 
-export type StageOutcome = "passed" | "failed" | "unverified";
+// accepted: the human accepted a failed plan review, so its every session reads as that, not as its own verdict
+export type StageOutcome = "passed" | "failed" | "unverified" | "accepted";
+
+const STAGE_VERDICT_TEXT: Partial<Record<StageOutcome, string>> = { accepted: "accepted by you" };
+
+/** Pure: the words a stage row's second line gives its outcome. */
+export function stageVerdictText(outcome: StageOutcome | undefined): string | undefined {
+    return outcome && (STAGE_VERDICT_TEXT[outcome] ?? outcome);
+}
 
 const FINAL_OUTCOMES: Record<string, StageOutcome> = { passed: "passed", unverified: "unverified", failed: "failed" };
 
@@ -148,6 +158,9 @@ export function stageOutcome(
         return undefined;
     }
     if (stageRole === "plan-reviewer") {
+        if (run.dag.planreview.state === "accepted") {
+            return "accepted";
+        }
         const reviewer = planReviewerOf(run.dag.planreview, agentRunId);
         if (reviewer != null) {
             return reviewer.verdict;
@@ -170,9 +183,11 @@ export function stageRowAge(agent: AgentVM, now: number): string | undefined {
 }
 
 // history order: a plan review came before any task, a final verification after every one, and within a stage an
-// earlier round (failed) before the current one
-const stageRank = (s: StageAgent & { outcome?: StageOutcome }) =>
-    (s.stageRole === "plan-reviewer" ? 0 : 2) + (s.outcome === "failed" ? 0 : 1);
+// earlier round (failed) before the current one. An accepted review's earlier round is the reviewers without a lens:
+// only the current round's have one
+const stageRank = (s: StageAgent & { outcome?: StageOutcome; lens?: string }) =>
+    (s.stageRole === "plan-reviewer" ? 0 : 2) +
+    (s.outcome === "failed" || (s.outcome === "accepted" && s.lens == null) ? 0 : 1);
 
 function runRows(
     item: Extract<TopItem, { kind: "lead" | "run" }>,
@@ -262,6 +277,7 @@ function runRows(
                 skipped: dropped.filter((t) => t.state === "skipped").length,
                 cancelled: dropped.filter((t) => t.state === "cancelled").length,
                 stages: stageCount,
+                planReviews: finished.filter((s) => s.stageRole === "plan-reviewer").length,
                 open: doneOpen,
             });
             if (doneOpen) {
@@ -453,14 +469,19 @@ export function treeFocusOrder(rows: AgentTreeRow[], terminals: AgentVM[]): stri
 /** Pure: the done fold's words: what landed, what finished without a merge, what was settled without landing,
  *  then the stages with a verdict. */
 export function doneFoldLabel(
-    row: Pick<Extract<AgentTreeRow, { kind: "done" }>, "count" | "landed" | "skipped" | "cancelled" | "stages">
+    row: Pick<
+        Extract<AgentTreeRow, { kind: "done" }>,
+        "count" | "landed" | "skipped" | "cancelled" | "stages" | "planReviews"
+    >
 ): string {
+    const others = row.stages - row.planReviews;
     return [
         row.landed > 0 ? `${row.landed} landed` : "",
         row.count - row.landed > 0 ? `${row.count - row.landed} done` : "",
         row.skipped > 0 ? `${row.skipped} skipped` : "",
         row.cancelled > 0 ? `${row.cancelled} cancelled` : "",
-        row.stages > 0 ? `${row.stages} ${row.stages === 1 ? "review" : "reviews"}` : "",
+        row.planReviews > 0 ? `${row.planReviews} ${row.planReviews === 1 ? "plan review" : "plan reviews"}` : "",
+        others > 0 ? `${others} ${others === 1 ? "review" : "reviews"}` : "",
     ]
         .filter(Boolean)
         .join(" · ");

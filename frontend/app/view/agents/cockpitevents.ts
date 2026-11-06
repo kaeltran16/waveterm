@@ -12,7 +12,7 @@ import { rowKey } from "./leadcardmodel";
 import type { Lineage, RunInfo } from "./runlineage";
 import { detailOf, eventText } from "./runtimeline";
 
-export type RailKind = "asked" | "answered" | "finished" | "quiet" | "failed" | "told" | "landed";
+export type RailKind = "asked" | "answered" | "finished" | "quiet" | "failed" | "told" | "landed" | "sentback";
 
 export interface RailEvent {
     key: string;
@@ -104,20 +104,62 @@ const RUN_KIND: Record<string, RailKind> = {
     "task-told": "told",
     "dag-done": "finished",
     "dag-cancelled": "finished",
+    landed: "landed",
 };
 
-/** Pure: a run's engine events as rail events. A failed review counts once, when its rounds are spent. A click
- *  lands on the task's row of the run's card when the event names a task, else on the card: the lead's, or the
- *  run's own with no lead. */
+const FINAL_COMMAND_STEP = "final";
+
+/** Pure: the rail's kind and text for one engine event, or undefined when it stays off the rail. A failed review
+ *  counts once as failed, when its rounds are spent. Of the final stage's steps only the Final command passing and
+ *  any step failing show: the verifier's verdict records no event, so a pass never claims the stage passed. */
+function runRailKind(e: RunEvent): { kind: RailKind; text: string } | undefined {
+    const d = detailOf<{
+        final?: boolean;
+        taskid?: string;
+        note?: string;
+        state?: string;
+        step?: string;
+        ok?: boolean;
+        reason?: string;
+    }>(e);
+    switch (e.kind) {
+        case "task-review-failed":
+            if (d?.final) {
+                return { kind: "failed", text: eventText(e) };
+            }
+            // a run row shows its text in place of the verb, so the text says it
+            return {
+                kind: "sentback",
+                text: ["review sent back", d?.taskid, d?.note?.replace(/\s+/g, " ")].filter(Boolean).join(" · "),
+            };
+        case "plan-reviewed":
+            // accepted is a failed review the lead went on past: its failure is already on the rail
+            if (d?.state === "passed") {
+                return { kind: "finished", text: "plan review passed" };
+            }
+            return d?.state === "failed" ? { kind: "failed", text: "plan review failed" } : undefined;
+        case "final-step":
+            if (d?.ok === false) {
+                return { kind: "failed", text: eventText(e) };
+            }
+            return d?.ok === true && d.step === FINAL_COMMAND_STEP
+                ? { kind: "finished", text: eventText(e) }
+                : undefined;
+        case "land-held":
+            return { kind: "failed", text: ["land held", d?.reason].filter(Boolean).join(" · ") };
+    }
+    const kind = RUN_KIND[e.kind];
+    return kind == null ? undefined : { kind, text: eventText(e) };
+}
+
+/** Pure: a run's engine events as rail events. A click lands on the task's row of the run's card when the event
+ *  names a task, else on the card: the lead's, or the run's own with no lead. */
 export function runRailEvents(run: RunInfo, events: RunEvent[], leadId?: string): RailEvent[] {
     const cardId = leadId ?? leadlessCardId(run.runId);
     const out: RailEvent[] = [];
     for (const e of events) {
-        let kind = RUN_KIND[e.kind];
-        if (e.kind === "task-review-failed" && detailOf<{ final?: boolean }>(e)?.final) {
-            kind = "failed";
-        }
-        if (kind == null) {
+        const mapped = runRailKind(e);
+        if (mapped == null) {
             continue;
         }
         const taskId = detailOf<{ taskid?: string }>(e)?.taskid;
@@ -125,13 +167,41 @@ export function runRailEvents(run: RunInfo, events: RunEvent[], leadId?: string)
             key: `${run.runId}:${e.id}`,
             focusId: taskId ? rowKey(cardId, taskId) : cardId,
             who: run.title,
-            kind,
-            text: eventText(e),
+            ...mapped,
             ts: e.ts,
             group: run.runId,
         });
     }
     return out;
+}
+
+/** Pure: a run lead's own questions as rail events, and the leads' next states. Only a lead turning to asking
+ *  records one, named by its run and focused on its card: its workers and reviewers are covered by the run's
+ *  events. A first sighting records nothing, as for plain agents. */
+export function leadAskEvents(
+    prev: Record<string, AgentState>,
+    leads: { agent: AgentVM; title: string }[],
+    now: number
+): { events: RailEvent[]; next: Record<string, AgentState> } {
+    const events: RailEvent[] = [];
+    const next: Record<string, AgentState> = {};
+    for (const { agent: a, title } of leads) {
+        const was = prev[a.id];
+        next[a.id] = a.state;
+        if (was == null || was === "asking" || a.state !== "asking") {
+            continue;
+        }
+        const ts = now - (a.blockedMs ?? 0);
+        events.push({
+            key: `${a.id}:asked:${ts}`,
+            focusId: a.id,
+            who: title,
+            kind: "asked",
+            text: a.ask?.questions?.[0]?.question ?? "",
+            ts,
+        });
+    }
+    return { events, next };
 }
 
 /** Pure: newest first, one per key, at most `max`. */

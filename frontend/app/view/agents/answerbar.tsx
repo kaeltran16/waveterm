@@ -8,7 +8,7 @@ import { useState, type ReactNode } from "react";
 import { answerHint, nextUnansweredQuestion, type AgentAskQuestion, type AgentVM } from "./agentsviewmodel";
 import { activePreview, previewBody, previewMode } from "./answerbarpreview";
 import { canDismissAsk } from "./askflow";
-import { DOC_REVIEW_COPY, docReviewAtom, parseDocReview, type DocReview } from "./docreview";
+import { countItems, DOC_REVIEW_COPY, docReviewAtom, parseDocReview, type DocReview } from "./docreview";
 
 // The answer surface tracks the agent's status, mirroring the handoff (Wave-answer.dc.html: the
 // cockpit passes accent = stateColor — asking → amber, else → periwinkle). So an asking agent's
@@ -50,7 +50,7 @@ export const cleanLabel = (label: string) => label.replace(/\s*\(recommended\)\s
 // A doc-review ask in a card, in place of its question text: the document's full text belongs in the dialog.
 export function DocReviewSummary({ agentId, review }: { agentId: string; review: DocReview }) {
     const file = review.path.split(/[\\/]/).pop() ?? review.path;
-    const n = review.items.length;
+    const n = countItems(review);
     const copy = DOC_REVIEW_COPY[review.kind];
     return (
         <div className="flex items-center gap-2.5 rounded-[7px] border border-edge-mid bg-background px-2.5 py-2">
