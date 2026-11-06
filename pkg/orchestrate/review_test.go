@@ -807,24 +807,9 @@ func TestReviewPassLeavesForLaterTasksToPendingDescendantsDispatch(t *testing.T)
 	}
 }
 
-func TestReviewPassTypesForLaterTasksToARunningDescendant(t *testing.T) {
-	ctx, dag, worker := seedReviewDag(t)
-	addRunningTask(t, ctx, dag, waveobj.TaskNode{ID: "t-1", Label: "b", Deps: []string{"t-0"}})
-	setWorkerReport(t, ctx, dag.ChannelId, worker.ID, structuredReport("Added fmtDate.", "None", "None", forLaterText, "None"))
-	stubReviewTree(t, worker.EndCommit)
-	captureSpawns(t)
-	f := newFakeLead(t)
-	passPlain(t, ctx, dag)
-	want := "t-0 passed review; its worker's For later tasks: " + forLaterText
-	if !strings.Contains(strings.Join(f.sends, "\n"), want) {
-		t.Fatalf("want %q typed to t-1's worker, got %q", want, f.sends)
-	}
-	if got := taskNamed(t, ctx, dag.OID, "t-1").LeadTold; len(got) != 1 || got[0] != want {
-		t.Fatalf("the typed section must be recorded as the engine's, got %q", got)
-	}
-}
-
-func TestReviewPassForLaterTasksSkipsADescendantWaitingOnAQuestion(t *testing.T) {
+// a running descendant read the section at dispatch, so a question it waits on has nothing to miss
+// (typing to a running descendant is pinned in earlynotes_test.go)
+func TestReviewPassForLaterTasksLeavesAQuestionWaitingDescendantAlone(t *testing.T) {
 	ctx, dag, worker := seedReviewDag(t)
 	block := addRunningTask(t, ctx, dag, waveobj.TaskNode{ID: "t-1", Label: "b", Deps: []string{"t-0"}})
 	setWorkerReport(t, ctx, dag.ChannelId, worker.ID, structuredReport("Added fmtDate.", "None", "None", forLaterText, "None"))
@@ -836,10 +821,8 @@ func TestReviewPassForLaterTasksSkipsADescendantWaitingOnAQuestion(t *testing.T)
 	if got := taskNamed(t, ctx, dag.OID, "t-1").LeadTold; len(got) != 0 {
 		t.Fatalf("nothing may be typed into a worker's open question, got %q", got)
 	}
-	joined := strings.Join(f.sends, "\n")
-	want := "wake: task t-0 passed review; its worker's For later tasks (not delivered to t-1, which is waiting on a question): " + forLaterText + ". wsh jarvis dag status"
-	if !strings.Contains(joined, want) {
-		t.Fatalf("want %q, got %q", want, f.sends)
+	if joined := strings.Join(f.sends, "\n"); strings.Contains(joined, "not delivered to t-1") {
+		t.Fatalf("a dependent that read the section needs no lead wake, got %q", f.sends)
 	}
 }
 

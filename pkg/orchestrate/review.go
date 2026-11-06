@@ -416,7 +416,8 @@ func reviewNoteTyped(from, note string) string {
 
 // routeForLater delivers a passed worker's For later tasks to its unfinished descendants and the tasks its reviewer
 // named. A descendant not started reads it from the report at dispatch (predecessorHandoff), so nothing is stored on it;
-// a named task off the plan's edges has no such read, so the section joins its prompt.
+// a named task off the plan's edges has no such read, so the section joins its prompt. A descendant already in flight
+// read it too (an early start dispatches while the predecessor is under review), so it is not typed again.
 func routeForLater(ctx context.Context, g *waveobj.TaskGroup, from, section string, later, named []string, afterCommit *[]func()) {
 	heading := sectionHeading(jarvis.ReportKeyForLater)
 	n := laterNote{
@@ -425,7 +426,7 @@ func routeForLater(ctx context.Context, g *waveobj.TaskGroup, from, section stri
 	}
 	var reached, missed []string
 	for _, id := range unionIDs(later, named) {
-		if t := taskByID(g, id); t != nil && amendable(t.State) && slices.Contains(later, id) {
+		if t := taskByID(g, id); t != nil && (amendable(t.State) || tellRunID(t) != "") && slices.Contains(later, id) {
 			reached = append(reached, id+" (at dispatch)")
 			continue
 		}
