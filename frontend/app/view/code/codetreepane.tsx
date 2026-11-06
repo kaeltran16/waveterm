@@ -21,7 +21,7 @@ import { useAtomValue } from "jotai";
 import { ChevronDown, ChevronRight, File, FilePlus, FolderPlus, Pencil, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { projectDraftPaths } from "./codedraft";
-import { nameErrorMessage, provisionalIndex, validateName } from "./codemutate";
+import { existingTreePaths, nameErrorMessage, provisionalIndex, validateName } from "./codemutate";
 import { changedDirs, statusGlyph, type CodeStatus } from "./codestatus";
 import {
     cancelEdit,
@@ -83,8 +83,7 @@ export function CodeTreePane({ model }: { model: AgentsViewModel }) {
         return () => globalStore.set(codeTreeFocusedAtom, false);
     }, []);
 
-    // an empty folder made this session is a row but not in the index, and mkdir fails on its name
-    const paths = useMemo(() => [...(index?.paths ?? []), ...sessionDirs], [index, sessionDirs]);
+    const paths = useMemo(() => existingTreePaths(index?.paths ?? [], [...sessionDirs]), [index, sessionDirs]);
     const provisional = edit?.kind === "create" ? provisionalIndex(rows, edit.dir) : -1;
     const provisionalDepth =
         edit?.kind === "create" && edit.dir !== "" ? (rows.find((r) => r.path === edit.dir)?.depth ?? -1) + 1 : 0;
