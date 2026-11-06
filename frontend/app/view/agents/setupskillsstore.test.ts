@@ -17,6 +17,7 @@ const SKILLS: CommandAgentSyncSkillsRtnData = {
     skillsroot: "/v/skills",
     unmanaged: [],
     unresolved: [],
+    linked: [],
 };
 
 beforeEach(() => {
