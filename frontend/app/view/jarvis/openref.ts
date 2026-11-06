@@ -10,6 +10,7 @@
 // exists to remove.
 
 import { pushToast } from "@/app/cockpit/notificationstore";
+import { isEngineChild } from "@/app/cockpit/palette-data";
 import { globalStore } from "@/app/store/global";
 import * as WOS from "@/app/store/wos";
 import { RpcApi } from "@/app/store/wshclientapi";
@@ -25,6 +26,7 @@ import { attachCanvas, canvasOwner, getCanvas, selectCanvasBoard, setCanvasMode 
 import { jumpToAgent } from "../agents/channelsprimitives";
 import { selectChannel } from "../agents/channelsstore";
 import { selectMemoryProject } from "../agents/memorystore";
+import { runRoleOf } from "../agents/runlineage";
 import { setupTabAtom } from "../agents/setupstore";
 import { usageLensAtom } from "../agents/usagestore";
 import { workflowScanRunAtom } from "../agents/workflowscanstart";
@@ -431,7 +433,29 @@ async function loadRun(runId: string, current: () => boolean): Promise<Loaded<Sh
     if (!run.channeloid) {
         return unavailable("That run has no channel to open it in");
     }
-    return loadChannel(run.channeloid, runId, current);
+    let dag: TaskGroup | undefined;
+    if (isEngineChild(run) && !run.taskid && run.dagoref) {
+        dag = (await WOS.loadAndPinWaveObject<TaskGroup>(WOS.makeORef("dag", run.dagoref))) ?? undefined;
+        if (!current()) {
+            return SUPERSEDED;
+        }
+    }
+    const sheetRunId = sheetRunOf(run, dag);
+    if (sheetRunId == null) {
+        return unavailable("That run is part of another run and has no sheet of its own");
+    }
+    return loadChannel(sheetRunId === run.oid ? run.channeloid : dag.channelid, sheetRunId, current);
+}
+
+// sheetRunOf is the run whose sheet shows run, or null when there is none. An engine child the lists hide shows on
+// its owner's: the channel's run list leaves brainstorm sessions out, so selecting one there fell back to another
+// run's sheet. A task child keeps its own, which offers its task in the run's DAG.
+function sheetRunOf(run: Run, dag: TaskGroup | undefined): string | null {
+    if (!isEngineChild(run) || run.taskid) {
+        return run.oid;
+    }
+    const role = runRoleOf(run, dag);
+    return role?.kind === "stage" ? role.leadRunId : null;
 }
 
 const DAG_GONE = "That DAG no longer exists";

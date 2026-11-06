@@ -53,17 +53,33 @@ export function shouldPrunePins(loadOk: boolean, incomplete: boolean): boolean {
 }
 
 let loading = false;
+// a call skipped by an in-flight load; that load runs once more when it ends, so what changed meanwhile is shown
+let reloadPending = false;
 
 export async function loadSessionsArchive(): Promise<void> {
     if (loading) {
+        reloadPending = true;
         return;
     }
     loading = true;
     try {
+        await loadArchiveOnce();
+    } finally {
+        loading = false;
+    }
+    if (reloadPending) {
+        reloadPending = false;
+        await loadSessionsArchive();
+    }
+}
+
+async function loadArchiveOnce(): Promise<void> {
+    const sent = globalStore.get(sessionsPinnedAtom);
+    try {
         const rtn = await RpcApi.GetSessionsActivityCommand(
             TabRpcClient,
             // a pinned session older than the window is returned too
-            { windowdays: SESSIONS_WINDOW_DAYS, all: true, pinned: globalStore.get(sessionsPinnedAtom) },
+            { windowdays: SESSIONS_WINDOW_DAYS, all: true, pinned: sent },
             { timeout: ARCHIVE_TIMEOUT_MS }
         );
         const sessions = rtn.sessions ?? [];
@@ -72,7 +88,7 @@ export async function loadSessionsArchive(): Promise<void> {
         globalStore.set(sessionsErrorAtom, false);
         if (shouldPrunePins(true, !!rtn.incomplete)) {
             const pins = globalStore.get(sessionsPinnedAtom);
-            const kept = prunePins(pins, sessions);
+            const kept = prunePins(pins, sessions, sent);
             if (kept !== pins) {
                 setSessionsPinned(kept);
             }
@@ -84,8 +100,6 @@ export async function loadSessionsArchive(): Promise<void> {
         globalStore.set(sessionsArchiveAtom, (prev) => prev ?? []);
         // stop the incomplete poll; Retry on the error banner reloads
         globalStore.set(sessionsIncompleteAtom, false);
-    } finally {
-        loading = false;
     }
 }
 

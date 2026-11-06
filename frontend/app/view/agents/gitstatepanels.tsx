@@ -10,6 +10,7 @@
 import { cn, fireAndForget } from "@/util/util";
 import { CircleAlert, Copy, Folder, RotateCw, X } from "lucide-react";
 import type { ReactNode } from "react";
+import { failureHeadline } from "./gitfailure";
 
 // -1 means the failure was not an exit status at all (git missing, a timeout, a dropped socket).
 // Showing "no exit code" beats printing -1 as though git had returned it.
@@ -119,11 +120,12 @@ export function GitFailureNotice({
             <span className="flex-none font-semibold text-error">{title}</span>
             <span className="flex-none text-ink-mid">· {note}</span>
             <span
-                // one line of what can be several; the full text is a hover away rather than cut off
+                data-git-failure-headline
+                // git's error line, not whatever warning it printed first; the full text is a hover away
                 title={failure.stderr || undefined}
                 className="min-w-0 flex-1 select-text truncate font-mono text-[11px] text-muted"
             >
-                {failure.stderr || exitLabel(failure)}
+                {failureHeadline(failure.stderr ?? "") || exitLabel(failure)}
             </span>
         </SurfaceBanner>
     );

@@ -13,13 +13,14 @@ import { homeFromInfo } from "@/app/view/jarvis/projectpicker";
 import { base64ToString } from "@/util/util";
 import { atom, type PrimitiveAtom } from "jotai";
 import type { AgentsViewModel } from "../agents/agents";
-import { parseGitChanges } from "../agents/gitstatus";
+import { lineCountsShown, parseGitChanges } from "../agents/gitstatus";
 import { classifyFile, hasNulByte, HEAD_BINARY, HEAD_TOOLARGE, MAX_VIEW_BYTES } from "./codeclassify";
 import {
     initialPeekMode,
     needsHome,
     peekModes,
     resolvePeekPath,
+    type PeekChange,
     type PeekFile,
     type PeekGit,
     type PeekHead,
@@ -92,11 +93,15 @@ function headOf(res: CommandGitFileAtRefRtnData): PeekHead {
 }
 
 // a numstat lookup is a nicety: when it fails the card still opens, with no stat
-async function changeOf(root: string, rel: string): Promise<{ adds: number; dels: number } | null> {
+async function changeOf(root: string, rel: string): Promise<PeekChange | null> {
     try {
         const res = await RpcApi.GitChangesCommand(TabRpcClient, { cwd: root });
-        const hit = parseGitChanges(res?.statusz ?? "", res?.numstat ?? "").files.find((f) => f.path === rel);
-        return hit ? { adds: hit.adds, dels: hit.dels } : null;
+        const changes = parseGitChanges(res?.statusz ?? "", res?.numstat ?? "", res?.numstaterror);
+        const hit = changes.files.find((f) => f.path === rel);
+        if (!hit) {
+            return null;
+        }
+        return lineCountsShown(changes) ? { adds: hit.adds, dels: hit.dels } : { adds: 0, dels: 0, lineCounts: false };
     } catch {
         return null;
     }

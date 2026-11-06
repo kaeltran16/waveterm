@@ -111,6 +111,34 @@ export const codeSession = {
             detail: JSON.stringify(folder),
         });
 
+        // 3b. New folder again with the empty folder's name is refused as existing (it is not in the index, only
+        // in the session's dirs), Enter makes no second row, Escape cancels
+        const dup = await pageEval(h, `
+            const EXISTS = "Something with that name is already here.";
+            S.globalStore.set(C.codeCursorAtom, null);
+            headerButton("New folder (Shift+N)")?.click();
+            await until(() => document.querySelector("[data-code-name-input]") != null, 4000);
+            const input = document.querySelector("[data-code-name-input]");
+            if (input == null) return { input: false };
+            Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, "fresh");
+            input.dispatchEvent(new Event("input", { bubbles: true }));
+            await until(() => input.parentElement?.textContent?.includes(EXISTS), 2000);
+            const message = input.parentElement?.textContent ?? "";
+            input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+            await nap(500);
+            const stillOpen = document.querySelector("[data-code-name-input]") != null;
+            const freshRows = rows().filter((r) => r.querySelector("span.min-w-0")?.textContent === "fresh").length;
+            document.querySelector("[data-code-name-input]")?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+            await until(() => document.querySelector("[data-code-name-input]") == null, 2000);
+            return { message, stillOpen, freshRows, closed: document.querySelector("[data-code-name-input]") == null };
+        `);
+        await shot(h, "new-folder-exists");
+        steps.push({
+            step: "code-session: New folder with an existing empty folder's name shows the exists message and creates no second row",
+            ok: dup?.message?.includes("Something with that name is already here.") === true && dup.stillOpen === true && dup.freshRows === 1 && dup.closed === true,
+            detail: JSON.stringify(dup),
+        });
+
         // 4. re-picking the current project keeps the open file
         const repicked = await openFolder(h, ctx.dir);
         const repick = await pageEval(h, `

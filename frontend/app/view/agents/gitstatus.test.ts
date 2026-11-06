@@ -1,6 +1,6 @@
 // frontend/app/view/agents/gitstatus.test.ts
 import { describe, expect, it } from "vitest";
-import { capFiles, numstatPath, parseGitChanges } from "./gitstatus";
+import { capFiles, lineCountsShown, numstatPath, parseGitChanges } from "./gitstatus";
 
 const NUL = "\0";
 
@@ -69,6 +69,36 @@ describe("parseGitChanges", () => {
     it("leaves an ordinary path with a literal arrow-free name alone", () => {
         const r = parseGitChanges(` M a=>b.txt${NUL}`, "4\t0\ta=>b.txt\n");
         expect(r.files[0]).toEqual({ path: "a=>b.txt", status: "M", adds: 4, dels: 0 });
+    });
+});
+
+describe("line counts unknown", () => {
+    const statusZ = ` M src/auth.ts${NUL}?? notes.txt${NUL}`;
+
+    it("lists every status file with no counts when numstat failed", () => {
+        const r = parseGitChanges(statusZ, "3\t1\tsrc/auth.ts\n", "fatal: cannot hash x");
+        expect(r).toEqual({
+            files: [
+                { path: "src/auth.ts", status: "M", adds: 0, dels: 0 },
+                { path: "notes.txt", status: "?", adds: 0, dels: 0 },
+            ],
+            adds: 0,
+            dels: 0,
+            lineCounts: false,
+        });
+        expect(lineCountsShown(r)).toBe(false);
+    });
+
+    it("leaves the flag off when numstat succeeded", () => {
+        expect("lineCounts" in parseGitChanges(statusZ, "")).toBe(false);
+        expect("lineCounts" in parseGitChanges(statusZ, "", "")).toBe(false);
+    });
+
+    it("shows counts when the flag is absent", () => {
+        expect(lineCountsShown(parseGitChanges(statusZ, "3\t1\tsrc/auth.ts\n"))).toBe(true);
+        expect(lineCountsShown({})).toBe(true);
+        expect(lineCountsShown(null)).toBe(true);
+        expect(lineCountsShown(undefined)).toBe(true);
     });
 });
 

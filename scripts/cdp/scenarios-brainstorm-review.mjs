@@ -182,6 +182,28 @@ const CR_TYPED_REMOVE = `(() => {
     }
     return true;
 })()`;
+// the agent prompt refused, as a session gone away refuses it: a send key must say so in an error toast
+const CR_REFUSAL = "arc-test: the agent refused the line";
+const CR_REFUSE_INSTALL = `(() => {
+    const c = window.TabRpcClient;
+    if (!c) return false;
+    if (c.__crRefuseOrig) return true;
+    c.__crRefuseOrig = c.wshRpcCall;
+    const call = c.wshRpcCall.bind(c);
+    c.wshRpcCall = (command, data, opts) =>
+        command === "agentprompt" ? Promise.reject(new Error(${JSON.stringify(CR_REFUSAL)})) : call(command, data, opts);
+    return true;
+})()`;
+const CR_REFUSE_REMOVE = `(() => {
+    const c = window.TabRpcClient;
+    if (c?.__crRefuseOrig) {
+        c.wshRpcCall = c.__crRefuseOrig;
+        delete c.__crRefuseOrig;
+    }
+    return true;
+})()`;
+const CR_ERROR_TOAST = `[...document.querySelectorAll('[data-notification-toast="error"]')].map((t) => t.innerText.replace(/\\s+/g, " ").trim()).find((t) => t.includes(${JSON.stringify(CR_REFUSAL)})) ?? null`;
+const CR_TOAST_WAIT_MS = 3000;
 const CR_PROMPT = /[>$#%]$/;
 const CR_PROMPT_WAIT_MS = 20000;
 const CR_KEYS = {
@@ -274,6 +296,26 @@ export default function (kit) {
         };
     })()`;
 
+    // the approve bar's buttons hold one row whatever the width; the blocker takes the row below them
+    const APPROVE_ROWS = `(() => {
+        const bar = ${BS_PANE}?.querySelector("[data-brainstorm-approve-bar]");
+        const box = (el) => {
+            const b = el?.getBoundingClientRect();
+            return b ? { top: Math.round(b.top * 10) / 10, bottom: Math.round(b.bottom * 10) / 10 } : null;
+        };
+        return {
+            approve: box(bar?.querySelector("[data-brainstorm-approve]")),
+            keep: box([...(bar?.querySelectorAll("button") ?? [])].find((b) => b.innerText.trim() === "Keep talking")),
+            reason: box(bar?.querySelector("[data-brainstorm-approve-reason]")),
+        };
+    })()`;
+    const approveRowsOk = (b) =>
+        !!b.approve &&
+        !!b.keep &&
+        !!b.reason &&
+        Math.abs(b.approve.top - b.keep.top) <= 1 &&
+        b.reason.top >= Math.max(b.approve.bottom, b.keep.bottom) - 0.5;
+
     async function key(h, name) {
         const { text, ...def } = CR_KEYS[name];
         await h.cdp("Input.dispatchKeyEvent", { type: "keyDown", ...def, text });
@@ -353,6 +395,7 @@ export default function (kit) {
                 { torch, changedSaid: r.changed.map((x) => x.said) }
             );
 
+            let narrowBar = null;
             await h.cdp("Emulation.setDeviceMetricsOverride", CR_NARROW);
             try {
                 await polishNap(400);
@@ -363,9 +406,17 @@ export default function (kit) {
                     n.main > CR_MIN_MAIN && n.approveInside && !n.hscroll,
                     n
                 );
+                narrowBar = await h.ev(APPROVE_ROWS);
             } finally {
                 await h.cdp("Emulation.setDeviceMetricsOverride", VERIFY_WIDE).catch(() => {});
             }
+            await polishNap(400);
+            const wideBar = await h.ev(APPROVE_ROWS);
+            rec(
+                "1d. at 1000 and at 1600 wide, with the blocker shown, Approve and Keep talking share one top edge and the blocker sits below them",
+                approveRowsOk(narrowBar) && approveRowsOk(wideBar),
+                { narrow: narrowBar, wide: wideBar }
+            );
 
             await h.ev(`${ROW("constraints")}?.querySelector("[data-brainstorm-review-toggle]")?.click()`);
             await polishNap(300);
@@ -391,6 +442,7 @@ export default function (kit) {
             const keysArrive = clicked && (await bsKeysArrive(h));
             if (!keysArrive) {
                 skip("3. clicking a row moves the cursor; j, Enter, y and u act on it", `could not verify: CDP keys do not reach the page (clicked ${clicked}, cursor ${clickCursor})`);
+                skip("3b. a review send key the agent prompt refuses raises an error toast", "could not verify: CDP keys do not reach the page");
             } else {
                 await key(h, "j");
                 const jCursor = await cursorOn(h, "grain");
@@ -404,6 +456,21 @@ export default function (kit) {
                     "3. clicking a row moves the cursor to it; j moves it on, Enter opens it, y keeps it and u on the next row puts mine back",
                     prompt && clickCursor && jCursor && entered && yTyped.ok && jCursor2 && uTyped.ok,
                     { prompt, clickCursor, jCursor, entered, y: yTyped.detail, jCursor2, u: uTyped.detail }
+                );
+
+                // the cursor still on role: y sends brainstorm: keep role, which the stubbed prompt refuses
+                const stubbed = await h.ev(CR_REFUSE_INSTALL);
+                let toast = null;
+                try {
+                    await key(h, "y");
+                    if (await polishWaitFor(h, `(${CR_ERROR_TOAST}) != null`, CR_TOAST_WAIT_MS)) toast = await h.ev(CR_ERROR_TOAST);
+                } finally {
+                    await h.ev(CR_REFUSE_REMOVE);
+                }
+                rec(
+                    "3b. a review send key the agent prompt refuses raises an error toast with the refusal's text",
+                    stubbed && toast != null && toast.includes("Couldn't send to"),
+                    { stubbed, toast }
                 );
             }
 

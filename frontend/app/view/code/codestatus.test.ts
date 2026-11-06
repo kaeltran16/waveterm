@@ -2,7 +2,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { parseGitChanges } from "@/app/view/agents/gitstatus";
+import { lineCountsShown, parseGitChanges } from "@/app/view/agents/gitstatus";
 import { describe, expect, it } from "vitest";
 import { changedDirs, statusByPath, statusGlyph } from "./codestatus";
 
@@ -22,6 +22,13 @@ describe("statusByPath", () => {
         const m = statusByPath(parseGitChanges(STATUS_Z, NUMSTAT));
         expect(m.get("src/new.ts")).toEqual({ status: "R", adds: 2, dels: 2 });
         expect(m.has("src/old.ts")).toBe(false);
+    });
+
+    it("reports counts unknown on every entry when numstat failed", () => {
+        const m = statusByPath(parseGitChanges(STATUS_Z, "", "fatal: cannot hash frontend/app/a.ts"));
+        expect(m.get("frontend/app/a.ts")).toEqual({ status: "M", adds: 0, dels: 0, lineCounts: false });
+        expect(lineCountsShown(m.get("docs/new.md"))).toBe(false);
+        expect("lineCounts" in statusByPath(parseGitChanges(STATUS_Z, NUMSTAT)).get("docs/new.md")).toBe(false);
     });
 
     it("is empty when nothing changed", () => {

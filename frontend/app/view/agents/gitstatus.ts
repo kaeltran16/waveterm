@@ -18,6 +18,14 @@ export interface GitChanges {
     files: GitChange[];
     adds: number; // totals
     dels: number;
+    // false when `diff --numstat` failed: the files are listed but every count is a 0 that is not real;
+    // absent means the counts are known, so existing literals stay valid
+    lineCounts?: false;
+}
+
+// the one question every renderer asks before drawing a +N/−N
+export function lineCountsShown(changes: { lineCounts?: false } | null | undefined): boolean {
+    return changes?.lineCounts !== false;
 }
 
 // porcelain -z: NUL-separated entries "XY path"; rename/copy entries carry an extra NUL old-path.
@@ -72,8 +80,8 @@ function parseNumstat(numstat: string): Map<string, { adds: number; dels: number
     return m;
 }
 
-export function parseGitChanges(statusZ: string, numstat: string): GitChanges {
-    const stat = parseNumstat(numstat);
+export function parseGitChanges(statusZ: string, numstat: string, numstatError?: string): GitChanges {
+    const stat = numstatError ? new Map<string, { adds: number; dels: number }>() : parseNumstat(numstat);
     const files: GitChange[] = [];
     let adds = 0;
     let dels = 0;
@@ -83,7 +91,7 @@ export function parseGitChanges(statusZ: string, numstat: string): GitChanges {
         adds += n.adds;
         dels += n.dels;
     }
-    return { files, adds, dels };
+    return numstatError ? { files, adds, dels, lineCounts: false } : { files, adds, dels };
 }
 
 // Tailwind text-color per git status — shared by the Files surface and the Agent details rail.

@@ -489,12 +489,12 @@ export const dagLifecycle = {
         return steps;
     },
     async teardown(h, ctx) {
-        // the stand-in worker run; the channel delete below removes it
-        if (ctx.standInId) {
+        // the stand-in runs; the channel delete below removes them
+        for (const id of [ctx.standInId, ...(ctx.hiddenIds ?? [])].filter(Boolean)) {
             try {
-                await h.rpc("cancelrun", { channelid: ctx.channelId, runid: ctx.standInId });
+                await h.rpc("cancelrun", { channelid: ctx.channelId, runid: id });
             } catch (e) {
-                console.error(`dag-lifecycle teardown: cancel the stand-in run failed: ${e?.message ?? e}`);
+                console.error(`dag-lifecycle teardown: cancel the stand-in run ${id} failed: ${e?.message ?? e}`);
             }
         }
         await h.cdp("Emulation.clearDeviceMetricsOverride").catch((e) => {
@@ -599,6 +599,71 @@ async function dagLifecycleWaysIn(h, ctx, rec, runId, dagId) {
         "12. F14: dag:<an id no dag has> opens no modal and reports that the DAG no longer exists",
         missing?.ok === false && /no longer exists/.test(missing?.message ?? "") && modalAfter === false,
         JSON.stringify({ missingId, missing, modalAfter })
+    );
+
+    await dagLifecycleHiddenRuns(h, ctx, rec, runId, dagId);
+}
+
+// the run id the detail sheet's header shows
+const SHEET_RUN_ID = `(document.querySelector("[data-jarvis-brief-sheet] [data-run-id]")?.getAttribute("data-run-id") ?? null)`;
+const HIDDEN_RUN_STATE = `
+    const S = await mod("app/store/jotaiStore.ts");
+    const J = await mod("app/view/jarvis/jarvissubjectstore.ts");
+    const C = await mod("app/view/agents/channelsstore.ts");
+    return {
+        active: S.globalStore.get(J.activeRunIdAtom),
+        listed: S.globalStore.get(C.activeChannelRunsAtom).map((r) => r.id),
+    };
+`;
+
+// F4 at 1600x950: a run hidden from the lists, opened by run:<id>, lands on its owner's sheet, never another run's.
+// A brainstorm judge is the kind that landed wrong: the channel's run list leaves it out, so the sheet fell back to
+// the newest live run. It has no owner run, so it is refused. A verifier's owner is its dag's run.
+async function dagLifecycleHiddenRuns(h, ctx, rec, runId, dagId) {
+    const kinds = {
+        verifier: { patch: { dagoref: dagId, stagerole: "verifier" } },
+        judge: { patch: { stagerole: "brainstorm-judge" } },
+    };
+    ctx.hiddenIds = [];
+    for (const [name, k] of Object.entries(kinds)) {
+        const created = await h.rpc("createrun", {
+            channelid: ctx.channelId,
+            workspaceid: ctx.workspaceId,
+            goal: `verify dag-lifecycle: stand-in ${name} run`,
+            runtime: "claude",
+            model: "haiku",
+            mode: "quick",
+            deferstart: true,
+        });
+        k.id = created.run.id;
+        ctx.hiddenIds.push(k.id);
+        await fstWriteRun(h, k.id, (r) => ({ ...r, ...k.patch }));
+    }
+    await polishReload(h);
+    await h.cdp("Emulation.setDeviceMetricsOverride", RV_WIDE);
+
+    const verifierOpened = await h.ev(openAddressExpr(`run:${kinds.verifier.id}`));
+    const onOwner = await polishWaitFor(h, `${SHEET_RUN_ID} === ${JSON.stringify(runId)}`, 10000);
+    const verifier = { opened: verifierOpened, shown: await h.ev(SHEET_RUN_ID), ...(await lookEval(h, HIDDEN_RUN_STATE)) };
+    await h.shot("cdp-shots/dag-lifecycle-verifier-owner-sheet.png");
+    rec(
+        "13. F4: run:<a verifier stage session> lands on its owner's sheet (the dag's run id), not its own or another run's",
+        verifierOpened?.ok === true && onOwner && verifier.shown === runId,
+        JSON.stringify({ owner: runId, verifier: kinds.verifier.id, ...verifier })
+    );
+
+    const judgeOpened = await h.ev(openAddressExpr(`run:${kinds.judge.id}`));
+    // a refusal writes nothing, so give a wrong landing time to show
+    await polishNap(1500);
+    const judge = { opened: judgeOpened, shown: await h.ev(SHEET_RUN_ID), ...(await lookEval(h, HIDDEN_RUN_STATE)) };
+    await h.shot("cdp-shots/dag-lifecycle-judge-refused.png");
+    rec(
+        "13a. F4: run:<a brainstorm judge>, which the channel's list leaves out, is refused as having no sheet of its own, and the sheet stays on the run it showed",
+        judgeOpened?.ok === false &&
+            judgeOpened?.message === "That run is part of another run and has no sheet of its own" &&
+            judge.shown === runId &&
+            judge.active?.[ctx.channelId] === runId,
+        JSON.stringify({ owner: runId, judge: kinds.judge.id, ...judge })
     );
 }
 

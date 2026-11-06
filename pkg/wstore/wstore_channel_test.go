@@ -259,3 +259,83 @@ func TestGetStageRunDurations(t *testing.T) {
 		t.Fatalf("want only the two finished, reported runs of the role, got %v", got)
 	}
 }
+
+// the shared cache keys on oid and version, and a re-insert starts again at version 1, so a bulk delete
+// that left the held copy would serve it for the new row
+func TestDeleteChannelEvictsSharedRuns(t *testing.T) {
+	ctx := context.Background()
+	ch, err := CreateChannel(ctx, "evict-runs", "/p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runId := uuid.NewString()
+	goalOf := func() string {
+		t.Helper()
+		runs, err := GetAllRunsShared(ctx)
+		if err != nil {
+			t.Fatalf("GetAllRunsShared: %v", err)
+		}
+		for _, r := range runs {
+			if r.OID == runId {
+				return r.Goal
+			}
+		}
+		t.Fatalf("run %s missing", runId)
+		return ""
+	}
+	if err := AppendRun(ctx, ch.OID, waveobj.Run{ID: runId, Goal: "first"}); err != nil {
+		t.Fatal(err)
+	}
+	if g := goalOf(); g != "first" {
+		t.Fatalf("goal = %q, want first", g)
+	}
+	if err := DeleteChannel(ctx, ch.OID); err != nil {
+		t.Fatalf("delete channel: %v", err)
+	}
+	if err := DBInsert(ctx, &waveobj.Run{OID: runId, ID: runId, Goal: "second", Meta: make(waveobj.MetaMapType)}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = DBDelete(ctx, waveobj.OType_Run, runId) })
+	if g := goalOf(); g != "second" {
+		t.Fatalf("goal = %q after channel delete and re-insert, want second", g)
+	}
+}
+
+func TestDeleteChannelEvictsSharedDags(t *testing.T) {
+	ctx := context.Background()
+	ch, err := CreateChannel(ctx, "evict-dags", "/p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dagId := uuid.NewString()
+	insert := func(status string) {
+		t.Helper()
+		if err := AppendDag(ctx, &waveobj.TaskGroup{OID: dagId, ID: dagId, ChannelId: ch.OID, Status: status, Meta: make(waveobj.MetaMapType)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	insert("running")
+	if d, err := GetDagShared(ctx, dagId); err != nil || d.Status != "running" {
+		t.Fatalf("first read: %+v err=%v", d, err)
+	}
+	if err := DeleteChannel(ctx, ch.OID); err != nil {
+		t.Fatalf("delete channel: %v", err)
+	}
+	insert("done")
+	t.Cleanup(func() { _ = DBDelete(ctx, waveobj.OType_Dag, dagId) })
+	d, err := GetDagShared(ctx, dagId)
+	if err != nil || d.Status != "done" {
+		t.Fatalf("after channel delete and re-insert: %+v err=%v, want status done", d, err)
+	}
+}
+
+func TestDeleteChannelEmpty(t *testing.T) {
+	ctx := context.Background()
+	ch, err := CreateChannel(ctx, "evict-empty", "/p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := DeleteChannel(ctx, ch.OID); err != nil {
+		t.Fatalf("delete empty channel: %v", err)
+	}
+}

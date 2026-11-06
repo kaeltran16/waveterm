@@ -143,6 +143,52 @@ export function installSessions(h, sessions) {
     );
 }
 
+// holds GetSessionsActivity's next call until releaseArchiveRead: that held call answers the archive the page holds
+// now without the rows keyed in `omit`, every later call answers it whole, both complete. The pins each call was
+// sent go to window.__sessionsArchiveReads; restoreArchiveRead puts the real command back.
+export function holdArchiveRead(h, omit) {
+    return pageEval(
+        h,
+        `
+        const omit = new Set(${JSON.stringify(omit)});
+        const sessions = globalStore.get(store.sessionsArchiveAtom) ?? [];
+        let release;
+        const gate = new Promise((r) => (release = r));
+        window.__sessionsArchiveRelease = release;
+        window.__sessionsArchiveReads = [];
+        RpcApi.GetSessionsActivityCommand = async (client, data) => {
+            const n = window.__sessionsArchiveReads.push([...(data.pinned ?? [])]);
+            if (n > 1) return { sessions, incomplete: false };
+            await gate;
+            return { sessions: sessions.filter((s) => !omit.has(s.runtime + ":" + s.id)), incomplete: false };
+        };
+        return true;
+    `
+    );
+}
+
+export function archiveReads(h) {
+    return h.ev(`window.__sessionsArchiveReads ?? []`);
+}
+
+export function releaseArchiveRead(h) {
+    return h.ev(`(window.__sessionsArchiveRelease?.(), true)`);
+}
+
+// safe without a hold: releases any held call, puts the real command back and reloads
+export function restoreArchiveRead(h) {
+    return pageEval(
+        h,
+        `
+        window.__sessionsArchiveRelease?.();
+        delete window.__sessionsArchiveRelease;
+        delete window.__sessionsArchiveReads;
+        delete RpcApi.GetSessionsActivityCommand;
+        await store.loadSessionsArchive();
+    `
+    );
+}
+
 // holds each run and dag in the WOS cache; the fetch is dropped (pendingPromise never settles) and the held copy
 // is put back after every push, since a live object is pushed again on each change
 export function installRuns(h, list) {

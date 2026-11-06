@@ -317,50 +317,53 @@ function ApproveBar({
     const act = useAction();
     const working = f.working != null;
     const blocker = approveBlocker(f);
+    // the buttons own row one and never wrap; the blocker, which can be long, takes a row of its own below them
     return (
         <div
             data-brainstorm-approve-bar
-            className="flex flex-none flex-wrap items-center gap-x-[14px] gap-y-[8px] border-t border-border bg-surface px-[22px] py-[12px]"
+            className="flex flex-none flex-col gap-[8px] border-t border-border bg-surface px-[22px] py-[12px]"
         >
-            <div className="flex min-w-[240px] flex-1 flex-col gap-[3px]">
-                <span className="whitespace-nowrap text-[13px] font-semibold text-primary">
-                    Approve and start an orchestrator run
-                </span>
-                <span className="truncate font-mono text-[11px] text-muted">
-                    {runLine(projectOf(agent))} ·{" "}
-                    <button type="button" onClick={() => openRunLauncher(model, agent, s)} className={LINK}>
-                        Change
-                    </button>
-                </span>
-                {act.error != null ? <span className={ERROR_LINE}>{act.error}</span> : null}
+            <div className="flex items-center gap-[14px]">
+                <div className="flex min-w-0 flex-1 flex-col gap-[3px]">
+                    <span className="truncate text-[13px] font-semibold text-primary">
+                        Approve and start an orchestrator run
+                    </span>
+                    <span className="truncate font-mono text-[11px] text-muted">
+                        {runLine(projectOf(agent))} ·{" "}
+                        <button type="button" onClick={() => openRunLauncher(model, agent, s)} className={LINK}>
+                            Change
+                        </button>
+                    </span>
+                    {act.error != null ? <span className={ERROR_LINE}>{act.error}</span> : null}
+                </div>
+                <button
+                    type="button"
+                    disabled={working || act.busy}
+                    title={working ? WORKING_TITLE : undefined}
+                    onClick={() => void act.run(() => sendBrainstorm(agent, { kind: "keep-talking" }))}
+                    className={cn(
+                        CANVAS_BTN,
+                        "flex-none whitespace-nowrap disabled:cursor-default disabled:opacity-50"
+                    )}
+                >
+                    Keep talking
+                </button>
+                <button
+                    type="button"
+                    data-brainstorm-approve
+                    disabled={blocker != null || act.busy}
+                    title={blocker ?? undefined}
+                    onClick={() => void act.run(() => approveAndOpenRun(model, agent, s))}
+                    className={cn(CANVAS_PRIMARY_BTN, "flex-none whitespace-nowrap")}
+                >
+                    Approve and start run
+                </button>
             </div>
             {blocker != null ? (
-                <span
-                    data-brainstorm-approve-reason
-                    className="min-w-0 text-right text-[12px] leading-[1.45] text-warning"
-                >
+                <span data-brainstorm-approve-reason className="text-[12px] leading-[1.45] text-warning">
                     {blocker}
                 </span>
             ) : null}
-            <button
-                type="button"
-                disabled={working || act.busy}
-                title={working ? WORKING_TITLE : undefined}
-                onClick={() => void act.run(() => sendBrainstorm(agent, { kind: "keep-talking" }))}
-                className={cn(CANVAS_BTN, "disabled:cursor-default disabled:opacity-50")}
-            >
-                Keep talking
-            </button>
-            <button
-                type="button"
-                data-brainstorm-approve
-                disabled={blocker != null || act.busy}
-                title={blocker ?? undefined}
-                onClick={() => void act.run(() => approveAndOpenRun(model, agent, s))}
-                className={CANVAS_PRIMARY_BTN}
-            >
-                Approve and start run
-            </button>
         </div>
     );
 }

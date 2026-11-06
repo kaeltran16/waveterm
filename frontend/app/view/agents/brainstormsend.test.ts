@@ -1,6 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { toastsAtom } from "@/app/cockpit/notificationstore";
 import { globalStore } from "@/app/store/jotaiStore";
 import { newRunPrefillAtom } from "@/app/view/jarvis/newruncontrol";
 import { atom } from "jotai";
@@ -8,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
 import { brainstormLine, runPrefill, type BrainstormAction, type BrainstormFile } from "./brainstormmodel";
-import { approveAndOpenRun, openRunLauncher, sendBrainstorm } from "./brainstormsend";
+import { approveAndOpenRun, openRunLauncher, reportSendFailure, sendBrainstorm } from "./brainstormsend";
 import {
     attachBrainstorm,
     brainstormsAtom,
@@ -93,6 +94,7 @@ beforeEach(() => {
 afterEach(() => {
     globalStore.set(newRunPrefillAtom, null);
     globalStore.set(brainstormsAtom, {});
+    globalStore.set(toastsAtom, []);
 });
 
 describe("sendBrainstorm", () => {
@@ -306,5 +308,26 @@ describe("openRunLauncher", () => {
         globalStore.get(newRunPrefillAtom)!.onStarted!("run-42");
         await flush();
         expect(io.sent).toEqual([["blk-1", "brainstorm: run run-42"]]);
+    });
+
+    it("a refused run-id line raises an error toast with the refusal", async () => {
+        openRunLauncher(fakeModel(), AGENT, STATE, fakeIO(true));
+        globalStore.get(newRunPrefillAtom)!.onStarted!("run-42");
+        await flush();
+        expect(globalStore.get(toastsAtom)).toMatchObject([
+            { level: "error", message: "Couldn't send to lag-alerts: boom" },
+        ]);
+    });
+});
+
+describe("reportSendFailure", () => {
+    it("raises one error toast carrying the error's message", () => {
+        reportSendFailure(AGENT.id, new Error("The agent is busy"));
+        expect(globalStore.get(toastsAtom)).toMatchObject([{ level: "error", message: "The agent is busy" }]);
+    });
+
+    it("carries a non-Error refusal as its text", () => {
+        reportSendFailure(AGENT.id, "no such tab");
+        expect(globalStore.get(toastsAtom)).toMatchObject([{ level: "error", message: "no such tab" }]);
     });
 });

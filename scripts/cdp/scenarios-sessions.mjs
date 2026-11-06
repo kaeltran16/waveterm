@@ -4,6 +4,7 @@
 import { randomUUID } from "node:crypto";
 import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { archiveReads, holdArchiveRead, releaseArchiveRead, restoreArchiveRead, setPins } from "./sessions-page-fixtures.mjs";
 import { removeSessionsSearchFixtures, seedSessionsSearchRun, writeSessionsSearchFixtures } from "./sessions-search-fixtures.mjs";
 
 const VIEWPORT = { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false };
@@ -850,6 +851,37 @@ const sessionsPin = (kit) => ({
             sawBogus && !pins9.includes(PIN_BOGUS) && before9.length > 0 && before9.every((k) => pins9.includes(k)),
             { before: before9, after: pins9, sawBogus }
         );
+
+        // 9b. a pin set while an archive read is in flight survives that read, and the read runs once more
+        const before9b = (await readPins(h)).pins.filter((k) => k !== solo);
+        await setPins(h, before9b);
+        await holdArchiveRead(h, [solo]);
+        // a real load already in flight takes this call's place and reruns into the held stub
+        await modEval(h, `store.loadSessionsArchive(); return true;`);
+        const t9b = Date.now();
+        let reads9b = await archiveReads(h);
+        while (reads9b.length < 1 && Date.now() - t9b < LIVE_WAIT_MS) {
+            await nap(h, 200);
+            reads9b = await archiveReads(h);
+        }
+        const heldSent = reads9b[0] ?? null;
+        await setPins(h, [...before9b, solo]);
+        // as the palette's restore does: this call meets the in-flight load, which then runs once more
+        await modEval(h, `await store.loadSessionsArchive(); return true;`);
+        await releaseArchiveRead(h);
+        while (reads9b.length < 2 && Date.now() - t9b < LIVE_WAIT_MS) {
+            await nap(h, 200);
+            reads9b = await archiveReads(h);
+        }
+        // a wrong prune is a pin write that lands with the client's next push
+        await nap(h, PIN_SETTLE_MS * 2);
+        const pins9b = (await readPins(h)).pins;
+        rec(
+            "9b. a pin added during a held archive read stays pinned after the read lands, and the read runs again with it",
+            heldSent != null && !heldSent.includes(solo) && pins9b.includes(solo) && reads9b.length >= 2 && reads9b[1].includes(solo),
+            { heldSent, reads: reads9b, pins: pins9b }
+        );
+        await restoreArchiveRead(h);
         return steps;
     },
     async teardown(h, ctx) {
@@ -861,6 +893,7 @@ const sessionsPin = (kit) => ({
             }
         };
         await step("close the menu", () => closeMenu(h));
+        await step("put the archive read back", () => restoreArchiveRead(h));
         await step("clear the query", () => typeQuery(h, ""));
         await step("back to All", () => clickFilter(h, "All"));
         if (ctx.prior?.clientId) {

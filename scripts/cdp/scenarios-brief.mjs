@@ -3348,7 +3348,8 @@ export const briefRestore = {
 };
 
 // --- brief-profile: both scopes of the profile modal -------------------------------------------
-// It never presses Save, so the global profile is never written. A store with no projects opens the modal on
+// Only step 13 presses Save (global lands, the project write is refused); teardown restores the global profile
+// it wrote. A store with no projects opens the modal on
 // Global only, so the scenario registers two of its own; the principles editor steps write the first one's
 // override over RPC, and teardown clears it with the project.
 const BRIEF_PROFILE_PROJECT = "verify-brief-profile";
@@ -3532,6 +3533,76 @@ async function principlesEditorSteps(h, ctx, rec) {
     await closeProfile(h);
 }
 
+const PARTIAL_SAVE_REFUSAL = "verify: project profile save refused";
+const SHAPE_VALUE = { Quick: "quick", Orchestrator: "orchestrator" };
+
+// Step 13 (D14, F17): both scopes dirty and the project write refused. Global is written first, so it lands and
+// reads saved while the project stays dirty with the refusal in the footer. This one writes the global profile
+// (the Final's own store); ctx.globalBefore is what teardown puts back.
+async function partialSaveStep(h, ctx, rec) {
+    const step = "13. a refused project save after the global one landed leaves global saved, the project dirty and the footer naming the refusal";
+    const footer = () => h.ev(PROFILE_FOOTER);
+    const waitFooter = (cond, ms = 3000) => polishWaitFor(h, `(() => { const f = ${PROFILE_FOOTER}; return !!f && (${cond}); })()`, ms);
+    const storedShape = async () => (await h.rpc("getjarvisprofile", { channelid: ctx.channelId }))?.global?.defaultmode;
+    const shapeGroup = `${PROFILE_MODAL}?.querySelector('[role="group"][aria-label="Default shape"]')`;
+    const otherShape = `[...(${shapeGroup}?.querySelectorAll('button') ?? [])].find((b) => b.getAttribute('aria-pressed') !== 'true')`;
+
+    ctx.globalBefore = (await h.rpc("getjarvisprofile", { channelid: ctx.channelId }))?.global;
+    await openProfileOn(h, BRIEF_PROFILE_PROJECT);
+    await clickProfileButton(h, "Add a project principle");
+    await h.ev(setTextareaExpr(`[...(${PROFILE_MODAL}?.querySelectorAll('textarea[aria-label="Project principle text"]') ?? [])].at(-1)`, "verify partial save"));
+    await h.ev(`${PROFILE_MODAL}?.querySelector('[data-jarvis-profile-tab="global"]')?.click()`);
+    await polishWaitFor(h, `${PROFILE_MODAL}?.dataset.jarvisProfileScope === 'global' && !!${otherShape}`, 5000);
+    const shapeLabel = await h.ev(`${otherShape}?.textContent.trim() ?? null`);
+    const wantShape = SHAPE_VALUE[shapeLabel];
+    await h.ev(`${otherShape}?.click()`);
+    await waitFooter(`f.status === 'Unsaved changes · Project and Global'`);
+    const dirty = await footer();
+
+    let refused = null;
+    let stored = null;
+    let globalTab = null;
+    let projectTab = null;
+    await failRpc(h, "SetChannelProfileCommand", PARTIAL_SAVE_REFUSAL);
+    try {
+        await clickProfileButton(h, "Save global profile");
+        await waitFooter(`f.status === ${JSON.stringify(PARTIAL_SAVE_REFUSAL)}`, 5000);
+        refused = await footer();
+        await h.shot("cdp-shots/brief-profile-partial-save.png");
+        stored = await storedShape();
+        // switching scope clears the footer's error, which leaves what each scope still owes
+        await h.ev(`${PROFILE_MODAL}?.querySelector('[data-jarvis-profile-tab="global"]')?.click()`);
+        await waitFooter(`f.scope === 'global' && f.status.startsWith('Unsaved')`);
+        globalTab = await footer();
+        await h.ev(`${PROFILE_MODAL}?.querySelector('[data-jarvis-profile-tab="project"]')?.click()`);
+        await waitFooter(`f.scope === 'project' && f.status.startsWith('Unsaved')`);
+        projectTab = await footer();
+    } finally {
+        await releaseRpc(h, "SetChannelProfileCommand");
+    }
+    rec(
+        step,
+        wantShape != null &&
+            dirty?.status === "Unsaved changes · Project and Global" &&
+            refused?.status === PARTIAL_SAVE_REFUSAL &&
+            refused.saveDisabled === false &&
+            stored === wantShape &&
+            globalTab?.status === "Unsaved changes · Project" &&
+            projectTab?.status === "Unsaved changes · Project" &&
+            projectTab.additions === 1,
+        JSON.stringify({
+            shapeLabel,
+            wantShape,
+            stored,
+            dirty: dirty?.status,
+            refused: refused && { status: refused.status, saveDisabled: refused.saveDisabled },
+            globalTab: globalTab?.status,
+            projectTab: projectTab && { status: projectTab.status, additions: projectTab.additions },
+        })
+    );
+    await closeProfile(h);
+}
+
 // the run-defaults rows: a row is the grid holding a label, its control and the source or reach cell
 const PROFILE_STATE = `(() => {
     const m = ${PROFILE_MODAL};
@@ -3671,11 +3742,14 @@ export const briefProfile = {
         steps.push(placeholderStep("6. while the profile reads, the modal holds its 96px block", loading, { height: 96, radius: "8px" }));
 
         await principlesEditorSteps(h, ctx, rec);
+        await partialSaveStep(h, ctx, rec);
         return steps;
     },
     async teardown(h, ctx) {
         const undo = [
+            ["release the refused project save", () => releaseRpc(h, "SetChannelProfileCommand")],
             ["close the profile", () => closeProfile(h)],
+            ["restore the global profile", () => ctx.globalBefore && h.rpc("setglobalprofile", { profile: ctx.globalBefore })],
             ["clear the project's override", () => ctx.wroteOverride && h.rpc("setchannelprofile", { channelid: ctx.channelId, override: {} })],
             ["delete the channel", () => ctx.channelId && h.rpc("deletechannel", { channelid: ctx.channelId })],
             ["delete the project", () => ctx.project && h.rpc("deleteproject", { name: ctx.project })],

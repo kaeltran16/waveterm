@@ -42,6 +42,9 @@ import {
 // the window where the app-bar search collapsed (visual revisit F5), and the width it must keep there
 const APP_BAR_NARROW = { width: 1000, height: 700, deviceScaleFactor: 1, mobile: false };
 const APP_BAR_MIN_SEARCH = 200;
+// F8: the laptop widths a two-provider bar is read at, and the search's min-w (app-bar.tsx) it must stay above
+const APP_BAR_TWO_PROVIDER_WIDTHS = [1200, 1366, 1440];
+const APP_BAR_SEARCH_FLOOR = 160;
 
 // The two layers added on top of the collapse order: the nav rail collapsing itself below a narrow window
 // (navrailwidth.ts, the design's step 4) and the context rail leaving the flow entirely once collapsing
@@ -994,6 +997,40 @@ export const usageCharts = {
         );
         await usageShots(h, "usage-charts-review-unpriced", []);
 
+        // F8: with Claude and Codex both reporting, the app bar holds four meters plus two provider dots; at the
+        // common laptop widths the search must stay above its min-w floor. Last, since it reloads onto a second
+        // provider the steps above do not expect; teardown puts the snapshot back.
+        const twoProviders = usageRateLimits();
+        twoProviders.codex = { ...twoProviders.claude, fivehourpct: 35, weekpct: 20 };
+        await h.ev(`localStorage.setItem('wave:ratelimits', ${JSON.stringify(JSON.stringify(twoProviders))})`);
+        await h.ev("location.reload()");
+        // two providers' 5h and wk windows: four percentages
+        await polishWaitFor(
+            h,
+            `(document.querySelector("[data-usage-meters]")?.textContent.match(/\\d+%/g) ?? []).length === 4`,
+            15_000
+        );
+        const searchWidths = {};
+        try {
+            for (const width of APP_BAR_TWO_PROVIDER_WIDTHS) {
+                await h.cdp("Emulation.setDeviceMetricsOverride", { ...OBS_WIDE, width, height: APP_BAR_NARROW.height });
+                await settle(400);
+                searchWidths[width] = await appBarRoom();
+                await h.shot(`cdp-shots/usage-charts-appbar-two-providers-${width}.png`);
+            }
+        } finally {
+            await h.cdp("Emulation.setDeviceMetricsOverride", OBS_WIDE);
+        }
+        const widths = Object.values(searchWidths);
+        rec(
+            `26. with two providers' meters the app-bar search is wider than its ${APP_BAR_SEARCH_FLOOR}px floor at ${APP_BAR_TWO_PROVIDER_WIDTHS.join(", ")}`,
+            widths.length === APP_BAR_TWO_PROVIDER_WIDTHS.length &&
+                widths.every((w) => w.search > APP_BAR_SEARCH_FLOOR && /(5h\s*\d+%.*){2}/.test(w.text)),
+            JSON.stringify(
+                Object.fromEntries(Object.entries(searchWidths).map(([k, w]) => [k, { search: w.search, meters: w.meters, bars: w.bars, text: w.text }]))
+            )
+        );
+
         return steps;
     },
     // Restore the developer's pre-existing quota + fixture snapshots (delete only absent keys), reload so
@@ -1727,14 +1764,17 @@ export const usageWork = {
             const left = await until(() => !surfaceShown());
             return { first, second, left };`
         );
+        // "home" is the Cockpit: leaving Usage for any other surface is not the last Esc's job
+        const home = await h.activeSurfaceLabel();
         rec(
-            "18. Esc from an item goes Back, from a project to All usage, then home",
+            "18. Esc from an item goes Back, from a project to All usage, then home to the Cockpit",
             escOpened.settled &&
                 escOpened.back != null &&
                 esc.first === `project:${escProject}` &&
                 esc.second === "all" &&
-                esc.left,
-            JSON.stringify({ item: escItem, back: escOpened.back, ...esc })
+                esc.left &&
+                home === SURFACE_LABEL.cockpit,
+            JSON.stringify({ item: escItem, back: escOpened.back, ...esc, home })
         );
 
         return steps;
@@ -1939,6 +1979,59 @@ export const usageStates = {
                 levels.card[0].fill !== levels.card[1].fill &&
                 levels.card[1].fill === levels.accent,
             JSON.stringify(levels)
+        );
+
+        // By work's failed range switch: the project and initiative share pills read the held dash, not the held
+        // 7 days' shares, and the other-folders note (a held figure too) goes. The work fixture has the projects and
+        // the other folders; one tagged session adds the initiative.
+        const work = buildUsageWorkFixture();
+        work.sessions = work.sessions.map((s) => (s.session === "fx-arc-1" ? { ...s, effort: USAGE_PAGE_EFFORT } : s));
+        await usageReloadWith(h, { ...work, efforts: [{ oid: USAGE_PAGE_EFFORT, title: USAGE_PAGE_EFFORT_TITLE }] });
+        await h.goto("usage");
+        const workPills = `const pills = (attr) =>
+                [...document.querySelectorAll("[data-usage-scopes] [" + attr + "]")].map((b) => text(b.querySelector("span.uppercase")));
+            const read = () => ({
+                projects: pills("data-usage-project"),
+                initiatives: pills("data-usage-initiative"),
+                other: text(document.querySelector("[data-usage-scopes] [data-usage-other]")) || null,
+            });
+            const panel = () => document.querySelector("[data-usage-detail] [data-usage-switch-failed]");`;
+        const workFailed = await usageEv(
+            h,
+            `${workPills}
+            press(groupButton("Lens", "By work"));
+            const loaded = await until(() => {
+                const r = read();
+                return r.projects.length > 0 && r.initiatives.length > 0 && r.other != null;
+            });
+            const before = read();
+            localStorage.setItem('wave:dev-usage-buckets', ${JSON.stringify(JSON.stringify({ fail: true }))});
+            press(groupButton("Range", "All time"));
+            const shown = await until(() => panel() != null);
+            return { loaded, before, shown, failed: read() };`
+        );
+        await h.shot("cdp-shots/usage-work-switch-failed.png");
+        await h.ev(
+            `localStorage.setItem('wave:dev-usage-buckets', ${JSON.stringify(JSON.stringify(buildUsageWorkFixture()))})`
+        );
+        const workRetried = await usageEv(
+            h,
+            `${workPills}
+            press([...(panel()?.querySelectorAll("button") ?? [])].find((b) => text(b) === "Retry"));
+            const recovered = await until(() => panel() == null && read().projects.some((p) => /\\d%/.test(p)));
+            return { recovered, ...read() };`
+        );
+        const allDash = (xs) => xs.length > 0 && xs.every((x) => x === "—");
+        rec(
+            "7. By work's failed range switch draws every project and initiative share pill as a dash and drops the other-folders note; Retry recovers",
+            workFailed.loaded &&
+                workFailed.before.projects.every((p) => /\d%/.test(p)) &&
+                workFailed.shown &&
+                allDash(workFailed.failed.projects) &&
+                allDash(workFailed.failed.initiatives) &&
+                workFailed.failed.other == null &&
+                workRetried.recovered,
+            JSON.stringify({ workFailed, workRetried })
         );
 
         return steps;
