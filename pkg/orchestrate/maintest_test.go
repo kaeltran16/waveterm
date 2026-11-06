@@ -37,6 +37,8 @@ func TestMain(m *testing.M) {
 	workerControllerGone = func(context.Context, *waveobj.Run) bool { return false }
 	// fixtures spawn workers through a stub that makes no tab, so there is nothing to start
 	startWorker = func(context.Context, string) error { return nil }
+	// fixture workers have no shell, so no job to lower
+	lowerWorkerPriority = func(string) error { return nil }
 	// a landed dag's verifier would need a workspace to spawn in; only the verifier's own tests start one
 	startVerifier = skipVerifier
 	// the store is shared by every test, and the cap would count the workers earlier tests left live in it;

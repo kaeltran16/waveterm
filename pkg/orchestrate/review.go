@@ -161,6 +161,7 @@ func spawnReviewer(ctx, spawnCtx context.Context, g *waveobj.TaskGroup, t *waveo
 		spendReviewRespawn(ctx, g, t, "reviewer could not start: "+err.Error(), afterCommit)
 		return
 	}
+	deprioritizeWorker(spawnCtx, oref)
 	t.ReviewRunID, t.ReviewSpawnedTs = runID, now
 	taskID := t.ID
 	*afterCommit = append(*afterCommit, func() {

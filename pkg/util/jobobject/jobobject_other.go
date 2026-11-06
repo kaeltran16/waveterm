@@ -25,3 +25,7 @@ func Members(job uintptr) ([]int, error) {
 func TerminateMember(o Owner, pid int) error {
 	return ErrNotMember
 }
+
+func LowerPriority(blockId string) error {
+	return nil
+}

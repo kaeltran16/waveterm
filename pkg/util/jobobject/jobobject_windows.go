@@ -63,6 +63,35 @@ func Close(job uintptr) {
 	_ = windows.CloseHandle(windows.Handle(job))
 }
 
+// LowerPriority puts every process in the live job registered for block blockId at below-normal priority, so a
+// background worker's tree yields the CPU to the app. It ORs the limit into the job's current ones, keeping
+// KILL_ON_JOB_CLOSE. ErrNotMember when no live job is registered for the block.
+func LowerPriority(blockId string) error {
+	o := Owner{Kind: OwnerKind_Block, Id: blockId}
+	found, err := anyOwnedJob(o, func(job uintptr) (bool, error) { return true, setBelowNormal(windows.Handle(job)) })
+	if err != nil {
+		return fmt.Errorf("lowering priority of block %s: %w", blockId, err)
+	}
+	if !found {
+		return ErrNotMember
+	}
+	return nil
+}
+
+func setBelowNormal(job windows.Handle) error {
+	var info windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+	size := uint32(unsafe.Sizeof(info))
+	if err := windows.QueryInformationJobObject(job, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&info)), size, nil); err != nil {
+		return fmt.Errorf("QueryInformationJobObject: %w", err)
+	}
+	info.BasicLimitInformation.LimitFlags |= windows.JOB_OBJECT_LIMIT_PRIORITY_CLASS
+	info.BasicLimitInformation.PriorityClass = windows.BELOW_NORMAL_PRIORITY_CLASS
+	if _, err := windows.SetInformationJobObject(job, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&info)), size); err != nil {
+		return fmt.Errorf("SetInformationJobObject: %w", err)
+	}
+	return nil
+}
+
 // mirrors JOBOBJECT_BASIC_PROCESS_ID_LIST; list is a variable-length array.
 type basicProcessIdList struct {
 	assigned uint32

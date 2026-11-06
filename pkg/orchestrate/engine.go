@@ -16,6 +16,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/harness"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/runroute"
+	"github.com/wavetermdev/waveterm/pkg/util/jobobject"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
 	"github.com/wavetermdev/waveterm/pkg/wps"
@@ -59,6 +60,56 @@ func SetValidateWorkerHarnessForTest(fn func(string) error) func() {
 // spawnWorker.
 var startWorker = func(ctx context.Context, workerORef string) error {
 	return jarvis.StartRunWorker(ctx, workerORef)
+}
+
+// lowerWorkerPriority puts a block's process tree at below-normal CPU priority. A var so tests can stub it.
+var lowerWorkerPriority = jobobject.LowerPriority
+
+const (
+	// the shell controller launches a block's process on its own goroutine after startWorker returns, so its job
+	// registers a moment later; a worker whose process never starts gives up at the wait and keeps normal priority
+	workerJobWait = 30 * time.Second
+	workerJobPoll = 250 * time.Millisecond
+)
+
+// deprioritizeWorker lowers a started worker's or reviewer's priority so several runs in flight leave the app
+// responsive. It never fails the spawn: a worker it cannot lower runs at normal priority, and the failure is logged.
+func deprioritizeWorker(ctx context.Context, workerORef string) {
+	blockId, err := workerBlockId(ctx, workerORef)
+	if err != nil {
+		log.Printf("lowering priority of worker %s: %v", workerORef, err)
+		return
+	}
+	lower := lowerWorkerPriority // read now: the goroutine outlives a test's stub
+	go func() {
+		deadline := time.Now().Add(workerJobWait)
+		for {
+			err := lower(blockId)
+			if err == nil {
+				return
+			}
+			if !errors.Is(err, jobobject.ErrNotMember) || time.Now().After(deadline) {
+				log.Printf("lowering priority of worker %s (block %s): %v", workerORef, blockId, err)
+				return
+			}
+			time.Sleep(workerJobPoll)
+		}
+	}()
+}
+
+func workerBlockId(ctx context.Context, workerORef string) (string, error) {
+	oref, err := waveobj.ParseORef(workerORef)
+	if err != nil || oref.OType != waveobj.OType_Tab {
+		return "", fmt.Errorf("bad worker oref %q", workerORef)
+	}
+	tab, err := wstore.DBMustGet[*waveobj.Tab](ctx, oref.OID)
+	if err != nil {
+		return "", fmt.Errorf("loading worker tab: %w", err)
+	}
+	if len(tab.BlockIds) == 0 {
+		return "", fmt.Errorf("worker tab %s has no block", oref.OID)
+	}
+	return tab.BlockIds[0], nil
 }
 
 // cleanupContext is ctx while it is live, else a detached one bounded by scheduleCleanupTimeout: undoing a spawn must
@@ -934,6 +985,7 @@ func dispatchTasks(ctx context.Context, budget *spawnBudget, g *waveobj.TaskGrou
 			failDispatch(ctx, g, taskID, FailureKindSpawn, err, afterCommit)
 			continue
 		}
+		deprioritizeWorker(spawnCtx, oref)
 		// now, not at tick end: the app already shows the tab, and until its run arrives the tab sits outside
 		// the run's tree for as long as the rest of the batch takes to spawn. The tab's stamped task id nests it
 		// before the dag commit names the run.
