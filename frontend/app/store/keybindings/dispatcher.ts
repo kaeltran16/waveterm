@@ -104,6 +104,7 @@ export function deriveKeyContext(): KeyContext {
         globalStore.get(model.newRunOpenAtom) ||
         globalStore.get(model.newInitiativeOpenAtom) ||
         globalStore.get(model.newProjectOpenAtom) ||
+        globalStore.get(model.projectOverviewAtom) != null ||
         // the DAG modal too: left out, the Brief's bindings underneath took the graph's own keys first
         // (Enter submitted an ask, Escape closed the Chunk sidebar). Only the Brief mounts it, and its state
         // outlives a switch away, since opening a worker from the graph lands on the Agent surface.

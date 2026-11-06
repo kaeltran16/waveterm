@@ -158,6 +158,8 @@ export class AgentsViewModel implements ViewModel {
     newAgentOpenAtom = atom(false);
     newRunOpenAtom = atom(false);
     newInitiativeOpenAtom = atom(false);
+    // the project whose Overview modal is open (projectoverview.tsx), opened from the project switcher
+    projectOverviewAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
     paletteOpenAtom = atom(false);
     // the query the next open starts with, consumed by that open (Code's Ctrl+Shift+O seeds "@")
     paletteSeedAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;

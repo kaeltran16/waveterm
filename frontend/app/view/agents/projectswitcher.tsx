@@ -7,11 +7,12 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { ChevronDown, Plus } from "lucide-react";
+import { ChevronDown, LayoutDashboard, Plus } from "lucide-react";
 import { useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { projectsFromAgents } from "./agentsviewmodel";
 import { cockpitCounts } from "./cockpitsurfacemodel";
+import { overviewTarget } from "./projectoverviewmodel";
 import { projectListAtom, removeProject, switcherProjects } from "./projectsstore";
 import { projectControlCopy } from "./surfacecontext";
 
@@ -28,6 +29,7 @@ export function ProjectSwitcher({ model, variant }: { model: AgentsViewModel; va
     // the Cockpit toolbar's own count, unscoped
     const allCount = cockpitCounts(agents, "all", () => false).agents;
     const projectLabel = filter === "all" ? "All projects" : filter;
+    const overview = overviewTarget(filter);
     const copy = projectControlCopy(variant === "header" ? "cockpit" : surface, projectLabel);
     const close = () => {
         setConfirming(null);
@@ -68,6 +70,20 @@ export function ProjectSwitcher({ model, variant }: { model: AgentsViewModel; va
                 origin="top left"
                 className="absolute left-0 top-[calc(100%+7px)] z-[60] w-[268px] overflow-hidden rounded-lg border border-edge-strong bg-surface-raised shadow-popover"
             >
+                        {overview != null ? (
+                            <button
+                                type="button"
+                                data-project-overview-open={overview}
+                                onClick={() => {
+                                    close();
+                                    globalStore.set(model.projectOverviewAtom, overview);
+                                }}
+                                className="flex w-full cursor-pointer items-center gap-2 border-b border-border px-[15px] py-[11px] text-left text-secondary hover:bg-surface-hover hover:text-primary"
+                            >
+                                <LayoutDashboard size={14} aria-hidden className="shrink-0 text-muted" />
+                                <span className="truncate text-[12.5px] font-semibold">Overview of {overview}</span>
+                            </button>
+                        ) : null}
                         <div className="px-3 pb-1.5 pt-[9px]">
                             <span className={cn(REGION_LABEL, "text-muted")}>Switch project</span>
                         </div>

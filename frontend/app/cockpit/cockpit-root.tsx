@@ -23,6 +23,7 @@ import { NewAgentModal } from "@/app/view/agents/newagentmodal";
 import { NewInitiativeHost } from "@/app/view/jarvis/newinitiativecontrol";
 import { NewRunModalHost } from "@/app/view/jarvis/newruncontrol";
 import { NewProjectModal } from "@/app/view/agents/newprojectmodal";
+import { ProjectOverviewModal } from "@/app/view/agents/projectoverview";
 import { subscribeEffortUpdates } from "@/app/view/jarvis/effortstore";
 import { PetSources } from "@/app/view/jarvis/petsources";
 import { setRecordSurfaceReader } from "@/app/view/jarvis/recordactions";
@@ -142,6 +143,7 @@ function CockpitBody({ waveEnv }: { waveEnv: WaveEnv }) {
             </div>
             <HintsFooter model={model} />
             <NewProjectModal model={model} />
+            <ProjectOverviewModal model={model} />
             <NewAgentModal model={model} />
             <NewRunModalHost model={model} />
             <NewInitiativeHost model={model} />

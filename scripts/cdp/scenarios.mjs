@@ -200,6 +200,7 @@ import {
 import { codeSession } from "./scenarios-code-session.mjs";
 import { codeJumps } from "./scenarios-code-jumps.mjs";
 import { codeToolbar } from "./scenarios-code-toolbar.mjs";
+import { projectOverview } from "./scenarios-project-overview.mjs";
 import { codeKeys } from "./scenarios-code-keys.mjs";
 import { codeHandoff } from "./scenarios-code-handoff.mjs";
 import { codeChanged } from "./scenarios-code-changed.mjs";
@@ -381,6 +382,7 @@ export const SCENARIOS = [
     codeSession,
     codeJumps,
     codeToolbar,
+    projectOverview,
     codeKeys,
     codeHandoff,
     codeChanged,
