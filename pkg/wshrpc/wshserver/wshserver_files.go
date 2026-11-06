@@ -16,11 +16,16 @@ import (
 
 	"github.com/wavetermdev/waveterm/pkg/canvasserve"
 	"github.com/wavetermdev/waveterm/pkg/memroots"
+	"github.com/wavetermdev/waveterm/pkg/remote/connparse"
 	"github.com/wavetermdev/waveterm/pkg/remote/fileshare/wshfs"
+	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 )
 
 func (ws *WshServer) FileCreateCommand(ctx context.Context, data wshrpc.FileData) error {
+	if err := snapshotRefusesFile(ctx, fileDataPath(data)); err != nil {
+		return err
+	}
 	data.Data64 = ""
 	err := wshfs.PutFile(ctx, data)
 	if err != nil {
@@ -30,10 +35,16 @@ func (ws *WshServer) FileCreateCommand(ctx context.Context, data wshrpc.FileData
 }
 
 func (ws *WshServer) FileMkdirCommand(ctx context.Context, data wshrpc.FileData) error {
+	if err := snapshotRefusesFile(ctx, fileDataPath(data)); err != nil {
+		return err
+	}
 	return wshfs.Mkdir(ctx, data.Info.Path)
 }
 
 func (ws *WshServer) FileDeleteCommand(ctx context.Context, data wshrpc.CommandDeleteFileData) error {
+	if err := snapshotRefusesFile(ctx, data.Path); err != nil {
+		return err
+	}
 	return wshfs.Delete(ctx, data)
 }
 
@@ -46,6 +57,9 @@ func (ws *WshServer) CanvasServeCommand(ctx context.Context, designDir string) (
 }
 
 func (ws *WshServer) FileWriteCommand(ctx context.Context, data wshrpc.FileData) error {
+	if err := snapshotRefusesFile(ctx, fileDataPath(data)); err != nil {
+		return err
+	}
 	return wshfs.PutFile(ctx, data)
 }
 
@@ -54,7 +68,41 @@ func (ws *WshServer) FileReadCommand(ctx context.Context, data wshrpc.FileData) 
 }
 
 func (ws *WshServer) FileMoveCommand(ctx context.Context, data wshrpc.CommandFileCopyData) error {
+	for _, uri := range []string{data.SrcUri, data.DestUri} {
+		if err := snapshotRefusesFile(ctx, uri); err != nil {
+			return err
+		}
+	}
 	return wshfs.Move(ctx, data)
+}
+
+// snapshotRefusesFile is why a snapshot app may not change uri, nil when it may. A wshfs path may be a
+// connection URI, so it is resolved as wshfs resolves it: a local host is checked on its path, and any other
+// host is refused, since a snapshot reaches no remote.
+func snapshotRefusesFile(ctx context.Context, uri string) error {
+	if !wavebase.IsSnapshot() {
+		return nil
+	}
+	base := wavebase.SnapshotBaseDir()
+	conn, err := connparse.ParseURIAndReplaceCurrentHost(ctx, uri)
+	if err != nil {
+		return fmt.Errorf("snapshot store: not changing %q, which does not resolve (%w); only paths inside %s", uri, err, base)
+	}
+	if conn.Host != wshrpc.LocalConnName {
+		return fmt.Errorf("snapshot store: not changing %q on %s, only local paths inside %s", uri, conn.Host, base)
+	}
+	if !wavebase.SnapshotMayWrite(conn.Path) {
+		return fmt.Errorf("snapshot store: not changing %q, only inside %s", conn.Path, base)
+	}
+	return nil
+}
+
+// fileDataPath is the path a FileData names, "" when it names none (refused under a snapshot as not absolute).
+func fileDataPath(data wshrpc.FileData) string {
+	if data.Info == nil {
+		return ""
+	}
+	return data.Info.Path
 }
 
 func (ws *WshServer) FileJoinCommand(ctx context.Context, paths []string) (*wshrpc.FileInfo, error) {

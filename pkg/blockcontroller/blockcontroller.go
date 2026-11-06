@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -303,14 +302,10 @@ func ResyncController(ctx context.Context, tabId string, blockId string, rtOpts 
 			log.Printf("block %s: %v\n", blockId, err)
 			return err
 		}
-		if wavebase.IsSnapshot() {
-			scratch := wavebase.SnapshotScratchDir()
-			cwd := blockData.Meta.GetString(waveobj.MetaKey_CmdCwd, "")
-			if !snapshotMayStart(scratch, cwd) {
-				err := fmt.Errorf("snapshot store: not starting a process in %q, only inside %s", cwd, scratch)
-				log.Printf("block %s: %v\n", blockId, err)
-				return err
-			}
+		if cwd := blockData.Meta.GetString(waveobj.MetaKey_CmdCwd, ""); !wavebase.SnapshotMayStart(cwd) {
+			err := fmt.Errorf("snapshot store: not starting a process in %q, only inside %s", cwd, wavebase.SnapshotScratchDir())
+			log.Printf("block %s: %v\n", blockId, err)
+			return err
 		}
 
 		// Start controller
@@ -323,16 +318,6 @@ func ResyncController(ctx context.Context, tabId string, blockId string, rtOpts 
 	}
 
 	return nil
-}
-
-// snapshotMayStart is whether a snapshot app may start a process in cwd. Every cwd the copied store holds is
-// a real checkout that a live agent or run of the user's owns, so only the snapshot's scratch dir qualifies.
-func snapshotMayStart(scratch, cwd string) bool {
-	if !filepath.IsAbs(cwd) {
-		return false
-	}
-	rel, err := filepath.Rel(scratch, cwd)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 func GetBlockControllerRuntimeStatus(blockId string) *BlockControllerRuntimeStatus {

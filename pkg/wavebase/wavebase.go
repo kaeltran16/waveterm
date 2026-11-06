@@ -119,10 +119,37 @@ func IsSnapshot() bool {
 	return os.Getenv(ArcSnapshotVarName) == "1"
 }
 
+// SnapshotBaseDir is the snapshot's own folder (arc-snap), the data dir's parent: it holds the copied store, the
+// vault copy and the scratch dir.
+func SnapshotBaseDir() string {
+	return filepath.Dir(GetWaveDataDir())
+}
+
 // SnapshotScratchDir is the one place a snapshot app may start processes: the snapshot base's scratch dir,
 // beside the data dir.
 func SnapshotScratchDir() string {
-	return filepath.Join(filepath.Dir(GetWaveDataDir()), "scratch")
+	return filepath.Join(SnapshotBaseDir(), "scratch")
+}
+
+// SnapshotMayStart is whether a process may start in cwd. Every cwd the copied store holds is a real checkout
+// that a live agent or run of the user's owns, so a snapshot app allows only its scratch dir.
+func SnapshotMayStart(cwd string) bool {
+	return !IsSnapshot() || pathInside(SnapshotScratchDir(), cwd)
+}
+
+// SnapshotMayWrite is whether a file write or delete may touch path: a snapshot app keeps to its own folder.
+func SnapshotMayWrite(path string) bool {
+	return !IsSnapshot() || pathInside(SnapshotBaseDir(), path)
+}
+
+// pathInside is whether path is dir or under it. A relative path is never inside: it resolves against
+// wavesrv's own cwd, which says nothing about where the caller meant.
+func pathInside(dir, path string) bool {
+	if !filepath.IsAbs(path) {
+		return false
+	}
+	rel, err := filepath.Rel(dir, path)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 func GetWaveAppPath() string {
