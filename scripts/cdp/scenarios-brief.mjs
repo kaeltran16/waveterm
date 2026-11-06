@@ -6506,14 +6506,15 @@ export const briefAct = {
             detail: JSON.stringify(f8),
         });
 
-        // 40. a filter matching nothing reads 0 of N on Waiting's summary, Initiatives' all chip and Shipped's; cleared,
-        // the counts read as before
+        // 40. a filter matching nothing reads 0 of N on Waiting's summary and head, Initiatives' all chip and Shipped's;
+        // cleared, the counts read as before
         const f16Counts = () =>
             h.ev(`(() => {
                 const t = (el) => (el?.textContent || "").replace(/\\s+/g, " ").trim();
                 const chip = (sel) => t(document.querySelector(sel)?.querySelector("span"));
                 return {
                     waiting: t(document.querySelector('[data-jarvis-brief-region="waiting"] [data-jarvis-brief-summary-title]')),
+                    waitingHead: t(document.querySelector('[data-jarvis-brief-region="waiting"] [data-jarvis-brief-region-count]')),
                     initiatives: chip('${initRegion} [data-jarvis-initiative-project] [data-filter-option="all"]'),
                     shipped: chip('[data-jarvis-brief-region="behind"] [data-jarvis-run-kind] [data-filter-option="all"]'),
                 };
@@ -6526,12 +6527,14 @@ export const briefAct = {
         const f16after = await f16Counts();
         const waitingN = /^(\d+) things? (?:is|are) waiting on you$/.exec(f16before.waiting)?.[1] ?? null;
         steps.push({
-            step: "40. F16: a filter matching nothing reads 0 of N on the Waiting summary, the Initiatives all chip and the Shipped all chip; cleared, they read N again",
+            step: "40. F16 + F14: a filter matching nothing reads 0 of N on the Waiting summary and head, the Initiatives all chip and the Shipped all chip; cleared, they read N again",
             ok:
                 waitingN != null &&
+                f16before.waitingHead === waitingN &&
                 f16before.initiatives === "10" &&
                 f16before.shipped === "3" &&
                 f16during.waiting === `0 of ${waitingN} waiting match the filter` &&
+                f16during.waitingHead === `0 of ${waitingN}` &&
                 f16during.initiatives === "0 of 10" &&
                 f16during.shipped === "0 of 3" &&
                 JSON.stringify(f16after) === JSON.stringify(f16before),
@@ -6693,6 +6696,86 @@ export const briefAct = {
                 !peekF13.text.includes("effort created"),
             detail: ctx.peekError ?? JSON.stringify({ notes: peekNotes, ...peekF13 }),
         });
+
+        // 46. a run row with no navtarget keeps its key, and the j/k cursor on it, when a second keyless row arrives
+        // above it (the keyless-one and keyless-two fixtures). The row's key is its list-nav id.
+        await actFixture(h, "keyless-one");
+        const keyless = await lookEval(h, `
+            const { globalStore } = await mod("app/store/jotaiStore.ts");
+            const { listNavAtom } = await mod("app/store/keybindings/listnav.ts");
+            const { briefingFixtureAtom } = await mod("app/view/jarvis/briefingstore.ts");
+            const { KEYLESS_RUN_GOAL } = await mod("app/view/jarvis/briefingfixtures.ts");
+            const nav = () => globalStore.get(listNavAtom);
+            const runIds = () => (nav()?.navigableIds ?? []).filter((id) => id.startsWith("sessions:run:"));
+            const cursorRow = () => document.querySelector('[data-jarvis-brief-cursor="true"]');
+            await until(() => runIds().length === 1, 5000);
+            const before = { ids: runIds() };
+            nav()?.setCursor(before.ids[0]);
+            await nap(300);
+            before.cursor = nav()?.cursorId ?? null;
+            before.row = flat(cursorRow());
+            globalStore.set(briefingFixtureAtom, "keyless-two");
+            await until(() => runIds().length === 2, 5000);
+            await nap(400);
+            const after = { ids: runIds(), cursor: nav()?.cursorId ?? null, row: flat(cursorRow()) };
+            return { goal: KEYLESS_RUN_GOAL, before, after };
+        `);
+        await h.shot("cdp-shots/brief-act-46-keyless-key.png");
+        steps.push({
+            step: "46. F11: a keyless run row keeps its key and the cursor on it when a second keyless row arrives above it",
+            ok:
+                keyless.before.ids.length === 1 &&
+                keyless.before.cursor === keyless.before.ids[0] &&
+                keyless.before.row.includes(keyless.goal) &&
+                keyless.after.ids.length === 2 &&
+                keyless.after.ids.includes(keyless.before.ids[0]) &&
+                keyless.after.cursor === keyless.before.cursor &&
+                keyless.after.row.includes(keyless.goal),
+            detail: JSON.stringify(keyless),
+        });
+        await actFixture(h, null);
+
+        // 47. the initiative Edit form's footer holds no empty element, and Cancel and Save stay at its right edge
+        await actFilter(h, ACT_EFFORT);
+        const footerMenu = await actMenuClick(h, ACT_EFFORT, "Details");
+        const editFooter = await lookEval(h, `
+            const save = () => [...document.querySelectorAll("button")].find((b) => (b.textContent || "").trim() === "Save changes");
+            const opened = await until(() => save() != null, 10000);
+            await nap(300);
+            const footer = save()?.parentElement;
+            if (footer == null) return { opened, found: false };
+            const kids = [...footer.children];
+            const cancel = kids.find((b) => (b.textContent || "").trim() === "Cancel");
+            const fr = footer.getBoundingClientRect();
+            const sr = save().getBoundingClientRect();
+            const cr = cancel?.getBoundingClientRect();
+            const padRight = parseFloat(getComputedStyle(footer).paddingRight);
+            return {
+                opened,
+                found: true,
+                tags: kids.map((k) => k.tagName),
+                empty: kids.filter((k) => (k.textContent || "").trim() === "").length,
+                saveGap: Math.round(fr.right - padRight - sr.right),
+                cancelBeforeSave: cr != null && cr.right <= sr.left,
+                cancelRightHalf: cr != null && cr.left > fr.left + fr.width / 2,
+            };
+        `);
+        await h.shot("cdp-shots/brief-act-47-edit-footer.png");
+        steps.push({
+            step: "47. F16: the initiative Edit footer has no empty span, and Cancel and Save stay right-aligned",
+            ok:
+                footerMenu.clicked &&
+                editFooter.opened === true &&
+                editFooter.found === true &&
+                editFooter.empty === 0 &&
+                !editFooter.tags.includes("SPAN") &&
+                Math.abs(editFooter.saveGap) <= 1 &&
+                editFooter.cancelBeforeSave &&
+                editFooter.cancelRightHalf,
+            detail: JSON.stringify({ menu: footerMenu, ...editFooter }),
+        });
+        await h.ev(`[...document.querySelectorAll("button")].find((b) => (b.textContent || "").trim() === "Cancel")?.click()`);
+        await actFilter(h, "");
         return steps;
     },
     async teardown(h, ctx) {

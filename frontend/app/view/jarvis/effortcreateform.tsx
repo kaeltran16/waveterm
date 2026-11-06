@@ -384,16 +384,16 @@ export function EffortCreateForm({
             <div className="flex shrink-0 items-center gap-2 border-t border-border px-[18px] py-3">
                 {error != null ? (
                     <span className="min-w-0 flex-1 truncate text-[11px] text-error">{error}</span>
-                ) : (
-                    // nothing applies before Save, so Edit has no line here
+                ) : edit == null ? (
                     <span className="flex-1 font-mono text-[10.5px] text-ink-mid">
-                        {edit != null ? "" : "ticked lines save as already done"}
+                        ticked lines save as already done
                     </span>
-                )}
+                ) : null}
+                {/* nothing applies before Save, so Edit has no line here: ml-auto keeps the buttons right */}
                 <button
                     type="button"
                     onClick={onClose}
-                    className="cursor-pointer rounded-[7px] border border-border bg-surface-raised px-3.5 py-1.5 text-[11.5px] font-semibold text-secondary hover:text-primary"
+                    className="ml-auto cursor-pointer rounded-[7px] border border-border bg-surface-raised px-3.5 py-1.5 text-[11.5px] font-semibold text-secondary hover:text-primary"
                 >
                     Cancel
                 </button>

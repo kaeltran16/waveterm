@@ -71,7 +71,8 @@ export function RegionHead({
     id: RegionId;
     label: string;
     meta: string;
-    count?: number;
+    // a number, or a label such as "N of M" while a filter is active
+    count?: number | string;
     alert?: boolean;
     only: boolean;
     onOnly: () => void;
@@ -94,7 +95,12 @@ export function RegionHead({
                 {label}
             </span>
             {count != null ? (
-                <span className="flex-none font-mono text-[10.5px] font-medium tabular-nums text-ink-mid">{count}</span>
+                <span
+                    data-jarvis-brief-region-count
+                    className="flex-none font-mono text-[10.5px] font-medium tabular-nums text-ink-mid"
+                >
+                    {count}
+                </span>
             ) : null}
             <span className="h-px min-w-3 flex-1 bg-edge-faint" />
             <span className={cn("flex-none", MONO_FAINT)}>{only ? "showing only this · press to show all" : meta}</span>
@@ -224,7 +230,7 @@ export function Region({
 }: {
     id: RegionId;
     meta: string;
-    count?: number;
+    count?: number | string;
     alert?: boolean;
     empty: boolean;
     absent?: string;
