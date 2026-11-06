@@ -2,8 +2,9 @@
 // F8: two cards in one checkout charge its changes to neither alone, so both diff chips read "repo", while a card in
 // a worktree of the same repo keeps its own chip. F12: an idle card's mute reads Move to Idle, in its menu and on its
 // button. F22: at the 1000x700 dev window the standing-by card's name keeps its room beside its chips, and an asking
-// card opens on its first option, whether the ask is there at mount or arrives later. The diff chips come from a real
-// temp repo and worktree the transcripts point at; the fixture roster is read once at boot, so arrange reloads.
+// card opens on its first option, whether the ask is there at mount or arrives later. F6: the Finished strip's Open
+// stays inside a card held just below and just above the width where its button words show. The diff chips come from
+// a real temp repo and worktree the transcripts point at; the fixture roster is read once at boot, so arrange reloads.
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -372,6 +373,38 @@ export const cockpitCardLayout = {
             detail: JSON.stringify(wide),
         });
         await h.shot("cdp-shots/cockpit-card-layout-finished-1600.png");
+
+        // F6: the idle card held at a set width, either side of the width where the strip's button words show
+        const stripAt = (width) => lookEval(h, `
+            const c = ${card(ID.idle)};
+            c.scrollIntoView({ block: "center" });
+            Object.assign(c.style, { width: "${width}px", minWidth: "${width}px", maxWidth: "${width}px", alignSelf: "flex-start" });
+            await nap(300);
+            const row = c.querySelector('[data-finished-age]').parentElement;
+            const open = [...row.querySelectorAll(':scope > button')].find((b) => b.getAttribute('aria-label') === 'Open');
+            const R = (el) => el.getBoundingClientRect();
+            const inner = R(c).right - parseFloat(getComputedStyle(c).borderRightWidth);
+            return {
+                card: Math.round(R(c).width * 10) / 10,
+                labelShown: R(c.querySelector('[data-review-label]')).width > 0,
+                openRight: Math.round(R(open).right * 10) / 10,
+                rowRight: Math.round(R(row).right * 10) / 10,
+                cardInner: Math.round(inner * 10) / 10,
+                openScroll: [open.scrollWidth, open.clientWidth],
+                rowOverflow: [row.scrollWidth, row.clientWidth],
+                inside: R(open).right <= Math.min(inner, R(row).right) + 0.5 && open.scrollWidth <= open.clientWidth && row.scrollWidth <= row.clientWidth,
+            };
+        `);
+        // the query reads the card's content box, so the words show from a 332px card; 331 is the widest without them
+        for (const [width, words] of [[331, false], [360, true]]) {
+            const at = await stripAt(width);
+            steps.push({
+                step: `at a ${width}px card the Finished strip's Open sits inside the card, not clipped by its strip`,
+                ok: Math.abs(at.card - width) < 1 && at.labelShown === words && at.inside,
+                detail: JSON.stringify(at),
+            });
+            await h.shot(`cdp-shots/cockpit-card-layout-finished-${width}.png`);
+        }
         return steps;
     },
     async teardown(h, ctx) {
