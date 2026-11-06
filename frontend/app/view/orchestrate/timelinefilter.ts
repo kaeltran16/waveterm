@@ -97,6 +97,7 @@ const TASK_TARGET_KINDS: Record<string, TimelineTarget["kind"]> = {
     "task-stalled": "worker",
     "task-suspect": "worker",
     "task-retried": "worker",
+    "task-restarted": "worker",
     "child-ask": "worker",
     "child-answered": "worker",
     "child-ask-cleared": "worker",

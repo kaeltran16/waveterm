@@ -1968,6 +1968,7 @@ declare global {
         unverifiednotes?: DagUnverifiedNote[];
         answered: number;
         forwarded: number;
+        restarted?: number;
         usage?: UsageRow[];
     };
 
@@ -2017,6 +2018,7 @@ declare global {
         verifylastline?: string;
         mergegatets?: number;
         recoveredretry?: boolean;
+        earlybase?: string;
         mergestate: string;
         cleanupstate: string;
         reportsections?: string[];

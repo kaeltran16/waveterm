@@ -143,6 +143,10 @@ describe("stepLabel / glyphOf / stripTicks", () => {
     it("labels steps in words", () => {
         expect(stepLabel(ev(0, "task-verify-passed", "t-1"))).toBe("verify passed");
         expect(stepLabel(ev(0, "dag-done"))).not.toBe("");
+        expect(stepLabel(ev(0, "task-restarted", "t-1"))).toBe("restarted");
+        expect(snippetOf(ev(0, "task-restarted", "t-1", { reason: "t-0 went back to work" }))).toBe(
+            "t-0 went back to work"
+        );
     });
     it("names a stage session by its role, so two in one burst read apart", () => {
         expect(stepLabel(ev(0, "stage-session-started", undefined, { role: "plan-reviewer" }))).toBe(

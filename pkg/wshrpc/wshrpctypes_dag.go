@@ -227,6 +227,9 @@ type DagReportDigest struct {
 	UnverifiedNotes []DagUnverifiedNote `json:"unverifiednotes,omitempty"`
 	Answered        int                 `json:"answered"`  // child questions answered, by the lead or the human
 	Forwarded       int                 `json:"forwarded"` // judgments handed to the human
+	// Restarted counts lanes that restarted because the predecessor they started early on went back to work; a
+	// restart is never a failure
+	Restarted int `json:"restarted,omitempty"`
 
 	// Usage is the run's tokens per session and model, set once the dag is done. In its own block so its
 	// wider type does not realign the fields above it.
@@ -279,6 +282,7 @@ type DagTaskDigest struct {
 	VerifyLastLine   string   `json:"verifylastline,omitempty"`  // the last line that running Verify has printed
 	MergeGateTs      int64    `json:"mergegatets,omitempty"`     // UnixMilli an open merge gate's clock started (the lane tip's task-done); 0 with no gate or no clock
 	RecoveredRetry   bool     `json:"recoveredretry,omitempty"`
+	EarlyBase        string   `json:"earlybase,omitempty"`        // the task this lane started early on, while that task's lane has not merged
 	MergeState       string   `json:"mergestate"`                 // not-required | waiting | ready | blocked | merged
 	CleanupState     string   `json:"cleanupstate"`               // not-required | clear | pending | failed
 	ReportSections   []string `json:"reportsections,omitempty"`   // the worker's report sections with content, Done aside; ["unstructured"] for a legacy report

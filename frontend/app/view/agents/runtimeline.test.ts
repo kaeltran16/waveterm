@@ -11,6 +11,8 @@ describe("toneFor", () => {
         expect(toneFor("phase-started")).toBe("text-success");
         expect(toneFor("task-stalled")).toBe("text-warning");
         expect(toneFor("task-suspect")).toBe("text-warning");
+        expect(toneFor("task-restarted")).toBe("text-warning");
+        expect(kindTitle("task-restarted")).toBe("Task restarted");
         expect(toneFor("unknown-kind")).toBe("text-muted");
     });
 

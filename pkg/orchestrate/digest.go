@@ -542,6 +542,9 @@ func buildTaskDigest(g *waveobj.TaskGroup, t *waveobj.TaskNode, askByTask map[st
 	if t.State == TaskState_Done && retried[t.ID] {
 		td.RecoveredRetry = true
 	}
+	if base := earlyBaseUnmerged(g, laneOf(g, t.ID)); base != nil {
+		td.EarlyBase = base.ID
+	}
 	td.MergeState = taskMergeState(g, t)
 	td.MergeGateTs = gateClock[t.ID]
 	td.CleanupState = taskCleanupState(g, t)
@@ -564,6 +567,9 @@ func taskWaitReason(g *waveobj.TaskGroup, t *waveobj.TaskNode) string {
 	case TaskState_Reviewing, TaskState_ReviewFailed:
 		return "review"
 	case TaskState_Done:
+		if heldTipBase(g, t) != nil {
+			return "merge"
+		}
 		return "terminal"
 	case TaskState_Skipped, TaskState_Cancelled:
 		return "terminal"
@@ -599,7 +605,20 @@ func taskReady(g *waveobj.TaskGroup, t *waveobj.TaskNode) bool {
 	return ok
 }
 
+// heldTipBase returns the base task whose merge holds t: t is a finished, unmerged lane tip that started early on a
+// lane that has not landed. Nil for any other task.
+func heldTipBase(g *waveobj.TaskGroup, t *waveobj.TaskNode) *waveobj.TaskNode {
+	lane := laneOf(g, t.ID)
+	if !g.MergeRequired || t.Merged || t.State != TaskState_Done || laneTip(g, lane) != t {
+		return nil
+	}
+	return earlyBaseUnmerged(g, lane)
+}
+
 func taskBlockingIds(g *waveobj.TaskGroup, t *waveobj.TaskNode) []string {
+	if base := heldTipBase(g, t); base != nil {
+		return []string{base.ID}
+	}
 	if t.State != TaskState_Pending || !hasUnsatDep(g, t) {
 		return nil
 	}
@@ -714,6 +733,7 @@ func buildReport(sn DagDigestSnapshot, durations wshrpc.DagDurationDigest) wshrp
 		if t.Merged && worker != nil && worker.EndCommit != "" && laneTip(g, laneOf(g, t.ID)).ID == t.ID {
 			r.Commits = append(r.Commits, wshrpc.DagLandedCommit{TaskId: t.ID, Commit: worker.EndCommit})
 		}
+		r.Restarted += t.EarlyRestarts
 		for _, c := range taskCaveats(t, worker) {
 			r.UnverifiedNotes = append(r.UnverifiedNotes, wshrpc.DagUnverifiedNote{TaskId: t.ID, Text: c})
 		}
