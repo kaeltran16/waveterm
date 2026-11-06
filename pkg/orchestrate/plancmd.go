@@ -286,9 +286,10 @@ func execPlanCommandEnv(ctx context.Context, dir, command string, env []string, 
 }
 
 // lastOutputLine is the last non-blank line of a plan command's output: the one line a status row has
-// room for. "" when there is nothing to show yet.
+// room for. "" when there is nothing to show yet. Escapes are stripped first so a last line made only of
+// them is skipped, not returned as "".
 func lastOutputLine(output string) string {
-	lines := strings.Split(output, "\n")
+	lines := strings.Split(utilfn.StripANSI(output), "\n")
 	for i := len(lines) - 1; i >= 0; i-- {
 		if line := strings.TrimSpace(lines[i]); line != "" {
 			return line
