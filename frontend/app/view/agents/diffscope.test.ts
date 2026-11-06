@@ -340,6 +340,18 @@ describe("summaryLine follows what the panes show", () => {
             "1 file against HEAD (no session start yet) · +10 −2"
         );
     });
+    it("drops the line delta when the counts are unknown, keeping the file count", () => {
+        const unknown = { ...base, lineCounts: false };
+        expect(summaryLine({ ...unknown, range: { kind: "working" }, changes: ch(7) })).toBe(
+            "7 uncommitted files on main"
+        );
+        expect(
+            summaryLine({ ...unknown, ref: "9f2c1de00", range: { kind: "session", agentId: "a" }, changes: ch(3) })
+        ).toBe("worktree against 9f2c1de · 3 files");
+        expect(summaryLine({ ...unknown, range: { kind: "session", agentId: "a" }, changes: ch(3) })).toBe(
+            "3 files against HEAD (no session start yet)"
+        );
+    });
 });
 
 describe("compare range form", () => {

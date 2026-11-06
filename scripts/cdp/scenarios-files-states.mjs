@@ -522,6 +522,8 @@ export const diffStates = {
             let recovered = false;
             let listed = false;
             let countsNotice = false;
+            let summary = "";
+            let headerCounts = true;
             try {
                 await pressKey(h, "r", "KeyR", 82);
                 failed = await until(h, `${emptyIs("failed")} && !!document.querySelector("[data-diff-retry]")`);
@@ -532,6 +534,9 @@ export const diffStates = {
                     `[...document.querySelectorAll("[data-git-failure-notice]")].some((e) => e.textContent.includes("Line counts unavailable"))`
                 );
                 listed = await h.ev(`!!document.querySelector(${JSON.stringify(fileRowSel(STATES.deleted))})`);
+                // unknown counts are absent everywhere, never +0 −0: the toolbar caption and the pane header
+                summary = await h.ev(`document.querySelector("[data-files-range-summary]")?.textContent ?? ""`);
+                headerCounts = await h.ev(`!!document.querySelector("[data-diff-adds]")`);
                 await h.shot("cdp-shots/diff-states-read-failure.png");
             } finally {
                 execFileSync("icacls", [winPath, "/remove:d", process.env.USERNAME], { stdio: "pipe" });
@@ -545,8 +550,16 @@ export const diffStates = {
             }
             rec(
                 s7,
-                diff && failed && failedText.includes("Couldn’t read this file") && recovered && listed && countsNotice,
-                JSON.stringify({ picked, diff, failed, failedText: failedText.slice(0, 200), recovered, listed, countsNotice })
+                diff &&
+                    failed &&
+                    failedText.includes("Couldn’t read this file") &&
+                    recovered &&
+                    listed &&
+                    countsNotice &&
+                    summary !== "" &&
+                    !/[+−]\d/.test(summary) &&
+                    !headerCounts,
+                JSON.stringify({ picked, diff, failed, failedText: failedText.slice(0, 200), recovered, listed, countsNotice, summary, headerCounts })
             );
         });
 

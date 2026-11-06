@@ -65,10 +65,13 @@ export function DiffPane({
     model,
     nothingToCompare = null,
     noCommit = false,
+    lineCounts = true,
 }: {
     path: string | null;
     adds: number;
     dels: number;
+    // false while git could not count lines: the header then draws no counts rather than +0 −0
+    lineCounts?: boolean;
     repoCwd: string | null;
     model: AgentsViewModel;
     // compare's aggregate is selected and the two refs list no files
@@ -227,12 +230,16 @@ export function DiffPane({
                         {file}
                     </span>
                 </span>
-                <span data-diff-adds className="flex-none font-mono text-[11px] font-bold text-diff-added">
-                    +{adds}
-                </span>
-                <span data-diff-dels className="flex-none font-mono text-[11px] font-bold text-diff-removed">
-                    −{dels}
-                </span>
+                {lineCounts ? (
+                    <>
+                        <span data-diff-adds className="flex-none font-mono text-[11px] font-bold text-diff-added">
+                            +{adds}
+                        </span>
+                        <span data-diff-dels className="flex-none font-mono text-[11px] font-bold text-diff-removed">
+                            −{dels}
+                        </span>
+                    </>
+                ) : null}
                 {empty?.kind === "toolarge" && pair != null ? (
                     <span className="flex-none font-mono text-[11px] text-muted">{fmtBytes(pair.size)}</span>
                 ) : null}

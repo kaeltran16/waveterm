@@ -321,6 +321,9 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
         : selectedCommit === WORKING_TREE
           ? null
           : selectedCommit;
+    // the working tree's numstat can fail while its file list stands; its counts are then unknown and
+    // shown as absent, never as zeros. A commit or a comparison is counted by its own read.
+    const lineCounts = compareOn || selectedCommit !== WORKING_TREE || !state?.numstatError;
     const review = reviewSubjectFor(state?.cwd, scope?.range, shownCommit);
 
     // the `v` binding and the diff header act on the open file through this, not through the surface
@@ -583,6 +586,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                             mergeBase: compareSides?.mergeBase ?? "",
                                             commit: shownCommit,
                                             changes: shownChanges,
+                                            lineCounts,
                                         })}
                                     </span>
                                 </ToolbarFact>
@@ -802,7 +806,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                                 // the working-tree row's list is the change list, which fails as a whole
                                                 failure={selectedCommit === WORKING_TREE ? null : commitFailure}
                                                 onRetry={retrySelectedCommit}
-                                                lineCounts={selectedCommit !== WORKING_TREE || !state?.numstatError}
+                                                lineCounts={lineCounts}
                                             />
                                         )}
                                     </div>
@@ -825,6 +829,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                                     : null
                                             }
                                             noCommit={noCommit}
+                                            lineCounts={lineCounts}
                                             model={model}
                                         />
                                     )}
