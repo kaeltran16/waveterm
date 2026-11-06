@@ -55,6 +55,10 @@ const AutonomousRules = "Approvals for this run are autonomous: nobody is at the
 // 60ms per rune, so it stays one short line.
 const AutonomousOnAnswer = "The human is away and this run is now autonomous: decide this as you would recommend, record the call in your report, and stop asking."
 
+// TakenOverRelayAnswer answers the lead's relay of a worker question the human took over in the cockpit;
+// the engine finds the relay by its header, the task id.
+const TakenOverRelayAnswer = "The human took this question over in the cockpit and answers the worker there; relay nothing and carry on."
+
 // AutonomousOnWake tells a running lead its run turned autonomous. A wake is typed as one line.
 const AutonomousOnWake = "wake: approvals for this run are now autonomous and the human is away. " + AutonomousRules
 
@@ -167,7 +171,7 @@ func OrchestrationRules(runId, specPath, planPath, effortOID string, autonomous 
 	b.WriteString(" The engine schedules, merges and tests. Each wake names an event and the command that shows it; re-read only what the event needs.\n")
 	// the engine moves an unanswered question to the human at its deadline and then refuses the lead's answer,
 	// which can happen while the lead's own ask is open.
-	fmt.Fprintf(&b, "- questions: answer from the spec and plan; check code with Read/Grep when they don't settle it; `wsh jarvis dag answer <task> <answers-json>`. A product or scope call, or spec, plan and code disagreeing: ask the human yourself with %s (%s on pi), what you checked and what you recommend first, then relay the human's choice with `wsh jarvis dag answer <task> <answers-json>`. Before you ask, and before you ask again, run `wsh jarvis dag asks`: the human may have answered it in the cockpit. A question moves to the human by itself when its deadline passes (`dag asks` shows it) or the human takes it over, and `dag answer` is then refused; when that happens, or `dag asks` no longer lists the task, relay nothing: it is answered, or waits on the run sheet for the human.\n", AskTool("claude"), AskTool("pi"))
+	fmt.Fprintf(&b, "- questions: answer from the spec and plan; check code with Read/Grep when they don't settle it; `wsh jarvis dag answer <task> <answers-json>`. A product or scope call, or spec, plan and code disagreeing: ask the human yourself with %s (%s on pi), with the header `<task id>` exactly and nothing else (for example `t-3`), what you checked and what you recommend first, then relay the human's choice with `wsh jarvis dag answer <task> <answers-json>`. Before you ask, and before you ask again, run `wsh jarvis dag asks`: the human may have answered it in the cockpit. A question moves to the human by itself when its deadline passes (`dag asks` shows it) or the human takes it over, and `dag answer` is then refused; when that happens, or `dag asks` no longer lists the task, relay nothing: it is answered, or waits on the run sheet for the human.\n", AskTool("claude"), AskTool("pi"))
 	b.WriteString("- task still failing, or worker hung: `wsh jarvis dag retry <task>`, retry on another model with `wsh jarvis dag escalate <task> --model <model>`, `wsh jarvis dag skip <task>`, or forward.\n")
 	b.WriteString("- merge conflict: resolve it in this working tree, where the lanes land, and `git add` the result without committing; `wsh jarvis dag merge <task> --continue` commits the squash. Tests failed at a merge point: commit a fix in this tree, then `wsh jarvis dag merge <task> --continue` (the engine re-runs Verify).\n")
 	b.WriteString("- a task passed review with a note for later tasks: check the pending tasks it affects and add what they need with `wsh jarvis dag amend <task> \"<note>\"`; use `wsh jarvis dag tell <task> \"<text>\"` only for a running task the note changes. Amending is not re-planning: never add, remove or reorder tasks.\n")

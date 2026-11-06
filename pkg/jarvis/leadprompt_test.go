@@ -111,7 +111,7 @@ func TestOrchestrationRulesLeadAsksWorkerQuestionItself(t *testing.T) {
 	if strings.Contains(line, "dag forward") {
 		t.Errorf("the questions line still forwards:\n%s", line)
 	}
-	for _, want := range []string{AskTool("claude"), AskTool("pi") + " on pi", "what you recommend first", "wsh jarvis dag answer <task> <answers-json>", "deadline passes"} {
+	for _, want := range []string{AskTool("claude"), AskTool("pi") + " on pi", "what you recommend first", "wsh jarvis dag answer <task> <answers-json>", "deadline passes", "header `<task id>`"} {
 		if !strings.Contains(line, want) {
 			t.Errorf("questions line missing %q:\n%s", want, line)
 		}

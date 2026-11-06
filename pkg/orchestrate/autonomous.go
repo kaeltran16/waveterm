@@ -71,9 +71,20 @@ func returnUserAsksToLead(channelId, runId string) bool {
 }
 
 // answerLeadQuestion answers the lead's own waiting question (Plan review, the land question)
-// with AutonomousOnAnswer. Typing takes KeystrokeDelay per rune, past the RPC budget, so it runs in the
-// background once the answer is known to fit the picker.
+// with AutonomousOnAnswer.
 func answerLeadQuestion(ctx context.Context, channelId, runId, blockId string) error {
+	err := answerLeadQuestionWith(ctx, channelId, runId, blockId, jarvis.AutonomousOnAnswer, func(baseds.AgentAskQuestion) bool { return true })
+	if err != nil {
+		return fmt.Errorf("approvals saved as autonomous, but %w", err)
+	}
+	return nil
+}
+
+// answerLeadQuestionWith gives every question of the lead's own waiting ask text, when match holds for each
+// of them; otherwise it leaves the ask alone. Typing takes KeystrokeDelay per rune, past the RPC budget, so
+// it runs in the background once the answer is known to fit the picker; a failed delivery is recorded as
+// lead-wake-failed.
+func answerLeadQuestionWith(ctx context.Context, channelId, runId, blockId, text string, match func(baseds.AgentAskQuestion) bool) error {
 	if blockId == "" {
 		return nil
 	}
@@ -82,20 +93,25 @@ func answerLeadQuestion(ctx context.Context, channelId, runId, blockId string) e
 	if !ok {
 		return nil
 	}
+	for _, q := range pending.Questions {
+		if !match(q) {
+			return nil
+		}
+	}
 	answers := make([]baseds.AgentAnswerItem, len(pending.Questions))
 	for i := range answers {
-		answers[i] = baseds.AgentAnswerItem{Text: jarvis.AutonomousOnAnswer}
+		answers[i] = baseds.AgentAnswerItem{Text: text}
 	}
 	if err := agentask.ValidateAnswers(pending.Questions, answers, pending.Prose); err != nil {
-		return fmt.Errorf("approvals saved as autonomous, but the lead's question still needs an answer in its terminal: %w", err)
+		return fmt.Errorf("the lead's question still needs an answer in its terminal: %w", err)
 	}
 	bg := context.WithoutCancel(ctx)
 	go func() {
 		if _, err := deliverLeadAnswerFn(oref, pending.AskId, answers); err != nil {
-			log.Printf("autonomous: run %s: answering the lead's question: %v", runId, err)
+			log.Printf("orchestrate: run %s: answering the lead's question: %v", runId, err)
 			appendRunEvent(bg, channelId, runId, waveobj.RunEventKindLeadWakeFailed, nil, map[string]any{
 				"reason": "the lead's question could not be answered: " + err.Error(),
-				"lines":  []string{jarvis.AutonomousOnAnswer},
+				"lines":  []string{text},
 			})
 		}
 	}()

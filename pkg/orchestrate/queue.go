@@ -441,7 +441,8 @@ func ForwardTask(ctx context.Context, dagID, taskID, note string) error {
 
 // TakeOverAsk hands a task's question to the human who took it from the lead in the cockpit. The lead is
 // not woken: `dag asks` stops listing the question, and an answer it had already started is refused with
-// TakenOverNote, so a wake would only cost it a turn.
+// TakenOverNote, so a wake would only cost it a turn. A relay of the question the lead already put to the
+// human (its own ask, every header the task id) is answered, since the lead would block on it otherwise.
 func TakeOverAsk(ctx context.Context, dagID, taskID string) error {
 	g, err := wstore.GetDag(ctx, dagID)
 	if err != nil {
@@ -461,6 +462,16 @@ func TakeOverAsk(ctx context.Context, dagID, taskID string) error {
 	p.ChannelId, p.RunId, p.TaskId, p.DagOID = g.ChannelId, g.RunID, task.ID, g.OID
 	if !moveAskToUser(ctx, oref, p, TakenOverNote, ForwardedByHuman) {
 		return fmt.Errorf("task %s's question was answered before it could be taken over", taskID)
+	}
+	lead := leadStateFn(ctx, g.ChannelId, g.RunID)
+	isRelay := func(q baseds.AgentAskQuestion) bool { return q.Header == taskID }
+	// the worker's question did move, so a relay that cannot be answered is recorded, not returned
+	if err := answerLeadQuestionWith(ctx, g.ChannelId, g.RunID, lead.BlockId, jarvis.TakenOverRelayAnswer, isRelay); err != nil {
+		log.Printf("orchestrate: run %s: answering the lead's relay of task %s: %v", g.RunID, taskID, err)
+		appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindLeadWakeFailed, nil, map[string]any{
+			"reason": "the lead's relay of task " + taskID + "'s question could not be answered: " + err.Error(),
+			"lines":  []string{jarvis.TakenOverRelayAnswer},
+		})
 	}
 	return nil
 }
