@@ -1,29 +1,18 @@
 // The project Overview modal (frontend/app/view/agents/projectoverview.tsx): the app-bar switcher offers
 // "Overview of <project>" only with a project scoped; picking it opens the modal over the current surface with the
 // project's branch, uncommitted changes and path in its header; Escape closes it and leaves the surface as it was.
+// Between opening and Escape, each region's module (project-overview-<region>.mjs) checks its own states.
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { lookEval } from "./scenarios-shared.mjs";
+import * as activity from "./project-overview-activity.mjs";
+import * as branches from "./project-overview-branches.mjs";
+import * as history from "./project-overview-history.mjs";
+import { pageEval, shot } from "./project-overview-kit.mjs";
+import * as now from "./project-overview-now.mjs";
 import { makeCodeRepo, removeCodeRepo } from "./scenarios-code-kit.mjs";
 
-const shot = (h, name) => h.shot(`cdp-shots/project-overview-${name}.png`);
-
-const LIB = `
-    const S = await mod("app/store/jotaiStore.ts");
-    const ps = await mod("app/view/agents/projectsstore.ts");
-    const model = (() => {
-        const nav = document.querySelector("nav");
-        const key = nav && Object.keys(nav).find((k) => k.startsWith("__reactFiber$"));
-        for (let f = key ? nav[key] : null; f != null; f = f.return) {
-            if (f.memoizedProps?.model?.surfaceAtom != null) return f.memoizedProps.model;
-        }
-        return null;
-    })();
-    const switcher = () => document.querySelector('[data-project-switcher="bar"]');
-    const entry = () => document.querySelector("[data-project-overview-open]");
-    const overview = () => document.querySelector("[data-project-overview]");
-`;
-const pageEval = (h, body) => lookEval(h, `${LIB} ${body}`);
+// the order the region modules run in, and the order teardown cleans them up in
+const REGION_MODULES = [activity, now, branches, history];
 
 export const projectOverview = {
     name: "project-overview",
@@ -103,6 +92,36 @@ export const projectOverview = {
             detail: JSON.stringify(opened),
         });
 
+        // the body: Activity across the top, Now above Branches on the left, History wider on the right
+        const layout = await pageEval(h, `
+            const box = (r) => overview()?.querySelector('[data-overview-region="' + r + '"]')?.getBoundingClientRect();
+            const all = await until(() => ["activity", "now", "branches", "history"].every((r) => box(r) != null), 4000);
+            const [a, n, b, hi] = ["activity", "now", "branches", "history"].map((r) => {
+                const x = box(r);
+                return x && { top: Math.round(x.top), bottom: Math.round(x.bottom), left: Math.round(x.left), right: Math.round(x.right), width: Math.round(x.width) };
+            });
+            return { all, activity: a, now: n, branches: b, history: hi };
+        `);
+        await shot(h, "layout");
+        const L = layout ?? {};
+        steps.push({
+            step: "project-overview: Main board, body: Activity spans the top, Now and Branches left of History",
+            ok:
+                L.all === true &&
+                L.activity.bottom <= L.now.top &&
+                L.activity.bottom <= L.branches.top &&
+                L.activity.bottom <= L.history.top &&
+                L.now.bottom <= L.branches.top &&
+                L.now.right <= L.history.left &&
+                L.branches.right <= L.history.left &&
+                L.history.width > L.now.width,
+            detail: JSON.stringify(layout),
+        });
+
+        for (const m of REGION_MODULES) {
+            steps.push(...(await m.steps(h, ctx)));
+        }
+
         // 4. Escape closes it and leaves the surface where it was
         const closed = await pageEval(h, `
             const surface = S.globalStore.get(model.surfaceAtom);
@@ -119,6 +138,9 @@ export const projectOverview = {
         return steps;
     },
     async teardown(h, ctx) {
+        for (const m of REGION_MODULES) {
+            await m.cleanup(h, ctx).catch(() => {});
+        }
         await pageEval(h, `
             S.globalStore.set(model.projectOverviewAtom, null);
             S.globalStore.set(model.projectFilterAtom, window.__overviewPrevScope ?? "all");
