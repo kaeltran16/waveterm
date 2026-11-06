@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // The Events rail: state changes across the fleet, new ones above a "mark all read" line. Plain-agent
-// transitions are tracked by useRailTracking while the cockpit is mounted; run events come from the surface.
+// transitions are tracked by useRailTracking in the always-mounted shell (cockpit-root.tsx), so a finish while
+// another surface shows is still recorded; run events come from the surface.
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
@@ -43,8 +44,9 @@ import { shellReadAtByIdAtom, shellReadPending, shellTasksByIdAtom } from "./she
 import { subagentsByIdAtom } from "./subagentsstore";
 
 const snapsAtom = atom<Record<string, AgentSnap>>({}) as PrimitiveAtom<Record<string, AgentSnap>>;
-const agentEventsAtom = atom<RailEvent[]>([]) as PrimitiveAtom<RailEvent[]>;
-const seenTsAtom = atom<number>(0) as PrimitiveAtom<number>;
+// exported for reading only (the project Overview's Finished region); the rail alone writes them
+export const agentEventsAtom = atom<RailEvent[]>([]) as PrimitiveAtom<RailEvent[]>;
+export const seenTsAtom = atom<number>(0) as PrimitiveAtom<number>;
 
 const KIND: Record<RailKind, { icon: LucideIcon; verb: string; tone: string }> = {
     asked: { icon: MessageCircleQuestion, verb: "asked", tone: "text-warning" },
