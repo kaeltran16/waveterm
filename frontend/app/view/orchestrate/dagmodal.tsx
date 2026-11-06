@@ -13,6 +13,7 @@ import { useEffect, useRef, useState, type JSX } from "react";
 import { harnessesAtom } from "../agents/harnessstore";
 import { channelProjectLabel } from "../agents/projectlabel";
 import { projectsAtom } from "../agents/projectsstore";
+import { runFinished } from "../agents/runlineage";
 import { DagGraphView } from "./daggraph";
 import {
     closeDagModal,
@@ -150,7 +151,12 @@ function DagModalBody({ state, layout }: { state: DagModalState; layout: Timelin
                             <LiveDagModal dagOref={state.dagOref} runId={group.runid} />
                         </div>
                     </div>
-                    <TimelineRail channelId={group.channelid} runId={group.runid} layout={layout} />
+                    <TimelineRail
+                        channelId={group.channelid}
+                        runId={group.runid}
+                        layout={layout}
+                        ended={runFinished({ dag: group, status: group.status })}
+                    />
                 </div>
             )}
         </>

@@ -28,18 +28,23 @@ import {
 } from "../agents/runtimeline";
 import { setActiveRunId } from "../jarvis/jarvissubjectstore";
 import { selectedTaskOf } from "./dagfinal";
-import { dagModalAgentsContextAtom } from "./dagmodalstate";
+import { dagModalAgentsContextAtom, dismissDagModal } from "./dagmodalstate";
 import { hoveredTaskAtom, selectedTaskIdAtom } from "./dagstore";
-import { relaunchLeadAction } from "./relaunchlead";
+import { relaunchLeadAction, type RelaunchLeadAction } from "./relaunchlead";
 import { eventClickTarget, selectionFilter, type TimelineFilter, type TimelineTarget } from "./timelinefilter";
 import {
+    axisEnd,
+    eventCount,
     eventDetail,
     filterGroups,
     GLYPH_PATHS,
     glyphOf,
     groupEvents,
+    groupHasDetail,
     groupSnippet,
+    needsDate,
     railRows,
+    spanText,
     stepLabel,
     stripTicks,
     type EventGroup,
@@ -57,6 +62,9 @@ const TICK_SUCCESS_H = 12;
 const TICK_TONED_H = 9;
 const TICK_MUTED_H = 5;
 const TICK_FADED_OPACITY = 0.2;
+const MINUTE_MS = 60_000;
+// the evidence block mounts once the modal is gone; past this many frames it is not coming
+const EVIDENCE_POLL_FRAMES = 30;
 
 // a tone on text meant to be read: muted is for decoration, so a muted kind's words read in ink-mid
 function textTone(tone: string): string {
@@ -70,9 +78,11 @@ export type TimelineRailProps = {
     channelId: string;
     runId: string;
     layout: "rail" | "drawer";
+    // the dag is done or cancelled: no "now" on the axis, no live pill
+    ended: boolean;
 };
 
-export function TimelineRail({ channelId, runId, layout }: TimelineRailProps) {
+export function TimelineRail({ channelId, runId, layout, ended }: TimelineRailProps) {
     const { events, status } = useRunEventsState(runId, channelId);
     // the final node shares the graph's selection; here it reads as no task selected
     const selectedTaskId = selectedTaskOf(useAtomValue(selectedTaskIdAtom));
@@ -111,7 +121,8 @@ export function TimelineRail({ channelId, runId, layout }: TimelineRailProps) {
     const shown = filterGroups(groups, filter, selectedTaskId);
     const rows = railRows(shown);
     const graphHoverId = hovered?.from === "graph" ? hovered.id : null;
-    const showNow = filter !== "task" || shown.length > 0;
+    const showNow = !ended && (filter !== "task" || shown.length > 0);
+    const withDate = needsDate(events, nowMs);
 
     const relaunchLead = async () => {
         setRelaunching(true);
@@ -142,6 +153,7 @@ export function TimelineRail({ channelId, runId, layout }: TimelineRailProps) {
             <RailHeader
                 count={events.length}
                 status={status}
+                ended={ended}
                 layout={layout}
                 open={open}
                 onToggle={() => setDrawerOpen((o) => !o)}
@@ -149,10 +161,19 @@ export function TimelineRail({ channelId, runId, layout }: TimelineRailProps) {
             />
             {/* flex-1 only in the rail: in the drawer a 0% basis would ignore the animated height */}
             <PaneReveal open={open} className={cn("flex min-h-0 flex-col", layout === "rail" && "flex-1")}>
-                <ActivityStrip events={events} nowMs={nowMs} focusTaskId={selectedTaskId ?? graphHoverId} />
+                {/* the drawer's least useful height, so only the rail draws the strip */}
+                {layout === "rail" && (
+                    <ActivityStrip
+                        events={events}
+                        endMs={axisEnd(events, ended, nowMs)}
+                        ended={ended}
+                        withDate={withDate}
+                        focusTaskId={selectedTaskId ?? graphHoverId}
+                    />
+                )}
                 <div className="flex flex-none gap-1 border-b border-border px-2 py-1.5">
                     {FILTERS.map((f) => {
-                        const count = filterGroups(groups, f.id, selectedTaskId).length;
+                        const count = eventCount(filterGroups(groups, f.id, selectedTaskId));
                         const showCount = f.id !== "task" || selectedTaskId != null;
                         return (
                             <button
@@ -168,6 +189,7 @@ export function TimelineRail({ channelId, runId, layout }: TimelineRailProps) {
                                 {f.id === "task" && selectedTaskId ? `Task · ${selectedTaskId}` : f.label}
                                 {showCount && (
                                     <span
+                                        data-timeline-filter-count={f.id}
                                         className={cn(
                                             "font-mono text-[11.5px] font-normal",
                                             f.id === "attention" && count > 0 ? "text-warning" : "text-ink-mid"
@@ -188,7 +210,7 @@ export function TimelineRail({ channelId, runId, layout }: TimelineRailProps) {
                                 className="absolute top-3.5 bottom-3 left-[21px] w-px bg-edge-faint"
                             />
                         )}
-                        {showNow && <NowMarker nowMs={nowMs} />}
+                        {showNow && <NowMarker nowMs={nowMs} withDate={withDate} />}
                         {rows.length === 0 ? (
                             <EmptyRows filter={filter} status={status} hasTask={selectedTaskId != null} />
                         ) : (
@@ -197,21 +219,27 @@ export function TimelineRail({ channelId, runId, layout }: TimelineRailProps) {
                             <AnimatePresence initial={false}>
                                 {rows.map((row, i) =>
                                     row.kind === "gap" ? (
-                                        <GapRow key={`gap:${i}`} minutes={row.minutes} />
+                                        <GapRow key={`gap:${i}`} ms={row.minutes * MINUTE_MS} />
                                     ) : (
                                         <GroupRow
                                             key={row.group.id}
                                             group={row.group}
                                             enter={entering.has(row.group.id)}
-                                            events={events}
+                                            withDate={withDate}
+                                            relaunch={
+                                                row.group.items
+                                                    .map((e) => relaunchLeadAction(e, events, relaunching))
+                                                    .find((a) => a != null) ?? null
+                                            }
                                             open={row.group.id === openGroupId}
                                             selected={selectedTaskId != null && row.group.taskId === selectedTaskId}
                                             graphHovered={graphHoverId != null && row.group.taskId === graphHoverId}
-                                            relaunching={relaunching}
                                             relaunchError={relaunchError}
                                             onRelaunch={() => void relaunchLead()}
-                                            onToggle={() => {
-                                                setOpenGroupId((id) => (id === row.group.id ? null : row.group.id));
+                                            onClick={(expandable) => {
+                                                if (expandable) {
+                                                    setOpenGroupId((id) => (id === row.group.id ? null : row.group.id));
+                                                }
                                                 applyTarget(eventClickTarget(row.group.head), channelId);
                                             }}
                                             onEnter={() => {
@@ -236,6 +264,7 @@ export function TimelineRail({ channelId, runId, layout }: TimelineRailProps) {
 function RailHeader({
     count,
     status,
+    ended,
     layout,
     open,
     onToggle,
@@ -243,6 +272,7 @@ function RailHeader({
 }: {
     count: number;
     status: "loading" | "live" | "error";
+    ended: boolean;
     layout: "rail" | "drawer";
     open: boolean;
     onToggle: () => void;
@@ -262,19 +292,33 @@ function RailHeader({
                 </button>
             )}
             <span className="text-[13.5px] font-bold text-ink-hi">Lifecycle</span>
-            <span className="text-[12px] text-ink-mid">{count} events</span>
-            <StatusPill status={status} onRetry={onRetry} />
+            <span data-timeline-count className="text-[12px] text-ink-mid">
+                {count} events
+            </span>
+            <StatusPill status={status} ended={ended} onRetry={onRetry} />
         </div>
     );
 }
 
 // StatusPill always carries text, never color alone (spec 6.4), and never claims "live" for a load
-// that has not returned.
-function StatusPill({ status, onRetry }: { status: "loading" | "live" | "error"; onRetry: () => void }) {
+// that has not returned, nor for a run that has ended.
+function StatusPill({
+    status,
+    ended,
+    onRetry,
+}: {
+    status: "loading" | "live" | "error";
+    ended: boolean;
+    onRetry: () => void;
+}) {
+    if (status === "live" && ended) {
+        return null;
+    }
     if (status === "error") {
         return (
             <button
                 type="button"
+                data-timeline-status={status}
                 onClick={onRetry}
                 className="ml-auto cursor-pointer text-[12px] text-warning underline decoration-dotted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
             >
@@ -283,7 +327,10 @@ function StatusPill({ status, onRetry }: { status: "loading" | "live" | "error";
         );
     }
     return (
-        <span className={"ml-auto text-[12px] " + (status === "live" ? "text-success" : "text-ink-mid")}>
+        <span
+            data-timeline-status={status}
+            className={"ml-auto text-[12px] " + (status === "live" ? "text-success" : "text-ink-mid")}
+        >
             {status === "live" ? "● live" : "loading…"}
         </span>
     );
@@ -308,25 +355,31 @@ function tickOpacity(kind: string, taskId: string, focusTaskId: string | null): 
     return toneFor(kind) === "text-muted" ? 0.5 : 0.85;
 }
 
+// endMs is axisEnd's: now for a live run, the last event for an ended one
 function ActivityStrip({
     events,
-    nowMs,
+    endMs,
+    ended,
+    withDate,
     focusTaskId,
 }: {
     events: RunEvent[];
-    nowMs: number;
+    endMs: number;
+    ended: boolean;
+    withDate: boolean;
     focusTaskId: string | null;
 }) {
     if (events.length === 0) {
         return null;
     }
     // stripTicks maps events one to one and in order, so a tick's kind is its event's
-    const ticks = stripTicks(events, nowMs);
+    const ticks = stripTicks(events, endMs);
     const start = Math.min(...events.map((e) => e.ts));
-    const spanMin = Math.max(0, Math.round((nowMs - start) / 60_000));
-    const label = `${events.length} events from ${tsLabel(start)} to ${tsLabel(nowMs)}; amber marks need attention`;
+    const startText = tsLabel(start, withDate);
+    const endText = `${ended ? "ended" : "now"} ${tsLabel(endMs, withDate)}`;
+    const label = `${events.length} events from ${startText} to ${endText}; amber marks need attention`;
     return (
-        <div className="flex-none border-b border-border px-3.5 pt-2.5 pb-2">
+        <div data-timeline-strip className="flex-none border-b border-border px-3.5 pt-2.5 pb-2">
             {/* the right padding holds a tick at the very end of the axis, which is drawn 2px wide from its x */}
             <div className="pr-[2px]">
                 <svg role="img" aria-label={label} width="100%" height={STRIP_H} className="block overflow-visible">
@@ -348,37 +401,38 @@ function ActivityStrip({
                             />
                         );
                     })}
-                    <line x1="100%" x2="100%" y1={0} y2={STRIP_H} stroke="var(--color-accent)" />
+                    {/* the accent end line is "now"; an ended run's axis has none */}
+                    {!ended && <line x1="100%" x2="100%" y1={0} y2={STRIP_H} stroke="var(--color-accent)" />}
                 </svg>
             </div>
             <div className="mt-[5px] flex justify-between font-mono text-[11.5px] text-ink-mid">
-                <span>{tsLabel(start)}</span>
-                <span>{spanMin} min</span>
-                <span>now {tsLabel(nowMs)}</span>
+                <span>{startText}</span>
+                <span>{spanText(endMs - start)}</span>
+                <span data-timeline-strip-end>{endText}</span>
             </div>
         </div>
     );
 }
 
-function NowMarker({ nowMs }: { nowMs: number }) {
+function NowMarker({ nowMs, withDate }: { nowMs: number; withDate: boolean }) {
     return (
-        <div className="relative flex items-center gap-2 pt-0.5 pr-2.5 pb-1.5 pl-[11px]">
+        <div data-timeline-now className="relative flex items-center gap-2 pt-0.5 pr-2.5 pb-1.5 pl-[11px]">
             <span className="flex w-5 flex-none justify-center">
                 <span className="size-2 rounded-full bg-accent pulse-dot" />
             </span>
-            <span className="font-mono text-[11.5px] text-accent-soft">now · {tsLabel(nowMs)}</span>
+            <span className="font-mono text-[11.5px] text-accent-soft">now · {tsLabel(nowMs, withDate)}</span>
         </div>
     );
 }
 
-function GapRow({ minutes }: { minutes: number }) {
+function GapRow({ ms }: { ms: number }) {
     return (
-        <div className="relative flex items-center gap-2 py-1 pr-2.5 pl-[11px]">
+        <div data-timeline-gap className="relative flex items-center gap-2 py-1 pr-2.5 pl-[11px]">
             <span className="flex w-5 flex-none justify-center">
                 <span className="size-[5px] rounded-full bg-edge-mid" />
             </span>
             <span className="flex-1 border-t border-dashed border-edge-mid" />
-            <span className="font-mono text-[11.5px] text-ink-mid">{minutes} min quiet</span>
+            <span className="font-mono text-[11.5px] text-ink-mid">{spanText(ms)} quiet</span>
             <span className="flex-1 border-t border-dashed border-edge-mid" />
         </div>
     );
@@ -451,39 +505,42 @@ export function SpineGlyph({ kind, attention, compact }: { kind: string; attenti
     );
 }
 
-export function groupTime(group: EventGroup): string {
-    const first = tsLabel(group.first);
-    const last = tsLabel(group.last);
+export function groupTime(group: EventGroup, withDate = false): string {
+    const first = tsLabel(group.first, withDate);
+    const last = tsLabel(group.last, withDate);
     return first === last ? first : `${first}–${last}`;
 }
 
 function GroupRow({
     group,
     enter,
-    events,
-    open,
+    withDate,
+    relaunch,
+    open: openState,
     selected,
     graphHovered,
-    relaunching,
     relaunchError,
     onRelaunch,
-    onToggle,
+    onClick,
     onEnter,
     onLeave,
 }: {
     group: EventGroup;
     enter: boolean;
-    events: RunEvent[];
+    withDate: boolean;
+    relaunch: RelaunchLeadAction | null;
     open: boolean;
     selected: boolean;
     graphHovered: boolean;
-    relaunching: boolean;
     relaunchError: string | null;
     onRelaunch: () => void;
-    onToggle: () => void;
+    onClick: (expandable: boolean) => void;
     onEnter: () => void;
     onLeave: () => void;
 }) {
+    // a row whose detail would only repeat its title offers no expand
+    const expandable = groupHasDetail(group) || relaunch != null;
+    const open = openState && expandable;
     const snippet = groupSnippet(group);
     let rowTone = "border-transparent hover:bg-surface-hover";
     if (open) {
@@ -508,8 +565,8 @@ function GroupRow({
                     type="button"
                     data-timeline-row
                     data-timeline-task={group.taskId || undefined}
-                    aria-expanded={open}
-                    onClick={onToggle}
+                    aria-expanded={expandable ? open : undefined}
+                    onClick={() => onClick(expandable)}
                     onPointerEnter={onEnter}
                     onPointerLeave={onLeave}
                     className={cn(
@@ -537,7 +594,7 @@ function GroupRow({
                             </span>
                         )}
                         <span className="ml-auto flex-none font-mono text-[11.5px] leading-[18px] text-ink-mid">
-                            {groupTime(group)}
+                            {groupTime(group, withDate)}
                         </span>
                     </span>
                     {group.steps.length > 1 && (
@@ -562,8 +619,8 @@ function GroupRow({
                 {open && (
                     <GroupDetail
                         group={group}
-                        events={events}
-                        relaunching={relaunching}
+                        withDate={withDate}
+                        relaunch={relaunch}
                         relaunchError={relaunchError}
                         onRelaunch={onRelaunch}
                     />
@@ -575,26 +632,28 @@ function GroupRow({
 
 function GroupDetail({
     group,
-    events,
-    relaunching,
+    withDate,
+    relaunch,
     relaunchError,
     onRelaunch,
 }: {
     group: EventGroup;
-    events: RunEvent[];
-    relaunching: boolean;
+    withDate: boolean;
+    relaunch: RelaunchLeadAction | null;
     relaunchError: string | null;
     onRelaunch: () => void;
 }) {
-    const relaunch = group.items.map((e) => relaunchLeadAction(e, events, relaunching)).find((a) => a != null) ?? null;
     return (
-        <div className="mb-1.5 flex flex-col gap-1.5 rounded-lg border border-edge-faint bg-surface-code p-2">
+        <div
+            data-timeline-row-detail
+            className="mb-1.5 flex flex-col gap-1.5 rounded-lg border border-edge-faint bg-surface-code p-2"
+        >
             {[...group.items].reverse().map((e) => {
                 const detail = eventDetail(e);
                 return (
                     <div key={e.id} className="flex flex-col gap-0.5">
                         <div className="flex gap-1.5 text-[12px]">
-                            <span className="font-mono text-[11.5px] text-ink-mid">{tsLabel(e.ts)}</span>
+                            <span className="font-mono text-[11.5px] text-ink-mid">{tsLabel(e.ts, withDate)}</span>
                             <span className={cn("font-semibold", textTone(eventTone(e)))}>{eventTitle(e)}</span>
                         </div>
                         {detail.text && (
@@ -647,13 +706,29 @@ function applyTarget(target: TimelineTarget, channelId: string): void {
         case "merge":
             globalStore.set(selectedTaskIdAtom, target.taskId);
             return;
+        // both land on the sheet behind the modal, which would hide the change: the modal goes first
         case "child-run":
+            dismissDagModal();
             setActiveRunId(channelId, target.runId);
             return;
         case "evidence":
-            document.querySelector("[data-evidence-block]")?.scrollIntoView({ behavior: "smooth", block: "start" });
+            dismissDagModal();
+            scrollToEvidence(EVIDENCE_POLL_FRAMES);
             return;
         default:
             return;
+    }
+}
+
+// scrollToEvidence waits a bounded number of frames for the evidence block, which may mount only once the modal
+// is gone
+function scrollToEvidence(framesLeft: number): void {
+    const block = document.querySelector("[data-evidence-block]");
+    if (block) {
+        block.scrollIntoView({ behavior: "smooth", block: "start" });
+        return;
+    }
+    if (framesLeft > 0) {
+        requestAnimationFrame(() => scrollToEvidence(framesLeft - 1));
     }
 }

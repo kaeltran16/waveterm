@@ -2,9 +2,20 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { eventText, eventTitle, planReviewLensTitle, toneFor } from "./runtimeline";
+import { eventText, eventTitle, planReviewLensTitle, toneFor, tsLabel } from "./runtimeline";
 
 const kindTitle = (kind: string) => eventTitle({ id: "1", ts: 1, kind } as RunEvent);
+
+describe("tsLabel", () => {
+    // a local date, so the label reads the same in every timezone
+    const ts = new Date(2026, 9, 16, 13, 59, 30).getTime();
+    it("is HH:MM by default", () => {
+        expect(tsLabel(ts)).toBe("13:59");
+    });
+    it("leads with the month and day when asked for the date", () => {
+        expect(tsLabel(ts, true)).toBe("Oct 16 13:59");
+    });
+});
 
 describe("toneFor", () => {
     it("stays within the existing tone utilities and falls back to muted", () => {

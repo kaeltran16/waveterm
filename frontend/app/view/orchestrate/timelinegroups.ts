@@ -4,7 +4,7 @@
 // one-line snippet, quiet gaps and the activity strip. Attention is ATTENTION_KINDS and titles are
 // runtimeline's, so this rail and any other timeline cannot disagree about either.
 
-import { detailOf, eventTitle } from "../agents/runtimeline";
+import { detailOf, eventTitle, planReviewReviewers } from "../agents/runtimeline";
 import { ATTENTION_KINDS, FINAL_FAILED_BLOCK, taskIdOf, type TimelineFilter } from "./timelinefilter";
 
 // one phase of one task within BURST_MS reads as one row; a silence of QUIET_MS or more is worth a gap row
@@ -251,10 +251,14 @@ export function groupSnippet(g: EventGroup): string {
     return snippetOf(g.head) || g.items.map(snippetOf).find((s) => s !== "") || "";
 }
 
-export function eventDetail(e: RunEvent): { text: string; pre: string } {
+function rawDetail(e: RunEvent): { text: string; pre: string } {
     const d = detailOf<Record<string, unknown>>(e) ?? {};
     if (e.kind === "task-verify-failed" && str(d.detail)) {
         return { text: "", pre: shortPkg(str(d.detail)) };
+    }
+    if (e.kind === "lead-wake-failed") {
+        const lines = Array.isArray(d.lines) ? d.lines.map(str).filter(Boolean) : [];
+        return { text: str(d.reason), pre: lines.join("\n") };
     }
     if (str(d.note) || str(d.downstream)) {
         return { text: [str(d.note), str(d.downstream)].filter(Boolean).join("\n\n"), pre: "" };
@@ -262,14 +266,86 @@ export function eventDetail(e: RunEvent): { text: string; pre: string } {
     return { text: snippetOf(e), pre: "" };
 }
 
+// a text that only repeats the row's title is no detail at all
+export function eventDetail(e: RunEvent): { text: string; pre: string } {
+    const detail = rawDetail(e);
+    return detail.text === eventTitle(e) ? { ...detail, text: "" } : detail;
+}
+
+// groupHasDetail: whether expanding the row shows anything beyond its title. A burst lists each step with its
+// time, so it always does; a lone event needs a detail or a plan review's reviewers.
+export function groupHasDetail(g: EventGroup): boolean {
+    if (g.items.length > 1) {
+        return true;
+    }
+    return g.items.some((e) => {
+        const detail = eventDetail(e);
+        const reviewed = e.kind === "plan-reviewed" && planReviewReviewers(e.detail).length > 0;
+        return detail.text !== "" || detail.pre !== "" || reviewed;
+    });
+}
+
+// eventCount: the rail counts events everywhere, as its header and the peek's Lifecycle do, never bursts
+export function eventCount(groups: EventGroup[]): number {
+    return groups.reduce((n, g) => n + g.items.length, 0);
+}
+
+// axisEnd: an ended run has no "now" on its axis, so the axis stops at its last event
+export function axisEnd(events: RunEvent[], ended: boolean, nowMs: number): number {
+    if (!ended || events.length === 0) {
+        return nowMs;
+    }
+    return Math.max(...events.map((e) => e.ts));
+}
+
+function localDay(ts: number): string {
+    const d = new Date(ts);
+    return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+
+// needsDate: times carry a date once the events span more than one local day or the last is not from today
+export function needsDate(events: RunEvent[], nowMs: number): boolean {
+    if (events.length === 0) {
+        return false;
+    }
+    const ts = events.map((e) => e.ts);
+    const first = localDay(Math.min(...ts));
+    const last = localDay(Math.max(...ts));
+    return first !== last || last !== localDay(nowMs);
+}
+
+const SECOND_MS = 1000;
+const MINUTE_MS = 60 * SECOND_MS;
+const HOUR_MS = 60 * MINUTE_MS;
+const DAY_MS = 24 * HOUR_MS;
+// up to this a span reads in hours and minutes; past it whole days are the useful grain
+const SPAN_HOURS_MAX_MS = 48 * HOUR_MS;
+
+// spanText reads a duration as 45s, 12m, 1h17m or 29d
+export function spanText(ms: number): string {
+    const s = Math.max(0, Math.round(ms / SECOND_MS));
+    if (s < 60) {
+        return `${s}s`;
+    }
+    const min = Math.round(ms / MINUTE_MS);
+    if (min < 60) {
+        return `${min}m`;
+    }
+    if (ms < SPAN_HOURS_MAX_MS) {
+        return `${Math.floor(min / 60)}h${min % 60}m`;
+    }
+    return `${Math.floor(ms / DAY_MS)}d`;
+}
+
 export type StripTick = { id: string; frac: number; attention: boolean; taskId: string };
 
-export function stripTicks(events: RunEvent[], nowMs: number): StripTick[] {
+// endMs is axisEnd's: now for a live run, the last event for an ended one
+export function stripTicks(events: RunEvent[], endMs: number): StripTick[] {
     if (events.length === 0) {
         return [];
     }
     const start = Math.min(...events.map((e) => e.ts));
-    const span = Math.max(1, nowMs - start);
+    const span = Math.max(1, endMs - start);
     return events.map((e) => ({
         id: e.id,
         frac: Math.min(1, Math.max(0, (e.ts - start) / span)),
