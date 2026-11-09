@@ -515,6 +515,29 @@ func TestCountsRecoveredRetry(t *testing.T) {
 	}
 }
 
+// spec D3: a retry the human or the lead asked for is not evidence the engine recovered the task
+func TestRecoveredRetryIgnoresActorRetries(t *testing.T) {
+	g := digestGroup(t, false, plainTasks())
+	setTaskStates(g, map[string]string{"t-0": TaskState_Done, "t-1": TaskState_Done, "t-2": TaskState_Done})
+	actorRetry := func(taskID, by string, ts int64) waveobj.RunEvent {
+		ev := retainedEvent(waveobj.RunEventKindTaskRetried, taskID, ts)
+		ev.Detail, _ = json.Marshal(map[string]any{"taskid": taskID, "auto": false, "by": by})
+		return ev
+	}
+	retained := []waveobj.RunEvent{
+		actorRetry("t-0", "human", 5000),
+		actorRetry("t-1", "lead", 5500),
+		retainedEvent(waveobj.RunEventKindTaskRetried, "t-2", 6000),
+	}
+	d := BuildDigest(digestSnapshot(g, nil, nil, retained, digestNow))
+	if d.Counts.RecoveredRetry != 1 {
+		t.Fatalf("only the engine's retry is recovery evidence, got %d", d.Counts.RecoveredRetry)
+	}
+	if d.Tasks[0].RecoveredRetry || d.Tasks[1].RecoveredRetry || !d.Tasks[2].RecoveredRetry {
+		t.Fatalf("recovered = %v %v %v, want only t-2", d.Tasks[0].RecoveredRetry, d.Tasks[1].RecoveredRetry, d.Tasks[2].RecoveredRetry)
+	}
+}
+
 // --- task digests ---
 
 func TestTaskWaitReasonDependencyAndBlocking(t *testing.T) {
@@ -1268,6 +1291,32 @@ func TestDigestMergeQueueFreedGateIsReadyAgain(t *testing.T) {
 	}
 	if d.Counts.MergeReady != 1 || d.Next.Kind != "merge-ready" {
 		t.Fatalf("counts %+v next %+v, want the tip merge-ready", d.Counts, d.Next)
+	}
+}
+
+// spec D6: a held gate asks nothing of you, however long it has waited; once its holder clears it is a gate again
+func TestHeldMergeGateIsNeverStale(t *testing.T) {
+	g := heldGateGroup(t, TaskState_Verifying)
+	now := time.Now()
+	doneTs := now.Add(-MergeGateStaleAfter - time.Minute).UnixMilli()
+	snap := DagDigestSnapshot{
+		Group:    g,
+		Retained: []waveobj.RunEvent{retainedEvent(waveobj.RunEventKindTaskDone, "t-0", doneTs)},
+		Now:      now,
+	}
+
+	d := BuildDigest(snap)
+	if d.Counts.Attention != 0 || d.Health != "healthy" {
+		t.Fatalf("held past the threshold: attention %d health %q, want 0 and healthy", d.Counts.Attention, d.Health)
+	}
+	if d.Tasks[0].MergeState != "held" || d.Tasks[0].MergeGateTs != doneTs {
+		t.Fatalf("held tip = %s gate ts %d, want held keeping its gate ts %d", d.Tasks[0].MergeState, d.Tasks[0].MergeGateTs, doneTs)
+	}
+
+	setTaskStates(g, map[string]string{"t-1": TaskState_Done})
+	d = BuildDigest(snap)
+	if d.Tasks[0].MergeState != "ready" || d.Counts.Attention != 1 || d.Health != "needs-you" {
+		t.Fatalf("holder done: tip %s attention %d health %q, want a ready stale gate counting 1", d.Tasks[0].MergeState, d.Counts.Attention, d.Health)
 	}
 }
 

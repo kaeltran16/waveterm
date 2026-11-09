@@ -186,7 +186,7 @@ func TestAFailedVerifyHoldsTheDependentsMergeNotItsStart(t *testing.T) {
 	}
 }
 
-// the lead's `dag merge` holds a dependent too, but still lands a lane that depends on nothing failing
+// the lead's `dag merge` waits on a failed Verify too: a dependent and an independent lane alike (spec D6/D7)
 func TestAManualMergeWaitsOnItsDependencysFailedVerify(t *testing.T) {
 	f := newMergeFixture(t, []waveobj.TaskNode{
 		{ID: "t-0", Label: "first"},

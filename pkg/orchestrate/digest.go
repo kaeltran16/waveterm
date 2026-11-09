@@ -49,7 +49,7 @@ func BuildDigest(sn DagDigestSnapshot) wshrpc.DagStatusDigest {
 	askByTask := askIndex(sn.Asks)
 	retried := retriedTaskSet(sn.Retained)
 	gateClock := mergeGateClock(g, sn.Retained)
-	staleGate := staleMergeGates(gateClock, sn.Now)
+	staleGate := staleMergeGates(g, gateClock, sn.Now)
 	d := wshrpc.DagStatusDigest{
 		DagVersion: g.Version,
 		Health:     buildHealth(g, sn.Owner, askByTask, staleGate),
@@ -134,16 +134,21 @@ func askIndex(asks []wshrpc.DagAskItem) map[string]wshrpc.DagAskItem {
 	return out
 }
 
-// retriedTaskSet returns the task ids that carry a retained task-retried event (recovered-retry proof
-// requires the current task be done; the per-task check does that part).
+// retriedTaskSet returns the task ids that carry a retained task-retried event of the engine's own (recovered-retry
+// proof requires the current task be done; the per-task check does that part). A row with a `by` is a retry the
+// human or the lead asked for, not evidence the engine recovered the task (spec D3).
 func retriedTaskSet(retained []waveobj.RunEvent) map[string]bool {
 	out := map[string]bool{}
 	for _, ev := range retained {
 		if ev.Kind != waveobj.RunEventKindTaskRetried {
 			continue
 		}
-		if taskID := eventTaskID(ev); taskID != "" {
-			out[taskID] = true
+		var detail struct {
+			TaskID string  `json:"taskid"`
+			By     *string `json:"by"`
+		}
+		if json.Unmarshal(ev.Detail, &detail) == nil && detail.TaskID != "" && detail.By == nil {
+			out[detail.TaskID] = true
 		}
 	}
 	return out
@@ -182,11 +187,13 @@ func mergeGateClock(g *waveobj.TaskGroup, retained []waveobj.RunEvent) map[strin
 }
 
 // staleMergeGates returns the gates open past MergeGateStaleAfter. A gate with no clock is left out: a missed
-// escalation costs a timeout, a fabricated one raises a false alarm on live work.
-func staleMergeGates(gateClock map[string]int64, now time.Time) map[string]bool {
+// escalation costs a timeout, a fabricated one raises a false alarm on live work. A held gate is left out too: it
+// waits on the merge queue's holder, so it asks nothing of anyone until the holder clears (spec D6).
+func staleMergeGates(g *waveobj.TaskGroup, gateClock map[string]int64, now time.Time) map[string]bool {
+	holder, _ := mergeQueueHolder(g)
 	stale := map[string]bool{}
 	for id, doneTs := range gateClock {
-		if now.UnixMilli()-doneTs > MergeGateStaleAfter.Milliseconds() {
+		if holder == "" && now.UnixMilli()-doneTs > MergeGateStaleAfter.Milliseconds() {
 			stale[id] = true
 		}
 	}
