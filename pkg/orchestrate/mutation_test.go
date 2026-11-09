@@ -135,7 +135,7 @@ func TestRetryKeepsFailedOwnershipWhenWorkerStopFails(t *testing.T) {
 	stopRunWorkers = func(context.Context, *waveobj.Run) error { return errors.New("stop failed") }
 	restoreAfterStages(t, func() { stopRunWorkers = oldStop })
 
-	err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "retry", waveobj.RoutePin{})
+	err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "retry", ActionByHuman, waveobj.RoutePin{})
 	if err == nil || !strings.Contains(err.Error(), "stop failed") {
 		t.Fatalf("retry error = %v, want stop failure", err)
 	}
@@ -156,7 +156,7 @@ func TestFailedRetryFailsTheTaskNotTheDag(t *testing.T) {
 	stopRunWorkers = func(context.Context, *waveobj.Run) error { return errors.New("stop failed") }
 	restoreAfterStages(t, func() { stopRunWorkers = oldStop })
 
-	if err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "retry", waveobj.RoutePin{}); err == nil {
+	if err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "retry", ActionByHuman, waveobj.RoutePin{}); err == nil {
 		t.Fatal("retry with a failing stop succeeded")
 	}
 	if err := Schedule(ctx, dag.OID); err != nil {
@@ -188,7 +188,7 @@ func TestRetryRefusesStatesItWouldLoseWorkFrom(t *testing.T) {
 			}); err != nil {
 				t.Fatal(err)
 			}
-			err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "retry", waveobj.RoutePin{})
+			err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "retry", ActionByHuman, waveobj.RoutePin{})
 			if err == nil || !strings.Contains(err.Error(), "cannot be retried") {
 				t.Fatalf("retry from %s: err = %v, want a refusal", state, err)
 			}
@@ -204,7 +204,7 @@ func TestRetryRefusesStatesItWouldLoseWorkFrom(t *testing.T) {
 
 func TestSkipRejectsRunningTaskWithoutClearingOwnership(t *testing.T) {
 	ctx, dag, _, child := seedRunningDag(t)
-	if err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "skip", waveobj.RoutePin{}); err == nil {
+	if err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "skip", ActionByHuman, waveobj.RoutePin{}); err == nil {
 		t.Fatal("running task accepted skip")
 	}
 	got, err := wstore.GetDag(ctx, dag.OID)
@@ -232,7 +232,7 @@ func TestSkipStopsStalledChildBeforeClearingOwnership(t *testing.T) {
 	}
 	restoreAfterStages(t, func() { stopRunWorkers = oldStop })
 
-	if err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "skip", waveobj.RoutePin{}); err != nil {
+	if err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "skip", ActionByHuman, waveobj.RoutePin{}); err != nil {
 		t.Fatal(err)
 	}
 	gotDag, _ := wstore.GetDag(ctx, dag.OID)
@@ -267,7 +267,7 @@ func TestRetryKeepsOwnershipWhenCancelledChildCannotReload(t *testing.T) {
 		})
 	})
 
-	err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "retry", waveobj.RoutePin{})
+	err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "retry", ActionByHuman, waveobj.RoutePin{})
 	if err == nil || !strings.Contains(err.Error(), "loading old run") {
 		t.Fatalf("retry error = %v, want child reload failure", err)
 	}
@@ -355,7 +355,7 @@ func allowEscalationSchedule(t *testing.T) {
 
 func assertEscalationRejectedWithoutCancelling(t *testing.T, ctx context.Context, dag *waveobj.TaskGroup, child waveobj.Run, worker string, target waveobj.RoutePin) {
 	t.Helper()
-	if err := ApplyAction(ctx, dag.OID, "t-0", "escalate", target); err == nil {
+	if err := ApplyAction(ctx, dag.OID, "t-0", "escalate", ActionByHuman, target); err == nil {
 		t.Fatal("want escalation rejection")
 	}
 	got, err := wstore.GetRun(ctx, dag.ChannelId, child.ID)
@@ -371,7 +371,7 @@ func TestEscalateRejectsEmptyTarget(t *testing.T) {
 	ctx, dag, _, _ := seedEscalationDag(t, "claude", TaskState_Failed, 0)
 	allowEscalationSchedule(t)
 	// a judged hop requires an explicit model
-	if err := ApplyAction(ctx, dag.OID, "t-0", "escalate", waveobj.RoutePin{}); err == nil {
+	if err := ApplyAction(ctx, dag.OID, "t-0", "escalate", ActionByHuman, waveobj.RoutePin{}); err == nil {
 		t.Fatal("empty escalate target must be rejected")
 	}
 	got := mustLoadDag(t, ctx, dag.OID)
@@ -390,7 +390,7 @@ func TestEscalateRequiresModelWithoutCancellingRun(t *testing.T) {
 func TestEscalateRepinsToModel(t *testing.T) {
 	ctx, dag, _, _ := seedEscalationDag(t, "claude", TaskState_Failed, 0)
 	allowEscalationSchedule(t)
-	if err := ApplyAction(ctx, dag.OID, "t-0", "escalate", waveobj.RoutePin{Model: "opus"}); err != nil {
+	if err := ApplyAction(ctx, dag.OID, "t-0", "escalate", ActionByHuman, waveobj.RoutePin{Model: "opus"}); err != nil {
 		t.Fatal(err)
 	}
 	got := mustLoadDag(t, ctx, dag.OID)
@@ -419,6 +419,43 @@ func TestEscalateRejectsBlockedMergeWithoutCancellingRun(t *testing.T) {
 	}
 }
 
+// a retry, skip or escalate leaves a row naming who acted, so the timeline tells the human's own actions from the lead's
+func TestActionWritesItsRunEventWithTheActor(t *testing.T) {
+	cases := []struct {
+		action, kind string
+		target       waveobj.RoutePin
+		want         map[string]any
+	}{
+		{"retry", waveobj.RunEventKindTaskRetried, waveobj.RoutePin{}, map[string]any{"auto": false}},
+		{"skip", waveobj.RunEventKindTaskSkipped, waveobj.RoutePin{}, map[string]any{}},
+		{"escalate", waveobj.RunEventKindTaskEscalated, waveobj.RoutePin{Model: "opus"}, map[string]any{"model": "opus", "runtime": "claude"}},
+	}
+	for _, c := range cases {
+		for _, by := range []string{ActionByHuman, ActionByLead} {
+			t.Run(c.action+"-"+by, func(t *testing.T) {
+				ctx, dag, _, _ := seedEscalationDag(t, "claude", TaskState_Failed, 0)
+				allowEscalationSchedule(t)
+				if err := ApplyAction(ctx, dag.OID, "t-0", c.action, by, c.target); err != nil {
+					t.Fatal(err)
+				}
+				rows := runEventsOfKind(t, ctx, dag.ChannelId, dag.RunID, c.kind)
+				if len(rows) != 1 {
+					t.Fatalf("want one %s row, got %d", c.kind, len(rows))
+				}
+				detail := firstEventDetail(t, ctx, dag.ChannelId, dag.RunID, c.kind)
+				if detail["taskid"] != "t-0" || detail["by"] != by {
+					t.Fatalf("want taskid t-0 by %s, got %v", by, detail)
+				}
+				for k, v := range c.want {
+					if detail[k] != v {
+						t.Fatalf("want %s=%v, got %v", k, v, detail)
+					}
+				}
+			})
+		}
+	}
+}
+
 func TestEscalateRejectsPendingTask(t *testing.T) {
 	ctx, dag := seedPendingDag(t)
 	if err := wstore.UpdateRun(ctx, dag.ChannelId, dag.RunID, func(owner *waveobj.Run) error {
@@ -427,7 +464,7 @@ func TestEscalateRejectsPendingTask(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyAction(ctx, dag.OID, "t-0", "escalate", waveobj.RoutePin{Model: "opus"}); err == nil {
+	if err := ApplyAction(ctx, dag.OID, "t-0", "escalate", ActionByHuman, waveobj.RoutePin{Model: "opus"}); err == nil {
 		t.Fatal("pending task accepted escalation")
 	}
 	got := mustLoadDag(t, ctx, dag.OID)
@@ -716,7 +753,7 @@ func TestCancelledDagRejectsFurtherMutations(t *testing.T) {
 	}
 
 	for _, action := range []string{"approve", "sendback", "retry", "skip", "escalate"} {
-		if err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, action, waveobj.RoutePin{}); err == nil {
+		if err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, action, ActionByHuman, waveobj.RoutePin{}); err == nil {
 			t.Fatalf("cancelled DAG accepted %q", action)
 		}
 	}
@@ -752,7 +789,9 @@ func TestCancelHoldsDagAuthorityThroughWorkerCleanup(t *testing.T) {
 	go func() { cancelDone <- Cancel(ctx, dag.OID) }()
 	<-entered
 	actionDone := make(chan error, 1)
-	go func() { actionDone <- ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "retry", waveobj.RoutePin{}) }()
+	go func() {
+		actionDone <- ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "retry", ActionByHuman, waveobj.RoutePin{})
+	}()
 	select {
 	case err := <-actionDone:
 		t.Fatalf("action escaped cancellation authority before worker cleanup: %v", err)

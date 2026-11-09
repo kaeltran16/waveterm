@@ -80,7 +80,7 @@ func TestSkippingAFailedTaskLandsItsLaneWithoutItsCommits(t *testing.T) {
 	commitInTree(t, wt, "bad.txt")
 	f.setTaskState(t, "t-2", TaskState_Failed)
 
-	if err := ApplyAction(f.ctx, f.dagID, "t-2", "skip", waveobj.RoutePin{}); err != nil {
+	if err := ApplyAction(f.ctx, f.dagID, "t-2", "skip", ActionByHuman, waveobj.RoutePin{}); err != nil {
 		t.Fatal(err)
 	}
 	g := f.dag(t)
@@ -108,7 +108,7 @@ func TestSkippingAStalledTaskDropsItsCommitsAndTheNextTaskStartsWithout(t *testi
 	}
 	f.setTaskState(t, "t-2", TaskState_Stalled)
 
-	if err := ApplyAction(f.ctx, f.dagID, "t-2", "skip", waveobj.RoutePin{}); err != nil {
+	if err := ApplyAction(f.ctx, f.dagID, "t-2", "skip", ActionByHuman, waveobj.RoutePin{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := f.laneHead(t); got != schema {
@@ -140,7 +140,7 @@ func TestSkippingATaskThatCommittedNothingLeavesItsLane(t *testing.T) {
 	wt, schema := f.startSecondTask(t)
 	f.setTaskState(t, "t-2", TaskState_Failed)
 
-	if err := ApplyAction(f.ctx, f.dagID, "t-2", "skip", waveobj.RoutePin{}); err != nil {
+	if err := ApplyAction(f.ctx, f.dagID, "t-2", "skip", ActionByHuman, waveobj.RoutePin{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := f.laneHead(t); got != schema {
@@ -193,7 +193,7 @@ func TestSkipRollbackLeavesADirectoryLinkedIntoTheTreeIntact(t *testing.T) {
 	commitInTree(t, wt, "bad.txt")
 	f.setTaskState(t, "t-2", TaskState_Failed)
 
-	if err := ApplyAction(f.ctx, f.dagID, "t-2", "skip", waveobj.RoutePin{}); err != nil {
+	if err := ApplyAction(f.ctx, f.dagID, "t-2", "skip", ActionByHuman, waveobj.RoutePin{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := committedFiles(t, f.project, "HEAD"); !reflect.DeepEqual(got, []string{"schema.txt"}) {
@@ -221,7 +221,7 @@ func TestARetrysEvidenceKeepsWhatTheFailedAttemptCommitted(t *testing.T) {
 	commitInTree(t, wt, "partial.txt")
 	f.setTaskState(t, "t-0", TaskState_Failed)
 
-	if err := ApplyAction(f.ctx, f.dagID, "t-0", "retry", waveobj.RoutePin{}); err != nil {
+	if err := ApplyAction(f.ctx, f.dagID, "t-0", "retry", ActionByHuman, waveobj.RoutePin{}); err != nil {
 		t.Fatal(err)
 	}
 	retry := f.taskRun(t, "t-0")

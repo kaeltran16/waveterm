@@ -54,7 +54,7 @@ func TestTaskActionsStopTheWorkerOutsideTheDagLock(t *testing.T) {
 			t.Fatal(err)
 		}
 		free := stopSeesDagLock(t, dag.OID)
-		if err := ApplyAction(ctx, dag.OID, "t-0", "skip", waveobj.RoutePin{}); err != nil {
+		if err := ApplyAction(ctx, dag.OID, "t-0", "skip", ActionByHuman, waveobj.RoutePin{}); err != nil {
 			t.Fatal(err)
 		}
 		assertStoppedOutsideLock(t, *free)
@@ -73,7 +73,7 @@ func TestTaskActionsStopTheWorkerOutsideTheDagLock(t *testing.T) {
 		}
 		allowEscalationSchedule(t)
 		free := stopSeesDagLock(t, dag.OID)
-		if err := ApplyAction(ctx, dag.OID, "t-0", "retry", waveobj.RoutePin{}); err != nil {
+		if err := ApplyAction(ctx, dag.OID, "t-0", "retry", ActionByHuman, waveobj.RoutePin{}); err != nil {
 			t.Fatal(err)
 		}
 		assertStoppedOutsideLock(t, *free)
@@ -85,7 +85,7 @@ func TestTaskActionsStopTheWorkerOutsideTheDagLock(t *testing.T) {
 		ctx, dag, child, _ := seedEscalationDag(t, "claude", TaskState_Failed, 0)
 		allowEscalationSchedule(t)
 		free := stopSeesDagLock(t, dag.OID)
-		if err := ApplyAction(ctx, dag.OID, "t-0", "escalate", waveobj.RoutePin{Model: "opus"}); err != nil {
+		if err := ApplyAction(ctx, dag.OID, "t-0", "escalate", ActionByHuman, waveobj.RoutePin{Model: "opus"}); err != nil {
 			t.Fatal(err)
 		}
 		assertStoppedOutsideLock(t, *free)
@@ -128,7 +128,7 @@ func TestSkipRewindsTheLaneOutsideTheDagLock(t *testing.T) {
 	// another caller removing the tree holds the rewind where the test can look at the dag lock
 	treeRemovals.Lock(wt)
 	done := make(chan error, 1)
-	go func() { done <- ApplyAction(f.ctx, f.dagID, "t-2", "skip", waveobj.RoutePin{}) }()
+	go func() { done <- ApplyAction(f.ctx, f.dagID, "t-2", "skip", ActionByHuman, waveobj.RoutePin{}) }()
 	<-stopped
 	locked := make(chan error, 1)
 	go func() { locked <- WithDagMutation(f.dagID, func() error { return nil }) }()
@@ -178,7 +178,7 @@ func TestSkipDropsARejectedCommitOutsideTheDagLock(t *testing.T) {
 		return err
 	}
 	restoreAfterStages(t, func() { resetReviewTree = old })
-	if err := ApplyAction(ctx, dag.OID, "t-0", "skip", waveobj.RoutePin{}); err != nil {
+	if err := ApplyAction(ctx, dag.OID, "t-0", "skip", ActionByHuman, waveobj.RoutePin{}); err != nil {
 		t.Fatal(err)
 	}
 	if len(free) != 1 || !free[0] {

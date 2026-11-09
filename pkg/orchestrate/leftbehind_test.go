@@ -63,7 +63,7 @@ func heldRetry(t *testing.T) (*mergeFixture, string, string, func()) {
 	work := commitInTree(t, wt, "schema.txt")
 	release := holdDir(t, wt)
 	f.setTaskState(t, "t-1", TaskState_Stalled)
-	if err := ApplyAction(f.ctx, f.dagID, "t-1", "retry", waveobj.RoutePin{}); err != nil {
+	if err := ApplyAction(f.ctx, f.dagID, "t-1", "retry", ActionByHuman, waveobj.RoutePin{}); err != nil {
 		t.Fatalf("a held stale tree must not fail the retry: %v", err)
 	}
 	return f, wt, work, release
@@ -124,7 +124,7 @@ func TestSkipWithAHeldTreeRewindsTheLaneAndRecordsTheDirectory(t *testing.T) {
 	release := holdDir(t, wt)
 	f.setTaskState(t, "t-2", TaskState_Stalled)
 
-	if err := ApplyAction(f.ctx, f.dagID, "t-2", "skip", waveobj.RoutePin{}); err != nil {
+	if err := ApplyAction(f.ctx, f.dagID, "t-2", "skip", ActionByHuman, waveobj.RoutePin{}); err != nil {
 		t.Fatalf("a held directory must not fail the skip: %v", err)
 	}
 	if got := f.laneHead(t); got != schema {

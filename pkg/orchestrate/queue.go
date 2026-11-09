@@ -40,6 +40,17 @@ func finalRerunWake(round int) string {
 	return fmt.Sprintf("%s of round %d; its failure was outside the code. Drop any fix plan for it; the stage's outcome wakes you.", finalRerunWakeHead, round)
 }
 
+// finalRerunAnswer answers the lead's open question when the human reran the stage instead: the held rerun wake would
+// arrive only after the lead acted on whatever the human answered.
+func finalRerunAnswer(round int) string {
+	return fmt.Sprintf("The human reran the final stage of round %d in the cockpit; its failure was outside the code. Drop any fix plan for it; the stage's outcome wakes you.", round)
+}
+
+// finalRerunOffer is the rerun a non-autonomous lead offers the human for a failed final stage
+func finalRerunOffer(runID string) string {
+	return fmt.Sprintf("If the failure is outside the code (a service down, a tool missing), offer the human `Rerun final stage` (the stage pane's button, or `wsh runs rerun-final %s`): a rerun spends no round.", runID)
+}
+
 // RunFinishedWake states the final stage's outcome, and every reason it could not verify something in full:
 // the lead's report has to carry them.
 func RunFinishedWake(f *waveobj.FinalStage) string {
@@ -128,9 +139,9 @@ func finalFailedWake(round int, runID, detail string, last, autonomous bool) str
 	case autonomous:
 		return fmt.Sprintf("wake: the final stage failed on the merged result in round %d. Write a fix plan and run `wsh jarvis dag submit --round --plan <fix plan>`. %s If the fix is a product call, make the call you would recommend and record it and why in your report:\n%s", round, fixEveryFailure, detail)
 	case last:
-		return fmt.Sprintf("wake: the final stage failed on the merged result in round %d, the last. Put it to the human, and say that completing will not merge the branch: a failed final stage holds the land, and only `wsh runs land %s --force`, the human's call once the run is done, lands it. %s:\n%s", round, runID, grantedRoundOption, detail)
+		return fmt.Sprintf("wake: the final stage failed on the merged result in round %d, the last. Put it to the human, and say that completing will not merge the branch: a failed final stage holds the land, and only `wsh runs land %s --force`, the human's call once the run is done, lands it. %s %s:\n%s", round, runID, finalRerunOffer(runID), grantedRoundOption, detail)
 	}
-	return fmt.Sprintf("wake: the final stage failed on the merged result in round %d. Write a fix plan and run `wsh jarvis dag submit --round --plan <fix plan>`. %s Put it to the human if the fix is a product call:\n%s", round, fixEveryFailure, detail)
+	return fmt.Sprintf("wake: the final stage failed on the merged result in round %d. Write a fix plan and run `wsh jarvis dag submit --round --plan <fix plan>`. %s %s Put it to the human if the fix is a product call:\n%s", round, fixEveryFailure, finalRerunOffer(runID), detail)
 }
 
 // finalKilledWake hands the lead a final stage whose step something outside killed: it judged nothing, so a fix plan
@@ -466,7 +477,7 @@ func TakeOverAsk(ctx context.Context, dagID, taskID string) error {
 	lead := leadStateFn(ctx, g.ChannelId, g.RunID)
 	isRelay := func(q baseds.AgentAskQuestion) bool { return q.Header == taskID }
 	// the worker's question did move, so a relay that cannot be answered is recorded, not returned
-	if err := answerLeadQuestionWith(ctx, g.ChannelId, g.RunID, lead.BlockId, jarvis.TakenOverRelayAnswer, isRelay); err != nil {
+	if _, err := answerLeadQuestionWith(ctx, g.ChannelId, g.RunID, lead.BlockId, jarvis.TakenOverRelayAnswer, isRelay, nil); err != nil {
 		log.Printf("orchestrate: run %s: answering the lead's relay of task %s: %v", g.RunID, taskID, err)
 		appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindLeadWakeFailed, nil, map[string]any{
 			"reason": "the lead's relay of task " + taskID + "'s question could not be answered: " + err.Error(),

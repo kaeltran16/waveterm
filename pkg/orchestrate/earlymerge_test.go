@@ -188,7 +188,7 @@ func TestEarlyLaneHeldUntilBaseLaneMerged(t *testing.T) {
 		}
 
 		// approve schedules a tick, which lands a; the next lands b
-		if err := ApplyAction(f.ctx, f.dagID, "a", "approve", waveobj.RoutePin{}); err != nil {
+		if err := ApplyAction(f.ctx, f.dagID, "a", "approve", ActionByHuman, waveobj.RoutePin{}); err != nil {
 			t.Fatal(err)
 		}
 		if err := Schedule(f.ctx, f.dagID); err != nil {

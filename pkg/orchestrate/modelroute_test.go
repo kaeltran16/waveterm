@@ -156,7 +156,7 @@ func TestSetModelOnWaitingTask(t *testing.T) {
 	ctx, dag := seedModelDag(t, []string{"t-1"}, func(g *waveobj.TaskGroup) { reviewerPicked(&g.Tasks[0]) })
 
 	// an explicit model with no runtime takes the task's current runtime, as escalate does
-	if err := applyActionLocked(ctx, dag.OID, "t-1", "setmodel", waveobj.RoutePin{Model: "haiku"}); err != nil {
+	if err := applyActionLocked(ctx, dag.OID, "t-1", "setmodel", ActionByHuman, waveobj.RoutePin{Model: "haiku"}); err != nil {
 		t.Fatal(err)
 	}
 	got := mustLoadDag(t, ctx, dag.OID).Tasks[0]
@@ -165,7 +165,7 @@ func TestSetModelOnWaitingTask(t *testing.T) {
 	}
 
 	// the empty target is the lead's route
-	if err := applyActionLocked(ctx, dag.OID, "t-1", "setmodel", waveobj.RoutePin{}); err != nil {
+	if err := applyActionLocked(ctx, dag.OID, "t-1", "setmodel", ActionByHuman, waveobj.RoutePin{}); err != nil {
 		t.Fatal(err)
 	}
 	g := mustLoadDag(t, ctx, dag.OID)
@@ -199,7 +199,7 @@ func TestSetModelRefusedOnceStarted(t *testing.T) {
 				c.edit(&g.Tasks[0])
 			})
 			before := mustLoadDag(t, ctx, dag.OID).Tasks[0]
-			err := applyActionLocked(ctx, dag.OID, "t-1", "setmodel", waveobj.RoutePin{})
+			err := applyActionLocked(ctx, dag.OID, "t-1", "setmodel", ActionByHuman, waveobj.RoutePin{})
 			if err == nil || !strings.Contains(err.Error(), "has started ("+c.state+")") {
 				t.Fatalf("setmodel on a started task: err = %v", err)
 			}
@@ -217,7 +217,7 @@ func TestSetModelRefusesUninstalledHarness(t *testing.T) {
 	restoreAfterStages(t, func() { validateWorkerHarness = old })
 	ctx, dag := seedModelDag(t, []string{"t-1"}, nil)
 
-	err := applyActionLocked(ctx, dag.OID, "t-1", "setmodel", waveobj.RoutePin{Runtime: "pi", Model: "opencode/deepseek-v4-pro"})
+	err := applyActionLocked(ctx, dag.OID, "t-1", "setmodel", ActionByHuman, waveobj.RoutePin{Runtime: "pi", Model: "opencode/deepseek-v4-pro"})
 	if err == nil || !strings.Contains(err.Error(), "pi is not installed") {
 		t.Fatalf("setmodel to an uninstalled harness: err = %v", err)
 	}
@@ -240,7 +240,7 @@ func TestLeadModelsResetsOnlyWaitingPicks(t *testing.T) {
 	})
 	before := mustLoadDag(t, ctx, dag.OID)
 
-	if err := applyActionLocked(ctx, dag.OID, "ignored", "leadmodels", waveobj.RoutePin{}); err != nil {
+	if err := applyActionLocked(ctx, dag.OID, "ignored", "leadmodels", ActionByHuman, waveobj.RoutePin{}); err != nil {
 		t.Fatal(err)
 	}
 	after := mustLoadDag(t, ctx, dag.OID)
@@ -264,7 +264,7 @@ func TestSetModelKeepsFailureStreak(t *testing.T) {
 		reviewerPicked(&g.Tasks[0])
 		g.Failures = 2
 	})
-	if err := applyActionLocked(ctx, dag.OID, "t-1", "setmodel", waveobj.RoutePin{}); err != nil {
+	if err := applyActionLocked(ctx, dag.OID, "t-1", "setmodel", ActionByHuman, waveobj.RoutePin{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := mustLoadDag(t, ctx, dag.OID).Failures; got != 2 {
@@ -276,7 +276,7 @@ func TestSetModelKeepsFailureStreak(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := applyActionLocked(ctx, dag.OID, "", "leadmodels", waveobj.RoutePin{}); err != nil {
+	if err := applyActionLocked(ctx, dag.OID, "", "leadmodels", ActionByHuman, waveobj.RoutePin{}); err != nil {
 		t.Fatal(err)
 	}
 	got := mustLoadDag(t, ctx, dag.OID)

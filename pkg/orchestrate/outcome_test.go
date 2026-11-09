@@ -165,7 +165,7 @@ func TestHandleChildOutcomeCountsAgainAfterAHumanRetry(t *testing.T) {
 	if err := HandleChildOutcome(h.ctx, h.workers[0], jarvis.OutcomeData{Status: "failed", Summary: "request timed out", ExitCode: 1}); err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyAction(h.ctx, h.dagID, "t-0", "retry", waveobj.RoutePin{}); err != nil {
+	if err := ApplyAction(h.ctx, h.dagID, "t-0", "retry", ActionByHuman, waveobj.RoutePin{}); err != nil {
 		t.Fatal(err)
 	}
 	if len(h.workers) != 2 {

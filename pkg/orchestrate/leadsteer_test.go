@@ -55,7 +55,7 @@ func seedRunningTask(t *testing.T) (context.Context, *waveobj.TaskGroup) {
 func TestApproveOverrulesAFailedReview(t *testing.T) {
 	ctx, dag, _ := seedReviewFailedDag(t)
 	f := newFakeLead(t)
-	if err := ApplyAction(ctx, dag.OID, "t-0", "approve", waveobj.RoutePin{}); err != nil {
+	if err := ApplyAction(ctx, dag.OID, "t-0", "approve", ActionByLead, waveobj.RoutePin{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := firstTask(t, ctx, dag.OID).State; got != TaskState_Done {
@@ -69,13 +69,13 @@ func TestApproveOverrulesAFailedReview(t *testing.T) {
 // approve and sendback answer a failed review and nothing else: on any other task they refuse and leave it as it is.
 func TestApproveAndSendBackRefuseATaskWhoseReviewDidNotFail(t *testing.T) {
 	ctx, dag := seedRunningTask(t)
-	if err := ApplyAction(ctx, dag.OID, "t-0", "approve", waveobj.RoutePin{}); err == nil || !strings.Contains(err.Error(), "review failed") {
+	if err := ApplyAction(ctx, dag.OID, "t-0", "approve", ActionByLead, waveobj.RoutePin{}); err == nil || !strings.Contains(err.Error(), "review failed") {
 		t.Fatalf("approve of a running task: err = %v, want a refusal naming the failed review", err)
 	}
 	if err := SendBack(ctx, dag.OID, "t-0", "try again"); err == nil || !strings.Contains(err.Error(), "review failed") {
 		t.Fatalf("sendback of a running task: err = %v, want a refusal naming the failed review", err)
 	}
-	if err := ApplyAction(ctx, dag.OID, "nope", "approve", waveobj.RoutePin{}); err == nil {
+	if err := ApplyAction(ctx, dag.OID, "nope", "approve", ActionByLead, waveobj.RoutePin{}); err == nil {
 		t.Fatal("approve of an unknown task must error")
 	}
 	if task := firstTask(t, ctx, dag.OID); task.State != TaskState_Running || task.LeadGuidance != "" {
@@ -104,7 +104,7 @@ func TestSendBackRunsAnotherRoundWithTheLeadsGuidance(t *testing.T) {
 func TestRetryAfterAFailedReviewResetsTheRound(t *testing.T) {
 	ctx, dag, worker := seedReviewFailedDag(t)
 	calls := captureSpawns(t)
-	if err := ApplyAction(ctx, dag.OID, "t-0", "retry", waveobj.RoutePin{}); err != nil {
+	if err := ApplyAction(ctx, dag.OID, "t-0", "retry", ActionByLead, waveobj.RoutePin{}); err != nil {
 		t.Fatal(err)
 	}
 	task := firstTask(t, ctx, dag.OID)
@@ -119,7 +119,7 @@ func TestRetryAfterAFailedReviewResetsTheRound(t *testing.T) {
 
 func TestSkipAFailedReviewKeepsTheWorkersRun(t *testing.T) {
 	ctx, dag, worker := seedReviewFailedDag(t)
-	if err := ApplyAction(ctx, dag.OID, "t-0", "skip", waveobj.RoutePin{}); err != nil {
+	if err := ApplyAction(ctx, dag.OID, "t-0", "skip", ActionByLead, waveobj.RoutePin{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := firstTask(t, ctx, dag.OID).State; got != TaskState_Skipped {
@@ -270,7 +270,7 @@ func TestSkipAFailedReviewDropsTheRejectedCommit(t *testing.T) {
 		return nil
 	}
 	restoreAfterStages(t, func() { resetReviewTree = old })
-	if err := ApplyAction(ctx, dag.OID, "t-0", "skip", waveobj.RoutePin{}); err != nil {
+	if err := ApplyAction(ctx, dag.OID, "t-0", "skip", ActionByLead, waveobj.RoutePin{}); err != nil {
 		t.Fatal(err)
 	}
 	if len(resetTo) != 1 || resetTo[0] != worker.ProjectPath+"@"+worker.BaseCommit {
@@ -283,7 +283,7 @@ func TestRetryRefusesATaskUnderReview(t *testing.T) {
 	stubReviewTree(t, worker.EndCommit)
 	captureSpawns(t)
 	schedule(t, ctx, dag.OID)
-	err := ApplyAction(ctx, dag.OID, "t-0", "retry", waveobj.RoutePin{})
+	err := ApplyAction(ctx, dag.OID, "t-0", "retry", ActionByLead, waveobj.RoutePin{})
 	if err == nil || !strings.Contains(err.Error(), "under review") {
 		t.Fatalf("retry must wait for the review, got %v", err)
 	}

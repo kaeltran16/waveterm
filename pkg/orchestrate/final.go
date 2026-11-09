@@ -784,7 +784,8 @@ func RerunFinalStage(ctx context.Context, dagID string) error {
 		RecomputeDagStatus(g)
 		channelID, runID := g.ChannelId, g.RunID
 		afterCommit = append(afterCommit, func() {
-			PostWake(ctx, channelID, runID, finalRerunWake(round))
+			appendRunEvent(ctx, channelID, runID, waveobj.RunEventKindFinalRerun, nil, map[string]any{"round": round})
+			answerLeadWithRerun(ctx, channelID, runID, round)
 		})
 		return persistDag(ctx, g)
 	})
@@ -795,6 +796,21 @@ func RerunFinalStage(ctx context.Context, dagID string) error {
 		fn()
 	}
 	return nil
+}
+
+// answerLeadWithRerun tells the lead of a rerun. A question it holds then is about the failed stage, since every task
+// settled before the stage ran, so the rerun answers it: the wake would be held until the lead acted on the human's
+// answer. With no question to answer, or an answer that cannot be delivered, the lead gets the wake.
+func answerLeadWithRerun(ctx context.Context, channelID, runID string, round int) {
+	wake := func() { PostWake(context.WithoutCancel(ctx), channelID, runID, finalRerunWake(round)) }
+	lead := leadStateFn(ctx, channelID, runID)
+	answered, err := answerLeadQuestionWith(ctx, channelID, runID, lead.BlockId, finalRerunAnswer(round), anyQuestion, wake)
+	if err != nil {
+		log.Printf("orchestrate: run %s: answering the lead's question with the rerun: %v", runID, err)
+	}
+	if !answered {
+		wake()
+	}
 }
 
 // removeStaleFinalTree is removeWorktreeDir, a var so a test can leave a stale final tree in place on any platform.
