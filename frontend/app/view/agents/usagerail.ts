@@ -12,8 +12,9 @@ import type { DonutWindow, ProviderDonuts } from "./ratelimitstore";
 import type { DailyHarnessUsage, DailyUsage } from "./usagestats";
 
 // "live" = a running agent is reporting now; "saved" = last snapshot from ratelimitstore; "none" =
-// this harness has never reported a quota window (opencode/pi don't publish one at all).
-export type RailState = "live" | "saved" | "none";
+// this harness has never reported a quota window (opencode/pi don't publish one at all); "apikey" =
+// claude is on the saved API key, so it pays per token and has no window to show.
+export type RailState = "live" | "saved" | "none" | "apikey";
 
 export interface UsageRailRow {
     harness: string;
@@ -79,7 +80,7 @@ export function buildUsageRail(
                 pricedTokens: t.pricedTokens,
                 fivehour: d?.fivehour ?? {},
                 week: d?.week ?? {},
-                state: d == null ? "none" : d.stale != null ? "saved" : "live",
+                state: railState(d),
                 capturedAt: d?.stale?.capturedAt,
             };
         });
@@ -93,6 +94,16 @@ export function buildUsageRail(
         groups.push({ key: "quiet", label: "No reading", rows: quiet });
     }
     return groups;
+}
+
+function railState(d: ProviderDonuts | undefined): RailState {
+    if (d == null) {
+        return "none";
+    }
+    if (d.apiKey) {
+        return "apikey";
+    }
+    return d.stale != null ? "saved" : "live";
 }
 
 export function railRows(groups: UsageRailGroup[]): UsageRailRow[] {

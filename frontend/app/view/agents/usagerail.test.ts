@@ -88,6 +88,17 @@ describe("buildUsageRail", () => {
         expect(railRows(groups)).toHaveLength(3);
     });
 
+    it("puts a claude API key donut in the reporting group as apikey", () => {
+        const donuts = mergeRateLimitWindows([], {}, now, true);
+        const groups = buildUsageRail(["claude"], daily, donuts, catalog);
+        expect(groups[0].key).toBe("reporting");
+        expect(groups[0].rows.find((r) => r.harness === "claude")).toMatchObject({
+            state: "apikey",
+            fivehour: {},
+            week: {},
+        });
+    });
+
     it("sorts harnesses outside the catalog last, alphabetically", () => {
         const rows = railRows(buildUsageRail(["zed", "amp", "claude"], [], [], catalog));
         expect(rows.map((r) => r.harness)).toEqual(["claude", "amp", "zed"]);
