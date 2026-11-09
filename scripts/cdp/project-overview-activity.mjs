@@ -225,21 +225,35 @@ export async function steps(h, ctx) {
             detail: JSON.stringify(edge),
         });
 
-        // Main board: loading shows skeleton lines, no count and no grid
+        // Main board: loading shows the calendar's blank shape, no count and no grid, at the loaded height, so the
+        // regions below do not move when the read lands
         await seed(h, { ...busy.reply, delayMs: 4000 });
         await reopen(h, ctx);
         const loading = await regionEval(h, `
             await nap(300);
-            return {
+            const height = () => Math.round(region()?.getBoundingClientRect().height ?? 0);
+            const during = {
                 skeletons: region()?.querySelectorAll(".animate-pulse").length ?? 0,
                 cells: cells().length,
                 head: headCount(),
+                height: height(),
             };
+            return during;
         `);
         await shot(h, "activity-loading");
+        const landed = await regionEval(h, `
+            const landed = await until(() => cells().length > 0, 8000);
+            return { landed, loadedHeight: Math.round(region()?.getBoundingClientRect().height ?? 0) };
+        `);
+        Object.assign(loading ?? {}, landed);
         steps.push({
-            step: "project-overview: Main board, activity: loading shows skeleton lines",
-            ok: loading?.skeletons > 0 && loading.cells === 0 && loading.head === "",
+            step: "project-overview: Main board, activity: loading shows the calendar's shape at the loaded height",
+            ok:
+                loading?.skeletons > 0 &&
+                loading.cells === 0 &&
+                loading.head === "" &&
+                loading.landed === true &&
+                loading.height === loading.loadedHeight,
             detail: JSON.stringify(loading),
         });
 

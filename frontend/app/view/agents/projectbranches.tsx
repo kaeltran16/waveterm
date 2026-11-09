@@ -4,6 +4,7 @@
 // The project Overview's Branches region: the newest commits across every branch, drawn as a graph. It reads
 // the log itself rather than through githistorystore, whose atoms belong to the one Diff surface.
 
+import { Skeleton, SkeletonRows } from "@/app/element/skeleton";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { BODY_LINK, MONO_FAINT, MONO_META } from "@/app/view/jarvis/briefstyle";
@@ -17,7 +18,7 @@ import { requestCommitLink } from "./githistorystore";
 import { GraphGutter } from "./graphgutter";
 import { HISTORY_RPC_TIMEOUT_MS } from "./historyquery";
 import { commitCount, refChipClass, type HistoryRow } from "./historyrows";
-import { RegionAlert, RegionHead, RegionNote, RegionSkeleton, type OverviewRegionProps } from "./overviewregion";
+import { RegionAlert, RegionHead, RegionNote, type OverviewRegionProps } from "./overviewregion";
 import {
     authorInitial,
     BRANCH_MAX_LANES,
@@ -83,9 +84,9 @@ export function ProjectBranches({
             <RegionHead
                 label="Branches"
                 count={state.kind === "rows" ? commitCount(state.rows) : undefined}
-                aside={state.kind === "rows" ? link : undefined}
+                aside={state.kind === "rows" || state.kind === "loading" ? link : undefined}
             />
-            {state.kind === "loading" ? <RegionSkeleton rows={4} /> : null}
+            {state.kind === "loading" ? <BranchesSkeleton /> : null}
             {state.kind === "norepo" ? <RegionNote>{project} is not a git repository.</RegionNote> : null}
             {state.kind === "empty" ? <RegionNote>No commits yet.</RegionNote> : null}
             {state.kind === "failed" ? (
@@ -116,6 +117,23 @@ function CommitGraph({ rows, onOpen }: { rows: HistoryRow[]; onOpen: (hash?: str
                 ))}
             </div>
         </div>
+    );
+}
+
+// commit rows at their own height, filling the region as a long log does
+function BranchesSkeleton() {
+    return (
+        <SkeletonRows className="min-h-0 flex-1">
+            {(i) => (
+                <div key={i} style={{ height: BRANCH_ROW_H }} className="flex items-center gap-2 pl-2 pr-2">
+                    <Skeleton className="h-[9px] w-[9px] flex-none rounded-full" />
+                    <Skeleton className="ml-3 h-3 w-[52px] flex-none" />
+                    <Skeleton className={i % 3 === 0 ? "h-3 w-3/5" : "h-3 w-2/5"} />
+                    <span className="flex-1" />
+                    <Skeleton className="h-3 w-[26px] flex-none" />
+                </div>
+            )}
+        </SkeletonRows>
     );
 }
 

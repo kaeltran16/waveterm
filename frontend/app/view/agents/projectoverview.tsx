@@ -55,7 +55,7 @@ export function ProjectOverviewModal({ model }: { model: AgentsViewModel }) {
         <ModalShell
             open={project != null}
             onClose={close}
-            className="flex max-h-[84vh] w-[min(1120px,94vw)] flex-col"
+            className="flex h-[84vh] w-[min(1120px,94vw)] flex-col"
             topClass="pt-[7vh]"
         >
             {project != null ? <OverviewBody model={model} project={project} close={close} /> : null}

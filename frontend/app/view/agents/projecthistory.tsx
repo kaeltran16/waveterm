@@ -4,6 +4,7 @@
 // The project Overview's History region: the last 30 days of ended sessions, with the runs they started. Rows render a
 // page at a time as the list scrolls, and a run's dag is read only once its row renders.
 
+import { Skeleton, SkeletonRows } from "@/app/element/skeleton";
 import { globalStore } from "@/app/store/jotaiStore";
 import { isEditableTarget } from "@/app/store/keybindings/dispatcher";
 import * as WOS from "@/app/store/wos";
@@ -17,7 +18,7 @@ import { atom, useAtomValue } from "jotai";
 import { Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { formatAgeShort } from "./agentsviewmodel";
-import { RegionAlert, RegionHead, RegionNote, RegionSkeleton, type OverviewRegionProps } from "./overviewregion";
+import { RegionAlert, RegionHead, RegionNote, type OverviewRegionProps } from "./overviewregion";
 import {
     HISTORY_PAGE,
     HISTORY_WINDOW_DAYS,
@@ -203,7 +204,7 @@ export function ProjectHistory({ model, project, path, close }: OverviewRegionPr
                 </RegionAlert>
             ) : null}
             {loading ? (
-                <RegionSkeleton rows={6} />
+                <HistorySkeleton />
             ) : (
                 <>
                     {all.length > 0 ? <HistorySearch inputRef={inputRef} query={query} setQuery={setQuery} /> : null}
@@ -236,6 +237,39 @@ export function ProjectHistory({ model, project, path, close }: OverviewRegionPr
     );
 }
 
+const SEARCH_BOX =
+    "mb-1 mt-0.5 flex h-[30px] items-center gap-2 rounded-[8px] border border-edge-mid bg-surface px-2.5";
+
+// the search box's slot, then session rows built from the row's own classes: each bar sits in a line of the real text
+// size, so the lines keep the loaded height whatever the font's line box is
+function HistorySkeleton() {
+    return (
+        <>
+            <div aria-hidden="true" className={SEARCH_BOX} />
+            <SkeletonRows className="min-h-0 flex-1">
+                {(i) => (
+                    <div key={i} className={cn("flex flex-col gap-[3px] py-[9px]", ROW_BORDER)}>
+                        <span className="flex items-baseline gap-2">
+                            <SkeletonText className="flex-1 text-[13px]" bar={i % 3 === 0 ? "w-3/4" : "w-1/2"} />
+                            <SkeletonText className={MONO_FAINT} bar="w-[18px]" />
+                        </span>
+                        <SkeletonText className={MONO_META} bar="w-[150px]" />
+                    </div>
+                )}
+            </SkeletonRows>
+        </>
+    );
+}
+
+function SkeletonText({ className, bar }: { className: string; bar: string }) {
+    return (
+        <span className={cn("relative block", className)}>
+            {" "}
+            <Skeleton className={cn("absolute inset-y-[3px] left-0", bar)} />
+        </span>
+    );
+}
+
 function HistorySearch({
     inputRef,
     query,
@@ -246,7 +280,7 @@ function HistorySearch({
     setQuery: (q: string) => void;
 }) {
     return (
-        <label className="mb-1 mt-0.5 flex h-[30px] items-center gap-2 rounded-[8px] border border-edge-mid bg-surface px-2.5">
+        <label className={SEARCH_BOX}>
             <Search size={13} aria-hidden className="flex-none text-muted" />
             <input
                 ref={inputRef}

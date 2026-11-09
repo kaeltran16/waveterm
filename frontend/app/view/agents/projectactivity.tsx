@@ -4,12 +4,13 @@
 // The project Overview's Activity region: tokens per day over the last 53 weeks, from the usage scan
 // (projectactivitymodel.ts).
 
+import { skeletonClass } from "@/app/element/skeleton";
 import { MONO_FAINT } from "@/app/view/jarvis/briefstyle";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { formatTokens } from "./agentsviewmodel";
-import { RegionAlert, RegionHead, RegionSkeleton, type OverviewRegionProps } from "./overviewregion";
+import { RegionAlert, RegionHead, type OverviewRegionProps } from "./overviewregion";
 import {
     ACTIVITY_WEEKS,
     ACTIVITY_WINDOW_DAYS,
@@ -102,7 +103,7 @@ export function ProjectActivity({ project, path }: OverviewRegionProps) {
                 count={view != null ? `${formatTokens(view.cal.total)} tokens` : undefined}
                 aside={<span className={MONO_FAINT}>tokens per day · last 53 weeks</span>}
             />
-            {load.state === "loading" ? <RegionSkeleton rows={4} /> : null}
+            {load.state === "loading" ? <ActivitySkeleton /> : null}
             {load.state === "error" ? (
                 <RegionAlert onRetry={() => setAttempt((n) => n + 1)}>
                     Could not read activity: {load.reason}.
@@ -111,16 +112,66 @@ export function ProjectActivity({ project, path }: OverviewRegionProps) {
             {view != null ? (
                 <>
                     <DayGrid weeks={view.cal.weeks} months={view.cal.months} />
-                    <div className={cn("flex items-center gap-3.5", MONO_FAINT)}>
+                    <ActivityFooter>
                         <span data-activity-lastweek>
                             last 7 days <span className="text-secondary">{lastWeekLine(view.week)}</span>
                         </span>
-                        <span className="flex-1" />
-                        <Legend />
-                    </div>
+                    </ActivityFooter>
                 </>
             ) : null}
         </section>
+    );
+}
+
+// the loaded calendar's own geometry with every day blank, so nothing below it moves when the read lands. One pulse
+// for the grid rather than one per cell.
+function ActivitySkeleton() {
+    return (
+        <>
+            <div
+                aria-hidden="true"
+                className="self-start animate-pulse motion-reduce:animate-none"
+                style={{ paddingTop: MONTH_ROW }}
+            >
+                <div className="flex gap-1.5">
+                    <DayLabels />
+                    <div className="flex gap-1">
+                        {Array.from({ length: ACTIVITY_WEEKS }, (_, w) => (
+                            <div key={w} className="flex flex-col gap-1">
+                                {DAY_LABELS.map((_, r) => (
+                                    <div key={r} className="h-3.5 w-3.5 rounded-[3px] bg-edge-strong" />
+                                ))}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+            <ActivityFooter>
+                <span aria-hidden="true" className={skeletonClass("h-3 w-[220px]")} />
+            </ActivityFooter>
+        </>
+    );
+}
+
+function ActivityFooter({ children }: { children: ReactNode }) {
+    return (
+        <div className={cn("flex items-center gap-3.5", MONO_FAINT)}>
+            {children}
+            <span className="flex-1" />
+            <Legend />
+        </div>
+    );
+}
+
+function DayLabels() {
+    return (
+        <div className="flex w-7 flex-col gap-1 font-mono text-[10.5px] text-ink-faint">
+            {DAY_LABELS.map((l, i) => (
+                <span key={i} className="h-3.5 leading-[14px]">
+                    {l}
+                </span>
+            ))}
+        </div>
     );
 }
 
@@ -169,13 +220,7 @@ function DayGrid({ weeks, months }: { weeks: DayCell[][]; months: { label: strin
                 </span>
             ))}
             <div className="flex gap-1.5">
-                <div className="flex w-7 flex-col gap-1 font-mono text-[10.5px] text-ink-faint">
-                    {DAY_LABELS.map((l, i) => (
-                        <span key={i} className="h-3.5 leading-[14px]">
-                            {l}
-                        </span>
-                    ))}
-                </div>
+                <DayLabels />
                 <div
                     ref={gridRef}
                     role="group"

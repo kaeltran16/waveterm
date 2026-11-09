@@ -2,9 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // The parts every project Overview region shares (projectoverview.tsx): the head row, the empty sentence, the
-// failure line with its Retry, and the loading lines.
+// failure line with its Retry. Each region draws its own loading shape, the size of what it loads.
 
-import { SkeletonLine } from "@/app/element/skeleton";
 import { MONO_META, REGION_LABEL, SMALL_BTN } from "@/app/view/jarvis/briefstyle";
 import { cn } from "@/util/util";
 import { CircleAlert } from "lucide-react";
@@ -39,16 +38,6 @@ export function RegionAlert({ children, onRetry }: { children: ReactNode; onRetr
             <button type="button" onClick={onRetry} className={cn("flex-none", SMALL_BTN)}>
                 Retry
             </button>
-        </div>
-    );
-}
-
-export function RegionSkeleton({ rows }: { rows: number }) {
-    return (
-        <div aria-hidden="true" className="flex flex-col gap-3 px-[11px] py-2">
-            {Array.from({ length: rows }, (_, i) => (
-                <SkeletonLine key={i} className={i % 2 === 0 ? "w-4/5" : "w-3/5"} />
-            ))}
         </div>
     );
 }
