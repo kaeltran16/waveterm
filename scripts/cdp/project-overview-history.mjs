@@ -111,7 +111,7 @@ export async function steps(h, ctx) {
     const recent = fixtureSession({ ...mine, ...at(5 * MIN), task: "History recent session" });
     const origin = fixtureSession({ ...mine, ...at(30 * MIN), task: "History origin session" });
     const older = fixtureSession({ ...mine, ...at(DAY), task: "History older session", runtime: "pi" });
-    const stale = fixtureSession({ ...mine, ...at(8 * DAY), task: "History stale session" });
+    const stale = fixtureSession({ ...mine, ...at(31 * DAY), task: "History stale session" });
     const sessions = [recent, origin, older, stale];
     const runs = [
         {
@@ -157,7 +157,7 @@ export async function steps(h, ctx) {
         step(
             "Main board, history: sessions newest first, a run nested under its origin, a top-level run, a cancelled warn",
             channel === true &&
-                main?.head === "History | 3 sessions | last 7 days" &&
+                main?.head === "History | 3 sessions | last 30 days" &&
                 JSON.stringify(main.rows) === JSON.stringify(wantRows) &&
                 main.warnClass === " · cancelled" &&
                 // a cancelled run with no dag names the cancel once
@@ -298,7 +298,7 @@ export async function steps(h, ctx) {
         );
         await openOverview(h, ctx.project);
 
-        // paging: 40 sessions render 30, and scrolling the body to the end renders more
+        // paging: 40 sessions render 30, and scrolling the history list to the end renders more
         const many = Array.from({ length: MANY }, (_, i) =>
             fixtureSession({ ...mine, ...at((i + 1) * 10 * MIN), task: `History paged session ${i + 1}` })
         );
@@ -308,9 +308,9 @@ export async function steps(h, ctx) {
         await settled(h);
         const paged = await hEval(h, `
             const first = rowKeys().length;
-            const body = overview().querySelector("[data-overview-body]");
+            const list = region().querySelector("[data-history-list]");
             for (let i = 0; i < 10 && rowKeys().length <= ${PAGE}; i++) {
-                body.scrollTop = body.scrollHeight;
+                list.scrollTop = list.scrollHeight;
                 await nap(250);
             }
             return { first, after: rowKeys().length };
@@ -330,8 +330,8 @@ export async function steps(h, ctx) {
         await shot(h, "history-quiet");
         step(
             "Quiet board, history: no sessions says so and counts 0 sessions",
-            quiet?.head === "History | 0 sessions | last 7 days" &&
-                quiet.note === `No sessions in ${ctx.project} in the last 7 days.` &&
+            quiet?.head === "History | 0 sessions | last 30 days" &&
+                quiet.note === `No sessions in ${ctx.project} in the last 30 days.` &&
                 quiet.rows === 0 &&
                 quiet.search === false,
             quiet

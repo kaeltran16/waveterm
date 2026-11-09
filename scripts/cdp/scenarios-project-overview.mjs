@@ -1,5 +1,5 @@
-// The project Overview modal (frontend/app/view/agents/projectoverview.tsx): the app-bar switcher offers
-// "Overview of <project>" only with a project scoped; picking it opens the modal over the current surface with the
+// The project Overview modal (frontend/app/view/agents/projectoverview.tsx): each project row in the app-bar
+// switcher has an overview button beside its remove button, All projects has none; picking it opens the modal over the current surface with the
 // project's branch, uncommitted changes and path in its header; Escape closes it and leaves the surface as it was.
 // Between opening and Escape, each region's module (project-overview-<region>.mjs) checks its own states.
 import { writeFileSync } from "node:fs";
@@ -25,7 +25,7 @@ export const projectOverview = {
     async assert(h, ctx) {
         const steps = [];
 
-        // 1. with every project in scope the switcher has no Overview entry
+        // 1. the All projects row has no overview button; the project's row has one
         const unscoped = await pageEval(h, `
             await ps.registerProject(${JSON.stringify(ctx.project)}, ${JSON.stringify(ctx.dir)});
             const listed = await until(() => S.globalStore.get(ps.projectsAtom)?.[${JSON.stringify(ctx.project)}] != null, 10000);
@@ -34,37 +34,45 @@ export const projectOverview = {
             await nap(200);
             switcher()?.click();
             const opened = await until(() => document.querySelector('[data-project-option="all"]') != null, 4000);
-            const hasEntry = entry() != null;
+            const allHasEntry = document.querySelector('[data-project-option="all"]')?.querySelector("[data-project-overview-open]") != null;
+            const hasEntry = entry(${JSON.stringify(ctx.project)}) != null;
             switcher()?.click();
             await nap(200);
-            return { listed, opened, hasEntry };
+            return { listed, opened, allHasEntry, hasEntry };
         `);
         steps.push({
-            step: "project-overview: with All projects in scope the switcher offers no Overview",
-            ok: unscoped?.listed === true && unscoped.opened === true && unscoped.hasEntry === false,
+            step: "project-overview: the project's switcher row has an overview button, All projects has none",
+            ok: unscoped?.listed === true && unscoped.opened === true && unscoped.allHasEntry === false && unscoped.hasEntry === true,
             detail: JSON.stringify(unscoped),
         });
 
-        // 2. with the project scoped the entry names it, at the top of the dropdown
+        // 2. the button sits on the project's row, beside its remove button
         const scoped = await pageEval(h, `
             S.globalStore.set(model.projectFilterAtom, ${JSON.stringify(ctx.project)});
             await nap(200);
             switcher()?.click();
-            const shown = await until(() => entry() != null, 4000);
+            const want = ${JSON.stringify(ctx.project)};
+            const shown = await until(() => entry(want) != null, 4000);
             await nap(250);
-            return { shown, label: flat(entry()), target: entry()?.getAttribute("data-project-overview-open") };
+            const row = entry(want)?.closest(".group");
+            return {
+                shown,
+                title: entry(want)?.getAttribute("title"),
+                onRow: row?.querySelector("[data-project-option]")?.getAttribute("data-project-option"),
+                besideRemove: row?.querySelector('[title="Remove project"]') != null,
+            };
         `);
         await shot(h, "switcher-entry");
         steps.push({
-            step: "project-overview: with a project scoped the switcher's first entry is 'Overview of <project>'",
-            ok: scoped?.shown === true && scoped.label === `Overview of ${ctx.project}` && scoped.target === ctx.project,
+            step: "project-overview: the overview button sits on the project's row beside its remove button",
+            ok: scoped?.shown === true && scoped.title === "Project overview" && scoped.onRow === ctx.project && scoped.besideRemove === true,
             detail: JSON.stringify(scoped),
         });
 
         // 3. picking it opens the modal with the project's branch, changes and path; the surface stays
         const opened = await pageEval(h, `
             const surface = S.globalStore.get(model.surfaceAtom);
-            entry()?.click();
+            entry(${JSON.stringify(ctx.project)})?.click();
             const shown = await until(() => overview() != null && overview().querySelector("[data-overview-changes]") != null, 8000);
             await nap(400);
             const o = overview();
@@ -73,7 +81,7 @@ export const projectOverview = {
                 project: o?.getAttribute("data-project-overview"),
                 header: flat(o?.querySelector("header")),
                 changes: flat(o?.querySelector("[data-overview-changes]")),
-                dropdownClosed: entry() == null,
+                dropdownClosed: entry(${JSON.stringify(ctx.project)}) == null,
                 surfaceBefore: surface,
                 surfaceAfter: S.globalStore.get(model.surfaceAtom),
             };
@@ -105,7 +113,7 @@ export const projectOverview = {
         await shot(h, "layout");
         const L = layout ?? {};
         steps.push({
-            step: "project-overview: Main board, body: Activity spans the top, Now and Branches left of History",
+            step: "project-overview: Main board, body: Activity spans the top, Now and Branches left of History, both ending level",
             ok:
                 L.all === true &&
                 L.activity.bottom <= L.now.top &&
@@ -114,6 +122,7 @@ export const projectOverview = {
                 L.now.bottom <= L.branches.top &&
                 L.now.right <= L.history.left &&
                 L.branches.right <= L.history.left &&
+                Math.abs(L.branches.bottom - L.history.bottom) <= 2 &&
                 L.history.width > L.now.width,
             detail: JSON.stringify(layout),
         });

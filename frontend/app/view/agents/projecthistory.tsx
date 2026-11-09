@@ -1,7 +1,8 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// The project Overview's History region: the last 7 days of ended sessions, with the runs they started.
+// The project Overview's History region: the last 30 days of ended sessions, with the runs they started. Rows render a
+// page at a time as the list scrolls, and a run's dag is read only once its row renders.
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { isEditableTarget } from "@/app/store/keybindings/dispatcher";
@@ -19,8 +20,10 @@ import { formatAgeShort } from "./agentsviewmodel";
 import { RegionAlert, RegionHead, RegionNote, RegionSkeleton, type OverviewRegionProps } from "./overviewregion";
 import {
     HISTORY_PAGE,
+    HISTORY_WINDOW_DAYS,
     historyEntries,
     historyRuns,
+    pagedRuns,
     runCardId,
     sessionLine,
     sessionTitle,
@@ -40,6 +43,9 @@ import { sessionKey } from "./sessionsruns";
 import { usePaging } from "./sessionssurface";
 
 const MINUTE_MS = 60_000;
+const WINDOW_LABEL = `last ${HISTORY_WINDOW_DAYS} days`;
+// a dag changes a run row's line, never which entries there are or their order, so paging counts entries without them
+const NO_DAGS: Record<string, TaskGroup | undefined> = {};
 
 const DIAMOND: Record<HistoryRunItem["tone"], string> = {
     ok: "bg-success",
@@ -139,21 +145,25 @@ export function ProjectHistory({ model, project, path, close }: OverviewRegionPr
     // ages and the window move by the minute, not by the 1 s clock
     const minute = Math.floor(now / MINUTE_MS) * MINUTE_MS;
     const runs = useMemo(() => historyRuns(runsRead.runs ?? [], minute), [runsRead.runs, minute]);
-    const dags = useDags(runs);
     const sessions = useMemo(() => (base ? overlayLive(base, roster) : []), [base, roster]);
     const all = useMemo(
-        () => historyEntries(sessions, runs, dags, path, minute, ""),
-        [sessions, runs, dags, path, minute]
+        () => historyEntries(sessions, runs, NO_DAGS, path, minute, ""),
+        [sessions, runs, path, minute]
     );
-    const shown = useMemo(
-        () => (query.trim() ? historyEntries(sessions, runs, dags, path, minute, query) : all),
-        [all, sessions, runs, dags, path, minute, query]
+    const filtered = useMemo(
+        () => (query.trim() ? historyEntries(sessions, runs, NO_DAGS, path, minute, query) : all),
+        [all, sessions, runs, path, minute, query]
     );
     const sessionCount = all.filter((e) => e.kind === "session").length;
     const loading = base == null || runsRead.runs == null;
     // the sentinel mounts only once loading ends; a zero total until then makes the pager observe it when it does
-    const { count, setCount, sentinelRef } = usePaging(HISTORY_PAGE, loading ? 0 : shown.length);
+    const { count, setCount, sentinelRef } = usePaging(HISTORY_PAGE, loading ? 0 : filtered.length);
     useEffect(() => setCount(HISTORY_PAGE), [query, project, setCount]);
+    const dags = useDags(pagedRuns(filtered, count, runs));
+    const shown = useMemo(
+        () => historyEntries(sessions, runs, dags, path, minute, query),
+        [sessions, runs, dags, path, minute, query]
+    );
 
     const openSession = (s: LiveSession) => {
         globalStore.set(model.sessionsSelAtom, sessionKey(s));
@@ -177,11 +187,11 @@ export function ProjectHistory({ model, project, path, close }: OverviewRegionPr
     };
 
     return (
-        <section ref={sectionRef} aria-label="History" className="flex flex-col gap-1.5">
+        <section ref={sectionRef} aria-label="History" className="flex min-h-0 flex-1 flex-col gap-1.5">
             <RegionHead
                 label="History"
                 count={loading ? null : `${sessionCount} ${sessionCount === 1 ? "session" : "sessions"}`}
-                aside={<span className={MONO_FAINT}>last 7 days</span>}
+                aside={<span className={MONO_FAINT}>{WINDOW_LABEL}</span>}
             />
             {sessionsFailed ? (
                 <RegionAlert onRetry={() => fireAndForget(loadSessionsArchive)}>Could not read sessions.</RegionAlert>
@@ -198,12 +208,14 @@ export function ProjectHistory({ model, project, path, close }: OverviewRegionPr
                 <>
                     {all.length > 0 ? <HistorySearch inputRef={inputRef} query={query} setQuery={setQuery} /> : null}
                     {all.length === 0 && !sessionsFailed ? (
-                        <RegionNote>No sessions in {project} in the last 7 days.</RegionNote>
+                        <RegionNote>
+                            No sessions in {project} in the {WINDOW_LABEL}.
+                        </RegionNote>
                     ) : null}
                     {all.length > 0 && shown.length === 0 ? (
                         <RegionNote>No sessions match “{query.trim()}”.</RegionNote>
                     ) : null}
-                    <div data-history-list className="flex flex-col">
+                    <div data-history-list className="flex min-h-0 flex-1 flex-col overflow-y-auto">
                         {shown.slice(0, count).map((e) => (
                             <HistoryRow
                                 key={e.key}

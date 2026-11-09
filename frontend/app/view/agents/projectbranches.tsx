@@ -79,7 +79,7 @@ export function ProjectBranches({
         </button>
     );
     return (
-        <section aria-label="Branches" className="flex flex-col gap-1.5">
+        <section aria-label="Branches" className="flex min-h-0 flex-1 flex-col gap-1.5">
             <RegionHead
                 label="Branches"
                 count={state.kind === "rows" ? commitCount(state.rows) : undefined}
@@ -103,16 +103,18 @@ function CommitGraph({ rows, onOpen }: { rows: HistoryRow[]; onOpen: (hash?: str
     const lanes = Math.min(Math.max(laneCount(laned), 1), BRANCH_MAX_LANES);
     const geom = graphGeometry(laned, { rowH: BRANCH_ROW_H, maxLanes: lanes });
     return (
-        <div className="relative">
-            <GraphGutter geom={geom} />
-            {laned.map((row) => (
-                <CommitRow
-                    key={row.hash || "__wt__"}
-                    row={row}
-                    indent={geom.gutter}
-                    onOpen={() => onOpen(row.workingTree ? undefined : row.hash)}
-                />
-            ))}
+        <div data-overview-graph className="min-h-0 flex-1 overflow-y-auto">
+            <div className="relative">
+                <GraphGutter geom={geom} />
+                {laned.map((row) => (
+                    <CommitRow
+                        key={row.hash || "__wt__"}
+                        row={row}
+                        indent={geom.gutter}
+                        onOpen={() => onOpen(row.workingTree ? undefined : row.hash)}
+                    />
+                ))}
+            </div>
         </div>
     );
 }

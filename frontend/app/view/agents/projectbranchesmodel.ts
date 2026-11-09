@@ -7,7 +7,7 @@
 
 import { buildRows, type HistoryRow } from "./historyrows";
 
-export const BRANCH_ROWS = 10;
+export const BRANCH_ROWS = 50;
 export const BRANCH_ROW_H = 28;
 export const BRANCH_MAX_LANES = 4;
 

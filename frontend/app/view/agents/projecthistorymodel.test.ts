@@ -7,6 +7,7 @@ import { leadlessCardId } from "./cardgridlayout";
 import {
     HISTORY_WINDOW_MS,
     historyEntries,
+    pagedRuns,
     runCardId,
     runItem,
     sessionLine,
@@ -82,7 +83,7 @@ function dag(tasks: string[], over: Partial<TaskGroup> = {}): TaskGroup {
 const keys = (list: HistoryEntry[]) => list.map((e) => e.key);
 
 describe("historyEntries: sessions", () => {
-    it("keeps ended, non-run sessions of the project inside 7 days, newest first", () => {
+    it("keeps ended, non-run sessions of the project inside the window, newest first", () => {
         const list = historyEntries(
             [
                 session("old", { lastactivets: NOW - HISTORY_WINDOW_MS - MIN }),
@@ -157,6 +158,21 @@ describe("historyEntries: runs", () => {
         ];
         const [head] = historyEntries([s], runs, {}, PATH, NOW, "");
         expect(head.kind === "session" && head.runs.map((x) => x.runId)).toEqual(["late", "early"]);
+    });
+});
+
+describe("pagedRuns", () => {
+    it("reads only the runs the first page of entries draws, nested or top-level", () => {
+        const s = session("s");
+        const runs = [
+            run("nested", { origintranscript: s.transcriptpath, createdts: NOW - 2 * MIN }),
+            run("top", { createdts: NOW - 20 * MIN }),
+            run("later", { createdts: NOW - 3 * DAY }),
+        ];
+        const entries = historyEntries([s], runs, {}, PATH, NOW, "");
+        expect(keys(entries)).toEqual(["claude:s", "run:top", "run:later"]);
+        expect(pagedRuns(entries, 2, runs).map((r) => r.id)).toEqual(["nested", "top"]);
+        expect(pagedRuns(entries, 3, runs).map((r) => r.id)).toEqual(["nested", "top", "later"]);
     });
 });
 

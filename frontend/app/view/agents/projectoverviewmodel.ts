@@ -11,11 +11,6 @@ export function changesLabel(stats: { files: number } | null): string {
     return stats.files === 0 ? "no uncommitted changes" : `${stats.files} ${stats.files === 1 ? "file" : "files"}`;
 }
 
-// the switcher offers the Overview only with one project scoped: "all" has no single project to show
-export function overviewTarget(filter: string): string | null {
-    return filter === "all" || filter === "" ? null : filter;
-}
-
 // one folder spelled two ways (registry, usage scan, sessions archive): slashes, trailing slash and case differ on
 // a case-blind file system; an empty side is no folder, so it never matches
 export function samePath(a: string, b: string): boolean {

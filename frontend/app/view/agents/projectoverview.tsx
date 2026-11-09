@@ -1,8 +1,8 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// A project's Overview: a modal over the current surface, opened from the project switcher's "Overview of
-// <project>" entry (projectswitcher.tsx). The header names the project, its branch, its uncommitted changes and
+// A project's Overview: a modal over the current surface, opened from the overview button on a project's row in
+// the project switcher (projectswitcher.tsx). The header names the project, its branch, its uncommitted changes and
 // its path; the body holds the project's regions: Activity, Now, Branches and History.
 
 import { ModalShell } from "@/app/modals/modalshell";
@@ -119,24 +119,25 @@ function OverviewBody({ model, project, close }: { model: AgentsViewModel; proje
     );
 }
 
-// Activity across the top; under it Now above Branches on the left, History on the right. The data-overview-region
-// wrappers are the scenario's hooks, so the regions own only their insides.
+// Activity across the top; under it Now above Branches on the left, History on the right. The two columns share one
+// height, the modal's leftover, and Branches and History each scroll inside it, so neither side runs past the
+// other. The data-overview-region wrappers are the scenario's hooks, so the regions own only their insides.
 function OverviewRegions({ changedFiles, ...props }: OverviewRegionProps & { changedFiles: number }) {
     return (
         <>
             <div data-overview-region="activity">
                 <ProjectActivity {...props} />
             </div>
-            <div className="flex items-start gap-7">
-                <div className="flex min-w-0 flex-[2] flex-col gap-6">
+            <div className="flex min-h-[360px] flex-1 gap-7">
+                <div className="flex min-h-0 min-w-0 flex-[2] flex-col gap-6">
                     <div data-overview-region="now">
                         <ProjectNow {...props} />
                     </div>
-                    <div data-overview-region="branches">
+                    <div data-overview-region="branches" className="flex min-h-0 flex-1 flex-col">
                         <ProjectBranches {...props} changedFiles={changedFiles} />
                     </div>
                 </div>
-                <div data-overview-region="history" className="min-w-0 flex-[3]">
+                <div data-overview-region="history" className="flex min-h-0 min-w-0 flex-[3] flex-col">
                     <ProjectHistory {...props} />
                 </div>
             </div>

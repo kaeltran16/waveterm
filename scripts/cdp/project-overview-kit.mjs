@@ -16,14 +16,14 @@ export const LIB = `
         return null;
     })();
     const switcher = () => document.querySelector('[data-project-switcher="bar"]');
-    const entry = () => document.querySelector("[data-project-overview-open]");
+    const entry = (p) => document.querySelector('[data-project-overview-open="' + CSS.escape(p) + '"]');
     const overview = () => document.querySelector("[data-project-overview]");
 `;
 export const pageEval = (h, body) => lookEval(h, `${LIB} ${body}`);
 
 export const REGIONS = ["activity", "now", "branches", "history"];
 
-// Scopes the project, opens the modal through the switcher's entry and waits for the body's four region
+// Scopes the project, opens the modal through the overview button on its switcher row and waits for the body's four region
 // wrappers. It never waits on the header's changes, which a project without git never draws.
 export function openOverview(h, project) {
     return pageEval(h, `
@@ -31,9 +31,9 @@ export function openOverview(h, project) {
         const regions = ${JSON.stringify(REGIONS)};
         S.globalStore.set(model.projectFilterAtom, want);
         await nap(200);
-        if (entry() == null) switcher()?.click();
-        const listed = await until(() => entry() != null, 4000);
-        entry()?.click();
+        if (entry(want) == null) switcher()?.click();
+        const listed = await until(() => entry(want) != null, 4000);
+        entry(want)?.click();
         const ready = () => {
             const o = document.querySelector('[data-project-overview="' + CSS.escape(want) + '"]');
             return o != null && regions.every((r) => o.querySelector('[data-overview-region="' + r + '"]') != null);

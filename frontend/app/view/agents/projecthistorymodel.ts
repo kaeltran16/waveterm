@@ -1,7 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// The project Overview's History (projecthistory.tsx): the last 7 days of the project's ended sessions, newest
+// The project Overview's History (projecthistory.tsx): the last 30 days of the project's ended sessions, newest
 // first, each with the runs it started nested under it. A run with no listed origin session stands on its own.
 
 import { formatAgeShort, formatTokens, type AgentVM } from "./agentsviewmodel";
@@ -12,7 +12,8 @@ import { runtimeMeta } from "./runtimemeta";
 import type { LiveSession } from "./sessionsarchivestore";
 import { sessionKey } from "./sessionsruns";
 
-export const HISTORY_WINDOW_MS = 7 * 86_400_000;
+export const HISTORY_WINDOW_DAYS = 30;
+export const HISTORY_WINDOW_MS = HISTORY_WINDOW_DAYS * 86_400_000;
 export const HISTORY_PAGE = 30;
 
 export type HistoryRunItem = {
@@ -108,6 +109,19 @@ function keepEntry(e: HistoryEntry, q: string): boolean {
         return matches(e.run.title, q);
     }
     return matches(sessionTitle(e.session), q) || e.runs.some((r) => matches(r.title, q));
+}
+
+// the runs the first `count` entries draw, nested or top-level: only their dags are read, the rest as paging reaches them
+export function pagedRuns(entries: HistoryEntry[], count: number, runs: Run[]): Run[] {
+    const ids = new Set<string>();
+    for (const e of entries.slice(0, count)) {
+        if (e.kind === "run") {
+            ids.add(e.run.runId);
+        } else {
+            e.runs.forEach((r) => ids.add(r.runId));
+        }
+    }
+    return runs.filter((r) => ids.has(r.id));
 }
 
 export function historyEntries(
