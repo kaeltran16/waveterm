@@ -533,9 +533,10 @@ export function runFinished(run: Pick<RunInfo, "dag" | "status">): boolean {
     return status === "done" || status === "cancelled";
 }
 
-export function runProgress(dag: TaskGroup | undefined): { done: number; total: number } {
+export function runProgress(dag: TaskGroup | undefined): { done: number; skipped: number; total: number } {
     const tasks = dag?.tasks ?? [];
-    return { done: tasks.filter((t) => t.state === "done" || t.state === "skipped").length, total: tasks.length };
+    const skipped = tasks.filter((t) => t.state === "skipped").length;
+    return { done: tasks.filter((t) => t.state === "done").length + skipped, skipped, total: tasks.length };
 }
 
 // leadStandingBy reports a lead sitting at its prompt while its run's plan executes: between wakes it only waits

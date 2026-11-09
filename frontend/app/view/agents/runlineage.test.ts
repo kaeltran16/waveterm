@@ -222,8 +222,8 @@ describe("run facts", () => {
 
     it("counts done and skipped tasks as finished", () => {
         const tasks = [{ state: "done" }, { state: "skipped" }, { state: "running" }] as TaskNode[];
-        expect(runProgress({ tasks } as TaskGroup)).toEqual({ done: 2, total: 3 });
-        expect(runProgress(undefined)).toEqual({ done: 0, total: 0 });
+        expect(runProgress({ tasks } as TaskGroup)).toEqual({ done: 2, skipped: 1, total: 3 });
+        expect(runProgress(undefined)).toEqual({ done: 0, skipped: 0, total: 0 });
     });
 });
 

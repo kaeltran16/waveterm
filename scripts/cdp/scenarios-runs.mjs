@@ -87,6 +87,7 @@ import {
     arrangeLiveRuns,
     arrangePhase2Runs,
     injectLiveAsks,
+    injectLiveGateDigest,
     LIVE_IDS,
     LIVE_VERIFY_ERROR,
     markLeadClosed,
@@ -94,6 +95,7 @@ import {
     publishLiveEvents,
     setLiveRoster,
     teardownLiveRuns,
+    undoLiveGateDigest,
 } from "./live-run-fixture.mjs";
 
 const workerOf = (phase) => phase && phase.workerorefs && phase.workerorefs[0];
@@ -871,8 +873,14 @@ async function liveRunCardSteps(h, ctx) {
         rows
     );
 
-    // F8: a failed task opens its transcript; a failed Verify shows its error
+    // F8: a failed task opens its transcript; a failed Verify shows its failing line, which the engine's digest
+    // names (D5) from output the held run never has, so the page's digest is given it for this step
     const failed = await lookEval(h, `
+        const { globalStore } = await mod("app/store/jotaiStore.ts");
+        const L = await mod("app/view/agents/runlineagestore.ts");
+        const id = ${JSON.stringify(ctx.live.A.runId)};
+        globalStore.set(L.runDigestsAtom, (prev) => prev[id] ? { ...prev, [id]: { ...prev[id], tasks: prev[id].tasks.map((t) => t.taskid === "t-7" ? { ...t, verifyfailline: ${JSON.stringify(LIVE_VERIFY_ERROR)} } : t) } } : prev);
+        await nap(200);
         const t5 = ${liveRow(LIVE_IDS.leadA, "t-5")};
         t5?.click();
         await nap(300);
@@ -882,6 +890,12 @@ async function liveRunCardSteps(h, ctx) {
         await nap(300);
         return { t5Open, t7Detail: flat(t7?.querySelector("[data-row-detail]")) };`);
     await h.shot("cdp-shots/lead-card-live-verify-failed.png");
+    await lookEval(h, `
+        const { globalStore } = await mod("app/store/jotaiStore.ts");
+        const L = await mod("app/view/agents/runlineagestore.ts");
+        const id = ${JSON.stringify(ctx.live.A.runId)};
+        globalStore.set(L.runDigestsAtom, (prev) => prev[id] ? { ...prev, [id]: { ...prev[id], tasks: prev[id].tasks.map((t) => t.taskid === "t-7" ? { ...t, verifyfailline: undefined } : t) } } : prev);
+        return true;`);
     rec(
         "L8. a failed row opens its transcript and a failed Verify shows its first line (F8)",
         failed.t5Open.includes("Open transcript") && failed.t7Detail === LIVE_VERIFY_ERROR,
@@ -985,7 +999,148 @@ async function liveRunCardSteps(h, ctx) {
         const mark = card?.querySelector('[data-lead-mark="error"]');
         return { mark: !!mark, title: mark?.querySelector("title")?.textContent ?? null, activity: flat(card).includes("lead failed to start · error getting block: not found") };`);
     rec("L17. a lead that failed to start explains its red mark (F19)", err.mark && /failed to start/.test(err.title ?? "") && err.activity, err);
+    steps.push(...(await phase3CardSteps(h, ctx)));
     steps.push(...(await phase2CardSteps(h, ctx, cardB)));
+    return steps;
+}
+
+// page code reading run A's card: a task row focused (its head, sub, detail and buttons), the card's need-you chip
+// and the toolbar's need-you count of cards
+const P3_READ = `
+    const card = ${liveCard(LIVE_IDS.leadA)};
+    const readRow = async (id) => {
+        const row = document.querySelector('[data-row-key="row:${LIVE_IDS.leadA}:' + id + '"]');
+        row?.scrollIntoView({ block: "center" });
+        row?.click();
+        await nap(400);
+        return {
+            head: flat(row?.firstElementChild),
+            sub: flat(row?.querySelector(":scope > div:nth-child(2) > div")),
+            detail: flat(row?.querySelector("[data-row-detail]")),
+            buttons: [...(row?.querySelectorAll("button") ?? [])].map((b) => flat(b)),
+        };
+    };
+    const counts = () => ({
+        chip: Number(flat(card?.querySelector("[data-need-you-chip]")).match(/^(\\d+)/)?.[1] ?? 0),
+        tab: Number(flat(document.querySelector("[data-cockpit-surface] [data-need-you]")).match(/^(\\d+)/)?.[1] ?? -1),
+    });
+`;
+// run A's digest without its workers' asks, so the need-you counts move only for what a step adds
+const p3ClearAsks = (runId) => `
+    const { globalStore } = await mod("app/store/jotaiStore.ts");
+    const L = await mod("app/view/agents/runlineagestore.ts");
+    const id = ${JSON.stringify(runId)};
+    globalStore.set(L.runDigestsAtom, (prev) => prev[id] ? { ...prev, [id]: { ...prev[id], tasks: prev[id].tasks.map((t) => (t.taskid === "t-2" || t.taskid === "t-3") ? { ...t, waitreason: "" } : t) } } : prev);
+`;
+
+// The live-run review's phase 3 lead card findings (Q1, Q5, Q6, Q9, Q12, Q14, Q17), on run A before runs D and E
+// crowd the 1000x700 window. What only the engine would write is set in the page (injectLiveGateDigest, and a task
+// state or landing for one step), and each step puts back what it set.
+async function phase3CardSteps(h, ctx) {
+    const steps = [];
+    const rec = (step, ok, detail) => steps.push({ step, ok: !!ok, detail: typeof detail === "string" ? detail : JSON.stringify(detail) });
+    const { A } = ctx.live;
+    const forwarded = async () => {
+        const before = await lookEval(h, `${p3ClearAsks(A.runId)} ${P3_READ} await nap(700); return counts();`);
+        const injected = await injectLiveGateDigest(h, ctx);
+        const after = await lookEval(h, `${P3_READ}
+            await nap(700);
+            return { counts: counts(), t5: await readRow("t-5"), t7: await readRow("t-7") };`);
+        return { before, injected, ...after };
+    };
+    const yours = (r, actions) =>
+        /needs you/.test(r?.head ?? "") && actions.every((a) => (r?.buttons ?? []).some((b) => b.endsWith(a)));
+    const forwardedOk = (f) =>
+        f.injected === "ok" &&
+        yours(f.t5, ["Retry", "Skip"]) &&
+        yours(f.t7, ["Continue"]) &&
+        f.counts.chip === f.before.chip + 2 &&
+        f.counts.tab === f.before.tab + 1;
+
+    // Q1: a failure the lead forwarded is yours on the card, and counts as yours
+    const wide = await forwarded();
+    await h.shot("cdp-shots/lead-card-live-p3-forwarded.png");
+    rec("L26. forwarded t-5 and t-7 read needs you with Retry/Skip and Continue, and the chip and tab count them (Q1)", forwardedOk(wide), wide);
+    // Q5: with no failing line found, the Verify failure reads its reason, not a passing test's line
+    rec("L26c. t-7's red detail reads \"exit 1\", not a test line (Q5)", wide.t7?.detail === "exit 1", wide.t7);
+
+    // Q6, Q14: a ready tip held by another task's Verify asks nothing, and opens its transcript
+    const heldRead = () =>
+        lookEval(h, `${P3_READ}
+            const t10 = await readRow("t-10");
+            return t10;`);
+    const heldOk = (r) =>
+        /merge ready · waits on t-8's Verify$/.test(r?.sub ?? "") && r.buttons.length === 1 && r.buttons[0] === "Open transcript";
+    const held = await heldRead();
+    await h.shot("cdp-shots/lead-card-live-p3-held.png");
+
+    await h.cdp("Emulation.setDeviceMetricsOverride", LIVE_SMALL);
+    await polishNap(800);
+    await undoLiveGateDigest(h, ctx);
+    await polishNap(400);
+    const small = await forwarded();
+    await h.shot("cdp-shots/lead-card-live-p3-forwarded-1000.png");
+    rec("L26b. at 1000x700 the forwarded t-5 and t-7 are yours and counted (Q1)", forwardedOk(small), small);
+    const heldSmall = await heldRead();
+    await h.shot("cdp-shots/lead-card-live-p3-held-1000.png");
+    rec(
+        "L27. a ready tip held by t-8's Verify reads \"merge ready · waits on t-8's Verify\" and opens its transcript, at 1600 and 1000x700 (Q6, Q14)",
+        heldOk(held) && heldOk(heldSmall),
+        { held, heldSmall }
+    );
+    await undoLiveGateDigest(h, ctx);
+    await h.cdp("Emulation.setDeviceMetricsOverride", OBS_WIDE);
+    await polishNap(500);
+
+    // Q9: a refusal says the action's words, and goes once its task moves on
+    await injectLiveAsks(h, ctx);
+    await polishNap(500);
+    const refusal = await lookEval(h, `${P3_READ}
+        const { globalStore } = await mod("app/store/jotaiStore.ts");
+        const WOS = await mod("app/store/wos.ts");
+        const actions = await mod("app/view/agents/leadcardactions.ts");
+        const id = ${JSON.stringify(A.runId)};
+        const errorLine = () => [...(card?.querySelectorAll("div") ?? [])].find((d) => d.children.length === 0 && /^Take over t-3/.test(flat(d)));
+        const t3 = await readRow("t-3");
+        const row = document.querySelector('[data-row-key="row:${LIVE_IDS.leadA}:t-3"]');
+        button(row, /Take over$/)?.click();
+        const shown = await until(() => !!errorLine(), 8000);
+        const text = flat(errorLine());
+        const dagRef = WOS.makeORef("dag", WOS.getObjectValue(WOS.makeORef("run", id))?.dagoref);
+        const dag = WOS.getObjectValue(dagRef);
+        WOS.setObjectValue({ ...dag, tasks: dag.tasks.map((t) => (t.id === "t-3" ? { ...t, state: "failed" } : t)) });
+        const gone = await until(() => !errorLine(), 4000);
+        await WOS.reloadWaveObject(dagRef);
+        globalStore.set(actions.runCardErrorAtom, (prev) => { const { [id]: _, ...rest } = prev; return rest; });
+        return { buttons: t3.buttons, shown, text, gone };`);
+    await h.shot("cdp-shots/lead-card-live-p3-refusal.png");
+    rec(
+        "L28. a refused Take over reads \"Take over t-…: …\" without \"Error:\", and goes once that task's state changes (Q9)",
+        refusal.shown && /^Take over t-3: \S/.test(refusal.text) && !/Error:/.test(refusal.text) && refusal.gone,
+        refusal
+    );
+
+    // Q12: a skipped task is not counted done
+    const meta = await lookEval(h, `return flat(${liveCard(LIVE_IDS.leadA)}?.querySelector("[data-run-meta]"));`);
+    rec("L29. a run with a skipped task reads <n>/<m> · 1 skipped (Q12)", /^1\/14 · 1 skipped( · |$)/.test(meta), meta);
+
+    // Q17: once landed, the footer says where it landed
+    const landed = await lookEval(h, `
+        const WOS = await mod("app/store/wos.ts");
+        const ref = WOS.makeORef("run", ${JSON.stringify(A.runId)});
+        const run = WOS.getObjectValue(ref);
+        WOS.setObjectValue({ ...run, basebranch: "main", land: { ...(run.land ?? {}), state: "landed", commit: "c2c0149".padEnd(40, "0") } });
+        const footer = () => ${liveCard(LIVE_IDS.leadA)}?.querySelector("[data-lead-footer] [title]");
+        await until(() => /landed on/.test(flat(footer())), 4000);
+        const read = { text: flat(footer()), title: footer()?.title ?? null };
+        await WOS.reloadWaveObject(ref);
+        return read;`);
+    await h.shot("cdp-shots/lead-card-live-p3-landed.png");
+    rec(
+        "L30. a landed run's footer reads \"landed on <base> · <sha>\", not \"lands on wave/…\" (Q17)",
+        /landed on main · c2c0149$/.test(landed.text) && landed.title === "landed on main · c2c0149" && !/lands on wave\//.test(landed.text),
+        landed
+    );
     return steps;
 }
 
