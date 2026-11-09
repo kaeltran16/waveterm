@@ -8,6 +8,7 @@ import {
     historyKey,
     historyOptsFor,
     originCwd,
+    pollAnchor,
     rangeKey,
     scopeKey,
     summaryLine,
@@ -378,5 +379,31 @@ describe("compare range form", () => {
     it("names both refs when there is no merge base", () => {
         const input = { branch: "feature", ref: "", mergeBase: "", commit: null, changes: null };
         expect(summaryLine({ ...input, range: mergebase })).toBe("main … feature · 0 files · +0 −0");
+    });
+});
+
+// a session whose start was not known at load keeps measuring from HEAD until a poll tick re-reads it
+describe("pollAnchor", () => {
+    const session: DiffRange = { kind: "session", agentId: "a1" };
+
+    it("reads with the session start once it is known and no ref resolved yet", () => {
+        expect(pollAnchor(session, "", "", 1700000000)).toStrictEqual({ sessionStartTs: 1700000000 });
+    });
+
+    it("keeps the live read while the session start is still unknown", () => {
+        expect(pollAnchor(session, "", "", null)).toStrictEqual({ ref: "", end: "" });
+    });
+
+    it("keeps an already-resolved session ref whatever the start", () => {
+        expect(pollAnchor(session, "base9", "", 1700000000)).toStrictEqual({ ref: "base9", end: "" });
+        expect(pollAnchor(session, "base9", "", null)).toStrictEqual({ ref: "base9", end: "" });
+    });
+
+    it("keeps the ref and end of every other range", () => {
+        const run: DiffRange = { kind: "run", runId: "r1", baseCommit: "9f2c1de", headCommit: "c0ffee1" };
+        const compare: DiffRange = { kind: "compare", base: "a", head: "b", form: "mergebase", from: session };
+        expect(pollAnchor(run, "9f2c1de", "c0ffee1", 1700000000)).toStrictEqual({ ref: "9f2c1de", end: "c0ffee1" });
+        expect(pollAnchor({ kind: "working" }, "", "", 1700000000)).toStrictEqual({ ref: "", end: "" });
+        expect(pollAnchor(compare, "", "", 1700000000)).toStrictEqual({ ref: "", end: "" });
     });
 });

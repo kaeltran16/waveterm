@@ -106,6 +106,66 @@ describe("loadFilesForScope, session range", () => {
     });
 });
 
+// the start usually resolves once the first prompt writes a transcript; the poll must pick it up
+// without a reopen, which would blank the list and drop the selection
+describe("reloadChanges, session range whose start did not resolve at load", () => {
+    const twoFiles = {
+        isrepo: true,
+        branch: "feat",
+        statusz: "M  a.ts\0M  b.ts\0",
+        numstat: "1\t0\ta.ts\n1\t0\tb.ts\n",
+        ref: "",
+    };
+
+    async function loadUnresolved(id: string): Promise<void> {
+        resolveCwd.mockResolvedValue("/wt");
+        ensureSessionStart.mockResolvedValue(null);
+        gitChanges.mockResolvedValue(twoFiles);
+        await loadFilesForScope(agentScopeVal(id), { transcriptPath: `/${id}.jsonl` });
+        selectFile("b.ts");
+        gitChanges.mockClear();
+        ensureSessionStart.mockClear();
+    }
+
+    it("reads with the session start once the transcript head carries one, keeping the selection", async () => {
+        await loadUnresolved("a-late");
+        ensureSessionStart.mockResolvedValue(1700000000);
+        gitChanges.mockResolvedValue({ ...twoFiles, ref: "base9" });
+
+        await reloadChanges("/wt");
+
+        expect(ensureSessionStart).toHaveBeenCalledWith("/a-late.jsonl");
+        expect(gitChanges).toHaveBeenCalledWith({}, { cwd: "/wt", sessionstartts: 1700000000 });
+        expect(globalStore.get(filesStateAtom)?.ref).toBe("base9");
+        expect(globalStore.get(filesSelectedPathAtom)).toBe("b.ts");
+    });
+
+    it("polls live, as before, while the head still has no timestamp", async () => {
+        await loadUnresolved("a-still");
+
+        await reloadChanges("/wt");
+
+        expect(gitChanges).toHaveBeenCalledWith({}, { cwd: "/wt" });
+        expect(globalStore.get(filesStateAtom)?.ref).toBe("");
+        expect(globalStore.get(filesSelectedPathAtom)).toBe("b.ts");
+        expect(globalStore.get(filesErrorAtom)).toBe(false);
+    });
+
+    it("does not ask for the session start once a ref has resolved", async () => {
+        resolveCwd.mockResolvedValue("/wt");
+        ensureSessionStart.mockResolvedValue(1700000000);
+        gitChanges.mockResolvedValue({ ...twoFiles, ref: "base9" });
+        await loadFilesForScope(agentScopeVal("a-ok"), { transcriptPath: "/a-ok.jsonl" });
+        gitChanges.mockClear();
+        ensureSessionStart.mockClear();
+
+        await reloadChanges("/wt");
+
+        expect(ensureSessionStart).not.toHaveBeenCalled();
+        expect(gitChanges).toHaveBeenCalledWith({}, { cwd: "/wt", ref: "base9" });
+    });
+});
+
 describe("loadFilesForScope, working range on an agent", () => {
     // Newly expressible: an agent's own worktree read with no anchor. Reaching this today would mean
     // selecting a registered project, which means clearing the agent.
