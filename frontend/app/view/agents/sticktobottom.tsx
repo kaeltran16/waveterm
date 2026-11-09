@@ -15,6 +15,10 @@ import { isNearBottom } from "./agentsviewmodel";
 export function useStickToBottom(entries: unknown[]) {
     const scrollRef = useRef<HTMLDivElement>(null);
     const stickRef = useRef(true);
+    // jumpToBottom's smooth scroll is on its way down: its first frames still read as far from the bottom and
+    // would release the tail (bringing the pill back) unless ignored; scrolling up meanwhile cancels it
+    const arrivingRef = useRef(false);
+    const lastTopRef = useRef(0);
     const [atBottom, setAtBottom] = useState(true);
 
     useLayoutEffect(() => {
@@ -43,6 +47,15 @@ export function useStickToBottom(entries: unknown[]) {
             return;
         }
         const near = isNearBottom(el);
+        const top = el.scrollTop;
+        const wentUp = top < lastTopRef.current;
+        lastTopRef.current = top;
+        if (arrivingRef.current) {
+            if (!near && !wentUp) {
+                return;
+            }
+            arrivingRef.current = false;
+        }
         stickRef.current = near;
         setAtBottom(near);
     };
@@ -52,9 +65,15 @@ export function useStickToBottom(entries: unknown[]) {
         if (!el) {
             return;
         }
-        el.scrollTop = el.scrollHeight;
         stickRef.current = true;
         setAtBottom(true);
+        if (window.matchMedia("(prefers-reduced-motion: reduce)").matches || isNearBottom(el)) {
+            el.scrollTop = el.scrollHeight;
+            return;
+        }
+        arrivingRef.current = true;
+        lastTopRef.current = el.scrollTop;
+        el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
     };
 
     return { scrollRef, onScroll, atBottom, jumpToBottom };
