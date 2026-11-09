@@ -11,7 +11,8 @@ which the report left untraced, was traced here (D18).
 `timelinegroups.ts`, `dagdigest.ts`, `pkg/waveobj/runevent.go`, scenario `cockpit-rail-help` step P6b). It had not
 landed on main when this spec was written (its commit `076b5ae9b` sat on its task branch only). So Q10's verdict half
 is that run's, and this spec maps only `dag-blocked {kind: final-failed}` and `task-forwarded` (D10). The two runs
-touch the same files in separate hunks; whichever lands second merges them.
+touch the same files in separate hunks; whichever lands second merges them. It landed first; at the merge the
+`dag-blocked` mapping was dropped (D10).
 
 ## Shared rules
 
@@ -170,9 +171,11 @@ and ask id when raised; the card shows it only while the task's current stamp ma
 ### D10. Q10: the rail shows forwarded failures and a failed final stage
 
 **Cause (confirmed):** `runRailKind` (`cockpitevents.ts`) maps neither `dag-blocked {kind: final-failed}` nor
-`task-forwarded`. **Decision:** `dag-blocked` with `kind: final-failed` → `failed`, "final stage failed";
-`task-forwarded` without `by: human` → `asked`, its `eventText` ("t-4 handed to you · <note>"); with `by: human` →
-`acted` (D3). Other `dag-blocked` kinds stay off the rail. The verifier's verdict is 5195e068's `final-ended`.
+`task-forwarded`. **Decision:** a failed final stage reads `failed` from 5195e068's `final-ended {outcome:
+failed}` ("final verification failed"); no `dag-blocked` kind is on the rail. `task-forwarded` without `by: human` →
+`asked`, its `eventText` ("t-4 handed to you · <note>"); with `by: human` → `acted` (D3). **Why not `dag-blocked`:**
+this spec first mapped `dag-blocked {kind: final-failed}`, but a failed stage records both events, so the rail
+listed the failure twice once 5195e068 landed; the mapping was dropped at the merge.
 
 ### D11. Q11: Rerun is offered where the failure is put to you
 
