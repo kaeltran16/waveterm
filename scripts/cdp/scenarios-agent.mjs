@@ -925,6 +925,12 @@ async function landedRunSteps(h, ctx) {
     return steps;
 }
 
+// step 9b's shot waits, at most TREE_SETTLE_WAIT_MS, for two samples of the tree rows this far apart to match
+const TREE_SETTLE_GAP_MS = 150;
+const TREE_SETTLE_WAIT_MS = 3000;
+// subpixel rounding can make adjacent rows share a fraction of a pixel
+const ROW_OVERLAP_TOLERANCE_PX = 1;
+
 export const agentTreeRail = {
     name: "agent-tree-rail",
     surface: "agent",
@@ -1106,7 +1112,22 @@ export const agentTreeRail = {
             // the rail's Task section names the lead the same way
             const railLead = () => [...(${LIVE_RAIL}?.querySelectorAll("span") ?? [])].find((s) => s.textContent.trim() === "Lead")?.nextElementSibling;
             await until(() => railLead(), 8000);
-            return { text: flat(btn()), header: flat(${HEADER}), railLead: flat(railLead()) };`);
+            // the tab replaces t-1's worker row, which slides up from below the wave asker while the old row
+            // fades out over it (measured: settled ~1s after the inject), so the shot waits for the rows to stop
+            const rows = () =>
+                [...(document.querySelector("[data-agent-tree] .overflow-y-auto")?.children ?? [])].map((r) => {
+                    const b = r.getBoundingClientRect();
+                    return { row: flat(r).slice(0, 24), top: Math.round(b.top * 10) / 10, bottom: Math.round(b.bottom * 10) / 10 };
+                });
+            let prev = rows();
+            let settled = false;
+            for (const t0 = Date.now(); !settled && Date.now() - t0 < ${TREE_SETTLE_WAIT_MS}; ) {
+                await nap(${TREE_SETTLE_GAP_MS});
+                const cur = rows();
+                settled = JSON.stringify(cur) === JSON.stringify(prev);
+                prev = cur;
+            }
+            return { text: flat(btn()), header: flat(${HEADER}), railLead: flat(railLead()), settled, rows: prev };`);
         await h.shot("cdp-shots/agent-tree-rail-p12-worker-header.png");
         if (t1Run != null) {
             await lookEval(h, `
@@ -1119,11 +1140,27 @@ export const agentTreeRail = {
         }
         rec(
             "9b. t-1's worker header's Go to the lead and its rail's Lead row read the run's plan title, not the lead's tab name (D12)",
-            toLead.text === `↑ ${TREE_RAIL_TITLE}` &&
+            toLead.settled === true &&
+                toLead.text === `↑ ${TREE_RAIL_TITLE}` &&
                 !toLead.text.includes(TREE_RAIL_LEAD) &&
                 toLead.railLead === TREE_RAIL_TITLE &&
                 !toLead.railLead.includes(TREE_RAIL_LEAD),
-            JSON.stringify(toLead)
+            JSON.stringify({ ...toLead, rows: undefined })
+        );
+        const treeRows = toLead.rows ?? [];
+        const overlaps = [];
+        for (let i = 0; i < treeRows.length; i++) {
+            for (let j = i + 1; j < treeRows.length; j++) {
+                const a = treeRows[i];
+                const b = treeRows[j];
+                const depth = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+                if (depth > ROW_OVERLAP_TOLERANCE_PX) overlaps.push({ a: a.row, b: b.row, depth: Math.round(depth * 10) / 10 });
+            }
+        }
+        rec(
+            "9c. after t-1's worker tab is added, the tree settles and no two tree rows overlap",
+            toLead.settled === true && treeRows.length > 0 && overlaps.length === 0,
+            JSON.stringify({ settled: toLead.settled, overlaps, rows: treeRows })
         );
 
         // the avatar at bottom-left sits over the foot of the tree: scrolled to its end, the last row clears it
