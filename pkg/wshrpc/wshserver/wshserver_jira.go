@@ -163,6 +163,7 @@ func (ws *WshServer) JiraCheckCommand(ctx context.Context) (*wshrpc.CommandJiraC
 	for i := range rtn.Tickets {
 		inf := inferred[jira.ProjectKey(rtn.Tickets[i].Key)]
 		rtn.Tickets[i].Project, rtn.Tickets[i].Evidence, rtn.Tickets[i].Sure = inf.Project, inf.Evidence, inf.Sure
+		rtn.Tickets[i].Candidates = inf.Candidates
 	}
 	return rtn, nil
 }

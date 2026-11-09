@@ -2566,6 +2566,7 @@ declare global {
         project?: string;
         evidence?: string;
         sure: boolean;
+        candidates?: string[];
     };
 
     // wshrpc.JiraTransition

@@ -9,6 +9,9 @@ import {
     emptyDetail,
     footerLine,
     headerWhen,
+    nextPicks,
+    PICKED_EVIDENCE,
+    pickedRow,
     siteHost,
     ticketMeta,
     visibleRows,
@@ -173,5 +176,43 @@ describe("ticketMeta", () => {
 
     it("leaves the age out without an update time", () => {
         expect(ticketMeta(ticket("OPS-77"), NOW)).toBe("Story · To Do");
+    });
+});
+
+describe("pickedRow", () => {
+    it("leaves the row alone without a pick", () => {
+        const r = ticket("GROW-12", { project: "", sure: false, evidence: "No history for GROW" });
+        expect(pickedRow(r, undefined)).toBe(r);
+    });
+
+    it("makes a pick a sure project, overriding an unsure guess", () => {
+        const r = ticket("GROW-12", { project: "", sure: false, evidence: "Tied: a and b" });
+        expect(pickedRow(r, "growth-web")).toMatchObject({
+            project: "growth-web",
+            sure: true,
+            evidence: PICKED_EVIDENCE,
+        });
+    });
+
+    it("overrides a sure guess", () => {
+        const r = ticket("PAY-311", { project: "payments-api", evidence: "4 initiatives, 23 tagged commits" });
+        expect(pickedRow(r, "ledger")).toMatchObject({ project: "ledger", sure: true });
+    });
+});
+
+describe("nextPicks", () => {
+    const sure = ticket("PAY-311", { project: "payments-api" });
+    const unsure = ticket("GROW-12", { project: "", sure: false });
+
+    it("records a pick other than the guess", () => {
+        expect(nextPicks({}, sure, "ledger")).toEqual({ "PAY-311": "ledger" });
+    });
+
+    it("drops the pick when you pick the sure guess back", () => {
+        expect(nextPicks({ "PAY-311": "ledger", "GROW-12": "a" }, sure, "payments-api")).toEqual({ "GROW-12": "a" });
+    });
+
+    it("records any pick on an unsure row", () => {
+        expect(nextPicks({}, unsure, "growth-web")).toEqual({ "GROW-12": "growth-web" });
     });
 });

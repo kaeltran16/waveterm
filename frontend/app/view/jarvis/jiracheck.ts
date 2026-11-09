@@ -18,6 +18,22 @@ export const checkJiraStateAtom = atom<CheckState | null>(null) as PrimitiveAtom
 // ticket key -> the tab of the agent building its initiative ("" while the launch is in flight)
 export const jiraBuildingAtom = atom<Record<string, string>>({}) as PrimitiveAtom<Record<string, string>>;
 
+// ticket key -> the project you picked over Arc's guess, kept beside the Building marks for the same reason
+export const jiraPicksAtom = atom<Record<string, string>>({}) as PrimitiveAtom<Record<string, string>>;
+
+export const PICKED_EVIDENCE = "Picked by you";
+
+// the row Make initiative acts on: a pick is as good as a sure guess, so the agent starts there and doesn't ask
+export function pickedRow(row: JiraTicketRow, pick: string | undefined): JiraTicketRow {
+    return pick ? { ...row, project: pick, sure: true, evidence: PICKED_EVIDENCE } : row;
+}
+
+// picking Arc's own sure guess drops the pick, so the row reads as the guess again
+export function nextPicks(picks: Record<string, string>, row: JiraTicketRow, name: string): Record<string, string> {
+    const { [row.key]: _, ...rest } = picks;
+    return row.sure && row.project === name ? rest : { ...rest, [row.key]: name };
+}
+
 export type CheckState =
     | { kind: "loading"; prev?: CommandJiraCheckRtnData }
     | { kind: "list"; data: CommandJiraCheckRtnData }

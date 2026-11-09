@@ -72,9 +72,10 @@ type JiraComment struct {
 // are flat on the wire.
 type JiraTicketRow struct {
 	JiraTicket
-	Project  string `json:"project,omitempty"`
-	Evidence string `json:"evidence,omitempty"`
-	Sure     bool   `json:"sure"`
+	Project    string   `json:"project,omitempty"`
+	Evidence   string   `json:"evidence,omitempty"`
+	Sure       bool     `json:"sure"`
+	Candidates []string `json:"candidates,omitempty"` // projects with history, best first: the picker's Suggested
 }
 
 type CommandJiraCheckRtnData struct {
