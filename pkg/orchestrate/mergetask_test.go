@@ -613,3 +613,57 @@ func TestAutoMergeableLandsFirstTheLaneMostPendingTasksWaitOn(t *testing.T) {
 		t.Fatalf("t-3 and t-4 still wait; got %d", n)
 	}
 }
+
+// a lane tip held behind another task's Verify or conflict is refused before any claim, naming that task in words a
+// reader can act on: no "project checkout is busy" and no dag uuid. It is still errProjectBusy to every caller.
+func TestMergeTaskRefusesAHeldTip(t *testing.T) {
+	cases := map[string]string{
+		TaskState_Verifying:    "task t-0 waits on task t-1's Verify",
+		TaskState_VerifyFailed: "task t-0 waits on task t-1's failed Verify",
+		TaskState_BlockedMerge: "task t-0 waits on task t-1's merge conflict",
+	}
+	for holderState, want := range cases {
+		t.Run(holderState, func(t *testing.T) {
+			f := newMergeFixture(t, []waveobj.TaskNode{{ID: "t-0", Label: "held"}, {ID: "t-1", Label: "holder"}})
+			f.finish(t, "t-0")
+			f.finish(t, "t-1")
+			if err := wstore.UpdateDag(f.ctx, f.dagID, func(cur *waveobj.TaskGroup) error {
+				holder := taskByID(cur, "t-1")
+				holder.State, holder.Merged = holderState, holderState != TaskState_BlockedMerge
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			calls := stubMerge(t, landedSha)
+
+			err := MergeTask(f.ctx, f.channel, f.ownerID, "t-0")
+			if !errors.Is(err, errProjectBusy) {
+				t.Fatalf("err = %v, want errProjectBusy", err)
+			}
+			if err.Error() != want || strings.Contains(err.Error(), f.dagID) {
+				t.Fatalf("err = %q, want %q", err, want)
+			}
+			if *calls != 0 || projectClaimed(f.project) {
+				t.Fatalf("a held tip was merged (%d) or left a claim", *calls)
+			}
+		})
+	}
+}
+
+func TestMergeQueueBusyCheckoutNamesNoDag(t *testing.T) {
+	project := t.TempDir()
+	l, err := claimProject(project, "dag-1111", "t-4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer releaseProject(project, l)
+	for dagID, want := range map[string]string{
+		"dag-1111": "task t-4 is merging or verifying",
+		"dag-2222": "another run is landing in this checkout",
+	} {
+		_, err := claimProject(project, dagID, "t-2")
+		if !errors.Is(err, errProjectBusy) || !strings.Contains(err.Error(), want) || strings.Contains(err.Error(), "dag-1111") {
+			t.Fatalf("claim from %s: err = %v, want errProjectBusy saying %q with no dag id", dagID, err, want)
+		}
+	}
+}

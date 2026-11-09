@@ -174,6 +174,9 @@ func mergeTaskEntry(ctx context.Context, channelID, ownerRunID, taskID string, r
 	if owner.DagORef == "" {
 		return fmt.Errorf("run has no dag")
 	}
+	if err := heldMerge(ctx, owner.DagORef, taskID); err != nil {
+		return err
+	}
 	l, err := claimProject(jarvis.LandPath(owner), owner.DagORef, taskID)
 	if err != nil {
 		return err
@@ -344,6 +347,64 @@ func conflictAwaitingContinue(g *waveobj.TaskGroup, except string) string {
 	return ""
 }
 
+// mergeQueueHolder names the task every merge of g waits on, and its state: a failed Verify until the lead fixes it,
+// else a merge conflict awaiting --continue, else a running Verify. "", "" when the queue is free. AutoMergeReady
+// and the digest's held merge gate both read it, so the cockpit never offers a merge the engine holds.
+func mergeQueueHolder(g *waveobj.TaskGroup) (taskID, state string) {
+	if ids := tasksInState(g, TaskState_VerifyFailed); len(ids) > 0 {
+		return ids[0], TaskState_VerifyFailed
+	}
+	if id := conflictAwaitingContinue(g, ""); id != "" {
+		return id, TaskState_BlockedMerge
+	}
+	if ids := tasksInState(g, TaskState_Verifying); len(ids) > 0 {
+		return ids[0], TaskState_Verifying
+	}
+	return "", ""
+}
+
+// mergeHeldWhat is how a held merge names what it waits on, by the holder's state.
+var mergeHeldWhat = map[string]string{
+	TaskState_Verifying:    "Verify",
+	TaskState_VerifyFailed: "failed Verify",
+	TaskState_BlockedMerge: "merge conflict",
+}
+
+// mergeHeldError refuses a merge of a lane tip the merge queue holds. It is errProjectBusy to errors.Is, so every
+// caller that waits on a busy checkout waits on it too, while its text names the task to watch, not the checkout.
+type mergeHeldError struct {
+	tip, holder, what string
+}
+
+func (e *mergeHeldError) Error() string {
+	return fmt.Sprintf("task %s waits on task %s's %s", e.tip, e.holder, e.what)
+}
+
+func (e *mergeHeldError) Is(target error) bool {
+	return target == errProjectBusy
+}
+
+// heldMerge refuses taskID's merge when its lane tip is merge-ready and held behind another task (mergeHeldBy).
+// Read before the claim, so the refusal names the task to wait on rather than whichever landing has the checkout.
+func heldMerge(ctx context.Context, dagID, taskID string) error {
+	g, err := wstore.GetDag(ctx, dagID)
+	if err != nil {
+		return err
+	}
+	if taskByID(g, taskID) == nil {
+		return nil
+	}
+	tip := laneTip(g, laneOf(g, taskID))
+	if tip == nil {
+		return nil
+	}
+	holder, state := mergeQueueHolder(g)
+	if !mergeReadyTip(g, tip) || holder == "" {
+		return nil
+	}
+	return &mergeHeldError{tip: tip.ID, holder: holder, what: mergeHeldWhat[state]}
+}
+
 // mergeVerifyFinal is a task-merged row's "verify" when the final stage's Verify stands for the merge's own.
 const mergeVerifyFinal = "final"
 
@@ -441,10 +502,10 @@ func AutoMergeReady(ctx context.Context, dagID string) {
 	if err != nil || g.Status == DagStatus_Cancelled || !g.MergeRequired {
 		return
 	}
-	if len(tasksInState(g, TaskState_VerifyFailed)) > 0 || conflictAwaitingContinue(g, "") != "" {
+	switch _, state := mergeQueueHolder(g); state {
+	case TaskState_VerifyFailed, TaskState_BlockedMerge:
 		return
-	}
-	if len(tasksInState(g, TaskState_Verifying)) > 0 {
+	case TaskState_Verifying:
 		resumeVerify(ctx, g)
 		return
 	}

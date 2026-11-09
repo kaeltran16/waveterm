@@ -532,6 +532,31 @@ func TestMergeGateSignalShowsNoAgeWithoutAClock(t *testing.T) {
 	}
 }
 
+// a tip held behind another task's Verify says what it waits on, where a ready one says it waits for a merge
+func TestDagStatusShowsAHeldMergeGate(t *testing.T) {
+	g := &waveobj.TaskGroup{ID: "d-1", Status: "running", Parallelism: 2, Tasks: []waveobj.TaskNode{
+		{ID: "t-2", Label: "held", State: "done"},
+		{ID: "t-4", Label: "holder", State: "verifying"},
+	}}
+	now := int64(40 * 60_000)
+	rtn := &wshrpc.CommandDagStatusRtnData{Group: g, Digest: wshrpc.DagStatusDigest{
+		Tasks: []wshrpc.DagTaskDigest{
+			{TaskId: "t-2", MergeState: "held", MergeHeldBy: "t-4", MergeGateTs: now - 5*60_000},
+			{TaskId: "t-4", MergeState: "merged"},
+		},
+	}}
+	lines := dagStatusLines(rtn, now)
+	for _, l := range lines {
+		if strings.HasPrefix(l, "t-2 ") {
+			if !strings.Contains(l, "merge held: waits on t-4's Verify") || strings.Contains(l, "merge waiting") {
+				t.Fatalf("a held tip names its holder and is not waiting on a merge, got %q", l)
+			}
+			return
+		}
+	}
+	t.Fatalf("no t-2 row in:\n%s", strings.Join(lines, "\n"))
+}
+
 func TestDagReviewData(t *testing.T) {
 	cmd := newDagEscalateTestCmd(t, map[string]string{"channel": "ch", "runid": "reviewer-run"})
 	cmd.Flags().String("downstream", "", "")

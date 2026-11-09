@@ -220,13 +220,14 @@ func TestAManualMergeWaitsOnItsDependencysFailedVerify(t *testing.T) {
 	if *merges != 1 {
 		t.Fatalf("t-1 must not merge, got %d merges", *merges)
 	}
+	// spec D6/D7: a failed Verify holds every lane's merge, by hand too, as it holds the automatic ones
 	f.finish(t, "t-3")
-	if err := MergeTask(f.ctx, f.channel, f.ownerID, "t-3"); err != nil {
-		t.Fatalf("an independent lane still merges by hand, got %v", err)
+	err := MergeTask(f.ctx, f.channel, f.ownerID, "t-3")
+	if !errors.Is(err, errProjectBusy) || err.Error() != "task t-3 waits on task t-0's failed Verify" {
+		t.Fatalf("an independent lane's merge waits on t-0's failed Verify, got %v", err)
 	}
-	await()
-	if *merges != 2 {
-		t.Fatalf("want t-3 merged, got %d merges", *merges)
+	if *merges != 1 {
+		t.Fatalf("t-3 must not merge while t-0's Verify has failed, got %d merges", *merges)
 	}
 }
 

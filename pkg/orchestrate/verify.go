@@ -46,13 +46,17 @@ var landings = struct {
 	byProject map[string]*landing
 }{byProject: make(map[string]*landing)}
 
-// claimProject reserves projectPath for one landing, or names the landing that holds it.
+// claimProject reserves projectPath for one landing, or says what holds it: a task of the same dag by its id,
+// another run's landing without one (a dag's uuid means nothing to whoever reads the refusal).
 func claimProject(projectPath, dagID, taskID string) (*landing, error) {
 	key := filepath.Clean(projectPath)
 	landings.Lock()
 	defer landings.Unlock()
 	if cur := landings.byProject[key]; cur != nil {
-		return nil, fmt.Errorf("%w: task %s of dag %s is landing", errProjectBusy, cur.taskID, cur.dagID)
+		if cur.dagID == dagID {
+			return nil, fmt.Errorf("%w: task %s is merging or verifying", errProjectBusy, cur.taskID)
+		}
+		return nil, fmt.Errorf("%w: another run is landing in this checkout", errProjectBusy)
 	}
 	l := &landing{dagID: dagID, taskID: taskID}
 	landings.byProject[key] = l

@@ -456,6 +456,8 @@ func taskSignal(state string, td wshrpc.DagTaskDigest, now int64) string {
 		return workerSignal(td, now)
 	case td.MergeState == "ready":
 		return mergeGateSignal(td, now)
+	case td.MergeState == "held":
+		return "merge held: waits on " + td.MergeHeldBy + "'s Verify"
 	}
 	return ""
 }
