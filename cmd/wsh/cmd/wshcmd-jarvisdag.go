@@ -697,6 +697,18 @@ func dagDoneLine(action, taskID string) string {
 	return strings.ReplaceAll(dagDoneLines[action], "{task}", taskID)
 }
 
+// dagActionRpc sends one dag action. A var so a test can stand in for wavesrv.
+var dagActionRpc = func(data wshrpc.CommandDagActionData, timeoutMs int64) error {
+	return wshclient.DagActionCommand(RpcClient, data, &wshrpc.RpcOpts{Timeout: timeoutMs})
+}
+
+// sendLeadAction sends an action the lead's CLI issues, stamped as the lead's so the run's events tell it
+// from the human's own retry, skip or escalate in the cockpit.
+func sendLeadAction(data wshrpc.CommandDagActionData, timeoutMs int64) error {
+	data.By = wshrpc.DagActionBy_Lead
+	return dagActionRpc(data, timeoutMs)
+}
+
 func dagAction(action string) *cobra.Command {
 	return dagActionWithin(action, dagRpcTimeoutMs)
 }
@@ -712,9 +724,9 @@ func dagActionWithin(action string, timeoutMs int64) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := wshclient.DagActionCommand(RpcClient, wshrpc.CommandDagActionData{
+			if err := sendLeadAction(wshrpc.CommandDagActionData{
 				ChannelId: channelId, RunId: runId, TaskId: args[0], Action: action,
-			}, &wshrpc.RpcOpts{Timeout: timeoutMs}); err != nil {
+			}, timeoutMs); err != nil {
 				return err
 			}
 			fmt.Println(dagDoneLine(action, args[0]))
@@ -753,7 +765,7 @@ var dagEscalateCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if err := wshclient.DagActionCommand(RpcClient, data, &wshrpc.RpcOpts{Timeout: dagRpcTimeoutMs}); err != nil {
+		if err := sendLeadAction(data, dagRpcTimeoutMs); err != nil {
 			return err
 		}
 		fmt.Println(dagDoneLine(data.Action, data.TaskId))
@@ -942,7 +954,7 @@ var dagForwardCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if err := wshclient.DagActionCommand(RpcClient, data, &wshrpc.RpcOpts{Timeout: dagRpcTimeoutMs}); err != nil {
+		if err := sendLeadAction(data, dagRpcTimeoutMs); err != nil {
 			return err
 		}
 		fmt.Println(dagDoneLine(data.Action, data.TaskId))
@@ -1220,7 +1232,7 @@ func dagNoteCmd(use, action, short string, args cobra.PositionalArgs) *cobra.Com
 			if err != nil {
 				return err
 			}
-			if err := wshclient.DagActionCommand(RpcClient, data, &wshrpc.RpcOpts{Timeout: dagRpcTimeoutMs}); err != nil {
+			if err := sendLeadAction(data, dagRpcTimeoutMs); err != nil {
 				return err
 			}
 			fmt.Println(dagDoneLine(action, data.TaskId))

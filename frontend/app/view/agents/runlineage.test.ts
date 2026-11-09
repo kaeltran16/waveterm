@@ -26,6 +26,7 @@ import {
     leadDisplayName,
     leadRunTabIds,
     leadStandingBy,
+    mergeGateLine,
     runAgentsOf,
     runEngineBusy,
     runInfoOf,
@@ -39,6 +40,7 @@ import {
     taskStateLabel,
     unmetDeps,
     verifierStepTarget,
+    verifyFailLine,
     workerAsk,
     workerSubtext,
     type Lineage,
@@ -619,5 +621,53 @@ describe("ended verifier", () => {
         expect(verifierStepTarget(run, [])).toBe(endedVerifierId("r1", "vr-1"));
         expect(verifierStepTarget(noVerifier, [{ id: "tab-v", runId: "vr-1" }])).toBeUndefined();
         expect(verifierStepTarget({ ...run, dag: undefined }, [])).toBeUndefined();
+    });
+});
+
+describe("mergeGateLine", () => {
+    const gateRun = (holderState: string, tip: Partial<DagTaskDigest>): Pick<RunInfo, "dag" | "digest"> => ({
+        dag: { tasks: [{ id: "t-2" }, { id: "t-4", state: holderState }] } as TaskGroup,
+        digest: { tasks: [{ taskid: "t-2", ...tip }] } as DagStatusDigest,
+    });
+
+    it("reads a ready tip as merge ready", () => {
+        expect(mergeGateLine(gateRun("done", { mergestate: "ready" }), "t-2")).toBe("merge ready");
+    });
+
+    it("names the holder and why a held tip waits", () => {
+        const held = { mergestate: "held", mergeheldby: "t-4" };
+        expect(mergeGateLine(gateRun("verifying", held), "t-2")).toBe("merge ready · waits on t-4's Verify");
+        expect(mergeGateLine(gateRun("verify-failed", held), "t-2")).toBe("merge ready · waits on t-4's failed Verify");
+        expect(mergeGateLine(gateRun("blocked-merge", held), "t-2")).toBe(
+            "merge ready · waits on t-4's merge conflict"
+        );
+    });
+
+    it("is undefined for any other state or a task the digest lacks", () => {
+        expect(mergeGateLine(gateRun("done", { mergestate: "waiting" }), "t-2")).toBeUndefined();
+        expect(mergeGateLine(gateRun("done", { mergestate: "merged" }), "t-2")).toBeUndefined();
+        expect(mergeGateLine(gateRun("done", { mergestate: "ready" }), "t-9")).toBeUndefined();
+        expect(mergeGateLine({ dag: undefined, digest: undefined }, "t-2")).toBeUndefined();
+    });
+});
+
+describe("verifyFailLine", () => {
+    const task = (verifyerror?: string) => ({ id: "t-1", verifyerror }) as TaskNode;
+
+    it("prefers the digest's failure line", () => {
+        const td = { taskid: "t-1", verifyfailline: "--- FAIL: TestAdd" } as DagTaskDigest;
+        expect(verifyFailLine(task("exit 1: ✔ adds two positive numbers"), td)).toBe("--- FAIL: TestAdd");
+    });
+
+    it("falls back to the reason before the first colon, never the excerpt", () => {
+        expect(verifyFailLine(task("exit 1: ✔ adds two positive numbers\nmore"), undefined)).toBe("exit 1");
+        expect(verifyFailLine(task("timed out after 20m"), { taskid: "t-1" } as DagTaskDigest)).toBe(
+            "timed out after 20m"
+        );
+    });
+
+    it("is undefined with no verifyerror", () => {
+        expect(verifyFailLine(task(undefined), undefined)).toBeUndefined();
+        expect(verifyFailLine(task(""), undefined)).toBeUndefined();
     });
 });

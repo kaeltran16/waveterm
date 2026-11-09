@@ -121,7 +121,11 @@ type CommandDagActionData struct {
 	DownstreamFor []string `json:"downstreamfor,omitempty"`
 	// Picks are a planreview-pass's model picks, one per task without a Model line, sent only on Reviewer picks
 	Picks []DagModelPick `json:"picks,omitempty"`
+	// By is the actor of a retry, skip or escalate: DagActionBy_Lead from `wsh jarvis dag`; empty is the human
+	By string `json:"by,omitempty"`
 }
+
+const DagActionBy_Lead = "lead"
 
 // DagModelPick is the plan reviewer's model for one task: Model is sonnet or lead, Reason one line on why.
 type DagModelPick struct {
@@ -283,7 +287,7 @@ type DagTaskDigest struct {
 	MergeGateTs      int64    `json:"mergegatets,omitempty"`     // UnixMilli an open merge gate's clock started (the lane tip's task-done); 0 with no gate or no clock
 	RecoveredRetry   bool     `json:"recoveredretry,omitempty"`
 	EarlyBase        string   `json:"earlybase,omitempty"`        // the task this lane started early on, while that task's lane has not merged
-	MergeState       string   `json:"mergestate"`                 // not-required | waiting | ready | blocked | merged
+	MergeState       string   `json:"mergestate"`                 // not-required | waiting | ready | held | blocked | merged
 	CleanupState     string   `json:"cleanupstate"`               // not-required | clear | pending | failed
 	ReportSections   []string `json:"reportsections,omitempty"`   // the worker's report sections with content, Done aside; ["unstructured"] for a legacy report
 	ReviewVerdict    string   `json:"reviewverdict,omitempty"`    // pass | fail: the latest review
@@ -291,6 +295,9 @@ type DagTaskDigest struct {
 	ReviewNote       string   `json:"reviewnote,omitempty"`       // the reviewer's summary or findings, or why the review failed
 	ReviewDownstream string   `json:"reviewdownstream,omitempty"` // what later tasks must know, from a pass
 	ReviewUnverified string   `json:"reviewunverified,omitempty"` // what a pass's reviewer could not verify, whole
+	ForwardedTs      int64    `json:"forwardedts,omitempty"`      // UnixMilli the lead forwarded this task's open failure to the human; 0 while the lead still holds it
+	MergeHeldBy      string   `json:"mergeheldby,omitempty"`      // the task whose merge-point Verify holds this tip (mergestate "held")
+	VerifyFailLine   string   `json:"verifyfailline,omitempty"`   // the failing Verify check's first line, for a verify-failed task
 }
 
 type DagDurationDigest struct {

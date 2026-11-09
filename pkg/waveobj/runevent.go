@@ -151,6 +151,14 @@ const (
 	RunEventKindTaskAmended       = "task-amended"
 	RunEventKindTaskLeadTold      = "task-lead-told"
 
+	// who retried, skipped or escalated a task, and the final stage's rerun; "by" is "lead" or "human"
+	//   task-skipped    "taskid", "by"
+	//   task-escalated  "taskid", "model", "runtime", "by"
+	//   final-rerun     "round"
+	RunEventKindTaskSkipped   = "task-skipped"
+	RunEventKindTaskEscalated = "task-escalated"
+	RunEventKindFinalRerun    = "final-rerun"
+
 	// dag-level judging sessions (spec 2026-09-25-orchestrator-findings-fixes):
 	//   stage-session-started  a plan reviewer or final verifier was spawned ("role", "runid")
 	//   plan-reviewed          the plan review reached a verdict ("state", "round", "findings")

@@ -80,6 +80,36 @@ func TestDagEscalateData(t *testing.T) {
 	}
 }
 
+func TestDagActionPayloadsByLead(t *testing.T) {
+	var sent []wshrpc.CommandDagActionData
+	prev := dagActionRpc
+	dagActionRpc = func(data wshrpc.CommandDagActionData, _ int64) error {
+		sent = append(sent, data)
+		return nil
+	}
+	defer func() { dagActionRpc = prev }()
+
+	flags := map[string]string{"channel": "ch", "runid": "run", "model": "sonnet", "runtime": "claude"}
+	for _, c := range []*cobra.Command{dagAction("retry"), dagAction("skip"), dagEscalateCmd} {
+		cmd := newDagEscalateTestCmd(t, flags)
+		if err := c.RunE(cmd, []string{"t-1"}); err != nil {
+			t.Fatalf("%s: %v", c.Use, err)
+		}
+	}
+	if len(sent) != 3 {
+		t.Fatalf("sent %d actions, want 3", len(sent))
+	}
+	for i, action := range []string{"retry", "skip", "escalate"} {
+		if sent[i].Action != action || sent[i].By != wshrpc.DagActionBy_Lead {
+			t.Fatalf("payload %d = %+v, want action %q by %q", i, sent[i], action, wshrpc.DagActionBy_Lead)
+		}
+	}
+	raw, err := json.Marshal(sent[0])
+	if err != nil || !strings.Contains(string(raw), `"by":"lead"`) {
+		t.Fatalf("wire form = %s (%v), want by:lead", raw, err)
+	}
+}
+
 func TestDagEscalateDataRequiresModel(t *testing.T) {
 	cmd := newDagEscalateTestCmd(t, map[string]string{"channel": "ch", "runid": "run", "runtime": "claude"})
 	if _, err := dagEscalateData(cmd, []string{"t-1"}); err == nil || !strings.Contains(err.Error(), "--model is required") {
