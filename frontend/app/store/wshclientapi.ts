@@ -210,6 +210,24 @@ export class RpcApiType {
         return client.wshRpcCall("claudeaccountswitch", data, opts);
     }
 
+    // command "claudeapikeyremove" [call]
+    ClaudeApiKeyRemoveCommand(client: WshClient, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "claudeapikeyremove", null, opts);
+        return client.wshRpcCall("claudeapikeyremove", null, opts);
+    }
+
+    // command "claudeapikeysave" [call]
+    ClaudeApiKeySaveCommand(client: WshClient, data: CommandClaudeApiKeyData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "claudeapikeysave", data, opts);
+        return client.wshRpcCall("claudeapikeysave", data, opts);
+    }
+
+    // command "claudeapikeyswitch" [call]
+    ClaudeApiKeySwitchCommand(client: WshClient, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "claudeapikeyswitch", null, opts);
+        return client.wshRpcCall("claudeapikeyswitch", null, opts);
+    }
+
     // command "claudemodoptions" [call]
     ClaudeModOptionsCommand(client: WshClient, data: CommandClaudeModOptionsData, opts?: RpcOpts): Promise<{[key: string]: any}> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "claudemodoptions", data, opts);

@@ -27,6 +27,7 @@ import (
 
 const (
 	claudeCredentialsFile     = ".credentials.json"
+	claudeSettingsFile        = "settings.json"
 	claudeOauthKey            = "claudeAiOauth"
 	claudeOauthAccountKey     = "oauthAccount"
 	claudeAccountSecretPrefix = "claudeacct_"
@@ -55,6 +56,14 @@ var claudeAccountSecrets claudeAccountStore = secretStoreAccounts{}
 var claudeCredentialsPath = defaultClaudeCredentialsPath
 
 func defaultClaudeCredentialsPath() (string, error) {
+	return claudeConfigDirFile(claudeCredentialsFile)
+}
+
+// claudeSettingsPath resolves Claude Code's user settings file. Package var so tests never touch the
+// real one.
+var claudeSettingsPath = func() (string, error) { return claudeConfigDirFile(claudeSettingsFile) }
+
+func claudeConfigDirFile(name string) (string, error) {
 	configDir := os.Getenv("CLAUDE_CONFIG_DIR")
 	if configDir == "" {
 		home, err := os.UserHomeDir()
@@ -63,7 +72,7 @@ func defaultClaudeCredentialsPath() (string, error) {
 		}
 		configDir = filepath.Join(home, ".claude")
 	}
-	return filepath.Join(configDir, claudeCredentialsFile), nil
+	return filepath.Join(configDir, name), nil
 }
 
 // claudeAccountMu serializes capture, switch and remove, so a capture never saves a half-switched pair.
@@ -237,7 +246,15 @@ func ListClaudeAccounts() (*wshrpc.ClaudeAccountsRtnData, error) {
 	if err != nil {
 		return nil, fmt.Errorf("listing saved Claude accounts: %w", err)
 	}
-	rtn := &wshrpc.ClaudeAccountsRtnData{LoggedIn: live != nil, Accounts: []wshrpc.ClaudeAccountInfo{}}
+	settingsPath, err := claudeSettingsPath()
+	if err != nil {
+		return nil, err
+	}
+	rtn := &wshrpc.ClaudeAccountsRtnData{
+		LoggedIn: live != nil,
+		Accounts: []wshrpc.ClaudeAccountInfo{},
+		ApiKey:   &wshrpc.ClaudeApiKeyInfo{SettingsPath: settingsPath},
+	}
 	nowMs := time.Now().UnixMilli()
 	for _, name := range names {
 		if !strings.HasPrefix(name, claudeAccountSecretPrefix) {
@@ -256,12 +273,14 @@ func ListClaudeAccounts() (*wshrpc.ClaudeAccountsRtnData, error) {
 			log.Printf("claudeaccount: skipping %s: %v\n", name, err)
 			continue
 		}
+		isLive := live != nil && v.account.AccountUuid == live.account.AccountUuid
 		rtn.Accounts = append(rtn.Accounts, wshrpc.ClaudeAccountInfo{
 			AccountUuid: v.account.AccountUuid,
 			Email:       v.account.EmailAddress,
 			OrgName:     v.account.OrganizationName,
 			Plan:        v.oauth.SubscriptionType,
-			Active:      live != nil && v.account.AccountUuid == live.account.AccountUuid,
+			Live:        isLive,
+			Active:      isLive,
 			Expired:     v.expired(nowMs),
 			LastUsedTs:  v.saved.LastUsedTs,
 		})
