@@ -816,6 +816,74 @@ const injectLandedReport = (h, ctx) =>
         return "ok";`
     );
 
+// P14b's rows, title then second line, in the order the done fold lists them: round 1's reviewers in dag order (both
+// failed), then round 2's. The round is on the second line: the title truncates before it at the tree's width
+const PLAN_REVIEW_ROUND_ROWS = [
+    ["Plan review · Full review", "failed · round 1"],
+    ["Plan review · Second pass", "failed · round 1"],
+    ["Plan review · Round-2 follow-up", "passed · round 2"],
+];
+
+// seeds run D's plan review with a round 1 of two ended reviewers and a passed round 2, reads its reviewer rows in
+// the open done fold and shoots them, then restores the accepted one-round review P14 reads
+async function planReviewRoundsStep(h, D) {
+    const rv = D.children["plan reviewer"];
+    const restore = { state: "accepted", round: 1, reviewers: [{ lens: "full", state: "failed", runid: rv }] };
+    const out = {};
+    try {
+        const full = await heldStandIn(h, D, "round-1 full reviewer");
+        const second = await heldStandIn(h, D, "round-1 second reviewer");
+        await seedHeldRun(h, D, {}, {
+            planreview: {
+                state: "passed",
+                round: 2,
+                reviewers: [{ lens: "followup", state: "passed", runid: rv }],
+                pastrounds: [
+                    {
+                        round: 1,
+                        reviewers: [
+                            { lens: "full", state: "failed", runid: full },
+                            { lens: "second", state: "failed", runid: second },
+                        ],
+                    },
+                ],
+            },
+        });
+        Object.assign(out, await lookEval(h, `
+            const L = await mod("app/view/agents/runlineagestore.ts");
+            L.toggleRunDoneOpen(${JSON.stringify(D.runId)}, false, ${LANDED_TASKS.length});
+            const sel = ${JSON.stringify(`[data-tree-stage="plan-reviewer"][data-tree-agent^="ended:${D.runId}:review:"]`)};
+            const rows = () => [...(${LIVE_TREE}?.querySelectorAll(sel) ?? [])];
+            await until(() => rows().length === 3 && /round 2/.test(flat(rows()[2])), 8000);
+            // the new rows slide in over the old one, so the read and the shot wait for the tree to stop moving
+            ${SETTLE_TREE_ROWS}
+            const { settled, rows: treeRowRects } = await settleTreeRows();
+            const lines = (r) => [...r.querySelectorAll("div.truncate")];
+            return {
+                settled,
+                treeRowRects,
+                rows: rows().map((r) => lines(r).map(flat)),
+                // a second line wider than its box is clipped, so its round would not be seen; a long title may clip
+                clipped: rows().filter((r) => { const sub = lines(r)[1]; return !sub || sub.scrollWidth > sub.clientWidth + 1; }).length,
+                fold: [...(${LIVE_TREE}?.querySelectorAll("div.cursor-pointer") ?? [])].map(flat).find((t) => /^2 landed · \\d+ plan reviews?$/.test(t)) ?? null,
+            };`));
+        // the shot is of the two rounds, so it is taken before the restore
+        await h.shot("cdp-shots/agent-tree-rail-p14b-rounds.png");
+    } catch (e) {
+        out.error = String(e?.message ?? e);
+    } finally {
+        try {
+            await seedHeldRun(h, D, {}, { planreview: restore });
+            out.restored = await lookEval(h, `
+                const sel = ${JSON.stringify(`[data-tree-stage="plan-reviewer"][data-tree-agent^="ended:${D.runId}:review:"]`)};
+                return await until(() => (${LIVE_TREE}?.querySelectorAll(sel) ?? []).length === 1 && !/round/.test(flat(${LIVE_TREE}?.querySelector(sel))), 8000);`);
+        } catch (e) {
+            out.restoreError = String(e?.message ?? e);
+        }
+    }
+    return out;
+}
+
 async function landedRunSteps(h, ctx) {
     const steps = [];
     const rec = (step, ok, detail) => steps.push({ step, ok: !!ok, detail: typeof detail === "string" ? detail : JSON.stringify(detail) });
@@ -869,6 +937,20 @@ async function landedRunSteps(h, ctx) {
         "P14. an accepted plan review's row reads \"accepted by you\" with a muted dot, not failed, and the fold says plan review (D14)",
         /accepted by you/.test(accepted.text ?? "") && !/failed/.test(accepted.text ?? "") && accepted.dot === mutedRgb(accepted.muted) && accepted.fold != null,
         { focused, injected, ...accepted }
+    );
+
+    // P14b: a plan review with an earlier round lists every round's reviewers, oldest round first, labelled by round
+    const { treeRowRects, ...rounds } = await planReviewRoundsStep(h, D);
+    rounds.overlaps = rowOverlaps(treeRowRects ?? []);
+    rec(
+        "P14b. a two-round plan review lists round 1's two reviewers, then round 2's, each labelled with its round (F2)",
+        JSON.stringify(rounds.rows) === JSON.stringify(PLAN_REVIEW_ROUND_ROWS) &&
+            rounds.clipped === 0 &&
+            rounds.settled === true &&
+            rounds.overlaps.length === 0 &&
+            rounds.fold === "2 landed · 3 plan reviews" &&
+            rounds.restored === true,
+        rounds
     );
 
     // P17: the landed lead's rail reads its run's landing, not its removed worktree
@@ -930,6 +1012,40 @@ const TREE_SETTLE_GAP_MS = 150;
 const TREE_SETTLE_WAIT_MS = 3000;
 // subpixel rounding can make adjacent rows share a fraction of a pixel
 const ROW_OVERLAP_TOLERANCE_PX = 1;
+
+// page code: settleTreeRows() waits, at most TREE_SETTLE_WAIT_MS, for the tree's rows to stop moving and returns
+// whether they did with the last sample of them
+const SETTLE_TREE_ROWS = `
+    const treeRows = () =>
+        [...(document.querySelector("[data-agent-tree] .overflow-y-auto")?.children ?? [])].map((r) => {
+            const b = r.getBoundingClientRect();
+            return { row: flat(r).slice(0, 24), top: Math.round(b.top * 10) / 10, bottom: Math.round(b.bottom * 10) / 10 };
+        });
+    const settleTreeRows = async () => {
+        let prev = treeRows();
+        let settled = false;
+        for (const t0 = Date.now(); !settled && Date.now() - t0 < ${TREE_SETTLE_WAIT_MS}; ) {
+            await nap(${TREE_SETTLE_GAP_MS});
+            const cur = treeRows();
+            settled = JSON.stringify(cur) === JSON.stringify(prev);
+            prev = cur;
+        }
+        return { settled, rows: prev };
+    };`;
+
+// every pair of tree rows ({ row, top, bottom }, as settleTreeRows samples them) that overlap past the tolerance
+function rowOverlaps(rows) {
+    const overlaps = [];
+    for (let i = 0; i < rows.length; i++) {
+        for (let j = i + 1; j < rows.length; j++) {
+            const a = rows[i];
+            const b = rows[j];
+            const depth = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+            if (depth > ROW_OVERLAP_TOLERANCE_PX) overlaps.push({ a: a.row, b: b.row, depth: Math.round(depth * 10) / 10 });
+        }
+    }
+    return overlaps;
+}
 
 export const agentTreeRail = {
     name: "agent-tree-rail",
@@ -1114,20 +1230,9 @@ export const agentTreeRail = {
             await until(() => railLead(), 8000);
             // the tab replaces t-1's worker row, which slides up from below the wave asker while the old row
             // fades out over it (measured: settled ~1s after the inject), so the shot waits for the rows to stop
-            const rows = () =>
-                [...(document.querySelector("[data-agent-tree] .overflow-y-auto")?.children ?? [])].map((r) => {
-                    const b = r.getBoundingClientRect();
-                    return { row: flat(r).slice(0, 24), top: Math.round(b.top * 10) / 10, bottom: Math.round(b.bottom * 10) / 10 };
-                });
-            let prev = rows();
-            let settled = false;
-            for (const t0 = Date.now(); !settled && Date.now() - t0 < ${TREE_SETTLE_WAIT_MS}; ) {
-                await nap(${TREE_SETTLE_GAP_MS});
-                const cur = rows();
-                settled = JSON.stringify(cur) === JSON.stringify(prev);
-                prev = cur;
-            }
-            return { text: flat(btn()), header: flat(${HEADER}), railLead: flat(railLead()), settled, rows: prev };`);
+            ${SETTLE_TREE_ROWS}
+            const { settled, rows } = await settleTreeRows();
+            return { text: flat(btn()), header: flat(${HEADER}), railLead: flat(railLead()), settled, rows };`);
         await h.shot("cdp-shots/agent-tree-rail-p12-worker-header.png");
         if (t1Run != null) {
             await lookEval(h, `
@@ -1148,15 +1253,7 @@ export const agentTreeRail = {
             JSON.stringify({ ...toLead, rows: undefined })
         );
         const treeRows = toLead.rows ?? [];
-        const overlaps = [];
-        for (let i = 0; i < treeRows.length; i++) {
-            for (let j = i + 1; j < treeRows.length; j++) {
-                const a = treeRows[i];
-                const b = treeRows[j];
-                const depth = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
-                if (depth > ROW_OVERLAP_TOLERANCE_PX) overlaps.push({ a: a.row, b: b.row, depth: Math.round(depth * 10) / 10 });
-            }
-        }
+        const overlaps = rowOverlaps(treeRows);
         rec(
             "9c. after t-1's worker tab is added, the tree settles and no two tree rows overlap",
             toLead.settled === true && treeRows.length > 0 && overlaps.length === 0,

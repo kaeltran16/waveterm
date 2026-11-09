@@ -1035,6 +1035,7 @@ function StageRow({
     outcome,
     verdict,
     lens,
+    round,
 }: {
     model: AgentsViewModel;
     agent: AgentVM;
@@ -1042,6 +1043,7 @@ function StageRow({
     outcome?: StageOutcome;
     verdict?: string;
     lens?: string;
+    round?: number;
 }) {
     const focusId = useAtomValue(model.focusIdAtom);
     const now = useAtomValue(model.nowAtom);
@@ -1083,7 +1085,7 @@ function StageRow({
                     {lens ? `${stageLabel(stageRole)} · ${planReviewLensTitle(lens)}` : stageLabel(stageRole)}
                 </div>
                 <div className="mt-[3px] truncate font-mono text-[10.5px] text-muted">
-                    {stageSubline(verdict ?? stageVerdictText(outcome), stageRowAge(agent, now))}
+                    {stageSubline(verdict ?? stageVerdictText(outcome), stageRowAge(agent, now), round)}
                 </div>
             </div>
         </div>
@@ -1479,6 +1481,7 @@ export const AgentTree = memo(function AgentTree({ model }: { model: AgentsViewM
                                         stageRole={r.stageRole}
                                         outcome={r.outcome}
                                         lens={r.lens}
+                                        round={r.round}
                                     />
                                 );
                                 break;

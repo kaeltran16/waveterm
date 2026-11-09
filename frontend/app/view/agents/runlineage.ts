@@ -207,15 +207,31 @@ export function endedReviewerId(runId: string, reviewerRunId: string): string {
     return `${ENDED_WORKER_PREFIX}${runId}:${ENDED_REVIEWER_TAG}${reviewerRunId}`;
 }
 
-// endedPlanReviewers is the current round's plan reviewers that have a verdict and a run of their own. The dag
-// keeps only the current round.
-export function endedPlanReviewers(run: RunInfo): PlanReviewer[] {
-    return (run.dag?.planreview?.reviewers ?? []).filter((r) => r.runid && PLAN_REVIEWER_VERDICT[r.state] != null);
+function reviewerEnded(r: PlanReviewer): boolean {
+    return !!r.runid && PLAN_REVIEWER_VERDICT[r.state] != null;
 }
 
-// endedReviewerOf is the ended plan reviewer of run that id names, if it names one.
+// endedPlanReviewers is the current round's plan reviewers that have a verdict and a run of their own.
+export function endedPlanReviewers(run: RunInfo): PlanReviewer[] {
+    return (run.dag?.planreview?.reviewers ?? []).filter(reviewerEnded);
+}
+
+// reviewRounds is every round of a plan review, oldest first. A dag stored before past rounds were kept has one.
+function reviewRounds(review: PlanReviewStage | undefined): PlanReviewRound[] {
+    return review ? [...(review.pastrounds ?? []), { round: review.round, reviewers: review.reviewers }] : [];
+}
+
+// allEndedPlanReviewers is every round's ended plan reviewers with their round, oldest round first.
+export function allEndedPlanReviewers(run: RunInfo): { reviewer: PlanReviewer; round: number }[] {
+    return reviewRounds(run.dag?.planreview).flatMap(({ round, reviewers }) =>
+        (reviewers ?? []).filter(reviewerEnded).map((reviewer) => ({ reviewer, round }))
+    );
+}
+
+// endedReviewerOf is the ended plan reviewer of run that id names, if it names one, from any round.
 export function endedReviewerOf(run: RunInfo, id: string): PlanReviewer | undefined {
-    return endedPlanReviewers(run).find((r) => endedReviewerId(run.runId, r.runid) === id);
+    return allEndedPlanReviewers(run).find(({ reviewer }) => endedReviewerId(run.runId, reviewer.runid) === id)
+        ?.reviewer;
 }
 
 const ENDED_VERIFIER_TAG = "verifier:";
@@ -255,8 +271,8 @@ export function endedRoles(runs: Record<string, RunInfo>): Record<string, RunRol
                 roles[endedWorkerId(run.runId, task.id)] = { kind: "worker", leadRunId: run.runId, taskId: task.id };
             }
         }
-        for (const r of endedPlanReviewers(run)) {
-            roles[endedReviewerId(run.runId, r.runid)] = {
+        for (const { reviewer } of allEndedPlanReviewers(run)) {
+            roles[endedReviewerId(run.runId, reviewer.runid)] = {
                 kind: "stage",
                 leadRunId: run.runId,
                 stageRole: PLAN_REVIEWER_ROLE,
@@ -473,14 +489,22 @@ const PLAN_REVIEWER_VERDICT: Record<string, "passed" | "failed"> = {
     lost: "failed",
 };
 
-// planReviewerOf finds the plan review's current-round reviewer that a session is, by the session's own run id, and
-// reads its verdict. A session from an earlier round is not in the list.
+// planReviewerOf finds the plan reviewer, of any round, that a session is, by the session's own run id, and reads its
+// verdict and round. A session from an earlier round of a dag stored before past rounds were kept is not found.
 export function planReviewerOf(
     review: PlanReviewStage | undefined,
     runId: string | undefined
-): { lens: string; verdict?: "passed" | "failed" } | undefined {
-    const reviewer = runId ? review?.reviewers?.find((r) => r.runid === runId) : undefined;
-    return reviewer && { lens: reviewer.lens, verdict: PLAN_REVIEWER_VERDICT[reviewer.state] };
+): { lens: string; verdict?: "passed" | "failed"; round: number } | undefined {
+    if (!runId) {
+        return undefined;
+    }
+    for (const { round, reviewers } of reviewRounds(review)) {
+        const reviewer = reviewers?.find((r) => r.runid === runId);
+        if (reviewer) {
+            return { lens: reviewer.lens, verdict: PLAN_REVIEWER_VERDICT[reviewer.state], round };
+        }
+    }
+    return undefined;
 }
 
 const NOT_STARTED = new Set(["pending", "ready"]);

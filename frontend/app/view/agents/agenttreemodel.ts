@@ -11,9 +11,9 @@ import { displayAgeMs, formatAgeShort, projectOf, type AgentVM } from "./agentsv
 import type { BuilderCheckRecord } from "./brainstormmodel";
 import { finalRowFocusId, finalStageView } from "./finalstage";
 import {
+    allEndedPlanReviewers,
     BRAINSTORM_JUDGE_ROLE,
     BUILDER_CHECK_ROLE,
-    endedPlanReviewers,
     endedReviewerVM,
     endedWorkerId,
     failedWithTranscript,
@@ -53,7 +53,7 @@ export type AgentTreeRow =
           extrasOpen?: boolean;
       }
     // a session the engine started to judge the whole run: its plan reviewer, its final verifier. `outcome` is its
-    // verdict once it has one; `lens` is a current-round plan reviewer's
+    // verdict once it has one; `lens` is a plan reviewer's, and `round` its round when the review had more than one
     | {
           kind: "stage";
           agent: AgentVM;
@@ -62,6 +62,7 @@ export type AgentTreeRow =
           stageRole: string;
           outcome?: StageOutcome;
           lens?: string;
+          round?: number;
       }
     // the run's final stage, one per run: `agent` is the current round's verifier session while it is in the roster
     | { kind: "final"; project: string; run: RunInfo; agent?: AgentVM }
@@ -145,9 +146,10 @@ export function stageVerdictText(outcome: StageOutcome | undefined): string | un
 const FINAL_OUTCOMES: Record<string, StageOutcome> = { passed: "passed", unverified: "unverified", failed: "failed" };
 
 /** Pure: a stage session's verdict, or undefined while it is still judging. A plan reviewer reads its own verdict
- *  from the round's reviewers, a final verifier its stage's. The dag keeps only the current round, so a session
- *  from an earlier round reads as failed: a stage gets another round only after one fails. A session the engine
- *  replaced within a round is stopped with its tab, so it has no row to misread. */
+ *  from its round's reviewers, a final verifier its stage's. A session from an earlier round the dag does not keep
+ *  (every final round, and a plan review stored before past rounds were kept) reads as failed: a stage gets another
+ *  round only after one fails. A session the engine replaced within a round is stopped with its tab, so it has no
+ *  row to misread. */
 export function stageOutcome(
     run: RunInfo,
     stageRole: string,
@@ -158,10 +160,15 @@ export function stageOutcome(
         return undefined;
     }
     if (stageRole === "plan-reviewer") {
-        if (run.dag.planreview.state === "accepted") {
+        const review = run.dag.planreview;
+        const reviewer = planReviewerOf(review, agentRunId);
+        // the human accepted the last round, so an earlier round's reviewer keeps its own verdict
+        if (reviewer != null && reviewer.round !== review.round) {
+            return reviewer.verdict ?? "failed";
+        }
+        if (review.state === "accepted") {
             return "accepted";
         }
-        const reviewer = planReviewerOf(run.dag.planreview, agentRunId);
         if (reviewer != null) {
             return reviewer.verdict;
         }
@@ -171,9 +178,10 @@ export function stageOutcome(
     return cur.round > 1 ? "failed" : undefined;
 }
 
-// stageSubline is a stage row's second line: its verdict and age. the row's title already names the role.
-export function stageSubline(verdict: string | undefined, age: string | undefined): string {
-    return [verdict, age].filter(Boolean).join(" · ");
+// stageSubline is a stage row's second line: its verdict, a plan reviewer's round when the review had more than one,
+// and age. the row's title already names the role, and is too long to keep a round in view.
+export function stageSubline(verdict: string | undefined, age: string | undefined, round?: number): string {
+    return [verdict, round != null && `round ${round}`, age].filter(Boolean).join(" · ");
 }
 
 // stageRowAge is a stage row's age. An ended reviewer's row has none: the tree has only the dag's record of it,
@@ -182,12 +190,15 @@ export function stageRowAge(agent: AgentVM, now: number): string | undefined {
     return isEndedWorkerId(agent.id) ? undefined : formatAgeShort(displayAgeMs(agent, now));
 }
 
-// history order: a plan review came before any task, a final verification after every one, and within a stage an
-// earlier round (failed) before the current one. An accepted review's earlier round is the reviewers without a lens:
-// only the current round's have one
-const stageRank = (s: StageAgent & { outcome?: StageOutcome; lens?: string }) =>
-    (s.stageRole === "plan-reviewer" ? 0 : 2) +
-    (s.outcome === "failed" || (s.outcome === "accepted" && s.lens == null) ? 0 : 1);
+type JudgedStage = StageAgent & { outcome?: StageOutcome; lens?: string; round?: number };
+
+// history order: a plan review came before any task, a final verification after every one. Plan reviewers sort by
+// round, oldest first, a session the dag no longer places (an earlier round of a dag stored before past rounds were
+// kept) before every round it does; within a round, and among final verifiers, a failed session comes first
+const stageOrder = (a: JudgedStage, b: JudgedStage) =>
+    stageGroup(a) - stageGroup(b) || (a.round ?? 0) - (b.round ?? 0) || failedRank(a) - failedRank(b);
+const stageGroup = (s: JudgedStage) => (s.stageRole === PLAN_REVIEWER_ROLE ? 0 : 1);
+const failedRank = (s: JudgedStage) => (s.outcome === "failed" ? 0 : 1);
 
 function runRows(
     item: Extract<TopItem, { kind: "lead" | "run" }>,
@@ -223,17 +234,23 @@ function runRows(
     const finalPassed = finalRow != null && final.tone === "pass";
     // a plan reviewer with a verdict has no tab once the engine stops it, so the dag gives its row
     const tabbed = new Set(stages.map((s) => s.agent.runId));
-    const endedReviewers: StageAgent[] = endedPlanReviewers(run)
-        .filter((r) => !tabbed.has(r.runid))
-        .map((r) => ({ agent: endedReviewerVM(run.runId, r), stageRole: PLAN_REVIEWER_ROLE }));
-    const judged = [...stages.filter((s) => s.agent !== verifier), ...endedReviewers]
-        .map((s) => ({
-            ...s,
-            outcome: stageOutcome(run, s.stageRole, s.agent.runId),
-            lens:
-                s.stageRole === "plan-reviewer" ? planReviewerOf(run.dag?.planreview, s.agent.runId)?.lens : undefined,
-        }))
-        .sort((a, b) => stageRank(a) - stageRank(b));
+    const endedReviewers: StageAgent[] = allEndedPlanReviewers(run)
+        .filter(({ reviewer }) => !tabbed.has(reviewer.runid))
+        .map(({ reviewer }) => ({ agent: endedReviewerVM(run.runId, reviewer), stageRole: PLAN_REVIEWER_ROLE }));
+    const judged: JudgedStage[] = [...stages.filter((s) => s.agent !== verifier), ...endedReviewers]
+        .map((s) => {
+            const reviewer =
+                s.stageRole === PLAN_REVIEWER_ROLE ? planReviewerOf(run.dag?.planreview, s.agent.runId) : undefined;
+            return {
+                ...s,
+                outcome: stageOutcome(run, s.stageRole, s.agent.runId),
+                lens: reviewer?.lens,
+                round: reviewer?.round,
+            };
+        })
+        .sort(stageOrder);
+    // a one-round review's rows read as they always have, with no round
+    const multiRound = (run.dag?.planreview?.pastrounds?.length ?? 0) > 0;
     const judging = judged.filter((s) => s.outcome == null);
     const finished = judged.filter((s) => s.outcome != null);
     const busy = live.length + judging.length + (finalRunning ? 1 : 0);
@@ -256,8 +273,17 @@ function runRows(
             }
         }
     };
-    const pushStage = ({ agent, stageRole, outcome, lens }: (typeof judged)[number]) =>
-        rows.push({ kind: "stage", agent, project, run, stageRole, outcome, lens });
+    const pushStage = ({ agent, stageRole, outcome, lens, round }: JudgedStage) =>
+        rows.push({
+            kind: "stage",
+            agent,
+            project,
+            run,
+            stageRole,
+            outcome,
+            lens,
+            round: multiRound ? round : undefined,
+        });
     if (open) {
         // oldest first: what finished, what is running, what is still to come
         if (done.length > 0 || dropped.length > 0 || finished.length > 0 || finalPassed) {
