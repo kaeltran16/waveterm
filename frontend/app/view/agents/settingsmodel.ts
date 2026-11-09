@@ -284,6 +284,13 @@ export function settingsSections(): SettingSectionDef[] {
                     title: "Add an account",
                     desc: "Run /login in any claude session and sign in with the other account. Arc saves it the next time it checks.",
                 },
+                {
+                    id: "claudeaccount.apikey",
+                    title: "API key",
+                    desc: "Paste a key from platform.claude.com. Arc checks it with the Anthropic API before saving it. On the key, claude bills per token and has no 5-hour or weekly limit; claude.ai connectors and Remote Control are unavailable until you switch back to an account.",
+                    key: "settings.json apiKeyHelper · secrets.enc",
+                    scope: "local",
+                },
             ],
         },
         {

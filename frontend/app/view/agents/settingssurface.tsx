@@ -17,7 +17,7 @@ import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { parseJiraError } from "@/app/view/jarvis/jiraticket";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtom, useAtomValue } from "jotai";
-import { Check, Folder, RefreshCw, Search } from "lucide-react";
+import { Check, Folder, KeyRound, RefreshCw, Search } from "lucide-react";
 import { motion, MotionConfig, useReducedMotion } from "motion/react";
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AgentsViewModel, SurfaceKey } from "./agents";
@@ -26,11 +26,15 @@ import {
     CLAUDE_ACCOUNT_HINT,
     CLAUDE_ACCOUNT_NO_LOGIN,
     CLAUDE_ACCOUNT_NO_NEW,
+    CLAUDE_APIKEY_SAVE_TIMEOUT_MS,
+    CLAUDE_APIKEY_SWITCHED,
     claudeAccountView,
     noNewLogin,
     switchedStatusLine,
     type ClaudeAccountRow,
+    type ClaudeApiKeyRow,
 } from "./claudeaccountmodel";
+import { syncClaudeApiKeyActive } from "./claudeapikeystore";
 import {
     coerceFontSize,
     coerceScrollback,
@@ -1133,12 +1137,15 @@ const ACCOUNT_BUTTON_ON = "cursor-pointer border-edge-mid text-secondary hover:b
 function ClaudeAccountSection() {
     const [data, setData] = useState<ClaudeAccountsRtnData | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const [switchedTo, setSwitchedTo] = useState<string | null>(null);
+    const [switched, setSwitched] = useState<string | null>(null);
     const [noNew, setNoNew] = useState(false);
+    const [keyDraft, setKeyDraft] = useState("");
+    const [saving, setSaving] = useState(false);
     const list = async (): Promise<ClaudeAccountsRtnData | null> => {
         try {
             const d = await RpcApi.ClaudeAccountsCommand(TabRpcClient);
             setData(d);
+            syncClaudeApiKeyActive(d);
             return d;
         } catch (e) {
             setError(String(e));
@@ -1148,6 +1155,19 @@ function ClaudeAccountSection() {
     useEffect(() => {
         fireAndForget(list);
     }, []);
+    // every action clears the previous action's notes, runs, then re-lists whether it worked or not
+    const act = (fn: () => Promise<void>) =>
+        fireAndForget(async () => {
+            setError(null);
+            setNoNew(false);
+            setSwitched(null);
+            try {
+                await fn();
+            } catch (e) {
+                setError(String(e));
+            }
+            await list();
+        });
     const check = () =>
         fireAndForget(async () => {
             const before = data?.accounts?.length ?? 0;
@@ -1159,37 +1179,49 @@ function ClaudeAccountSection() {
             }
         });
     const switchTo = (row: ClaudeAccountRow) =>
-        fireAndForget(async () => {
-            setError(null);
-            setNoNew(false);
-            setSwitchedTo(null);
-            try {
-                await RpcApi.ClaudeAccountSwitchCommand(TabRpcClient, { accountuuid: row.uuid });
-                // the saved usage donut belongs to the previous account
+        act(async () => {
+            await RpcApi.ClaudeAccountSwitchCommand(TabRpcClient, { accountuuid: row.uuid });
+            // the saved usage donut belongs to the previous account; switching back from the API key to the
+            // login underneath keeps it
+            if (!row.live) {
                 forgetRateLimit("claude");
-                setSwitchedTo(row.email);
-            } catch (e) {
-                setError(String(e));
             }
-            await list();
+            setSwitched(switchedStatusLine(row.email));
         });
     const remove = (row: ClaudeAccountRow) =>
-        fireAndForget(async () => {
-            setError(null);
-            setNoNew(false);
+        act(() => RpcApi.ClaudeAccountRemoveCommand(TabRpcClient, { accountuuid: row.uuid }));
+    const switchToApiKey = () =>
+        act(async () => {
+            await RpcApi.ClaudeApiKeySwitchCommand(TabRpcClient);
+            setSwitched(CLAUDE_APIKEY_SWITCHED);
+        });
+    const removeApiKey = () => act(() => RpcApi.ClaudeApiKeyRemoveCommand(TabRpcClient));
+    const saveApiKey = () =>
+        act(async () => {
+            setSaving(true);
             try {
-                await RpcApi.ClaudeAccountRemoveCommand(TabRpcClient, { accountuuid: row.uuid });
-            } catch (e) {
-                setError(String(e));
+                await RpcApi.ClaudeApiKeySaveCommand(
+                    TabRpcClient,
+                    { key: keyDraft },
+                    { timeout: CLAUDE_APIKEY_SAVE_TIMEOUT_MS }
+                );
+                setKeyDraft("");
+            } finally {
+                setSaving(false);
             }
-            await list();
         });
     const view = claudeAccountView(data, Date.now());
+    const apiKeyItem =
+        view.apiKey != null ? (
+            <ClaudeApiKeyItem row={view.apiKey} onSwitch={switchToApiKey} onRemove={removeApiKey} />
+        ) : null;
+    const canSave = keyDraft.trim() !== "" && !saving;
     return (
         <div>
             <SettingRow id="claudeaccount.accounts" stacked>
                 {view.showNoLogin ? <Note testId="claude-account-nologin">{CLAUDE_ACCOUNT_NO_LOGIN}</Note> : null}
                 <div className={cn("flex flex-col gap-1.5", view.showNoLogin && "mt-3")}>
+                    {view.apiKeyFirst ? apiKeyItem : null}
                     {view.rows.map((row) => (
                         <ClaudeAccountItem
                             key={row.uuid}
@@ -1198,11 +1230,12 @@ function ClaudeAccountSection() {
                             onRemove={() => remove(row)}
                         />
                     ))}
+                    {view.apiKeyFirst ? null : apiKeyItem}
                 </div>
-                {switchedTo != null ? (
+                {switched != null ? (
                     <div role="status" className="mt-2.5 flex items-start gap-2 text-[12px] leading-[1.5] text-ink-mid">
                         <Check size={14} strokeWidth={2.2} aria-hidden className="mt-0.5 flex-none text-success" />
-                        <span>{switchedStatusLine(switchedTo)}</span>
+                        <span>{switched}</span>
                     </div>
                 ) : null}
                 {view.showHint ? (
@@ -1233,9 +1266,132 @@ function ClaudeAccountSection() {
                     Check now
                 </button>
             </SettingRow>
+            <SettingRow id="claudeaccount.apikey">
+                <input
+                    type="password"
+                    data-testid="claude-apikey-input"
+                    aria-label="Anthropic API key"
+                    value={keyDraft}
+                    placeholder="sk-ant-…"
+                    spellCheck={false}
+                    autoComplete="off"
+                    onChange={(e) => setKeyDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                        if (e.key === "Enter" && canSave) {
+                            saveApiKey();
+                        }
+                    }}
+                    className="w-[300px] max-w-full rounded border border-edge-mid bg-surface-raised px-2.5 py-[6px] font-mono text-[12px] text-primary outline-none focus:border-accent-700"
+                />
+                <button
+                    type="button"
+                    data-testid="claude-apikey-save"
+                    disabled={!canSave}
+                    onClick={saveApiKey}
+                    className={cn(
+                        ACCOUNT_BUTTON,
+                        canSave ? ACCOUNT_BUTTON_ON : "cursor-not-allowed border-edge-faint text-ink-faint"
+                    )}
+                >
+                    {saving ? "Checking…" : "Save"}
+                </button>
+            </SettingRow>
         </div>
     );
 }
+
+// The shell an account row and the API key row share: avatar, two lines, then Active or Remove and Switch in
+// a fixed-width slot so the buttons line up across rows.
+function ClaudeLoginRow({
+    testId,
+    buttonIdPrefix,
+    attrs,
+    active,
+    avatar,
+    title,
+    sub,
+    removable,
+    switchable,
+    removeLabel,
+    onSwitch,
+    onRemove,
+}: {
+    testId: string;
+    buttonIdPrefix: string;
+    attrs?: Record<string, string>;
+    active: boolean;
+    avatar: ReactNode;
+    title: string;
+    sub: ReactNode;
+    removable: boolean;
+    switchable: boolean;
+    removeLabel: string;
+    onSwitch: () => void;
+    onRemove: () => void;
+}) {
+    return (
+        <div
+            data-testid={testId}
+            {...attrs}
+            data-active={active ? "" : undefined}
+            className={cn(
+                "flex items-center gap-3 rounded-[10px] border px-4 py-[11px]",
+                active ? "border-edge-strong bg-surface-selected" : "border-edge-mid bg-surface-raised"
+            )}
+        >
+            <span
+                className={cn(
+                    "flex h-[30px] w-[30px] flex-none items-center justify-center rounded-full border text-[13px] font-bold",
+                    active
+                        ? "border-rt-claude-line bg-rt-claude-soft text-rt-claude"
+                        : "border-edge-mid bg-surface-hover text-ink-mid"
+                )}
+            >
+                {avatar}
+            </span>
+            <div className="min-w-0 flex-1">
+                <div className="truncate text-[13.5px] font-semibold text-primary">{title}</div>
+                {sub}
+            </div>
+            <div className="flex w-[150px] flex-none items-center justify-end gap-2.5">
+                {active ? (
+                    <span className="flex items-center gap-[7px] py-[7px] text-[12px] font-semibold text-success">
+                        <span className="h-[7px] w-[7px] rounded-full bg-success" />
+                        Active
+                    </span>
+                ) : (
+                    <>
+                        {removable ? (
+                            <button
+                                type="button"
+                                data-testid={`${buttonIdPrefix}-remove`}
+                                aria-label={removeLabel}
+                                onClick={onRemove}
+                                className="cursor-pointer px-0.5 py-[7px] text-[11.5px] font-semibold text-muted transition-colors hover:text-primary"
+                            >
+                                Remove
+                            </button>
+                        ) : null}
+                        <button
+                            type="button"
+                            data-testid={`${buttonIdPrefix}-switch`}
+                            disabled={!switchable}
+                            onClick={onSwitch}
+                            className={cn(
+                                ACCOUNT_BUTTON,
+                                switchable ? ACCOUNT_BUTTON_ON : "cursor-not-allowed border-edge-faint text-ink-faint"
+                            )}
+                        >
+                            Switch
+                        </button>
+                    </>
+                )}
+            </div>
+        </div>
+    );
+}
+
+const LOGIN_META = "mt-0.5 truncate font-mono text-[11px] text-ink-mid";
 
 function ClaudeAccountItem({
     row,
@@ -1247,28 +1403,15 @@ function ClaudeAccountItem({
     onRemove: () => void;
 }) {
     return (
-        <div
-            data-testid="claude-account-row"
-            data-account-uuid={row.uuid}
-            data-active={row.active ? "" : undefined}
-            className={cn(
-                "flex items-center gap-3 rounded-[10px] border px-4 py-[11px]",
-                row.active ? "border-edge-strong bg-surface-selected" : "border-edge-mid bg-surface-raised"
-            )}
-        >
-            <span
-                className={cn(
-                    "flex h-[30px] w-[30px] flex-none items-center justify-center rounded-full border text-[13px] font-bold",
-                    row.active
-                        ? "border-rt-claude-line bg-rt-claude-soft text-rt-claude"
-                        : "border-edge-mid bg-surface-hover text-ink-mid"
-                )}
-            >
-                {row.initial}
-            </span>
-            <div className="min-w-0 flex-1">
-                <div className="truncate text-[13.5px] font-semibold text-primary">{row.email}</div>
-                {row.expired ? (
+        <ClaudeLoginRow
+            testId="claude-account-row"
+            buttonIdPrefix="claude-account"
+            attrs={{ "data-account-uuid": row.uuid }}
+            active={row.active}
+            avatar={row.initial}
+            title={row.email}
+            sub={
+                row.expired ? (
                     <div
                         data-testid="claude-account-expired"
                         className="mt-[3px] flex items-center gap-1.5 text-[12px] text-warning"
@@ -1277,45 +1420,41 @@ function ClaudeAccountItem({
                         {CLAUDE_ACCOUNT_EXPIRED_LINE}
                     </div>
                 ) : (
-                    <div className="mt-0.5 truncate font-mono text-[11px] text-ink-mid">{row.meta}</div>
-                )}
-            </div>
-            {/* fixed width, so Remove and Switch line up across rows */}
-            <div className="flex w-[150px] flex-none items-center justify-end gap-2.5">
-                {row.active ? (
-                    <span className="flex items-center gap-[7px] py-[7px] text-[12px] font-semibold text-success">
-                        <span className="h-[7px] w-[7px] rounded-full bg-success" />
-                        Active
-                    </span>
-                ) : (
-                    <>
-                        <button
-                            type="button"
-                            data-testid="claude-account-remove"
-                            aria-label={`Remove ${row.email}`}
-                            onClick={onRemove}
-                            className="cursor-pointer px-0.5 py-[7px] text-[11.5px] font-semibold text-muted transition-colors hover:text-primary"
-                        >
-                            Remove
-                        </button>
-                        <button
-                            type="button"
-                            data-testid="claude-account-switch"
-                            disabled={!row.switchable}
-                            onClick={onSwitch}
-                            className={cn(
-                                ACCOUNT_BUTTON,
-                                row.switchable
-                                    ? ACCOUNT_BUTTON_ON
-                                    : "cursor-not-allowed border-edge-faint text-ink-faint"
-                            )}
-                        >
-                            Switch
-                        </button>
-                    </>
-                )}
-            </div>
-        </div>
+                    <div className={LOGIN_META}>{row.meta}</div>
+                )
+            }
+            removable={row.removable}
+            switchable={row.switchable}
+            removeLabel={`Remove ${row.email}`}
+            onSwitch={onSwitch}
+            onRemove={onRemove}
+        />
+    );
+}
+
+function ClaudeApiKeyItem({
+    row,
+    onSwitch,
+    onRemove,
+}: {
+    row: ClaudeApiKeyRow;
+    onSwitch: () => void;
+    onRemove: () => void;
+}) {
+    return (
+        <ClaudeLoginRow
+            testId="claude-apikey-row"
+            buttonIdPrefix="claude-apikey"
+            active={row.active}
+            avatar={<KeyRound size={14} strokeWidth={2} aria-hidden />}
+            title={row.label}
+            sub={<div className={LOGIN_META}>{row.meta}</div>}
+            removable={!row.active}
+            switchable={!row.active}
+            removeLabel="Remove the API key"
+            onSwitch={onSwitch}
+            onRemove={onRemove}
+        />
     );
 }
 
