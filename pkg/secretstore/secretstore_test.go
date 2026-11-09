@@ -34,7 +34,6 @@ func clearMemory() {
 	defer lock.Unlock()
 	secrets = make(map[string]string)
 	initialized = false
-	writeRequestChan = nil
 	lastInitTryTime = time.Time{}
 	lastInitErr = nil
 }
@@ -173,6 +172,24 @@ func TestFlushWritesBeforeDebounce(t *testing.T) {
 	got, ok, err := ReadSecretFile(dir, "a")
 	if err != nil || !ok || got != "1" {
 		t.Fatalf("ReadSecretFile = (%q, %v, %v), want (\"1\", true, nil)", got, ok, err)
+	}
+}
+
+func TestFlushCancelsThePendingDebouncedWrite(t *testing.T) {
+	requirePersistence(t)
+	useConfigDir(t)
+	if err := SetSecret("a", "1"); err != nil {
+		t.Fatalf("SetSecret: %v", err)
+	}
+	if err := Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	// the dir a late debounced write would land in
+	other := t.TempDir()
+	wavebase.ConfigHome_VarCache = other
+	time.Sleep((WriteDebounceMs + 500) * time.Millisecond)
+	if _, err := os.Stat(filepath.Join(other, SecretsFileName)); !os.IsNotExist(err) {
+		t.Fatalf("a debounced write ran after Flush: stat err = %v", err)
 	}
 }
 

@@ -28,8 +28,9 @@ const (
 
 var lock sync.Mutex
 var writeMu sync.Mutex
+var timerMu sync.Mutex
+var debounceTimer *time.Timer
 var secrets = make(map[string]string)
-var writeRequestChan chan struct{}
 var initialized bool
 var lastInitTryTime time.Time
 var lastInitErr error
@@ -97,6 +98,13 @@ func Flush() error {
 	if !ready {
 		return nil
 	}
+	// the write below covers the pending one; left running it would write again later, possibly after
+	// the config dir has changed
+	timerMu.Lock()
+	if debounceTimer != nil {
+		debounceTimer.Stop()
+	}
+	timerMu.Unlock()
 	return writeSecretsToFile()
 }
 
@@ -120,25 +128,9 @@ func initSecretStore() error {
 	}
 	secrets = loadedSecrets
 
-	writeRequestChan = make(chan struct{}, 1)
 	initialized = true
 	lastInitErr = nil
-	go writerLoop()
 	return nil
-}
-
-func writerLoop() {
-	var timer *time.Timer
-	for range writeRequestChan {
-		if timer != nil {
-			timer.Stop()
-		}
-		timer = time.AfterFunc(WriteDebounceMs*time.Millisecond, func() {
-			if err := writeSecretsToFile(); err != nil {
-				log.Printf("secretstore: error writing secrets: %v\n", err)
-			}
-		})
-	}
 }
 
 func writeSecretsToFile() error {
@@ -179,11 +171,18 @@ func writeSecretsToFile() error {
 	return nil
 }
 
+// scheduled synchronously so a Flush right after a SetSecret always sees, and cancels, the pending write
 func requestWrite() {
-	select {
-	case writeRequestChan <- struct{}{}:
-	default:
+	timerMu.Lock()
+	defer timerMu.Unlock()
+	if debounceTimer != nil {
+		debounceTimer.Stop()
 	}
+	debounceTimer = time.AfterFunc(WriteDebounceMs*time.Millisecond, func() {
+		if err := writeSecretsToFile(); err != nil {
+			log.Printf("secretstore: error writing secrets: %v\n", err)
+		}
+	})
 }
 
 func SetSecret(name string, value string) error {
