@@ -897,7 +897,7 @@ async function liveRunCardSteps(h, ctx) {
         globalStore.set(L.runDigestsAtom, (prev) => prev[id] ? { ...prev, [id]: { ...prev[id], tasks: prev[id].tasks.map((t) => t.taskid === "t-7" ? { ...t, verifyfailline: undefined } : t) } } : prev);
         return true;`);
     rec(
-        "L8. a failed row opens its transcript and a failed Verify shows its first line (F8)",
+        "L8. a failed row opens its transcript and a failed Verify shows its failure line (F8)",
         failed.t5Open.includes("Open transcript") && failed.t7Detail === LIVE_VERIFY_ERROR,
         failed
     );
