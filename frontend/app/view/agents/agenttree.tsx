@@ -45,6 +45,7 @@ import {
     stageSubline,
     stageVerdictText,
     treeAgentCount,
+    workerRowTone,
     type StageOutcome,
 } from "./agenttreemodel";
 import { isAsking, treeLine, type BrainstormFile, type BuilderCheckRecord } from "./brainstormmodel";
@@ -88,6 +89,7 @@ import {
     useRunInfo,
 } from "./runlineagestore";
 import { dagProgressLabel, finishedRunLabel, runComplete, runStatusView } from "./runmodel";
+import { openRunDag } from "./runrailsections";
 import { FINAL_FILL, finalSlot, SEG_FILL, taskStrip, treeStripLabel } from "./runstrip";
 import {
     getSubagentExpandAtom,
@@ -901,6 +903,7 @@ function WorkerRow({
     run,
     task,
     agent,
+    gate,
     nested,
     extras,
     focusKey,
@@ -909,6 +912,7 @@ function WorkerRow({
     run: RunInfo;
     task: TaskNode;
     agent?: AgentVM;
+    gate?: string; // a done lane tip's merge gate line while it waits to merge
     nested?: boolean;
     extras?: { count: number; open: boolean };
     focusKey: string | undefined; // rowFocusKey: with its tab reaped, a task past its worker opens that worker's transcript
@@ -916,7 +920,8 @@ function WorkerRow({
     const focusId = useAtomValue(model.focusIdAtom);
     const now = useAtomValue(model.nowAtom);
     // the task's state and question belong to its worker's row, not to the tabs nested under it
-    const done = !nested && task.state === "done";
+    const done = !nested && task.state === "done" && gate == null;
+    const tone = nested ? undefined : workerRowTone(task);
     const lane = laneLabel(run.digest, task.id);
     const ask = done || nested ? undefined : workerAsk(run.digest, task.id);
     const selected = focusKey != null && focusId === focusKey;
@@ -930,12 +935,17 @@ function WorkerRow({
         ask,
         outcome: done ? (task.merged ? "landed" : "done") : undefined,
         waits,
-        state: nested ? undefined : taskStateLabel(task, now),
+        state: nested ? undefined : (gate ?? taskStateLabel(task, now)),
     });
     const title = nested ? agent?.name || task.id : task.label || task.id;
 
+    // a row with no session to open, such as a task that failed before one existed, opens the run's DAG at it
+    const opens = focusKey != null || !nested;
     const select = () => {
         if (focusKey == null) {
+            if (!nested) {
+                openRunDag(model, run, task.id);
+            }
             return;
         }
         globalStore.set(model.focusIdAtom, focusKey);
@@ -958,12 +968,8 @@ function WorkerRow({
             className={cn(
                 "relative flex items-center gap-[9px] rounded-[9px] py-[7px] pr-[11px] transition-colors duration-[140ms]",
                 nested ? "pl-[45px]" : "pl-[28px]",
-                focusKey != null && "cursor-pointer",
-                selected
-                    ? "bg-accentbg"
-                    : asksYou
-                      ? "bg-warning/[0.06]"
-                      : focusKey != null && "hover:bg-surface-hover"
+                opens && "cursor-pointer",
+                selected ? "bg-accentbg" : asksYou ? "bg-warning/[0.06]" : opens && "hover:bg-surface-hover"
             )}
         >
             <Guides depth={nested ? 2 : 1} />
@@ -971,7 +977,14 @@ function WorkerRow({
                 {done ? (
                     // a check, not a dot: dots mean a live session, so a landed worker must not read as one
                     <Check size={11} aria-hidden className="text-success" />
-                ) : waits ? (
+                ) : tone != null ? (
+                    <span
+                        className={cn(
+                            "h-[7px] w-[7px] shrink-0 rounded-full",
+                            tone === "error" ? "bg-error" : "bg-warning"
+                        )}
+                    />
+                ) : waits || gate != null ? (
                     <span className="h-[7px] w-[7px] shrink-0 rounded-full border border-muted" />
                 ) : (task.state === "verifying" || task.state === "reviewing") && !nested ? (
                     <StatusDot state="working" pulse className="!h-[7px] !w-[7px]" />
@@ -993,7 +1006,16 @@ function WorkerRow({
                             ariaHide="Hide reviewer and earlier sessions"
                         />
                     ) : null}
-                    <span className={cn("truncate font-mono text-[10.5px]", asksYou ? "text-warning" : "text-muted")}>
+                    <span
+                        className={cn(
+                            "truncate font-mono text-[10.5px]",
+                            asksYou || tone === "warning"
+                                ? "text-warning"
+                                : tone === "error"
+                                  ? "text-error"
+                                  : "text-muted"
+                        )}
+                    >
                         {sub}
                     </span>
                 </div>
@@ -1464,6 +1486,7 @@ export const AgentTree = memo(function AgentTree({ model }: { model: AgentsViewM
                                         run={r.run}
                                         task={r.task}
                                         agent={r.agent}
+                                        gate={r.gate}
                                         nested={r.nested}
                                         focusKey={rowFocusKey(r)}
                                         extras={

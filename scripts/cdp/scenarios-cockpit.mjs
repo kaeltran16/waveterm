@@ -443,9 +443,19 @@ const DOC_REVIEW_NARROW = { width: 1000, height: 700, deviceScaleFactor: 1, mobi
 const DOC_REVIEW_WIDE = { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false };
 const DOC_REVIEW_TAG_TITLE = "Open the plan review";
 const DOC_REVIEW_CHIP = "Plan review";
+// the lead's own approve option, when it proposes keeping the plan rather than fixing it (D19)
+const DOC_REVIEW_KEEP_LABEL = "Keep the plan";
+const DOC_REVIEW_PROPOSAL_TITLE = "The plan review failed twice. Proceed as the lead proposes?";
 const DOC_REVIEW_PANEL = `document.querySelector("[data-doc-review]")?.closest('[role="dialog"]')`;
 
-function docReviewRoster(runId, docPath, decisions = DOC_REVIEW_DECISIONS, header = DOC_REVIEW_CHIP, sectionAfter = null) {
+function docReviewRoster(
+    runId,
+    docPath,
+    decisions = DOC_REVIEW_DECISIONS,
+    header = DOC_REVIEW_CHIP,
+    sectionAfter = null,
+    approveLabel = "Approve"
+) {
     const lines = decisions.map((d) => `- ${d}`);
     if (sectionAfter != null) lines.splice(sectionAfter, 0, DOC_REVIEW_SECTION);
     return [
@@ -480,7 +490,7 @@ function docReviewRoster(runId, docPath, decisions = DOC_REVIEW_DECISIONS, heade
                     {
                         header,
                         question: [docPath, ...lines].join("\n"),
-                        options: [{ label: "Approve" }, { label: "Request changes" }],
+                        options: [{ label: approveLabel }, { label: "Request changes" }],
                     },
                 ],
             },
@@ -532,7 +542,7 @@ const docReviewFocusRow = (h, name) =>
     })()`);
 
 // the doc-review roster with its lead asking under header, on a plan this writes; the cockpit shows the worker's card
-async function arrangeDocReview(h, name, header, sectionAfter = null) {
+async function arrangeDocReview(h, name, header, sectionAfter = null, approveLabel = undefined) {
     const cwd = mkdtempSync(join(tmpdir(), `verify-${name}-`));
     const ctx = { cwd };
     try {
@@ -544,7 +554,11 @@ async function arrangeDocReview(h, name, header, sectionAfter = null) {
         );
         writeFileSync(
             TREE_RAIL_FIXTURE,
-            JSON.stringify(docReviewRoster(ctx.runId, ctx.specPath, DOC_REVIEW_DECISIONS, header, sectionAfter), null, 2)
+            JSON.stringify(
+                docReviewRoster(ctx.runId, ctx.specPath, DOC_REVIEW_DECISIONS, header, sectionAfter, approveLabel),
+                null,
+                2
+            )
         );
         // the fixture roster is read once at boot
         await h.ev("location.reload()");
@@ -568,7 +582,8 @@ async function arrangeDocReview(h, name, header, sectionAfter = null) {
 export const docReview = {
     name: "doc-review",
     surface: "cockpit",
-    arrange: (h) => arrangeDocReview(h, "doc-review", DOC_REVIEW_CHIP, DOC_REVIEW_SECTION_AFTER),
+    arrange: (h) =>
+        arrangeDocReview(h, "doc-review", DOC_REVIEW_CHIP, DOC_REVIEW_SECTION_AFTER, DOC_REVIEW_KEEP_LABEL),
     async assert(h, ctx) {
         const steps = [];
         const rec = (step, ok, detail) => steps.push({ step, ok, detail });
@@ -663,6 +678,31 @@ export const docReview = {
                     s.inView
             ),
             JSON.stringify(sections)
+        );
+
+        // still at 1600x950 from 2b: the title follows the lead's proposal and the primary button its own approve label
+        const proposal = await h.ev(`(() => {
+            const p = ${DOC_REVIEW_PANEL};
+            if (!p) return null;
+            const primary = [...p.querySelectorAll("button")].filter((b) => b.classList.contains("bg-accent"));
+            return {
+                title: p.querySelector("[data-doc-review]")?.textContent.includes(${JSON.stringify(DOC_REVIEW_PROPOSAL_TITLE)}) ?? false,
+                fixesWording: p.textContent.includes("with these fixes"),
+                // the label is the button's first text node; the chord badge is a span after it
+                primary: primary.map((b) => b.firstChild?.textContent.trim() ?? ""),
+                enabled: primary.every((b) => !b.disabled),
+            };
+        })()`);
+        await h.shot("cdp-shots/doc-review-proposal.png");
+        rec(
+            "2c. the title reads as the lead's proposal and the primary button is the lead's own approve label, at 1600x950",
+            !!proposal &&
+                proposal.title &&
+                !proposal.fixesWording &&
+                proposal.enabled &&
+                proposal.primary.length === 1 &&
+                proposal.primary[0] === DOC_REVIEW_KEEP_LABEL,
+            JSON.stringify(proposal)
         );
 
         await docReviewEscape(h);

@@ -29,7 +29,8 @@ export function taskStrip(dag: TaskGroup | undefined, digest: DagStatusDigest | 
         return undefined;
     }
     if (states.length > STRIP_MAX) {
-        return { kind: "bar", ...runProgress(dag) };
+        const { done, total } = runProgress(dag);
+        return { kind: "bar", done, total };
     }
     return { kind: "segments", states };
 }

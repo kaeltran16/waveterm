@@ -318,6 +318,12 @@ export function kilo(n: number): string {
     return n < 1000 ? String(n) : (n / 1000).toFixed(1) + "k";
 }
 
+// the Notes header's count: every entry the feed shows as a note row or a status mark, the same set the
+// Brief's "last note" draws from. A chunk added and a bare status change carry nothing to read.
+export function noteCount(feed: FeedEntry[]): number {
+    return feed.filter((e) => e.text !== "" || markTone(e) != null).length;
+}
+
 export function feedNoteCounts(feed: FeedEntry[]): Map<string, number> {
     const counts = new Map<string, number>();
     for (const e of feed) {

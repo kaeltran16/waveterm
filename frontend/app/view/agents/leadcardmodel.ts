@@ -10,6 +10,7 @@ import { relaunchLeadAction } from "../orchestrate/relaunchlead";
 import { formatTokens, type AgentVM } from "./agentsviewmodel";
 import { workerNeedsYou } from "./agenttreemodel";
 import { finalRowFocusId, finalStageActivity, finalStageView, type FinalTone } from "./finalstage";
+import { leadLandFacts } from "./leadland";
 import {
     endedPlanReviewers,
     endedReviewerId,
@@ -18,12 +19,14 @@ import {
     formatLeft,
     laneLabel,
     leadStandingBy,
+    mergeGateLine,
     runEngineBusy,
     runFinished,
     runProgress,
     taskAgentOf,
     taskStateLabel,
     unmetDeps,
+    verifyFailLine,
     workerAsk,
     type Lineage,
     type RunInfo,
@@ -36,6 +39,17 @@ import { modelLabel } from "./session-models/sessionviewmodel";
 
 export type RowTone = "run" | "ask" | "soft" | "warn" | "err" | "ok" | "muted" | "wait";
 export type RowAction = "retry" | "skip" | "takeover" | "tell" | "resolve";
+
+// the words of every action the card runs on a task: its buttons, and a refusal's line
+export const ACTION_LABEL: Record<RowAction | "approve" | "sendback", string> = {
+    retry: "Retry",
+    skip: "Skip",
+    takeover: "Take over",
+    tell: "Tell",
+    resolve: "Continue",
+    approve: "Approve",
+    sendback: "Send back",
+};
 
 // a failed review's choices, numbered 1–4 on the card and on the keyboard
 export const REVIEW_ACTIONS = [
@@ -109,7 +123,7 @@ export interface LeadCardVM {
     // the run's task strip, the final stage's slot once the stage has a row, and their words for a screen
     // reader; none before a plan exists
     bar?: { strip: TaskStrip; final?: FinalTone; label: string };
-    progress: { done: number; total: number };
+    progress: { done: number; skipped: number; total: number };
     // what the lead is doing, and what the run has cost so far
     activity: string;
     cost: string;
@@ -160,7 +174,10 @@ export function foldOpen(open: boolean, rows: Pick<TaskRowVM, "key">[], cursorKe
 
 function taskRow(input: LeadCardInput, task: TaskNode): TaskRowVM {
     const { run, lineage, roster, now } = input;
-    const judge = input.lead != null && !input.leadDown;
+    const td = run.digest?.tasks?.find((t) => t.taskid === task.id);
+    // a failure the lead handed to you is yours whatever the lead's state
+    const forwarded = (td?.forwardedts ?? 0) > 0;
+    const judge = input.lead != null && !input.leadDown && !forwarded;
     const lane = laneLabel(run.digest, task.id);
     const laneText = lane ? `lane ${lane}` : "";
     const join = (...parts: (string | undefined)[]) => parts.filter(Boolean).join(" · ");
@@ -186,15 +203,17 @@ function taskRow(input: LeadCardInput, task: TaskNode): TaskRowVM {
     };
     switch (task.state) {
         case "done": {
-            // the lane tip waiting to land is the merge gate: live, not landed, and the engine's to merge
-            const td = run.digest?.tasks?.find((t) => t.taskid === task.id);
-            if (td?.mergestate === "ready") {
+            // the lane tip waiting to land is the merge gate: live, not landed, and the engine's to merge, whether
+            // ready or held behind another task's Verify
+            const gate = mergeGateLine(run, task.id);
+            if (gate != null) {
                 return {
                     ...base,
                     tone: "wait",
-                    tag: mergeWaitTag(td.mergegatets, now),
-                    sub: join(task.id, laneText, "merge ready"),
+                    tag: mergeWaitTag(td?.mergegatets, now),
+                    sub: join(task.id, laneText, gate),
                     openId: endedWorkerId(run.runId, task.id),
+                    openLabel: "Open transcript",
                 };
             }
             // done but behind its lane: it lands when the lane's tip does, so it has not landed yet
@@ -263,7 +282,8 @@ function taskRow(input: LeadCardInput, task: TaskNode): TaskRowVM {
                     laneText,
                     task.state === "stalled" ? "no output · process alive" : task.lastfailurekind || "failed"
                 ),
-                tag: judge ? "lead judging" : undefined,
+                tag: forwarded ? "needs you" : judge ? "lead judging" : undefined,
+                needsYou: forwarded,
                 actions: judge ? [] : ["retry", "skip"],
             };
         case "blocked-merge":
@@ -273,7 +293,7 @@ function taskRow(input: LeadCardInput, task: TaskNode): TaskRowVM {
                 ...failedOpen,
                 tone: "err",
                 sub: join(task.id, laneText, task.state === "verify-failed" ? "Verify failed" : "merge conflict"),
-                detail: firstLine(task.verifyerror),
+                detail: verifyFailLine(task, td),
                 tag: judge ? "lead fixing" : "needs you",
                 needsYou: !judge,
                 // fixed in the project tree first; Continue then lands it or re-runs Verify
@@ -292,7 +312,7 @@ function taskRow(input: LeadCardInput, task: TaskNode): TaskRowVM {
             // not running, even when a tab from an earlier attempt (a send-back) is still open on it, so there is
             // nothing to open: the keyboard's Enter went to that tab, which the mouse could not reach
             const waits = unmetDeps(run.dag, task) ?? [];
-            const slot = run.digest?.tasks?.find((t) => t.taskid === task.id)?.waitreason === "parallelism";
+            const slot = td?.waitreason === "parallelism";
             return {
                 ...base,
                 openId: undefined,
@@ -365,12 +385,30 @@ export function cancelPrompt(running: number): string {
     return `Stop ${running} running task${running === 1 ? "" : "s"} and cancel this run?`;
 }
 
-function firstLine(text: string | undefined): string | undefined {
-    const line = text
-        ?.split("\n")
-        .map((l) => l.trim())
-        .find(Boolean);
-    return line || undefined;
+/** Pure: the card's progress, counting a skipped task as finished but not as done. */
+export function progressText(p: { done: number; skipped: number; total: number }): string {
+    const done = `${p.done - p.skipped}/${p.total}`;
+    return p.skipped > 0 ? `${done} · ${p.skipped} skipped` : done;
+}
+
+export interface CardError {
+    msg: string;
+    // a task action's refusal: the task, and its stamp when the action ran
+    taskId?: string;
+    stamp?: string;
+}
+
+/** Pure: a task's state and the ask it holds; a refusal about the task stands while both do. */
+export function taskStamp(run: Pick<RunInfo, "dag" | "digest">, taskId: string): string {
+    const state = run.dag?.tasks?.find((t) => t.id === taskId)?.state ?? "";
+    const askId = run.digest?.tasks?.find((t) => t.taskid === taskId)?.askid ?? "";
+    return `${state}|${askId}`;
+}
+
+/** Pure: whether the card still shows a refusal. One about a task goes once that task has moved on, since its
+ *  cause has; one with no task stands until the next action. */
+export function cardErrorShown(err: CardError | undefined, run: Pick<RunInfo, "dag" | "digest">): boolean {
+    return err != null && (err.taskId == null || err.stamp === taskStamp(run, err.taskId));
 }
 
 /** Pure: the final stage's row on the card, from the moment the stage has one in the tree. It opens the stage
@@ -457,6 +495,8 @@ export function buildLeadCard(input: LeadCardInput): LeadCardVM {
     const strip = taskStrip(dag, run.digest);
     // only a run's own tree is named: one landing straight on its base names nothing new
     const branch = run.landPath ? landingBranch(run) : undefined;
+    // once landed, where it landed
+    const where = leadLandFacts(run)?.branch ?? (branch ? `lands on ${branch}` : undefined);
     return {
         rows: all.filter((r) => r.kind === "live"),
         waiting: all.filter((r) => r.kind === "wait"),
@@ -474,14 +514,10 @@ export function buildLeadCard(input: LeadCardInput): LeadCardVM {
         progress: runProgress(dag),
         activity: leadActivity(run, lead, input.leadDown),
         cost: runCost(run.digest?.report?.workerms, input.tokens),
-        settings: [
-            `${leadModel} · workers ${workerModel}`,
-            dag ? `${dag.parallelism} at a time` : "",
-            branch ? `lands on ${branch}` : "",
-        ]
+        settings: [`${leadModel} · workers ${workerModel}`, dag ? `${dag.parallelism} at a time` : "", where ?? ""]
             .filter(Boolean)
             .join(" · "),
-        settingsTitle: branch ? `lands on ${branch}` : undefined,
+        settingsTitle: where,
     };
 }
 

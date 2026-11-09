@@ -41,10 +41,13 @@ import {
     tellingRowAtom,
 } from "./leadcardactions";
 import {
+    ACTION_LABEL,
     cancelPrompt,
+    cardErrorShown,
     foldOpen,
     LEAD_MARK_CLASS,
     leadMark,
+    progressText,
     REVIEW_ACTIONS,
     reviewFindings,
     runAdjustable,
@@ -93,13 +96,6 @@ const TONE_DOT: Record<RowTone, string> = {
     muted: "bg-muted",
     wait: "shadow-[inset_0_0_0_1.5px_var(--color-muted)]",
 };
-const ACTION_LABEL: Record<RowAction, string> = {
-    retry: "Retry",
-    skip: "Skip",
-    takeover: "Take over",
-    tell: "Tell",
-    resolve: "Continue",
-};
 
 export interface LeadCardProps {
     model: AgentsViewModel;
@@ -128,7 +124,8 @@ export function LeadCard(p: LeadCardProps) {
     const answerTab = useAtomValue(model.answerTabAtom);
     const sentIds = useAtomValue(model.sentIdsAtom);
     const diff = useAtomValue(diffStatsByIdAtom)[lead?.id ?? ""];
-    const error = useAtomValue(runCardErrorAtom)[run.runId];
+    const cardError = useAtomValue(runCardErrorAtom)[run.runId];
+    const error = cardErrorShown(cardError, run) ? cardError.msg : undefined;
     const [panel, setPanel] = useState<"adjust" | "cancel" | null>(null);
     const [par, setPar] = useState<number | null>(null);
     const [doneOpen, setDoneOpen] = useState(false);
@@ -850,7 +847,7 @@ function RunMeta({ run, vm, nowAtom }: { run: RunInfo; vm: LeadCardVM; nowAtom: 
     const now = useAtomValue(nowAtom);
     return (
         <span data-run-meta className="shrink-0 font-mono text-[10.5px]">
-            {[vm.progress.total > 0 ? `${vm.progress.done}/${vm.progress.total}` : "", runElapsed(run, now), vm.cost]
+            {[vm.progress.total > 0 ? progressText(vm.progress) : "", runElapsed(run, now), vm.cost]
                 .filter(Boolean)
                 .join(" · ")}
         </span>

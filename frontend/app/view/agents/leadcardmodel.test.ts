@@ -6,12 +6,14 @@ import type { AgentVM } from "./agentsviewmodel";
 import {
     buildLeadCard,
     cancelPrompt,
+    cardErrorShown,
     FINAL_ROW_ID,
     foldOpen,
     isLeadDown,
     leadActivity,
     leadMark,
     mergeWaitTag,
+    progressText,
     REVIEW_ACTIONS,
     reviewFindings,
     rowCardId,
@@ -23,6 +25,7 @@ import {
     runFlowing,
     runningCount,
     stopSelector,
+    taskStamp,
     waitTag,
 } from "./leadcardmodel";
 import { endedReviewerId, type Lineage, type RunInfo } from "./runlineage";
@@ -112,7 +115,7 @@ describe("buildLeadCard", () => {
         expect(vm.waiting[0].waitOn).toBe("deps");
         expect(vm.done[0].openId).toBe("ended:R:t1");
         expect(vm).not.toHaveProperty("segs");
-        expect(vm.progress).toEqual({ done: 1, total: 3 });
+        expect(vm.progress).toEqual({ done: 1, skipped: 0, total: 3 });
     });
 
     // a finished lane that has not landed is not "landed": it waits on the merge, visibly, with how long it has sat
@@ -867,21 +870,24 @@ describe("lead card live-run fixes", () => {
     });
 
     // a failed task's tab is reaped with its tree, so its row had nothing to read why it failed
-    it("opens a failed task's ended transcript, and shows a failed Verify's first line", () => {
+    it("opens a failed task's ended transcript, and shows a failed Verify's failing line", () => {
         const vm = buildLeadCard(
             input(
-                runInfo([
-                    task("t5", "failed", { runid: "c5" }),
-                    task("t7", "verify-failed", {
-                        runid: "c7",
-                        verifyerror: "\ngo test ./pkg/api: FAIL TestRoutes\nmore",
-                    }),
-                    task("t9", "failed"),
-                ])
+                runInfo(
+                    [
+                        task("t5", "failed", { runid: "c5" }),
+                        task("t7", "verify-failed", {
+                            runid: "c7",
+                            verifyerror: "exit 1: go test ./pkg/api\nFAIL TestRoutes\nmore",
+                        }),
+                        task("t9", "failed"),
+                    ],
+                    { tasks: [{ taskid: "t7", verifyfailline: "--- FAIL: TestRoutes" } as DagTaskDigest] }
+                )
             )
         );
         expect(vm.rows[0]).toMatchObject({ openId: "ended:R:t5", openLabel: "Open transcript" });
-        expect(vm.rows[1]).toMatchObject({ openId: "ended:R:t7", detail: "go test ./pkg/api: FAIL TestRoutes" });
+        expect(vm.rows[1]).toMatchObject({ openId: "ended:R:t7", detail: "--- FAIL: TestRoutes" });
         // with no child run there is no transcript to open
         expect(vm.rows[2].openId).toBeUndefined();
     });
@@ -898,5 +904,140 @@ describe("lead card live-run fixes", () => {
         const w = { id: "w3", name: "w", task: "t3", state: "idle" } as AgentVM;
         const vm = buildLeadCard(input(runInfo([task("t3", "pending")]), [w]));
         expect(vm.waiting[0].openId).toBeUndefined();
+    });
+});
+
+describe("lead card phase 3 fixes", () => {
+    const FWD = NOW - 60_000;
+    const forwardedRun = (state: string, forwardedts?: number) =>
+        runInfo([task("t5", state, { runid: "c5" })], { tasks: [{ taskid: "t5", forwardedts } as DagTaskDigest] });
+
+    // D1: the lead handed the failure to you; the card must not still say the lead has it
+    it("makes a forwarded failure yours with a live lead, in each of the four states", () => {
+        for (const state of ["failed", "stalled"]) {
+            const vm = buildLeadCard(input(forwardedRun(state, FWD)));
+            expect(vm.rows[0]).toMatchObject({ tag: "needs you", needsYou: true, actions: ["retry", "skip"] });
+            expect(vm.askCount).toBe(1);
+            expect(vm.needsYou).toBe(true);
+        }
+        for (const state of ["verify-failed", "blocked-merge"]) {
+            const vm = buildLeadCard(input(forwardedRun(state, FWD)));
+            expect(vm.rows[0]).toMatchObject({ tag: "needs you", needsYou: true, actions: ["resolve"] });
+            expect(vm.askCount).toBe(1);
+        }
+        const review = buildLeadCard(input(forwardedRun("review-failed", FWD)));
+        expect(review.rows[0]).toMatchObject({ tag: "needs you", needsYou: true, inline: "review" });
+        expect(review.askCount).toBe(1);
+    });
+
+    it("leaves an unforwarded failure the lead's", () => {
+        for (const [state, tag] of [
+            ["failed", "lead judging"],
+            ["stalled", "lead judging"],
+            ["verify-failed", "lead fixing"],
+            ["blocked-merge", "lead fixing"],
+            ["review-failed", "lead judging"],
+        ]) {
+            const vm = buildLeadCard(input(forwardedRun(state)));
+            expect(vm.rows[0]).toMatchObject({ tag, needsYou: false, actions: [] });
+            expect(vm.askCount).toBe(0);
+        }
+    });
+
+    // D5: a Verify failure's detail never opens on an arbitrary line of the output
+    it("names a failed Verify by its reason when the digest found no failing line", () => {
+        const run = runInfo([
+            task("t7", "verify-failed", { verifyerror: "exit 1: ✔ adds two positive numbers\n✔ more" }),
+        ]);
+        expect(buildLeadCard(input(run)).rows[0].detail).toBe("exit 1");
+    });
+
+    it("shows the digest's failing line when it has one", () => {
+        const run = runInfo([task("t7", "blocked-merge", { verifyerror: "exit 1: elled 0" })], {
+            tasks: [{ taskid: "t7", verifyfailline: "--- FAIL: TestSum" } as DagTaskDigest],
+        });
+        expect(buildLeadCard(input(run)).rows[0].detail).toBe("--- FAIL: TestSum");
+    });
+
+    // D6, D14: the merge gate reads the same as everywhere else, ready or held, and opens a transcript
+    it("rows a ready tip as the merge gate, opening its transcript", () => {
+        const run = runInfo([task("t1", "done")], {
+            lanes: [["t1"]],
+            tasks: [{ taskid: "t1", mergestate: "ready" } as DagTaskDigest],
+        });
+        const row = buildLeadCard(input(run)).rows[0];
+        expect(row).toMatchObject({
+            taskId: "t1",
+            sub: "t1 · lane A · merge ready",
+            openLabel: "Open transcript",
+            needsYou: false,
+            actions: [],
+        });
+    });
+
+    it("rows a held tip as the merge gate waiting on its holder", () => {
+        const run = runInfo([task("t1", "done"), task("t8", "verifying")], {
+            lanes: [["t1"], ["t8"]],
+            tasks: [{ taskid: "t1", mergestate: "held", mergeheldby: "t8" } as DagTaskDigest],
+        });
+        const vm = buildLeadCard(input(run));
+        const row = vm.rows.find((r) => r.taskId === "t1");
+        expect(row).toMatchObject({
+            kind: "live",
+            tone: "wait",
+            sub: "t1 · lane A · merge ready · waits on t8's Verify",
+            openLabel: "Open transcript",
+            needsYou: false,
+            actions: [],
+        });
+        expect(vm.done.map((r) => r.taskId)).toEqual([]);
+    });
+
+    // D12: a skipped task finished but was not done
+    it("reads progress without counting a skipped task as done", () => {
+        expect(progressText({ done: 5, skipped: 1, total: 5 })).toBe("4/5 · 1 skipped");
+        expect(progressText({ done: 3, skipped: 0, total: 4 })).toBe("3/4");
+        const run = runInfo([task("t1", "done"), task("t2", "skipped"), task("t3", "running")]);
+        expect(buildLeadCard(input(run)).progress).toEqual({ done: 2, skipped: 1, total: 3 });
+    });
+
+    // D17: after landing the footer says where the run landed, not where it would
+    it("names where a landed run landed in the settings line and its title", () => {
+        const id = "b85abade-fc46-491e-89bf-533150cb7a47";
+        const run: RunInfo = {
+            ...runInfo([]),
+            runId: id,
+            landPath: `/p/.waveterm/worktrees/${id}`,
+            base: "main",
+            land: { state: "landed", commit: "c2c0149deadbeef" } as RunLand,
+        };
+        const vm = buildLeadCard(input(run));
+        expect(vm.settings).toBe("lead opus · workers sonnet · 3 at a time · landed on main · c2c0149");
+        expect(vm.settingsTitle).toBe("landed on main · c2c0149");
+    });
+
+    // D9: a refusal about a task goes once that task has moved on, and only then
+    it("shows a task's refusal while that task is unchanged, even when another task's row changes", () => {
+        const before = runInfo([task("t1", "running"), task("t2", "running")], {
+            tasks: [{ taskid: "t1", askid: "a1" } as DagTaskDigest],
+        });
+        const err = { msg: "Take over t1: already yours", taskId: "t1", stamp: taskStamp(before, "t1") };
+        expect(err.stamp).toBe("running|a1");
+        expect(cardErrorShown(err, before)).toBe(true);
+        const otherMoved = runInfo([task("t1", "running"), task("t2", "failed")], {
+            tasks: [{ taskid: "t1", askid: "a1" } as DagTaskDigest, { taskid: "t2", askid: "a2" } as DagTaskDigest],
+        });
+        expect(cardErrorShown(err, otherMoved)).toBe(true);
+        const stateMoved = runInfo([task("t1", "failed"), task("t2", "running")], {
+            tasks: [{ taskid: "t1", askid: "a1" } as DagTaskDigest],
+        });
+        expect(cardErrorShown(err, stateMoved)).toBe(false);
+        // the question answered: the same state, but the ask is gone
+        expect(cardErrorShown(err, runInfo([task("t1", "running"), task("t2", "running")]))).toBe(false);
+    });
+
+    it("keeps a refusal with no task until the next action", () => {
+        expect(cardErrorShown({ msg: "cancel failed: boom" }, runInfo([task("t1", "failed")]))).toBe(true);
+        expect(cardErrorShown(undefined, runInfo([]))).toBe(false);
     });
 });

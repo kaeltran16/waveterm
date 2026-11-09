@@ -14,6 +14,7 @@ import {
     CircleDashed,
     CornerDownRight,
     GitMerge,
+    Hand,
     MessageCircleQuestion,
     MessageSquare,
     Workflow,
@@ -57,6 +58,7 @@ const KIND: Record<RailKind, { icon: LucideIcon; verb: string; tone: string }> =
     quiet: { icon: CircleDashed, verb: "went quiet", tone: "text-warning" },
     failed: { icon: X, verb: "failed", tone: "text-error" },
     told: { icon: MessageSquare, verb: "you told", tone: "text-accent-soft" },
+    acted: { icon: Hand, verb: "you acted", tone: "text-accent-soft" },
     landed: { icon: GitMerge, verb: "landed", tone: "text-success" },
     sentback: { icon: CornerDownRight, verb: "review sent back", tone: "text-warning" },
 };

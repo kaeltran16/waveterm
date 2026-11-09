@@ -135,6 +135,48 @@ describe("eventText", () => {
     });
 });
 
+describe("eventText: the human's and the lead's task actions", () => {
+    const ev = (kind: string, detail?: object): RunEvent =>
+        ({ id: "1", ts: 1, kind, detail: detail ? JSON.stringify(detail) : undefined }) as RunEvent;
+
+    it("says a retry, skip and escalate in the actor's name", () => {
+        expect(eventText(ev("task-retried", { taskid: "t-2", auto: false, by: "human" }))).toBe("you retried t-2");
+        expect(eventText(ev("task-retried", { taskid: "t-2", auto: false, by: "lead" }))).toBe("lead retried t-2");
+        expect(eventText(ev("task-skipped", { taskid: "t-3", by: "human" }))).toBe("you skipped t-3");
+        expect(eventText(ev("task-skipped", { taskid: "t-3", by: "lead" }))).toBe("lead skipped t-3");
+        expect(eventText(ev("task-escalated", { taskid: "t-3", model: "claude-opus-5-5", by: "human" }))).toBe(
+            "you escalated t-3 to opus-5-5"
+        );
+        expect(eventText(ev("task-escalated", { taskid: "t-3", model: "claude-opus-5-5", by: "lead" }))).toBe(
+            "lead escalated t-3 to opus-5-5"
+        );
+    });
+
+    it("keeps an engine retry's text, which names no actor", () => {
+        expect(eventText(ev("task-retried", { taskid: "t-2", kind: "failed", attempt: 1, auto: true }))).toBe(
+            "Task retried · t-2"
+        );
+        expect(eventText(ev("task-retried", { taskid: "t-2", kind: "failed", attempt: 1 }))).toBe("Task retried · t-2");
+    });
+
+    it("ends an escalate at the task when the model is missing", () => {
+        expect(eventText(ev("task-escalated", { taskid: "t-3", by: "human" }))).toBe("you escalated t-3");
+    });
+
+    it("says a final rerun as the human's act", () => {
+        expect(eventText(ev("final-rerun", { round: 2 }))).toBe("you reran the final stage");
+    });
+
+    it("titles and tones the new kinds", () => {
+        expect(eventTitle(ev("task-skipped", { taskid: "t-3" }))).toBe("Skipped");
+        expect(eventTitle(ev("task-escalated", { taskid: "t-3" }))).toBe("Escalated");
+        expect(eventTitle(ev("final-rerun", { round: 1 }))).toBe("Final stage rerun");
+        expect(toneFor("task-skipped")).toBe("text-muted");
+        expect(toneFor("task-escalated")).toBe("text-warning");
+        expect(toneFor("final-rerun")).toBe("text-muted");
+    });
+});
+
 describe("eventText: rows with an optional tail", () => {
     const ev = (kind: string, detail?: object): RunEvent =>
         ({ id: "1", ts: 1, kind, detail: detail ? JSON.stringify(detail) : undefined }) as RunEvent;

@@ -5957,6 +5957,45 @@ export const briefLiveInitiative = {
         const open4 = await liveStillOpen(h);
         if (gone) ctx.effortoid = null;
         rec("4. an initiative deleted out of band leaves the open Brief and the detail cache", gone && cached4 == null && open4, { gone, cached4, open4 });
+
+        // 5. the initiative panel: a fresh initiative's "updated" fact reads "just now", a status change counts in the Notes
+        // header, and an attached run reads "run <8 chars> attached"
+        const runId = "5f2d916b-1111-2222-3333-444455556666";
+        ctx.effortoid = (await h.rpc("effortcreate", { title: LIVE_TITLE, chunks: [{ label: "One" }, { label: "Two" }] }))?.effortoid;
+        await h.cdp("Emulation.setDeviceMetricsOverride", { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false });
+        await h.rpc("effortmutate", { effortoid: ctx.effortoid, author: "you", ops: [{ op: "setChunkStatus", chunk: "One", status: "active" }] });
+        await h.rpc("effortmutate", { effortoid: ctx.effortoid, author: "you", ops: [{ op: "attachWork", chunk: "One", kind: "run", oref: `run:${runId}` }] });
+        await h.ev(`window.__openAddress(${JSON.stringify(`effort:${ctx.effortoid}`)})`);
+        const NOTES = `document.querySelector('[data-jarvis-effort-section="notes"]')`;
+        const panelUp = await polishWaitFor(h, `!!${NOTES}`, LIVE_WAIT_MS);
+        await polishNap(400);
+        const panel = await h.ev(`(() => {
+            const flat = (n) => (n?.textContent ?? '').replace(/\\s+/g, ' ').trim();
+            const notes = ${NOTES};
+            const updated = [...(notes?.closest('[aria-live]')?.querySelectorAll('span') ?? [])].map(flat).find((t) => /^updated /.test(t)) ?? '';
+            const header = flat(notes?.firstElementChild);
+            const m = header.match(/(\\d+) notes?/);
+            return { updated, header, count: m ? Number(m[1]) : 0 };
+        })()`);
+        await h.shot("cdp-shots/brief-live-initiative-5-panel.png");
+        // attach notes sit on the chunk's trail, which the feed leaves out, so the stored trail is what shows the wording
+        const trail = await lookEval(h, `
+            const { globalStore } = await mod("app/store/jotaiStore.ts");
+            const { effortDetailAtom } = await mod("app/view/jarvis/effortstore.ts");
+            const e = globalStore.get(effortDetailAtom).get(${JSON.stringify(`effort:${ctx.effortoid}`)});
+            return (e?.chunks ?? []).flatMap((c) => (c.notes ?? []).map((n) => n.text));
+        `);
+        rec(
+            "5a. the initiative panel's updated fact reads \"just now\" without \"ago\"",
+            panelUp && /^updated just now$/.test(panel.updated),
+            JSON.stringify(panel)
+        );
+        rec("5b. after a status change the Notes header counts at least 1", panelUp && panel.count >= 1, JSON.stringify(panel));
+        rec(
+            "5c. an attached run's note reads \"run 5f2d916b attached\" with no run: prefix",
+            Array.isArray(trail) && trail.includes("run 5f2d916b attached") && !trail.some((t) => t.includes("run:")),
+            JSON.stringify({ trail })
+        );
         return steps;
     },
     async teardown(h, ctx) {
@@ -5966,6 +6005,7 @@ export const briefLiveInitiative = {
             delete window.__liveBriefReal;
             delete window.__liveBriefLoads;
         `).catch(() => {});
+        await h.cdp("Emulation.clearDeviceMetricsOverride", {}).catch(() => {});
         if (ctx?.effortoid) await h.rpc("effortdelete", { effortoid: ctx.effortoid }).catch(() => {});
     },
 };

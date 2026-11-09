@@ -246,6 +246,59 @@ export const injectLiveAsks = (h, ctx) =>
         return "ok";`
     );
 
+// t-7's Verify error when the engine found no failing line: a reason, then output that is no failure
+export const LIVE_GATE_VERIFY_ERROR = "exit 1: ✔ adds two positive numbers\n✔ handles zero";
+
+// run A's state the phase 3 card steps read, page-only and opt-in: t-5 and t-7 forwarded to you, t-7's Verify error
+// with no failing line found, and t-10 a lane tip held by t-8's Verify. The next digest load replaces the digest
+// part, so a step injects again before it reads; undoLiveGateDigest puts back what this changed.
+export const injectLiveGateDigest = (h, ctx) =>
+    lookEval(
+        h,
+        `const { globalStore } = await mod("app/store/jotaiStore.ts");
+        const L = await mod("app/view/agents/runlineagestore.ts");
+        const WOS = await mod("app/store/wos.ts");
+        const id = ${JSON.stringify(ctx.live.A.runId)};
+        const now = Date.now();
+        if (!(await until(() => globalStore.get(L.runDigestsAtom)[id], 15000))) return "no digest for run A";
+        const dagRef = WOS.makeORef("dag", WOS.getObjectValue(WOS.makeORef("run", id))?.dagoref);
+        const dag = WOS.getObjectValue(dagRef);
+        if (dag == null) return "no dag for run A";
+        const patch = {
+            "t-5": { forwardedts: now - 60000 },
+            "t-7": { forwardedts: now - 30000, verifyfailline: undefined },
+            "t-10": { mergestate: "held", mergeheldby: "t-8", mergegatets: now - 120000 },
+        };
+        const d = globalStore.get(L.runDigestsAtom)[id];
+        window.__liveGateSaved ??= Object.fromEntries(Object.keys(patch).map((k) => [k, d.tasks.find((t) => t.taskid === k) ?? null]));
+        const missing = Object.keys(patch).filter((k) => !d.tasks.some((t) => t.taskid === k)).map((k) => ({ taskid: k }));
+        const tasks = [...d.tasks, ...missing].map((t) => (patch[t.taskid] ? { ...t, ...patch[t.taskid] } : t));
+        globalStore.set(L.runDigestsAtom, (prev) => ({ ...prev, [id]: { ...d, tasks } }));
+        WOS.setObjectValue({ ...dag, tasks: dag.tasks.map((t) => (t.id === "t-7" ? { ...t, verifyerror: ${JSON.stringify(LIVE_GATE_VERIFY_ERROR)} } : t)) });
+        return "ok";`
+    );
+
+export const undoLiveGateDigest = (h, ctx) =>
+    lookEval(
+        h,
+        `const { globalStore } = await mod("app/store/jotaiStore.ts");
+        const L = await mod("app/view/agents/runlineagestore.ts");
+        const WOS = await mod("app/store/wos.ts");
+        const id = ${JSON.stringify(ctx.live.A.runId)};
+        const saved = window.__liveGateSaved;
+        delete window.__liveGateSaved;
+        if (saved) {
+            globalStore.set(L.runDigestsAtom, (prev) => {
+                const d = prev[id];
+                if (d == null) return prev;
+                const tasks = d.tasks.filter((t) => saved[t.taskid] !== null).map((t) => (t.taskid in saved ? saved[t.taskid] : t));
+                return { ...prev, [id]: { ...d, tasks } };
+            });
+        }
+        await WOS.reloadWaveObject(WOS.makeORef("dag", WOS.getObjectValue(WOS.makeORef("run", id))?.dagoref));
+        return "ok";`
+    );
+
 // run events no RPC writes: the page appends each run:event it receives to that run's list until the next reload
 export async function publishLiveEvents(h, ctx) {
     const { A, B } = ctx.live;

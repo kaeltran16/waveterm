@@ -199,7 +199,7 @@ func TestSetupFailureInALaneKeepsItsCommitsForTheRetry(t *testing.T) {
 	}
 
 	failSetup.Store(false)
-	if err := ApplyAction(f.ctx, f.dagID, "t-2", "retry", waveobj.RoutePin{}); err != nil {
+	if err := ApplyAction(f.ctx, f.dagID, "t-2", "retry", ActionByHuman, waveobj.RoutePin{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := f.taskRun(t, "t-2").BaseCommit; got != schema {

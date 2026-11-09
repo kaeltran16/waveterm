@@ -390,6 +390,38 @@ export function laneLabel(digest: DagStatusDigest | undefined, taskId: string): 
     return i < 26 ? String.fromCharCode(65 + i) : String(i + 1);
 }
 
+const MERGE_HOLD_REASON: Record<string, string> = {
+    verifying: "Verify",
+    "verify-failed": "failed Verify",
+    "blocked-merge": "merge conflict",
+};
+
+// mergeGateLine is how a lane tip at the merge gate reads wherever it shows: ready, or ready but held behind the
+// task whose Verify or conflict has the merge queue. Undefined for any other state.
+export function mergeGateLine(run: Pick<RunInfo, "dag" | "digest">, taskId: string): string | undefined {
+    const td = run.digest?.tasks?.find((t) => t.taskid === taskId);
+    if (td?.mergestate === "ready") {
+        return "merge ready";
+    }
+    if (td?.mergestate !== "held") {
+        return undefined;
+    }
+    const holder = td.mergeheldby;
+    const reason = MERGE_HOLD_REASON[run.dag?.tasks?.find((t) => t.id === holder)?.state];
+    return reason != null ? `merge ready · waits on ${holder}'s ${reason}` : "merge ready · held";
+}
+
+// verifyFailLine is the failing Verify check a verify-failed task shows: the digest's line when the engine found
+// one, else the reason alone ("exit 1" from "exit 1: <excerpt>"), never an arbitrary line of the output.
+export function verifyFailLine(task: TaskNode, td: DagTaskDigest | undefined): string | undefined {
+    if (td?.verifyfailline) {
+        return td.verifyfailline;
+    }
+    const first = task.verifyerror?.split("\n")[0] ?? "";
+    const reason = first.split(": ")[0].trim();
+    return reason !== "" ? reason : undefined;
+}
+
 export type WorkerAsk = { owner: "lead"; deadline?: number } | { owner: "you" };
 
 // workerAsk says who holds a task's open question, if it has one.
@@ -525,9 +557,10 @@ export function runFinished(run: Pick<RunInfo, "dag" | "status">): boolean {
     return status === "done" || status === "cancelled";
 }
 
-export function runProgress(dag: TaskGroup | undefined): { done: number; total: number } {
+export function runProgress(dag: TaskGroup | undefined): { done: number; skipped: number; total: number } {
     const tasks = dag?.tasks ?? [];
-    return { done: tasks.filter((t) => t.state === "done" || t.state === "skipped").length, total: tasks.length };
+    const skipped = tasks.filter((t) => t.state === "skipped").length;
+    return { done: tasks.filter((t) => t.state === "done").length + skipped, skipped, total: tasks.length };
 }
 
 // leadStandingBy reports a lead sitting at its prompt while its run's plan executes: between wakes it only waits

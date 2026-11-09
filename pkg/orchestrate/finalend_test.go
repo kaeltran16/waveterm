@@ -5,6 +5,7 @@ package orchestrate
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -134,8 +135,98 @@ func TestAHumanRerunsAFailedFinalStage(t *testing.T) {
 	if len(lead.sends) != 2 || !strings.Contains(lead.sends[1], "reran the final stage of round 1") || !strings.Contains(lead.sends[1], "Drop any fix plan") {
 		t.Fatalf("the lead is told to drop its fix plan, got %q", lead.sends)
 	}
+	if n := lead.countKind(waveobj.RunEventKindFinalRerun); n != 1 {
+		t.Fatalf("the rerun writes one final-rerun row, got %d", n)
+	}
 	if g := runFinal(t, f); g.Final.State != FinalState_Passed || g.Final.Round != 1 || g.Status != DagStatus_Done {
 		t.Fatalf("the rerun passes in round 1, got %s / %+v", g.Status, g.Final)
+	}
+}
+
+// failedStageWithAskingLead is a failed final stage whose woken lead now holds its own question open, as when it put
+// the failure to the human
+func failedStageWithAskingLead(t *testing.T) (*mergeFixture, *fakeLead) {
+	t.Helper()
+	lead := newFakeLead(t)
+	f := finalFixture(t, passVerify, "echo 'docker is not running'; exit 1", "")
+	if g := runFinal(t, f); g.Final.State != FinalState_Failed || len(lead.sends) != 1 {
+		t.Fatalf("setup: want a failed stage that woke the lead, got %s / %q", g.Final.State, lead.sends)
+	}
+	ackWake(lead)
+	lead.state.State = baseds.AgentState_Asking
+	seedLeadOwnAsk(singleSelect())
+	return f, lead
+}
+
+// heldRerunWakes counts the rerun wakes sent or held for the lead
+func heldRerunWakes(lead *fakeLead) int {
+	wakes.lock.Lock()
+	defer wakes.lock.Unlock()
+	n := 0
+	for _, line := range lead.sends {
+		if strings.HasPrefix(line, finalRerunWakeHead) {
+			n++
+		}
+	}
+	for _, rw := range wakes.runs {
+		for _, line := range rw.lines {
+			if strings.HasPrefix(line, finalRerunWakeHead) {
+				n++
+			}
+		}
+	}
+	return n
+}
+
+// the lead's open question about the failed stage is answered by the rerun, so it does not act on the human's
+// answer to it before the held wake arrives
+func TestARerunAnswersTheLeadsOpenQuestion(t *testing.T) {
+	f, lead := failedStageWithAskingLead(t)
+	calls, release := stubLeadDelivery(t, nil)
+	defer close(release)
+
+	if err := RerunFinalStage(f.ctx, f.dagID); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-calls:
+		if got.oref != leadAskOref() || len(got.answers) != 1 || got.answers[0].Text != finalRerunAnswer(1) {
+			t.Fatalf("want the rerun answer on the lead's own ask, got %+v", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the lead's question was never answered")
+	}
+	if n := heldRerunWakes(lead); n != 0 {
+		t.Fatalf("an answered question needs no rerun wake, got %d", n)
+	}
+	if n := lead.countKind(waveobj.RunEventKindFinalRerun); n != 1 {
+		t.Fatalf("the rerun writes one final-rerun row, got %d", n)
+	}
+}
+
+// an answer that fails to type still tells the lead, once, by the wake
+func TestARerunWhoseAnswerFailsWakesOnce(t *testing.T) {
+	f, lead := failedStageWithAskingLead(t)
+	calls, release := stubLeadDelivery(t, errors.New("the picker closed"))
+
+	if err := RerunFinalStage(f.ctx, f.dagID); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-calls:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the lead's question was never answered")
+	}
+	if n := heldRerunWakes(lead); n != 0 {
+		t.Fatalf("no wake while the answer is still being typed, got %d", n)
+	}
+	close(release)
+	deadline := time.Now().Add(5 * time.Second)
+	for heldRerunWakes(lead) == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if n := heldRerunWakes(lead); n != 1 {
+		t.Fatalf("a failed answer posts one rerun wake, got %d", n)
 	}
 }
 

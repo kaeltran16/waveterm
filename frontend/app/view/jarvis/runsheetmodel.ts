@@ -11,6 +11,7 @@
 // digest's figures are dated rather than presented as current.
 
 import type { AgentVM } from "../agents/agentsviewmodel";
+import { mergeGateLine, verifyFailLine, type RunInfo } from "../agents/runlineage";
 import { isTerminal, leadWorker } from "../agents/runmodel";
 import {
     cleanupOnly,
@@ -494,6 +495,8 @@ export type SheetRowInput = {
     nowMs: number;
     // set when the digest is stale: every figure on the row is dated with it
     asOf: string | null;
+    // the run's dag and digest, which the merge gate's line reads
+    gate: Pick<RunInfo, "dag" | "digest">;
 };
 
 function shortRun(runId: string): string {
@@ -584,6 +587,17 @@ function liveTaskRow(input: SheetRowInput): SheetRow {
             };
         }
         case "done": {
+            // a held tip has no attention row, so its own row says what it waits on
+            if (td?.mergestate === "held") {
+                return {
+                    ...base,
+                    meta: mergeGateLine(input.gate, task.id) ?? "",
+                    metaTone: "muted",
+                    state: "done",
+                    stateTone: "success",
+                    action: workerAction,
+                };
+            }
             const lane = laneOf(task.id, input.lanes);
             const runMs = input.durations?.find((d) => d.taskid === task.id)?.runms;
             const parts = [
@@ -634,7 +648,9 @@ function liveTaskRow(input: SheetRowInput): SheetRow {
         case "verify-failed":
             return {
                 ...base,
-                meta: firstLine(task.state === "verify-failed" ? task.verifyerror : task.mergeerror) || "merge blocked",
+                meta:
+                    (task.state === "verify-failed" ? verifyFailLine(task, td) : firstLine(task.mergeerror)) ||
+                    "merge blocked",
                 metaTone: "warning",
                 state: task.state,
                 stateTone: "warning",
@@ -653,7 +669,7 @@ function liveTaskRow(input: SheetRowInput): SheetRow {
         case "skipped":
             return {
                 ...base,
-                meta: "skipped by the lead",
+                meta: "skipped",
                 metaTone: "muted",
                 state: "skipped",
                 stateTone: "muted",

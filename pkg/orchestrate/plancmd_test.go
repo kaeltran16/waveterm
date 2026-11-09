@@ -145,6 +145,30 @@ func TestFailureDetailFallsBackToTheTail(t *testing.T) {
 	}
 }
 
+// node --test's passing lines name no failure, so the detail is the tail: it must not open on half a line
+// ("exit 1: elled 0")
+func TestFailureDetailTailStartsAtALine(t *testing.T) {
+	output := strings.Repeat("✔ adds two positive numbers (0.4127ms)\n", 40) + "ℹ tests 40\nℹ cancelled 0"
+	got := failureDetail(&planCommandError{exitCode: 1, output: output})
+	tail, ok := strings.CutPrefix(got, "exit 1: ")
+	if !ok || len(got) > MaxFailureDetailLen || !strings.HasSuffix(output, tail) {
+		t.Fatalf("want the reason and a tail of the output within %d bytes, got %q", MaxFailureDetailLen, got)
+	}
+	if !strings.HasPrefix(tail, "✔ adds two positive numbers") || output[len(output)-len(tail)-1] != '\n' {
+		t.Fatalf("want the tail to start at a line start, got %q", tail)
+	}
+}
+
+// a tail cut where a line starts keeps that line whole
+func TestFailureDetailTailOnALineStartKeepsIt(t *testing.T) {
+	room := MaxFailureDetailLen - len("exit 1: ")
+	last := strings.Repeat("y", room-2)
+	got := failureDetail(&planCommandError{exitCode: 1, output: strings.Repeat("x", 50) + "\n" + "z\n" + last})
+	if got != "exit 1: z\n"+last {
+		t.Fatalf("want the tail from the line start the cut lands on, got %q", got)
+	}
+}
+
 func TestFirstFailureExcerptRespectsTheDetailCap(t *testing.T) {
 	got := firstFailureExcerpt("FAIL\tpkg\n" + laterStages())
 	if got == "" || len(got) > MaxFailureDetailLen {

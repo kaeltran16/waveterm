@@ -157,6 +157,11 @@ describe("stepLabel / glyphOf / stripTicks", () => {
             "t-0 went back to work"
         );
     });
+    it("labels the human's escalate and the final rerun", () => {
+        expect(stepLabel(ev(0, "task-skipped", "t-1"))).toBe("skipped");
+        expect(stepLabel(ev(0, "task-escalated", "t-1"))).toBe("escalated");
+        expect(stepLabel(ev(0, "final-rerun"))).toBe("final rerun");
+    });
     it("names a stage session by its role, so two in one burst read apart", () => {
         expect(stepLabel(ev(0, "stage-session-started", undefined, { role: "plan-reviewer" }))).toBe(
             "Plan reviewer started"
@@ -211,6 +216,22 @@ describe("spanText / axisEnd / needsDate", () => {
         expect(needsDate([at(16, 9), at(16, 14)], now)).toBe(false);
         expect(needsDate([at(15, 9), at(15, 14)], now)).toBe(true);
         expect(needsDate([], now)).toBe(false);
+    });
+});
+
+describe("eventDetail for an actor's action", () => {
+    it("says who retried, skipped, escalated or reran, as the timeline does", () => {
+        expect(eventDetail(ev(0, "task-skipped", "t-3", { by: "human" })).text).toBe("you skipped t-3");
+        expect(eventDetail(ev(0, "task-skipped", "t-3", { by: "lead" })).text).toBe("lead skipped t-3");
+        expect(eventDetail(ev(0, "task-retried", "t-2", { auto: false, by: "human" })).text).toBe("you retried t-2");
+        expect(eventDetail(ev(0, "task-escalated", "t-3", { by: "human" })).text).toBe("you escalated t-3");
+        expect(eventDetail(ev(0, "final-rerun", undefined, { round: 2 })).text).toBe("you reran the final stage");
+    });
+
+    it("keeps an engine retry's own text", () => {
+        expect(eventDetail(ev(0, "task-retried", "t-2", { auto: true, text: "stalled, retrying" })).text).toBe(
+            "stalled, retrying"
+        );
     });
 });
 

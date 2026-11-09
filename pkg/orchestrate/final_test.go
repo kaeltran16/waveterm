@@ -648,11 +648,19 @@ func TestFinalFailedWakeAutonomous(t *testing.T) {
 		t.Fatalf("an autonomous earlier round must fix a failure already on the base too, got %q", w)
 	}
 
-	// off, the texts are what they were before the setting existed
-	if got, want := finalFailedWake(1, "run-1", detail, false, false), "wake: the final stage failed on the merged result in round 1. Write a fix plan and run `wsh jarvis dag submit --round --plan <fix plan>`. "+fixEveryFailure+" Put it to the human if the fix is a product call:\n"+detail; got != want {
+	// nobody is at an autonomous run's cockpit to rerun the stage
+	for _, w := range []string{finalFailedWake(1, "run-1", detail, false, true), finalFailedWake(MaxFinalRounds, "run-1", detail, true, true)} {
+		if strings.Contains(w, "Rerun final stage") {
+			t.Fatalf("an autonomous wake offers no rerun, got %q", w)
+		}
+	}
+
+	// off, the texts are what they were before the setting existed, with the rerun offered for a failure outside the code
+	const rerun = "If the failure is outside the code (a service down, a tool missing), offer the human `Rerun final stage` (the stage pane's button, or `wsh runs rerun-final run-1`): a rerun spends no round."
+	if got, want := finalFailedWake(1, "run-1", detail, false, false), "wake: the final stage failed on the merged result in round 1. Write a fix plan and run `wsh jarvis dag submit --round --plan <fix plan>`. "+fixEveryFailure+" "+rerun+" Put it to the human if the fix is a product call:\n"+detail; got != want {
 		t.Fatalf("off, round 1:\n got %q\nwant %q", got, want)
 	}
-	if got, want := finalFailedWake(3, "run-1", detail, true, false), "wake: the final stage failed on the merged result in round 3, the last. Put it to the human, and say that completing will not merge the branch: a failed final stage holds the land, and only `wsh runs land run-1 --force`, the human's call once the run is done, lands it. "+grantedRoundOption+":\n"+detail; got != want {
+	if got, want := finalFailedWake(3, "run-1", detail, true, false), "wake: the final stage failed on the merged result in round 3, the last. Put it to the human, and say that completing will not merge the branch: a failed final stage holds the land, and only `wsh runs land run-1 --force`, the human's call once the run is done, lands it. "+rerun+" "+grantedRoundOption+":\n"+detail; got != want {
 		t.Fatalf("off, last round:\n got %q\nwant %q", got, want)
 	}
 }

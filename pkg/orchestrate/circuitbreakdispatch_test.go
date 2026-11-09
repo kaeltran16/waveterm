@@ -125,7 +125,7 @@ func TestHumanActionClearsFailureStreak(t *testing.T) {
 		g.Tasks[0].RunID = ""
 	})
 
-	if err := ApplyAction(h.ctx, h.dagID, "t-0", "retry", waveobj.RoutePin{}); err != nil {
+	if err := ApplyAction(h.ctx, h.dagID, "t-0", "retry", ActionByHuman, waveobj.RoutePin{}); err != nil {
 		t.Fatal(err)
 	}
 

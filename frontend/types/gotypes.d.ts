@@ -709,6 +709,7 @@ declare global {
         unverified?: string;
         downstreamfor?: string[];
         picks?: DagModelPick[];
+        by?: string;
     };
 
     // wshrpc.CommandDagAnswerData
@@ -2048,6 +2049,9 @@ declare global {
         reviewnote?: string;
         reviewdownstream?: string;
         reviewunverified?: string;
+        forwardedts?: number;
+        mergeheldby?: string;
+        verifyfailline?: string;
     };
 
     // wshrpc.DagTaskDuration

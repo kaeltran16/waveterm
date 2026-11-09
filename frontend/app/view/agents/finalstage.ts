@@ -510,6 +510,15 @@ export function stepHasOutput(step: FinalStep): boolean {
     return step.kept != null || (step.state === "running" && KEPT_STEPS.has(step.key));
 }
 
+const RERUN_HINT = "Rerun it if the failure was outside the code.";
+
+/** Pure: what a failed stage's pane tells the human, by its run's lead: asking about it, judging it, or gone. */
+export function finalFailedNote(lead: { asking: boolean } | undefined): string {
+    if (lead == null) return `This failure is yours. ${RERUN_HINT}`;
+    if (lead.asking) return `The lead is asking you about this failure. ${RERUN_HINT}`;
+    return "The lead has this failure and decides what happens next.";
+}
+
 /** Pure: the step whose output a site shows: the one picked while it has output to open, else the running command
  *  once it has printed. */
 export function shownStep(view: FinalStageView, picked: FinalStepKey | null): FinalStep | undefined {

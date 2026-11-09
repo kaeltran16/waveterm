@@ -354,16 +354,18 @@ function Lanes({ model, run, leadAsks }: { model: AgentsViewModel; run: RunInfo;
                                     <div className="truncate font-mono text-[10.5px] text-muted">{r.hist}</div>
                                 ) : null}
                             </div>
+                            {/* capped, so a long text (a held merge gate's) wraps rather than squeezing out the name */}
                             <span
+                                data-lane-text
                                 className={cn(
-                                    "flex items-center gap-[5px] whitespace-nowrap font-mono text-[10.5px] font-medium",
+                                    "flex max-w-[120px] items-center gap-[5px] font-mono text-[10.5px] font-medium",
                                     LANE_TEXT[r.state]
                                 )}
                             >
                                 {r.state === "lead" ? (
                                     <ArrowRight size={10} aria-hidden />
                                 ) : (
-                                    <span className={cn("h-[7px] w-[7px] rounded-full", LANE_DOT[r.state])} />
+                                    <span className={cn("h-[7px] w-[7px] shrink-0 rounded-full", LANE_DOT[r.state])} />
                                 )}
                                 {r.text}
                             </span>

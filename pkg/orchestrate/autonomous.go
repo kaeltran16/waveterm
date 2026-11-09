@@ -73,29 +73,32 @@ func returnUserAsksToLead(channelId, runId string) bool {
 // answerLeadQuestion answers the lead's own waiting question (Plan review, the land question)
 // with AutonomousOnAnswer.
 func answerLeadQuestion(ctx context.Context, channelId, runId, blockId string) error {
-	err := answerLeadQuestionWith(ctx, channelId, runId, blockId, jarvis.AutonomousOnAnswer, func(baseds.AgentAskQuestion) bool { return true })
+	_, err := answerLeadQuestionWith(ctx, channelId, runId, blockId, jarvis.AutonomousOnAnswer, anyQuestion, nil)
 	if err != nil {
 		return fmt.Errorf("approvals saved as autonomous, but %w", err)
 	}
 	return nil
 }
 
+// anyQuestion matches every question of the lead's ask
+func anyQuestion(baseds.AgentAskQuestion) bool { return true }
+
 // answerLeadQuestionWith gives every question of the lead's own waiting ask text, when match holds for each
 // of them; otherwise it leaves the ask alone. Typing takes KeystrokeDelay per rune, past the RPC budget, so
 // it runs in the background once the answer is known to fit the picker; a failed delivery is recorded as
-// lead-wake-failed.
-func answerLeadQuestionWith(ctx context.Context, channelId, runId, blockId, text string, match func(baseds.AgentAskQuestion) bool) error {
+// lead-wake-failed, then onFail (when not nil) runs. answered reports that a delivery started.
+func answerLeadQuestionWith(ctx context.Context, channelId, runId, blockId, text string, match func(baseds.AgentAskQuestion) bool, onFail func()) (bool, error) {
 	if blockId == "" {
-		return nil
+		return false, nil
 	}
 	oref := waveobj.MakeORef(waveobj.OType_Block, blockId).String()
 	pending, ok := agentask.GlobalRegistry.Get(oref)
 	if !ok {
-		return nil
+		return false, nil
 	}
 	for _, q := range pending.Questions {
 		if !match(q) {
-			return nil
+			return false, nil
 		}
 	}
 	answers := make([]baseds.AgentAnswerItem, len(pending.Questions))
@@ -103,7 +106,7 @@ func answerLeadQuestionWith(ctx context.Context, channelId, runId, blockId, text
 		answers[i] = baseds.AgentAnswerItem{Text: text}
 	}
 	if err := agentask.ValidateAnswers(pending.Questions, answers, pending.Prose); err != nil {
-		return fmt.Errorf("the lead's question still needs an answer in its terminal: %w", err)
+		return false, fmt.Errorf("the lead's question still needs an answer in its terminal: %w", err)
 	}
 	bg := context.WithoutCancel(ctx)
 	go func() {
@@ -113,7 +116,10 @@ func answerLeadQuestionWith(ctx context.Context, channelId, runId, blockId, text
 				"reason": "the lead's question could not be answered: " + err.Error(),
 				"lines":  []string{text},
 			})
+			if onFail != nil {
+				onFail()
+			}
 		}
 	}()
-	return nil
+	return true, nil
 }

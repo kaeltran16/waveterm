@@ -15,7 +15,7 @@ import { turnTransition } from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
 import { Skeleton } from "@/app/element/skeleton";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
-import { formatAge } from "@/app/view/agents/agentsviewmodel";
+import { formatAgo } from "@/app/view/agents/agentsviewmodel";
 import { SectionLabel } from "@/app/view/agents/sectionlabel";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
@@ -28,6 +28,7 @@ import {
     effortFeed,
     FEED_PAGE,
     feedGroups,
+    noteCount,
     paragraphs,
     type FeedEntry,
     type FeedGroupRow,
@@ -352,7 +353,7 @@ function NotesFeed({ feed }: { feed: FeedEntry[] }) {
     const [limit, setLimit] = useState(FEED_PAGE);
     const [opened, setOpened] = useState<Record<string, boolean>>({});
     const { rows, left } = feedGroups(feed, { only: only?.chunk ?? null, limit, now: Date.now() });
-    const notes = feed.filter((e) => e.text !== "").length;
+    const notes = noteCount(feed);
     const narrow = (next: { chunk: string; tone: ChunkTone } | null) => {
         setOnly(next);
         setOpened({});
@@ -482,7 +483,7 @@ export function EffortDetailView({ model }: { model: AgentsViewModel }) {
                                 {effort.title}
                             </h1>
                             <div className="flex flex-wrap gap-x-3.5 gap-y-1 font-mono text-[10.5px] text-ink-mid">
-                                {[...facts.meta, ["updated", formatAge(Date.now() - effort.updatedts) + " ago"]].map(
+                                {[...facts.meta, ["updated", formatAgo(Date.now() - effort.updatedts)]].map(
                                     ([k, v], i) => (
                                         <span key={k + ":" + i}>
                                             <span className="text-muted">{k}</span> {v}

@@ -11,6 +11,7 @@ import {
     treeAgentCount,
     treeFocusOrder,
     UNGROUPED_PROJECT,
+    workerRowTone,
     type AgentTreeRow,
 } from "./agenttreemodel";
 import type { BuilderCheckRecord } from "./brainstormmodel";
@@ -387,6 +388,42 @@ describe("buildAgentTree with run lineage", () => {
             lineage([r], { ver: { kind: "stage", leadRunId: "run-1", stageRole: "verifier" } })
         );
         expect(shape(rows)).toEqual(["group:waveterm:1:0", "run:run-1:1", "done:1:false", "stage:verifier:ver"]);
+    });
+
+    describe("a lane tip at the merge gate (D6)", () => {
+        const gated = (mergestate: string) =>
+            run("run-1", [task("t-1", "done"), task("t-2", "done"), task("t-3", "verifying")], {
+                tasks: [
+                    { taskid: "t-1", mergestate: "merged" },
+                    { taskid: "t-2", mergestate, ...(mergestate === "held" ? { mergeheldby: "t-3" } : {}) },
+                ],
+            } as DagStatusDigest);
+        const roles: Lineage["roles"] = { lead: { kind: "lead", runId: "run-1" } };
+        const gateOf = (rows: AgentTreeRow[]) =>
+            rows.flatMap((r) => (r.kind === "worker" && r.task.id === "t-2" ? [r.gate] : []));
+
+        it("keeps a held tip among the live rows with the gate's line, out of the done fold", () => {
+            const rows = buildAgentTree([agent("lead", "idle")], lineage([gated("held")], roles));
+            expect(shape(rows)).toEqual([
+                "group:waveterm:1:0",
+                "lead:run-1:2",
+                "done:1:false",
+                "worker:t-2:-",
+                "worker:t-3:-",
+            ]);
+            expect(gateOf(rows)).toEqual(["merge ready · waits on t-3's Verify"]);
+        });
+
+        it("keeps a ready tip live too, reading merge ready", () => {
+            const rows = buildAgentTree([agent("lead", "idle")], lineage([gated("ready")], roles));
+            expect(shape(rows)).toContain("worker:t-2:-");
+            expect(gateOf(rows)).toEqual(["merge ready"]);
+        });
+
+        it("folds a done task past the gate as before", () => {
+            const rows = buildAgentTree([agent("lead", "idle")], lineage([gated("merged")], roles));
+            expect(shape(rows)).toEqual(["group:waveterm:1:0", "lead:run-1:1", "done:2:false", "worker:t-3:-"]);
+        });
     });
 
     describe("a stage session with a verdict", () => {
@@ -1204,6 +1241,23 @@ describe("buildAgentTree with run lineage", () => {
             lineage([], { w1: { kind: "worker", leadRunId: "gone", taskId: "t-1" } })
         );
         expect(shape(rows)).toEqual(["group:waveterm:1:0", "parent:w1"]);
+    });
+});
+
+describe("workerRowTone (D18)", () => {
+    const t = (state: string) => ({ id: "t-1", state }) as TaskNode;
+
+    it("reads a failed task as an error, a stalled one as a warning", () => {
+        for (const state of ["failed", "verify-failed", "blocked-merge", "review-failed"]) {
+            expect(workerRowTone(t(state))).toBe("error");
+        }
+        expect(workerRowTone(t("stalled"))).toBe("warning");
+    });
+
+    it("gives every other state no tone", () => {
+        for (const state of ["pending", "ready", "running", "reviewing", "verifying", "done", "skipped", "cancelled"]) {
+            expect(workerRowTone(t(state))).toBeUndefined();
+        }
     });
 });
 

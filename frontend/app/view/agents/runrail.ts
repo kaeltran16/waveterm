@@ -6,7 +6,7 @@
 
 import { formatAgeShort } from "./agentsviewmodel";
 import { ASK_OWNER_USER } from "./childaskmodel";
-import { laneLabel, taskStateLabel, workerAsk, type RunInfo } from "./runlineage";
+import { laneLabel, mergeGateLine, taskStateLabel, workerAsk, type RunInfo } from "./runlineage";
 import { finalFailedWait } from "./runmodel";
 import { eventText } from "./runtimeline";
 
@@ -102,13 +102,21 @@ function laneRow(
     key: string,
     tasks: TaskNode[],
     byId: Map<string, TaskNode>,
-    digest: DagStatusDigest | undefined,
+    run: Pick<RunInfo, "dag" | "digest">,
     now: number
 ): LaneRow {
+    const { digest } = run;
     const i = tasks.findIndex((t) => !FINISHED.has(t.state));
     const current = i === -1 ? tasks[tasks.length - 1] : tasks[i];
     const row = { key, taskId: current.id, name: taskName(current) };
+    // what came before task k in the lane
+    const priorOf = (k: number) => (k > 0 ? `${tasks[k - 1].id} ${outcome(tasks[k - 1])}` : "");
     if (i === -1) {
+        // a done tip waiting on its merge has not landed yet: the lane waits with it
+        const gate = mergeGateLine(run, current.id);
+        if (gate != null) {
+            return { ...row, hist: priorOf(tasks.length - 1), state: "pending", text: gate };
+        }
         const done = current.state === "done";
         return {
             ...row,
@@ -117,7 +125,7 @@ function laneRow(
             text: outcome(current),
         };
     }
-    const prior = i > 0 ? `${tasks[i - 1].id} ${outcome(tasks[i - 1])}` : "";
+    const prior = priorOf(i);
     if (NOT_STARTED.has(current.state)) {
         const waits = (current.deps ?? []).filter((d) => byId.get(d)?.state !== "done");
         const hist = [prior, waits.length > 0 ? `waits on ${waits.join(", ")}` : ""].filter(Boolean).join(" · ");
@@ -144,7 +152,7 @@ export function laneRows(dag: TaskGroup | undefined, digest: DagStatusDigest | u
     const byId = new Map((dag?.tasks ?? []).map((t) => [t.id, t] as const));
     return (digest?.lanes ?? []).flatMap((ids) => {
         const tasks = ids.map((id) => byId.get(id)).filter((t): t is TaskNode => t != null);
-        return tasks.length === 0 ? [] : [laneRow(laneLabel(digest, ids[0])!, tasks, byId, digest, now)];
+        return tasks.length === 0 ? [] : [laneRow(laneLabel(digest, ids[0])!, tasks, byId, { dag, digest }, now)];
     });
 }
 

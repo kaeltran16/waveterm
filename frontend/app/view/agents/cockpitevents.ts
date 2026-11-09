@@ -12,7 +12,16 @@ import { rowKey } from "./leadcardmodel";
 import type { Lineage, RunInfo } from "./runlineage";
 import { detailOf, eventText, finalEndedWords } from "./runtimeline";
 
-export type RailKind = "asked" | "answered" | "finished" | "quiet" | "failed" | "told" | "landed" | "sentback";
+export type RailKind =
+    | "asked"
+    | "answered"
+    | "finished"
+    | "quiet"
+    | "failed"
+    | "told"
+    | "acted"
+    | "landed"
+    | "sentback";
 
 export interface RailEvent {
     key: string;
@@ -123,6 +132,7 @@ function runRailKind(e: RunEvent): { kind: RailKind; text: string } | undefined 
         step?: string;
         ok?: boolean;
         reason?: string;
+        by?: string;
         outcome?: string;
     }>(e);
     switch (e.kind) {
@@ -157,6 +167,15 @@ function runRailKind(e: RunEvent): { kind: RailKind; text: string } | undefined 
         }
         case "land-held":
             return { kind: "failed", text: ["land held", d?.reason].filter(Boolean).join(" · ") };
+        case "task-forwarded":
+            return { kind: d?.by === "human" ? "acted" : "asked", text: eventText(e) };
+        case "task-retried":
+        case "task-skipped":
+        case "task-escalated":
+            // the lead's own actions and the engine's retries are not the human's
+            return d?.by === "human" ? { kind: "acted", text: eventText(e) } : undefined;
+        case "final-rerun":
+            return { kind: "acted", text: eventText(e) };
     }
     const kind = RUN_KIND[e.kind];
     return kind == null ? undefined : { kind, text: eventText(e) };

@@ -18,6 +18,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/util/keyedmutex"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
+	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wshutil"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
@@ -128,15 +129,22 @@ func childRunIDs(g *waveobj.TaskGroup) []string {
 // a tick, which runs under the dag lock, only tries it.
 var taskActions = keyedmutex.New()
 
-func ApplyAction(ctx context.Context, dagID, taskID, action string, target waveobj.RoutePin) error {
-	if err := applyAction(ctx, dagID, taskID, action, target); err != nil {
+// the actor of a retry, skip or escalate, as its run event names it
+const (
+	ActionByLead  = wshrpc.DagActionBy_Lead
+	ActionByHuman = ForwardedByHuman
+)
+
+// ApplyAction records by's action on a task; by is ActionByLead or ActionByHuman.
+func ApplyAction(ctx context.Context, dagID, taskID, action, by string, target waveobj.RoutePin) error {
+	if err := applyAction(ctx, dagID, taskID, action, by, target); err != nil {
 		return err
 	}
 	// after the action let go of the dag's ticks: this one covers every tick it turned away
 	return Schedule(ctx, dagID)
 }
 
-func applyAction(ctx context.Context, dagID, taskID, action string, target waveobj.RoutePin) error {
+func applyAction(ctx context.Context, dagID, taskID, action, by string, target waveobj.RoutePin) error {
 	taskActions.Lock(dagID)
 	defer taskActions.Unlock(dagID)
 	var prep *taskPrep
@@ -158,7 +166,7 @@ func applyAction(ctx context.Context, dagID, taskID, action string, target waveo
 		if err := prep.checkUnmoved(ctx, dagID, taskID); err != nil {
 			return err
 		}
-		return applyActionLocked(ctx, dagID, taskID, action, target)
+		return applyActionLocked(ctx, dagID, taskID, action, by, target)
 	})
 }
 
@@ -317,7 +325,7 @@ func applyEscalation(task *waveobj.TaskNode, target waveobj.RoutePin) {
 
 // applyActionLocked records an action on the dag. For a skip, retry or escalate the caller has run the action's
 // taskPrep: nothing here stops a worker or touches a tree.
-func applyActionLocked(ctx context.Context, dagID, taskID, action string, target waveobj.RoutePin) error {
+func applyActionLocked(ctx context.Context, dagID, taskID, action, by string, target waveobj.RoutePin) error {
 	g, err := wstore.GetDag(ctx, dagID)
 	if err != nil {
 		return fmt.Errorf("loading dag: %w", err)
@@ -343,6 +351,9 @@ func applyActionLocked(ctx context.Context, dagID, taskID, action string, target
 		if err := SkipTask(g, taskID); err != nil {
 			return err
 		}
+		emit = append(emit, func() {
+			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskSkipped, nil, map[string]any{"taskid": taskID, "by": by})
+		})
 	case "retry":
 		if task := taskByID(g, taskID); task != nil && task.State == TaskState_Reviewing {
 			// its worker finished and a reviewer is judging it; the review's own guards end a stuck reviewer
@@ -357,6 +368,9 @@ func applyActionLocked(ctx context.Context, dagID, taskID, action string, target
 		}
 		// the human's retry is the answer to the failures so far, as an escalation is: the engine's own retries start over
 		taskByID(g, taskID).Attempts = 0
+		emit = append(emit, func() {
+			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskRetried, nil, map[string]any{"taskid": taskID, "auto": false, "by": by})
+		})
 	case "escalate":
 		task := taskByID(g, taskID)
 		if task == nil {
@@ -375,6 +389,11 @@ func applyActionLocked(ctx context.Context, dagID, taskID, action string, target
 		}
 		applyEscalation(task, target)
 		RecomputeDagStatus(g)
+		emit = append(emit, func() {
+			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindTaskEscalated, nil, map[string]any{
+				"taskid": taskID, "model": target.Model, "runtime": target.Runtime, "by": by,
+			})
+		})
 	default:
 		return fmt.Errorf("unknown dag action %q", action)
 	}

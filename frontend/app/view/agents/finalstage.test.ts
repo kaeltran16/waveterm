@@ -3,6 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+    finalFailedNote,
     finalRowFocusId,
     finalStageActivity,
     finalStageId,
@@ -645,5 +646,21 @@ describe("outputTail", () => {
         expect(outputTail("a\nb", 5)).toBe("a\nb");
         expect(outputTail("a\nb", 0)).toBe("");
         expect(outputTail("", 3)).toBe("");
+    });
+});
+
+describe("finalFailedNote", () => {
+    it("says the lead is asking about the failure, and that a rerun is the human's call", () => {
+        expect(finalFailedNote({ asking: true })).toBe(
+            "The lead is asking you about this failure. Rerun it if the failure was outside the code."
+        );
+    });
+
+    it("leaves the failure with a lead that is not asking", () => {
+        expect(finalFailedNote({ asking: false })).toBe("The lead has this failure and decides what happens next.");
+    });
+
+    it("hands the failure to the human when there is no lead", () => {
+        expect(finalFailedNote(undefined)).toBe("This failure is yours. Rerun it if the failure was outside the code.");
     });
 });
