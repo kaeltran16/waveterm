@@ -26,6 +26,7 @@ import { buildAgentTree, treeFocusOrder, type AgentTreeRow } from "./agenttreemo
 import { answerAgentAsk } from "./askanswer";
 import { withBrainstorm } from "./brainstormmodel";
 import { brainstormsAtom, shownBrainstormFile } from "./brainstormstore";
+import { claudeApiKeyActiveAtom } from "./claudeapikeystore";
 import { CockpitSurface } from "./cockpitsurface";
 import { devRosterAtom, loadDevMockRoster } from "./devmock";
 import { diffScopeAtom } from "./diffscopeatom";
@@ -149,7 +150,8 @@ export class AgentsViewModel implements ViewModel {
         mergeRateLimitWindows(
             providerPlanUsage(liveWindowAgents(get(this.agentsAtom))),
             get(savedRateLimitsAtom),
-            get(this.structuralNowAtom)
+            get(this.structuralNowAtom),
+            get(claudeApiKeyActiveAtom)
         )
     );
 

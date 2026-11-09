@@ -23,6 +23,7 @@ func (f fakeAccountStore) Get(name string) (string, bool, error) {
 }
 func (f fakeAccountStore) Set(name, value string) error { f[name] = value; return nil }
 func (f fakeAccountStore) Delete(name string) error     { delete(f, name); return nil }
+func (f fakeAccountStore) Flush() error                 { return nil }
 func (f fakeAccountStore) Names() ([]string, error) {
 	names := make([]string, 0, len(f))
 	for n := range f {
@@ -32,9 +33,10 @@ func (f fakeAccountStore) Names() ([]string, error) {
 }
 
 type accountFixture struct {
-	credPath string
-	cfgPath  string
-	store    fakeAccountStore
+	credPath     string
+	cfgPath      string
+	settingsPath string
+	store        fakeAccountStore
 }
 
 // withClaudeAccountFiles points the credentials, config and secret-store seams at throwaway state. An
@@ -51,12 +53,16 @@ func withClaudeAccountFiles(t *testing.T, creds, cfg string) accountFixture {
 			t.Fatal(err)
 		}
 	}
-	oldCred, oldStore := claudeCredentialsPath, claudeAccountSecrets
+	settingsPath := filepath.Join(filepath.Dir(credPath), claudeSettingsFile)
+	oldCred, oldSettings, oldStore := claudeCredentialsPath, claudeSettingsPath, claudeAccountSecrets
 	store := fakeAccountStore{}
 	claudeCredentialsPath = func() (string, error) { return credPath, nil }
+	claudeSettingsPath = func() (string, error) { return settingsPath, nil }
 	claudeAccountSecrets = store
-	t.Cleanup(func() { claudeCredentialsPath, claudeAccountSecrets = oldCred, oldStore })
-	return accountFixture{credPath: credPath, cfgPath: cfgPath, store: store}
+	t.Cleanup(func() {
+		claudeCredentialsPath, claudeSettingsPath, claudeAccountSecrets = oldCred, oldSettings, oldStore
+	})
+	return accountFixture{credPath: credPath, cfgPath: cfgPath, settingsPath: settingsPath, store: store}
 }
 
 func testOauth(refresh string, refreshExpiresAt int64) string {
@@ -138,6 +144,21 @@ func readBytes(t *testing.T, path string) string {
 		t.Fatal(err)
 	}
 	return string(data)
+}
+
+func TestListReportsLiveAndApiKey(t *testing.T) {
+	creds, cfg := liveFiles("r1")
+	f := withClaudeAccountFiles(t, creds, cfg)
+	rtn, err := ListClaudeAccounts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rtn.Accounts) != 1 || !rtn.Accounts[0].Live || !rtn.Accounts[0].Active {
+		t.Fatalf("accounts = %+v, want one live and active account", rtn.Accounts)
+	}
+	if rtn.ApiKey == nil || rtn.ApiKey.SettingsPath != f.settingsPath {
+		t.Fatalf("apikey = %+v, want settings path %s", rtn.ApiKey, f.settingsPath)
+	}
 }
 
 func TestClaudeAccountCaptureSavesLiveLogin(t *testing.T) {

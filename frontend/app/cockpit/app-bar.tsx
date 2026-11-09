@@ -3,6 +3,7 @@
 
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
+import { loadClaudeApiKeyActive } from "@/app/view/agents/claudeapikeystore";
 import { ProjectSwitcher } from "@/app/view/agents/projectswitcher";
 import { UsageMeters } from "@/app/view/agents/usagemeters";
 import { loadWindowTokens, windowTokensAtom } from "@/app/view/agents/windowtokenstore";
@@ -108,7 +109,10 @@ function AppBarUsage({ model }: { model: AgentsViewModel }) {
     const now = useAtomValue(model.structuralNowAtom);
     const claude = donuts.find((d) => d.provider === "claude");
     useEffect(() => {
-        if (claude == null) {
+        fireAndForget(loadClaudeApiKeyActive);
+    }, []);
+    useEffect(() => {
+        if (claude == null || claude.apiKey) {
             return;
         }
         fireAndForget(() => loadWindowTokens(claude.fivehour.reset, claude.week.reset));

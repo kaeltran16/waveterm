@@ -205,6 +205,24 @@ func ClaudeAccountSwitchCommand(w *wshutil.WshRpc, data wshrpc.CommandClaudeAcco
 	return err
 }
 
+// command "claudeapikeyremove", wshserver.ClaudeApiKeyRemoveCommand
+func ClaudeApiKeyRemoveCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "claudeapikeyremove", nil, opts)
+	return err
+}
+
+// command "claudeapikeysave", wshserver.ClaudeApiKeySaveCommand
+func ClaudeApiKeySaveCommand(w *wshutil.WshRpc, data wshrpc.CommandClaudeApiKeyData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "claudeapikeysave", data, opts)
+	return err
+}
+
+// command "claudeapikeyswitch", wshserver.ClaudeApiKeySwitchCommand
+func ClaudeApiKeySwitchCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "claudeapikeyswitch", nil, opts)
+	return err
+}
+
 // command "claudemodoptions", wshserver.ClaudeModOptionsCommand
 func ClaudeModOptionsCommand(w *wshutil.WshRpc, data wshrpc.CommandClaudeModOptionsData, opts *wshrpc.RpcOpts) (map[string]interface {}, error) {
 	resp, err := sendRpcRequestCallHelper[map[string]interface {}](w, "claudemodoptions", data, opts)

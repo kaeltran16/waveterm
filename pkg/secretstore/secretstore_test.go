@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -33,7 +34,6 @@ func clearMemory() {
 	defer lock.Unlock()
 	secrets = make(map[string]string)
 	initialized = false
-	writeRequestChan = nil
 	lastInitTryTime = time.Time{}
 	lastInitErr = nil
 }
@@ -157,6 +157,98 @@ func TestUnreadableSecretsFileFailsLoudly(t *testing.T) {
 	_, _, err := GetSecret("jarvis_embedapikey")
 	if err == nil {
 		t.Fatal("corrupt secrets file read as an empty store instead of erroring")
+	}
+}
+
+func TestFlushWritesBeforeDebounce(t *testing.T) {
+	requirePersistence(t)
+	dir := useConfigDir(t)
+	if err := SetSecret("a", "1"); err != nil {
+		t.Fatalf("SetSecret: %v", err)
+	}
+	if err := Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	got, ok, err := ReadSecretFile(dir, "a")
+	if err != nil || !ok || got != "1" {
+		t.Fatalf("ReadSecretFile = (%q, %v, %v), want (\"1\", true, nil)", got, ok, err)
+	}
+}
+
+func TestFlushCancelsThePendingDebouncedWrite(t *testing.T) {
+	requirePersistence(t)
+	useConfigDir(t)
+	if err := SetSecret("a", "1"); err != nil {
+		t.Fatalf("SetSecret: %v", err)
+	}
+	if err := Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	// the dir a late debounced write would land in
+	other := t.TempDir()
+	wavebase.ConfigHome_VarCache = other
+	time.Sleep((WriteDebounceMs + 500) * time.Millisecond)
+	if _, err := os.Stat(filepath.Join(other, SecretsFileName)); !os.IsNotExist(err) {
+		t.Fatalf("a debounced write ran after Flush: stat err = %v", err)
+	}
+}
+
+func TestFlushBeforeInitIsNoop(t *testing.T) {
+	useConfigDir(t)
+	if err := Flush(); err != nil {
+		t.Fatalf("Flush on an uninitialized store: %v", err)
+	}
+}
+
+func TestReadSecretFileMissing(t *testing.T) {
+	dir := t.TempDir()
+	got, ok, err := ReadSecretFile(dir, "a")
+	if got != "" || ok || err != nil {
+		t.Fatalf("ReadSecretFile = (%q, %v, %v), want (\"\", false, nil)", got, ok, err)
+	}
+}
+
+func TestReadSecretFileCorrupt(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, SecretsFileName)
+	if err := os.WriteFile(path, []byte("not a valid blob"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	_, ok, err := ReadSecretFile(dir, "a")
+	if err == nil || ok {
+		t.Fatalf("ReadSecretFile on garbage = (ok=%v, err=%v), want an error", ok, err)
+	}
+	if !strings.Contains(err.Error(), path) {
+		t.Fatalf("error %q does not name %s", err, path)
+	}
+}
+
+func TestReadSecretFileUnreadable(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, SecretsFileName)
+	if err := os.Mkdir(path, 0700); err != nil {
+		t.Fatal(err)
+	}
+	_, ok, err := ReadSecretFile(dir, "a")
+	if err == nil || ok {
+		t.Fatalf("ReadSecretFile on a directory = (ok=%v, err=%v), want an error", ok, err)
+	}
+	if !strings.Contains(err.Error(), path) {
+		t.Fatalf("error %q does not name %s", err, path)
+	}
+}
+
+func TestReadSecretFileIgnoresWriteTs(t *testing.T) {
+	requirePersistence(t)
+	dir := useConfigDir(t)
+	if err := SetSecret("a", "1"); err != nil {
+		t.Fatalf("SetSecret: %v", err)
+	}
+	if err := Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	if _, ok, err := ReadSecretFile(dir, WriteTsKey); err != nil || ok {
+		t.Fatalf("ReadSecretFile(WriteTsKey) = (ok=%v, err=%v), want not found", ok, err)
 	}
 }
 

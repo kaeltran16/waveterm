@@ -5,6 +5,7 @@ package secretstore
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -26,36 +27,85 @@ const (
 )
 
 var lock sync.Mutex
+var writeMu sync.Mutex
+var timerMu sync.Mutex
+var debounceTimer *time.Timer
 var secrets = make(map[string]string)
-var writeRequestChan chan struct{}
 var initialized bool
 var lastInitTryTime time.Time
 var lastInitErr error
 var secretNameRegexp = regexp.MustCompile(SecretNamePattern)
 
-// must hold lock
-func readSecretsFromFile() (map[string]string, error) {
-	secretsPath := filepath.Join(wavebase.GetWaveConfigDir(), SecretsFileName)
+var errReadFile = errors.New("could not read secrets file")
 
-	encryptedData, err := os.ReadFile(secretsPath)
+// readSecretsFile errors name the path. A failure to read the bytes wraps errReadFile (and os.ErrNotExist
+// when the file is absent); a file that is read but cannot be decrypted or parsed does not.
+func readSecretsFile(path string) (map[string]string, error) {
+	encryptedData, err := os.ReadFile(path)
 	if err != nil {
-		if !os.IsNotExist(err) {
-			log.Printf("secretstore: could not read secrets file: %v\n", err)
-		}
-		return make(map[string]string), nil
+		return nil, fmt.Errorf("%w %s: %w", errReadFile, path, err)
 	}
 
 	plainText, err := unprotect(encryptedData)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decrypt secrets: %w", err)
+		return nil, fmt.Errorf("failed to decrypt secrets in %s: %w", path, err)
 	}
 
 	var decryptedSecrets map[string]string
 	if err := json.Unmarshal(plainText, &decryptedSecrets); err != nil {
-		return nil, fmt.Errorf("failed to parse secrets: %w", err)
+		return nil, fmt.Errorf("failed to parse secrets in %s: %w", path, err)
 	}
 
 	return decryptedSecrets, nil
+}
+
+// must hold lock
+func readSecretsFromFile() (map[string]string, error) {
+	loaded, err := readSecretsFile(filepath.Join(wavebase.GetWaveConfigDir(), SecretsFileName))
+	if errors.Is(err, errReadFile) {
+		if !errors.Is(err, os.ErrNotExist) {
+			log.Printf("secretstore: %v\n", err)
+		}
+		return make(map[string]string), nil
+	}
+	return loaded, err
+}
+
+// ReadSecretFile reads one secret straight from <configDir>/secrets.enc, bypassing the in-memory store and
+// wavebase, for a process that must not start wavesrv's store (the claude apiKeyHelper). A missing file is
+// not an error; any other failure is.
+func ReadSecretFile(configDir, name string) (string, bool, error) {
+	if name == WriteTsKey {
+		return "", false, nil
+	}
+	fileSecrets, err := readSecretsFile(filepath.Join(configDir, SecretsFileName))
+	if errors.Is(err, os.ErrNotExist) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	value, ok := fileSecrets[name]
+	return value, ok, nil
+}
+
+// Flush writes the in-memory secrets to disk now instead of after the debounce. A no-op until the store
+// has been used.
+func Flush() error {
+	lock.Lock()
+	ready := initialized
+	lock.Unlock()
+	if !ready {
+		return nil
+	}
+	// the write below covers the pending one; left running it would write again later, possibly after
+	// the config dir has changed
+	timerMu.Lock()
+	if debounceTimer != nil {
+		debounceTimer.Stop()
+	}
+	timerMu.Unlock()
+	return writeSecretsToFile()
 }
 
 func initSecretStore() error {
@@ -78,28 +128,16 @@ func initSecretStore() error {
 	}
 	secrets = loadedSecrets
 
-	writeRequestChan = make(chan struct{}, 1)
 	initialized = true
 	lastInitErr = nil
-	go writerLoop()
 	return nil
 }
 
-func writerLoop() {
-	var timer *time.Timer
-	for range writeRequestChan {
-		if timer != nil {
-			timer.Stop()
-		}
-		timer = time.AfterFunc(WriteDebounceMs*time.Millisecond, func() {
-			if err := writeSecretsToFile(); err != nil {
-				log.Printf("secretstore: error writing secrets: %v\n", err)
-			}
-		})
-	}
-}
-
 func writeSecretsToFile() error {
+	// a Flush and the debounce timer share one .tmp path
+	writeMu.Lock()
+	defer writeMu.Unlock()
+
 	lock.Lock()
 	secretsCopy := make(map[string]string, len(secrets)+1)
 	for k, v := range secrets {
@@ -133,11 +171,18 @@ func writeSecretsToFile() error {
 	return nil
 }
 
+// scheduled synchronously so a Flush right after a SetSecret always sees, and cancels, the pending write
 func requestWrite() {
-	select {
-	case writeRequestChan <- struct{}{}:
-	default:
+	timerMu.Lock()
+	defer timerMu.Unlock()
+	if debounceTimer != nil {
+		debounceTimer.Stop()
 	}
+	debounceTimer = time.AfterFunc(WriteDebounceMs*time.Millisecond, func() {
+		if err := writeSecretsToFile(); err != nil {
+			log.Printf("secretstore: error writing secrets: %v\n", err)
+		}
+	})
 }
 
 func SetSecret(name string, value string) error {

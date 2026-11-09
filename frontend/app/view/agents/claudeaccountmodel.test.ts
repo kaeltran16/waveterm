@@ -108,7 +108,95 @@ describe("claudeAccountView notes", () => {
     });
 
     it("claims nothing before the first list returns", () => {
-        expect(claudeAccountView(null, now)).toEqual({ rows: [], showHint: false, showNoLogin: false });
+        expect(claudeAccountView(null, now)).toEqual({
+            rows: [],
+            apiKey: null,
+            apiKeyFirst: false,
+            showHint: false,
+            showNoLogin: false,
+        });
+    });
+});
+
+describe("claudeAccountView api key", () => {
+    const apikey = (over: Partial<ClaudeApiKeyInfo>): ClaudeApiKeyInfo => ({
+        saved: true,
+        last4: "abcd",
+        active: false,
+        settingspath: "",
+        ...over,
+    });
+
+    it("has no api key row when no key is saved", () => {
+        const view = claudeAccountView(
+            { loggedin: true, accounts: [acct({ active: true })], apikey: apikey({ saved: false, last4: "" }) },
+            now
+        );
+        expect(view.apiKey).toBeNull();
+        expect(view.apiKeyFirst).toBe(false);
+    });
+
+    it("labels a saved, inactive key by its last four and puts it after the accounts", () => {
+        const view = claudeAccountView({ loggedin: true, accounts: [acct({ active: true })], apikey: apikey({}) }, now);
+        expect(view.apiKey).toEqual({ label: "API key · ends in …abcd", meta: "pay per token", active: false });
+        expect(view.apiKeyFirst).toBe(false);
+    });
+
+    it("puts an active key first and makes every non-expired account switchable, the live one too", () => {
+        const view = claudeAccountView(
+            {
+                loggedin: true,
+                accounts: [
+                    acct({ accountuuid: "live", live: true, active: false }),
+                    acct({ accountuuid: "ok" }),
+                    acct({ accountuuid: "gone", expired: true }),
+                ],
+                apikey: apikey({ active: true }),
+            },
+            now
+        );
+        expect(view.apiKey?.active).toBe(true);
+        expect(view.apiKeyFirst).toBe(true);
+        const flags = Object.fromEntries(view.rows.map((r) => [r.uuid, [r.switchable, r.live, r.removable]]));
+        expect(flags).toEqual({
+            live: [true, true, false],
+            ok: [true, false, true],
+            gone: [false, false, true],
+        });
+    });
+
+    it("keeps the live login switchable while the key is active, even when its sign-in expired", () => {
+        const view = claudeAccountView(
+            {
+                loggedin: true,
+                accounts: [acct({ accountuuid: "live", live: true, expired: true })],
+                apikey: apikey({ active: true }),
+            },
+            now
+        );
+        expect(view.rows[0].expired).toBe(false);
+        expect(view.rows[0].switchable).toBe(true);
+    });
+
+    it("never offers Remove on the active account", () => {
+        const view = claudeAccountView(
+            { loggedin: true, accounts: [acct({ accountuuid: "live", live: true, active: true })] },
+            now
+        );
+        expect(view.rows[0].removable).toBe(false);
+    });
+
+    it("hides the no-login note while the key is active, and the one-account hint while a key is saved", () => {
+        const active = claudeAccountView(
+            { loggedin: false, accounts: [acct({})], apikey: apikey({ active: true }) },
+            now
+        );
+        expect(active.showNoLogin).toBe(false);
+        const saved = claudeAccountView(
+            { loggedin: true, accounts: [acct({ active: true })], apikey: apikey({}) },
+            now
+        );
+        expect(saved.showHint).toBe(false);
     });
 });
 

@@ -16,6 +16,7 @@ import {
     finalManifest,
     finalOutcome,
     inUse,
+    parseFinalArgs,
     pickPort,
     pickVitePort,
     releaseDevApp,
@@ -44,9 +45,9 @@ async function freePort() {
 const close = (srv) => new Promise((r) => srv.close(r));
 
 // spawn the real CLI: the engine only sees the exit code and the last stdout line
-function run(env) {
+function run(env, args = []) {
     return new Promise((resolve) => {
-        execFile(process.execPath, [SCRIPT], { env, timeout: 30_000 }, (err, stdout) => {
+        execFile(process.execPath, [SCRIPT, ...args], { env, timeout: 30_000 }, (err, stdout) => {
             const lines = stdout.trim().split(/\r?\n/);
             resolve({ code: err ? err.code : 0, killed: Boolean(err?.killed), last: lines[lines.length - 1] });
         });
@@ -194,6 +195,60 @@ fs.writeFileSync(path.join(data, "waveapp.log"), "boot log");
         expect(env.WEBVIEW2_USER_DATA_FOLDER).toBe(join(env.ARC_DEV_DATA_DIR, "webview2-profile"));
         expect(existsSync(join(out, "webview2-profile"))).toBe(false);
     }, 30_000);
+
+    // runs final-verify with a fake dev app that records CLAUDE_CONFIG_DIR, its store, and whether the dir existed
+    async function runRecordingClaudeDir(args, callerEnv) {
+        dir = mkdtempSync(join(tmpdir(), "final-verify-"));
+        const envFile = join(dir, "env.json");
+        const fakeDev = join(dir, "fake-dev.cjs");
+        writeFileSync(
+            fakeDev,
+            `const fs = require("fs"), c = process.env.CLAUDE_CONFIG_DIR;
+fs.writeFileSync(${JSON.stringify(envFile)}, JSON.stringify({ dir: c ?? null, store: process.env.ARC_DEV_DATA_DIR, exists: c ? fs.existsSync(c) : false }));
+`
+        );
+        const r = await run(
+            {
+                ...callerEnv,
+                LOCALAPPDATA: join(dir, "localappdata"),
+                ARC_FINAL_OUT: join(dir, "out"),
+                ARC_FINAL_BOOT_MS: "3000",
+                ARC_FINAL_DEV_CMD: `node "${fakeDev}"`,
+                ARC_FINAL_VITE_PORT: String(await freePort()),
+            },
+            args
+        );
+        expect(r.code).toBe(EXIT_UNVERIFIED);
+        return JSON.parse(readFileSync(envFile, "utf8"));
+    }
+
+    it("with --isolate-claude-config, gives the dev app a claude config dir inside its store", async () => {
+        const rec = await runRecordingClaudeDir(["--isolate-claude-config", "settings-claude-apikey"], {
+            ...process.env,
+            CLAUDE_CONFIG_DIR: join(tmpdir(), "caller-claude"),
+        });
+        expect(rec.dir).toBe(join(rec.store, "claude"));
+        expect(rec.exists).toBe(true);
+    }, 30_000);
+
+    it("without the flag, passes the caller's CLAUDE_CONFIG_DIR through unchanged", async () => {
+        const callerDir = join(tmpdir(), "caller-claude");
+        expect((await runRecordingClaudeDir([], { ...process.env, CLAUDE_CONFIG_DIR: callerDir })).dir).toBe(callerDir);
+        rmSync(dir, CHILD_DIR_RM);
+        const env = { ...process.env };
+        delete env.CLAUDE_CONFIG_DIR;
+        expect((await runRecordingClaudeDir([], env)).dir).toBeNull();
+    }, 60_000);
+});
+
+describe("parseFinalArgs", () => {
+    it("strips --isolate-claude-config from the scenarios wherever it sits", () => {
+        expect(parseFinalArgs(["a", "--isolate-claude-config", "b"])).toEqual({ scenarios: ["a", "b"], isolateClaudeConfig: true });
+    });
+
+    it("passes every scenario on when the flag is absent", () => {
+        expect(parseFinalArgs(["a", "b"])).toEqual({ scenarios: ["a", "b"], isolateClaudeConfig: false });
+    });
 });
 
 // a final stage runs the exe it builds in its slot's cargo target dir, so stages overlap only on different slots

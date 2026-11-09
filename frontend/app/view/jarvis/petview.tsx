@@ -14,6 +14,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { wsLinkAtom } from "@/app/store/wslink";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { attentionAtom } from "@/app/view/agents/attentionstore";
+import { claudeApiKeyActiveAtom } from "@/app/view/agents/claudeapikeystore";
 import { savedRateLimitsAtom } from "@/app/view/agents/ratelimitstore";
 import { dagModalStateAtom } from "@/app/view/orchestrate/dagmodalstate";
 import { cn } from "@/util/util";
@@ -111,6 +112,7 @@ function usePetSignals(model: AgentsViewModel): PetSignals {
     return petSignalsFrom({
         agents: useAtomValue(model.agentsAtom),
         savedRateLimits: useAtomValue(savedRateLimitsAtom),
+        claudeApiKey: useAtomValue(claudeApiKeyActiveAtom),
         // the link atom only changes on open and close, so the 1s nowAtom is what sees the grace run out
         now: useAtomValue(model.nowAtom),
         attention: useAtomValue(attentionAtom),

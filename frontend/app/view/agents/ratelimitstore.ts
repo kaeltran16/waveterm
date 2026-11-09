@@ -31,6 +31,7 @@ export interface ProviderDonuts {
     fivehour: DonutWindow;
     week: DonutWindow;
     stale?: { capturedAt: number }; // present iff sourced from a saved (not-live) snapshot
+    apiKey?: boolean; // claude is on the saved API key: pay per token, no subscription windows
 }
 
 // Best-effort read; any failure (no localStorage, parse error) -> {}.
@@ -109,16 +110,24 @@ function windowFromSaved(
 }
 
 // Live wins (no stale); else build from the saved snapshot with per-window rollover. Union of live
-// + saved provider keys, claude-first.
+// + saved provider keys, claude-first. While claude is on the API key its windows describe a
+// subscription it is not drawing from, so claude is an apiKey entry whatever was live or saved.
 export function mergeRateLimitWindows(
     live: { provider: string; usage: AgentUsage }[],
     saved: Record<string, SavedSnapshot>,
-    now: number
+    now: number,
+    claudeApiKey = false
 ): ProviderDonuts[] {
     const liveMap = new Map(live.map((l) => [l.provider, l.usage]));
     const providers = [...new Set([...liveMap.keys(), ...Object.keys(saved)])];
+    if (claudeApiKey && !providers.includes("claude")) {
+        providers.push("claude");
+    }
     return providers
-        .map((provider) => {
+        .map((provider): ProviderDonuts => {
+            if (claudeApiKey && provider === "claude") {
+                return { provider, fivehour: {}, week: {}, apiKey: true };
+            }
             const u = liveMap.get(provider);
             if (u != null) {
                 return {

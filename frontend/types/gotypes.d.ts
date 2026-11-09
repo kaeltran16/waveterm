@@ -344,6 +344,7 @@ declare global {
         email: string;
         orgname: string;
         plan: string;
+        live?: boolean;
         active: boolean;
         expired: boolean;
         lastusedts: number;
@@ -353,6 +354,15 @@ declare global {
     type ClaudeAccountsRtnData = {
         loggedin: boolean;
         accounts: ClaudeAccountInfo[];
+        apikey?: ClaudeApiKeyInfo;
+    };
+
+    // wshrpc.ClaudeApiKeyInfo
+    type ClaudeApiKeyInfo = {
+        saved: boolean;
+        last4: string;
+        active: boolean;
+        settingspath: string;
     };
 
     // waveobj.Client
@@ -574,6 +584,11 @@ declare global {
     // wshrpc.CommandClaudeAccountData
     type CommandClaudeAccountData = {
         accountuuid: string;
+    };
+
+    // wshrpc.CommandClaudeApiKeyData
+    type CommandClaudeApiKeyData = {
+        key: string;
     };
 
     // wshrpc.CommandClaudeModOptionsData

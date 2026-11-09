@@ -36,6 +36,7 @@ import {
     USAGE_LEVEL_TEXT,
     usageLevel,
 } from "./agentsviewmodel";
+import { claudeApiKeyActiveAtom } from "./claudeapikeystore";
 import { providerDot, providerLabel } from "./cockpitrailmodel";
 import { DailyChart } from "./dailychart";
 import { harnessesAtom } from "./harnessstore";
@@ -124,6 +125,9 @@ function stateMeta(row: UsageRailRow, now: number): { label: string; long: strin
     if (row.state === "saved") {
         const age = row.capturedAt != null ? ageStr(now - row.capturedAt) : "?";
         return { label: "Saved", long: `as of ${age} ago`, color: "var(--color-warning)" };
+    }
+    if (row.state === "apikey") {
+        return { label: "API key", long: "pay per token", color: "var(--color-muted)" };
     }
     return { label: "No reading", long: "no quota reading", color: "var(--color-muted)" };
 }
@@ -295,7 +299,7 @@ function quotaFact(row: UsageRailRow, now: number): string | undefined {
     if (row.state === "none") {
         return "history only";
     }
-    return row.state === "saved" ? stateMeta(row, now).long : undefined;
+    return row.state === "saved" || row.state === "apikey" ? stateMeta(row, now).long : undefined;
 }
 
 const LENS_OPTIONS: { key: UsageLens; label: string }[] = [
@@ -685,6 +689,7 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
     const heldWindow = useAtomValue(usageHeldWindowAtom);
     const forecastDaily = useAtomValue(forecastDailyAtom);
     const saved = useAtomValue(savedRateLimitsAtom);
+    const claudeApiKey = useAtomValue(claudeApiKeyActiveAtom);
     const now = useAtomValue(model.nowAtom);
     const [usageWindow, setUsageWindow] = useAtom(usageWindowAtom);
     const [usageMetric, setUsageMetric] = useAtom(usageMetricAtom);
@@ -710,7 +715,7 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
 
     const harnesses = useAtomValue(harnessesAtom);
     const catalogOrder = useMemo(() => harnesses.map((h) => h.runtime), [harnesses]);
-    const donuts = mergeRateLimitWindows(providerPlanUsage(liveWindowAgents(agents)), saved, now);
+    const donuts = mergeRateLimitWindows(providerPlanUsage(liveWindowAgents(agents)), saved, now, claudeApiKey);
     const groups = useMemo(
         () => buildUsageRail(allStats.availableHarnesses, allStats.daily, donuts, catalogOrder),
         [allStats.availableHarnesses, allStats.daily, donuts, catalogOrder]
@@ -1037,7 +1042,7 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
                                     fact={quotaFact(r, now)}
                                     failed={switchFailed}
                                     quota={
-                                        r.state === "none" ? null : (
+                                        r.state === "none" || r.state === "apikey" ? null : (
                                             <QuotaRows
                                                 row={r}
                                                 now={now}

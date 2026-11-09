@@ -52,6 +52,49 @@ describe("topProviderUsage", () => {
     });
 });
 
+describe("mergeRateLimitWindows with the claude API key active", () => {
+    const now = 1_800_000_000_000;
+    const codexSaved: Record<string, SavedSnapshot> = {
+        codex: { fivehourpct: 44, fivehourreset: now / 1000 + 3600, capturedAt: now - 60_000 },
+    };
+
+    it("replaces claude's live windows with an apiKey entry and leaves codex as it was", () => {
+        const out = mergeRateLimitWindows(
+            [{ provider: "claude", usage: { fivehourpct: 80, weekpct: 50 } }],
+            codexSaved,
+            now,
+            true
+        );
+        expect(out.find((d) => d.provider === "claude")).toEqual({
+            provider: "claude",
+            fivehour: {},
+            week: {},
+            apiKey: true,
+        });
+        expect(out.find((d) => d.provider === "codex")).toEqual(
+            mergeRateLimitWindows([], codexSaved, now).find((d) => d.provider === "codex")
+        );
+    });
+
+    it("still has a claude apiKey entry with nothing live or saved", () => {
+        expect(mergeRateLimitWindows([], {}, now, true)).toEqual([
+            { provider: "claude", fivehour: {}, week: {}, apiKey: true },
+        ]);
+    });
+
+    it("hides a saved claude snapshot too", () => {
+        const out = mergeRateLimitWindows([], { claude: { fivehourpct: 70, capturedAt: now } }, now, true);
+        expect(out).toEqual([{ provider: "claude", fivehour: {}, week: {}, apiKey: true }]);
+    });
+
+    it("leaves topProviderUsage to codex, or to nothing when claude is the only provider", () => {
+        const both = mergeRateLimitWindows([{ provider: "claude", usage: { fivehourpct: 80 } }], codexSaved, now, true);
+        expect(topProviderUsage(both)).toEqual({ provider: "codex", pct: 44 });
+        const onlyClaude = mergeRateLimitWindows([{ provider: "claude", usage: { fivehourpct: 80 } }], {}, now, true);
+        expect(topProviderUsage(onlyClaude)).toBeUndefined();
+    });
+});
+
 describe("account-level donut ignores idle agents' stale snapshots", () => {
     const now = 1_800_000_000_000;
     const active = {

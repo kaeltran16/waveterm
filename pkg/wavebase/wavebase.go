@@ -164,6 +164,17 @@ func GetWaveConfigDir() string {
 	return ConfigHome_VarCache
 }
 
+// StableWshPath is the wsh every agent integration names: a fixed, versionless copy under ~/.arc/bin.
+// The running binary is the wrong target — its name carries the version, and a rebuild, an app update,
+// `task clean` or a worktree removal deletes it while every hook still names it.
+func StableWshPath(home string) string {
+	name := "wsh"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	return filepath.Join(home, ".arc", "bin", name)
+}
+
 func GetWaveAppBinPath() string {
 	return filepath.Join(GetWaveAppPath(), AppPathBinDir)
 }

@@ -27,6 +27,7 @@ import (
 
 const (
 	claudeCredentialsFile     = ".credentials.json"
+	claudeSettingsFile        = "settings.json"
 	claudeOauthKey            = "claudeAiOauth"
 	claudeOauthAccountKey     = "oauthAccount"
 	claudeAccountSecretPrefix = "claudeacct_"
@@ -39,6 +40,7 @@ type claudeAccountStore interface {
 	Set(name, value string) error
 	Delete(name string) error
 	Names() ([]string, error)
+	Flush() error
 }
 
 type secretStoreAccounts struct{}
@@ -47,6 +49,7 @@ func (secretStoreAccounts) Get(name string) (string, bool, error) { return secre
 func (secretStoreAccounts) Set(name, value string) error          { return secretstore.SetSecret(name, value) }
 func (secretStoreAccounts) Delete(name string) error              { return secretstore.DeleteSecret(name) }
 func (secretStoreAccounts) Names() ([]string, error)              { return secretstore.GetSecretNames() }
+func (secretStoreAccounts) Flush() error                          { return secretstore.Flush() }
 
 var claudeAccountSecrets claudeAccountStore = secretStoreAccounts{}
 
@@ -55,6 +58,14 @@ var claudeAccountSecrets claudeAccountStore = secretStoreAccounts{}
 var claudeCredentialsPath = defaultClaudeCredentialsPath
 
 func defaultClaudeCredentialsPath() (string, error) {
+	return claudeConfigDirFile(claudeCredentialsFile)
+}
+
+// claudeSettingsPath resolves Claude Code's user settings file. Package var so tests never touch the
+// real one.
+var claudeSettingsPath = func() (string, error) { return claudeConfigDirFile(claudeSettingsFile) }
+
+func claudeConfigDirFile(name string) (string, error) {
 	configDir := os.Getenv("CLAUDE_CONFIG_DIR")
 	if configDir == "" {
 		home, err := os.UserHomeDir()
@@ -63,7 +74,7 @@ func defaultClaudeCredentialsPath() (string, error) {
 		}
 		configDir = filepath.Join(home, ".claude")
 	}
-	return filepath.Join(configDir, claudeCredentialsFile), nil
+	return filepath.Join(configDir, name), nil
 }
 
 // claudeAccountMu serializes capture, switch and remove, so a capture never saves a half-switched pair.
@@ -237,7 +248,19 @@ func ListClaudeAccounts() (*wshrpc.ClaudeAccountsRtnData, error) {
 	if err != nil {
 		return nil, fmt.Errorf("listing saved Claude accounts: %w", err)
 	}
-	rtn := &wshrpc.ClaudeAccountsRtnData{LoggedIn: live != nil, Accounts: []wshrpc.ClaudeAccountInfo{}}
+	settingsPath, err := claudeSettingsPath()
+	if err != nil {
+		return nil, err
+	}
+	apiKey, err := claudeApiKeyInfo(settingsPath)
+	if err != nil {
+		return nil, err
+	}
+	rtn := &wshrpc.ClaudeAccountsRtnData{
+		LoggedIn: live != nil,
+		Accounts: []wshrpc.ClaudeAccountInfo{},
+		ApiKey:   apiKey,
+	}
 	nowMs := time.Now().UnixMilli()
 	for _, name := range names {
 		if !strings.HasPrefix(name, claudeAccountSecretPrefix) {
@@ -256,12 +279,14 @@ func ListClaudeAccounts() (*wshrpc.ClaudeAccountsRtnData, error) {
 			log.Printf("claudeaccount: skipping %s: %v\n", name, err)
 			continue
 		}
+		isLive := live != nil && v.account.AccountUuid == live.account.AccountUuid
 		rtn.Accounts = append(rtn.Accounts, wshrpc.ClaudeAccountInfo{
 			AccountUuid: v.account.AccountUuid,
 			Email:       v.account.EmailAddress,
 			OrgName:     v.account.OrganizationName,
 			Plan:        v.oauth.SubscriptionType,
-			Active:      live != nil && v.account.AccountUuid == live.account.AccountUuid,
+			Live:        isLive,
+			Active:      isLive && !apiKey.Active,
 			Expired:     v.expired(nowMs),
 			LastUsedTs:  v.saved.LastUsedTs,
 		})
@@ -299,22 +324,27 @@ func SwitchClaudeAccount(uuid string) error {
 	if target.expired(time.Now().UnixMilli()) {
 		return fmt.Errorf("the sign-in for %s has expired; run /login with that account to save it again", target.name())
 	}
+	// the API key's helper outranks any login, so it goes first, and comes back if the switch fails
+	restoreHelper, err := removeArcApiKeyHelper()
+	if err != nil {
+		return err
+	}
 	if live != nil && live.account.AccountUuid == uuid {
 		return nil
 	}
 	credPath, err := claudeCredentialsPath()
 	if err != nil {
-		return err
+		return joinRestore(err, restoreHelper)
 	}
 	restore, err := writeClaudeCredentials(credPath, target.saved.OAuth)
 	if err != nil {
-		return err
+		return joinRestore(err, restoreHelper)
 	}
 	if err := writeClaudeOauthAccount(target.saved.Account); err != nil {
 		if rerr := restore(); rerr != nil {
-			return fmt.Errorf("%w; restoring %s also failed: %v", err, credPath, rerr)
+			err = fmt.Errorf("%w; restoring %s also failed: %v", err, credPath, rerr)
 		}
-		return err
+		return joinRestore(err, restoreHelper)
 	}
 	return nil
 }

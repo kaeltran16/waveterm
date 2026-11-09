@@ -61,6 +61,7 @@ describe("claude account section", () => {
         expect(section.rows.map((r) => [r.id, r.title])).toEqual([
             ["claudeaccount.accounts", "Accounts"],
             ["claudeaccount.add", "Add an account"],
+            ["claudeaccount.apikey", "API key"],
         ]);
         expect(section.rows.every((r) => r.config === undefined)).toBe(true);
         expect(section.rows[0].scope).toBe("local");

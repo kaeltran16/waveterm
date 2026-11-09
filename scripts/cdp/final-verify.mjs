@@ -6,7 +6,10 @@
 // Exit 0 passes, verify.mjs's nonzero code fails, and EXIT_UNVERIFIED with the reason as the last stdout line means
 // the UI could not be checked at all.
 //
-//   ARC_FINAL_OUT=<dir> node scripts/cdp/final-verify.mjs [scenario...]
+//   ARC_FINAL_OUT=<dir> node scripts/cdp/final-verify.mjs [--isolate-claude-config] [scenario...]
+//
+// --isolate-claude-config gives the dev app CLAUDE_CONFIG_DIR=<store>/claude, so a scenario that switches claude's
+// credential writes there and never into the user's real ~/.claude. Without it the env passes through unchanged.
 //
 // ARC_FINAL_DEV_CMD (default `task dev` with the port override), ARC_FINAL_BOOT_MS (default 10 min, a cold cargo
 // build), ARC_FINAL_VITE_PORT (the first port tried) and ARC_FINAL_LOCK_WAIT_MS (default 10 min) exist so the test
@@ -366,6 +369,16 @@ export async function closeMainWindow(port, waitMs = CLOSE_EXIT_MS) {
     return { state: "alive" };
 }
 
+const ISOLATE_CLAUDE_CONFIG = "--isolate-claude-config";
+
+// the flag goes anywhere among the scenario names and is never passed on to verify.mjs as one
+export function parseFinalArgs(argv) {
+    return {
+        scenarios: argv.filter((a) => a !== ISOLATE_CLAUDE_CONFIG),
+        isolateClaudeConfig: argv.includes(ISOLATE_CLAUDE_CONFIG),
+    };
+}
+
 // the stage's exit code and, when it has one, its last stdout line. `close` is closeMainWindow's result, read only
 // when the scenarios passed
 export function finalOutcome(verifyCode, close) {
@@ -378,7 +391,7 @@ export function finalOutcome(verifyCode, close) {
 async function main() {
     const out = process.env.ARC_FINAL_OUT;
     if (!out) unverified("ARC_FINAL_OUT is not set");
-    const scenarios = process.argv.slice(2);
+    const { scenarios, isolateClaudeConfig } = parseFinalArgs(process.argv.slice(2));
     const bootMs = Number(process.env.ARC_FINAL_BOOT_MS) || DEFAULT_BOOT_MS;
     const lockWaitMs = Number(process.env.ARC_FINAL_LOCK_WAIT_MS) || DEFAULT_LOCK_WAIT_MS;
     mkdirSync(FINAL_BASE, { recursive: true });
@@ -406,6 +419,11 @@ async function main() {
     // a round for the 30 days the engine keeps that dir
     const profile = join(store, "webview2-profile");
     mkdirSync(profile, { recursive: true });
+    const claudeEnv = {};
+    if (isolateClaudeConfig) {
+        claudeEnv.CLAUDE_CONFIG_DIR = join(store, "claude");
+        mkdirSync(claudeEnv.CLAUDE_CONFIG_DIR, { recursive: true });
+    }
     // the dev app's output goes to a file so the last stdout line stays ours for the engine to read
     const logPath = join(out, "dev-app.log");
     const log = openSync(logPath, "a");
@@ -427,6 +445,7 @@ async function main() {
             // read by a debug build of the dev host (src-tauri/src/paths.rs) and by sync:piartifacts
             ARC_DEV_DATA_DIR: store,
             ARC_DEV_NO_GLOBAL_INSTALL: "1",
+            ...claudeEnv,
         },
     });
     for (const sig of ["SIGINT", "SIGTERM"]) {

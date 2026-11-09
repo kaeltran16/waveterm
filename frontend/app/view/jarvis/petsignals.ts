@@ -19,6 +19,7 @@ const ATTENTION_ASK = "ask";
 export type PetSources = {
     agents: AgentVM[];
     savedRateLimits: Record<string, SavedSnapshot>;
+    claudeApiKey: boolean;
     // epoch ms
     now: number;
     attention: AttentionItem[];
@@ -29,9 +30,21 @@ function count(items: AttentionItem[], kind: string): number {
     return items.reduce((n, i) => (i.kind === kind ? n + 1 : n), 0);
 }
 
-export function petSignalsFrom({ agents, savedRateLimits, now, attention, link }: PetSources): PetSignals {
+export function petSignalsFrom({
+    agents,
+    savedRateLimits,
+    claudeApiKey,
+    now,
+    attention,
+    link,
+}: PetSources): PetSignals {
     const lostAt = linkLostSince(link, now);
-    const donuts = mergeRateLimitWindows(providerPlanUsage(liveWindowAgents(agents)), savedRateLimits, now);
+    const donuts = mergeRateLimitWindows(
+        providerPlanUsage(liveWindowAgents(agents)),
+        savedRateLimits,
+        now,
+        claudeApiKey
+    );
     const top = topProviderUsage(donuts);
     const rateLimit =
         top != null

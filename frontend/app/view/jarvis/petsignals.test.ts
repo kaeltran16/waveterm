@@ -1,4 +1,5 @@
 import { INITIAL_LINK } from "@/app/store/wslink";
+import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { describe, expect, it } from "vitest";
 import { postureFor } from "./petcondition";
 import { petSignalsFrom } from "./petsignals";
@@ -10,7 +11,14 @@ function item(kind: string, source: string, reason?: string): AttentionItem {
 }
 
 function signals(attention: AttentionItem[]) {
-    return petSignalsFrom({ agents: [], savedRateLimits: {}, now: NOW, attention, link: INITIAL_LINK });
+    return petSignalsFrom({
+        agents: [],
+        savedRateLimits: {},
+        claudeApiKey: false,
+        now: NOW,
+        attention,
+        link: INITIAL_LINK,
+    });
 }
 
 describe("petSignalsFrom", () => {
@@ -32,8 +40,24 @@ describe("petSignalsFrom", () => {
 
     it("a link down past the grace becomes the link signal, a boot that never connected does not", () => {
         const down = { connected: false, everConnected: true, lostAt: NOW - 5000 };
-        const lost = petSignalsFrom({ agents: [], savedRateLimits: {}, now: NOW, attention: [], link: down });
+        const lost = petSignalsFrom({
+            agents: [],
+            savedRateLimits: {},
+            claudeApiKey: false,
+            now: NOW,
+            attention: [],
+            link: down,
+        });
         expect(lost.link).toEqual({ lostAt: NOW - 5000 });
         expect(signals([]).link).toBeUndefined();
+    });
+
+    it("reads no rate limit off a live claude reading while claude is on the API key", () => {
+        const agent = { id: "a", name: "A", task: "", state: "working", agent: "claude", usage: { fivehourpct: 90 } };
+        const sources = { savedRateLimits: {}, now: NOW, attention: [], link: INITIAL_LINK };
+        const onKey = petSignalsFrom({ ...sources, agents: [agent as AgentVM], claudeApiKey: true });
+        expect(onKey.rateLimit).toBeUndefined();
+        const onAccount = petSignalsFrom({ ...sources, agents: [agent as AgentVM], claudeApiKey: false });
+        expect(onAccount.rateLimit?.pct).toBe(90);
     });
 });

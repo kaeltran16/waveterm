@@ -1,7 +1,7 @@
 // Settings and Setup scenarios, remote access included.
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { SURFACE_LABEL, openPage } from "./attach.mjs";
@@ -270,26 +270,32 @@ const claudeAcctRowState = (h, uuid) =>
         };
     })()`);
 
+// the setsecrets payload that saves each seed as a Claude.ai login
+function claudeAcctSecrets(seeds) {
+    const now = Date.now();
+    const secrets = {};
+    for (const s of seeds) {
+        secrets[claudeAcctSecretName(s.uuid)] = JSON.stringify({
+            oauth: {
+                accessToken: "seed-access",
+                refreshToken: "seed-refresh",
+                expiresAt: now + s.expiresInMs,
+                refreshTokenExpiresAt: now + s.expiresInMs,
+                scopes: ["user:inference"],
+                subscriptionType: "pro",
+            },
+            account: { accountUuid: s.uuid, emailAddress: s.email, organizationName: "Seed Org" },
+            lastusedts: now - 3 * 3600_000,
+        });
+    }
+    return secrets;
+}
+
 export const settingsClaudeAccount = {
     name: "settings-claude-account",
     surface: "settings",
     async arrange(h) {
-        const now = Date.now();
-        const secrets = {};
-        for (const s of Object.values(CLAUDE_ACCT_SEEDS)) {
-            secrets[claudeAcctSecretName(s.uuid)] = JSON.stringify({
-                oauth: {
-                    accessToken: "seed-access",
-                    refreshToken: "seed-refresh",
-                    expiresAt: now + s.expiresInMs,
-                    refreshTokenExpiresAt: now + s.expiresInMs,
-                    scopes: ["user:inference"],
-                    subscriptionType: "pro",
-                },
-                account: { accountUuid: s.uuid, emailAddress: s.email, organizationName: "Seed Org" },
-                lastusedts: now - 3 * 3600_000,
-            });
-        }
+        const secrets = claudeAcctSecrets(Object.values(CLAUDE_ACCT_SEEDS));
         await h.rpc("setsecrets", secrets);
         return { seedNames: Object.keys(secrets) };
     },
@@ -394,6 +400,191 @@ export const settingsClaudeAccount = {
     async teardown(h, ctx) {
         // deleting a missing secret is a no-op, so this is safe after the Remove steps
         await h.rpc("setsecrets", Object.fromEntries((ctx.seedNames ?? []).map((n) => [n, null])));
+        await h.goto("cockpit");
+    },
+};
+
+// --- settings-claude-apikey: the API key row beside the Claude.ai accounts ----------------------------------
+// A fake key is seeded straight into the dev app's secret store, so the row shows without a real key. It never
+// clicks Switch, which writes the dev app's claude settings.json. Save with a bogus key must fail: the Anthropic
+// API refuses it, or cannot be reached, and either way nothing is stored.
+const CLAUDE_APIKEY_SECRET = "claudeapikey"; // pkg/jarvis ClaudeApiKeySecretName
+const CLAUDE_APIKEY_SEED = "sk-ant-seed-0000abcd";
+const CLAUDE_APIKEY_ROW = `${CLAUDE_ACCT_PANE}?.querySelector('[data-testid="claude-apikey-row"]')`;
+const CLAUDE_APIKEY_INPUT = `${CLAUDE_ACCT_PANE}?.querySelector('[data-testid="claude-apikey-input"]')`;
+const CLAUDE_APIKEY_SAVE = `${CLAUDE_ACCT_PANE}?.querySelector('[data-testid="claude-apikey-save"]')`;
+// above the app's 20 s save timeout, so a slow API still lands as its error note
+const CLAUDE_APIKEY_SAVE_WAIT_MS = 25_000;
+const claudeApiKeyRowState = (h) =>
+    h.ev(`(() => {
+        const r = ${CLAUDE_APIKEY_ROW};
+        if (!r) return null;
+        const pane = ${CLAUDE_ACCT_PANE};
+        const sw = r.querySelector('[data-testid="claude-apikey-switch"]');
+        const rm = r.querySelector('[data-testid="claude-apikey-remove"]');
+        const rows = [...pane.querySelectorAll('[data-testid="claude-account-row"], [data-testid="claude-apikey-row"]')];
+        const accounts = [...pane.querySelectorAll('[data-testid="claude-account-row"]')];
+        return {
+            active: r.hasAttribute("data-active"),
+            text: (r.textContent || "").replace(/\\s+/g, " ").trim(),
+            first: rows[0] === r,
+            afterAccounts: accounts.every((a) => a.compareDocumentPosition(r) & Node.DOCUMENT_POSITION_FOLLOWING),
+            switch: sw ? { disabled: sw.disabled } : null,
+            remove: rm ? { disabled: rm.disabled } : null,
+        };
+    })()`);
+const openClaudeAccount = async (h) => {
+    await h.goto("cockpit");
+    await h.goto("settings");
+    await h.ev(`document.querySelector('[data-section="claudeaccount"]')?.click()`);
+};
+
+export const settingsClaudeApiKey = {
+    name: "settings-claude-apikey",
+    surface: "settings",
+    async arrange(h) {
+        await h.rpc("setsecrets", { [CLAUDE_APIKEY_SECRET]: CLAUDE_APIKEY_SEED });
+        // verify.mjs runs teardown only for a defined ctx
+        return {};
+    },
+    async assert(h) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+
+        await openClaudeAccount(h);
+        const listed = await polishWaitFor(h, `${CLAUDE_APIKEY_ROW} != null`, 10_000);
+        const row = await claudeApiKeyRowState(h);
+        rec(
+            "1. the API key row reads its last four and pay per token, is not active, sits after every account, and offers Switch and Remove",
+            listed &&
+                row != null &&
+                row.text.includes("API key · ends in …abcd") &&
+                row.text.includes("pay per token") &&
+                !row.active &&
+                row.afterAccounts &&
+                row.switch?.disabled === false &&
+                row.remove?.disabled === false,
+            JSON.stringify(row)
+        );
+
+        const field = await h.ev(`(() => {
+            const i = ${CLAUDE_APIKEY_INPUT};
+            const b = ${CLAUDE_APIKEY_SAVE};
+            return { type: i?.type ?? null, value: i?.value ?? null, saveDisabled: b?.disabled ?? null };
+        })()`);
+        rec("2. the key field is masked, and Save is disabled while it is empty", field.type === "password" && field.value === "" && field.saveDisabled === true, JSON.stringify(field));
+
+        await h.ev(setInputExpr(CLAUDE_APIKEY_INPUT, "sk-ant-bogus"));
+        await polishWaitFor(h, `${CLAUDE_APIKEY_SAVE}?.disabled === false`, 2_000);
+        await h.ev(`${CLAUDE_APIKEY_SAVE}?.click()`);
+        const refused = await polishWaitFor(h, `${CLAUDE_ACCT_ERROR} != null`, CLAUDE_APIKEY_SAVE_WAIT_MS);
+        const after = await h.ev(`({
+            error: (${CLAUDE_ACCT_ERROR}?.textContent || "").trim() || null,
+            row: (${CLAUDE_APIKEY_ROW}?.textContent || "").replace(/\\s+/g, " ").trim(),
+        })`);
+        rec("3. saving a bogus key shows an error note and keeps the saved key", refused && after.row.includes("ends in …abcd"), JSON.stringify(after));
+
+        await h.ev(`${CLAUDE_ACCT_PANE}?.querySelector('[data-setting-row="claudeaccount.accounts"]')?.scrollIntoView({ block: "center" })`);
+        await polishNap(200);
+        await h.shot("cdp-shots/settings-claude-apikey.png");
+        steps.push(
+            await floorStep(h, `4. no visible text in the accounts list is under ${MIN_FONT_PX}px`, `${CLAUDE_ACCT_PANE}?.querySelector('[data-setting-row="claudeaccount.accounts"]')`)
+        );
+
+        await h.ev(`${CLAUDE_APIKEY_ROW}?.querySelector('[data-testid="claude-apikey-remove"]')?.click()`);
+        const gone = await polishWaitFor(h, `${CLAUDE_APIKEY_ROW} == null`, 10_000);
+        const err = await h.ev(`(${CLAUDE_ACCT_ERROR}?.textContent || "").trim() || null`);
+        rec("5. Remove takes the API key row off the list with no error", gone && err == null, `gone=${gone} error=${err}`);
+        return steps;
+    },
+    async teardown(h) {
+        await h.rpc("setsecrets", { [CLAUDE_APIKEY_SECRET]: null });
+        await h.goto("cockpit");
+    },
+};
+
+// --- settings-claude-apikey-switch: Switch to the API key and back ----------------------------------------
+// Switch writes apiKeyHelper into claude's settings.json, so this runs only on a dev app whose CLAUDE_CONFIG_DIR
+// is a throwaway dir (Final's --isolate-claude-config, or a dev app started by hand with it set): on the default
+// path it would move the user's real claude sessions onto the fake key.
+export const settingsClaudeApiKeySwitch = {
+    name: "settings-claude-apikey-switch",
+    surface: "settings",
+    async arrange(h) {
+        const listed = await h.rpc("claudeaccounts");
+        const path = listed?.apikey?.settingspath ?? "";
+        const real = join(homedir(), ".claude", "settings.json");
+        if (path === "" || path.toLowerCase() === real.toLowerCase()) {
+            throw new Error(
+                `refusing: settings.json is the user's real ${path || real}; start the dev app with CLAUDE_CONFIG_DIR set to a temp dir`
+            );
+        }
+        const seed = CLAUDE_ACCT_SEEDS.valid;
+        await h.rpc("setsecrets", { [CLAUDE_APIKEY_SECRET]: CLAUDE_APIKEY_SEED, ...claudeAcctSecrets([seed]) });
+        await openClaudeAccount(h);
+        if (!(await polishWaitFor(h, `${CLAUDE_APIKEY_ROW} != null && ${claudeAcctRow(seed.uuid)} != null`, 10_000))) {
+            throw new Error("the API key row or the seeded account never listed");
+        }
+        await h.ev(`${CLAUDE_APIKEY_ROW}?.querySelector('[data-testid="claude-apikey-switch"]')?.click()`);
+        await polishWaitFor(h, `${CLAUDE_APIKEY_ROW}?.hasAttribute("data-active") || ${CLAUDE_ACCT_ERROR} != null`, 10_000);
+        return { seed };
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        const { seed } = ctx;
+
+        // verify.mjs's goto between arrange and assert may have reset the section
+        await openClaudeAccount(h);
+        await polishWaitFor(h, `${CLAUDE_APIKEY_ROW}?.hasAttribute("data-active") || ${CLAUDE_ACCT_ERROR} != null`, 10_000);
+        const row = await claudeApiKeyRowState(h);
+        const acct = await claudeAcctRowState(h, seed.uuid);
+        const err = await h.ev(`(${CLAUDE_ACCT_ERROR}?.textContent || "").trim() || null`);
+        rec(
+            "1. the active API key row is first, reads Active with no Remove, and the seeded account offers Switch",
+            row != null && row.first && row.active && row.text.includes("Active") && row.remove == null && acct?.switch?.disabled === false && err == null,
+            JSON.stringify({ row, acct, err })
+        );
+
+        const meter = `document.querySelector('[data-usage-meters] [data-usage-apikey]')`;
+        const meterOk = await polishWaitFor(h, `(${meter}?.textContent || "").trim() === "API key"`, 10_000);
+        rec("2. the app-bar usage meter reads API key", meterOk, JSON.stringify(await h.ev(`(${meter}?.textContent || "").trim() || null`)));
+
+        await h.goto("usage");
+        const card = `document.querySelector('[data-usage-scopes] [data-usage-harness="claude"]')`;
+        const cardOk = await polishWaitFor(h, `(${card}?.firstElementChild?.lastElementChild?.textContent || "").trim() === "API key"`, 10_000);
+        const cardState = await h.ev(`(() => {
+            const c = ${card};
+            if (!c) return null;
+            return { pill: (c.firstElementChild?.lastElementChild?.textContent || "").trim(), bars: c.querySelectorAll("[data-usage-limit]").length };
+        })()`);
+        rec("3. the Usage surface's claude card pill reads API key and it shows no quota bars", cardOk && cardState?.bars === 0, JSON.stringify(cardState));
+
+        await openClaudeAccount(h);
+        await polishWaitFor(h, `${claudeAcctRow(seed.uuid)} != null`, 10_000);
+        await h.ev(`${claudeAcctRow(seed.uuid)}?.querySelector('[data-testid="claude-account-switch"]')?.click()`);
+        const back = await polishWaitFor(h, `${CLAUDE_APIKEY_ROW} != null && !${CLAUDE_APIKEY_ROW}.hasAttribute("data-active")`, 10_000);
+        const listed = await h.rpc("claudeaccounts");
+        const backErr = await h.ev(`(${CLAUDE_ACCT_ERROR}?.textContent || "").trim() || null`);
+        rec(
+            "4. switching to the seeded account turns the API key off, in the row and in the account list",
+            back && listed?.apikey?.active === false && backErr == null,
+            JSON.stringify({ back, apikey: listed?.apikey, error: backErr })
+        );
+        return steps;
+    },
+    // runs only once arrange passed its refusal, so the settings.json it may switch back is the throwaway one
+    async teardown(h, ctx) {
+        const { seed } = ctx;
+        // a run that failed before step 4 leaves the helper in the throwaway settings.json; switching to the seed
+        // removes it, so the dev app's quota displays do not stay on the API key
+        try {
+            const listed = await h.rpc("claudeaccounts");
+            if (listed?.apikey?.active) await h.rpc("claudeaccountswitch", { accountuuid: seed.uuid });
+        } catch (e) {
+            console.log(`settings-claude-apikey-switch teardown: could not switch off the API key: ${e?.message ?? e}`);
+        }
+        await h.rpc("setsecrets", { [CLAUDE_APIKEY_SECRET]: null, [claudeAcctSecretName(seed.uuid)]: null });
         await h.goto("cockpit");
     },
 };
