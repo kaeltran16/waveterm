@@ -136,6 +136,9 @@ describe("snippetOf / eventDetail", () => {
             "commit f00dcafe · Verify left to the final stage"
         );
     });
+    it("says the round of the final stage's end", () => {
+        expect(snippetOf(ev(0, "final-ended", undefined, { round: 2, outcome: "passed" }))).toBe("round 2");
+    });
     it("falls back to the first item with a snippet", () => {
         const g = groupEvents([ev(0, "task-spawned", "t", { worktreems: 1000 }), ev(1, "task-first-activity", "t")]);
         expect(groupSnippet(g[0])).toBe("worktree 1.0s · setup 0.0s · spawn 0.0s");
