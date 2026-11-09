@@ -688,6 +688,15 @@ type PlanReviewStage struct {
 	PlanText  string           `json:"plantext,omitempty"`  // the plan as this round's reviewers read it
 	SpecText  string           `json:"spectext,omitempty"`  // the spec likewise (empty with no spec file)
 	Prior     *PlanReviewPrior `json:"prior,omitempty"`     // round 2: what round 1 found, read and picked
+
+	// PastRounds are the earlier rounds' reviewers, oldest first; a dag stored before this field reads as one round.
+	PastRounds []PlanReviewRound `json:"pastrounds,omitempty"`
+}
+
+// PlanReviewRound is a finished plan review round's reviewer sessions.
+type PlanReviewRound struct {
+	Round     int            `json:"round"`
+	Reviewers []PlanReviewer `json:"reviewers,omitempty"`
 }
 
 // PlanReviewer is one reviewer session of a plan review round.

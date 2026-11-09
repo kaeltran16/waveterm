@@ -2822,6 +2822,12 @@ declare global {
         reason: string;
     };
 
+    // waveobj.PlanReviewRound
+    type PlanReviewRound = {
+        round: number;
+        reviewers?: PlanReviewer[];
+    };
+
     // waveobj.PlanReviewStage
     type PlanReviewStage = {
         state: string;
@@ -2831,6 +2837,7 @@ declare global {
         plantext?: string;
         spectext?: string;
         prior?: PlanReviewPrior;
+        pastrounds?: PlanReviewRound[];
     };
 
     // waveobj.PlanReviewer
