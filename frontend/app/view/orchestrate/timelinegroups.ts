@@ -4,7 +4,7 @@
 // one-line snippet, quiet gaps and the activity strip. Attention is ATTENTION_KINDS and titles are
 // runtimeline's, so this rail and any other timeline cannot disagree about either.
 
-import { detailOf, eventTitle, planReviewReviewers } from "../agents/runtimeline";
+import { detailOf, eventText, eventTitle, planReviewReviewers } from "../agents/runtimeline";
 import { ATTENTION_KINDS, FINAL_FAILED_BLOCK, taskIdOf, type TimelineFilter } from "./timelinefilter";
 
 // one phase of one task within BURST_MS reads as one row; a silence of QUIET_MS or more is worth a gap row
@@ -220,9 +220,15 @@ export function snippetOf(e: RunEvent): string {
         case "task-amended":
         case "task-lead-told":
         case "task-told":
-        case "task-retried":
         case "task-stalled":
             return str(d.text);
+        // an action by the human or the lead says who took it; an engine retry carries no actor
+        case "task-retried":
+            return d.by ? eventText(e) : str(d.text);
+        case "task-skipped":
+        case "task-escalated":
+        case "final-rerun":
+            return eventText(e);
         case "task-restarted":
             return str(d.reason);
         case "task-spawned":

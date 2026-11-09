@@ -6,6 +6,8 @@
 // roster and renders beside these rows.
 
 import { flip, hide, offset, shift, size, type Middleware, type Rect } from "@floating-ui/react";
+import { mergeGateLine, verifyFailLine } from "../agents/runlineage";
+import { detailOf } from "../agents/runtimeline";
 import { firstLine, formatElapsed, verifyHeading, waitingText, type TaskBrief } from "./dagdigest";
 import { dagActionRoute } from "./dagstore";
 
@@ -73,13 +75,41 @@ export type PeekRow = { text: string; tone: "muted" | "warning"; clamp?: boolean
 export type VerifySection = { heading: string; tail: string; tone: "muted" | "warning" };
 export type TaskPeek = { title: string; description: string; rows: PeekRow[]; verify: VerifySection | null };
 
+type FailedDetail = { taskid?: string; detail?: string };
+
+// taskFailureDetail is why a task failed, as its newest task-failed event says: a dispatch that failed before its
+// worker started has no transcript, so this is the only place its reason lives
+export function taskFailureDetail(events: RunEvent[], taskId: string): string | undefined {
+    let newest: RunEvent | undefined;
+    for (const event of events) {
+        if (event.kind !== "task-failed" || detailOf<FailedDetail>(event)?.taskid !== taskId) continue;
+        if (newest == null || event.ts > newest.ts) newest = event;
+    }
+    return newest ? detailOf<FailedDetail>(newest)?.detail || undefined : undefined;
+}
+
+// sessionPendingText is the worker box of a task with no run: one that failed never got a worker
+export function sessionPendingText(task: TaskNode): string {
+    if (task.state !== "failed") return "Not dispatched yet";
+    return task.lastfailurekind ? `Never dispatched · failed at ${task.lastfailurekind}` : "Never dispatched · failed";
+}
+
+// what the peek reads beyond its task: the dag, for the merge gate's holder, and the run's events
+export type PeekContext = { group?: TaskGroup; events?: RunEvent[] };
+
 export function taskPeek(
     task: TaskNode,
     td: DagTaskDigest | undefined,
     briefs: Map<string, TaskBrief>,
-    nowMs: number
+    nowMs: number,
+    { group, events = [] }: PeekContext = {}
 ): TaskPeek {
     const rows: PeekRow[] = [];
+    // the peek is handed its task's digest row alone, which is all the gate line reads of the digest
+    const gate = td ? mergeGateLine({ dag: group, digest: { tasks: [td] } as DagStatusDigest }, task.id) : undefined;
+    if (gate) {
+        rows.push({ text: gate, tone: "warning" });
+    }
     if (td?.waitreason === "ask" || td?.waitreason === "lead-ask") {
         const who = td.waitreason === "ask" ? "you" : "the lead";
         rows.push({ text: `asked ${who}: ${td.asksummary || "a question"}`, tone: "warning" });
@@ -93,7 +123,9 @@ export function taskPeek(
     }
     if (task.lastfailurekind) {
         const attempt = (task.attempts ?? 0) > 1 ? ` · attempt ${task.attempts}` : "";
-        rows.push({ text: `last failure: ${task.lastfailurekind}${attempt}`, tone: "warning" });
+        const why = taskFailureDetail(events, task.id);
+        const text = `last failure: ${task.lastfailurekind}${attempt}`;
+        rows.push(why ? { text: `${text} · ${why}`, tone: "warning", clamp: true } : { text, tone: "warning" });
     }
     if (task.state === "reviewing") {
         const round = (task.reviewround ?? 0) + 1;
@@ -108,8 +140,7 @@ export function taskPeek(
         const verdict = task.reviewverdict ? ` ${task.reviewverdict}` : "";
         rows.push({ text: `review${verdict}: ${reviewNote}`, tone: failed ? "warning" : "muted", clamp: true });
     }
-    for (const err of [task.verifyerror, task.mergeerror, task.cleanuperror]) {
-        const line = firstLine(err);
+    for (const line of [verifyFailLine(task, td), firstLine(task.mergeerror), firstLine(task.cleanuperror)]) {
         if (line) {
             rows.push({ text: line, tone: "warning" });
         }

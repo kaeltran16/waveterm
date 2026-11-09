@@ -26,7 +26,7 @@ import { descriptionLead } from "./dagdescription";
 import type { TaskBrief } from "./dagdigest";
 import { closeDagModal, dagModalAgentsContextAtom } from "./dagmodalstate";
 import { wordTone } from "./dagnodes";
-import { peekActions, taskPeek, type PeekAction, type PeekRow } from "./dagpeek";
+import { peekActions, sessionPendingText, taskPeek, type PeekAction, type PeekRow } from "./dagpeek";
 import {
     DagPeekCard,
     PEEK_BTN,
@@ -80,8 +80,8 @@ export function DagTaskPeek({
     const reviewer = task.reviewrunid
         ? resolveTaskWorker({ id: task.id, runid: task.reviewrunid }, reviewRun, agentsCtx?.agents ?? [])
         : null;
-    const peek = taskPeek(task, digestTask, briefs, tick || Date.now());
     const { events, status } = useRunEventsState(group.runid, group.channelid);
+    const peek = taskPeek(task, digestTask, briefs, tick || Date.now(), { group, events });
 
     // escalate opens the route picker; every other action is sent, and a refusal is shown on the card instead
     // of vanishing into an unhandled rejection
@@ -179,8 +179,17 @@ export function DagTaskPeek({
                     )}
                 </div>
             ) : null}
-            {agentsCtx ? <WorkerSession worker={worker} model={agentsCtx.model} role="Worker" /> : null}
-            {agentsCtx && reviewer ? <WorkerSession worker={reviewer} model={agentsCtx.model} role="Reviewer" /> : null}
+            {agentsCtx ? (
+                <WorkerSession
+                    worker={worker}
+                    model={agentsCtx.model}
+                    role="Worker"
+                    pending={sessionPendingText(task)}
+                />
+            ) : null}
+            {agentsCtx && reviewer ? (
+                <WorkerSession worker={reviewer} model={agentsCtx.model} role="Reviewer" pending="Not dispatched yet" />
+            ) : null}
             <dl className={PEEK_DL}>
                 <dt className={PEEK_DT}>Worker</dt>
                 <dd
@@ -381,10 +390,13 @@ function WorkerSession({
     worker,
     model,
     role,
+    pending,
 }: {
     worker: TaskWorkerView;
     model: AgentsViewModel;
     role: "Worker" | "Reviewer";
+    // what the box says while there is no session to show
+    pending: string;
 }) {
     const open = (e: MouseEvent) => {
         e.stopPropagation();
@@ -394,7 +406,7 @@ function WorkerSession({
         return (
             <div data-dag-peek-session={role} className={cn(SESSION_BOX, "border-dashed text-[12.5px] text-ink-mid")}>
                 <span className="h-1.5 w-1.5 flex-none rounded-full bg-edge-strong" />
-                Not dispatched yet
+                {pending}
             </div>
         );
     }

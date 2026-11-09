@@ -37,7 +37,7 @@ import { useRunUsage } from "@/app/view/agents/runtokenstore";
 import { spendText, summarizeUsage } from "@/app/view/agents/runusage";
 import { SectionLabel } from "@/app/view/agents/sectionlabel";
 import { attentionQueue, type QueueEntry } from "@/app/view/orchestrate/attentionqueue";
-import { formatElapsed, taskBriefs, useDagDigest, type TaskBrief } from "@/app/view/orchestrate/dagdigest";
+import { actionWords, formatElapsed, taskBriefs, useDagDigest, type TaskBrief } from "@/app/view/orchestrate/dagdigest";
 import { openRunSheetDag } from "@/app/view/orchestrate/dagmodalstate";
 import { useDagGroup } from "@/app/view/orchestrate/dagstore";
 import { recoverySummary, recoveryText } from "@/app/view/orchestrate/recoverysummary";
@@ -645,6 +645,7 @@ function Tasks({
                             td={td}
                             briefs={briefs}
                             digest={digest}
+                            group={group}
                             events={events}
                             askOwner={askOwnerOf(asks, task.id)}
                             asOf={asOf}
@@ -743,6 +744,7 @@ function TaskRow({
     td,
     briefs,
     digest,
+    group,
     events,
     askOwner,
     asOf,
@@ -752,6 +754,7 @@ function TaskRow({
     td: DagTaskDigest | undefined;
     briefs: Map<string, TaskBrief>;
     digest: DagStatusDigest;
+    group: TaskGroup;
     events: RunEvent[];
     askOwner: "user" | "lead" | null;
     asOf: string | null;
@@ -769,6 +772,7 @@ function TaskRow({
         askOwner,
         nowMs: ctx.now,
         asOf,
+        gate: { dag: group, digest },
     });
     const act = () => {
         if (row.action === "open-dag-task") {
@@ -832,6 +836,7 @@ function AttentionRow({ ctx, entry }: { ctx: SheetCtx; entry: QueueEntry }) {
     return (
         <button
             type="button"
+            data-run-sheet-attention={entry.taskId}
             onClick={go}
             title={openWorker ? "Open the worker" : "Show this task in the DAG"}
             className="flex w-full cursor-pointer items-center gap-[9px] rounded-[8px] border border-warning/30 bg-warning/12 px-[11px] py-2 text-left hover:border-warning focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
@@ -841,7 +846,7 @@ function AttentionRow({ ctx, entry }: { ctx: SheetCtx; entry: QueueEntry }) {
             <span className="min-w-0 flex-1 truncate text-[12px] text-secondary">{entry.detail}</span>
             {entry.actions.length > 0 ? (
                 <span className="flex-none rounded-[5px] border border-warning/45 px-[7px] py-px font-mono text-[10.5px] text-warning-soft">
-                    {entry.actions.join("/")}
+                    {actionWords(entry.actions)}
                 </span>
             ) : null}
         </button>

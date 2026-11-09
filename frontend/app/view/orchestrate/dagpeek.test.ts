@@ -12,6 +12,8 @@ import {
     PEEK_W_PX,
     peekActions,
     peekMiddleware,
+    sessionPendingText,
+    taskFailureDetail,
     taskPeek,
     verifySection,
 } from "./dagpeek";
@@ -210,6 +212,74 @@ describe("taskPeek review rows", () => {
         expect(rows[0].text.startsWith("review")).toBe(true);
         expect(rows[0].text).toContain("second");
         expect(rows[0].text).toContain("third");
+    });
+});
+
+const failedEvent = (taskid: string, ts: number, detail?: string): RunEvent => ({
+    id: `e-${taskid}-${ts}`,
+    runid: "r",
+    channelid: "c",
+    ts,
+    kind: "task-failed",
+    detail: JSON.stringify({ taskid, lastfailurekind: "setup", attempts: 1, detail }),
+});
+
+describe("taskFailureDetail", () => {
+    it("reads the newest task-failed detail for the task", () => {
+        const events = [
+            failedEvent("t1", 100, "setup: exit 1: npm ci failed"),
+            failedEvent("t1", 300, "setup: exit 1: no lockfile"),
+            failedEvent("t2", 400, "another task's"),
+            failedEvent("t1", 200, "older"),
+        ];
+        expect(taskFailureDetail(events, "t1")).toBe("setup: exit 1: no lockfile");
+    });
+
+    it("is undefined with no task-failed row, or one with no detail", () => {
+        expect(taskFailureDetail([], "t1")).toBeUndefined();
+        expect(taskFailureDetail([failedEvent("t1", 100)], "t1")).toBeUndefined();
+        const other: RunEvent = { ...failedEvent("t1", 100, "x"), kind: "task-retried" };
+        expect(taskFailureDetail([other], "t1")).toBeUndefined();
+    });
+});
+
+describe("taskPeek phase 3 rows", () => {
+    it("appends the failure's detail to the last failure row, clamped", () => {
+        const events = [failedEvent("t1", 100, "setup: exit 1: no lockfile")];
+        const t = task({ state: "failed", lastfailurekind: "setup", attempts: 1 });
+        expect(taskPeek(t, undefined, briefs, NOW, { events }).rows).toEqual([
+            { text: "last failure: setup · setup: exit 1: no lockfile", tone: "warning", clamp: true },
+        ]);
+    });
+
+    it("heads a failed Verify with its failing line, never a passing test's", () => {
+        const t = task({ state: "verify-failed", verifyerror: "exit 1: ✔ adds two positive numbers\n✔ zero" });
+        expect(taskPeek(t, undefined, briefs, NOW).rows).toEqual([{ text: "exit 1", tone: "warning" }]);
+        const td = digest({ verifyfailline: "--- FAIL: TestAdd" });
+        expect(taskPeek(t, td, briefs, NOW).rows).toEqual([{ text: "--- FAIL: TestAdd", tone: "warning" }]);
+    });
+
+    it("shows a held tip's merge gate line", () => {
+        const t = task({ id: "t-2", state: "done" });
+        const td = digest({ taskid: "t-2", mergestate: "held", mergeheldby: "t-4" });
+        const group = { tasks: [t, { id: "t-4", state: "verify-failed" }] } as TaskGroup;
+        expect(taskPeek(t, td, briefs, NOW, { group }).rows).toEqual([
+            { text: "merge ready · waits on t-4's failed Verify", tone: "warning" },
+        ]);
+        expect(taskPeek(t, digest({ taskid: "t-2" }), briefs, NOW, { group }).rows).toEqual([]);
+    });
+});
+
+describe("sessionPendingText", () => {
+    it("says a failed task with no run never dispatched, and where it failed", () => {
+        expect(sessionPendingText(task({ state: "failed", lastfailurekind: "setup" }))).toBe(
+            "Never dispatched · failed at setup"
+        );
+        expect(sessionPendingText(task({ state: "failed" }))).toBe("Never dispatched · failed");
+    });
+
+    it("says any other task with no run is not dispatched yet", () => {
+        expect(sessionPendingText(task({ state: "pending" }))).toBe("Not dispatched yet");
     });
 });
 

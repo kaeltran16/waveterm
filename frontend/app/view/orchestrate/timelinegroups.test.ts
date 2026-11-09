@@ -216,6 +216,22 @@ describe("spanText / axisEnd / needsDate", () => {
     });
 });
 
+describe("eventDetail for an actor's action", () => {
+    it("says who retried, skipped, escalated or reran, as the timeline does", () => {
+        expect(eventDetail(ev(0, "task-skipped", "t-3", { by: "human" })).text).toBe("you skipped t-3");
+        expect(eventDetail(ev(0, "task-skipped", "t-3", { by: "lead" })).text).toBe("lead skipped t-3");
+        expect(eventDetail(ev(0, "task-retried", "t-2", { auto: false, by: "human" })).text).toBe("you retried t-2");
+        expect(eventDetail(ev(0, "task-escalated", "t-3", { by: "human" })).text).toBe("you escalated t-3");
+        expect(eventDetail(ev(0, "final-rerun", undefined, { round: 2 })).text).toBe("you reran the final stage");
+    });
+
+    it("keeps an engine retry's own text", () => {
+        expect(eventDetail(ev(0, "task-retried", "t-2", { auto: true, text: "stalled, retrying" })).text).toBe(
+            "stalled, retrying"
+        );
+    });
+});
+
 describe("eventDetail / groupHasDetail (rows that only repeat their title)", () => {
     it("gives a failed lead wake its reason and the lines behind it", () => {
         expect(eventDetail(ev(0, "lead-wake-failed", undefined, { reason: "lead exited", lines: ["a", "b"] }))).toEqual(

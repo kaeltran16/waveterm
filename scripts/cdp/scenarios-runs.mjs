@@ -1141,8 +1141,44 @@ async function phase3CardSteps(h, ctx) {
         /landed on main · c2c0149$/.test(landed.text) && landed.title === "landed on main · c2c0149" && !/lands on wave\//.test(landed.text),
         landed
     );
+
+    // Q11: run C's failed stage pane says the lead is asking about it while lead C asks, and today's line otherwise.
+    // Lead C asks only in the page roster, from this step, which puts it back.
+    const leadC = JSON.stringify(LIVE_IDS.leadC);
+    const note = `flat(document.querySelector("[data-final-pane] [data-final-note]"))`;
+    const pane = await lookEval(h, `
+        const row = ${liveRow(LIVE_IDS.leadC, "@final")};
+        row?.click();
+        await nap(300);
+        button(row, /^Open stage$/)?.click();
+        const opened = await until(() => !!${note}, 8000);
+        const working = ${note};
+        window.__cockpitRosterFixture.patch(${leadC}, { state: "asking", blockedMs: 60000, ask: ${JSON.stringify(P3_LEAD_C_ASK)} });
+        await until(() => /^The lead is asking/.test(${note}), 4000);
+        const asking = ${note};
+        window.__cockpitRosterFixture.patch(${leadC}, { state: "working", blockedMs: undefined, ask: undefined });
+        await until(() => /^The lead has this failure/.test(${note}), 4000);
+        return { opened, working, asking, after: ${note} };`);
+    await h.shot("cdp-shots/lead-card-live-p3-stage-note.png");
+    await h.goto("cockpit");
+    const today = "The lead has this failure and decides what happens next.";
+    rec(
+        "L31. run C's stage pane footer reads \"The lead is asking you about this failure…\" while lead C asks, and today's line otherwise (Q11)",
+        pane.opened &&
+            pane.working === today &&
+            pane.asking === "The lead is asking you about this failure. Rerun it if the failure was outside the code." &&
+            pane.after === today,
+        pane
+    );
     return steps;
 }
+
+// lead C's question for L31: any question the lead holds once its stage failed is about the stage
+const P3_LEAD_C_ASK = {
+    askId: "fx-live-ask-lead-c",
+    oref: "block:fx-blk-live-lead-c",
+    questions: [{ header: "Final stage", question: "The final stage failed at Verify. Fix it or rerun?", options: [{ label: "fix round" }, { label: "rerun" }] }],
+};
 
 // a run card's meta line split into its parts; an elapsed part is formatElapsed's, signed or not
 const META_PARTS = (card) => `(flat(${card}?.querySelector("[data-run-meta]")) || "").split(" · ").filter(Boolean)`;
@@ -1458,6 +1494,78 @@ export const leadCardMergeGate = {
     },
 };
 
+// Page-only: the run's dag in the page takes `tasks` (fields per task id; an id it lacks is added) at one version past
+// the one it holds, and the dag status RPC answers that version with `digest` (fields per task row, added likewise):
+// the merge gate's held state and a task's actions are digest fields no RPC writes. undoPageDag puts the RPC back
+// and reloads the stored dag, whose own version brings the real digest back.
+const injectPageDag = (h, runId, { tasks = {}, digest = {} }) =>
+    lookEval(h, `
+        const { RpcApi } = await mod("app/store/wshclientapi.ts");
+        const WOS = await mod("app/store/wos.ts");
+        const runId = ${JSON.stringify(runId)};
+        const ref = WOS.makeORef("dag", WOS.getObjectValue(WOS.makeORef("run", runId))?.dagoref);
+        const dag = WOS.getObjectValue(ref);
+        if (!dag) return "no dag in the page";
+        const merge = (rows, key, patch) =>
+            [...rows, ...Object.keys(patch).filter((id) => !rows.some((r) => r[key] === id)).map((id) => ({ [key]: id }))]
+                .map((r) => (patch[r[key]] ? { ...r, ...patch[r[key]] } : r));
+        const version = dag.version + 1;
+        const saved = (window.__pageDag ??= { orig: RpcApi.DagStatusCommand });
+        RpcApi.DagStatusCommand = async (client, data, opts) => {
+            const rtn = await saved.orig.call(RpcApi, client, data, opts);
+            if (data?.runid !== runId || rtn?.digest == null) return rtn;
+            const tasks = merge(rtn.digest.tasks ?? [], "taskid", ${JSON.stringify(digest)});
+            return { ...rtn, digest: { ...rtn.digest, dagversion: version, tasks } };
+        };
+        WOS.setObjectValue({ ...dag, version, tasks: merge(dag.tasks ?? [], "id", ${JSON.stringify(tasks)}) });
+        return "ok";`);
+const undoPageDag = (h, runId) =>
+    lookEval(h, `
+        const { RpcApi } = await mod("app/store/wshclientapi.ts");
+        const WOS = await mod("app/store/wos.ts");
+        if (window.__pageDag) RpcApi.DagStatusCommand = window.__pageDag.orig;
+        delete window.__pageDag;
+        await WOS.reloadWaveObject(WOS.makeORef("dag", WOS.getObjectValue(WOS.makeORef("run", ${JSON.stringify(runId)}))?.dagoref));
+        return "ok";`);
+
+// The live-run review's phase 3 Hub findings (Q4, Q6, Q8) at 1600: t-1 skipped, t-2 a lane tip held behind t-3's
+// Verify, and a page-only t-4 failed with the engine's actions, so the attention list has a chip to read.
+async function runSheetPhase3(h, ctx, rec) {
+    await h.cdp("Emulation.setDeviceMetricsOverride", OBS_WIDE);
+    await polishNap(500);
+    const injected = await injectPageDag(h, ctx.runId, {
+        tasks: {
+            "t-1": { state: "skipped" },
+            "t-2": { state: "done" },
+            "t-3": { state: "verifying" },
+            "t-4": { label: "noop 4", description: "do nothing", deps: [], state: "failed", lastfailurekind: "exit 1" },
+        },
+        digest: {
+            "t-2": { waitreason: "", mergestate: "held", mergeheldby: "t-3", cleanupstate: "" },
+            "t-4": { waitreason: "failure", mergestate: "", cleanupstate: "", humanactions: ["retry", "skip", "escalate"] },
+        },
+    });
+    const read = await lookEval(h, `
+        const meta = (id) => flat(document.querySelector('[data-run-sheet-row="' + id + '"]')?.children[1]?.children[1]);
+        const chip = () => flat(document.querySelector('[data-run-sheet-attention="t-4"]')?.lastElementChild);
+        await until(() => meta("t-1") === "skipped" && chip() !== "" && /^merge ready/.test(meta("t-2")), 8000);
+        return {
+            skipped: meta("t-1"),
+            chip: chip(),
+            held: meta("t-2"),
+            heldAttention: !!document.querySelector('[data-run-sheet-attention="t-2"]'),
+        };`);
+    await h.shot("cdp-shots/run-sheet-polish-p3.png");
+    await undoPageDag(h, ctx.runId);
+    rec("10. Q4: a skipped task's meta reads skipped, naming no actor", injected === "ok" && read.skipped === "skipped", JSON.stringify({ injected, ...read }));
+    rec("11. Q8: an attention chip reads its actions as words, retry / skip / escalate", read.chip === "retry / skip / escalate", JSON.stringify(read));
+    rec(
+        "12. Q6: a held tip has no attention row and its meta reads merge ready · waits on t-3's Verify",
+        !read.heldAttention && read.held === "merge ready · waits on t-3's Verify",
+        JSON.stringify(read)
+    );
+}
+
 export const runSheetPolish = {
     name: "run-sheet-polish",
     surface: "jarvis",
@@ -1641,10 +1749,14 @@ export const runSheetPolish = {
                 Math.abs(short.after.composerGap) <= 2,
             JSON.stringify(short)
         );
+        await runSheetPhase3(h, ctx, rec);
         return steps;
     },
     async teardown(h, ctx) {
         await h.cdp("Emulation.clearDeviceMetricsOverride", {}).catch(() => {});
+        await undoPageDag(h, ctx.runId).catch((e) => {
+            console.error(`run-sheet-polish teardown: undo the page dag failed: ${e?.message ?? e}`);
+        });
         await teardownFixtureRun(h, ctx, "run-sheet-polish");
     },
 };
@@ -3391,6 +3503,7 @@ export const dagPeekScenario = {
 
         await dagPeekFinishedTask(h, ctx, rec);
         await dagPeekCardsAndKeys(h, ctx, rec);
+        await dagPeekPhase3(h, ctx, rec);
         await dagPeekEnded(h, ctx, rec);
         return steps;
     },
@@ -3399,6 +3512,9 @@ export const dagPeekScenario = {
             console.error(`dag-peek teardown: clear the viewport override failed: ${e?.message ?? e}`);
         });
         // t-2's stand-in run is one of the dag's task runs, so the run cancel below cancels it
+        await undoPageDag(h, ctx.runId).catch((e) => {
+            console.error(`dag-peek teardown: undo the page dag failed: ${e?.message ?? e}`);
+        });
         await teardownFixtureRun(h, ctx, "dag-peek", {
             what: "restore RpcApi.DagActionCommand",
             fn: () => h.ev(DAG_PEEK_RESTORE),
@@ -3645,6 +3761,83 @@ async function dagPeekCardsAndKeys(h, ctx, rec) {
 }
 
 // F16 at 1000x700, then F4 and F26 at 1600x950
+const DAG_PEEK_SETUP_DETAIL = "setup: exit 1: npm ci found no package-lock.json";
+const dagPeekText = (sel) => `(${dagPeekCard(sel)}?.textContent ?? "").replace(/\\s+/g, " ")`;
+
+// The live-run review's phase 3 peek findings (Q13, Q6/Q7, Q3) at 1600, all page-only: t-3, which never had a run,
+// failed at Setup with the reason on its task-failed event; t-2 a lane tip held behind t-1's Verify (a digest field
+// no RPC writes); and a human's skip of t-3 as the engine's run event. undoPageDag puts the dag and the RPC back.
+async function dagPeekPhase3(h, ctx, rec) {
+    await h.cdp("Emulation.setDeviceMetricsOverride", RV_WIDE);
+    await polishNap(600);
+    const tasks = { "t-1": { state: "verifying" }, "t-3": { state: "failed", runid: "", lastfailurekind: "setup" } };
+    const gate = (mergestate) =>
+        injectPageDag(h, ctx.runId, {
+            tasks,
+            digest: { "t-2": { mergestate, mergeheldby: mergestate === "held" ? "t-1" : undefined } },
+        });
+    const injected = await gate("held");
+    await dagPeekPublish(h, ctx, [["task-failed", { taskid: "t-3", lastfailurekind: "setup", attempts: 1, detail: DAG_PEEK_SETUP_DETAIL }, 0]]);
+
+    const t3 = dagPeekTaskSel("t-3");
+    const openedT3 = await dagPeekOpen(h, t3, "t-3");
+    await polishWaitFor(h, `${dagPeekText(t3)}.includes("Never dispatched")`, 4000);
+    const setup = await h.ev(`(() => {
+        const text = ${dagPeekText(t3)};
+        return {
+            detail: text.includes(${JSON.stringify(`last failure: setup · ${DAG_PEEK_SETUP_DETAIL}`)}),
+            session: (${dagPeekCard(t3)}?.querySelector('[data-dag-peek-session="Worker"]')?.textContent ?? "").trim(),
+        };
+    })()`);
+    await h.shot("cdp-shots/dag-peek-p3-setup.png");
+    rec(
+        "x. Q13: t-3, failed at Setup before any worker, shows its task-failed detail on the last failure row and reads Never dispatched · failed at setup",
+        () => injected === "ok" && openedT3 && setup.detail && setup.session === "Never dispatched · failed at setup",
+        { injected, openedT3, setup }
+    );
+    await h.ev(dagPeekClickNode("t-3"));
+    await polishWaitFor(h, `!${dagPeekCard(t3)}`, 3000);
+
+    // a ready tip offers Merge, so the held tip's missing button is the gate's doing
+    const t2 = dagPeekTaskSel("t-2");
+    const readyInjected = await gate("ready");
+    const openedReady = await dagPeekOpen(h, t2, "t-2");
+    await polishWaitFor(h, `${dagPeekBar(t2)}.some((b) => b.action === "merge")`, 4000);
+    const ready = await h.ev(dagPeekBar(t2));
+    await gate("held");
+    await polishWaitFor(h, `${dagPeekText(t2)}.includes("waits on t-1's Verify")`, 4000);
+    const held = await h.ev(`({ bar: ${dagPeekBar(t2)}, text: ${dagPeekText(t2)} })`);
+    await h.shot("cdp-shots/dag-peek-p3-held.png");
+    rec(
+        "y. Q6, Q7: the held tip t-2 offers no Merge (a ready one does) and its card reads merge ready · waits on t-1's Verify",
+        () =>
+            readyInjected === "ok" &&
+            openedReady &&
+            ready.some((b) => b.action === "merge") &&
+            !held.bar.some((b) => b.action === "merge") &&
+            held.text.includes("merge ready · waits on t-1's Verify"),
+        { ready, held }
+    );
+    await h.ev(dagPeekClickNode("t-2"));
+    await polishWaitFor(h, `!${dagPeekCard(t2)}`, 3000);
+
+    await dagPeekPublish(h, ctx, [["task-skipped", { taskid: "t-3", by: "human" }, 0]]);
+    const openedSkip = await dagPeekOpen(h, t3, "t-3");
+    const skipRow = `[...(${dagPeekCard(t3)}?.querySelectorAll("[data-dag-peek-lifecycle-row]") ?? [])].map((r) => (r.textContent ?? "").replace(/\\s+/g, " ").trim()).find((t) => t.includes("Skipped")) ?? null`;
+    await polishWaitFor(h, `${skipRow} != null`, 4000);
+    const skipped = await h.ev(skipRow);
+    await h.shot("cdp-shots/dag-peek-p3-skipped.png");
+    rec(
+        "z. Q3: after a human's task-skipped for t-3, its Lifecycle shows Skipped · you skipped t-3",
+        () => openedSkip && skipped != null && skipped.includes("you skipped t-3"),
+        { openedSkip, skipped }
+    );
+    await h.ev(dagPeekClickNode("t-3"));
+    await polishWaitFor(h, `!${dagPeekCard(t3)}`, 3000);
+    await undoPageDag(h, ctx.runId);
+    await polishNap(600);
+}
+
 async function dagPeekEnded(h, ctx, rec) {
     await h.cdp("Emulation.setDeviceMetricsOverride", RV_SHORT);
     await polishNap(900);

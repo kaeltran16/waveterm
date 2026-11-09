@@ -11,7 +11,7 @@ import { useAtomValue } from "jotai";
 import { useEffect, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { dockButtonClass } from "./endfinalform";
-import { shownStep, type FinalStepKey } from "./finalstage";
+import { finalFailedNote, shownStep, type FinalStepKey } from "./finalstage";
 import {
     EndFinalStage,
     FinalKeptOutput,
@@ -22,13 +22,14 @@ import {
     RerunFinalStage,
     useFinalStageView,
 } from "./finalstageviews";
-import { stageLabel, verifierStepTarget, type RunInfo } from "./runlineage";
+import { leadAgentOf, stageLabel, verifierStepTarget, type RunInfo } from "./runlineage";
 import { FINAL_FILL } from "./runstrip";
 
 export function FinalStagePane({ model, run }: { model: AgentsViewModel; run: RunInfo }) {
     const now = useAtomValue(model.nowAtom);
     const view = useFinalStageView(run.dag, run.runId, run.channelId, now);
     const agents = useAtomValue(model.agentsAtom);
+    const lead = leadAgentOf(useAtomValue(model.lineageAtom), agents, run.runId);
     const [picked, setPicked] = useState<FinalStepKey | null>(null);
     // the verifier's transcript is its output, so its step opens that session instead of the output panel
     const verifierTarget = verifierStepTarget(run, agents);
@@ -106,8 +107,8 @@ export function FinalStagePane({ model, run }: { model: AgentsViewModel; run: Ru
                     <>
                         {run.dag ? <FinalOutcome view={view} group={run.dag} /> : null}
                         {view.state === "failed" ? (
-                            <span className="flex-none text-[12px] text-muted">
-                                The lead has this failure and decides what happens next.
+                            <span data-final-note className="flex-none text-[12px] text-muted">
+                                {finalFailedNote(lead ? { asking: lead.state === "asking" } : undefined)}
                             </span>
                         ) : null}
                         <FinalShotsLink group={run.dag} />
