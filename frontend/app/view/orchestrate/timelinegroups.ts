@@ -67,6 +67,8 @@ const STEP_LABEL = new Map<string, string>([
     ["task-retried", "retried"],
     ["task-restarted", "restarted"],
     ["task-skipped", "skipped"],
+    ["task-escalated", "escalated"],
+    ["final-rerun", "final rerun"],
     ["task-done", "done"],
     ["task-merge-started", "merge"],
     ["task-merge-blocked", "merge blocked"],

@@ -5,6 +5,7 @@
 // persisted ones; a plain agent has no history anywhere, so its transitions are observed here and are lost on
 // reload (effort 9868f8d2, decided frontend-only). Pure.
 
+import { FINAL_FAILED_BLOCK } from "../orchestrate/timelinefilter";
 import { isFinishTransition } from "./agentrowmodel";
 import { matchesProjectFilter, type AgentState, type AgentVM } from "./agentsviewmodel";
 import { leadlessCardId } from "./cardgridlayout";
@@ -12,7 +13,16 @@ import { rowKey } from "./leadcardmodel";
 import type { Lineage, RunInfo } from "./runlineage";
 import { detailOf, eventText } from "./runtimeline";
 
-export type RailKind = "asked" | "answered" | "finished" | "quiet" | "failed" | "told" | "landed" | "sentback";
+export type RailKind =
+    | "asked"
+    | "answered"
+    | "finished"
+    | "quiet"
+    | "failed"
+    | "told"
+    | "acted"
+    | "landed"
+    | "sentback";
 
 export interface RailEvent {
     key: string;
@@ -121,6 +131,8 @@ function runRailKind(e: RunEvent): { kind: RailKind; text: string } | undefined 
         step?: string;
         ok?: boolean;
         reason?: string;
+        by?: string;
+        kind?: string;
     }>(e);
     switch (e.kind) {
         case "task-review-failed":
@@ -147,6 +159,18 @@ function runRailKind(e: RunEvent): { kind: RailKind; text: string } | undefined 
                 : undefined;
         case "land-held":
             return { kind: "failed", text: ["land held", d?.reason].filter(Boolean).join(" · ") };
+        case "dag-blocked":
+            // the other blocks are a task's failure, already on the rail as that task's own event
+            return d?.kind === FINAL_FAILED_BLOCK ? { kind: "failed", text: "final stage failed" } : undefined;
+        case "task-forwarded":
+            return { kind: d?.by === "human" ? "acted" : "asked", text: eventText(e) };
+        case "task-retried":
+        case "task-skipped":
+        case "task-escalated":
+            // the lead's own actions and the engine's retries are not the human's
+            return d?.by === "human" ? { kind: "acted", text: eventText(e) } : undefined;
+        case "final-rerun":
+            return { kind: "acted", text: eventText(e) };
     }
     const kind = RUN_KIND[e.kind];
     return kind == null ? undefined : { kind, text: eventText(e) };

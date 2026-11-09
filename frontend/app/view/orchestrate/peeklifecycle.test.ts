@@ -105,6 +105,12 @@ describe("finalLifecycle", () => {
         expect(byTitle.get("DAG blocked")).toBe("the final stage failed");
     });
 
+    it("lists a rerun with the stage's own events", () => {
+        const rerun = [...events, ev("final-rerun", { round: 1 }, T0 + 7 * MIN)];
+        expect(finalLifecycle(rerun)[0]).toMatchObject({ title: "Final stage rerun", tone: "text-muted" });
+        expect(isFinalStageEvent(ev("final-rerun", { round: 1 }, 1))).toBe(true);
+    });
+
     it("is empty while the stage has not run", () => {
         expect(finalLifecycle(events.slice(0, 2))).toEqual([]);
     });

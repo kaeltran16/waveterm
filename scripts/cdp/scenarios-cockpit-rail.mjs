@@ -36,6 +36,13 @@ const RUN_EVENTS = [
     { id: "fx-rail-help-fs", kind: "final-step", detail: { round: 1, step: "final", ms: 1000, ok: true }, ago: 2 * M, text: "Final command passed" },
     { id: "fx-rail-help-ld", kind: "landed", detail: { commit: "c0ffee5", title: "rail-help" }, ago: M, text: "Run landed" },
 ];
+// P7: what no RPC writes. A failure forwarded to the human, a failed final stage and the human's own skip; the held
+// run's lead is not asked or answered by any of them
+const ACTION_EVENTS = [
+    { id: "fx-rail-help-fwd", kind: "task-forwarded", detail: { taskid: "t-1", note: "needs a human call" }, ago: 30_000, text: "t-1 handed to you" },
+    { id: "fx-rail-help-fb", kind: "dag-blocked", detail: { failures: 1, kind: "final-failed" }, ago: 20_000, text: "final stage failed" },
+    { id: "fx-rail-help-sk", kind: "task-skipped", detail: { taskid: "t-1", by: "human" }, ago: 10_000, text: "you skipped t-1" },
+];
 
 // an agent with no transcript entries stays off the grid, and an empty grid shows no hints bar
 const roster = (transcriptPath) => [
@@ -257,6 +264,53 @@ export const cockpitRailHelp = {
             const sentbackTone = rowWith(RUN_EVENTS[1].text)?.tone.includes("text-warning") === true;
             const ok = folded && Object.values(milestones).every(Boolean) && leadAsk && sentbackTone;
             return { ok, detail: JSON.stringify({ folded, milestones, leadAsk, sentbackTone, rows: rows.map((r) => r.text) }) };
+        });
+
+        // after P6, on its held run: a forwarded failure, a failed final stage and the human's skip are rail rows
+        await run("P7: at 1000 and at 1600 the rail lists a forwarded failure, a failed final stage and your skip", async () => {
+            const held = ctx.held?.find((r) => r.key === "rail-help");
+            if (!held) throw new Error("P6's held run is missing");
+            const rowsNow = () =>
+                h.ev(`[...(${RAIL}?.querySelectorAll('[role="button"]') ?? [])].map((r) => ({ text: r.textContent.replace(/\\s+/g, ' '), tone: r.firstElementChild?.className ?? '' }))`);
+            const readRows = async () => {
+                const rows = await rowsNow();
+                const rowWith = (text) => rows.find((r) => r.text.includes(text));
+                const [fwd, fb, sk] = ACTION_EVENTS.map((e) => rowWith(e.text));
+                return {
+                    forwarded: fwd != null && fwd.text.includes("handed to you"),
+                    finalFailed: fb != null && fb.tone.includes("text-error"),
+                    skipped: sk != null && sk.tone.includes("text-accent-soft"),
+                };
+            };
+            // a run's history load replaces the page's events, so publish until all three rows show
+            const publishUntilShown = async () => {
+                const now = Date.now();
+                let seen = {};
+                for (let i = 0; i < 10 && !(Object.keys(seen).length === 3 && Object.values(seen).every(Boolean)); i++) {
+                    for (const e of ACTION_EVENTS) {
+                        await h.rpc("eventpublish", {
+                            event: "run:event",
+                            scopes: [`run:${held.runId}`],
+                            data: { channelid: held.channelId, runid: held.runId, event: { id: e.id, kind: e.kind, ts: now - e.ago, runid: held.runId, channelid: held.channelId, detail: JSON.stringify(e.detail) } },
+                        });
+                    }
+                    await h.ev(`[...(${RAIL}?.querySelectorAll('button') ?? [])].find((b) => /^\\+\\d+ more$/.test(b.textContent.trim()))?.click()`);
+                    await polishNap(600);
+                    seen = await readRows();
+                }
+                return seen;
+            };
+            await h.cdp("Emulation.setDeviceMetricsOverride", DEV_WINDOW);
+            await setAtom(h, "railOpenAtom", true);
+            await polishNap(600);
+            const narrow = await publishUntilShown();
+            await h.shot("cdp-shots/cockpit-rail-help-actions-1000.png");
+            await h.cdp("Emulation.setDeviceMetricsOverride", MODELS_VIEWPORT);
+            await polishNap(600);
+            const wide = await readRows();
+            await h.shot("cdp-shots/cockpit-rail-help-actions-1600.png");
+            const all = (r) => Object.values(r).length === 3 && Object.values(r).every(Boolean);
+            return { ok: all(narrow) && all(wide), detail: JSON.stringify({ narrow, wide }) };
         });
         return steps;
     },

@@ -154,6 +154,11 @@ describe("stepLabel / glyphOf / stripTicks", () => {
             "t-0 went back to work"
         );
     });
+    it("labels the human's escalate and the final rerun", () => {
+        expect(stepLabel(ev(0, "task-skipped", "t-1"))).toBe("skipped");
+        expect(stepLabel(ev(0, "task-escalated", "t-1"))).toBe("escalated");
+        expect(stepLabel(ev(0, "final-rerun"))).toBe("final rerun");
+    });
     it("names a stage session by its role, so two in one burst read apart", () => {
         expect(stepLabel(ev(0, "stage-session-started", undefined, { role: "plan-reviewer" }))).toBe(
             "Plan reviewer started"

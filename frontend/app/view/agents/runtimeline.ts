@@ -2,6 +2,8 @@
 //
 // Pure: how a run's lifecycle events read as rows — title, text, detail payload, time label and tone.
 
+import { shortModel } from "./modelname";
+
 // --- row rendering helpers (pure; the view maps them to DOM) ---
 
 // KIND_TITLE renders each event kind as a human sentence; a kind outside the map (older rows or a
@@ -23,6 +25,9 @@ const KIND_TITLE: Record<string, string> = {
     "task-suspect": "Task may be stuck",
     "task-retried": "Task retried",
     "task-restarted": "Task restarted",
+    "task-skipped": "Skipped",
+    "task-escalated": "Escalated",
+    "final-rerun": "Final stage rerun",
     "dag-blocked": "DAG blocked",
     "dag-done": "DAG complete",
     "task-done": "Task done",
@@ -98,6 +103,9 @@ const KIND_TONE: Record<string, string> = {
     "dag-blocked": "text-warning",
     "task-retried": "text-warning",
     "task-restarted": "text-warning",
+    "task-escalated": "text-warning",
+    "task-skipped": "text-muted",
+    "final-rerun": "text-muted",
     "task-failed": "text-warning",
     "task-merge-blocked": "text-warning",
     "task-merge-failed": "text-warning",
@@ -203,9 +211,20 @@ export function eventText(event: RunEvent): string {
         text?: string;
         held?: number;
         reason?: string;
+        model?: string;
     }>(event);
     const task = d?.taskid ?? "";
+    // an engine retry carries no actor, so it keeps the generic text
+    const actor = d?.by === "lead" ? "lead" : "you";
     switch (event.kind) {
+        case "task-retried":
+            return d?.by ? `${actor} retried ${task}` : defaultText(event, task);
+        case "task-skipped":
+            return `${actor} skipped ${task}`;
+        case "task-escalated":
+            return [`${actor} escalated ${task}`, d?.model ? shortModel(d.model) : ""].filter(Boolean).join(" to ");
+        case "final-rerun":
+            return "you reran the final stage";
         case "task-forwarded":
             return d?.by === "human"
                 ? `you took ${task} over from the lead`
@@ -226,8 +245,12 @@ export function eventText(event: RunEvent): string {
         case "merge-held":
             return [`${d?.held ?? 0} merge(s) held`, d?.reason].filter(Boolean).join(" · ");
         default:
-            return task ? `${eventTitle(event)} · ${task}` : eventTitle(event);
+            return defaultText(event, task);
     }
+}
+
+function defaultText(event: RunEvent, task: string): string {
+    return task ? `${eventTitle(event)} · ${task}` : eventTitle(event);
 }
 
 // detailOf parses the row's JSON detail payload; undefined on malformed data (a row render must

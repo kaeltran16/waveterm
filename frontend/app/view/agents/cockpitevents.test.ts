@@ -231,6 +231,49 @@ describe("runRailEvents", () => {
         ]);
     });
 
+    it("reads the human's retry, skip, escalate, take-over and rerun as acted", () => {
+        const out = runRailEvents(run, [
+            ev("task-retried", 1, { taskid: "t1", auto: false, by: "human" }),
+            ev("task-skipped", 2, { taskid: "t2", by: "human" }),
+            ev("task-escalated", 3, { taskid: "t3", model: "claude-opus-5-5", by: "human" }),
+            ev("task-forwarded", 4, { taskid: "t4", by: "human", note: "taken over" }),
+            ev("final-rerun", 5, { round: 1 }),
+        ]);
+        expect(out.map((e) => [e.kind, e.text])).toEqual([
+            ["acted", "you retried t1"],
+            ["acted", "you skipped t2"],
+            ["acted", "you escalated t3 to opus-5-5"],
+            ["acted", "you took t4 over from the lead"],
+            ["acted", "you reran the final stage"],
+        ]);
+    });
+
+    it("leaves the lead's actions and the engine's own retries off the rail", () => {
+        const out = runRailEvents(run, [
+            ev("task-retried", 1, { taskid: "t1", auto: false, by: "lead" }),
+            ev("task-skipped", 2, { taskid: "t2", by: "lead" }),
+            ev("task-escalated", 3, { taskid: "t3", model: "m", by: "lead" }),
+            ev("task-retried", 4, { taskid: "t4", kind: "failed", attempt: 1, auto: true }),
+        ]);
+        expect(out).toEqual([]);
+    });
+
+    it("reads a failure forwarded to the human as asked, with its note", () => {
+        const out = runRailEvents(run, [ev("task-forwarded", 1, { taskid: "t4", note: "needs a human call" })], "lead");
+        expect(out.map((e) => [e.kind, e.text, e.focusId])).toEqual([
+            ["asked", "t4 handed to you · needs a human call", "row:lead:t4"],
+        ]);
+    });
+
+    it("reads a failed final stage as failed and leaves other blocks off the rail", () => {
+        const out = runRailEvents(run, [
+            ev("dag-blocked", 1, { failures: 1, kind: "task-failed" }),
+            ev("dag-blocked", 2, { failures: 1, kind: "final-failed" }),
+            ev("dag-blocked", 3, { failures: 1 }),
+        ]);
+        expect(out.map((e) => [e.kind, e.text])).toEqual([["failed", "final stage failed"]]);
+    });
+
     it("reads a landed run as landed and a held land as failed with its reason", () => {
         const out = runRailEvents(run, [
             ev("landed", 1, { commit: "abc123" }),
