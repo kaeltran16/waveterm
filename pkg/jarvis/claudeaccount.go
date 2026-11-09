@@ -40,6 +40,7 @@ type claudeAccountStore interface {
 	Set(name, value string) error
 	Delete(name string) error
 	Names() ([]string, error)
+	Flush() error
 }
 
 type secretStoreAccounts struct{}
@@ -48,6 +49,7 @@ func (secretStoreAccounts) Get(name string) (string, bool, error) { return secre
 func (secretStoreAccounts) Set(name, value string) error          { return secretstore.SetSecret(name, value) }
 func (secretStoreAccounts) Delete(name string) error              { return secretstore.DeleteSecret(name) }
 func (secretStoreAccounts) Names() ([]string, error)              { return secretstore.GetSecretNames() }
+func (secretStoreAccounts) Flush() error                          { return secretstore.Flush() }
 
 var claudeAccountSecrets claudeAccountStore = secretStoreAccounts{}
 
@@ -250,10 +252,14 @@ func ListClaudeAccounts() (*wshrpc.ClaudeAccountsRtnData, error) {
 	if err != nil {
 		return nil, err
 	}
+	apiKey, err := claudeApiKeyInfo(settingsPath)
+	if err != nil {
+		return nil, err
+	}
 	rtn := &wshrpc.ClaudeAccountsRtnData{
 		LoggedIn: live != nil,
 		Accounts: []wshrpc.ClaudeAccountInfo{},
-		ApiKey:   &wshrpc.ClaudeApiKeyInfo{SettingsPath: settingsPath},
+		ApiKey:   apiKey,
 	}
 	nowMs := time.Now().UnixMilli()
 	for _, name := range names {
@@ -280,7 +286,7 @@ func ListClaudeAccounts() (*wshrpc.ClaudeAccountsRtnData, error) {
 			OrgName:     v.account.OrganizationName,
 			Plan:        v.oauth.SubscriptionType,
 			Live:        isLive,
-			Active:      isLive,
+			Active:      isLive && !apiKey.Active,
 			Expired:     v.expired(nowMs),
 			LastUsedTs:  v.saved.LastUsedTs,
 		})
@@ -318,22 +324,27 @@ func SwitchClaudeAccount(uuid string) error {
 	if target.expired(time.Now().UnixMilli()) {
 		return fmt.Errorf("the sign-in for %s has expired; run /login with that account to save it again", target.name())
 	}
+	// the API key's helper outranks any login, so it goes first, and comes back if the switch fails
+	restoreHelper, err := removeArcApiKeyHelper()
+	if err != nil {
+		return err
+	}
 	if live != nil && live.account.AccountUuid == uuid {
 		return nil
 	}
 	credPath, err := claudeCredentialsPath()
 	if err != nil {
-		return err
+		return joinRestore(err, restoreHelper)
 	}
 	restore, err := writeClaudeCredentials(credPath, target.saved.OAuth)
 	if err != nil {
-		return err
+		return joinRestore(err, restoreHelper)
 	}
 	if err := writeClaudeOauthAccount(target.saved.Account); err != nil {
 		if rerr := restore(); rerr != nil {
-			return fmt.Errorf("%w; restoring %s also failed: %v", err, credPath, rerr)
+			err = fmt.Errorf("%w; restoring %s also failed: %v", err, credPath, rerr)
 		}
-		return err
+		return joinRestore(err, restoreHelper)
 	}
 	return nil
 }

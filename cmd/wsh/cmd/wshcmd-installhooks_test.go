@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/wavetermdev/waveterm/pkg/wavebase"
 )
 
 const testWsh = `C:\a\bin\wsh-0.14.5-windows.x64.exe`
@@ -754,7 +756,7 @@ func TestSyncStableWsh_copiesThenLeavesAnIdenticalCopyAlone(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "wsh-0.14.11-windows.x64.exe")
 	writeTestFile(t, src, "build 11")
-	dst := stableWshPath(filepath.Join(dir, "home"))
+	dst := wavebase.StableWshPath(filepath.Join(dir, "home"))
 
 	if err := syncStableWsh(src, dst); err != nil {
 		t.Fatalf("first sync: %v", err)
@@ -782,7 +784,7 @@ func TestSyncStableWsh_copiesThenLeavesAnIdenticalCopyAlone(t *testing.T) {
 // the failure this exists for: a rebuild deletes the versioned binary the hooks named
 func TestSyncStableWsh_survivesARebuildDeletingTheOldBinary(t *testing.T) {
 	dir := t.TempDir()
-	dst := stableWshPath(filepath.Join(dir, "home"))
+	dst := wavebase.StableWshPath(filepath.Join(dir, "home"))
 	oldBuild := filepath.Join(dir, "wsh-0.14.10-windows.x64.exe")
 	newBuild := filepath.Join(dir, "wsh-0.14.11-windows.x64.exe")
 	writeTestFile(t, oldBuild, "build 10")
@@ -817,8 +819,8 @@ func TestResolveHookWsh_namesTheStableCopy(t *testing.T) {
 	exe := filepath.Join(dir, "wsh-0.14.11-windows.x64.exe")
 	writeTestFile(t, exe, "build 11")
 
-	if got := resolveHookWsh(exe, home); got != stableWshPath(home) {
-		t.Fatalf("resolveHookWsh = %q, want the stable copy %q", got, stableWshPath(home))
+	if got := resolveHookWsh(exe, home); got != wavebase.StableWshPath(home) {
+		t.Fatalf("resolveHookWsh = %q, want the stable copy %q", got, wavebase.StableWshPath(home))
 	}
 }
 
@@ -832,9 +834,9 @@ func TestResolveHookWsh_fallsBackWhenTheCopyCannotBeRefreshed(t *testing.T) {
 		t.Fatalf("with no stable copy, resolveHookWsh = %q, want the running binary %q", got, unreadable)
 	}
 	// an existing copy beats a failed refresh: stale but runnable
-	writeTestFile(t, stableWshPath(home), "build 10")
-	if got := resolveHookWsh(unreadable, home); got != stableWshPath(home) {
-		t.Fatalf("with a stable copy, resolveHookWsh = %q, want %q", got, stableWshPath(home))
+	writeTestFile(t, wavebase.StableWshPath(home), "build 10")
+	if got := resolveHookWsh(unreadable, home); got != wavebase.StableWshPath(home) {
+		t.Fatalf("with a stable copy, resolveHookWsh = %q, want %q", got, wavebase.StableWshPath(home))
 	}
 }
 

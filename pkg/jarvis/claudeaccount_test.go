@@ -23,6 +23,7 @@ func (f fakeAccountStore) Get(name string) (string, bool, error) {
 }
 func (f fakeAccountStore) Set(name, value string) error { f[name] = value; return nil }
 func (f fakeAccountStore) Delete(name string) error     { delete(f, name); return nil }
+func (f fakeAccountStore) Flush() error                 { return nil }
 func (f fakeAccountStore) Names() ([]string, error) {
 	names := make([]string, 0, len(f))
 	for n := range f {

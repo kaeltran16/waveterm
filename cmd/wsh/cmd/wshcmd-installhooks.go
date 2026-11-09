@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/wavetermdev/waveterm/pkg/wavebase"
 )
 
 // managedHook is one (event, matcher) hook Arc owns in the user's settings.json.
@@ -137,17 +138,6 @@ func quotePath(p string) string {
 	return `"` + p + `"`
 }
 
-// stableWshPath is the wsh every agent integration names: a fixed, versionless copy under ~/.arc/bin.
-// The running binary is the wrong target — its name carries the version, and a rebuild, an app update,
-// `task clean` or a worktree removal deletes it while every hook still names it.
-func stableWshPath(home string) string {
-	name := "wsh"
-	if runtime.GOOS == "windows" {
-		name += ".exe"
-	}
-	return filepath.Join(home, ".arc", "bin", name)
-}
-
 //go:embed all:claude-mod all:claude-view-mod all:claude-skim-mod
 var claudeModFS embed.FS
 
@@ -160,7 +150,7 @@ var claudeMods = []string{"claude-mod", "claude-view-mod", "claude-skim-mod"}
 const claudePluginDirsVar = "CLAUDE_CODE_PLUGIN_DIRS"
 
 // claudeModDirs is where the Arc Claude mods are installed, in claudeMods' order: fixed and versionless
-// like stableWshPath, so the CLAUDE_CODE_PLUGIN_DIRS entries naming them never go stale.
+// like wavebase.StableWshPath, so the CLAUDE_CODE_PLUGIN_DIRS entries naming them never go stale.
 func claudeModDirs(home string) []string {
 	dirs := make([]string, len(claudeMods))
 	for i, name := range claudeMods {
@@ -373,7 +363,7 @@ func syncStableWsh(src, dst string) error {
 // resolveHookWsh returns the wsh path to write into the integrations. A failed refresh keeps an existing
 // copy (stale but runnable); only with no copy at all does it fall back to the running binary.
 func resolveHookWsh(exe, home string) string {
-	stable := stableWshPath(home)
+	stable := wavebase.StableWshPath(home)
 	err := syncStableWsh(exe, stable)
 	if err == nil {
 		return stable
