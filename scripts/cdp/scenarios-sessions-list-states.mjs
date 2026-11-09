@@ -11,7 +11,8 @@ const WIDE_PATH = `C:\\arc-verify-sessions-fixture\\${"deeply-nested-directory-"
 const NINE_TASKS = 9;
 const IDLE_MS = 10_000;
 const LONG_TASK_BUDGET_MS = 1_000;
-const ARCHIVE_WAIT_MS = 60_000;
+// measured: the real archive (~3100 sessions) took 95 s and 128 s to finish indexing; 200 s is the larger plus margin
+const ARCHIVE_WAIT_MS = 200_000;
 const WAIT_MS = 5_000;
 const POLL_MS = 200;
 const SEARCH_STUB = "__sessionsListStatesSearchStub";
@@ -190,7 +191,14 @@ export default function (kit) {
                     archive = await readArchive();
                 }
                 archive.waitedMs = Date.now() - t0;
-                const idle = await h.ev(`(async () => {
+                rec(`the real archive finished loading within ${ARCHIVE_WAIT_MS / 1000} s`, archive.complete, {
+                    waitedMs: archive.waitedMs,
+                    sessions: archive.sessions,
+                });
+                // an unloaded archive makes the idle cost meaningless: fail the step without measuring it
+                const idle = !archive.complete
+                    ? { supported: false, notLoaded: true }
+                    : await h.ev(`(async () => {
                     if (!PerformanceObserver.supportedEntryTypes.includes('longtask')) return { supported: false };
                     const tasks = [];
                     const po = new PerformanceObserver((l) => tasks.push(...l.getEntries().map((e) => Math.round(e.duration))));
@@ -203,7 +211,7 @@ export default function (kit) {
                 rec(
                     "an idle 10 s on All activity spends under 1 s in long tasks",
                     idle.supported && idle.totalMs < LONG_TASK_BUDGET_MS,
-                    { ...idle, archive }
+                    idle.notLoaded ? { reason: "archive not loaded", archive } : { ...idle, archive }
                 );
 
                 // the fixtures replace the archive from here on

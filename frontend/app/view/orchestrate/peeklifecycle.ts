@@ -20,7 +20,7 @@ export type LifecycleRow = {
 };
 
 // the run-level kinds the engine records for the final stage alone (pkg/orchestrate final.go, land.go)
-const FINAL_STAGE_KINDS = new Set(["final-step", "land-held", "landed"]);
+const FINAL_STAGE_KINDS = new Set(["final-step", "final-ended", "land-held", "landed"]);
 const VERIFIER_ROLE = "verifier";
 
 function rowOf(e: RunEvent): LifecycleRow {

@@ -10,7 +10,7 @@ import { matchesProjectFilter, type AgentState, type AgentVM } from "./agentsvie
 import { leadlessCardId } from "./cardgridlayout";
 import { rowKey } from "./leadcardmodel";
 import type { Lineage, RunInfo } from "./runlineage";
-import { detailOf, eventText } from "./runtimeline";
+import { detailOf, eventText, finalEndedWords } from "./runtimeline";
 
 export type RailKind = "asked" | "answered" | "finished" | "quiet" | "failed" | "told" | "landed" | "sentback";
 
@@ -108,10 +108,12 @@ const RUN_KIND: Record<string, RailKind> = {
 };
 
 const FINAL_COMMAND_STEP = "final";
+const FINAL_FAILED = "failed";
 
 /** Pure: the rail's kind and text for one engine event, or undefined when it stays off the rail. A failed review
  *  counts once as failed, when its rounds are spent. Of the final stage's steps only the Final command passing and
- *  any step failing show: the verifier's verdict records no event, so a pass never claims the stage passed. */
+ *  any step failing show, since a command passing is not the stage passing; the stage's end (final-ended, recorded
+ *  whatever decided the outcome: the steps, the verifier's verdict or a human) says how the stage itself ended. */
 function runRailKind(e: RunEvent): { kind: RailKind; text: string } | undefined {
     const d = detailOf<{
         final?: boolean;
@@ -121,6 +123,7 @@ function runRailKind(e: RunEvent): { kind: RailKind; text: string } | undefined 
         step?: string;
         ok?: boolean;
         reason?: string;
+        outcome?: string;
     }>(e);
     switch (e.kind) {
         case "task-review-failed":
@@ -145,6 +148,13 @@ function runRailKind(e: RunEvent): { kind: RailKind; text: string } | undefined 
             return d?.ok === true && d.step === FINAL_COMMAND_STEP
                 ? { kind: "finished", text: eventText(e) }
                 : undefined;
+        case "final-ended": {
+            const words = finalEndedWords(e);
+            if (words == null) {
+                return undefined;
+            }
+            return { kind: d?.outcome === FINAL_FAILED ? "failed" : "finished", text: words };
+        }
         case "land-held":
             return { kind: "failed", text: ["land held", d?.reason].filter(Boolean).join(" · ") };
     }

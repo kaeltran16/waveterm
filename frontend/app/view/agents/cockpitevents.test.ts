@@ -231,6 +231,19 @@ describe("runRailEvents", () => {
         ]);
     });
 
+    it("reads the final stage's end by its outcome", () => {
+        const out = runRailEvents(run, [
+            ev("final-ended", 1, { round: 1, outcome: "passed" }),
+            ev("final-ended", 2, { round: 1, outcome: "unverified" }),
+            ev("final-ended", 3, { round: 2, outcome: "failed" }),
+        ]);
+        expect(out.map((e) => [e.kind, e.text])).toEqual([
+            ["finished", "final verification passed"],
+            ["finished", "final stage unverified"],
+            ["failed", "final verification failed"],
+        ]);
+    });
+
     it("reads a landed run as landed and a held land as failed with its reason", () => {
         const out = runRailEvents(run, [
             ev("landed", 1, { commit: "abc123" }),

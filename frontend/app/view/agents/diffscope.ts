@@ -197,6 +197,21 @@ export function historyOptsFor(range: DiffRange, resolvedRef: string): LoadHisto
     }
 }
 
+// What a poll tick reads with. A session whose start was unknown at load measured from HEAD; once the
+// transcript yields a start, the tick anchors on it so the list catches up without a reopen. Every other
+// case re-reads the anchor the last load resolved.
+export function pollAnchor(
+    range: DiffRange,
+    resolvedRef: string,
+    end: string,
+    sessionStartTs: number | null
+): { ref: string; end: string } | { sessionStartTs: number } {
+    if (range.kind === "session" && !resolvedRef && sessionStartTs != null) {
+        return { sessionStartTs };
+    }
+    return { ref: resolvedRef, end };
+}
+
 // What the surface has on hand when it captions the panes. `changes` is the list pane 2 is showing
 // (history's or compare's), and `commit` is the selected commit's hash — null when the scope's own
 // row (the working tree, or compare's All changes) is selected.

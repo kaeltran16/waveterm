@@ -11,6 +11,7 @@ import { steerWorker } from "@/app/view/agents/channelactions";
 import { channelProjectLabel } from "@/app/view/agents/projectlabel";
 import { projectsAtom } from "@/app/view/agents/projectsstore";
 import { getJarvisProfile, refreshResolvedProfile, setChannelProfile } from "@/app/view/agents/runactions";
+import { runInfoAtom } from "@/app/view/agents/runlineagestore";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
 import { useState } from "react";
@@ -32,6 +33,7 @@ export function RunComposer({
 }) {
     const agents = useAtomValue(model.agentsAtom);
     const projects = useAtomValue(projectsAtom);
+    const info = useAtomValue(runInfoAtom(run.id)).run;
     const [draft, setDraft] = useAtom(briefDraftAtom);
     // a directive lands in a terminal, not a thread, so its outcome is said here or nowhere
     const [status, setStatus] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
@@ -43,6 +45,7 @@ export function RunComposer({
         run,
         agents,
         projectName: project,
+        info,
     });
     if (target == null) {
         return null;
@@ -59,12 +62,18 @@ export function RunComposer({
         setDraft("");
         setStatus(null);
         fireAndForget(async () => {
-            const sent = await steerWorker({
-                channelId: target.channelId,
-                workerORef: target.workerORef,
-                agents,
-                text,
-            });
+            let sent = false;
+            try {
+                sent = await steerWorker({
+                    channelId: target.channelId,
+                    workerORef: target.workerORef,
+                    agents,
+                    text,
+                });
+            } catch (e) {
+                // a lead whose terminal is gone throws from the send rather than returning false
+                console.error(`steering ${target.workerName} failed`, e);
+            }
             if (!sent) {
                 // the roster moved between render and send: give the words back rather than eat them
                 setDraft(text);

@@ -53,7 +53,7 @@ func GetDagsByStatus(ctx context.Context, status string) ([]*waveobj.TaskGroup, 
 
 // UpdateDag applies fn under the optimistic-concurrency version check and bumps Version.
 func UpdateDag(ctx context.Context, dagId string, fn func(*waveobj.TaskGroup) error) error {
-	return DBUpdateFnErr[*waveobj.TaskGroup](ctx, dagId, fn)
+	return DBUpdateFnErr(ctx, dagId, fn)
 }
 
 func GetDagsWithPendingCleanup(ctx context.Context) ([]*waveobj.TaskGroup, error) {

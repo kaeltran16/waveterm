@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log"
 	"reflect"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -32,8 +31,6 @@ func getOTypeGen[T waveobj.WaveObj]() string {
 	var zeroObj T
 	return zeroObj.GetOType()
 }
-
-var viewRe = regexp.MustCompile(`^[a-z0-9]{1,20}$`)
 
 type idDataType struct {
 	OId     string

@@ -1117,6 +1117,8 @@ the last node, with an edge from every task nothing depends on; selecting it ope
 commands, each step's state, the output and End final stage. A step's time comes from its event, so a step whose
 event is no longer held shows its state with no time, and the round then shows no total. Each step that ends records a
 `final-step` run event (`round`, `step`, `ms`, `ok`), so a run's timeline shows where the stage's minutes went.
+Each round that ends records one `final-ended` run event (`round`, `outcome`: passed, unverified or failed),
+whatever decided it, so the rail and the timeline can say the stage passed, not only that a command did.
 
 **The fix round.** On a failed stage the lead writes a fix plan in the plan format and runs
 `wsh jarvis dag submit --round --plan <fix plan>`. A run whose final stage passed or finished unverified takes the
