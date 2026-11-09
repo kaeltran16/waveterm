@@ -20,9 +20,11 @@ const FEED_KINDS = new Set(["effort-note", "chunk-status", "chunk-done", "chunk-
 const STATUS_NOTE = /^marked (\w+)(?: · ([\s\S]*))?$/;
 const HEADLINE_MAX = 180;
 const SAME_DAY_PREFIX = /^(\d{4}-\d{2}-\d{2}):?\s+/;
-// paths, bare filenames, backtick spans and commit-like hex ids
+// paths, bare filenames, backtick spans and commit-like hex ids. a path with no known extension needs a
+// leading ~ or three segments, since a two-segment one can't be told from prose like "and/or"; no path takes
+// a sentence's closing period.
 const CODE_TOKEN =
-    /`[^`]+`|(?:[\w.%-]+\/)*[\w-][\w.-]*\.(?:go|tsx?|mjs|md|py|sql|json|css|html)\b|\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{8,40}\b/g;
+    /`[^`]+`|~(?:\/[\w.%-]*[\w%-])+|(?:[\w.%-]+\/)*[\w-][\w.-]*\.(?:go|tsx?|mjs|md|py|sql|json|css|html)\b|\b[\w.%-]*[\w%-](?:\/[\w.%-]*[\w%-]){2,}|\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{8,40}\b/g;
 
 export type FeedEntry = {
     // the event's index in effort.events: the list only appends, so this keys an entry across refreshes

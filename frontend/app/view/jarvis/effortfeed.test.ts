@@ -213,6 +213,21 @@ describe("note text", () => {
         ]);
     });
 
+    it("sets home paths, extensionless paths and urls as code, leaving a sentence's period and and/or", () => {
+        const code = (t: string) =>
+            codeSegments(t)
+                .filter((s) => s.code)
+                .map((s) => s.text);
+        expect(code("Writing ~/.claude/settings.json while sessions run; also ~/.claude.json.")).toEqual([
+            "~/.claude/settings.json",
+            "~/.claude.json",
+        ]);
+        expect(code("one would be added (cmd/wsh/cmd).")).toEqual(["cmd/wsh/cmd"]);
+        expect(code("above the /login OAuth (code.claude.com/docs/en/iam).")).toEqual(["code.claude.com/docs/en/iam"]);
+        expect(code("lockClaudeConfig (pkg/jarvis/claudetrust.go) for it")).toEqual(["pkg/jarvis/claudetrust.go"]);
+        expect(code("read and/or write, e.g. twice")).toEqual([]);
+    });
+
     it("adds no empty segment around a code span at either end of the text", () => {
         expect(codeSegments("`wsh`")).toEqual([{ text: "wsh", code: true }]);
         expect(codeSegments("run `wsh`")).toEqual([

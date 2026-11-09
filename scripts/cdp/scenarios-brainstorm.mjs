@@ -1417,6 +1417,9 @@ async function bsArrangeAgent(h, topic, file) {
 async function bsShowFile(h, ctx) {
     if (ctx.launchError != null) return `the terminal launch failed: ${ctx.launchError}`;
     if (!ctx.inRoster) return "the terminal never became a roster agent";
+    // the reveal never switches the selected agent, and the header switcher draws only on the selected one: a dev
+    // store's older agent can hold the selection
+    await h.ev(`document.querySelector('[data-agent-tree] [data-tree-agent="${ctx.tabId}"]')?.click()`);
     try {
         await bsReveal(h, ctx, ctx.topic);
     } catch (e) {

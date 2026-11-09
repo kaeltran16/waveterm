@@ -5,6 +5,7 @@
 // working view and the was/now diff.
 
 import { getApi } from "@/app/store/global";
+import { codeSegments } from "@/app/view/jarvis/effortfeed";
 import { cn } from "@/util/util";
 import { Fragment, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { AgentVM } from "./agentsviewmodel";
@@ -583,10 +584,29 @@ function ReasonList({
                     <span aria-hidden="true" className={cn("w-[10px] flex-none font-mono", tone)}>
                         {mark}
                     </span>
-                    <span>{t}</span>
+                    <span>
+                        <CodeText text={t} />
+                    </span>
                 </li>
             ))}
         </ul>
+    );
+}
+
+// a fact or reason names files and urls for the judge to check; set dim so the sentence reads first
+function CodeText({ text }: { text: string }) {
+    return (
+        <>
+            {codeSegments(text).map((s, i) =>
+                s.code ? (
+                    <code key={i} className="rounded-[4px] bg-pill px-[4px] py-px font-mono text-[11.5px] text-ink-mid">
+                        {s.text}
+                    </code>
+                ) : (
+                    <Fragment key={i}>{s.text}</Fragment>
+                )
+            )}
+        </>
     );
 }
 
@@ -960,26 +980,31 @@ export function JudgingMain({
                                         data-brainstorm-option={i}
                                         disabled={ans.act.busy}
                                         onClick={() => void ans.sendText(a.name)}
-                                        className={cn(OPTION_BTN, "gap-[14px] px-[12px] py-[9px]")}
+                                        className={cn(
+                                            OPTION_BTN,
+                                            "items-start gap-[14px] px-[12px] pb-[4px] pt-[11px]"
+                                        )}
                                     >
                                         <span className={cn(OPTION_LETTER, "h-[24px] w-[24px] text-[11.5px]")}>
                                             {optionLetter(i)}
                                         </span>
-                                        <span className="w-[190px] flex-none text-[13.5px] font-semibold leading-[1.4] text-primary">
-                                            {a.name}
-                                        </span>
-                                        <span className="min-w-0 flex-1 text-[12.5px] leading-[1.45] text-ink-mid">
-                                            {a.description}
+                                        <span className="flex min-w-0 flex-1 flex-col gap-[3px] pt-[2px]">
+                                            <span className="text-[14px] font-semibold leading-[1.4] text-primary">
+                                                {a.name}
+                                            </span>
+                                            <span className="text-[13px] leading-[1.5] text-ink-mid">
+                                                <CodeText text={a.description} />
+                                            </span>
                                         </span>
                                     </button>
                                     {factsShown && a.facts.length > 0 ? (
-                                        <div data-brainstorm-facts className="pb-[10px] pl-[50px] pr-[12px]">
+                                        <div data-brainstorm-facts className="pb-[12px] pl-[50px] pr-[16px] pt-[8px]">
                                             <ReasonList
                                                 label={`${a.name}: facts`}
                                                 mark="·"
                                                 tone="text-muted"
                                                 items={a.facts}
-                                                compact={true}
+                                                compact={false}
                                             />
                                         </div>
                                     ) : null}
