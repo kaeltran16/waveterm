@@ -407,7 +407,7 @@ func ApplyEffortOpsAs(e *waveobj.Effort, ops []wshrpc.EffortOp, cmdNote string, 
 			if !replaced {
 				e.Chunks[idx].WorkRefs = append(e.Chunks[idx].WorkRefs, ref)
 			}
-			chunkNote(e, idx, op.Kind+" attached: "+op.ORef, now, by)
+			chunkNote(e, idx, workNote(op.Kind, op.ORef, "attached"), now, by)
 		case "detachWork":
 			removeRef := func(idx int) bool {
 				out := e.Chunks[idx].WorkRefs[:0]
@@ -425,18 +425,36 @@ func ApplyEffortOpsAs(e *waveobj.Effort, ops []wshrpc.EffortOp, cmdNote string, 
 			if op.Chunk != "" {
 				idx, _ := ResolveChunkIndex(e, op.Chunk)
 				if removeRef(idx) {
-					chunkNote(e, idx, "detached: "+op.ORef, now, by)
+					chunkNote(e, idx, workNote(op.Kind, op.ORef, "detached"), now, by)
 				}
 			} else {
 				for i := range e.Chunks {
 					if removeRef(i) {
-						chunkNote(e, i, "detached: "+op.ORef, now, by)
+						chunkNote(e, i, workNote(op.Kind, op.ORef, "detached"), now, by)
 					}
 				}
 			}
 		}
 	}
 	return nil
+}
+
+const workNoteIDLen = 8
+
+// workNote words an attach or detach trail note as "run 5f2d916b attached". A detach carries no kind,
+// so the oref's own prefix stands in for it.
+func workNote(kind, oref, verb string) string {
+	prefix, id, found := strings.Cut(oref, ":")
+	if !found {
+		prefix, id = kind, oref
+	}
+	if kind == "" {
+		kind = prefix
+	}
+	if len(id) > workNoteIDLen {
+		id = id[:workNoteIDLen]
+	}
+	return kind + " " + id + " " + verb
 }
 
 // advance marks the active chunk done and activates the next non-done chunk (the run-card contract:

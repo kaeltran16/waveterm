@@ -9,6 +9,7 @@ import {
     headline,
     kilo,
     noteBody,
+    noteCount,
     paragraphs,
     stamp,
     type FeedEntry,
@@ -333,6 +334,20 @@ describe("feedNoteCounts", () => {
     it("counts only the entries that carry text, per chunk", () => {
         const counts = feedNoteCounts([entry(2, T, "A"), added(1, T, "A"), entry(0, T, "B")]);
         expect([counts.get("A"), counts.get("B"), counts.get("C")]).toEqual([1, 1, undefined]);
+    });
+});
+
+describe("noteCount", () => {
+    const mark = (seq: number) => entry(seq, T, "A", { kind: "chunk-status", marked: "marked active", text: "" });
+    it("counts a status mark the feed shows as a row", () => {
+        expect(noteCount([mark(0)])).toBe(1);
+    });
+    it("counts notes and marks together, not chunk additions or bare status changes", () => {
+        const bare = entry(3, T, "A", { kind: "chunk-status", marked: "status changed", text: "" });
+        expect(noteCount([entry(2, T, "A"), mark(1), added(0, T, "A"), bare])).toBe(2);
+    });
+    it("is zero for an empty feed", () => {
+        expect(noteCount([])).toBe(0);
     });
 });
 

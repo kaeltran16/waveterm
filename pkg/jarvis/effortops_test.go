@@ -275,6 +275,39 @@ func TestApplyOpsAttachWork(t *testing.T) {
 	}
 }
 
+func TestApplyOpsWorkNotesNameTheShortID(t *testing.T) {
+	const runID = "5f2d916b-1111-2222-3333-444455556666"
+	e := mkEffort()
+	attach := wshrpc.EffortOp{Op: "attachWork", Chunk: "Phase 2", Kind: "run", ORef: "run:" + runID}
+	if err := ApplyEffortOps(e, []wshrpc.EffortOp{attach}, "", effortNow); err != nil {
+		t.Fatal(err)
+	}
+	notes := e.Chunks[1].Notes
+	if got := notes[len(notes)-1].Text; got != "run 5f2d916b attached" {
+		t.Fatalf("attach note = %q", got)
+	}
+	// with a chunk
+	detach := wshrpc.EffortOp{Op: "detachWork", Chunk: "Phase 2", ORef: "run:" + runID}
+	if err := ApplyEffortOps(e, []wshrpc.EffortOp{detach}, "", effortNow); err != nil {
+		t.Fatal(err)
+	}
+	notes = e.Chunks[1].Notes
+	if got := notes[len(notes)-1].Text; got != "run 5f2d916b detached" {
+		t.Fatalf("detach note = %q", got)
+	}
+	// without one: removed from whichever chunk holds it
+	if err := ApplyEffortOps(e, []wshrpc.EffortOp{attach}, "", effortNow); err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyEffortOps(e, []wshrpc.EffortOp{{Op: "detachWork", ORef: "run:" + runID}}, "", effortNow); err != nil {
+		t.Fatal(err)
+	}
+	notes = e.Chunks[1].Notes
+	if got := notes[len(notes)-1].Text; got != "run 5f2d916b detached" {
+		t.Fatalf("chunkless detach note = %q", got)
+	}
+}
+
 func TestApplyOpsAttachWorkIdempotentSameChunk(t *testing.T) {
 	e := mkEffort()
 	for i := 0; i < 2; i++ {
@@ -318,7 +351,7 @@ func TestApplyOpsDetachWork(t *testing.T) {
 		t.Fatalf("refs remain: %+v", e.Chunks[1].WorkRefs)
 	}
 	notes := e.Chunks[1].Notes
-	if last := notes[len(notes)-1].Text; last != "detached: agent:tab-1" {
+	if last := notes[len(notes)-1].Text; last != "agent tab-1 detached" {
 		t.Fatalf("trail ends with %q, want the detach", last)
 	}
 }
