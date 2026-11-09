@@ -19,7 +19,7 @@ export const DOC_REVIEW_COPY: Record<
     review: {
         header: "Plan review",
         eyebrow: "Plan review · round 2 failed",
-        title: "The plan review failed twice. Proceed with these fixes?",
+        title: "The plan review failed twice. Proceed as the lead proposes?",
         list: "Findings",
         item: "finding",
         approve: "Accept all and proceed",

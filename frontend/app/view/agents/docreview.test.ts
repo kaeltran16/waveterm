@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { AgentAsk, AgentVM } from "./agentsviewmodel";
-import { parseDocReview, shouldAutoOpen } from "./docreview";
+import { DOC_REVIEW_COPY, parseDocReview, shouldAutoOpen } from "./docreview";
 
 const OPTIONS = [{ label: "Accept all and proceed" }, { label: "Request changes" }];
 
@@ -13,6 +13,13 @@ const ask = (header: string, question: string, options = OPTIONS, askId = "a1"):
 });
 
 const items = (texts: string[]) => texts.map((text) => ({ kind: "item", text }));
+
+describe("DOC_REVIEW_COPY", () => {
+    // the lead may propose keeping the plan as it stands, so the title cannot promise fixes
+    it("words the review title as the lead's proposal, not as fixes", () => {
+        expect(DOC_REVIEW_COPY.review.title).toBe("The plan review failed twice. Proceed as the lead proposes?");
+    });
+});
 
 describe("parseDocReview", () => {
     // the ask from the source run: path, intro, three items, a section line, two more items
