@@ -52,6 +52,7 @@ const REFRESH_EVENT_KINDS = new Set([
     "task-verify-passed",
     "task-verify-failed",
     "final-step",
+    "final-ended",
     "dag-done",
 ]);
 

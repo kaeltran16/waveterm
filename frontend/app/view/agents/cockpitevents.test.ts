@@ -265,13 +265,27 @@ describe("runRailEvents", () => {
         ]);
     });
 
-    it("reads a failed final stage as failed and leaves other blocks off the rail", () => {
+    it("reads a failed final stage once, from its final-ended, and leaves every block off the rail", () => {
         const out = runRailEvents(run, [
             ev("dag-blocked", 1, { failures: 1, kind: "task-failed" }),
-            ev("dag-blocked", 2, { failures: 1, kind: "final-failed" }),
-            ev("dag-blocked", 3, { failures: 1 }),
+            ev("final-ended", 2, { round: 1, outcome: "failed" }),
+            ev("dag-blocked", 3, { failures: 1, kind: "final-failed" }),
+            ev("dag-blocked", 4, { failures: 1 }),
         ]);
-        expect(out.map((e) => [e.kind, e.text])).toEqual([["failed", "final stage failed"]]);
+        expect(out.map((e) => [e.kind, e.text])).toEqual([["failed", "final verification failed"]]);
+    });
+
+    it("reads the final stage's end by its outcome", () => {
+        const out = runRailEvents(run, [
+            ev("final-ended", 1, { round: 1, outcome: "passed" }),
+            ev("final-ended", 2, { round: 1, outcome: "unverified" }),
+            ev("final-ended", 3, { round: 2, outcome: "failed" }),
+        ]);
+        expect(out.map((e) => [e.kind, e.text])).toEqual([
+            ["finished", "final verification passed"],
+            ["finished", "final stage unverified"],
+            ["failed", "final verification failed"],
+        ]);
     });
 
     it("reads a landed run as landed and a held land as failed with its reason", () => {

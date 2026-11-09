@@ -628,6 +628,94 @@ describe("buildAgentTree with run lineage", () => {
                         "stage:plan-reviewer:full@full:passed",
                     ]);
                 });
+
+                const stageRounds = (rows: AgentTreeRow[]) =>
+                    rows.flatMap((row) => (row.kind === "stage" ? [row.round] : []));
+
+                it("gives a one-round review's rows no round", () => {
+                    const rows = buildAgentTree([agent("lead", "idle")], lineage([failedRound()], LEAD_ONLY), doneOpen);
+                    expect(stageRounds(rows)).toEqual([undefined, undefined]);
+                });
+
+                it("reads a review stored without past rounds as one round", () => {
+                    const r = failedRound();
+                    r.dag.planreview = { ...r.dag.planreview, round: 2, pastrounds: undefined };
+                    const rows = buildAgentTree([agent("lead", "idle")], lineage([r], LEAD_ONLY), doneOpen);
+                    expect(stageRounds(rows)).toEqual([undefined, undefined]);
+                });
+
+                describe("of a review with an earlier round", () => {
+                    const twoRounds = (state: string) => {
+                        const r = run("run-1", [task("t-1", "pending")]);
+                        r.dag.planreview = {
+                            state,
+                            round: 2,
+                            reviewers: [{ lens: "followup", state: "passed", runid: "rv2-followup" }],
+                            pastrounds: [
+                                {
+                                    round: 1,
+                                    reviewers: [
+                                        { lens: "full", state: "failed", runid: "rv1-full" },
+                                        { lens: "second", state: "failed", runid: "rv1-second" },
+                                    ],
+                                },
+                            ],
+                        };
+                        return r;
+                    };
+
+                    it("lists every round's reviewers oldest round first, each with its round", () => {
+                        const rows = buildAgentTree(
+                            [agent("lead", "idle")],
+                            lineage([twoRounds("passed")], LEAD_ONLY),
+                            doneOpen
+                        );
+                        expect(shape(rows)).toEqual([
+                            "group:waveterm:1:0",
+                            "lead:run-1:0",
+                            "done:0+3:true",
+                            `stage:plan-reviewer:${endedReviewerId("run-1", "rv1-full")}@full:failed`,
+                            `stage:plan-reviewer:${endedReviewerId("run-1", "rv1-second")}@second:failed`,
+                            `stage:plan-reviewer:${endedReviewerId("run-1", "rv2-followup")}@followup:passed`,
+                            "queued:1:false",
+                        ]);
+                        expect(stageRounds(rows)).toEqual([1, 1, 2]);
+                        const done = rows.find((row) => row.kind === "done");
+                        expect(done?.kind === "done" && done.planReviews).toBe(3);
+                    });
+
+                    it("reads a past round's reviewer by its own verdict in a review the human accepted", () => {
+                        const r = twoRounds("accepted");
+                        r.dag.planreview.pastrounds[0].reviewers[1].state = "passed";
+                        const rows = buildAgentTree([agent("lead", "idle")], lineage([r], LEAD_ONLY), doneOpen);
+                        expect(shape(rows).filter((s) => s.startsWith("stage:"))).toEqual([
+                            `stage:plan-reviewer:${endedReviewerId("run-1", "rv1-full")}@full:failed`,
+                            `stage:plan-reviewer:${endedReviewerId("run-1", "rv1-second")}@second:passed`,
+                            `stage:plan-reviewer:${endedReviewerId("run-1", "rv2-followup")}@followup:accepted`,
+                        ]);
+                        expect(stageRounds(rows)).toEqual([1, 1, 2]);
+                        expect(stageOutcome(r, "plan-reviewer", "rv1-full")).toBe("failed");
+                        expect(stageOutcome(r, "plan-reviewer", "rv2-followup")).toBe("accepted");
+                    });
+
+                    it("places a past round's reviewer whose tab is still in the roster in its round", () => {
+                        const rows = buildAgentTree(
+                            [agent("lead", "idle"), stageAgent("old", "rv1-second")],
+                            lineage([twoRounds("passed")], {
+                                ...LEAD_ONLY,
+                                old: { kind: "stage", leadRunId: "run-1", stageRole: "plan-reviewer" },
+                            }),
+                            doneOpen
+                        );
+                        // within a round, a tab still in the roster lists before the rows the dag gives
+                        expect(shape(rows).filter((s) => s.startsWith("stage:"))).toEqual([
+                            "stage:plan-reviewer:old@second:failed",
+                            `stage:plan-reviewer:${endedReviewerId("run-1", "rv1-full")}@full:failed`,
+                            `stage:plan-reviewer:${endedReviewerId("run-1", "rv2-followup")}@followup:passed`,
+                        ]);
+                        expect(stageRounds(rows)).toEqual([1, 1, 2]);
+                    });
+                });
             });
         });
 
@@ -1231,6 +1319,10 @@ describe("stageSubline", () => {
     });
     it("is just the age while the stage is judging", () => {
         expect(stageSubline(undefined, "2m")).toBe("2m");
+    });
+    it("says a plan reviewer's round after its verdict when the review had more than one", () => {
+        expect(stageSubline("failed", undefined, 1)).toBe("failed · round 1");
+        expect(stageSubline("passed", "3m", 2)).toBe("passed · round 2 · 3m");
     });
 });
 

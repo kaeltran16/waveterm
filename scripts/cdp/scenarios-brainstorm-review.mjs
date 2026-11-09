@@ -316,6 +316,26 @@ export default function (kit) {
         Math.abs(b.approve.top - b.keep.top) <= 1 &&
         b.reason.top >= Math.max(b.approve.bottom, b.keep.bottom) - 0.5;
 
+    // the Constraints row's gist (its width, line box and lines against its words) and its Keep the change button
+    const GIST_ROW = `(() => {
+        const row = ${ROW("constraints")};
+        const gist = row?.querySelector("[data-brainstorm-gist]");
+        const btn = [...(row?.querySelectorAll("button") ?? [])].find((b) => b.innerText.trim() === "Keep the change");
+        const g = gist?.getBoundingClientRect();
+        const b = btn?.getBoundingClientRect();
+        const lh = gist ? parseFloat(getComputedStyle(gist).lineHeight) : 0;
+        const r1 = (x) => Math.round(x * 10) / 10;
+        return {
+            gist: g ? { left: r1(g.left), right: r1(g.right), top: r1(g.top), bottom: r1(g.bottom), width: r1(g.width) } : null,
+            lineHeight: r1(lh),
+            lines: g && lh > 0 ? Math.round(g.height / lh) : 0,
+            words: (gist?.innerText ?? "").trim().split(/\\s+/).filter(Boolean).length,
+            button: b ? { left: r1(b.left), top: r1(b.top), bottom: r1(b.bottom) } : null,
+        };
+    })()`;
+    // a gist narrower than this reads as a column of single words
+    const CR_GIST_MIN = 240;
+
     async function key(h, name) {
         const { text, ...def } = CR_KEYS[name];
         await h.cdp("Input.dispatchKeyEvent", { type: "keyDown", ...def, text });
@@ -416,6 +436,33 @@ export default function (kit) {
                 "1d. at 1000 and at 1600 wide, with the blocker shown, Approve and Keep talking share one top edge and the blocker sits below them",
                 approveRowsOk(narrowBar) && approveRowsOk(wideBar),
                 { narrow: narrowBar, wide: wideBar }
+            );
+
+            let narrowRow = null;
+            await h.cdp("Emulation.setDeviceMetricsOverride", CR_NARROW);
+            try {
+                await polishNap(400);
+                narrowRow = await h.ev(GIST_ROW);
+                await h.shot("cdp-shots/brainstorm-check-review-narrow-row.png");
+            } finally {
+                await h.cdp("Emulation.setDeviceMetricsOverride", VERIFY_WIDE).catch(() => {});
+            }
+            await polishNap(400);
+            const wideRow = await h.ev(GIST_ROW);
+            const gistMin = Math.min(CR_GIST_MIN, wideRow.gist?.width ?? CR_GIST_MIN);
+            rec(
+                "1e. a changed row keeps a readable gist: at 1000 wide the gist is at least 240px with fewer lines than words and Keep the change sits under it; at 1600 the buttons sit beside the gist on its first line",
+                !!narrowRow.gist &&
+                    !!narrowRow.button &&
+                    narrowRow.gist.width >= gistMin &&
+                    narrowRow.lines < narrowRow.words &&
+                    narrowRow.button.top >= narrowRow.gist.bottom &&
+                    !!wideRow.gist &&
+                    !!wideRow.button &&
+                    wideRow.button.left >= wideRow.gist.right &&
+                    wideRow.button.bottom > wideRow.gist.top &&
+                    wideRow.button.top < wideRow.gist.top + wideRow.lineHeight,
+                { gistMin, narrow: narrowRow, wide: wideRow }
             );
 
             await h.ev(`${ROW("constraints")}?.querySelector("[data-brainstorm-review-toggle]")?.click()`);

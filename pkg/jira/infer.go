@@ -21,14 +21,17 @@ const (
 	sureMinCommits = 3
 	// on an initiative tie, the winner needs this multiple of the runner-up's tagged commits
 	sureCommitRatio = 2
+	// how many projects with history the Check Jira picker offers first
+	maxCandidates = 3
 )
 
 // Inference is which Arc project a Jira project's tickets belong to. Project is set only when Sure;
-// otherwise the agent asks, and Evidence says why.
+// otherwise the agent asks, and Evidence says why. Candidates are the projects with history, best first.
 type Inference struct {
-	Project  string
-	Evidence string
-	Sure     bool
+	Project    string
+	Evidence   string
+	Sure       bool
+	Candidates []string
 }
 
 type candidate struct {
@@ -66,6 +69,12 @@ func InferProject(jiraProject string, efforts []*waveobj.Effort, commits map[str
 	if len(cands) == 0 || !cands[0].hasHistory() {
 		return Inference{Evidence: "No history for " + jiraProject}
 	}
+	var withHistory []string
+	for _, c := range cands {
+		if c.hasHistory() && len(withHistory) < maxCandidates {
+			withHistory = append(withHistory, c.name)
+		}
+	}
 	win := cands[0]
 	var runner candidate
 	if len(cands) > 1 {
@@ -76,12 +85,12 @@ func InferProject(jiraProject string, efforts []*waveobj.Effort, commits map[str
 	beats := win.inits > runner.inits ||
 		(win.commits > runner.commits && win.commits >= sureCommitRatio*runner.commits)
 	if !beats && runner.hasHistory() {
-		return Inference{Evidence: fmt.Sprintf("Tied: %s and %s", win.name, runner.name)}
+		return Inference{Evidence: fmt.Sprintf("Tied: %s and %s", win.name, runner.name), Candidates: withHistory}
 	}
 	if !beats || (win.inits < 1 && win.commits < sureMinCommits) {
-		return Inference{Evidence: evidence}
+		return Inference{Evidence: evidence, Candidates: withHistory}
 	}
-	return Inference{Project: win.name, Evidence: evidence, Sure: true}
+	return Inference{Project: win.name, Evidence: evidence, Sure: true, Candidates: withHistory}
 }
 
 func plural(n int, noun string) string {

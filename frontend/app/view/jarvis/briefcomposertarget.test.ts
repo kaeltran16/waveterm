@@ -119,6 +119,27 @@ describe("resolveBriefComposerTarget", () => {
         const t = resolveBriefComposerTarget({ sheetOpen: true, face: channelRun, run: run(), agents: [agent()] });
         expect(t).toMatchObject({ audience: "worker", sessionName: "claude" });
     });
+
+    // the lead stands for its run, which goes by its plan title once it has a dag; its tab name is the goal's
+    it("names a dag'd run's lead by its plan title", () => {
+        const info = { title: "Plan title", dag: { tasks: [] } as TaskGroup };
+        const base = { sheetOpen: true, face: channelRun, run: run(), agents: [agent()], info };
+        expect(resolveBriefComposerTarget(base)).toMatchObject({
+            workerName: "Plan title",
+            sessionName: "Plan title",
+        });
+        expect(resolveBriefComposerTarget({ ...base, projectName: "waveterm" })).toMatchObject({
+            workerName: "Plan title",
+            sessionName: "waveterm",
+        });
+    });
+
+    it("names the lead of a run with no dag by its tab name", () => {
+        const info = { title: "Plan title", dag: undefined };
+        expect(
+            resolveBriefComposerTarget({ sheetOpen: true, face: channelRun, run: run(), agents: [agent()], info })
+        ).toMatchObject({ workerName: "claude", sessionName: "claude" });
+    });
 });
 
 describe("runSteerLead", () => {

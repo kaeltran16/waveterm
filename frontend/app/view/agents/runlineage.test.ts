@@ -6,6 +6,7 @@ import type { AgentVM } from "./agentsviewmodel";
 import { finalStageId } from "./finalstage";
 import {
     agentProject,
+    allEndedPlanReviewers,
     endedPlanReviewers,
     endedReviewerId,
     endedReviewerOf,
@@ -27,6 +28,7 @@ import {
     leadRunTabIds,
     leadStandingBy,
     mergeGateLine,
+    planReviewerOf,
     runAgentsOf,
     runEngineBusy,
     runInfoOf,
@@ -301,6 +303,63 @@ describe("ended plan reviewers", () => {
         expect(endedReviewerOf(run, endedReviewerId("r1", "rv-second"))?.lens).toBe("second");
         expect(endedReviewerOf(run, endedReviewerId("r1", "rv-tests"))).toBeUndefined();
         expect(endedReviewerOf(run, endedWorkerId("r1", "t-1"))).toBeUndefined();
+    });
+
+    describe("of a review with earlier rounds", () => {
+        const roundOne: PlanReviewer[] = [
+            { lens: "full", state: "failed", runid: "rv1-full" },
+            { lens: "second", state: "passed", runid: "rv1-second" },
+            { lens: "tests", state: "lost", runid: "" },
+        ];
+        const review: PlanReviewStage = {
+            state: "reviewing",
+            round: 2,
+            reviewers: [
+                { lens: "followup", state: "passed", runid: "rv2-followup" },
+                { lens: "spec", state: "reviewing", runid: "rv2-spec" },
+            ],
+            pastrounds: [{ round: 1, reviewers: roundOne }],
+        };
+        const twoRounds: RunInfo = { ...run, dag: { tasks: [], planreview: review } as TaskGroup };
+
+        it("lists every round's ended reviewers with their round, oldest round first", () => {
+            expect(allEndedPlanReviewers(twoRounds).map(({ reviewer, round }) => [reviewer.runid, round])).toEqual([
+                ["rv1-full", 1],
+                ["rv1-second", 1],
+                ["rv2-followup", 2],
+            ]);
+            expect(allEndedPlanReviewers({ ...run, dag: undefined })).toEqual([]);
+        });
+
+        it("reads a review stored before past rounds were kept as its one round", () => {
+            expect(allEndedPlanReviewers(run).map(({ reviewer, round }) => [reviewer.runid, round])).toEqual([
+                ["rv-full", 1],
+                ["rv-second", 1],
+                ["rv-order", 1],
+            ]);
+        });
+
+        it("keeps endedPlanReviewers to the current round", () => {
+            expect(endedPlanReviewers(twoRounds).map((r) => r.runid)).toEqual(["rv2-followup"]);
+        });
+
+        it("gives a past round's ended reviewer a role and finds it by its ended id", () => {
+            const id = endedReviewerId("r1", "rv1-full");
+            expect(endedRoles({ r1: twoRounds })[id]).toEqual({
+                kind: "stage",
+                leadRunId: "r1",
+                stageRole: "plan-reviewer",
+            });
+            expect(endedReviewerOf(twoRounds, id)?.lens).toBe("full");
+        });
+
+        it("finds a past round's reviewer by its run, with its round and own verdict", () => {
+            expect(planReviewerOf(review, "rv1-full")).toEqual({ lens: "full", verdict: "failed", round: 1 });
+            expect(planReviewerOf(review, "rv1-second")).toEqual({ lens: "second", verdict: "passed", round: 1 });
+            expect(planReviewerOf(review, "rv2-followup")).toEqual({ lens: "followup", verdict: "passed", round: 2 });
+            expect(planReviewerOf(review, "rv2-spec")).toEqual({ lens: "spec", verdict: undefined, round: 2 });
+            expect(planReviewerOf(review, "nope")).toBeUndefined();
+        });
     });
 
     it("reads an ended reviewer from its own run, named by its lens", () => {

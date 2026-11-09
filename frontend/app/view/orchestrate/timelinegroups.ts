@@ -241,6 +241,8 @@ export function snippetOf(e: RunEvent): string {
             return [num(d.attempts) ? `attempt ${num(d.attempts)}` : "", str(d.lastfailurekind)]
                 .filter(Boolean)
                 .join(" · ");
+        case "final-ended":
+            return num(d.round) ? `round ${num(d.round)}` : "";
         case "final-step":
             return [num(d.round) ? `round ${num(d.round)}` : "", num(d.ms) ? secs(num(d.ms)) : ""]
                 .filter(Boolean)

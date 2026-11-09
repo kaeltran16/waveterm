@@ -72,6 +72,7 @@ const KIND_TITLE: Record<string, string> = {
     landed: "Run landed",
     "stage-session-started": "Judging session started",
     "plan-reviewed": "Plan reviewed",
+    "final-ended": "Final stage ended",
 };
 
 // KIND_TONE stays inside the existing status tone utilities. No new colors: success = progress, warning =
@@ -139,6 +140,7 @@ const KIND_TONE: Record<string, string> = {
     landed: "text-success",
     "stage-session-started": "text-muted",
     "plan-reviewed": "text-muted",
+    "final-ended": "text-muted",
 };
 
 function eventKindTitle(kind: string): string {
@@ -180,6 +182,23 @@ function finalStepOf(event: RunEvent): { step: string; ok: boolean } {
     return { step: d?.step ?? "", ok: d?.ok === true };
 }
 
+// a final-ended row is the final stage's end, and only its detail says the outcome; the rail says these words too
+const FINAL_PASSED = "passed";
+const FINAL_ENDED_WORDS = new Map<string, string>([
+    [FINAL_PASSED, "final verification passed"],
+    ["unverified", "final stage unverified"],
+    ["failed", "final verification failed"],
+]);
+
+function finalOutcomeOf(event: RunEvent): string {
+    return detailOf<{ outcome?: string }>(event)?.outcome ?? "";
+}
+
+/** Pure: a final-ended event's outcome in words, or undefined for an outcome it does not know. */
+export function finalEndedWords(event: RunEvent): string | undefined {
+    return FINAL_ENDED_WORDS.get(finalOutcomeOf(event));
+}
+
 export function eventTitle(event: RunEvent): string {
     if (event.kind === "stage-session-started") {
         const d = detailOf<{ role?: string; lens?: string }>(event);
@@ -190,6 +209,12 @@ export function eventTitle(event: RunEvent): string {
         const { step, ok } = finalStepOf(event);
         return `${FINAL_STEP_TITLE[step] ?? "Final step"} ${ok ? "passed" : "failed"}`;
     }
+    if (event.kind === "final-ended") {
+        const words = finalEndedWords(event);
+        if (words) {
+            return words[0].toUpperCase() + words.slice(1);
+        }
+    }
     return eventKindTitle(event.kind);
 }
 
@@ -197,6 +222,9 @@ export function eventTitle(event: RunEvent): string {
 export function eventTone(event: RunEvent): string {
     if (event.kind === "final-step") {
         return finalStepOf(event).ok ? "text-success" : "text-warning";
+    }
+    if (event.kind === "final-ended" && finalEndedWords(event)) {
+        return finalOutcomeOf(event) === FINAL_PASSED ? "text-success" : "text-warning";
     }
     return toneFor(event.kind);
 }

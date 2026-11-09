@@ -335,6 +335,50 @@ export const jiraCheck = {
             { makeBox, back: { ...back, launches: back.launches.map((l) => ({ label: l.label, projectName: l.projectName })) }, surfaceAway, fade: building.filter((f) => f.present).map((f) => f.opacity).slice(0, 12) }
         );
 
+        // 3b. the project cell: PAY-311's is settled now its agent started; GROW-12's opens the project list, Escape
+        // closes only the list, a pick replaces Agent will ask, and Make initiative starts the agent in the pick
+        const settled = await h.ev(`!document.querySelector('${ROW("PAY-311")} [data-jira-project]') && !!document.querySelector('${ROW("PAY-311")} [data-jira-project-name]')`);
+        const LIST = `document.querySelector('[data-jira-project-list="GROW-12"] [role="listbox"]')`;
+        await h.ev(`document.querySelector('${ROW("GROW-12")} [data-jira-project]')?.click()`);
+        const listed = await polishWaitFor(h, `!!${LIST}?.querySelector('[data-project-option=${JSON.stringify(COVERED.project)}]')`, 3000);
+        await polishNap(400);
+        await h.shot("cdp-shots/jira-check-3b-project-list.png");
+        const listBox = await h.ev(`(() => {
+            const l = document.querySelector('[data-jira-project-list="GROW-12"]')?.getBoundingClientRect();
+            const c = document.querySelector('${ROW("GROW-12")} [data-jira-project]')?.getBoundingClientRect();
+            return l && c ? { inView: l.top >= 0 && l.bottom <= window.innerHeight, nearCell: Math.abs(l.left - c.left) < 2 } : null;
+        })()`);
+        await h.ev(`document.querySelector('[data-jira-project-list="GROW-12"] input')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+        const escClosed = await polishWaitFor(h, `!${LIST}`, 2000);
+        const dialogKept = await h.ev(`!!${DIALOG}`);
+        await h.ev(`document.querySelector('${ROW("GROW-12")} [data-jira-project]')?.click()`);
+        await polishWaitFor(h, `!!${LIST}`, 3000);
+        await h.ev(`${LIST}?.querySelector('[data-project-option=${JSON.stringify(COVERED.project)}]')?.click()`);
+        await polishWaitFor(h, `!${LIST}`, 2000);
+        const picked = await h.ev(`(() => {
+            const r = document.querySelector('${ROW("GROW-12")}');
+            return {
+                name: ${flat(`document.querySelector('${ROW("GROW-12")} [data-jira-project-name]')`)},
+                asks: !!r?.querySelector('[data-jira-agent-asks]'),
+                text: ${flat(`document.querySelector('${ROW("GROW-12")} [data-jira-project]')`)},
+            };
+        })()`);
+        await h.shot("cdp-shots/jira-check-3b-picked.png");
+        await h.ev(`document.querySelector('${ROW("GROW-12")} [data-jira-make]')?.click()`);
+        // the stub records the launch before its nap, so wait for its switch to the Agent surface before coming back
+        await polishWaitFor(h, `(window.__jiraLaunches ?? []).length === 2 && !${DIALOG}`, 4000);
+        const pickLaunch = await h.ev(`(() => { const l = (window.__jiraLaunches ?? [])[1]; return l ? { projectName: l.projectName, task: l.task } : null; })()`);
+        await h.goto("jarvis");
+        await polishWaitFor(h, `!!document.querySelector('${ROW("GROW-12")} [data-jira-building]')`, 6000);
+        rec(
+            "3b. a started row's project is settled; GROW-12's opens the list by the cell, Escape closes only the list, and the pick is where its agent starts",
+            settled && listed && listBox?.inView && listBox.nearCell && escClosed && dialogKept &&
+                picked.name === COVERED.project && !picked.asks && picked.text.includes("Picked by you") &&
+                pickLaunch?.projectName === COVERED.project &&
+                pickLaunch.task.includes(`--project ${COVERED.project}`) && !/ask me/.test(pickLaunch.task),
+            { settled, listed, listBox, escClosed, dialogKept, picked, pickLaunch: pickLaunch && { projectName: pickLaunch.projectName } }
+        );
+
         // 4. the agent creates the initiative while you are on its Agent surface; coming back, the Brief re-reads,
         // PAY-311 leaves, the rows below close the gap, and the Brief gains it fresh
         const keysBefore = await rowKeys(h);

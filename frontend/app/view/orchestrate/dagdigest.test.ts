@@ -70,6 +70,7 @@ describe("shouldRefreshDigest", () => {
     it("refreshes on the boundaries the run timing derives from", () => {
         expect(shouldRefreshDigest("task-spawned")).toBe(true);
         expect(shouldRefreshDigest("final-step")).toBe(true);
+        expect(shouldRefreshDigest("final-ended")).toBe(true);
         expect(shouldRefreshDigest("dag-done")).toBe(true);
     });
 

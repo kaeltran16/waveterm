@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { eventText, eventTitle, planReviewLensTitle, toneFor, tsLabel } from "./runtimeline";
+import { eventText, eventTitle, eventTone, planReviewLensTitle, toneFor, tsLabel } from "./runtimeline";
 
 const kindTitle = (kind: string) => eventTitle({ id: "1", ts: 1, kind } as RunEvent);
 
@@ -77,6 +77,24 @@ describe("eventTitle", () => {
     it("says only the role when the detail names no lens", () => {
         expect(eventTitle(started({ role: "plan-reviewer" }))).toBe("Plan reviewer started");
         expect(eventTitle(started({ role: "verifier" }))).toBe("Final verifier started");
+    });
+});
+
+describe("final-ended", () => {
+    const ended = (outcome: string): RunEvent =>
+        ({ id: "1", ts: 1, kind: "final-ended", detail: JSON.stringify({ round: 1, outcome }) }) as RunEvent;
+
+    it("titles and tones the stage's end by its outcome, in the rail's words", () => {
+        expect(["passed", "unverified", "failed"].map((o) => [eventTitle(ended(o)), eventTone(ended(o))])).toEqual([
+            ["Final verification passed", "text-success"],
+            ["Final stage unverified", "text-warning"],
+            ["Final verification failed", "text-warning"],
+        ]);
+        expect(eventText(ended("passed"))).toBe("Final verification passed");
+    });
+
+    it("never shows the raw kind, even for an outcome it does not know", () => {
+        expect(eventTitle(ended("odd"))).toBe("Final stage ended");
     });
 });
 

@@ -671,6 +671,12 @@ func finishFinal(ctx context.Context, g *waveobj.TaskGroup, judged bool, afterCo
 	default:
 		f.State = FinalState_Passed
 	}
+	endedRound, outcome, endChannelID, endRunID := f.Round, f.State, g.ChannelId, g.RunID
+	*afterCommit = append(*afterCommit, func() {
+		appendRunEvent(context.Background(), endChannelID, endRunID, waveobj.RunEventKindFinalEnded, nil, map[string]any{
+			"round": endedRound, "outcome": outcome,
+		})
+	})
 	if f.State != FinalState_Failed {
 		return
 	}

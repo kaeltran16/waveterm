@@ -12,7 +12,7 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type PrimitiveAtom } from "jotai";
 import { resolveCwd } from "./agentcwdresolve";
 import { ensureSessionStart } from "./agentsessionstore";
-import { originCwd, scopeKey, type DiffOrigin, type DiffRange, type DiffScope } from "./diffscope";
+import { originCwd, pollAnchor, scopeKey, type DiffOrigin, type DiffRange, type DiffScope } from "./diffscope";
 import { firstInList, treeModeAtom } from "./filetree";
 import { parseGitChanges, type GitChanges } from "./gitstatus";
 
@@ -55,8 +55,13 @@ export function agentCwdOf(id: string): string | undefined {
 }
 
 // guards against a stale load overwriting a newer one; the token is scopeKey(scope), so switching
-// either the repository or the range cancels the in-flight load.
-const current = { token: "" };
+// either the repository or the range cancels the in-flight load. range and agent are the last load's,
+// kept so a poll tick can still resolve a session start that was unknown when the scope loaded.
+const current: { token: string; range: DiffRange | null; agent: ScopeAgent | undefined } = {
+    token: "",
+    range: null,
+    agent: undefined,
+};
 
 const EMPTY: FilesState = { cwd: null, branch: "", isRepo: false, changes: null, ref: "", head: "", end: "" };
 
@@ -139,10 +144,18 @@ async function loadChangesForCwd(token: string, cwd: string | null, opts: LoadOp
 // aren't short-circuited (used after a Review apply mutates the tree). No-op if nothing is loaded.
 export async function reloadChanges(cwd: string | null): Promise<void> {
     if (!current.token) return;
+    const token = current.token;
     // reuse the already-resolved concrete base (a sha for worktree/run modes, "" for live) so the
     // reload stays anchored to the same point the initial load picked.
     const state = globalStore.get(filesStateAtom);
-    await loadChangesForCwd(current.token, cwd, { ref: state?.ref ?? "", end: state?.end ?? "" }, false);
+    const ref = state?.ref ?? "";
+    const range = current.range;
+    // ensureSessionStart caches only a resolved start, so asking again each tick is cheap
+    const start = range?.kind === "session" && !ref ? await ensureSessionStart(current.agent?.transcriptPath) : null;
+    if (current.token !== token || !range) {
+        return;
+    }
+    await loadChangesForCwd(token, cwd, pollAnchor(range, ref, state?.end ?? "", start), false);
 }
 
 // The Diff surface reads its change list once on mount and otherwise has no way to learn a file was
@@ -175,6 +188,8 @@ export interface ScopeAgent {
 export async function loadFilesForScope(scope: DiffScope, agent?: ScopeAgent): Promise<void> {
     const token = scopeKey(scope);
     beginLoad(token);
+    current.range = scope.range;
+    current.agent = agent;
     const cwd = await resolveScopeCwd(scope.repo.origin, agent);
     if (current.token !== token) {
         return;

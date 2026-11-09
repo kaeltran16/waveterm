@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"reflect"
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -23,19 +24,19 @@ func TestInferClearWinner(t *testing.T) {
 		ticketed("b", "OPS-3"), // another Jira project never counts
 	}
 	got := InferProject("PAY", efforts, map[string]int{"a": 5, "b": 9})
-	want := Inference{Project: "a", Evidence: "2 initiatives, 5 tagged commits", Sure: true}
-	if got != want {
+	want := Inference{Project: "a", Evidence: "2 initiatives, 5 tagged commits", Sure: true, Candidates: []string{"a", "b"}}
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v want %+v", got, want)
 	}
 }
 
 func TestInferCommitsOnly(t *testing.T) {
 	got := InferProject("PAY", nil, map[string]int{"a": 6, "b": 2})
-	if want := (Inference{Project: "a", Evidence: "0 initiatives, 6 tagged commits", Sure: true}); got != want {
+	if want := (Inference{Project: "a", Evidence: "0 initiatives, 6 tagged commits", Sure: true, Candidates: []string{"a", "b"}}); !reflect.DeepEqual(got, want) {
 		t.Errorf("6 vs 2: got %+v want %+v", got, want)
 	}
 	got = InferProject("PAY", nil, map[string]int{"a": 6, "b": 4})
-	if want := (Inference{Evidence: "Tied: a and b"}); got != want {
+	if want := (Inference{Evidence: "Tied: a and b", Candidates: []string{"a", "b"}}); !reflect.DeepEqual(got, want) {
 		t.Errorf("6 vs 4: got %+v want %+v", got, want)
 	}
 }
@@ -43,14 +44,14 @@ func TestInferCommitsOnly(t *testing.T) {
 func TestInferNoHistory(t *testing.T) {
 	efforts := []*waveobj.Effort{ticketed("a", "PAY-1")}
 	got := InferProject("GROW", efforts, map[string]int{"a": 0, "b": 0})
-	if want := (Inference{Evidence: "No history for GROW"}); got != want {
+	if want := (Inference{Evidence: "No history for GROW"}); !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v want %+v", got, want)
 	}
 }
 
 func TestInferSingularEvidence(t *testing.T) {
 	got := InferProject("PAY", []*waveobj.Effort{ticketed("a", "PAY-1")}, map[string]int{"a": 1})
-	if want := (Inference{Project: "a", Evidence: "1 initiative, 1 tagged commit", Sure: true}); got != want {
+	if want := (Inference{Project: "a", Evidence: "1 initiative, 1 tagged commit", Sure: true, Candidates: []string{"a"}}); !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v want %+v", got, want)
 	}
 }
@@ -58,7 +59,7 @@ func TestInferSingularEvidence(t *testing.T) {
 func TestInferWeakWinnerUnsure(t *testing.T) {
 	// below the bar (no initiative, under 3 commits) is unsure even with no rival
 	got := InferProject("PAY", nil, map[string]int{"a": 2, "b": 0})
-	if want := (Inference{Evidence: "0 initiatives, 2 tagged commits"}); got != want {
+	if want := (Inference{Evidence: "0 initiatives, 2 tagged commits", Candidates: []string{"a"}}); !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v want %+v", got, want)
 	}
 }
@@ -66,8 +67,15 @@ func TestInferWeakWinnerUnsure(t *testing.T) {
 func TestInferFullTieUnsure(t *testing.T) {
 	efforts := []*waveobj.Effort{ticketed("b", "PAY-1"), ticketed("a", "PAY-2")}
 	got := InferProject("PAY", efforts, map[string]int{"a": 0, "b": 0})
-	if want := (Inference{Evidence: "Tied: a and b"}); got != want {
+	if want := (Inference{Evidence: "Tied: a and b", Candidates: []string{"a", "b"}}); !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v want %+v", got, want)
+	}
+}
+
+func TestInferCandidatesCapped(t *testing.T) {
+	got := InferProject("PAY", nil, map[string]int{"a": 9, "b": 7, "c": 5, "d": 3, "e": 0})
+	if want := []string{"a", "b", "c"}; !reflect.DeepEqual(got.Candidates, want) {
+		t.Errorf("got %v want %v", got.Candidates, want)
 	}
 }
 

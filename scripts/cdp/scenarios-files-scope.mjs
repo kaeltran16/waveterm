@@ -1,7 +1,7 @@
 // Diff surface scenario diff-scope: what the surface reads (sources, ranges, history bounds) on a repo with a long
 // history, a second worktree, a stash and an uncommitted edit, beside a plain folder and a clone with a remote.
 // The helpers below are shared with scenarios-files-states.mjs.
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FINAL_SHOTS_UICTX, git, lookEval, reloadApp, teardownFixtureRun, TREE_RAIL_FIXTURE, waveService } from "./scenarios-shared.mjs";
@@ -342,6 +342,7 @@ function seedNoStartAgent(h, ctx) {
     ctx.dirs.push(root);
     const transcriptPath = join(root, "session.jsonl");
     writeFileSync(transcriptPath, JSON.stringify({ type: "user", cwd: ctx.dir, message: { role: "user", content: "start" } }) + "\n");
+    ctx.noStartTranscript = transcriptPath;
     return lookEval(h, `
         const { globalStore } = await mod("app/store/jotaiStore.ts");
         const { devMockAgentsAtom } = await mod("app/view/agents/devmock.ts");
@@ -616,6 +617,23 @@ async function subjectSteps(h, ctx, rec) {
         "19. agent without a session start: the summary says it is measured from HEAD, and the session chip stays enabled",
         labelled && chip != null && !chip.disabled && chip.pressed === "true",
         JSON.stringify({ seeded, picked, summary, chip })
+    );
+
+    // the first prompt writes a timestamped record; the poll alone must re-anchor, with the scope left open.
+    // A minute ahead so the commit HEAD points at is before it, whatever the clocks' rounding.
+    const pollMs = await lookEval(h, `return (await mod("app/view/agents/filesstore.ts")).FILES_POLL_MS;`);
+    const stamp = JSON.stringify({ type: "user", timestamp: new Date(Date.now() + 60_000).toISOString(), message: { role: "user", content: "go" } });
+    appendFileSync(ctx.noStartTranscript, stamp + "\n");
+    const anchored =
+        typeof pollMs === "number" &&
+        (await until(h, `/^worktree against [0-9a-f]{7} /.test(${SUMMARY})`, pollMs + 5000));
+    const anchoredSummary = await h.ev(SUMMARY);
+    const stillScoped = await h.ev(`${q('[data-range-chip="session"]')}?.getAttribute("aria-pressed") === "true"`);
+    await h.shot("cdp-shots/diff-scope-session-start-resolved.png");
+    rec(
+        "19b. session start resolved by the poll: once the transcript gains a timestamp, the summary reads \"worktree against <sha>\" without reopening the scope",
+        anchored && !anchoredSummary.includes("(no session start yet)") && stillScoped,
+        JSON.stringify({ pollMs, anchored, anchoredSummary, stillScoped })
     );
 
     await dropAgent(h, SCOPE.noStartId);

@@ -76,6 +76,7 @@ describe("finalLifecycle", () => {
         ev("dag-blocked", { failures: 1, kind: "final-failed" }, T0 + 3 * MIN + 1),
         ev("dag-blocked", { failures: 1, kind: "task-failed" }, T0 + 3 * MIN + 2),
         ev("stage-session-started", { role: "verifier", runid: "r-v" }, T0 + 4 * MIN),
+        ev("final-ended", { round: 1, outcome: "unverified" }, T0 + 4 * MIN + 1),
         ev("land-held", { reason: "the base has uncommitted changes" }, T0 + 5 * MIN),
         ev("landed", { commit: "f00dcafe12345678", title: "Merge wave/run-1" }, T0 + 6 * MIN),
     ];
@@ -84,6 +85,7 @@ describe("finalLifecycle", () => {
         expect(finalLifecycle(events).map((r) => r.title)).toEqual([
             "Run landed",
             "Land held",
+            "Final stage unverified",
             "Final verifier started",
             "DAG blocked",
             "Final Verify failed",
@@ -101,6 +103,7 @@ describe("finalLifecycle", () => {
         const byTitle = new Map(finalLifecycle(events).map((r) => [r.title, r.detail]));
         expect(byTitle.get("Final Verify failed")).toBe("round 1 · 38.0s");
         expect(byTitle.get("Land held")).toBe("the base has uncommitted changes");
+        expect(byTitle.get("Final stage unverified")).toBe("round 1");
         expect(byTitle.get("Run landed")).toBe("commit f00dcafe · Merge wave/run-1");
         expect(byTitle.get("DAG blocked")).toBe("the final stage failed");
     });

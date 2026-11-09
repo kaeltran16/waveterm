@@ -18,7 +18,7 @@ import * as WOS from "@/app/store/wos";
 import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtom, useAtomValue } from "jotai";
-import { Activity, Check, Pin, PinOff, Search, Workflow } from "lucide-react";
+import { Activity, Check, Copy, Pin, PinOff, Search, Workflow } from "lucide-react";
 import { AnimatePresence, motion, MotionConfig } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
@@ -259,16 +259,22 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
     const pinMenu = (row: Row) => (e: React.MouseEvent) => {
         e.preventDefault();
         const pinned = isRowPinned(row, pinSet);
-        ContextMenuModel.getInstance().showContextMenu(
-            [
-                {
-                    label: pinned ? "Unpin" : "Pin",
-                    icon: pinned ? <PinOff size={15} /> : <Pin size={15} />,
-                    click: () => setSessionsPinned(togglePinnedRow(pins, row)),
-                },
-            ],
-            e
-        );
+        const items: ContextMenuItem[] = [
+            {
+                label: pinned ? "Unpin" : "Pin",
+                icon: pinned ? <PinOff size={15} /> : <Pin size={15} />,
+                click: () => setSessionsPinned(togglePinnedRow(pins, row)),
+            },
+        ];
+        const sessionId = row.session?.id;
+        if (sessionId) {
+            items.push({
+                label: "Copy session id",
+                icon: <Copy size={15} />,
+                click: () => void navigator.clipboard.writeText(sessionId),
+            });
+        }
+        ContextMenuModel.getInstance().showContextMenu(items, e);
     };
     const summary = matches ? searchSummary(new Map(shown.map((r) => [r.key, matches.get(r.key)!]))) : "";
     const openCard = (m: CardMatch) => openSessionHit(model, m.results[0], query, search.terms);

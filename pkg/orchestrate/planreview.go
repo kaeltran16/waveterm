@@ -804,7 +804,9 @@ func ReplacePlanReviewProposal(ctx context.Context, dagID string, proposed *wave
 		g.Verify, g.Setup, g.Check, g.Preamble = proposed.Verify, proposed.Setup, proposed.Check, proposed.Preamble
 		g.FinalCmd, g.Prototype = proposed.FinalCmd, proposed.Prototype
 		g.EffortOID, g.PlanPath, g.SpecPath = proposed.EffortOID, proposed.PlanPath, proposed.SpecPath
-		g.PlanReview = &waveobj.PlanReviewStage{State: PlanReviewState_Reviewing, Round: pr.Round + 1, Prior: prior}
+		// the finished round's reviewers stay on the dag for the Agent tree; every one has ended
+		past := append(append([]waveobj.PlanReviewRound(nil), pr.PastRounds...), waveobj.PlanReviewRound{Round: pr.Round, Reviewers: pr.Reviewers})
+		g.PlanReview = &waveobj.PlanReviewStage{State: PlanReviewState_Reviewing, Round: pr.Round + 1, Prior: prior, PastRounds: past}
 		out = g
 		return nil
 	})

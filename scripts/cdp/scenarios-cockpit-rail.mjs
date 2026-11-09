@@ -2,7 +2,7 @@
 // F19: an asked event recorded before its question arrived takes the question. F11: a project scope narrows the
 // rail. F20: the collapsed rail shows the unread count. F21: `?` opens the cheat sheet on the Cockpit group. F17: the
 // hints bar is one line, the `?` chip never clips, and it lists space peek but no esc back. P6: a held run's milestones
-// and its lead's own question reach the rail. The fixture roster is read once at boot, so arrange writes it and
+// and its lead's own question reach the rail; P6b: the final stage's end reads by its outcome. The fixture roster is read once at boot, so arrange writes it and
 // reloads; state changes are patched into the loaded roster.
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import {
@@ -36,11 +36,16 @@ const RUN_EVENTS = [
     { id: "fx-rail-help-fs", kind: "final-step", detail: { round: 1, step: "final", ms: 1000, ok: true }, ago: 2 * M, text: "Final command passed" },
     { id: "fx-rail-help-ld", kind: "landed", detail: { commit: "c0ffee5", title: "rail-help" }, ago: M, text: "Run landed" },
 ];
+// the final stage's end, as the engine records it once per round: a pass, then a rerun's round left unverified
+const FINAL_ENDED_EVENTS = [
+    { id: "fx-rail-help-fe1", kind: "final-ended", detail: { round: 1, outcome: "passed" }, ago: 20_000, text: "final verification passed" },
+    { id: "fx-rail-help-fe2", kind: "final-ended", detail: { round: 2, outcome: "unverified" }, ago: 10_000, text: "final stage unverified" },
+];
 // P7: what no RPC writes. A failure forwarded to the human, a failed final stage and the human's own skip; the held
 // run's lead is not asked or answered by any of them
 const ACTION_EVENTS = [
     { id: "fx-rail-help-fwd", kind: "task-forwarded", detail: { taskid: "t-1", note: "needs a human call" }, ago: 30_000, text: "t-1 handed to you" },
-    { id: "fx-rail-help-fb", kind: "dag-blocked", detail: { failures: 1, kind: "final-failed" }, ago: 20_000, text: "final stage failed" },
+    { id: "fx-rail-help-ff", kind: "final-ended", detail: { round: 3, outcome: "failed" }, ago: 20_000, text: "final verification failed" },
     { id: "fx-rail-help-sk", kind: "task-skipped", detail: { taskid: "t-1", by: "human" }, ago: 10_000, text: "you skipped t-1" },
 ];
 
@@ -230,6 +235,7 @@ export const cockpitRailHelp = {
         // last, since its run's events and its lead's ask would change the counts the steps above read
         await run("P6: at 1600 the rail lists a held run's milestones and its lead's question", async () => {
             const held = await arrangeHeldRun(h, ctx, { key: "rail-help", title: RUN_TITLE, tasks: [{ id: "t-1", label: "wire the rail" }] });
+            ctx.railHelpRun = held;
             const lead = { id: RUN_LEAD_ID, name: "rail-help lead", project: "rail-help-run", task: "lead the run", state: "working", agent: "claude", model: "opus", activeMs: 60_000, runId: held.runId, blockId: "fx-blk-rail-help-lead", transcriptPath: ctx.transcriptPath };
             writeFileSync(TREE_RAIL_FIXTURE, JSON.stringify([...roster(ctx.transcriptPath), lead], null, 2));
             await h.cdp("Emulation.setDeviceMetricsOverride", MODELS_VIEWPORT);
@@ -264,6 +270,35 @@ export const cockpitRailHelp = {
             const sentbackTone = rowWith(RUN_EVENTS[1].text)?.tone.includes("text-warning") === true;
             const ok = folded && Object.values(milestones).every(Boolean) && leadAsk && sentbackTone;
             return { ok, detail: JSON.stringify({ folded, milestones, leadAsk, sentbackTone, rows: rows.map((r) => r.text) }) };
+        });
+
+        // F5: the stage's end is its own row beside the Final command's, so the rail can say the stage passed
+        await run("P6b: the rail says the final stage passed, and a later round's end unverified", async () => {
+            const held = ctx.railHelpRun;
+            if (!held) return { ok: false, detail: "P6 left no held run to record the stage's end on" };
+            const hasBoth = FINAL_ENDED_EVENTS.map((e) => `${railText()}.includes(${JSON.stringify(e.text)})`).join(" && ");
+            const unfold = `[...(${RAIL}?.querySelectorAll('button') ?? [])].filter((b) => /^\\+\\d+ more$/.test(b.textContent.trim())).forEach((b) => b.click())`;
+            let shown = false;
+            for (let i = 0; i < 5 && !shown; i++) {
+                const now = Date.now();
+                for (const e of FINAL_ENDED_EVENTS) {
+                    await h.rpc("eventpublish", {
+                        event: "run:event",
+                        scopes: [`run:${held.runId}`],
+                        data: { channelid: held.channelId, runid: held.runId, event: { id: e.id, kind: e.kind, ts: now - e.ago, runid: held.runId, channelid: held.channelId, detail: JSON.stringify(e.detail) } },
+                    });
+                }
+                await polishNap(400);
+                await h.ev(unfold);
+                shown = await polishWaitFor(h, hasBoth, 1500);
+            }
+            const rows = await h.ev(`[...(${RAIL}?.querySelectorAll('[role="button"]') ?? [])].map((r) => r.textContent.replace(/\\s+/g, ' '))`);
+            await h.shot("cdp-shots/cockpit-rail-help-final-ended.png");
+            const ended = Object.fromEntries(FINAL_ENDED_EVENTS.map((e) => [e.text, rows.some((r) => r.includes(e.text))]));
+            // the Final command's own row stays beside them
+            const commandRow = rows.some((r) => r.includes(RUN_EVENTS[2].text));
+            const ok = Object.values(ended).every(Boolean) && commandRow;
+            return { ok, detail: JSON.stringify({ ended, commandRow, rows }) };
         });
 
         // after P6, on its held run: a forwarded failure, a failed final stage and the human's skip are rail rows

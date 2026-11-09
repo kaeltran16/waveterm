@@ -5,13 +5,12 @@
 // persisted ones; a plain agent has no history anywhere, so its transitions are observed here and are lost on
 // reload (effort 9868f8d2, decided frontend-only). Pure.
 
-import { FINAL_FAILED_BLOCK } from "../orchestrate/timelinefilter";
 import { isFinishTransition } from "./agentrowmodel";
 import { matchesProjectFilter, type AgentState, type AgentVM } from "./agentsviewmodel";
 import { leadlessCardId } from "./cardgridlayout";
 import { rowKey } from "./leadcardmodel";
 import type { Lineage, RunInfo } from "./runlineage";
-import { detailOf, eventText } from "./runtimeline";
+import { detailOf, eventText, finalEndedWords } from "./runtimeline";
 
 export type RailKind =
     | "asked"
@@ -118,10 +117,12 @@ const RUN_KIND: Record<string, RailKind> = {
 };
 
 const FINAL_COMMAND_STEP = "final";
+const FINAL_FAILED = "failed";
 
 /** Pure: the rail's kind and text for one engine event, or undefined when it stays off the rail. A failed review
  *  counts once as failed, when its rounds are spent. Of the final stage's steps only the Final command passing and
- *  any step failing show: the verifier's verdict records no event, so a pass never claims the stage passed. */
+ *  any step failing show, since a command passing is not the stage passing; the stage's end (final-ended, recorded
+ *  whatever decided the outcome: the steps, the verifier's verdict or a human) says how the stage itself ended. */
 function runRailKind(e: RunEvent): { kind: RailKind; text: string } | undefined {
     const d = detailOf<{
         final?: boolean;
@@ -132,7 +133,7 @@ function runRailKind(e: RunEvent): { kind: RailKind; text: string } | undefined 
         ok?: boolean;
         reason?: string;
         by?: string;
-        kind?: string;
+        outcome?: string;
     }>(e);
     switch (e.kind) {
         case "task-review-failed":
@@ -157,11 +158,15 @@ function runRailKind(e: RunEvent): { kind: RailKind; text: string } | undefined 
             return d?.ok === true && d.step === FINAL_COMMAND_STEP
                 ? { kind: "finished", text: eventText(e) }
                 : undefined;
+        case "final-ended": {
+            const words = finalEndedWords(e);
+            if (words == null) {
+                return undefined;
+            }
+            return { kind: d?.outcome === FINAL_FAILED ? "failed" : "finished", text: words };
+        }
         case "land-held":
             return { kind: "failed", text: ["land held", d?.reason].filter(Boolean).join(" · ") };
-        case "dag-blocked":
-            // the other blocks are a task's failure, already on the rail as that task's own event
-            return d?.kind === FINAL_FAILED_BLOCK ? { kind: "failed", text: "final stage failed" } : undefined;
         case "task-forwarded":
             return { kind: d?.by === "human" ? "acted" : "asked", text: eventText(e) };
         case "task-retried":

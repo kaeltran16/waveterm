@@ -107,6 +107,32 @@ func diffLines(t *testing.T, prompt string) []string {
 	return out
 }
 
+func TestResubmitKeepsPastRoundReviewers(t *testing.T) {
+	r := failRoundOne(t, false)
+	roundOne := []waveobj.PlanReviewer{
+		{Lens: "full", State: "failed", RunID: "run-a", Text: "name TestCoupons", StartedTs: 11},
+		{Lens: "second", State: "passed", RunID: "run-b", Text: "fine", StartedTs: 12},
+	}
+	if err := wstore.UpdateDag(r.ctx, r.dag.OID, func(g *waveobj.TaskGroup) error {
+		g.PlanReview.Reviewers = append([]waveobj.PlanReviewer(nil), roundOne...)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	pr := r.resubmit(t).PlanReview
+	if pr.Round != 2 || len(pr.Reviewers) != 0 {
+		t.Fatalf("want round 2 with no reviewers yet, got %+v", pr)
+	}
+	want := []waveobj.PlanReviewRound{{Round: 1, Reviewers: roundOne}}
+	if fmt.Sprintf("%+v", pr.PastRounds) != fmt.Sprintf("%+v", want) {
+		t.Fatalf("got past rounds %+v\nwant %+v", pr.PastRounds, want)
+	}
+	if stored := loadDag(t, r.ctx, r.dag.OID).PlanReview; fmt.Sprintf("%+v", stored.PastRounds) != fmt.Sprintf("%+v", want) {
+		t.Fatalf("past rounds must be stored, got %+v", stored.PastRounds)
+	}
+	// the round cap is 2, so no third round exists to append after round 1
+}
+
 func TestResubmitKeepsRoundOneFindingsDocsAndPicks(t *testing.T) {
 	r := failRoundOne(t, false)
 	pr := r.resubmit(t).PlanReview

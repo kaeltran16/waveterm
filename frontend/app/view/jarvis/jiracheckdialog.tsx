@@ -7,17 +7,20 @@
 
 import { pushToast } from "@/app/cockpit/notificationstore";
 import { cardVariants, microFade, MOTION, paneReveal } from "@/app/element/motiontokens";
+import { PopoverReveal } from "@/app/element/popoverreveal";
 import { ModalShell } from "@/app/modals/modalshell";
 import { atoms, getApi } from "@/app/store/global";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
+import { projectListAtom } from "@/app/view/agents/projectsstore";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { ArrowUpRight, Check, CircleAlert, X } from "lucide-react";
+import { ArrowUpRight, Check, ChevronDown, CircleAlert, UserRound, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { briefEffortIndexAtom } from "./jarvisstore";
 import { openJiraSettings } from "./jiraactions";
 import {
@@ -29,6 +32,9 @@ import {
     footerLine,
     headerWhen,
     jiraBuildingAtom,
+    jiraPicksAtom,
+    nextPicks,
+    pickedRow,
     refusedHeadline,
     ticketMeta,
     visibleRows,
@@ -37,6 +43,8 @@ import {
 import { makeInitiative } from "./jiramake";
 import { parseJiraError, ticketUrl } from "./jiraticket";
 import { openTarget } from "./openref";
+import { projectWhere } from "./projectpicker";
+import { ProjectList, useHomeDir } from "./projectpickerview";
 
 // the search plus wavesrv's project inference over each project's history outlasts the default 5s rpc budget
 const JIRA_CHECK_TIMEOUT_MS = 60_000;
@@ -44,6 +52,10 @@ const JIRA_CHECK_TIMEOUT_MS = 60_000;
 const ROW_GRID = "grid grid-cols-[76px_minmax(0,1fr)_190px_150px_28px] items-center gap-[14px]";
 // the loading board's summary bars, as a share of the column
 const BAR_WIDTHS = ["78%", "64%", "71%"];
+const LIST_W = 320;
+// the project list at its tallest (search, 240px of options, the key line): below the cell when it fits, else above
+const LIST_MAX_H = 330;
+const LIST_GAP = 4;
 
 // a newer check, or a close, supersedes the one in flight: its answer is dropped
 let checkSeq = 0;
@@ -81,12 +93,13 @@ export function closeCheckJira(): void {
     globalStore.set(checkJiraOpenAtom, false);
     globalStore.set(checkJiraStateAtom, null);
     globalStore.set(jiraBuildingAtom, {});
+    globalStore.set(jiraPicksAtom, {});
 }
 
 async function make(model: AgentsViewModel, row: JiraTicketRow): Promise<void> {
     globalStore.set(jiraBuildingAtom, (b) => ({ ...b, [row.key]: "" }));
     try {
-        const tabId = await makeInitiative(model, row);
+        const tabId = await makeInitiative(model, pickedRow(row, globalStore.get(jiraPicksAtom)[row.key]));
         globalStore.set(jiraBuildingAtom, (b) => (row.key in b ? { ...b, [row.key]: tabId } : b));
     } catch (err) {
         globalStore.set(jiraBuildingAtom, (b) => {
@@ -154,7 +167,7 @@ export function JiraCheckDialog({ model }: { model: AgentsViewModel }) {
                         disabled={loading}
                         onClick={() => void runJiraCheck()}
                         className={cn(
-                            "grid h-[28px] rounded-[7px] border border-edge-mid px-2.5 text-[12px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                            "grid h-[28px] place-items-center rounded-[7px] border border-edge-mid px-2.5 text-[12px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
                             loading ? "text-muted" : "cursor-pointer text-secondary hover:border-edge-strong"
                         )}
                     >
@@ -318,6 +331,7 @@ function LoadingBars() {
 
 function TicketList({ model, site, rows }: { model: AgentsViewModel; site: string; rows: JiraTicketRow[] }) {
     const building = useAtomValue(jiraBuildingAtom);
+    const home = useHomeDir();
     const now = Date.now();
     return (
         <div className="flex h-full flex-col">
@@ -342,7 +356,14 @@ function TicketList({ model, site, rows }: { model: AgentsViewModel; site: strin
                             transition={{ layout: { duration: MOTION.durMacro, ease: MOTION.easeFluid } }}
                             className={cn(ROW_GRID, "rounded-[8px] px-4 py-2.5")}
                         >
-                            <TicketRow model={model} site={site} row={row} now={now} tabId={building[row.key]} />
+                            <TicketRow
+                                model={model}
+                                site={site}
+                                row={row}
+                                now={now}
+                                home={home}
+                                tabId={building[row.key]}
+                            />
                         </motion.div>
                     ))}
                 </AnimatePresence>
@@ -356,16 +377,17 @@ function TicketRow({
     site,
     row,
     now,
+    home,
     tabId,
 }: {
     model: AgentsViewModel;
     site: string;
     row: JiraTicketRow;
     now: number;
+    home: string;
     tabId: string | undefined;
 }) {
     const url = row.url || ticketUrl(site, row.key);
-    const sure = row.sure && !!row.project;
     return (
         <>
             <a
@@ -383,23 +405,7 @@ function TicketRow({
                 <span className="truncate text-[13px] text-ink-hi">{row.summary}</span>
                 <span className="whitespace-nowrap text-[11.5px] text-muted">{ticketMeta(row, now)}</span>
             </div>
-            <div className="flex min-w-0 flex-col gap-[3px]">
-                {sure ? (
-                    <span className="flex items-center gap-1.5 text-[12.5px] font-semibold text-secondary">
-                        <Check aria-hidden size={12} strokeWidth={2.4} className="flex-none text-success" />
-                        <span className="truncate">{row.project}</span>
-                    </span>
-                ) : (
-                    <span
-                        data-jira-agent-asks
-                        className="flex items-center gap-1.5 text-[12.5px] font-semibold text-warning"
-                    >
-                        <CircleAlert aria-hidden size={12} strokeWidth={2.2} className="flex-none" />
-                        Agent will ask
-                    </span>
-                )}
-                {row.evidence ? <span className="truncate text-[11.5px] text-muted">{row.evidence}</span> : null}
-            </div>
+            <ProjectCell row={row} home={home} locked={tabId != null} />
             {/* Make initiative and Building in Agent share one box, so the crossfade moves nothing */}
             <div data-jira-action className="relative h-[30px] w-[150px]">
                 <AnimatePresence initial={false}>
@@ -449,6 +455,138 @@ function TicketRow({
             >
                 <ArrowUpRight aria-hidden size={13} strokeWidth={2} />
             </a>
+        </>
+    );
+}
+
+// The project Make initiative starts in: Arc's guess, or the one you picked from the list. Once the agent has
+// started, the cell no longer opens: the project is settled, and `wsh effort project` moves the initiative.
+function ProjectCell({ row, home, locked }: { row: JiraTicketRow; home: string; locked: boolean }) {
+    const pick = useAtomValue(jiraPicksAtom)[row.key];
+    const projects = useAtomValue(projectListAtom);
+    const [open, setOpen] = useState(false);
+    const [at, setAt] = useState<{ left: number; top?: number; bottom?: number }>({ left: 0 });
+    const buttonRef = useRef<HTMLButtonElement>(null);
+    const panelRef = useRef<HTMLDivElement>(null);
+
+    // the list is portalled and fixed at the cell's position, so anything that moves the cell closes it
+    useEffect(() => {
+        if (!open) {
+            return;
+        }
+        const outside = (e: Event) =>
+            !buttonRef.current?.contains(e.target as Node) && !panelRef.current?.contains(e.target as Node);
+        const onDown = (e: Event) => outside(e) && setOpen(false);
+        const onMove = (e: Event) => (e.type === "resize" || outside(e)) && setOpen(false);
+        document.addEventListener("mousedown", onDown);
+        window.addEventListener("scroll", onMove, true);
+        window.addEventListener("resize", onMove);
+        return () => {
+            document.removeEventListener("mousedown", onDown);
+            window.removeEventListener("scroll", onMove, true);
+            window.removeEventListener("resize", onMove);
+        };
+    }, [open]);
+
+    const shown = pickedRow(row, pick);
+    const sure = shown.sure && !!shown.project;
+    const label = (
+        <>
+            {sure ? (
+                <span className="flex min-w-0 items-center gap-1.5 text-[12.5px] font-semibold text-secondary">
+                    {pick ? (
+                        <UserRound aria-hidden size={12} strokeWidth={2.2} className="flex-none text-accent-soft" />
+                    ) : (
+                        <Check aria-hidden size={12} strokeWidth={2.4} className="flex-none text-success" />
+                    )}
+                    <span data-jira-project-name className="truncate">
+                        {shown.project}
+                    </span>
+                </span>
+            ) : (
+                <span
+                    data-jira-agent-asks
+                    className="flex items-center gap-1.5 text-[12.5px] font-semibold text-warning"
+                >
+                    <CircleAlert aria-hidden size={12} strokeWidth={2.2} className="flex-none" />
+                    Agent will ask
+                </span>
+            )}
+            {shown.evidence ? <span className="truncate text-[11.5px] text-muted">{shown.evidence}</span> : null}
+        </>
+    );
+    if (locked) {
+        return <div className="flex min-w-0 flex-col gap-[3px]">{label}</div>;
+    }
+
+    const toggle = () => {
+        if (open) {
+            setOpen(false);
+            return;
+        }
+        const r = buttonRef.current?.getBoundingClientRect();
+        if (r == null) {
+            return;
+        }
+        const left = Math.min(r.left, window.innerWidth - LIST_W - LIST_GAP);
+        setAt(
+            window.innerHeight - r.bottom >= LIST_MAX_H + LIST_GAP
+                ? { left, top: r.bottom + LIST_GAP }
+                : { left, bottom: window.innerHeight - r.top + LIST_GAP }
+        );
+        setOpen(true);
+    };
+    const close = () => {
+        setOpen(false);
+        buttonRef.current?.focus();
+    };
+    const pathOf = new Map(projects.map((p) => [p.name, p.path]));
+    const whereOf = (name: string) => projectWhere(pathOf.get(name) ?? "", home);
+
+    return (
+        <>
+            <button
+                ref={buttonRef}
+                type="button"
+                data-jira-project
+                aria-haspopup="listbox"
+                aria-expanded={open}
+                title="Change the project"
+                onClick={toggle}
+                className={cn(
+                    "-mx-2 flex min-w-0 cursor-pointer items-center gap-1.5 rounded-[7px] px-2 py-1 text-left hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                    open && "bg-surface-hover"
+                )}
+            >
+                <span className="flex min-w-0 flex-1 flex-col gap-[3px]">{label}</span>
+                <ChevronDown aria-hidden size={12} strokeWidth={2} className="flex-none text-muted" />
+            </button>
+            {createPortal(
+                // the position sits outside the reveal: its scale transform would re-anchor a fixed child
+                <div
+                    ref={panelRef}
+                    data-jira-project-list={row.key}
+                    className="fixed z-[80]"
+                    style={{ left: at.left, top: at.top, bottom: at.bottom, width: LIST_W }}
+                >
+                    <PopoverReveal open={open} origin={at.top != null ? "top left" : "bottom left"}>
+                        <ProjectList
+                            projects={projects}
+                            top={row.candidates ?? []}
+                            topLabel="Suggested"
+                            picked={shown.sure ? shown.project : null}
+                            whereOf={whereOf}
+                            sideOf={(name) => (row.sure && name === row.project ? "Arc's guess" : whereOf(name))}
+                            onPick={(name) => {
+                                globalStore.set(jiraPicksAtom, (p) => nextPicks(p, row, name));
+                                close();
+                            }}
+                            onClose={close}
+                        />
+                    </PopoverReveal>
+                </div>,
+                document.body
+            )}
         </>
     );
 }

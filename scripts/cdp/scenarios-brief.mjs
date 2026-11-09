@@ -12,12 +12,14 @@ import {
     PROFILE_MODAL,
     TREE_RAIL_LEAD_ID,
     arrangeFixtureRun,
+    arrangeHeldRun,
     closeProfile,
     failRpc,
     floorDetail,
     floorOk,
     flatText,
     floorStep,
+    fstWriteRun,
     holdRpc,
     lookEval,
     lookPlaceholders,
@@ -32,8 +34,10 @@ import {
     reloadApp,
     restoreLocalStorage,
     setInputExpr,
+    setPageRoster,
     skipStep,
     teardownFixtureRun,
+    teardownHeldRuns,
     usageRateLimits,
     waitForProjectInConfig,
 } from "./scenarios-shared.mjs";
@@ -3203,21 +3207,53 @@ async function graphMapSteps(h, ctx, rec, settle) {
 
 // --- brief-composer-steer-only: no composer without a live lead to message --------------------------
 // The Brief's composer only steers a running session's lead (briefcomposertarget.ts); the Ask audiences it
-// used to have were retired. So with no session sheet open there is no composer at all. The "composer
-// present" half needs a live worker, so it is checked by hand at the final verification.
+// used to have were retired. So with no session sheet open there is no composer at all. Step 2 opens a held dag'd
+// run whose devMock lead's tab name differs from the plan title, and makes the send throw: the composer names the
+// lead by the plan title, as the run is named everywhere else, and gives the draft back.
+const STEER_PLAN_TITLE = "Steer-only plan title";
+const STEER_LEAD_ID = "fx-steer-lead";
+const STEER_LEAD_TAB = "steer-only lead tab";
+// no terminal has this block; the server takes any block id outside a snapshot store and only logs the failed
+// typing, so the send's throw is stubbed in the page (failRpc) to stand for a gone terminal
+const STEER_LEAD_BLOCK = "fx-blk-steer-gone";
+const STEER_TEXT = "steer-only check: hold the lane";
+const STEER_INPUT = `document.querySelector('[data-jarvis-brief-composer="input"]')`;
+
 export const briefComposerSteerOnly = {
     name: "brief-composer-steer-only",
     surface: "jarvis",
     async arrange(h) {
+        const ctx = {};
+        try {
+            const run = await arrangeHeldRun(h, ctx, {
+                key: "brief-steer",
+                title: STEER_PLAN_TITLE,
+                tasks: [{ id: "t-1", label: "noop" }],
+            });
+            // steerTarget takes the lead from the current phase's first tab oref; teardown puts the run back first,
+            // since a cancel fails on a tab that does not exist
+            await fstWriteRun(h, run.runId, (r) => {
+                ctx.original = { status: r.status, phases: r.phases };
+                return {
+                    ...r,
+                    status: "executing",
+                    phases: [{ kind: "execute", state: "running", startedts: Date.now(), workerorefs: [`tab:${STEER_LEAD_ID}`] }],
+                };
+            });
+            // the Brief reads a boot-primed snapshot, so the RPC-created channel needs a reload
+            await reloadApp(h);
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
         // start with no sheet open: Escape closes whatever a previous scenario left behind
         await h.goto("jarvis");
         await h.ev(
             `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }))`
         );
         await h.ev("new Promise((r) => setTimeout(r, 400))");
-        return {};
+        return ctx;
     },
-    async assert(h) {
+    async assert(h, ctx) {
         const steps = [];
         await h.goto("jarvis");
         await h.ev("new Promise((r) => setTimeout(r, 700))");
@@ -3229,9 +3265,76 @@ export const briefComposerSteerOnly = {
             detail: "",
         });
         await h.shot("cdp-shots/brief-composer-steer-only.png");
+
+        const step2 = "2. a send that cannot reach a dag'd run's lead names the plan title, not the tab name, and gives the draft back";
+        if (ctx.arrangeError != null) {
+            steps.push({ step: step2, ok: false, detail: `arrange: ${ctx.arrangeError}` });
+            return steps;
+        }
+        const runId = ctx.held[0].runId;
+        await setPageRoster(h, [
+            {
+                id: STEER_LEAD_ID,
+                name: STEER_LEAD_TAB,
+                project: "verify-brief-steer",
+                task: "lead the steer-only run",
+                state: "working",
+                agent: "claude",
+                model: "opus",
+                activeMs: 60_000,
+                runId,
+                blockId: STEER_LEAD_BLOCK,
+            },
+        ]);
+        await failRpc(h, "AgentPromptCommand", "no such block");
+        let seen;
+        try {
+            seen = await lookEval(h, `
+                await until(() => typeof window.__openAddress === "function", 5000);
+                await window.__openAddress(${JSON.stringify(`run:${runId}`)});
+                const input = () => ${STEER_INPUT};
+                if (!(await until(() => input() != null, 8000))) return { composer: false };
+                // the composer mounts before the run's dag loads; until it has, the lead goes by its tab name
+                const { globalStore } = await mod("app/store/jotaiStore.ts");
+                const { runInfoAtom } = await mod("app/view/agents/runlineagestore.ts");
+                const dagLoaded = () => globalStore.get(runInfoAtom(${JSON.stringify(runId)})).run?.dag != null;
+                if (!(await until(dagLoaded, 8000))) return { composer: true, dagLoaded: false };
+                const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set;
+                set.call(input(), ${JSON.stringify(STEER_TEXT)});
+                input().dispatchEvent(new Event("input", { bubbles: true }));
+                const send = () => document.querySelector('[data-jarvis-brief-composer="send"]');
+                await until(() => send() != null && !send().disabled, 3000);
+                send().click();
+                const status = () => document.querySelector('[data-jarvis-brief-composer="status"]');
+                await until(() => status() != null && input()?.value === ${JSON.stringify(STEER_TEXT)}, 8000);
+                return { composer: true, status: flat(status()), draft: input()?.value ?? null };
+            `);
+            await h.shot("cdp-shots/brief-composer-steer-only-gone.png");
+        } finally {
+            await releaseRpc(h, "AgentPromptCommand");
+        }
+        steps.push({
+            step: step2,
+            ok:
+                seen?.composer === true &&
+                seen.status === `${STEER_PLAN_TITLE} is no longer live — nothing was sent.` &&
+                !seen.status.includes(STEER_LEAD_TAB) &&
+                seen.draft === STEER_TEXT,
+            detail: JSON.stringify(seen),
+        });
         return steps;
     },
-    async teardown() {},
+    async teardown(h, ctx) {
+        const run = ctx.held?.[0];
+        if (run?.runId && ctx.original) {
+            await fstWriteRun(h, run.runId, (r) => ({ ...r, ...ctx.original })).catch((e) =>
+                console.error(`brief-composer-steer-only teardown: take the lead off the run failed: ${e?.message ?? e}`)
+            );
+        }
+        await teardownHeldRuns(h, ctx, "brief-composer-steer-only");
+        // drops the page roster and the closed channel
+        await reloadApp(h);
+    },
 };
 
 // --- brief-restore: the stored subject, landed three different ways -------------------------------

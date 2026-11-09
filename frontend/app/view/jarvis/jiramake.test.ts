@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
+import { pickedRow } from "./jiracheck";
 import { makePrompt, makeTarget } from "./jiramake";
 
 const row = (over: Partial<JiraTicketRow> = {}): JiraTicketRow => ({
@@ -61,5 +62,17 @@ describe("makeTarget", () => {
     it("has no project when the sure project is not registered or has no folder", () => {
         expect(makeTarget(row({ project: "billing" }), registry)).toEqual({ projectPath: "", projectName: "" });
         expect(makeTarget(row({ project: "infra" }), registry)).toEqual({ projectPath: "", projectName: "" });
+    });
+});
+
+describe("a picked project", () => {
+    const registry = { "growth-web": { path: "C:/src/growth-web" } };
+
+    it("starts the agent in the picked project and tells it not to ask", () => {
+        const r = pickedRow(unsure, "growth-web");
+        expect(makeTarget(r, registry)).toEqual({ projectPath: "C:/src/growth-web", projectName: "growth-web" });
+        const p = makePrompt(r);
+        expect(p).toContain("--project growth-web");
+        expect(p).not.toMatch(/ask me/);
     });
 });

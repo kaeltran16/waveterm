@@ -125,10 +125,10 @@ const WAIT_NAME = "brainstorm-judge-wait";
 const WAIT_WORKING = "The judge is weighing 7 approaches.";
 const WAIT_PLACEHOLDER = "Or answer now in your own words…";
 const WAIT_APPROACHES = [
-    { name: "Live activity line", description: "The Working view shows what the agent is doing right now.", facts: ["Arc has the activity line.", "The pane uses none of it."] },
+    { name: "Live activity line", description: "The Working view shows what the agent is doing right now.", facts: ["Arc has the activity line.", "The pane uses none of it (frontend/app/view/agents/brainstormpane.tsx)."] },
     { name: "Agent narrates progress", description: "The agent writes short progress steps mid-turn.", facts: ["The file is written once per turn.", "Steps would need a new field."] },
     { name: "Question streams in", description: "The question text lands first; options fill in after.", facts: ["The file is written whole."] },
-    { name: "Transcript peek", description: "The tail of the agent’s reply, read from its transcript.", facts: ["wsh transcript-tail reads it."] },
+    { name: "Transcript peek", description: "The tail of the agent’s reply, read from its transcript.", facts: ["wsh transcript-tail reads it (cmd/wsh/cmd/wshcmd-transcript.go) from ~/.claude/projects."] },
     { name: "Terminal peek", description: "A toggle reveals the agent’s live terminal.", facts: ["The pane covers the terminal."] },
     { name: "Design stays usable", description: "Confirm, edit and browse the design while it works.", facts: ["Actions queue as lines.", "The design is drawn from the file."] },
     { name: "Stop and redirect", description: "Cancel the turn and send a correction straight away.", facts: ["Arc has a Stop for each agent."] },
@@ -320,6 +320,7 @@ function judgeWaitScenario(kit) {
                     text: flat(b),
                     facts: [...(b.parentElement?.querySelectorAll("[data-brainstorm-facts] li") ?? [])].map((li) => flat(li.lastElementChild)),
                 })),
+                codes: [...(pane?.querySelectorAll("[data-brainstorm-facts] code") ?? [])].map(flat),
                 focused: document.activeElement?.getAttribute?.("data-brainstorm-option") ?? null,
                 placeholder: box?.getAttribute("placeholder") ?? null,
                 boxDisabled: box?.disabled ?? null,
@@ -388,9 +389,10 @@ function judgeWaitScenario(kit) {
             const w1 = await waitFor(h, drawn);
             await h.shot("cdp-shots/brainstorm-judge-wait-1.png");
             rec(
-                "1. the wait: the question and its why, the status line, What the judge is weighing · 7, the 7 approaches in file order with their facts listed under each and a letter on each, the box open with its placeholder, no Guess for me, and the agent's tree line names the judge",
+                "1. the wait: the question and its why, the status line, What the judge is weighing · 7, the 7 approaches in file order with their facts listed under each and a letter on each, a fact's paths set as code and its prose not, the box open with its placeholder, no Guess for me, and the agent's tree line names the judge",
                 s1.ok &&
                     w1.ok &&
+                    eqJson(w1.codes, ["frontend/app/view/agents/brainstormpane.tsx", "cmd/wsh/cmd/wshcmd-transcript.go", "~/.claude/projects"]) &&
                     w1.treeLine === `judge weighing question ${WAIT_Q.n}` &&
                     s1.why === WAIT_Q.why &&
                     w1.list === `What the judge is weighing · ${WAIT_APPROACHES.length}` &&
