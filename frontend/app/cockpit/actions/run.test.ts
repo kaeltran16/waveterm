@@ -139,6 +139,15 @@ describe("run actions", () => {
         expect(applies("run:message", thing(orchestrator(), [agent("lead", { blockId: "" })]))).toBe(false);
     });
 
+    // the roster moved between the palette opening and the send: the error names the lead as the run does
+    it("a message that does not land names a dag'd run's lead by its plan title", async () => {
+        const t = { ...thing(orchestrator(), [lead], lineage(info({ title: "Plan title" }))), agents: [] };
+        const message = RUN_KIND.actions.find((a) => a.id === "run:message")!;
+        await expect(message.run(t, {} as never, "hello")).rejects.toThrow(
+            "Plan title is no longer live — nothing was sent."
+        );
+    });
+
     it("workers at once adjusts an unfinished engine run", () => {
         const lin = lineage(info());
         expect(applies("run:workers", thing(orchestrator(), [lead], lin))).toBe(true);

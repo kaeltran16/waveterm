@@ -23,7 +23,7 @@ import {
 } from "@/app/view/agents/runactions";
 import { clampParallelism, MAX_PARALLELISM } from "@/app/view/agents/runconfig";
 import { runEventsAtom } from "@/app/view/agents/runeventstore";
-import type { Lineage, RunInfo } from "@/app/view/agents/runlineage";
+import { leadDisplayName, type Lineage, type RunInfo } from "@/app/view/agents/runlineage";
 import {
     cancelSurvivors,
     canResume,
@@ -153,7 +153,7 @@ const RUN_ACTIONS: ThingAction<RunThing>[] = [
                 text,
             });
             if (!sent) {
-                throw new Error(`${t.steerLead.name} is no longer live — nothing was sent.`);
+                throw new Error(`${leadDisplayName(t.steerLead, t.info)} is no longer live — nothing was sent.`);
             }
         },
     },
