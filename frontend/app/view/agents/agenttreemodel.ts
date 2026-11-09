@@ -19,6 +19,7 @@ import {
     failedWithTranscript,
     holdsTask,
     isEndedWorkerId,
+    mergeGateLine,
     NO_LINEAGE,
     PLAN_REVIEWER_ROLE,
     planReviewerOf,
@@ -41,13 +42,15 @@ export type AgentTreeRow =
     // a run whose workers are in the roster but whose lead is not: a plan-path run before its first lead
     | { kind: "run"; project: string; run: RunInfo; open: boolean; live: number }
     // a task's worker; a done task whose session is gone has no agent. `extras` counts the task's other tabs (its
-    // reviewer, an earlier attempt), listed as `nested` rows beneath it while `extrasOpen`
+    // reviewer, an earlier attempt), listed as `nested` rows beneath it while `extrasOpen`. `gate` is a done lane
+    // tip's merge gate line (mergeGateLine) while it waits to merge
     | {
           kind: "worker";
           agent?: AgentVM;
           project: string;
           run: RunInfo;
           task: TaskNode;
+          gate?: string;
           nested?: boolean;
           extras?: number;
           extrasOpen?: boolean;
@@ -198,12 +201,15 @@ function runRows(
 ): { rows: AgentTreeRow[]; members: number; attn: number } {
     const { run, project } = item;
     const tasks = run.dag?.tasks ?? [];
+    // a done lane tip at the merge gate has not landed: it stays a live row until it merges
+    const atGate = (t: TaskNode) => t.state === "done" && mergeGateLine(run, t.id) != null;
     // a task past its worker is still under way: verifying its merge, or failed and waiting on a judgment. Cleanup
     // reaps its worker's tab with the tree, so it keeps its row with no agent
     const live = tasks.filter(
-        (t) => t.state !== "done" && (workers.has(t.id) || !(QUEUED.has(t.state) || DROPPED.has(t.state)))
+        (t) =>
+            atGate(t) || (t.state !== "done" && (workers.has(t.id) || !(QUEUED.has(t.state) || DROPPED.has(t.state))))
     );
-    const done = tasks.filter((t) => t.state === "done");
+    const done = tasks.filter((t) => t.state === "done" && !atGate(t));
     // settled without landing and with no tab left: listed in the done fold, which the run's progress counts them in
     const dropped = tasks.filter((t) => DROPPED.has(t.state) && !workers.has(t.id));
     // tasks not dispatched yet have no session to open, so they fold away until asked for
@@ -249,7 +255,8 @@ function runRows(
         const extrasOpen =
             extras.length > 0 &&
             (folds.extrasOpen.has(taskFoldKey(run.runId, task.id)) || extras.some((a) => a.state === "asking"));
-        rows.push({ kind: "worker", agent: primary, project, run, task, extras: extras.length, extrasOpen });
+        const gate = mergeGateLine(run, task.id);
+        rows.push({ kind: "worker", agent: primary, project, run, task, gate, extras: extras.length, extrasOpen });
         if (extrasOpen) {
             for (const agent of extras) {
                 rows.push({ kind: "worker", agent, project, run, task, nested: true });
@@ -432,6 +439,16 @@ export function buildAgentTree(
         rows.push({ kind: "group", project: g.project, count, attn }, ...body);
     }
     return rows;
+}
+
+const ERROR_STATES = new Set(["failed", "verify-failed", "blocked-merge", "review-failed"]);
+
+/** Pure: the tone a task's worker row draws its dot and second line in: a failure is an error, a stall a warning. */
+export function workerRowTone(task: TaskNode): "error" | "warning" | undefined {
+    if (ERROR_STATES.has(task.state)) {
+        return "error";
+    }
+    return task.state === "stalled" ? "warning" : undefined;
 }
 
 /** Pure: the id a click on the row focuses; none for a fold or header. A done task's worker, or one whose tab its

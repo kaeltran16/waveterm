@@ -54,7 +54,7 @@ import {
     waitForProjectInConfig,
     waveService,
 } from "./scenarios-shared.mjs";
-import { arrangeLiveRuns, injectLiveAsks, LIVE_IDS, liveRoster, publishLiveEvents, setLiveRoster, teardownLiveRuns } from "./live-run-fixture.mjs";
+import { arrangeLiveRuns, injectLiveAsks, LIVE_IDS, LIVE_TASKS_A, liveRoster, publishLiveEvents, setLiveRoster, teardownLiveRuns } from "./live-run-fixture.mjs";
 
 // --- terminal palette follows the cockpit theme -------------------------------------------------
 // Asserts against window.term (term.tsx assigns it) + the resolved custom properties, NOT pixels:
@@ -925,6 +925,184 @@ async function landedRunSteps(h, ctx) {
     return steps;
 }
 
+// Phase 3's tree and rail fixes on run A (D18, D6). A failed task that never had a session is seeded on t-14 (queued,
+// no stand-in) for the click, and put back after; the held merge gate is a page-only digest injection on t-10, the
+// only done task and alone in its lane, held by t-8 (verifying). The next digest load replaces the injection, so the
+// step injects right before it reads.
+const GATE_TIP = "t-10";
+const GATE_HOLDER = "t-8";
+const GATE_LINE = `merge ready · waits on ${GATE_HOLDER}'s Verify`;
+const NO_SESSION_TASK = "t-14";
+// the gate's lane keeps room to name its task: "t-10 · s…" at the least
+const LANE_NAME_MIN_PX = 60;
+const taskLabel = (id) => LIVE_TASKS_A.find((t) => t.id === id).label;
+
+// a tree row by its title, as the tree draws it; its first rounded span is the row's dot
+const TREE_ROW_LIB = `
+    const treeRow = (label) => {
+        const name = [...(${LIVE_TREE}?.querySelectorAll("div") ?? [])].find((d) => d.textContent.trim() === label && d.children.length === 0);
+        return name ? name.closest(".relative") : null;
+    };
+    const tokenColor = (prop) => {
+        const probe = document.createElement("span");
+        probe.style.backgroundColor = "var(" + prop + ")";
+        document.body.appendChild(probe);
+        const c = getComputedStyle(probe).backgroundColor;
+        probe.remove();
+        return c;
+    };
+    const dotOf = (row) => row?.querySelector("span.rounded-full") ?? null;`;
+
+const injectGateHeld = (h, ctx) =>
+    lookEval(
+        h,
+        `const { globalStore } = await mod("app/store/jotaiStore.ts");
+        const L = await mod("app/view/agents/runlineagestore.ts");
+        const id = ${JSON.stringify(ctx.live.A.runId)};
+        if (!(await until(() => globalStore.get(L.runDigestsAtom)[id], 15000))) return "no digest for run A";
+        const d = globalStore.get(L.runDigestsAtom)[id];
+        const tip = (d.tasks ?? []).find((t) => t.taskid === ${JSON.stringify(GATE_TIP)});
+        if (!tip) return "no digest task " + ${JSON.stringify(GATE_TIP)};
+        window.__treeRailGatePrev ??= { mergestate: tip.mergestate, mergeheldby: tip.mergeheldby };
+        const tasks = d.tasks.map((t) => (t === tip ? { ...t, mergestate: "held", mergeheldby: ${JSON.stringify(GATE_HOLDER)} } : t));
+        globalStore.set(L.runDigestsAtom, (prev) => ({ ...prev, [id]: { ...d, tasks } }));
+        return "ok";`
+    );
+
+// puts t-10's digest entry back as the step found it; a later digest load would too
+const restoreGate = (h, ctx) =>
+    lookEval(
+        h,
+        `const { globalStore } = await mod("app/store/jotaiStore.ts");
+        const L = await mod("app/view/agents/runlineagestore.ts");
+        const id = ${JSON.stringify(ctx.live.A.runId)};
+        const prev = window.__treeRailGatePrev;
+        delete window.__treeRailGatePrev;
+        const d = globalStore.get(L.runDigestsAtom)[id];
+        if (!prev || !d) return "nothing to restore";
+        const tasks = d.tasks.map((t) => (t.taskid === ${JSON.stringify(GATE_TIP)} ? { ...t, ...prev } : t));
+        globalStore.set(L.runDigestsAtom, (all) => ({ ...all, [id]: { ...d, tasks } }));
+        return "ok";`
+    );
+
+const seedNoSessionFailed = (h, ctx, on) =>
+    seedHeldRun(h, ctx.live.A, { [NO_SESSION_TASK]: { state: on ? "failed" : "pending" } });
+
+async function treeGateToneSteps(h, ctx) {
+    const steps = [];
+    const rec = (step, ok, detail) => steps.push({ step, ok: !!ok, detail: typeof detail === "string" ? detail : JSON.stringify(detail) });
+    if (ctx.liveError || !ctx.live) {
+        rec("9d. run A's failed rows", false, ctx.liveError ?? "not arranged: the tree-rail arrange failed first");
+        return steps;
+    }
+    await h.cdp("Emulation.setDeviceMetricsOverride", OBS_WIDE);
+    await h.goto("agent");
+    await setLiveRoster(h, ctx);
+    await liveFocus(h, LIVE_IDS.leadA, `!!${LIVE_RAIL} && /review failed/.test(flat(${LIVE_RAIL}))`);
+    try {
+        await seedNoSessionFailed(h, ctx, true);
+        ctx.seededNoSession = true;
+    } catch (e) {
+        ctx.seedError = String(e?.message ?? e);
+    }
+
+    // D18: t-5 (failed) and t-7 (verify failed) draw the error dot; a failed row with no session opens the DAG at it
+    const failedRows = async () => {
+        const read = await lookEval(h, `${TREE_ROW_LIB}
+            await until(() => treeRow(${JSON.stringify(taskLabel(NO_SESSION_TASK))}), 10000);
+            const error = tokenColor("--color-error");
+            const tone = (label) => {
+                const row = treeRow(label);
+                const sub = row?.querySelector("span.truncate.font-mono");
+                return row ? { dot: getComputedStyle(dotOf(row)).backgroundColor, sub: sub ? getComputedStyle(sub).color : null } : null;
+            };
+            return {
+                error,
+                t5: tone(${JSON.stringify(taskLabel("t-5"))}),
+                t7: tone(${JSON.stringify(taskLabel("t-7"))}),
+                noSession: tone(${JSON.stringify(taskLabel(NO_SESSION_TASK))}),
+            };`);
+        const click = await lookEval(h, `${TREE_ROW_LIB}
+            const { globalStore } = await mod("app/store/jotaiStore.ts");
+            const S = await mod("app/view/orchestrate/dagstore.ts");
+            const M = await mod("app/view/orchestrate/dagmodalstate.ts");
+            const row = treeRow(${JSON.stringify(taskLabel(NO_SESSION_TASK))});
+            if (!row) return { error: "no row for ${NO_SESSION_TASK}" };
+            row.click();
+            const modal = await until(() => !!document.querySelector("[data-dag-modal-kind]"), 8000);
+            const selected = globalStore.get(S.selectedTaskIdAtom);
+            M.closeDagModal();
+            await until(() => !document.querySelector("[data-dag-modal-kind]"), 4000);
+            return { modal, selected };`);
+        await h.goto("agent");
+        return { ...read, click };
+    };
+    const failedOk = (r) =>
+        r.t5?.dot === r.error &&
+        r.t7?.dot === r.error &&
+        r.t5?.sub === r.error &&
+        r.noSession?.dot === r.error &&
+        r.click?.modal === true &&
+        r.click?.selected === NO_SESSION_TASK;
+    const wide = ctx.seededNoSession ? await failedRows() : { seedError: ctx.seedError };
+    await h.shot("cdp-shots/agent-tree-rail-p3-failed-rows.png");
+    rec("9d. at 1600, t-5 and t-7 draw the error dot, and a failed row with no session opens the DAG modal at it (D18)", failedOk(wide), wide);
+    await h.cdp("Emulation.setDeviceMetricsOverride", LIVE_NARROW);
+    await polishNap(800);
+    const narrow = ctx.seededNoSession ? await failedRows() : { seedError: ctx.seedError };
+    await h.shot("cdp-shots/agent-tree-rail-p3-failed-rows-1000.png");
+    await h.cdp("Emulation.setDeviceMetricsOverride", OBS_WIDE);
+    await polishNap(500);
+    rec("9e. at 1000x700, the same: error dots, and the no-session row opens the DAG modal at it (D18)", failedOk(narrow), narrow);
+    if (ctx.seededNoSession) {
+        await seedNoSessionFailed(h, ctx, false);
+        ctx.seededNoSession = false;
+    }
+
+    // D6: a held tip stays out of the done fold with the gate's line, and its rail lane says the same
+    await liveFocus(h, LIVE_IDS.leadA, `!!${LIVE_RAIL} && /review failed/.test(flat(${LIVE_RAIL}))`);
+    const injected = await injectGateHeld(h, ctx);
+    const gate = await lookEval(h, `${TREE_ROW_LIB}
+        const label = ${JSON.stringify(taskLabel(GATE_TIP))};
+        await until(() => /merge ready/.test(flat(treeRow(label))), 6000);
+        // the row slides out of the fold: let it land before reading where it sits
+        await nap(1200);
+        const row = treeRow(label);
+        const fold = [...(${LIVE_TREE}?.querySelectorAll("div.cursor-pointer") ?? [])].find((d) => /^(\\d+ landed · )?\\d+ skipped$/.test(flat(d)));
+        const laneName = [...(${LIVE_RAIL}?.querySelectorAll("div") ?? [])].find((d) => d.textContent.trim() === ${JSON.stringify(`${GATE_TIP} · ${taskLabel(GATE_TIP)}`)} && d.children.length === 0);
+        const laneText = laneName?.closest(".grid")?.querySelector("[data-lane-text]");
+        const dot = dotOf(row);
+        // the tree's rows are siblings' children: the row after this one must start below it
+        const next = row?.parentElement?.nextElementSibling;
+        return {
+            row: flat(row),
+            fold: fold ? flat(fold) : null,
+            afterFold: !!(row && fold && fold.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING),
+            waitDot: dot ? getComputedStyle(dot).backgroundColor === "rgba(0, 0, 0, 0)" && dot.className.includes("border") : false,
+            overlap: row && next ? Math.round(row.getBoundingClientRect().bottom - next.getBoundingClientRect().top) : null,
+            lane: flat(laneName?.closest(".grid")),
+            laneNameWidth: laneName ? laneName.clientWidth : 0,
+            laneTextClipped: laneText ? laneText.scrollWidth > laneText.clientWidth + 1 : null,
+        };`);
+    await h.shot("cdp-shots/agent-tree-rail-p3-merge-gate.png");
+    await restoreGate(h, ctx);
+    rec(
+        `9f. at 1600, a held tip stays out of the done fold, reads "${GATE_LINE}" with a wait dot, and its rail lane says the same (D6)`,
+        injected === "ok" &&
+            gate.row.includes(GATE_LINE) &&
+            gate.fold === "1 skipped" &&
+            gate.afterFold &&
+            gate.waitDot &&
+            gate.overlap != null &&
+            gate.overlap <= 0 &&
+            gate.lane.includes(GATE_LINE) &&
+            gate.laneNameWidth >= LANE_NAME_MIN_PX &&
+            gate.laneTextClipped === false,
+        { injected, ...gate }
+    );
+    return steps;
+}
+
 export const agentTreeRail = {
     name: "agent-tree-rail",
     surface: "agent",
@@ -1160,6 +1338,7 @@ export const agentTreeRail = {
         );
         steps.push(...(await liveRunAgentSteps(h, ctx)));
         steps.push(...(await landedRunSteps(h, ctx)));
+        steps.push(...(await treeGateToneSteps(h, ctx)));
         return steps;
     },
     async teardown(h, ctx) {
