@@ -48,7 +48,9 @@ export function ProjectSwitcher({ model, variant }: { model: AgentsViewModel; va
         setConfirming(null);
     };
     return (
-        <div className="relative">
+        // the app bar is a deep drag region: without the opt-out, a press on the backdrop starts a window drag,
+        // which swallows the click that closes the dropdown
+        <div className="relative" data-tauri-drag-region="false">
             <button
                 ref={triggerRef}
                 type="button"

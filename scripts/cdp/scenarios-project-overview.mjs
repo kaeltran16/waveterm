@@ -35,11 +35,20 @@ export const projectOverview = {
             switcher()?.click();
             const opened = await until(() => document.querySelector('[data-project-option="all"]') != null, 4000);
             const allHasEntry = document.querySelector('[data-project-option="all"]')?.querySelector("[data-project-overview-open]") != null;
+            // the app bar is a deep tauri drag region: the nearest drag attribute over the backdrop must opt out, or a
+            // press on it starts a window drag and the click that closes the dropdown never fires
+            const backdrop = switcher()?.parentElement.querySelector(":scope > .fixed.inset-0");
+            const backdropDrag = backdrop?.closest("[data-tauri-drag-region]")?.getAttribute("data-tauri-drag-region");
             const hasEntry = entry(${JSON.stringify(ctx.project)}) != null;
             switcher()?.click();
             await nap(200);
-            return { listed, opened, allHasEntry, hasEntry };
+            return { listed, opened, allHasEntry, hasEntry, backdropDrag };
         `);
+        steps.push({
+            step: "project-overview: the switcher's backdrop opts out of the app bar's window-drag region",
+            ok: unscoped?.backdropDrag === "false",
+            detail: JSON.stringify(unscoped),
+        });
         steps.push({
             step: "project-overview: the project's switcher row has an overview button, All projects has none",
             ok: unscoped?.listed === true && unscoped.opened === true && unscoped.allHasEntry === false && unscoped.hasEntry === true,
