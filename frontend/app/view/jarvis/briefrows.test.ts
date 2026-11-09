@@ -1086,6 +1086,32 @@ describe("Behind you's short, grouped rows", () => {
         ]);
     });
 
+    it("names a shipped run's initiative and chunk, and nothing for one the index cannot name", () => {
+        const ship = (oref: string, effortOid: string, chunkLabel: string): ShippedRow => ({
+            oref,
+            goal: "ship it",
+            project: "",
+            summary: "",
+            completedTs: NOW - MIN,
+            fresh: false,
+            hasReport: false,
+            effortOid,
+            chunkLabel,
+            mode: "orchestrator",
+        });
+        const [group] = behindGroups(
+            [],
+            [ship("run:a", "e1", "Review: Setup"), ship("run:b", "archived", "Old"), ship("run:c", "", "")],
+            NOW,
+            { efforts: index }
+        );
+        expect(group.lines.map((l) => l.initiative)).toEqual([
+            { title: "Brief", chunk: "Review: Setup" },
+            undefined,
+            undefined,
+        ]);
+    });
+
     it("cuts a goal to its first line's lead sentence", () => {
         expect(shortTitle("Fix every chunk of the Brief. Read it first.\n\nMore")).toBe(
             "Fix every chunk of the Brief."

@@ -57,6 +57,8 @@ export type BriefLine = {
     hasReport?: boolean;
     fresh?: boolean;
     runType?: RunType;
+    // a shipped run's initiative and the chunk it executed
+    initiative?: { title: string; chunk: string };
     group?: "delta" | "shipped";
     // an initiative's Jira key, "" with none: the meta draws it as a link
     ticket?: string;
@@ -560,6 +562,12 @@ export type BehindContext = {
     projects?: Record<string, { path?: string }> | null;
 };
 
+// an initiative the index does not hold (archived, or another project's) has no title to show
+function shippedInitiative(s: ShippedRow, efforts: EffortIndex | undefined): BriefLine["initiative"] {
+    const title = s.effortOid ? efforts?.get(s.effortOid)?.title : undefined;
+    return title != null ? { title, chunk: s.chunkLabel } : undefined;
+}
+
 export function behindGroups(
     groups: DeltaGroup[],
     shipped: ShippedRow[],
@@ -629,6 +637,7 @@ export function behindGroups(
                 hasReport: s.hasReport,
                 fresh: s.fresh,
                 runType: runType(s.mode),
+                initiative: shippedInitiative(s, ctx.efforts),
                 group: "shipped" as const,
             })),
         });

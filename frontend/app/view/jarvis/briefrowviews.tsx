@@ -395,7 +395,8 @@ export function DeltaRowView({
             {...cursorAttrs(focused)}
             onClick={onOpen}
             className={cn(
-                "flex items-center gap-[13px] py-[7px]",
+                "flex gap-[13px] py-[7px]",
+                line.note ? "items-start" : "items-center",
                 ROW_BORDER,
                 onOpen != null && "cursor-pointer hover:bg-surface-hover",
                 focused && CURSOR_RING
@@ -404,6 +405,7 @@ export function DeltaRowView({
             <span
                 className={cn(
                     "w-28 flex-none truncate font-mono text-[10.5px] font-semibold",
+                    line.note && "pt-0.5",
                     TONE_TEXT[line.kindTone]
                 )}
             >
@@ -413,9 +415,19 @@ export function DeltaRowView({
                 <span title={line.title} className="truncate text-[13px] text-ink-hi">
                     {line.title}
                 </span>
+                {line.note ? (
+                    <span title={line.note} className="line-clamp-2 text-[12px] leading-4 text-ink-mid">
+                        {line.note}
+                    </span>
+                ) : null}
                 {line.detail ? <span className={cn("truncate", MONO_FAINT)}>{line.detail}</span> : null}
             </div>
-            <span className="min-w-12 flex-none whitespace-nowrap text-right font-mono text-[11px] text-ink-mid">
+            <span
+                className={cn(
+                    "min-w-12 flex-none whitespace-nowrap text-right font-mono text-[11px] text-ink-mid",
+                    line.note && "pt-0.5"
+                )}
+            >
                 {line.state}
             </span>
         </div>
@@ -440,16 +452,16 @@ export function ShippedRowView({
             {...cursorAttrs(focused)}
             onClick={onOpen}
             className={cn(
-                "flex items-center gap-3 py-[7px] hover:bg-surface-hover",
+                "flex items-start gap-3 py-[7px] hover:bg-surface-hover",
                 ROW_BORDER,
                 onOpen != null ? "cursor-pointer" : "cursor-default",
                 selected && "bg-surface-selected",
                 focused && CURSOR_RING
             )}
         >
-            <span className="h-[7px] w-[7px] flex-none rounded-full bg-success/45" />
+            <span className="mt-1.5 h-[7px] w-[7px] flex-none rounded-full bg-success/45" />
             <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <div className="flex min-w-0 items-center gap-2">
+                <div className="flex min-w-0 items-start gap-2">
                     {line.runType ? (
                         <span
                             className={cn(
@@ -460,7 +472,7 @@ export function ShippedRowView({
                             {line.runType}
                         </span>
                     ) : null}
-                    <span title={line.title} className="min-w-0 truncate text-[13px] text-ink-hi">
+                    <span title={line.title} className="line-clamp-2 min-w-0 text-[13px] leading-[18px] text-ink-hi">
                         {line.title}
                     </span>
                     {line.fresh ? (
@@ -469,10 +481,23 @@ export function ShippedRowView({
                         </span>
                     ) : null}
                 </div>
+                {line.initiative ? (
+                    <span className="truncate font-mono text-[10.5px] text-ink-mid">
+                        {line.initiative.title}
+                        {line.initiative.chunk ? (
+                            <>
+                                <span className="text-ink-faint"> · </span>
+                                <span className="text-muted">{line.initiative.chunk}</span>
+                            </>
+                        ) : null}
+                    </span>
+                ) : null}
                 {line.detail ? <span className={cn("truncate", MONO_FAINT)}>{line.detail}</span> : null}
             </div>
-            {line.hasReport ? <span className="flex-none font-mono text-[10.5px] text-ink-mid">report</span> : null}
-            <span className="min-w-12 flex-none whitespace-nowrap text-right font-mono text-[11px] text-ink-mid">
+            {line.hasReport ? (
+                <span className="flex-none pt-px font-mono text-[10.5px] text-ink-mid">report</span>
+            ) : null}
+            <span className="min-w-12 flex-none whitespace-nowrap pt-px text-right font-mono text-[11px] text-ink-mid">
                 {line.state}
             </span>
         </div>

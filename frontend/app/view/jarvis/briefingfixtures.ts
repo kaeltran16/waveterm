@@ -333,6 +333,8 @@ const actState: WorkState = {
                     summary: "# Run report: Portfolio hero\n\n## Tasks\n- t-1: **rebuilt** the hero in `hero.tsx`",
                     completedts: NOW - 5 * HOUR,
                     hasreport: true,
+                    effortoid: "act-rules",
+                    chunklabel: "G9 draft the rule",
                     mode: "orchestrator",
                 },
             ],
