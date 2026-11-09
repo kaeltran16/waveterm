@@ -29,7 +29,7 @@ const (
 // legacyChannelBlob is a channel as a pre-contract build stored it, arrays embedded. waveobj.Channel can
 // no longer produce one, so the tests write it raw.
 func legacyChannelBlob(oid, messages, runs string) []byte {
-	return []byte(fmt.Sprintf(`{"otype":"channel","oid":%q,"version":1,"name":"legacy","createdts":1,"messages":%s,"runs":%s,"meta":{}}`, oid, messages, runs))
+	return fmt.Appendf(nil, `{"otype":"channel","oid":%q,"version":1,"name":"legacy","createdts":1,"messages":%s,"runs":%s,"meta":{}}`, oid, messages, runs)
 }
 
 func legacyMessage(id, text string) string {
