@@ -57,9 +57,11 @@ loops over `Reviewers` stay as they are. `task generate` updates `gotypes.d.ts`.
 - `planReviewerOf` also finds a reviewer in a past round, returning its round; `stageOutcome` then reads a past
   round's reviewer's own verdict instead of the blanket "failed".
 - `agenttreemodel.ts`: the done fold lists every round's finished reviewers, oldest round first. A stage row
-  carries `round` when the run had more than one plan-review round, and `agenttree.tsx` labels it
-  `Plan reviewer · <lens> · round N`. A one-round run's rows read exactly as today (no round), so every existing
-  scenario step stays valid.
+  carries `round` when the run had more than one plan-review round, and `agenttree.tsx` shows it on the row's
+  second line (`failed · round 1`, as the Final verification row's `failed at Final · round 1`); the title stays
+  `Plan review · <lens>`. Why not in the title: at the scenario's 1600px the title truncates before the round
+  (found while building it). A one-round run's rows read exactly as today (no round), so every existing scenario
+  step stays valid.
 - The done row's `planReviews` count includes past rounds.
 - (Plan-review round 1 finding.) `stageOutcome` returns `accepted` for every plan reviewer of an accepted review
   before it looks the reviewer up. A past round's reviewer reads its own verdict (passed or failed) even in an
@@ -79,10 +81,11 @@ the scenario's wide width.
 **Checked on HEAD:** the keep-restore row puts both buttons in the row grid's right column beside the gist, so at
 1000px the gist column collapses (seen in `brainstorm-check-review-narrow.png`).
 
-**Decision:** when the row is narrow the actions move under the gist (span the gist's column on a second grid
-line), decided by the review's own width (container query or the existing narrow measure), not the window's.
-Why: the grid's other columns are fixed, so the gist is the only column that can give way, and buttons under the
-text keep both readable. At 1600 the row stays as today.
+**Decision:** below 820px of the review's own width (a container query, not the window's width) a changed row
+stacks: the title on line 1, the gist with its cause across the row on line 2, the actions on line 3; the lines
+under the row (diff, edit box, call, error) widen with it. Why: at a 1000px window the review is about 404px wide,
+and with the 190px title column beside it the gist kept only 87px even with the actions moved under it (measured
+while building it), so the title has to move too. At 1600 the row stays as today.
 
 **Proof:** `brainstorm-check-review` step 1e at 1000x700 (the existing `CR_NARROW`): the Constraints row's gist is
 at least a readable width (a minimum the worker sets from the measured 1600 layout, e.g. 240px) and its text is
@@ -135,18 +138,21 @@ project-name preference. The cockpit action's error uses `leadDisplayName(t.stee
 
 `briefcomposer.tsx` reads `runInfoAtom(run.id)`, whose value is `RunInfoRead {run, loaded}`: it passes `.run`.
 
-**Plan-review round 1 finding, adopted:** `steerWorker` returns false only for a missing worker or blockId, from the
-same agents snapshot the target came from, so a lead whose terminal is gone makes `sendAgentText` throw, and
-`fireAndForget` in `briefcomposer.tsx` drops the error: the draft is eaten and no status shows. So a thrown send is
-treated as not sent: the composer logs the error (never swallowed), restores the draft, and shows the same
-"<workerName> is no longer live — nothing was sent." status. Why: the composer's own comment says it must give the
-words back rather than eat them, and a throw is the case that actually happens.
+**Plan-review round 1 finding, adopted:** a send that throws inside `fireAndForget` in `briefcomposer.tsx` would eat
+the draft and show no status. So a thrown send is treated as not sent: the composer logs the error (never
+swallowed), restores the draft, and shows the same "<workerName> is no longer live — nothing was sent." status.
+Why: the composer's own comment says it must give the words back rather than eat them.
+
+**Found while building it:** a send to a block that no longer exists does not throw. `AgentPromptCommand`
+(`wshserver_agentmsg.go`) returns nil for any block id outside a snapshot store, and delivery fails later in a
+goroutine that only logs. So the CDP step makes the send fail by stubbing `AgentPromptCommand` with `failRpc`, and
+the server rejecting an unknown block is an open issue on the effort, not this spec's work.
 
 **Proof:** `briefcomposertarget.test.ts`: a dag'd run's target names its plan title, a run with no dag its tab
 name. A test for the cockpit action's error text if one exists beside it, else in its model's test. CDP:
 `brief-composer-steer-only` step on a dag'd run whose lead's tab name differs from its plan title (the scenario has
 no fixture run today, so the step seeds one with the shared run-fixture helpers): a send that cannot reach the
-lead's terminal (a devMock lead with a bogus blockId) restores the draft and shows "<plan title> is no longer live
+lead's terminal (`AgentPromptCommand` stubbed to fail) restores the draft and shows "<plan title> is no longer live
 — nothing was sent." and never the tab name. (The composer's other visible name, line 133 of `briefcomposer.tsx`,
 reads "lead" for an orchestrator run, so the error is where a dag'd run's name shows.)
 
