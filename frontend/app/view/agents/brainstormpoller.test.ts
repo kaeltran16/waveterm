@@ -37,6 +37,7 @@ function state(over: Partial<BrainstormState> = {}): BrainstormState {
         designOpen: false,
         boards: [],
         base: null,
+        turn: { read: [], canvases: {} },
         sent: null,
         sentCheckAt: null,
         review: { cursor: null, open: {} },
