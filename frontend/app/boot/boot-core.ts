@@ -14,13 +14,7 @@ import { setupControllerStatusSubscription } from "@/app/view/agents/agentcontro
 import { setupChildAskSubscription } from "@/app/view/agents/childaskstore";
 import { setupAgentPermissionSubscription } from "@/app/view/agents/permissionstore";
 import { setupAgentStatusSubscription } from "@/app/view/agents/session-models/agentstatusstore";
-import {
-    atoms,
-    getApi,
-    globalStore,
-    initGlobal,
-    initGlobalWaveEventSubs,
-} from "@/store/global";
+import { atoms, getApi, globalStore, initGlobal, initGlobalWaveEventSubs } from "@/store/global";
 import { activeTabIdAtom } from "@/store/tab-model";
 import * as WOS from "@/store/wos";
 

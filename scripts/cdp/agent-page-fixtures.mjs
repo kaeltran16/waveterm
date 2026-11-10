@@ -116,8 +116,9 @@ export async function quietUntil(h, blockId, minutes, seen) {
     }
 }
 
-// A real tab made as launchAgent makes it: CreateTab, the block's meta, the tab's session meta. No controller unless
-// the caller's blockMeta names one, so nothing runs. CreateTab is a wavesrv service call, which the page cannot
+// A real tab made as launchAgent makes it: CreateTab, the block's meta, the tab's session meta. CreateTab's block comes
+// with a shell controller and setmeta merges, so a caller that wants nothing to run passes controller: null in
+// blockMeta. CreateTab is a wavesrv service call, which the page cannot
 // reach cross-origin, so Node makes it. pending: true also adds a pending launch, which keeps the row booting.
 export async function makeTab(h, ctx, { label, blockMeta = { view: "term" }, tabMeta = {}, pending = false }) {
     if (ctx.workspaceId == null) {

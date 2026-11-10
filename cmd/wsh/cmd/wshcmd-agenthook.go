@@ -463,7 +463,9 @@ func xmlTagContent(s, tag string) string {
 }
 
 // unwrapSlashCommand turns Claude Code's transcript encoding of a slash-command turn
-//   <command-name>/foo</command-name> … <command-args>bar baz</command-args>
+//
+//	<command-name>/foo</command-name> … <command-args>bar baz</command-args>
+//
 // into the clean "/foo bar baz" a human would recognize. Returns "" when the prompt isn't a
 // slash-command blob, so callers fall through to plain head-text.
 func unwrapSlashCommand(prompt string) string {

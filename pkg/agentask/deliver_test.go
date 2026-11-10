@@ -317,7 +317,7 @@ func TestDeliverAnswer_ProseRejectsInvalidAnswers(t *testing.T) {
 		{{Text: "a\x01b"}},               // control char
 		{{SelectedIndexes: []int{9}}},    // out of range
 		{{SelectedIndexes: []int{0, 1}}}, // multi-select shape
-		{},                              // no answers
+		{},                               // no answers
 	}
 	for _, answers := range cases {
 		GlobalRegistry = MakeRegistry()

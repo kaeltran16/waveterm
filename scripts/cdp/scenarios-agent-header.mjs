@@ -114,8 +114,9 @@ export default function (_kit) {
                 const ctx = { tabIds: [] };
                 await h.goto("agent");
                 try {
-                    const working = await makeTab(h, ctx, { label: `header-working-${tag}` });
-                    const idle = await makeTab(h, ctx, { label: `header-idle-${tag}` });
+                    const noController = { view: "term", controller: null };
+                    const working = await makeTab(h, ctx, { label: `header-working-${tag}`, blockMeta: noController });
+                    const idle = await makeTab(h, ctx, { label: `header-idle-${tag}`, blockMeta: noController });
                     const term = await makeTab(h, ctx, {
                         label: `header-term-${tag}`,
                         // the sidebar lists a tab as a session only once its term block names a cwd

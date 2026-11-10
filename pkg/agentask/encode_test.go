@@ -76,10 +76,10 @@ func TestEncodeMultiSelectTogglesNavigatesAndConfirms(t *testing.T) {
 	}
 	down := []byte{0x1b, '[', 'B'}
 	want := [][]byte{
-		{'\r'},                    // toggle Alpha (idx0, already highlighted)
-		down, down, {'\r'},        // -> Charlie (idx2), toggle
-		down, down, down, {'\r'},  // -> Submit (idx N+1=5), open review
-		{'\r'},                    // confirm "Submit answers"
+		{'\r'},             // toggle Alpha (idx0, already highlighted)
+		down, down, {'\r'}, // -> Charlie (idx2), toggle
+		down, down, down, {'\r'}, // -> Submit (idx N+1=5), open review
+		{'\r'}, // confirm "Submit answers"
 	}
 	if !keysEqual(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
@@ -93,9 +93,9 @@ func TestEncodeMultiSelectSingleOption(t *testing.T) {
 	}
 	down := []byte{0x1b, '[', 'B'}
 	want := [][]byte{
-		down, {'\r'},             // -> Bravo (idx1), toggle
+		down, {'\r'}, // -> Bravo (idx1), toggle
 		down, down, down, {'\r'}, // -> Submit (idx N+1=4), open review
-		{'\r'},                   // confirm
+		{'\r'}, // confirm
 	}
 	if !keysEqual(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
