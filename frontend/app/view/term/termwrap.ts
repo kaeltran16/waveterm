@@ -44,6 +44,7 @@ import {
     type LinkRange,
     type WrappedRow,
 } from "./termfilelinks";
+import { registerTermScreen } from "./termscreen";
 import {
     bufferLinesToText,
     createTempFileFromBlob,
@@ -121,6 +122,7 @@ export class TermWrap {
     sendDataHandler: (data: string) => void;
     toDispose: TermTypes.IDisposable[] = [];
     webglAddon: WebglAddon | null = null;
+    private unregisterScreen: () => void;
     webglEnabledAtom: jotai.PrimitiveAtom<boolean>;
     pasteActive: boolean = false;
     lastUpdated: number;
@@ -172,6 +174,7 @@ export class TermWrap {
         this.webglEnabledAtom = jotai.atom(false) as jotai.PrimitiveAtom<boolean>;
         // registerDecoration (the file-link accent) is proposed api in xterm 6 and throws without this
         this.terminal = new Terminal({ ...options, allowProposedApi: true });
+        this.unregisterScreen = registerTermScreen(blockId, this.terminal);
         this.fitAddon = new FitAddon();
         this.serializeAddon = new SerializeAddon();
         this.terminal.loadAddon(this.fitAddon);
@@ -473,6 +476,7 @@ export class TermWrap {
             }
         });
         this.promptMarkers = [];
+        this.unregisterScreen();
         this.terminal.dispose();
         this.toDispose.forEach((d) => {
             try {
