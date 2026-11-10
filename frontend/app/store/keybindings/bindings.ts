@@ -62,6 +62,7 @@ import { ignoreWsAtom, splitAvailableAtom, splitViewAtom } from "@/app/view/agen
 import { docReviewAtom, parseDocReview } from "@/app/view/agents/docreview";
 import { filesStateAtom, reloadChanges } from "@/app/view/agents/filesstore";
 import { listOrder, stepInList, treeModeAtom } from "@/app/view/agents/filetree";
+import { isFinalStageId } from "@/app/view/agents/finalstage";
 import {
     clearHistoryFilters,
     graphOnAtom,
@@ -83,8 +84,10 @@ import {
 } from "@/app/view/agents/memorystore";
 import { railVisibleAtom, terminalFullscreenAtom } from "@/app/view/agents/railstore";
 import { toggleHandToPhone } from "@/app/view/agents/remotestore";
+import { canRender, toggleViewMode } from "@/app/view/agents/renderedmode";
 import { activeReviewAtom, toggleOpenFile } from "@/app/view/agents/reviewmarks";
 import { renamingRowAtom } from "@/app/view/agents/rowrenameatom";
+import { isEndedWorkerId } from "@/app/view/agents/runlineage";
 import { resolveActiveRunId } from "@/app/view/agents/runmodel";
 import { shellTaskPeekAtom } from "@/app/view/agents/shelltasksstore";
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
@@ -1208,6 +1211,42 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             when: nav,
             run: () => globalStore.set(terminalFullscreenAtom, !globalStore.get(terminalFullscreenAtom)),
         },
+        {
+            id: "agent:toggle-view",
+            keys: "v",
+            group: "Agent",
+            label: "Toggle Terminal / Rendered",
+            // the focused agent lives in model atoms, which a when() cannot read, so run() lets the key pass for an
+            // agent the header shows no toggle for (another runtime, a plain terminal, an ended worker)
+            when: (ctx) => nav(ctx) && globalStore.get(focusSubagentAtom) == null,
+            run: () => {
+                const id = focusId();
+                const agent = globalStore.get(model.agentsAtom).find((a) => a.id === id);
+                if (agent == null || !canRender(agent, { ended: isEndedWorkerId(id), stage: isFinalStageId(id) })) {
+                    return false;
+                }
+                toggleViewMode(id);
+            },
+        },
+        // the band owns the in-flight lock and the error, so a digit presses its button; only the focused agent's
+        // rendered view is mounted, so the band in the DOM is that agent's
+        ...Array.from({ length: 9 }, (_, i): Binding => ({
+            id: `agent:permission-choice-${i + 1}`,
+            keys: String(i + 1),
+            group: "Agent",
+            label: `Answer the permission prompt with choice ${i + 1}`,
+            paletteHidden: true,
+            when: (ctx) => nav(ctx) && !ctx.editable,
+            run: () => {
+                const button = document.querySelector<HTMLButtonElement>(
+                    `[data-permission-band] [data-permission-choice="${i}"]`
+                );
+                if (button == null || button.disabled) {
+                    return false;
+                }
+                button.click();
+            },
+        })),
         {
             id: "agent:review",
             keys: "r",

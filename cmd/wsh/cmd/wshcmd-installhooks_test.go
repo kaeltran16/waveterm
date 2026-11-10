@@ -1195,3 +1195,24 @@ func TestConfigIsHealthy_rewritesAHookWrittenBeforeItRanInTheBackground(t *testi
 		t.Fatal("a reinstall should leave the config healthy")
 	}
 }
+
+func TestPermissionRequestHookIsManaged(t *testing.T) {
+	want := managedHook{Event: "PermissionRequest", Args: "permission", Timeout: 10}
+	found := false
+	for _, mh := range managedHooks {
+		if mh == want {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("managed hooks missing %+v: it must be sync, since it prints nothing and never blocks", want)
+	}
+	if !isManagedCommand(`"C:\a\bin\wsh.exe" permission`) || !isManagedCommand("wsh permission") {
+		t.Fatal("the permission hook command is not recognized as Arc-managed")
+	}
+	merged := mergeAgentHooks(mergeAgentHooks(map[string]any{}, testWsh), testWsh)
+	groups, _ := merged["hooks"].(map[string]any)["PermissionRequest"].([]any)
+	if len(groups) != 1 {
+		t.Fatalf("PermissionRequest groups after two merges = %d, want 1", len(groups))
+	}
+}

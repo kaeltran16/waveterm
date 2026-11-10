@@ -64,7 +64,14 @@ export type AgentEntry =
           durationMs?: number; // tool_use → tool_result wall time, when timestamps present
           startedTs?: number; // tool_use time while the call has no outcome yet, so a live call can show its elapsed
           detail?: ActionDetail; // rich, expandable detail; absent = bare line
+          images?: ToolImage[]; // image items of the tool_result (e.g. a Read of a png)
       };
+
+// a base64 image a tool returned, drawn as a data: URL
+export interface ToolImage {
+    mediaType: string;
+    data: string;
+}
 
 export interface AgentAskOption {
     label: string;
@@ -321,9 +328,14 @@ export function groupTimeline(entries: AgentEntry[], threshold = CollapseRunThre
 // Pure: how a collapsed action group renders. "reveal" = the user expanded a historical burst, so
 // it animates open. "open" = the auto-open trailing burst during live streaming — plain, never
 // animated (the burst guard: a streaming run must not strobe, even if the user had also expanded it).
-// "collapsed" = show the summary button.
-export function burstRenderMode(o: { userOpened: boolean; autoOpen: boolean }): "reveal" | "open" | "collapsed" {
-    if (o.autoOpen) {
+// "collapsed" = show the summary button. A burst holding a tool output card (rendered view only)
+// renders "open" too: a folded group would hide the card, and the card needs its tool row beside it.
+export function burstRenderMode(o: {
+    userOpened: boolean;
+    autoOpen: boolean;
+    hasCard?: boolean;
+}): "reveal" | "open" | "collapsed" {
+    if (o.autoOpen || o.hasCard) {
         return "open";
     }
     return o.userOpened ? "reveal" : "collapsed";

@@ -5,7 +5,15 @@
 // No React, no Wave runtime imports. Deterministic; no LLM (spec §5.3).
 
 import type { AgentEntry, CardTask } from "./agentsviewmodel";
-import { answerAsk, askQuestions, buildEditDiff, parseGrep, sliceRead, toolResultText } from "./tooldetail";
+import {
+    answerAsk,
+    askQuestions,
+    buildEditDiff,
+    parseGrep,
+    sliceRead,
+    toolResultImages,
+    toolResultText,
+} from "./tooldetail";
 
 const READ_MODAL_MAX_LINES = 400; // bound stored Read body (modal view); inline uses the per-kind budget
 
@@ -241,6 +249,10 @@ export function projectTranscript(lines: string[]): AgentEntry[] {
                     continue;
                 }
                 const body = toolResultText(block.content);
+                const images = toolResultImages(block.content);
+                if (images.length > 0) {
+                    action.images = images;
+                }
                 const tool = (action as any)._tool as string | undefined;
                 if (tool === "Grep" && body) {
                     const matches = parseGrep(body);

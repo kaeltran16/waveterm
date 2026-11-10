@@ -54,6 +54,8 @@ type ccHookEvent struct {
 	Source           string          `json:"source"`
 	NotificationType string          `json:"notification_type"`
 	Trigger          string          `json:"trigger"`
+	// PermissionMode is on every hook payload: default, acceptEdits, plan, bypassPermissions
+	PermissionMode string `json:"permission_mode"`
 }
 
 // agentEmission describes what to publish for one hook event. State=="" means no
@@ -110,6 +112,15 @@ func planEmission(ev ccHookEvent) agentEmission {
 		}
 	}
 	return agentEmission{}
+}
+
+// hookStatusIdentity is what a report adds beyond its state: the session's permission mode on every one,
+// and on a PostToolUse the key of the call that ran, which retires that call's pending permission request.
+func hookStatusIdentity(ev ccHookEvent) (permissionMode, key string) {
+	if ev.HookEventName == "PostToolUse" {
+		key = toolKey(ev.ToolName, ev.ToolInput)
+	}
+	return ev.PermissionMode, key
 }
 
 func detailForTool(name string, input json.RawMessage) string {
@@ -601,6 +612,7 @@ func agentHookRun(cmd *cobra.Command, args []string) error {
 	if len(meta) > 0 {
 		_ = wshclient.SetMetaCommand(RpcClient, wshrpc.CommandSetMetaData{ORef: *oref, Meta: meta}, &wshrpc.RpcOpts{Timeout: 2000})
 	}
+	permissionMode, key := hookStatusIdentity(ev)
 	data := baseds.AgentStatusData{
 		ORef:             oref.String(),
 		State:            em.State,
@@ -611,6 +623,8 @@ func agentHookRun(cmd *cobra.Command, args []string) error {
 		Ts:               startedTs,
 		Hook:             ev.HookEventName,
 		NotificationType: em.NotificationType,
+		PermissionMode:   permissionMode,
+		ToolKey:          key,
 	}
 	if em.AttachModelTitle && transcriptPath != "" {
 		if agentHookShadow != "" {

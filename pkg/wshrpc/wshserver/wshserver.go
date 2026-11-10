@@ -184,6 +184,7 @@ func outOfTurnStatus(ev *wps.WaveEvent) bool {
 
 // publishEvent is EventPublishCommand past its caller check, which a test cannot satisfy.
 func publishEvent(ctx context.Context, data wps.WaveEvent) {
+	retirePermissions(&data)
 	if data.Event == wps.Event_AgentStatus && (staleAgentStatus(&data) || outOfTurnStatus(&data)) {
 		return
 	}

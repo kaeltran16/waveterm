@@ -22,9 +22,12 @@ import {
     type EditFile,
 } from "./agentsviewmodel";
 import { MarkdownMessage } from "./markdownmessage";
+import { placeMarks, type TimelineMark } from "./permissionmodel";
 import { highlightLine } from "./highlight";
+import { toolRendererKey } from "./renderregistry";
 import { TIMELINE_RENDER_CAP } from "./sessionstranscript";
 import { formatDuration } from "./tooldetail";
+import { ToolOutputRenderer } from "./toolrenderers";
 
 // Handoff lane feed (Wave-cockpit-live.dc.html:211-247). message -> narration row
 // (accent avatar + prose); user -> right-aligned bubble; action -> tool line
@@ -298,8 +301,9 @@ export function ToolDetailBody({ detail, variant }: { detail: ActionDetail; vari
 // A single tool action row. Clickable when it carries detail: short detail expands inline, detail
 // past the per-kind budget opens the viewport modal. The bare-line look is preserved when detail
 // is absent (e.g. Codex actions, or Claude tools with no captured body).
-function ToolLine({ action }: { action: AgentActionEntry }) {
+function ToolLine({ action, renderers }: { action: AgentActionEntry; renderers?: boolean }) {
     const [open, setOpen] = useState(false);
+    const rendererKey = renderers ? toolRendererKey(action) : null;
     const ok = action.outcome !== "fail";
     const detail = action.detail;
     const toModal = detail ? detailExceedsInline(detail) : false;
@@ -360,6 +364,11 @@ function ToolLine({ action }: { action: AgentActionEntry }) {
                     </motion.div>
                 ) : null}
             </AnimatePresence>
+            {rendererKey ? (
+                <div className="mb-1.5 ml-[30px] mt-1">
+                    <ToolOutputRenderer action={action} />
+                </div>
+            ) : null}
         </div>
     );
 }
@@ -575,11 +584,22 @@ function TaskNotificationRow({ summary, status, result }: { summary: string; sta
     );
 }
 
+function PermissionMarkRow({ text }: { text: string }) {
+    return (
+        <div data-permission-mark className={cn(TOOL_ROW, MONO_FAINT)}>
+            <StatusSquare ok />
+            <span className="min-w-0 truncate">{text}</span>
+        </div>
+    );
+}
+
 export function NarrationTimeline({
     entries,
     accentLatest,
     active,
     renderAll,
+    renderers,
+    marks,
     className,
 }: {
     entries: AgentEntry[];
@@ -587,6 +607,12 @@ export function NarrationTimeline({
     active?: boolean;
     // a find over the transcript must reach its earliest turns, so it lifts the cap
     renderAll?: boolean;
+    // draws the registered tool output cards open under their rows; only the rendered view sets it,
+    // since always-open cards would bloat the cockpit's narrow cards
+    renderers?: boolean;
+    // session-local rows the rendered view records after answering a permission prompt, each drawn after the item
+    // holding entry afterEntry - 1
+    marks?: TimelineMark[];
     className?: string;
 }) {
     const [expanded, setExpanded] = useState<Set<number>>(new Set());
@@ -613,11 +639,18 @@ export function NarrationTimeline({
     }
 
     const expand = (startIndex: number) => setExpanded((prev) => new Set(prev).add(startIndex));
+    const placed = placeMarks(visibleItems, marks ?? []);
+    const markRows = (list: TimelineMark[] | undefined) =>
+        (list ?? []).map((m, k) => <PermissionMarkRow key={`pm${m.afterEntry}-${k}`} text={m.text} />);
+    const withMarks = (rows: React.ReactNode[]) => [
+        ...markRows(placed.lead),
+        ...rows.flatMap((row, idx) => [row, ...markRows(placed.after.get(idx))]),
+    ];
 
     return (
         <div className={cn("leading-relaxed", className)}>
             <AnimatePresence initial={false}>
-            {visibleItems.map((item, idx) => {
+            {withMarks(visibleItems.map((item, idx) => {
                 if (item.kind === "message") {
                     return (
                         <motion.div
@@ -713,16 +746,20 @@ export function NarrationTimeline({
                     );
                 }
                 if (item.kind === "action") {
-                    return <ToolLine key={item.index} action={item.action} />;
+                    return <ToolLine key={item.index} action={item.action} renderers={renderers} />;
                 }
                 if (item.kind === "edit-burst") {
                     return <EditBurstRow key={"eb" + item.startIndex} files={item.files} adds={item.adds} dels={item.dels} />;
                 }
                 const isTrailing = idx === visibleItems.length - 1;
-                const mode = burstRenderMode({ userOpened: expanded.has(item.startIndex), autoOpen: !!active && isTrailing });
+                const mode = burstRenderMode({
+                    userOpened: expanded.has(item.startIndex),
+                    autoOpen: !!active && isTrailing,
+                    hasCard: !!renderers && item.actions.some((a) => toolRendererKey(a) != null),
+                });
                 if (mode !== "collapsed") {
                     const lines = item.actions.map((action, k) => (
-                        <ToolLine key={item.startIndex + k} action={action} />
+                        <ToolLine key={item.startIndex + k} action={action} renderers={renderers} />
                     ));
                     // "reveal" (user expanded a historical burst) grows open; "open" (auto-open trailing
                     // burst during streaming) renders plain so the live run never strobes.
@@ -774,7 +811,7 @@ export function NarrationTimeline({
                         </span>
                     </button>
                 );
-            })}
+            }))}
             </AnimatePresence>
         </div>
     );

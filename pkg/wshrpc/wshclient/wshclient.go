@@ -43,6 +43,12 @@ func AgentControlCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentControlData,
 	return sendRpcRequestResponseStreamHelper[wshrpc.AgentControlMsg](w, "agentcontrol", data, opts)
 }
 
+// command "agentpermission", wshserver.AgentPermissionCommand
+func AgentPermissionCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentPermissionData, opts *wshrpc.RpcOpts) (string, error) {
+	resp, err := sendRpcRequestCallHelper[string](w, "agentpermission", data, opts)
+	return resp, err
+}
+
 // command "agentprompt", wshserver.AgentPromptCommand
 func AgentPromptCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentPromptData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "agentprompt", data, opts)
@@ -106,6 +112,12 @@ func AgentSyncSteeringWriteCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentSy
 // command "answeragent", wshserver.AnswerAgentCommand
 func AnswerAgentCommand(w *wshutil.WshRpc, data wshrpc.CommandAnswerAgentData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "answeragent", data, opts)
+	return err
+}
+
+// command "answeragentpermission", wshserver.AnswerAgentPermissionCommand
+func AnswerAgentPermissionCommand(w *wshutil.WshRpc, data wshrpc.CommandAnswerAgentPermissionData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "answeragentpermission", data, opts)
 	return err
 }
 
