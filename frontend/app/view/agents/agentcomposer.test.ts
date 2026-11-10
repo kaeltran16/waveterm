@@ -1,3 +1,5 @@
+import { toastsAtom } from "@/app/cockpit/notificationstore";
+import { globalStore } from "@/app/store/jotaiStore";
 import { describe, expect, it, vi } from "vitest";
 import { canSendComposer, submitComposer } from "./agentcomposer";
 
@@ -24,12 +26,14 @@ describe("submitComposer", () => {
         expect(onSubmitText).toHaveBeenCalledWith("/config");
         expect(calls).toEqual(["start:/config", "send"]);
     });
-    it("keeps the text and logs when the send fails", async () => {
+    it("keeps the text and shows the refusal in an error toast when the send fails", async () => {
         const err = vi.spyOn(console, "error").mockImplementation(() => {});
+        globalStore.set(toastsAtom, []);
         const clear = vi.fn();
-        await submitComposer("hello", "block:1", clear, () => Promise.reject(new Error("send to block block:1: boom")));
+        const refusal = "send to block block:1: block block:1 has no live terminal: nothing was sent";
+        await submitComposer("hello", "block:1", clear, () => Promise.reject(new Error(refusal)));
         expect(clear).not.toHaveBeenCalled();
-        expect(err).toHaveBeenCalled();
+        expect(globalStore.get(toastsAtom)).toMatchObject([{ level: "error", message: refusal }]);
         err.mockRestore();
     });
 });

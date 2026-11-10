@@ -22,11 +22,13 @@ import {
     RUN_SHEET_POLISH_TASKS,
     TREE_RAIL_FIXTURE,
     TREE_RAIL_LEAD,
+    TREE_RAIL_LEAD_ID,
     UI_ROUTE,
     arrangeFixtureRun,
     arrangeHeldRun,
     floorDetail,
     floorOk,
+    flatText,
     floorStep,
     fstWriteRun,
     git,
@@ -579,9 +581,56 @@ function appendTreeRailFiller(now) {
 
 // the lead row is named by its run's plan title, not the tab's name (D12)
 const TREE_RAIL_TITLE = "verify tree-rail";
+// t-1's worker tab step 9b adds, and the project of the shell tab that is its block
+const TREE_WORKER_NAME = "tree-rail worker";
+const TREE_WORKER_TOPIC = "verify-tree-rail-worker";
+// the words of a block the header could not start (F5)
+const BLOCK_ERROR_RE = /failed to start|error getting block/i;
+const WORKER_RUNNING_WAIT_MS = 10_000;
+const WORKER_RUNNING_POLL_MS = 250;
+// the projects of the shell tabs that are the tree-rail lead's and lead D's blocks
+const TREE_LEAD_TOPIC = "verify-tree-rail-lead";
+const LANDED_LEAD_TOPIC = "verify-tree-rail-lead-d";
+
+// a real shell tab for an injected agent tab, so its header starts a block that exists (F5). A failure is kept on
+// the term for the step that reads that header; a tab made before it is still closed in teardown
+async function openAgentTerm(h, topic) {
+    const term = {};
+    try {
+        await openCanvasTerminal(h, term, topic);
+    } catch (e) {
+        term.error = String(e?.message ?? e);
+    }
+    return term;
+}
+
+// the header starts the tab's shell on mount; a block it could not start reads as an error at once
+async function waitShellRunning(h, blockId) {
+    let status = null;
+    for (let waited = 0; blockId && status !== "running" && waited < WORKER_RUNNING_WAIT_MS; waited += WORKER_RUNNING_POLL_MS) {
+        status = (await waveService(h, "block", "GetControllerStatus", [blockId]).catch(() => null))?.shellprocstatus ?? null;
+        if (status !== "running") await polishNap(WORKER_RUNNING_POLL_MS);
+    }
+    return status;
+}
+
+// a focused lead tab is a real running block: neither its tree row nor the header shows a block error (F5)
+async function leadBlockCheck(h, term, agentId) {
+    const status = await waitShellRunning(h, term?.blockId);
+    const rowExpr = `${LIVE_TREE}?.querySelector(${JSON.stringify(`[data-tree-agent="${agentId}"]`)})`;
+    const text = await h.ev(`({ row: ${flatText(rowExpr)}, header: ${flatText(`document.querySelector("[data-agent-header]")`)} })`);
+    const errors = [text.row, text.header].map((t) => t.match(BLOCK_ERROR_RE)?.[0]).filter(Boolean);
+    return {
+        ok: term?.error == null && term?.blockId != null && status === "running" && text.row !== "" && text.header !== "" && errors.length === 0,
+        detail: { error: term?.error ?? (term ? null : "not arranged"), blockId: term?.blockId, status, errors, ...text },
+    };
+}
 
 async function arrangeTreeRail(h, ctx) {
-    await arrangeFixtureRun(h, ctx, "tree-rail", TREE_RAIL_LEAD, { transcriptPath: writeLeadTranscript(ctx.cwd) });
+    // made before the fixture is written: the roster is read once at boot, and its lead names this block
+    ctx.leadTerm = await openAgentTerm(h, TREE_LEAD_TOPIC);
+    const leadBlock = ctx.leadTerm.blockId ? { blockId: ctx.leadTerm.blockId } : {};
+    await arrangeFixtureRun(h, ctx, "tree-rail", TREE_RAIL_LEAD, { transcriptPath: writeLeadTranscript(ctx.cwd), ...leadBlock });
     appendTreeRailFiller(Date.now());
     await h.rpc("dagsubmit", {
         channelid: ctx.channelId,
@@ -774,7 +823,8 @@ async function liveRunAgentSteps(h, ctx) {
 
 // The live-run review's phase 2 findings on the tree and the rail (P14, P17, P2, P18), on a fourth held run: run D
 // has finished and landed, its plan review was accepted by the human after it failed, and only its lead is open.
-const LANDED_LEAD = { id: "fx-tree-lead-d", name: "tree-rail lead D", blockId: "fx-blk-tree-lead-d" };
+// its block is a real shell tab made in arrange (ctx.landedLeadTerm)
+const LANDED_LEAD = { id: "fx-tree-lead-d", name: "tree-rail lead D" };
 const LANDED_TITLE = "verify tree-rail D: landed run";
 const LANDED_TASKS = [
     { id: "t-1", label: "split the router" },
@@ -896,10 +946,12 @@ async function landedRunSteps(h, ctx) {
     await h.goto("agent");
     await setPageRoster(h, [
         ...liveRoster(ctx),
-        { ...LANDED_LEAD, project: "verify-live-run", agent: "claude", model: "opus", task: "lead run D", state: "idle", idleSince: Date.now() - 5 * 60_000, runId: D.runId },
+        { ...LANDED_LEAD, blockId: ctx.landedLeadTerm?.blockId, project: "verify-live-run", agent: "claude", model: "opus", task: "lead run D", state: "idle", idleSince: Date.now() - 5 * 60_000, runId: D.runId },
     ]);
     const focused = await liveFocus(h, LANDED_LEAD.id, `!!${LIVE_RAIL} && flat(document.querySelector("[data-agent-header]")).includes(${JSON.stringify(LANDED_TITLE)})`);
     const injected = await injectLandedReport(h, ctx);
+    // read before the P12 shot, so the shot shows the lead's shell once it runs
+    const landedBlock = await leadBlockCheck(h, ctx.landedLeadTerm, LANDED_LEAD.id);
 
     // P12: the lead stands for its run, so the tree's row and the header name it by the plan's title, not the tab's
     const named = await lookEval(h, `
@@ -915,6 +967,7 @@ async function landedRunSteps(h, ctx) {
             !named.header.includes(LANDED_LEAD.name),
         { focused, ...named }
     );
+    rec("P12b. lead D's tab is a real running block: its tree row and header show no error text (F5)", landedBlock.ok, landedBlock.detail);
 
     // P14: the accepted plan review's row, in run D's done fold
     const accepted = await lookEval(h, `
@@ -1234,12 +1287,21 @@ export const agentTreeRail = {
         // a throw past this point still returns ctx, so teardown removes whatever was already made
         try {
             await arrangeTreeRail(h, ctx);
+            // the block of the worker tab step 9b adds: a real shell, so its header reads as a running worker
+            try {
+                ctx.workerTerm = {};
+                await openCanvasTerminal(h, ctx.workerTerm, TREE_WORKER_TOPIC);
+            } catch (e) {
+                ctx.workerTermError = String(e?.message ?? e);
+            }
             // the live-run states: three runs held in unborn repos, which no tick can start
             try {
                 await arrangeLiveRuns(h, ctx);
             } catch (e) {
                 ctx.liveError = String(e?.message ?? e);
             }
+            // the block of run D's lead, which P12b reads
+            ctx.landedLeadTerm = await openAgentTerm(h, LANDED_LEAD_TOPIC);
             // a fourth held run, finished and landed; in ctx.held, so teardownLiveRuns removes it with the others
             try {
                 await arrangeLandedRun(h, ctx);
@@ -1389,16 +1451,35 @@ export const agentTreeRail = {
             JSON.stringify(nested)
         );
 
+        // read while arrange's focus is still on the lead
+        const leadBlock = await leadBlockCheck(h, ctx.leadTerm, TREE_RAIL_LEAD_ID);
+        rec("9a. the tree-rail lead's tab is a real running block: its tree row and header show no error text (F5)", leadBlock.ok, JSON.stringify(leadBlock.detail));
+
         // P12: a worker's header names its lead by the run's plan title, not the lead's tab name
         // the boot roster has no tab for t-1's worker, so one is added in the page for this step and removed after
         await h.cdp("Emulation.setDeviceMetricsOverride", OBS_WIDE);
         const t1Run = (await h.rpc("dagstatus", { channelid: ctx.channelId, runid: ctx.runId })).group?.tasks?.find((t) => t.id === "t-1")?.runid;
-        const workerTab = { id: "fx-tree-worker-t1", name: "tree-rail worker", project: "waveterm", agent: "claude", model: "sonnet", task: "noop", state: "working", runId: t1Run, blockId: "fx-blk-tree-worker-t1" };
+        const workerBlockId = ctx.workerTerm?.blockId;
+        const workerTab = { id: "fx-tree-worker-t1", name: TREE_WORKER_NAME, project: "waveterm", agent: "claude", model: "sonnet", task: "noop", state: "working", runId: t1Run, blockId: workerBlockId };
         const toLead = t1Run == null ? { error: "t-1 has no worker run" } : await lookEval(h, `
             const { globalStore } = await mod("app/store/jotaiStore.ts");
             const D = await mod("app/view/agents/devmock.ts");
             const model = ${LIVE_MODEL};
             window.__treeRailPrevFocus = globalStore.get(model.focusIdAtom);
+            // every frame from the inject on: where the tab renders. It is out of place in a row of its own or nested
+            // (both carry its name, a top-level row its id too), placed once the selected row is t-1's worker row
+            const frames = [];
+            let sampling = true;
+            const sampleFrame = () => {
+                const rows = [...(document.querySelector("[data-agent-tree] .overflow-y-auto")?.children ?? [])];
+                const stray = rows
+                    .filter((r) => r.querySelector('[data-tree-agent="${workerTab.id}"]') || flat(r).includes(${JSON.stringify(TREE_WORKER_NAME)}))
+                    .map((r) => flat(r).slice(0, 40));
+                const selected = rows.find((r) => r.querySelector(".bg-accentbg"));
+                frames.push({ stray, placed: selected != null && flat(selected).includes("t-1 ·") });
+                if (sampling) requestAnimationFrame(sampleFrame);
+            };
+            requestAnimationFrame(sampleFrame);
             globalStore.set(D.devMockAgentsAtom, (cur) => [...(cur ?? []), ${JSON.stringify(workerTab)}]);
             globalStore.set(model.focusIdAtom, ${JSON.stringify(workerTab.id)});
             const btn = () => ${HEADER}?.querySelector('button[title="Go to the lead"]');
@@ -1406,11 +1487,24 @@ export const agentTreeRail = {
             // the rail's Task section names the lead the same way
             const railLead = () => [...(${LIVE_RAIL}?.querySelectorAll("span") ?? [])].find((s) => s.textContent.trim() === "Lead")?.nextElementSibling;
             await until(() => railLead(), 8000);
-            // the tab replaces t-1's worker row, which slides up from below the wave asker while the old row
-            // fades out over it (measured: settled ~1s after the inject), so the shot waits for the rows to stop
+            // the tab takes t-1's worker row while the row it replaces fades out, so the shot waits for the rows
+            // to stop
             ${SETTLE_TREE_ROWS}
             const { settled, rows } = await settleTreeRows();
-            return { text: flat(btn()), header: flat(${HEADER}), railLead: flat(railLead()), settled, rows };`);
+            sampling = false;
+            const strayFrames = frames.filter((f) => f.stray.length > 0);
+            return {
+                text: flat(btn()),
+                railLead: flat(railLead()),
+                settled,
+                rows,
+                frames: frames.length,
+                strayFrames: strayFrames.length,
+                firstStray: strayFrames[0]?.stray ?? null,
+                placed: frames.at(-1)?.placed === true,
+            };`);
+        const workerStatus = await waitShellRunning(h, workerBlockId);
+        const workerText = await h.ev(`({ header: ${flatText(HEADER)}, rail: ${flatText(LIVE_RAIL)} })`);
         await h.shot("cdp-shots/agent-tree-rail-p12-worker-header.png");
         if (t1Run != null) {
             await lookEval(h, `
@@ -1433,9 +1527,32 @@ export const agentTreeRail = {
         const treeRows = toLead.rows ?? [];
         const overlaps = rowOverlaps(treeRows);
         rec(
-            "9c. after t-1's worker tab is added, the tree settles and no two tree rows overlap",
-            toLead.settled === true && treeRows.length > 0 && overlaps.length === 0,
-            JSON.stringify({ settled: toLead.settled, overlaps, rows: treeRows })
+            "9c. from the inject on, t-1's worker tab renders in no frame anywhere but t-1's worker row, and the settled tree has no overlapping rows (F3)",
+            toLead.settled === true &&
+                toLead.frames > 0 &&
+                toLead.strayFrames === 0 &&
+                toLead.placed === true &&
+                treeRows.length > 0 &&
+                overlaps.length === 0,
+            JSON.stringify({
+                frames: toLead.frames,
+                strayFrames: toLead.strayFrames,
+                firstStray: toLead.firstStray,
+                placed: toLead.placed,
+                settled: toLead.settled,
+                overlaps,
+                rows: treeRows,
+            })
+        );
+        const workerError = [workerText.header, workerText.rail].map((t) => t.match(BLOCK_ERROR_RE)?.[0]).filter(Boolean);
+        rec(
+            "9c2. t-1's worker tab is a real running block: its header and rail show no error text (F5)",
+            ctx.workerTermError == null &&
+                workerStatus === "running" &&
+                workerText.header !== "" &&
+                workerText.rail !== "" &&
+                workerError.length === 0,
+            JSON.stringify({ error: ctx.workerTermError, blockId: workerBlockId, status: workerStatus, workerError, header: workerText.header })
         );
 
         // the avatar at bottom-left sits over the foot of the tree: scrolled to its end, the last row clears it
@@ -1485,6 +1602,12 @@ export const agentTreeRail = {
             if (ctx.prevCorner == null) await h.ev(`localStorage.removeItem("wave:pet.corner")`);
         }
         await h.cdp("Emulation.setDeviceMetricsOverride", OBS_WIDE).catch(() => {});
+        for (const [what, term] of [["worker", ctx.workerTerm], ["lead", ctx.leadTerm], ["lead D", ctx.landedLeadTerm]]) {
+            if (!term?.tabId) continue;
+            await waveService(h, "workspace", "CloseTab", [term.workspaceId, term.tabId, false]).catch((e) =>
+                console.error(`agent-tree-rail teardown: close the ${what} tab failed: ${e?.message ?? e}`)
+            );
+        }
         await teardownLiveRuns(h, ctx, "agent-tree-rail");
         await teardownFixtureRun(h, ctx, "agent-tree-rail", {
             what: "restore the rail preference",

@@ -35,8 +35,24 @@ func TestTaskSignalTellsBusyFromIdle(t *testing.T) {
 		{wshrpc.DagTaskDigest{FreshnessTs: quiet, Busy: true, Suspect: "worktree unchanged 22m while active"}, "stuck? worktree unchanged 22m while active"},
 	}
 	for _, c := range cases {
-		if got := taskSignal(orchestrate.TaskState_Running, c.td, now); got != c.want {
+		if got := taskSignal(orchestrate.TaskState_Running, c.td, "", now); got != c.want {
 			t.Fatalf("taskSignal = %q, want %q", got, c.want)
+		}
+	}
+}
+
+func TestTaskSignalNamesWhyAHeldTipWaits(t *testing.T) {
+	td := wshrpc.DagTaskDigest{MergeState: "held", MergeHeldBy: "t-2"}
+	cases := []struct{ holderState, want string }{
+		{orchestrate.TaskState_Verifying, "merge held: waits on t-2's Verify"},
+		{orchestrate.TaskState_VerifyFailed, "merge held: waits on t-2's failed Verify"},
+		{orchestrate.TaskState_BlockedMerge, "merge held: waits on t-2's merge conflict"},
+		{"", "merge held"},
+		{orchestrate.TaskState_Running, "merge held"},
+	}
+	for _, c := range cases {
+		if got := taskSignal(orchestrate.TaskState_Done, td, c.holderState, 0); got != c.want {
+			t.Fatalf("holder state %q: taskSignal = %q, want %q", c.holderState, got, c.want)
 		}
 	}
 }

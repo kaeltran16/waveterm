@@ -16,7 +16,7 @@ import {
 } from "./agenttreemodel";
 import type { BuilderCheckRecord } from "./brainstormmodel";
 import { finalRowFocusId } from "./finalstage";
-import { endedReviewerId, endedWorkerId, type Lineage, type RunInfo } from "./runlineage";
+import { endedReviewerId, endedWorkerId, lineageOf, type Lineage, type RunInfo } from "./runlineage";
 
 function vm(id: string, state: AgentVM["state"], path?: string): AgentVM {
     return { id, name: id, task: "", state, transcriptPath: path };
@@ -362,6 +362,24 @@ describe("buildAgentTree with run lineage", () => {
             "worker:t-2:w2",
             "queued:1:false",
         ]);
+    });
+
+    // F3: a worker tab that joins the roster before its own run object loads
+    it("puts a worker whose run has not loaded in its task's row, never a row of its own", () => {
+        const dag = {
+            oid: "dag-1",
+            runid: "run-1",
+            tasks: [{ id: "t-1", label: "t-1", state: "running", runid: "child" }],
+        };
+        const leadRun = { oid: "run-1", dagoref: "dag-1", mode: "orchestrator" } as Run;
+        const agents = [agent("lead", "working"), { ...agent("w1", "working", ""), runId: "child" }];
+        const loaded = lineageOf([{ ...agents[0], runId: "run-1" }, agents[1]], {
+            run: (id) => (id === "run-1" ? leadRun : undefined),
+            dag: (id) => (id === "dag-1" ? (dag as TaskGroup) : undefined),
+            block: () => undefined,
+            digests: {},
+        });
+        expect(shape(buildAgentTree(agents, loaded))).toEqual(["group:waveterm:2:0", "lead:run-1:1", "worker:t-1:w1"]);
     });
 
     it("nests the engine's stage sessions under their run, between its tasks and its queued fold", () => {

@@ -94,6 +94,14 @@ func insertCwdBlock(t *testing.T, cwd string) string {
 	return blockId
 }
 
+// withLiveAgents adds a running agent tab for each stored block, so a prompt to it passes the live-terminal check.
+func withLiveAgents(facts *agentRosterFacts, blockIds ...string) *agentRosterFacts {
+	for _, blockId := range blockIds {
+		facts.Tabs = append(facts.Tabs, agentFacts(uuid.NewString(), "snap", blockId, "claude", baseds.AgentState_Idle))
+	}
+	return facts
+}
+
 func TestSnapshotRefusesReviewWrite(t *testing.T) {
 	useSnapshotBase(t, true)
 	home, err := os.UserHomeDir()
@@ -140,16 +148,16 @@ func TestSnapshotAllowsFileWriteInsideBase(t *testing.T) {
 
 func TestSnapshotRefusesAgentPromptOutsideScratch(t *testing.T) {
 	base := useSnapshotBase(t, true)
-	sent := scriptAgents(t, threeAgents())
 	ws := &WshServer{}
 	outside := filepath.Join(t.TempDir(), "real-repo")
 	realBlock := insertCwdBlock(t, outside)
+	scratchBlock := insertCwdBlock(t, filepath.Join(base, "scratch", "proj"))
+	sent := scriptAgents(t, withLiveAgents(threeAgents(), realBlock, scratchBlock))
 	err := ws.AgentPromptCommand(context.Background(), wshrpc.CommandAgentPromptData{BlockId: realBlock, Text: "approve"})
 	wantRefusal(t, "prompt to a copied agent", err, outside)
 	if len(*sent) != 0 {
 		t.Fatalf("a refused prompt delivered %+v", *sent)
 	}
-	scratchBlock := insertCwdBlock(t, filepath.Join(base, "scratch", "proj"))
 	if err := ws.AgentPromptCommand(context.Background(), wshrpc.CommandAgentPromptData{BlockId: scratchBlock, Text: "go on"}); err != nil {
 		t.Fatalf("prompt to a scratch agent: %v", err)
 	}
@@ -211,7 +219,7 @@ func TestNoSnapshotLeavesHandlersOpen(t *testing.T) {
 	if err := ws.SetMetaCommand(ctx, wshrpc.CommandSetMetaData{ORef: oref, Meta: waveobj.MetaMapType{waveobj.MetaKey_CmdCwd: filepath.Join(outside, "sub")}}); err != nil {
 		t.Errorf("set meta: %v", err)
 	}
-	sent := scriptAgents(t, threeAgents())
+	sent := scriptAgents(t, withLiveAgents(threeAgents(), blockId))
 	if err := ws.AgentPromptCommand(ctx, wshrpc.CommandAgentPromptData{BlockId: blockId, Text: "hi"}); err != nil || len(*sent) != 1 {
 		t.Errorf("prompt: err %v, delivered %+v", err, *sent)
 	}

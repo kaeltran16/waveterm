@@ -1,6 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { pushToast } from "@/app/cockpit/notificationstore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 
@@ -17,4 +18,11 @@ export async function sendAgentText(blockId: string, text: string): Promise<void
     } catch (e) {
         throw new Error(`send to block ${blockId}: ${e instanceof Error ? e.message : String(e)}`);
     }
+}
+
+// a send whose caller has no error line of its own reports through the cockpit toast, in the refusal's own words:
+// a refused prompt reached no terminal, so the user must not read it as sent
+export function toastSendFailure(title: string, e: unknown): void {
+    console.error(title, e);
+    pushToast({ title, message: e instanceof Error ? e.message : String(e), level: "error" });
 }

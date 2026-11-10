@@ -347,7 +347,8 @@ const CLOSE_MAIN_EXPR = `(async () => {
 export async function closeMainWindow(port, waitMs = CLOSE_EXIT_MS) {
     let page;
     try {
-        page = await attach(port);
+        // closing needs no rpc client, and a page that never booted must still close at once
+        page = await attach(port, { boot: false });
     } catch (e) {
         return { state: "unclosed", reason: `could not close the main window: ${e.message}` };
     }

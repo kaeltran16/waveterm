@@ -69,7 +69,7 @@ export function runItem(run: Run, dag?: TaskGroup): HistoryRunItem {
     } else {
         line = landed ? "merged" : run.status;
     }
-    // runTitle without a dag is the goal's first line, initiative refs stripped
+    // runTitle without a dag is the run's plan title, else the goal's first line, initiative refs stripped
     return {
         key: `run:${run.id}`,
         runId: run.id,

@@ -288,6 +288,12 @@ func taskLines(rtn *wshrpc.CommandDagStatusRtnData, now int64, tasks []waveobj.T
 	for _, td := range d.Tasks {
 		taskDigestByID[td.TaskId] = td
 	}
+	stateByID := map[string]string{}
+	if rtn.Group != nil {
+		for _, gt := range rtn.Group.Tasks {
+			stateByID[gt.ID] = gt.State
+		}
+	}
 	var lines []string
 	var buf strings.Builder
 	w := tabwriter.NewWriter(&buf, 0, 4, 2, ' ', 0)
@@ -296,7 +302,7 @@ func taskLines(rtn *wshrpc.CommandDagStatusRtnData, now int64, tasks []waveobj.T
 		if !ok {
 			continue
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", t.ID, t.State, taskSignal(t.State, td, now), strings.Join(td.HumanActions, ","), t.Label)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", t.ID, t.State, taskSignal(t.State, td, stateByID[td.MergeHeldBy], now), strings.Join(td.HumanActions, ","), t.Label)
 	}
 	w.Flush()
 	if rows := strings.TrimSuffix(buf.String(), "\n"); rows != "" {
@@ -443,8 +449,8 @@ func flatText(s string) string {
 
 // taskSignal is a task row's "what is happening here" column: its pending question, a running Verify's
 // age and latest line, or how long a worker has been silent. Every value is the digest's, formatted here
-// and never re-derived from task state.
-func taskSignal(state string, td wshrpc.DagTaskDigest, now int64) string {
+// and never re-derived from task state. holderState is the state of the task a held tip waits on, "" if unknown.
+func taskSignal(state string, td wshrpc.DagTaskDigest, holderState string, now int64) string {
 	switch {
 	case td.AskSummary != "":
 		return "ask: " + compactText(td.AskSummary, 60)
@@ -457,9 +463,24 @@ func taskSignal(state string, td wshrpc.DagTaskDigest, now int64) string {
 	case td.MergeState == "ready":
 		return mergeGateSignal(td, now)
 	case td.MergeState == "held":
-		return "merge held: waits on " + td.MergeHeldBy + "'s Verify"
+		return mergeHeldSignal(td.MergeHeldBy, holderState)
 	}
 	return ""
+}
+
+// mergeHoldReason words why a held tip waits, by the holder's state (the cockpit's MERGE_HOLD_REASON).
+var mergeHoldReason = map[string]string{
+	orchestrate.TaskState_Verifying:    "Verify",
+	orchestrate.TaskState_VerifyFailed: "failed Verify",
+	orchestrate.TaskState_BlockedMerge: "merge conflict",
+}
+
+func mergeHeldSignal(holder, holderState string) string {
+	reason, ok := mergeHoldReason[holderState]
+	if !ok {
+		return "merge held"
+	}
+	return "merge held: waits on " + holder + "'s " + reason
 }
 
 // workerSignal is how long the worker has been silent, and whether it is running a command meanwhile: a foreground

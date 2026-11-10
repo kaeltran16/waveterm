@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
+import { runInfoOf } from "@/app/view/agents/runlineage";
 import { describe, expect, it } from "vitest";
 import { resolveBriefComposerTarget, runSteerLead } from "./briefcomposertarget";
 import type { SheetFace } from "./briefsheetmodel";
@@ -139,6 +140,29 @@ describe("resolveBriefComposerTarget", () => {
         expect(
             resolveBriefComposerTarget({ sheetOpen: true, face: channelRun, run: run(), agents: [agent()], info })
         ).toMatchObject({ workerName: "claude", sessionName: "claude" });
+    });
+
+    // the composer mounts with the run before its dag loads: the run's own plan title names the lead from the start
+    it("names the lead by the run's plan title before the dag loads", () => {
+        const titled = run({ title: "Plan title" });
+        const info = runInfoOf(titled.id, titled, undefined, undefined);
+        expect(
+            resolveBriefComposerTarget({ sheetOpen: true, face: channelRun, run: titled, agents: [agent()], info })
+        ).toMatchObject({ workerName: "Plan title" });
+        // the run's info may not have loaded yet while the sheet already holds the run
+        expect(
+            resolveBriefComposerTarget({ sheetOpen: true, face: channelRun, run: titled, agents: [agent()] })
+        ).toMatchObject({ workerName: "Plan title" });
+        const untitled = run();
+        expect(
+            resolveBriefComposerTarget({
+                sheetOpen: true,
+                face: channelRun,
+                run: untitled,
+                agents: [agent()],
+                info: runInfoOf(untitled.id, untitled, undefined, undefined),
+            })
+        ).toMatchObject({ workerName: "claude" });
     });
 });
 

@@ -307,6 +307,8 @@ tasks:
 
     sync:claudemod:
         desc: Copy the authored Claude mods (claude/arc-mod, claude/arc-view-mod, claude/arc-skim-mod) into their go:embed locations cmd/wsh/cmd/claude-mod, claude-view-mod and claude-skim-mod (generated, never hand-edited), without their tests, test fixtures (testdata/) or engine-written types. Arc's shipped skills (skills/) go into the arc mod's skills/, so Claude Code lists them as arc:<skill>.
+        # tauri:dev and go:mod:tidy both depend on this in parallel: once makes them share one execution
+        run: once
         cmds:
             - for: [{ src: arc-mod, dst: claude-mod }, { src: arc-view-mod, dst: claude-view-mod }, { src: arc-skim-mod, dst: claude-skim-mod }]
               cmd: rm -rf cmd/wsh/cmd/{{.ITEM.dst}} && cp -r claude/{{.ITEM.src}} cmd/wsh/cmd/{{.ITEM.dst}} && rm -rf cmd/wsh/cmd/{{.ITEM.dst}}/.claude-plugin/types cmd/wsh/cmd/{{.ITEM.dst}}/testdata && rm -f cmd/wsh/cmd/{{.ITEM.dst}}/hooks/*.test.ts
@@ -443,6 +445,9 @@ tasks:
     go:mod:tidy:
         desc: Runs `go mod tidy`
         internal: true
+        # tidy walks cmd/wsh/cmd/claude-*, which sync:claudemod deletes and recopies
+        deps:
+            - sync:claudemod
         generates:
             - go.sum
         sources:

@@ -27,6 +27,7 @@ import {
     leadDisplayName,
     leadRunTabIds,
     leadStandingBy,
+    lineageOf,
     mergeGateLine,
     planReviewerOf,
     runAgentsOf,
@@ -81,6 +82,35 @@ describe("runRoleOf", () => {
     });
 });
 
+describe("lineageOf", () => {
+    const leadRun = { oid: "lead-run", dagoref: "dag-1", mode: "orchestrator" } as Run;
+    const reads = (runs: Run[]) => ({
+        run: (id: string) => runs.find((r) => r.oid === id),
+        dag: (id: string) => (id === "dag-1" ? dag : undefined),
+        block: (): Block => undefined,
+        digests: {},
+    });
+    const lead = { id: "lead", runId: "lead-run" };
+    const worker = { id: "w", runId: "child-run" };
+    const workerRole = { kind: "worker", leadRunId: "lead-run", taskId: "t-1" };
+
+    // F3: the tab must sit in its task's row from its first frame, not as a row of its own that later moves
+    it("places a worker whose own run has not loaded by the lead's dag naming its run, wherever it sits", () => {
+        expect(lineageOf([lead, worker], reads([leadRun])).roles.w).toEqual(workerRole);
+        expect(lineageOf([worker, lead], reads([leadRun])).roles.w).toEqual(workerRole);
+    });
+
+    it("places it the same once its run loads", () => {
+        const childRun = { oid: "child-run", dagoref: "dag-1", mode: "quick" } as Run;
+        expect(lineageOf([lead, worker], reads([leadRun, childRun])).roles.w).toEqual(workerRole);
+    });
+
+    it("leaves a tab no dag in view names as a plain agent", () => {
+        expect(lineageOf([worker], reads([])).roles.w).toBeUndefined();
+        expect(lineageOf([lead, { id: "x", runId: "other-run" }], reads([leadRun])).roles.x).toBeUndefined();
+    });
+});
+
 const EFFORT = "89d8c1f2-3a4b-4c5d-8e9f-0a1b2c3d4e5f";
 
 describe("run facts", () => {
@@ -101,6 +131,13 @@ describe("run facts", () => {
         );
         expect(runTitle({ goal: "Link resources\nacross surfaces" } as Run, undefined)).toBe("Link resources");
         expect(runTitle(undefined, undefined)).toBe("Orchestrator run");
+        // the run carries its plan's title from submit, so it names the run before the dag loads; the dag's wins
+        expect(runTitle({ goal: "Link resources", title: "Resource linking" } as Run, undefined)).toBe(
+            "Resource linking"
+        );
+        expect(runTitle({ goal: "g", title: "Old plan" } as Run, { title: "Revised plan" } as TaskGroup)).toBe(
+            "Revised plan"
+        );
         expect(runTitle({ goal: `Fix every chunk of initiative effort:${EFFORT}\nmore` } as Run, undefined)).toBe(
             "Fix every chunk of initiative"
         );
@@ -613,9 +650,22 @@ describe("runInfoOf", () => {
             landPath: "C:\\code\\.arc-land\\r-1",
             base: "main",
             land: { state: "landed", commit: "7867142abc" },
+            planTitled: true,
             dag,
             digest,
         });
+    });
+
+    // the Brief composer and the cockpit's run action name the lead before the dag loads
+    it("names the lead by the run's plan title before the dag loads, else by its tab name", () => {
+        const agent = { name: "make the live-run fixes" };
+        const lead = { oid: "r-4", goal: "make the live-run fixes" } as Run;
+        const titled = runInfoOf("r-4", { ...lead, title: "Live fixes" }, undefined, undefined);
+        expect(titled).toMatchObject({ title: "Live fixes", planTitled: true });
+        expect(leadDisplayName(agent, titled)).toBe("Live fixes");
+        const untitled = runInfoOf("r-4", lead, undefined, undefined);
+        expect(untitled.planTitled).toBe(false);
+        expect(leadDisplayName(agent, untitled)).toBe("make the live-run fixes");
     });
 
     it("carries the lead run's worker route, for the footer before a dag exists", () => {

@@ -266,6 +266,9 @@ type Run struct {
 	// DagORef links an orchestrator run to its TaskGroup ("dag:<id>"); set by DagSubmitCommand,
 	// copied onto child runs so the engine can resolve the group from any run in the DAG.
 	DagORef string `json:"dagoref,omitempty"`
+	// Title is the plan's title, copied from the dag at its first submit and at a revised plan. It names the run
+	// before the dag loads. Empty on child runs and on runs from before the field.
+	Title string `json:"title,omitempty"`
 	// SessionId is the session id the engine launched a dag child's worker with (--session-id). The
 	// worker's transcript is named by it, so liveness and evidence open that file. Empty for runs the
 	// engine did not launch.

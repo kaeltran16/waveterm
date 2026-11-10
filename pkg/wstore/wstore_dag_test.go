@@ -59,6 +59,9 @@ func TestCreateDagForRunCommitsDagLinkAndTransition(t *testing.T) {
 	if storedDag.OID != proposed.OID || storedRun.DagORef != proposed.OID || storedRun.Status != "executing" {
 		t.Fatalf("stored dag/run mismatch: dag=%q run=%+v", storedDag.OID, storedRun)
 	}
+	if storedRun.Title != proposed.Title {
+		t.Fatalf("the run carries its plan title: got %q, want %q", storedRun.Title, proposed.Title)
+	}
 }
 
 func TestCreateDagForRunReturnsExisting(t *testing.T) {

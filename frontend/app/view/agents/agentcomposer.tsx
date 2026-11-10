@@ -3,7 +3,7 @@
 
 import { cn, fireAndForget } from "@/util/util";
 import { forwardRef, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
-import { sendAgentText } from "./agentsend";
+import { sendAgentText, toastSendFailure } from "./agentsend";
 
 // one line at 12px (rows={1}: the default two rows would set the floor instead); it grows as text wraps
 const ComposerMinH = 32;
@@ -16,8 +16,8 @@ export function canSendComposer(text: string, blockId?: string): boolean {
 }
 
 /** Sends the composer's text and clears it only once the send lands, and only if the user hasn't typed
- *  since (clear gets the sent text to compare). A failed send keeps the text and is logged. onStart sees the
- *  text before the send goes out. */
+ *  since (clear gets the sent text to compare). A failed send keeps the text and raises an error toast.
+ *  onStart sees the text before the send goes out. */
 export async function submitComposer(
     text: string,
     blockId: string,
@@ -29,7 +29,7 @@ export async function submitComposer(
     try {
         await send(blockId, text);
     } catch (e) {
-        console.error("agent composer: send failed, text kept", e);
+        toastSendFailure("Message not sent", e);
         return;
     }
     clear(text);
