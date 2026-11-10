@@ -188,7 +188,8 @@ export async function openPage(target, shots) {
     };
 }
 
-export async function attach(port = 9222) {
+// boot: false hands back a page that may not have booted, for a caller that only closes it
+export async function attach(port = 9222, { boot = true } = {}) {
     let target = pickTarget(await listTargets(port));
     for (const start = Date.now(); target && isBlank(target) && Date.now() - start < BLANK_WAIT_MS; ) {
         await sleep(BLANK_POLL_MS);
@@ -205,7 +206,7 @@ export async function attach(port = 9222) {
     const { ev } = main;
 
     // a scenario's arrange may call h.rpc before any goto: never hand back a page whose client does not exist yet
-    if (!(await waitBooted(ev, ATTACH_BOOT_WAIT_MS))) {
+    if (boot && !(await waitBooted(ev, ATTACH_BOOT_WAIT_MS))) {
         const nav = await ev(NAV_RENDERED).catch(() => false);
         main.close();
         throw new Error(
