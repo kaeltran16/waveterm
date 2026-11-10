@@ -41,6 +41,7 @@ import {
     treeRailRoster,
     waitForProjectInConfig,
 } from "./scenarios-shared.mjs";
+import { closeTabs, makeTab } from "./agent-page-fixtures.mjs";
 
 // --- exemplar: visual + DOM --------------------------------------------------------------------
 // Navigate each key surface, screenshot it, and assert (a) the active nav label matches and (b) the
@@ -1687,6 +1688,12 @@ export const shellTasksScenario = {
             ctx.transcript = writeShellTranscript(cwd, "shell-tasks", SHELL_TASKS);
             const failedTranscript = writeShellTranscript(cwd, "shell-failed", [SHELL_ONLY_FAILED]);
             ctx.stopTranscript = writeShellTranscript(cwd, "shell-stop", []);
+            // the Agent surface mounts the focused agent's terminal, whose controller resync fails on a made-up block
+            // and reads failed to start; a real block with no controller resyncs without starting anything
+            const blockIds = {};
+            for (const a of [SHELL_AGENT, SHELL_FAILED_AGENT, SHELL_STOP_AGENT]) {
+                blockIds[a.id] = (await makeTab(h, ctx, { label: `verify-${a.id}`, blockMeta: { view: "term", controller: null } })).blockId;
+            }
             const now = Date.now();
             const agent = (a, transcriptPath, idleSince, task) => ({
                 id: a.id,
@@ -1698,7 +1705,7 @@ export const shellTasksScenario = {
                 idleSince,
                 agent: "claude",
                 model: "opus",
-                blockId: `fx-blk-${a.id}`,
+                blockId: blockIds[a.id],
                 transcriptPath,
             });
             mkdirSync(new URL(".", TREE_RAIL_FIXTURE), { recursive: true });
@@ -2261,6 +2268,7 @@ export const shellTasksScenario = {
         // teardownFixtureRun removes the fixture roster, reloads onto the live roster and deletes the temp dir with
         // the transcripts and output files; a redirect task's log sits outside it
         for (const t of SHELL_TASKS.filter((t) => t.redirect)) rmSync(shellRedirectFile(t, ctx.cwd).path, { force: true });
+        await closeTabs(h, ctx);
         await teardownFixtureRun(h, ctx, "shell-tasks", {
             what: "restore the rail's visibility",
             fn: () => h.ev(restoreLocalStorage(RAIL_VISIBLE_KEY, ctx.prevRail)),
