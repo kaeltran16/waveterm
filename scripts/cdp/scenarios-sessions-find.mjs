@@ -5,6 +5,7 @@
 // loaded it from so it acts on the app's own model, not through the list or the palette.
 import { setTimeout as delay } from "node:timers/promises";
 import { removeSessionsSearchFixtures, seedSessionsSearchRun, writeSessionsSearchFixtures } from "./sessions-search-fixtures.mjs";
+import { APP_MOD } from "./scenarios-shared.mjs";
 
 const NAME = "sessions-find";
 const SEARCH_TIMEOUT_MS = 30_000;
@@ -13,13 +14,7 @@ const SEARCH_WAIT_MS = 60_000;
 
 // the app's module instance at path (under frontend/), the model the cockpit's UI route serves, and a poll
 const PAGE_LIB = `
-    const mod = async (path) => {
-        const names = performance.getEntriesByType("resource").map((e) => e.name.split("?")[0]);
-        const hit = names.filter((n) => n.endsWith("/" + path)).pop();
-        const base = names.find((n) => n.endsWith("/app/store/jotaiStore.ts"));
-        if (hit == null && base == null) throw new Error("no app module url for " + path);
-        return import(hit ?? base.replace("app/store/jotaiStore.ts", path));
-    };
+    ${APP_MOD}
     const model = (await mod("app/store/wshrpcutil.ts")).DefaultRouter.routeMap.get("cockpit")?.model;
     if (model == null) throw new Error("the cockpit route serves no model");
     const nap = (ms) => new Promise((r) => setTimeout(r, ms));

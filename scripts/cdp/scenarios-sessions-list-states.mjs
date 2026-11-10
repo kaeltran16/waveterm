@@ -2,6 +2,7 @@
 // kit holds scenarios-shared.mjs's sessions helpers (SESSIONS_KIT); the fixtures are in sessions-page-fixtures.mjs.
 
 import { fixtureRun, fixtureSession, installRuns, installSessions, restoreSessions } from "./sessions-page-fixtures.mjs";
+import { APP_MOD } from "./scenarios-shared.mjs";
 
 const NAME = "sessions-list-states";
 const VIEWPORT = { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false };
@@ -22,23 +23,9 @@ const FIELD = `document.querySelector('[data-sessions-search]')`;
 const card = (key) => `${LIST}?.querySelector('[data-session-row="' + CSS.escape(${JSON.stringify(key)}) + '"]')`;
 const nap = (h, ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
 
-// a full resource timing buffer drops later modules: derive their url from jotaiStore's
-const MOD = `
-    const mod = async (path) => {
-        // the newest url keeps its ?t= query: a module HMR updated is a new instance there, and the bare url is a
-        // stale second copy whose atoms the app no longer reads
-        const names = performance.getEntriesByType("resource").map((e) => e.name);
-        const bare = (n) => n.split("?")[0];
-        const hit = names.filter((n) => bare(n).endsWith("/" + path)).pop();
-        const base = names.map(bare).find((n) => n.endsWith("/app/store/jotaiStore.ts"));
-        if (hit == null && base == null) throw new Error("no app module url for " + path);
-        return import(hit ?? base.replace("app/store/jotaiStore.ts", path));
-    };
-`;
-
 // the view model is not on window: the nav rail's fiber props hold it
 const WITH_MODEL = `
-    ${MOD}
+    ${APP_MOD}
     const { globalStore } = await mod("app/store/jotaiStore.ts");
     const nav = document.querySelector('nav');
     const key = nav && Object.keys(nav).find((k) => k.startsWith('__reactFiber$'));
@@ -84,7 +71,7 @@ const typeQuery = (h, q) =>
 // body: an expression for the stub's reply, given the call's args
 const stubSearch = (h, body) =>
     h.ev(`(async () => {
-        ${MOD}
+        ${APP_MOD}
         const { RpcApi } = await mod("app/store/wshclientapi.ts");
         window.${SEARCH_STUB} = true;
         RpcApi.SearchSessionsCommand = (client, data) => (${body})(data);
@@ -93,7 +80,7 @@ const stubSearch = (h, body) =>
 const restoreSearch = (h) =>
     h.ev(`(async () => {
         if (!window.${SEARCH_STUB}) return true;
-        ${MOD}
+        ${APP_MOD}
         const { RpcApi } = await mod("app/store/wshclientapi.ts");
         delete RpcApi.SearchSessionsCommand;
         delete window.${SEARCH_STUB};

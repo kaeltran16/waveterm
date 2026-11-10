@@ -11,7 +11,7 @@ import {
     restoreSessions,
     setPins,
 } from "./sessions-page-fixtures.mjs";
-import { openPalette, paletteKey, paletteStateWhen, PALETTE, PEEKS_ESC } from "./scenarios-shared.mjs";
+import { APP_MOD, openPalette, paletteKey, paletteStateWhen, PALETTE, PEEKS_ESC } from "./scenarios-shared.mjs";
 
 const NAME = "sessions-palette-resume";
 const SCOPE_COUNT = 12;
@@ -25,12 +25,7 @@ const SCOPE = `${PALETTE}?.querySelector('[data-palette-scope][aria-pressed="tru
 const ERROR_TOASTS = `[...document.querySelectorAll('[data-notification-toast="error"]')].map((t) => (t.textContent ?? '').replace(/\\s+/g, ' ').trim())`;
 // the app's own module instance, as sessions-page-fixtures.mjs imports it
 const TAB_COUNT = `(async () => {
-    const names = performance.getEntriesByType("resource").map((e) => e.name.split("?")[0]);
-    const mod = (path) => {
-        const hit = names.filter((n) => n.endsWith("/" + path)).pop();
-        const base = names.find((n) => n.endsWith("/app/store/jotaiStore.ts"));
-        return import(hit ?? base.replace("app/store/jotaiStore.ts", path));
-    };
+    ${APP_MOD}
     const { globalStore } = await mod("app/store/jotaiStore.ts");
     const { atoms } = await mod("app/store/global-atoms.ts");
     return globalStore.get(atoms.workspace)?.tabids?.length ?? null;

@@ -7,6 +7,7 @@ import {
     seedSessionsSearchRun,
     writeSessionsSearchFixtures,
 } from "./sessions-search-fixtures.mjs";
+import { APP_MOD } from "./scenarios-shared.mjs";
 
 const NAME = "sessions-palette";
 const VIEWPORT = { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false };
@@ -76,10 +77,8 @@ async function paletteStateWhen(h, ok, ms) {
 // The view model is not on window: the nav rail's component is handed it, so its fiber's props hold it. Reads the
 // Sessions atoms the palette's Enter writes, and the surface it lands on.
 const SESSIONS_ATOMS = `(async () => {
-    const names = performance.getEntriesByType("resource").map((e) => e.name.split("?")[0]);
-    const store = names.find((n) => n.endsWith("/app/store/jotaiStore.ts"));
-    if (store == null) return null;
-    const { globalStore } = await import(store);
+    ${APP_MOD}
+    const { globalStore } = await mod("app/store/jotaiStore.ts");
     const nav = document.querySelector('nav');
     const key = nav && Object.keys(nav).find((k) => k.startsWith('__reactFiber$'));
     let model = null;

@@ -4,6 +4,7 @@
 // restoreSessions puts every one back.
 
 import { randomUUID } from "node:crypto";
+import { APP_MOD } from "./scenarios-shared.mjs";
 
 const FIXTURE_DIR = "C:\\arc-verify-sessions-fixture";
 
@@ -79,16 +80,7 @@ export function tailLines(lines, maxlines) {
 
 // an app module, imported from the URL the app loaded it from so the import is the app's instance
 const MOD = `
-    const mod = async (path) => {
-        // the newest url keeps its ?t= query: a module HMR updated is a new instance there, and the bare url is a
-        // stale second copy whose atoms the app no longer reads
-        const names = performance.getEntriesByType("resource").map((e) => e.name);
-        const bare = (n) => n.split("?")[0];
-        const hit = names.filter((n) => bare(n).endsWith("/" + path)).pop();
-        const base = names.map(bare).find((n) => n.endsWith("/app/store/jotaiStore.ts"));
-        if (hit == null && base == null) throw new Error("no app module url for " + path);
-        return import(hit ?? base.replace("app/store/jotaiStore.ts", path));
-    };
+    ${APP_MOD}
     const { globalStore } = await mod("app/store/jotaiStore.ts");
     const store = await mod("app/view/agents/sessionsarchivestore.ts");
     const WOS = await mod("app/store/wos.ts");

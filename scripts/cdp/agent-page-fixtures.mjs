@@ -4,20 +4,14 @@
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { waveService } from "./scenarios-shared.mjs";
+import { waveService, APP_MOD } from "./scenarios-shared.mjs";
 
 export const FIXTURE_DIR = "C:\\arc-verify-agent-fixture";
 const DEFAULT_SESSION_ID = "arc-verify-agent-session";
 
 // the app's own module instances, and the app's one AgentsViewModel
 const LIB = `
-    const mod = async (path) => {
-        const names = performance.getEntriesByType("resource").map((e) => e.name.split("?")[0]);
-        const hit = names.filter((n) => n.endsWith("/" + path)).pop();
-        const base = names.find((n) => n.endsWith("/app/store/jotaiStore.ts"));
-        if (hit == null && base == null) throw new Error("no app module url for " + path);
-        return import(hit ?? base.replace("app/store/jotaiStore.ts", path));
-    };
+    ${APP_MOD}
     const { globalStore } = await mod("app/store/jotaiStore.ts");
     const WOS = await mod("app/store/wos.ts");
     const nap = (ms) => new Promise((r) => setTimeout(r, ms));

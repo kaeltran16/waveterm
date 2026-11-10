@@ -1056,10 +1056,12 @@ export const focusAgentXterm = `(() => {
     return t != null;
 })()`;
 
-export const LOOK_LIB = `
+// page-side mod(path): the app's own instance of a module under frontend/, imported from the url the app loaded it
+// from. The newest url keeps its ?t= query: a module HMR updated is a new instance there, and the bare url is a stale
+// second copy whose atoms the app no longer reads. A full resource timing buffer drops later modules, so a module
+// with no entry is derived from jotaiStore's url
+export const APP_MOD = `
     const mod = async (path) => {
-        // the newest url keeps its ?t= query: a module HMR updated is a new instance there, and the bare url is a
-        // stale second copy whose atoms the app no longer reads
         const names = performance.getEntriesByType("resource").map((e) => e.name);
         const bare = (n) => n.split("?")[0];
         const hit = names.filter((n) => bare(n).endsWith("/" + path)).pop();
@@ -1067,6 +1069,10 @@ export const LOOK_LIB = `
         if (hit == null && base == null) throw new Error("no app module url for " + path);
         return import(hit ?? base.replace("app/store/jotaiStore.ts", path));
     };
+`;
+
+export const LOOK_LIB = `
+    ${APP_MOD}
     const nap = (ms) => new Promise((r) => setTimeout(r, ms));
     const until = async (fn, ms = 8000) => {
         for (const t0 = Date.now(); Date.now() - t0 < ms; await nap(150)) if (fn()) return true;

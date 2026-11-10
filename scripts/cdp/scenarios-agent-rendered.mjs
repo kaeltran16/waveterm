@@ -457,7 +457,10 @@ export default function (_kit) {
                         ["1 pass", "1 fail", "1 skip"].every((c) => card.counts.includes(c)) &&
                         card.rows.length === 1 &&
                         row.startsWith("FAIL") &&
-                        [FAILURE.pkg, `${FAILURE.test}: ${FAILURE.message}`, FAILURE.loc].every((t) => row.includes(t)) &&
+                        // the row names the test, a short file:line under the package's last segment, then the message
+                        [FAILURE.test, `${FAILURE.pkg.split("/").pop()}/${FAILURE.loc}`, FAILURE.message].every((t) =>
+                            row.includes(t)
+                        ) &&
                         raw.pressed === "true" &&
                         raw.hasOutput;
                     return [ok, { ...card, raw }];

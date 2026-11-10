@@ -4,7 +4,7 @@
 // no controller, so it never starts and stays a pending launch. Nothing runs and nothing is written to disk.
 
 import { randomUUID } from "node:crypto";
-import { polishWaitFor, waveService } from "./scenarios-shared.mjs";
+import { polishWaitFor, waveService, APP_MOD } from "./scenarios-shared.mjs";
 
 const NAME = "agent-start-failed";
 const REMOTE_CONN = "ssh:arc-verify-none";
@@ -14,13 +14,7 @@ const REFUSAL_WAIT_MS = 10_000;
 
 // the app's own module instances, and the app's one AgentsViewModel
 const LIB = `
-    const mod = async (path) => {
-        const names = performance.getEntriesByType("resource").map((e) => e.name.split("?")[0]);
-        const hit = names.filter((n) => n.endsWith("/" + path)).pop();
-        const base = names.find((n) => n.endsWith("/app/store/jotaiStore.ts"));
-        if (hit == null && base == null) throw new Error("no app module url for " + path);
-        return import(hit ?? base.replace("app/store/jotaiStore.ts", path));
-    };
+    ${APP_MOD}
     const { globalStore } = await mod("app/store/jotaiStore.ts");
     const WOS = await mod("app/store/wos.ts");
     // the nav rail, not the Agent tree: with no agent yet the Agent surface renders the launch hero and no tree

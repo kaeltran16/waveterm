@@ -15,6 +15,7 @@ import {
     setTranscript,
     stubTranscripts,
 } from "./sessions-page-fixtures.mjs";
+import { APP_MOD } from "./scenarios-shared.mjs";
 
 const NAME = "sessions-detail-states";
 // more than the 2,000-line tail, so the tail comes back full and the first prompt is cut
@@ -35,13 +36,7 @@ const TOAST_WAIT_MS = 4_000;
 
 // the app's module instance at path (under frontend/), the model the cockpit's UI route serves, and a poll
 const PAGE_LIB = `
-    const mod = async (path) => {
-        const names = performance.getEntriesByType("resource").map((e) => e.name.split("?")[0]);
-        const hit = names.filter((n) => n.endsWith("/" + path)).pop();
-        const base = names.find((n) => n.endsWith("/app/store/jotaiStore.ts"));
-        if (hit == null && base == null) throw new Error("no app module url for " + path);
-        return import(hit ?? base.replace("app/store/jotaiStore.ts", path));
-    };
+    ${APP_MOD}
     const { globalStore } = await mod("app/store/jotaiStore.ts");
     const model = (await mod("app/store/wshrpcutil.ts")).DefaultRouter.routeMap.get("cockpit")?.model;
     if (model == null) throw new Error("the cockpit route serves no model");

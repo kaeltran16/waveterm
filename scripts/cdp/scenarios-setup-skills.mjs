@@ -10,7 +10,7 @@ import {
     readSetupFixture,
     teardownSetupFixture,
 } from "./setup-fixtures.mjs";
-import { polishReload, polishWaitFor } from "./scenarios-shared.mjs";
+import { APP_MOD, polishReload, polishWaitFor } from "./scenarios-shared.mjs";
 
 const NAME = "setup-skills";
 const WIDE = { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false };
@@ -115,9 +115,7 @@ async function lastAdopt(h) {
 
 // the app's own module instance, as the page imported it
 const CODE_PROJECT = `(async () => {
-    const names = performance.getEntriesByType("resource").map((e) => e.name.split("?")[0]);
-    const base = names.find((n) => n.endsWith("/app/store/jotaiStore.ts"));
-    const mod = (path) => import(names.filter((n) => n.endsWith("/" + path)).pop() ?? base.replace("app/store/jotaiStore.ts", path));
+    ${APP_MOD}
     const { globalStore } = await mod("app/store/jotaiStore.ts");
     const { codeProjectAtom } = await mod("app/view/code/codestore.ts");
     return JSON.stringify(globalStore.get(codeProjectAtom));
