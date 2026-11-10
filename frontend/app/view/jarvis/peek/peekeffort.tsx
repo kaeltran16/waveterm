@@ -1,6 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { barFillClass } from "@/app/element/motiontokens";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
@@ -11,6 +12,7 @@ import { effortDetailAtom, loadEffortDetail } from "../effortstore";
 import { TONE_FG } from "../inlinetrackerview";
 import { reportPeekFacts, type PeekTarget } from "../peekstore";
 import { effortPeekFacts, effortPeekModel } from "./peekeffortmodel";
+import { PeekFade } from "./peekfade";
 
 const SEGMENT_FILL: Record<ChunkTone, string> = {
     done: "bg-success",
@@ -20,6 +22,9 @@ const SEGMENT_FILL: Record<ChunkTone, string> = {
     skipped: "bg-edge-mid",
     pending: "bg-edge-mid",
 };
+
+// tones drawn as the bare track: a chunk leaving one fills its segment instead of changing color in place
+const UNFILLED: ReadonlySet<ChunkTone> = new Set(["pending", "skipped"]);
 
 // a fetch no cached entry can be fresh against
 const ALWAYS_REFETCH = Number.MAX_SAFE_INTEGER;
@@ -45,6 +50,7 @@ export function PeekEffortBody({ target }: { model: AgentsViewModel; target: Pee
         return null;
     }
     const m = effortPeekModel(effort);
+    const chunksKey = `${m.doneLine ?? ""}|${m.remaining.map((c) => c.n).join(",")}`;
     return (
         <div className="flex flex-col">
             <div className="flex items-center gap-2.5 px-3.5 py-3">
@@ -71,7 +77,12 @@ export function PeekEffortBody({ target }: { model: AgentsViewModel; target: Pee
                             style={{ gridTemplateColumns: `repeat(${m.segments.length}, minmax(0, 1fr))` }}
                         >
                             {m.segments.map((tone, i) => (
-                                <span key={i} className={cn("h-1 rounded-[2px]", SEGMENT_FILL[tone])} />
+                                <span key={i} className="h-1 overflow-hidden rounded-[2px] bg-edge-mid">
+                                    <span
+                                        className={cn("block h-full origin-left", SEGMENT_FILL[tone], barFillClass)}
+                                        style={{ transform: `scaleX(${UNFILLED.has(tone) ? 0 : 1})` }}
+                                    />
+                                </span>
                             ))}
                         </div>
                     ) : null}
@@ -84,26 +95,37 @@ export function PeekEffortBody({ target }: { model: AgentsViewModel; target: Pee
                             </span>
                             <span className="h-px flex-1 bg-border" />
                         </div>
-                        {m.doneLine ? (
-                            <div className="flex items-center gap-2.5 px-3 py-[7px]">
-                                <Check aria-hidden="true" size={12} strokeWidth={2.4} className="flex-none text-success" />
-                                <span className="flex-1 text-[12.5px] text-ink-mid">{m.doneLine}</span>
-                            </div>
-                        ) : null}
-                        {m.remaining.map((c) => (
-                            <div
-                                key={c.n}
-                                className="grid grid-cols-[22px_minmax(0,1fr)_auto] items-center gap-2 border-t border-border px-3 py-[7px] first:border-t-0"
-                            >
-                                <span className="font-mono text-[10.5px] text-muted">{c.n}</span>
-                                <span
-                                    className={cn("truncate text-[12.5px]", c.active ? "text-ink-hi" : "text-ink-mid")}
+                        {/* a chunk finishing moves it from the list into the done line, so the two swap together */}
+                        <PeekFade fadeKey={chunksKey}>
+                            {m.doneLine ? (
+                                <div className="flex items-center gap-2.5 px-3 py-[7px]">
+                                    <Check
+                                        aria-hidden="true"
+                                        size={12}
+                                        strokeWidth={2.4}
+                                        className="flex-none text-success"
+                                    />
+                                    <span className="flex-1 text-[12.5px] text-ink-mid">{m.doneLine}</span>
+                                </div>
+                            ) : null}
+                            {m.remaining.map((c) => (
+                                <div
+                                    key={c.n}
+                                    className="grid grid-cols-[22px_minmax(0,1fr)_auto] items-center gap-2 border-t border-border px-3 py-[7px] first:border-t-0"
                                 >
-                                    {c.label}
-                                </span>
-                                <span className={cn("font-mono text-[10.5px]", TONE_FG[c.tone])}>{c.status}</span>
-                            </div>
-                        ))}
+                                    <span className="font-mono text-[10.5px] text-muted">{c.n}</span>
+                                    <span
+                                        className={cn(
+                                            "truncate text-[12.5px]",
+                                            c.active ? "text-ink-hi" : "text-ink-mid"
+                                        )}
+                                    >
+                                        {c.label}
+                                    </span>
+                                    <span className={cn("font-mono text-[10.5px]", TONE_FG[c.tone])}>{c.status}</span>
+                                </div>
+                            ))}
+                        </PeekFade>
                     </div>
                 ) : null}
             </div>

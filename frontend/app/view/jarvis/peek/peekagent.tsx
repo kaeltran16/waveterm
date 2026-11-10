@@ -1,6 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { DrawCheck } from "@/app/element/drawcheck";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { resolveCwd } from "@/app/view/agents/agentcwdresolve";
@@ -14,7 +15,6 @@ import {
     formatAgeShort,
     type AgentVM,
 } from "@/app/view/agents/agentsviewmodel";
-import { CommitTick } from "@/app/view/agents/committick";
 import { capFiles, lineCountsShown, parseGitChanges, statusColor, type GitChanges } from "@/app/view/agents/gitstatus";
 import { prettyModel } from "@/app/view/agents/modellabel";
 import { agentProject } from "@/app/view/agents/runlineage";
@@ -24,8 +24,11 @@ import { Terminal } from "lucide-react";
 import { useEffect, useState } from "react";
 import { reportPeekFacts, type PeekTarget } from "../peekstore";
 import { agentGridRows, agentPeekFacts, changedFilesSummary, sessionLabel } from "./peekagentmodel";
+import { PeekFade } from "./peekfade";
 
 const FILES_CAP = 8;
+// CommitTick's title for a finished quick run
+const RUN_DONE_TITLE = "Done, its run finished";
 
 const STATE_DOT: Record<AgentVM["state"], string> = {
     asking: "bg-warning",
@@ -95,6 +98,7 @@ export function PeekAgentBody({ model, target }: { model: AgentsViewModel; targe
     const { shown } = capFiles(files, FILES_CAP);
     const counted = lineCountsShown(git?.changes);
     const age = formatAgeShort(displayAgeMs(agent, now));
+    const runDone = agentRunDone(agent);
     return (
         <div className="flex flex-col">
             <div className="flex items-center gap-2.5 px-3.5 py-3">
@@ -103,56 +107,68 @@ export function PeekAgentBody({ model, target }: { model: AgentsViewModel; targe
                 </span>
                 <span className="min-w-0 flex-1 truncate text-[14px] font-semibold text-ink-hi">{agent.name}</span>
                 <span className="inline-flex flex-none items-center gap-1.5 rounded-[6px] border border-border bg-surface-raised px-2 py-[2px] font-mono text-[10.5px] font-semibold text-ink-mid">
-                    {agentRunDone(agent) ? (
-                        <CommitTick runDone />
-                    ) : (
-                        <span className={cn("h-1.5 w-1.5 rounded-full", STATE_DOT[agent.state])} />
-                    )}
+                    {/* the check draws when the run finishes while the peek is up, so DrawCheck stays mounted */}
+                    <span
+                        title={runDone ? RUN_DONE_TITLE : undefined}
+                        role={runDone ? "img" : undefined}
+                        aria-label={runDone ? RUN_DONE_TITLE : undefined}
+                        className="flex shrink-0 items-center"
+                    >
+                        <DrawCheck done={runDone} className="text-success" />
+                        {runDone ? null : <span className={cn("h-1.5 w-1.5 rounded-full", STATE_DOT[agent.state])} />}
+                    </span>
                     {agentStateLabel(agent)}
                     {age ? ` · ${age}` : ""}
                 </span>
             </div>
             <div className="flex flex-col gap-3.5 px-3.5 pb-3.5">
-                {rows.length > 0 ? (
-                    <div className="grid grid-cols-[74px_minmax(0,1fr)] gap-x-3 gap-y-2 text-[12.5px]">
-                        {rows.map((r) => (
-                            <PeekGridRow key={r.label} label={r.label} value={r.value} mono={r.mono} />
-                        ))}
-                    </div>
-                ) : null}
-                {files.length > 0 ? (
-                    <div className="flex flex-col overflow-hidden rounded-[9px] border border-border bg-surface-code">
-                        <div className="flex items-center gap-2.5 border-b border-border px-3 py-2">
-                            <span className="flex-none font-mono text-[10.5px] font-bold uppercase tracking-[0.1em] text-ink-mid">
-                                Changed files
-                            </span>
-                            <span className="h-px flex-1 bg-border" />
-                            <span className="flex-none font-mono text-[10.5px] text-muted">
-                                {counted ? changedFilesSummary(files) : fileTotals(files).count}
-                            </span>
+                {/* the git read lands after the peek is up, so the files (and rows only git fills) arrive late */}
+                <PeekFade>
+                    {rows.length > 0 ? (
+                        <div className="grid grid-cols-[74px_minmax(0,1fr)] gap-x-3 gap-y-2 text-[12.5px]">
+                            {rows.map((r) => (
+                                <PeekGridRow key={r.label} label={r.label} value={r.value} mono={r.mono} />
+                            ))}
                         </div>
-                        {shown.map((f) => (
-                            <div
-                                key={f.path}
-                                className={cn(
-                                    "grid items-center gap-2.5 px-3 py-1.5 font-mono",
-                                    counted
-                                        ? "grid-cols-[14px_minmax(0,1fr)_auto_auto]"
-                                        : "grid-cols-[14px_minmax(0,1fr)]"
-                                )}
-                            >
-                                <span className={cn("text-[10.5px] font-bold", statusColor(f.status))}>{f.status}</span>
-                                <span className="truncate text-[11.5px] text-secondary">{f.path}</span>
-                                {counted ? (
-                                    <>
-                                        <span className="text-[10.5px] text-diff-added">+{f.adds}</span>
-                                        <span className="text-[10.5px] text-diff-removed">−{f.dels}</span>
-                                    </>
-                                ) : null}
+                    ) : null}
+                </PeekFade>
+                <PeekFade>
+                    {files.length > 0 ? (
+                        <div className="flex flex-col overflow-hidden rounded-[9px] border border-border bg-surface-code">
+                            <div className="flex items-center gap-2.5 border-b border-border px-3 py-2">
+                                <span className="flex-none font-mono text-[10.5px] font-bold uppercase tracking-[0.1em] text-ink-mid">
+                                    Changed files
+                                </span>
+                                <span className="h-px flex-1 bg-border" />
+                                <span className="flex-none font-mono text-[10.5px] text-muted">
+                                    {counted ? changedFilesSummary(files) : fileTotals(files).count}
+                                </span>
                             </div>
-                        ))}
-                    </div>
-                ) : null}
+                            {shown.map((f) => (
+                                <div
+                                    key={f.path}
+                                    className={cn(
+                                        "grid items-center gap-2.5 px-3 py-1.5 font-mono",
+                                        counted
+                                            ? "grid-cols-[14px_minmax(0,1fr)_auto_auto]"
+                                            : "grid-cols-[14px_minmax(0,1fr)]"
+                                    )}
+                                >
+                                    <span className={cn("text-[10.5px] font-bold", statusColor(f.status))}>
+                                        {f.status}
+                                    </span>
+                                    <span className="truncate text-[11.5px] text-secondary">{f.path}</span>
+                                    {counted ? (
+                                        <>
+                                            <span className="text-[10.5px] text-diff-added">+{f.adds}</span>
+                                            <span className="text-[10.5px] text-diff-removed">−{f.dels}</span>
+                                        </>
+                                    ) : null}
+                                </div>
+                            ))}
+                        </div>
+                    ) : null}
+                </PeekFade>
                 <div className="flex items-center gap-2.5 rounded-[9px] border border-dashed border-edge-mid px-3 py-[11px]">
                     <Terminal aria-hidden="true" size={15} strokeWidth={1.8} className="flex-none text-muted" />
                     <span className="text-[12.5px] text-ink-mid">

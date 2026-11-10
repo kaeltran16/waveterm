@@ -4,6 +4,7 @@
 // The run body (PeekRun.dc.html): the run's header, meta line, goal, phase strip and task list, live from the
 // run and its task graph through WOS. What it says is arranged in peekrunmodel.ts.
 
+import { TickNumber } from "@/app/element/ticknumber";
 import * as WOS from "@/app/store/wos";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { projectLabel } from "@/app/view/agents/projectlabel";
@@ -20,6 +21,7 @@ import { RUN_TONE } from "../briefpeekview";
 import { MONO_FAINT, REGION_LABEL } from "../briefstyle";
 import { reportPeekFacts, type PeekTarget } from "../peekstore";
 import { runGraphRef } from "../runsheetmodel";
+import { PeekFade } from "./peekfade";
 import {
     buildRunPeek,
     runPeekFacts,
@@ -65,7 +67,16 @@ function PhaseCell({ phase }: { phase: PeekPhase }) {
             <span className="font-mono text-[10.5px] uppercase tracking-[.06em] text-muted">{phase.label}</span>
             <span className={cn("flex min-w-0 items-center gap-1.5 text-[12px] font-semibold", TONE_TEXT[phase.tone])}>
                 <ToneMark tone={phase.tone} size={11} />
-                <span className="truncate">{phase.state}</span>
+                <span className="truncate">
+                    {phase.count != null ? (
+                        <>
+                            <TickNumber value={phase.count} />
+                            {phase.state.slice(String(phase.count).length)}
+                        </>
+                    ) : (
+                        phase.state
+                    )}
+                </span>
             </span>
         </div>
     );
@@ -138,26 +149,31 @@ function RunPeekView({ view }: { view: PeekRunView }) {
                         </span>
                     </div>
                 ) : null}
-                {view.tasks != null ? (
-                    <div className="flex flex-col overflow-hidden rounded-[9px] border border-border bg-background">
-                        <div className="flex items-center gap-2.5 border-b border-edge-faint px-3 py-2">
-                            <span className={cn(REGION_LABEL, "text-ink-mid")}>Tasks</span>
-                            <span className="h-px flex-1 bg-edge-faint" />
-                            {view.commits != null ? (
-                                <span className={cn("flex-none", MONO_FAINT)}>{view.commits}</span>
-                            ) : null}
-                        </div>
-                        {view.tasks.length === 0 ? (
-                            <div className="px-3 py-2.5 font-mono text-[11px] text-muted">The plan has no tasks.</div>
-                        ) : (
-                            <div className="grid grid-cols-2 py-[3px]">
-                                {view.tasks.map((t) => (
-                                    <TaskRowView key={t.id} row={t} />
-                                ))}
+                {/* the graph and the digest load after the run, so the list and its commit line arrive later */}
+                <PeekFade>
+                    {view.tasks != null ? (
+                        <div className="flex flex-col overflow-hidden rounded-[9px] border border-border bg-background">
+                            <div className="flex items-center gap-2.5 border-b border-edge-faint px-3 py-2">
+                                <span className={cn(REGION_LABEL, "text-ink-mid")}>Tasks</span>
+                                <span className="h-px flex-1 bg-edge-faint" />
+                                <PeekFade className="flex-none">
+                                    {view.commits != null ? <span className={MONO_FAINT}>{view.commits}</span> : null}
+                                </PeekFade>
                             </div>
-                        )}
-                    </div>
-                ) : null}
+                            {view.tasks.length === 0 ? (
+                                <div className="px-3 py-2.5 font-mono text-[11px] text-muted">
+                                    The plan has no tasks.
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-2 py-[3px]">
+                                    {view.tasks.map((t) => (
+                                        <TaskRowView key={t.id} row={t} />
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    ) : null}
+                </PeekFade>
             </div>
         </div>
     );

@@ -5,10 +5,12 @@
 // kind (Back to Jarvis, close, Open); the body comes from the registry and reports whether its
 // target is still there. The key hints and the panel's own keys stay with petpeek.tsx, which owns the dialog.
 
+import { AutoHeight } from "@/app/element/autoheight";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { cn, fireAndForget } from "@/util/util";
 import { ChevronLeft, X } from "lucide-react";
 import { openTarget } from "./openref";
+import { PeekFade } from "./peek/peekfade";
 import { PEEK_BODIES } from "./peek/peekregistry";
 import { goneLine, kindNoun, openButton, openLabel, type ItemKeyCommand } from "./peekitemmodel";
 import { closePeek, peekTargetKey, type PeekFacts, type PeekItem } from "./peekstore";
@@ -81,6 +83,7 @@ export function PeekItemView({
     const kind = item.target.kind;
     const open = openButton(kind, facts);
     const Body = PEEK_BODIES[kind];
+    const shown = item.status === "loading" ? "loading" : facts?.gone ? "gone" : "body";
     return (
         <>
             <div data-pet-peek-header className="flex min-h-11 flex-none items-center gap-1 px-2">
@@ -114,16 +117,21 @@ export function PeekItemView({
             </div>
 
             <div data-pet-peek-body className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden border-t border-border">
-                {item.status === "loading" ? (
-                    <LoadingBody item={item} />
-                ) : facts?.gone ? (
-                    <p data-pet-peek-gone className="px-3.5 py-3 text-[12px] text-muted">
-                        {goneLine(kind)}
-                    </p>
-                ) : (
-                    // keyed by target, so a peek at another item mounts a fresh body that reports for it
-                    <Body key={peekTargetKey(item.target)} model={model} target={item.target} />
-                )}
+                {/* the peek grows to its content instead of jumping from the one-line loader */}
+                <AutoHeight>
+                    <PeekFade fadeKey={shown}>
+                        {shown === "loading" ? (
+                            <LoadingBody item={item} />
+                        ) : shown === "gone" ? (
+                            <p data-pet-peek-gone className="px-3.5 py-3 text-[12px] text-muted">
+                                {goneLine(kind)}
+                            </p>
+                        ) : (
+                            // keyed by target, so a peek at another item mounts a fresh body that reports for it
+                            <Body key={peekTargetKey(item.target)} model={model} target={item.target} />
+                        )}
+                    </PeekFade>
+                </AutoHeight>
             </div>
 
             {open !== "absent" ? (
