@@ -16,6 +16,7 @@ import { ToolDetailBody } from "./narrationtimeline";
 import { permissionLogText, permissionPreview, permissionTitle, type PermissionPreview } from "./permissionmodel";
 import { getAgentPermissionsAtom, permissionLogAtom, removeAgentPermission } from "./permissionstore";
 import { pickerFlipAtom } from "./renderedmode";
+import { getAgentStatusAtom } from "./session-models/agentstatusstore";
 
 const BAND =
     "flex flex-col gap-[9px] rounded-t-[9px] border border-b-0 border-warning/45 bg-warning/[0.12] px-[13px] py-[11px]";
@@ -66,6 +67,8 @@ function RequestBand({
     entryCount: number;
     onLastChoice: () => void;
 }) {
+    // the agent's working dir, so its absolute paths read relative
+    const cwd = useAtomValue(getAgentStatusAtom(request.oref))?.cwd;
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const answer = async (choice: number) => {
@@ -87,7 +90,7 @@ function RequestBand({
         }
         globalStore.set(permissionLogAtom(agentId), (prev) => [
             ...prev,
-            { afterEntry: entryCount, text: permissionLogText(request, choice) },
+            { afterEntry: entryCount, text: permissionLogText(request, choice, cwd) },
         ]);
         // the server's cleared event retires it too; dropping it here keeps the band from lingering on a slow event
         removeAgentPermission(request.oref, request.permid);
@@ -97,8 +100,8 @@ function RequestBand({
     };
     return (
         <div data-permission-band className={BAND}>
-            <NeedsYou>{permissionTitle(request)}</NeedsYou>
-            <Preview preview={permissionPreview(request)} />
+            <NeedsYou>{permissionTitle(request, cwd)}</NeedsYou>
+            <Preview preview={permissionPreview(request, cwd)} />
             <div className="flex flex-wrap gap-[7px]">
                 {request.choices.map((label, i) => (
                     <button

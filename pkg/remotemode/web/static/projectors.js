@@ -15,17 +15,31 @@ function toolResultImages(content) {
     (b) => b?.type === "image" && b.source?.type === "base64" && typeof b.source.data === "string" && typeof b.source.media_type === "string" && IMAGE_MEDIA_TYPE.test(b.source.media_type)
   ).map((b) => ({ mediaType: b.source.media_type, data: b.source.data }));
 }
-function baseCount(s) {
-  return s === "" ? 0 : s.split("\n").length;
-}
 function buildEditDiff(path, oldStr, newStr) {
-  const dels = baseCount(oldStr);
-  const adds = baseCount(newStr);
+  const a = oldStr === "" ? [] : oldStr.split("\n");
+  const b = newStr === "" ? [] : newStr.split("\n");
+  let head = 0;
+  while (head < a.length && head < b.length && a[head] === b[head]) {
+    head++;
+  }
+  let tail = 0;
+  while (tail < a.length - head && tail < b.length - head && a[a.length - 1 - tail] === b[b.length - 1 - tail]) {
+    tail++;
+  }
+  const context = (text) => ({ sign: "", text });
   const lines = [
-    ...oldStr === "" ? [] : oldStr.split("\n").map((text) => ({ sign: "-", text })),
-    ...newStr === "" ? [] : newStr.split("\n").map((text) => ({ sign: "+", text }))
+    ...a.slice(0, head).map(context),
+    ...a.slice(head, a.length - tail).map((text) => ({ sign: "-", text })),
+    ...b.slice(head, b.length - tail).map((text) => ({ sign: "+", text })),
+    ...a.slice(a.length - tail).map(context)
   ];
-  return { path, badge: oldStr === "" ? "A" : "M", adds, dels, lines };
+  return {
+    path,
+    badge: oldStr === "" ? "A" : "M",
+    adds: b.length - head - tail,
+    dels: a.length - head - tail,
+    lines
+  };
 }
 var GREP_PREFIX = /^(.*?:\d+):?(.*)$/;
 function parseGrep(output) {
@@ -587,6 +601,7 @@ function projectTranscript(lines) {
         if (action == null) {
           continue;
         }
+        action._done = true;
         const body = toolResultText(block.content);
         const images = toolResultImages(block.content);
         if (images.length > 0) {
@@ -646,6 +661,10 @@ function projectTranscript(lines) {
       if (!e.outcome && Number.isFinite(useTs)) {
         e.startedTs = useTs;
       }
+      if (!e._done) {
+        e.pending = true;
+      }
+      delete e._done;
       delete e._useTs;
       delete e._tool;
       delete e._command;

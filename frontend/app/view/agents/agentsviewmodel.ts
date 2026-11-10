@@ -18,6 +18,8 @@ export interface GrepMatch {
 export interface DiffLine {
     sign: "+" | "-" | "";
     text: string;
+    // a git diff's @@ line, drawn as a separator rather than code
+    hunk?: true;
 }
 export interface EditFile {
     path: string;
@@ -63,6 +65,9 @@ export type AgentEntry =
           summary?: string; // e.g. "14 matches", "80 lines", "24 passing"
           durationMs?: number; // tool_use → tool_result wall time, when timestamps present
           startedTs?: number; // tool_use time while the call has no outcome yet, so a live call can show its elapsed
+          // no tool_result yet: running, waiting on a permission prompt, or never finished. Claude's projection only;
+          // absent reads as done.
+          pending?: true;
           detail?: ActionDetail; // rich, expandable detail; absent = bare line
           images?: ToolImage[]; // image items of the tool_result (e.g. a Read of a png)
       };
@@ -383,6 +388,15 @@ export function summarizeActions(actions: AgentActionEntry[]): ActionsSummary {
     }
     const byVerb = order.map((verb) => ({ verb, count: counts.get(verb)! })).sort((x, y) => y.count - x.count);
     return { total: actions.length, byVerb, outcome: failed > 0 ? "fail" : "ok", failed };
+}
+
+// Pure: a folded group's label. One verb says it all ("3 ran"); a mix keeps the total and its breakdown, so the
+// row never reads "3 tools 3 ran".
+export function foldLabel(s: ActionsSummary): { headline: string; breakdown?: string } {
+    if (s.byVerb.length === 1) {
+        return { headline: `${s.total} ${s.byVerb[0].verb}` };
+    }
+    return { headline: `${s.total} tools`, breakdown: s.byVerb.map((v) => `${v.count} ${v.verb}`).join(" · ") };
 }
 
 /**

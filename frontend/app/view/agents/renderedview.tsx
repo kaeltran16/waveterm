@@ -24,7 +24,7 @@ import { getLastHookAtom } from "./session-models/agentstatusstore";
 import { JumpToLatestPill, useStickToBottom } from "./sticktobottom";
 import { TranscriptSkeleton } from "./transcriptskeleton";
 
-const HINT = "Esc interrupt · / commands · /model and permissions in the header · other pickers open the terminal";
+const HINT = "Esc interrupt · / commands · pickers open the terminal";
 
 // A picker the composer flipped to the terminal has closed once the agent's next prompt-boundary hook lands. Called
 // by the surface, not the view, because the view is unmounted while the flip holds the terminal.
@@ -89,7 +89,9 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
         <div data-rendered-view className="flex min-h-0 flex-1 flex-col">
             <div className="relative min-h-0 flex-1">
                 <div ref={scrollRef} onScroll={onScroll} className="h-full overflow-y-auto px-[22px] py-[18px]">
-                    <div className="mx-auto h-full w-full max-w-[920px]">
+                    {/* min-h, not h: the stick-to-bottom observer watches this box, so it must grow with the
+                        timeline (an image or chart that lays out late) for the tail to stay pinned */}
+                    <div className="mx-auto flex min-h-full w-full max-w-[920px] flex-col">
                         {entries.length > 0 ? (
                             <NarrationTimeline
                                 entries={entries}
@@ -99,13 +101,13 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
                                 active={agent.state === "working"}
                             />
                         ) : agent.transcriptPath ? (
-                            <div data-rendered-empty="skeleton" className="h-full">
+                            <div data-rendered-empty="skeleton" className="flex-1">
                                 <TranscriptSkeleton />
                             </div>
                         ) : (
                             <div
                                 data-rendered-empty="no-transcript"
-                                className="flex h-full items-center justify-center text-[12px] text-muted"
+                                className="flex flex-1 items-center justify-center text-[12px] text-muted"
                             >
                                 No transcript for this session yet.
                             </div>

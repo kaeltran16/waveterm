@@ -248,6 +248,7 @@ export function projectTranscript(lines: string[]): AgentEntry[] {
                 if (action == null) {
                     continue;
                 }
+                (action as any)._done = true;
                 const body = toolResultText(block.content);
                 const images = toolResultImages(block.content);
                 if (images.length > 0) {
@@ -309,6 +310,10 @@ export function projectTranscript(lines: string[]): AgentEntry[] {
             if (!e.outcome && Number.isFinite(useTs)) {
                 e.startedTs = useTs;
             }
+            if (!(e as any)._done) {
+                e.pending = true;
+            }
+            delete (e as any)._done;
             delete (e as any)._useTs;
             delete (e as any)._tool;
             delete (e as any)._command;

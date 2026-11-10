@@ -35,18 +35,33 @@ export function toolResultImages(content: unknown): ToolImage[] {
         .map((b: any) => ({ mediaType: b.source.media_type, data: b.source.data }));
 }
 
-function baseCount(s: string): number {
-    return s === "" ? 0 : s.split("\n").length;
-}
-
+// An edit's old and new strings as a diff. The lines both share at either end are the anchor quoted around the change,
+// so they stay context and only the lines between count as removed and added.
 export function buildEditDiff(path: string, oldStr: string, newStr: string): EditFile {
-    const dels = baseCount(oldStr);
-    const adds = baseCount(newStr);
+    const a = oldStr === "" ? [] : oldStr.split("\n");
+    const b = newStr === "" ? [] : newStr.split("\n");
+    let head = 0;
+    while (head < a.length && head < b.length && a[head] === b[head]) {
+        head++;
+    }
+    let tail = 0;
+    while (tail < a.length - head && tail < b.length - head && a[a.length - 1 - tail] === b[b.length - 1 - tail]) {
+        tail++;
+    }
+    const context = (text: string) => ({ sign: "" as const, text });
     const lines = [
-        ...(oldStr === "" ? [] : oldStr.split("\n").map((text) => ({ sign: "-" as const, text }))),
-        ...(newStr === "" ? [] : newStr.split("\n").map((text) => ({ sign: "+" as const, text }))),
+        ...a.slice(0, head).map(context),
+        ...a.slice(head, a.length - tail).map((text) => ({ sign: "-" as const, text })),
+        ...b.slice(head, b.length - tail).map((text) => ({ sign: "+" as const, text })),
+        ...a.slice(a.length - tail).map(context),
     ];
-    return { path, badge: oldStr === "" ? "A" : "M", adds, dels, lines };
+    return {
+        path,
+        badge: oldStr === "" ? "A" : "M",
+        adds: b.length - head - tail,
+        dels: a.length - head - tail,
+        lines,
+    };
 }
 
 const GREP_PREFIX = /^(.*?:\d+):?(.*)$/;

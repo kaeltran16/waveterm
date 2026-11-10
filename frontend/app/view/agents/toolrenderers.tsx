@@ -6,7 +6,7 @@ import { useState, type ReactNode } from "react";
 import type { AgentActionEntry, EditFile, ToolImage } from "./agentsviewmodel";
 import { ToolDetailBody } from "./narrationtimeline";
 import { bashCard, toolRendererKey } from "./renderregistry";
-import { stripAnsi, type TestSummary } from "./testoutput";
+import { failureLabel, stripAnsi, type TestSummary } from "./testoutput";
 import { capDiffLines } from "./unifieddiff";
 
 // Tool output cards, drawn open under their tool row in the rendered view (Main.dc.html go-test card).
@@ -47,7 +47,8 @@ function RawOutput({ output }: { output: string }) {
     );
 }
 
-// header (label, counts, raw toggle) over a body that swaps to the raw output
+// header (label, counts, raw toggle) over a body that swaps to the raw output. A card whose header says it all (a
+// passing run) has no body until raw is on.
 function BashCardShell({
     kind,
     label,
@@ -59,18 +60,19 @@ function BashCardShell({
     label: string;
     counts: ReactNode;
     output: string;
-    children: ReactNode;
+    children?: ReactNode;
 }) {
     const [raw, setRaw] = useState(false);
+    const body = raw ? <RawOutput output={output} /> : children;
     return (
         <div data-tool-card={kind} className={CARD}>
-            <div className={CARD_HEADER}>
+            <div className={cn(CARD_HEADER, body == null && "border-b-0")}>
                 <span className={cn(MONO_LABEL, "text-accent-soft")}>{label}</span>
                 <span className="flex-1" />
                 {counts}
                 <RawToggle raw={raw} onToggle={() => setRaw((r) => !r)} />
             </div>
-            <div className={CARD_BODY}>{raw ? <RawOutput output={output} /> : children}</div>
+            {body != null ? <div className={CARD_BODY}>{body}</div> : null}
         </div>
     );
 }
@@ -90,6 +92,29 @@ function TestCard({ summary, output }: { summary: TestSummary; output: string })
             <Count n={summary.skip} word="skip" tone="text-muted" />
         </span>
     );
+    const rows = shown.map((f, i) => {
+        const label = failureLabel(summary.runner, f);
+        return (
+            <div
+                key={i}
+                data-test-failure
+                className="grid grid-cols-[auto_minmax(0,1fr)_auto] gap-x-2.5 gap-y-0.5 border-b border-edge-faint px-[11px] py-[7px] font-mono text-[11.5px] last:border-b-0"
+            >
+                <span className="text-error">FAIL</span>
+                <span className="truncate text-ink-hi" title={label.name}>
+                    {label.name}
+                </span>
+                <span className="text-muted" title={label.whereFull}>
+                    {label.where ?? ""}
+                </span>
+                {f.message ? (
+                    <span className="col-span-2 col-start-2 line-clamp-3 whitespace-pre-wrap text-secondary [overflow-wrap:anywhere]">
+                        {f.message}
+                    </span>
+                ) : null}
+            </div>
+        );
+    });
     return (
         <BashCardShell
             kind="test"
@@ -97,27 +122,14 @@ function TestCard({ summary, output }: { summary: TestSummary; output: string })
             counts={counts}
             output={output}
         >
-            {shown.length === 0 ? (
-                <div className="px-[11px] py-[7px] text-[12px] text-muted">all passed</div>
-            ) : (
-                shown.map((f, i) => (
-                    <div
-                        key={i}
-                        data-test-failure
-                        className="flex items-center gap-2.5 border-b border-edge-faint px-[11px] py-[7px] font-mono text-[11.5px] last:border-b-0"
-                    >
-                        <span className="shrink-0 text-error">FAIL</span>
-                        {f.pkg ? <span className="min-w-0 shrink truncate text-ink-hi">{f.pkg}</span> : null}
-                        <span className="min-w-0 flex-1 truncate text-secondary" title={f.message}>
-                            {f.test ? `${f.test}: ${f.message}` : f.message}
-                        </span>
-                        {f.loc ? <span className="shrink-0 text-muted">{f.loc}</span> : null}
-                    </div>
-                ))
-            )}
-            {more > 0 ? (
-                <div className="px-[11px] py-[7px] text-[12px] text-muted">{`${more} more failures in raw`}</div>
-            ) : null}
+            {rows.length > 0 ? (
+                <>
+                    {rows}
+                    {more > 0 ? (
+                        <div className="px-[11px] py-[7px] text-[12px] text-muted">{`${more} more failures in raw`}</div>
+                    ) : null}
+                </>
+            ) : undefined}
         </BashCardShell>
     );
 }
@@ -126,13 +138,22 @@ function DiffCard({ files, output }: { files: EditFile[]; output: string }) {
     const { files: shown, hidden } = capDiffLines(files, DIFF_LINES_SHOWN_MAX);
     const adds = files.reduce((n, f) => n + f.adds, 0);
     const dels = files.reduce((n, f) => n + f.dels, 0);
+    // one file's row already carries its counts
     const counts = (
         <span className="flex items-center gap-2">
             <span
                 className={cn(MONO_LABEL, "text-muted")}
             >{`${files.length} file${files.length === 1 ? "" : "s"}`}</span>
-            <span className={cn(MONO_LABEL, "font-bold text-diff-added")}>+{adds}</span>
-            <span className={cn(MONO_LABEL, "font-bold text-diff-removed")}>−{dels}</span>
+            {files.length > 1 ? (
+                <>
+                    <span className={cn(MONO_LABEL, adds > 0 ? "font-bold text-diff-added" : "text-muted")}>
+                        +{adds}
+                    </span>
+                    <span className={cn(MONO_LABEL, dels > 0 ? "font-bold text-diff-removed" : "text-muted")}>
+                        −{dels}
+                    </span>
+                </>
+            ) : null}
         </span>
     );
     return (

@@ -18,6 +18,7 @@ import {
     detailExceedsInline,
     detailLineCount,
     displayAgeMs,
+    foldLabel,
     formatAge,
     formatAgeShort,
     formatAgo,
@@ -935,6 +936,20 @@ describe("groupTimeline command/compaction", () => {
             index: 1,
         });
         expect(items[2]).toEqual({ kind: "interrupted", index: 2 });
+    });
+});
+describe("foldLabel", () => {
+    it("says a one-verb group once", () => {
+        const ran: AgentActionEntry[] = [1, 2, 3].map((i) => ({ kind: "action", verb: "ran", target: `c${i}` }));
+        expect(foldLabel(summarizeActions(ran))).toEqual({ headline: "3 ran" });
+    });
+    it("keeps the total and the breakdown for a mix", () => {
+        const mix: AgentActionEntry[] = [
+            { kind: "action", verb: "edited", target: "a" },
+            { kind: "action", verb: "edited", target: "b" },
+            { kind: "action", verb: "ran", target: "c" },
+        ];
+        expect(foldLabel(summarizeActions(mix))).toEqual({ headline: "3 tools", breakdown: "2 edited · 1 ran" });
     });
 });
 describe("summarizeActions", () => {

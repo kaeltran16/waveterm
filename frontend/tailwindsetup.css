@@ -517,8 +517,11 @@ svg [aria-label="tip"] g path {
     color: var(--color-secondary);
     font-style: italic;
 }
-/* wide tables scroll inside the panel instead of forcing it wider (see markdownmessage.tsx) */
+/* wide tables scroll inside the panel instead of forcing it wider (see markdownmessage.tsx); a narrow one's border
+   hugs it rather than leaving an empty strip */
 .agent-table-wrap {
+    width: fit-content;
+    max-width: 100%;
     overflow-x: auto;
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 6px;
