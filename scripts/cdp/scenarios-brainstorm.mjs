@@ -77,6 +77,7 @@ const BS_ROSTER_WAIT_MS = 10000;
 const BS_NOTHING_TYPED_MS = 800;
 const BS_CLICK_SETTLE_MS = 2000;
 const BS_CLICK_POLL_MS = 100;
+const BS_META_CLEAR_WAIT_MS = 3000;
 const BS_SCROLLBACK_LINES = 400;
 // the shell's prompt ends its last row: pwsh and cmd end in >, bash and zsh in $, # or %
 const BS_PROMPT = /[>$#%]$/;
@@ -1351,7 +1352,12 @@ export const brainstormMode = {
         const s12g = await bsUntil(h, ctx, (s) => s.view === "removed");
         const backed = s12g.ok ? await bsClick(h, BS_PANE, "Back to terminal") : `never gone again: ${s12g.view}`;
         const s12b = await bsUntil(h, ctx, (s) => s.view == null && s.switch == null && s.terminal === true, 3000);
-        const meta3 = await bsTabMeta(h, ctx).catch((e) => `error: ${e?.message ?? e}`);
+        // Back detaches at once but does not await clearing the meta, so the clear can land after the UI settles
+        let meta3;
+        for (const start = Date.now(); ; await polishNap(250)) {
+            meta3 = await bsTabMeta(h, ctx).catch((e) => `error: ${e?.message ?? e}`);
+            if (meta3 == null || Date.now() - start >= BS_META_CLEAR_WAIT_MS) break;
+        }
         await h.shot("cdp-shots/brainstorm-mode-12-back.png");
         rec(
             "12b. Back to terminal: no pane, the terminal visible, no brainstorm switcher, the tab meta cleared",
