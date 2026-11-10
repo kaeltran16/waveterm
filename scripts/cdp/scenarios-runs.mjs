@@ -5198,7 +5198,8 @@ export const finalStageScenario = {
         const keptDag = await fstUntil(h, dagRead, (s) => s.text.includes(FST_KEPT_MARK));
         await shot("b5b-kept-dag");
         await finalShotsClick(h, dagCell);
-        const keptDagClosed = await fstUntil(h, dagRead, (s) => s.expanded.length === 0);
+        // the output leaves through its pane's exit, so its text is waited out too
+        const keptDagClosed = await fstUntil(h, dagRead, (s) => s.expanded.length === 0 && !s.text.includes(FST_KEPT_MARK));
         rec(
             "B5b. a step that ended opens the output it kept: Check's from the pane, the rail and the DAG peek card (under its row, the outcome still shown), Verify's says none was kept, and a second click returns to the outcome",
             () =>

@@ -5,9 +5,11 @@
 // where a terminal would be it shows the pipeline, the running command with its output tail, and what an ended
 // stage came to. A click on a step that ended shows the output it kept.
 
+import { errorNudge, viewFade } from "@/app/element/motiontokens";
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
+import { MotionConfig, motion, type Variants } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { dockButtonClass } from "./endfinalform";
@@ -24,6 +26,11 @@ import {
 } from "./finalstageviews";
 import { leadAgentOf, stageLabel, verifierStepTarget, type RunInfo } from "./runlineage";
 import { FINAL_FILL } from "./runstrip";
+
+// the states a stage ends in without failing: a rerun the human asked for is answered by one of these or by failed
+const ENDED_CLEAN = new Set(["passed", "unverified"]);
+
+type BodyView = "running" | "kept" | "outcome";
 
 export function FinalStagePane({ model, run }: { model: AgentsViewModel; run: RunInfo }) {
     const now = useAtomValue(model.nowAtom);
@@ -47,6 +54,23 @@ export function FinalStagePane({ model, run }: { model: AgentsViewModel; run: Ru
     useEffect(() => {
         outputRef.current?.scrollTo({ top: outputRef.current.scrollHeight });
     }, [view.output]);
+    // the body swaps views with a fade, but not on mount: focusing the stage's row is not a change in it
+    const mounted = useRef(false);
+    useEffect(() => {
+        mounted.current = true;
+    }, []);
+    const body: BodyView = shown?.state === "running" ? "running" : shown?.kept ? "kept" : "outcome";
+    // the failed note's moment, picked on the render the stage turns failed: a nudge when it answers the human's
+    // own rerun ("your action failed, here"), else a fade. Cleared once played, so a remount never replays it.
+    const [rerunAsked, setRerunAsked] = useState(false);
+    const [stage, setStage] = useState<{ state: string; note: Variants | null }>({ state: view.state, note: null });
+    if (stage.state !== view.state) {
+        const failedNow = view.state === "failed";
+        setStage({ state: view.state, note: failedNow ? (rerunAsked ? errorNudge : viewFade) : null });
+        if (failedNow || ENDED_CLEAN.has(view.state)) {
+            setRerunAsked(false);
+        }
+    }
 
     return (
         <div data-final-pane className="flex min-h-0 flex-1 flex-col bg-background">
@@ -70,6 +94,7 @@ export function FinalStagePane({ model, run }: { model: AgentsViewModel; run: Ru
                     channelId={run.channelId}
                     runId={run.runId}
                     className={dockButtonClass()}
+                    onRerun={() => setRerunAsked(true)}
                 />
             </div>
             {view.steps.length > 0 ? (
@@ -82,39 +107,59 @@ export function FinalStagePane({ model, run }: { model: AgentsViewModel; run: Ru
                     />
                 </div>
             ) : null}
-            <div className="flex min-h-0 flex-1 flex-col gap-[10px] px-[22px] py-[14px]">
-                {shown?.state === "running" ? (
-                    <>
-                        <span className="flex-none break-all font-mono text-[12px] text-ink-hi">$ {shown.command}</span>
-                        <div ref={outputRef} className="sc min-h-0 flex-1 overflow-y-auto">
-                            <FinalOutput output={view.output} />
-                        </div>
-                        <span className="flex-none font-mono text-[10.5px] text-muted">
-                            output tail · the engine publishes it every 10s
-                        </span>
-                    </>
-                ) : shown?.kept ? (
-                    <>
-                        <span className="flex-none break-all font-mono text-[12px] text-ink-hi">$ {shown.command}</span>
-                        <div className="sc min-h-0 flex-1 overflow-auto">
-                            <FinalKeptOutput key={shown.key} kept={shown.kept} />
-                        </div>
-                        <span className="flex-none font-mono text-[10.5px] text-muted">
-                            {shown.label} {shown.text} · click it again to close
-                        </span>
-                    </>
-                ) : (
-                    <>
-                        {run.dag ? <FinalOutcome view={view} group={run.dag} /> : null}
-                        {view.state === "failed" ? (
-                            <span data-final-note className="flex-none text-[12px] text-muted">
-                                {finalFailedNote(lead ? { asking: lead.state === "asking" } : undefined)}
+            <MotionConfig reducedMotion="user">
+                <motion.div
+                    key={body === "kept" ? `kept:${shown?.key}` : body}
+                    data-final-pane-view={body}
+                    variants={viewFade}
+                    initial={mounted.current ? "initial" : false}
+                    animate="animate"
+                    className="flex min-h-0 flex-1 flex-col gap-[10px] px-[22px] py-[14px]"
+                >
+                    {body === "running" ? (
+                        <>
+                            <span className="flex-none break-all font-mono text-[12px] text-ink-hi">
+                                $ {shown.command}
                             </span>
-                        ) : null}
-                        <FinalShotsLink group={run.dag} />
-                    </>
-                )}
-            </div>
+                            <div ref={outputRef} className="sc min-h-0 flex-1 overflow-y-auto">
+                                <FinalOutput output={view.output} />
+                            </div>
+                            <span className="flex-none font-mono text-[10.5px] text-muted">
+                                output tail · the engine publishes it every 10s
+                            </span>
+                        </>
+                    ) : body === "kept" ? (
+                        <>
+                            <span className="flex-none break-all font-mono text-[12px] text-ink-hi">
+                                $ {shown.command}
+                            </span>
+                            <div className="sc min-h-0 flex-1 overflow-auto">
+                                <FinalKeptOutput key={shown.key} kept={shown.kept} />
+                            </div>
+                            <span className="flex-none font-mono text-[10.5px] text-muted">
+                                {shown.label} {shown.text} · click it again to close
+                            </span>
+                        </>
+                    ) : (
+                        <>
+                            {run.dag ? <FinalOutcome view={view} group={run.dag} /> : null}
+                            {view.state === "failed" ? (
+                                <motion.span
+                                    data-final-note
+                                    variants={stage.note ?? viewFade}
+                                    initial={stage.note ? "initial" : false}
+                                    animate="animate"
+                                    onAnimationComplete={() => setStage((s) => (s.note ? { ...s, note: null } : s))}
+                                    className="flex-none text-[12px] text-muted"
+                                >
+                                    {finalFailedNote(lead ? { asking: lead.state === "asking" } : undefined)}
+                                </motion.span>
+                            ) : null}
+                            <FinalShotsLink group={run.dag} />
+                        </>
+                    )}
+                </motion.div>
+            </MotionConfig>
         </div>
     );
 }
