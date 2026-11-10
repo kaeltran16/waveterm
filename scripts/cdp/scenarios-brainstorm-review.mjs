@@ -557,7 +557,12 @@ export default function (kit) {
 
             bsWrite(ctx, crFile(["constraints"]));
             const keptDrawn = await polishWaitFor(h, `${ROW("constraints")}?.getAttribute("data-state") === "yours"`, BS_POLL_WAIT_MS);
-            const k = await read(h);
+            // Keep all's count rolls 8 -> 7, both numbers attached until the roll ends
+            let k = await read(h);
+            for (const start = Date.now(); k.keepAll !== "Keep all 7 changes" && Date.now() - start < 2000; ) {
+                await polishNap(100);
+                k = await read(h);
+            }
             const kept = k.changed.find((x) => x.id === "constraints");
             const successRgb = await h.ev(`(() => { const d = document.createElement("span"); d.style.color = ${JSON.stringify(k.success)}; document.body.appendChild(d); const v = getComputedStyle(d).color; d.remove(); return v; })()`);
             await h.shot("cdp-shots/brainstorm-check-review-kept.png");

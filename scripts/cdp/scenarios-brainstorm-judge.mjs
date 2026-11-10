@@ -206,7 +206,7 @@ const WAIT_PROMPT_WAIT_MS = 20000;
 const WAIT_KEY_C = { key: "c", code: "KeyC", windowsVirtualKeyCode: 67, text: "c" };
 
 export default function (kit) {
-    const { bsBoardScenario, bsWrite, bsUntil, bsBrief, bsClick, BS_PANE } = kit;
+    const { bsBoardScenario, bsWrite, bsUntil, bsBrief, bsClick, polishNap, BS_PANE } = kit;
 
     const WORK = `${BS_PANE}?.querySelector("[data-brainstorm-judge-work]")`;
     const readJudge = (h) =>
@@ -267,7 +267,12 @@ export default function (kit) {
             bsWrite(ctx, FAILED);
             const s3 = await bsUntil(h, ctx, (s) => s.question.includes("the judge failed"));
             await showWork(h);
-            const m3 = await readJudge(h);
+            // the judge's pick mark and the dropped list stay attached while they fade out
+            let m3 = await readJudge(h);
+            for (const start = Date.now(); (m3.judgePicks > 0 || m3.dropped !== null) && Date.now() - start < 2000; ) {
+                await polishNap(100);
+                m3 = await readJudge(h);
+            }
             await h.shot("cdp-shots/brainstorm-judged-question-failed.png");
             rec(
                 "3. a failed judge: Agent’s read and Agent’s pick, and the work line says the judge failed and why, with no dropped toggle",

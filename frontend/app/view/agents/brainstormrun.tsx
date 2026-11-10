@@ -4,6 +4,7 @@
 // The brainstorm's Run step: the design handed over and where the run it started stands, read from the run
 // itself. Once the run merged with its final check passed, Close deletes the brainstorm's scaffolding.
 
+import { DrawCheck } from "@/app/element/drawcheck";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
@@ -16,13 +17,12 @@ import { closeTargets, runStepView, shortRunId, type RunStepState, type RunStepV
 import { brainstormAtom, shownBrainstormFile, type BrainstormState } from "./brainstormstore";
 import {
     BS_RAIL,
-    CheckMark,
     DOT,
     DOT_ASKED,
     DOT_GUESS,
     DOT_OPEN,
     DOT_YOURS,
-    ERROR_LINE,
+    ErrorLine,
     errText,
     StaleBanner,
     Toolbar,
@@ -138,11 +138,11 @@ function StateCard({
                 view.merged ? "items-center px-[16px] py-[14px]" : "items-start px-[14px] py-[12px]"
             )}
         >
-            {view.merged ? (
-                <CheckMark />
-            ) : (
-                <span className={cn(DOT, "mt-[5px]", STATE_DOT[view.state] ?? "bg-accent")} />
-            )}
+            {/* drawn when the run merges while shown; a run read as already merged mounts it drawn */}
+            {view.state !== "loading" ? (
+                <DrawCheck done={view.merged} className="mt-[3px] h-[13px] w-[13px] flex-none text-success" />
+            ) : null}
+            {!view.merged ? <span className={cn(DOT, "mt-[5px]", STATE_DOT[view.state] ?? "bg-accent")} /> : null}
             <div className="flex min-w-0 flex-1 flex-col gap-[4px]">
                 <span className={cn("font-semibold text-primary", view.merged ? "text-[14px]" : "text-[13.5px]")}>
                     {view.headline}
@@ -190,11 +190,7 @@ function CloseButton({
             >
                 Close the brainstorm
             </button>
-            {error != null ? (
-                <span data-brainstorm-close-error className={cn(ERROR_LINE, "text-right")}>
-                    {error}
-                </span>
-            ) : null}
+            <ErrorLine error={error} className="text-right" attrs={{ "data-brainstorm-close-error": "" }} />
         </div>
     );
 }
