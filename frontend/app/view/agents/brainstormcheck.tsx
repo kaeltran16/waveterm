@@ -113,7 +113,7 @@ export function Check({
                     ) : main === "judging" ? (
                         <JudgingMain agent={agent} s={s} f={f} goTo={goTo} openDesign={openDesign} skip={false} />
                     ) : main === "working" ? (
-                        <WorkingMain f={f} openDesign={openDesign} />
+                        <WorkingMain agent={agent} s={s} f={f} nowAtom={model.nowAtom} openDesign={openDesign} />
                     ) : (
                         <CheckReview model={model} agent={agent} s={s} f={f} />
                     )}

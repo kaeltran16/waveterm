@@ -22,6 +22,7 @@ import judge from "./scenarios-brainstorm-judge.mjs";
 import review from "./scenarios-brainstorm-review.mjs";
 import run from "./scenarios-brainstorm-run.mjs";
 import spikes from "./scenarios-brainstorm-spikes.mjs";
+import working from "./scenarios-brainstorm-working.mjs";
 import sessionsList from "./scenarios-sessions.mjs";
 import sessionsFind from "./scenarios-sessions-find.mjs";
 import sessionsPalette from "./scenarios-sessions-palette.mjs";
@@ -343,6 +344,7 @@ export const SCENARIOS = [
     ...review(BS_KIT),
     ...run(BS_KIT),
     ...spikes(BS_KIT),
+    ...working(BS_KIT),
     ...sessionsList(SESSIONS_KIT),
     ...sessionsFind(SESSIONS_KIT),
     ...sessionsPalette(SESSIONS_KIT),
