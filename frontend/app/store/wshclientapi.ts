@@ -48,6 +48,12 @@ export class RpcApiType {
         return client.wshRpcStream("agentcontrol", data, opts);
     }
 
+    // command "agentpermission" [call]
+    AgentPermissionCommand(client: WshClient, data: CommandAgentPermissionData, opts?: RpcOpts): Promise<string> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "agentpermission", data, opts);
+        return client.wshRpcCall("agentpermission", data, opts);
+    }
+
     // command "agentprompt" [call]
     AgentPromptCommand(client: WshClient, data: CommandAgentPromptData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "agentprompt", data, opts);
@@ -112,6 +118,12 @@ export class RpcApiType {
     AnswerAgentCommand(client: WshClient, data: CommandAnswerAgentData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "answeragent", data, opts);
         return client.wshRpcCall("answeragent", data, opts);
+    }
+
+    // command "answeragentpermission" [call]
+    AnswerAgentPermissionCommand(client: WshClient, data: CommandAnswerAgentPermissionData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "answeragentpermission", data, opts);
+        return client.wshRpcCall("answeragentpermission", data, opts);
     }
 
     // command "appenddossierdecision" [call]

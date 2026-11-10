@@ -69,6 +69,17 @@ declare global {
         title?: string;
     };
 
+    // baseds.AgentPermissionData
+    type AgentPermissionData = {
+        oref: string;
+        permid: string;
+        toolname: string;
+        toolinput: string;
+        choices: string[];
+        ts: number;
+        cleared?: boolean;
+    };
+
     // baseds.AgentStatusData
     type AgentStatusData = {
         oref: string;
@@ -86,6 +97,8 @@ declare global {
         hook?: string;
         notificationtype?: string;
         ended?: boolean;
+        permissionmode?: string;
+        toolkey?: string;
     };
 
     // wshrpc.AgentSyncAction
@@ -406,6 +419,15 @@ declare global {
         oref: string;
     };
 
+    // wshrpc.CommandAgentPermissionData
+    type CommandAgentPermissionData = {
+        oref: string;
+        toolname: string;
+        toolinput: string;
+        toolkey: string;
+        hassuggestions?: boolean;
+    };
+
     // wshrpc.CommandAgentPromptData
     type CommandAgentPromptData = {
         blockid: string;
@@ -508,6 +530,13 @@ declare global {
     type CommandAnswerAgentData = {
         oref: string;
         answers: AgentAnswerItem[];
+    };
+
+    // wshrpc.CommandAnswerAgentPermissionData
+    type CommandAnswerAgentPermissionData = {
+        oref: string;
+        permid: string;
+        choice: number;
     };
 
     // wshrpc.CommandAppendDossierDecisionData

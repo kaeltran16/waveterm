@@ -84,6 +84,25 @@ type AgentStatusData struct {
 	NotificationType string `json:"notificationtype,omitempty"`
 	// Ended is set by pi's shutdown report: pi exited back to its shell, which keeps running
 	Ended bool `json:"ended,omitempty"`
+	// PermissionMode is the permission_mode every Claude Code hook payload carries (default, acceptEdits, plan, ...)
+	PermissionMode string `json:"permissionmode,omitempty"`
+	// ToolKey identifies the tool call behind a PostToolUse report, so a pending permission request for
+	// the same call can be retired when it was answered in the terminal
+	ToolKey string `json:"toolkey,omitempty"`
+}
+
+// AgentPermissionData is the payload of Event_AgentPermission: one Claude Code permission prompt
+// waiting for an answer. ORef is the block; PermId keys the pending request in the agentask registry.
+// A Cleared event (same ORef+PermId, Cleared=true) removes a resolved or retired request.
+type AgentPermissionData struct {
+	ORef     string `json:"oref"`
+	PermId   string `json:"permid"`
+	ToolName string `json:"toolname"`
+	// ToolInput is the raw JSON text of the hook's tool_input
+	ToolInput string   `json:"toolinput"`
+	Choices   []string `json:"choices"`
+	Ts        int64    `json:"ts"`
+	Cleared   bool     `json:"cleared,omitempty"`
 }
 
 // VolunteerData is the payload of Event_JarvisVolunteer: one thing Jarvis chose to say unprompted.

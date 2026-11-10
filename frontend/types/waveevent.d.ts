@@ -17,6 +17,7 @@ declare global {
         | "notify"
         | "openfile"
         | "agent:ask"
+        | "agent:permission"
         | "jarvis:volunteer"
         | "dag:child-done"
         | "dag:dag-blocked"
@@ -48,6 +49,7 @@ declare global {
         { event: "notify"; data?: NotifyCommandData; } | 
         { event: "openfile"; data?: OpenFileData; } | 
         { event: "agent:ask"; data?: AgentAskData; } | 
+        { event: "agent:permission"; data?: AgentPermissionData; } | 
         { event: "jarvis:volunteer"; data?: VolunteerData; } | 
         { event: "dag:child-done"; data?: string; } | 
         { event: "dag:dag-blocked"; data?: string; } | 
