@@ -80,6 +80,14 @@ meanwhile, so a second line cannot be sent into a running turn.
 
 ![An answer just sent: the working card, the part being written](../images/brainstorm/02-writing.png)
 
+While the agent's tab is `working`, the Working view also shows what the turn is doing, read from the
+live transcript rather than the file (`brainstormworking.ts`): the turn's latest tool step in the
+timeline's verb style with the time since the turn started (`agent:turnstartts`), and "Boards made this
+turn · N" with a thumbnail for each design board (`.superpowers/design/<canvas>/project/*.dc.html`) the
+turn wrote, the latest one marked. "This turn" is everything after the last user prompt. The poller
+reads each new board's size from its canvas's `canvas.json` once. With no step yet, or with the agent
+idle, the view keeps its plain sentence.
+
 The poller settles the sent line (`settleSent` in `brainstormmodel.ts`) when the agent's turn ends
 after the send, or when the file has changed and the agent is not at work. A write in the middle of a
 turn does not settle it.
@@ -351,6 +359,9 @@ to the judge**). The judge rides the builder check's machinery.
   mockup draws, every line the pane sends, the tree line and the popup. Between sends it plays the
   agent ending its turn (`bsAgentTook`), since a sent line keeps the pane busy until then. The
   screenshots above come from it.
+- **Working view, scripted:** `task verify:ui -- brainstorm-working` fakes the agent's turn with a
+  fixture transcript: the step line, the turn's boards and their order, opening one full size, the
+  design note, and the plain line once the agent is idle.
 - **With a real agent:** the scenario cannot tell you whether a model follows the skill. For that,
   start a Claude Code agent in the dev app on a scratch project, ask it to brainstorm something, and
   drive it only through the pane, watching each `brainstorm.json` write. Things worth checking: one
