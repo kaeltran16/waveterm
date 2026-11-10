@@ -119,6 +119,40 @@ describe("projectTranscript user turns", () => {
         expect(out).toHaveLength(1);
         expect(out[0]).toMatchObject({ kind: "action", verb: "ran", outcome: "ok" });
     });
+
+    it("stamps user, command and message entries with the record time", () => {
+        const at = (s: string) => `2026-07-08T00:00:${s}.000Z`;
+        const out = projectTranscript([
+            L({ type: "user", timestamp: at("00"), message: { content: "do the thing" } }),
+            L({
+                type: "user",
+                timestamp: at("05"),
+                message: { content: "<command-name>/review</command-name>\n<command-args></command-args>" },
+            }),
+            L({
+                type: "assistant",
+                timestamp: at("09"),
+                message: { content: [{ type: "text", text: "done" }] },
+            }),
+        ]);
+        expect(out.map((e) => (e as { ts?: number }).ts)).toEqual([
+            Date.parse(at("00")),
+            Date.parse(at("05")),
+            Date.parse(at("09")),
+        ]);
+    });
+
+    it("leaves ts off when the record has no valid timestamp", () => {
+        const out = projectTranscript([
+            L({ type: "user", message: { content: "no time" } }),
+            L({ type: "user", timestamp: "nope", message: { content: "bad time" } }),
+            L({ type: "assistant", timestamp: "nope", message: { content: [{ type: "text", text: "bad" }] } }),
+        ]);
+        expect(out).toHaveLength(3);
+        for (const e of out) {
+            expect("ts" in e).toBe(false);
+        }
+    });
 });
 
 describe("projectTranscript commands and isMeta", () => {
