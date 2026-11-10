@@ -35,6 +35,7 @@ import agentKeys from "./scenarios-agent-keys.mjs";
 import agentHeader from "./scenarios-agent-header.mjs";
 import agentRail from "./scenarios-agent-rail.mjs";
 import agentTree from "./scenarios-agent-tree.mjs";
+import agentRendered from "./scenarios-agent-rendered.mjs";
 import {
     diffComments,
     diffCompare,
@@ -355,6 +356,7 @@ export const SCENARIOS = [
     ...agentHeader(SESSIONS_KIT),
     ...agentRail(SESSIONS_KIT),
     ...agentTree(SESSIONS_KIT),
+    ...agentRendered(SESSIONS_KIT),
     canvasMark,
     canvasTabsScenario,
     agentTerminalNames,
