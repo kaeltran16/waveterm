@@ -4434,8 +4434,19 @@ export const briefDesignParity = {
 export const jarvisMotion = {
     name: "jarvis-motion",
     surface: "jarvis",
-    async arrange() {
-        return { id: `loose-end:cdp-motion:${Date.now()}` };
+    async arrange(h) {
+        // step 1 opens a channel's sheet. Its own, because an isolated store (the Final's) holds a channel only
+        // when an earlier scenario left one
+        const ctx = {
+            id: `loose-end:cdp-motion:${Date.now()}`,
+            cwd: mkdtempSync(join(tmpdir(), "verify-jarvis-motion-")),
+        };
+        try {
+            ctx.channelId = (await h.rpc("createchannel", { name: "verify-jarvis-motion", projectpath: ctx.cwd })).oid;
+        } catch (e) {
+            ctx.channelError = String(e?.message ?? e);
+        }
+        return ctx;
     },
     async assert(h, ctx) {
         const steps = [];
@@ -4446,13 +4457,12 @@ export const jarvisMotion = {
         //    what keeps a detail sheet scoped to the Brief and the nav rail reachable underneath it.
         //    Driven through the router because no fixture state carries a queue `nav`, so no fixture
         //    row is a button that opens anything.
-        const chans = await h.rpc("getchannels", null);
-        const channel = (chans?.channels ?? [])[0];
+        const channel = ctx.channelId != null ? { oid: ctx.channelId } : null;
         if (channel == null) {
             rec(
                 "1. the sheet mounts inside a Brief-scoped backdrop",
                 false,
-                "no channel in this profile — seed one before reading this as a pass"
+                `the arrange could not create a channel: ${ctx.channelError}`
             );
         } else {
             await h.ev(`(async () => {
@@ -4530,7 +4540,9 @@ export const jarvisMotion = {
         //    stands in for it: the `behind` region is since-your-last-visit by construction, which is
         //    why it is excluded from the mark — marking it would mark every row, and the region's own
         //    label already says the thing the mark would be saying. `empty` is kept alongside it as
-        //    the trivial case: no rows, therefore no marks, therefore no mark leaking from elsewhere.
+        //    the near-trivial case: no project rows, only the fixture's one working direct agent
+        //    (briefingfixtures.ts, there since 7dcdfdd8e), started minutes ago and so fresh. Every mark
+        //    must sit on a row the tally counts and every row there must carry one: no mark leaks.
         const behind = region("delta").marked + region("shipped").marked;
         rec(
             "4. the behind region carries no mark, though every row in it postdates the cursor",
@@ -4541,7 +4553,18 @@ export const jarvisMotion = {
         await h.ev(`document.querySelector('[data-briefing-fixture="empty"]')?.click()`);
         await settle(700);
         const emptyMarks = await h.ev(`document.querySelectorAll('.fresh-mark').length`);
-        rec("5. a state with no rows marks nothing", emptyMarks === 0, String(emptyMarks));
+        const emptyTally = await h.ev(TALLY);
+        const emptyRegions = Object.keys(emptyTally);
+        const emptyMarked = emptyRegions.reduce((n, k) => n + emptyTally[k].marked, 0);
+        rec(
+            "5. the empty state marks its one live agent and nothing else",
+            emptyRegions.length === 1 &&
+                emptyRegions[0] === "session" &&
+                emptyTally.session.rows === 1 &&
+                emptyTally.session.marked === 1 &&
+                emptyMarks === emptyMarked,
+            JSON.stringify({ marks: emptyMarks, ...emptyTally })
+        );
 
         // 6. the updates drawer. Task 14 moved the scroll container to an inner div: paneReveal
         //    animates the outer element's height and needs overflow-hidden there, which on the same
@@ -4614,7 +4637,7 @@ export const jarvisMotion = {
 
         return steps;
     },
-    async teardown(h) {
+    async teardown(h, ctx) {
         await h.ev(`(() => {
             // the injected utterance advanced a PERSISTED watermark, so leaving it moved is a side
             // effect on the user's own creature rather than a test (jarvis-volunteer's rule)
@@ -4628,6 +4651,8 @@ export const jarvisMotion = {
             } catch {}
             return true;
         })()`);
+        if (ctx?.channelId) await h.rpc("deletechannel", { channelid: ctx.channelId });
+        if (ctx?.cwd) rmSync(ctx.cwd, { recursive: true, force: true });
         await h.goto("cockpit");
     },
 };

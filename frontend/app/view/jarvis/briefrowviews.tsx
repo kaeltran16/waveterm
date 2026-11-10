@@ -276,6 +276,7 @@ export function RunRowView({
     line,
     face,
     focused,
+    fresh,
     selected,
     onOpenSheet,
     onOpenChunk,
@@ -286,6 +287,7 @@ export function RunRowView({
     line: BriefLine;
     face: RunRowFace;
     focused: boolean;
+    fresh: boolean;
     selected: boolean;
     onOpenSheet?: (e: React.MouseEvent) => void;
     onOpenChunk: () => void;
@@ -310,7 +312,8 @@ export function RunRowView({
                 ROW_BORDER,
                 onOpenSheet != null && "cursor-pointer",
                 selected && "bg-surface-selected",
-                focused && CURSOR_RING
+                focused && CURSOR_RING,
+                fresh && "fresh-mark"
             )}
         >
             <span className={cn("h-[7px] w-[7px] flex-none rounded-full", DOT[face.dot])} />

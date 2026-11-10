@@ -34,6 +34,7 @@ export function RunsRegion({
     onOnly,
     filtering,
     entering,
+    fresh,
     cursor,
     sheetOpen,
     stageRunId,
@@ -62,6 +63,7 @@ export function RunsRegion({
     onOnly: () => void;
     filtering: boolean;
     entering: Set<string>;
+    fresh: Set<string>;
     cursor: string | undefined;
     sheetOpen: boolean;
     // the run the sheet shows
@@ -108,6 +110,7 @@ export function RunsRegion({
                                     model={model}
                                     line={l}
                                     focused={cursor === l.id}
+                                    fresh={fresh.has(keyOf(l))}
                                     selected={sheetOpen && stageRunId === l.runOid}
                                     onOpenSheet={l.target != null ? (e) => openLine(l.target, e) : undefined}
                                     onOpenChunk={onOpenChunk}

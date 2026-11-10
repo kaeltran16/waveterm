@@ -437,6 +437,7 @@ export function BriefRunRow({
     model,
     line,
     focused,
+    fresh,
     selected,
     onOpenSheet,
     onOpenChunk,
@@ -444,6 +445,7 @@ export function BriefRunRow({
     model: AgentsViewModel;
     line: BriefLine;
     focused: boolean;
+    fresh: boolean;
     selected: boolean;
     onOpenSheet?: (e?: React.MouseEvent) => void; // the answer button opens the sheet with no gesture
     onOpenChunk: (effortOref: string, chunk: string) => void;
@@ -465,6 +467,7 @@ export function BriefRunRow({
             line={line}
             face={face}
             focused={focused}
+            fresh={fresh}
             selected={selected}
             onOpenSheet={onOpenSheet}
             onOpenChunk={() => onOpenChunk(face.effortOref, face.chunk)}
