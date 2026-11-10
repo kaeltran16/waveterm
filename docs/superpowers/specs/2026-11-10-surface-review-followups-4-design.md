@@ -79,7 +79,8 @@ The wait attach.mjs uses for "the app has booted" (the first attach, `goto` and 
 ## D6. go mod tidy waits for the mod copy (F7)
 
 `go:mod:tidy` takes `sync:claudemod` as a dependency, so in one `task` invocation tidy can never start while the copy
-rewrites `cmd/wsh/cmd/claude-*`. Task runs a shared dependency once per invocation, so this adds no second copy.
+rewrites `cmd/wsh/cmd/claude-*`. `sync:claudemod` is also `run: once`: without it Task (3.51.1) runs a dependency
+once per reference, so `tauri:dev` and tidy would each start their own copy at the same time.
 
 ## D7. The CLI names why a held tip waits (F8)
 
