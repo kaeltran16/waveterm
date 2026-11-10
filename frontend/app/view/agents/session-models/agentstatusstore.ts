@@ -128,6 +128,18 @@ export function getLastHookAtom(oref: string): PrimitiveAtom<{ hook: string; ts:
     return hookAtom;
 }
 
+// per-block last non-empty permission mode the agent reported; a status without one leaves it, as the TUI keeps its mode
+const permissionModeAtoms = new Map<string, PrimitiveAtom<string | null>>();
+
+export function getPermissionModeAtom(oref: string): PrimitiveAtom<string | null> {
+    let modeAtom = permissionModeAtoms.get(oref);
+    if (!modeAtom) {
+        modeAtom = atom(null) as PrimitiveAtom<string | null>;
+        permissionModeAtoms.set(oref, modeAtom);
+    }
+    return modeAtom;
+}
+
 // per-block manual expand override (undefined = auto). Reset to undefined on the parent's idle transition.
 const subagentExpandAtoms = new Map<string, PrimitiveAtom<boolean>>();
 
@@ -175,6 +187,10 @@ export function setupAgentStatusSubscription() {
             // usage-only events carry no hook, so they never move it
             if (data.hook) {
                 globalStore.set(getLastHookAtom(data.oref), { hook: data.hook, ts: data.ts });
+            }
+            const permissionMode = data.permissionmode;
+            if (permissionMode) {
+                globalStore.set(getPermissionModeAtom(data.oref), permissionMode);
             }
             // a delta-only event carries an empty state; only a real state update should touch the parent atom
             if (data.state) {

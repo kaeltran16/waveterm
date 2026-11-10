@@ -35,6 +35,7 @@ import { CommitTick } from "./committick";
 import { DOC_REVIEW_COPY, docReviewAtom, parseDocReview } from "./docreview";
 import { isFinalStageId } from "./finalstage";
 import { canHandToPhone, isHandedOver } from "./handtophone";
+import { HeaderControls } from "./headercontrols";
 import { railVisibleAtom, terminalFullscreenAtom } from "./railstore";
 import { remoteStatusAtom, toggleHandToPhone } from "./remotestore";
 import {
@@ -309,7 +310,9 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                             ) : null}
                         </>
                     )}
-                    {agent.model ? (
+                    {renderable ? (
+                        <HeaderControls key={agent.id} agent={agent} />
+                    ) : agent.model ? (
                         <span className="shrink-0 whitespace-nowrap rounded-[5px] border border-edge-mid px-[7px] py-[1px] font-mono text-[10.5px] font-medium text-muted @max-[480px]:hidden">
                             {agent.model}
                         </span>
