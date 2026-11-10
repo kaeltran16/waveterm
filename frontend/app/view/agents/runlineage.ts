@@ -35,6 +35,8 @@ export interface RunInfo {
     land?: RunLand;
     // the lead run's pin for its workers; the dag's own wins once it exists, and none means they run as the lead
     workerRoute?: RoutePin;
+    // whether title is the plan's (the dag has loaded, or the run took its title at submit) rather than the goal's
+    planTitled?: boolean;
     dag?: TaskGroup;
     digest?: DagStatusDigest;
 }
@@ -69,6 +71,7 @@ export function runInfoOf(
         base: leadRun?.basebranch || undefined,
         land: leadRun?.land,
         workerRoute: leadRun?.workerroute,
+        planTitled: dag != null || runPlanTitle(leadRun, undefined) !== "",
         dag,
         digest,
     };
@@ -366,19 +369,24 @@ export function stripEffortRefs(text: string): string {
     return text.replace(EFFORT_REF_RE, " ").replace(/\s+/g, " ").trim();
 }
 
+// runPlanTitle is the plan's title: the dag's, else the copy the run took at submit, which names it before the dag
+// loads.
+function runPlanTitle(run: Run | undefined, dag: TaskGroup | undefined): string {
+    return stripEffortRefs(dag?.title ?? "") || stripEffortRefs(run?.title ?? "");
+}
+
 // runTitle names a run by its plan's title, else the first line of its goal.
 export function runTitle(run: Run | undefined, dag: TaskGroup | undefined): string {
-    const title = stripEffortRefs(dag?.title ?? "");
-    if (title) {
-        return title;
-    }
-    return stripEffortRefs(run?.goal?.trim().split("\n")[0] ?? "") || "Orchestrator run";
+    return runPlanTitle(run, dag) || stripEffortRefs(run?.goal?.trim().split("\n")[0] ?? "") || "Orchestrator run";
 }
 
 // leadDisplayName is what a run's lead is called wherever it stands for its run: the plan's title once the run has
-// a dag, as the events and the rail name the run. The lead's tab name comes from the goal and is left as it is.
-export function leadDisplayName(agent: Pick<AgentVM, "name">, run: Pick<RunInfo, "title" | "dag"> | undefined): string {
-    return run?.dag != null ? run.title : agent.name;
+// one, as the events and the rail name the run. The lead's tab name comes from the goal and is left as it is.
+export function leadDisplayName(
+    agent: Pick<AgentVM, "name">,
+    run: Pick<RunInfo, "title" | "dag" | "planTitled"> | undefined
+): string {
+    return run?.planTitled || run?.dag != null ? run.title : agent.name;
 }
 
 // laneLabel is the letter a task's lane goes by, in the plan order the digest lists lanes in.

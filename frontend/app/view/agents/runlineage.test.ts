@@ -101,6 +101,13 @@ describe("run facts", () => {
         );
         expect(runTitle({ goal: "Link resources\nacross surfaces" } as Run, undefined)).toBe("Link resources");
         expect(runTitle(undefined, undefined)).toBe("Orchestrator run");
+        // the run carries its plan's title from submit, so it names the run before the dag loads; the dag's wins
+        expect(runTitle({ goal: "Link resources", title: "Resource linking" } as Run, undefined)).toBe(
+            "Resource linking"
+        );
+        expect(runTitle({ goal: "g", title: "Old plan" } as Run, { title: "Revised plan" } as TaskGroup)).toBe(
+            "Revised plan"
+        );
         expect(runTitle({ goal: `Fix every chunk of initiative effort:${EFFORT}\nmore` } as Run, undefined)).toBe(
             "Fix every chunk of initiative"
         );
@@ -613,9 +620,22 @@ describe("runInfoOf", () => {
             landPath: "C:\\code\\.arc-land\\r-1",
             base: "main",
             land: { state: "landed", commit: "7867142abc" },
+            planTitled: true,
             dag,
             digest,
         });
+    });
+
+    // the Brief composer and the cockpit's run action name the lead before the dag loads
+    it("names the lead by the run's plan title before the dag loads, else by its tab name", () => {
+        const agent = { name: "make the live-run fixes" };
+        const lead = { oid: "r-4", goal: "make the live-run fixes" } as Run;
+        const titled = runInfoOf("r-4", { ...lead, title: "Live fixes" }, undefined, undefined);
+        expect(titled).toMatchObject({ title: "Live fixes", planTitled: true });
+        expect(leadDisplayName(agent, titled)).toBe("Live fixes");
+        const untitled = runInfoOf("r-4", lead, undefined, undefined);
+        expect(untitled.planTitled).toBe(false);
+        expect(leadDisplayName(agent, untitled)).toBe("make the live-run fixes");
     });
 
     it("carries the lead run's worker route, for the footer before a dag exists", () => {

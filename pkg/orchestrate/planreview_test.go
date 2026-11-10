@@ -328,6 +328,9 @@ func TestResubmitReplacesAFailedPlanAndOpensTheNextRound(t *testing.T) {
 	if stored := loadDag(t, ctx, dag.OID); stored.Status != DagStatus_PlanReview || len(stored.Tasks) != 2 {
 		t.Fatalf("the replacement must be stored, got status %s with %d tasks", stored.Status, len(stored.Tasks))
 	}
+	if owner, err := wstore.GetRun(ctx, dag.ChannelId, dag.RunID); err != nil || owner.Title != "revised" {
+		t.Fatalf("the owning run carries the revised plan's title, got %+v (err %v)", owner, err)
+	}
 }
 
 func TestPlanReviewerThatEndsWithoutAVerdictIsReplacedOnceThenFails(t *testing.T) {

@@ -3296,11 +3296,8 @@ export const briefComposerSteerOnly = {
                 await window.__openAddress(${JSON.stringify(`run:${runId}`)});
                 const input = () => ${STEER_INPUT};
                 if (!(await until(() => input() != null, 8000))) return { composer: false };
-                // the composer mounts before the run's dag loads; until it has, the lead goes by its tab name
-                const { globalStore } = await mod("app/store/jotaiStore.ts");
-                const { runInfoAtom } = await mod("app/view/agents/runlineagestore.ts");
-                const dagLoaded = () => globalStore.get(runInfoAtom(${JSON.stringify(runId)})).run?.dag != null;
-                if (!(await until(dagLoaded, 8000))) return { composer: true, dagLoaded: false };
+                // send as soon as the composer mounts, before the run's dag may have loaded: the run carries its
+                // plan title, so the lead goes by it from the first frame
                 const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set;
                 set.call(input(), ${JSON.stringify(STEER_TEXT)});
                 input().dispatchEvent(new Event("input", { bubbles: true }));

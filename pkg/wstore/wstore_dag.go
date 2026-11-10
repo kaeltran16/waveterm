@@ -102,7 +102,7 @@ func CreateDagForRun(ctx context.Context, channelID string, runID string, propos
 					return err
 				}
 			}
-			r.DagORef = proposed.OID
+			r.DagORef, r.Title = proposed.OID, proposed.Title
 			return nil
 		}); txErr != nil {
 			return txErr

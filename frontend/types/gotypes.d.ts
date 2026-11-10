@@ -3116,6 +3116,7 @@ declare global {
         origintranscript?: string;
         effortref?: RunEffortRef;
         dagoref?: string;
+        title?: string;
         sessionid?: string;
         leadsessionids?: string[];
         taskid?: string;

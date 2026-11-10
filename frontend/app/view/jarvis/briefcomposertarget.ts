@@ -8,7 +8,7 @@
 // The target is derived from the sheet face: what the detail sheet is drawing IS the context.
 
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
-import { leadDisplayName, type RunInfo } from "@/app/view/agents/runlineage";
+import { leadDisplayName, runInfoOf, type RunInfo } from "@/app/view/agents/runlineage";
 import { steerTarget } from "@/app/view/agents/runmodel";
 import type { SheetFace } from "./briefsheetmodel";
 
@@ -28,8 +28,9 @@ export interface BriefTargetInput {
     run: Run | null;
     agents: AgentVM[];
     projectName?: string;
-    // the run's title and dag, so the lead goes by the plan title as everywhere else it stands for its run
-    info?: Pick<RunInfo, "title" | "dag">;
+    // the run's title and dag, so the lead goes by the plan title as everywhere else it stands for its run; read from
+    // the run itself until its info has loaded
+    info?: Pick<RunInfo, "title" | "dag" | "planTitled">;
 }
 
 /** Pure: the run's live lead a steer reaches, or undefined when there is none to write to. */
@@ -51,7 +52,8 @@ export function resolveBriefComposerTarget(input: BriefTargetInput): BriefCompos
     if (lead == null) {
         return null;
     }
-    const name = leadDisplayName(lead, input.info);
+    const info = input.info ?? runInfoOf(input.run.id, input.run, undefined, undefined);
+    const name = leadDisplayName(lead, info);
     return {
         audience: "worker",
         channelId: face.channelId,

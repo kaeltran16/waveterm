@@ -828,14 +828,28 @@ func mutatePlanReview(ctx context.Context, dagID string, fn func(g *waveobj.Task
 		if g.Status == DagStatus_Cancelled {
 			return fmt.Errorf("dag %s is cancelled", dagID)
 		}
+		priorTitle := g.Title
 		if err := fn(g, g.PlanReview, &afterCommit); err != nil {
 			return err
 		}
 		RecomputeDagStatus(g)
 		g.UpdatedTs = time.Now().UnixMilli()
-		if err := wstore.UpdateDag(ctx, dagID, func(cur *waveobj.TaskGroup) error {
-			*cur = *g
-			return nil
+		if err := wstore.WithTx(ctx, func(tx *wstore.TxWrap) error {
+			txCtx := tx.Context()
+			if err := wstore.UpdateDag(txCtx, dagID, func(cur *waveobj.TaskGroup) error {
+				*cur = *g
+				return nil
+			}); err != nil {
+				return err
+			}
+			if g.Title == priorTitle {
+				return nil
+			}
+			// a revised plan renames the run, which names its lead before the dag loads
+			return wstore.UpdateRun(txCtx, g.ChannelId, g.RunID, func(r *waveobj.Run) error {
+				r.Title = g.Title
+				return nil
+			})
 		}); err != nil {
 			return err
 		}
