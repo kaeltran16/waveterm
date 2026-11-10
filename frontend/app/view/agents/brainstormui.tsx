@@ -5,8 +5,10 @@
 // working view and the was/now diff.
 
 import { getApi } from "@/app/store/global";
+import * as WOS from "@/app/store/wos";
 import { codeSegments } from "@/app/view/jarvis/effortfeed";
 import { cn } from "@/util/util";
+import { atom, useAtomValue, type Atom } from "jotai";
 import { Fragment, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { AgentVM } from "./agentsviewmodel";
 import {
@@ -40,12 +42,17 @@ import {
 } from "./brainstormmodel";
 import { sendBrainstorm } from "./brainstormsend";
 import { openBrainstormBoard, type BrainstormState } from "./brainstormstore";
+import { workingTurn, type WorkingStep, type WorkingTurn } from "./brainstormworking";
 import { boardLabel, boardUrl, canvasDir, DEFAULT_BOARD_H, DEFAULT_BOARD_W, type CanvasBoard } from "./canvasmodel";
 import { attachCanvas } from "./canvasstore";
+import { entriesAtomFor } from "./livetranscriptatoms";
+import { VERB } from "./narrationtimeline";
 
 const THUMB_W = 300;
 // in a question, an answer's only board and each board every answer shares
 const THUMB_W_QUESTION = 200;
+// the boards the agent wrote this turn, under the Working view's step line
+const THUMB_W_TURN = 220;
 // several boards side by side in one answer's row, which still fits beside a long pros and cons grid
 const THUMB_W_ROW_SEVERAL = 150;
 const THUMB_MAX_H = 200;
@@ -1090,7 +1097,8 @@ function Spikes({ base, canvas, spikes }: { base: string; canvas: string; spikes
 }
 
 // boards, each as a scaled live thumbnail with its caption (the file name unless the caller says otherwise; null for
-// none) and a way to open it full size. compact puts the caption under the board and the boards side by side
+// none) and a way to open it full size. compact puts the caption under the board and the boards side by side. sizes
+// are the canvas's boards when it is not the file's own canvas; latest is the board marked as written last
 export function Thumbnails({
     agentId,
     s,
@@ -1100,6 +1108,8 @@ export function Thumbnails({
     width,
     caption = (name) => name,
     compact = false,
+    sizes = s.boards,
+    latest,
 }: {
     agentId: string;
     s: BrainstormState;
@@ -1109,6 +1119,8 @@ export function Thumbnails({
     width: number;
     caption?: ((name: string) => string) | null;
     compact?: boolean;
+    sizes?: CanvasBoard[];
+    latest?: string;
 }) {
     const open = (board: string) => {
         attachCanvas(agentId, { topic: canvas, dir: canvasDir(s.cwd, canvas), projectDir: s.cwd, board }, Date.now());
@@ -1117,7 +1129,7 @@ export function Thumbnails({
     return (
         <div className={cn("flex flex-none", compact ? "flex-wrap items-start gap-[14px]" : "flex-col gap-[10px]")}>
             {boards.map((name) => {
-                const b: CanvasBoard | undefined = s.boards.find((x) => x.name === name);
+                const b: CanvasBoard | undefined = sizes.find((x) => x.name === name);
                 const w = b?.w ?? DEFAULT_BOARD_W;
                 const h = b?.h ?? DEFAULT_BOARD_H;
                 const scale = width / w;
@@ -1145,9 +1157,15 @@ export function Thumbnails({
                             {caption != null ? (
                                 <span
                                     data-brainstorm-thumb-caption
+                                    data-brainstorm-thumb-latest={name === latest ? "" : undefined}
                                     title={name}
                                     className={cn("font-mono text-[10.5px] text-muted", compact && "truncate")}
                                 >
+                                    {name === latest ? (
+                                        <span
+                                            className={cn(SMALL_DOT, "mr-[6px] inline-block bg-success align-middle")}
+                                        />
+                                    ) : null}
                                     {caption(name)}
                                 </span>
                             ) : null}
@@ -1167,7 +1185,90 @@ export function Thumbnails({
     );
 }
 
-export function WorkingMain({ f, openDesign }: { f: BrainstormFile; openDesign: () => void }) {
+const NO_BLOCK: Atom<Block | undefined> = atom(undefined as Block | undefined);
+
+// the agent's current turn as the Working view and the design note draw it; null while it is not working
+export function useWorkingTurn(agent: AgentVM, s: BrainstormState, nowAtom: Atom<number>): WorkingTurn | null {
+    const entries = useAtomValue(entriesAtomFor(agent.id));
+    const block = useAtomValue(
+        agent.blockId ? WOS.getWaveObjectAtom<Block>(WOS.makeORef("block", agent.blockId)) : NO_BLOCK
+    );
+    const now = useAtomValue(nowAtom);
+    return workingTurn(agent, entries, s.cwd, block?.meta?.["agent:turnstartts"], now);
+}
+
+export function WorkingStepLine({ step, elapsed }: { step: WorkingStep; elapsed: string | null }) {
+    return (
+        <div data-brainstorm-step className="flex min-w-0 items-baseline gap-[10px] text-[13px]">
+            <span data-brainstorm-step-verb className={VERB}>
+                {step.verb}
+            </span>
+            <span
+                data-brainstorm-step-target
+                title={step.target}
+                className="min-w-0 truncate font-mono text-[12.5px] text-ink-mid"
+            >
+                {step.target}
+            </span>
+            {elapsed != null ? (
+                <span data-brainstorm-step-elapsed className="ml-auto flex-none text-[12px] text-muted">
+                    {elapsed}
+                </span>
+            ) : null}
+        </div>
+    );
+}
+
+// one row of thumbnails per canvas the turn wrote on, each opening on its own canvas
+function TurnBoards({
+    agentId,
+    s,
+    turn,
+    base,
+}: {
+    agentId: string;
+    s: BrainstormState;
+    turn: WorkingTurn;
+    base: string;
+}) {
+    const canvases = [...new Set(turn.boards.map((b) => b.canvas))];
+    return (
+        <div data-brainstorm-turn-boards className="flex flex-col gap-[10px]">
+            <span className="text-[12px] text-muted">{`Boards made this turn · ${turn.boards.length}`}</span>
+            <div className="flex flex-col gap-[14px]">
+                {canvases.map((canvas) => (
+                    <Thumbnails
+                        key={canvas}
+                        agentId={agentId}
+                        s={s}
+                        canvas={canvas}
+                        base={base}
+                        boards={turn.boards.filter((b) => b.canvas === canvas).map((b) => b.name)}
+                        width={THUMB_W_TURN}
+                        compact
+                        sizes={s.turn.canvases[canvas] ?? []}
+                        latest={turn.latest?.canvas === canvas ? turn.latest.name : undefined}
+                    />
+                ))}
+            </div>
+        </div>
+    );
+}
+
+export function WorkingMain({
+    agent,
+    s,
+    f,
+    nowAtom,
+    openDesign,
+}: {
+    agent: AgentVM;
+    s: BrainstormState;
+    f: BrainstormFile;
+    nowAtom: Atom<number>;
+    openDesign: () => void;
+}) {
+    const turn = useWorkingTurn(agent, s, nowAtom);
     return (
         <div data-brainstorm-working aria-live="polite" className="flex min-h-0 flex-1 flex-col">
             <Track segments={questionTrack(f)} />
@@ -1178,8 +1279,15 @@ export function WorkingMain({ f, openDesign }: { f: BrainstormFile; openDesign: 
                         Working
                     </span>
                     <p className="m-0 text-[22px] font-semibold leading-[1.4] text-primary">{f.working}</p>
-                    <p className="m-0 text-[15px] leading-[1.6] text-ink-mid">The next question comes after.</p>
+                    {turn?.step != null ? (
+                        <WorkingStepLine step={turn.step} elapsed={turn.elapsed} />
+                    ) : (
+                        <p className="m-0 text-[15px] leading-[1.6] text-ink-mid">The next question comes after.</p>
+                    )}
                 </div>
+                {turn != null && turn.boards.length > 0 && s.base != null ? (
+                    <TurnBoards agentId={agent.id} s={s} turn={turn} base={s.base} />
+                ) : null}
                 <div className="flex">
                     <DesignButton f={f} onClick={openDesign} />
                 </div>

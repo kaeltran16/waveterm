@@ -95,8 +95,11 @@ import {
     Toolbar,
     useAction,
     useAnswer,
+    useWorkingTurn,
     WorkingMain,
+    WorkingStepLine,
 } from "./brainstormui";
+import type { WorkingTurn } from "./brainstormworking";
 import { CANVAS_BTN, CANVAS_PRIMARY_BTN, CanvasPane, EdgeState, EXPLAINER } from "./canvaspane";
 
 const NO_RUN: Atom<Run | undefined> = atom(undefined as Run | undefined);
@@ -293,7 +296,7 @@ function Design({
                                 openParts={openParts}
                             />
                         ) : view === "working" ? (
-                            <WorkingMain f={f} openDesign={openDesign} />
+                            <WorkingMain agent={agent} s={s} f={f} nowAtom={nowAtom} openDesign={openDesign} />
                         ) : (
                             <DesignMain
                                 agent={agent}
@@ -316,6 +319,31 @@ function Design({
                 <DecidedRail f={f} unseen={unseen} goTo={goTo} />
             </div>
         </>
+    );
+}
+
+// over the design while the agent writes: its current step once one is known, never its boards
+function WorkingNote({ turn }: { turn: WorkingTurn | null }) {
+    const note = "flex rounded-[8px] bg-surface px-[14px] py-[8px] text-[12.5px] text-ink-mid";
+    const dot = <span className={cn(SMALL_DOT, "pulse-dot bg-success")} />;
+    if (turn?.step == null) {
+        return (
+            <div data-brainstorm-working-note className={cn(note, "items-center gap-[8px]")}>
+                {dot}
+                The agent is writing. Confirm, edit and keep open again when it asks its next question.
+            </div>
+        );
+    }
+    return (
+        <div data-brainstorm-working-note className={cn(note, "flex-col gap-[4px]")}>
+            <div className="flex items-center gap-[8px]">
+                {dot}
+                <div className="min-w-0 flex-1">
+                    <WorkingStepLine step={turn.step} elapsed={turn.elapsed} />
+                </div>
+            </div>
+            <span className="pl-[14px]">Confirm, edit and keep open again when it asks its next question.</span>
+        </div>
     );
 }
 
@@ -350,6 +378,7 @@ function DesignMain({
     });
     useEffect(() => () => markBrainstormSeen(s.path, drawn.current), [s.path]);
     const working = f.working != null;
+    const turn = useWorkingTurn(agent, s, nowAtom);
     const fresh = f.history.length === 0;
     const decisions = drawnDecisionParts(f);
     const notes = noteParts(f);
@@ -405,15 +434,7 @@ function DesignMain({
             <div ref={partsRef} className="min-h-0 min-w-0 flex-1 overflow-y-auto">
                 <div className="flex flex-col gap-[14px] px-[22px] pb-[40px] pt-[20px]">
                     <DesignHead f={f} />
-                    {working ? (
-                        <div
-                            data-brainstorm-working-note
-                            className="flex items-center gap-[8px] rounded-[8px] bg-surface px-[14px] py-[8px] text-[12.5px] text-ink-mid"
-                        >
-                            <span className={cn(SMALL_DOT, "pulse-dot bg-success")} />
-                            The agent is writing. Confirm, edit and keep open again when it asks its next question.
-                        </div>
-                    ) : null}
+                    {working ? <WorkingNote turn={turn} /> : null}
                     {check.kind === "pending" ? (
                         <CheckWait record={agent.builderCheck} check={check} nowAtom={nowAtom} />
                     ) : leftPanel(f) !== "none" ? (
