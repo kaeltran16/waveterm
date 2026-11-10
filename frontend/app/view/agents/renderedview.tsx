@@ -17,6 +17,8 @@ import { askSentKey, hasAnswerableAsk, type AgentVM } from "./agentsviewmodel";
 import { AnswerBar } from "./answerbar";
 import { entriesAtomFor } from "./livetranscriptatoms";
 import { NarrationTimeline } from "./narrationtimeline";
+import { PermissionBand } from "./permissionband";
+import { permissionLogAtom } from "./permissionstore";
 import { isPickerCommand, pickerFlipAtom, shouldUnflip } from "./renderedmode";
 import { getLastHookAtom } from "./session-models/agentstatusstore";
 import { JumpToLatestPill, useStickToBottom } from "./sticktobottom";
@@ -74,6 +76,7 @@ function AskDock({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
 
 export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
     const entries = useAtomValue(entriesAtomFor(agent.id));
+    const marks = useAtomValue(permissionLogAtom(agent.id));
     const { scrollRef, onScroll, atBottom, jumpToBottom } = useStickToBottom(entries);
     const composerRef = useRef<AgentComposerHandle>(null);
     // the picker only exists in the TUI, so the flip lands before the command is typed
@@ -91,6 +94,7 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
                             <NarrationTimeline
                                 entries={entries}
                                 renderers
+                                marks={marks}
                                 accentLatest
                                 active={agent.state === "working"}
                             />
@@ -111,6 +115,12 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
                 <JumpToLatestPill show={!atBottom} onClick={jumpToBottom} />
             </div>
             <AskDock model={model} agent={agent} />
+            <PermissionBand
+                agentId={agent.id}
+                blockId={agent.blockId}
+                entryCount={entries.length}
+                onLastChoice={() => composerRef.current?.focus()}
+            />
             <div data-rendered-composer className="shrink-0 border-t border-border px-[14px] pb-[10px] pt-2">
                 <div className="mx-auto flex max-w-[920px] flex-col gap-1.5">
                     <AgentComposer

@@ -12,6 +12,7 @@ import { initWshrpc, TabRpcClient } from "@/app/store/wshrpcutil";
 import { setupAgentAskSubscription } from "@/app/view/agents/agentaskstore";
 import { setupControllerStatusSubscription } from "@/app/view/agents/agentcontrollerstore";
 import { setupChildAskSubscription } from "@/app/view/agents/childaskstore";
+import { setupAgentPermissionSubscription } from "@/app/view/agents/permissionstore";
 import { setupAgentStatusSubscription } from "@/app/view/agents/session-models/agentstatusstore";
 import {
     atoms,
@@ -51,6 +52,7 @@ export async function bootWaveCore(initOpts: WaveInitOpts): Promise<void> {
         // pending-launch placeholders and the narration card body stays empty.
         setupAgentStatusSubscription();
         setupAgentAskSubscription();
+        setupAgentPermissionSubscription();
         setupControllerStatusSubscription();
         setupChildAskSubscription();
         const [_client, waveWindow, initialTab] = await Promise.all([

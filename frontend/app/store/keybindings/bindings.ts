@@ -1228,6 +1228,25 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
                 toggleViewMode(id);
             },
         },
+        // the band owns the in-flight lock and the error, so a digit presses its button; only the focused agent's
+        // rendered view is mounted, so the band in the DOM is that agent's
+        ...Array.from({ length: 9 }, (_, i): Binding => ({
+            id: `agent:permission-choice-${i + 1}`,
+            keys: String(i + 1),
+            group: "Agent",
+            label: `Answer the permission prompt with choice ${i + 1}`,
+            paletteHidden: true,
+            when: (ctx) => nav(ctx) && !ctx.editable,
+            run: () => {
+                const button = document.querySelector<HTMLButtonElement>(
+                    `[data-permission-band] [data-permission-choice="${i}"]`
+                );
+                if (button == null || button.disabled) {
+                    return false;
+                }
+                button.click();
+            },
+        })),
         {
             id: "agent:review",
             keys: "r",

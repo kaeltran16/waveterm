@@ -22,6 +22,7 @@ import {
     type EditFile,
 } from "./agentsviewmodel";
 import { MarkdownMessage } from "./markdownmessage";
+import { placeMarks, type TimelineMark } from "./permissionmodel";
 import { highlightLine } from "./highlight";
 import { toolRendererKey } from "./renderregistry";
 import { TIMELINE_RENDER_CAP } from "./sessionstranscript";
@@ -583,12 +584,22 @@ function TaskNotificationRow({ summary, status, result }: { summary: string; sta
     );
 }
 
+function PermissionMarkRow({ text }: { text: string }) {
+    return (
+        <div data-permission-mark className={cn(TOOL_ROW, MONO_FAINT)}>
+            <StatusSquare ok />
+            <span className="min-w-0 truncate">{text}</span>
+        </div>
+    );
+}
+
 export function NarrationTimeline({
     entries,
     accentLatest,
     active,
     renderAll,
     renderers,
+    marks,
     className,
 }: {
     entries: AgentEntry[];
@@ -599,6 +610,9 @@ export function NarrationTimeline({
     // draws the registered tool output cards open under their rows; only the rendered view sets it,
     // since always-open cards would bloat the cockpit's narrow cards
     renderers?: boolean;
+    // session-local rows the rendered view records after answering a permission prompt, each drawn after the item
+    // holding entry afterEntry - 1
+    marks?: TimelineMark[];
     className?: string;
 }) {
     const [expanded, setExpanded] = useState<Set<number>>(new Set());
@@ -625,11 +639,18 @@ export function NarrationTimeline({
     }
 
     const expand = (startIndex: number) => setExpanded((prev) => new Set(prev).add(startIndex));
+    const placed = placeMarks(visibleItems, marks ?? []);
+    const markRows = (list: TimelineMark[] | undefined) =>
+        (list ?? []).map((m, k) => <PermissionMarkRow key={`pm${m.afterEntry}-${k}`} text={m.text} />);
+    const withMarks = (rows: React.ReactNode[]) => [
+        ...markRows(placed.lead),
+        ...rows.flatMap((row, idx) => [row, ...markRows(placed.after.get(idx))]),
+    ];
 
     return (
         <div className={cn("leading-relaxed", className)}>
             <AnimatePresence initial={false}>
-            {visibleItems.map((item, idx) => {
+            {withMarks(visibleItems.map((item, idx) => {
                 if (item.kind === "message") {
                     return (
                         <motion.div
@@ -786,7 +807,7 @@ export function NarrationTimeline({
                         </span>
                     </button>
                 );
-            })}
+            }))}
             </AnimatePresence>
         </div>
     );
