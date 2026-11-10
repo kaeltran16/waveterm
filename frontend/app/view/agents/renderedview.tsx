@@ -17,6 +17,7 @@ import { askSentKey, hasAnswerableAsk, type AgentVM } from "./agentsviewmodel";
 import { AnswerBar } from "./answerbar";
 import { entriesAtomFor } from "./livetranscriptatoms";
 import { NarrationTimeline } from "./narrationtimeline";
+import { NowLine } from "./nowlineview";
 import { PermissionBand } from "./permissionband";
 import { permissionLogAtom } from "./permissionstore";
 import { RenderedComposer } from "./renderedcomposer";
@@ -48,27 +49,23 @@ function AskDock({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
     }
     return (
         <div data-rendered-ask className="border-t border-edge-mid px-[14px] py-2">
-            <div className="mx-auto max-w-[920px]">
-                <AnswerBar
-                    agent={agent}
-                    selections={selections}
-                    texts={texts}
-                    sent={sent}
-                    numbered
-                    activeQuestion={activeQuestion}
-                    onToggle={(qi, oi) => model.toggleAnswer(agent.id, qi, oi)}
-                    onText={(qi, value) => model.setAnswerText(agent.id, qi, value)}
-                    onSubmit={() => model.submitAnswer(agent.id)}
-                    onSelectQuestion={(qi) =>
-                        globalStore.set(model.answerTabAtom, (prev) => ({ ...prev, [agent.id]: qi }))
-                    }
-                    onDismiss={
-                        agent.ask?.oref
-                            ? () => fireAndForget(() => RpcApi.AgentAskClearCommand(TabRpcClient, agent.ask!.oref!))
-                            : undefined
-                    }
-                />
-            </div>
+            <AnswerBar
+                agent={agent}
+                selections={selections}
+                texts={texts}
+                sent={sent}
+                numbered
+                activeQuestion={activeQuestion}
+                onToggle={(qi, oi) => model.toggleAnswer(agent.id, qi, oi)}
+                onText={(qi, value) => model.setAnswerText(agent.id, qi, value)}
+                onSubmit={() => model.submitAnswer(agent.id)}
+                onSelectQuestion={(qi) => globalStore.set(model.answerTabAtom, (prev) => ({ ...prev, [agent.id]: qi }))}
+                onDismiss={
+                    agent.ask?.oref
+                        ? () => fireAndForget(() => RpcApi.AgentAskClearCommand(TabRpcClient, agent.ask!.oref!))
+                        : undefined
+                }
+            />
         </div>
     );
 }
@@ -87,10 +84,19 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
     return (
         <div data-rendered-view className="flex min-h-0 flex-1 flex-col">
             <div className="relative min-h-0 flex-1">
-                <div ref={scrollRef} onScroll={onScroll} className="h-full overflow-y-auto px-[22px] py-[18px]">
+                <div
+                    data-rendered-scroll
+                    ref={scrollRef}
+                    onScroll={onScroll}
+                    className="h-full overflow-y-auto px-[22px] py-[18px]"
+                >
                     {/* min-h, not h: the stick-to-bottom observer watches this box, so it must grow with the
-                        timeline (an image or chart that lays out late) for the tail to stay pinned */}
-                    <div className="mx-auto flex min-h-full w-full max-w-[920px] flex-col">
+                        timeline (an image or chart that lays out late) for the tail to stay pinned. Only a markdown
+                        message's top-level text blocks keep a reading measure; cards, code and diffs use the width */}
+                    <div
+                        data-rendered-column
+                        className="mx-auto flex min-h-full w-full flex-col [&_.agent-md>:is(p,ul,ol,h1,h2,h3,h4,h5,h6,blockquote)]:max-w-[75ch]"
+                    >
                         {entries.length > 0 ? (
                             <NarrationTimeline
                                 entries={entries}
@@ -115,6 +121,7 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
                 </div>
                 <JumpToLatestPill show={!atBottom} onClick={jumpToBottom} />
             </div>
+            <NowLine model={model} agent={agent} entries={entries} />
             <AskDock model={model} agent={agent} />
             <PermissionBand
                 agentId={agent.id}

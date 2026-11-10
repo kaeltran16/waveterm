@@ -3,7 +3,7 @@
 //
 // The Rendered view's now line: what the agent is doing now and what this turn has done, derived from the
 // transcript entries, the agent's state, the block's last hook and the parsed spinner row. Pure, unit-tested in
-// nowline.test.ts; nowline.tsx renders it.
+// nowline.test.ts; nowlineview.tsx renders it.
 
 import type { AgentEntry, AgentState } from "./agentsviewmodel";
 import { fmtDuration } from "./runcompletion";

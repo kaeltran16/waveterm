@@ -147,34 +147,32 @@ export function PermissionBand({
     }
     return (
         <div className="shrink-0 px-[14px]">
-            <div className="mx-auto max-w-[920px]">
-                {pending.length === 1 ? (
-                    <RequestBand
-                        key={pending[0].permid}
-                        agentId={agentId}
-                        request={pending[0]}
-                        entryCount={entryCount}
-                        onLastChoice={onLastChoice}
-                    />
-                ) : (
-                    <div data-permission-queue className={BAND}>
-                        <div className="flex items-center gap-3">
-                            <div className="min-w-0 flex-1">
-                                <NeedsYou>
-                                    {pending.length} permission prompts waiting: answer them in the terminal
-                                </NeedsYou>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={() => globalStore.set(pickerFlipAtom(agentId), Date.now())}
-                                className="shrink-0 cursor-pointer rounded-[6px] border border-edge-mid bg-surface-raised px-[11px] py-[5px] text-[12px] text-secondary hover:bg-surface-hover"
-                            >
-                                Open terminal
-                            </button>
+            {pending.length === 1 ? (
+                <RequestBand
+                    key={pending[0].permid}
+                    agentId={agentId}
+                    request={pending[0]}
+                    entryCount={entryCount}
+                    onLastChoice={onLastChoice}
+                />
+            ) : (
+                <div data-permission-queue className={BAND}>
+                    <div className="flex items-center gap-3">
+                        <div className="min-w-0 flex-1">
+                            <NeedsYou>
+                                {pending.length} permission prompts waiting: answer them in the terminal
+                            </NeedsYou>
                         </div>
+                        <button
+                            type="button"
+                            onClick={() => globalStore.set(pickerFlipAtom(agentId), Date.now())}
+                            className="shrink-0 cursor-pointer rounded-[6px] border border-edge-mid bg-surface-raised px-[11px] py-[5px] text-[12px] text-secondary hover:bg-surface-hover"
+                        >
+                            Open terminal
+                        </button>
                     </div>
-                )}
-            </div>
+                </div>
+            )}
         </div>
     );
 }

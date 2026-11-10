@@ -6,7 +6,7 @@
 // probe's file live in a temp dir; teardown publishes a Stop for every fixture block, clears the ask, restores the
 // roster, closes the tabs and removes the dir.
 
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -34,7 +34,17 @@ const PROBE_SETTLE_MS = 1_000;
 const PROBE_WAIT_MS = 5_000;
 // a status that must not unflip the view is given this long to do it anyway
 const HOLD_MS = 800;
-const COLUMN_MAX_PX = 920;
+// the scroll area's px-[22px] on each side, and the slack a rounded layout box gets
+const SCROLL_PAD_PX = 44;
+const FIT_PX = 2;
+// a tool card sits right of the timeline's status-square gutter and runs to the column's right edge
+const GUTTER_PX = 30;
+// a center about 900px wide, and a wide one; the step then puts back the viewport it found
+const NARROW_VIEW = { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false };
+const WIDE_VIEW = { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false };
+// the now line's band, about 40px
+const NOW_BAND_MIN_PX = 36;
+const NOW_BAND_MAX_PX = 44;
 // the empty card: two lines of text over its footer, about 94px
 const COMPOSER_IDLE_MIN_PX = 85;
 const COMPOSER_IDLE_MAX_PX = 110;
@@ -50,6 +60,19 @@ const PROSE = `Here is **${PROSE_BOLD}**: run the tests first, then read the dif
 const TEST_REPLY = "One test fails in pkg/jarvis. Here is the diff and the screenshot.";
 const P_PROMPT ="Tidy pkg/a.go.";
 const P_REPLY = "Tidying pkg/a.go now.";
+
+// the turn the now-line steps append to A: a Read with its result, then a Bash still running. No description, so
+// the Bash's target is its command
+const NOW_PROMPT = "Now make the jarvis tests pass.";
+const NOW_CMD = "go test ./pkg/jarvis/...";
+const NOW_REPLY = "The jarvis tests pass now.";
+const NOW_TURN_MS = 3 * 60_000;
+const NOW_CALL_MS = 42_000;
+const NOW_END_MS = 5_000;
+const NOW_DONE = "done · 3m 05s · 2 tools";
+const SPINNER_VERB = "✻ Undulating…";
+const SPINNER_DETAIL = "(3m 10s · ↓ 4.5k tokens · thinking with high effort)";
+const iso = (ms) => new Date(ms).toISOString();
 
 const J = (o) => JSON.stringify(o);
 const GO_JSON = [
@@ -353,6 +376,7 @@ export default function (_kit) {
                     const e = await makeTab(h, ctx, { label: `rendered-e-${tag}` });
                     const n = await makeTab(h, ctx, { label: `rendered-n-${tag}` });
                     Object.assign(ctx, {
+                        aPath,
                         aId: a.tabId,
                         aBlock: a.blockId,
                         pId: p.tabId,
@@ -436,27 +460,90 @@ export default function (_kit) {
                     ];
                 });
 
-                await step(`rendered: timeline — the You bubble and markdown prose sit in a column no wider than ${COLUMN_MAX_PX}px`, async () => {
-                    await wait(`(${RV}?.textContent ?? "").includes(${JSON.stringify(PROMPT)})`);
+                await step("rendered: timeline fills — at narrow and wide widths the column spans the scroll area, prose keeps its reading measure, the diff card runs from the gutter to the column's right edge", async () => {
+                    await wait(`(${RV}?.textContent ?? "").includes(${JSON.stringify(PROMPT)}) && ${RV}?.querySelector('[data-tool-card="git-diff"]') != null`);
+                    const measure = `(() => {
+                        ${flatJs}
+                        const rv = ${RV};
+                        const scroll = rv?.querySelector("[data-rendered-scroll]");
+                        const col = rv?.querySelector("[data-rendered-column]");
+                        const box = (el) => el.getBoundingClientRect();
+                        const you = [...(rv?.querySelectorAll("[data-find-turn]") ?? [])].find((p) => flat(p) === ${JSON.stringify(PROMPT)});
+                        const strong = [...(rv?.querySelectorAll("strong") ?? [])].find((s) => flat(s) === ${JSON.stringify(PROSE_BOLD)});
+                        const para = strong?.closest("p");
+                        const diff = rv?.querySelector('[data-tool-card="git-diff"]');
+                        if (!scroll || !col || !para || !diff) return { scroll: !!scroll, col: !!col, para: !!para, diff: !!diff };
+                        return {
+                            window: window.innerWidth,
+                            you: you != null && col.contains(you),
+                            // clientWidth holds the padding and not the scrollbar
+                            inner: scroll.clientWidth - ${SCROLL_PAD_PX},
+                            column: box(col).width,
+                            para: box(para).width,
+                            paraMax: getComputedStyle(para).maxWidth,
+                            diff: box(diff).width,
+                            diffLeftInset: box(diff).left - box(col).left,
+                            diffRightInset: box(col).right - box(diff).right,
+                        };
+                    })()`;
+                    const fits = (m) =>
+                        m.you &&
+                        Math.abs(m.column - m.inner) <= FIT_PX &&
+                        m.paraMax !== "none" &&
+                        m.para <= parseFloat(m.paraMax) + 0.5 &&
+                        m.diffLeftInset <= GUTTER_PX + FIT_PX &&
+                        Math.abs(m.diffRightInset) <= FIT_PX;
+                    const at = async (view, what) => {
+                        await h.cdp("Emulation.setDeviceMetricsOverride", view);
+                        await wait(`window.innerWidth === ${view.width}`);
+                        await agentPage(h, `await nap(300); return true;`);
+                        await showCard(`[data-tool-card="git-diff"]`);
+                        await h.shot(SHOT(2, `timeline-${what}`));
+                        return h.ev(measure);
+                    };
+                    const found = await h.ev(`({ width: innerWidth, height: innerHeight })`);
+                    let narrow, wide;
+                    try {
+                        narrow = await at(NARROW_VIEW, "narrow");
+                        wide = await at(WIDE_VIEW, "wide");
+                    } finally {
+                        await h.cdp("Emulation.setDeviceMetricsOverride", { ...WIDE_VIEW, ...found });
+                        await wait(`window.innerWidth === ${found.width}`);
+                    }
+                    return [fits(narrow) && fits(wide) && wide.diff > wide.para, { narrow, wide }];
+                });
+
+                await step("rendered: band above composer — A idle after its turn: the now band sits between the scroll area and the composer, below the last timeline item", async () => {
+                    await agentPage(h, `const s = ${RV}?.querySelector("[data-rendered-scroll]"); if (s) s.scrollTop = s.scrollHeight; await nap(300); return true;`);
                     const seen = await h.ev(`(() => {
                         ${flatJs}
                         const rv = ${RV};
-                        const you = [...(rv?.querySelectorAll("[data-find-turn]") ?? [])].find((p) => flat(p) === ${JSON.stringify(PROMPT)});
-                        const strong = [...(rv?.querySelectorAll("strong") ?? [])].find((s) => flat(s) === ${JSON.stringify(PROSE_BOLD)});
-                        const col = you?.closest('[class*="max-w-[920px]"]');
+                        const band = rv?.querySelector("[data-now-band]");
+                        const scroll = rv?.querySelector("[data-rendered-scroll]");
+                        const comp = rv?.querySelector("[data-rendered-composer]");
+                        const last = rv?.querySelector("[data-rendered-column]")?.lastElementChild?.lastElementChild;
+                        if (!band || !scroll || !comp || !last) return { band: !!band, scroll: !!scroll, composer: !!comp, last: !!last };
+                        const b = band.getBoundingClientRect();
                         return {
-                            you: you != null,
-                            youLabel: flat(you?.previousElementSibling),
-                            prose: strong != null,
-                            proseInColumn: col != null && strong != null && col.contains(strong),
-                            columnWidth: col?.getBoundingClientRect().width ?? null,
+                            kind: band.querySelector("[data-now-line]")?.getAttribute("data-now-kind") ?? null,
+                            text: flat(band),
+                            height: b.height,
+                            top: b.top,
+                            bottom: b.bottom,
+                            scrollBottom: scroll.getBoundingClientRect().bottom,
+                            composerTop: comp.getBoundingClientRect().top,
+                            lastBottom: last.getBoundingClientRect().bottom,
                         };
                     })()`);
-                    await h.shot(SHOT(2, "timeline"));
-                    return [
-                        seen.you && seen.youLabel === "You" && seen.prose && seen.proseInColumn && seen.columnWidth <= COLUMN_MAX_PX + 0.5,
-                        seen,
-                    ];
+                    await h.shot(SHOT(2, "band-above-composer"));
+                    const ok =
+                        seen.kind === "done" &&
+                        seen.height >= NOW_BAND_MIN_PX &&
+                        seen.height <= NOW_BAND_MAX_PX &&
+                        seen.top >= seen.scrollBottom - 0.5 &&
+                        seen.bottom <= seen.composerTop + 0.5 &&
+                        seen.lastBottom < seen.top;
+                    return [ok, seen];
                 });
 
                 await step("rendered: empty states — E shows the skeleton, N shows the no-transcript line", async () => {
@@ -647,10 +734,12 @@ export default function (_kit) {
                             ask: true,
                             question: (ask.textContent ?? "").includes(${JSON.stringify(ASK_QUESTION.question)}),
                             above: ask.getBoundingClientRect().bottom <= comp.getBoundingClientRect().top + 1,
+                            // the dock holds the now line's slot
+                            nowBand: rv.querySelector("[data-now-band]") != null,
                         };
                     })()`);
                     await h.shot(SHOT(9, "ask-dock"));
-                    return [patched && dock.ask && dock.question && dock.above, { askid: rtn?.askid ?? rtn, patched, dock }];
+                    return [patched && dock.ask && dock.question && dock.above && dock.nowBand === false, { askid: rtn?.askid ?? rtn, patched, dock }];
                 });
                 // the ask is not under test past its step
                 try {
@@ -676,11 +765,13 @@ export default function (_kit) {
                             text: flat(b).slice(0, 300),
                             above: b.getBoundingClientRect().bottom <= comp.getBoundingClientRect().top + 1,
                             choices: [...b.querySelectorAll("[data-permission-choice]")].map(flat),
+                            nowBand: rv.querySelector("[data-now-band]") != null,
                         };
                     })()`);
                     await h.shot(SHOT(10, "permission-band"));
                     const ok =
                         band.band &&
+                        band.nowBand === false &&
                         band.above &&
                         band.text.includes("Allow an edit to pkg/a.go?") &&
                         band.text.includes("var x = 2") &&
@@ -1026,6 +1117,102 @@ export default function (_kit) {
                         ready && first && second && !toTerminal.rendered && toTerminal.termShown && toRendered.rendered && !toRendered.termShown,
                         { ready, toTerminal, toRendered },
                     ];
+                });
+
+                // the now line on a turn appended to A. Every record is stamped from one t0, so the done line's time
+                // does not depend on how long the steps take
+                const NOW = `(() => {
+                    ${flatJs}
+                    const line = ${RV}?.querySelector("[data-now-line]");
+                    if (!line) return null;
+                    return {
+                        kind: line.getAttribute("data-now-kind"),
+                        left: flat(line.querySelector("[data-now-left]")),
+                        target: line.querySelector("[data-now-target]") ? flat(line.querySelector("[data-now-target]")) : null,
+                        right: flat(line.querySelector("[data-now-right]")),
+                        text: flat(line),
+                    };
+                })()`;
+                const waitNow = async (cond) => {
+                    const met = await wait(`(() => { const n = ${NOW}; return n != null && (${cond}); })()`);
+                    return { met, now: await h.ev(NOW) };
+                };
+                const appendA = (lines) => appendFileSync(ctx.aPath, lines.join("\n") + "\n");
+                const t0 = Date.now();
+                try {
+                    appendA([
+                        userText(NOW_PROMPT, { ts: iso(t0 - NOW_TURN_MS) }),
+                        toolUse("toolu_now_read", "Read", { file_path: "C:/fx/pkg/a.go" }, { ts: iso(t0 - NOW_TURN_MS + 10_000) }),
+                        toolResult("toolu_now_read", "package a", { ts: iso(t0 - NOW_TURN_MS + 11_000) }),
+                        toolUse("toolu_now_bash", "Bash", { command: NOW_CMD }, { ts: iso(t0 - NOW_CALL_MS) }),
+                    ]);
+                    await setRoster(h, ctx.roster.map((a) => (a.id === ctx.aId ? { ...a, state: "working" } : a)));
+                    // the picker flip left A's last hook a seconds-old UserPromptSubmit, which reads as a turn the
+                    // transcript has not written yet
+                    await publishStatus(h, ctx, ctx.aBlock, { state: "working", hook: "PreToolUse" });
+                } catch (err) {
+                    console.error(`${NAME}: appending A's turn failed: ${err?.message ?? err}`);
+                }
+
+                await step("rendered: now line starting — A working with no spinner on screen reads working · <elapsed>", async () => {
+                    const ready = await ensureRendered();
+                    const { met, now } = await waitNow(`n.kind === "working" && n.target === ${JSON.stringify(NOW_CMD)}`);
+                    await h.shot(SHOT(24, "now-starting"));
+                    return [ready && met && /^working · (\d+m )?\d+s$/.test(now.left), now];
+                });
+
+                await step("rendered: now line call — the spinner row on A's screen shows as is, with the running Bash's target and the tool count", async () => {
+                    const wrote = await agentPage(
+                        h,
+                        `const { termForBlock } = await mod("app/view/term/termscreen.ts");
+                        const t = termForBlock(${JSON.stringify(ctx.aBlock)});
+                        if (!t?.write) return false;
+                        t.write(${JSON.stringify(`\r\n${SPINNER_VERB} ${SPINNER_DETAIL}`)});
+                        return true;`
+                    );
+                    const { met, now } = await waitNow(`n.left.includes(${JSON.stringify(SPINNER_VERB)})`);
+                    await h.shot(SHOT(24, "now-call"));
+                    const ok =
+                        wrote &&
+                        met &&
+                        now.left.includes(SPINNER_DETAIL) &&
+                        now.target === NOW_CMD &&
+                        now.right.endsWith(" · 2 tools");
+                    return [ok, { wrote, ...now }];
+                });
+
+                await step("rendered: now line between — the Bash's result lands: no target, the right side reads 2 tools", async () => {
+                    appendA([toolResult("toolu_now_bash", "ok  pkg/jarvis  0.2s", { ts: iso(t0 - 1000) })]);
+                    const { met, now } = await waitNow(`n.target == null && n.right === "2 tools"`);
+                    await h.shot(SHOT(24, "now-between"));
+                    return [met && now.left.includes(SPINNER_VERB), now];
+                });
+
+                await step(`rendered: now line done — the reply lands and A goes idle: exactly "${NOW_DONE}" in the faint color, no spinner though its row is still on screen`, async () => {
+                    appendA([assistantText(NOW_REPLY, { ts: iso(t0 + NOW_END_MS) })]);
+                    await setRoster(h, ctx.roster);
+                    await publishStatus(h, ctx, ctx.aBlock, { state: "idle", hook: "Stop" });
+                    const { met, now } = await waitNow(`n.kind === "done" && n.text === ${JSON.stringify(NOW_DONE)}`);
+                    const seen = await agentPage(
+                        h,
+                        `const { screenRows } = await mod("app/view/term/termscreen.ts");
+                        const left = ${RV}?.querySelector("[data-now-line] [data-now-left]");
+                        if (!left) return { left: false };
+                        // the faint color as the theme resolves it, read off a throwaway element
+                        const probe = document.createElement("span");
+                        probe.className = "text-ink-faint";
+                        left.parentElement.appendChild(probe);
+                        const faint = getComputedStyle(probe).color;
+                        probe.remove();
+                        return {
+                            color: getComputedStyle(left).color,
+                            faint,
+                            rowOnScreen: (screenRows(${JSON.stringify(ctx.aBlock)}) ?? []).some((r) => r.includes(${JSON.stringify(SPINNER_VERB)})),
+                        };`
+                    );
+                    await h.shot(SHOT(24, "now-done"));
+                    const ok = met && seen.color === seen.faint && seen.rowOnScreen && !now.text.includes(SPINNER_VERB);
+                    return [ok, { ...now, ...seen }];
                 });
                 return steps;
             },
