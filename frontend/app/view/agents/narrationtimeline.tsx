@@ -615,7 +615,7 @@ export function NarrationTimeline({
     marks?: TimelineMark[];
     className?: string;
 }) {
-    const [expanded, setExpanded] = useState<Set<number>>(new Set());
+    const [toggled, setToggled] = useState<Set<number>>(new Set());
     const items = useMemo(() => groupTimeline(entries), [entries]);
     const visibleItems =
         !renderAll && items.length > TIMELINE_RENDER_CAP ? items.slice(items.length - TIMELINE_RENDER_CAP) : items;
@@ -638,7 +638,12 @@ export function NarrationTimeline({
         }
     }
 
-    const expand = (startIndex: number) => setExpanded((prev) => new Set(prev).add(startIndex));
+    const toggle = (startIndex: number) =>
+        setToggled((prev) => {
+            const next = new Set(prev);
+            if (!next.delete(startIndex)) next.add(startIndex);
+            return next;
+        });
     const placed = placeMarks(visibleItems, marks ?? []);
     const markRows = (list: TimelineMark[] | undefined) =>
         (list ?? []).map((m, k) => <PermissionMarkRow key={`pm${m.afterEntry}-${k}`} text={m.text} />);
@@ -752,38 +757,22 @@ export function NarrationTimeline({
                     return <EditBurstRow key={"eb" + item.startIndex} files={item.files} adds={item.adds} dels={item.dels} />;
                 }
                 const isTrailing = idx === visibleItems.length - 1;
+                const autoOpen = !!active && isTrailing;
                 const mode = burstRenderMode({
-                    userOpened: expanded.has(item.startIndex),
-                    autoOpen: !!active && isTrailing,
+                    toggled: toggled.has(item.startIndex),
+                    autoOpen,
                     hasCard: !!renderers && item.actions.some((a) => toolRendererKey(a) != null),
                 });
-                if (mode !== "collapsed") {
-                    const lines = item.actions.map((action, k) => (
-                        <ToolLine key={item.startIndex + k} action={action} renderers={renderers} />
-                    ));
-                    // "reveal" (user expanded a historical burst) grows open; "open" (auto-open trailing
-                    // burst during streaming) renders plain so the live run never strobes.
-                    return mode === "reveal" ? (
-                        <motion.div
-                            key={"g" + item.startIndex}
-                            variants={composerReveal}
-                            initial="initial"
-                            animate="animate"
-                            className="overflow-hidden"
-                        >
-                            {lines}
-                        </motion.div>
-                    ) : (
-                        <Fragment key={"g" + item.startIndex}>{lines}</Fragment>
-                    );
-                }
+                const open = mode !== "collapsed";
                 const summary = summarizeActions(item.actions);
-                return (
+                // the live trailing burst has no header: it is held open, so a collapse click would do nothing
+                const fold = autoOpen ? null : (
                     <button
                         key={"g" + item.startIndex}
                         type="button"
                         data-fold
-                        onClick={() => expand(item.startIndex)}
+                        aria-expanded={open}
+                        onClick={() => toggle(item.startIndex)}
                         className="my-1 flex w-full cursor-pointer items-center gap-2 rounded-[6px] border border-edge-mid px-[5px] py-[3px] text-left font-mono hover:bg-surface-hover"
                     >
                         <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] bg-accent/[0.12] text-accent-soft">
@@ -806,10 +795,29 @@ export function NarrationTimeline({
                                 all ok
                             </span>
                         )}
-                        <span className="flex shrink-0 text-muted">
-                            <ChevronRight size={12} strokeWidth={2.2} aria-hidden />
-                        </span>
+                        <Affordance toModal={false} open={open} />
                     </button>
+                );
+                if (!open) {
+                    return fold;
+                }
+                const lines = item.actions.map((action, k) => (
+                    <ToolLine key={item.startIndex + k} action={action} renderers={renderers} />
+                ));
+                // "reveal" (user expanded a historical burst) grows open; "open" (auto-open trailing
+                // burst during streaming, or a card burst) renders plain so the live run never strobes.
+                return mode === "reveal" ? (
+                    <Fragment key={"g" + item.startIndex}>
+                        {fold}
+                        <motion.div variants={composerReveal} initial="initial" animate="animate" className="overflow-hidden">
+                            {lines}
+                        </motion.div>
+                    </Fragment>
+                ) : (
+                    <Fragment key={"g" + item.startIndex}>
+                        {fold}
+                        {lines}
+                    </Fragment>
                 );
             }))}
             </AnimatePresence>

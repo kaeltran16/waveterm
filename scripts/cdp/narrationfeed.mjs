@@ -237,6 +237,27 @@ export const narrationFeed = {
             detail: JSON.stringify(narrow.map((p) => ({ text: p.text, overflow: p.overflow }))),
         });
         await h.shot("cdp-shots/narration-feed-narrow.png");
+
+        // an expanded fold keeps its summary row as a header, so a second click folds it again
+        const FOLD = `[...${ROOT}.querySelectorAll('[data-fold]')].find((b) => (b.textContent || '').includes('all ok'))`;
+        const foldState = `(() => ({ expanded: ${FOLD}?.getAttribute('aria-expanded') ?? null, folds: ${ROOT}.querySelectorAll('[data-fold]').length }))()`;
+        const closed = await h.ev(foldState);
+        await h.ev(`${FOLD}?.click()`);
+        await sleep(600);
+        const expanded = await h.ev(foldState);
+        await h.shot("cdp-shots/narration-feed-fold-open.png");
+        await h.ev(`${FOLD}?.click()`);
+        await sleep(600);
+        const refolded = await h.ev(foldState);
+        steps.push({
+            step: "[360] a fold opens on a click and keeps its header; a second click folds it again",
+            ok:
+                closed.expanded === "false" &&
+                expanded.expanded === "true" &&
+                expanded.folds === closed.folds &&
+                refolded.expanded === "false",
+            detail: JSON.stringify({ closed, expanded, refolded }),
+        });
         return steps;
     },
     async teardown(h) {

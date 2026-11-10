@@ -325,20 +325,23 @@ export function groupTimeline(entries: AgentEntry[], threshold = CollapseRunThre
     return items;
 }
 
-// Pure: how a collapsed action group renders. "reveal" = the user expanded a historical burst, so
-// it animates open. "open" = the auto-open trailing burst during live streaming — plain, never
-// animated (the burst guard: a streaming run must not strobe, even if the user had also expanded it).
-// "collapsed" = show the summary button. A burst holding a tool output card (rendered view only)
-// renders "open" too: a folded group would hide the card, and the card needs its tool row beside it.
+// Pure: how a collapsed action group renders. toggled = the user flipped the group from its default.
+// "reveal" = the user expanded a historical burst, so it animates open. "open" = the auto-open trailing
+// burst during live streaming — plain, never animated (the burst guard: a streaming run must not strobe,
+// even if the user had also toggled it). "collapsed" = show the summary button. A burst holding a tool
+// output card (rendered view only) starts "open", since a folded group would hide the card; a toggle folds it.
 export function burstRenderMode(o: {
-    userOpened: boolean;
+    toggled: boolean;
     autoOpen: boolean;
     hasCard?: boolean;
 }): "reveal" | "open" | "collapsed" {
-    if (o.autoOpen || o.hasCard) {
+    if (o.autoOpen) {
         return "open";
     }
-    return o.userOpened ? "reveal" : "collapsed";
+    if (o.hasCard) {
+        return o.toggled ? "collapsed" : "open";
+    }
+    return o.toggled ? "reveal" : "collapsed";
 }
 
 // Joins the prose (message + user) entries of a transcript into one copyable string. Tool actions

@@ -119,25 +119,26 @@ describe("isNearBottom", () => {
 
 describe("burstRenderMode", () => {
     it("animates a burst the user explicitly expanded", () => {
-        expect(burstRenderMode({ userOpened: true, autoOpen: false })).toBe("reveal");
+        expect(burstRenderMode({ toggled: true, autoOpen: false })).toBe("reveal");
     });
     it("renders the collapsed summary when neither open", () => {
-        expect(burstRenderMode({ userOpened: false, autoOpen: false })).toBe("collapsed");
+        expect(burstRenderMode({ toggled: false, autoOpen: false })).toBe("collapsed");
     });
     it("renders the auto-open trailing burst plain (no animation) during streaming", () => {
-        expect(burstRenderMode({ userOpened: false, autoOpen: true })).toBe("open");
+        expect(burstRenderMode({ toggled: false, autoOpen: true })).toBe("open");
     });
-    it("keeps the streaming path un-animated even if the burst was also user-opened (anti-strobe)", () => {
-        expect(burstRenderMode({ userOpened: true, autoOpen: true })).toBe("open");
+    it("keeps the streaming path un-animated even if the burst was also user-toggled (anti-strobe)", () => {
+        expect(burstRenderMode({ toggled: true, autoOpen: true })).toBe("open");
+        expect(burstRenderMode({ toggled: true, autoOpen: true, hasCard: true })).toBe("open");
     });
-    it("opens a burst that holds a tool card, even when not user-opened or streaming", () => {
-        expect(burstRenderMode({ userOpened: false, autoOpen: false, hasCard: true })).toBe("open");
-        expect(burstRenderMode({ userOpened: true, autoOpen: false, hasCard: true })).toBe("open");
+    it("opens a burst that holds a tool card until the user collapses it", () => {
+        expect(burstRenderMode({ toggled: false, autoOpen: false, hasCard: true })).toBe("open");
+        expect(burstRenderMode({ toggled: true, autoOpen: false, hasCard: true })).toBe("collapsed");
     });
-    it("keeps the existing modes when the burst holds no card", () => {
-        expect(burstRenderMode({ userOpened: false, autoOpen: false, hasCard: false })).toBe("collapsed");
-        expect(burstRenderMode({ userOpened: true, autoOpen: false, hasCard: false })).toBe("reveal");
-        expect(burstRenderMode({ userOpened: false, autoOpen: true, hasCard: false })).toBe("open");
+    it("collapses an expanded burst again on a second toggle", () => {
+        const flip = (t: boolean) => burstRenderMode({ toggled: !t, autoOpen: false });
+        expect(flip(false)).toBe("reveal");
+        expect(flip(true)).toBe("collapsed");
     });
 });
 

@@ -488,7 +488,7 @@ export default function (_kit) {
                             return !!el && el.checkVisibility() && el.getBoundingClientRect().height > 0;
                         };
                         return {
-                            folds: rv?.querySelectorAll("[data-fold]").length ?? -1,
+                            folds: rv?.querySelectorAll('[data-fold][aria-expanded="false"]').length ?? -1,
                             test: shown('[data-tool-card="test"]'),
                             diff: shown('[data-tool-card="git-diff"]'),
                             image: shown('[data-tool-card="image"]'),
@@ -497,6 +497,29 @@ export default function (_kit) {
                     await showCard(`[data-tool-card="git-diff"]`);
                     await h.shot(SHOT(6, "cards-in-burst"));
                     return [state.folds === 0 && state.test && state.diff && state.image, state];
+                });
+
+                // the open burst keeps its summary row as a header: a click folds it, a second click opens it again
+                await step("rendered: burst header — a click on the open card burst's header folds it, a second click opens it", async () => {
+                    const BURST = `[...(${RV}?.querySelectorAll('[data-fold]') ?? [])].find((b) => /\\d+ tools/.test(b.textContent ?? ""))`;
+                    const read = `(() => {
+                        const b = ${BURST};
+                        const card = ${RV}?.querySelector('[data-tool-card="git-diff"]');
+                        return { expanded: b?.getAttribute("aria-expanded") ?? null, card: !!card && card.checkVisibility() };
+                    })()`;
+                    const before = await h.ev(read);
+                    await h.ev(`${BURST}?.click()`);
+                    await wait(`${BURST}?.getAttribute("aria-expanded") === "false"`);
+                    const folded = await h.ev(read);
+                    await h.shot(SHOT(6, "burst-folded"));
+                    await h.ev(`${BURST}?.click()`);
+                    await wait(`${BURST}?.getAttribute("aria-expanded") === "true"`);
+                    const reopened = await h.ev(read);
+                    const ok =
+                        before.expanded === "true" && before.card &&
+                        folded.expanded === "false" && !folded.card &&
+                        reopened.expanded === "true" && reopened.card;
+                    return [ok, { before, folded, reopened }];
                 });
 
                 const BAR = `${RV}?.querySelector('[data-chart-card][data-chart-type="bar"]')`;
