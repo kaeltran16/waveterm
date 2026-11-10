@@ -130,6 +130,15 @@ describe("burstRenderMode", () => {
     it("keeps the streaming path un-animated even if the burst was also user-opened (anti-strobe)", () => {
         expect(burstRenderMode({ userOpened: true, autoOpen: true })).toBe("open");
     });
+    it("opens a burst that holds a tool card, even when not user-opened or streaming", () => {
+        expect(burstRenderMode({ userOpened: false, autoOpen: false, hasCard: true })).toBe("open");
+        expect(burstRenderMode({ userOpened: true, autoOpen: false, hasCard: true })).toBe("open");
+    });
+    it("keeps the existing modes when the burst holds no card", () => {
+        expect(burstRenderMode({ userOpened: false, autoOpen: false, hasCard: false })).toBe("collapsed");
+        expect(burstRenderMode({ userOpened: true, autoOpen: false, hasCard: false })).toBe("reveal");
+        expect(burstRenderMode({ userOpened: false, autoOpen: true, hasCard: false })).toBe("open");
+    });
 });
 
 describe("askingCount", () => {

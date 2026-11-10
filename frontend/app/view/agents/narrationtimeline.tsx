@@ -752,7 +752,11 @@ export function NarrationTimeline({
                     return <EditBurstRow key={"eb" + item.startIndex} files={item.files} adds={item.adds} dels={item.dels} />;
                 }
                 const isTrailing = idx === visibleItems.length - 1;
-                const mode = burstRenderMode({ userOpened: expanded.has(item.startIndex), autoOpen: !!active && isTrailing });
+                const mode = burstRenderMode({
+                    userOpened: expanded.has(item.startIndex),
+                    autoOpen: !!active && isTrailing,
+                    hasCard: !!renderers && item.actions.some((a) => toolRendererKey(a) != null),
+                });
                 if (mode !== "collapsed") {
                     const lines = item.actions.map((action, k) => (
                         <ToolLine key={item.startIndex + k} action={action} renderers={renderers} />

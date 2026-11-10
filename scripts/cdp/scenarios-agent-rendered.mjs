@@ -279,15 +279,13 @@ export default function (_kit) {
                         assistantText(PROSE),
                         toolUse("toolu_test", "Bash", { command: "go test -json ./pkg/jarvis/...", description: "run the tests" }),
                         toolResult("toolu_test", GO_JSON),
-                        // three tool calls in a row collapse into a group whose rows (and cards) stay hidden until
-                        // opened, so prose splits the run as it would in a real turn
-                        assistantText(TEST_REPLY),
                         toolUse("toolu_diff", "Bash", { command: "git diff", description: "show the diff" }),
                         toolResult("toolu_diff", DIFF),
                         toolUse("toolu_img", "Read", { file_path: "C:/fx/shot.png" }),
                         toolResult("toolu_img", [
                             { type: "image", source: { type: "base64", media_type: "image/png", data: PNG_1X1 } },
                         ]),
+                        assistantText(TEST_REPLY),
                         assistantText(CHART_TEXT),
                     ]);
                     const pPath = writeTranscript(ctx.dir, `rendered-p-${tag}`, [userText(P_PROMPT), assistantText(P_REPLY)]);
@@ -480,6 +478,25 @@ export default function (_kit) {
                     await showCard(`[data-tool-card="image"]`);
                     await h.shot(SHOT(6, "image"));
                     return [loaded, { naturalWidth: width }];
+                });
+
+                await step("rendered: cards in a burst — A's three back-to-back tool calls render open, every card visible", async () => {
+                    const state = await h.ev(`(() => {
+                        const rv = ${RV};
+                        const shown = (sel) => {
+                            const el = rv?.querySelector(sel);
+                            return !!el && el.checkVisibility() && el.getBoundingClientRect().height > 0;
+                        };
+                        return {
+                            folds: rv?.querySelectorAll("[data-fold]").length ?? -1,
+                            test: shown('[data-tool-card="test"]'),
+                            diff: shown('[data-tool-card="git-diff"]'),
+                            image: shown('[data-tool-card="image"]'),
+                        };
+                    })()`);
+                    await showCard(`[data-tool-card="git-diff"]`);
+                    await h.shot(SHOT(6, "cards-in-burst"));
+                    return [state.folds === 0 && state.test && state.diff && state.image, state];
                 });
 
                 const BAR = `${RV}?.querySelector('[data-chart-card][data-chart-type="bar"]')`;
