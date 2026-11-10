@@ -13,6 +13,8 @@
 import { ImageZoom, type ZoomImage } from "@/app/element/imagezoom";
 import { Markdown } from "@/app/element/markdown";
 import { resolveRemoteFile } from "@/app/element/markdown-util";
+import { MOTION, viewFade } from "@/app/element/motiontokens";
+import { atoms } from "@/app/store/global-atoms";
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { SurfaceEmptyState } from "@/app/view/agents/surfacescaffold";
@@ -21,6 +23,7 @@ import { joinRepoPath, splitRepoPath } from "@/util/paths";
 import { fireAndForget } from "@/util/util";
 import { atom, useAtomValue, type PrimitiveAtom } from "jotai";
 import type * as MonacoTypes from "monaco-editor";
+import { AnimatePresence, motion, type Variants } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CodeBlameColumn, type EditorLineLayout } from "./codeblamecolumn";
 import { codeBlameOnAtom } from "./codeblamestore";
@@ -353,6 +356,15 @@ export function useEditorLineLayout(): EditorLineLayout | null {
     }, [ed, version]);
 }
 
+// Turning blame on grows its column in from the editor's edge, so the code reads as moved over by it rather than
+// cut to a new place: paneReveal's signature along x. Reduced motion skips it (width is not a transform, so
+// MotionConfig would still tween it).
+const blameReveal: Variants = {
+    initial: { opacity: 0, width: 0 },
+    animate: { opacity: 1, width: "auto", transition: { duration: MOTION.durMacro, ease: MOTION.easeFluid } },
+    exit: { opacity: 0, width: 0, transition: { duration: MOTION.durExit, ease: MOTION.easeFluid } },
+};
+
 // Its own component so a scroll re-renders the column, not the editor beside it.
 function BlameGutter(props: { model: AgentsViewModel; path: string; modtime: number; text: string }) {
     const layout = useEditorLineLayout();
@@ -461,6 +473,7 @@ function CommentInput({ path }: { path: string }) {
 function ImageView({ project, path, size }: { project: CodeProject | null; path: string; size: number }) {
     const [src, setSrc] = useState<string | null>(null);
     const [failed, setFailed] = useState(false);
+    const reduce = useAtomValue(atoms.prefersReducedMotionAtom);
     const root = project?.path;
     useEffect(() => {
         if (root == null) {
@@ -490,9 +503,18 @@ function ImageView({ project, path, size }: { project: CodeProject | null; path:
             }
         };
     }, [root, path]);
+    // the image, or its failure, fades in over the blank it replaces
+    const shown = failed ? "failed" : src != null ? "image" : "none";
     return (
         <div data-code-image className="flex h-full flex-col items-center p-4">
-            <div className="flex min-h-0 w-full flex-1 items-center justify-center">
+            <motion.div
+                key={shown}
+                data-code-image-state={shown}
+                variants={viewFade}
+                initial={reduce ? false : "initial"}
+                animate="animate"
+                className="flex min-h-0 w-full flex-1 items-center justify-center"
+            >
                 {failed ? (
                     <p className="text-[12px] text-error">Could not load the image.</p>
                 ) : src != null ? (
@@ -503,7 +525,7 @@ function ImageView({ project, path, size }: { project: CodeProject | null; path:
                         className="max-h-full max-w-full object-contain"
                     />
                 ) : null}
-            </div>
+            </motion.div>
             <div className="flex flex-none items-center gap-2 pt-3 text-[12px] text-muted">
                 <span>{sizeLabel(size)}</span>
                 <button
@@ -527,6 +549,7 @@ export function CodeViewer({ model }: { model: AgentsViewModel }) {
     const blameOn = useAtomValue(codeBlameOnAtom);
     const plain = useAtomValue(codePlainAtom);
     const status = useAtomValue(codeStatusAtom);
+    const reduce = useAtomValue(atoms.prefersReducedMotionAtom);
     const previewRef = useRef<HTMLDivElement>(null);
 
     // Two paths, both needed. Monaco is keyed by file path, so opening a DIFFERENT file remounts it
@@ -661,9 +684,20 @@ export function CodeViewer({ model }: { model: AgentsViewModel }) {
             // one tree shape whether blame is on or off, so toggling it never remounts the editor
             return (
                 <div className="flex h-full">
-                    {blameOn && !plain ? (
-                        <BlameGutter model={model} path={file.path} modtime={file.modtime} text={file.text} />
-                    ) : null}
+                    <AnimatePresence initial={false}>
+                        {blameOn && !plain ? (
+                            <motion.div
+                                key="blame"
+                                variants={blameReveal}
+                                initial={reduce ? false : "initial"}
+                                animate="animate"
+                                exit={reduce ? undefined : "exit"}
+                                className="h-full flex-none overflow-hidden"
+                            >
+                                <BlameGutter model={model} path={file.path} modtime={file.modtime} text={file.text} />
+                            </motion.div>
+                        ) : null}
+                    </AnimatePresence>
                     <div className="relative h-full min-w-0 flex-1 overflow-hidden">
                         {source}
                         <CommentMarkers path={file.path} text={draft?.text ?? file.text} />

@@ -7,9 +7,13 @@
 // reopening. Every result row goes through openInCode, the same primitive the finder and the two
 // cockpit entry points use.
 
+import { composerReveal, errorNudge } from "@/app/element/motiontokens";
+import { PaneReveal } from "@/app/element/panereveal";
+import { ViewFade } from "@/app/element/viewfade";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
+import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { groupMatches, stepRow, summarize, type SearchGroup } from "./codesearch";
 import type { SearchOpts } from "./codesearchopts";
@@ -135,7 +139,20 @@ export function CodeSearchPane({ model }: { model: AgentsViewModel }) {
                             {f.glyph}
                         </button>
                     ))}
-                    {invalid && <span className="text-[10.5px] text-error">Invalid pattern</span>}
+                    <AnimatePresence initial={false}>
+                        {invalid && (
+                            <motion.span
+                                key="invalid"
+                                data-code-search-invalid
+                                variants={errorNudge}
+                                initial="initial"
+                                animate="animate"
+                                className="text-[10.5px] text-error"
+                            >
+                                Invalid pattern
+                            </motion.span>
+                        )}
+                    </AnimatePresence>
                     <button
                         type="button"
                         aria-expanded={pathsOpen}
@@ -149,35 +166,40 @@ export function CodeSearchPane({ model }: { model: AgentsViewModel }) {
                         Filter paths
                     </button>
                 </div>
-                {pathsOpen && (
-                    <>
-                        <input
-                            value={opts.include}
-                            placeholder="Include, e.g. *.go, pkg"
-                            aria-label="Include paths"
-                            data-code-search-include
-                            onChange={(e) => setOpts({ ...opts, include: e.target.value })}
-                            onKeyDown={submitOnEnter}
-                            className={cn(FIELD_CLASS, "border-border")}
-                        />
-                        <input
-                            value={opts.exclude}
-                            placeholder="Exclude, e.g. vendor, *_test.go"
-                            aria-label="Exclude paths"
-                            data-code-search-exclude
-                            onChange={(e) => setOpts({ ...opts, exclude: e.target.value })}
-                            onKeyDown={submitOnEnter}
-                            className={cn(FIELD_CLASS, "border-border")}
-                        />
-                    </>
-                )}
+                <PaneReveal open={pathsOpen} variants={composerReveal} className="flex flex-col gap-1">
+                    <input
+                        value={opts.include}
+                        placeholder="Include, e.g. *.go, pkg"
+                        aria-label="Include paths"
+                        data-code-search-include
+                        onChange={(e) => setOpts({ ...opts, include: e.target.value })}
+                        onKeyDown={submitOnEnter}
+                        className={cn(FIELD_CLASS, "border-border")}
+                    />
+                    <input
+                        value={opts.exclude}
+                        placeholder="Exclude, e.g. vendor, *_test.go"
+                        aria-label="Exclude paths"
+                        data-code-search-exclude
+                        onChange={(e) => setOpts({ ...opts, exclude: e.target.value })}
+                        onKeyDown={submitOnEnter}
+                        className={cn(FIELD_CLASS, "border-border")}
+                    />
+                </PaneReveal>
             </div>
             {title != null && (
                 <div data-code-search-title className="flex-none truncate px-3 pb-1 text-[11.5px] text-primary">
                     {title}
                 </div>
             )}
-            <SearchBody model={model} state={state} groups={groups} onRetry={submit} />
+            {/* keyed on the search's state and the query it ran, never the typed one: a new result set fades in,
+                typing does not */}
+            <ViewFade
+                fadeKey={`${state.kind}:${"query" in state ? state.query : ""}`}
+                className="flex min-h-0 flex-1 flex-col"
+            >
+                <SearchBody model={model} state={state} groups={groups} onRetry={submit} />
+            </ViewFade>
         </div>
     );
 }

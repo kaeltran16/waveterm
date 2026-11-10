@@ -4,10 +4,12 @@
 // The project Overview's Activity region: tokens per day over the last 53 weeks, from the usage scan
 // (projectactivitymodel.ts).
 
+import { popoverReveal } from "@/app/element/motiontokens";
 import { skeletonClass } from "@/app/element/skeleton";
 import { MONO_FAINT } from "@/app/view/jarvis/briefstyle";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
+import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { formatTokens } from "./agentsviewmodel";
 import { RegionAlert, RegionHead, type OverviewRegionProps } from "./overviewregion";
@@ -250,7 +252,9 @@ function DayGrid({ weeks, months }: { weeks: DayCell[][]; months: { label: strin
                     ))}
                 </div>
             </div>
-            {tip != null ? <DayTip cell={weeks[tip.week][tip.row]} pos={tip} /> : null}
+            <AnimatePresence initial={false}>
+                {tip != null ? <DayTip key="tip" cell={weeks[tip.week][tip.row]} pos={tip} /> : null}
+            </AnimatePresence>
         </div>
     );
 }
@@ -290,17 +294,27 @@ function DaySquare(props: {
 function DayTip({ cell, pos }: { cell: DayCell; pos: Pos }) {
     const { title, line } = tooltipLines(cell);
     const cellLeft = LABELS_WIDTH + pos.week * CELL_STEP;
-    const side =
-        pos.week >= TIP_FLIP_WEEK ? { right: GRID_RIGHT - cellLeft + TIP_GAP } : { left: cellLeft + CELL + TIP_GAP };
+    const flipped = pos.week >= TIP_FLIP_WEEK;
+    const side = flipped ? { right: GRID_RIGHT - cellLeft + TIP_GAP } : { left: cellLeft + CELL + TIP_GAP };
+    // the popover reveal, scaling from the corner beside the cell; PopoverReveal itself takes no inline position.
+    // Moving between days keeps the one tip and moves it, so only showing and hiding it animate.
     return (
-        <div
+        <motion.div
             role="tooltip"
             data-activity-tooltip
+            variants={popoverReveal}
+            initial="initial"
+            animate="animate"
+            exit="exit"
             className="pointer-events-none absolute z-10 flex flex-col gap-0.5 whitespace-nowrap rounded-[8px] border border-edge-strong bg-surface-hover px-2.5 py-[7px] shadow-popover-sm"
-            style={{ top: MONTH_ROW + pos.row * CELL_STEP - TIP_RAISE, ...side }}
+            style={{
+                top: MONTH_ROW + pos.row * CELL_STEP - TIP_RAISE,
+                ...side,
+                transformOrigin: flipped ? "top right" : "top left",
+            }}
         >
             <span className="text-[12px] font-semibold text-primary">{title}</span>
             <span className="font-mono text-[11px] text-secondary">{line}</span>
-        </div>
+        </motion.div>
     );
 }
