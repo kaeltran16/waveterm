@@ -551,21 +551,30 @@ function fstStage(ctx, name, { verifier = true, skip } = {}) {
     throw new Error(`no final-stage row named ${name}`);
 }
 
-// seeds a States row and publishes its events; returns the publish, for fstUntil to repeat
+// seeds a States row and publishes its events; returns a nudge for fstUntil to repeat. While a task's worker is
+// live the engine still ticks the dag, and a tick that loaded it before the seed writes its whole snapshot back
+// over it (the whole-object replace in engine.go), so the nudge seeds the row again once the stored dag lost it
 export async function fstShow(h, ctx, name, opts) {
     const { cmds, final, pastfinals, events } = fstStage(ctx, name, opts);
-    await seedDag(
-        h,
-        ctx,
-        (dag) => {
-            const { final: _final, pastfinals: _past, check: _check, verify: _verify, finalcmd: _cmd, ...rest } = dag;
-            return { ...rest, ...cmds, ...(final ? { final } : {}), ...(pastfinals ? { pastfinals } : {}) };
-        },
-        fstSeedPrint
-    );
+    const want = fstSeedPrint({ ...cmds, final, pastfinals });
+    const seed = () =>
+        seedDag(
+            h,
+            ctx,
+            (dag) => {
+                const { final: _final, pastfinals: _past, check: _check, verify: _verify, finalcmd: _cmd, ...rest } = dag;
+                return { ...rest, ...cmds, ...(final ? { final } : {}), ...(pastfinals ? { pastfinals } : {}) };
+            },
+            fstSeedPrint
+        );
+    await seed();
     const publish = events ? () => fstPublishSteps(h, ctx, ...events) : undefined;
     if (publish) await publish();
-    return { nudge: publish };
+    const nudge = async () => {
+        if (fstSeedPrint(await waveService(h, "object", "GetObject", [`dag:${ctx.dagId}`])) !== want) await seed();
+        if (publish) await publish();
+    };
+    return { nudge };
 }
 
 // object.UpdateObject publishes nothing, so the stored run is sent to the page as the update it would have been
