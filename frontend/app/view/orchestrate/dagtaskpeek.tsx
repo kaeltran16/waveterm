@@ -2,9 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // The selected task's peek: what it is, who works on it, and what can be done to it, in the shell beside its
-// node. The graph mounts it per task (key={task.id}), so its open panels never follow the selection.
+// node. The shell mounts it per task (keyed on the task id), so its open panels never follow the selection.
 
+import { AutoHeight } from "@/app/element/autoheight";
+import { CrossFade } from "@/app/element/crossfade";
 import { Markdown } from "@/app/element/markdown";
+import { composerReveal, errorNudge, microFade } from "@/app/element/motiontokens";
+import { PaneReveal } from "@/app/element/panereveal";
 import { globalStore } from "@/app/store/jotaiStore";
 import * as WOS from "@/app/store/wos";
 import { RpcApi } from "@/app/store/wshclientapi";
@@ -12,6 +16,7 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { cn } from "@/util/util";
 import { atom, useAtomValue, type Atom } from "jotai";
 import { CircleAlert } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import { useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import type { AgentsViewModel } from "../agents/agents";
 import { runAtom } from "../agents/channelsstore";
@@ -105,8 +110,6 @@ export function DagTaskPeek({
     return (
         <DagPeekCard
             place={place}
-            attrs={{ "data-dag-task-peek": task.id }}
-            label={`${task.id} details`}
             closeLabel="Close task details"
             glyph={glyphKind(task)}
             title={view.label}
@@ -126,26 +129,33 @@ export function DagTaskPeek({
                 </>
             }
             panel={
-                escalating ? (
-                    <EscalatePanel
-                        taskId={task.id}
-                        route={escalateRoute}
-                        onRoute={setEscalateRoute}
-                        onCancel={() => {
-                            setEscalating(false);
-                            setEscalateRoute(null);
-                        }}
-                        onRequeue={onRequeue}
-                    />
-                ) : actionError ? (
-                    <div
-                        role="alert"
-                        className="flex items-center gap-1.5 border-t border-border px-[13px] py-[7px] text-[12px] text-error"
-                    >
-                        <CircleAlert size={12} aria-hidden className="flex-none" />
-                        {actionError}
-                    </div>
-                ) : undefined
+                <CrossFade swapKey={escalating ? "escalate" : "error"} className="flex w-full flex-col items-stretch">
+                    {escalating ? (
+                        <EscalatePanel
+                            taskId={task.id}
+                            route={escalateRoute}
+                            onRoute={setEscalateRoute}
+                            onCancel={() => {
+                                setEscalating(false);
+                                setEscalateRoute(null);
+                            }}
+                            onRequeue={onRequeue}
+                        />
+                    ) : (
+                        <PaneReveal open={actionError != null} variants={composerReveal}>
+                            <motion.div
+                                role="alert"
+                                variants={errorNudge}
+                                initial="initial"
+                                animate="animate"
+                                className="flex items-center gap-1.5 border-t border-border px-[13px] py-[7px] text-[12px] text-error"
+                            >
+                                <CircleAlert size={12} aria-hidden className="flex-none" />
+                                {actionError}
+                            </motion.div>
+                        </PaneReveal>
+                    )}
+                </CrossFade>
             }
             actions={peekActions(view.actions).map((a) => (
                 <button
@@ -223,7 +233,7 @@ export function DagTaskPeek({
                     >
                         {peek.verify.heading}
                     </div>
-                    {peek.verify.tail ? (
+                    <PaneReveal open={!!peek.verify.tail}>
                         <pre
                             data-peek-verify-tail
                             className={cn(
@@ -233,7 +243,7 @@ export function DagTaskPeek({
                         >
                             {peek.verify.tail}
                         </pre>
-                    ) : null}
+                    </PaneReveal>
                 </div>
             ) : null}
             <PeekLifecycle
@@ -258,32 +268,48 @@ function rowTone(row: PeekRow): string {
 // something
 function ClampedRow({ row }: { row: PeekRow }) {
     const [open, setOpen] = useState(false);
-    const [overflows, setOverflows] = useState(false);
+    // fade: the toggle appeared on a measure after the first, so the note changed while on screen
+    const [more, setMore] = useState({ shown: false, fade: false });
+    const measured = useRef(false);
     const ref = useRef<HTMLDivElement>(null);
     useLayoutEffect(() => {
         const el = ref.current;
-        if (el && !open) setOverflows(el.scrollHeight > el.clientHeight);
+        if (el && !open) {
+            const shown = el.scrollHeight > el.clientHeight;
+            const fade = measured.current;
+            setMore((prev) => (prev.shown === shown ? prev : { shown, fade }));
+        }
+        measured.current = true;
     }, [row.text, open]);
     return (
         <div className="flex flex-col gap-1">
-            <div
-                ref={ref}
-                data-peek-review-note
-                className={cn(ROW_TEXT, rowTone(row), "whitespace-pre-line break-words", !open && "line-clamp-3")}
-            >
-                {row.text}
-            </div>
-            {overflows ? (
-                <button
-                    type="button"
-                    data-peek-review-toggle
-                    onClick={() => setOpen(!open)}
-                    aria-expanded={open}
-                    className={TOGGLE_BTN}
+            {/* the clamp toggles in place rather than a pane mounting, so the note's height follows it */}
+            <AutoHeight>
+                <div
+                    ref={ref}
+                    data-peek-review-note
+                    className={cn(ROW_TEXT, rowTone(row), "whitespace-pre-line break-words", !open && "line-clamp-3")}
                 >
-                    {open ? "Show less" : "Show the whole note"}
-                </button>
-            ) : null}
+                    {row.text}
+                </div>
+            </AutoHeight>
+            <AnimatePresence initial={false}>
+                {more.shown ? (
+                    <motion.button
+                        type="button"
+                        data-peek-review-toggle
+                        onClick={() => setOpen(!open)}
+                        aria-expanded={open}
+                        variants={microFade}
+                        initial={more.fade ? "initial" : false}
+                        animate="animate"
+                        exit="exit"
+                        className={TOGGLE_BTN}
+                    >
+                        {open ? "Show less" : "Show the whole note"}
+                    </motion.button>
+                ) : null}
+            </AnimatePresence>
         </div>
     );
 }

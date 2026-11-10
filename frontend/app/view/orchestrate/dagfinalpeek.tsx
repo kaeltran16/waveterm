@@ -4,9 +4,13 @@
 // The final stage's peek, in the shell beside its node: the verifier, each step with its command, the running
 // output or how the stage ended, and the End final stage form.
 
+import { CrossFade } from "@/app/element/crossfade";
+import { composerReveal, errorNudge } from "@/app/element/motiontokens";
+import { PaneReveal } from "@/app/element/panereveal";
 import { globalStore } from "@/app/store/jotaiStore";
 import { finalStageEndable } from "@/app/view/jarvis/runsheetmodel";
 import { useAtomValue } from "jotai";
+import { motion } from "motion/react";
 import { useState } from "react";
 import type { AgentsViewModel } from "../agents/agents";
 import type { AgentVM } from "../agents/agentsviewmodel";
@@ -63,8 +67,6 @@ export function DagFinalPeek({
     return (
         <DagPeekCard
             place={place}
-            attrs={{ "data-dag-final-peek": "" }}
-            label="Final verification details"
             closeLabel="Close final stage details"
             glyph={finalGlyph(view.tone)}
             title="Final verification"
@@ -90,17 +92,19 @@ export function DagFinalPeek({
                 </>
             }
             panel={
-                ending ? (
-                    <div className="flex flex-col gap-1.5 border-t border-edge-mid bg-surface px-3 py-2.5">
-                        <span className="text-[13px] font-semibold text-ink-hi">End the final stage</span>
-                        <EndFinalForm
-                            channelId={group.channelid}
-                            runId={group.runid}
-                            onClose={() => setEnding(false)}
-                            onError={setEndError}
-                        />
-                    </div>
-                ) : null
+                <CrossFade swapKey={ending ? "ending" : "idle"} className="flex w-full flex-col items-stretch">
+                    {ending ? (
+                        <div className="flex flex-col gap-1.5 border-t border-edge-mid bg-surface px-3 py-2.5">
+                            <span className="text-[13px] font-semibold text-ink-hi">End the final stage</span>
+                            <EndFinalForm
+                                channelId={group.channelid}
+                                runId={group.runid}
+                                onClose={() => setEnding(false)}
+                                onError={setEndError}
+                            />
+                        </div>
+                    ) : null}
+                </CrossFade>
             }
             actions={
                 endable ? (
@@ -117,11 +121,18 @@ export function DagFinalPeek({
                         >
                             End final stage
                         </button>
-                        {endError != null ? (
-                            <span role="alert" className="min-w-0 truncate text-[12px] text-error" title={endError}>
+                        <PaneReveal open={endError != null} variants={composerReveal} className="min-w-0">
+                            <motion.span
+                                role="alert"
+                                variants={errorNudge}
+                                initial="initial"
+                                animate="animate"
+                                className="block truncate text-[12px] text-error"
+                                title={endError ?? undefined}
+                            >
                                 {endError}
-                            </span>
-                        ) : null}
+                            </motion.span>
+                        </PaneReveal>
                     </>
                 ) : null
             }

@@ -118,7 +118,7 @@ const rvFact = (nodeExpr) =>
     `(${nodeExpr}?.querySelector("[data-dag-node-fact]")?.textContent ?? "").replace(/\\s+/g, " ").replace(/^\\s*·\\s*/, "").trim()`;
 
 // opens the run's sheet, then its DAG from the dock; true once the graph shows a card
-async function rvOpenDag(h, runId) {
+export async function rvOpenDag(h, runId) {
     if ((await h.activeSurfaceLabel()) !== SURFACE_LABEL.jarvis) await h.goto("jarvis");
     await h.ev(openAddressExpr(`run:${runId}`));
     const sheet = await polishWaitFor(h, `!!${RV_OPEN_DAG}`, 15000);
@@ -1494,12 +1494,13 @@ export const leadCardMergeGate = {
     },
 };
 
-// Page-only: the run's dag in the page takes `tasks` (fields per task id; an id it lacks is added) at one version past
+// Page-only: the run's dag in the page takes `fields` (its own top-level fields, such as status or final) and
+// `tasks` (fields per task id; an id it lacks is added) at one version past
 // the one it holds, and the dag status RPC answers that version with `digest` (fields per task row, added likewise):
 // the merge gate's held state and a task's actions are digest fields no RPC writes; `next`, when given, replaces the
 // digest's next step (the sheet's next: line). undoPageDag puts the RPC back
 // and reloads the stored dag, whose own version brings the real digest back.
-export const injectPageDag = (h, runId, { tasks = {}, digest = {}, next }) =>
+export const injectPageDag = (h, runId, { tasks = {}, digest = {}, next, fields = {} }) =>
     lookEval(h, `
         const { RpcApi } = await mod("app/store/wshclientapi.ts");
         const WOS = await mod("app/store/wos.ts");
@@ -1518,7 +1519,7 @@ export const injectPageDag = (h, runId, { tasks = {}, digest = {}, next }) =>
             const tasks = merge(rtn.digest.tasks ?? [], "taskid", ${JSON.stringify(digest)});
             return { ...rtn, digest: { ...rtn.digest, dagversion: version, tasks${next ? `, next: ${JSON.stringify(next)}` : ""} } };
         };
-        WOS.setObjectValue({ ...dag, version, tasks: merge(dag.tasks ?? [], "id", ${JSON.stringify(tasks)}) });
+        WOS.setObjectValue({ ...dag, ...${JSON.stringify(fields)}, version, tasks: merge(dag.tasks ?? [], "id", ${JSON.stringify(tasks)}) });
         return "ok";`);
 export const undoPageDag = (h, runId) =>
     lookEval(h, `
@@ -2622,11 +2623,11 @@ const dagPeekPrint = (dag) => {
     const t = (id) => (dag?.tasks ?? []).find((x) => x.id === id);
     return JSON.stringify([dag?.check ?? "", dag?.verify ?? "", dag?.finalcmd ?? "", dag?.final ?? null, t("t-2")?.state, t("t-3")?.state, t("t-3")?.escalations ?? 0]);
 };
-const DAG_PEEK_MODAL = `document.querySelector("[data-dag-modal-kind]")`;
-const dagPeekTaskSel = (id) => `[data-dag-task-peek="${id}"]`;
-const DAG_PEEK_FINAL_SEL = "[data-dag-final-peek]";
-const dagPeekCard = (sel) => `${DAG_PEEK_MODAL}?.querySelector(${JSON.stringify(sel)})`;
-const dagPeekClickNode = (id) => `${DAG_PEEK_MODAL}?.querySelector('[data-dag-node="${id}"]')?.click()`;
+export const DAG_PEEK_MODAL = `document.querySelector("[data-dag-modal-kind]")`;
+export const dagPeekTaskSel = (id) => `[data-dag-task-peek="${id}"]`;
+export const DAG_PEEK_FINAL_SEL = "[data-dag-final-peek]";
+export const dagPeekCard = (sel) => `${DAG_PEEK_MODAL}?.querySelector(${JSON.stringify(sel)})`;
+export const dagPeekClickNode = (id) => `${DAG_PEEK_MODAL}?.querySelector('[data-dag-node="${id}"]')?.click()`;
 const dagPeekAnyCard = `!!document.querySelector("[data-dag-task-peek], [data-dag-final-peek], [data-dag-peek]")`;
 // the card is a sibling of .react-flow inside the pane div, so .react-flow's parent is the pane
 const DAG_PEEK_LIB = `
@@ -2682,7 +2683,7 @@ const DAG_PEEK_EMPTY = `(() => {
 })()`;
 const DAG_PEEK_RAIL = `${DAG_PEEK_MODAL}?.querySelector("[data-timeline-rail]")`;
 // the rail's history has loaded: a run:event published before that is overwritten by the load
-const DAG_PEEK_RAIL_LIVE = `(${DAG_PEEK_RAIL}?.textContent ?? "").includes("● live")`;
+export const DAG_PEEK_RAIL_LIVE = `(${DAG_PEEK_RAIL}?.textContent ?? "").includes("● live")`;
 // the rail's pressed filter and the task of each row it shows
 const DAG_PEEK_RAIL_STATE = `(() => {
     const rail = ${DAG_PEEK_RAIL};
@@ -2725,7 +2726,7 @@ const DAG_PEEK_RESTORE = `(() => {
     return "restored";
 })()`;
 
-async function dagPeekOpen(h, sel, nodeId) {
+export async function dagPeekOpen(h, sel, nodeId) {
     if (!(await h.ev(`!!${dagPeekCard(sel)}`))) await h.ev(dagPeekClickNode(nodeId));
     return polishWaitFor(h, `!!${dagPeekCard(sel)}`, 4000);
 }

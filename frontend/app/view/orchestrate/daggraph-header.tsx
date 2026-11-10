@@ -1,6 +1,12 @@
+import { CrossFade } from "@/app/element/crossfade";
+import { useChangeFlash } from "@/app/element/motionhooks";
+import { changeFlashClass, composerReveal, errorNudge } from "@/app/element/motiontokens";
+import { PaneReveal } from "@/app/element/panereveal";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RunSettingsPanel } from "@/app/view/jarvis/briefrunsheet";
+import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
+import { motion } from "motion/react";
 import { useState } from "react";
 import { confirmCancelRun } from "../agents/runactions";
 import { runFinished } from "../agents/runlineage";
@@ -61,6 +67,8 @@ export function DagGraphHeader({ group, owner }: { group: TaskGroup; owner: Run 
     const pill = dagStatusPill(group);
     const tone = PILL_TONE[pill.tone];
     const label = pill.label;
+    // the status moving on (running -> finalizing) under the user washes the pill once
+    const labelFlash = useChangeFlash(label);
     const ended = runFinished({ dag: group, status: group.status });
     const [cancelError, setCancelError] = useState("");
     const [adjusting, setAdjusting] = useState(false);
@@ -83,7 +91,12 @@ export function DagGraphHeader({ group, owner }: { group: TaskGroup; owner: Run 
                 <span className={ROUTE_CHIP}>{workersChip(group, owner)}</span>
                 <span className={ROUTE_CHIP}>{reviewersChip(group, owner)}</span>
                 <span
-                    className={`rounded-[5px] border px-2 py-0.5 font-mono text-[11.5px] uppercase tracking-wide ${tone}`}
+                    data-dag-status-pill
+                    className={cn(
+                        "rounded-[5px] border px-2 py-0.5 font-mono text-[11.5px] uppercase tracking-wide",
+                        tone,
+                        labelFlash && changeFlashClass
+                    )}
                 >
                     {label}
                 </span>
@@ -96,7 +109,7 @@ export function DagGraphHeader({ group, owner }: { group: TaskGroup; owner: Run 
                         onClick={() => setAdjusting((v) => !v)}
                         className="rounded border border-edge-mid px-2.5 py-1 text-[12px] font-semibold text-secondary hover:border-edge-strong hover:text-primary"
                     >
-                        {adjusting ? "Done" : "Adjust"}
+                        <CrossFade swapKey={adjusting ? "done" : "adjust"}>{adjusting ? "Done" : "Adjust"}</CrossFade>
                     </button>
                 ) : null}
                 {/* awaiting-plan is cancellable too: abandoning a run at its gate is a normal answer, and the
@@ -106,11 +119,17 @@ export function DagGraphHeader({ group, owner }: { group: TaskGroup; owner: Run 
                 group.status === "plan-review" ||
                 group.status === "finalizing" ? (
                     <>
-                        {cancelError ? (
-                            <span data-dag-cancel-error className="text-[12px] text-warning">
+                        <PaneReveal open={cancelError !== ""} variants={composerReveal}>
+                            <motion.span
+                                data-dag-cancel-error
+                                variants={errorNudge}
+                                initial="initial"
+                                animate="animate"
+                                className="block text-[12px] text-warning"
+                            >
                                 {cancelError}
-                            </span>
-                        ) : null}
+                            </motion.span>
+                        </PaneReveal>
                         <button
                             type="button"
                             data-dag-cancel
