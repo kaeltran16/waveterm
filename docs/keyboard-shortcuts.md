@@ -142,6 +142,7 @@ A link inside an item view does a full open, even with `Ctrl` held.
 | `d` | Toggle the agent rail |
 | `f` | Toggle terminal fullscreen |
 | `v` | Toggle the focused Claude Code agent between Terminal and Rendered |
+| `Ctrl`+`Shift`+`B` | The same toggle, also while typing in the terminal or the composer, when the agent has no brainstorm or canvas (with one, it switches to that instead) |
 | `1`…`9` | In Rendered, with a permission prompt docked and focus outside the composer: answer it with that choice |
 | `r` | Review: open the focused agent's Plan review or Plan approval dialog |
 | `p` | Hand the agent to the phone, or take it back |

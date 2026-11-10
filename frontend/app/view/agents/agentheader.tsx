@@ -16,7 +16,18 @@ import { openOrPeek } from "@/app/view/jarvis/openref";
 import { formatChordString } from "@/util/keysym";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { ChevronLeft, CircleStop, Maximize2, Minimize2, PanelRight, Smartphone, Workflow, X } from "lucide-react";
+import {
+    ChevronLeft,
+    CircleStop,
+    FileText,
+    Maximize2,
+    Minimize2,
+    PanelRight,
+    Smartphone,
+    SquareTerminal,
+    Workflow,
+    X,
+} from "lucide-react";
 import { motion } from "motion/react";
 import { Fragment, useEffect, useRef } from "react";
 import { confirmCloseSession, interruptAgent } from "./agentactions";
@@ -38,14 +49,7 @@ import { canHandToPhone, isHandedOver } from "./handtophone";
 import { HeaderControls } from "./headercontrols";
 import { railVisibleAtom, terminalFullscreenAtom } from "./railstore";
 import { remoteStatusAtom, toggleHandToPhone } from "./remotestore";
-import {
-    canRender,
-    effectiveViewMode,
-    pickerFlipAtom,
-    toggleViewMode,
-    viewModeAtom,
-    type ViewMode,
-} from "./renderedmode";
+import { canRender, effectiveViewMode, pickerFlipAtom, toggleViewMode, viewModeAtom } from "./renderedmode";
 import { agentProject, isEndedWorkerId, leadAgentOf, leadDisplayName } from "./runlineage";
 import { RuntimeMark } from "./runtimemark";
 import { runtimeMeta } from "./runtimemeta";
@@ -174,6 +178,14 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
     const reviewOpen = useAtomValue(docReviewAtom) != null;
     const viewMode = effectiveViewMode(useAtomValue(viewModeAtom(agent.id)), useAtomValue(pickerFlipAtom(agent.id)));
     const renderable = canRender(agent, { ended, stage });
+    // mirrors agentsurface: an agent with a brainstorm never shows its canvas
+    const paneShown = brainstorm?.mode === "brainstorm" || (brainstorm == null && canvas?.mode === "canvas");
+    const rendered = renderable && viewMode === "rendered";
+    // the pane switch's other half names the view it returns to
+    const centerLabel = rendered ? "Rendered" : "Terminal";
+    // Ctrl+Shift+B goes to the pane when the agent has one, so then only v flips the view
+    const viewToggleKeys = brainstorm != null || canvas != null ? formatChordString("v") : viewKeys("v");
+    const viewToggleTitle = `${rendered ? "Show the terminal" : "Show rendered"} (${viewToggleKeys})`;
     // only the facts this session has: a background terminal often has none, and then the line goes
     const subline: React.ReactNode[] = [];
     if (project) {
@@ -365,7 +377,7 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                         ariaLabel="Show terminal or brainstorm"
                         value={brainstorm.mode}
                         options={[
-                            { key: "terminal", label: "Terminal", title: `Terminal (${viewKeys("b")})` },
+                            { key: "terminal", label: centerLabel, title: `${centerLabel} (${viewKeys("b")})` },
                             {
                                 key: "brainstorm",
                                 label: (
@@ -390,7 +402,7 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                         ariaLabel="Show terminal or canvas"
                         value={canvas.mode}
                         options={[
-                            { key: "terminal", label: "Terminal", title: `Terminal (${viewKeys("c")})` },
+                            { key: "terminal", label: centerLabel, title: `${centerLabel} (${viewKeys("c")})` },
                             {
                                 key: "canvas",
                                 label: (
@@ -410,40 +422,30 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                         onChange={(m) => setCanvasMode(agent.id, m, Date.now())}
                     />
                 ) : null}
-                {/* a cramped header (narrow window with the rail open) keeps its title over the toggle; v still flips */}
-                {renderable ? (
-                    <>
-                        <div data-view-toggle className="flex @max-[560px]:hidden">
-                            <Segmented<ViewMode>
-                                role="group"
-                                ariaLabel="View mode"
-                                value={viewMode}
-                                options={[
-                                    {
-                                        key: "terminal",
-                                        label: "Terminal",
-                                        title: `Terminal (${formatChordString("v")})`,
-                                    },
-                                    {
-                                        key: "rendered",
-                                        label: "Rendered",
-                                        title: `Rendered (${formatChordString("v")})`,
-                                    },
-                                ]}
-                                onChange={(m) => {
-                                    if (m !== viewMode) {
-                                        toggleViewMode(agent.id);
-                                    }
-                                }}
-                            />
-                        </div>
-                        <kbd className="rounded-[4px] border border-edge-mid px-[5px] py-[1px] font-mono text-[10.5px] text-muted @max-[560px]:hidden">
-                            v
-                        </kbd>
-                    </>
-                ) : null}
                 {blockId != null ? (
                     <>
+                        {/* an open pane hides the terminal, so there is no view for this to flip */}
+                        {renderable && !paneShown ? (
+                            <button
+                                type="button"
+                                data-view-toggle
+                                onClick={() => toggleViewMode(agent.id)}
+                                title={viewToggleTitle}
+                                aria-label={viewToggleTitle}
+                                aria-pressed={rendered}
+                                className={
+                                    rendered
+                                        ? "cursor-pointer rounded-[7px] border border-accent bg-accentbg px-[9px] py-[6px] text-accent"
+                                        : cn(ICON_BTN, "hover:border-edge-strong")
+                                }
+                            >
+                                {rendered ? (
+                                    <SquareTerminal size={16} strokeWidth={1.8} aria-hidden />
+                                ) : (
+                                    <FileText size={16} strokeWidth={1.8} aria-hidden />
+                                )}
+                            </button>
+                        ) : null}
                         {canHandToPhone(agent, lineageState.roles[agent.id]) ? (
                             <button
                                 type="button"

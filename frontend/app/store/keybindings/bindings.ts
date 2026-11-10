@@ -973,6 +973,16 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
         return boardReady(ctx) || (c != null && !c.marking && paneState(c) === "board");
     };
     const focusId = () => globalStore.get(model.focusIdAtom);
+    // the focused agent when the center can show it Rendered; a subagent interior wins over Rendered
+    const renderableId = (): string | null => {
+        const id = focusId();
+        const agent = globalStore.get(model.agentsAtom).find((a) => a.id === id);
+        const ok =
+            agent != null &&
+            globalStore.get(focusSubagentAtom) == null &&
+            canRender(agent, { ended: isEndedWorkerId(id), stage: isFinalStageId(id) });
+        return ok ? id : null;
+    };
     const codePeekFocused = () => globalStore.get(codePeekFocusedAtom);
     // the step the brainstorm pane's back control takes, which Esc takes too. A drawn mark's note owns Esc on the
     // board (it drops the mark there), so the board's step waits for it even while the note's field is unfocused
@@ -1220,9 +1230,8 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             // agent the header shows no toggle for (another runtime, a plain terminal, an ended worker)
             when: (ctx) => nav(ctx) && globalStore.get(focusSubagentAtom) == null,
             run: () => {
-                const id = focusId();
-                const agent = globalStore.get(model.agentsAtom).find((a) => a.id === id);
-                if (agent == null || !canRender(agent, { ended: isEndedWorkerId(id), stage: isFinalStageId(id) })) {
+                const id = renderableId();
+                if (id == null) {
                     return false;
                 }
                 toggleViewMode(id);
@@ -1348,19 +1357,32 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
         {
             // b and c only fire off the terminal, and Ctrl+G b / c are Code / Jarvis, so this is the one door
             // that works while typing. A terminal sends it as plain ^B, so no TUI can bind it apart from Ctrl+B.
-            // Not gated on editable, like F11. An agent has a brainstorm or a canvas, never both.
+            // Not gated on editable, like F11. An agent has a brainstorm or a canvas, never both; with neither it
+            // flips Terminal / Rendered, so the composer has the same door back
             id: "agent:view-chord",
             keys: "Ctrl:Shift:b",
             group: "Agent",
-            label: "Switch between the terminal and the agent's brainstorm or canvas (works inside the terminal)",
-            when: (ctx) => ctx.surface === "agent" && !ctx.modalOpen && (brainstorm() != null || canvas() != null),
+            label: "Switch the terminal with the agent's brainstorm, canvas or Rendered view (works inside the terminal)",
+            when: (ctx) =>
+                ctx.surface === "agent" &&
+                !ctx.modalOpen &&
+                (brainstorm() != null || canvas() != null || renderableId() != null),
             run: () => {
                 const s = brainstorm();
                 if (s != null) {
                     setBrainstormMode(focusId(), s.mode === "brainstorm" ? "terminal" : "brainstorm", Date.now());
                     return;
                 }
-                setCanvasMode(focusId(), canvas()!.mode === "canvas" ? "terminal" : "canvas", Date.now());
+                const c = canvas();
+                if (c != null) {
+                    setCanvasMode(focusId(), c.mode === "canvas" ? "terminal" : "canvas", Date.now());
+                    return;
+                }
+                const id = renderableId();
+                if (id == null) {
+                    return false;
+                }
+                toggleViewMode(id);
             },
         },
         // a letter focuses its answer row, so Enter, the row's own key, sends it

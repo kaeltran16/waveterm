@@ -174,12 +174,12 @@ const viewOf = (id) => `(() => {
     };
 })()`;
 
+// the header's one view button flips Terminal / Rendered, so it is clicked only when the agent is not in `label` yet
 const clickToggle = (h, label) =>
     h.ev(`(() => {
-        const b = [...(${SURF}?.querySelectorAll("[data-view-toggle] button") ?? [])]
-            .find((x) => (x.textContent ?? "").trim() === ${JSON.stringify(label)});
+        const b = ${SURF}?.querySelector("button[data-view-toggle]");
         if (!b) return false;
-        b.click();
+        if ((b.getAttribute("aria-pressed") === "true") !== (${JSON.stringify(label)} === "Rendered")) b.click();
         return true;
     })()`);
 

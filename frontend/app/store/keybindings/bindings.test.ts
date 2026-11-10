@@ -44,6 +44,7 @@ import { treeModeAtom } from "@/app/view/agents/filetree";
 import { graphOnAtom, historyFiltersAtom, historyScrollAtom, refreshHistory } from "@/app/view/agents/githistorystore";
 import { NO_FILTERS } from "@/app/view/agents/historyquery";
 import { railVisibleAtom, terminalFullscreenAtom } from "@/app/view/agents/railstore";
+import { viewModeAtom } from "@/app/view/agents/renderedmode";
 import { activeReviewAtom, reviewMarksAtom } from "@/app/view/agents/reviewmarks";
 import { renamingRowAtom } from "@/app/view/agents/rowrenameatom";
 import { shellTaskPeekAtom } from "@/app/view/agents/shelltasksstore";
@@ -156,6 +157,7 @@ vi.mock("@/app/view/code/codestore", async (orig) => ({
 const stubModel = (focusId?: string): any => ({
     focusIdAtom: atom<string | undefined>(focusId) as PrimitiveAtom<string | undefined>,
     terminalsAtom: atom([]),
+    agentsAtom: atom<any[]>([]),
 });
 
 const ctx = (surface: SurfaceKey = "cockpit"): KeyContext => ({
@@ -1304,7 +1306,11 @@ describe("agent canvas mode keys", () => {
     const active = (id: string, c: KeyContext = nav) => find(id).when!(c);
 
     beforeEach(() => {
-        model = { ...stubModel("a1"), surfaceAtom: atom<SurfaceKey>("agent") };
+        model = {
+            ...stubModel("a1"),
+            surfaceAtom: atom<SurfaceKey>("agent"),
+            agentsAtom: atom<any[]>([{ id: "a1", name: "Agent", blockId: "b1" }]),
+        };
         attachCanvas("a1", { topic: "t", dir: "C:\\p\\.superpowers\\design\\t", projectDir: "C:\\p" }, 0);
         updateCanvas("a1", (s) => ({
             ...s,
@@ -1342,6 +1348,33 @@ describe("agent canvas mode keys", () => {
         expect(active("agent:view-chord", { ...inTerm, modalOpen: true })).toBe(false);
         detachCanvas("a1");
         expect(active("agent:view-chord", inTerm)).toBe(false);
+    });
+
+    it("Ctrl+Shift+B flips a renderable agent with no pane between Terminal and Rendered, from either side", () => {
+        detachCanvas("a1");
+        globalStore.set(model.agentsAtom, [{ id: "a1", name: "Agent", blockId: "b1", agent: "claude", kind: "agent" }]);
+        globalStore.set(viewModeAtom("a1"), "terminal");
+        expect(active("agent:view-chord", inTerm)).toBe(true);
+        find("agent:view-chord").run(inTerm);
+        expect(globalStore.get(viewModeAtom("a1"))).toBe("rendered");
+        find("agent:view-chord").run(inTerm);
+        expect(globalStore.get(viewModeAtom("a1"))).toBe("terminal");
+    });
+
+    it("Ctrl+Shift+B opens the canvas, not Rendered, when a renderable agent has one", () => {
+        globalStore.set(model.agentsAtom, [{ id: "a1", name: "Agent", blockId: "b1", agent: "claude", kind: "agent" }]);
+        globalStore.set(viewModeAtom("a1"), "terminal");
+        find("agent:view-chord").run(inTerm);
+        expect(getCanvas("a1")!.mode).toBe("canvas");
+        expect(globalStore.get(viewModeAtom("a1"))).toBe("terminal");
+    });
+
+    it("v stands down while the canvas pane is open", () => {
+        globalStore.set(model.agentsAtom, [{ id: "a1", name: "Agent", blockId: "b1", agent: "claude", kind: "agent" }]);
+        setCanvasMode("a1", "canvas", 1);
+        expect(active("agent:toggle-view")).toBe(false);
+        setCanvasMode("a1", "terminal", 2);
+        expect(active("agent:toggle-view")).toBe(true);
     });
 
     it("in canvas mode: c, [ ], m and the agent switches are live; the surface, rail, fullscreen and back keys stand down", () => {
