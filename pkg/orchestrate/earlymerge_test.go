@@ -75,6 +75,32 @@ func TestEarlyDependentSquashMergesCleanAfterPredecessor(t *testing.T) {
 	}
 }
 
+// a worker that moved its early branch onto the project branch (a reset, as t-10 of run e6887e42 did) holds the
+// squashes already landed there, and none of their messages belong to its lane's squash
+func TestEarlyDependentMessageSkipsCommitsOnTheProjectBranch(t *testing.T) {
+	ctx := context.Background()
+	dir, wtA, tipA := earlyLanes(t, sharedLines, sharedLines)
+	// a second commit after b branched, so a's squash is a new commit, not a one-commit squash identical to tipA
+	writeFile(t, filepath.Join(wtA, "a2.txt"), "a2\n")
+	gitCmd(t, wtA, "add", ".")
+	gitCmd(t, wtA, "commit", "-m", "fix(a): add a2")
+	if _, err := MergeRunWorktree(ctx, dir, "lane-a", MergeLane{Title: "a", TaskIDs: []string{"t-1"}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	wtB := laneTree(ctx, dir, "lane-b")
+	gitCmd(t, wtB, "reset", "--hard", gitCmd(t, dir, "rev-parse", "HEAD"))
+	writeFile(t, filepath.Join(wtB, "b.txt"), "b\n")
+	gitCmd(t, wtB, "add", ".")
+	gitCmd(t, wtB, "commit", "-m", "feat(b): add b")
+
+	if _, err := MergeRunWorktree(ctx, dir, "lane-b", MergeLane{Title: "b", TaskIDs: []string{"t-2"}, Base: tipA}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := gitCmd(t, dir, "log", "-1", "--format=%B"); got != "feat(b): add b" {
+		t.Fatalf("b's squash message = %q, want only b's commits", got)
+	}
+}
+
 func TestEarlyDependentRealDifferenceConflicts(t *testing.T) {
 	ctx := context.Background()
 	aShared := strings.Replace(sharedLines, "two", "TWO", 1)

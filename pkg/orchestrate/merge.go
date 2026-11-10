@@ -130,17 +130,18 @@ func foldIntoTree(ctx context.Context, tree, path string) (string, error) {
 
 // mergeMessage is the branch's commit messages, oldest first, each once and without agent attribution. A
 // branch from the project branch makes HEAD..branch exactly its workers' commits; an early-started one holds its
-// predecessor's commits too, which that lane's squash left off HEAD's history, so it logs from lane.Base. A
+// predecessor's commits too, which that lane's squash left off HEAD's history, so it logs from lane.Base, still
+// excluding HEAD: a worker that reset or rebased onto the project branch holds squashes already landed there. A
 // lane of several tasks takes its title as the subject, since any one worker's subject names only that worker's
 // task, cut to a subject line as a land title is: two task titles joined run past it, typed from the workers'
 // subjects. A one-task lane falls back to the title only when the messages are empty or unreadable.
 func mergeMessage(ctx context.Context, projectPath, runID string, lane MergeLane) string {
 	var msgs, subjects []string
-	from := "HEAD"
+	args := []string{"log", "--reverse", "--format=%B%x00", "wave/" + runID, "^HEAD"}
 	if lane.Base != "" {
-		from = lane.Base
+		args = append(args, "^"+lane.Base)
 	}
-	out, err := git(ctx, projectPath, "log", "--reverse", "--format=%B%x00", from+"..wave/"+runID)
+	out, err := git(ctx, projectPath, args...)
 	if err != nil {
 		log.Printf("merge %s: reading the branch's commit messages: %v", runID, err)
 	}
