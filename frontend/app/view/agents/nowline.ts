@@ -32,12 +32,11 @@ export type NowLine =
       }
     | { kind: "done"; durationMs?: number; tools: number };
 
-/** The turn that starts at the last user/command entry; null when there is none. */
+/** The turn that starts at the last user entry or user-typed command; null when there is none. */
 export function summarizeTurn(entries: AgentEntry[]): TurnSummary | null {
     let start = -1;
     for (let i = entries.length - 1; i >= 0; i--) {
-        const k = entries[i].kind;
-        if (k === "user" || k === "command") {
+        if (startsTurn(entries[i])) {
             start = i;
             break;
         }
@@ -53,6 +52,8 @@ export function summarizeTurn(entries: AgentEntry[]): TurnSummary | null {
     for (const e of entries.slice(start + 1)) {
         if (e.kind === "message" && e.ts != null) {
             summary.endTs = e.ts;
+        } else if (e.kind === "command" && e.byModel) {
+            summary.tools++;
         } else if (e.kind === "action") {
             summary.tools++;
             if (e.pending) {
@@ -64,6 +65,10 @@ export function summarizeTurn(entries: AgentEntry[]): TurnSummary | null {
         }
     }
     return summary;
+}
+
+function startsTurn(e: AgentEntry): boolean {
+    return e.kind === "user" || (e.kind === "command" && !e.byModel);
 }
 
 export function nowLineState(input: {

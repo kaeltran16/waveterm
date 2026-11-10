@@ -197,7 +197,7 @@ describe("projectTranscript commands and isMeta", () => {
         ]);
         expect(out).toEqual([{ kind: "user", text: "real prompt" }]);
     });
-    it("renders a user-invoked skill (caller.direct) as a skill command chip with the leaf name", () => {
+    it("renders a Skill call (caller.direct) as a model-made skill command chip with the leaf name", () => {
         const out = projectTranscript([
             L({
                 type: "assistant",
@@ -214,7 +214,7 @@ describe("projectTranscript commands and isMeta", () => {
                 },
             }),
         ]);
-        expect(out).toEqual([{ kind: "command", name: "brainstorming", isSkill: true, args: "design the cache" }]);
+        expect(out).toEqual([{ kind: "command", name: "brainstorming", isSkill: true, byModel: true, args: "design the cache" }]);
     });
 
     it("omits args for a skill chip with no args", () => {
@@ -234,7 +234,7 @@ describe("projectTranscript commands and isMeta", () => {
                 },
             }),
         ]);
-        expect(out).toEqual([{ kind: "command", name: "commit", isSkill: true }]);
+        expect(out).toEqual([{ kind: "command", name: "commit", isSkill: true, byModel: true }]);
     });
 });
 
@@ -1018,8 +1018,8 @@ describe("projectTranscript malformed and mistyped records", () => {
             ]),
         ]);
         expect(out).toEqual([
-            { kind: "command", name: "commit", isSkill: true, args: "design the cache" },
-            { kind: "command", name: "commit", isSkill: true },
+            { kind: "command", name: "commit", isSkill: true, byModel: true, args: "design the cache" },
+            { kind: "command", name: "commit", isSkill: true, byModel: true },
             {
                 kind: "action",
                 verb: "skill",

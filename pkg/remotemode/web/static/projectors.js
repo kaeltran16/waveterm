@@ -526,6 +526,7 @@ function projectTranscript(lines) {
               kind: "command",
               name: skillLeaf2(block.input.skill),
               isSkill: true,
+              byModel: true,
               ...args !== "" ? { args } : {},
               ...recTs(rec)
             });

@@ -161,6 +161,7 @@ export function projectTranscript(lines: string[]): AgentEntry[] {
                             kind: "command",
                             name: skillLeaf(block.input.skill),
                             isSkill: true,
+                            byModel: true,
                             ...(args !== "" ? { args } : {}),
                             ...recTs(rec),
                         });
