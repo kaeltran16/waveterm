@@ -64,7 +64,14 @@ export type AgentEntry =
           durationMs?: number; // tool_use → tool_result wall time, when timestamps present
           startedTs?: number; // tool_use time while the call has no outcome yet, so a live call can show its elapsed
           detail?: ActionDetail; // rich, expandable detail; absent = bare line
+          images?: ToolImage[]; // image items of the tool_result (e.g. a Read of a png)
       };
+
+// a base64 image a tool returned, drawn as a data: URL
+export interface ToolImage {
+    mediaType: string;
+    data: string;
+}
 
 export interface AgentAskOption {
     label: string;

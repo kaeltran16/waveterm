@@ -1226,3 +1226,28 @@ describe("projectTranscript pasted_content", () => {
         expect(projectTranscript([line])).toStrictEqual([{ kind: "user", text: "fix the race\nin the clone" }]);
     });
 });
+
+describe("projectTranscript tool result images", () => {
+    const L = (o: unknown) => JSON.stringify(o);
+    const use = (name: string) =>
+        L({
+            type: "assistant",
+            message: { content: [{ type: "tool_use", id: "t1", name, input: { file_path: "/p/a.png" } }] },
+        });
+    const result = (content: unknown) =>
+        L({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "t1", content }] } });
+
+    it("puts a Read result's base64 image items on the action", () => {
+        const out = projectTranscript([
+            use("Read"),
+            result([{ type: "image", source: { type: "base64", media_type: "image/png", data: "iVBOR" } }]),
+        ]);
+        expect(out).toHaveLength(1);
+        expect(out[0]).toMatchObject({ kind: "action", images: [{ mediaType: "image/png", data: "iVBOR" }] });
+    });
+
+    it("leaves images off a result with none", () => {
+        const out = projectTranscript([use("Read"), result([{ type: "text", text: "line 1" }])]);
+        expect(out[0]).not.toHaveProperty("images");
+    });
+});

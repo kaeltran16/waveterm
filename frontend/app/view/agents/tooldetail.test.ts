@@ -6,8 +6,39 @@ import {
     formatDuration,
     parseGrep,
     sliceRead,
+    toolResultImages,
     toolResultText,
 } from "./tooldetail";
+
+describe("toolResultImages", () => {
+    it("reads base64 image items", () => {
+        expect(
+            toolResultImages([
+                { type: "image", source: { type: "base64", media_type: "image/png", data: "iVBOR" } },
+                { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "/9j/" } },
+            ])
+        ).toEqual([
+            { mediaType: "image/png", data: "iVBOR" },
+            { mediaType: "image/jpeg", data: "/9j/" },
+        ]);
+    });
+    it("ignores text items, url sources, non-image media types and malformed items", () => {
+        expect(
+            toolResultImages([
+                { type: "text", text: "hello" },
+                { type: "image", source: { type: "url", url: "https://example.com/a.png" } },
+                { type: "image", source: { type: "base64", media_type: "text/html", data: "PGI+" } },
+                { type: "image", source: { type: "base64", media_type: "image/png" } },
+                { type: "image" },
+                null,
+            ])
+        ).toEqual([]);
+    });
+    it("returns none for a string or missing content", () => {
+        expect(toolResultImages("text")).toEqual([]);
+        expect(toolResultImages(undefined)).toEqual([]);
+    });
+});
 
 describe("toolResultText", () => {
     it("returns a string result verbatim", () => {

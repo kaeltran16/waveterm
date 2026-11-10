@@ -4,7 +4,7 @@
 // Pure detail extractors for the transcript projection. No React, no Wave runtime imports.
 // Deterministic; no LLM. v1 diffs are pragmatic: removed block then added block, no line gutters.
 
-import type { AskQuestionDetail, EditFile, GrepMatch } from "./agentsviewmodel";
+import type { AskQuestionDetail, EditFile, GrepMatch, ToolImage } from "./agentsviewmodel";
 
 // A Claude tool_result `content` is either a string or an array of { type:"text", text }.
 export function toolResultText(content: unknown): string {
@@ -16,6 +16,23 @@ export function toolResultText(content: unknown): string {
             .join("\n");
     }
     return "";
+}
+
+const IMAGE_MEDIA_TYPE = /^image\/[\w.+-]+$/;
+
+// the { type:"image", source:{ type:"base64", media_type, data } } items of a tool_result `content`
+export function toolResultImages(content: unknown): ToolImage[] {
+    if (!Array.isArray(content)) return [];
+    return content
+        .filter(
+            (b: any) =>
+                b?.type === "image" &&
+                b.source?.type === "base64" &&
+                typeof b.source.data === "string" &&
+                typeof b.source.media_type === "string" &&
+                IMAGE_MEDIA_TYPE.test(b.source.media_type)
+        )
+        .map((b: any) => ({ mediaType: b.source.media_type, data: b.source.data }));
 }
 
 function baseCount(s: string): number {
