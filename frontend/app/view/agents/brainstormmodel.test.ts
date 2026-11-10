@@ -20,6 +20,7 @@ import {
     brainstormGoneText,
     brainstormLine,
     brainstormPhase,
+    brainstormWait,
     builderCheckView,
     canCheck,
     checkAsk,
@@ -92,6 +93,8 @@ import {
     type BrainstormPart,
     type BrainstormQuestion,
     type BuilderCheckRecord,
+    type BuilderCheckView,
+    type BuilderQuestion,
     type HistoryEntry,
     type ParseResult,
     type PartState,
@@ -124,6 +127,8 @@ const raw = (over: Record<string, unknown> = {}) =>
     JSON.stringify({ v: 1, title: "T", parts: [{ id: "a", title: "A", state: "yours", body: "x" }], ...over });
 
 const errorOf = (r: ParseResult): string | undefined => (r as { error?: string }).error;
+
+const NO_CHECK: BuilderCheckView = { kind: "none" };
 
 const agent = (over: Partial<AgentVM> = {}): AgentVM => ({ id: "t1", name: "loom", task: "x", state: "idle", ...over });
 
@@ -340,17 +345,16 @@ describe("counts and gates", () => {
     });
 
     it("asksUser needs the agent at its prompt", () => {
-        const f2 = file({ question: { n: 1, text: "?", part: "a" } });
-        expect(asksUser(f2, { state: "idle" })).toBe(true);
-        expect(asksUser(f2, { state: "working", atPrompt: true })).toBe(true);
-        expect(asksUser(f2, { state: "working" })).toBe(false);
+        const wait = brainstormWait(file({ question: { n: 1, text: "?", part: "a" } }), NO_CHECK);
+        expect(asksUser(wait, { state: "idle" })).toBe(true);
+        expect(asksUser(wait, { state: "working", atPrompt: true })).toBe(true);
+        expect(asksUser(wait, { state: "working" })).toBe(false);
         expect(asksUser(null, { state: "idle" })).toBe(false);
-        expect(asksUser(file(), { state: "idle" })).toBe(false);
     });
 });
 
 describe("withBrainstorm", () => {
-    const f = file({ question: { n: 2, text: "?", part: "a" } });
+    const f = brainstormWait(file({ question: { n: 2, text: "?", part: "a" } }), NO_CHECK);
 
     it("overlays asking with the time since it went idle", () => {
         const a = withBrainstorm(agent({ idleSince: 1000 }), f, 6000);
@@ -361,7 +365,6 @@ describe("withBrainstorm", () => {
     it("returns the same object when it is not asking", () => {
         const a = agent({ idleSince: 1000 });
         expect(withBrainstorm(a, null, 6000)).toBe(a);
-        expect(withBrainstorm(a, file(), 6000)).toBe(a);
         const busy = agent({ state: "working" });
         expect(withBrainstorm(busy, f, 6000)).toBe(busy);
     });
@@ -460,7 +463,7 @@ describe("terminalAnswer", () => {
             expect(sent).toEqual({ at: 1000, modifiedMs: 500, kind: "judged" });
             const shown = shownFile(asking, sent);
             expect(shown.working).toBe("Taking in the judge’s result.");
-            expect(treeLine(shown, false).text).toBe("taking in the judge’s result");
+            expect(treeLine(shown, null).text).toBe("taking in the judge’s result");
         }
     });
 
@@ -569,7 +572,7 @@ describe("shownFile", () => {
         expect(s.question).toBeNull();
         expect(isAsking(s)).toBe(false);
         expect(partView(s, s.parts[0])).toBe("writing");
-        expect(treeLine(s, false).text).toBe("writing up your answer");
+        expect(treeLine(s, null).text).toBe("writing up your answer");
     });
 
     it("reads another pending line as working, the question kept", () => {
@@ -653,11 +656,12 @@ describe("treeLine", () => {
     const f = file({ run: "abcdef0123456789" });
 
     it("names the run by its first 8 chars while Arc knows nothing of it", () => {
-        expect(treeLine(f, false)).toEqual({ text: "run abcdef01", runId: "abcdef0123456789" });
+        expect(treeLine(f, null)).toEqual({ text: "run abcdef01", runId: "abcdef0123456789" });
     });
 
     it("says what Arc knows of the run, even while asking", () => {
-        expect(treeLine(f, true, "merged · run abcdef01")).toEqual({
+        const wait = { key: "1", text: "?", reason: "Question 1", line: "asking question 1" };
+        expect(treeLine(f, wait, "merged · run abcdef01")).toEqual({
             text: "merged · run abcdef01",
             runId: "abcdef0123456789",
         });
@@ -665,25 +669,26 @@ describe("treeLine", () => {
 
     it("names asking, the builder check, working and the default", () => {
         const q = { n: 4, text: "?", part: "a" };
-        expect(treeLine(file({ question: q }), true)).toEqual({ text: "asking question 4" });
-        expect(treeLine(file({ check: { yours: [], calls: [], answered: [] } }), false).text).toBe("builder check");
-        expect(treeLine(file({ working: "Writing" }), false).text).toBe("writing up your answer");
-        expect(treeLine(file(), false)).toEqual({ text: "in progress" });
+        const asking = file({ question: q });
+        expect(treeLine(asking, brainstormWait(asking, NO_CHECK))).toEqual({ text: "asking question 4" });
+        expect(treeLine(file({ check: { yours: [], calls: [], answered: [] } }), null).text).toBe("builder check");
+        expect(treeLine(file({ working: "Writing" }), null).text).toBe("writing up your answer");
+        expect(treeLine(file(), null)).toEqual({ text: "in progress" });
     });
 
     it("names the guesses still to confirm when nothing else is going on", () => {
         const f = file({ parts: [part("a", "guess"), part("b", "guess"), part("c", "yours")] });
-        expect(treeLine(f, false)).toEqual({ text: "2 guesses to confirm" });
-        expect(treeLine(file({ parts: [part("a", "guess")] }), false).text).toBe("1 guess to confirm");
+        expect(treeLine(f, null)).toEqual({ text: "2 guesses to confirm" });
+        expect(treeLine(file({ parts: [part("a", "guess")] }), null).text).toBe("1 guess to confirm");
     });
 
     it("names the judge's wait, not an answer being written up", () => {
-        expect(treeLine(waitFile(), false).text).toBe("judge weighing question 4");
+        expect(treeLine(waitFile(), null).text).toBe("judge weighing question 4");
     });
 
     it("reads a kept question with work underway as working, nothing answered", () => {
         const s = shownFile(file({ question: { n: 3, text: "?", part: "a" } }), { at: 1, modifiedMs: 1, kind: "line" });
-        expect(treeLine(s, false).text).toBe("working");
+        expect(treeLine(s, null).text).toBe("working");
     });
 });
 
@@ -1864,7 +1869,8 @@ describe("brainstormAttention", () => {
             question: { n: 3, text: "What pages you?", part: "page" },
             parts: [part("page", "asked", { title: "What on-call sees" })],
         });
-        expect(brainstormAttention({ agentId: "t1", agentName: "loom", topic: "lag" }, f)).toEqual({
+        const wait = brainstormWait(f, NO_CHECK)!;
+        expect(brainstormAttention({ agentId: "t1", agentName: "loom", topic: "lag" }, wait)).toEqual({
             kind: "brainstorm",
             key: "brainstorm:t1:3",
             source: "loom",
@@ -1879,14 +1885,92 @@ describe("brainstormAttention", () => {
 
     it("shows the raw id for a part that does not exist", () => {
         const f = file({ question: { n: 1, text: "?", part: "ghost" } });
-        expect(brainstormAttention({ agentId: "t", agentName: "n", topic: "x" }, f).reason).toBe(
-            "For “ghost” · question 1"
-        );
+        expect(brainstormWait(f, NO_CHECK)?.reason).toBe("For “ghost” · question 1");
     });
 
     it("a question about no part names only its number", () => {
         const f = file({ question: { n: 6, text: "Run the reviewer?", part: "" } });
-        expect(brainstormAttention({ agentId: "t", agentName: "n", topic: "x" }, f).reason).toBe("Question 6");
+        expect(brainstormWait(f, NO_CHECK)?.reason).toBe("Question 6");
+    });
+});
+
+describe("brainstormWait", () => {
+    const yours = [part("a", "yours"), part("b", "yours")];
+    const check = (y: BuilderQuestion[]) => ({ yours: y, calls: [], answered: [] });
+    const failed: BuilderCheckView = { kind: "failed", reason: "The builder crashed." };
+
+    it("waits on nothing while the agent writes, a check is pending, or a run started", () => {
+        const q = { n: 1, text: "?", part: "a" };
+        expect(brainstormWait(file({ question: q, working: "Writing" }), NO_CHECK)).toBeNull();
+        expect(brainstormWait(file({ question: q, run: "r1" }), NO_CHECK)).toBeNull();
+        const pending: BuilderCheckView = { kind: "pending", stage: "reading", text: "" };
+        expect(brainstormWait(file({ parts: yours, done: true }), pending)).toBeNull();
+        expect(brainstormWait(file({ parts: [part("a", "open")] }), NO_CHECK)).toBeNull();
+    });
+
+    it("asks the builder's open question, numbered among its questions, with its own key", () => {
+        const f = file({ parts: yours, check: check([{ q: "Done?", a: "yes" }, { q: "Which db?" }]) });
+        expect(brainstormWait(f, NO_CHECK)).toEqual({
+            key: "check:1",
+            text: "Which db?",
+            reason: "Builder question 2 of 2",
+            line: "builder asking",
+        });
+    });
+
+    it("puts the talk question before the builder's", () => {
+        const f = file({ question: { n: 5, text: "Talk?", part: "" }, check: check([{ q: "Which db?" }]) });
+        expect(brainstormWait(f, NO_CHECK)?.key).toBe("5");
+    });
+
+    it("waits on a retry once the check failed", () => {
+        expect(brainstormWait(file({ parts: yours, done: true }), failed)).toEqual({
+            key: "check-failed",
+            text: "The builder crashed.",
+            reason: "Builder check failed",
+            line: "builder check failed",
+        });
+    });
+
+    it("waits on Approve once the builder is answered, or on what still blocks it", () => {
+        const answered = file({ parts: yours, done: true, check: check([{ q: "Which db?", a: "pg" }]) });
+        expect(brainstormWait(answered, NO_CHECK)).toMatchObject({ key: "approve", reason: "Ready to approve" });
+        const changed = file({
+            parts: [part("a", "guess", { was: "old" }), part("b", "yours")],
+            done: true,
+            check: check([]),
+        });
+        expect(brainstormWait(changed, NO_CHECK)).toMatchObject({
+            key: "check-review",
+            text: "Review 1 change",
+            line: "review before approving",
+        });
+    });
+
+    it("waits on the builder check once every decision is yours", () => {
+        expect(brainstormWait(file({ parts: yours, done: true }), NO_CHECK)).toMatchObject({
+            key: "ready",
+            reason: "Ready for the builder check",
+            line: "ready for the builder check",
+        });
+    });
+
+    it("waits on guesses to confirm and changes to review, keyed by both", () => {
+        const f = file({ parts: [part("a", "guess"), part("b", "guess"), part("c", "guess", { was: "old" })] });
+        expect(brainstormWait(f, NO_CHECK)).toMatchObject({
+            key: "confirm:2 guesses to confirm, 1 change to review",
+            reason: "2 guesses to confirm, 1 change to review",
+            line: "2 guesses to confirm, 1 change to review",
+        });
+    });
+
+    it("keys the attention item by agent and wait", () => {
+        const f = file({ check: check([{ q: "Which db?" }]) });
+        const item = brainstormAttention(
+            { agentId: "t1", agentName: "loom", topic: "lag" },
+            brainstormWait(f, NO_CHECK)!
+        );
+        expect(item.key).toBe("brainstorm:t1:check:0");
     });
 });
 

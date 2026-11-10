@@ -37,8 +37,7 @@ import { contextLevel, contextTokens } from "./agentrailmodel";
 import type { AgentsViewModel } from "./agents";
 import { agentStateView, STATE_TONE_COLOR } from "./agentstateview";
 import { agentRunDone, type AgentVM } from "./agentsviewmodel";
-import { isAsking } from "./brainstormmodel";
-import { brainstormAtom, setBrainstormMode, shownBrainstormFile } from "./brainstormstore";
+import { brainstormAtom, brainstormWaitOf, setBrainstormMode } from "./brainstormstore";
 import { isUnseen } from "./canvasmodel";
 import { canvasStateAtom, setCanvasMode } from "./canvasstore";
 import { nextSnap, type AgentSnap } from "./cockpitevents";
@@ -124,9 +123,8 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
     const fullscreen = useAtomValue(terminalFullscreenAtom);
     const canvas = useAtomValue(canvasStateAtom(agent.id));
     const brainstorm = useAtomValue(brainstormAtom(agent.id));
-    // the roster overlay already turned a question the file asks into state "asking"
-    const brainstormFile = shownBrainstormFile(brainstorm);
-    const brainstormAsking = brainstormFile != null && isAsking(brainstormFile) && agent.state === "asking";
+    // the roster overlay already turned a wait the file holds into state "asking"
+    const brainstormAsking = agent.state === "asking" && brainstormWaitOf(brainstorm, agent) != null;
     const lineage = useRunLineage(model, agent);
     const lineageState = useAtomValue(model.lineageAtom);
     const project = agentProject(lineageState, useAtomValue(model.agentsAtom), agent);

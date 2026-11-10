@@ -535,13 +535,60 @@ export function isAsking(f: BrainstormFile): boolean {
     return f.question != null && f.working == null;
 }
 
-export function asksUser(f: BrainstormFile | null, agent: Pick<AgentVM, "state" | "atPrompt">): boolean {
-    return f != null && isAsking(f) && (agent.state === "idle" || agent.atPrompt === true);
+// what a brainstorm before its run waits on the user for: a question, the builder's or the talk's, or a press only
+// the user makes. key tells one wait from the next, so the popup raises each once; line is the tree row's
+export type BrainstormWait = { key: string; text: string; reason: string; line: string };
+
+export function brainstormWait(f: BrainstormFile, check: BuilderCheckView): BrainstormWait | null {
+    if (f.run != null || f.working != null || check.kind === "pending") {
+        return null;
+    }
+    const q = f.question;
+    if (q != null) {
+        // a question outside the design (a choice the agent needs to go on) is for no part
+        const reason = q.part ? `For “${partTitle(f, q.part)}” · question ${q.n}` : `Question ${q.n}`;
+        return { key: `${q.n}`, text: q.text, reason, line: `asking question ${q.n}` };
+    }
+    const yours = f.check?.yours ?? [];
+    const open = yours.findIndex((y) => y.a == null);
+    if (open >= 0) {
+        const reason = `Builder question ${open + 1} of ${yours.length}`;
+        return { key: `check:${open}`, text: yours[open].q, reason, line: "builder asking" };
+    }
+    if (check.kind === "failed") {
+        const text = check.reason || "The builder check did not finish.";
+        return { key: "check-failed", text, reason: "Builder check failed", line: "builder check failed" };
+    }
+    if (f.check != null) {
+        const blocker = approveBlocker(f);
+        return blocker == null
+            ? { key: "approve", text: f.title, reason: "Ready to approve", line: "ready to approve" }
+            : { key: "check-review", text: blocker, reason: "Builder check", line: "review before approving" };
+    }
+    if (canCheck(f)) {
+        const reason = "Ready for the builder check";
+        return { key: "ready", text: f.title, reason, line: "ready for the builder check" };
+    }
+    const guesses = confirmableGuesses(f);
+    const changed = decisionParts(f).filter((p) => partView(f, p) === "changed").length;
+    const said = [
+        guesses > 0 ? `${plural(guesses, "guess", "guesses")} to confirm` : null,
+        changed > 0 ? `${plural(changed, "change", "changes")} to review` : null,
+    ].filter((s): s is string => s != null);
+    if (said.length === 0) {
+        return null;
+    }
+    const line = said.join(", ");
+    return { key: `confirm:${line}`, text: reviewHead(f).line, reason: capitalize(line), line };
 }
 
-// the file knows a question the agent's own status does not: its turn ended on a prose question
-export function withBrainstorm(agent: AgentVM, f: BrainstormFile | null, now: number): AgentVM {
-    if (!asksUser(f, agent)) {
+export function asksUser(wait: BrainstormWait | null, agent: Pick<AgentVM, "state" | "atPrompt">): boolean {
+    return wait != null && (agent.state === "idle" || agent.atPrompt === true);
+}
+
+// the file knows a wait the agent's own status does not: its turn ended on a question or a press that is the user's
+export function withBrainstorm(agent: AgentVM, wait: BrainstormWait | null, now: number): AgentVM {
+    if (!asksUser(wait, agent)) {
         return agent;
     }
     return {
@@ -554,13 +601,13 @@ export function withBrainstorm(agent: AgentVM, f: BrainstormFile | null, now: nu
 
 export type TreeLine = { text: string; runId?: string };
 
-// runText is what Arc knows of the brainstorm's run
-export function treeLine(f: BrainstormFile, asking: boolean, runText?: string): TreeLine {
+// runText is what Arc knows of the brainstorm's run; wait is set only while the agent waits on the user
+export function treeLine(f: BrainstormFile, wait: BrainstormWait | null, runText?: string): TreeLine {
     if (f.run != null) {
         return { text: runText ?? `run ${f.run.slice(0, RUN_ID_CHARS)}`, runId: f.run };
     }
-    if (asking) {
-        return { text: `asking question ${f.question?.n ?? ""}`.trim() };
+    if (wait != null) {
+        return { text: wait.line };
     }
     if (f.check != null) {
         return { text: "builder check" };
@@ -1720,16 +1767,14 @@ export function runLine(projectName: string): string {
 // made in the frontend and fed only to the taskbar flash and the desktop popup; the server has no such item
 export function brainstormAttention(
     a: { agentId: string; agentName: string; topic: string },
-    f: BrainstormFile
+    wait: BrainstormWait
 ): AttentionItem {
-    const q = f.question ?? { n: 0, text: "", part: "" };
     return {
         kind: "brainstorm",
-        key: `brainstorm:${a.agentId}:${q.n}`,
+        key: `brainstorm:${a.agentId}:${wait.key}`,
         source: a.agentName,
-        text: q.text,
-        // a question outside the design (a choice the agent needs to go on) is for no part
-        reason: q.part ? `For “${partTitle(f, q.part)}” · question ${q.n}` : `Question ${q.n}`,
+        text: wait.text,
+        reason: wait.reason,
         action: "brainstorm",
         oref: `brainstorm:${a.topic}`,
         phaseidx: 0,

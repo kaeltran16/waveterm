@@ -28,7 +28,7 @@ import {
 import { popupTarget } from "./attentionpopuptarget";
 import { attentionAtom, loadAttention, taskbarSignal } from "./attentionstore";
 import { asksUser, brainstormAttention } from "./brainstormmodel";
-import { brainstormsAtom, shownBrainstormFile } from "./brainstormstore";
+import { brainstormsAtom, brainstormWaitOf } from "./brainstormstore";
 
 // the un-overlaid roster: the overlay already reads an asking brainstorm as "asking", which asksUser would refuse
 function brainstormItemsAtom(model: AgentsViewModel): Atom<AttentionItem[]> {
@@ -37,9 +37,9 @@ function brainstormItemsAtom(model: AgentsViewModel): Atom<AttentionItem[]> {
         const items: AttentionItem[] = [];
         for (const agent of get(model.baseRosterAtom)) {
             const b = brainstorms[agent.id];
-            const f = shownBrainstormFile(b);
-            if (f != null && asksUser(f, agent)) {
-                items.push(brainstormAttention({ agentId: agent.id, agentName: agent.name, topic: b.topic }, f));
+            const wait = brainstormWaitOf(b, agent);
+            if (wait != null && asksUser(wait, agent)) {
+                items.push(brainstormAttention({ agentId: agent.id, agentName: agent.name, topic: b.topic }, wait));
             }
         }
         return items;

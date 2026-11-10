@@ -25,7 +25,7 @@ import {
 import { buildAgentTree, treeFocusOrder, type AgentTreeRow } from "./agenttreemodel";
 import { answerAgentAsk } from "./askanswer";
 import { withBrainstorm } from "./brainstormmodel";
-import { brainstormsAtom, shownBrainstormFile } from "./brainstormstore";
+import { brainstormsAtom, brainstormWaitOf } from "./brainstormstore";
 import { claudeApiKeyActiveAtom } from "./claudeapikeystore";
 import { CockpitSurface } from "./cockpitsurface";
 import { devRosterAtom, loadDevMockRoster } from "./devmock";
@@ -201,16 +201,13 @@ export class AgentsViewModel implements ViewModel {
                 const meta = get(WOS.getWaveObjectAtom<Tab>(WOS.makeORef("tab", p.tabId)))?.meta;
                 tabMeta[p.tabId] = { label: meta?.["session:label"], pinned: meta?.["session:pinned"] === true };
             }
-            return mergePendingLaunches(get(base), pending, now, tabMeta).map((agent) =>
-                withRunDone(
-                    withBrainstorm(
-                        agent.blockId ? withStartError(agent, get(getStartErrorAtom(agent.blockId))) : agent,
-                        shownBrainstormFile(brainstorms[agent.id]),
-                        now
-                    ),
+            return mergePendingLaunches(get(base), pending, now, tabMeta).map((agent) => {
+                const started = agent.blockId ? withStartError(agent, get(getStartErrorAtom(agent.blockId))) : agent;
+                return withRunDone(
+                    withBrainstorm(started, brainstormWaitOf(brainstorms[agent.id], started), now),
                     agent.runId ? runOf(agent.runId) : undefined
-                )
-            );
+                );
+            });
         });
         this.lineageAtom = lineageAtomFor(this.agentsAtom);
         this.treeRowsAtom = atom((get) =>

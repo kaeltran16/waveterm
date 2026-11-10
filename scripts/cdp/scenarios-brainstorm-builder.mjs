@@ -25,6 +25,10 @@ const CHECK_WITHIN = "You can read the design meanwhile.";
 const CHECK_OVER = "Taking longer than usual";
 const CHECK_BUILDER_DONE = "The builder finished in 2:31.";
 const CHECK_LOCK_TITLE = "Locked while the builder check runs";
+// the tree row's line while the brainstorm waits on the user
+const TREE_READY = "ready for the builder check";
+const TREE_ASKING = "builder asking";
+const TREE_FAILED = "builder check failed";
 // past builder checks the scenario seeds (ms), the spec's measured spread: usual 2:09, longest 8:28
 const PAST_CHECKS = [119_000, 129_000, 508_000];
 // the check's own run: started 1:42 ago (Main), 6:10 ago (Main-Long), and a builder that took 2:31 (Main-TakingIn)
@@ -768,6 +772,8 @@ export default function (kit) {
                     s1.ok && c1.checkBtn?.disabled === false && c1.pending === "" && c1.failed === "",
                     { ...bsBrief(s1), ...c1 }
                 );
+                const t1 = await bsUntil(h, ctx, (s) => s.treeLine === TREE_READY);
+                rec("1a. ready: the tree line reads ready for the builder check", t1.ok, { treeLine: t1.treeLine });
 
                 // 2. reading: the design stays up under the clock strip, its edits locked, and no Check button
                 let times = null;
@@ -877,6 +883,8 @@ export default function (kit) {
                     s4.ok && s4.builder.includes(YOURS[0].q) && c4.pending === "" && c4.failed === "",
                     { ...bsBrief(s4), builder: s4.builder.slice(0, 120), ...c4 }
                 );
+                const t4 = await bsUntil(h, ctx, (s) => s.treeLine === TREE_ASKING);
+                rec("4a. result: the builder's open question makes the tree line read builder asking", t4.ok, { treeLine: t4.treeLine });
 
                 // 4b. a check with exactly one builder question says so in the rail, and a narrow pane keeps the main column
                 bsWrite(ctx, file({ parts: ALL_YOURS, check: { yours: [YOURS[0]], calls: [], answered: [], touched: [] } }));
@@ -912,6 +920,8 @@ export default function (kit) {
                     shown && c5.failed.includes(CHECK_REASON) && c5.retry?.disabled === false && c5.checkBtn == null && c5.pending === "",
                     c5
                 );
+                const t5 = await bsUntil(h, ctx, (s) => s.treeLine === TREE_FAILED);
+                rec("5a. failed: the tree line reads builder check failed", t5.ok, { treeLine: t5.treeLine });
 
                 // 6. Try again sends the check line; the old record stays until a newer one arrives, so only the line is judged
                 await waitForPrompt(h, ctx);

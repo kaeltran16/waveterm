@@ -48,9 +48,9 @@ import {
     workerRowTone,
     type StageOutcome,
 } from "./agenttreemodel";
-import { isAsking, treeLine, type BrainstormFile, type BuilderCheckRecord } from "./brainstormmodel";
+import { treeLine, type BrainstormFile, type BrainstormWait, type BuilderCheckRecord } from "./brainstormmodel";
 import { runStepView, runTreeText } from "./brainstormrunmodel";
-import { brainstormAtom, setBrainstormMode, shownBrainstormFile } from "./brainstormstore";
+import { brainstormAtom, brainstormWaitOf, setBrainstormMode, shownBrainstormFile } from "./brainstormstore";
 import { isUnseen } from "./canvasmodel";
 import { canvasStateAtom, setCanvasMode } from "./canvasstore";
 import { nextSnap, type AgentSnap } from "./cockpitevents";
@@ -316,10 +316,18 @@ function PaneChip({
 
 // replaces a row's branch text while the agent brainstorms (its brainstorm chip names it); a finished one links to
 // the run it started
-function BrainstormTreeLine({ model, f, asking }: { model: AgentsViewModel; f: BrainstormFile; asking: boolean }) {
+function BrainstormTreeLine({
+    model,
+    f,
+    wait,
+}: {
+    model: AgentsViewModel;
+    f: BrainstormFile;
+    wait: BrainstormWait | null;
+}) {
     const info = useRunInfo(f.run);
     const view = f.run != null ? runStepView(f.run, info.run, info.loaded) : null;
-    const line = treeLine(f, asking, view ? runTreeText(f.run!, view) : undefined);
+    const line = treeLine(f, wait, view ? runTreeText(f.run!, view) : undefined);
     const done = line.runId != null;
     return (
         <span data-brainstorm-tree-line className="flex min-w-0 items-baseline text-[11.5px]">
@@ -336,7 +344,9 @@ function BrainstormTreeLine({ model, f, asking }: { model: AgentsViewModel; f: B
                     {line.text}
                 </button>
             ) : (
-                <span className={cn("min-w-0 truncate", asking ? "text-warning" : "text-ink-mid")}>{line.text}</span>
+                <span className={cn("min-w-0 truncate", wait != null ? "text-warning" : "text-ink-mid")}>
+                    {line.text}
+                </span>
             )}
         </span>
     );
@@ -590,7 +600,10 @@ function ParentRow({
     const selected = focusId === agent.id;
     const asking = agent.state === "asking";
     const review = asking ? parseDocReview(agent.ask) : null;
-    const brainstormFile = shownBrainstormFile(useAtomValue(brainstormAtom(agent.id)));
+    const brainstorm = useAtomValue(brainstormAtom(agent.id));
+    const brainstormFile = shownBrainstormFile(brainstorm);
+    // the roster overlay already turned a wait the file holds into state "asking"
+    const brainstormWait = asking ? brainstormWaitOf(brainstorm, agent) : null;
     const mark = lead != null ? leadMark(lead.run, agent) : null;
     const tasks = useAtomValue(shellTasksByIdAtom)[agent.id] ?? [];
     const standing = isStandingBy(agent.state, tasks, allSubs);
@@ -763,11 +776,10 @@ function ParentRow({
                             {subsChip}
                             {tasksChip}
                             {brainstormFile != null ? (
-                                // the roster overlay already turned a question the file asks into state "asking"
                                 <BrainstormTreeLine
                                     model={model}
                                     f={brainstormFile}
-                                    asking={asking && isAsking(brainstormFile)}
+                                    wait={brainstormWait}
                                 />
                             ) : (
                                 <span className="truncate font-mono text-[10.5px] text-muted">{branch || "—"}</span>

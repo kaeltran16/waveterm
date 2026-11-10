@@ -10,12 +10,16 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type Atom, type PrimitiveAtom } from "jotai";
 import { atomFamily } from "jotai/utils";
 import type { AgentsViewModel } from "./agents";
+import type { AgentVM } from "./agentsviewmodel";
 import {
     brainstormFilePath,
+    brainstormWait,
+    builderCheckView,
     samePath,
     seenMark,
     shownFile,
     type BrainstormFile,
+    type BrainstormWait,
     type SeenMark,
     type SentLine,
 } from "./brainstormmodel";
@@ -56,6 +60,15 @@ export type BrainstormState = {
 // what every view draws: the file, with a pending sent line read as the agent writing
 export function shownBrainstormFile(s: BrainstormState | null | undefined): BrainstormFile | null {
     return s?.file != null ? shownFile(s.file, s.sent) : null;
+}
+
+// what the agent's brainstorm waits on the user for, its builder check's record included
+export function brainstormWaitOf(s: BrainstormState | null | undefined, agent: AgentVM): BrainstormWait | null {
+    const f = shownBrainstormFile(s);
+    if (s == null || f == null) {
+        return null;
+    }
+    return brainstormWait(f, builderCheckView(agent.builderCheck, s.sentCheckAt, s.file, s.modifiedMs, agent));
 }
 
 // the tab meta key holding the attached brainstorm.json's absolute path
