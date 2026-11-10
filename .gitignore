@@ -65,3 +65,4 @@ claude/arc-skim-mod/.claude-plugin/types/
 
 # orchestrator lead report scratch files (sealed into the run by wsh jarvis complete --report)
 /.arc-run-*-report.md
+/.playwright-cli
