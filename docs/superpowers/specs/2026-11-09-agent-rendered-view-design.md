@@ -1,7 +1,7 @@
 # Agent surface rendered mode — design
 
 Date: 2026-11-09
-Status: design, pending builder check
+Status: shipped 2026-11-10 (run e6887e42)
 Scope: the Agent surface's center (`frontend/app/view/agents/`), the arc mod (`claude/arc-mod/`), the managed hook
 list (`cmd/wsh/cmd/wshcmd-installhooks.go`)
 Prototype: `.superpowers/design/agent-rendered-view/project/Main.dc.html`
