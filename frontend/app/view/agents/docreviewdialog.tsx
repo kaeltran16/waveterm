@@ -6,7 +6,11 @@
 // answered or cleared.
 
 import { openFileInCode } from "@/app/cockpit/openfilestore";
+import { CrossFade } from "@/app/element/crossfade";
+import { composerReveal } from "@/app/element/motiontokens";
+import { PaneReveal } from "@/app/element/panereveal";
 import { SkeletonLine } from "@/app/element/skeleton";
+import { ViewFade } from "@/app/element/viewfade";
 import { ModalShell } from "@/app/modals/modalshell";
 import { globalStore } from "@/app/store/jotaiStore";
 import { formatChordString } from "@/util/keysym";
@@ -318,35 +322,38 @@ function DocumentPane({ path, quoting, onOpen }: { path: string; quoting: Quotin
                 onMouseUp={onMouseUp}
                 className="sc relative min-h-0 flex-1 overflow-y-auto px-7 pb-7 pt-[18px]"
             >
-                {load.status === "loading" ? (
-                    <div aria-hidden="true" className="flex flex-col gap-2.5 pt-1">
-                        {["w-[45%]", "w-[85%]", "w-[75%]", "w-[60%]", "w-[80%]"].map((w, i) => (
-                            <SkeletonLine key={i} className={cn("h-[12px]", w)} />
-                        ))}
-                    </div>
-                ) : load.status === "error" ? (
-                    <div className="flex flex-col gap-1">
-                        <span className="text-[13px] text-secondary">Couldn't read {file}</span>
-                        <span className="break-all font-mono text-[11px] text-muted">{path}</span>
-                    </div>
-                ) : (
-                    <>
+                <ViewFade fadeKey={load.status}>
+                    {load.status === "loading" ? (
+                        <div aria-hidden="true" className="flex flex-col gap-2.5 pt-1">
+                            {["w-[45%]", "w-[85%]", "w-[75%]", "w-[60%]", "w-[80%]"].map((w, i) => (
+                                <SkeletonLine key={i} className={cn("h-[12px]", w)} />
+                            ))}
+                        </div>
+                    ) : load.status === "error" ? (
+                        <div className="flex flex-col gap-1">
+                            <span className="text-[13px] text-secondary">Couldn't read {file}</span>
+                            <span className="break-all font-mono text-[11px] text-muted">{path}</span>
+                        </div>
+                    ) : (
                         <div ref={docRef} data-doc-review-doc>
                             <MarkdownMessage text={load.text} className="text-[14px] leading-[1.65] text-secondary" />
                         </div>
-                        {quoting.pending ? (
-                            <NoteField
-                                scrollRef={scrollRef}
-                                docRef={docRef}
-                                pending={quoting.pending}
-                                draft={quoting.draft}
-                                onDraft={quoting.onDraft}
-                                onAdd={quoting.onAdd}
-                                onCancel={quoting.onCancel}
-                            />
-                        ) : null}
-                    </>
-                )}
+                    )}
+                </ViewFade>
+                {/* the card is absolute in the scroller, so the reveal's height clips nothing: it fades the card */}
+                <PaneReveal open={load.status === "ok" && quoting.pending != null} variants={composerReveal}>
+                    {quoting.pending ? (
+                        <NoteField
+                            scrollRef={scrollRef}
+                            docRef={docRef}
+                            pending={quoting.pending}
+                            draft={quoting.draft}
+                            onDraft={quoting.onDraft}
+                            onAdd={quoting.onAdd}
+                            onCancel={quoting.onCancel}
+                        />
+                    ) : null}
+                </PaneReveal>
             </div>
         </div>
     );
@@ -412,50 +419,50 @@ function Footer(p: {
     }
     return (
         <div className="flex flex-none flex-col gap-2.5 border-t border-edge-mid bg-modalbg px-[22px] pb-3.5 pt-3">
-            {p.requesting ? (
-                <div className="flex flex-col gap-1.5">
-                    <label htmlFor="doc-review-note" className="text-[12px] font-semibold text-secondary">
-                        {p.copy.noteLabel}
-                    </label>
-                    <textarea
-                        id="doc-review-note"
-                        rows={3}
-                        autoFocus
-                        value={p.note}
-                        onChange={(e) => p.onNote(e.target.value)}
-                        placeholder={p.copy.notePlaceholder}
-                        className="w-full resize-none rounded-[7px] border border-accent bg-background px-2.5 py-2 text-[13px] leading-[1.5] text-primary outline-none placeholder:text-muted"
-                    />
-                </div>
-            ) : null}
+            <PaneReveal open={p.requesting} variants={composerReveal} className="flex flex-col gap-1.5">
+                <label htmlFor="doc-review-note" className="text-[12px] font-semibold text-secondary">
+                    {p.copy.noteLabel}
+                </label>
+                <textarea
+                    id="doc-review-note"
+                    rows={3}
+                    autoFocus
+                    value={p.note}
+                    onChange={(e) => p.onNote(e.target.value)}
+                    placeholder={p.copy.notePlaceholder}
+                    className="w-full resize-none rounded-[7px] border border-accent bg-background px-2.5 py-2 text-[13px] leading-[1.5] text-primary outline-none placeholder:text-muted"
+                />
+            </PaneReveal>
             <div className="flex items-center gap-2">
-                {p.requesting ? (
-                    <>
-                        <button type="button" onClick={p.onSend} disabled={!p.canSend} className={PRIMARY_BTN}>
-                            {p.copy.send}
-                        </button>
-                        <button type="button" onClick={p.onCancel} className={SECONDARY_BTN}>
-                            Cancel
-                        </button>
-                    </>
-                ) : (
-                    <>
-                        <button
-                            type="button"
-                            onClick={p.onApprove}
-                            disabled={p.review.approveIndex < 0}
-                            className={PRIMARY_BTN}
-                        >
-                            {p.copy.approve}
-                            <span className="rounded-[4px] bg-background/20 px-[5px] font-mono text-[10.5px]">
-                                {formatChordString("Ctrl:Enter")}
-                            </span>
-                        </button>
-                        <button type="button" onClick={p.onRequest} className={SECONDARY_BTN}>
-                            {p.copy.request}
-                        </button>
-                    </>
-                )}
+                <CrossFade swapKey={p.requesting ? "request" : "decide"} className="gap-2">
+                    {p.requesting ? (
+                        <>
+                            <button type="button" onClick={p.onSend} disabled={!p.canSend} className={PRIMARY_BTN}>
+                                {p.copy.send}
+                            </button>
+                            <button type="button" onClick={p.onCancel} className={SECONDARY_BTN}>
+                                Cancel
+                            </button>
+                        </>
+                    ) : (
+                        <>
+                            <button
+                                type="button"
+                                onClick={p.onApprove}
+                                disabled={p.review.approveIndex < 0}
+                                className={PRIMARY_BTN}
+                            >
+                                {p.copy.approve}
+                                <span className="rounded-[4px] bg-background/20 px-[5px] font-mono text-[10.5px]">
+                                    {formatChordString("Ctrl:Enter")}
+                                </span>
+                            </button>
+                            <button type="button" onClick={p.onRequest} className={SECONDARY_BTN}>
+                                {p.copy.request}
+                            </button>
+                        </>
+                    )}
+                </CrossFade>
                 <div className="flex-1" />
                 <span className="text-[11.5px] text-muted">Esc hides this; the question stays open</span>
             </div>

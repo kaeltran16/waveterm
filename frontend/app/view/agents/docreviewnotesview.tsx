@@ -6,6 +6,7 @@
 // is shared with the canvas's mark note), and the rail's list of notes.
 
 import { turnTransition } from "@/app/element/motiontokens";
+import { PaneReveal } from "@/app/element/panereveal";
 import { cn } from "@/util/util";
 import { ChevronDown, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, type KeyboardEvent, type RefObject } from "react";
@@ -295,8 +296,8 @@ export function NotesSection(p: {
                     className={cn("transition-transform motion-reduce:transition-none", p.collapsed && "-rotate-90")}
                 />
             </button>
-            {p.collapsed ? null : (
-                <div className="sc max-h-[300px] overflow-y-auto px-5 pb-2">
+            <PaneReveal open={!p.collapsed}>
+                <div data-doc-notes-list className="sc max-h-[300px] overflow-y-auto px-5 pb-2">
                     {p.notes.map((n) =>
                         n.id === p.openId && !p.locked ? (
                             <div
@@ -354,7 +355,7 @@ export function NotesSection(p: {
                         )
                     )}
                 </div>
-            )}
+            </PaneReveal>
         </div>
     );
 }

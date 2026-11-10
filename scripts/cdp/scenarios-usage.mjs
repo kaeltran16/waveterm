@@ -2889,7 +2889,7 @@ export const cockpitNeedsYouCrossChannel = {
 const WFS_PROJECT = "verify-workflow-scan";
 const WFS_OTHER_PROJECT = "verify-workflow-scan-other";
 const wfsNorm = (p) => (p || "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
-const WFS_LENS = (kind) => `document.querySelector('[data-workflow-lens="${kind}"]')`;
+export const WFS_LENS = (kind) => `document.querySelector('[data-workflow-lens="${kind}"]')`;
 const WFS_SCAN_BUTTON = `document.querySelector('[data-workflow-scan-button]')`;
 const WFS_SEND = `document.querySelector('[data-workflow-send]')`;
 const WFS_DETAIL = (kind) => `document.querySelector('[data-workflow-detail="${kind}"]')`;
@@ -2908,7 +2908,7 @@ function wfsPattern(ctx, id, title, runs, days, projects, texts) {
     return { id, title, fixtarget: "AGENTS.md · Plans", runs, days, projects, quotes };
 }
 
-function wfsScan(ctx, extra) {
+export function wfsScan(ctx, extra) {
     const now = Date.now();
     const survivors = [
         wfsPattern(ctx, "p1", "Final's dev app starts on an empty store; scenarios read data it lacks", 4, 2, [{ name: WFS_PROJECT, runs: 4 }], [
@@ -3000,7 +3000,7 @@ function wfsScan(ctx, extra) {
 }
 
 // writes the run's record and waits for the lens to draw the state it maps to
-async function wfsSeed(h, ctx, kind, change) {
+export async function wfsSeed(h, ctx, kind, change) {
     await fstWriteRun(h, ctx.runId, (run) => change({ ...run, status: ctx.status }));
     return polishWaitFor(h, `!!${WFS_LENS(kind)}`, 10000);
 }
