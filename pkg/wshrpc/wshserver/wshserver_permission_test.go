@@ -156,3 +156,39 @@ func TestPublishEventRetiresBeforeStaleDrop(t *testing.T) {
 		t.Fatalf("want a cleared event for %s last, got %v", p.PermId, got)
 	}
 }
+
+func TestAgentPermissionListReturnsOpenRequests(t *testing.T) {
+	agentask.GlobalPermissions = agentask.MakePermissionRegistry()
+	orefA := "block:" + uuid.New().String()
+	orefB := "block:" + uuid.New().String()
+	answered := raisePermission(t, orefA, "key-answered")
+	openA := raisePermission(t, orefA, "key-open-a")
+	openB := raisePermission(t, orefB, "key-open-b")
+	agentask.GlobalPermissions.RetireKey(orefA, "key-answered", answered.Ts)
+
+	list, err := (&WshServer{}).AgentPermissionListCommand(context.Background())
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	got := map[string]baseds.AgentPermissionData{}
+	for _, p := range list {
+		got[p.PermId] = p
+	}
+	if len(got) != 2 {
+		t.Fatalf("listed %v, want only the two open requests", list)
+	}
+	for oref, want := range map[string]agentask.PendingPermission{orefA: openA, orefB: openB} {
+		p, ok := got[want.PermId]
+		if !ok || p.ORef != oref || p.ToolName != "Edit" || p.ToolInput != want.ToolInput || !slices.Equal(p.Choices, want.Choices) || p.Ts != want.Ts || p.Cleared {
+			t.Errorf("listed %+v for %s, want %+v", p, oref, want)
+		}
+	}
+}
+
+func TestAgentPermissionListEmptyIsNotNil(t *testing.T) {
+	agentask.GlobalPermissions = agentask.MakePermissionRegistry()
+	list, err := (&WshServer{}).AgentPermissionListCommand(context.Background())
+	if err != nil || list == nil || len(list) != 0 {
+		t.Fatalf("list = %v, %v; want an empty, non-nil list", list, err)
+	}
+}

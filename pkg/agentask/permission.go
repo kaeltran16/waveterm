@@ -28,7 +28,10 @@ const (
 	toolExitPlanMode     = "ExitPlanMode"
 )
 
-var planApprovalChoices = []string{"Yes, auto-accept edits", "Yes, manually approve edits", "No, keep planning"}
+var planApprovalChoices = []string{"Yes, and use auto mode", "Yes, manually approve edits", "No, keep planning"}
+
+// escape rejects Claude's permission prompt, as its last "No" option does
+var escape = []byte{0x1b}
 
 var editTools = map[string]bool{"Edit": true, "Write": true, "MultiEdit": true, "NotebookEdit": true}
 
@@ -90,6 +93,17 @@ func (r *PermissionRegistry) List(oref string) []PendingPermission {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 	return slices.Clone(r.pending[oref])
+}
+
+// All returns a copy of every block's queue, keyed by oref, each oldest first.
+func (r *PermissionRegistry) All() map[string][]PendingPermission {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	all := make(map[string][]PendingPermission, len(r.pending))
+	for oref, queue := range r.pending {
+		all[oref] = slices.Clone(queue)
+	}
+	return all
 }
 
 // RetireKey removes the requests for oref whose tool call ran (its PostToolUse carried toolKey) at or
@@ -160,7 +174,13 @@ func DeliverPermission(oref, permid string, choice int) error {
 	if err != nil {
 		return err
 	}
-	for i, k := range singleSelectKeys(choice) {
+	keys := singleSelectKeys(choice)
+	// the prompt can show options the hook does not report (Bash adds "switch to auto mode" before No), so No
+	// is typed as Escape, which rejects at any option count, never by its position
+	if choice == len(p.Choices)-1 {
+		keys = [][]byte{escape}
+	}
+	for i, k := range keys {
 		if i > 0 {
 			time.Sleep(KeystrokeDelay)
 		}

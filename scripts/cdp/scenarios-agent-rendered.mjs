@@ -38,8 +38,6 @@ const COLUMN_MAX_PX = 920;
 const SHOT = (n, what) => `cdp-shots/${NAME}-${n}-${what}.png`;
 
 // keys as the probe logs them: one hex chunk per line
-const DOWN = "1b5b42";
-const ENTER = "0d";
 const SHIFT_TAB = "1b5b5a";
 const ESC = "1b";
 
@@ -155,7 +153,7 @@ const EDIT_INPUT = { file_path: "pkg/a.go", old_string: "var x = 1", new_string:
 const EDIT_CHOICES = ["Yes", "Yes, allow edits this session", "No, tell Claude what to do"];
 const PLAN_HEADING = "Ship the rendered view";
 const PLAN_INPUT = { plan: `## ${PLAN_HEADING}\n\n- write the scenario\n- run Final on it` };
-const PLAN_CHOICES = ["Yes, auto-accept edits", "Yes, manually approve edits", "No, keep planning"];
+const PLAN_CHOICES = ["Yes, and use auto mode", "Yes, manually approve edits", "No, keep planning"];
 const MODEL_LABEL = "opus 5.5";
 const MODEL_ALIASES = ["default", "opus", "sonnet", "haiku"];
 const ASK_QUESTION = { header: "Scope", question: "Which scope should the fix cover?", options: [{ label: "this file" }, { label: "the package" }] };
@@ -722,7 +720,7 @@ export default function (_kit) {
                     return [ok, { ...band, retired }];
                 });
 
-                await step("rendered: permission answer — choice 3 on P locks the buttons, types Down Down Enter, leaves a mark and refocuses the composer", async () => {
+                await step("rendered: permission answer — choice 3 (No) on P locks the buttons, types Escape, leaves a mark and refocuses the composer", async () => {
                     ctx.pPerm = await raisePermission(h, ctx.pBlock, "Edit", EDIT_INPUT, "fx-rendered-edit-p", true);
                     await wait(`${BAND} != null`);
                     const from = probeLines(ctx).length;
@@ -731,17 +729,23 @@ export default function (_kit) {
                         `const b = ${BAND};
                         const choice = b?.querySelector('[data-permission-choice="2"]');
                         if (!choice) return { error: "no choice 3" };
-                        choice.click();
+                        // a one-key answer can return and remove the band within a poll's interval, so every
+                        // render of the band is checked as it lands
                         let locked = false;
-                        for (const end = Date.now() + 1000; !locked && Date.now() < end; await nap(5)) {
-                            const all = [...(b.querySelectorAll("[data-permission-choice]") ?? [])];
-                            locked = b.isConnected && all.length === 3 && all.every((x) => x.disabled);
-                        }
+                        const isLocked = () => {
+                            const all = [...b.querySelectorAll("[data-permission-choice]")];
+                            return b.isConnected && all.length === 3 && all.every((x) => x.disabled);
+                        };
+                        const watch = new MutationObserver(() => (locked ||= isLocked()));
+                        watch.observe(b, { subtree: true, attributes: true, attributeFilter: ["disabled"] });
+                        choice.click();
+                        for (const end = Date.now() + 1000; !locked && Date.now() < end; await nap(5)) locked ||= isLocked();
+                        watch.disconnect();
                         return { locked };`
                     );
                     await h.shot(SHOT(14, "permission-in-flight"));
                     const gone = await wait(`${BAND} == null`);
-                    const keys = await waitProbe(ctx, from, [DOWN, DOWN, ENTER]);
+                    const keys = await waitProbe(ctx, from, [ESC]);
                     await wait(`(${RV}?.querySelector("[data-permission-mark]")?.textContent ?? "").includes(${JSON.stringify(EDIT_CHOICES[2])})`);
                     const after = await h.ev(`(() => {
                         ${flatJs}

@@ -57,6 +57,27 @@ func (ws *WshServer) AnswerAgentPermissionCommand(ctx context.Context, data wshr
 	return nil
 }
 
+func (ws *WshServer) AgentPermissionListCommand(ctx context.Context) ([]baseds.AgentPermissionData, error) {
+	return listAgentPermissions(agentask.GlobalPermissions.All()), nil
+}
+
+func listAgentPermissions(all map[string][]agentask.PendingPermission) []baseds.AgentPermissionData {
+	list := []baseds.AgentPermissionData{}
+	for oref, queue := range all {
+		for _, p := range queue {
+			list = append(list, baseds.AgentPermissionData{
+				ORef:      oref,
+				PermId:    p.PermId,
+				ToolName:  p.ToolName,
+				ToolInput: p.ToolInput,
+				Choices:   p.Choices,
+				Ts:        p.Ts,
+			})
+		}
+	}
+	return list
+}
+
 // retirePermissions drops the pending permission requests a status proves answered elsewhere: a PostToolUse
 // for the same tool call, or a new prompt, a Stop or a new session after them. It runs before publishEvent's
 // stale and out-of-turn drops, since a late PostToolUse those discard still proves its tool ran.
@@ -80,8 +101,8 @@ func retirePermissions(ev *wps.WaveEvent) {
 	}
 }
 
-// publishAgentPermission is not persisted: pending requests live in the frontend from events only, and a
-// reload shows a request already open in the terminal alone.
+// publishAgentPermission is not persisted: a queue per block does not replay from the last events, so a
+// reloaded frontend reads the open requests from AgentPermissionListCommand instead.
 func publishAgentPermission(data baseds.AgentPermissionData) {
 	wps.Broker.Publish(wps.WaveEvent{
 		Event:  wps.Event_AgentPermission,

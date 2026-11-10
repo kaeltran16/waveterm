@@ -49,6 +49,12 @@ func AgentPermissionCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentPermissio
 	return resp, err
 }
 
+// command "agentpermissionlist", wshserver.AgentPermissionListCommand
+func AgentPermissionListCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) ([]baseds.AgentPermissionData, error) {
+	resp, err := sendRpcRequestCallHelper[[]baseds.AgentPermissionData](w, "agentpermissionlist", nil, opts)
+	return resp, err
+}
+
 // command "agentprompt", wshserver.AgentPromptCommand
 func AgentPromptCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentPromptData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "agentprompt", data, opts)

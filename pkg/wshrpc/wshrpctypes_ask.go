@@ -18,6 +18,8 @@ type AskCommands interface {
 	// (returns the permid) and answered by typing keys into Claude's own prompt
 	AgentPermissionCommand(ctx context.Context, data CommandAgentPermissionData) (string, error)
 	AnswerAgentPermissionCommand(ctx context.Context, data CommandAnswerAgentPermissionData) error
+	// every permission prompt still open, so a reloaded frontend can show what it missed
+	AgentPermissionListCommand(ctx context.Context) ([]baseds.AgentPermissionData, error)
 }
 
 type CommandAgentPermissionData struct {

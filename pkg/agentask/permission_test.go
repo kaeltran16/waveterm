@@ -26,8 +26,8 @@ func TestPermissionChoices(t *testing.T) {
 		{"Bash", false, []string{"Yes", no}},
 		{"WebFetch", true, []string{"Yes", "Yes, don't ask again this session", no}},
 		{"WebFetch", false, []string{"Yes", no}},
-		{"ExitPlanMode", false, []string{"Yes, auto-accept edits", "Yes, manually approve edits", "No, keep planning"}},
-		{"ExitPlanMode", true, []string{"Yes, auto-accept edits", "Yes, manually approve edits", "No, keep planning"}},
+		{"ExitPlanMode", false, []string{"Yes, and use auto mode", "Yes, manually approve edits", "No, keep planning"}},
+		{"ExitPlanMode", true, []string{"Yes, and use auto mode", "Yes, manually approve edits", "No, keep planning"}},
 	}
 	for _, c := range cases {
 		if got := PermissionChoices(c.tool, c.suggestions); !slices.Equal(got, c.want) {
@@ -66,22 +66,37 @@ func editPermission(permId string, ts int64) PendingPermission {
 }
 
 func TestDeliverPermissionKeys(t *testing.T) {
-	sent := capturePermKeys(t)
-	GlobalPermissions.Raise("block:b1", editPermission("p1", 100))
-	if err := DeliverPermission("block:b1", "p1", 2); err != nil {
-		t.Fatalf("deliver: %v", err)
+	down := []byte{0x1b, '[', 'B'}
+	cases := []struct {
+		name   string
+		choice int
+		want   [][]byte
+	}{
+		{"yes is enter", 0, [][]byte{{'\r'}}},
+		{"the middle option is down, enter", 1, [][]byte{down, {'\r'}}},
+		// Claude 2.1.322's Bash prompt adds "Yes, and switch to auto mode" before No, which the hook payload
+		// does not show: down, down, enter would pick it
+		{"no is escape, at any option count", 2, [][]byte{{0x1b}}},
 	}
-	want := [][]byte{{0x1b, '[', 'B'}, {0x1b, '[', 'B'}, {'\r'}}
-	if len(*sent) != len(want) {
-		t.Fatalf("want %d writes, got %d: %q", len(want), len(*sent), *sent)
-	}
-	for i, k := range *sent {
-		if k.blockId != "b1" || !bytes.Equal(k.data, want[i]) {
-			t.Fatalf("write %d = %q to %s, want %q to b1", i, k.data, k.blockId, want[i])
-		}
-	}
-	if got := GlobalPermissions.List("block:b1"); len(got) != 0 {
-		t.Fatalf("delivered request still queued: %v", got)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			sent := capturePermKeys(t)
+			GlobalPermissions.Raise("block:b1", editPermission("p1", 100))
+			if err := DeliverPermission("block:b1", "p1", c.choice); err != nil {
+				t.Fatalf("deliver: %v", err)
+			}
+			if len(*sent) != len(c.want) {
+				t.Fatalf("want %d writes, got %d: %q", len(c.want), len(*sent), *sent)
+			}
+			for i, k := range *sent {
+				if k.blockId != "b1" || !bytes.Equal(k.data, c.want[i]) {
+					t.Fatalf("write %d = %q to %s, want %q to b1", i, k.data, k.blockId, c.want[i])
+				}
+			}
+			if got := GlobalPermissions.List("block:b1"); len(got) != 0 {
+				t.Fatalf("delivered request still queued: %v", got)
+			}
+		})
 	}
 }
 
