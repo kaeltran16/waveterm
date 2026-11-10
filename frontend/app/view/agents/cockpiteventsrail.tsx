@@ -5,6 +5,9 @@
 // transitions are tracked by useRailTracking in the always-mounted shell (cockpit-root.tsx), so a finish while
 // another surface shows is still recorded; run events come from the surface.
 
+import { cardVariants, computeEntrances, initialEntranceState } from "@/app/element/motiontokens";
+import { PaneReveal } from "@/app/element/panereveal";
+import { TickNumber } from "@/app/element/ticknumber";
 import { globalStore } from "@/app/store/jotaiStore";
 import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { cn } from "@/util/util";
@@ -21,7 +24,8 @@ import {
     X,
     type LucideIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { AnimatePresence, motion, MotionConfig } from "motion/react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AgentsViewModel } from "./agents";
 import { formatAgeShort, type AgentState, type AgentVM } from "./agentsviewmodel";
 import {
@@ -145,12 +149,27 @@ export function CockpitEventsRail({
     const now = useAtomValue(model.nowAtom);
     const { all, fresh, old } = useRailRows(model, lineage, runEvents);
     const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+    // an event arriving while the rail is open enters as a card; keyed on the project scope, so the rows already
+    // there when the rail opens or the scope changes never cascade. Committed in a layout effect: render can run twice
+    const projectFilter = useAtomValue(model.projectFilterAtom);
+    const scopeKey = projectFilter ?? "";
+    const ids = all.map((e) => e.key);
+    const entranceRef = useRef(initialEntranceState());
+    const { animate: entering } = computeEntrances(entranceRef.current, scopeKey, ids);
+    const idsKey = ids.join(",");
+    useLayoutEffect(() => {
+        entranceRef.current = computeEntrances(entranceRef.current, scopeKey, ids).state;
+    }, [idsKey, scopeKey]);
     const row = (e: RailRow, isNew: boolean) => {
         const k = KIND[e.kind];
         const tag = e.group == null && e.focusId ? tags[e.focusId] : undefined;
         return (
-            <div
+            <motion.div
                 key={e.key}
+                data-rail-event={e.key}
+                variants={cardVariants}
+                initial={entering.has(e.key) ? "initial" : false}
+                animate="animate"
                 role="button"
                 tabIndex={-1}
                 onClick={() => e.focusId && onSelect(e.focusId)}
@@ -204,39 +223,68 @@ export function CockpitEventsRail({
                     <span className="font-mono text-[10.5px] text-muted">{formatAgeShort(now - e.ts)}</span>
                     {isNew ? <span className="h-1.5 w-1.5 rounded-full bg-accent" /> : null}
                 </div>
-            </div>
+            </motion.div>
         );
     };
-    const section = (label: string, tone: string, top: boolean) => (
+    // a group's later events reveal under its first when "+N more" opens them, in their own places in the list
+    const rows = (events: RailEvent[], isNew: boolean) => {
+        const shown = new Map(groupRailEvents(events, openGroups).map((e) => [e.key, e]));
+        const everyGroup = Object.fromEntries(events.flatMap((e) => (e.group != null ? [[e.group, true]] : [])));
+        const full = groupRailEvents(events, everyGroup);
+        const heads = new Set(full.flatMap((e) => (e.more != null && e.group != null ? [e.group] : [])));
+        return full.map((e) => {
+            if (e.more != null || e.group == null || !heads.has(e.group)) {
+                return row(shown.get(e.key) ?? e, isNew);
+            }
+            return (
+                <PaneReveal key={e.key} open={shown.has(e.key)}>
+                    {row(e, isNew)}
+                </PaneReveal>
+            );
+        });
+    };
+    const section = (label: ReactNode, tone: string, top: boolean) => (
         <div className={cn("flex items-center gap-2 px-2 pb-1", top ? "pt-0.5" : "pt-2.5")}>
             <span className={cn(REGION_LABEL, tone)}>{label}</span>
             <div className="h-px flex-1 bg-border" />
         </div>
     );
     return (
-        <div className="-mx-2 flex flex-col gap-1">
-            <div className="flex items-center justify-between px-2 pb-2">
-                <SectionLabel>Events</SectionLabel>
-                {fresh.length > 0 ? (
-                    <button
-                        type="button"
-                        onClick={() => globalStore.set(seenTsAtom, all[0].ts)}
-                        className="cursor-pointer border-0 bg-transparent text-[11.5px] text-accent hover:text-accent-soft"
-                    >
-                        Mark all read
-                    </button>
+        <MotionConfig reducedMotion="user">
+            <div className="-mx-2 flex flex-col gap-1">
+                <div className="flex items-center justify-between px-2 pb-2">
+                    <SectionLabel>Events</SectionLabel>
+                    {fresh.length > 0 ? (
+                        <button
+                            type="button"
+                            onClick={() => globalStore.set(seenTsAtom, all[0].ts)}
+                            className="cursor-pointer border-0 bg-transparent text-[11.5px] text-accent hover:text-accent-soft"
+                        >
+                            Mark all read
+                        </button>
+                    ) : null}
+                </div>
+                {all.length === 0 ? (
+                    <div className="px-2 text-[12px] text-muted">Nothing has changed state yet.</div>
                 ) : null}
+                {fresh.length > 0
+                    ? section(
+                          <>
+                              {/* keyed on the scope like the rows: a scope switch is a new list, not a count that moved */}
+                              New · <TickNumber key={scopeKey} value={fresh.length} />
+                          </>,
+                          "text-accent-soft",
+                          true
+                      )
+                    : null}
+                {/* their own presence: a row mounted later under an ancestor's presence would skip its entrance */}
+                <AnimatePresence initial={false}>{rows(fresh, true)}</AnimatePresence>
+                {old.length > 0 ? section("Earlier", "text-muted", fresh.length === 0) : null}
+                <AnimatePresence initial={false}>{rows(old, false)}</AnimatePresence>
+                <span className="px-2 pt-3 text-[11px] leading-[1.5] text-muted">
+                    State changes only. Tool calls stay on the cards.
+                </span>
             </div>
-            {all.length === 0 ? (
-                <div className="px-2 text-[12px] text-muted">Nothing has changed state yet.</div>
-            ) : null}
-            {fresh.length > 0 ? section(`New · ${fresh.length}`, "text-accent-soft", true) : null}
-            {groupRailEvents(fresh, openGroups).map((e) => row(e, true))}
-            {old.length > 0 ? section("Earlier", "text-muted", fresh.length === 0) : null}
-            {groupRailEvents(old, openGroups).map((e) => row(e, false))}
-            <span className="px-2 pt-3 text-[11px] leading-[1.5] text-muted">
-                State changes only. Tool calls stay on the cards.
-            </span>
-        </div>
+        </MotionConfig>
     );
 }

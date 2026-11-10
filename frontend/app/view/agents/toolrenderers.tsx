@@ -1,7 +1,10 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { viewFade } from "@/app/element/motiontokens";
+import { PaneReveal } from "@/app/element/panereveal";
 import { cn } from "@/util/util";
+import { AnimatePresence, motion } from "motion/react";
 import { useState, type ReactNode } from "react";
 import type { AgentActionEntry, EditFile, ToolImage } from "./agentsviewmodel";
 import { ToolDetailBody } from "./narrationtimeline";
@@ -72,7 +75,22 @@ function BashCardShell({
                 {counts}
                 <RawToggle raw={raw} onToggle={() => setRaw((r) => !r)} />
             </div>
-            {body != null ? <div className={CARD_BODY}>{body}</div> : null}
+            {/* a card with no parsed body grows one for raw; one that has a body trades it in place */}
+            <PaneReveal open={body != null}>
+                <div className={CARD_BODY}>
+                    <AnimatePresence initial={false} mode="wait">
+                        <motion.div
+                            key={raw ? "raw" : "parsed"}
+                            data-card-view={raw ? "raw" : "parsed"}
+                            variants={viewFade}
+                            initial="initial"
+                            animate="animate"
+                        >
+                            {body}
+                        </motion.div>
+                    </AnimatePresence>
+                </div>
+            </PaneReveal>
         </div>
     );
 }

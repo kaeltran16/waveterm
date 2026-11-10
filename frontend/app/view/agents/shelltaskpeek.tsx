@@ -5,6 +5,7 @@
 // Re-reads the output file while the task runs and follows the tail. Esc closes it through the keybinding
 // registry (shelltask:back).
 
+import { cardVariants, computeEntrances, initialEntranceState, viewFade } from "@/app/element/motiontokens";
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn } from "@/util/util";
 import {
@@ -18,7 +19,8 @@ import {
 } from "@floating-ui/react";
 import { useAtomValue } from "jotai";
 import { Radio, Terminal, X } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { AnimatePresence, motion, MotionConfig } from "motion/react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { AgentsViewModel } from "./agents";
 import {
     clockTime,
@@ -87,8 +89,17 @@ function OutputBody({ path }: { path: string | undefined }) {
     );
 }
 
-function EventsBody({ events }: { events: MonitorEvent[] }) {
+function EventsBody({ taskId, events }: { taskId: string; events: MonitorEvent[] }) {
     const { scrollRef, onScroll, atBottom, jumpToBottom } = useStickToBottom(events);
+    // events only append, so an index is an event's id. One arriving while the peek is open enters as a card; keyed
+    // on the task, so the events already there when the peek or the tab opens never cascade. Committed in a layout
+    // effect: render can run twice
+    const ids = events.map((_, i) => String(i));
+    const entranceRef = useRef(initialEntranceState());
+    const { animate: entering } = computeEntrances(entranceRef.current, taskId, ids);
+    useLayoutEffect(() => {
+        entranceRef.current = computeEntrances(entranceRef.current, taskId, ids).state;
+    }, [events.length, taskId]);
     return (
         <div className="relative border-t border-edge-mid bg-surface-code">
             {events.length === 0 ? (
@@ -99,27 +110,33 @@ function EventsBody({ events }: { events: MonitorEvent[] }) {
                     onScroll={onScroll}
                     className="max-h-[360px] overflow-auto px-[10px] py-[4px] font-mono text-[11.5px] leading-[1.5]"
                 >
-                    {events.map((e, i) => (
-                        <div
-                            key={i}
-                            data-monitor-event
-                            className={cn("flex gap-[10px] py-[6px]", i > 0 && "border-t border-edge-faint")}
-                        >
-                            <span
-                                data-monitor-event-time
-                                className="w-[62px] flex-none pt-[1px] text-[10.5px] text-muted"
+                    {/* its own presence: rows mounted later under the view swap's would skip their entrance */}
+                    <AnimatePresence initial={false}>
+                        {events.map((e, i) => (
+                            <motion.div
+                                key={i}
+                                variants={cardVariants}
+                                initial={entering.has(String(i)) ? "initial" : false}
+                                animate="animate"
+                                data-monitor-event
+                                className={cn("flex gap-[10px] py-[6px]", i > 0 && "border-t border-edge-faint")}
                             >
-                                {e.ts != null ? clockTime(e.ts) : ""}
-                            </span>
-                            <div className="min-w-0 flex-1">
-                                {e.lines.map((line, j) => (
-                                    <div key={j} className="whitespace-pre-wrap break-words text-secondary">
-                                        {line}
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    ))}
+                                <span
+                                    data-monitor-event-time
+                                    className="w-[62px] flex-none pt-[1px] text-[10.5px] text-muted"
+                                >
+                                    {e.ts != null ? clockTime(e.ts) : ""}
+                                </span>
+                                <div className="min-w-0 flex-1">
+                                    {e.lines.map((line, j) => (
+                                        <div key={j} className="whitespace-pre-wrap break-words text-secondary">
+                                            {line}
+                                        </div>
+                                    ))}
+                                </div>
+                            </motion.div>
+                        ))}
+                    </AnimatePresence>
                 </div>
             )}
             <JumpToLatestPill show={!atBottom} onClick={jumpToBottom} />
@@ -213,30 +230,40 @@ function MonitorPeekBody({ task, now }: { task: ShellTask; now: number }) {
                     />
                 </div>
             </div>
-            {view === "events" ? (
-                <>
-                    <EventsBody events={events} />
-                    <PeekFooter
-                        left={
-                            monitorEventsSummary(task, now) ??
-                            (task.startedTs != null ? `watching since ${clockTime(task.startedTs)}` : "watching")
-                        }
-                    >
-                        {task.persistent ? (
-                            <span className="flex-none">persistent</span>
-                        ) : expiresAt != null && timeLeft != null ? (
-                            <span data-monitor-expires title={`expires ${clockTime(expiresAt)}`} className="flex-none">
-                                {`expires in ${timeLeft}`}
-                            </span>
-                        ) : null}
-                    </PeekFooter>
-                </>
-            ) : (
-                <>
-                    <OutputBody path={task.outputPath} />
-                    <OutputFooter path={task.outputPath} />
-                </>
-            )}
+            <AnimatePresence initial={false} mode="wait">
+                <motion.div key={view} data-peek-view={view} variants={viewFade} initial="initial" animate="animate">
+                    {view === "events" ? (
+                        <>
+                            <EventsBody taskId={task.id} events={events} />
+                            <PeekFooter
+                                left={
+                                    monitorEventsSummary(task, now) ??
+                                    (task.startedTs != null
+                                        ? `watching since ${clockTime(task.startedTs)}`
+                                        : "watching")
+                                }
+                            >
+                                {task.persistent ? (
+                                    <span className="flex-none">persistent</span>
+                                ) : expiresAt != null && timeLeft != null ? (
+                                    <span
+                                        data-monitor-expires
+                                        title={`expires ${clockTime(expiresAt)}`}
+                                        className="flex-none"
+                                    >
+                                        {`expires in ${timeLeft}`}
+                                    </span>
+                                ) : null}
+                            </PeekFooter>
+                        </>
+                    ) : (
+                        <>
+                            <OutputBody path={task.outputPath} />
+                            <OutputFooter path={task.outputPath} />
+                        </>
+                    )}
+                </motion.div>
+            </AnimatePresence>
         </>
     );
 }
@@ -284,44 +311,50 @@ export function ShellTaskPeek({
 
     return (
         <FloatingPortal>
-            <div
-                ref={refs.setFloating}
-                style={floatingStyles}
-                {...getFloatingProps()}
-                data-shell-task-peek={task.id}
-                className="z-[60] w-[560px] overflow-hidden rounded-[9px] border border-edge-strong bg-surface-raised shadow-popover-lg"
-            >
-                <div className="flex items-center gap-[8px] px-[10px] py-[8px]">
-                    <Mark
-                        size={12}
-                        aria-hidden
-                        data-peek-mark={monitor ? "monitor" : "shell"}
-                        className="flex-none text-accent"
-                    />
-                    <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] font-medium text-secondary">
-                        {task.description}
-                    </span>
-                    <span data-shell-task-state className="flex-none font-mono text-[10.5px] font-semibold text-accent">
-                        {monitor ? "watching" : "running"}
-                    </span>
-                    <button
-                        type="button"
-                        onClick={close}
-                        aria-label="Close output"
-                        className="flex h-[20px] w-[20px] flex-none cursor-pointer items-center justify-center text-muted hover:text-secondary"
-                    >
-                        <X size={13} aria-hidden />
-                    </button>
+            {/* the portal leaves the surface's tree, so the peek carries its own reduced-motion config */}
+            <MotionConfig reducedMotion="user">
+                <div
+                    ref={refs.setFloating}
+                    style={floatingStyles}
+                    {...getFloatingProps()}
+                    data-shell-task-peek={task.id}
+                    className="z-[60] w-[560px] overflow-hidden rounded-[9px] border border-edge-strong bg-surface-raised shadow-popover-lg"
+                >
+                    <div className="flex items-center gap-[8px] px-[10px] py-[8px]">
+                        <Mark
+                            size={12}
+                            aria-hidden
+                            data-peek-mark={monitor ? "monitor" : "shell"}
+                            className="flex-none text-accent"
+                        />
+                        <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] font-medium text-secondary">
+                            {task.description}
+                        </span>
+                        <span
+                            data-shell-task-state
+                            className="flex-none font-mono text-[10.5px] font-semibold text-accent"
+                        >
+                            {monitor ? "watching" : "running"}
+                        </span>
+                        <button
+                            type="button"
+                            onClick={close}
+                            aria-label="Close output"
+                            className="flex h-[20px] w-[20px] flex-none cursor-pointer items-center justify-center text-muted hover:text-secondary"
+                        >
+                            <X size={13} aria-hidden />
+                        </button>
+                    </div>
+                    {monitor ? (
+                        <MonitorPeekBody task={task} now={now} />
+                    ) : (
+                        <>
+                            <OutputBody path={task.outputPath} />
+                            <OutputFooter path={task.outputPath} />
+                        </>
+                    )}
                 </div>
-                {monitor ? (
-                    <MonitorPeekBody task={task} now={now} />
-                ) : (
-                    <>
-                        <OutputBody path={task.outputPath} />
-                        <OutputFooter path={task.outputPath} />
-                    </>
-                )}
-            </div>
+            </MotionConfig>
         </FloatingPortal>
     );
 }
