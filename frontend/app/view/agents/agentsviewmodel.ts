@@ -48,9 +48,11 @@ export interface AskQuestionDetail {
 
 // One item of "previous info": something the agent said, or something it did.
 export type AgentEntry =
-    | { kind: "message"; text: string }
-    | { kind: "user"; text: string }
-    | { kind: "command"; name: string; args?: string; isSkill?: boolean }
+    // ts: the transcript record's time (UnixMilli), Claude's projection only; absent when the record carried none
+    | { kind: "message"; text: string; ts?: number }
+    | { kind: "user"; text: string; ts?: number }
+    // byModel: the assistant's own Skill tool call, not a command the user typed, so it never starts a turn
+    | { kind: "command"; name: string; args?: string; isSkill?: boolean; byModel?: boolean; ts?: number }
     | { kind: "compaction"; trigger?: string; preTokens?: number; postTokens?: number; summary?: string }
     // a background Task/subagent finished (Claude's <task-notification>): summary + optional full result
     | { kind: "notification"; summary: string; status?: string; result?: string }

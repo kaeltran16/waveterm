@@ -111,6 +111,12 @@ function unwrapPasted(text: string): string {
     return text.replace(PASTED_CONTENT_RE, "$1");
 }
 
+// the record's time as a spreadable `{ ts }`; empty when absent or unparseable so the key stays off the entry
+function recTs(rec: any): { ts?: number } {
+    const ts = typeof rec.timestamp === "string" ? Date.parse(rec.timestamp) : NaN;
+    return Number.isFinite(ts) ? { ts } : {};
+}
+
 function mergeCompaction(entries: AgentEntry[], patch: Partial<Extract<AgentEntry, { kind: "compaction" }>>): void {
     const last = entries[entries.length - 1];
     if (last != null && last.kind === "compaction") {
@@ -141,7 +147,7 @@ export function projectTranscript(lines: string[]): AgentEntry[] {
             }
             for (const block of content) {
                 if (block?.type === "text" && typeof block.text === "string" && block.text.trim() !== "") {
-                    entries.push({ kind: "message", text: block.text });
+                    entries.push({ kind: "message", text: block.text, ...recTs(rec) });
                     continue;
                 }
                 if (block?.type === "tool_use" && typeof block.name === "string") {
@@ -155,7 +161,9 @@ export function projectTranscript(lines: string[]): AgentEntry[] {
                             kind: "command",
                             name: skillLeaf(block.input.skill),
                             isSkill: true,
+                            byModel: true,
                             ...(args !== "" ? { args } : {}),
+                            ...recTs(rec),
                         });
                         continue;
                     }
@@ -224,9 +232,9 @@ export function projectTranscript(lines: string[]): AgentEntry[] {
                 } else {
                     const cmd = parseCommand(content);
                     if (cmd != null) {
-                        entries.push({ kind: "command", ...cmd });
+                        entries.push({ kind: "command", ...cmd, ...recTs(rec) });
                     } else if (content.trim() !== "") {
-                        entries.push({ kind: "user", text: unwrapPasted(content) });
+                        entries.push({ kind: "user", text: unwrapPasted(content), ...recTs(rec) });
                     }
                 }
                 continue;
@@ -237,7 +245,9 @@ export function projectTranscript(lines: string[]): AgentEntry[] {
             for (const block of content) {
                 if (block?.type === "text" && typeof block.text === "string" && block.text.trim() !== "") {
                     entries.push(
-                        isInterrupted(block.text) ? { kind: "interrupted" } : { kind: "user", text: unwrapPasted(block.text) }
+                        isInterrupted(block.text)
+                            ? { kind: "interrupted" }
+                            : { kind: "user", text: unwrapPasted(block.text), ...recTs(rec) }
                     );
                     continue;
                 }

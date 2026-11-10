@@ -484,6 +484,10 @@ var PASTED_CONTENT_RE = /<pasted_content id="[^"]+">\n?([^]*?)\n?<\/pasted_conte
 function unwrapPasted(text) {
   return text.replace(PASTED_CONTENT_RE, "$1");
 }
+function recTs(rec) {
+  const ts = typeof rec.timestamp === "string" ? Date.parse(rec.timestamp) : NaN;
+  return Number.isFinite(ts) ? { ts } : {};
+}
 function mergeCompaction(entries, patch) {
   const last = entries[entries.length - 1];
   if (last != null && last.kind === "compaction") {
@@ -509,7 +513,7 @@ function projectTranscript(lines) {
       }
       for (const block of content) {
         if (block?.type === "text" && typeof block.text === "string" && block.text.trim() !== "") {
-          entries.push({ kind: "message", text: block.text });
+          entries.push({ kind: "message", text: block.text, ...recTs(rec) });
           continue;
         }
         if (block?.type === "tool_use" && typeof block.name === "string") {
@@ -522,7 +526,9 @@ function projectTranscript(lines) {
               kind: "command",
               name: skillLeaf2(block.input.skill),
               isSkill: true,
-              ...args !== "" ? { args } : {}
+              byModel: true,
+              ...args !== "" ? { args } : {},
+              ...recTs(rec)
             });
             continue;
           }
@@ -577,9 +583,9 @@ function projectTranscript(lines) {
         } else {
           const cmd = parseCommand(content);
           if (cmd != null) {
-            entries.push({ kind: "command", ...cmd });
+            entries.push({ kind: "command", ...cmd, ...recTs(rec) });
           } else if (content.trim() !== "") {
-            entries.push({ kind: "user", text: unwrapPasted(content) });
+            entries.push({ kind: "user", text: unwrapPasted(content), ...recTs(rec) });
           }
         }
         continue;
@@ -590,7 +596,7 @@ function projectTranscript(lines) {
       for (const block of content) {
         if (block?.type === "text" && typeof block.text === "string" && block.text.trim() !== "") {
           entries.push(
-            isInterrupted(block.text) ? { kind: "interrupted" } : { kind: "user", text: unwrapPasted(block.text) }
+            isInterrupted(block.text) ? { kind: "interrupted" } : { kind: "user", text: unwrapPasted(block.text), ...recTs(rec) }
           );
           continue;
         }

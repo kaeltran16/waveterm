@@ -1,9 +1,9 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// Attachments on the New run goal: a pasted file is persisted to a wavesrv temp file via WriteTempFileCommand,
-// a file picked in the native dialog is referenced where it is, and either reaches the run as a path in its
-// goal text. Pure helpers below are unit-tested (composerattachments.test.ts); the useComposerAttachments hook
+// Attachments on the New run goal and the Rendered composer: a pasted file is persisted to a wavesrv temp file via
+// WriteTempFileCommand, a file picked in the native dialog is referenced where it is, and either reaches the run or
+// the agent as a path in its goal or prompt text. Pure helpers below are unit-tested (composerattachments.test.ts); the useComposerAttachments hook
 // (impure: RPC + object URLs) is verified over CDP by the new-run-attachments scenario.
 
 import { RpcApi } from "@/app/store/wshclientapi";
@@ -93,6 +93,18 @@ export interface UseComposerAttachments {
     remove: (id: string) => void;
     retry: (id: string) => void;
     onPaste: (e: ClipboardEvent) => void;
+    clear: () => void;
+}
+
+// The native file dialog: the picked paths, [] on cancel; throws when the dialog cannot open. The dynamic import
+// keeps non-Tauri contexts clean, as newprojectmodal's folder picker does.
+export async function pickFilePaths(): Promise<string[]> {
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    const picked = await open({ multiple: true, title: "Attach files" });
+    if (picked == null) {
+        return [];
+    }
+    return Array.isArray(picked) ? picked : [picked];
 }
 
 // Owns attachment state and its two sources: paste (a temp copy) and picked paths (referenced in place).
@@ -175,16 +187,22 @@ export function useComposerAttachments(): UseComposerAttachments {
         [persist, update]
     );
 
+    const revokePreviews = useCallback(() => {
+        for (const url of previewsRef.current) {
+            URL.revokeObjectURL(url);
+        }
+        previewsRef.current.clear();
+    }, []);
+
+    // after a send the attachments went out with the text, so the tray empties
+    const clear = useCallback(() => {
+        revokePreviews();
+        filesRef.current.clear();
+        setAttachments([]);
+    }, [revokePreviews]);
+
     // revoke any outstanding object URLs on unmount
-    useEffect(
-        () => () => {
-            for (const url of previewsRef.current) {
-                URL.revokeObjectURL(url);
-            }
-            previewsRef.current.clear();
-        },
-        []
-    );
+    useEffect(() => revokePreviews, [revokePreviews]);
 
     // only intercept when the clipboard carries files; plain text paste is left untouched.
     const onPaste = useCallback(
@@ -198,7 +216,7 @@ export function useComposerAttachments(): UseComposerAttachments {
         [add]
     );
 
-    return { attachments, addPaths, remove, retry, onPaste };
+    return { attachments, addPaths, remove, retry, onPaste, clear };
 }
 
 function filesFromClipboard(e: ClipboardEvent): File[] {

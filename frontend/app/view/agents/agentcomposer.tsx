@@ -2,17 +2,33 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { cn, fireAndForget } from "@/util/util";
-import { forwardRef, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
+import {
+    forwardRef,
+    useImperativeHandle,
+    useLayoutEffect,
+    useRef,
+    useState,
+    type Dispatch,
+    type ForwardedRef,
+    type KeyboardEvent,
+    type RefObject,
+    type SetStateAction,
+} from "react";
 import { sendAgentText, toastSendFailure } from "./agentsend";
+import { attachmentBlocker, type Attachment } from "./composerattachments";
 
 // one line at 12px (rows={1}: the default two rows would set the floor instead); it grows as text wraps
 const ComposerMinH = 32;
 const ComposerMaxH = 160; // grows up to here, then the textarea scrolls
 
-/** Pure: a composer can send only with non-empty text AND a live terminal block. Shared by send(), the
- *  Enter guard, and the button's disabled state so all three agree (T4). */
-export function canSendComposer(text: string, blockId?: string): boolean {
-    return text.trim() !== "" && blockId != null;
+/** Pure: a composer can send only with a live terminal block, no attachment still uploading or failed, and
+ *  non-blank text or a ready attachment. Shared by send(), the Enter guard, and the button's disabled state so
+ *  all three agree (T4). */
+export function canSendComposer(text: string, blockId?: string, attachments: Attachment[] = []): boolean {
+    if (blockId == null || attachmentBlocker(attachments) != null) {
+        return false;
+    }
+    return text.trim() !== "" || attachments.some((a) => a.status === "ready" && a.path);
 }
 
 /** Sends the composer's text and clears it only once the send lands, and only if the user hasn't typed
@@ -40,20 +56,91 @@ export interface AgentComposerHandle {
     focus: () => void;
 }
 
-// Sends free text to an agent's terminal block through sendAgentText.
-export const AgentComposer = forwardRef<
-    AgentComposerHandle,
-    {
-        blockId?: string;
-        placeholder: string;
-        className?: string;
-        onEscape?: () => void;
-        onSubmitText?: (text: string) => void;
-    }
->(function AgentComposer({ blockId, placeholder, className, onEscape, onSubmitText }, ref) {
+export interface UseAgentComposerOpts {
+    blockId?: string;
+    minH: number;
+    maxH: number;
+    onEscape?: () => void;
+    onSubmitText?: (text: string) => void;
+    // what actually goes out, built from the typed text (the card appends its attachments' paths)
+    compose?: (text: string) => string;
+    onSent?: () => void;
+    attachments?: Attachment[];
+}
+
+export interface UseAgentComposer {
+    text: string;
+    setText: Dispatch<SetStateAction<string>>;
+    taRef: RefObject<HTMLTextAreaElement>;
+    send: () => void;
+    onKeyDown: (e: KeyboardEvent<HTMLTextAreaElement>) => void;
+}
+
+// The text, autosize, double-send guard and Enter/Escape behind every agent composer.
+export function useAgentComposer({
+    blockId,
+    minH,
+    maxH,
+    onEscape,
+    onSubmitText,
+    compose,
+    onSent,
+    attachments,
+}: UseAgentComposerOpts): UseAgentComposer {
     const [text, setText] = useState("");
     const taRef = useRef<HTMLTextAreaElement>(null);
     const sendingRef = useRef(false);
+    useLayoutEffect(() => {
+        const el = taRef.current;
+        if (!el) {
+            return;
+        }
+        el.style.height = "auto";
+        el.style.height = `${Math.min(Math.max(el.scrollHeight, minH), maxH)}px`;
+    }, [text, minH, maxH]);
+    const send = () => {
+        if (!canSendComposer(text, blockId, attachments)) {
+            return;
+        }
+        // the text stays until the send lands, so a second Enter meanwhile must not send it again
+        if (sendingRef.current) {
+            return;
+        }
+        sendingRef.current = true;
+        const typed = text;
+        fireAndForget(() =>
+            submitComposer(
+                compose ? compose(typed) : typed,
+                blockId!,
+                () => {
+                    setText((cur) => (cur === typed ? "" : cur));
+                    onSent?.();
+                },
+                sendAgentText,
+                onSubmitText
+            ).finally(() => {
+                sendingRef.current = false;
+            })
+        );
+    };
+    const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            send();
+        } else if (e.key === "Escape" && onEscape) {
+            e.preventDefault();
+            onEscape();
+        }
+    };
+    return { text, setText, taRef, send, onKeyDown };
+}
+
+// fill/focus for a parent that drives the composer (the row's quick replies, the permission band's refocus)
+export function useComposerHandle(
+    ref: ForwardedRef<AgentComposerHandle>,
+    setText: (t: string) => void,
+    taRef: RefObject<HTMLTextAreaElement>
+): void {
     useImperativeHandle(
         ref,
         () => ({
@@ -65,35 +152,27 @@ export const AgentComposer = forwardRef<
         }),
         []
     );
-    useLayoutEffect(() => {
-        const el = taRef.current;
-        if (!el) {
-            return;
-        }
-        el.style.height = "auto";
-        el.style.height = `${Math.min(Math.max(el.scrollHeight, ComposerMinH), ComposerMaxH)}px`;
-    }, [text]);
-    const send = () => {
-        if (!canSendComposer(text, blockId)) {
-            return;
-        }
-        // the text stays until the send lands, so a second Enter meanwhile must not send it again
-        if (sendingRef.current) {
-            return;
-        }
-        sendingRef.current = true;
-        fireAndForget(() =>
-            submitComposer(
-                text,
-                blockId!,
-                (sent) => setText((cur) => (cur === sent ? "" : cur)),
-                sendAgentText,
-                onSubmitText
-            ).finally(() => {
-                sendingRef.current = false;
-            })
-        );
-    };
+}
+
+// Sends free text to an agent's terminal block through sendAgentText.
+export const AgentComposer = forwardRef<
+    AgentComposerHandle,
+    {
+        blockId?: string;
+        placeholder: string;
+        className?: string;
+        onEscape?: () => void;
+        onSubmitText?: (text: string) => void;
+    }
+>(function AgentComposer({ blockId, placeholder, className, onEscape, onSubmitText }, ref) {
+    const { text, setText, taRef, send, onKeyDown } = useAgentComposer({
+        blockId,
+        minH: ComposerMinH,
+        maxH: ComposerMaxH,
+        onEscape,
+        onSubmitText,
+    });
+    useComposerHandle(ref, setText, taRef);
     return (
         <div className={cn("flex shrink-0 items-end gap-2 border-t border-border px-[14px] py-2", className)}>
             <textarea
@@ -101,15 +180,7 @@ export const AgentComposer = forwardRef<
                 rows={1}
                 value={text}
                 onChange={(e) => setText(e.target.value)}
-                onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        send();
-                    } else if (e.key === "Escape" && onEscape) {
-                        e.preventDefault();
-                        onEscape();
-                    }
-                }}
+                onKeyDown={onKeyDown}
                 placeholder={placeholder}
                 className="min-w-0 flex-1 resize-none overflow-y-auto rounded-sm border border-border bg-transparent px-2.5 py-1.5 text-[12px] leading-[1.4] text-primary outline-none placeholder:text-muted focus:border-accent-700"
             />

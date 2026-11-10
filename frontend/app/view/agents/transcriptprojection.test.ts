@@ -119,6 +119,40 @@ describe("projectTranscript user turns", () => {
         expect(out).toHaveLength(1);
         expect(out[0]).toMatchObject({ kind: "action", verb: "ran", outcome: "ok" });
     });
+
+    it("stamps user, command and message entries with the record time", () => {
+        const at = (s: string) => `2026-07-08T00:00:${s}.000Z`;
+        const out = projectTranscript([
+            L({ type: "user", timestamp: at("00"), message: { content: "do the thing" } }),
+            L({
+                type: "user",
+                timestamp: at("05"),
+                message: { content: "<command-name>/review</command-name>\n<command-args></command-args>" },
+            }),
+            L({
+                type: "assistant",
+                timestamp: at("09"),
+                message: { content: [{ type: "text", text: "done" }] },
+            }),
+        ]);
+        expect(out.map((e) => (e as { ts?: number }).ts)).toEqual([
+            Date.parse(at("00")),
+            Date.parse(at("05")),
+            Date.parse(at("09")),
+        ]);
+    });
+
+    it("leaves ts off when the record has no valid timestamp", () => {
+        const out = projectTranscript([
+            L({ type: "user", message: { content: "no time" } }),
+            L({ type: "user", timestamp: "nope", message: { content: "bad time" } }),
+            L({ type: "assistant", timestamp: "nope", message: { content: [{ type: "text", text: "bad" }] } }),
+        ]);
+        expect(out).toHaveLength(3);
+        for (const e of out) {
+            expect("ts" in e).toBe(false);
+        }
+    });
 });
 
 describe("projectTranscript commands and isMeta", () => {
@@ -163,7 +197,7 @@ describe("projectTranscript commands and isMeta", () => {
         ]);
         expect(out).toEqual([{ kind: "user", text: "real prompt" }]);
     });
-    it("renders a user-invoked skill (caller.direct) as a skill command chip with the leaf name", () => {
+    it("renders a Skill call (caller.direct) as a model-made skill command chip with the leaf name", () => {
         const out = projectTranscript([
             L({
                 type: "assistant",
@@ -180,7 +214,7 @@ describe("projectTranscript commands and isMeta", () => {
                 },
             }),
         ]);
-        expect(out).toEqual([{ kind: "command", name: "brainstorming", isSkill: true, args: "design the cache" }]);
+        expect(out).toEqual([{ kind: "command", name: "brainstorming", isSkill: true, byModel: true, args: "design the cache" }]);
     });
 
     it("omits args for a skill chip with no args", () => {
@@ -200,7 +234,7 @@ describe("projectTranscript commands and isMeta", () => {
                 },
             }),
         ]);
-        expect(out).toEqual([{ kind: "command", name: "commit", isSkill: true }]);
+        expect(out).toEqual([{ kind: "command", name: "commit", isSkill: true, byModel: true }]);
     });
 });
 
@@ -984,8 +1018,8 @@ describe("projectTranscript malformed and mistyped records", () => {
             ]),
         ]);
         expect(out).toEqual([
-            { kind: "command", name: "commit", isSkill: true, args: "design the cache" },
-            { kind: "command", name: "commit", isSkill: true },
+            { kind: "command", name: "commit", isSkill: true, byModel: true, args: "design the cache" },
+            { kind: "command", name: "commit", isSkill: true, byModel: true },
             {
                 kind: "action",
                 verb: "skill",

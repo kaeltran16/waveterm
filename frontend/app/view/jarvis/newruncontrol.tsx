@@ -27,7 +27,7 @@ import { useEffect, useRef, useState, type ReactNode, type RefObject } from "rea
 import type { AgentsViewModel } from "../agents/agents";
 import { AttachButton, AttachmentTray } from "../agents/attachmenttray";
 import { channelsAtom, createChannel, primeChannels } from "../agents/channelsstore";
-import { attachmentBlocker, useComposerAttachments } from "../agents/composerattachments";
+import { attachmentBlocker, pickFilePaths, useComposerAttachments } from "../agents/composerattachments";
 import { noteRecentProject, projectListAtom, recentProjectsAtom } from "../agents/projectsstore";
 import { RoutePicker } from "../agents/routepicker";
 import {
@@ -497,15 +497,13 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
         globalStore.set(model.newProjectOpenAtom, true);
     };
 
-    // Picked files are referenced where they are, so no copy and no size cap. The dynamic import keeps
-    // non-Tauri contexts clean, as newprojectmodal's folder picker does.
+    // Picked files are referenced where they are, so no copy and no size cap.
     const pickFiles = () =>
         fireAndForget(async () => {
             try {
-                const { open } = await import("@tauri-apps/plugin-dialog");
-                const picked = await open({ multiple: true, title: "Attach files" });
-                if (picked != null) {
-                    addPaths(Array.isArray(picked) ? picked : [picked]);
+                const paths = await pickFilePaths();
+                if (paths.length > 0) {
+                    addPaths(paths);
                 }
             } catch (e) {
                 setError(`Could not open the file picker: ${String(e)}`);

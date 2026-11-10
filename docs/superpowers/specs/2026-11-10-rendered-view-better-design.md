@@ -6,8 +6,8 @@ Scope: the Agent surface's Rendered mode (`frontend/app/view/agents/renderedview
 `transcriptprojection.ts`, `agentcomposer.tsx`, `markdownmessage.tsx`, `scripts/cdp/scenarios-agent-rendered.mjs`
 Builds on: `docs/superpowers/specs/2026-11-09-agent-rendered-view-design.md` (shipped 2026-11-10)
 Prototype: `.superpowers/design/rendered-view-better/project/` — chosen boards `NowLine.dc.html`,
-`NowLineStates.dc.html`, `WidthFill.dc.html`, `GapRoomy.dc.html`, `ComposerWriting.dc.html`. The other boards in
-that folder are rejected options and are not built.
+`NowLineStates.dc.html`, `WidthFill.dc.html`, `GapRoomy.dc.html`, `ComposerWriting.dc.html`. The rejected options
+moved to `.superpowers/design/rendered-view-better/rejected/` and are not built.
 
 ## Intent
 
@@ -51,8 +51,8 @@ runs). Its states:
 
 | State | Reads |
 |---|---|
-| Working, between calls | the mirrored spinner, e.g. `✻ Undulating… (58s · ↓ 4.5k tokens · thinking with high effort)`, with the plan step and this turn's tool count on the right |
-| Working, a call running | the mirrored spinner on the left, then the running call (verb, target), its elapsed time, the plan step and this turn's tool count on the right, e.g. `bash go test ./pkg/jarvis · 42s · plan 2/4 · 3 tools`. The line has no turn time of its own: the spinner's counts the turn |
+| Working, between calls | the mirrored spinner, e.g. `✻ Undulating… (58s · ↓ 4.5k tokens · thinking with high effort)`, with this turn's tool count on the right |
+| Working, a call running | the mirrored spinner on the left, then the running call (verb, target), its elapsed time and this turn's tool count on the right, e.g. `bash go test ./pkg/jarvis · 42s · 3 tools`. The line has no turn time of its own: the spinner's counts the turn |
 | Turn ended | muted `done · 3m 10s · 12 tools` until you send the next prompt |
 | Working, no spinner on screen | **Agent's call:** `working · <elapsed since the turn started>` (before the spinner's first frame, or when the parse fails) |
 
@@ -64,12 +64,14 @@ the judge found the mod API's spinner props carry the verb and mode but not elap
 cost: the parse tracks Claude Code's spinner layout, as `pkg/agentask/deliver.go` already tracks its prompts.
 
 **Data the line uses that exists today:** a call with no result has `pending` and `startedTs` (`AgentEntry`,
-`agentsviewmodel.ts`); the timeline never shows that elapsed time today. `extractTasks` (`transcriptprojection.ts`)
-reads the latest TodoWrite list but folds `in_progress` into not-done, so it must keep `in_progress` apart to name
-the current step. With no TodoWrite the plan step is left out. The tool count is this turn's actions, from the turn's
-You entry to now.
+`agentsviewmodel.ts`); the timeline never shows that elapsed time today. The tool count is this turn's actions, from
+the turn's You entry to now.
 
-At narrow widths the running call's target truncates first, then the plan step; the spinner never truncates.
+**No plan step (builder question 1):** no transcript under `~/.claude/projects` calls TodoWrite or TaskCreate /
+TaskUpdate, and the installed Claude Code (2.1.322) offers no todo tool, so the line shows no plan step and
+`extractTasks` is not changed.
+
+At narrow widths the running call's target truncates first; the spinner never truncates.
 
 ## Width
 
@@ -125,7 +127,7 @@ run goal does, is the likely route.
 
 - Colors from the `@theme` tokens in `frontend/tailwindsetup.css`; no new tokens. Tailwind over new SCSS.
 - Logic extracted to pure `.ts` with tests beside it: the spinner-row parse, the now line's state from entries and
-  the parse, `extractTasks` keeping `in_progress`, the turn's tool count.
+  the parse, the turn's tool count.
 - `tsconfig.json` is `strict: false`: narrow ok-unions with `"reason" in result`.
 
 ## Left to the builder
