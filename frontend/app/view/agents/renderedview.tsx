@@ -11,7 +11,7 @@ import { fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useEffect, useRef } from "react";
 import { interruptAgent } from "./agentactions";
-import { AgentComposer, type AgentComposerHandle } from "./agentcomposer";
+import type { AgentComposerHandle } from "./agentcomposer";
 import type { AgentsViewModel } from "./agents";
 import { askSentKey, hasAnswerableAsk, type AgentVM } from "./agentsviewmodel";
 import { AnswerBar } from "./answerbar";
@@ -19,12 +19,11 @@ import { entriesAtomFor } from "./livetranscriptatoms";
 import { NarrationTimeline } from "./narrationtimeline";
 import { PermissionBand } from "./permissionband";
 import { permissionLogAtom } from "./permissionstore";
+import { RenderedComposer } from "./renderedcomposer";
 import { isPickerCommand, pickerFlipAtom, shouldUnflip } from "./renderedmode";
 import { getLastHookAtom } from "./session-models/agentstatusstore";
 import { JumpToLatestPill, useStickToBottom } from "./sticktobottom";
 import { TranscriptSkeleton } from "./transcriptskeleton";
-
-const HINT = "Esc interrupt · / commands · pickers open the terminal";
 
 // A picker the composer flipped to the terminal has closed once the agent's next prompt-boundary hook lands. Called
 // by the surface, not the view, because the view is unmounted while the flip holds the terminal.
@@ -123,20 +122,14 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
                 entryCount={entries.length}
                 onLastChoice={() => composerRef.current?.focus()}
             />
-            <div data-rendered-composer className="shrink-0 border-t border-border px-[14px] pb-[10px] pt-2">
-                <div className="mx-auto flex max-w-[920px] flex-col gap-1.5">
-                    <AgentComposer
-                        ref={composerRef}
-                        blockId={agent.blockId}
-                        placeholder="Message the agent; / for commands"
-                        onEscape={() => interruptAgent(agent.blockId)}
-                        onSubmitText={onSubmitText}
-                        className="border-t-0 px-0 py-0"
-                    />
-                    <div data-rendered-hint className="font-mono text-[10.5px] text-muted">
-                        {HINT}
-                    </div>
-                </div>
+            <div data-rendered-composer className="shrink-0 px-[22px] pb-4">
+                <RenderedComposer
+                    ref={composerRef}
+                    blockId={agent.blockId}
+                    working={agent.state === "working"}
+                    onInterrupt={() => interruptAgent(agent.blockId)}
+                    onSubmitText={onSubmitText}
+                />
             </div>
         </div>
     );

@@ -8,7 +8,7 @@
 
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
     agentPage,
@@ -35,6 +35,9 @@ const PROBE_WAIT_MS = 5_000;
 // a status that must not unflip the view is given this long to do it anyway
 const HOLD_MS = 800;
 const COLUMN_MAX_PX = 920;
+// the empty card: two lines of text over its footer, about 94px
+const COMPOSER_IDLE_MIN_PX = 85;
+const COMPOSER_IDLE_MAX_PX = 110;
 const SHOT = (n, what) => `cdp-shots/${NAME}-${n}-${what}.png`;
 
 // keys as the probe logs them: one hex chunk per line
@@ -209,6 +212,47 @@ async function waitProbe(ctx, from, want) {
     return { ok: hasRun(lines, want), lines };
 }
 
+// waits for the probe's input after its first `from` lines, decoded as text, to contain every string in want
+async function waitDecoded(ctx, from, want) {
+    const decode = () => Buffer.from(probeLines(ctx).slice(from).join(""), "hex").toString("utf8");
+    const end = Date.now() + PROBE_WAIT_MS;
+    let text = decode();
+    while (!want.every((w) => text.includes(w)) && Date.now() < end) {
+        await new Promise((r) => setTimeout(r, 100));
+        text = decode();
+    }
+    return { ok: want.every((w) => text.includes(w)), text };
+}
+
+const STEER_PLACEHOLDER = "Steer the agent; it reads this before its next step";
+const STEER_TEXT = "Only touch pkg/a.go.";
+const COMPOSER_HINTS = ["/ commands", "⇧ ↵ new line", "pickers open the terminal"];
+const COMPOSER_CHIPS = `[...(${RV}?.querySelectorAll("[data-rendered-composer] [data-attachment-chip]") ?? [])]`;
+
+// sets the Rendered composer's text as typing would
+const typeComposer = (h, text) =>
+    h.ev(`(() => {
+        const ta = ${RV}?.querySelector("[data-rendered-composer] textarea");
+        if (!ta) return false;
+        ta.focus();
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(ta, ${JSON.stringify(text)});
+        ta.dispatchEvent(new Event("input", { bubbles: true }));
+        return true;
+    })()`);
+
+// a synthetic paste of one PNG on the Rendered composer, as new-run-attachments pastes on the goal; returns whether
+// the composer took it over
+const pasteOnComposer = (name) => `(() => {
+    const ta = ${RV}?.querySelector("[data-rendered-composer] textarea");
+    if (!ta) return null;
+    ta.focus();
+    const dt = new DataTransfer();
+    dt.items.add(new File([Uint8Array.from(atob(${JSON.stringify(PNG_1X1)}), (c) => c.charCodeAt(0))], ${JSON.stringify(name)}, { type: "image/png" }));
+    const ev = new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true });
+    ta.dispatchEvent(ev);
+    return ev.defaultPrevented;
+})()`;
+
 // an agent:status as the hook publishes it: a state (the frontend ignores a state-less one) and a ts later than every
 // earlier one, or the server drops it as stale
 async function publishStatus(h, ctx, blockId, fields) {
@@ -268,7 +312,7 @@ export default function (_kit) {
             surface: "agent",
             async arrange(h) {
                 const tag = Date.now().toString(36);
-                const ctx = { tabIds: [], dir: mkdtempSync(join(tmpdir(), "verify-agent-rendered-")) };
+                const ctx = { tabIds: [], tempFiles: [], dir: mkdtempSync(join(tmpdir(), "verify-agent-rendered-")) };
                 // a throw past this point still returns ctx, so teardown removes whatever was already made
                 try {
                     ctx.probe = join(ctx.dir, "keyprobe.log");
@@ -806,6 +850,139 @@ export default function (_kit) {
                     return [sent && keys.ok, { sent, keys: keys.lines }];
                 });
 
+                await step("rendered: composer idle — A's composer is a 12px card at timeline text size, Send disabled, the hints in its footer", async () => {
+                    await focus(ctx.aId);
+                    const ready = await ensureRendered();
+                    const seen = await h.ev(`(() => {
+                        ${flatJs}
+                        const rv = ${RV};
+                        const comp = rv?.querySelector("[data-rendered-composer]");
+                        const ta = comp?.querySelector("textarea");
+                        const card = ta?.closest(".rounded-lg");
+                        const send = comp?.querySelector("[data-composer-send]");
+                        if (!card || !send) return { card: !!card, send: !!send };
+                        return {
+                            radius: getComputedStyle(card).borderTopLeftRadius,
+                            font: getComputedStyle(ta).fontSize,
+                            height: card.getBoundingClientRect().height,
+                            width: card.getBoundingClientRect().width,
+                            placeholder: ta.placeholder,
+                            send: flat(send),
+                            sendDisabled: send.disabled,
+                            interrupt: comp.querySelector("[data-composer-interrupt]") != null,
+                            footer: flat(card),
+                            hint: rv.querySelector("[data-rendered-hint]") != null,
+                        };
+                    })()`);
+                    await h.shot(SHOT(20, "composer-idle"));
+                    const ok =
+                        ready &&
+                        seen.radius === "12px" &&
+                        seen.font === "13.5px" &&
+                        seen.height >= COMPOSER_IDLE_MIN_PX &&
+                        seen.height <= COMPOSER_IDLE_MAX_PX &&
+                        seen.placeholder === "Message the agent" &&
+                        seen.send === "Send" &&
+                        seen.sendDisabled &&
+                        !seen.interrupt &&
+                        COMPOSER_HINTS.every((t) => seen.footer.includes(t)) &&
+                        !seen.hint;
+                    return [ok, { ready, ...seen }];
+                });
+
+                await step("rendered: composer attach — two typed lines and a pasted PNG put a chip between the text and the footer, enable Send and draw the accent border", async () => {
+                    const typed = await typeComposer(h, "First line of the reply.\nSecond line of the reply.");
+                    const taken = await h.ev(pasteOnComposer("rendered-attach.png"));
+                    const uploaded = await wait(`${COMPOSER_CHIPS}.some((c) => c.getAttribute("data-attachment-chip") === "ready")`);
+                    const seen = await h.ev(`(() => {
+                        ${flatJs}
+                        const comp = ${RV}?.querySelector("[data-rendered-composer]");
+                        const ta = comp?.querySelector("textarea");
+                        const card = ta?.closest(".rounded-lg");
+                        const chip = comp?.querySelector("[data-attachment-chip]");
+                        const send = comp?.querySelector("[data-composer-send]");
+                        if (!card || !chip || !send) return { card: !!card, chip: !!chip, send: !!send };
+                        // the accent border as the theme resolves it, read off a throwaway element
+                        const probe = document.createElement("div");
+                        probe.className = "border border-accent/60";
+                        card.appendChild(probe);
+                        const accent = getComputedStyle(probe).borderTopColor;
+                        probe.remove();
+                        return {
+                            chip: flat(chip),
+                            path: chip.getAttribute("data-attachment-path"),
+                            between: chip.getBoundingClientRect().top >= ta.getBoundingClientRect().bottom &&
+                                chip.getBoundingClientRect().bottom <= send.getBoundingClientRect().top,
+                            sendDisabled: send.disabled,
+                            border: getComputedStyle(card).borderTopColor,
+                            accent,
+                        };
+                    })()`);
+                    if (seen.path) ctx.tempFiles.push(seen.path);
+                    await h.shot(SHOT(21, "composer-attach"));
+                    // A's draft is not under test past here
+                    await h.ev(`${COMPOSER_CHIPS}.forEach((c) => c.querySelector('button[title="Remove"]')?.click())`);
+                    await typeComposer(h, "");
+                    const ok =
+                        typed &&
+                        taken === true &&
+                        uploaded &&
+                        seen.chip?.includes("rendered-attach.png") &&
+                        seen.between &&
+                        seen.sendDisabled === false &&
+                        seen.border === seen.accent;
+                    return [ok, { typed, taken, uploaded, ...seen }];
+                });
+
+                await focus(ctx.pId);
+                await setRoster(h, ctx.roster.map((a) => (a.id === ctx.pId ? { ...a, state: "working" } : a)));
+                await step("rendered: composer working — P working reads the Steer placeholder, shows Interrupt with Esc and Steer; Interrupt types ESC", async () => {
+                    const ready = await ensureRendered();
+                    const working = await wait(`${RV}?.querySelector("[data-rendered-composer] textarea")?.placeholder === ${JSON.stringify(STEER_PLACEHOLDER)}`);
+                    const seen = await h.ev(`(() => {
+                        ${flatJs}
+                        const comp = ${RV}?.querySelector("[data-rendered-composer]");
+                        return {
+                            placeholder: comp?.querySelector("textarea")?.placeholder ?? null,
+                            interrupt: flat(comp?.querySelector("[data-composer-interrupt]")),
+                            send: flat(comp?.querySelector("[data-composer-send]")),
+                        };
+                    })()`);
+                    await h.shot(SHOT(22, "composer-working"));
+                    const from = probeLines(ctx).length;
+                    const clicked = await h.ev(`(() => {
+                        const b = ${RV}?.querySelector("[data-composer-interrupt]");
+                        if (!b) return false;
+                        b.click();
+                        return true;
+                    })()`);
+                    const keys = await waitProbe(ctx, from, [ESC]);
+                    const ok = ready && working && seen.interrupt.replace(/\s/g, "") === "InterruptEsc" && seen.send === "Steer" && clicked && keys.ok;
+                    return [ok, { ready, working, ...seen, clicked, keys: keys.lines }];
+                });
+
+                await step("rendered: composer steer — Steer on P types the text and the pasted file's temp path into the pty, then empties the card", async () => {
+                    const typed = await typeComposer(h, STEER_TEXT);
+                    const taken = await h.ev(pasteOnComposer("rendered-steer.png"));
+                    const uploaded = await wait(`${COMPOSER_CHIPS}.some((c) => c.getAttribute("data-attachment-chip") === "ready")`);
+                    const path = await h.ev(`${COMPOSER_CHIPS}[0]?.getAttribute("data-attachment-path") ?? null`);
+                    if (path) ctx.tempFiles.push(path);
+                    await h.shot(SHOT(23, "composer-steer-ready"));
+                    const from = probeLines(ctx).length;
+                    const clicked = await h.ev(`(() => {
+                        const b = ${RV}?.querySelector("[data-composer-send]");
+                        if (!b || b.disabled) return false;
+                        b.click();
+                        return true;
+                    })()`);
+                    const decoded = await waitDecoded(ctx, from, [STEER_TEXT, path ?? "<no path>"]);
+                    const emptied = await wait(`${RV}?.querySelector("[data-rendered-composer] textarea")?.value === "" && ${COMPOSER_CHIPS}.length === 0`);
+                    await h.shot(SHOT(23, "composer-steer-sent"));
+                    const ok = typed && taken === true && uploaded && path != null && clicked && decoded.ok && emptied;
+                    return [ok, { typed, taken, uploaded, path, clicked, input: decoded.text.slice(-400), emptied }];
+                });
+                await setRoster(h, ctx.roster);
+
                 await focus(ctx.aId);
                 await step("rendered: picker flip — /config from A's composer flips to Terminal; Notification keeps it; UserPromptSubmit flips back", async () => {
                     const ready = await ensureRendered();
@@ -885,6 +1062,10 @@ export default function (_kit) {
                 );
                 await step("close the tabs", () => closeTabs(h, ctx));
                 // the probe exits with its pty; its last append can hold the file for a moment
+                // each pasted file got its own wavesrv temp dir
+                for (const f of ctx.tempFiles ?? []) {
+                    await step(`remove ${dirname(f)}`, () => rmSync(dirname(f), { recursive: true, force: true }));
+                }
                 await step("remove the temp dir", () => rmSync(ctx.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));
                 await step("go home", () => h.goto("cockpit"));
             },

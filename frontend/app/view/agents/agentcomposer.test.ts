@@ -2,6 +2,7 @@ import { toastsAtom } from "@/app/cockpit/notificationstore";
 import { globalStore } from "@/app/store/jotaiStore";
 import { describe, expect, it, vi } from "vitest";
 import { canSendComposer, submitComposer } from "./agentcomposer";
+import type { Attachment } from "./composerattachments";
 
 describe("submitComposer", () => {
     it("clears with the sent text only after the send resolves", async () => {
@@ -49,4 +50,23 @@ describe("canSendComposer", () => {
     it("is true with non-empty text and a live block", () => {
         expect(canSendComposer("hi", "block:1")).toBe(true);
     });
+    it("is false while an attachment is still uploading, even with text", () => {
+        expect(canSendComposer("hi", "block:1", [att("uploading")])).toBe(false);
+    });
+    it("is false while an attachment has failed, even with text", () => {
+        expect(canSendComposer("hi", "block:1", [att("ready", "C:/t/a.png"), att("error")])).toBe(false);
+    });
+    it("is true with blank text and a ready attachment", () => {
+        expect(canSendComposer("  ", "block:1", [att("ready", "C:/t/a.png")])).toBe(true);
+    });
+    it("is false with blank text and no attachments", () => {
+        expect(canSendComposer("", "block:1", [])).toBe(false);
+    });
+    it("is false with no block, whatever is attached", () => {
+        expect(canSendComposer("hi", undefined, [att("ready", "C:/t/a.png")])).toBe(false);
+    });
 });
+
+function att(status: Attachment["status"], path?: string): Attachment {
+    return { id: crypto.randomUUID(), name: "a.png", kind: "image", status, path };
+}
