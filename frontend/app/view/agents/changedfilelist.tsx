@@ -7,12 +7,16 @@
 // duplicated — the row is identical in the mockup for both, so one renderer is one source of truth
 // for status colour, path truncation and the selected tint.
 
+import { DrawCheck } from "@/app/element/drawcheck";
+import { barFillClass } from "@/app/element/motiontokens";
+import { PaneReveal } from "@/app/element/panereveal";
 import { SkeletonLine, SkeletonRows } from "@/app/element/skeleton";
+import { TickNumber } from "@/app/element/ticknumber";
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { Check, ChevronDown, ChevronRight, MessageSquare, RotateCw } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import { activeCommentSourceAtom, commentStoreAtom, countsByPath } from "./diffcomments";
 import { buildFileTree, collapsedDirsAtom, treeModeAtom, type FileTreeRow } from "./filetree";
 import { statusColor, type GitChange, type GitChanges } from "./gitstatus";
@@ -162,7 +166,7 @@ function FileRow({
                         className="flex h-[18px] flex-none items-center gap-[3px] rounded-[5px] bg-accentbg px-[5px] font-mono text-[10.5px] font-bold text-accent-soft"
                     >
                         <MessageSquare size={11} strokeWidth={2.2} />
-                        {comments}
+                        <TickNumber value={comments} />
                     </span>
                 ) : null}
                 {lineCounts ? (
@@ -282,6 +286,7 @@ export function ReviewProgress({ review, changes }: { review: ReviewSubject | nu
         return null;
     }
     const { done, total } = reviewProgress(marks[review], changes.files);
+    const all = done === total;
     return (
         <div
             data-files-reviewed
@@ -290,18 +295,27 @@ export function ReviewProgress({ review, changes }: { review: ReviewSubject | nu
             className="mt-[8px] flex h-[18px] items-center gap-[9px]"
         >
             <div className="h-[4px] flex-1 overflow-hidden rounded-full bg-edge-faint">
-                <div className="h-full rounded-full bg-accent" style={{ width: `${(done / total) * 100}%` }} />
+                <div
+                    className={cn("h-full rounded-full bg-accent", barFillClass)}
+                    style={{ width: `${(done / total) * 100}%` }}
+                />
             </div>
-            {done === total ? (
-                <span className="flex items-center gap-[5px] font-mono text-[10.5px] font-semibold text-accent-soft">
-                    <Check size={11} strokeWidth={3} className="text-accent" />
-                    all {total} reviewed
-                </span>
-            ) : (
-                <span className="font-mono text-[10.5px] font-semibold text-ink-mid">
-                    {done}/{total} reviewed
-                </span>
-            )}
+            {/* the check stays mounted so it draws when the last mark lands, not on every list it opens on */}
+            <span
+                className={cn(
+                    "flex items-center gap-[5px] font-mono text-[10.5px] font-semibold",
+                    all ? "text-accent-soft" : "text-ink-mid"
+                )}
+            >
+                <DrawCheck done={all} className="text-accent" />
+                {all ? (
+                    <span>all {total} reviewed</span>
+                ) : (
+                    <span>
+                        <TickNumber value={done} />/{total} reviewed
+                    </span>
+                )}
+            </span>
             {done > 0 ? (
                 <button
                     data-review-clear
@@ -366,8 +380,9 @@ export function ChangedFileList({
         [commentKey, commentStore]
     );
     const rows = useMemo(
-        () => (changes != null && tree ? buildFileTree(changes.files, collapsed) : []),
-        [changes, tree, collapsed]
+        // every directory's rows, collapsed or not: a collapsed one keeps its subtree for PaneReveal to close
+        () => (changes != null && tree ? buildFileTree(changes.files, new Set()) : []),
+        [changes, tree]
     );
     if (changes == null) {
         return failure ? <FileListFailure message={failure} onRetry={onRetry} /> : <FileListSkeleton />;
@@ -394,35 +409,54 @@ export function ChangedFileList({
         return <>{changes.files.map((f) => fileRow(f, f.path, 0))}</>;
     }
     const dirMembers = (id: string) => changes.files.filter((c) => c.path.startsWith(id + "/"));
-    return (
-        <>
-            {rows.map((r) => {
-                if (r.kind === "file") {
-                    return fileRow(r.change!, r.label, r.depth);
-                }
-                const members = dirMembers(r.id);
-                const done = review != null ? members.filter((c) => markState(subjectMarks, c) === "ok").length : null;
-                return (
-                    <DirRow
-                        key={`dir:${r.id}`}
-                        row={r}
-                        collapsed={collapsed.has(r.id)}
-                        done={done}
-                        lineCounts={lineCounts}
-                        // a new Set every time: jotai compares by reference, so mutating one would
-                        // change the value without telling anybody
-                        onToggle={() => {
-                            const next = new Set(collapsed);
-                            if (!next.delete(r.id)) {
-                                next.add(r.id);
-                            }
-                            globalStore.set(collapsedDirsAtom, next);
-                        }}
-                        // all reviewed unmarks all; anything less marks the rest
-                        onReview={() => review != null && setReviewed(review, members, done !== members.length)}
-                    />
-                );
-            })}
-        </>
-    );
+    const dirRow = (r: FileTreeRow) => {
+        const members = dirMembers(r.id);
+        const done = review != null ? members.filter((c) => markState(subjectMarks, c) === "ok").length : null;
+        return (
+            <DirRow
+                row={r}
+                collapsed={collapsed.has(r.id)}
+                done={done}
+                lineCounts={lineCounts}
+                // a new Set every time: jotai compares by reference, so mutating one would
+                // change the value without telling anybody
+                onToggle={() => {
+                    const next = new Set(collapsed);
+                    if (!next.delete(r.id)) {
+                        next.add(r.id);
+                    }
+                    globalStore.set(collapsedDirsAtom, next);
+                }}
+                // all reviewed unmarks all; anything less marks the rest
+                onReview={() => review != null && setReviewed(review, members, done !== members.length)}
+            />
+        );
+    };
+    // rows[from, to) in tree order; a directory's subtree is the rows after it that sit deeper, drawn inside a
+    // PaneReveal so collapsing or expanding it slides its rows rather than cutting them
+    const subtree = (from: number, to: number): ReactNode[] => {
+        const out: ReactNode[] = [];
+        let i = from;
+        while (i < to) {
+            const r = rows[i];
+            if (r.kind === "file") {
+                out.push(fileRow(r.change!, r.label, r.depth));
+                i++;
+                continue;
+            }
+            let end = i + 1;
+            while (end < to && rows[end].depth > r.depth) {
+                end++;
+            }
+            out.push(
+                <div key={`dir:${r.id}`}>
+                    {dirRow(r)}
+                    <PaneReveal open={!collapsed.has(r.id)}>{subtree(i + 1, end)}</PaneReveal>
+                </div>
+            );
+            i = end;
+        }
+        return out;
+    };
+    return <>{subtree(0, rows.length)}</>;
 }

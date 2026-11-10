@@ -8,6 +8,7 @@
 // rows are flush-padded instead of indented.
 
 import { SkeletonLine, SkeletonRows } from "@/app/element/skeleton";
+import { ViewSwap } from "@/app/element/viewswap";
 import { cn } from "@/util/util";
 import { PanelLeftClose } from "lucide-react";
 import { SubLabel } from "./sectionlabel";
@@ -139,6 +140,8 @@ export function CompareColumn({
     onCollapse?: () => void;
 }) {
     const diverges = rows.some((r) => r.kind === "commit");
+    // the read landing (rows or the error) fades in over the skeleton; what is there at mount shows at once
+    const bodyKey = error != null ? "error" : loading ? "loading" : "rows";
     return (
         <div data-compare-column className="flex min-h-0 flex-1 flex-col">
             <div className="flex h-[40px] flex-none items-center gap-[9px] border-b border-edge-faint pl-[14px] pr-[8px]">
@@ -158,7 +161,7 @@ export function CompareColumn({
                     </button>
                 ) : null}
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto pb-[24px]">
+            <ViewSwap swapKey={bodyKey} className="min-h-0 flex-1 overflow-y-auto pb-[24px]">
                 {error != null ? (
                     <div className="px-[14px] py-[8px] text-[12px] text-error">{error}</div>
                 ) : loading ? (
@@ -190,7 +193,7 @@ export function CompareColumn({
                         ) : null}
                     </>
                 )}
-            </div>
+            </ViewSwap>
         </div>
     );
 }

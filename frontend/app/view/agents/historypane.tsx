@@ -7,12 +7,17 @@
 // and the list stay in register without the rows knowing any geometry. The column owns its own
 // controls — count, Clear filters, Graph, collapse, and the filter row under them.
 
+import { CrossFade } from "@/app/element/crossfade";
+import { cardVariants, computeEntrances, initialEntranceState } from "@/app/element/motiontokens";
 import { SkeletonLine, SkeletonRows } from "@/app/element/skeleton";
+import { TickNumber } from "@/app/element/ticknumber";
+import { ViewSwap } from "@/app/element/viewswap";
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { Clock, GitGraph, PanelLeftClose } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { motion } from "motion/react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { assignLanes, laneCount } from "./gitgraph";
 import { graphGeometry } from "./gitgraphgeom";
 import {
@@ -34,6 +39,8 @@ const HASH_W = 52;
 const MAX_LANES = 7;
 const NO_GRAPH_PAD = 14;
 const SLOW_TICK_MS = 1_000;
+// the uncommitted row has no hash
+const WT_KEY = "__wt__";
 
 // SkeletonLine takes only className, so the ragged widths are literal utility classes rather than an
 // inline style — Tailwind cannot generate a class from a computed string either, so no template here.
@@ -243,6 +250,22 @@ export function HistoryPane({
     // the stored preference, not the graphOn prop: the surface forces the prop off under a filter, and
     // the toggle must still show what the user chose
     const graphPref = useAtomValue(graphOnAtom);
+    const filters = useAtomValue(historyFiltersAtom);
+    // Rows a "load more" (or a refresh) adds enter as cards. A new project or filter blanks the list to the
+    // skeleton first (githistorystore's loadHistory), so keying on the filters with loading as its own key
+    // reseeds on every new subject and the list that comes back never cascades. Committed in a layout effect:
+    // render can run twice.
+    const entranceKey = loading ? "" : JSON.stringify(filters);
+    const rowIds = laned.map((r) => r.hash || WT_KEY);
+    const entranceRef = useRef(initialEntranceState());
+    const { animate: entering } = computeEntrances(entranceRef.current, entranceKey, rowIds);
+    const rowIdsKey = rowIds.join(",");
+    useLayoutEffect(() => {
+        entranceRef.current = computeEntrances(entranceRef.current, entranceKey, rowIds).state;
+    }, [rowIdsKey, entranceKey]);
+    // the body trading what it shows (skeleton, empty, the list, the list with or without the graph) fades in;
+    // ViewSwap has no exit, so the old body leaves at once and the scroll box never holds two
+    const bodyKey = loading ? "loading" : rows.length === 0 ? "empty" : `list:${graphOn ? "graph" : "flat"}`;
 
     // Restore once, on the first render that actually has rows to scroll through — setting scrollTop
     // before then would be clamped to 0 by a zero-height container. The surface unmounts on every nav
@@ -285,7 +308,7 @@ export function HistoryPane({
                 )}
                 {graphOn && geom.foldedCount > 0 ? (
                     <span className="rounded-[5px] border border-edge-mid bg-surface-raised px-[7px] py-[2px] font-mono text-[10.5px] font-semibold text-graphlane-fold">
-                        {laneCount(laned)} lanes · {geom.foldedCount} folded
+                        {laneCount(laned)} lanes · <TickNumber value={geom.foldedCount} /> folded
                     </span>
                 ) : null}
                 <div className="flex-1" />
@@ -319,47 +342,57 @@ export function HistoryPane({
                 data-history-scroll
                 className="min-h-0 flex-1 overflow-y-auto pb-[24px]"
             >
-                {loading ? (
-                    <>
-                        <SlowNotice loading={loading} />
-                        <HistorySkeleton />
-                    </>
-                ) : rows.length === 0 ? (
-                    filtered ? (
-                        <NoMatch />
+                <ViewSwap swapKey={bodyKey}>
+                    {loading ? (
+                        <>
+                            <SlowNotice loading={loading} />
+                            <HistorySkeleton />
+                        </>
+                    ) : rows.length === 0 ? (
+                        filtered ? (
+                            <NoMatch />
+                        ) : (
+                            <div className="px-[14px] py-[6px] text-[12px] text-ink-mid">No commits</div>
+                        )
                     ) : (
-                        <div className="px-[14px] py-[6px] text-[12px] text-ink-mid">No commits</div>
-                    )
-                ) : (
-                    <div className="relative">
-                        {graphOn ? (
-                            <GraphGutter geom={geom} selectedIndex={laned.findIndex((r) => r.hash === selected)} />
-                        ) : null}
-                        {laned.map((row) => (
-                            <div key={row.hash || "__wt__"} data-history-row>
-                                {row.divider ? <Divider label={row.divider} /> : null}
-                                <Row
-                                    row={row}
-                                    laneIndent={indent}
-                                    selected={selected === row.hash}
-                                    onSelect={() => onSelect(row.hash)}
-                                />
-                            </div>
-                        ))}
-                        {appendState === "failed" ? (
-                            <button
-                                onClick={onLoadMore}
-                                className="flex h-[34px] w-full items-center gap-[8px] px-[14px] text-left text-[12px] text-error hover:text-foreground"
-                            >
-                                Couldn’t load more commits — retry
-                            </button>
-                        ) : appendState === "loading" ? (
-                            <div className="flex h-[34px] items-center px-[14px] font-mono text-[11px] text-muted">
-                                {`loading commits ${commitCount(rows) + 1}–${commitCount(rows) + HISTORY_PAGE_SIZE}…`}
-                            </div>
-                        ) : null}
-                    </div>
-                )}
+                        <div className="relative">
+                            {graphOn ? (
+                                <GraphGutter geom={geom} selectedIndex={laned.findIndex((r) => r.hash === selected)} />
+                            ) : null}
+                            {laned.map((row) => (
+                                <motion.div
+                                    key={row.hash || WT_KEY}
+                                    data-history-row
+                                    variants={cardVariants}
+                                    initial={entering.has(row.hash || WT_KEY) ? "initial" : false}
+                                    animate="animate"
+                                >
+                                    {row.divider ? <Divider label={row.divider} /> : null}
+                                    <Row
+                                        row={row}
+                                        laneIndent={indent}
+                                        selected={selected === row.hash}
+                                        onSelect={() => onSelect(row.hash)}
+                                    />
+                                </motion.div>
+                            ))}
+                            <CrossFade swapKey={appendState} className="flex w-full">
+                                {appendState === "failed" ? (
+                                    <button
+                                        onClick={onLoadMore}
+                                        className="flex h-[34px] w-full items-center gap-[8px] px-[14px] text-left text-[12px] text-error hover:text-foreground"
+                                    >
+                                        Couldn’t load more commits — retry
+                                    </button>
+                                ) : appendState === "loading" ? (
+                                    <div className="flex h-[34px] items-center px-[14px] font-mono text-[11px] text-muted">
+                                        {`loading commits ${commitCount(rows) + 1}–${commitCount(rows) + HISTORY_PAGE_SIZE}…`}
+                                    </div>
+                                ) : null}
+                            </CrossFade>
+                        </div>
+                    )}
+                </ViewSwap>
             </div>
         </div>
     );
