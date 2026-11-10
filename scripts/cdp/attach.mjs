@@ -38,6 +38,18 @@ export async function waitFor(ev, expr, ms, pollMs = NAV_POLL_MS) {
     }
 }
 
+// a booted page has rendered its nav and set the rpc client a scenario's arrange calls h.rpc through; the client
+// is set after the nav renders, so the nav alone is not enough
+const RPC_READY = `!!window.TabRpcClient`;
+
+// true once the page has booted, false past ms
+export function waitBooted(ev, ms = NAV_WAIT_MS) {
+    return waitFor(ev, `${NAV_RENDERED} && ${RPC_READY}`, ms);
+}
+
+// attach's own wait: a cold vite pre-bundles for a while before the first render (verify.mjs waited as long)
+const ATTACH_BOOT_WAIT_MS = 120_000;
+
 // A single CDP command must never hang the whole run: if the socket drops mid-command (dev app HMR
 // teardown / exit), the reply never arrives and a bare `await` would block forever. Bound every
 // command so a drop surfaces as an error. 30s is far above any real CDP round-trip.
@@ -192,6 +204,16 @@ export async function attach(port = 9222) {
     const main = await openPage(target, shots);
     const { ev } = main;
 
+    // a scenario's arrange may call h.rpc before any goto: never hand back a page whose client does not exist yet
+    if (!(await waitBooted(ev, ATTACH_BOOT_WAIT_MS))) {
+        const nav = await ev(NAV_RENDERED).catch(() => false);
+        main.close();
+        throw new Error(
+            `the page did not boot within ${ATTACH_BOOT_WAIT_MS / 1000}s of attaching: ` +
+                (nav ? "the nav rendered but window.TabRpcClient is not set" : "the nav did not render")
+        );
+    }
+
     return {
         ...main,
         shots,
@@ -214,14 +236,20 @@ export async function attach(port = 9222) {
         // the nav has rendered. Polling the nav alone could read the old page before the reload commits.
         async reload() {
             await ev("window.__cdpReloading = true; location.reload()");
-            const booted = await waitFor(ev, `!window.__cdpReloading && ${NAV_RENDERED}`, NAV_WAIT_MS);
-            if (!booted) throw new Error(`the page did not render its nav within ${NAV_WAIT_MS / 1000}s of a reload`);
+            const booted = await waitFor(
+                ev,
+                `!window.__cdpReloading && ${NAV_RENDERED} && ${RPC_READY}`,
+                NAV_WAIT_MS
+            );
+            if (!booted) {
+                throw new Error(`the page did not render its nav and set its rpc client within ${NAV_WAIT_MS / 1000}s of a reload`);
+            }
         },
         async goto(surface) {
             const label = SURFACE_LABEL[surface];
             if (!label) throw new Error(`unknown surface "${surface}"`);
             // a page still booting from a reload has no nav yet; a missing label on a rendered nav still fails at once
-            await waitFor(ev, NAV_RENDERED, NAV_WAIT_MS);
+            await waitBooted(ev);
             // aria-label first: the nav rail drops its visible labels below a narrow window
             // (view/agents/navrailwidth.ts), so matching on text alone cannot navigate a narrow app.
             const clicked = await ev(`(() => {

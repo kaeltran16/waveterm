@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { waitFor } from "./attach.mjs";
+import { waitBooted, waitFor } from "./attach.mjs";
 
 // an ev that answers from a script of results, one per call; an Error entry throws like a destroyed context
 const scripted = (answers) => {
@@ -11,6 +11,33 @@ const scripted = (answers) => {
     };
     return { ev, calls: () => calls };
 };
+
+// a page whose nav is rendered from the start and whose rpc client is set after `clientAfter` ms; the ev answers the
+// way the page would to the boot expression: truthy only when both parts hold
+const fakePage = (clientAfter) => {
+    const start = Date.now();
+    const ev = async (expr) => {
+        const nav = expr.includes("nav button");
+        const client = expr.includes("TabRpcClient") ? Date.now() - start >= clientAfter : true;
+        return nav && client;
+    };
+    return ev;
+};
+
+describe("waitBooted", () => {
+    it("stays pending while the nav is rendered but the rpc client is unset, then resolves true", async () => {
+        const ev = fakePage(60);
+        let settled = false;
+        const p = waitBooted(ev, 2000).then((v) => ((settled = true), v));
+        await new Promise((r) => setTimeout(r, 30));
+        expect(settled).toBe(false);
+        expect(await p).toBe(true);
+    });
+
+    it("is false past ms when the rpc client never appears", async () => {
+        expect(await waitBooted(fakePage(Infinity), 40)).toBe(false);
+    });
+});
 
 describe("waitFor", () => {
     it("keeps polling through a reload's destroyed context until the expression holds", async () => {
