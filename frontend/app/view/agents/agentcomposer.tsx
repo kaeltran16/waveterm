@@ -16,13 +16,16 @@ export function canSendComposer(text: string, blockId?: string): boolean {
 }
 
 /** Sends the composer's text and clears it only once the send lands, and only if the user hasn't typed
- *  since (clear gets the sent text to compare). A failed send keeps the text and is logged. */
+ *  since (clear gets the sent text to compare). A failed send keeps the text and is logged. onStart sees the
+ *  text before the send goes out. */
 export async function submitComposer(
     text: string,
     blockId: string,
     clear: (sent: string) => void,
-    send: (blockId: string, text: string) => Promise<void> = sendAgentText
+    send: (blockId: string, text: string) => Promise<void> = sendAgentText,
+    onStart?: (text: string) => void
 ): Promise<void> {
+    onStart?.(text);
     try {
         await send(blockId, text);
     } catch (e) {
@@ -34,6 +37,7 @@ export async function submitComposer(
 
 export interface AgentComposerHandle {
     fill: (text: string) => void;
+    focus: () => void;
 }
 
 // Sends free text to an agent's terminal block through sendAgentText.
@@ -44,8 +48,9 @@ export const AgentComposer = forwardRef<
         placeholder: string;
         className?: string;
         onEscape?: () => void;
+        onSubmitText?: (text: string) => void;
     }
->(function AgentComposer({ blockId, placeholder, className, onEscape }, ref) {
+>(function AgentComposer({ blockId, placeholder, className, onEscape, onSubmitText }, ref) {
     const [text, setText] = useState("");
     const taRef = useRef<HTMLTextAreaElement>(null);
     const sendingRef = useRef(false);
@@ -56,6 +61,7 @@ export const AgentComposer = forwardRef<
                 setText(t);
                 taRef.current?.focus();
             },
+            focus: () => taRef.current?.focus(),
         }),
         []
     );
@@ -77,7 +83,13 @@ export const AgentComposer = forwardRef<
         }
         sendingRef.current = true;
         fireAndForget(() =>
-            submitComposer(text, blockId!, (sent) => setText((cur) => (cur === sent ? "" : cur))).finally(() => {
+            submitComposer(
+                text,
+                blockId!,
+                (sent) => setText((cur) => (cur === sent ? "" : cur)),
+                sendAgentText,
+                onSubmitText
+            ).finally(() => {
                 sendingRef.current = false;
             })
         );

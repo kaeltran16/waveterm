@@ -141,6 +141,7 @@ A link inside an item view does a full open, even with `Ctrl` held.
 | `j` / `k` (or `↓` / `↑`, `→` / `←`) | Next / previous row in the tree: agents, workers and terminals |
 | `d` | Toggle the agent rail |
 | `f` | Toggle terminal fullscreen |
+| `v` | Toggle the focused Claude Code agent between Terminal and Rendered |
 | `r` | Review: open the focused agent's Plan review or Plan approval dialog |
 | `p` | Hand the agent to the phone, or take it back |
 | `Esc` | Close an open shell task output peek, or an open subagent (back to the agent's terminal), else back to where you jumped from, else to Cockpit; exits fullscreen first |

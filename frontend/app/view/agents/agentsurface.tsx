@@ -40,6 +40,8 @@ import { finalRowFocusId } from "./finalstage";
 import { FinalStagePane } from "./finalstagepane";
 import { rosterSeededAtom } from "./liveagents";
 import { terminalFullscreenAtom } from "./railstore";
+import { canRender, effectiveViewMode, pickerFlipAtom, viewModeAtom } from "./renderedmode";
+import { RenderedView, useUnflipOnPrompt } from "./renderedview";
 import { isEndedWorkerId } from "./runlineage";
 import { SubagentInterior } from "./subagentinterior";
 import { focusSubagentAtom } from "./subagentsstore";
@@ -76,6 +78,18 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
     const compacted = brainstorm?.file?.compacted;
     const showCompacted = !paneMode && compacted != null && compacted > brainstorm!.lastViewedMs;
     useCanvasPoller(model, agent);
+    // ended workers, the final stage, the brainstorm and canvas panes and a subagent interior all win over Rendered
+    const viewMode = effectiveViewMode(
+        useAtomValue(viewModeAtom(agent?.id ?? "")),
+        useAtomValue(pickerFlipAtom(agent?.id ?? ""))
+    );
+    const showRendered =
+        agent != null &&
+        viewMode === "rendered" &&
+        !paneMode &&
+        !showSub &&
+        canRender(agent, { ended: isEndedWorkerId(agent.id), stage: stage != null && agent.id === stage.agent.id });
+    useUnflipOnPrompt(agent);
 
     // sync focusId to the defaulted agent so the tree highlights it and ←/→ start from the right place
     useEffect(() => {
@@ -138,6 +152,28 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
         }
     }, [agent?.id, paneMode]);
 
+    // toggling the same agent hands focus to the view it shows: the composer in Rendered, the xterm in Terminal.
+    // Arriving at an agent already in Rendered takes the wrapper instead, so j/k keep stepping the tree and the
+    // previous agent's now-hidden xterm cannot keep focus.
+    const lastRendered = useRef<{ id: string; on: boolean } | null>(null);
+    useEffect(() => {
+        const prev = lastRendered.current;
+        lastRendered.current = agent != null ? { id: agent.id, on: showRendered } : null;
+        if (agent == null || prev == null || prev.on === showRendered) {
+            return;
+        }
+        if (prev.id !== agent.id) {
+            if (showRendered) {
+                wrapRef.current?.focus();
+            }
+            return;
+        }
+        const target = showRendered
+            ? "[data-rendered-composer] textarea"
+            : `[data-agent-terminal="${agent.id}"] .xterm-helper-textarea`;
+        wrapRef.current?.querySelector<HTMLElement>(target)?.focus();
+    }, [agent?.id, showRendered]);
+
     // the surface stays mounted, so the effects above never run on a switch back to it, and arriving left
     // focus on <body>: typing reached the agent only after a click. Arriving hands focus to the live
     // terminal, or the wrapper when none is showing (canvas, brainstorm, subagent interior, no terminal).
@@ -198,7 +234,7 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
                                     data-agent-terminal={a.id}
                                     className={cn(
                                         "min-h-0 flex-1",
-                                        a.id === agent.id && !paneMode ? "flex flex-col" : "hidden"
+                                        a.id === agent.id && !paneMode && !showRendered ? "flex flex-col" : "hidden"
                                     )}
                                 >
                                     <CodePeekContext.Provider value={{ model, transcriptPath: a.transcriptPath }}>
@@ -218,6 +254,8 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
                             <div className="flex flex-1 items-center justify-center text-[13px] text-muted">
                                 No live terminal for this agent.
                             </div>
+                        ) : showRendered ? (
+                            <RenderedView key={agent.id} model={model} agent={agent} />
                         ) : null}
                     </div>
                     {showSub ? <SubagentInterior sub={focusSub!} parentName={agent.name} /> : null}

@@ -14,6 +14,16 @@ describe("submitComposer", () => {
         await p;
         expect(clear).toHaveBeenCalledWith("hello");
     });
+    it("hands the text to onSubmitText when the send starts, before it lands", async () => {
+        const calls: string[] = [];
+        const send = vi.fn(async () => {
+            calls.push("send");
+        });
+        const onSubmitText = vi.fn((t: string) => calls.push(`start:${t}`));
+        await submitComposer("/config", "block:1", () => {}, send, onSubmitText);
+        expect(onSubmitText).toHaveBeenCalledWith("/config");
+        expect(calls).toEqual(["start:/config", "send"]);
+    });
     it("keeps the text and logs when the send fails", async () => {
         const err = vi.spyOn(console, "error").mockImplementation(() => {});
         const clear = vi.fn();

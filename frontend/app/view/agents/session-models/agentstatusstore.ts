@@ -116,6 +116,18 @@ export function getAgentUsageAtom(oref: string): PrimitiveAtom<AgentUsage> {
     return usageAtom;
 }
 
+// per-block last hook event and its time; the rendered view's picker flip waits on it to see the prompt come back
+const lastHookAtoms = new Map<string, PrimitiveAtom<{ hook: string; ts: number } | null>>();
+
+export function getLastHookAtom(oref: string): PrimitiveAtom<{ hook: string; ts: number } | null> {
+    let hookAtom = lastHookAtoms.get(oref);
+    if (!hookAtom) {
+        hookAtom = atom(null) as PrimitiveAtom<{ hook: string; ts: number } | null>;
+        lastHookAtoms.set(oref, hookAtom);
+    }
+    return hookAtom;
+}
+
 // per-block manual expand override (undefined = auto). Reset to undefined on the parent's idle transition.
 const subagentExpandAtoms = new Map<string, PrimitiveAtom<boolean>>();
 
@@ -159,6 +171,10 @@ export function setupAgentStatusSubscription() {
                 globalStore.set(getAgentUsageAtom(data.oref), usage);
                 // persist account-level windows so the Usage donuts survive idle (no-op if none present)
                 recordRateLimit(provider, usage);
+            }
+            // usage-only events carry no hook, so they never move it
+            if (data.hook) {
+                globalStore.set(getLastHookAtom(data.oref), { hook: data.hook, ts: data.ts });
             }
             // a delta-only event carries an empty state; only a real state update should touch the parent atom
             if (data.state) {
