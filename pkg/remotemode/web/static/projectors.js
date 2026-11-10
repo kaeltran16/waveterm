@@ -8,6 +8,13 @@ function toolResultText(content) {
   }
   return "";
 }
+var IMAGE_MEDIA_TYPE = /^image\/[\w.+-]+$/;
+function toolResultImages(content) {
+  if (!Array.isArray(content)) return [];
+  return content.filter(
+    (b) => b?.type === "image" && b.source?.type === "base64" && typeof b.source.data === "string" && typeof b.source.media_type === "string" && IMAGE_MEDIA_TYPE.test(b.source.media_type)
+  ).map((b) => ({ mediaType: b.source.media_type, data: b.source.data }));
+}
 function baseCount(s) {
   return s === "" ? 0 : s.split("\n").length;
 }
@@ -581,6 +588,10 @@ function projectTranscript(lines) {
           continue;
         }
         const body = toolResultText(block.content);
+        const images = toolResultImages(block.content);
+        if (images.length > 0) {
+          action.images = images;
+        }
         const tool = action._tool;
         if (tool === "Grep" && body) {
           const matches = parseGrep(body);
