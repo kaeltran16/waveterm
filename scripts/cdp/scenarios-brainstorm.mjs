@@ -75,7 +75,8 @@ const BS_ERROR_WAIT_MS = 10000;
 const BS_TYPED_WAIT_MS = 5000;
 const BS_ROSTER_WAIT_MS = 10000;
 const BS_NOTHING_TYPED_MS = 800;
-const BS_CLICK_SETTLE_MS = 2000;
+// a PaneReveal under load grows past 2 s, and a click before it settles lands on the row below
+const BS_CLICK_SETTLE_MS = 5000;
 const BS_CLICK_POLL_MS = 100;
 const BS_META_CLEAR_WAIT_MS = 3000;
 const BS_SCROLLBACK_LINES = 400;
@@ -529,6 +530,10 @@ export const brainstormMode = {
             }
             bsWrite(ctx, BS_FILES.justStarted);
             await openCanvasTerminal(h, ctx, BS_TOPIC);
+            // every sent line runs as a command, and pwsh echoes the next only after failing the last, seconds under
+            // load (its profile load delays the first prompt too); cmd fails one at once. Set before the agent
+            // surface mounts the terminal, which is what starts its shell
+            await h.rpc("setmeta", { oref: `block:${ctx.blockId}`, meta: { "term:localshellpath": "cmd.exe" } });
             await bsPublishStatus(h, ctx);
         } catch (e) {
             ctx.launchError = String(e?.message ?? e);
@@ -794,6 +799,8 @@ export const brainstormMode = {
         await polishWaitFor(h, `!!${BS_EDIT}`, 2000);
         const prefill = await h.ev(`${BS_EDIT}?.value ?? null`);
         await bsMouseClick(h, BS_EDIT);
+        // an Escape from outside the box is the pane's own, which closes the design
+        const editFocused = await polishWaitFor(h, `!!${BS_EDIT} && document.activeElement === ${BS_EDIT}`, BS_CLICK_SETTLE_MS);
         const via = (await bsKeysArrive(h)) ? "keys" : "set";
         await bsKey(h, BS_EDIT, "Escape", via);
         const escClosed = await h.ev(`!${BS_EDIT}`);
@@ -807,11 +814,12 @@ export const brainstormMode = {
             "2f. Edit on Constraints opens prefilled with its body; Escape closes it and sends nothing",
             editOpened === "clicked" &&
                 prefill === BS_PART.constraints.body &&
+                editFocused &&
                 escClosed &&
                 designOpen &&
                 partOpen &&
                 escQuiet.ok,
-            { editOpened, prefill, escClosed, designOpen, partOpen, typed: escQuiet.sent, keys: via }
+            { editOpened, prefill, editFocused, escClosed, designOpen, partOpen, typed: escQuiet.sent, keys: via }
         );
         await bsClick(h, bsPartSel("constraints"), "Edit");
         await polishWaitFor(h, `!!${BS_EDIT}`, 2000);
