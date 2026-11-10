@@ -3208,13 +3208,13 @@ async function graphMapSteps(h, ctx, rec, settle) {
 // --- brief-composer-steer-only: no composer without a live lead to message --------------------------
 // The Brief's composer only steers a running session's lead (briefcomposertarget.ts); the Ask audiences it
 // used to have were retired. So with no session sheet open there is no composer at all. Step 2 opens a held dag'd
-// run whose devMock lead's tab name differs from the plan title, and makes the send throw: the composer names the
-// lead by the plan title, as the run is named everywhere else, and gives the draft back.
+// run whose devMock lead's tab name differs from the plan title, and sends to a block no terminal has: the server
+// refuses it, the composer names the lead by the plan title, as the run is named everywhere else, gives the draft
+// back, and posts no directive to the run's channel.
 const STEER_PLAN_TITLE = "Steer-only plan title";
 const STEER_LEAD_ID = "fx-steer-lead";
 const STEER_LEAD_TAB = "steer-only lead tab";
-// no terminal has this block; the server takes any block id outside a snapshot store and only logs the failed
-// typing, so the send's throw is stubbed in the page (failRpc) to stand for a gone terminal
+// no terminal has this block and the store holds none: the real server refuses the prompt
 const STEER_LEAD_BLOCK = "fx-blk-steer-gone";
 const STEER_TEXT = "steer-only check: hold the lane";
 const STEER_INPUT = `document.querySelector('[data-jarvis-brief-composer="input"]')`;
@@ -3286,10 +3286,12 @@ export const briefComposerSteerOnly = {
                 blockId: STEER_LEAD_BLOCK,
             },
         ]);
-        await failRpc(h, "AgentPromptCommand", "no such block");
-        let seen;
-        try {
-            seen = await lookEval(h, `
+        const directives = async () =>
+            ((await h.rpc("getchannelmessages", { channelid: ctx.held[0].channelId }))?.messages ?? []).filter(
+                (m) => m.kind === "directive"
+            ).length;
+        const directivesBefore = await directives();
+        const seen = await lookEval(h, `
                 await until(() => typeof window.__openAddress === "function", 5000);
                 await window.__openAddress(${JSON.stringify(`run:${runId}`)});
                 const input = () => ${STEER_INPUT};
@@ -3309,18 +3311,17 @@ export const briefComposerSteerOnly = {
                 await until(() => status() != null && input()?.value === ${JSON.stringify(STEER_TEXT)}, 8000);
                 return { composer: true, status: flat(status()), draft: input()?.value ?? null };
             `);
-            await h.shot("cdp-shots/brief-composer-steer-only-gone.png");
-        } finally {
-            await releaseRpc(h, "AgentPromptCommand");
-        }
+        await h.shot("cdp-shots/brief-composer-steer-only-gone.png");
+        const directivesAfter = await directives();
         steps.push({
             step: step2,
             ok:
                 seen?.composer === true &&
                 seen.status === `${STEER_PLAN_TITLE} is no longer live — nothing was sent.` &&
                 !seen.status.includes(STEER_LEAD_TAB) &&
-                seen.draft === STEER_TEXT,
-            detail: JSON.stringify(seen),
+                seen.draft === STEER_TEXT &&
+                directivesAfter === directivesBefore,
+            detail: JSON.stringify({ ...seen, directivesBefore, directivesAfter }),
         });
         return steps;
     },

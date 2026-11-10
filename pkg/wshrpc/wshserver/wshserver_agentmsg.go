@@ -69,6 +69,30 @@ var blockTranscriptMeta = readBlockTranscriptMeta
 // tabAgentBlock is the block a tab's agent runs in, "" for a tab that is gone. A var so tests need no store.
 var tabAgentBlock = readTabAgentBlock
 
+// promptBlock is what decides whether a prompt can reach a block: delivery goes over a mod stream or is typed
+// into a running controller, and nothing else.
+type promptBlock struct {
+	Stored       bool
+	ShellRunning bool
+	HasStream    bool
+}
+
+// readPromptBlock reads a block's promptBlock facts. A var so tests need no store or controller.
+var readPromptBlock = loadPromptBlock
+
+func loadPromptBlock(ctx context.Context, blockId string) (promptBlock, error) {
+	block, err := wstore.DBGet[*waveobj.Block](ctx, blockId)
+	if err != nil {
+		return promptBlock{}, fmt.Errorf("loading block %s: %w", blockId, err)
+	}
+	rs := blockcontroller.GetBlockControllerRuntimeStatus(blockId)
+	return promptBlock{
+		Stored:       block != nil,
+		ShellRunning: rs != nil && rs.ShellProcStatus == blockcontroller.Status_Running,
+		HasStream:    agentctl.Has(blockId),
+	}, nil
+}
+
 func readAgentRosterFacts(ctx context.Context) (*agentRosterFacts, error) {
 	tabs, err := wstore.DBGetAllObjsByType[*waveobj.Tab](ctx, waveobj.OType_Tab)
 	if err != nil {
@@ -290,7 +314,26 @@ func (ws *WshServer) AgentPromptCommand(ctx context.Context, data wshrpc.Command
 	if err := snapshotRefusesPrompt(ctx, data.BlockId); err != nil {
 		return err
 	}
+	if err := unreachablePrompt(ctx, data.BlockId); err != nil {
+		return err
+	}
 	deliverAgentMessage(data.BlockId, text)
+	return nil
+}
+
+// unreachablePrompt refuses a block delivery cannot reach, which would otherwise fail later in a goroutine
+// that only logs: the caller would read the prompt as sent.
+func unreachablePrompt(ctx context.Context, blockId string) error {
+	pb, err := readPromptBlock(ctx, blockId)
+	if err != nil {
+		return fmt.Errorf("%w: nothing was sent", err)
+	}
+	if !pb.Stored {
+		return fmt.Errorf("block %s no longer exists: nothing was sent", blockId)
+	}
+	if !pb.ShellRunning && !pb.HasStream {
+		return fmt.Errorf("block %s has no live terminal: nothing was sent", blockId)
+	}
 	return nil
 }
 

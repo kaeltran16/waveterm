@@ -13,7 +13,9 @@ vi.mock("@/app/store/wshclientapi", () => ({
 }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 
-import { sendAgentText } from "./agentsend";
+import { toastsAtom } from "@/app/cockpit/notificationstore";
+import { globalStore } from "@/app/store/jotaiStore";
+import { sendAgentText, toastSendFailure } from "./agentsend";
 
 beforeEach(() => {
     agentPrompt.mockReset();
@@ -47,5 +49,22 @@ describe("sendAgentText", () => {
     it("rejects with the block id when the RPC fails", async () => {
         agentPrompt.mockRejectedValue(new Error("no route"));
         await expect(sendAgentText("blk-9", "hello")).rejects.toThrow(/blk-9.*no route/);
+    });
+});
+
+describe("toastSendFailure", () => {
+    it("raises one error toast with the refusal's own words, so a refused send never reads as sent", async () => {
+        const err = vi.spyOn(console, "error").mockImplementation(() => {});
+        globalStore.set(toastsAtom, []);
+        agentPrompt.mockRejectedValue(new Error("block blk-1 has no live terminal: nothing was sent"));
+        await sendAgentText("blk-1", "/model opus").catch((e) => toastSendFailure("Model not changed", e));
+        expect(globalStore.get(toastsAtom)).toMatchObject([
+            {
+                level: "error",
+                title: "Model not changed",
+                message: "send to block blk-1: block blk-1 has no live terminal: nothing was sent",
+            },
+        ]);
+        err.mockRestore();
     });
 });

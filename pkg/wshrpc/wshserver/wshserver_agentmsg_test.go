@@ -42,10 +42,11 @@ func agentFacts(tabId, name, blockId, harness, state string) agentTabFacts {
 	}
 }
 
-// scriptAgents scripts the roster and returns what the delivery seam was handed.
+// scriptAgents scripts the roster, with each roster block stored and as live as its facts say, and returns
+// what the delivery seam was handed.
 func scriptAgents(t *testing.T, facts *agentRosterFacts) *[]agentsDelivery {
 	t.Helper()
-	oldLoad, oldDeliver, oldMeta, oldTabBlock := loadAgentRosterFacts, deliverAgentMessage, blockTranscriptMeta, tabAgentBlock
+	oldLoad, oldDeliver, oldMeta, oldTabBlock, oldPrompt := loadAgentRosterFacts, deliverAgentMessage, blockTranscriptMeta, tabAgentBlock, readPromptBlock
 	sent := &[]agentsDelivery{}
 	loadAgentRosterFacts = func(context.Context) (*agentRosterFacts, error) { return facts, nil }
 	deliverAgentMessage = func(blockId, text string) { *sent = append(*sent, agentsDelivery{blockId, text}) }
@@ -58,8 +59,16 @@ func scriptAgents(t *testing.T, facts *agentRosterFacts) *[]agentsDelivery {
 		}
 		return ""
 	}
+	readPromptBlock = func(_ context.Context, blockId string) (promptBlock, error) {
+		for _, tf := range facts.Tabs {
+			if tf.BlockId == blockId {
+				return promptBlock{Stored: true, ShellRunning: tf.ShellRunning, HasStream: tf.HasStream}, nil
+			}
+		}
+		return promptBlock{}, nil
+	}
 	t.Cleanup(func() {
-		loadAgentRosterFacts, deliverAgentMessage, blockTranscriptMeta, tabAgentBlock = oldLoad, oldDeliver, oldMeta, oldTabBlock
+		loadAgentRosterFacts, deliverAgentMessage, blockTranscriptMeta, tabAgentBlock, readPromptBlock = oldLoad, oldDeliver, oldMeta, oldTabBlock, oldPrompt
 		for _, b := range []string{agentsBlockA, agentsBlockB, agentsBlockC} {
 			agentmsg.TurnEnded(b)
 		}
@@ -233,6 +242,49 @@ func TestAgentPromptDeliversTheTextBare(t *testing.T) {
 	}
 	if len(*sent) != 1 {
 		t.Errorf("a refused prompt delivered %+v", (*sent)[1:])
+	}
+}
+
+func TestAgentPromptRefusesABlockNoTerminalCanTake(t *testing.T) {
+	const missing = "d0000000-0000-4000-8000-000000000004"
+	facts := threeAgents()
+	facts.Tabs[1].ShellRunning = false // design: stored, no controller, no stream
+	facts.Tabs[2].ShellRunning, facts.Tabs[2].HasStream = false, true
+	sent := scriptAgents(t, facts)
+	ws := &WshServer{}
+	for _, tc := range []struct {
+		blockId, want string
+	}{
+		{missing, "no longer exists"},
+		{agentsBlockB, "no live terminal"},
+	} {
+		err := ws.AgentPromptCommand(context.Background(), wshrpc.CommandAgentPromptData{BlockId: tc.blockId, Text: "go on"})
+		if err == nil || !strings.Contains(err.Error(), tc.blockId) || !strings.Contains(err.Error(), tc.want) || !strings.Contains(err.Error(), "nothing was sent") {
+			t.Errorf("block %s: err = %v, want a %q refusal naming it and saying nothing was sent", tc.blockId, err, tc.want)
+		}
+	}
+	if len(*sent) != 0 {
+		t.Fatalf("a refused prompt delivered %+v", *sent)
+	}
+	for _, blockId := range []string{agentsBlockA, agentsBlockC} { // running controller; stream only
+		if err := ws.AgentPromptCommand(context.Background(), wshrpc.CommandAgentPromptData{BlockId: blockId, Text: "go on"}); err != nil {
+			t.Errorf("block %s: %v", blockId, err)
+		}
+	}
+	want := []agentsDelivery{{agentsBlockA, "go on"}, {agentsBlockC, "go on"}}
+	if len(*sent) != 2 || (*sent)[0] != want[0] || (*sent)[1] != want[1] {
+		t.Errorf("delivered %+v, want %+v", *sent, want)
+	}
+}
+
+func TestLoadPromptBlockReadsTheStore(t *testing.T) {
+	ctx := context.Background()
+	stored := insertCwdBlock(t, t.TempDir())
+	if pb, err := loadPromptBlock(ctx, stored); err != nil || pb != (promptBlock{Stored: true}) {
+		t.Errorf("stored block with no controller: %+v, %v; want stored and not live", pb, err)
+	}
+	if pb, err := loadPromptBlock(ctx, "d0000000-0000-4000-8000-000000000005"); err != nil || pb.Stored {
+		t.Errorf("missing block: %+v, %v; want not stored", pb, err)
 	}
 }
 

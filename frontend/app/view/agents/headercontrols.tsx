@@ -12,7 +12,7 @@ import { stringToBase64 } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { ChevronDown } from "lucide-react";
 import { useRef, useState } from "react";
-import { sendAgentText } from "./agentsend";
+import { sendAgentText, toastSendFailure } from "./agentsend";
 import type { AgentVM } from "./agentsviewmodel";
 import {
     MODEL_ALIASES,
@@ -58,7 +58,7 @@ export function HeaderControls({ agent }: { agent: AgentVM }) {
         const items: ContextMenuItem[] = MODEL_ALIASES.map((alias) => ({
             label: alias,
             click: () => {
-                sendAgentText(blockId, modelCommand(alias)).catch((err) => console.error("model change failed", err));
+                sendAgentText(blockId, modelCommand(alias)).catch((err) => toastSendFailure("Model not changed", err));
             },
         }));
         ContextMenuModel.getInstance().showContextMenu(items, e);
