@@ -3,21 +3,30 @@
 
 import { describe, expect, it } from "vitest";
 import {
+    CHANGE_FLASH_MS,
     MOTION,
+    autoHeightTransition,
+    barFillClass,
     cardVariants,
+    changeFlashClass,
     composerReveal,
     computeEntrances,
+    drawCheck,
     easeFluidCss,
+    errorNudge,
     initialEntranceState,
     indicatorSlide,
     microFade,
     modalBackdrop,
     modalPanel,
+    morphTransition,
     paneReveal,
     popoverReveal,
     settleClass,
     sheetPanel,
     shouldFadeEntry,
+    stepSlide,
+    tickRoll,
     turnTransition,
     viewFade,
 } from "./motiontokens";
@@ -179,5 +188,78 @@ describe("settleClass", () => {
     it("plays the settle keyframe once and is dropped under reduced motion", () => {
         expect(settleClass).toContain("animate-[settle_");
         expect(settleClass).toContain("motion-reduce:animate-none");
+    });
+});
+
+describe("stepSlide", () => {
+    const x = (v: unknown, dir: number) => (v as (d: number) => { x: number })(dir).x;
+
+    it("enters from the side the sequence moves toward and leaves to the other", () => {
+        expect(Math.sign(x(stepSlide.initial, 1))).toBe(1);
+        expect(Math.sign(x(stepSlide.exit, 1))).toBe(-1);
+        expect(Math.sign(x(stepSlide.initial, -1))).toBe(-1);
+        expect(Math.sign(x(stepSlide.exit, -1))).toBe(1);
+        expect((stepSlide.animate as any).x).toBe(0);
+    });
+
+    it("arrives on the macro duration and leaves on the exit one", () => {
+        expect((stepSlide.animate as any).transition).toEqual({ duration: MOTION.durMacro, ease: MOTION.easeFluid });
+        expect((stepSlide.exit as any)(1).transition).toEqual({ duration: MOTION.durExit, ease: MOTION.easeFluid });
+    });
+});
+
+describe("tickRoll", () => {
+    const y = (v: unknown, dir: number) => (v as (d: number) => { y: string })(dir).y;
+
+    it("a larger number rises in from below while the old one leaves upward, and the reverse", () => {
+        expect(y(tickRoll.initial, 1)).not.toMatch(/^-/);
+        expect(y(tickRoll.exit, 1)).toMatch(/^-/);
+        expect(y(tickRoll.initial, -1)).toMatch(/^-/);
+        expect(y(tickRoll.exit, -1)).not.toMatch(/^-/);
+    });
+
+    it("rolls on the micro duration", () => {
+        expect((tickRoll.animate as any).transition.duration).toBe(MOTION.durMicro);
+    });
+});
+
+describe("barFillClass", () => {
+    it("transitions the fill on the macro duration and the fluid ease, and not under reduced motion", () => {
+        expect(barFillClass).toContain(`duration-[${MOTION.durMacro * 1000}ms]`);
+        expect(barFillClass).toContain(`ease-[cubic-bezier(${MOTION.easeFluid.join(",")})]`);
+        expect(barFillClass).toContain("flex-grow");
+        expect(barFillClass).toContain("motion-reduce:transition-none");
+    });
+});
+
+describe("errorNudge", () => {
+    it("nudges once and comes to rest where it started, on the exit duration", () => {
+        const xs = (errorNudge.animate as any).x as number[];
+        expect(xs[0]).toBe(0);
+        expect(xs.at(-1)).toBe(0);
+        expect(xs.some((v) => v !== 0)).toBe(true);
+        expect((errorNudge.animate as any).transition.duration).toBe(MOTION.durExit);
+    });
+});
+
+describe("changeFlashClass", () => {
+    it("plays the changeFlash keyframe for the hook's hold and is dropped under reduced motion", () => {
+        expect(changeFlashClass).toContain(`animate-[changeFlash_${CHANGE_FLASH_MS / 1000}s_`);
+        expect(changeFlashClass).toContain("motion-reduce:animate-none");
+    });
+});
+
+describe("drawCheck", () => {
+    it("draws the path from nothing to whole on the macro duration", () => {
+        expect(drawCheck.hidden).toEqual({ pathLength: 0 });
+        expect((drawCheck.drawn as any).pathLength).toBe(1);
+        expect((drawCheck.drawn as any).transition.duration).toBe(MOTION.durMacro);
+    });
+});
+
+describe("morphTransition and autoHeightTransition", () => {
+    it("move on the macro duration and the fluid ease", () => {
+        expect(morphTransition).toEqual({ duration: MOTION.durMacro, ease: MOTION.easeFluid });
+        expect(autoHeightTransition).toEqual({ duration: MOTION.durMacro, ease: MOTION.easeFluid });
     });
 });

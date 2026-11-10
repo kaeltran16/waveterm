@@ -109,6 +109,70 @@ export const turnTransition = { transitionDuration: `${MOTION.durMicro}s`, trans
 // literal so Tailwind's scanner sees the class; 0.5s matches useSettle's hold.
 export const settleClass = "animate-[settle_0.5s_ease-out] motion-reduce:animate-none";
 
+// Step slide (moment 10): moving forward or back through a sequence (question N -> N+1, the next screenshot).
+// x is what says "forward/back", so the content travels along it, entering from the side the sequence moves
+// toward; the `custom` value is the direction (+1 next, -1 previous). Paired with mode="wait" in StepSwap, so
+// the old step leaves before the new one arrives and two never overlap.
+const STEP_SLIDE_PX = 16;
+export const stepSlide: Variants = {
+    initial: (dir: number) => ({ opacity: 0, x: STEP_SLIDE_PX * dir }),
+    animate: { opacity: 1, x: 0, transition: { duration: MOTION.durMacro, ease: MOTION.easeFluid } },
+    exit: (dir: number) => ({
+        opacity: 0,
+        x: -STEP_SLIDE_PX * dir,
+        transition: { duration: MOTION.durExit, ease: MOTION.easeFluid },
+    }),
+};
+
+// Bar fill (moment 11): a progress bar's fill growing by the amount progress moved, rather than jumping. A CSS
+// transition, since the fill is a width/flex-grow the caller already sets inline; a literal so Tailwind sees it.
+export const barFillClass =
+    "transition-[flex-grow,width,transform] duration-[360ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none";
+
+// Tick roll (moment 12): a count that changes rolls, so the eye catches which number moved. The `custom` value is
+// the direction (+1 larger: the old value leaves upward and the new one rises from below; -1 the reverse). Micro,
+// because a number is a small mark, and opacity rides with it so the two never read as one smeared glyph.
+const TICK_ROLL_Y = "60%";
+export const tickRoll: Variants = {
+    initial: (dir: number) => ({ opacity: 0, y: dir < 0 ? `-${TICK_ROLL_Y}` : TICK_ROLL_Y }),
+    animate: { opacity: 1, y: "0%", transition: { duration: MOTION.durMicro, ease: MOTION.easeFluid } },
+    exit: (dir: number) => ({
+        opacity: 0,
+        y: dir < 0 ? TICK_ROLL_Y : `-${TICK_ROLL_Y}`,
+        transition: { duration: MOTION.durMicro, ease: MOTION.easeFluid },
+    }),
+};
+
+// Error nudge (moment 13): an inline error that appears after a user action shakes once, so it reads as "your
+// action failed, here" rather than as text that was always there. x only, so reduced motion (which drops
+// transforms) keeps the error and loses the shake. Callers mount it under AnimatePresence initial={false}, so an
+// error already showing when the view mounts does not nudge.
+const ERROR_NUDGE_X = [0, -4, 4, -2, 2, 0];
+export const errorNudge: Variants = {
+    initial: { x: 0 },
+    animate: { x: ERROR_NUDGE_X, transition: { duration: MOTION.durExit, ease: MOTION.easeFluid } },
+};
+
+// Change flash (moment 14): a one-shot accent wash on a value that changed under the user (a run's next step, a
+// task's state). Plays `@keyframes changeFlash` in tailwindsetup.css, gated by useChangeFlash; CHANGE_FLASH_MS is
+// that hook's hold and the keyframe's length. Long, because the wash must outlast a glance away and back.
+export const CHANGE_FLASH_MS = 1200;
+export const changeFlashClass = "animate-[changeFlash_1.2s_ease-out] motion-reduce:animate-none";
+
+// Auto height (moment 15): a card following its content's height ("this grew because its content did").
+export const autoHeightTransition: Transition = { duration: MOTION.durMacro, ease: MOTION.easeFluid };
+
+// Draw check (moment 16): a check's stroke drawing on says "this just finished"; DrawCheck's path inherits these
+// from its svg, so AnimatePresence initial={false} mounts an already-done check drawn.
+export const drawCheck: Variants = {
+    hidden: { pathLength: 0 },
+    drawn: { pathLength: 1, transition: { duration: MOTION.durMacro, ease: MOTION.easeFluid } },
+};
+
+// Morph (moment 17): the transition for a layout/layoutId element moving between two places or sizes (Fit <->
+// Actual, a chip's selection, a row changing sections), so it reads as the same thing, now here.
+export const morphTransition: Transition = { duration: MOTION.durMacro, ease: MOTION.easeFluid };
+
 // No-cascade entrance guard (shared by Channels, Files, and future list surfaces). Switching the
 // active `key` (channel / files source / …) reseeds silently so a whole-list swap never cascades;
 // only ids that arrive while the key is unchanged animate in. Pure — callers hold the returned

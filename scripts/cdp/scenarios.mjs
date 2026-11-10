@@ -218,6 +218,17 @@ import { cockpitLaunchStays } from "./scenarios-cockpit-launch.mjs";
 import { cockpitOffgrid } from "./scenarios-cockpit-offgrid.mjs";
 import { cockpitRailHelp } from "./scenarios-cockpit-rail.mjs";
 import { cockpitRosterCounts } from "./scenarios-cockpit-roster.mjs";
+import { motionRunSheet } from "./scenarios-motion-run-sheet.mjs";
+import { motionDagPeek } from "./scenarios-motion-dag-peek.mjs";
+import { motionPeeks } from "./scenarios-motion-peeks.mjs";
+import { motionFinal } from "./scenarios-motion-final.mjs";
+import { motionBrief } from "./scenarios-motion-brief.mjs";
+import { motionBriefControls } from "./scenarios-motion-brief-controls.mjs";
+import { motionBrainstorm } from "./scenarios-motion-brainstorm.mjs";
+import { motionLens } from "./scenarios-motion-lens.mjs";
+import { motionAgent } from "./scenarios-motion-agent.mjs";
+import { motionDiff } from "./scenarios-motion-diff.mjs";
+import { motionCode } from "./scenarios-motion-code.mjs";
 import { SESSIONS_KIT } from "./scenarios-shared.mjs";
 
 
@@ -291,6 +302,17 @@ export const SCENARIOS = [
     uiApi,
     motionGaps,
     motionControls,
+    motionRunSheet,
+    motionDagPeek,
+    motionPeeks,
+    motionFinal,
+    motionBrief,
+    motionBriefControls,
+    motionBrainstorm,
+    motionLens,
+    motionAgent,
+    motionDiff,
+    motionCode,
     narrationFeed,
     notesWsh,
     agentTreeRail,

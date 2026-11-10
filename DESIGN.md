@@ -388,6 +388,12 @@ runtime logos stay image assets.
   `element/motiontokens.ts` (`MOTION.durMacro` ~360ms on
   `cubic-bezier(0.22,1,0.36,1)`, micro ~140ms, exits ~280ms); card entrances
   animate opacity + scale, never x/y; `MotionConfig reducedMotion="user"`.
+  Beyond the reveals and fades, a step through a sequence slides (`StepSwap`), a
+  bar fill transitions (`barFillClass`), a changed count rolls (`TickNumber`), a
+  failed action's error nudges (`errorNudge`), a value changed under the user
+  washes (`useChangeFlash`), a card follows its content's height (`AutoHeight`),
+  a finish draws its check (`DrawCheck`), and a moved element morphs
+  (`morphTransition`): moments 10-17 in `docs/reference/motion-system.md`.
 - **Empty states** — `SurfaceEmptyState` (`view/agents/surfacescaffold.tsx`) at surface and pane scope alike.
 - **Modals** — `modalshell.tsx` with `role="dialog"` + `aria-modal`, Escape
   to close, focus trap; rendered centrally via `ModalsRenderer`.

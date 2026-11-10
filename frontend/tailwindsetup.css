@@ -388,6 +388,22 @@ svg [aria-label="tip"] g path {
     }
 }
 
+/* Change flash (moment 14): a one-shot accent wash on a value that changed under the user, played through
+   changeFlashClass (motiontokens.ts) when useChangeFlash fires. Only the start is given, so the wash fades into
+   the element's own background, whatever that is, instead of snapping back to it. */
+@keyframes changeFlash {
+    from {
+        background-color: color-mix(in oklab, var(--color-accent) 18%, transparent);
+    }
+}
+
+/* reduced motion: no wash; the new value itself is the information */
+@media (prefers-reduced-motion: reduce) {
+    [class*="changeFlash"] {
+        animation: none;
+    }
+}
+
 /* Fresh mark (Jarvis motion moment 1): a row new since your last visit carries a one-shot accent rule
    on its leading edge, holding briefly then fading. A positioned ::before rather than a box-shadow,
    because a row's focus cursor is `ring-1 ring-accent/70` — itself a box-shadow — and a second shadow
