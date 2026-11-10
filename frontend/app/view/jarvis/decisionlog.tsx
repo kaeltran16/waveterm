@@ -1,11 +1,15 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { CrossFade } from "@/app/element/crossfade";
+import { cardVariants, composerReveal, computeEntrances, initialEntranceState } from "@/app/element/motiontokens";
+import { PaneReveal } from "@/app/element/panereveal";
 import { DialogButton } from "@/app/modals/dialogbutton";
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
+import { MotionConfig, motion } from "motion/react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { pendingDecisionAnchorAtom } from "./petstore";
 import { ageLabel } from "./recallderive";
 import { appendDecision } from "./recordactions";
@@ -54,9 +58,14 @@ function DecisionCardRow({ card }: { card: DecisionCard }) {
             </div>
             <div className="mt-1 flex items-center gap-2 text-[11px] text-muted">
                 <span className="rounded bg-surface-hover px-1.5 py-0.5 font-mono">{card.actor}</span>
-                {card.status !== "active" ? (
-                    <span className="rounded bg-warning/12 px-1.5 py-0.5 font-mono text-warning">{card.status}</span>
-                ) : null}
+                {/* a decision superseded or reverted while the log is open trades its label in place */}
+                <CrossFade swapKey={card.status}>
+                    {card.status !== "active" ? (
+                        <span className="rounded bg-warning/12 px-1.5 py-0.5 font-mono text-warning">
+                            {card.status}
+                        </span>
+                    ) : null}
+                </CrossFade>
             </div>
             {body ? (
                 <div className="mt-2 whitespace-pre-wrap text-[13px] leading-[1.55] text-secondary">{body}</div>
@@ -128,27 +137,49 @@ function AppendForm({ dossierId, onDone }: { dossierId: string; onDone: () => vo
 
 export function DecisionLog({ decisions, dossierId }: { decisions: DecisionCard[]; dossierId: string }) {
     const [adding, setAdding] = useState(false);
+    // a decision logged while the log is open enters as a card; keyed on the record, so opening the log or
+    // switching record never cascades. Committed in a layout effect: render can run twice.
+    const ids = decisions.map((c) => c.id);
+    const entranceRef = useRef(initialEntranceState());
+    const { animate: entering } = computeEntrances(entranceRef.current, dossierId, ids);
+    const idsKey = ids.join(",");
+    useLayoutEffect(() => {
+        entranceRef.current = computeEntrances(entranceRef.current, dossierId, ids).state;
+    }, [idsKey, dossierId]);
+    // the log renders in the record band and in the peek, so it owns its reduced-motion config whichever hosts it
     return (
-        <div className="flex flex-col gap-2.5">
-            {decisions.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-border px-3.5 py-4 text-[12.5px] text-muted">
-                    No decisions yet.
-                </div>
-            ) : (
-                decisions.map((c) => <DecisionCardRow key={c.id} card={c} />)
-            )}
-            {adding ? (
-                <AppendForm dossierId={dossierId} onDone={() => setAdding(false)} />
-            ) : (
-                <button
-                    type="button"
-                    data-jarvis-decision-add
-                    onClick={() => setAdding(true)}
-                    className="self-start rounded border border-border px-3 py-1.5 text-[12.5px] font-semibold text-secondary hover:bg-surface-hover"
-                >
-                    + Add decision
-                </button>
-            )}
-        </div>
+        <MotionConfig reducedMotion="user">
+            <div className="flex flex-col gap-2.5">
+                {decisions.length === 0 ? (
+                    <div className="rounded-lg border border-dashed border-border px-3.5 py-4 text-[12.5px] text-muted">
+                        No decisions yet.
+                    </div>
+                ) : (
+                    decisions.map((c) => (
+                        <motion.div
+                            key={c.id}
+                            variants={cardVariants}
+                            initial={entering.has(c.id) ? "initial" : false}
+                            animate="animate"
+                        >
+                            <DecisionCardRow card={c} />
+                        </motion.div>
+                    ))
+                )}
+                <PaneReveal open={adding} variants={composerReveal}>
+                    <AppendForm dossierId={dossierId} onDone={() => setAdding(false)} />
+                </PaneReveal>
+                {!adding ? (
+                    <button
+                        type="button"
+                        data-jarvis-decision-add
+                        onClick={() => setAdding(true)}
+                        className="self-start rounded border border-border px-3 py-1.5 text-[12.5px] font-semibold text-secondary hover:bg-surface-hover"
+                    >
+                        + Add decision
+                    </button>
+                ) : null}
+            </div>
+        </MotionConfig>
     );
 }

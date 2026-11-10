@@ -1,6 +1,9 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { AutoHeight } from "@/app/element/autoheight";
+import { useChangeFlash } from "@/app/element/motionhooks";
+import { changeFlashClass } from "@/app/element/motiontokens";
 import { ConfirmDialog } from "@/app/modals/confirmdialog";
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn } from "@/util/util";
@@ -27,6 +30,16 @@ function MachineField({ label, children }: { label: string; children: ReactNode 
                 {label}
             </div>
             <div className="text-[13px] leading-[1.55] text-secondary">{children}</div>
+        </div>
+    );
+}
+
+// Arc rewrites the state as the work moves, so a rewrite while the record is open washes once to be seen
+function StateValue({ state }: { state: string }) {
+    const flashing = useChangeFlash(state);
+    return (
+        <div data-jarvis-detail-state className={cn("whitespace-pre-wrap rounded-[3px]", flashing && changeFlashClass)}>
+            {state}
         </div>
     );
 }
@@ -175,15 +188,19 @@ export function TaskDetail({ detail, statusWritable = true }: { detail: DossierD
                 </div>
                 {parts?.body != null ? (
                     <div className="mt-3 flex flex-col gap-1.5">
-                        <p
-                            data-jarvis-detail-body
-                            className={cn(
-                                "m-0 whitespace-pre-line text-[13px] leading-[1.6] text-ink-mid",
-                                parts.bodyMore != null && !bodyOpen && "line-clamp-4"
-                            )}
-                        >
-                            {parts.body}
-                        </p>
+                        {/* Show more unclamps the body: its height follows instead of jumping. Keyed by record, so
+                            another record's body lands at its own height. */}
+                        <AutoHeight key={detail.id}>
+                            <p
+                                data-jarvis-detail-body
+                                className={cn(
+                                    "m-0 whitespace-pre-line text-[13px] leading-[1.6] text-ink-mid",
+                                    parts.bodyMore != null && !bodyOpen && "line-clamp-4"
+                                )}
+                            >
+                                {parts.body}
+                            </p>
+                        </AutoHeight>
                         {parts.bodyMore != null ? (
                             <button
                                 type="button"
@@ -216,7 +233,8 @@ export function TaskDetail({ detail, statusWritable = true }: { detail: DossierD
                     ) : null}
                     {detail.state ? (
                         <MachineField label="State">
-                            <div className="whitespace-pre-wrap">{detail.state}</div>
+                            {/* keyed by record, so switching record is not a change under you */}
+                            <StateValue key={detail.id} state={detail.state} />
                         </MachineField>
                     ) : null}
                     {blockers.length > 0 ? (

@@ -1082,9 +1082,10 @@ export const LOOK_LIB = `
     const button = (from, re) => [...(from?.querySelectorAll("button") ?? [])].find((b) => re.test(flat(b)));
     // the topmost: a sheet is a modal dialog too, and a confirm opens over it
     const dialog = () => [...document.querySelectorAll('[role="dialog"][aria-modal="true"]')].pop() ?? null;
-    // a pre-bundled dependency at the url the app loaded it from: another url is another instance, a second React
+    // a pre-bundled dependency at the url the app loaded it from: another url is another instance, a second React.
+    // Matched on deps/ alone: the Final stage moves vite's cache dir (ARC_VITE_CACHE_DIR), so it is not always .vite
     const dep = (name) => {
-        const hit = performance.getEntriesByType("resource").map((e) => e.name).find((n) => n.split("?")[0].endsWith("/.vite/deps/" + name + ".js"));
+        const hit = performance.getEntriesByType("resource").map((e) => e.name).find((n) => n.split("?")[0].endsWith("/deps/" + name + ".js"));
         if (hit == null) throw new Error("no vite dep url for " + name);
         return import(hit);
     };

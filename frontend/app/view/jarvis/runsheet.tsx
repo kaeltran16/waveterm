@@ -9,8 +9,23 @@
 // card for what needs you, then the tasks), and the dock (the configuration line and the run's actions).
 // All derivations are runsheetmodel.ts; this file maps them to DOM and to the verbs that already exist.
 
+import { CrossFade } from "@/app/element/crossfade";
+import { useChangeFlash } from "@/app/element/motionhooks";
+import {
+    barFillClass,
+    cardVariants,
+    changeFlashClass,
+    composerReveal,
+    computeEntrances,
+    easeFluidCss,
+    initialEntranceState,
+    MOTION,
+    turnTransition,
+    viewFade,
+} from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
 import { Skeleton } from "@/app/element/skeleton";
+import { TickNumber } from "@/app/element/ticknumber";
 import { getSettingsKeyAtom } from "@/app/store/global";
 import * as WOS from "@/app/store/wos";
 import { RpcApi } from "@/app/store/wshclientapi";
@@ -46,8 +61,9 @@ import { groupEvents, railRows, type EventGroup } from "@/app/view/orchestrate/t
 import { groupTime, SpineGlyph } from "@/app/view/orchestrate/timelinerail";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtomValue, useSetAtom, type Atom } from "jotai";
-import { ArrowUpRight, Check, ChevronDown, ChevronRight, CornerDownRight } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { ArrowUpRight, Check, ChevronRight, CornerDownRight } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { RunComposer } from "./briefcomposer";
 import {
     RunSettingsPanel,
@@ -116,6 +132,11 @@ const TONE_BG: Record<SheetTone, string> = {
     faint: "bg-edge-strong",
     accent: "bg-accent",
 };
+
+// a strip segment changing state recolors over the micro beat instead of jumping; the timing is inline, so
+// motion-reduce:transition-none (a transition-property) still lands the new color at once
+const SEG_RECOLOR = "transition-colors motion-reduce:transition-none";
+const SEG_RECOLOR_TIMING = { transitionDuration: `${MOTION.durMicro}s`, transitionTimingFunction: easeFluidCss };
 
 const FINAL_TONE_BG: Record<FinalCheckEntry["tone"], string> = {
     pass: "bg-success",
@@ -248,16 +269,22 @@ function RunSheetFrame({ ctx, dag }: { ctx: SheetCtx; dag: SheetDagRead | null }
                         <ChildAskCard channelId={channel.oid} runId={run.id} />
                     </div>
                 ) : null}
-                {/* a filed report is the finished body; a run with none keeps its sealed evidence (design L508, L539) */}
-                {body != null ? (
-                    body === "report" ? (
-                        <RunReportView model={ctx.model} run={run} />
-                    ) : (
-                        <Evidence ctx={ctx} dag={dag} />
-                    )
-                ) : (
-                    <Tasks ctx={ctx} dag={dag} status={status} asks={asks} />
-                )}
+                {/* a filed report is the finished body; a run with none keeps its sealed evidence (design L508, L539).
+                    A run finishing under the open sheet fades its new body in; keyed by run, so stepping to another
+                    run, or opening the sheet, shows its body at once. */}
+                <AnimatePresence key={run.id} initial={false} mode="wait">
+                    <motion.div key={body ?? "tasks"} variants={viewFade} initial="initial" animate="animate">
+                        {body != null ? (
+                            body === "report" ? (
+                                <RunReportView model={ctx.model} run={run} />
+                            ) : (
+                                <Evidence ctx={ctx} dag={dag} />
+                            )
+                        ) : (
+                            <Tasks ctx={ctx} dag={dag} status={status} asks={asks} />
+                        )}
+                    </motion.div>
+                </AnimatePresence>
             </div>
             {/* the settings face's selector is kept on the dock: checks read it as "a run face is showing". The
                 configuration moved up into the reading; the composer sits under the dock (design L571-587). */}
@@ -440,7 +467,12 @@ function Reading({
                         ))}
                         {spent != null ? (
                             <span data-run-sheet-usage className="text-ink-mid">
-                                {spendText(spent)}
+                                {/* keyed by run, so stepping to another run shows its spend instead of rolling to it */}
+                                <TickNumber
+                                    key={run.id}
+                                    value={spent.total}
+                                    format={(n) => spendText({ ...spent, total: n })}
+                                />
                             </span>
                         ) : null}
                         {status.retry && onRetry != null ? (
@@ -459,16 +491,18 @@ function Reading({
                 title={goalOpen ? "Collapse" : "Expand"}
                 className="mt-0.5 cursor-pointer text-[17px] font-bold leading-[1.3] tracking-[-.01em] text-primary hover:opacity-90"
             >
-                {goalOpen ? (
+                {/* the title folds away as the goal grows in, so the heading opens rather than cutting */}
+                <PaneReveal open={!goalOpen}>
+                    <div className="line-clamp-2">
+                        <InlineMarkdown text={runTitle(run.goal, run.evidence?.summary ?? "")} />
+                    </div>
+                </PaneReveal>
+                <PaneReveal open={goalOpen}>
                     <MarkdownMessage
                         text={run.goal}
                         className={cn(STAGE_PROSE, "text-[14px] font-semibold leading-snug text-primary")}
                     />
-                ) : (
-                    <div className="line-clamp-2">
-                        <InlineMarkdown text={runTitle(run.goal, run.evidence?.summary ?? "")} />
-                    </div>
-                )}
+                </PaneReveal>
             </div>
             {ref != null && effort != null ? (
                 // the key links out to Jira, which a button cannot hold, so it sits beside the one that opens the chunk
@@ -516,7 +550,12 @@ function SheetBarView({ bar, dag }: { bar: SheetBar | null; dag: SheetDagRead | 
                 {Array.from({ length: bar.total }, (_, i) => (
                     <span
                         key={i}
-                        className={cn("h-1 flex-1 rounded-[2px]", i < bar.done ? "bg-accent-700" : "bg-edge-mid")}
+                        style={SEG_RECOLOR_TIMING}
+                        className={cn(
+                            "h-1 flex-1 rounded-[2px]",
+                            SEG_RECOLOR,
+                            i < bar.done ? "bg-accent-700" : "bg-edge-mid"
+                        )}
                     />
                 ))}
             </div>
@@ -532,13 +571,21 @@ function SheetBarView({ bar, dag }: { bar: SheetBar | null; dag: SheetDagRead | 
         <div role="img" aria-label={taskStripLabel(group, digest)} className="flex h-1 gap-[3px]">
             {strip.kind === "segments" ? (
                 strip.states.map((st, i) => (
-                    <span key={i} className={cn("h-full min-w-[2px] flex-1 rounded-[2px]", SEG_FILL[st])} />
+                    <span
+                        key={i}
+                        data-run-sheet-seg={st}
+                        style={SEG_RECOLOR_TIMING}
+                        className={cn("h-full min-w-[2px] flex-1 rounded-[2px]", SEG_RECOLOR, SEG_FILL[st])}
+                    />
                 ))
             ) : (
                 <>
-                    <span className="h-full min-w-0 rounded-[2px] bg-success" style={{ flexGrow: strip.done }} />
                     <span
-                        className="h-full min-w-0 rounded-[2px] bg-edge-strong"
+                        className={cn("h-full min-w-0 rounded-[2px] bg-success", barFillClass)}
+                        style={{ flexGrow: strip.done }}
+                    />
+                    <span
+                        className={cn("h-full min-w-0 rounded-[2px] bg-edge-strong", barFillClass)}
                         style={{ flexGrow: strip.total - strip.done }}
                     />
                 </>
@@ -562,6 +609,15 @@ function Tasks({
     const events = useRunEvents(run.id, channel.oid);
     const [timelineOpen, setTimelineOpen] = useState(false);
     const rows = railRows(useMemo(() => groupEvents(events), [events]));
+    // a burst arriving while the sheet is open enters as a card; keyed on the run, so the rows already there when
+    // the sheet opens (or the timeline is expanded) never cascade. Committed in a layout effect: render can run twice.
+    const burstIds = rows.flatMap((r) => (r.kind === "group" ? [r.group.id] : []));
+    const entranceRef = useRef(initialEntranceState());
+    const { animate: entering } = computeEntrances(entranceRef.current, run.id, burstIds);
+    const burstIdsKey = burstIds.join(",");
+    useLayoutEffect(() => {
+        entranceRef.current = computeEntrances(entranceRef.current, run.id, burstIds).state;
+    }, [burstIdsKey, run.id]);
     const digestState = dag?.digest;
     const digest = digestState?.digest;
     const group = dag?.group ?? null;
@@ -592,12 +648,20 @@ function Tasks({
                         onClick={() => setTimelineOpen((o) => !o)}
                         className={cn(LINK, "inline-flex flex-none items-center gap-1")}
                     >
-                        {timelineOpen ? <ChevronDown size={11} aria-hidden /> : <ChevronRight size={11} aria-hidden />}
+                        <ChevronRight
+                            size={11}
+                            aria-hidden
+                            style={turnTransition}
+                            className={cn(
+                                "transition-transform motion-reduce:transition-none",
+                                timelineOpen && "rotate-90"
+                            )}
+                        />
                         timeline · {events.length} events
                     </button>
                 ) : null}
             </div>
-            {timelineOpen ? (
+            <PaneReveal open={timelineOpen}>
                 <div data-run-sheet-timeline className="mb-3 flex flex-col">
                     <div className="sc max-h-[230px] overflow-y-auto">
                         <div className="relative pb-1.5 pt-0.5">
@@ -617,7 +681,15 @@ function Tasks({
                                 row.kind === "gap" ? (
                                     <SheetGapRow key={`gap:${i}`} minutes={row.minutes} />
                                 ) : (
-                                    <SheetBurstRow key={row.group.id} ctx={ctx} group={row.group} />
+                                    <motion.div
+                                        key={row.group.id}
+                                        data-run-sheet-burst-row={row.group.id}
+                                        variants={cardVariants}
+                                        initial={entering.has(row.group.id) ? "initial" : false}
+                                        animate="animate"
+                                    >
+                                        <SheetBurstRow ctx={ctx} group={row.group} />
+                                    </motion.div>
                                 )
                             )}
                         </div>
@@ -633,7 +705,7 @@ function Tasks({
                         </button>
                     ) : null}
                 </div>
-            ) : null}
+            </PaneReveal>
             {readable && !digestState.stale ? <Attention ctx={ctx} digest={digest} group={group} /> : null}
             {readable ? (
                 <div className="flex flex-col" data-run-sheet-rows>
@@ -655,12 +727,24 @@ function Tasks({
             ) : (
                 <EmptyTasks ctx={ctx} dag={dag} />
             )}
-            {status.next != null ? (
-                <div className="pb-1 pt-[13px] font-mono text-[11px] leading-[1.5] text-muted">
-                    <span className="text-muted">next: </span>
-                    {status.next}
-                </div>
-            ) : null}
+            {/* keyed by run, so stepping to another run is not a change under you */}
+            <NextLine key={run.id} next={status.next} />
+        </div>
+    );
+}
+
+// the scheduler's next move; it changing while the sheet is open washes once, so the move is seen to have moved
+function NextLine({ next }: { next: string | null }) {
+    const flashing = useChangeFlash(next);
+    if (next == null) {
+        return null;
+    }
+    return (
+        <div className="pb-1 pt-[13px] font-mono text-[11px] leading-[1.5] text-muted">
+            <span className="text-muted">next: </span>
+            <span data-run-sheet-next className={cn("rounded-[3px]", flashing && changeFlashClass)}>
+                {next}
+            </span>
         </div>
     );
 }
@@ -1074,16 +1158,21 @@ function Dock({
                             {configLine(run, draft, false)}
                         </span>
                     </div>
+                    {/* the confirmation exists only after a save in this sheet, so its fade is the save landing */}
                     {savedFor === run.oid ? (
-                        <button
+                        <motion.button
+                            variants={viewFade}
+                            initial="initial"
+                            animate="animate"
                             type="button"
+                            data-run-sheet-saved
                             onClick={() => openProfile(channel.oid)}
                             title="Open this project's Profile"
                             className="inline-flex flex-none cursor-pointer items-center gap-1.5 text-[11.5px] font-semibold text-success hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
                         >
                             <Check size={12} strokeWidth={2.4} aria-hidden />
                             Saved to this project's Profile
-                        </button>
+                        </motion.button>
                     ) : (
                         <button
                             type="button"
@@ -1092,7 +1181,9 @@ function Dock({
                             title={USE_FOR_NEW_RUNS_TITLE}
                             className={cn(DOCK_ACCENT, "flex-none")}
                         >
-                            {saving ? "Saving…" : "Use for new runs"}
+                            <CrossFade swapKey={saving ? "saving" : "idle"}>
+                                {saving ? "Saving…" : "Use for new runs"}
+                            </CrossFade>
                         </button>
                     )}
                 </div>
@@ -1161,7 +1252,8 @@ function Dock({
                     />
                 ) : null}
             </div>
-            {endable && ending ? (
+            {/* the form opens under the dock rather than cutting in, and folds away when it closes */}
+            <PaneReveal open={endable && ending} variants={composerReveal}>
                 <EndFinalForm
                     channelId={channel.oid}
                     runId={run.id}
@@ -1171,9 +1263,19 @@ function Dock({
                     }}
                     onError={(text) => setResult({ failed: true, text })}
                 />
-            ) : null}
+            </PaneReveal>
+            {/* keyed by its text, so each new outcome fades in */}
             {result != null ? (
-                <span className={cn("text-[11px]", result.failed ? "text-error" : "text-success")}>{result.text}</span>
+                <motion.span
+                    key={result.text}
+                    data-run-sheet-result={result.failed ? "failed" : "ok"}
+                    variants={viewFade}
+                    initial="initial"
+                    animate="animate"
+                    className={cn("text-[11px]", result.failed ? "text-error" : "text-success")}
+                >
+                    {result.text}
+                </motion.span>
             ) : null}
         </div>
     );

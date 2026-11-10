@@ -1496,9 +1496,10 @@ export const leadCardMergeGate = {
 
 // Page-only: the run's dag in the page takes `tasks` (fields per task id; an id it lacks is added) at one version past
 // the one it holds, and the dag status RPC answers that version with `digest` (fields per task row, added likewise):
-// the merge gate's held state and a task's actions are digest fields no RPC writes. undoPageDag puts the RPC back
+// the merge gate's held state and a task's actions are digest fields no RPC writes; `next`, when given, replaces the
+// digest's next step (the sheet's next: line). undoPageDag puts the RPC back
 // and reloads the stored dag, whose own version brings the real digest back.
-const injectPageDag = (h, runId, { tasks = {}, digest = {} }) =>
+export const injectPageDag = (h, runId, { tasks = {}, digest = {}, next }) =>
     lookEval(h, `
         const { RpcApi } = await mod("app/store/wshclientapi.ts");
         const WOS = await mod("app/store/wos.ts");
@@ -1515,11 +1516,11 @@ const injectPageDag = (h, runId, { tasks = {}, digest = {} }) =>
             const rtn = await saved.orig.call(RpcApi, client, data, opts);
             if (data?.runid !== runId || rtn?.digest == null) return rtn;
             const tasks = merge(rtn.digest.tasks ?? [], "taskid", ${JSON.stringify(digest)});
-            return { ...rtn, digest: { ...rtn.digest, dagversion: version, tasks } };
+            return { ...rtn, digest: { ...rtn.digest, dagversion: version, tasks${next ? `, next: ${JSON.stringify(next)}` : ""} } };
         };
         WOS.setObjectValue({ ...dag, version, tasks: merge(dag.tasks ?? [], "id", ${JSON.stringify(tasks)}) });
         return "ok";`);
-const undoPageDag = (h, runId) =>
+export const undoPageDag = (h, runId) =>
     lookEval(h, `
         const { RpcApi } = await mod("app/store/wshclientapi.ts");
         const WOS = await mod("app/store/wos.ts");
@@ -2741,7 +2742,7 @@ async function dagPeekSettled(h) {
     return last;
 }
 
-async function dagPeekPublish(h, ctx, events) {
+export async function dagPeekPublish(h, ctx, events) {
     const now = Date.now();
     for (const [i, [kind, detail, ago]] of events.entries()) {
         const event = {
