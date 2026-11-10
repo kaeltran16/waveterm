@@ -476,6 +476,7 @@ export default function (_kit) {
                         return {
                             window: window.innerWidth,
                             you: you != null && col.contains(you),
+                            youLabel: flat(you?.previousElementSibling),
                             // clientWidth holds the padding and not the scrollbar
                             inner: scroll.clientWidth - ${SCROLL_PAD_PX},
                             column: box(col).width,
@@ -488,6 +489,7 @@ export default function (_kit) {
                     })()`;
                     const fits = (m) =>
                         m.you &&
+                        m.youLabel === "You" &&
                         Math.abs(m.column - m.inner) <= FIT_PX &&
                         m.paraMax !== "none" &&
                         m.para <= parseFloat(m.paraMax) + 0.5 &&
@@ -1099,8 +1101,13 @@ export default function (_kit) {
                     await publishStatus(h, ctx, ctx.aBlock, { state: "working", hook: "UserPromptSubmit" });
                     const back = await wait(`${viewOf(ctx.aId)}.rendered`);
                     await h.shot(SHOT(18, "picker-back"));
-                    const ok = ready && sent && !flipped.rendered && flipped.termShown && !held.rendered && back;
-                    return [ok, { ready, sent, flipped, held, back }];
+                    // A has no controller, so the send raised "Message not sent"; it would sit over every later shot.
+                    // Waiting for it to leave the DOM keeps a later shot from catching its exit
+                    const unsentToasts = `[...document.querySelectorAll('[data-notification-toast="error"]')].filter((t) => t.innerText.includes("Message not sent"))`;
+                    await h.ev(`(${unsentToasts}.forEach((t) => t.click()), true)`);
+                    const toastGone = await wait(`${unsentToasts}.length === 0`);
+                    const ok = ready && sent && !flipped.rendered && flipped.termShown && !held.rendered && back && toastGone;
+                    return [ok, { ready, sent, flipped, held, back, toastGone }];
                 });
 
                 await step("rendered: v key — v with focus outside the terminal flips A between Rendered and Terminal", async () => {
