@@ -26,9 +26,11 @@ func ReadyTasks(g *waveobj.TaskGroup) []string {
 // startBase reports whether taskID may start, and the predecessor lane tip it starts on when that lane has not
 // merged yet (an early start, spec 2026-11-06-start-at-done-design). Without merges every dependency must be done
 // or skipped. With them a same-lane dependency must be done or skipped, and the cross-lane ones are grouped by
-// lane: all merged starts on the landing head (nil base); exactly one unmerged lane that is worker-done starts on
-// its tip, because its work is finished and only its review and merge remain. Two unmerged lanes would need a
-// merge into the new tree, so the task waits.
+// lane: all merged starts on the landing head (nil base). An early start on an unmerged lane's tip is allowed
+// only when every cross-lane dependency lies in that one lane and it is worker-done: its work is finished and
+// only its review and merge remain. A lane tip's branch was cut when the lane started, so it holds nothing merged
+// since; a cross-lane dependency already merged, or a second unmerged lane, would be missing from that base, so
+// the task waits until every cross-lane lane has merged (spec 2026-11-10-surface-review-followups-4 D4).
 func startBase(g *waveobj.TaskGroup, taskID string) (*waveobj.TaskNode, bool) {
 	t := taskByID(g, taskID)
 	if t == nil {
@@ -43,12 +45,15 @@ func startBase(g *waveobj.TaskGroup, taskID string) (*waveobj.TaskNode, bool) {
 		return nil, true
 	}
 	var unmerged []string
+	crossMerged := false
 	for _, d := range t.Deps {
+		lane := laneOf(g, d)
+		sameLane := slices.Contains(lane, taskID)
 		if depSatisfied(g, taskID, d) {
+			crossMerged = crossMerged || !sameLane
 			continue
 		}
-		lane := laneOf(g, d)
-		if taskByID(g, d) == nil || slices.Contains(lane, taskID) {
+		if taskByID(g, d) == nil || sameLane {
 			return nil, false
 		}
 		if len(unmerged) > 0 && !slices.Equal(unmerged, lane) {
@@ -58,6 +63,9 @@ func startBase(g *waveobj.TaskGroup, taskID string) (*waveobj.TaskNode, bool) {
 	}
 	if unmerged == nil {
 		return nil, true
+	}
+	if crossMerged {
+		return nil, false
 	}
 	tip := laneWorkerDone(g, unmerged)
 	return tip, tip != nil

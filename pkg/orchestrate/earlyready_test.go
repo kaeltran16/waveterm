@@ -81,10 +81,18 @@ func TestStartBaseForkStartsOnDonePredecessor(t *testing.T) {
 	assertStartBase(t, g, "t-2", "", true)
 }
 
-func TestStartBaseJoinOneUnmergedPredecessor(t *testing.T) {
+// the one intended behaviour change of spec 2026-11-10 D4: this join used to start early on t-2's tip, a branch
+// cut before t-1 merged, so t-1's commits were missing from its base. It now waits for t-2's lane to merge too.
+func TestStartBaseJoinWaitsForEveryLaneToMerge(t *testing.T) {
 	g := joinGroup(t, map[string]string{"t-1": TaskState_Done, "t-2": TaskState_Reviewing})
 	markMerged(g, "t-1")
-	assertStartBase(t, g, "t-3", "t-2", true)
+	assertStartBase(t, g, "t-3", "", false)
+	if got := ReadyTasks(g); len(got) != 0 {
+		t.Fatalf("a join with one lane merged and one unmerged waits, got %v", got)
+	}
+	markMerged(g, "t-2")
+	taskByID(g, "t-2").State = TaskState_Done
+	assertStartBase(t, g, "t-3", "", true)
 }
 
 func TestStartBaseJoinTwoUnmergedPredecessorsWaits(t *testing.T) {
