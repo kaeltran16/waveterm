@@ -16,6 +16,9 @@
 // running at, and a save sent from the snapshot would overwrite it. So the dock reads the group through
 // WOS (a scheduler tick has to show up here) and renders no controls until it has arrived.
 
+import { useCopyFeedback } from "@/app/element/copyfeedback";
+import { CrossFade } from "@/app/element/crossfade";
+import { composerReveal, errorNudge, microFade } from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
 import * as WOS from "@/app/store/wos";
 import { RpcApi } from "@/app/store/wshclientapi";
@@ -26,7 +29,8 @@ import { MAX_PARALLELISM } from "@/app/view/agents/runconfig";
 import { useDagGroup } from "@/app/view/orchestrate/dagstore";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { Check, Copy } from "lucide-react";
+import { Check, Copy, X } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState, type ReactNode } from "react";
 import { REGION_LABEL } from "./briefstyle";
 import {
@@ -60,28 +64,27 @@ export const SHEET_BTN =
     "cursor-pointer rounded-[7px] border border-border bg-surface-raised px-2.5 py-1 text-[11px] font-semibold text-secondary hover:border-edge-strong hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-default disabled:opacity-40";
 
 const RUN_ID_SHOWN = 8;
-const COPIED_MS = 1200;
+const COPY_MARK = {
+    idle: <Copy size={11} aria-hidden />,
+    copied: <Check size={11} aria-hidden className="text-success" />,
+    failed: <X size={11} aria-hidden className="text-error" />,
+} as const;
+const COPY_TITLE = { copied: "Copied", failed: "Copy failed" } as const;
 
 // The header's run id: the short form is what is read, the whole id is what is copied.
 function RunIdChip({ id }: { id: string }) {
-    const [copied, setCopied] = useState(false);
-    const copy = () =>
-        fireAndForget(async () => {
-            await navigator.clipboard.writeText(id);
-            setCopied(true);
-            setTimeout(() => setCopied(false), COPIED_MS);
-        });
+    const { state, copy } = useCopyFeedback();
     return (
         <button
             type="button"
             data-run-id={id}
-            onClick={copy}
-            title={copied ? "Copied" : `Copy run id ${id}`}
+            onClick={() => copy(id)}
+            title={state === "idle" ? `Copy run id ${id}` : COPY_TITLE[state]}
             aria-label="Copy run id"
             className="inline-flex flex-none cursor-pointer items-center gap-1.5 rounded-[5px] border border-border bg-surface-raised px-1.5 py-px text-secondary hover:border-edge-strong hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
             {id.slice(0, RUN_ID_SHOWN)}
-            {copied ? <Check size={11} aria-hidden className="text-success" /> : <Copy size={11} aria-hidden />}
+            <CrossFade swapKey={state}>{COPY_MARK[state]}</CrossFade>
         </button>
     );
 }
@@ -204,6 +207,8 @@ function LoadedConfig({
     const [baseline, setBaseline] = useState<RunSettingsDraft | null>(null);
     const [saving, setSaving] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
+    // keys the error's nudge, so a second refusal with the same message still shakes
+    const [failures, setFailures] = useState(0);
     const [notice, setNotice] = useState<string | null>(null);
     // keyed by run, so stepping to another run in the sheet drops it
     const [resolved, setResolved] = useState<{ runId: string; header: string } | null>(null);
@@ -288,6 +293,7 @@ function LoadedConfig({
                 onDone();
             } catch (e) {
                 setError(String(e));
+                setFailures((n) => n + 1);
             } finally {
                 setSaving(null);
             }
@@ -295,6 +301,7 @@ function LoadedConfig({
     };
     const turningOn = draft.autonomous && !baseline.autonomous;
     const turningOff = !draft.autonomous && baseline.autonomous;
+    const approvalsNote = turningOn && waiting != null ? "on" : turningOff ? "off" : "none";
     const resolvedHeader = resolved?.runId === run.id ? resolved.header : null;
     const save = () => {
         // read at save time: once the lead has its answer, the question leaves the status
@@ -396,34 +403,53 @@ function LoadedConfig({
                         </button>
                     ))}
                 </div>
-                {turningOn && waiting != null ? (
-                    <span className="text-[11.5px] leading-[1.5] text-warning-soft">
-                        Saving hands the waiting {waiting.header} back to the lead, and it answers everything from then
-                        on.
-                    </span>
-                ) : null}
-                {turningOff ? (
-                    <span className="text-[11.5px] leading-[1.5] text-muted">
-                        The lead asks you again from its next decision. Calls it already made stand.
-                    </span>
-                ) : null}
+                {/* empty:hidden, so the "none" side adds no gap below the toggle */}
+                <CrossFade swapKey={approvalsNote} className="text-[11.5px] leading-[1.5] empty:hidden">
+                    {approvalsNote === "on" && waiting != null ? (
+                        <span className="text-warning-soft">
+                            Saving hands the waiting {waiting.header} back to the lead, and it answers everything from
+                            then on.
+                        </span>
+                    ) : approvalsNote === "off" ? (
+                        <span className="text-muted">
+                            The lead asks you again from its next decision. Calls it already made stand.
+                        </span>
+                    ) : null}
+                </CrossFade>
             </div>
-            {invalid ? (
+            <PaneReveal open={invalid} variants={composerReveal}>
                 <p data-jarvis-brief-sheet-state="error" className="text-[11.5px] text-error">
                     Enter a whole number from 1 through {MAX_PARALLELISM}. The scheduler is still running at{" "}
                     {baseline.parallelism}.
                 </p>
-            ) : null}
-            {error != null ? (
-                <p data-jarvis-brief-sheet-state="error" className="text-[11.5px] text-error">
+            </PaneReveal>
+            <PaneReveal open={error != null} variants={composerReveal}>
+                <motion.p
+                    key={failures}
+                    data-jarvis-brief-sheet-state="error"
+                    variants={errorNudge}
+                    initial="initial"
+                    animate="animate"
+                    className="text-[11.5px] text-error"
+                >
                     {error}
-                </p>
-            ) : null}
-            {notice != null && !dirty ? (
-                <p data-jarvis-brief-sheet-state="saved" className="text-[11.5px] text-success">
-                    {notice}
-                </p>
-            ) : null}
+                </motion.p>
+            </PaneReveal>
+            <AnimatePresence initial={false}>
+                {notice != null && !dirty ? (
+                    <motion.p
+                        key="notice"
+                        data-jarvis-brief-sheet-state="saved"
+                        variants={microFade}
+                        initial="initial"
+                        animate="animate"
+                        exit="exit"
+                        className="text-[11.5px] text-success"
+                    >
+                        {notice}
+                    </motion.p>
+                ) : null}
+            </AnimatePresence>
             <div className="flex items-center gap-2">
                 <button
                     type="button"
