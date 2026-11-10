@@ -474,3 +474,29 @@ func TestWorkStampKey(t *testing.T) {
 		}
 	}
 }
+
+func TestHookStatusIdentity(t *testing.T) {
+	input := json.RawMessage(`{"file_path":"a.go","old_string":"x"}`)
+	var ev ccHookEvent
+	raw := `{"hook_event_name":"PostToolUse","tool_name":"Edit","permission_mode":"acceptEdits","tool_input":{"old_string":"x","file_path":"a.go"}}`
+	if err := json.Unmarshal([]byte(raw), &ev); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	mode, key := hookStatusIdentity(ev)
+	if mode != "acceptEdits" {
+		t.Fatalf("PermissionMode = %q, want acceptEdits", mode)
+	}
+	if want := toolKey("Edit", input); key != want {
+		t.Fatalf("ToolKey = %q, want %q (computed over the same call whatever the key order)", key, want)
+	}
+
+	// only a PostToolUse names a tool call that ran
+	ev.HookEventName = "PreToolUse"
+	if _, key := hookStatusIdentity(ev); key != "" {
+		t.Fatalf("PreToolUse ToolKey = %q, want empty", key)
+	}
+	ev.HookEventName = "Stop"
+	if mode, key := hookStatusIdentity(ev); mode != "acceptEdits" || key != "" {
+		t.Fatalf("Stop identity = (%q, %q), want the mode and no key", mode, key)
+	}
+}
