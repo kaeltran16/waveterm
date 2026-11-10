@@ -9,6 +9,7 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CodeBlock } from "./codeblock";
 import { splitInsightBlocks } from "./insightblocks";
+import { blockRendererFor } from "./renderregistry";
 
 // Lightweight inline markdown for narration lines. Deliberately NOT the full element/markdown.tsx
 // (which wraps every render in OverlayScrollbars + a TOC + rehypeRaw); raw HTML is not enabled here,
@@ -42,7 +43,8 @@ const MD_COMPONENTS: Components = {
         const className: string = props.className ?? "";
         const lang = /language-(\w+)/.exec(className)?.[1];
         const raw = Array.isArray(props.children) ? props.children.join("") : String(props.children ?? "");
-        return <CodeBlock code={raw} lang={lang} />;
+        const Renderer = blockRendererFor(lang);
+        return Renderer ? <Renderer raw={raw} /> : <CodeBlock code={raw} lang={lang} />;
     },
 };
 

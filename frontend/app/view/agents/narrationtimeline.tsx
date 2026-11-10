@@ -23,8 +23,10 @@ import {
 } from "./agentsviewmodel";
 import { MarkdownMessage } from "./markdownmessage";
 import { highlightLine } from "./highlight";
+import { toolRendererKey } from "./renderregistry";
 import { TIMELINE_RENDER_CAP } from "./sessionstranscript";
 import { formatDuration } from "./tooldetail";
+import { ToolOutputRenderer } from "./toolrenderers";
 
 // Handoff lane feed (Wave-cockpit-live.dc.html:211-247). message -> narration row
 // (accent avatar + prose); user -> right-aligned bubble; action -> tool line
@@ -298,8 +300,9 @@ export function ToolDetailBody({ detail, variant }: { detail: ActionDetail; vari
 // A single tool action row. Clickable when it carries detail: short detail expands inline, detail
 // past the per-kind budget opens the viewport modal. The bare-line look is preserved when detail
 // is absent (e.g. Codex actions, or Claude tools with no captured body).
-function ToolLine({ action }: { action: AgentActionEntry }) {
+function ToolLine({ action, renderers }: { action: AgentActionEntry; renderers?: boolean }) {
     const [open, setOpen] = useState(false);
+    const rendererKey = renderers ? toolRendererKey(action) : null;
     const ok = action.outcome !== "fail";
     const detail = action.detail;
     const toModal = detail ? detailExceedsInline(detail) : false;
@@ -360,6 +363,11 @@ function ToolLine({ action }: { action: AgentActionEntry }) {
                     </motion.div>
                 ) : null}
             </AnimatePresence>
+            {rendererKey ? (
+                <div className="mb-1.5 ml-[30px] mt-1">
+                    <ToolOutputRenderer action={action} />
+                </div>
+            ) : null}
         </div>
     );
 }
@@ -580,6 +588,7 @@ export function NarrationTimeline({
     accentLatest,
     active,
     renderAll,
+    renderers,
     className,
 }: {
     entries: AgentEntry[];
@@ -587,6 +596,9 @@ export function NarrationTimeline({
     active?: boolean;
     // a find over the transcript must reach its earliest turns, so it lifts the cap
     renderAll?: boolean;
+    // draws the registered tool output cards open under their rows; only the rendered view sets it,
+    // since always-open cards would bloat the cockpit's narrow cards
+    renderers?: boolean;
     className?: string;
 }) {
     const [expanded, setExpanded] = useState<Set<number>>(new Set());
@@ -713,7 +725,7 @@ export function NarrationTimeline({
                     );
                 }
                 if (item.kind === "action") {
-                    return <ToolLine key={item.index} action={item.action} />;
+                    return <ToolLine key={item.index} action={item.action} renderers={renderers} />;
                 }
                 if (item.kind === "edit-burst") {
                     return <EditBurstRow key={"eb" + item.startIndex} files={item.files} adds={item.adds} dels={item.dels} />;
@@ -722,7 +734,7 @@ export function NarrationTimeline({
                 const mode = burstRenderMode({ userOpened: expanded.has(item.startIndex), autoOpen: !!active && isTrailing });
                 if (mode !== "collapsed") {
                     const lines = item.actions.map((action, k) => (
-                        <ToolLine key={item.startIndex + k} action={action} />
+                        <ToolLine key={item.startIndex + k} action={action} renderers={renderers} />
                     ));
                     // "reveal" (user expanded a historical burst) grows open; "open" (auto-open trailing
                     // burst during streaming) renders plain so the live run never strobes.
