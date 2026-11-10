@@ -91,9 +91,9 @@ export function HeaderControls({ agent }: { agent: AgentVM }) {
         ContextMenuModel.getInstance().showContextMenu(items, e);
     };
 
-    // bypassPermissions or an unknown mode has no way to step around the cycle: shown, not changeable
-    const modeLabel = permissionModeLabel(mode ?? undefined);
+    // bypassPermissions or an unknown mode has no way to step around the cycle, so a chip would only be noise
     const changeable = mode != null && PERMISSION_CYCLE.includes(mode);
+    const modeLabel = changeable ? permissionModeLabel(mode) : "";
 
     return (
         <>
@@ -110,22 +110,16 @@ export function HeaderControls({ agent }: { agent: AgentVM }) {
                 </button>
             ) : null}
             {modeLabel ? (
-                changeable ? (
-                    <button
-                        type="button"
-                        data-header-permission-mode
-                        aria-label={`Permission mode: ${modeLabel}, change`}
-                        onClick={openModeMenu}
-                        className={`${CONTROL_CLASS} cursor-pointer hover:border-edge-strong`}
-                    >
-                        {modeLabel}
-                        <ChevronDown size={10} aria-hidden />
-                    </button>
-                ) : (
-                    <span data-header-permission-mode className={CONTROL_CLASS}>
-                        {modeLabel}
-                    </span>
-                )
+                <button
+                    type="button"
+                    data-header-permission-mode
+                    aria-label={`Permission mode: ${modeLabel}, change`}
+                    onClick={openModeMenu}
+                    className={`${CONTROL_CLASS} cursor-pointer hover:border-edge-strong`}
+                >
+                    {modeLabel}
+                    <ChevronDown size={10} aria-hidden />
+                </button>
             ) : null}
         </>
     );
