@@ -40,6 +40,9 @@ const AXIS_TICKS = 4;
 // past this many categories the bottom axis labels are thinned
 const MAX_X_LABELS = 8;
 const POINT_R = 3.5;
+// a line or area marks its points (each with a hover value) while they are few enough to read apart
+const POINTS_MARKED_MAX = 40;
+const POINT_MARKER_R = 2.5;
 const AXIS_LABEL = {
     fill: "var(--color-muted)",
     fontSize: 10.5,
@@ -63,6 +66,7 @@ export function ChartCard({ raw }: { raw: string }) {
         );
     }
     const spec = parsed.spec;
+    const axes = axisTitles(spec);
     return (
         <div
             data-chart-card
@@ -89,8 +93,11 @@ export function ChartCard({ raw }: { raw: string }) {
                 </div>
             ) : (
                 <div className="flex flex-col gap-2 px-4 pb-3 pt-[14px]">
-                    {spec.x?.label || spec.y?.label ? <AxisTitles spec={spec} /> : null}
+                    {axes.vertical ? <span className={AXIS_TITLE}>{axes.vertical}</span> : null}
                     {spec.type === "bar" ? <BarChart spec={spec} /> : <PlotChart spec={spec} />}
+                    {axes.horizontal ? (
+                        <span className={`${AXIS_TITLE} -mt-1 text-right`}>{axes.horizontal}</span>
+                    ) : null}
                     {spec.series.length > 1 ? <Legend spec={spec} /> : null}
                 </div>
             )}
@@ -98,16 +105,16 @@ export function ChartCard({ raw }: { raw: string }) {
     );
 }
 
-function AxisTitles({ spec }: { spec: ChartSpec }) {
-    // bars run horizontally, so the value axis reads along the bottom
-    const value = [spec.y?.label, spec.y?.unit ? `(${spec.y.unit})` : ""].filter(Boolean).join(" ");
-    return (
-        <div className="flex font-mono text-[10.5px] text-muted">
-            <span>{spec.type === "bar" ? spec.x?.label : value}</span>
-            <span className="flex-1" />
-            <span>{spec.type === "bar" ? value : spec.x?.label}</span>
-        </div>
-    );
+const AXIS_TITLE = "font-mono text-[10.5px] text-muted";
+
+// each axis title sits by its axis: the vertical one above the plot, the horizontal one under it. Bars run
+// horizontally, so their value axis is the horizontal one.
+function axisTitles(spec: ChartSpec): { vertical?: string; horizontal?: string } {
+    const value = spec.y?.label ? [spec.y.label, spec.y.unit ? `(${spec.y.unit})` : ""].filter(Boolean).join(" ") : "";
+    const category = spec.x?.label ?? "";
+    return spec.type === "bar"
+        ? { vertical: category || undefined, horizontal: value || undefined }
+        : { vertical: value || undefined, horizontal: category || undefined };
 }
 
 function Legend({ spec }: { spec: ChartSpec }) {
@@ -210,6 +217,8 @@ function PlotChart({ spec }: { spec: ChartSpec }) {
 
     const innerW = Math.max(0, width - MARGIN.left - MARGIN.right);
     const numericX = hasNumericX(spec);
+    // hours or run numbers never get a 9.5 tick
+    const integerX = numericX && spec.series.every((s) => s.points.every((p) => Number.isInteger(p.x)));
     const cats = numericX ? [] : chartCategories(spec);
     const xNum = scaleLinear<number>({
         domain: numericX
@@ -253,6 +262,7 @@ function PlotChart({ spec }: { spec: ChartSpec }) {
                                 top={PLOT_H}
                                 scale={xNum}
                                 numTicks={AXIS_TICKS}
+                                tickValues={integerX ? xNum.ticks(AXIS_TICKS).filter(Number.isInteger) : undefined}
                                 tickFormat={(v) => fmtChartValue(Number(v))}
                                 stroke="var(--color-border)"
                                 tickStroke="var(--color-border)"
@@ -316,6 +326,20 @@ function PlotChart({ spec }: { spec: ChartSpec }) {
                                         animate={{ pathLength: 1 }}
                                         transition={DRAW}
                                     />
+                                    {xy.length <= POINTS_MARKED_MAX
+                                        ? xy.map(([cx, cy], j) => (
+                                              <circle
+                                                  key={j}
+                                                  data-chart-point
+                                                  cx={cx}
+                                                  cy={cy}
+                                                  r={POINT_MARKER_R}
+                                                  fill={c}
+                                              >
+                                                  <title>{`${s.name} ${s.points[j].x}: ${fmtChartValue(s.points[j].y, unit)}`}</title>
+                                              </circle>
+                                          ))
+                                        : null}
                                 </g>
                             );
                         })}

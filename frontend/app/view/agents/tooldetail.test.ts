@@ -90,6 +90,25 @@ describe("buildEditDiff", () => {
         expect(f.badge).toBe("A");
         expect(f.dels).toBe(0);
     });
+    it("keeps the lines both sides share at either end as context, counting only the change", () => {
+        const f = buildEditDiff("/p/a.go", "func A() {\n\treturn 1\n}", "func A() {\n\treturn 2\n}\n\nfunc B() {}");
+        expect(f.adds).toBe(4);
+        expect(f.dels).toBe(2);
+        expect(f.lines).toEqual([
+            { sign: "", text: "func A() {" },
+            { sign: "-", text: "\treturn 1" },
+            { sign: "-", text: "}" },
+            { sign: "+", text: "\treturn 2" },
+            { sign: "+", text: "}" },
+            { sign: "+", text: "" },
+            { sign: "+", text: "func B() {}" },
+        ]);
+    });
+    it("draws an insertion inside shared lines as context around the added lines", () => {
+        const f = buildEditDiff("/p/a.go", "a\nz", "a\nb\nc\nz");
+        expect(f).toMatchObject({ adds: 2, dels: 0 });
+        expect(f.lines.map((l) => l.sign + l.text)).toEqual(["a", "+b", "+c", "z"]);
+    });
 });
 
 describe("parseGrep", () => {

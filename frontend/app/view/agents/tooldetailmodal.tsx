@@ -19,7 +19,7 @@ export function AgentToolDetailModal({ action }: { action: AgentActionEntry }) {
     return (
         <ModalShell open onClose={close} className="w-[min(720px,90vw)]">
             <div className="flex items-center gap-2.5 border-b border-border py-3 pl-[18px] pr-3">
-                <StatusSquare ok={action.outcome !== "fail"} />
+                <StatusSquare ok={action.outcome !== "fail"} pending={action.pending} />
                 <span className={VERB}>{action.verb}</span>
                 <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-primary">{action.target}</span>
                 {action.durationMs ? (

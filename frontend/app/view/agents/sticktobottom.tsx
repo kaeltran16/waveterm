@@ -33,8 +33,9 @@ export function useStickToBottom(entries: unknown[]) {
         };
         pin();
         // content that grows without a new entry (an opened composer, a reply that wraps) must not push
-        // the tail of a stuck region out of view
+        // the tail of a stuck region out of view; nor may the region itself shrinking (a band docking under it)
         const ro = new ResizeObserver(pin);
+        ro.observe(el);
         for (const child of el.children) {
             ro.observe(child);
         }

@@ -32,7 +32,7 @@ describe("parseUnifiedDiff", () => {
                 adds: 2,
                 dels: 1,
                 lines: [
-                    { sign: "", text: "@@ -1,3 +1,4 @@" },
+                    { sign: "", text: "@@ -1,3 +1,4 @@", hunk: true },
                     { sign: "", text: "package a" },
                     { sign: "-", text: "var x = 1" },
                     { sign: "+", text: "var x = 2" },
@@ -46,7 +46,7 @@ describe("parseUnifiedDiff", () => {
                 adds: 2,
                 dels: 0,
                 lines: [
-                    { sign: "", text: "@@ -0,0 +1,2 @@" },
+                    { sign: "", text: "@@ -0,0 +1,2 @@", hunk: true },
                     { sign: "+", text: "package a" },
                     { sign: "+", text: "// new" },
                 ],

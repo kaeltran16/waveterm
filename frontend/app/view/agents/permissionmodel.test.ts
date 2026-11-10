@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TimelineItem } from "./agentsviewmodel";
-import { permissionLogText, permissionPreview, permissionTitle, placeMarks } from "./permissionmodel";
+import { permissionLogText, permissionPreview, permissionTitle, placeMarks, relativeToCwd } from "./permissionmodel";
 
 function perm(toolname: string, input: unknown, choices = ["Yes", "No, tell Claude what to do"]): AgentPermissionData {
     return {
@@ -25,6 +25,27 @@ describe("permissionTitle", () => {
         expect(permissionTitle(perm("Bash", { command: "ls" }))).toBe("Allow this command?");
         expect(permissionTitle(perm("ExitPlanMode", { plan: "# p" }))).toBe("Approve this plan?");
         expect(permissionTitle(perm("WebFetch", { url: "https://x" }))).toBe("Allow WebFetch?");
+    });
+
+    it("names a file under the agent's working dir relative to it, in the title, preview and log", () => {
+        const edit = perm("Edit", { file_path: "C:\\Work\\Proj\\stats\\stats.go", old_string: "a", new_string: "b" });
+        const cwd = "c:/work/proj";
+        expect(permissionTitle(edit, cwd)).toBe("Allow an edit to stats/stats.go?");
+        const preview = permissionPreview(edit, cwd);
+        expect(preview.kind === "diff" && preview.files[0].path).toBe("stats/stats.go");
+        expect(permissionLogText(edit, 0, cwd)).toBe("Yes: stats/stats.go");
+    });
+});
+
+describe("relativeToCwd", () => {
+    it("keeps a path outside the working dir, or with no working dir, as it is", () => {
+        expect(relativeToCwd("C:\\Other\\x.go", "C:\\Work\\Proj")).toBe("C:\\Other\\x.go");
+        expect(relativeToCwd("C:\\Work\\Project2\\x.go", "C:\\Work\\Proj")).toBe("C:\\Work\\Project2\\x.go");
+        expect(relativeToCwd("/home/u/p/x.go", undefined)).toBe("/home/u/p/x.go");
+    });
+    it("compares a POSIX path case-sensitively", () => {
+        expect(relativeToCwd("/home/u/p/x.go", "/home/u/p/")).toBe("x.go");
+        expect(relativeToCwd("/home/U/p/x.go", "/home/u/p")).toBe("/home/U/p/x.go");
     });
 });
 

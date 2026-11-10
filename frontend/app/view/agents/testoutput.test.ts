@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseTestOutput } from "./testoutput";
+import { failureLabel, parseTestOutput } from "./testoutput";
 
 const J = (o: Record<string, unknown>) => JSON.stringify(o);
 
@@ -218,5 +218,52 @@ describe("parseTestOutput unrecognized", () => {
         expect(parseTestOutput("hello\nworld\nok then")).toBeNull();
         expect(parseTestOutput("")).toBeNull();
         expect(parseTestOutput('{"a":1}\n{"Action":"x"}')).toBeNull();
+    });
+});
+
+describe("failureLabel", () => {
+    it("names a vitest failure's file once, as file:line", () => {
+        expect(
+            failureLabel("vitest", {
+                pkg: "frontend/app/view/agents/agentcomposer.test.ts",
+                test: "submitComposer > handles Escape",
+                message: "expected 1 to be 2",
+                loc: "frontend/app/view/agents/agentcomposer.test.ts:24",
+            })
+        ).toEqual({
+            name: "submitComposer > handles Escape",
+            where: "agentcomposer.test.ts:24",
+            whereFull: "frontend/app/view/agents/agentcomposer.test.ts:24",
+        });
+    });
+    it("falls back to the vitest file when it has no location", () => {
+        expect(failureLabel("vitest", { pkg: "a\\b\\c.test.ts", test: "x", message: "m" }).where).toBe("c.test.ts");
+    });
+    it("prefixes a go location with its package's last element", () => {
+        expect(
+            failureLabel("go", {
+                pkg: "github.com/wavetermdev/waveterm/pkg/wshrpc/wshserver",
+                test: "TestStream",
+                message: "bad",
+                loc: "transcript_test.go:362",
+            })
+        ).toEqual({
+            name: "TestStream",
+            where: "wshserver/transcript_test.go:362",
+            whereFull: "github.com/wavetermdev/waveterm/pkg/wshrpc/wshserver/transcript_test.go:362",
+        });
+    });
+    it("names a failed go package by its last element, with nothing beside it", () => {
+        expect(failureLabel("go", { pkg: "example.com/m/stats", test: "", message: "build failed" })).toEqual({
+            name: "stats",
+            whereFull: "example.com/m/stats",
+        });
+    });
+    it("keeps a go failure with no package", () => {
+        expect(failureLabel("go", { test: "TestX", message: "m", loc: "x_test.go:9" })).toEqual({
+            name: "TestX",
+            where: "x_test.go:9",
+            whereFull: "x_test.go:9",
+        });
     });
 });

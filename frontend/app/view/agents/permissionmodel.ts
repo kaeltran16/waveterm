@@ -30,13 +30,28 @@ function str(v: unknown): string | null {
     return typeof v === "string" ? v : null;
 }
 
-function editPath(input: Record<string, any> | null): string | null {
-    return str(input?.file_path) ?? str(input?.notebook_path);
+// Claude sends absolute paths; inside the agent's working dir the band reads them as the timeline does, relative.
+// Windows paths compare case-insensitively and with either separator.
+export function relativeToCwd(path: string, cwd?: string): string {
+    if (!cwd) {
+        return path;
+    }
+    const norm = (s: string) => s.replace(/\\/g, "/").replace(/\/+$/, "");
+    const p = norm(path);
+    const base = norm(cwd) + "/";
+    const windows = /^[A-Za-z]:\//.test(base);
+    const hit = windows ? p.toLowerCase().startsWith(base.toLowerCase()) : p.startsWith(base);
+    return hit && p.length > base.length ? p.slice(base.length) : path;
 }
 
-export function permissionTitle(p: AgentPermissionData): string {
+function editPath(input: Record<string, any> | null, cwd?: string): string | null {
+    const path = str(input?.file_path) ?? str(input?.notebook_path);
+    return path == null ? null : relativeToCwd(path, cwd);
+}
+
+export function permissionTitle(p: AgentPermissionData, cwd?: string): string {
     if (EDIT_TOOLS.has(p.toolname)) {
-        return `Allow an edit to ${editPath(parseInput(p)) ?? "a file"}?`;
+        return `Allow an edit to ${editPath(parseInput(p), cwd) ?? "a file"}?`;
     }
     if (p.toolname === "Bash") {
         return "Allow this command?";
@@ -47,8 +62,8 @@ export function permissionTitle(p: AgentPermissionData): string {
     return `Allow ${p.toolname}?`;
 }
 
-function editFiles(tool: string, input: Record<string, any>): EditFile[] | null {
-    const path = editPath(input);
+function editFiles(tool: string, input: Record<string, any>, cwd?: string): EditFile[] | null {
+    const path = editPath(input, cwd);
     if (path == null) {
         return null;
     }
@@ -67,13 +82,13 @@ function editFiles(tool: string, input: Record<string, any>): EditFile[] | null 
     return null;
 }
 
-export function permissionPreview(p: AgentPermissionData): PermissionPreview {
+export function permissionPreview(p: AgentPermissionData, cwd?: string): PermissionPreview {
     const input = parseInput(p);
     if (input == null) {
         return { kind: "json", text: p.toolinput };
     }
     if (EDIT_TOOLS.has(p.toolname)) {
-        const files = editFiles(p.toolname, input);
+        const files = editFiles(p.toolname, input, cwd);
         if (files != null) {
             return { kind: "diff", files };
         }
@@ -85,10 +100,10 @@ export function permissionPreview(p: AgentPermissionData): PermissionPreview {
     return { kind: "json", text: JSON.stringify(input, null, 2) };
 }
 
-function subject(p: AgentPermissionData): string {
+function subject(p: AgentPermissionData, cwd?: string): string {
     const input = parseInput(p);
     if (EDIT_TOOLS.has(p.toolname)) {
-        return editPath(input) ?? p.toolname;
+        return editPath(input, cwd) ?? p.toolname;
     }
     if (p.toolname === "Bash") {
         return str(input?.command) ?? p.toolname;
@@ -96,8 +111,8 @@ function subject(p: AgentPermissionData): string {
     return p.toolname === PLAN_TOOL ? PLAN_SUBJECT : p.toolname;
 }
 
-export function permissionLogText(p: AgentPermissionData, choice: number): string {
-    return `${p.choices[choice] ?? `choice ${choice + 1}`}: ${subject(p)}`;
+export function permissionLogText(p: AgentPermissionData, choice: number, cwd?: string): string {
+    return `${p.choices[choice] ?? `choice ${choice + 1}`}: ${subject(p, cwd)}`;
 }
 
 // an "allowed" row the rendered view records after the band answers: drawn after the timeline item holding entry

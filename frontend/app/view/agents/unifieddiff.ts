@@ -67,7 +67,7 @@ export function parseUnifiedDiff(output: string): EditFile[] | null {
         if (hunk) {
             oldLeft = hunkCount(hunk[1]);
             newLeft = hunkCount(hunk[2]);
-            file.lines.push({ sign: "", text: raw });
+            file.lines.push({ sign: "", text: raw, hunk: true });
         }
     }
     return files.length > 0 ? files : null;

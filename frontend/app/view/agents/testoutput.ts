@@ -262,3 +262,34 @@ export function parseTestOutput(output: string): TestSummary | null {
     const lines = stripAnsi(output).split(/\r?\n/);
     return parseGoJson(lines) ?? parseVitest(lines) ?? parseGoText(lines);
 }
+
+function lastSegment(path: string): string {
+    return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+}
+
+export interface FailureLabel {
+    name: string;
+    // the short place a failure row shows; whereFull is its tooltip
+    where?: string;
+    whereFull?: string;
+}
+
+// How a failure row names its test and place. vitest's pkg and loc name the same file, so only loc's file:line
+// shows; a go package path shares its module prefix on every row, so only its last element prefixes the location.
+export function failureLabel(runner: TestSummary["runner"], f: TestFailure): FailureLabel {
+    if (runner === "vitest") {
+        const full = f.loc ?? f.pkg;
+        return { name: f.test || (f.pkg ?? ""), ...(full ? { where: lastSegment(full), whereFull: full } : {}) };
+    }
+    if (f.test === "") {
+        return { name: lastSegment(f.pkg ?? ""), ...(f.pkg ? { whereFull: f.pkg } : {}) };
+    }
+    if (f.loc == null) {
+        return { name: f.test, ...(f.pkg ? { where: lastSegment(f.pkg), whereFull: f.pkg } : {}) };
+    }
+    return {
+        name: f.test,
+        where: f.pkg ? `${lastSegment(f.pkg)}/${f.loc}` : f.loc,
+        whereFull: f.pkg ? `${f.pkg}/${f.loc}` : f.loc,
+    };
+}

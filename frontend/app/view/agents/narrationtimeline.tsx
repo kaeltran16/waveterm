@@ -5,14 +5,16 @@ import { ContextMenuModel } from "@/app/store/contextmenu";
 import { modalsModel } from "@/app/store/modalmodel";
 import { MONO_FAINT } from "@/app/view/jarvis/briefstyle";
 import { cn } from "@/util/util";
-import { ArrowUpRight, Ban, Check, ChevronDown, ChevronRight, ChevronUp, Copy, Layers, X } from "lucide-react";
+import { ArrowUpRight, Ban, Check, ChevronDown, ChevronRight, ChevronUp, Copy, Ellipsis, Layers, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { MOTION, composerReveal, shouldFadeEntry } from "@/app/element/motiontokens";
-import { Fragment, useMemo, useState } from "react";
+import useResizeObserver from "@react-hook/resize-observer";
+import { Fragment, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
     burstRenderMode,
     conversationText,
     detailExceedsInline,
+    foldLabel,
     formatTokens,
     groupTimeline,
     summarizeActions,
@@ -54,7 +56,20 @@ function ExitChip({ exit }: { exit: number }) {
     );
 }
 
-export function StatusSquare({ ok }: { ok: boolean }) {
+// pending: the call has no result yet (running, or waiting on a permission prompt), so it claims neither outcome
+export function StatusSquare({ ok, pending }: { ok: boolean; pending?: boolean }) {
+    if (pending) {
+        return (
+            <span
+                role="img"
+                aria-label="No result yet"
+                data-status-pending
+                className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] bg-surface-raised text-muted"
+            >
+                <Ellipsis size={10} strokeWidth={3} aria-hidden />
+            </span>
+        );
+    }
     return (
         <span
             role="img"
@@ -245,12 +260,29 @@ export function ToolDetailBody({ detail, variant }: { detail: ActionDetail; vari
                             {f.badge}
                         </span>
                         <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-ink-hi">{f.path}</span>
-                        <span className="font-mono text-[10.5px] font-bold text-diff-added">+{f.adds}</span>
-                        <span className="font-mono text-[10.5px] font-bold text-diff-removed">−{f.dels}</span>
+                        <span className={cn("font-mono text-[10.5px]", f.adds > 0 ? "font-bold text-diff-added" : "text-muted")}>
+                            +{f.adds}
+                        </span>
+                        <span className={cn("font-mono text-[10.5px]", f.dels > 0 ? "font-bold text-diff-removed" : "text-muted")}>
+                            −{f.dels}
+                        </span>
                     </div>
                     <div className={cn("bg-surface-code py-1", modal && "overflow-x-auto")}>
                         <div className={modal ? "min-w-min" : undefined}>
-                            {f.lines.map((l, k) => (
+                            {f.lines.map((l, k) =>
+                                l.hunk ? (
+                                    <div
+                                        key={k}
+                                        data-diff-hunk
+                                        className={cn(
+                                            "bg-accent/[0.06] pl-[13px] pr-3.5 font-mono text-[11.5px] leading-[1.7] text-muted",
+                                            wrap,
+                                            k > 0 && "mt-1"
+                                        )}
+                                    >
+                                        {l.text}
+                                    </div>
+                                ) : (
                                 <div
                                     key={k}
                                     className={cn(
@@ -289,7 +321,8 @@ export function ToolDetailBody({ detail, variant }: { detail: ActionDetail; vari
                                         {l.text}
                                     </span>
                                 </div>
-                            ))}
+                                )
+                            )}
                         </div>
                     </div>
                 </div>
@@ -320,7 +353,7 @@ function ToolLine({ action, renderers }: { action: AgentActionEntry; renderers?:
     return (
         <div>
             <div onClick={onClick} className={cn(TOOL_ROW, detail && "cursor-pointer hover:bg-surface-hover")}>
-                <StatusSquare ok={ok} />
+                <StatusSquare ok={ok} pending={action.pending} />
                 <span className={VERB}>{action.verb}</span>
                 <span className={TARGET}>{action.target}</span>
                 {action.summary ? (
@@ -584,6 +617,49 @@ function TaskNotificationRow({ summary, status, result }: { summary: string; sta
     );
 }
 
+// A You bubble keeps the prompt's line breaks; a long one (a run's goal, a pasted spec) is clamped behind Show more.
+// The clamp is measured, not estimated, so the toggle only shows when text is really hidden. A find over the
+// transcript passes clamp=false, since a match must never sit in hidden text.
+function UserBubbleText({ text, clamp }: { text: string; clamp: boolean }) {
+    const ref = useRef<HTMLParagraphElement>(null);
+    const [open, setOpen] = useState(false);
+    const [overflows, setOverflows] = useState(false);
+    const clamped = clamp && !open;
+    const measure = () => {
+        const el = ref.current;
+        if (el != null && clamped) {
+            setOverflows(el.scrollHeight > el.clientHeight + 1);
+        }
+    };
+    useLayoutEffect(measure, [text, clamped]);
+    useResizeObserver(ref, measure);
+    return (
+        <>
+            <p
+                ref={ref}
+                data-find-turn
+                className={cn(
+                    "whitespace-pre-wrap text-[13px] leading-[1.5] text-primary [overflow-wrap:anywhere]",
+                    clamped && "line-clamp-[8]"
+                )}
+            >
+                {text.trim()}
+            </p>
+            {clamp && (overflows || open) ? (
+                <button
+                    type="button"
+                    data-bubble-more
+                    aria-expanded={open}
+                    onClick={() => setOpen((v) => !v)}
+                    className="mt-1 cursor-pointer font-mono text-[10.5px] text-accent-soft hover:text-primary"
+                >
+                    {open ? "Show less" : "Show more"}
+                </button>
+            ) : null}
+        </>
+    );
+}
+
 function PermissionMarkRow({ text }: { text: string }) {
     return (
         <div data-permission-mark className={cn(TOOL_ROW, MONO_FAINT)}>
@@ -690,9 +766,7 @@ export function NarrationTimeline({
                                 <div className="mb-0.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.1em] text-accent-soft">
                                     You
                                 </div>
-                                <p data-find-turn className="text-[13px] leading-[1.5] text-primary">
-                                    {item.text}
-                                </p>
+                                <UserBubbleText text={item.text} clamp={!renderAll} />
                             </div>
                         </motion.div>
                     );
@@ -778,6 +852,7 @@ export function NarrationTimeline({
                     );
                 }
                 const summary = summarizeActions(item.actions);
+                const label = foldLabel(summary);
                 return (
                     <button
                         key={"g" + item.startIndex}
@@ -789,10 +864,10 @@ export function NarrationTimeline({
                         <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] bg-accent/[0.12] text-accent-soft">
                             <Layers size={11} strokeWidth={2.2} aria-hidden />
                         </span>
-                        <span className="shrink-0 text-[11.5px] font-semibold text-secondary">{summary.total} tools</span>
-                        <span className="min-w-0 truncate text-[10.5px] text-ink-mid">
-                            {summary.byVerb.map((v) => `${v.count} ${v.verb}`).join(" · ")}
-                        </span>
+                        <span className="shrink-0 text-[11.5px] font-semibold text-secondary">{label.headline}</span>
+                        {label.breakdown ? (
+                            <span className="min-w-0 truncate text-[10.5px] text-ink-mid">{label.breakdown}</span>
+                        ) : null}
                         <div className="min-w-[6px] flex-1" />
                         {/* the word carries the outcome, so colour is never the only signal */}
                         {summary.failed > 0 ? (

@@ -69,7 +69,7 @@ describe("projectTranscript", () => {
                 message: { content: [{ type: "tool_use", id: "x", name: "WebFetch", input: { pattern: "abc" } }] },
             }),
         ]);
-        expect(out).toEqual([{ kind: "action", verb: "webfetch", target: "abc" }]);
+        expect(out).toEqual([{ kind: "action", verb: "webfetch", target: "abc", pending: true }]);
     });
 
     it("emits an action with no outcome when tool_use has no id (result can't be matched)", () => {
@@ -83,7 +83,7 @@ describe("projectTranscript", () => {
                 message: { content: [{ type: "tool_result", tool_use_id: "missing", is_error: true }] },
             }),
         ]);
-        expect(out).toEqual([{ kind: "action", verb: "ran", target: "go test ./..." }]);
+        expect(out).toEqual([{ kind: "action", verb: "ran", target: "go test ./...", pending: true }]);
     });
 });
 
@@ -796,6 +796,7 @@ describe("projectTranscript AskUserQuestion", () => {
                 kind: "action",
                 verb: "asked",
                 target: "Which store?",
+                pending: true,
                 detail: {
                     kind: "ask",
                     questions: [
@@ -894,11 +895,11 @@ describe("projectTranscript malformed and mistyped records", () => {
             ]),
         ]);
         expect(out).toEqual([
-            { kind: "action", verb: "ran", target: "" },
-            { kind: "action", verb: "asked", target: "" },
-            { kind: "action", verb: "edited", target: "" },
-            { kind: "action", verb: "wrote", target: "" },
-            { kind: "action", verb: "skill", target: "" },
+            { kind: "action", verb: "ran", target: "", pending: true },
+            { kind: "action", verb: "asked", target: "", pending: true },
+            { kind: "action", verb: "edited", target: "", pending: true },
+            { kind: "action", verb: "wrote", target: "", pending: true },
+            { kind: "action", verb: "skill", target: "", pending: true },
         ]);
     });
 
@@ -917,10 +918,10 @@ describe("projectTranscript malformed and mistyped records", () => {
             ]),
         ]);
         expect(out).toEqual([
-            { kind: "action", verb: "read", target: "a.ts" },
-            { kind: "action", verb: "read", target: "" },
-            { kind: "action", verb: "read", target: "which?" },
-            { kind: "action", verb: "read", target: "foo" },
+            { kind: "action", verb: "read", target: "a.ts", pending: true },
+            { kind: "action", verb: "read", target: "", pending: true },
+            { kind: "action", verb: "read", target: "which?", pending: true },
+            { kind: "action", verb: "read", target: "foo", pending: true },
         ]);
     });
 
@@ -933,6 +934,7 @@ describe("projectTranscript malformed and mistyped records", () => {
                 kind: "action",
                 verb: "wrote",
                 target: "a.ts",
+                pending: true,
                 detail: {
                     kind: "edit",
                     files: [
@@ -960,8 +962,8 @@ describe("projectTranscript malformed and mistyped records", () => {
             ]),
         ]);
         expect(out).toEqual([
-            { kind: "action", verb: "skill", target: "" },
-            { kind: "action", verb: "skill", target: "" },
+            { kind: "action", verb: "skill", target: "", pending: true },
+            { kind: "action", verb: "skill", target: "", pending: true },
         ]);
     });
 
@@ -988,9 +990,16 @@ describe("projectTranscript malformed and mistyped records", () => {
                 kind: "action",
                 verb: "skill",
                 target: "commit",
+                pending: true,
                 detail: { kind: "skill", name: "commit", args: "design the cache" },
             },
-            { kind: "action", verb: "skill", target: "commit", detail: { kind: "skill", name: "commit" } },
+            {
+                kind: "action",
+                verb: "skill",
+                target: "commit",
+                pending: true,
+                detail: { kind: "skill", name: "commit" },
+            },
         ]);
     });
 
@@ -1080,7 +1089,7 @@ describe("projectTranscript malformed and mistyped records", () => {
                 { type: "tool_result", tool_use_id: 7 },
             ]),
         ]);
-        expect(out).toEqual([{ kind: "action", verb: "ran", target: "ls" }]);
+        expect(out).toEqual([{ kind: "action", verb: "ran", target: "ls", pending: true }]);
     });
 
     it("keeps only real text blocks of a user turn", () => {
