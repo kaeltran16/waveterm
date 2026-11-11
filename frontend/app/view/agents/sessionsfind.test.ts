@@ -6,7 +6,15 @@ import { forgetOrigin } from "@/app/view/jarvis/returnsurface";
 import { atom, type PrimitiveAtom } from "jotai";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AgentsViewModel, SurfaceKey } from "./agents";
-import { findEnded, findRanges, findTerms, openSessionHit, stepFind, type SessionsFind } from "./sessionsfind";
+import {
+    findEnded,
+    findRanges,
+    findTerms,
+    needsCentre,
+    openSessionHit,
+    stepFind,
+    type SessionsFind,
+} from "./sessionsfind";
 import { LEAD_MEMBER, sessionKey, sessionSelection } from "./sessionsruns";
 
 function fakeModel() {
@@ -189,5 +197,24 @@ describe("findEnded", () => {
 
     it("findEnded is false with no find", () => {
         expect(findEnded(null, "claude:a", "lead")).toBe(false);
+    });
+});
+
+describe("needsCentre", () => {
+    const find = { sessionKey: "s", query: "auth", terms: ["auth"] } as unknown as SessionsFind;
+    const mark = { find, terms: '["auth"]', pos: 2 };
+
+    it("centres the first time a match is drawn", () => {
+        expect(needsCentre(null, mark)).toBe(true);
+    });
+
+    it("leaves the view alone when a reread redraws the same match", () => {
+        expect(needsCentre(mark, { ...mark })).toBe(false);
+    });
+
+    it("moves to a stepped match, refined terms or a new find", () => {
+        expect(needsCentre(mark, { ...mark, pos: 3 })).toBe(true);
+        expect(needsCentre(mark, { ...mark, terms: '["auth","token"]' })).toBe(true);
+        expect(needsCentre(mark, { ...mark, find: { ...find } })).toBe(true);
     });
 });

@@ -26,7 +26,15 @@ import { docTextOf, rangeOf } from "./docreviewnotesview";
 import { NarrationTimeline } from "./narrationtimeline";
 import { runtimeMeta } from "./runtimemeta";
 import type { LiveSession } from "./sessionsarchivestore";
-import { findEnded, findRanges, findTerms, stepFind, type SessionsFind } from "./sessionsfind";
+import {
+    findEnded,
+    findRanges,
+    findTerms,
+    needsCentre,
+    stepFind,
+    type FindMark,
+    type SessionsFind,
+} from "./sessionsfind";
 import {
     LEAD_MEMBER,
     resumeLaunchOpts,
@@ -466,16 +474,22 @@ function SessionBody({
 
     const total = ranges?.length ?? 0;
     const cur = total > 0 ? Math.min(edit.pos, total - 1) : 0;
+    const centredRef = useRef<FindMark | null>(null);
     useLayoutEffect(() => {
         const registry = highlights();
         const scroller = scrollRef.current;
+        if (ranges == null) {
+            centredRef.current = null;
+        }
         if (registry == null || ranges == null || scroller == null) {
             return;
         }
         registry.set(HIGHLIGHT_FIND, new Highlight(...ranges));
         registry.set(HIGHLIGHT_FIND_CURRENT, new Highlight(...ranges.slice(cur, cur + 1)));
         const r = ranges[cur]?.getBoundingClientRect();
-        if (r != null) {
+        const mark = { find, terms: termsKey, pos: cur };
+        if (r != null && needsCentre(centredRef.current, mark)) {
+            centredRef.current = mark;
             const box = scroller.getBoundingClientRect();
             scroller.scrollTop += r.top - box.top - (box.height - r.height) / 2;
         }
