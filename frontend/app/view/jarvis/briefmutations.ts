@@ -50,6 +50,8 @@ export type MutationDeps = {
     setError: (msg: string | null) => void;
     // collapses the Initiatives row with this line id if it is the open one
     closeInitiative: (lineId: string) => void;
+    // a chunk's row id is built from its label: a rename moves whatever the Brief held on the old id
+    chunkRenamed: (fromRowId: string, toRowId: string) => void;
 };
 
 export const initiativeLineId = (oref: string) => "initiatives:" + oref;
@@ -170,7 +172,12 @@ export function trackerEdits(
             run(() => store.setChunkStatus(oref, ref(label), next));
             undo.notify(`Marked “${label}” ${next}`, () => run(() => store.setChunkStatus(oref, ref(label), prev)));
         },
-        onRenameChunk: (label, next) => run(() => store.renameChunk(oref, chunks, label, next)),
+        onRenameChunk: (label, next) =>
+            run(async () => {
+                await store.renameChunk(oref, chunks, label, next);
+                const line = initiativeLineId(oref);
+                deps.chunkRenamed(chunkRowId(line, label), chunkRowId(line, next.trim()));
+            }),
         canMove: (label, dir) => moveTarget(chunks, label, dir) != null,
         onMoveChunk: (label, dir) => {
             const at = moveTarget(chunks, label, dir);

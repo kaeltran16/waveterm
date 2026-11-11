@@ -661,8 +661,12 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
             run: runMutation,
             setError: setMutateError,
             closeInitiative: (lineId) => setOpenInitiative((cur) => (cur === lineId ? null : cur)),
+            chunkRenamed: (from, to) => {
+                setStoredCursor((cur) => (cur === from ? to : cur));
+                setNoteChunk((cur) => (cur === from ? to : cur));
+            },
         }),
-        [runMutation, setOpenInitiative]
+        [runMutation, setOpenInitiative, setStoredCursor, setNoteChunk]
     );
     const edits = useMemo<TrackerEdits | null>(() => {
         const oref = openEffortORef;
