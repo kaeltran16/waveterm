@@ -59,13 +59,11 @@ func readSecretsFile(path string) (map[string]string, error) {
 	return decryptedSecrets, nil
 }
 
-// must hold lock
+// must hold lock. Only an absent file is an empty store: read as empty, a file that failed to read would
+// be overwritten with that emptiness by the next write.
 func readSecretsFromFile() (map[string]string, error) {
 	loaded, err := readSecretsFile(filepath.Join(wavebase.GetWaveConfigDir(), SecretsFileName))
-	if errors.Is(err, errReadFile) {
-		if !errors.Is(err, os.ErrNotExist) {
-			log.Printf("secretstore: %v\n", err)
-		}
+	if errors.Is(err, os.ErrNotExist) {
 		return make(map[string]string), nil
 	}
 	return loaded, err
@@ -171,7 +169,9 @@ func writeSecretsToFile() error {
 	return nil
 }
 
-// scheduled synchronously so a Flush right after a SetSecret always sees, and cancels, the pending write
+// scheduled synchronously so a Flush right after a SetSecret always sees, and cancels, the pending write.
+// A failed write is scheduled again: the caller was already told the change succeeded, so until a write
+// lands it lives only in memory. A platform with no at-rest encryption never persists, so never retries.
 func requestWrite() {
 	timerMu.Lock()
 	defer timerMu.Unlock()
@@ -179,8 +179,13 @@ func requestWrite() {
 		debounceTimer.Stop()
 	}
 	debounceTimer = time.AfterFunc(WriteDebounceMs*time.Millisecond, func() {
-		if err := writeSecretsToFile(); err != nil {
-			log.Printf("secretstore: error writing secrets: %v\n", err)
+		err := writeSecretsToFile()
+		if err == nil {
+			return
+		}
+		log.Printf("secretstore: error writing secrets: %v\n", err)
+		if !errors.Is(err, ErrPersistUnsupported) {
+			requestWrite()
 		}
 	})
 }

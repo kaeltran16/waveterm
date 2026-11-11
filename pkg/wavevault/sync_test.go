@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
@@ -415,6 +416,46 @@ func TestSyncPushRaceRetries(t *testing.T) {
 	}
 	if !vaultFileExists(a, "memory/b2.md") {
 		t.Fatal("the retry must merge b's racing push")
+	}
+	assertPublished(t, a, remote)
+}
+
+// lockFreeWithin reports whether the vault lock can be taken within d.
+func lockFreeWithin(root string, d time.Duration) bool {
+	got := make(chan func(), 1)
+	go func() { got <- LockRoot(root) }()
+	select {
+	case unlock := <-got:
+		unlock()
+		return true
+	case <-time.After(d):
+		go func() { (<-got)() }()
+		return false
+	}
+}
+
+// fetch and push can take minutes on a slow network; vault writes (effort, notes) must not wait on them.
+// A write landing during the fetch, to a file the remote also changed, still merges.
+func TestSyncNetworkStepsLeaveTheVaultLockFree(t *testing.T) {
+	a, b, remote := syncedPair(t, "memory/n.md", []byte("base\n"))
+	writeVaultFile(t, b, "memory/n.md", []byte("edited on b\n"))
+	mustSync(t, b)
+
+	var freeOnFetch, freeOnPush bool
+	beforeFetch = func() {
+		if freeOnFetch = lockFreeWithin(a.Root, time.Second); freeOnFetch {
+			writeVaultFile(t, a, "memory/n.md", []byte("written on a during the fetch\n"))
+		}
+	}
+	beforePush = func() { freeOnPush = lockFreeWithin(a.Root, time.Second) }
+	t.Cleanup(func() { beforeFetch, beforePush = nil, nil })
+
+	mustSync(t, a)
+	if !freeOnFetch || !freeOnPush {
+		t.Fatalf("vault lock free during fetch=%v push=%v", freeOnFetch, freeOnPush)
+	}
+	if got := string(readVaultFile(t, a, "memory/n.md")); got != "written on a during the fetch\n" {
+		t.Fatalf("local side not kept: %q", got)
 	}
 	assertPublished(t, a, remote)
 }

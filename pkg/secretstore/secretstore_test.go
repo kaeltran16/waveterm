@@ -160,6 +160,48 @@ func TestUnreadableSecretsFileFailsLoudly(t *testing.T) {
 	}
 }
 
+// the same holds when the bytes cannot be read at all (a sharing violation, access denied, an I/O
+// error); a directory at the path is the portable stand-in
+func TestSecretsFileReadFailureFailsLoudly(t *testing.T) {
+	dir := useConfigDir(t)
+	if err := os.Mkdir(filepath.Join(dir, SecretsFileName), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := GetSecret("jarvis_embedapikey"); err == nil {
+		t.Fatal("unreadable secrets file read as an empty store instead of erroring")
+	}
+	if err := SetSecret("jarvis_embedapikey", "v"); err == nil {
+		t.Fatal("SetSecret over an unreadable secrets file succeeded")
+	}
+}
+
+// SetSecret has already returned success when the debounced write runs, so a failed write must be
+// retried rather than leave the secret in memory only
+func TestFailedDebouncedWriteIsRetried(t *testing.T) {
+	requirePersistence(t)
+	dir := useConfigDir(t)
+	if _, _, err := GetSecret("a"); err != nil {
+		t.Fatal(err)
+	}
+	// a directory at the path makes the rename fail, as a reader holding the file open does on Windows
+	blocker := filepath.Join(dir, SecretsFileName)
+	if err := os.Mkdir(blocker, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetSecret("a", "1"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep((WriteDebounceMs + 500) * time.Millisecond)
+	if err := os.Remove(blocker); err != nil {
+		t.Fatal(err)
+	}
+	readSecretsFileWithin(t, dir, 3*WriteDebounceMs*time.Millisecond)
+	got, ok, err := ReadSecretFile(dir, "a")
+	if err != nil || !ok || got != "1" {
+		t.Fatalf("ReadSecretFile = (%q, %v, %v), want (\"1\", true, nil)", got, ok, err)
+	}
+}
+
 func TestFlushWritesBeforeDebounce(t *testing.T) {
 	requirePersistence(t)
 	dir := useConfigDir(t)
