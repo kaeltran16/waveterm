@@ -55,6 +55,13 @@ const MOTION_LIB = `
 const motionEval = (h, body) => lookEval(h, `${MOTION_LIB} ${body}`);
 
 const revealed = (r) => r != null && r.first != null && r.first < MOUNTED_HIDDEN && r.settled === 1;
+// a strip segment's samples start at the color read before the change and end at the color it settled on
+const recolored = (r) =>
+    r != null &&
+    r.colorBefore != null &&
+    r.colorAfter !== r.colorBefore &&
+    r.colors[0] === r.colorBefore &&
+    r.colors.at(-1) === r.colorAfter;
 const leftMidFade = (r) => r != null && r.mid.attached && r.mid.opacity > 0 && r.mid.opacity < 1 && r.goneAfter;
 
 // a disclosure's toggle, closed first, then opened and closed again: the pane it adds, then the pane leaving
@@ -141,9 +148,15 @@ const stubProfileWrite = (h, ms, fail) =>
 const stripSampler = (i) => `
     const seg = () => sheet()?.querySelectorAll("[data-run-sheet-seg]")[${i}] ?? null;
     const next = () => sheet()?.querySelector("[data-run-sheet-next]");
+    const color = () => (seg() ? getComputedStyle(seg()).backgroundColor : null);
     window.__strip?.colors.stop();
+    // read now: under load the change can land before the sampler's first frame, which would lose the before color
+    const colorBefore = color();
+    const colors = sampleFrames(color);
+    if (colorBefore != null) colors.values.push(colorBefore);
     window.__strip = {
-        colors: sampleFrames(() => (seg() ? getComputedStyle(seg()).backgroundColor : null)),
+        colors,
+        colorBefore,
         flash: null,
         stateBefore: seg()?.getAttribute("data-run-sheet-seg") ?? null,
         nextBefore: flat(next()),
@@ -167,6 +180,8 @@ const stripRead = (i) => `
         stateBefore: s.stateBefore,
         stateAfter: seg()?.getAttribute("data-run-sheet-seg") ?? null,
         colors: s.colors.values,
+        colorBefore: s.colorBefore,
+        colorAfter: seg() ? getComputedStyle(seg()).backgroundColor : null,
         transition: s.transition,
         nextBefore: s.nextBefore,
         nextAfter: flat(sheet()?.querySelector("[data-run-sheet-next]")),
@@ -311,7 +326,8 @@ async function sheetSteps(h, ctx, rec) {
             strip.stateAfter !== strip.stateBefore &&
             strip.transition?.ms === "0.14s" &&
             /background-color/.test(strip.transition.property) &&
-            strip.colors.length >= 3 &&
+            recolored(strip) &&
+            strip.colors.some((c) => c !== strip.colorBefore && c !== strip.colorAfter) &&
             strip.nextAfter !== strip.nextBefore &&
             strip.flash === "changeFlash",
         JSON.stringify({ injected, ...strip })
@@ -335,7 +351,9 @@ async function sheetSteps(h, ctx, rec) {
         injectedReduced === "ok" &&
             reduced.stateAfter !== reduced.stateBefore &&
             reduced.transition?.property === "none" &&
-            reduced.colors.length === 2 &&
+            recolored(reduced) &&
+            reduced.colorAfter === strip.colorAfter &&
+            reduced.colors.every((c) => c === reduced.colorBefore || c === reduced.colorAfter) &&
             reduced.nextAfter !== reduced.nextBefore &&
             (reduced.flash == null || reduced.flash === "none"),
         JSON.stringify({ injectedReduced, ...reduced })
