@@ -809,6 +809,10 @@ describe("cycleId", () => {
         expect(cycleId(["a", "b", "c"], "a", -1)).toBe("c");
         expect(cycleId([], "a", 1)).toBeUndefined();
     });
+    it("starts at the first id backward too when current is unknown", () => {
+        expect(cycleId(["a", "b", "c"], "gone", -1)).toBe("a");
+        expect(cycleId(["a", "b", "c"], undefined, -1)).toBe("a");
+    });
 });
 
 describe("groupTimeline", () => {

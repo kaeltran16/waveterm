@@ -750,6 +750,9 @@ export function cycleId(ids: string[], current: string | undefined, delta: numbe
         return undefined;
     }
     const idx = current != null ? ids.indexOf(current) : -1;
+    if (idx === -1) {
+        return ids[0];
+    }
     return ids[(idx + delta + ids.length) % ids.length];
 }
 
