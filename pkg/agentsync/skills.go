@@ -429,7 +429,7 @@ func fromPlugin(runtime, name string, shipped map[string]bool) bool {
 // skillStateFor compares the rendered tree against what is on disk. An unmanaged directory is
 // reported and never opened — the user's copy is not Arc's to read a verdict from.
 func skillStateFor(dir string, observed map[string]ObservedEntry, name string, want map[string][]byte) string {
-	e, present := observed[name]
+	e, present := observed[skillKey(name)]
 	switch {
 	case !present:
 		return stateDiffers // nothing there yet; a sync would write it
@@ -441,6 +441,21 @@ func skillStateFor(dir string, observed map[string]ObservedEntry, name string, w
 		return stateSynced
 	}
 	return stateDiffers
+}
+
+// skillKey is the name a skills directory knows an entry by: case folded, since on Windows Review and
+// review are one directory, and matching them exactly let a vault skill write over the user's own.
+func skillKey(name string) string {
+	return strings.ToLower(name)
+}
+
+// observedByKey indexes a skills directory's entries by skillKey.
+func observedByKey(observed []ObservedEntry) map[string]ObservedEntry {
+	out := make(map[string]ObservedEntry, len(observed))
+	for _, e := range observed {
+		out[skillKey(e.Name)] = e
+	}
+	return out
 }
 
 // reconcileSkills renders every canonical skill into each present harness that scans a fixed skills
@@ -466,16 +481,13 @@ func reconcileSkills(p Paths, dryRun bool) ([]Action, error) {
 		if err != nil {
 			return actions, err
 		}
-		byName := make(map[string]ObservedEntry, len(observed))
-		for _, e := range observed {
-			byName[e.Name] = e
-		}
+		byName := observedByKey(observed)
 		wanted := make(map[string]bool, len(canonical))
 		for _, name := range canonical {
 			if fromPlugin(spec.Runtime, name, shipped) {
 				continue
 			}
-			wanted[name] = true
+			wanted[skillKey(name)] = true
 			want, err := renderSkill(p.SkillsRoot, name, spec.Runtime)
 			if err != nil {
 				return actions, err
@@ -502,7 +514,7 @@ func reconcileSkills(p Paths, dryRun bool) ([]Action, error) {
 		// a directory Arc wrote for a skill the vault no longer has. Plain files, so an ordinary
 		// recursive delete — the junction-era reparse-point hazard is gone with the junctions.
 		for _, e := range observed {
-			if wanted[e.Name] || !e.Managed {
+			if wanted[skillKey(e.Name)] || !e.Managed {
 				continue
 			}
 			actions = append(actions, Action{Kind: ActionSkillRemove, Runtime: spec.Runtime, Path: filepath.Join(dir, e.Name)})
@@ -664,10 +676,7 @@ func SkillRows(p Paths) ([]SkillRow, error) {
 		if err != nil {
 			return nil, err
 		}
-		byName := make(map[string]ObservedEntry, len(observed))
-		for _, e := range observed {
-			byName[e.Name] = e
-		}
+		byName := observedByKey(observed)
 		for i := range rows {
 			if fromPlugin(spec.Runtime, rows[i].Name, shipped) {
 				rows[i].States[spec.Runtime] = statePlugin
