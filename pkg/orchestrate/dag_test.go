@@ -3,6 +3,11 @@ package orchestrate
 import (
 	"encoding/json"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
@@ -452,5 +457,53 @@ func TestDeriveTaskStatesNoNewCommitSkipsReview(t *testing.T) {
 	DeriveTaskStates(g, map[string]*waveobj.Run{"r-0": {ID: "r-0", Status: jarvis.RunStatus_Done, BaseCommit: "same", EndCommit: "same"}})
 	if g.Tasks[0].State != TaskState_Reviewing {
 		t.Fatalf("a fix round that committed nothing is still judged, got %s", g.Tasks[0].State)
+	}
+}
+
+// every TaskState_* constant declared in dag.go has a row in taskStates, so no reader's set leaves a state out
+func TestEveryTaskStateIsClassified(t *testing.T) {
+	file, err := parser.ParseFile(token.NewFileSet(), "dag.go", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var states []string
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.CONST {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			vs := spec.(*ast.ValueSpec)
+			for i, name := range vs.Names {
+				if !strings.HasPrefix(name.Name, "TaskState_") {
+					continue
+				}
+				value, err := strconv.Unquote(vs.Values[i].(*ast.BasicLit).Value)
+				if err != nil {
+					t.Fatal(err)
+				}
+				states = append(states, value)
+			}
+		}
+	}
+	if len(states) == 0 {
+		t.Fatal("found no TaskState_ constants in dag.go")
+	}
+	for _, s := range states {
+		if _, ok := taskStates[s]; !ok {
+			t.Errorf("task state %q has no row in taskStates", s)
+		}
+	}
+	if len(taskStates) != len(states) {
+		t.Errorf("taskStates has %d rows for %d states", len(taskStates), len(states))
+	}
+	// what CancelGroup writes must itself end the task, or a cancelled dag never reads as terminal
+	for s, c := range taskStates {
+		if c.cancelTo == "" && !c.terminal {
+			t.Errorf("state %q is neither terminal nor cancelled by CancelGroup", s)
+		}
+		if c.cancelTo != "" && !taskStates[c.cancelTo].terminal {
+			t.Errorf("state %q cancels to %q, which is not terminal", s, c.cancelTo)
+		}
 	}
 }

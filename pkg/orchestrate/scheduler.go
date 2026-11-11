@@ -226,15 +226,14 @@ func SkipTask(g *waveobj.TaskGroup, taskID string) error {
 	return fmt.Errorf("no task %q", taskID)
 }
 
-// CancelGroup terminally cancels: pending/ready -> skipped, running -> cancelled.
+// CancelGroup terminally cancels: each task not yet ended takes its cancelTo state (taskStates), so every task is
+// terminal after it. Not yet started is skipped; anything else live is cancelled, a merge or Verify in progress too:
+// left as it was, the dag never read as terminal and its lead's tab was never closed. The caller stops their
+// processes (cancelLocked).
 func CancelGroup(g *waveobj.TaskGroup) *waveobj.TaskGroup {
 	for i := range g.Tasks {
-		t := &g.Tasks[i]
-		switch t.State {
-		case TaskState_Pending, TaskState_Ready:
-			t.State = TaskState_Skipped
-		case TaskState_Running, TaskState_Stalled, TaskState_Reviewing, TaskState_ReviewFailed:
-			t.State = TaskState_Cancelled
+		if to := taskStates[g.Tasks[i].State].cancelTo; to != "" {
+			g.Tasks[i].State = to
 		}
 	}
 	g.Status = DagStatus_Cancelled

@@ -492,8 +492,9 @@ func TestCancelStopsARunningVerify(t *testing.T) {
 	}
 	await() // returns only if cancel stopped the blocked Verify
 
+	// cancel ends the verifying task, and the stopped Verify's result does not write over that
 	g := f.dag(t)
-	if g.Status != DagStatus_Cancelled || g.Tasks[0].State != TaskState_Verifying {
+	if g.Status != DagStatus_Cancelled || g.Tasks[0].State != TaskState_Cancelled {
 		t.Fatalf("a cancelled dag records no Verify result, got %s / %s", g.Status, g.Tasks[0].State)
 	}
 }

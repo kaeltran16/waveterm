@@ -529,3 +529,23 @@ func TestAlternatingFailureKindsStillExhaustTheAutoRetries(t *testing.T) {
 		t.Fatalf("task = %s with %d attempts, want failed after 3 failures in a row", task.State, task.Attempts)
 	}
 }
+
+// a worker that ran `wsh jarvis complete` and then exited non-zero: the run is done and the tick reviews its commit,
+// so the exit must not mark the task failed, which the tick would then derive done and land unreviewed
+func TestHandleChildOutcomeIgnoresAFailedExitAfterComplete(t *testing.T) {
+	h := newChildOutcomeHarness(t, 1)
+	runID := h.loadDag(t).Tasks[0].RunID
+	if err := wstore.UpdateRun(h.ctx, h.channel, runID, func(r *waveobj.Run) error {
+		r.Status = jarvis.RunStatus_Done
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := HandleChildOutcome(h.ctx, h.workers[0], jarvis.OutcomeData{Status: "failed", Summary: "exited 1", ExitCode: 1}); err != nil {
+		t.Fatal(err)
+	}
+	task := h.loadDag(t).Tasks[0]
+	if task.State != TaskState_Running || task.RunID != runID || task.Attempts != 0 || len(h.workers) != 1 {
+		t.Fatalf("an exit after complete is accounted for, got %+v workers=%d", task, len(h.workers))
+	}
+}
