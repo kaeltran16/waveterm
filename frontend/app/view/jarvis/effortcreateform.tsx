@@ -26,6 +26,7 @@ import { fromLookupError, lookupLine, shouldLookUp, type LookupState } from "./j
 import { normalizeKey } from "./jiraticket";
 import { ProjectChips } from "./projectchips";
 import { TicketChip } from "./recordpicker";
+import { chunkRef } from "./trackeredit";
 
 export interface ParsedChunkLine {
     label: string;
@@ -184,14 +185,17 @@ function EffortCreateDialog({ model, onClose, edit, open }: EffortCreateFormProp
                 },
                 { timeout: stateRpcTimeoutMs }
             );
-            // the chunk seed carries neither status nor stage, so both land in one atomic follow-up batch
+            // the chunk seed carries neither status nor stage, so both land in one atomic follow-up batch. The
+            // seed's order is the plan's, so a ref is taken against the lines (an all-digit label sent raw is
+            // read as a position)
+            const ref = (label: string) => chunkRef(lines, label);
             const followOps: EffortOp[] = [
                 ...lines
                     .filter((l) => l.stage !== "")
-                    .map((l) => ({ op: "setChunkStage", chunk: l.label, stage: l.stage })),
+                    .map((l) => ({ op: "setChunkStage", chunk: ref(l.label), stage: l.stage })),
                 ...lines
                     .filter((l) => l.checked)
-                    .map((l) => ({ op: "setChunkStatus", chunk: l.label, status: "done" })),
+                    .map((l) => ({ op: "setChunkStatus", chunk: ref(l.label), status: "done" })),
             ];
             if (followOps.length > 0) {
                 await RpcApi.EffortMutateCommand(

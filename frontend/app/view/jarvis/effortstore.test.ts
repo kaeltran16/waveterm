@@ -15,7 +15,9 @@ import {
     effortDetailIsFresh,
     effortLoadErrorAtom,
     loadEffortDetail,
+    removeChunks,
     removeNote,
+    setChunkStatus,
 } from "./effortstore";
 
 const effort = {
@@ -187,5 +189,45 @@ describe("removeNote", () => {
             removeNote("effort:q", chunks, "P1", { at: 3, ts: 3, text: "three" }),
         ]);
         expect(e.chunks[0].notes.map((n) => n.text)).toEqual(["two"]);
+    });
+});
+
+describe("chunk writes resolve their ref when they run", () => {
+    // a mirror of the server's chunk ref: all digits is a 1-based position, anything else a label
+    const find = (e: Effort, ref: string) =>
+        /^[0-9]+$/.test(ref) ? Number(ref) - 1 : e.chunks.findIndex((c) => c.label === ref);
+    const sent: EffortOp[] = [];
+    const server = (e: Effort) =>
+        vi.mocked(RpcApi.EffortMutateCommand).mockImplementation(async (_c, data) => {
+            for (const op of data.ops) {
+                sent.push(op);
+                const i = find(e, op.chunk!);
+                if (op.op === "removeChunk") {
+                    e.chunks.splice(i, 1);
+                } else if (op.op === "setChunkStatus") {
+                    e.chunks[i].status = op.status!;
+                }
+            }
+            return { effort: structuredClone(e) };
+        });
+    const plan = (oid: string, labels: string[]) =>
+        ({ oid, chunks: labels.map((label) => ({ label, status: "pending" })) }) as unknown as Effort;
+
+    it("two queued deletes of all-digit chunks remove those chunks, not what moved into their place", async () => {
+        const e = plan("d", ["1", "2", "3"]);
+        server(e);
+        globalStore.set(effortDetailAtom, new Map([["effort:d", structuredClone(e)]]));
+        const captured = e.chunks.map((c) => ({ label: c.label, stage: "" }));
+        await Promise.all([removeChunks("effort:d", captured, ["1"]), removeChunks("effort:d", captured, ["2"])]);
+        expect(e.chunks.map((c) => c.label)).toEqual(["3"]);
+    });
+
+    it("sends an all-digit label as its position, reading the plan when this client has none", async () => {
+        const e = plan("s", ["a", "b", "2"]);
+        server(e);
+        vi.mocked(RpcApi.EffortGetCommand).mockResolvedValue({ effort: structuredClone(e) });
+        globalStore.set(effortDetailAtom, new Map());
+        await setChunkStatus("effort:s", "2", "done");
+        expect(e.chunks.map((c) => c.status)).toEqual(["pending", "pending", "done"]);
     });
 });

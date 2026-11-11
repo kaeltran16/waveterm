@@ -152,11 +152,44 @@ export function subscribeEffortUpdates(model: AgentsViewModel): () => void {
 export async function advanceChunk(oref: string, note?: string): Promise<void> {
     await mutateEffort(oref, note != null ? [{ op: "advance", note }] : [{ op: "advance" }]);
 }
-export async function setChunkStatus(oref: string, chunk: string, status: string, note?: string): Promise<void> {
-    await mutateEffort(oref, [{ op: "setChunkStatus", chunk, status, note }]);
+// Chunk writes take labels and resolve the positional ref (chunkRef) when they run, one at a time per initiative,
+// against the effort the write before them returned. A ref taken when the write was scheduled goes stale (an
+// undoable delete commits seconds later, and leaving the Brief flushes several at once), and an all-digit label
+// sent raw is read by the server as a position.
+const effortWrites = new Map<string, Promise<unknown>>();
+
+function serialWrite(oref: string, write: () => Promise<void>): Promise<void> {
+    const run = (effortWrites.get(oref) ?? Promise.resolve()).then(write);
+    effortWrites.set(
+        oref,
+        run.catch(() => {})
+    );
+    return run;
 }
-export async function reopenChunk(oref: string, chunk: string): Promise<void> {
-    await mutateEffort(oref, [{ op: "reopen", chunk }]);
+
+// the effort's chunks as this client last read them, read once if it never has; `fallback` when even that fails
+async function liveChunks(oref: string, fallback: EditChunk[] = []): Promise<EditChunk[]> {
+    if (globalStore.get(effortDetailAtom).get(oref) == null) {
+        await loadEffortDetail(oref).catch(() => {});
+    }
+    const chunks = globalStore.get(effortDetailAtom).get(oref)?.chunks;
+    return chunks != null ? chunks.map((c) => ({ label: c.label, stage: c.stage ?? "" })) : fallback;
+}
+
+// a label that is not all digits is its own ref, so only those cost a read
+async function liveRef(oref: string, label: string, fallback?: EditChunk[]): Promise<string> {
+    return /^\d+$/.test(label) ? chunkRef(await liveChunks(oref, fallback), label) : label;
+}
+
+export function setChunkStatus(oref: string, chunk: string, status: string, note?: string): Promise<void> {
+    return serialWrite(oref, async () => {
+        await mutateEffort(oref, [{ op: "setChunkStatus", chunk: await liveRef(oref, chunk), status, note }]);
+    });
+}
+export function reopenChunk(oref: string, chunk: string): Promise<void> {
+    return serialWrite(oref, async () => {
+        await mutateEffort(oref, [{ op: "reopen", chunk: await liveRef(oref, chunk) }]);
+    });
 }
 export async function addChunkOp(oref: string, label: string): Promise<void> {
     await mutateEffort(oref, [{ op: "addChunk", label }]);
@@ -164,14 +197,20 @@ export async function addChunkOp(oref: string, label: string): Promise<void> {
 
 // One batch, so re-staging a whole run is atomic: the server validates every op before applying any,
 // and a run half-renamed would split into two groups on screen. Passing "" clears the stage.
-export async function setChunkStage(oref: string, chunks: string[], stage: string): Promise<void> {
-    await mutateEffort(
-        oref,
-        chunks.map((chunk) => ({ op: "setChunkStage", chunk, stage }))
-    );
+export function setChunkStage(oref: string, labels: string[], stage: string): Promise<void> {
+    return serialWrite(oref, async () => {
+        const chunks = await liveChunks(oref);
+        await mutateEffort(
+            oref,
+            labels.map((label) => ({ op: "setChunkStage", chunk: chunkRef(chunks, label), stage }))
+        );
+    });
 }
-export async function appendChunkNote(oref: string, chunk: string | null, text: string): Promise<void> {
-    await mutateEffort(oref, [{ op: "appendNote", chunk: chunk ?? undefined, note: text }]);
+export function appendChunkNote(oref: string, chunk: string | null, text: string): Promise<void> {
+    return serialWrite(oref, async () => {
+        const ref = chunk != null ? await liveRef(oref, chunk) : undefined;
+        await mutateEffort(oref, [{ op: "appendNote", chunk: ref, note: text }]);
+    });
 }
 export async function setEffortStatus(oref: string, status: string): Promise<void> {
     await mutateEffort(oref, [{ op: "setStatus", status }]);
@@ -227,40 +266,53 @@ export async function setEffortDetails(oref: string, cur: EffortDetails, next: E
         await mutateEffort(oref, ops);
     }
 }
-export async function renameChunk(oref: string, chunks: EditChunk[], label: string, next: string): Promise<void> {
-    await mutateEffort(oref, [{ op: "renameChunk", chunk: chunkRef(chunks, label), label: next.trim() }]);
+export function renameChunk(oref: string, chunks: EditChunk[], label: string, next: string): Promise<void> {
+    return serialWrite(oref, async () => {
+        const ref = await liveRef(oref, label, chunks);
+        await mutateEffort(oref, [{ op: "renameChunk", chunk: ref, label: next.trim() }]);
+    });
 }
-export async function moveChunk(oref: string, chunks: EditChunk[], label: string, at: number): Promise<void> {
-    await mutateEffort(oref, [{ op: "moveChunk", chunk: chunkRef(chunks, label), at }]);
+export function moveChunk(oref: string, chunks: EditChunk[], label: string, at: number): Promise<void> {
+    return serialWrite(oref, async () => {
+        await mutateEffort(oref, [{ op: "moveChunk", chunk: await liveRef(oref, label, chunks), at }]);
+    });
 }
 // one batch: a chunk restaged but not yet moved would render as a one-chunk run of its new stage
-export async function moveChunkToStage(
+export function moveChunkToStage(
     oref: string,
     chunks: EditChunk[],
     label: string,
     stage: string,
     at: number
 ): Promise<void> {
-    const ref = chunkRef(chunks, label);
-    await mutateEffort(oref, [
-        { op: "setChunkStage", chunk: ref, stage },
-        { op: "moveChunk", chunk: ref, at },
-    ]);
+    return serialWrite(oref, async () => {
+        const ref = await liveRef(oref, label, chunks);
+        await mutateEffort(oref, [
+            { op: "setChunkStage", chunk: ref, stage },
+            { op: "moveChunk", chunk: ref, at },
+        ]);
+    });
 }
 // highest position first, so an index ref (see chunkRef) is never shifted by an earlier removal
-export async function removeChunks(oref: string, chunks: EditChunk[], labels: string[]): Promise<void> {
-    const idx = (l: string) => chunks.findIndex((c) => c.label === l);
-    const ordered = [...labels].sort((a, b) => idx(b) - idx(a));
-    await mutateEffort(
-        oref,
-        ordered.map((label) => ({ op: "removeChunk", chunk: chunkRef(chunks, label) }))
-    );
+export function removeChunks(oref: string, chunks: EditChunk[], labels: string[]): Promise<void> {
+    return serialWrite(oref, async () => {
+        const now = await liveChunks(oref, chunks);
+        const idx = (l: string) => now.findIndex((c) => c.label === l);
+        const ordered = [...labels].sort((a, b) => idx(b) - idx(a));
+        await mutateEffort(
+            oref,
+            ordered.map((label) => ({ op: "removeChunk", chunk: chunkRef(now, label) }))
+        );
+    });
 }
 export async function addChunkAt(oref: string, label: string, stage: string, at?: number): Promise<void> {
     await mutateEffort(oref, [{ op: "addChunk", label: label.trim(), stage: stage || undefined, at }]);
 }
-export async function editNote(oref: string, chunk: string, at: number, ts: number, text: string): Promise<void> {
-    await mutateEffort(oref, [{ op: "editNote", chunk, at, notets: ts, note: text.trim() }]);
+export function editNote(oref: string, chunk: string, at: number, ts: number, text: string): Promise<void> {
+    return serialWrite(oref, async () => {
+        const ref = await liveRef(oref, chunk);
+        await mutateEffort(oref, [{ op: "editNote", chunk: ref, at, notets: ts, note: text.trim() }]);
+    });
 }
 
 // A note's 1-based place in its chunk's trail, as the trail is now. Only a removal moves a note (an append
@@ -275,32 +327,21 @@ export function currentNoteAt(notes: EffortNote[], at: number, ts: number, text:
     return at;
 }
 
-// Note removals on one initiative go out one at a time. Each is an undoable delete that commits seconds after
-// it was read, and leaving the Brief flushes the pending ones together; in order, each resolves its note
-// against the effort the removal before it returned, not the trail it captured.
-const noteRemovals = new Map<string, Promise<unknown>>();
-
+// An undoable delete: in order with the initiative's other writes, it resolves its note against the effort the
+// write before it returned, not the trail it captured.
 export function removeNote(
     oref: string,
     chunks: EditChunk[],
     label: string,
     note: { at: number; ts: number; text: string }
 ): Promise<void> {
-    const write = async () => {
-        const fresh = globalStore.get(effortDetailAtom).get(oref)?.chunks;
-        const now = fresh ?? chunks;
-        const trail = fresh?.find((c) => c.label === label)?.notes;
+    return serialWrite(oref, async () => {
+        const trail = globalStore
+            .get(effortDetailAtom)
+            .get(oref)
+            ?.chunks?.find((c) => c.label === label)?.notes;
         const at = trail != null ? currentNoteAt(trail, note.at, note.ts, note.text) : note.at;
-        const ref = chunkRef(
-            now.map((c) => ({ label: c.label, stage: c.stage ?? "" })),
-            label
-        );
+        const ref = await liveRef(oref, label, chunks);
         await mutateEffort(oref, [{ op: "removeNote", chunk: ref, at, notets: note.ts }]);
-    };
-    const run = (noteRemovals.get(oref) ?? Promise.resolve()).then(write);
-    noteRemovals.set(
-        oref,
-        run.catch(() => {})
-    );
-    return run;
+    });
 }
