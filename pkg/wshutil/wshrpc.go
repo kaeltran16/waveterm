@@ -402,6 +402,7 @@ func (w *WshRpc) runServer() {
 		panichandler.PanicHandler("wshrpc.runServer", recover())
 		close(w.OutputCh)
 		w.setServerDone()
+		w.failPendingRpcs(errors.New("rpc connection closed"))
 	}()
 outer:
 	for {
@@ -528,6 +529,20 @@ func (w *WshRpc) unregisterRpc(reqId string, err error) {
 	delete(w.RpcMap, reqId)
 	close(rd.ResCh)
 	rd.Handler.callContextCancelFn()
+}
+
+// a reply can only arrive through the input, so once it is gone every waiting call would otherwise
+// block on its response channel forever: the timeout path stands down when the server is done
+func (w *WshRpc) failPendingRpcs(err error) {
+	w.Lock.Lock()
+	reqIds := make([]string, 0, len(w.RpcMap))
+	for reqId := range w.RpcMap {
+		reqIds = append(reqIds, reqId)
+	}
+	w.Lock.Unlock()
+	for _, reqId := range reqIds {
+		w.unregisterRpc(reqId, err)
+	}
 }
 
 // no response

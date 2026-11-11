@@ -77,6 +77,8 @@ func SetupConnRpcClient(conn net.Conn, serverImpl ServerImpl, debugStr string) (
 		}()
 		// when input is closed, close the connection
 		defer conn.Close()
+		// and end the rpc, which fails the calls still waiting on a reply that can no longer come
+		defer close(inputCh)
 		AdaptStreamToMsgCh(conn, inputCh, nil)
 	}()
 	rtn := MakeWshRpcWithChannels(inputCh, outputCh, wshrpc.RpcContext{}, serverImpl, debugStr)
