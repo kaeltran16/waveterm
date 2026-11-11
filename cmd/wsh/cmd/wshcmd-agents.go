@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/wavetermdev/waveterm/pkg/orchestrate"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc/wshclient"
 )
@@ -246,10 +247,15 @@ func agentsSendLines(sent *wshrpc.CommandAgentsSendRtnData) []string {
 
 // agentsWait polls read until the target has answered the send: it is no longer working and its last
 // answer is newer than the send. A target that ends up asking the user is returned as it stands, since
-// only the user can move it on. read, sleep and now are parameters so a test scripts them.
+// only the user can move it on. A send that started a turn fails once the target has stayed idle for the
+// engine's wake-confirm window: the message did not reach the session. read, sleep and now are parameters
+// so a test scripts them.
 func agentsWait(read func() (*wshrpc.CommandAgentsReadRtnData, error), sleep func(time.Duration), now func() time.Time,
 	sent *wshrpc.CommandAgentsSendRtnData, timeout time.Duration) (*wshrpc.CommandAgentsReadRtnData, error) {
-	deadline := now().Add(timeout)
+	start := now()
+	deadline := start.Add(timeout)
+	// a send into a running turn has no start to see, and the target may read idle between its turns
+	started := sent.MidTurn
 	for {
 		r, err := read()
 		if err != nil {
@@ -260,6 +266,12 @@ func agentsWait(read func() (*wshrpc.CommandAgentsReadRtnData, error), sleep fun
 		}
 		if r.State != wshrpc.AgentsState_Working && r.AnswerTs > sent.SentTs {
 			return r, nil
+		}
+		started = started || r.State != wshrpc.AgentsState_Idle
+		if !started && now().Sub(start) >= orchestrate.WakeConfirmTimeout {
+			id := agentsShort(sent.TabId)
+			return nil, fmt.Errorf("%s did not start a turn within %s, so the message may not have reached it; look at its terminal, or run 'wsh agents read %s' later",
+				id, orchestrate.WakeConfirmTimeout, id)
 		}
 		if !now().Before(deadline) {
 			id := agentsShort(sent.TabId)
