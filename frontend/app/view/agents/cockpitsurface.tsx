@@ -353,8 +353,12 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     }, [cursorId]);
 
     const scrollToPulse = (id: string) => {
-        jumpedRef.current = id;
-        document.querySelector(stopSelector(id))?.scrollIntoView({ behavior: "smooth", block: "center" });
+        const el = document.querySelector(stopSelector(id));
+        // a row in a closed fold is not drawn yet: leave the jump to the cursor effect, which runs once it is
+        if (el != null) {
+            jumpedRef.current = id;
+            el.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
         setPulseId(id);
         setTimeout(() => setPulseId((p) => (p === id ? undefined : p)), 1200);
     };
