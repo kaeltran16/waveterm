@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/baseds"
@@ -561,6 +562,36 @@ func TestSpawnRunWorkerPassesALongPromptAsAFile(t *testing.T) {
 	data, err := os.ReadFile(path)
 	if err != nil || string(data) != long {
 		t.Fatalf("prompt file holds %d bytes (err %v), want the whole prompt", len(data), err)
+	}
+}
+
+// a prompt file is read once at launch (a resume rebuilds its args without it), so writing one prunes those
+// past promptFileMaxAge instead of keeping every long prompt for good
+func TestLaunchPromptPrunesOldPromptFiles(t *testing.T) {
+	oldDir, dir := promptFileDir, t.TempDir()
+	promptFileDir = func() string { return dir }
+	t.Cleanup(func() { promptFileDir = oldDir })
+	stale, recent := filepath.Join(dir, "stale.md"), filepath.Join(dir, "recent.md")
+	for _, p := range []string{stale, recent} {
+		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old := time.Now().Add(-promptFileMaxAge - time.Hour)
+	if err := os.Chtimes(stale, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := launchPrompt(strings.Repeat("x", maxInlinePromptBytes+1), "sess-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Errorf("a prompt file past its age must be removed, stat err %v", err)
+	}
+	for _, p := range []string{recent, filepath.Join(dir, "sess-1.md")} {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("%s must stay: %v", p, err)
+		}
 	}
 }
 

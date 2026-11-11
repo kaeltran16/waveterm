@@ -243,6 +243,30 @@ const maxInlinePromptBytes = 16 * 1024
 // only known once the server has started; a var so tests write to a temp dir.
 var promptFileDir = func() string { return filepath.Join(wavebase.GetWaveDataDir(), "jarvis", "prompts") }
 
+// promptFileMaxAge is how long a prompt file is kept. A worker reads its file once at launch and a resume
+// rebuilds its args without it, so this only has to outlast a launch, with wide margin.
+const promptFileMaxAge = 7 * 24 * time.Hour
+
+// prunePromptFiles removes the prompt files in dir older than promptFileMaxAge. A failure only leaves files
+// behind, so it is logged rather than failing the launch.
+func prunePromptFiles(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		log.Printf("pruning prompt files: %v", err)
+		return
+	}
+	cutoff := time.Now().Add(-promptFileMaxAge)
+	for _, e := range entries {
+		info, err := e.Info()
+		if err != nil || e.IsDir() || info.ModTime().After(cutoff) {
+			continue
+		}
+		if err := os.Remove(filepath.Join(dir, e.Name())); err != nil {
+			log.Printf("pruning prompt file %s: %v", e.Name(), err)
+		}
+	}
+}
+
 // launchPrompt is the prompt to put on the command line: the prompt itself when it fits, otherwise a
 // pointer to a file holding it. Only long prompts move, because claude titles a session from its first
 // message and a pointer would give every worker the same title.
@@ -258,6 +282,7 @@ func launchPrompt(prompt, sessionId string) (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("creating prompt dir: %w", err)
 	}
+	prunePromptFiles(dir)
 	path := filepath.Join(dir, name+".md")
 	if err := os.WriteFile(path, []byte(prompt), 0o644); err != nil {
 		return "", fmt.Errorf("writing prompt file: %w", err)
