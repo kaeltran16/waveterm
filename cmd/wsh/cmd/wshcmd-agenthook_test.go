@@ -506,7 +506,16 @@ func TestHookStatusIdentity(t *testing.T) {
 		t.Fatalf("ToolKey = %q, want %q (computed over the same call whatever the key order)", key, want)
 	}
 
-	// only a PostToolUse names a tool call that ran
+	// a call that ran and failed is reported by PostToolUseFailure, with the same key
+	ev.HookEventName = "PostToolUseFailure"
+	if _, fkey := hookStatusIdentity(ev); fkey != key {
+		t.Fatalf("PostToolUseFailure ToolKey = %q, want %q", fkey, key)
+	}
+	if em := planEmission(ev); em.State != baseds.AgentState_Working {
+		t.Fatalf("PostToolUseFailure state = %q, want working", em.State)
+	}
+
+	// only a PostToolUse or PostToolUseFailure names a tool call that ran
 	ev.HookEventName = "PreToolUse"
 	if _, key := hookStatusIdentity(ev); key != "" {
 		t.Fatalf("PreToolUse ToolKey = %q, want empty", key)

@@ -90,6 +90,22 @@ describe("deliver", () => {
         expect(calls).toEqual([["command", "compact", ""]]);
     });
 
+    it("runs a plugin command by its namespaced name", async () => {
+        const { calls, session } = recorder();
+        await deliver(session, { text: "/arc:brainstorm the queue" }, idle());
+        expect(calls).toEqual([["command", "arc:brainstorm", "the queue"]]);
+    });
+
+    it("submits a prompt that starts with a path as a prompt", async () => {
+        const { calls, session } = recorder();
+        await deliver(session, { text: "/tmp/build.log has the failing test, read it" }, idle());
+        await deliver(session, { text: "/README.md is out of date" }, idle());
+        expect(calls).toEqual([
+            ["submit", "/tmp/build.log has the failing test, read it"],
+            ["submit", "/README.md is out of date"],
+        ]);
+    });
+
     it("compacts through the session when asked for a compaction", async () => {
         const { calls, session } = recorder();
         await deliver(session, { compact: "Keep: the reasons." }, idle());

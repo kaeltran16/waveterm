@@ -164,7 +164,8 @@ func outOfTurnStatus(ev *wps.WaveEvent) bool {
 	if utilfn.ReUnmarshal(&data, ev.Data) != nil || data.State != baseds.AgentState_Working {
 		return false
 	}
-	if data.Hook != baseds.AgentHook_PreToolUse && data.Hook != baseds.AgentHook_PostToolUse {
+	if data.Hook != baseds.AgentHook_PreToolUse && data.Hook != baseds.AgentHook_PostToolUse &&
+		data.Hook != baseds.AgentHook_PostToolUseFailure {
 		return false
 	}
 	for _, scope := range ev.Scopes {

@@ -44,7 +44,9 @@ export function controlMsg(line: string): ControlMsg | null {
     }
 }
 
-const SLASH = /^\/(\S+)\s*([\s\S]*)$/;
+// a command name is letters, digits, _, - and a plugin's ":"; a leading word with / or . in it is a path the
+// prompt starts with, which $.command.run would reject and the prompt be lost
+const SLASH = /^\/([\w:-]+)(?:\s+([\s\S]*))?$/;
 
 const COMPACT = "compact";
 

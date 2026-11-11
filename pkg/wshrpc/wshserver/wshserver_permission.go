@@ -79,7 +79,7 @@ func listAgentPermissions(all map[string][]agentask.PendingPermission) []baseds.
 }
 
 // retirePermissions drops the pending permission requests a status proves answered elsewhere: a PostToolUse
-// for the same tool call, or a new prompt, a Stop or a new session after them. It runs before publishEvent's
+// or PostToolUseFailure for the same tool call, or a new prompt, a Stop or a new session after them. It runs before publishEvent's
 // stale and out-of-turn drops, since a late PostToolUse those discard still proves its tool ran.
 func retirePermissions(ev *wps.WaveEvent) {
 	if ev == nil || ev.Event != wps.Event_AgentStatus {
@@ -91,7 +91,7 @@ func retirePermissions(ev *wps.WaveEvent) {
 	}
 	var retired []agentask.PendingPermission
 	switch data.Hook {
-	case baseds.AgentHook_PostToolUse:
+	case baseds.AgentHook_PostToolUse, baseds.AgentHook_PostToolUseFailure:
 		retired = agentask.GlobalPermissions.RetireKey(data.ORef, data.ToolKey, data.Ts)
 	case baseds.AgentHook_UserPromptSubmit, baseds.AgentHook_Stop, baseds.AgentHook_SessionStart:
 		retired = agentask.GlobalPermissions.RetireUpTo(data.ORef, data.Ts)

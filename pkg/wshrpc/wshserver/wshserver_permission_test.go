@@ -192,3 +192,27 @@ func TestAgentPermissionListEmptyIsNotNil(t *testing.T) {
 		t.Fatalf("list = %v, %v; want an empty, non-nil list", list, err)
 	}
 }
+
+// claude fires PostToolUseFailure, not PostToolUse, for a call that ran and failed; it proves the request
+// was answered as well, and a late one after the Stop is out of turn like a PostToolUse
+func TestPublishEventRetiresPermissionOnToolFailure(t *testing.T) {
+	oref := waveobj.MakeORef(waveobj.OType_Block, uuid.NewString()).String()
+	events := capturePermissionEvents(t, oref)
+	p := raisePermission(t, oref, "k1")
+	publishPermStatus(oref, baseds.AgentState_Working, baseds.AgentHook_PostToolUseFailure, "k1", p.Ts+10)
+	if got := agentask.GlobalPermissions.List(oref); len(got) != 0 {
+		t.Fatalf("a PostToolUseFailure with the matching key did not retire the request: %v", got)
+	}
+	got := events()
+	if last := got[len(got)-1]; !last.Cleared || last.PermId != p.PermId {
+		t.Fatalf("want a cleared event for %s last, got %v", p.PermId, got)
+	}
+	publishPermStatus(oref, baseds.AgentState_Idle, baseds.AgentHook_Stop, "", p.Ts+20)
+	if !outOfTurnStatus(&wps.WaveEvent{
+		Event:  wps.Event_AgentStatus,
+		Scopes: []string{oref},
+		Data:   baseds.AgentStatusData{ORef: oref, State: baseds.AgentState_Working, Hook: baseds.AgentHook_PostToolUseFailure, Ts: p.Ts + 30},
+	}) {
+		t.Fatal("a PostToolUseFailure's working after the Stop must be out of turn")
+	}
+}

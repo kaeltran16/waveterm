@@ -7,6 +7,7 @@
 package claudemod
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -59,7 +60,9 @@ func SetOption(plugin, field string, value bool) error {
 	return setOptionIn(path, plugin, field, value)
 }
 
-func readSettings(path string) (map[string]any, error) {
+// ReadSettings reads a settings.json for a read-modify-write: a missing or blank file is no settings,
+// any other read error is returned so the caller never writes over settings it could not see.
+func ReadSettings(path string) (map[string]any, error) {
 	settings := map[string]any{}
 	b, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
@@ -68,6 +71,8 @@ func readSettings(path string) (map[string]any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading %s: %w", path, err)
 	}
+	// Windows PowerShell 5 writes UTF-8 with a BOM, which json.Unmarshal refuses
+	b = bytes.TrimPrefix(b, []byte("\xEF\xBB\xBF"))
 	if len(strings.TrimSpace(string(b))) == 0 {
 		return settings, nil
 	}
@@ -83,7 +88,7 @@ func entryKeys(plugin string) []string {
 }
 
 func optionsIn(path, plugin string) (map[string]any, error) {
-	settings, err := readSettings(path)
+	settings, err := ReadSettings(path)
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +103,7 @@ func optionsIn(path, plugin string) (map[string]any, error) {
 }
 
 func setOptionIn(path, plugin, field string, value bool) error {
-	settings, err := readSettings(path)
+	settings, err := ReadSettings(path)
 	if err != nil {
 		return err
 	}

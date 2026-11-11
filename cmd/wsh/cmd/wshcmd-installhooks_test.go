@@ -1235,3 +1235,149 @@ func TestSubagentStopIsNotManagedAndAnOldEntryIsPruned(t *testing.T) {
 		t.Fatalf("the old SubagentStop entry survived the merge: %v", hooks["SubagentStop"])
 	}
 }
+
+// stubInstallHome points the install at a throwaway home with no claude, opencode or pi on PATH.
+func stubInstallHome(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("HOME", home)
+	stubClaudeVersion(t, "", os.ErrNotExist)
+	origOpencode, origPi := opencodeLookPath, piLookPath
+	opencodeLookPath = func(string) (string, error) { return "", os.ErrNotExist }
+	piLookPath = func(string) (string, error) { return "", os.ErrNotExist }
+	t.Cleanup(func() { opencodeLookPath, piLookPath = origOpencode, origPi })
+	return home
+}
+
+// a settings.json that exists but cannot be read (a sharing violation at launch; a directory stands in
+// here) must stop the install, never be taken for "no settings" and replaced by an Arc-only file
+func TestInstallAgentHooks_unreadableSettingsAreNotReplaced(t *testing.T) {
+	home := stubInstallHome(t)
+	path := filepath.Join(home, ".claude", "settings.json")
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	err := installAgentHooksRun(nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "reading") {
+		t.Fatalf("install err = %v, want a read error", err)
+	}
+	if _, serr := os.Stat(path + ".tmp"); serr == nil {
+		t.Fatalf("install wrote %s.tmp over unreadable settings", path)
+	}
+}
+
+func TestMergePiSettingsDefaults_unreadableSettingsAreNotReplaced(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, ".pi", "agent", "settings.json")
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := mergePiSettingsDefaults(home)
+	if err == nil || !strings.Contains(err.Error(), "reading") {
+		t.Fatalf("merge err = %v, want a read error", err)
+	}
+	if _, serr := os.Stat(path + ".tmp"); serr == nil {
+		t.Fatalf("merge wrote %s.tmp over unreadable settings", path)
+	}
+}
+
+// a user's hook sharing a group with an Arc hook survives the rewrite; only Arc's own hook is replaced
+func TestMergeAgentHooksKeepsForeignHookInAManagedGroup(t *testing.T) {
+	existing := map[string]any{
+		"hooks": map[string]any{
+			"Stop": []any{
+				map[string]any{"hooks": []any{
+					map[string]any{"type": "command", "command": `C:\old\wsh.exe agent-hook`},
+					map[string]any{"type": "command", "command": "node C:/tools/my-stop-notify.js"},
+				}},
+			},
+		},
+	}
+	got := mergeAgentHooks(existing, testWsh)
+	found := false
+	for _, g := range got["hooks"].(map[string]any)["Stop"].([]any) {
+		for _, h := range g.(map[string]any)["hooks"].([]any) {
+			c := h.(map[string]any)["command"].(string)
+			if c == "node C:/tools/my-stop-notify.js" {
+				found = true
+			}
+			if strings.Contains(c, `C:\old\wsh.exe`) {
+				t.Fatalf("stale Arc hook kept: %q", c)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("user hook in a group with an Arc hook was dropped")
+	}
+	if n := countManaged(t, got); n != len(managedHooks) {
+		t.Fatalf("managed entries = %d, want %d", n, len(managedHooks))
+	}
+	if again := mergeAgentHooks(got, testWsh); countManaged(t, again) != len(managedHooks) {
+		t.Fatal("re-merge duplicated managed entries")
+	}
+}
+
+// a call approved in the terminal that then fails reports PostToolUseFailure only, which retires its request
+func TestPostToolUseFailureHookIsManaged(t *testing.T) {
+	want := managedHook{Event: "PostToolUseFailure", Args: "agent-hook", Timeout: 10, Async: true}
+	for _, mh := range managedHooks {
+		if mh == want {
+			return
+		}
+	}
+	t.Fatalf("managed hooks missing %+v", want)
+}
+
+// claude --version can take seconds; a settings.json written meanwhile (a running claude, Settings > Skim)
+// must be what the install merges into, not the copy read before the probe
+func TestInstallAgentHooks_keepsAWriteMadeDuringTheVersionProbe(t *testing.T) {
+	home := stubInstallHome(t)
+	path := filepath.Join(home, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	claudeVersionOutput = func() (string, error) {
+		if err := os.WriteFile(path, []byte(`{"model":"opus"}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return "", os.ErrNotExist
+	}
+	if err := installAgentHooksRun(nil, nil); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["model"] != "opus" {
+		t.Fatalf("the write made during the probe was lost: %s", b)
+	}
+}
+
+// a Claude settings.json the install cannot parse fails the install, but the pi and opencode integrations
+// beside it still land
+func TestInstallAgentHooks_unparseableClaudeSettingsStillInstallPi(t *testing.T) {
+	home := stubInstallHome(t)
+	piLookPath = func(string) (string, error) { return "pi", nil }
+	path := filepath.Join(home, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"model":`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := installAgentHooksRun(nil, nil); err == nil || !strings.Contains(err.Error(), "parsing") {
+		t.Fatalf("install err = %v, want the parse error", err)
+	}
+	if b, _ := os.ReadFile(path); string(b) != `{"model":` {
+		t.Fatalf("unparseable settings were rewritten: %s", b)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".pi", "agent", "settings.json")); err != nil {
+		t.Fatalf("pi settings not installed: %v", err)
+	}
+}

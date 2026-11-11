@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/wavetermdev/waveterm/pkg/claudemod"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 )
 
@@ -32,7 +33,7 @@ type managedHook struct {
 	Matcher string // "" => no matcher key (matches all)
 	Args    string // wsh subcommand + flags, e.g. "agent-hook", "ask", "ask --clear"
 	Timeout int
-	// Async runs the hook in the background, so claude does not wait for it. Only the two reports that
+	// Async runs the hook in the background, so claude does not wait for it. Only the reports that
 	// fire on every tool call take it: the rest fire once a turn, and a headless claude kills an async
 	// hook still running at teardown, which would lose a Stop.
 	Async bool
@@ -43,6 +44,8 @@ var managedHooks = []managedHook{
 	{Event: "PreToolUse", Args: "agent-hook", Timeout: 10, Async: true},
 	{Event: "PreToolUse", Matcher: "AskUserQuestion", Args: "ask", Timeout: 3600},
 	{Event: "PostToolUse", Args: "agent-hook", Timeout: 10, Async: true},
+	// a call that ran and failed fires this instead of PostToolUse; it retires a request answered in the terminal
+	{Event: "PostToolUseFailure", Args: "agent-hook", Timeout: 10, Async: true},
 	{Event: "PostToolUse", Matcher: "AskUserQuestion", Args: "ask --clear", Timeout: 10},
 	// synchronous: its output is the turn's added context, which a background hook's never reaches
 	{Event: "PostToolUse", Matcher: "Skill", Args: "agent-hook --skill-context", Timeout: 10},
@@ -396,25 +399,33 @@ func buildManagedGroup(mh managedHook, wshExe string) map[string]any {
 	return group
 }
 
-func groupIsManaged(group any) bool {
+// withoutManagedHooks returns group with Arc's hooks taken out, and false when nothing else is left in it.
+// A group Arc shares with a user's or another tool's hook keeps that hook, so a rewrite only replaces
+// Arc's own.
+func withoutManagedHooks(group any) (any, bool) {
 	gm, ok := group.(map[string]any)
 	if !ok {
-		return false
+		return group, true
 	}
 	hs, ok := gm["hooks"].([]any)
 	if !ok {
-		return false
+		return group, true
 	}
+	var kept []any
 	for _, h := range hs {
 		hm, ok := h.(map[string]any)
-		if !ok {
-			continue
+		if ok {
+			if c, ok := hm["command"].(string); ok && isManagedCommand(c) {
+				continue
+			}
 		}
-		if c, ok := hm["command"].(string); ok && isManagedCommand(c) {
-			return true
-		}
+		kept = append(kept, h)
 	}
-	return false
+	if len(kept) == 0 {
+		return nil, false
+	}
+	gm["hooks"] = kept
+	return gm, true
 }
 
 // managedHookAsync is whether Arc writes the (event, matcher, args) hook as a background one.
@@ -446,8 +457,8 @@ func mergeAgentHooks(existing map[string]any, wshExe string) map[string]any {
 		var kept []any
 		if groups, ok := hooks[event].([]any); ok {
 			for _, g := range groups {
-				if !groupIsManaged(g) {
-					kept = append(kept, g)
+				if rest, ok := withoutManagedHooks(g); ok {
+					kept = append(kept, rest)
 				}
 			}
 		}
@@ -898,11 +909,9 @@ const arcPackageEntry = "git:github.com/kaeltran16/waveterm"
 // Returns what was installed and what was skipped for the idempotent report.
 func mergePiSettingsDefaults(home string) (installed []string, skipped []string, err error) {
 	path := filepath.Join(home, ".pi", "agent", "settings.json")
-	settings := map[string]any{}
-	if b, rerr := os.ReadFile(path); rerr == nil && len(strings.TrimSpace(string(b))) > 0 {
-		if uerr := json.Unmarshal(b, &settings); uerr != nil {
-			return nil, nil, fmt.Errorf("parsing %s: %w", path, uerr)
-		}
+	settings, err := claudemod.ReadSettings(path)
+	if err != nil {
+		return nil, nil, err
 	}
 	if _, ok := settings["theme"]; !ok {
 		settings["theme"] = "arc"
@@ -1006,37 +1015,11 @@ func installAgentHooksRun(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	existing := map[string]any{}
-	if b, err := os.ReadFile(path); err == nil && len(strings.TrimSpace(string(b))) > 0 {
-		if err := json.Unmarshal(b, &existing); err != nil {
-			return fmt.Errorf("parsing %s: %w", path, err)
-		}
-	}
-
-	modsSupported := claudeSupportsMods()
-	if configIsHealthy(existing, wsh, modDirs, modsSupported) {
-		fmt.Printf("Arc agent hooks already installed in %s (skipping)\n", path)
-	} else {
-		merged := mergeAgentHooks(existing, wsh)
-		if modsSupported {
-			merged = unwrapStatusLine(merged)
-		} else {
-			merged = mergeStatusLine(merged, wsh)
-		}
-		merged = mergeClaudePluginDirs(merged, modDirs...)
-		out, err := json.MarshalIndent(merged, "", "  ")
-		if err != nil {
-			return fmt.Errorf("encoding settings: %w", err)
-		}
-
-		tmp := path + ".tmp"
-		if err := os.WriteFile(tmp, append(out, '\n'), 0o644); err != nil {
-			return fmt.Errorf("writing %s: %w", tmp, err)
-		}
-		if err := os.Rename(tmp, path); err != nil {
-			return fmt.Errorf("replacing %s: %w", path, err)
-		}
-		fmt.Printf("installed Arc agent hooks into %s\n", path)
+	// a settings.json that cannot be read or parsed fails the install, but only once the other agents'
+	// integrations, which do not depend on it, have landed
+	claudeErr := installClaudeSettings(path, wsh, modDirs)
+	if claudeErr != nil {
+		fmt.Fprintf(os.Stderr, "skipping Claude settings: %v\n", claudeErr)
 	}
 	if err := installOpencodePlugin(home, wsh); err != nil {
 		return err
@@ -1077,5 +1060,41 @@ func installAgentHooksRun(cmd *cobra.Command, args []string) error {
 			fmt.Println("pi keybindings: skipped (user file present)")
 		}
 	}
+	return claudeErr
+}
+
+// installClaudeSettings merges Arc's hooks, status line and mod folders into Claude's settings.json at path,
+// leaving a healthy one alone.
+func installClaudeSettings(path, wsh string, modDirs []string) error {
+	// probe first: claude --version can take seconds, and settings read before it would be written back
+	// over anything saved meanwhile
+	modsSupported := claudeSupportsMods()
+	existing, err := claudemod.ReadSettings(path)
+	if err != nil {
+		return err
+	}
+	if configIsHealthy(existing, wsh, modDirs, modsSupported) {
+		fmt.Printf("Arc agent hooks already installed in %s (skipping)\n", path)
+		return nil
+	}
+	merged := mergeAgentHooks(existing, wsh)
+	if modsSupported {
+		merged = unwrapStatusLine(merged)
+	} else {
+		merged = mergeStatusLine(merged, wsh)
+	}
+	merged = mergeClaudePluginDirs(merged, modDirs...)
+	out, err := json.MarshalIndent(merged, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encoding settings: %w", err)
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, append(out, '\n'), 0o644); err != nil {
+		return fmt.Errorf("writing %s: %w", tmp, err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return fmt.Errorf("replacing %s: %w", path, err)
+	}
+	fmt.Printf("installed Arc agent hooks into %s\n", path)
 	return nil
 }

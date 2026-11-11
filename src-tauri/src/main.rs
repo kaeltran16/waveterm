@@ -160,8 +160,8 @@ fn find_wsh_binary(bin_dir: &std::path::Path) -> Option<PathBuf> {
 }
 
 // Fire-and-forget: idempotently provision Arc's Claude Code hooks into the user's
-// ~/.claude/settings.json. Runs every launch; wsh does the idempotent merge. Any
-// failure is ignored — a missing hook only means degraded cockpit display.
+// ~/.claude/settings.json. Runs every launch; wsh does the idempotent merge. A failure
+// only means degraded cockpit display, so it is logged, never raised.
 fn install_agent_hooks(app_path: &std::path::Path) {
     let bin = app_path.join("bin");
     let Some(wsh) = find_wsh_binary(&bin) else {
@@ -169,19 +169,35 @@ fn install_agent_hooks(app_path: &std::path::Path) {
         return;
     };
     let mut cmd = Command::new(&wsh);
-    cmd.arg("install-agent-hooks")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+    // stderr is captured by output(): it says why an install failed (a settings.json that does not parse)
+    cmd.arg("install-agent-hooks").stdin(Stdio::null()).stdout(Stdio::null());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
-    match cmd.spawn() {
-        Ok(_) => applog::log_line(&format!("[tauri] triggered agent-hooks install via {:?}", wsh)),
+    applog::log_line(&format!("[tauri] triggered agent-hooks install via {:?}", wsh));
+    std::thread::spawn(move || match cmd.output() {
+        Ok(out) => {
+            if let Some(line) = hook_install_failure(out.status, &out.stderr) {
+                applog::log_line(&line);
+            }
+        }
         Err(e) => applog::log_line(&format!("[tauri] agent-hooks install spawn failed: {}", e)),
+    });
+}
+
+// the waveapp.log line for a finished hook install; None when it succeeded
+fn hook_install_failure(status: std::process::ExitStatus, stderr: &[u8]) -> Option<String> {
+    if status.success() {
+        return None;
     }
+    Some(format!(
+        "[tauri] agent-hooks install failed ({}): {}",
+        status,
+        String::from_utf8_lossy(stderr).trim()
+    ))
 }
 
 fn main() {
@@ -340,6 +356,18 @@ mod tests {
     fn only_the_main_window_ends_the_app() {
         assert!(exits_app_when_destroyed("main"));
         assert!(!exits_app_when_destroyed("attention-popup"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_failed_hook_install_is_logged_with_its_stderr() {
+        use std::os::windows::process::ExitStatusExt;
+        let ok = std::process::ExitStatus::from_raw(0);
+        let failed = std::process::ExitStatus::from_raw(1);
+        assert_eq!(hook_install_failure(ok, b"anything"), None);
+        let line = hook_install_failure(failed, b"parsing settings.json: invalid character\r\n").unwrap();
+        assert!(line.contains("exit code: 1"), "{line}");
+        assert!(line.ends_with("parsing settings.json: invalid character"), "{line}");
     }
 
     #[test]

@@ -88,7 +88,7 @@ func planEmission(ev ccHookEvent) agentEmission {
 		default:
 			return agentEmission{}
 		}
-	case "PostToolUse":
+	case "PostToolUse", "PostToolUseFailure":
 		return agentEmission{State: baseds.AgentState_Working, AttachModelTitle: true}
 	case "PreToolUse":
 		switch ev.ToolName {
@@ -124,9 +124,10 @@ func planEmission(ev ccHookEvent) agentEmission {
 }
 
 // hookStatusIdentity is what a report adds beyond its state: the session's permission mode on every one,
-// and on a PostToolUse the key of the call that ran, which retires that call's pending permission request.
+// and on a PostToolUse or PostToolUseFailure the key of the call that ran, which retires that call's pending
+// permission request.
 func hookStatusIdentity(ev ccHookEvent) (permissionMode, key string) {
-	if ev.HookEventName == "PostToolUse" {
+	if ev.HookEventName == "PostToolUse" || ev.HookEventName == "PostToolUseFailure" {
 		key = toolKey(ev.ToolName, ev.ToolInput)
 	}
 	return ev.PermissionMode, key

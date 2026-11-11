@@ -468,6 +468,25 @@ describe("shell commands", () => {
     });
 });
 
+describe("windows paths", () => {
+    // claude on Windows passes file_path with backslashes; each must be judged as its / form is
+    const TSCONFIG = '{\n  "compilerOptions": {\n    "strict": true\n  }\n}\n';
+    const WORKFLOW = "jobs:\n  test:\n    steps:\n      - run: npm test\n";
+    const ESLINTRC = '{\n  "rules": {\n    "no-unused-vars": "error"\n  }\n}\n';
+    const cases: Array<[string, string, string]> = [
+        ["C:\\repo\\tsconfig.json", TSCONFIG, TSCONFIG.replace('"strict": true', '"strict": false')],
+        ["C:\\repo\\.github\\workflows\\ci.yml", WORKFLOW, WORKFLOW.replace("npm test", "npm test || true")],
+        ["C:\\repo\\.eslintrc.json", ESLINTRC, ESLINTRC.replace('"error"', '"off"')],
+        ["C:\\repo\\src\\__snapshots__\\add", "a", "b"],
+        ["C:\\repo\\tests\\add.ts", SPEC, SPEC.replace("    expect(add(0, 0)).toBe(0)\n", "")],
+    ];
+    test.each(cases)("%s is judged like its / form", (path, before, after) => {
+        const posix = rules(path.replaceAll("\\", "/"), before, after);
+        expect(posix).not.toEqual([]);
+        expect(rules(path, before, after)).toEqual(posix);
+    });
+});
+
 describe("options", () => {
     test("a category turned off is not reported", async () => {
         const noTests: DetectOptions = { categories: new Set(["suppressions"]) };
