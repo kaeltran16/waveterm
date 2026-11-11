@@ -141,9 +141,11 @@ async function loadChangesForCwd(token: string, cwd: string | null, opts: LoadOp
 }
 
 // Re-fetch changes for the surface's active source, reusing the live guard token so the writes
-// aren't short-circuited (used after a Review apply mutates the tree). No-op if nothing is loaded.
+// aren't short-circuited (used after a Review apply mutates the tree). No-op if nothing is loaded, which a
+// null cwd also means: a scope's load nulls the state, and a tick or `r` in that window shares its token, so
+// it would write EMPTY over the load (or after it, leaving every later tick reading null).
 export async function reloadChanges(cwd: string | null): Promise<void> {
-    if (!current.token) return;
+    if (!current.token || !cwd) return;
     const token = current.token;
     // reuse the already-resolved concrete base (a sha for worktree/run modes, "" for live) so the
     // reload stays anchored to the same point the initial load picked.

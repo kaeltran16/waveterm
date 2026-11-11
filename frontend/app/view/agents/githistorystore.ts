@@ -391,6 +391,10 @@ export async function loadMoreHistory(): Promise<void> {
 // loaded rather than one page, so a reader who has paged down does not watch rows disappear.
 function reloadInPlace(): void {
     const cwd = globalStore.get(filesStateAtom)?.cwd ?? null;
+    // no repository loaded (or its load is in flight): a reload with no cwd would reset the column
+    if (cwd == null) {
+        return;
+    }
     const loaded = globalStore.get(historyCommitsAtom)?.length ?? 0;
     void loadHistory(cwd, globalStore.get(historyOptsAtom), undefined, Math.max(loaded, HISTORY_PAGE_SIZE));
 }
