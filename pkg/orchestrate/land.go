@@ -441,8 +441,12 @@ func reverifyHold(ctx context.Context, run *waveobj.Run, g *waveobj.TaskGroup) (
 	if err := checkLandingTree(ctx, run); err != nil {
 		return "the run changed after the final stage verified it, and it cannot be checked again: " + err.Error(), "", ""
 	}
-	// a merge someone left open would be checked as if it were the run's
-	if _, err := git(ctx, run.LandPath, "rev-parse", "-q", "--verify", "MERGE_HEAD"); err == nil {
+	// a merge someone left open would be checked as if it were the run's, and the land would remove the tree with it
+	inMerge, err := mergeHeadExists(ctx, run.LandPath)
+	if err != nil {
+		return "reading whether the landing tree " + run.LandPath + " is stopped mid-merge: " + err.Error(), "", ""
+	}
+	if inMerge {
 		return midMergeHold(run), "", ""
 	}
 	if baseMoved {
