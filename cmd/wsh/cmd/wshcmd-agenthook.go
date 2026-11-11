@@ -54,6 +54,8 @@ type ccHookEvent struct {
 	Source           string          `json:"source"`
 	NotificationType string          `json:"notification_type"`
 	Trigger          string          `json:"trigger"`
+	// Reason is why a SessionEnd fired: clear, resume, logout, prompt_input_exit, other
+	Reason string `json:"reason"`
 	// PermissionMode is on every hook payload: default, acceptEdits, plan, bypassPermissions
 	PermissionMode string `json:"permission_mode"`
 }
@@ -67,6 +69,8 @@ type agentEmission struct {
 	// NotificationType is set for the waiting Notification cases only, so the phone can tell a permission
 	// prompt from any other wait
 	NotificationType string
+	// Ended marks the session's end: claude exited and its shell keeps running
+	Ended bool
 }
 
 func planEmission(ev ccHookEvent) agentEmission {
@@ -109,6 +113,11 @@ func planEmission(ev ccHookEvent) agentEmission {
 		// a /clear lands at the prompt too, on a new transcript this event carries
 		if ev.Source == "compact" || ev.Source == "clear" {
 			return agentEmission{State: baseds.AgentState_Idle}
+		}
+	case "SessionEnd":
+		// a /clear or /resume opens the next session in the same claude
+		if ev.Reason != "clear" && ev.Reason != "resume" {
+			return agentEmission{State: baseds.AgentState_Idle, Ended: true}
 		}
 	}
 	return agentEmission{}
@@ -625,6 +634,7 @@ func agentHookRun(cmd *cobra.Command, args []string) error {
 		Ts:               startedTs,
 		Hook:             ev.HookEventName,
 		NotificationType: em.NotificationType,
+		Ended:            em.Ended,
 		PermissionMode:   permissionMode,
 		ToolKey:          key,
 	}

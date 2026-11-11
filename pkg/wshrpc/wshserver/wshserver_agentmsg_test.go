@@ -147,6 +147,28 @@ func TestAgentsRosterStates(t *testing.T) {
 	}
 }
 
+// an agent that exited back to its shell reported ended, and still read as live: a send was typed into the shell
+func TestAgentsRosterDropsAnEndedSession(t *testing.T) {
+	facts := threeAgents()
+	facts.Tabs[1].Status.Ended = true
+	facts.Tabs[2].Status.Ended = true
+	sent := scriptAgents(t, facts)
+	rtn, err := (&WshServer{}).AgentsListCommand(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rtn.Agents) != 1 || rtn.Agents[0].TabId != agentsTabA {
+		t.Fatalf("rows = %+v, want only the session still running", rtn.Agents)
+	}
+	_, err = (&WshServer{}).AgentsSendCommand(context.Background(), wshrpc.CommandAgentsSendData{Tab: agentsTabB, Text: "hi", FromORef: blockORef(agentsBlockA)})
+	if err == nil || !strings.Contains(err.Error(), "not a live agent session") {
+		t.Fatalf("send to an ended session: err = %v", err)
+	}
+	if len(*sent) != 0 {
+		t.Errorf("a send to an ended session delivered %+v", *sent)
+	}
+}
+
 func TestAgentsResolve(t *testing.T) {
 	facts := threeAgents()
 	// an id that is also the prefix of another's: the exact one wins

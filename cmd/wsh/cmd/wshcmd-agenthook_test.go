@@ -60,6 +60,22 @@ func TestPlanEmission(t *testing.T) {
 	}
 }
 
+// claude had no end-of-session report, so a session that exited to its shell kept reading as live
+func TestPlanEmissionSessionEnd(t *testing.T) {
+	for _, reason := range []string{"prompt_input_exit", "logout", "other", ""} {
+		em := planEmission(ccHookEvent{HookEventName: "SessionEnd", Reason: reason})
+		if em.State != baseds.AgentState_Idle || !em.Ended {
+			t.Errorf("reason %q: emission = %+v, want idle and ended", reason, em)
+		}
+	}
+	// a /clear or /resume ends one session and opens the next in the same claude
+	for _, reason := range []string{"clear", "resume"} {
+		if em := planEmission(ccHookEvent{HookEventName: "SessionEnd", Reason: reason}); em.State != "" || em.Ended {
+			t.Errorf("reason %q: emission = %+v, want nothing", reason, em)
+		}
+	}
+}
+
 func TestPlanEmissionNotificationType(t *testing.T) {
 	tests := []struct {
 		name      string

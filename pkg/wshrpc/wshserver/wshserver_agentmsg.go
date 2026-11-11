@@ -159,14 +159,12 @@ func agentsState(status string, openAsk bool) string {
 	return wshrpc.AgentsState_Working
 }
 
-// buildAgentRoster is the live claude and pi agent tabs, ordered by tab id.
-// ponytail: a tab whose agent exited back to its shell keeps its last status and still reads as live; a typed
-// send lands in the shell. Use the control stream or a session-end report as the liveness signal if that
-// happens in practice.
+// buildAgentRoster is the live claude and pi agent tabs, ordered by tab id. A session that reported its end
+// exited back to its shell, where a typed send would land. A killed agent reports no end and still reads live.
 func buildAgentRoster(facts *agentRosterFacts) []agentRow {
 	var rows []agentRow
 	for _, tf := range facts.Tabs {
-		if !tf.ShellRunning || !agentHarnesses[tf.Status.Agent] {
+		if !tf.ShellRunning || !agentHarnesses[tf.Status.Agent] || tf.Status.Ended {
 			continue
 		}
 		row := agentRow{

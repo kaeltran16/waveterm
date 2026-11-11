@@ -673,12 +673,13 @@ func TestRemovedMemoryHooksAreStillRecognized(t *testing.T) {
 	}
 }
 
-// SessionEnd left managedHooks entirely when agent-memory-hook was removed, so a merge that only
-// walked the events Arc manages now would never revisit the stale group sitting under it.
+// SessionEnd once left managedHooks entirely when agent-memory-hook was removed, so a merge that only
+// walked the events Arc manages now would never revisit the stale group sitting under it. SubagentStart
+// stands in for any event Arc no longer manages.
 func TestMergePrunesHooksUnderNoLongerManagedEvents(t *testing.T) {
 	existing := map[string]any{
 		"hooks": map[string]any{
-			"SessionEnd": []any{
+			"SubagentStart": []any{
 				map[string]any{
 					"hooks": []any{
 						map[string]any{"type": "command", "command": `"C:\old\wsh.exe" agent-memory-hook`},
@@ -692,8 +693,8 @@ func TestMergePrunesHooksUnderNoLongerManagedEvents(t *testing.T) {
 	}
 	merged := mergeAgentHooks(existing, testWsh)
 	hooks, _ := merged["hooks"].(map[string]any)
-	if _, present := hooks["SessionEnd"]; present {
-		t.Fatalf("stale SessionEnd group survived the merge: %v", hooks["SessionEnd"])
+	if _, present := hooks["SubagentStart"]; present {
+		t.Fatalf("stale SubagentStart group survived the merge: %v", hooks["SubagentStart"])
 	}
 	if n := countManaged(t, merged); n != len(managedHooks) {
 		t.Fatalf("managed entries = %d, want %d", n, len(managedHooks))
@@ -705,12 +706,12 @@ func TestMergeKeepsForeignHooksUnderUnmanagedEvents(t *testing.T) {
 	foreign := map[string]any{
 		"hooks": []any{map[string]any{"type": "command", "command": "node /x/notify.js"}},
 	}
-	existing := map[string]any{"hooks": map[string]any{"SessionEnd": []any{foreign}}}
+	existing := map[string]any{"hooks": map[string]any{"SubagentStart": []any{foreign}}}
 	merged := mergeAgentHooks(existing, testWsh)
 	hooks, _ := merged["hooks"].(map[string]any)
-	groups, _ := hooks["SessionEnd"].([]any)
+	groups, _ := hooks["SubagentStart"].([]any)
 	if len(groups) != 1 {
-		t.Fatalf("SessionEnd groups = %d, want the one foreign hook kept", len(groups))
+		t.Fatalf("SubagentStart groups = %d, want the one foreign hook kept", len(groups))
 	}
 }
 
@@ -720,6 +721,8 @@ func TestCompactionHooksAreManaged(t *testing.T) {
 		{Event: "SessionStart", Matcher: "compact", Args: "agent-hook", Timeout: 10},
 		{Event: "SessionStart", Matcher: "compact", Args: "jarvis dag rules --inject", Timeout: 15},
 		{Event: "SessionStart", Matcher: "clear", Args: "agent-hook", Timeout: 10},
+		// the end of a session is the only report that it exited to its shell
+		{Event: "SessionEnd", Args: "agent-hook", Timeout: 10},
 	} {
 		found := false
 		for _, mh := range managedHooks {
