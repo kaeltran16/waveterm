@@ -314,6 +314,9 @@ export function DailyChart({
                                             );
                                         })}
                                         <Brush
+                                            // keyed like the range reset above: the Brush keeps its own selection
+                                            // box, which a reset would otherwise leave drawn over the full chart
+                                            key={`${win}:${rows.length}`}
                                             xScale={bxLinear}
                                             yScale={byLinear}
                                             width={Math.max(1, innerW)}
