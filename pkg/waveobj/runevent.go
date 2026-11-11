@@ -29,8 +29,8 @@ const (
 	RunEventKindDagDone           = "dag-done"
 	RunEventKindTaskRetried       = "task-retried"
 
-	// task-suspect: a running worker is active but not progressing (its worktree unchanged while active, or the
-	// same failure repeated) ("taskid", "unchangedms", "command", "count"). The lead judges it; the engine does not act.
+	// task-suspect: a running worker is active but not progressing, its worktree unchanged while active ("taskid",
+	// "unchangedms"). The lead judges it; the engine does not act.
 	RunEventKindTaskSuspect = "task-suspect"
 
 	// orchestration lifecycle transitions beyond run/phase/child coverage. Start/sent events append

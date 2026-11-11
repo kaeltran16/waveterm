@@ -683,8 +683,8 @@ func observeWorkers(ctx context.Context, g *waveobj.TaskGroup, runs map[string]*
 				})
 			}
 		}
-		// active but not progressing: liveness calls a worker that loops for an hour healthy. Every runtime, since only
-		// the failure scan needs a transcript; the lead judges, the engine does not act.
+		// active but not progressing: liveness calls a worker that loops for an hour healthy. Every runtime; the lead
+		// judges, the engine does not act.
 		if t.State == TaskState_Running {
 			if reason, detail, flagged := checkProgress(ctx, t, runs[t.RunID], now); flagged {
 				taskID := t.ID
