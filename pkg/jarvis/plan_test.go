@@ -183,6 +183,25 @@ func TestParsePlanIgnoresFencedLines(t *testing.T) {
 	}
 }
 
+func TestParsePlanFenceOpenedOnAListItem(t *testing.T) {
+	src := "### Task 1: a\n- run:\n- ```bash\n  go test ./pkg/x\n  ```\n\n### Task 2: b\n**Depends on:** none\n\n### Task 3: c\n"
+	p := mustParsePlan(t, src)
+	if want := []string{"t-1:", "t-2:", "t-3:t-2"}; !reflect.DeepEqual(depLists(p.Tasks), want) {
+		t.Fatalf("the list item's closing fence must not open a new one, got %v, want %v", depLists(p.Tasks), want)
+	}
+}
+
+func TestParsePlanFenceClosesOnlyOnALongEnoughRun(t *testing.T) {
+	src := "### Task 1: a\n````markdown\n```md\n### Task 9: sample\n```\n````\n\n### Task 2: b\n"
+	p := mustParsePlan(t, src)
+	if want := []string{"t-1:", "t-2:t-1"}; !reflect.DeepEqual(depLists(p.Tasks), want) {
+		t.Fatalf("an inner ``` block must not close a ```` fence, got %v, want %v", depLists(p.Tasks), want)
+	}
+	if !strings.Contains(p.Tasks[0].Description, "### Task 9: sample") {
+		t.Fatalf("fenced lines stay in the task text, got %q", p.Tasks[0].Description)
+	}
+}
+
 func TestParsePlanCRLF(t *testing.T) {
 	p := mustParsePlan(t, "**Verify:** `go test ./...`\r\n\r\n### Task 1: a\r\nbody\r\n### Task 2: b\r\n**Depends on:** none\r\n")
 	if p.Verify != "go test ./..." || p.Tasks[0].Label != "a" || p.Tasks[0].Description != "body" {
