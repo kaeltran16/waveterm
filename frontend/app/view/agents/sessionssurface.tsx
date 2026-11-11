@@ -46,7 +46,7 @@ import {
     type SessionStatusFilter,
 } from "./sessionsarchivestore";
 import { eventColor, RunDetail, runSessionPrimary, SEG_COLOR, SoloDetail, StatusMark } from "./sessionsdetail";
-import { foundSession, openSessionHit } from "./sessionsfind";
+import { findTerms, foundSession, openSessionHit } from "./sessionsfind";
 import { isRowPinned, togglePinnedRow } from "./sessionspins";
 import {
     defaultMember,
@@ -278,8 +278,10 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
         ContextMenuModel.getInstance().showContextMenu(items, e);
     };
     const summary = matches ? searchSummary(new Map(shown.map((r) => [r.key, matches.get(r.key)!]))) : "";
-    const openCard = (m: CardMatch) => openSessionHit(model, m.results[0], query, search.terms);
-    const openHit = (row: SnippetRow) => openSessionHit(model, row.result, query, search.terms, row.hit);
+    // the server's terms answer the shown results' query; for a newer query still pending, the bar's own parse
+    const findTermsNow = search.query === query ? search.terms : findTerms(query);
+    const openCard = (m: CardMatch) => openSessionHit(model, m.results[0], query, findTermsNow);
+    const openHit = (row: SnippetRow) => openSessionHit(model, row.result, query, findTermsNow, row.hit);
     const scopedSessions = useMemo(
         () => scoped.flatMap((r) => (r.run ? r.run.group.sessions : [r.session!])),
         [scoped]
@@ -479,7 +481,9 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
                                     Retry
                                 </button>
                             </div>
-                        ) : base == null || (searching && results == null) ? (
+                        ) : base == null ||
+                          (searching && (results == null || (search.loading && groups.length === 0))) ? (
+                            // a pending search over an empty answer is still reading, not "No sessions match"
                             <SkeletonRows className="mt-3 min-h-0 flex-1 space-y-[7px]">
                                 {(i) => <SkeletonLine key={i} className="h-[58px] rounded-[10px]" />}
                             </SkeletonRows>

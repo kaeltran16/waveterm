@@ -15,13 +15,15 @@ const SEARCH_TIMEOUT_MS = 30_000;
 
 interface SearchState {
     results: SessionSearchResult[] | null; // null = no search done for the current query
+    // the query the results and terms answer: while a newer one is pending, the live query is not it
+    query: string;
     terms: string[];
     incomplete: boolean;
     loading: boolean;
     error: string | null;
 }
 
-const IDLE: SearchState = { results: null, terms: [], incomplete: false, loading: false, error: null };
+const IDLE: SearchState = { results: null, query: "", terms: [], incomplete: false, loading: false, error: null };
 
 export function useSessionsSearch(query: string, runAgents: boolean): SearchState & { retry: () => void } {
     const [state, setState] = useState<SearchState>(IDLE);
@@ -45,6 +47,7 @@ export function useSessionsSearch(query: string, runAgents: boolean): SearchStat
                 if (mine === seq.current) {
                     setState({
                         results: rtn.results ?? [],
+                        query,
                         terms: rtn.terms ?? [],
                         incomplete: !!rtn.incomplete,
                         loading: false,
