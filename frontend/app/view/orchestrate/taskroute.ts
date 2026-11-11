@@ -171,6 +171,13 @@ export function dagStatusPill(group: Pick<TaskGroup, "status" | "planreview">): 
     return { label, tone: "active" };
 }
 
+// dagCancellable is whether the header offers Cancel: every status the engine still runs. blocked included: a failed
+// task or Final waiting on the human is a normal moment to stop the run, and the engine's cancel takes any status.
+// plan-review too, since abandoning a run at its gate is a normal answer.
+export function dagCancellable(status: string): boolean {
+    return status === "running" || status === "plan-review" || status === "finalizing" || status === "blocked";
+}
+
 // isWaiting mirrors taskWaiting: a task nothing has started or touched, whose model can still change.
 export function isWaiting(task: TaskNode): boolean {
     return (

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
     cardModelTag,
+    dagCancellable,
     dagStatusPill,
     isWaiting,
     LIGHT_PICK,
@@ -435,5 +436,16 @@ describe("isWaiting", () => {
         expect(isWaiting(task({ attempts: 1 }))).toBe(false);
         expect(isWaiting(task({ escalations: 1 }))).toBe(false);
         expect(isWaiting(task({ firstactivity: 1 }))).toBe(false);
+    });
+});
+
+describe("dagCancellable", () => {
+    it("offers Cancel while the engine still runs the dag, a blocked one included", () => {
+        for (const s of ["running", "plan-review", "finalizing", "blocked"]) {
+            expect(dagCancellable(s)).toBe(true);
+        }
+        for (const s of ["done", "cancelled"]) {
+            expect(dagCancellable(s)).toBe(false);
+        }
     });
 });
