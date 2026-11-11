@@ -162,7 +162,8 @@ func (t *transcriptTailer) readNew(path string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	t.offset = size
+	// advance by what was read, not by size: ReadAll runs to the current end, past bytes appended since Stat
+	t.offset += int64(len(data))
 	buf := append(t.partial, data...)
 	var lines []string
 	start := 0

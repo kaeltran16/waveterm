@@ -55,6 +55,9 @@ export function adoptSkills(): Promise<void> {
         // a failed adopt may have moved some skills already, so the matrix is re-read either way
         try {
             const rtn = await RpcApi.AgentSyncAdoptCommand(TabRpcClient, { apply: true, ...sent });
+            if (rtn.error) {
+                throw new Error(rtn.error);
+            }
             pushToast({ title: adoptResultText(rtn, sent), message: "", level: "info" });
             // a snapshot moved nothing, so every choice still stands; otherwise only "leave it" outlives the move
             if (!rtn.dryrun) {

@@ -181,6 +181,46 @@ func TestAskCommandWaitCancelCleansUp(t *testing.T) {
 	}
 }
 
+// a waiter whose ask was replaced (a new session in the same block raised another) must leave the newer
+// ask alone when its wait ends: dropping by block took the live ask out from under its caller, so no
+// answer could be delivered to it
+func TestAskCommandWaitEndKeepsANewerAsk(t *testing.T) {
+	ws := &WshServer{}
+	oref := waveobj.MakeORef("block", uuid.NewString()).String()
+	agentask.GlobalRegistry = agentask.MakeRegistry()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := ws.AskCommand(ctx, askData(oref, true))
+		done <- err
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if _, ok := agentask.GlobalRegistry.Get(oref); ok {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("pending ask never registered")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	newer, err := ws.AskCommand(context.Background(), askData(oref, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("wait RPC never returned after cancel")
+	}
+	pending, ok := agentask.GlobalRegistry.Get(oref)
+	if !ok || pending.AskId != newer.AskId {
+		t.Fatalf("pending ask after the old wait ended = %+v (found %v), want the newer ask %s", pending, ok, newer.AskId)
+	}
+}
+
 func TestAskCommandClearCancelsWaiter(t *testing.T) {
 	ws := &WshServer{}
 	oref := waveobj.MakeORef("block", uuid.NewString()).String()

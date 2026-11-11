@@ -678,7 +678,8 @@ func (ws *WshServer) CreateChildRunCommand(ctx context.Context, data wshrpc.Comm
 		return nil, fmt.Errorf("spawning child worker: %w", err)
 	}
 	phaseZero := 0
-	appendRunEvent(ctx, channelId, child.ID, waveobj.RunEventKindChildCreated, nil, map[string]any{
+	// on the parent's log, like the child-done advanceRun records there: the row links to the child
+	appendRunEvent(ctx, channelId, parent.ID, waveobj.RunEventKindChildCreated, nil, map[string]any{
 		"childrunid": child.ID, "goal": child.Goal, "mode": child.Mode,
 	})
 	appendRunEvent(ctx, channelId, child.ID, waveobj.RunEventKindPhaseStarted, &phaseZero, map[string]any{})

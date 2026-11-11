@@ -348,6 +348,10 @@ func (router *WshRouter) runServer() {
 			}
 			// no need to check the return value here (noop if failed)
 			router.sendRoutedMessage(msgBytes, routeInfo.destRouteId, "", input.IngressLinkId)
+			if msg.Cancel {
+				// a cancelled handler sends no final response, so this is the last message of the rpc
+				router.unregisterRouteInfo(msg.ReqId)
+			}
 			continue
 		} else if msg.ResId != "" {
 			routeInfo := router.getRouteInfo(msg.ResId)
@@ -680,10 +684,23 @@ func (router *WshRouter) UnregisterLink(linkId baseds.LinkId) {
 		router.unbindRoute(linkId, routeId)
 	}
 	router.lock.Lock()
-	defer router.lock.Unlock()
 	delete(router.linkMap, linkId)
 	if router.upstreamLinkId == linkId {
 		router.upstreamLinkId = baseds.NoLinkId
+	}
+	var orphaned []rpcRoutingInfo
+	for rpcId, ri := range router.rpcMap {
+		if ri.sourceLinkId == linkId {
+			orphaned = append(orphaned, ri)
+			delete(router.rpcMap, rpcId)
+		}
+	}
+	router.lock.Unlock()
+	// nobody can receive these replies now: cancel the handlers, or a stream runs to its timeout (an
+	// agentctl stream's is 30 days) and keeps looking like a live caller
+	for _, ri := range orphaned {
+		cancelBytes, _ := json.Marshal(RpcMessage{Cancel: true, ReqId: ri.rpcId})
+		router.sendRoutedMessage(cancelBytes, ri.destRouteId, "", baseds.NoLinkId)
 	}
 }
 

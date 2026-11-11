@@ -446,6 +446,7 @@ declare global {
         moves?: AgentSyncSkillMove[];
         unresolved?: string[];
         dryrun?: boolean;
+        error?: string;
     };
 
     // wshrpc.CommandAgentSyncApplyData
