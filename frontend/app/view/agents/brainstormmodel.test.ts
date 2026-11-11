@@ -233,6 +233,36 @@ describe("parseBrainstorm", () => {
         expect(r.file.check?.answered).toEqual(["done one"]);
     });
 
+    it("reads a blank builder answer as unanswered, as the judge does", () => {
+        const r = parseBrainstorm(
+            raw({
+                check: {
+                    yours: [
+                        { q: "Q?", a: "" },
+                        { q: "R?", a: "  " },
+                    ],
+                    calls: [],
+                    answered: [],
+                },
+            })
+        );
+        expect(r.ok).toBe(true);
+        if (!r.ok) {
+            return;
+        }
+        expect(r.file.check?.yours).toEqual([{ q: "Q?" }, { q: "R?" }]);
+    });
+
+    it("reads a blank working or run as not set", () => {
+        const r = parseBrainstorm(raw({ working: "", run: " " }));
+        expect(r.ok).toBe(true);
+        if (!r.ok) {
+            return;
+        }
+        expect(r.file.working).toBeNull();
+        expect(r.file.run).toBeNull();
+    });
+
     it("reads a builder question's into as a string or a list, and its label, part and options", () => {
         const options = [
             { label: "Resolve itself", detail: "once caught up", pick: true, pros: ["no rota"], cons: ["flaps"] },
