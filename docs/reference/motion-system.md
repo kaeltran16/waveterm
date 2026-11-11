@@ -39,6 +39,8 @@ work: the north star, the shared primitives, the moments, and the guardrails.
 | `frontend/app/element/ticknumber.tsx` | `TickNumber` (moment 12): a changed count rolls; plain text on mount and under reduced motion. Its direction and width logic are in `ticknumbermodel.ts` (+ test). |
 | `frontend/app/element/autoheight.tsx` | `AutoHeight` (moment 15): a container's height follows its content; the first measure snaps. |
 | `frontend/app/element/drawcheck.tsx` | `DrawCheck` (moment 16): the 12x12 check, drawn on when `done` turns true after mount. |
+| `frontend/app/element/viewswap.tsx` | `ViewSwap`: a pane trading what it shows fades the new view in, keyed on `swapKey`; the view it mounts with does not fade. Clears an ancestor presence's `initial: false` (see Guardrails). |
+| `frontend/app/element/viewfade.tsx` | `ViewFade`: the same swap keyed on `fadeKey`, skipping the fade under reduced motion. A near-duplicate of `ViewSwap` from the same sweep; use `ViewSwap` for new code until the two merge. |
 | `frontend/app/element/collapsiblerail.tsx` | Reusable right-rail (icon strip ↔ 300px scroll panel); owns the rail-reveal moment and fixes titlebar/rail divider alignment by construction. |
 
 Framer (`motion/react`, v12) is the default tool. CSS is the fallback **only** for perpetual ambient
@@ -77,7 +79,11 @@ same vocabulary rather than inventing one.
   only (perf).
 - A component that branches on reduced motion reads `atoms.prefersReducedMotionAtom`, not motion's
   `useReducedMotion`, which reads the preference once at mount. `MotionConfig reducedMotion="user"` drops only
-  transforms and layout, so opacity and height still tween under it.
+  transforms, so opacity and height still tween under it, and a `layout`/`layoutId` animation was seen still
+  running: snap it with a `{ duration: 0 }` transition read from the atom (`projectchips.tsx`).
+- An `AnimatePresence initial={false}` hands its subtree `initial: false` for the subtree's whole life, so a motion
+  element mounted later anywhere under it lands settled. Rows entering through `computeEntrances` there need their
+  own `AnimatePresence initial={false}`; a keyed view swap uses `ViewSwap`, which clears it.
 - CSS keyframes must be token-colored (`var(--color-*)` + `color-mix`) — no raw hex.
 - Any live-drag / 1:1-with-pointer interaction stays un-eased. Never animate the drag itself; only
   its aftermath — reflow, settle, snap.
