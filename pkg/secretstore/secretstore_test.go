@@ -175,6 +175,33 @@ func TestSecretsFileReadFailureFailsLoudly(t *testing.T) {
 	}
 }
 
+// SetSecret has already returned success when the debounced write runs, so a failed write must be
+// retried rather than leave the secret in memory only
+func TestFailedDebouncedWriteIsRetried(t *testing.T) {
+	requirePersistence(t)
+	dir := useConfigDir(t)
+	if _, _, err := GetSecret("a"); err != nil {
+		t.Fatal(err)
+	}
+	// a directory at the path makes the rename fail, as a reader holding the file open does on Windows
+	blocker := filepath.Join(dir, SecretsFileName)
+	if err := os.Mkdir(blocker, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetSecret("a", "1"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep((WriteDebounceMs + 500) * time.Millisecond)
+	if err := os.Remove(blocker); err != nil {
+		t.Fatal(err)
+	}
+	readSecretsFileWithin(t, dir, 3*WriteDebounceMs*time.Millisecond)
+	got, ok, err := ReadSecretFile(dir, "a")
+	if err != nil || !ok || got != "1" {
+		t.Fatalf("ReadSecretFile = (%q, %v, %v), want (\"1\", true, nil)", got, ok, err)
+	}
+}
+
 func TestFlushWritesBeforeDebounce(t *testing.T) {
 	requirePersistence(t)
 	dir := useConfigDir(t)
