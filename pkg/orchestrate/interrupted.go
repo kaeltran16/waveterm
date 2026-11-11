@@ -208,7 +208,9 @@ func workerTabGone(ctx context.Context, workerORef string) bool {
 
 // resumeInNewTab resumes a worker whose tab was closed in a new tab, which takes the closed one's place on the
 // phase and carries the run's owner stamp before it starts, so the resumed agent's wsh calls resolve to its run.
-func resumeInNewTab(ctx context.Context, run *waveobj.Run, phaseIdx int, closed, nudge string) error {
+// Once the tab is spawned, an error stops it, as dispatch stops a worker it could not record: left armed it is a
+// worker no run drives, and each retry of the resume would add another.
+func resumeInNewTab(ctx context.Context, run *waveobj.Run, phaseIdx int, closed, nudge string) (err error) {
 	// a tab is created, so a caller's short RPC budget must not cancel it half-made
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), jarvis.RunWorkerSpawnTimeout)
 	defer cancel()
@@ -224,6 +226,14 @@ func resumeInNewTab(ctx context.Context, run *waveobj.Run, phaseIdx int, closed,
 	if err != nil {
 		return err
 	}
+	defer func() {
+		if err == nil {
+			return
+		}
+		if serr := stopUnrecordedWorker(ctx, tabORef); serr != nil {
+			err = errors.Join(err, fmt.Errorf("stopping the new tab %s: %w", tabORef, serr))
+		}
+	}()
 	if err := wstore.UpdateRun(ctx, run.ChannelOID, run.ID, func(r *waveobj.Run) error {
 		workers := r.Phases[phaseIdx].WorkerOrefs
 		if i := slices.Index(workers, closed); i >= 0 {
