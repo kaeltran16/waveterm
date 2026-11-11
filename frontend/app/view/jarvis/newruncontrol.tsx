@@ -18,11 +18,15 @@
 // binding presses the app-bar button by its data attribute (buildJarvisBindings), which is why the
 // attribute matters more than the label.
 
+import { CrossFade } from "@/app/element/crossfade";
+import { errorNudge, viewFade } from "@/app/element/motiontokens";
+import { PaneReveal } from "@/app/element/panereveal";
 import { ModalShell } from "@/app/modals/modalshell";
 import { globalStore } from "@/app/store/jotaiStore";
 import { harnessPreferenceAtom } from "@/app/view/agents/harnessstore";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtomValue, type PrimitiveAtom } from "jotai";
+import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { AgentsViewModel } from "../agents/agents";
 import { AttachButton, AttachmentTray } from "../agents/attachmenttray";
@@ -150,8 +154,8 @@ function ModelsSection({ orchestrator }: { orchestrator: boolean }) {
             <ModelRow label="Lead">
                 <RoutePicker value={route} onChange={setRunRoute} placement="bottom-start" title="Lead model" />
             </ModelRow>
-            {orchestrator ? (
-                <>
+            <PaneReveal open={orchestrator}>
+                <div className="flex flex-col gap-2">
                     <ModelRow label="Workers">
                         <RoutePicker
                             value={workerRoute}
@@ -187,8 +191,8 @@ function ModelsSection({ orchestrator }: { orchestrator: boolean }) {
                             inheritedLabel="Sonnet (default)"
                         />
                     </ModelRow>
-                </>
-            ) : null}
+                </div>
+            </PaneReveal>
         </div>
     );
 }
@@ -230,7 +234,15 @@ function Segmented<T extends string>({
     );
 }
 
-function StartToggle({ start, hasDesign }: { start: StartFrom; hasDesign: boolean }) {
+function StartToggle({
+    start,
+    hasDesign,
+    onPick,
+}: {
+    start: StartFrom;
+    hasDesign: boolean;
+    onPick: (next: StartFrom) => void;
+}) {
     return (
         <div className="flex items-center gap-2">
             <Segmented
@@ -238,7 +250,7 @@ function StartToggle({ start, hasDesign }: { start: StartFrom; hasDesign: boolea
                 options={startOptions(hasDesign)}
                 labels={START_LABEL}
                 value={start}
-                onPick={setStart}
+                onPick={onPick}
             />
             <span className="min-w-0 flex-1 text-[11px] leading-[1.45] text-muted">{startNote(start)}</span>
         </div>
@@ -365,13 +377,18 @@ function PlanPane({
                 placeholder="Plan path, absolute or relative to the project"
                 className="w-full rounded-[7px] border border-edge-mid bg-background px-2.5 py-[7px] font-mono text-[11.5px] text-primary placeholder:text-muted outline-none focus:border-accent/60"
             />
-            {current?.error != null ? (
-                <span data-jarvis-plan-preview="error" className="text-[11px] leading-[1.45] text-error">
-                    {current.error}
-                </span>
-            ) : current?.result != null ? (
-                <PlanTable result={current.result} workers={workers} />
-            ) : null}
+            <CrossFade
+                swapKey={current?.error != null ? "error" : current?.result != null ? "result" : "none"}
+                className="flex min-h-0 flex-1 flex-col items-stretch"
+            >
+                {current?.error != null ? (
+                    <span data-jarvis-plan-preview="error" className="text-[11px] leading-[1.45] text-error">
+                        {current.error}
+                    </span>
+                ) : current?.result != null ? (
+                    <PlanTable result={current.result} workers={workers} />
+                ) : null}
+            </CrossFade>
         </>
     );
 }
@@ -409,6 +426,7 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
     const [openedStart, setOpenedStart] = useState<StartFrom | null>(null);
     const [starting, setStarting] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [startPicked, setStartPicked] = useState(false);
     const goalRef = useRef<HTMLTextAreaElement>(null);
     const planRef = useRef<HTMLInputElement>(null);
     const onStartedRef = useRef<((runId: string) => void) | null>(null);
@@ -490,6 +508,11 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
         setPicked(project);
         // back to the field, so the next keystroke types into the launch rather than landing on the picker
         (goalRef.current ?? planRef.current)?.focus();
+    };
+
+    const pickStart = (next: StartFrom) => {
+        setStartPicked(true);
+        setStart(next);
     };
 
     const register = () => {
@@ -615,57 +638,87 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
                             </Field>
                             <div className="flex flex-col gap-1.5">
                                 <ShapeCards showParallelism={false} />
-                                {orchestrator ? (
+                                <PaneReveal open={orchestrator}>
                                     <div className="flex items-center gap-1.5">
                                         <span className="flex-1 text-[12px] text-ink-mid">Workers at once</span>
                                         <WorkerStepper value={parallelism} onStep={stepParallelism} />
                                     </div>
-                                ) : null}
+                                </PaneReveal>
                             </div>
                             <ModelsSection orchestrator={orchestrator} />
-                            {orchestrator ? <ApprovalsSection /> : null}
+                            <PaneReveal open={orchestrator}>
+                                <ApprovalsSection />
+                            </PaneReveal>
                         </div>
                         <div className="flex min-h-0 min-w-0 flex-col gap-3 px-[18px] py-4">
-                            {orchestrator ? <StartToggle start={startFrom} hasDesign={hasDesign} /> : null}
-                            {orchestrator && startFrom === "design" ? (
-                                <DesignRows spec={spec} prototype={prototype} />
-                            ) : null}
-                            {planStart ? (
-                                <PlanPane
-                                    projectPath={projectPath}
-                                    workers={{ picks: reviewerPicks, model: workersModelName(workerRoute, runRoute) }}
-                                    inputRef={planRef}
-                                />
-                            ) : (
-                                <>
-                                    <textarea
-                                        ref={goalRef}
-                                        autoFocus
-                                        aria-label="Goal"
-                                        value={goal}
-                                        onChange={(e) => setGoal(e.target.value)}
-                                        onPaste={onPaste}
-                                        placeholder="What should it do?"
-                                        className="min-h-0 w-full flex-1 resize-none rounded-[7px] border border-edge-mid bg-background px-3 py-2.5 text-[13px] leading-[1.5] text-primary placeholder:text-muted outline-none focus:border-accent/60"
+                            <PaneReveal open={orchestrator}>
+                                <StartToggle start={startFrom} hasDesign={hasDesign} onPick={pickStart} />
+                            </PaneReveal>
+                            {/* a start the user picks fades its row in; the one the window opens on, or a profile
+                                hydrates, does not */}
+                            <motion.div
+                                key={startFrom}
+                                data-new-run-start-row={startFrom}
+                                variants={viewFade}
+                                initial={startPicked ? "initial" : false}
+                                animate="animate"
+                                className="flex min-h-0 flex-1 flex-col gap-3"
+                            >
+                                {orchestrator && startFrom === "design" ? (
+                                    <DesignRows spec={spec} prototype={prototype} />
+                                ) : null}
+                                {planStart ? (
+                                    <PlanPane
+                                        projectPath={projectPath}
+                                        workers={{
+                                            picks: reviewerPicks,
+                                            model: workersModelName(workerRoute, runRoute),
+                                        }}
+                                        inputRef={planRef}
                                     />
-                                    <div data-goal-attachments className="flex items-start gap-1.5">
-                                        <AttachButton onClick={pickFiles} />
-                                        <AttachmentTray items={attachments} onRemove={remove} onRetry={retry} />
-                                    </div>
-                                    {orchestrator && startFrom === "goal" ? (
-                                        <DesignFirstToggle value={designFirst} onPick={setDesignFirst} />
-                                    ) : null}
-                                </>
-                            )}
+                                ) : (
+                                    <>
+                                        <textarea
+                                            ref={goalRef}
+                                            autoFocus
+                                            aria-label="Goal"
+                                            value={goal}
+                                            onChange={(e) => setGoal(e.target.value)}
+                                            onPaste={onPaste}
+                                            placeholder="What should it do?"
+                                            className="min-h-0 w-full flex-1 resize-none rounded-[7px] border border-edge-mid bg-background px-3 py-2.5 text-[13px] leading-[1.5] text-primary placeholder:text-muted outline-none focus:border-accent/60"
+                                        />
+                                        <div data-goal-attachments className="flex items-start gap-1.5">
+                                            <AttachButton onClick={pickFiles} />
+                                            <AttachmentTray items={attachments} onRemove={remove} onRetry={retry} />
+                                        </div>
+                                        {orchestrator && startFrom === "goal" ? (
+                                            <DesignFirstToggle value={designFirst} onPick={setDesignFirst} />
+                                        ) : null}
+                                    </>
+                                )}
+                            </motion.div>
                         </div>
                     </div>
                     <div
                         data-new-run-footer
                         className="flex shrink-0 items-center gap-2 border-t border-border px-[18px] py-3"
                     >
-                        {error != null ? (
-                            <span className="min-w-0 flex-1 truncate text-[11px] text-error">{error}</span>
-                        ) : (
+                        <AnimatePresence initial={false}>
+                            {error != null ? (
+                                <motion.span
+                                    key="error"
+                                    data-new-run-error
+                                    variants={errorNudge}
+                                    initial="initial"
+                                    animate="animate"
+                                    className="min-w-0 flex-1 truncate text-[11px] text-error"
+                                >
+                                    {error}
+                                </motion.span>
+                            ) : null}
+                        </AnimatePresence>
+                        {error != null ? null : (
                             <span className="flex-1 truncate font-mono text-[10.5px] text-ink-mid">
                                 {/* the blocker first whenever there is one: a disabled Start run that
                                     named the shape instead of saying "Write the goal" read as a dead
@@ -685,7 +738,9 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
                             onClick={start}
                             className="cursor-pointer rounded-[7px] bg-accent px-3.5 py-1.5 text-[11.5px] font-semibold text-background hover:bg-accenthover disabled:cursor-default disabled:bg-border disabled:text-muted"
                         >
-                            {starting ? "Starting…" : "Start run"}
+                            <CrossFade swapKey={starting ? "starting" : "idle"}>
+                                {starting ? "Starting…" : "Start run"}
+                            </CrossFade>
                         </button>
                     </div>
                 </>

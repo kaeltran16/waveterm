@@ -11,15 +11,18 @@
 // surface owns its keys (see listnav.ts), and the shared "moving is selecting" contract would make
 // every cursor step read a file over RPC.
 
+import { composerReveal, errorNudge, microFade, turnTransition } from "@/app/element/motiontokens";
 import { ContextMenuModel } from "@/app/store/contextmenu";
+import { atoms } from "@/app/store/global-atoms";
 import { globalStore } from "@/app/store/jotaiStore";
 import { focusClaimed } from "@/app/store/keybindings/dispatcher";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { joinRepoPath } from "@/util/paths";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { ChevronDown, ChevronRight, File, FilePlus, FolderPlus, Pencil, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { ChevronRight, File, FilePlus, FolderPlus, Pencil, Trash2 } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { projectDraftPaths } from "./codedraft";
 import { existingTreePaths, nameErrorMessage, provisionalIndex, validateName } from "./codemutate";
 import { changedDirs, statusGlyph, type CodeStatus } from "./codestatus";
@@ -49,6 +52,33 @@ import {
 } from "./codestore";
 import type { TreeRow } from "./codetree";
 
+// Rows inserted while the tree is on screen (a directory expanded) fade in; a new index (a project switch, a
+// refresh) reseeds silently, so a whole tree arriving never cascades. An arrived row stays in the set while it
+// is shown, so it keeps rendering as the same element and a re-render never cuts its fade with a remount; the
+// rest stay plain divs, since a tree can hold hundreds of rows.
+function useArrivedRows(index: object | null, ids: string[], off: boolean): ReadonlySet<string> {
+    const shown = useRef<{ index: object | null; ids: Set<string> } | null>(null);
+    const arrived = useRef(new Set<string>());
+    const live = new Set(ids);
+    const prev = shown.current;
+    for (const id of arrived.current) {
+        if (!live.has(id)) {
+            arrived.current.delete(id);
+        }
+    }
+    if (!off && prev != null && prev.index === index) {
+        for (const id of ids) {
+            if (!prev.ids.has(id)) {
+                arrived.current.add(id);
+            }
+        }
+    }
+    useLayoutEffect(() => {
+        shown.current = { index, ids: live };
+    });
+    return arrived.current;
+}
+
 export function CodeTreePane({ model }: { model: AgentsViewModel }) {
     void model;
     const rows = useAtomValue(codeRowsAtom);
@@ -64,6 +94,12 @@ export function CodeTreePane({ model }: { model: AgentsViewModel }) {
     const index = useAtomValue(codeIndexAtom);
     const plain = useAtomValue(codePlainAtom);
     const sessionDirs = useAtomValue(codeSessionDirsAtom);
+    const reduce = useAtomValue(atoms.prefersReducedMotionAtom);
+    const arrived = useArrivedRows(
+        index,
+        rows.map((r) => r.path),
+        reduce
+    );
     const draftDirs = useMemo(
         () => changedDirs(project == null ? [] : projectDraftPaths(drafts, project.path)),
         [drafts, project]
@@ -108,28 +144,27 @@ export function CodeTreePane({ model }: { model: AgentsViewModel }) {
             />
         ) : null;
 
-    const renderRow = (row: TreeRow) => (
-        <div
-            key={row.path}
-            ref={(el) => {
+    const renderRow = (row: TreeRow) => {
+        const rowProps = {
+            ref: (el: HTMLDivElement | null) => {
                 if (el == null) {
                     rowRefs.current.delete(row.path);
                 } else {
                     rowRefs.current.set(row.path, el);
                 }
-            }}
-            role="treeitem"
-            aria-selected={row.path === cursor}
-            aria-expanded={row.kind === "dir" ? row.expanded : undefined}
-            onClick={() => {
+            },
+            role: "treeitem",
+            "aria-selected": row.path === cursor,
+            "aria-expanded": row.kind === "dir" ? row.expanded : undefined,
+            onClick: () => {
                 globalStore.set(codeCursorAtom, row.path);
                 if (row.kind === "dir") {
                     toggleDir(row.path);
                 } else {
                     fireAndForget(() => openPath(row.path));
                 }
-            }}
-            onContextMenu={(ev) => {
+            },
+            onContextMenu: (ev: React.MouseEvent) => {
                 // startCreate reads the cursor, so moving it first is what makes New File land where
                 // the user pointed rather than where they last clicked
                 globalStore.set(codeCursorAtom, row.path);
@@ -171,20 +206,39 @@ export function CodeTreePane({ model }: { model: AgentsViewModel }) {
                     ],
                     ev
                 );
-            }}
-            style={{ paddingLeft: 8 + row.depth * 12 }}
-            className={cn(
+            },
+            style: { paddingLeft: 8 + row.depth * 12 },
+            className: cn(
                 "flex w-full cursor-pointer items-center gap-1.5 py-[3px] pr-2 text-left text-[12.5px] text-secondary hover:bg-accent/10 hover:text-primary",
                 row.path === openFile && "text-accent-soft",
                 row.path === cursor && "bg-accent/10"
-            )}
-        >
+            ),
+        };
+        const body = renderRowBody(row);
+        return arrived.has(row.path) ? (
+            <motion.div key={row.path} {...rowProps} variants={microFade} initial="initial" animate="animate">
+                {body}
+            </motion.div>
+        ) : (
+            <div key={row.path} {...rowProps}>
+                {body}
+            </div>
+        );
+    };
+
+    const renderRowBody = (row: TreeRow) => (
+        <>
             {row.kind === "dir" ? (
-                row.expanded ? (
-                    <ChevronDown size={13} strokeWidth={1.8} className="flex-none" />
-                ) : (
-                    <ChevronRight size={13} strokeWidth={1.8} className="flex-none" />
-                )
+                <ChevronRight
+                    size={13}
+                    strokeWidth={1.8}
+                    data-code-tree-chevron
+                    style={turnTransition}
+                    className={cn(
+                        "flex-none transition-transform motion-reduce:transition-none",
+                        row.expanded && "rotate-90"
+                    )}
+                />
             ) : (
                 <File size={13} strokeWidth={1.8} className="flex-none opacity-50" />
             )}
@@ -227,7 +281,7 @@ export function CodeTreePane({ model }: { model: AgentsViewModel }) {
                     />
                 ) : null}
             </span>
-        </div>
+        </>
     );
 
     return (
@@ -298,7 +352,13 @@ function NameInput({
     const trimmed = value.trim();
     const err = trimmed !== "" && trimmed === initial ? null : validateName(value, dir, existing);
     return (
-        <div style={{ paddingLeft: 8 + depth * 12 }} className="flex w-full items-center gap-1.5 py-[3px] pr-2">
+        <motion.div
+            variants={composerReveal}
+            initial="initial"
+            animate="animate"
+            style={{ paddingLeft: 8 + depth * 12 }}
+            className="flex w-full items-center gap-1.5 overflow-hidden py-[3px] pr-2"
+        >
             <input
                 autoFocus
                 value={value}
@@ -316,12 +376,27 @@ function NameInput({
                 }}
                 className="min-w-0 flex-1 rounded-[4px] border border-border bg-surface px-1 py-[1px] text-[12px] text-primary outline-none"
             />
-            {err != null ? (
-                <span title={nameErrorMessage(err)} className="flex-none text-[10.5px] text-error">
-                    {nameErrorMessage(err)}
-                </span>
-            ) : null}
-        </div>
+            {/* the error says the name just typed is at fault: it fades in and nudges once on appearing, but not
+                when the editor opens on an empty name */}
+            <AnimatePresence initial={false}>
+                {err != null ? (
+                    <motion.span
+                        key="err"
+                        data-code-name-error
+                        variants={microFade}
+                        initial="initial"
+                        animate="animate"
+                        exit="exit"
+                        title={nameErrorMessage(err)}
+                        className="flex-none text-[10.5px] text-error"
+                    >
+                        <motion.span variants={errorNudge} className="inline-block">
+                            {nameErrorMessage(err)}
+                        </motion.span>
+                    </motion.span>
+                ) : null}
+            </AnimatePresence>
+        </motion.div>
     );
 }
 

@@ -1631,7 +1631,8 @@ export const diffComments = {
                 window.__dcRefuse = true;
             })()`);
             await click("[data-comment-send]");
-            const errored = await until(`!!${q("[data-comment-error]")}`, 5000);
+            // the button's label cross-fades from Sending…, so the read waits for it to settle
+            const errored = await until(`!!${q("[data-comment-error]")} && ${q("[data-comment-send]")}?.textContent === "Send again⇧↵"`, 5000);
             const failed = await bar();
             const kept = await h.ev(`document.querySelectorAll("[data-diff-comment-card]").length`);
             rec(

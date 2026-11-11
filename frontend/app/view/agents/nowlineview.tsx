@@ -4,6 +4,8 @@
 // The Rendered view's now line, in a band between the timeline and the composer. Derived on each tick of the
 // surface's 1s clock (nowline.ts), so nothing here must survive an unmount.
 
+import { CrossFade } from "@/app/element/crossfade";
+import { DrawCheck } from "@/app/element/drawcheck";
 import { screenRows } from "@/app/view/term/termscreen";
 import { useAtomValue } from "jotai";
 import type { AgentsViewModel } from "./agents";
@@ -40,6 +42,8 @@ export function NowLine({ model, agent, entries }: { model: AgentsViewModel; age
     return (
         <div data-now-band className="flex h-10 shrink-0 items-center px-[22px]">
             <div data-now-line data-now-kind={line.kind} className="flex min-w-0 flex-1 items-center gap-2.5">
+                {/* unconditional, so the turn finishing while the line is on screen draws the check */}
+                <DrawCheck done={line.kind === "done"} className="shrink-0 text-ink-mid" />
                 {line.kind === "done" ? (
                     <span data-now-left className="font-mono text-[11px] text-ink-faint">
                         {left}
@@ -64,14 +68,22 @@ export function NowLine({ model, agent, entries }: { model: AgentsViewModel; age
                             </span>
                         )}
                         <span className="flex-1" />
-                        {line.call != null ? (
-                            <>
-                                <span className={VERB}>{line.call.verb}</span>
-                                <span data-now-target className="min-w-0 truncate font-mono text-[11.5px] text-primary">
-                                    {line.call.target}
-                                </span>
-                            </>
-                        ) : null}
+                        <CrossFade
+                            swapKey={line.call == null ? "" : `${line.call.verb} ${line.call.target}`}
+                            className="min-w-0 gap-2.5"
+                        >
+                            {line.call != null ? (
+                                <>
+                                    <span className={VERB}>{line.call.verb}</span>
+                                    <span
+                                        data-now-target
+                                        className="min-w-0 truncate font-mono text-[11.5px] text-primary"
+                                    >
+                                        {line.call.target}
+                                    </span>
+                                </>
+                            ) : null}
+                        </CrossFade>
                         {right !== "" ? (
                             <span data-now-right className={`shrink-0 whitespace-nowrap ${MONO}`}>
                                 {right}

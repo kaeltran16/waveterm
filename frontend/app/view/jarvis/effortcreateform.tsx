@@ -4,7 +4,9 @@
 // Paste-and-tick effort creation: one line per chunk in the textarea, live checkbox rows below,
 // ticked lines become status=done at save (two RPCs — the chunk seed carries no status field).
 
-import { microFade } from "@/app/element/motiontokens";
+import { CrossFade } from "@/app/element/crossfade";
+import { composerReveal, errorNudge, microFade } from "@/app/element/motiontokens";
+import { PaneReveal } from "@/app/element/panereveal";
 import { ModalShell } from "@/app/modals/modalshell";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
@@ -55,16 +57,30 @@ const fieldLabel = "font-mono text-[10.5px] font-bold uppercase tracking-[.09em]
 
 const LINE_TONE = { muted: "text-ink-mid", error: "text-error", faint: "text-muted", ok: "text-success" } as const;
 
-export function EffortCreateForm({
-    model,
-    onClose,
-    edit,
-}: {
+interface EffortCreateFormProps {
     model: AgentsViewModel;
     onClose: () => void;
     // details mode: the same fields over an existing initiative; its chunks are edited in the plan
     edit?: { oref: string; details: EffortDetails };
-}) {
+    // a host that keeps the form mounted while closed, so ModalShell's exit plays, drives this
+    open?: boolean;
+}
+
+// The form stays mounted under a closed ModalShell so its exit plays, so its state would outlive a close; a new key
+// per open drops the last open's title, error and "Creating…", as unmounting it used to.
+export function EffortCreateForm({ open = true, ...props }: EffortCreateFormProps) {
+    const [session, setSession] = useState(0);
+    const [wasOpen, setWasOpen] = useState(open);
+    if (open !== wasOpen) {
+        setWasOpen(open);
+        if (open) {
+            setSession((n) => n + 1);
+        }
+    }
+    return <EffortCreateDialog key={session} open={open} {...props} />;
+}
+
+function EffortCreateDialog({ model, onClose, edit, open }: EffortCreateFormProps & { open: boolean }) {
     const [title, setTitle] = useState(edit?.details.title ?? "");
     const [project, setProject] = useState(edit?.details.project ?? "");
     const [ticket, setTicket] = useState(edit?.details.ticket ?? "");
@@ -74,6 +90,8 @@ export function EffortCreateForm({
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [titleError, setTitleError] = useState<string | null>(null);
+    // keys the errors' nudge, so a second refusal with the same message still shakes
+    const [failures, setFailures] = useState(0);
     const projects = useAtomValue(projectListAtom);
     const [lookup, setLookup] = useState<LookupState>({ kind: "idle" });
     // the key last looked up (the saved one, in details mode) and a counter so only the newest lookup lands
@@ -131,6 +149,7 @@ export function EffortCreateForm({
     const submit = async (): Promise<void> => {
         setTitleError(title.trim() === "" ? "Title is required" : null);
         if (title.trim() === "") {
+            setFailures((n) => n + 1);
             return;
         }
         setError(null);
@@ -142,6 +161,7 @@ export function EffortCreateForm({
                 onClose();
             } catch (e) {
                 setError(e instanceof Error ? e.message : String(e));
+                setFailures((n) => n + 1);
                 setSubmitting(false);
             }
             return;
@@ -180,12 +200,18 @@ export function EffortCreateForm({
         } catch (e) {
             // the effort may exist with all-pending chunks if the mutate failed — the documented fallback.
             setError(e instanceof Error ? e.message : String(e));
+            setFailures((n) => n + 1);
             setSubmitting(false);
         }
     };
 
     return (
-        <ModalShell open onClose={onClose} onSubmit={() => void submit()} className="flex w-[min(580px,93vw)] flex-col">
+        <ModalShell
+            open={open}
+            onClose={onClose}
+            onSubmit={() => void submit()}
+            className="flex w-[min(580px,93vw)] flex-col"
+        >
             <div className="flex shrink-0 items-center gap-[11px] border-b border-border px-[18px] py-[15px]">
                 <div className="flex h-[18px] w-[18px] items-center justify-center rounded-full bg-accentbg font-mono text-[10.5px] font-bold text-accent-soft">
                     ✦
@@ -207,7 +233,18 @@ export function EffortCreateForm({
                         placeholder="e.g. Scenario gate clearance"
                         className={cn(inputCls, "text-[12.5px]", titleError != null && "border-error/60")}
                     />
-                    {titleError != null ? <span className="text-[11px] text-error">{titleError}</span> : null}
+                    <PaneReveal open={titleError != null} variants={composerReveal}>
+                        <motion.span
+                            key={failures}
+                            data-effort-error="title"
+                            variants={errorNudge}
+                            initial="initial"
+                            animate="animate"
+                            className="block text-[11px] text-error"
+                        >
+                            {titleError}
+                        </motion.span>
+                    </PaneReveal>
                 </div>
                 <div className="flex flex-col gap-1.5">
                     <span className={fieldLabel}>Project</span>
@@ -382,9 +419,19 @@ export function EffortCreateForm({
                 )}
             </div>
             <div className="flex shrink-0 items-center gap-2 border-t border-border px-[18px] py-3">
-                {error != null ? (
-                    <span className="min-w-0 flex-1 truncate text-[11px] text-error">{error}</span>
-                ) : edit == null ? (
+                <PaneReveal open={error != null} variants={composerReveal} className="min-w-0 flex-1">
+                    <motion.span
+                        key={failures}
+                        data-effort-error="save"
+                        variants={errorNudge}
+                        initial="initial"
+                        animate="animate"
+                        className="block truncate text-[11px] text-error"
+                    >
+                        {error}
+                    </motion.span>
+                </PaneReveal>
+                {error != null ? null : edit == null ? (
                     <span className="flex-1 font-mono text-[10.5px] text-ink-mid">
                         ticked lines save as already done
                     </span>
@@ -403,7 +450,9 @@ export function EffortCreateForm({
                     onClick={() => void submit()}
                     className="cursor-pointer rounded-[7px] bg-accent px-3.5 py-1.5 text-[11.5px] font-semibold text-background hover:bg-accenthover disabled:cursor-default disabled:bg-border disabled:text-muted"
                 >
-                    {edit != null ? "Save changes" : submitting ? "Creating…" : "Create initiative"}
+                    <CrossFade swapKey={edit == null && submitting ? "busy" : "idle"}>
+                        {edit != null ? "Save changes" : submitting ? "Creating…" : "Create initiative"}
+                    </CrossFade>
                 </button>
             </div>
         </ModalShell>

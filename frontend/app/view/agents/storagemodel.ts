@@ -335,10 +335,13 @@ export function storageSections(r: StorageReportData, now: number): StorageSecti
     return SECTIONS.map((s) => ({ ...s, rows: sorted(s.group, items).map((it) => rowVM(it, r, maxSize, now)) }));
 }
 
-export function storageStats(r: StorageReportData): { group: string; label: string; value: string; sub: string }[] {
+// bytes is value's number (null while pending), so the tile can roll it when a clear or delete changes it
+export function storageStats(
+    r: StorageReportData
+): { group: string; label: string; value: string; bytes: number | null; sub: string }[] {
     if (!r.scants) {
         const sub = r.scanning ? "scanning" : "not scanned yet";
-        return SECTIONS.map((s) => ({ group: s.group, label: s.title, value: PENDING, sub }));
+        return SECTIONS.map((s) => ({ group: s.group, label: s.title, value: PENDING, bytes: null, sub }));
     }
     const of = (g: Group) => (r.items ?? []).filter((it) => it.group === g);
     const left = of("left");
@@ -350,18 +353,21 @@ export function storageStats(r: StorageReportData): { group: string; label: stri
             group: "left",
             label: "Left over",
             value: fmtSize(sum(left)),
+            bytes: sum(left),
             sub: left.length ? plural(left.length, "item") : "nothing to clear",
         },
         {
             group: "inuse",
             label: "In use",
             value: fmtSize(sum(inuse)),
+            bytes: sum(inuse),
             sub: liveRuns ? plural(liveRuns, "live run") : "no live runs",
         },
         {
             group: "kept",
             label: "Kept on purpose",
             value: fmtSize(sum(kept)),
+            bytes: sum(kept),
             sub: `${plural(kept.length, "item")} · caches and history`,
         },
     ];

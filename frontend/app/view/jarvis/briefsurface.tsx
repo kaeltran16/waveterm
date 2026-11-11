@@ -420,6 +420,14 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
             ),
         [effortWindow, cursorTs]
     );
+    const freshSessions = useMemo(
+        () =>
+            freshKeys(
+                sessions.rows.map((r) => ({ key: r.key, ts: r.ts })),
+                cursorTs
+            ),
+        [sessions, cursorTs]
+    );
 
     // moment 2: only ids that arrive while the snapshot's identity is unchanged animate in. A refresh
     // reseeds silently, which is what stops a whole-snapshot swap from firing N entrances at once; the
@@ -1293,6 +1301,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                                 onOnly={() => toggleOnly("sessions")}
                                                 filtering={filtering}
                                                 entering={entering}
+                                                fresh={freshSessions}
                                                 cursor={cursor}
                                                 sheetOpen={sheetOpen}
                                                 stageRunId={stageRun?.id}

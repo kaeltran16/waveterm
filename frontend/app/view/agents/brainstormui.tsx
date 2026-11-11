@@ -4,11 +4,16 @@
 // The pieces every brainstorm view shares: the class constants, the toolbar, the question and its answers, the
 // working view and the was/now diff.
 
+import { CrossFade } from "@/app/element/crossfade";
+import { DrawCheck } from "@/app/element/drawcheck";
+import { composerReveal, errorNudge, indicatorSlide, viewFade } from "@/app/element/motiontokens";
+import { PaneReveal } from "@/app/element/panereveal";
 import { getApi } from "@/app/store/global";
 import * as WOS from "@/app/store/wos";
 import { codeSegments } from "@/app/view/jarvis/effortfeed";
 import { cn } from "@/util/util";
 import { atom, useAtomValue, type Atom } from "jotai";
+import { motion } from "motion/react";
 import { Fragment, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { AgentVM } from "./agentsviewmodel";
 import {
@@ -134,6 +139,55 @@ export function useAction() {
     return { busy, error, run };
 }
 
+// a failed action's reason under the control that sent it grows in and nudges once (moment 13), so it reads as this
+// action failing here; one already showing at mount stays still. The nudge inherits the reveal's variant labels
+export function ErrorLine({
+    error,
+    className,
+    attrs,
+}: {
+    error: string | null;
+    className?: string;
+    attrs?: Record<string, string>;
+}) {
+    return (
+        <PaneReveal open={error != null} variants={composerReveal} className={className}>
+            <motion.span data-brainstorm-error {...attrs} variants={errorNudge} className={cn("block", ERROR_LINE)}>
+                {error}
+            </motion.span>
+        </PaneReveal>
+    );
+}
+
+// a pane trading what it shows: a new swapKey fades the new content in (viewFade); the first content shows at once,
+// so mounting a populated view never fades
+export function ViewSwap({
+    swapKey,
+    className,
+    children,
+}: {
+    swapKey: string;
+    className?: string;
+    children: ReactNode;
+}) {
+    const [seen, setSeen] = useState({ key: swapKey, moved: false });
+    // derived during render, so the content that mounts with the new key already knows it moved
+    if (seen.key !== swapKey) {
+        setSeen({ key: swapKey, moved: true });
+    }
+    return (
+        <motion.div
+            key={swapKey}
+            variants={viewFade}
+            initial={seen.moved ? "initial" : false}
+            animate="animate"
+            className={className}
+        >
+            {children}
+        </motion.div>
+    );
+}
+
 // Enter sends, Shift+Enter is a newline, and Enter that ends an IME composition stays with the IME
 export function onEnter(e: KeyboardEvent<HTMLTextAreaElement>, send: () => void): void {
     if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) {
@@ -162,7 +216,7 @@ export function Toolbar({
             <div className="flex-1" />
             {f != null ? (
                 <>
-                    <Phases f={f} merged={merged} />
+                    <Phases topic={topic} f={f} merged={merged} />
                     {progress ? (
                         <>
                             <div className="h-[16px] w-px flex-none bg-border" />
@@ -175,7 +229,7 @@ export function Toolbar({
     );
 }
 
-function Phases({ f, merged }: { f: BrainstormFile; merged: boolean }) {
+function Phases({ topic, f, merged }: { topic: string; f: BrainstormFile; merged: boolean }) {
     return (
         <ol
             data-brainstorm-phase
@@ -207,20 +261,15 @@ function Phases({ f, merged }: { f: BrainstormFile; merged: boolean }) {
                             s.status === "todo" && "text-muted"
                         )}
                     >
-                        {s.status === "current" ? <span className={cn(SMALL_DOT, "bg-accent")} /> : null}
-                        {s.status === "done" ? (
-                            <svg
-                                width="11"
-                                height="11"
-                                viewBox="0 0 12 12"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="1.8"
-                                className="text-success"
-                            >
-                                <path d="M2.5 6.5l2.5 2.5 4.5-6" />
-                            </svg>
+                        {s.status === "current" ? (
+                            // one dot per topic, so the next phase's dot reads as this one moving on
+                            <motion.span
+                                layoutId={`brainstorm-phase:${topic}`}
+                                transition={indicatorSlide}
+                                className={cn(SMALL_DOT, "bg-accent")}
+                            />
                         ) : null}
+                        <DrawCheck done={s.status === "done"} className="text-success" />
                         {s.label}
                     </li>
                 </Fragment>
@@ -412,7 +461,7 @@ function JudgeWorkLine({ work, compact, lineText }: { work: JudgeWork; compact: 
                     </button>
                 ) : null}
             </div>
-            {open && n > 0 ? (
+            <PaneReveal open={open && n > 0}>
                 <ul
                     data-brainstorm-judge-dropped
                     aria-label="Dropped by the judge"
@@ -445,7 +494,7 @@ function JudgeWorkLine({ work, compact, lineText }: { work: JudgeWork; compact: 
                         </li>
                     ))}
                 </ul>
-            ) : null}
+            </PaneReveal>
         </div>
     );
 }
@@ -522,13 +571,19 @@ export function Options({
                                     </span>
                                 ) : null}
                             </span>
-                            {o.pick ? (
-                                <span className="flex-none text-[12px] font-semibold text-accent-soft">
-                                    {pickLabel}
-                                </span>
-                            ) : null}
+                            {/* hidden while there is no pick, so the empty mark takes no gap */}
+                            <CrossFade
+                                swapKey={o.pick ? pickLabel : ""}
+                                className={o.pick ? "flex-none text-[12px] font-semibold text-accent-soft" : "hidden"}
+                            >
+                                {o.pick ? pickLabel : null}
+                            </CrossFade>
                         </button>
-                        {reasons && (o.pros != null || o.cons != null) ? <ProsCons o={o} compact={compact} /> : null}
+                        {o.pros != null || o.cons != null ? (
+                            <PaneReveal open={reasons}>
+                                <ProsCons o={o} compact={compact} />
+                            </PaneReveal>
+                        ) : null}
                         {side != null ? (
                             <div
                                 data-brainstorm-row-boards
@@ -678,7 +733,7 @@ export function LineBar({ agent, box, lock = "working" }: { agent: AgentVM; box:
                 lockedBy={lock}
                 placeholder="Push back, or ask the agent something…"
             />
-            {ans.act.error != null ? <span className={ERROR_LINE}>{ans.act.error}</span> : null}
+            <ErrorLine error={ans.act.error} />
         </div>
     );
 }
@@ -758,7 +813,7 @@ export function QuestionMain({
                         <div className="flex-1" />
                         <DesignButton f={f} onClick={openDesign} />
                     </div>
-                    {ans.act.error != null ? <span className={ERROR_LINE}>{ans.act.error}</span> : null}
+                    <ErrorLine error={ans.act.error} />
                     {fresh && chips && skip ? (
                         <p data-brainstorm-skip-note className="m-0 text-[12.5px] leading-[1.5] text-ink-mid">
                             Skipping has the agent write every part as its guess. You confirm or edit each one after,
@@ -810,15 +865,23 @@ function questionBoards(
                 : boards.length === 1
                   ? thumbs(boards, THUMB_W_QUESTION, null)
                   : thumbs(boards, THUMB_W_ROW_SEVERAL, boardLabel);
-        if (live == null) {
-            return pics;
+        if (pics == null && live == null) {
+            return null;
         }
-        // as wide as the boards over it, so a long spike path wraps rather than widening the row
+        // keyed on what the row shows, so a board the agent adds while the question is open fades in
+        const shows = [...boards, ...(spikes?.rows[i] ?? [])].join("\n");
         return (
-            <div className="flex w-min flex-col gap-[8px]" style={{ minWidth: THUMB_W_QUESTION }}>
-                {pics}
-                {live}
-            </div>
+            <ViewSwap swapKey={shows}>
+                {live == null ? (
+                    pics
+                ) : (
+                    // as wide as the boards over it, so a long spike path wraps rather than widening the row
+                    <div className="flex w-min flex-col gap-[8px]" style={{ minWidth: THUMB_W_QUESTION }}>
+                        {pics}
+                        {live}
+                    </div>
+                )}
+            </ViewSwap>
         );
     };
     const sharedBoards = layout != null && layout.shared.length > 0 ? thumbs(layout.shared, THUMB_W_QUESTION) : null;
@@ -1004,16 +1067,21 @@ export function JudgingMain({
                                             </span>
                                         </span>
                                     </button>
-                                    {factsShown && a.facts.length > 0 ? (
-                                        <div data-brainstorm-facts className="pb-[12px] pl-[50px] pr-[16px] pt-[8px]">
-                                            <ReasonList
-                                                label={`${a.name}: facts`}
-                                                mark="·"
-                                                tone="text-muted"
-                                                items={a.facts}
-                                                compact={false}
-                                            />
-                                        </div>
+                                    {a.facts.length > 0 ? (
+                                        <PaneReveal open={factsShown}>
+                                            <div
+                                                data-brainstorm-facts
+                                                className="pb-[12px] pl-[50px] pr-[16px] pt-[8px]"
+                                            >
+                                                <ReasonList
+                                                    label={`${a.name}: facts`}
+                                                    mark="·"
+                                                    tone="text-muted"
+                                                    items={a.facts}
+                                                    compact={false}
+                                                />
+                                            </div>
+                                        </PaneReveal>
                                     ) : null}
                                     {side != null ? (
                                         <div
@@ -1044,7 +1112,7 @@ export function JudgingMain({
                         <div className="flex-1" />
                         <DesignButton f={f} onClick={openDesign} />
                     </div>
-                    {ans.act.error != null ? <span className={ERROR_LINE}>{ans.act.error}</span> : null}
+                    <ErrorLine error={ans.act.error} />
                 </div>
             </MainBody>
         </div>

@@ -6,7 +6,12 @@
 // which useCanvasPoller keeps current.
 
 import { pushToast } from "@/app/cockpit/notificationstore";
+import { composerReveal, errorNudge } from "@/app/element/motiontokens";
+import { PaneReveal } from "@/app/element/panereveal";
+import { PopoverReveal } from "@/app/element/popoverreveal";
 import { Segmented } from "@/app/element/segmented";
+import { StepSwap } from "@/app/element/stepswap";
+import { ViewFade } from "@/app/element/viewfade";
 import { useDimensionsWithCallbackRef } from "@/app/hook/useDimensions";
 import { getApi } from "@/app/store/global";
 import { globalStore } from "@/app/store/jotaiStore";
@@ -16,6 +21,7 @@ import { formatChordString } from "@/util/keysym";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { SquareDashed } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import {
     useEffect,
     useLayoutEffect,
@@ -43,6 +49,7 @@ import {
     shownBoards,
     updatedAgo,
     type BoardFrame,
+    type CanvasLayout,
 } from "./canvasmodel";
 import { sendCanvasMark } from "./canvassend";
 import {
@@ -123,15 +130,19 @@ export function CanvasPane({
     const now = useAtomValue(model.nowAtom);
     const [measureRef, scrollRef, rect] = useDimensionsWithCallbackRef<HTMLDivElement>();
     const selected = s != null ? shownBoard(s).name : null;
+    const tab = s != null ? currentTab(s) : "";
+    const stepDir = useStepDir(tab, s != null ? canvasTabs(s.boards) : []);
+    const layoutRef = useRef<CanvasLayout | null>(null);
     // a tab, [ or ] can pick a board below the fold. Only its top edge is brought into view, label included:
-    // scrollIntoView top-aligns any board taller than the pane, which scrolled the labels away on every pick
+    // scrollIntoView top-aligns any board taller than the pane, which scrolled the labels away on every pick. Read
+    // from the layout, not the DOM: a board switch mounts the new frame only once the old one has slid out
     useEffect(() => {
         const pane = scrollRef.current;
-        const frame = pane?.querySelector(`[data-canvas-frame="${CSS.escape(selected ?? "")}"]`);
+        const frame = layoutRef.current?.frames.find((f) => f.board.name === selected);
         if (pane == null || frame == null) {
             return;
         }
-        const top = frame.getBoundingClientRect().top - pane.getBoundingClientRect().top;
+        const top = CANVAS_TOP_PAD + frame.top - pane.scrollTop;
         if (top < CANVAS_TOP_PAD || top > pane.clientHeight - CANVAS_TOP_PAD) {
             pane.scrollTop += top - CANVAS_TOP_PAD;
         }
@@ -142,6 +153,7 @@ export function CanvasPane({
     const pane = paneState(s);
     const board = shownBoard(s);
     const layout = canvasLayout(shownBoards(s), rect?.width ?? 0);
+    layoutRef.current = layout;
     const scale = layout.scale;
     const marking = s.marking && pane === "board";
     const markFrame = marking && s.mark != null ? layout.frames.find((f) => f.board.name === board.name) : undefined;
@@ -210,10 +222,14 @@ export function CanvasPane({
                     </div>
                 ) : null}
             </div>
-            {boardActions != null && pane === "board" && !marking && currentTab(s) !== ALL_TAB
-                ? boardActions(board.name)
-                : null}
-            <div className="flex min-h-0 flex-1 flex-col bg-surface-code">
+            <PaneReveal
+                open={boardActions != null && pane === "board" && !marking && tab !== ALL_TAB}
+                variants={composerReveal}
+                className="flex-none"
+            >
+                {boardActions?.(board.name)}
+            </PaneReveal>
+            <ViewFade fadeKey={pane} className="flex min-h-0 flex-1 flex-col bg-surface-code">
                 {pane === "server-down" ? (
                     <ServerDown />
                 ) : pane === "removed" ? (
@@ -229,42 +245,55 @@ export function CanvasPane({
                         className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-[24px] pb-[24px] [scrollbar-gutter:stable]"
                         style={{ paddingTop: CANVAS_TOP_PAD }}
                     >
-                        <div className="relative mx-auto" style={{ width: layout.width, height: layout.height }}>
-                            {layout.frames.map((f) => (
-                                <BoardFrameView
-                                    key={f.board.name}
-                                    frame={f}
-                                    scale={scale}
-                                    selected={f.board.name === board.name}
-                                    single={layout.frames.length === 1}
-                                    src={
-                                        pane === "board" && s.base != null
-                                            ? boardUrl(s.base, s.topic, f.board.name)
-                                            : null
-                                    }
-                                    reloadKey={s.reloadKey}
-                                    onSelect={() => selectCanvasBoard(agent.id, f.board.name)}
-                                >
-                                    {marking && f.board.name === board.name ? (
-                                        <MarkLayer agentId={agent.id} mark={s.mark} />
-                                    ) : null}
-                                </BoardFrameView>
-                            ))}
-                            {markFrame != null ? (
-                                <MarkNote
-                                    agent={agent}
-                                    mark={s.mark!}
-                                    frame={markFrame}
-                                    width={layout.width}
-                                    scrollRef={scrollRef}
-                                />
-                            ) : null}
-                        </div>
+                        {/* keyed by agent: another agent's canvas is a different view, not the next board */}
+                        <StepSwap key={agent.id} stepKey={tab} dir={stepDir}>
+                            <div className="relative mx-auto" style={{ width: layout.width, height: layout.height }}>
+                                {layout.frames.map((f) => (
+                                    <BoardFrameView
+                                        key={f.board.name}
+                                        frame={f}
+                                        scale={scale}
+                                        selected={f.board.name === board.name}
+                                        single={layout.frames.length === 1}
+                                        src={
+                                            pane === "board" && s.base != null
+                                                ? boardUrl(s.base, s.topic, f.board.name)
+                                                : null
+                                        }
+                                        reloadKey={s.reloadKey}
+                                        onSelect={() => selectCanvasBoard(agent.id, f.board.name)}
+                                    >
+                                        {marking && f.board.name === board.name ? (
+                                            <MarkLayer agentId={agent.id} mark={s.mark} />
+                                        ) : null}
+                                    </BoardFrameView>
+                                ))}
+                                {markFrame != null ? (
+                                    <MarkNote
+                                        agent={agent}
+                                        mark={s.mark!}
+                                        frame={markFrame}
+                                        width={layout.width}
+                                        scrollRef={scrollRef}
+                                    />
+                                ) : null}
+                            </div>
+                        </StepSwap>
                     </div>
                 )}
-            </div>
+            </ViewFade>
         </div>
     );
+}
+
+// the side a board switch slides toward: +1 when the new tab sits after the old one in the header, -1 before it
+function useStepDir(tab: string, order: string[]): number {
+    const [step, setStep] = useState({ tab, dir: 1 });
+    // derived during render, so the direction is already set on the render that swaps the board
+    if (step.tab !== tab) {
+        setStep({ tab, dir: order.indexOf(tab) < order.indexOf(step.tab) ? -1 : 1 });
+    }
+    return step.dir;
 }
 
 // A board the user hasn't picked wears a transparent cover: its iframe would swallow the click, and the first
@@ -347,6 +376,12 @@ function BoardFrameView({
 // includes the box
 function MarkLayer({ agentId, mark }: { agentId: string; mark: Mark | null }) {
     const [draft, setDraft] = useState<Box | null>(null);
+    // the box keeps its place while it leaves, after the mark itself is gone
+    const lastMark = useRef(mark);
+    if (mark != null) {
+        lastMark.current = mark;
+    }
+    const placed = lastMark.current;
     const at = (e: ReactPointerEvent<HTMLDivElement>) => {
         const r = e.currentTarget.getBoundingClientRect();
         return { x: e.clientX - r.left, y: e.clientY - r.top };
@@ -385,12 +420,18 @@ function MarkLayer({ agentId, mark }: { agentId: string; mark: Mark | null }) {
                     Drag a box around what you want changed
                 </div>
             ) : null}
-            {mark != null && draft == null ? (
+            {placed != null ? (
                 <div
-                    data-canvas-mark
-                    className="pointer-events-none absolute rounded-[6px] border-2 border-accent bg-accentbg"
-                    style={{ left: mark.x, top: mark.y, width: mark.w, height: mark.h }}
-                />
+                    className="pointer-events-none absolute"
+                    style={{ left: placed.x, top: placed.y, width: placed.w, height: placed.h }}
+                >
+                    <PopoverReveal open={mark != null && draft == null} origin="center" className="h-full w-full">
+                        <div
+                            data-canvas-mark
+                            className="h-full w-full rounded-[6px] border-2 border-accent bg-accentbg"
+                        />
+                    </PopoverReveal>
+                </div>
             ) : null}
             {draft != null ? (
                 <div
@@ -474,7 +515,18 @@ function MarkNote(p: {
                 action="Send"
                 busy={sending}
             />
-            {error != null ? <span className="text-[12px] text-error">{error}</span> : null}
+            <AnimatePresence initial={false}>
+                {error != null ? (
+                    <motion.span
+                        variants={errorNudge}
+                        initial="initial"
+                        animate="animate"
+                        className="text-[12px] text-error"
+                    >
+                        {error}
+                    </motion.span>
+                ) : null}
+            </AnimatePresence>
         </div>
     );
 }

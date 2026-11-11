@@ -4,6 +4,8 @@
 // Behind you: what landed since your last visit, grouped by day, then Shipped over the last seven days
 // under its own kind filter.
 
+import { TickNumber } from "@/app/element/ticknumber";
+import { ViewSwap } from "@/app/element/viewswap";
 import { cn } from "@/util/util";
 import { SHIPPED_CAP } from "./briefingmodel";
 import { markBriefingSeen } from "./briefingstore";
@@ -118,7 +120,7 @@ export function BehindRegion({
                 <MoreControl n={more} expanded={expanded} onToggle={onToggleMore} />
                 <div className="flex items-center gap-2 px-[11px] pb-0.5 pt-3 font-mono text-[10.5px] font-bold uppercase tracking-[.09em] text-muted">
                     <span>{SHIPPED_LABEL}</span>
-                    <span className="font-normal tracking-[.04em]">{shippedTotal}</span>
+                    <TickNumber value={shippedTotal} className="font-normal tracking-[.04em]" />
                     {shippedFilter?.menu ? (
                         <span className="ml-auto font-normal normal-case tracking-normal">{shippedFilter.node}</span>
                     ) : null}
@@ -127,30 +129,33 @@ export function BehindRegion({
                     <div className="px-[11px] pb-1">{shippedFilter.node}</div>
                 ) : null}
                 {shippedMissing ? <LegMissing what="shipped runs" /> : null}
-                {shippedTotal === 0 && !shippedMissing ? (
-                    <div className="px-[11px] py-[7px] text-[12.5px] text-ink-mid">
-                        {shippedKind === "all"
-                            ? "Nothing shipped in the last seven days."
-                            : `No ${shippedKind} run shipped in the last seven days.`}
-                    </div>
-                ) : filtering && shippedLines.length === 0 ? (
-                    <NoMatch />
-                ) : null}
-                {shippedLines.map((l) => (
-                    <ShippedRowView
-                        key={l.id}
-                        line={l}
-                        focused={cursor === l.id}
-                        selected={
-                            sheetOpen &&
-                            stageRunId != null &&
-                            l.target != null &&
-                            "oref" in l.target &&
-                            l.target.oref === "run:" + stageRunId
-                        }
-                        onOpen={l.target != null ? (e) => openLine(l.target, e) : undefined}
-                    />
-                ))}
+                {/* another kind picked trades the whole list, so it fades in rather than cutting */}
+                <ViewSwap swapKey={shippedKind} className="flex flex-col">
+                    {shippedTotal === 0 && !shippedMissing ? (
+                        <div className="px-[11px] py-[7px] text-[12.5px] text-ink-mid">
+                            {shippedKind === "all"
+                                ? "Nothing shipped in the last seven days."
+                                : `No ${shippedKind} run shipped in the last seven days.`}
+                        </div>
+                    ) : filtering && shippedLines.length === 0 ? (
+                        <NoMatch />
+                    ) : null}
+                    {shippedLines.map((l) => (
+                        <ShippedRowView
+                            key={l.id}
+                            line={l}
+                            focused={cursor === l.id}
+                            selected={
+                                sheetOpen &&
+                                stageRunId != null &&
+                                l.target != null &&
+                                "oref" in l.target &&
+                                l.target.oref === "run:" + stageRunId
+                            }
+                            onOpen={l.target != null ? (e) => openLine(l.target, e) : undefined}
+                        />
+                    ))}
+                </ViewSwap>
                 {shippedTotal > SHIPPED_CAP && !filtering ? (
                     <button
                         type="button"

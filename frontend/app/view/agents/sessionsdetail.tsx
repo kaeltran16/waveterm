@@ -5,6 +5,9 @@
 // session, each read as its transcript or its lifecycle events. @theme tokens only.
 
 import { launchAgentOrToast } from "@/app/cockpit/cockpit-actions";
+import { CrossFade } from "@/app/element/crossfade";
+import { composerReveal, viewFade } from "@/app/element/motiontokens";
+import { PaneReveal } from "@/app/element/panereveal";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
@@ -14,6 +17,7 @@ import { landOn } from "@/app/view/jarvis/returnsurface";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { Check, ChevronDown, ChevronUp, Search } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AgentsViewModel } from "./agents";
 import type { AgentEntry } from "./agentsviewmodel";
@@ -350,7 +354,7 @@ function FindBar({
     return (
         <div
             data-sessions-find
-            className="sticky top-0 z-10 mb-2 flex items-center gap-2 rounded-[8px] border border-edge-mid bg-surface-raised py-1 pl-2.5 pr-1"
+            className="mb-2 flex items-center gap-2 rounded-[8px] border border-edge-mid bg-surface-raised py-1 pl-2.5 pr-1"
         >
             <Search size={13} className="flex-none text-muted" aria-hidden />
             <input
@@ -509,16 +513,22 @@ function SessionBody({
     } else {
         body = (
             <>
-                {earlier ? (
-                    <button
-                        type="button"
-                        data-sessions-earlier=""
-                        onClick={showEarlier}
-                        className="w-full cursor-pointer rounded-[6px] py-2 text-center text-[12px] font-semibold text-muted hover:bg-surface-hover hover:text-primary"
-                    >
-                        Show earlier turns
-                    </button>
-                ) : null}
+                <AnimatePresence initial={false}>
+                    {earlier ? (
+                        <motion.button
+                            key="earlier"
+                            type="button"
+                            data-sessions-earlier=""
+                            onClick={showEarlier}
+                            variants={viewFade}
+                            initial="initial"
+                            animate="animate"
+                            className="w-full cursor-pointer rounded-[6px] py-2 text-center text-[12px] font-semibold text-muted hover:bg-surface-hover hover:text-primary"
+                        >
+                            Show earlier turns
+                        </motion.button>
+                    ) : null}
+                </AnimatePresence>
                 <NarrationTimeline entries={entries} active={session.live} renderAll={full} />
             </>
         );
@@ -530,7 +540,12 @@ function SessionBody({
             data-session-key={key ?? undefined}
             className={cn("min-h-0 flex-1 overflow-y-auto", className)}
         >
-            {find != null && view === "transcript" ? (
+            {/* sticky on the reveal: its overflow-hidden would otherwise be the bar's scroll container */}
+            <PaneReveal
+                open={find != null && view === "transcript"}
+                variants={composerReveal}
+                className="sticky top-0 z-10"
+            >
                 <FindBar
                     text={edit.text}
                     onText={(text) => setEdit({ ...edit, text, pos: 0 })}
@@ -539,7 +554,7 @@ function SessionBody({
                     onStep={(dir) => setEdit({ ...edit, pos: stepFind(cur, total, dir) })}
                     onClose={() => setFind(null)}
                 />
-            ) : null}
+            </PaneReveal>
             {body}
         </div>
     );
@@ -713,7 +728,7 @@ export function RunDetail({
                     </div>
                     <Meta items={meta} />
                 </div>
-                <div className="flex flex-none gap-2">
+                <div className="flex flex-none">
                     <button
                         type="button"
                         data-peek
@@ -722,33 +737,42 @@ export function RunDetail({
                     >
                         Open run sheet
                     </button>
-                    {lead?.live ? (
-                        <button
-                            type="button"
-                            onClick={() => runSessionPrimary(model, lead)}
-                            className="cursor-pointer rounded-[7px] bg-accent px-[13px] py-[7px] text-[12px] font-semibold text-background hover:opacity-90"
-                        >
-                            Jump to lead →
-                        </button>
-                    ) : null}
+                    {/* the gap rides on the swap, so an ended lead leaves no empty slot */}
+                    <CrossFade swapKey={lead?.live ? "live" : "ended"} className={cn(lead?.live && "ml-2")}>
+                        {lead?.live ? (
+                            <button
+                                type="button"
+                                data-sessions-jump-lead=""
+                                onClick={() => runSessionPrimary(model, lead)}
+                                className="cursor-pointer rounded-[7px] bg-accent px-[13px] py-[7px] text-[12px] font-semibold text-background hover:opacity-90"
+                            >
+                                Jump to lead →
+                            </button>
+                        ) : null}
+                    </CrossFade>
                 </div>
             </div>
 
-            {view.ask ? (
-                <div className="flex flex-none items-center gap-3 rounded-lg bg-askingbg py-2.5 pl-3.5 pr-3">
-                    <span className="h-[7px] w-[7px] flex-none pulse-dot rounded-full bg-asking" />
-                    <span className="min-w-0 flex-1 text-[13px] leading-[1.45] text-secondary">
-                        <span className="font-semibold text-ink-hi">Task {view.ask.num} asks:</span> {view.ask.text}
-                    </span>
-                    <button
-                        type="button"
-                        onClick={() => globalStore.set(model.sessionsMemberAtom, view.ask!.member)}
-                        className="flex-none cursor-pointer rounded-[7px] border border-edge-strong bg-surface-raised px-[11px] py-1.5 text-[12px] font-semibold text-secondary hover:text-primary"
+            <PaneReveal open={view.ask != null} variants={composerReveal} className="flex-none">
+                {view.ask != null ? (
+                    <div
+                        data-sessions-run-ask=""
+                        className="flex items-center gap-3 rounded-lg bg-askingbg py-2.5 pl-3.5 pr-3"
                     >
-                        Show task
-                    </button>
-                </div>
-            ) : null}
+                        <span className="h-[7px] w-[7px] flex-none pulse-dot rounded-full bg-asking" />
+                        <span className="min-w-0 flex-1 text-[13px] leading-[1.45] text-secondary">
+                            <span className="font-semibold text-ink-hi">Task {view.ask.num} asks:</span> {view.ask.text}
+                        </span>
+                        <button
+                            type="button"
+                            onClick={() => globalStore.set(model.sessionsMemberAtom, view.ask!.member)}
+                            className="flex-none cursor-pointer rounded-[7px] border border-edge-strong bg-surface-raised px-[11px] py-1.5 text-[12px] font-semibold text-secondary hover:text-primary"
+                        >
+                            Show task
+                        </button>
+                    </div>
+                ) : null}
+            </PaneReveal>
 
             <div className="flex min-h-0 flex-1 flex-col gap-3.5">
                 <div role="group" aria-label="Sessions in this run" className="flex flex-none flex-col">

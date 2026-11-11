@@ -7,6 +7,7 @@
 
 import { cardVariants, turnTransition, viewFade } from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
+import { StepSwap } from "@/app/element/stepswap";
 import * as WOS from "@/app/store/wos";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
@@ -242,6 +243,8 @@ function Design({
     const check = builderCheckView(agent.builderCheck, s.sentCheckAt, s.file, s.modifiedMs, agent);
     const lock = editLock(f, check);
     const view = mainView(f, s.designOpen, s.sent != null);
+    const talkKey = view === "question" ? `question:${f.question!.n}` : view;
+    const dir = useTalkDir(talkKey, view === "question" ? f.question!.n : null);
     const seen = useAtomValue(brainstormSeenAtom)[s.path] ?? null;
     const unseen = unseenSince(f, seen);
     // opens the parts' rows in the design and scrolls to the first
@@ -265,39 +268,16 @@ function Design({
             <StaleBanner s={s} />
             <div className="flex min-h-0 flex-1">
                 <div className="flex min-w-0 flex-1 flex-col bg-background">
+                    {/* opening or closing the design fades; the talk itself (a question, the agent writing, the next
+                        question) slides forward, keyed per question so each one starts over */}
                     <motion.div
-                        key={view === "question" ? `question:${f.question!.n}` : view}
+                        key={view === "design" ? "design" : "talk"}
                         variants={viewFade}
                         initial="initial"
                         animate="animate"
                         className="flex min-h-0 flex-1 flex-col"
                     >
-                        {view === "question" ? (
-                            <QuestionMain
-                                agent={agent}
-                                s={s}
-                                f={f}
-                                goTo={goTo}
-                                openDesign={openDesign}
-                                findings={
-                                    unseen.notes.length > 0
-                                        ? { count: unseen.notes.length, open: () => openParts(unseen.notes) }
-                                        : undefined
-                                }
-                                openParts={openParts}
-                            />
-                        ) : view === "judging" ? (
-                            <JudgingMain
-                                agent={agent}
-                                s={s}
-                                f={f}
-                                goTo={goTo}
-                                openDesign={openDesign}
-                                openParts={openParts}
-                            />
-                        ) : view === "working" ? (
-                            <WorkingMain agent={agent} s={s} f={f} nowAtom={nowAtom} openDesign={openDesign} />
-                        ) : (
+                        {view === "design" ? (
                             <DesignMain
                                 agent={agent}
                                 s={s}
@@ -310,6 +290,35 @@ function Design({
                                 opened={opened}
                                 setOpen={(id, open) => setOpened((o) => ({ ...o, [id]: open }))}
                             />
+                        ) : (
+                            <StepSwap stepKey={talkKey} dir={dir} className="flex min-h-0 flex-1 flex-col">
+                                {view === "question" ? (
+                                    <QuestionMain
+                                        agent={agent}
+                                        s={s}
+                                        f={f}
+                                        goTo={goTo}
+                                        openDesign={openDesign}
+                                        findings={
+                                            unseen.notes.length > 0
+                                                ? { count: unseen.notes.length, open: () => openParts(unseen.notes) }
+                                                : undefined
+                                        }
+                                        openParts={openParts}
+                                    />
+                                ) : view === "judging" ? (
+                                    <JudgingMain
+                                        agent={agent}
+                                        s={s}
+                                        f={f}
+                                        goTo={goTo}
+                                        openDesign={openDesign}
+                                        openParts={openParts}
+                                    />
+                                ) : (
+                                    <WorkingMain agent={agent} s={s} f={f} nowAtom={nowAtom} openDesign={openDesign} />
+                                )}
+                            </StepSwap>
                         )}
                     </motion.div>
                     {view === "design" ? (
@@ -320,6 +329,16 @@ function Design({
             </div>
         </>
     );
+}
+
+// the talk moves forward (a question, the agent writing, the next question) unless an earlier question comes back;
+// derived during render, so the step that mounts with the new key already slides from the right side
+function useTalkDir(key: string, n: number | null): number {
+    const [last, setLast] = useState<{ key: string; n: number | null; dir: number }>({ key, n, dir: 1 });
+    if (last.key !== key) {
+        setLast({ key, n: n ?? last.n, dir: n != null && last.n != null && n < last.n ? -1 : 1 });
+    }
+    return last.dir;
 }
 
 // over the design while the agent writes: its current step once one is known, never its boards

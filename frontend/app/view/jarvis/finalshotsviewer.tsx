@@ -4,12 +4,18 @@
 // The Final check's screenshots, every finished round (.superpowers/design/final-shots: Viewer and States
 // boards). Opened from the run sheet; everything it shows is derived in finalshotsmodel.ts.
 
+import { modalBackdrop, modalPanel, morphTransition, MOTION, viewFade } from "@/app/element/motiontokens";
+import { StepSwap } from "@/app/element/stepswap";
+import { TickNumber } from "@/app/element/ticknumber";
 import { focusTrapTarget, takeModalFocus } from "@/app/modals/modalfocus";
 import { registerModal } from "@/app/modals/modalstack";
+import { atoms } from "@/app/store/global";
 import { globalStore } from "@/app/store/jotaiStore";
 import { buildFinalShotsBindings } from "@/app/store/keybindings/bindings";
 import { useKeybindings } from "@/app/store/keybindings/store";
 import { cn } from "@/util/util";
+import { useAtomValue } from "jotai";
+import { AnimatePresence, motion, MotionConfig, type Variants } from "motion/react";
 import { useEffect, useMemo, useRef, useState, type JSX, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -43,6 +49,15 @@ const STEP_BADGE: Record<FinalShotStep["state"], { label: string; cls: string }>
     skip: { label: "SKIP", cls: "border-warning text-warning-soft" },
 };
 
+// the steps drawer sits beside the stage, so it reveals along its width (a pane reveal's timing) and the stage
+// narrows with it instead of jumping
+const DRAWER_PX = 360;
+const drawerReveal: Variants = {
+    initial: { width: 0, opacity: 0 },
+    animate: { width: DRAWER_PX, opacity: 1, transition: { duration: MOTION.durMacro, ease: MOTION.easeFluid } },
+    exit: { width: 0, opacity: 0, transition: { duration: MOTION.durExit, ease: MOTION.easeFluid } },
+};
+
 function baseName(file: string): string {
     return file.slice(file.lastIndexOf("/") + 1);
 }
@@ -70,14 +85,21 @@ export function FinalShotsViewer({
     const rounds = useMemo(() => shotRounds(group), [group]);
     const [roundNo, setRoundNo] = useState(initial.round);
     const round = rounds.find((r) => r.round === roundNo) ?? rounds[rounds.length - 1];
+    // dir is the way the last screenshot move went (+1 next, -1 previous), for the step slide
     const [sel, setSel] = useState(() => ({
         s: Math.max(0, round?.scenarios.findIndex((x) => x.name === initial.scenario) ?? 0),
         k: 0,
+        dir: 1,
     }));
     const [zoom, setZoom] = useState(false);
     // null: the drawer follows the scenario (open where a step failed) until the human toggles it
     const [stepsToggle, setStepsToggle] = useState<boolean | null>(null);
     const panelRef = useRef<HTMLDivElement>(null);
+    // a scenario or round switch fades the view in, but opening the viewer is the panel's own entrance
+    const mounted = useRef(false);
+    useEffect(() => {
+        mounted.current = true;
+    }, []);
 
     // a dag update can shrink the round on screen
     const { s, k } = round ? clampSelection(round, sel.s, sel.k) : { s: 0, k: 0 };
@@ -87,13 +109,14 @@ export function FinalShotsViewer({
 
     const pickRound = (n: number) => {
         setRoundNo(n);
-        setSel({ s: 0, k: 0 });
+        setSel({ s: 0, k: 0, dir: 1 });
         setStepsToggle(null);
     };
     const pickScenario = (i: number) => {
-        setSel({ s: i, k: 0 });
+        setSel({ s: i, k: 0, dir: 1 });
         setStepsToggle(null);
     };
+    const pickShot = (next: number) => setSel({ s, k: next, dir: Math.sign(next - k) || 1 });
     const handlers = {
         scenario: (d: 1 | -1) => {
             const next = s + d;
@@ -104,7 +127,7 @@ export function FinalShotsViewer({
         shot: (d: 1 | -1) => {
             const next = k + d;
             if (scenario && next >= 0 && next < scenario.files.length) {
-                setSel({ s, k: next });
+                pickShot(next);
             }
         },
         zoom: () => setZoom((z) => !z),
@@ -175,72 +198,84 @@ export function FinalShotsViewer({
 
     // portaled: the run sheet's panel is transformed, which would make it the containing block of a fixed child
     return createPortal(
-        <div
-            className="fixed inset-0 z-[70] bg-black/60"
-            onMouseDown={(e) => {
-                if (e.target === e.currentTarget) {
-                    onClose();
-                }
-            }}
-        >
-            <div
-                ref={panelRef}
-                role="dialog"
-                aria-modal="true"
-                aria-label="Final check screenshots"
-                tabIndex={-1}
-                data-final-shots-viewer=""
-                className="absolute inset-4 flex flex-col overflow-hidden rounded-xl border border-edge-mid bg-modalbg text-foreground shadow-popover outline-none"
+        <MotionConfig reducedMotion="user">
+            <motion.div
+                variants={modalBackdrop}
+                initial="initial"
+                animate="animate"
+                className="fixed inset-0 z-[70] bg-black/60"
+                onMouseDown={(e) => {
+                    if (e.target === e.currentTarget) {
+                        onClose();
+                    }
+                }}
             >
-                <ViewerHeader rounds={rounds} round={round} onPick={pickRound} onClose={onClose} />
-                {round == null || round.scenarios.length === 0 ? (
-                    <div
-                        data-final-shots-empty=""
-                        className="flex flex-1 items-center justify-center text-xs text-ink-mid"
-                    >
-                        {emptyRoundText(
-                            [...(group.pastfinals ?? []), group.final].find(
-                                (f) => f != null && f.round === round?.round
-                            )
-                        )}
-                    </div>
-                ) : (
-                    <>
-                        <ScenarioTabs round={round} current={s} onPick={pickScenario} />
-                        <div className="flex min-h-0 flex-1">
-                            <div className="flex min-w-0 flex-1 flex-col bg-surface-code">
-                                {file == null ? (
-                                    // a scenario that threw before its first screenshot
-                                    <>
-                                        <ShotToolbar buttons={buttons} />
-                                        <Stage zoom={zoom}>
-                                            <span className="text-xs text-ink-mid">No screenshot</span>
-                                        </Stage>
-                                    </>
-                                ) : (
-                                    <Shot
-                                        key={shotPath(round, file)}
-                                        path={shotPath(round, file)}
-                                        file={file}
-                                        pos={`${k + 1} of ${scenario.files.length}`}
-                                        zoom={zoom}
-                                        onToggleZoom={handlers.zoom}
-                                        buttons={buttons}
-                                    />
-                                )}
-                                <Filmstrip
-                                    round={round}
-                                    scenario={scenario}
-                                    current={k}
-                                    onPick={(i) => setSel({ s, k: i })}
-                                />
-                            </div>
-                            {stepsOpen && <StepsDrawer scenario={scenario} />}
-                        </div>
-                    </>
-                )}
-            </div>
-        </div>,
+                <motion.div
+                    ref={panelRef}
+                    variants={modalPanel}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="Final check screenshots"
+                    tabIndex={-1}
+                    data-final-shots-viewer=""
+                    className="absolute inset-4 flex flex-col overflow-hidden rounded-xl border border-edge-mid bg-modalbg text-foreground shadow-popover outline-none"
+                >
+                    <ViewerHeader rounds={rounds} round={round} onPick={pickRound} onClose={onClose} />
+                    {round == null || round.scenarios.length === 0 ? (
+                        <motion.div
+                            key={`empty:${round?.round}`}
+                            variants={viewFade}
+                            initial={mounted.current ? "initial" : false}
+                            animate="animate"
+                            data-final-shots-empty=""
+                            className="flex flex-1 items-center justify-center text-xs text-ink-mid"
+                        >
+                            {emptyRoundText(
+                                [...(group.pastfinals ?? []), group.final].find(
+                                    (f) => f != null && f.round === round?.round
+                                )
+                            )}
+                        </motion.div>
+                    ) : (
+                        <>
+                            <ScenarioTabs round={round} current={s} onPick={pickScenario} />
+                            <motion.div
+                                key={`${round.round}:${s}`}
+                                data-final-shots-view=""
+                                variants={viewFade}
+                                initial={mounted.current ? "initial" : false}
+                                animate="animate"
+                                className="flex min-h-0 flex-1"
+                            >
+                                <div className="flex min-w-0 flex-1 flex-col bg-surface-code">
+                                    {file == null ? (
+                                        // a scenario that threw before its first screenshot
+                                        <>
+                                            <ShotToolbar buttons={buttons} />
+                                            <Stage zoom={zoom}>
+                                                <span className="text-xs text-ink-mid">No screenshot</span>
+                                            </Stage>
+                                        </>
+                                    ) : (
+                                        <Shot
+                                            path={shotPath(round, file)}
+                                            file={file}
+                                            pos={`${k + 1} of ${scenario.files.length}`}
+                                            dir={sel.dir}
+                                            zoom={zoom}
+                                            onToggleZoom={handlers.zoom}
+                                            buttons={buttons}
+                                        />
+                                    )}
+                                    <Filmstrip round={round} scenario={scenario} current={k} onPick={pickShot} />
+                                </div>
+                                <StepsDrawer open={stepsOpen} scenario={scenario} />
+                            </motion.div>
+                        </>
+                    )}
+                </motion.div>
+            </motion.div>
+        </MotionConfig>,
         document.body
     );
 }
@@ -288,7 +323,7 @@ function ViewerHeader({
                     </span>
                 )
             )}
-            {round != null && <span className="text-xs text-ink-mid">{roundTally(round)}</span>}
+            {round != null && <RoundTally text={roundTally(round)} />}
             <span className="ml-auto text-[11.5px] text-ink-mid">
                 ↑ ↓ scenario · ← → screenshot · z zoom · s steps · esc close
             </span>
@@ -311,6 +346,15 @@ function ViewerHeader({
                 </svg>
             </button>
         </div>
+    );
+}
+
+// the tally's counts roll when a round switch changes them; split on its numbers so the wording stays the model's
+function RoundTally({ text }: { text: string }) {
+    return (
+        <span className="text-xs text-ink-mid">
+            {text.split(/(\d+)/).map((part, i) => (i % 2 === 1 ? <TickNumber key={i} value={Number(part)} /> : part))}
+        </span>
     );
 }
 
@@ -366,24 +410,29 @@ function ShotToolbar({ meta, buttons }: { meta?: ReactNode; buttons: ReactNode }
     );
 }
 
+// layoutScroll: the size toggle's morph measures the image inside this scroll box
 function Stage({ zoom, children }: { zoom: boolean; children: ReactNode }) {
     return (
-        <div
+        <motion.div
+            layoutScroll
+            data-final-shots-stage=""
             className={cn(
                 "mx-3 mb-3 flex min-h-0 flex-1 overflow-auto rounded-md border border-edge-mid bg-background",
                 zoom ? "items-start justify-start" : "items-center justify-center"
             )}
         >
             {children}
-        </div>
+        </motion.div>
     );
 }
 
-// one fetch feeds both the toolbar's natural size and the stage
+// one fetch feeds both the toolbar's natural size and the stage; a new path slides in from the side it was
+// stepped toward, and the size toggle morphs the image between Fit and Actual size
 function Shot({
     path,
     file,
     pos,
+    dir,
     zoom,
     onToggleZoom,
     buttons,
@@ -391,6 +440,7 @@ function Shot({
     path: string;
     file: string;
     pos: string;
+    dir: number;
     zoom: boolean;
     onToggleZoom: () => void;
     buttons: ReactNode;
@@ -432,7 +482,10 @@ function Shot({
         );
     } else if (img.url != null) {
         body = (
-            <img
+            <motion.img
+                layout
+                layoutDependency={zoom}
+                transition={morphTransition}
                 src={img.url}
                 alt={baseName(file)}
                 onClick={onToggleZoom}
@@ -446,7 +499,15 @@ function Shot({
     return (
         <>
             <ShotToolbar meta={meta} buttons={buttons} />
-            <Stage zoom={zoom}>{body}</Stage>
+            <Stage zoom={zoom}>
+                <StepSwap
+                    stepKey={path}
+                    dir={dir}
+                    className={cn("flex size-full", zoom ? "items-start justify-start" : "items-center justify-center")}
+                >
+                    {body}
+                </StepSwap>
+            </Stage>
         </>
     );
 }
@@ -502,9 +563,40 @@ function FilmThumb({ path, file, on, onPick }: { path: string; file: string; on:
     );
 }
 
-function StepsDrawer({ scenario }: { scenario: ShotScenario }) {
+function StepsDrawer({ open, scenario }: { open: boolean; scenario: ShotScenario }) {
+    // width is not a transform, so MotionConfig would still tween it under reduced motion
+    const reduce = useAtomValue(atoms.prefersReducedMotionAtom);
+    const cls = "flex flex-none flex-col overflow-hidden border-l border-edge-mid bg-modalbg";
+    if (reduce) {
+        return open ? (
+            <aside aria-label="Steps" className={cls} style={{ width: DRAWER_PX }}>
+                <StepsList scenario={scenario} />
+            </aside>
+        ) : null;
+    }
     return (
-        <aside aria-label="Steps" className="flex w-[360px] flex-none flex-col border-l border-edge-mid bg-modalbg">
+        <AnimatePresence initial={false}>
+            {open && (
+                <motion.aside
+                    key="steps"
+                    aria-label="Steps"
+                    variants={drawerReveal}
+                    initial="initial"
+                    animate="animate"
+                    exit="exit"
+                    className={cls}
+                >
+                    <StepsList scenario={scenario} />
+                </motion.aside>
+            )}
+        </AnimatePresence>
+    );
+}
+
+// the drawer's content at its full width, so the text never rewraps while the drawer slides
+function StepsList({ scenario }: { scenario: ShotScenario }) {
+    return (
+        <div className="flex min-h-0 flex-1 flex-col" style={{ width: DRAWER_PX }}>
             <div className="flex items-baseline gap-2 px-4 pb-1.5 pt-3">
                 <span className="text-[13px] font-semibold">{scenario.name}</span>
                 <span className="text-xs text-ink-mid">{scenarioTally(scenario).long}</span>
@@ -542,6 +634,6 @@ function StepsDrawer({ scenario }: { scenario: ShotScenario }) {
                     );
                 })}
             </div>
-        </aside>
+        </div>
     );
 }

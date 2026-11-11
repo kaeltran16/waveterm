@@ -12,6 +12,9 @@
 //
 // Which sections a given shape actually has is decided by runconfig.runLauncherFace; this file renders.
 
+import { CrossFade } from "@/app/element/crossfade";
+import { composerReveal } from "@/app/element/motiontokens";
+import { PaneReveal } from "@/app/element/panereveal";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
@@ -102,12 +105,12 @@ export function ShapeCards({ showParallelism }: { showParallelism: boolean }) {
                         </button>
                     ))}
                 </div>
-                {showParallelism ? (
-                    <div className="ml-auto flex items-center gap-1.5">
+                <PaneReveal open={showParallelism} variants={composerReveal} className="ml-auto">
+                    <div data-launcher-workers className="flex items-center gap-1.5">
                         <span className="font-mono text-[10.5px] text-ink-mid">workers</span>
                         <WorkerStepper value={par} onStep={stepParallelism} />
                     </div>
-                ) : null}
+                </PaneReveal>
             </div>
         </Section>
     );
@@ -187,6 +190,7 @@ export function usePlanPreview(path: string, projectPath: string): PlanPreview |
 function PlanPathField({ projectPath }: { projectPath: string }) {
     const path = useAtomValue(planPathAtom);
     const current = usePlanPreview(path, projectPath);
+    const reading = current?.error != null ? "error" : current?.result != null ? "ready" : "none";
     return (
         <div className="flex flex-col gap-1">
             <input
@@ -197,24 +201,27 @@ function PlanPathField({ projectPath }: { projectPath: string }) {
                 placeholder="Plan path, absolute or relative to the project"
                 className="w-full rounded-[7px] border border-edge-mid bg-background px-2.5 py-1.5 font-mono text-[11.5px] text-primary placeholder:text-muted outline-none focus:border-accent/60"
             />
-            {current?.error != null ? (
-                <span data-jarvis-plan-preview="error" className="text-[11px] leading-[1.45] text-error">
-                    {current.error}
-                </span>
-            ) : current?.result != null ? (
-                <span
-                    data-jarvis-plan-preview="ready"
-                    className="flex flex-wrap gap-x-2 font-mono text-[10.5px] text-secondary"
-                >
-                    {current.result.title ? <span>{current.result.title}</span> : null}
-                    <span>{planShapeText(current.result.shape)}</span>
-                    {planWarnings(current.result.shape, current.result.verify).map((warning) => (
-                        <span key={warning} className="text-warning">
-                            {warning}
-                        </span>
-                    ))}
-                </span>
-            ) : null}
+            {/* no reading takes no slot, so the column's gap does not open under the field */}
+            <CrossFade swapKey={reading} className={cn(reading === "none" && "hidden")}>
+                {current?.error != null ? (
+                    <span data-jarvis-plan-preview="error" className="text-[11px] leading-[1.45] text-error">
+                        {current.error}
+                    </span>
+                ) : current?.result != null ? (
+                    <span
+                        data-jarvis-plan-preview="ready"
+                        className="flex flex-wrap gap-x-2 font-mono text-[10.5px] text-secondary"
+                    >
+                        {current.result.title ? <span>{current.result.title}</span> : null}
+                        <span>{planShapeText(current.result.shape)}</span>
+                        {planWarnings(current.result.shape, current.result.verify).map((warning) => (
+                            <span key={warning} className="text-warning">
+                                {warning}
+                            </span>
+                        ))}
+                    </span>
+                ) : null}
+            </CrossFade>
         </div>
     );
 }
@@ -282,8 +289,9 @@ function RoutingSection({ showWorkerRoute }: { showWorkerRoute: boolean }) {
         <Section label="Routing">
             <div className="flex flex-wrap items-center gap-2">
                 <RoutePicker value={route} onChange={setRunRoute} placement="bottom-start" title="Lead model" />
-                {showWorkerRoute ? (
-                    <>
+                {/* the pickers open in a portal, so the reveal's clip never cuts their menus */}
+                <PaneReveal open={showWorkerRoute} variants={composerReveal}>
+                    <div data-launcher-worker-route className="flex flex-wrap items-center gap-2">
                         <RoutePicker
                             value={workerRoute}
                             onChange={setWorkerRoute}
@@ -315,8 +323,8 @@ function RoutingSection({ showWorkerRoute }: { showWorkerRoute: boolean }) {
                                 inheritedLabel="Sonnet (default)"
                             />
                         </span>
-                    </>
-                ) : null}
+                    </div>
+                </PaneReveal>
             </div>
         </Section>
     );

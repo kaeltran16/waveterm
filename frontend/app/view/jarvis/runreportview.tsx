@@ -4,12 +4,14 @@
 // A finished run's report, structured (design L508-537): the lead line, then each section with its count,
 // a commit hash that opens its diff, and the task tag. "raw markdown" shows the file as filed.
 
+import { viewFade } from "@/app/element/motiontokens";
 import { openRunDiff } from "@/app/view/agents/agentdiffnav";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { InlineMarkdown } from "@/app/view/agents/inlinemarkdown";
 import { SectionLabel } from "@/app/view/agents/sectionlabel";
 import { cn, fireAndForget } from "@/util/util";
 import { ArrowUpRight } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { briefUndo } from "./briefundo";
 import { parseRunReport, type ReportItem } from "./runreport";
@@ -54,66 +56,79 @@ export function RunReportView({ model, run, compact }: { model: AgentsViewModel;
                     <InlineMarkdown text={report.lead} />
                 </div>
             ) : null}
-            {raw ? (
-                <pre className="m-0 max-h-[420px] overflow-auto whitespace-pre-wrap break-words rounded-[8px] border border-border bg-surface px-[13px] py-3 font-mono text-[11px] leading-[1.6] text-secondary">
-                    {run.report}
-                </pre>
-            ) : (
-                <>
-                    {report.sections.map((sec) => (
-                        <div key={sec.heading} className="flex flex-col gap-0.5">
-                            <div className="flex items-center gap-2 pb-1">
-                                <SectionLabel>{sec.heading}</SectionLabel>
-                                <span className="font-mono text-[10.5px] text-muted">{sec.count}</span>
-                            </div>
-                            {sec.items.map((it, n) => (
-                                <div
-                                    key={n}
-                                    className="flex items-baseline gap-2.5 border-b border-edge-faint py-[7px]"
-                                >
-                                    <span
-                                        className={cn(
-                                            "h-1.5 w-1.5 flex-none -translate-y-px rounded-full",
-                                            DOT[it.dot]
-                                        )}
-                                    />
-                                    {it.hash !== "" ? (
-                                        <button
-                                            type="button"
-                                            title="Open this commit's diff"
-                                            onClick={() => fireAndForget(() => openRunDiff(model, run))}
-                                            className="w-16 flex-none cursor-pointer text-left font-mono text-[11px] text-accent-soft hover:underline"
+            {/* the toggle trades the structured report for the file as filed: the new face fades in where the old
+                one was (no exit, so the two never stack) */}
+            <AnimatePresence initial={false} mode="wait">
+                <motion.div
+                    key={raw ? "raw" : "structured"}
+                    variants={viewFade}
+                    initial="initial"
+                    animate="animate"
+                    data-jarvis-run-report-face={raw ? "raw" : "structured"}
+                    className={cn("flex flex-col", compact ? "gap-2.5" : "gap-3.5")}
+                >
+                    {raw ? (
+                        <pre className="m-0 max-h-[420px] overflow-auto whitespace-pre-wrap break-words rounded-[8px] border border-border bg-surface px-[13px] py-3 font-mono text-[11px] leading-[1.6] text-secondary">
+                            {run.report}
+                        </pre>
+                    ) : (
+                        <>
+                            {report.sections.map((sec) => (
+                                <div key={sec.heading} className="flex flex-col gap-0.5">
+                                    <div className="flex items-center gap-2 pb-1">
+                                        <SectionLabel>{sec.heading}</SectionLabel>
+                                        <span className="font-mono text-[10.5px] text-muted">{sec.count}</span>
+                                    </div>
+                                    {sec.items.map((it, n) => (
+                                        <div
+                                            key={n}
+                                            className="flex items-baseline gap-2.5 border-b border-edge-faint py-[7px]"
                                         >
-                                            {it.hash}
-                                        </button>
-                                    ) : null}
-                                    <span
-                                        className={cn(
-                                            "min-w-0 flex-1 text-pretty break-words text-[12.5px] leading-[1.5]",
-                                            it.dim ? "text-ink-mid" : "text-ink-hi"
-                                        )}
-                                    >
-                                        <InlineMarkdown text={it.text} />
-                                    </span>
-                                    {it.tag !== "" ? (
-                                        <span className="flex-none rounded-[5px] border border-edge-mid px-1.5 font-mono text-[10.5px] leading-[17px] text-ink-mid">
-                                            {it.tag}
-                                        </span>
-                                    ) : null}
+                                            <span
+                                                className={cn(
+                                                    "h-1.5 w-1.5 flex-none -translate-y-px rounded-full",
+                                                    DOT[it.dot]
+                                                )}
+                                            />
+                                            {it.hash !== "" ? (
+                                                <button
+                                                    type="button"
+                                                    title="Open this commit's diff"
+                                                    onClick={() => fireAndForget(() => openRunDiff(model, run))}
+                                                    className="w-16 flex-none cursor-pointer text-left font-mono text-[11px] text-accent-soft hover:underline"
+                                                >
+                                                    {it.hash}
+                                                </button>
+                                            ) : null}
+                                            <span
+                                                className={cn(
+                                                    "min-w-0 flex-1 text-pretty break-words text-[12.5px] leading-[1.5]",
+                                                    it.dim ? "text-ink-mid" : "text-ink-hi"
+                                                )}
+                                            >
+                                                <InlineMarkdown text={it.text} />
+                                            </span>
+                                            {it.tag !== "" ? (
+                                                <span className="flex-none rounded-[5px] border border-edge-mid px-1.5 font-mono text-[10.5px] leading-[17px] text-ink-mid">
+                                                    {it.tag}
+                                                </span>
+                                            ) : null}
+                                        </div>
+                                    ))}
                                 </div>
                             ))}
-                        </div>
-                    ))}
-                    <button
-                        type="button"
-                        onClick={() => fireAndForget(() => openRunDiff(model, run))}
-                        className={cn(LINK, "inline-flex items-center gap-1 self-start")}
-                    >
-                        open the repository diff
-                        <ArrowUpRight size={11} aria-hidden />
-                    </button>
-                </>
-            )}
+                            <button
+                                type="button"
+                                onClick={() => fireAndForget(() => openRunDiff(model, run))}
+                                className={cn(LINK, "inline-flex items-center gap-1 self-start")}
+                            >
+                                open the repository diff
+                                <ArrowUpRight size={11} aria-hidden />
+                            </button>
+                        </>
+                    )}
+                </motion.div>
+            </AnimatePresence>
         </div>
     );
 }

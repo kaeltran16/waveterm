@@ -27,12 +27,20 @@ work: the north star, the shared primitives, the moments, and the guardrails.
 
 | Artifact | Role |
 |---|---|
-| `frontend/app/element/motiontokens.ts` | Durations (`durMacro`/`durMicro`/`durExit`), `easeFluid`, variant presets (`cardVariants`, `reorderLift`, `composerReveal`, `paneReveal`, `popoverReveal`, `microFade`, `reflowProps`, `indicatorSlide`), `turnTransition` (chevron turn timing), `settleClass` (moment 4), `computeEntrances` (no-cascade guard) + the `shouldFadeEntry` burst guard. **Import from here; do not inline motion values.** |
+| `frontend/app/element/motiontokens.ts` | Durations (`durMacro`/`durMicro`/`durExit`), `easeFluid`, variant presets (`cardVariants`, `reorderLift`, `composerReveal`, `paneReveal`, `popoverReveal`, `microFade`, `reflowProps`, `indicatorSlide`), `turnTransition` (chevron turn timing), `settleClass` (moment 4), `computeEntrances` (no-cascade guard) + the `shouldFadeEntry` burst guard, and moments 10-17's `stepSlide`, `barFillClass`, `tickRoll`, `errorNudge`, `changeFlashClass` + `CHANGE_FLASH_MS`, `autoHeightTransition`, `drawCheck`, `morphTransition`. **Import from here; do not inline motion values.** |
 | `frontend/app/element/crossfade.tsx` | Micro cross-fade for a mark swapping in place (DAG state glyph, copy -> copied); never plays on mount. |
 | `frontend/app/element/copyfeedback.ts` | `useCopyFeedback`: the one copy-to-clipboard outcome (copied / failed) and its hold, for every copy affordance. |
 | `frontend/app/element/popoverreveal.tsx` | Shared dropdown/popover reveal. Wraps the panel only; callers own positioning + backdrop. Adopted across all live cockpit popovers. |
-| `frontend/tailwindsetup.css` | CSS-only ambient loops: `@keyframes pulseDot`, `breatheGlow`, `settle`. Token-colored via `color-mix(... var(--color-*) ...)` — no raw hex. |
+| `frontend/tailwindsetup.css` | CSS-only ambient loops and one-shots: `@keyframes pulseDot`, `breatheGlow`, `settle`, `freshMark`, `changeFlash` (moment 14). Token-colored via `color-mix(... var(--color-*) ...)` — no raw hex. |
 | `frontend/app/element/motiontokens.test.ts` | Guards token values + the burst-guard helper. |
+| `frontend/app/element/motionhooks.ts` (+ test) | `useSettle` (moment 4), `useDidBecomeTrue`, `useChangeFlash` (moment 14) with its pure edge helper `nextChangeFlash`. |
+| `frontend/app/element/panereveal.tsx` | Shared height reveal for every disclosure and banner (moments 6/6b); render unconditionally and drive `open`. |
+| `frontend/app/element/stepswap.tsx` | `StepSwap` (moment 10): a step sliding forward/back through a sequence, `mode="wait"`. |
+| `frontend/app/element/ticknumber.tsx` | `TickNumber` (moment 12): a changed count rolls; plain text on mount and under reduced motion. Its direction and width logic are in `ticknumbermodel.ts` (+ test). |
+| `frontend/app/element/autoheight.tsx` | `AutoHeight` (moment 15): a container's height follows its content; the first measure snaps. |
+| `frontend/app/element/drawcheck.tsx` | `DrawCheck` (moment 16): the 12x12 check, drawn on when `done` turns true after mount. |
+| `frontend/app/element/viewswap.tsx` | `ViewSwap`: a pane trading what it shows fades the new view in, keyed on `swapKey`; the view it mounts with does not fade. Clears an ancestor presence's `initial: false` (see Guardrails). |
+| `frontend/app/element/viewfade.tsx` | `ViewFade`: the same swap keyed on `fadeKey`, skipping the fade under reduced motion. A near-duplicate of `ViewSwap` from the same sweep; use `ViewSwap` for new code until the two merge. |
 | `frontend/app/element/collapsiblerail.tsx` | Reusable right-rail (icon strip ↔ 300px scroll panel); owns the rail-reveal moment and fixes titlebar/rail divider alignment by construction. |
 
 Framer (`motion/react`, v12) is the default tool. CSS is the fallback **only** for perpetual ambient
@@ -55,12 +63,27 @@ same vocabulary rather than inventing one.
 | 7 | Status pulse + micro | CSS | `pulseDot` (unified 1.6s) + kept hover/press |
 | 8 | Drag lift + drop | Framer | `reorderLift` (`whileDrag`) + `dragTransition` drop-settle |
 | 9 | Active-tab indicator slide | Framer | `indicatorSlide` on a `layoutId` bar (command palette scope tabs) |
+| 10 | Step forward/back through a sequence | Framer | `stepSlide` via `StepSwap` (x ±16px with opacity, `dir` sets the side; `mode="wait"`) |
+| 11 | Progress moved by this much | CSS | `barFillClass` (transition on `flex-grow`/`width`/`transform`, macro) |
+| 12 | A count just changed | Framer | `TickNumber` (`tickRoll`: old value leaves, new rises in, micro; width reserved) |
+| 13 | Your action failed, here | Framer | `errorNudge` (one x shake `[0,-4,4,-2,2,0]` over `durExit`, under `AnimatePresence initial={false}`) |
+| 14 | A value changed under you | CSS | `useChangeFlash(value)` + `changeFlashClass` (`@keyframes changeFlash`, accent 18% wash, 1.2s; never on mount) |
+| 15 | Grew/shrank because its content did | Framer | `AutoHeight` (ResizeObserver, macro; first measure snaps) |
+| 16 | This just finished | Framer | `DrawCheck` (`drawCheck`: `pathLength` 0 → 1, macro; mounted already-done it is drawn) |
+| 17 | The same thing, now here | Framer | `morphTransition` on a `layout`/`layoutId` element (Fit ↔ Actual, chip selection, a row changing sections) |
 
 ## Guardrails
 
 - Read `motiontokens.ts` before adding motion to a surface. Reuse; don't reinvent.
 - `layout` only on container elements, never on streaming text nodes. Animate transform/opacity
   only (perf).
+- A component that branches on reduced motion reads `atoms.prefersReducedMotionAtom`, not motion's
+  `useReducedMotion`, which reads the preference once at mount. `MotionConfig reducedMotion="user"` drops only
+  transforms, so opacity and height still tween under it, and a `layout`/`layoutId` animation was seen still
+  running: snap it with a `{ duration: 0 }` transition read from the atom (`projectchips.tsx`).
+- An `AnimatePresence initial={false}` hands its subtree `initial: false` for the subtree's whole life, so a motion
+  element mounted later anywhere under it lands settled. Rows entering through `computeEntrances` there need their
+  own `AnimatePresence initial={false}`; a keyed view swap uses `ViewSwap`, which clears it.
 - CSS keyframes must be token-colored (`var(--color-*)` + `color-mix`) — no raw hex.
 - Any live-drag / 1:1-with-pointer interaction stays un-eased. Never animate the drag itself; only
   its aftermath — reflow, settle, snap.

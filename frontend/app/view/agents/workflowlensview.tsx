@@ -7,6 +7,11 @@
 
 import { useCopyFeedback } from "@/app/element/copyfeedback";
 import { CrossFade } from "@/app/element/crossfade";
+import { DrawCheck } from "@/app/element/drawcheck";
+import { composerReveal, errorNudge } from "@/app/element/motiontokens";
+import { PaneReveal } from "@/app/element/panereveal";
+import { TickNumber } from "@/app/element/ticknumber";
+import { ViewFade } from "@/app/element/viewfade";
 import * as WOS from "@/app/store/wos";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
@@ -16,6 +21,7 @@ import { ProjectPicker } from "@/app/view/jarvis/projectpickerview";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtom, useAtomValue, useSetAtom, type Atom, type PrimitiveAtom } from "jotai";
 import { Check } from "lucide-react";
+import { AnimatePresence, motion, MotionConfig } from "motion/react";
 import { useEffect, useState, type ReactNode } from "react";
 import { openRunDiff } from "./agentdiffnav";
 import type { AgentsViewModel } from "./agents";
@@ -104,15 +110,49 @@ function Panel({
     );
 }
 
-function StageMark({ phase }: { phase: StageRow["phase"] }) {
-    if (phase === "done") {
-        return <Check size={14} strokeWidth={2.4} aria-label="done" className="text-success" />;
-    }
-    if (phase === "now") {
-        return <StatusDot state="working" pulse />;
-    }
+// an error that lands after the owner's action reveals and nudges once; one already showing at mount does neither
+// nudgeOnMount: an error already showing when this mounts still plays, for a pane mounted by the action that failed
+function ErrorReveal({
+    error,
+    nudgeOnMount = false,
+    children,
+}: {
+    error: string | null | undefined;
+    nudgeOnMount?: boolean;
+    children: ReactNode;
+}) {
     return (
-        <span aria-label="to do" className="box-border h-[9px] w-[9px] rounded-full border-[1.5px] border-ink-faint" />
+        <AnimatePresence initial={nudgeOnMount}>
+            {error != null ? (
+                <motion.div
+                    variants={composerReveal}
+                    initial="initial"
+                    animate="animate"
+                    exit="exit"
+                    className="overflow-hidden"
+                >
+                    <motion.div variants={errorNudge}>{children}</motion.div>
+                </motion.div>
+            ) : null}
+        </AnimatePresence>
+    );
+}
+
+// the check is always rendered so a stage finishing while the lens is up draws it
+function StageMark({ phase }: { phase: StageRow["phase"] }) {
+    return (
+        <>
+            <span role={phase === "done" ? "img" : undefined} aria-label={phase === "done" ? "done" : undefined}>
+                <DrawCheck done={phase === "done"} className="block text-success" />
+            </span>
+            {phase === "now" ? <StatusDot state="working" pulse /> : null}
+            {phase === "todo" ? (
+                <span
+                    aria-label="to do"
+                    className="box-border h-[9px] w-[9px] rounded-full border-[1.5px] border-ink-faint"
+                />
+            ) : null}
+        </>
     );
 }
 
@@ -165,7 +205,7 @@ function Split({ stages, children }: { stages: StageRow[]; children: ReactNode }
     );
 }
 
-function PaneText({ title, body }: { title: string; body: string }) {
+function PaneText({ title, body }: { title: ReactNode; body: string }) {
     return (
         <div className="flex flex-col gap-1">
             <span className="text-[15px] font-semibold text-primary">{title}</span>
@@ -242,7 +282,11 @@ function ScanDetail({ detail }: { detail: StageDetail }) {
             return (
                 <Panel label="Opus checks files" detail="checking" className="gap-3.5">
                     <PaneText
-                        title={`Opus checks ${detail.kept.length} patterns against the files`}
+                        title={
+                            <>
+                                Opus checks <TickNumber value={detail.kept.length} /> patterns against the files
+                            </>
+                        }
                         body="The scan's agent reads each pattern's fix target and docs/deferred.md, marks it covered, declined or a suggestion, and drafts the fix. Your picks open here when it is done."
                     />
                     <KeptRows kept={detail.kept} underFloor={detail.underFloor} />
@@ -344,7 +388,7 @@ function Idle({
                 onClick={onScan}
                 className={cn(CANVAS_PRIMARY_BTN, "h-[38px] px-5 text-[14px]")}
             >
-                Scan workflow
+                <CrossFade swapKey={busy ? "busy" : "idle"}>{busy ? "Starting…" : "Scan workflow"}</CrossFade>
             </button>
             <span className={MONO_META}>last {SCAN_WINDOW_DAYS} days · every project</span>
             {last != null ? (
@@ -354,37 +398,40 @@ function Idle({
                     {last.error ? <span className="text-error"> · {last.error}</span> : null}
                 </span>
             ) : null}
-            {error != null ? (
+            <ErrorReveal error={error}>
                 <span data-workflow-start-error className="text-[12px] text-error">
                     {error}
                 </span>
-            ) : null}
+            </ErrorReveal>
         </Panel>
     );
 }
 
 function Quotes({ model, card }: { model: AgentsViewModel; card: WorkflowCard }) {
     const [open, setOpen] = useState(false);
-    const quotes = open ? [...card.quotes, ...card.more] : card.quotes;
+    const row = (q: WorkflowCard["quotes"][number]) => (
+        <div
+            key={q.runid + q.text}
+            className="grid grid-cols-[76px_minmax(0,1fr)] items-baseline text-[13px] leading-[1.5]"
+        >
+            <button
+                type="button"
+                data-workflow-quote-run={q.runid}
+                title={`Open run ${q.runid.slice(0, 8)}`}
+                onClick={() => openRun(model, q.runid)}
+                className={cn(TEXT_LINK, "justify-self-start")}
+            >
+                {q.runid.slice(0, 8)}
+            </button>
+            <span className="text-ink-mid">“{q.text}”</span>
+        </div>
+    );
     return (
         <div className="flex flex-col gap-[3px]">
-            {quotes.map((q) => (
-                <div
-                    key={q.runid + q.text}
-                    className="grid grid-cols-[76px_minmax(0,1fr)] items-baseline text-[13px] leading-[1.5]"
-                >
-                    <button
-                        type="button"
-                        data-workflow-quote-run={q.runid}
-                        title={`Open run ${q.runid.slice(0, 8)}`}
-                        onClick={() => openRun(model, q.runid)}
-                        className={cn(TEXT_LINK, "justify-self-start")}
-                    >
-                        {q.runid.slice(0, 8)}
-                    </button>
-                    <span className="text-ink-mid">“{q.text}”</span>
-                </div>
-            ))}
+            {card.quotes.map(row)}
+            <PaneReveal open={open && card.more.length > 0} className="flex flex-col gap-[3px]">
+                {card.more.map(row)}
+            </PaneReveal>
             {card.more.length > 0 ? (
                 <button
                     type="button"
@@ -540,8 +587,8 @@ function Card({
             </div>
             <Quotes model={model} card={card} />
             <EditBlock card={card} />
-            {dropped ? (
-                onReason != null ? (
+            <PaneReveal open={dropped} variants={composerReveal}>
+                {onReason != null ? (
                     <input
                         type="text"
                         data-workflow-reason={card.id}
@@ -553,8 +600,8 @@ function Card({
                     />
                 ) : (
                     <span className="text-[13px] text-ink-mid">Reason: {card.reason}</span>
-                )
-            ) : null}
+                )}
+            </PaneReveal>
         </article>
     );
 }
@@ -575,7 +622,9 @@ function FiledToggle({ label, rows, attr }: { label: string; rows: FiledRow[]; a
             >
                 {rows.length} {label} {open ? "⌄" : "›"}
             </button>
-            {open ? <TaggedRows rows={rows} attr="data-workflow-filed" /> : null}
+            <PaneReveal open={open} className="flex flex-col gap-2.5">
+                <TaggedRows rows={rows} attr="data-workflow-filed" />
+            </PaneReveal>
         </div>
     );
 }
@@ -615,15 +664,25 @@ function Head({
 // agent, so the delivery error lands after the lens has already switched to applying
 const sendErrorAtom = atom<Record<string, string | undefined>>({}) as PrimitiveAtom<Record<string, string | undefined>>;
 
+// a send error can land in the same render as the applying view, so the pane showing it mounts with it: the first
+// pane to show an error nudges it, and a later mount (a surface switch back) does not
+const nudgedSendErrors = new Set<string>();
+
 function SendError({ runId }: { runId: string }) {
     const error = useAtomValue(sendErrorAtom)[runId];
-    if (error == null) {
-        return null;
-    }
+    const key = error == null ? null : `${runId}:${error}`;
+    const [unseenAtMount] = useState(() => key != null && !nudgedSendErrors.has(key));
+    useEffect(() => {
+        if (key != null) {
+            nudgedSendErrors.add(key);
+        }
+    }, [key]);
     return (
-        <span data-workflow-send-error className="text-[12px] text-error">
-            {error}
-        </span>
+        <ErrorReveal error={error} nudgeOnMount={unseenAtMount}>
+            <span data-workflow-send-error className="text-[12px] text-error">
+                {error}
+            </span>
+        </ErrorReveal>
     );
 }
 
@@ -665,7 +724,9 @@ function PicksBar({ run, cards, drafts }: { run: Run; cards: WorkflowCard[]; dra
                 onClick={() => void submit()}
                 className={cn(CANVAS_PRIMARY_BTN, "h-[34px] px-4 text-[13px]")}
             >
-                {label || "Pick a suggestion"}
+                <CrossFade swapKey={busy ? "busy" : "idle"}>
+                    {busy ? "Sending…" : label || "Pick a suggestion"}
+                </CrossFade>
             </button>
             <SendError runId={run.id} />
         </Footer>
@@ -889,84 +950,95 @@ export function WorkflowLens({ model, lensSwitch }: { model: AgentsViewModel; le
     const scanDisabled = !button.enabled || start.busy;
 
     return (
-        <div
-            data-workflow-lens={loading ? "loading" : view.kind}
-            className="flex h-full min-h-0 flex-col bg-background"
-        >
-            <SurfaceToolbar
-                title="Usage"
-                actions={
-                    <>
-                        {start.error != null && view.kind !== "idle" ? (
-                            <span
-                                data-workflow-start-error
-                                title={start.error}
-                                className="min-w-0 truncate text-[12px] text-error"
-                            >
-                                {start.error}
-                            </span>
-                        ) : null}
-                        <div data-workflow-project className={PICKER_SLOT}>
-                            <div className="absolute inset-x-0 top-0 z-20">
-                                <ProjectPicker
-                                    projects={scannable}
-                                    recent={recentProjects}
-                                    picked={homeName}
-                                    onPick={setPickedProject}
-                                    onRegister={() => setNewProjectOpen(true)}
-                                />
-                            </div>
-                        </div>
-                        <button
-                            type="button"
-                            data-workflow-scan-button
-                            disabled={scanDisabled}
-                            title={button.title}
-                            onClick={scan}
-                            className={cn(
-                                CANVAS_BTN,
-                                scanDisabled &&
-                                    "cursor-default text-ink-faint hover:border-edge-mid hover:bg-surface-raised"
-                            )}
-                        >
-                            Scan workflow
-                        </button>
-                    </>
-                }
+        <MotionConfig reducedMotion="user">
+            <div
+                data-workflow-lens={loading ? "loading" : view.kind}
+                className="flex h-full min-h-0 flex-col bg-background"
             >
-                {lensSwitch}
-            </SurfaceToolbar>
-            {loadError != null ? (
-                <div data-workflow-load-error className="px-7 pt-3 text-[12px] text-error">
-                    Couldn’t read the last scan: {loadError}
-                </div>
-            ) : null}
-            <div className="min-h-0 flex-1 overflow-y-auto">
-                <div
-                    className="flex flex-col gap-4 px-7 pt-[18px]"
-                    style={{ paddingBottom: footer != null ? 20 : AVATAR_SURFACE_REACH_PX + 20 }}
+                <SurfaceToolbar
+                    title="Usage"
+                    actions={
+                        <>
+                            <AnimatePresence initial={false}>
+                                {start.error != null && view.kind !== "idle" ? (
+                                    <motion.span
+                                        data-workflow-start-error
+                                        title={start.error}
+                                        variants={errorNudge}
+                                        initial="initial"
+                                        animate="animate"
+                                        className="min-w-0 truncate text-[12px] text-error"
+                                    >
+                                        {start.error}
+                                    </motion.span>
+                                ) : null}
+                            </AnimatePresence>
+                            <div data-workflow-project className={PICKER_SLOT}>
+                                <div className="absolute inset-x-0 top-0 z-20">
+                                    <ProjectPicker
+                                        projects={scannable}
+                                        recent={recentProjects}
+                                        picked={homeName}
+                                        onPick={setPickedProject}
+                                        onRegister={() => setNewProjectOpen(true)}
+                                    />
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                data-workflow-scan-button
+                                disabled={scanDisabled}
+                                title={button.title}
+                                onClick={scan}
+                                className={cn(
+                                    CANVAS_BTN,
+                                    scanDisabled &&
+                                        "cursor-default text-ink-faint hover:border-edge-mid hover:bg-surface-raised"
+                                )}
+                            >
+                                <CrossFade swapKey={start.busy ? "busy" : "idle"}>
+                                    {start.busy ? "Starting…" : "Scan workflow"}
+                                </CrossFade>
+                            </button>
+                        </>
+                    }
                 >
-                    {loading ? null : (
-                        <Body
-                            model={model}
-                            run={run}
-                            view={view}
-                            drafts={drafts}
-                            setDrafts={setDrafts}
-                            idle={
-                                <Idle
-                                    last={view.kind === "idle" ? view.last : undefined}
-                                    button={button}
-                                    onScan={scan}
-                                    busy={start.busy}
-                                    error={start.error}
+                    {lensSwitch}
+                </SurfaceToolbar>
+                {loadError != null ? (
+                    <div data-workflow-load-error className="px-7 pt-3 text-[12px] text-error">
+                        Couldn’t read the last scan: {loadError}
+                    </div>
+                ) : null}
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                    <div
+                        className="flex flex-col gap-4 px-7 pt-[18px]"
+                        style={{ paddingBottom: footer != null ? 20 : AVATAR_SURFACE_REACH_PX + 20 }}
+                    >
+                        {loading ? null : (
+                            <ViewFade fadeKey={view.kind} className="flex flex-col gap-4">
+                                <Body
+                                    model={model}
+                                    run={run}
+                                    view={view}
+                                    drafts={drafts}
+                                    setDrafts={setDrafts}
+                                    idle={
+                                        <Idle
+                                            last={view.kind === "idle" ? view.last : undefined}
+                                            button={button}
+                                            onScan={scan}
+                                            busy={start.busy}
+                                            error={start.error}
+                                        />
+                                    }
                                 />
-                            }
-                        />
-                    )}
+                            </ViewFade>
+                        )}
+                    </div>
                 </div>
+                {footer}
             </div>
-            {footer}
-        </div>
+        </MotionConfig>
     );
 }

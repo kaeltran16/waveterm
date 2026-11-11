@@ -34,7 +34,12 @@ export function NewInitiativeControl({ model }: { model: AgentsViewModel }) {
 
 export function NewInitiativeHost({ model }: { model: AgentsViewModel }) {
     const open = useAtomValue(model.newInitiativeOpenAtom);
-    return open ? (
-        <EffortCreateForm model={model} onClose={() => globalStore.set(model.newInitiativeOpenAtom, false)} />
-    ) : null;
+    // mounted while closed, so the form leaves through ModalShell's exit instead of cutting out
+    return (
+        <EffortCreateForm
+            model={model}
+            open={open}
+            onClose={() => globalStore.set(model.newInitiativeOpenAtom, false)}
+        />
+    );
 }

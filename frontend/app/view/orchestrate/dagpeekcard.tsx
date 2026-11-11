@@ -4,10 +4,20 @@
 // The selected node's peek: a card floating beside the node inside the graph pane, so opening, growing or
 // closing it never resizes the pane under the graph. The task and final-stage bodies fill it.
 
+import { AutoHeight } from "@/app/element/autoheight";
+import { useDidBecomeTrue } from "@/app/element/motionhooks";
+import {
+    cardVariants,
+    computeEntrances,
+    initialEntranceState,
+    popoverReveal,
+    viewFade,
+} from "@/app/element/motiontokens";
 import { cn } from "@/util/util";
-import { autoUpdate, useFloating } from "@floating-ui/react";
+import { autoUpdate, useFloating, type Middleware, type Placement } from "@floating-ui/react";
 import { X } from "lucide-react";
-import { useEffect, useRef, type ReactNode, type SyntheticEvent } from "react";
+import { motion } from "motion/react";
+import { useEffect, useLayoutEffect, useRef, type ReactNode, type SyntheticEvent } from "react";
 import type { RunEventsStatus } from "../agents/runeventstore";
 import type { GlyphKind } from "./dagcanvas";
 import type { Rect } from "./daglayout";
@@ -37,10 +47,106 @@ function followAnchor(reference: HTMLElement, floating: HTMLElement, update: () 
 // the graph's pane clears the selection on a click, and a node drag starts on a pointer-down
 const keepInside = (e: SyntheticEvent) => e.stopPropagation();
 
-export function DagPeekCard({
+// AutoHeight sits between the card, which the size middleware caps, and the column whose body scrolls, so the cap
+// reaches the column as a variable
+const PEEK_MAX_H_VAR = "--peek-max-h";
+const capColumn: Middleware = {
+    name: "capColumn",
+    fn({ elements }) {
+        elements.floating.style.setProperty(PEEK_MAX_H_VAR, elements.floating.style.maxHeight);
+        return {};
+    },
+};
+
+// the card scales out of the side its node is on
+function originToward(placement: Placement): string {
+    return placement.startsWith("left") ? "right top" : "left top";
+}
+
+// DagPeekShell is the floating card. The graph keeps one shell while a node stays selected, so choosing another
+// node moves the card and fades its content in place (keyed on contentKey) while its height follows, instead of
+// replacing the card. The graph's AnimatePresence plays its open and close.
+export function DagPeekShell({
     place,
     attrs,
     label,
+    contentKey,
+    children,
+}: {
+    place: PeekPlace;
+    attrs: Record<string, string>;
+    label: string;
+    contentKey: string;
+    children: ReactNode;
+}) {
+    const { refs, elements, floatingStyles, isPositioned, middlewareData, placement } = useFloating({
+        open: true,
+        elements: { reference: place.anchor },
+        placement: PEEK_PLACEMENT,
+        strategy: "absolute",
+        // left/top rather than a transform, which the reveal's scale owns
+        transform: false,
+        middleware: [...peekMiddleware(place.boundary, place.rightInsetPx), capColumn],
+        whileElementsMounted: followAnchor,
+    });
+
+    const placedFor = useRef<HTMLElement | null>(null);
+    useEffect(() => {
+        const card = elements.floating;
+        const anchor = place.anchor;
+        if (!isPositioned || card == null || placedFor.current === anchor) return;
+        // a kept card sits by the last node until floating-ui's async placement for this one lands. Offsets rather
+        // than the client rect, which the reveal's scale shrinks; the card's offset parent is the pane.
+        const frame = requestAnimationFrame(() => {
+            placedFor.current = anchor;
+            place.onPlaced?.({ x: card.offsetLeft, y: card.offsetTop, w: card.offsetWidth, h: card.offsetHeight });
+        });
+        return () => cancelAnimationFrame(frame);
+    }, [isPositioned, place.anchor]);
+
+    // the content the card opened with does not fade; a node chosen after it does
+    const firstKey = useRef(contentKey);
+    const switched = useDidBecomeTrue(contentKey !== firstKey.current);
+    const hidden = !isPositioned || middlewareData.hide?.referenceHidden;
+    return (
+        // floating-ui measures the section, so it renders before it is placed: invisible, and without the data
+        // attribute that names it, so nothing finds a card still sitting at 0,0
+        <motion.section
+            ref={refs.setFloating}
+            {...(isPositioned ? attrs : {})}
+            aria-label={label}
+            onClick={keepInside}
+            onPointerDown={keepInside}
+            variants={popoverReveal}
+            initial="initial"
+            animate="animate"
+            exit="exit"
+            style={{
+                ...floatingStyles,
+                width: PEEK_W_PX,
+                visibility: hidden ? "hidden" : undefined,
+                transformOrigin: originToward(placement),
+            }}
+            className="z-[6] overflow-hidden rounded-[9px] border border-edge-strong bg-surface-raised shadow-popover-lg"
+        >
+            <AutoHeight>
+                <motion.div
+                    key={contentKey}
+                    variants={viewFade}
+                    initial={switched ? "initial" : false}
+                    animate="animate"
+                    className="flex max-h-[var(--peek-max-h)] flex-col"
+                >
+                    {children}
+                </motion.div>
+            </AutoHeight>
+        </motion.section>
+    );
+}
+
+// DagPeekCard is a peek's content inside DagPeekShell: the header, the body, an optional panel and the action bar
+export function DagPeekCard({
+    place,
     closeLabel,
     glyph,
     title,
@@ -51,8 +157,6 @@ export function DagPeekCard({
     hint,
 }: {
     place: PeekPlace;
-    attrs: Record<string, string>;
-    label: string;
     closeLabel: string;
     glyph: GlyphKind;
     title: ReactNode;
@@ -62,38 +166,8 @@ export function DagPeekCard({
     actions?: ReactNode;
     hint: string;
 }) {
-    const { refs, elements, floatingStyles, isPositioned, middlewareData } = useFloating({
-        open: true,
-        elements: { reference: place.anchor },
-        placement: PEEK_PLACEMENT,
-        strategy: "absolute",
-        middleware: peekMiddleware(place.boundary, place.rightInsetPx),
-        whileElementsMounted: followAnchor,
-    });
-
-    const placedFor = useRef<HTMLElement | null>(null);
-    useEffect(() => {
-        const card = elements.floating;
-        if (!isPositioned || card == null || placedFor.current === place.anchor) return;
-        placedFor.current = place.anchor;
-        const r = card.getBoundingClientRect();
-        const pane = place.boundary.getBoundingClientRect();
-        place.onPlaced?.({ x: r.left - pane.left, y: r.top - pane.top, w: r.width, h: r.height });
-    }, [isPositioned, place.anchor]);
-
-    const hidden = !isPositioned || middlewareData.hide?.referenceHidden;
     return (
-        // floating-ui measures the section, so it renders before it is placed: invisible, and without the data
-        // attribute that names it, so nothing finds a card still sitting at 0,0
-        <section
-            ref={refs.setFloating}
-            {...(isPositioned ? attrs : {})}
-            aria-label={label}
-            onClick={keepInside}
-            onPointerDown={keepInside}
-            style={{ ...floatingStyles, width: PEEK_W_PX, visibility: hidden ? "hidden" : undefined }}
-            className="z-[6] flex flex-col overflow-hidden rounded-[9px] border border-edge-strong bg-surface-raised shadow-popover-lg"
-        >
+        <>
             <div className="flex flex-none items-start gap-2.5 border-b border-edge-mid pb-2.5 pl-[13px] pr-2 pt-[11px]">
                 <div className="mt-0.5 flex-none">
                     <StateGlyph kind={glyph} />
@@ -122,7 +196,7 @@ export function DagPeekCard({
                 <span className="flex-1" />
                 <span className="text-[12px] text-ink-mid">{hint}</span>
             </div>
-        </section>
+        </>
     );
 }
 
@@ -143,6 +217,16 @@ export function PeekLifecycle({
     } else if (status === "error") {
         empty = "History unavailable";
     }
+    // only a row arriving while the history is live enters: the card remounts per selection, so keying on the
+    // status alone reseeds when the history loads, and the rows it loads with stay still
+    const ids = rows.map((r) => r.id);
+    const entranceRef = useRef(initialEntranceState());
+    const { animate: entering } = computeEntrances(entranceRef.current, status, ids);
+    const idsKey = ids.join(",");
+    useLayoutEffect(() => {
+        entranceRef.current = computeEntrances(entranceRef.current, status, ids).state;
+    }, [idsKey, status]);
+    const rowsArrived = useDidBecomeTrue(rows.length > 0);
     return (
         <section data-dag-peek-lifecycle className="flex flex-col">
             <div className="flex items-baseline gap-2 border-b border-edge-faint pb-1.5">
@@ -158,37 +242,47 @@ export function PeekLifecycle({
                     {empty}
                 </div>
             ) : (
-                rows.map((r) => (
-                    <div
-                        key={r.id}
-                        data-dag-peek-lifecycle-row={r.attention ? "attention" : ""}
-                        className="grid grid-cols-[40px_8px_minmax(0,1fr)] gap-x-2.5 border-b border-edge-faint py-2"
-                    >
-                        <span className="font-mono text-[11.5px] leading-[18px] text-ink-mid">{r.time}</span>
-                        <span
-                            aria-hidden
-                            className={cn(
-                                "mt-[5px] size-2 rounded-full",
-                                r.attention ? "border-2 border-warning" : cn("bg-current", r.tone)
-                            )}
-                        />
-                        <span className="flex min-w-0 flex-col gap-0.5">
+                <motion.div
+                    variants={viewFade}
+                    initial={rowsArrived ? "initial" : false}
+                    animate="animate"
+                    className="flex flex-col"
+                >
+                    {rows.map((r) => (
+                        <motion.div
+                            key={r.id}
+                            data-dag-peek-lifecycle-row={r.attention ? "attention" : ""}
+                            variants={cardVariants}
+                            initial={entering.has(r.id) ? "initial" : false}
+                            animate="animate"
+                            className="grid grid-cols-[40px_8px_minmax(0,1fr)] gap-x-2.5 border-b border-edge-faint py-2"
+                        >
+                            <span className="font-mono text-[11.5px] leading-[18px] text-ink-mid">{r.time}</span>
                             <span
+                                aria-hidden
                                 className={cn(
-                                    "truncate text-[13px] font-semibold leading-[18px]",
-                                    r.attention ? "text-warning" : "text-ink-hi"
+                                    "mt-[5px] size-2 rounded-full",
+                                    r.attention ? "border-2 border-warning" : cn("bg-current", r.tone)
                                 )}
-                            >
-                                {r.title}
-                            </span>
-                            {r.detail ? (
-                                <span className="line-clamp-3 whitespace-pre-line break-words text-[12px] leading-[17px] text-ink-mid">
-                                    {r.detail}
+                            />
+                            <span className="flex min-w-0 flex-col gap-0.5">
+                                <span
+                                    className={cn(
+                                        "truncate text-[13px] font-semibold leading-[18px]",
+                                        r.attention ? "text-warning" : "text-ink-hi"
+                                    )}
+                                >
+                                    {r.title}
                                 </span>
-                            ) : null}
-                        </span>
-                    </div>
-                ))
+                                {r.detail ? (
+                                    <span className="line-clamp-3 whitespace-pre-line break-words text-[12px] leading-[17px] text-ink-mid">
+                                        {r.detail}
+                                    </span>
+                                ) : null}
+                            </span>
+                        </motion.div>
+                    ))}
+                </motion.div>
             )}
         </section>
     );

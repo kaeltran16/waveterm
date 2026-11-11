@@ -4,7 +4,11 @@
 // The builder check: the main area asks the talk question, then the builder's questions, then reviews what the
 // check changed; the rail beside it says what the builder asked, and Approve sits under the main area.
 
+import { composerReveal } from "@/app/element/motiontokens";
+import { PaneReveal } from "@/app/element/panereveal";
+import { TickNumber } from "@/app/element/ticknumber";
 import { cn } from "@/util/util";
+import type { ReactNode } from "react";
 import type { AgentsViewModel } from "./agents";
 import { projectOf, type AgentVM } from "./agentsviewmodel";
 import {
@@ -30,7 +34,7 @@ import {
     CHIP,
     DesignButton,
     DOT,
-    ERROR_LINE,
+    ErrorLine,
     JudgingMain,
     LineBar,
     LINK,
@@ -44,6 +48,7 @@ import {
     Track,
     useAction,
     useAnswer,
+    ViewSwap,
     WORKING_TITLE,
     WorkingMain,
 } from "./brainstormui";
@@ -106,17 +111,19 @@ export function Check({
                             </button>
                         </div>
                     ) : null}
-                    {main === "question" ? (
-                        <QuestionMain agent={agent} s={s} f={f} goTo={goTo} openDesign={openDesign} skip={false} />
-                    ) : main === "builder" ? (
-                        <BuilderAsk agent={agent} f={f} goTo={goTo} openDesign={openDesign} />
-                    ) : main === "judging" ? (
-                        <JudgingMain agent={agent} s={s} f={f} goTo={goTo} openDesign={openDesign} skip={false} />
-                    ) : main === "working" ? (
-                        <WorkingMain agent={agent} s={s} f={f} nowAtom={model.nowAtom} openDesign={openDesign} />
-                    ) : (
-                        <CheckReview model={model} agent={agent} s={s} f={f} />
-                    )}
+                    <ViewSwap swapKey={main} className="flex min-h-0 flex-1 flex-col">
+                        {main === "question" ? (
+                            <QuestionMain agent={agent} s={s} f={f} goTo={goTo} openDesign={openDesign} skip={false} />
+                        ) : main === "builder" ? (
+                            <BuilderAsk agent={agent} f={f} goTo={goTo} openDesign={openDesign} />
+                        ) : main === "judging" ? (
+                            <JudgingMain agent={agent} s={s} f={f} goTo={goTo} openDesign={openDesign} skip={false} />
+                        ) : main === "working" ? (
+                            <WorkingMain agent={agent} s={s} f={f} nowAtom={model.nowAtom} openDesign={openDesign} />
+                        ) : (
+                            <CheckReview model={model} agent={agent} s={s} f={f} />
+                        )}
+                    </ViewSwap>
                     {main === "review" ? <LineBar agent={agent} box={lineBox(f)} /> : null}
                     <ApproveBar model={model} agent={agent} s={s} f={f} />
                 </div>
@@ -197,7 +204,7 @@ function BuilderAsk({
                         <div className="flex-1" />
                         <DesignButton f={f} onClick={openDesign} />
                     </div>
-                    {ans.act.error != null ? <span className={ERROR_LINE}>{ans.act.error}</span> : null}
+                    <ErrorLine error={ans.act.error} />
                 </div>
             </MainBody>
         </div>
@@ -225,7 +232,14 @@ function AskRail({ f, goTo }: { f: BrainstormFile; goTo: (id: string) => void })
             </div>
             {ask.total > 0 ? (
                 <section aria-label="For you" className="flex flex-col">
-                    <RailHead title={`For you · ${ask.total}`} caption="only you can answer" />
+                    <RailHead
+                        title={
+                            <>
+                                For you · <TickNumber value={ask.total} />
+                            </>
+                        }
+                        caption="only you can answer"
+                    />
                     {ask.queue.map((y, i) => (
                         <div
                             key={i}
@@ -243,7 +257,14 @@ function AskRail({ f, goTo }: { f: BrainstormFile; goTo: (id: string) => void })
             ) : null}
             {ask.calls > 0 ? (
                 <section aria-label="The agent decided" className="flex flex-col">
-                    <RailHead title={`The agent decided · ${ask.calls}`} caption="you review them with the changes" />
+                    <RailHead
+                        title={
+                            <>
+                                The agent decided · <TickNumber value={ask.calls} />
+                            </>
+                        }
+                        caption="you review them with the changes"
+                    />
                     {ask.callGroups.map((g) => (
                         <div
                             key={g.part ?? ""}
@@ -294,7 +315,7 @@ function AskRail({ f, goTo }: { f: BrainstormFile; goTo: (id: string) => void })
     );
 }
 
-function RailHead({ title, caption }: { title: string; caption?: string }) {
+function RailHead({ title, caption }: { title: ReactNode; caption?: string }) {
     return (
         <div className="flex items-baseline gap-[8px] pb-[6px]">
             <h3 className={SECTION_HEAD}>{title}</h3>
@@ -334,7 +355,7 @@ function ApproveBar({
                             Change
                         </button>
                     </span>
-                    {act.error != null ? <span className={ERROR_LINE}>{act.error}</span> : null}
+                    <ErrorLine error={act.error} />
                 </div>
                 <button
                     type="button"
@@ -359,11 +380,11 @@ function ApproveBar({
                     Approve and start run
                 </button>
             </div>
-            {blocker != null ? (
-                <span data-brainstorm-approve-reason className="text-[12px] leading-[1.45] text-warning">
+            <PaneReveal open={blocker != null} variants={composerReveal}>
+                <span data-brainstorm-approve-reason className="block text-[12px] leading-[1.45] text-warning">
                     {blocker}
                 </span>
-            ) : null}
+            </PaneReveal>
         </div>
     );
 }

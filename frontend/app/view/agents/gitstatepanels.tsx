@@ -7,10 +7,69 @@
 // a fault worth acting on, so it carries the failing command, its exit code, stderr verbatim, and a
 // retry. Collapsing them into one banner is the failure mode the design brief called out.
 
+import { cardVariants, errorNudge } from "@/app/element/motiontokens";
+import { PaneReveal } from "@/app/element/panereveal";
 import { cn, fireAndForget } from "@/util/util";
 import { CircleAlert, Copy, Folder, RotateCw, X } from "lucide-react";
-import type { ReactNode } from "react";
+import { motion } from "motion/react";
+import { useState, type ReactNode } from "react";
 import { failureHeadline } from "./gitfailure";
+
+// A Retry unmounts its panel (the failure clears, the skeleton shows) and a failed read mounts a fresh one, so the
+// panel cannot tell "came back after my Retry" from "mounted with the surface". The Retry button leaves this
+// one-shot flag, and the next panel mount spends it to enter as a card and nudge: the failure followed the user's
+// action. A Retry that succeeds leaves it set, so a later failure nudges once.
+let retryPending = false;
+
+function noteRetry(onRetry: () => void): () => void {
+    return () => {
+        retryPending = true;
+        onRetry();
+    };
+}
+
+function useAfterRetry(): boolean {
+    const [after] = useState(() => {
+        const was = retryPending;
+        retryPending = false;
+        return was;
+    });
+    return after;
+}
+
+// The failure's arrival after a Retry: the panel enters as a card and its headline nudges (moment 13). Mounted at
+// any other time it is simply there. Each panel's root keeps its own data attribute through `attrs`.
+function FailureArrival({
+    afterRetry,
+    className,
+    attrs,
+    children,
+}: {
+    afterRetry: boolean;
+    className: string;
+    attrs: Record<string, boolean>;
+    children: ReactNode;
+}) {
+    return (
+        <motion.div
+            {...attrs}
+            variants={cardVariants}
+            initial={afterRetry ? "initial" : false}
+            animate="animate"
+            className={className}
+        >
+            {children}
+        </motion.div>
+    );
+}
+
+function Nudge({ play, className, children }: { play: boolean; className?: string; children: ReactNode }) {
+    return (
+        <motion.div variants={errorNudge} initial={play ? "initial" : false} animate="animate" className={className}>
+            {children}
+        </motion.div>
+    );
+}
 
 // -1 means the failure was not an exit status at all (git missing, a timeout, a dropped socket).
 // Showing "no exit code" beats printing -1 as though git had returned it.
@@ -132,12 +191,19 @@ export function GitFailureNotice({
 }
 
 export function GitFailurePanel({ failure, onRetry }: { failure: GitFailure; onRetry: () => void }) {
+    const afterRetry = useAfterRetry();
     const copy = () =>
         fireAndForget(() => navigator.clipboard.writeText(`${failure.command}\n\n${failure.stderr ?? ""}`));
     return (
-        <div data-git-failure className="flex min-h-0 flex-1 flex-col items-center justify-center gap-[12px] px-[40px]">
+        <FailureArrival
+            afterRetry={afterRetry}
+            attrs={{ "data-git-failure": true }}
+            className="flex min-h-0 flex-1 flex-col items-center justify-center gap-[12px] px-[40px]"
+        >
             <CircleAlert size={26} className="text-error" />
-            <div className="text-[14px] font-semibold text-ink-hi">Couldn’t read this repository</div>
+            <Nudge play={afterRetry} className="text-[14px] font-semibold text-ink-hi">
+                Couldn’t read this repository
+            </Nudge>
             <div className="max-w-[560px] text-center text-[12.5px] leading-[1.6] text-ink-mid">
                 Git stopped with an error. Nothing was changed, so retrying is safe.
             </div>
@@ -158,32 +224,34 @@ export function GitFailurePanel({ failure, onRetry }: { failure: GitFailure; onR
                         <Copy size={13} />
                     </button>
                 </div>
-                {failure.stderr ? (
+                <PaneReveal open={!!failure.stderr}>
                     <pre className="max-h-[220px] select-text overflow-auto whitespace-pre-wrap break-words border-t border-edge-faint px-[12px] py-[10px] font-mono text-[11.5px] leading-[1.5] text-ink-mid">
                         {failure.stderr}
                     </pre>
-                ) : null}
+                </PaneReveal>
             </div>
             <button
                 data-git-failure-retry
-                onClick={onRetry}
+                onClick={noteRetry(onRetry)}
                 className="rounded-[7px] bg-accent px-[14px] py-[6px] text-[12px] font-semibold text-background hover:bg-accenthover"
             >
                 Retry
             </button>
-        </div>
+        </FailureArrival>
     );
 }
 
 // A failed history read while the change list is good: the same evidence as the panel above, sized to the
 // history column, so the working-tree row, the change list and the diff stay usable beside it.
 export function GitFailureColumn({ failure, onRetry }: { failure: GitFailure; onRetry: () => void }) {
+    const afterRetry = useAfterRetry();
     return (
-        <div
-            data-git-failure-column
+        <FailureArrival
+            afterRetry={afterRetry}
+            attrs={{ "data-git-failure-column": true }}
             className="flex flex-none flex-col gap-[8px] border-b border-edge-faint px-[14px] py-[12px]"
         >
-            <div className="flex items-center gap-[8px]">
+            <Nudge play={afterRetry} className="flex items-center gap-[8px]">
                 <CircleAlert size={14} className="flex-none text-error" />
                 <span className="min-w-0 flex-1 text-[12.5px] font-semibold text-ink-hi">
                     Couldn’t read the history
@@ -191,23 +259,23 @@ export function GitFailureColumn({ failure, onRetry }: { failure: GitFailure; on
                 <span className="flex-none rounded-[5px] border border-error/25 bg-error/12 px-[7px] py-[2px] font-mono text-[10.5px] font-semibold text-error">
                     {exitLabel(failure)}
                 </span>
-            </div>
+            </Nudge>
             <div title={failure.command} className="select-text truncate font-mono text-[11px] text-ink-mid">
                 {failure.command}
             </div>
-            {failure.stderr ? (
+            <PaneReveal open={!!failure.stderr}>
                 <pre className="max-h-[120px] select-text overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-[1.5] text-muted">
                     {failure.stderr}
                 </pre>
-            ) : null}
+            </PaneReveal>
             <button
                 data-git-failure-column-retry
-                onClick={onRetry}
+                onClick={noteRetry(onRetry)}
                 className="flex h-[26px] items-center gap-[6px] self-start rounded-[7px] border border-edge-mid px-[9px] text-[11.5px] font-semibold text-ink-mid hover:border-edge-strong hover:text-foreground"
             >
                 <RotateCw size={12} />
                 Retry
             </button>
-        </div>
+        </FailureArrival>
     );
 }

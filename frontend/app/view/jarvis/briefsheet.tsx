@@ -17,7 +17,11 @@
 // of a launch, and its own docblock says so — the goal and its Run live in the composer that used to sit
 // directly below it on the Stage.
 
+import { CrossFade } from "@/app/element/crossfade";
+import { composerReveal, errorNudge } from "@/app/element/motiontokens";
+import { PaneReveal } from "@/app/element/panereveal";
 import { Skeleton } from "@/app/element/skeleton";
+import { ViewSwap } from "@/app/element/viewswap";
 import { ModalShell } from "@/app/modals/modalshell";
 import { globalStore } from "@/app/store/jotaiStore";
 import { buildChannelsAskBindings } from "@/app/store/keybindings/bindings";
@@ -54,6 +58,7 @@ import { isTerminal, leadAsker } from "@/app/view/agents/runmodel";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtomValue } from "jotai";
 import { ChevronDown, ChevronUp } from "lucide-react";
+import { motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { SHEET_BTN, SheetShell } from "./briefrunsheet";
 import { sheetFace, type SheetFace } from "./briefsheetmodel";
@@ -110,6 +115,10 @@ function ChannelLaunch({ channel }: { channel: Channel }) {
     const [goal, setGoal] = useState("");
     const [error, setError] = useState<string | null>(null);
     const [launching, setLaunching] = useState(false);
+    // the strip's exit still draws the error it is collapsing, after a retry has cleared it
+    const lastError = useRef<string | null>(null);
+    if (error != null) lastError.current = error;
+    const shownError = error ?? lastError.current;
 
     const config = {
         shape,
@@ -201,7 +210,7 @@ function ChannelLaunch({ channel }: { channel: Channel }) {
                     disabled={launching || blocker != null || runRoute == null}
                     className="flex-none cursor-pointer rounded-[7px] border border-accent/40 bg-surface-raised px-2.5 py-1.5 text-[11.5px] font-semibold text-accent-soft hover:text-ink-hi focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-default disabled:opacity-40"
                 >
-                    {launching ? "Starting…" : "Run ⏎"}
+                    <CrossFade swapKey={launching ? "starting" : "run"}>{launching ? "Starting…" : "Run ⏎"}</CrossFade>
                 </button>
             </div>
             <span className="text-[11px] text-muted">
@@ -211,11 +220,16 @@ function ChannelLaunch({ channel }: { channel: Channel }) {
                       ? blocker
                       : "The shape and start above are what this dispatches with."}
             </span>
-            {error != null ? (
-                <p data-jarvis-brief-sheet-state="error" className="text-[11.5px] text-error">
-                    {error}
-                </p>
-            ) : null}
+            {/* the strip reveals and the line nudges once, so a refused launch reads as this launch failing */}
+            <PaneReveal open={error != null} variants={composerReveal}>
+                <motion.p
+                    variants={errorNudge}
+                    data-jarvis-brief-sheet-state="error"
+                    className="text-[11.5px] text-error"
+                >
+                    {shownError}
+                </motion.p>
+            </PaneReveal>
         </div>
     );
 }
@@ -435,24 +449,30 @@ export function BriefSheet({ model }: { model: AgentsViewModel }) {
                                 onToggle={() => subjectId != null && toggleRecordBand(subjectId)}
                             />
                         ) : null}
-                        {face.kind === "channel" ? (
-                            channel == null ? (
-                                <SheetChannelPending channelId={face.channelId} />
-                            ) : face.body === "run" && run != null ? (
-                                <ChannelRun model={model} channel={channel} run={run} onClose={close} />
-                            ) : (
-                                <div className="flex min-h-0 flex-1 flex-col bg-background">
-                                    <LauncherReading />
-                                    <RunLauncher projectPath={channel.projectpath ?? ""} />
-                                    <ChannelLaunch channel={channel} />
+                        {/* a face trading for another (a run's body, the launcher, an initiative) fades in */}
+                        <ViewSwap
+                            swapKey={face.kind === "channel" ? face.body : face.kind}
+                            className="flex min-h-0 flex-1 flex-col"
+                        >
+                            {face.kind === "channel" ? (
+                                channel == null ? (
+                                    <SheetChannelPending channelId={face.channelId} />
+                                ) : face.body === "run" && run != null ? (
+                                    <ChannelRun model={model} channel={channel} run={run} onClose={close} />
+                                ) : (
+                                    <div className="flex min-h-0 flex-1 flex-col bg-background">
+                                        <LauncherReading />
+                                        <RunLauncher projectPath={channel.projectpath ?? ""} />
+                                        <ChannelLaunch channel={channel} />
+                                    </div>
+                                )
+                            ) : null}
+                            {face.kind === "effort" ? (
+                                <div className="flex min-h-0 flex-1 flex-col">
+                                    <EffortDetailView model={model} />
                                 </div>
-                            )
-                        ) : null}
-                        {face.kind === "effort" ? (
-                            <div className="flex min-h-0 flex-1 flex-col">
-                                <EffortDetailView model={model} />
-                            </div>
-                        ) : null}
+                            ) : null}
+                        </ViewSwap>
                     </SheetShell>
                 </div>
             )}

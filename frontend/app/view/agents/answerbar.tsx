@@ -1,9 +1,13 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { AutoHeight } from "@/app/element/autoheight";
+import { CrossFade } from "@/app/element/crossfade";
+import { viewFade } from "@/app/element/motiontokens";
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn } from "@/util/util";
 import { ArrowUpRight, Check, FileText, X } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import { useState, type ReactNode } from "react";
 import { answerHint, nextUnansweredQuestion, type AgentAskQuestion, type AgentVM } from "./agentsviewmodel";
 import { activePreview, previewBody, previewMode } from "./answerbarpreview";
@@ -171,11 +175,12 @@ function QuestionGroup({
                                 </span>
                             ) : null}
                         </span>
-                        {isSelected ? (
-                            <span className={cn("mt-0.5 flex shrink-0 text-[13px]", accent.check)}>
-                                {question.multiSelect ? <Check size={13} aria-hidden /> : "●"}
-                            </span>
-                        ) : null}
+                        <CrossFade
+                            swapKey={isSelected ? "on" : "off"}
+                            className={cn("mt-0.5 shrink-0 text-[13px]", accent.check)}
+                        >
+                            {isSelected ? question.multiSelect ? <Check size={13} aria-hidden /> : "●" : null}
+                        </CrossFade>
                     </button>
                 );
             })}
@@ -183,31 +188,52 @@ function QuestionGroup({
     );
     return (
         <div className={hideQuestion ? "" : "mt-3"}>
-            {hideQuestion ? null : summary != null ? (
-                summary
-            ) : (
-                <>
-                    {question.header ? (
-                        <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted">
-                            {question.header}
-                        </div>
-                    ) : null}
-                    <div className="whitespace-pre-line text-[13px] font-semibold text-primary">
-                        {question.question}
-                    </div>
-                </>
+            {hideQuestion ? null : (
+                <AnimatePresence initial={false} mode="wait">
+                    <motion.div
+                        key={summary != null ? "summary" : "question"}
+                        variants={viewFade}
+                        initial="initial"
+                        animate="animate"
+                    >
+                        {summary != null ? (
+                            summary
+                        ) : (
+                            <>
+                                {question.header ? (
+                                    <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted">
+                                        {question.header}
+                                    </div>
+                                ) : null}
+                                <div className="whitespace-pre-line text-[13px] font-semibold text-primary">
+                                    {question.question}
+                                </div>
+                            </>
+                        )}
+                    </motion.div>
+                </AnimatePresence>
             )}
             {options.length === 0 ? null : withPreview ? (
                 <div className="mt-2.5 flex gap-3">
                     <div className="min-w-0 flex-1">{optionList}</div>
                     <div className="hidden w-[min(46%,340px)] shrink-0 rounded border border-border bg-surface-code p-3 md:block">
-                        {preview ? (
-                            <pre className="overflow-x-auto whitespace-pre font-mono text-[11.5px] leading-[1.5] text-primary">
-                                {previewBody(preview)}
-                            </pre>
-                        ) : (
-                            <div className="text-[11px] text-muted">No preview</div>
-                        )}
+                        <AnimatePresence initial={false} mode="wait">
+                            <motion.div
+                                key={preview ? focusIndex : "none"}
+                                data-answer-preview={preview ? focusIndex : "none"}
+                                variants={viewFade}
+                                initial="initial"
+                                animate="animate"
+                            >
+                                {preview ? (
+                                    <pre className="overflow-x-auto whitespace-pre font-mono text-[11.5px] leading-[1.5] text-primary">
+                                        {previewBody(preview)}
+                                    </pre>
+                                ) : (
+                                    <div className="text-[11px] text-muted">No preview</div>
+                                )}
+                            </motion.div>
+                        </AnimatePresence>
                     </div>
                 </div>
             ) : stacked ? (
@@ -339,6 +365,19 @@ export function AnswerBar({
                 </button>
             </div>
         ) : null;
+    // the bar follows its content's height (a question with more options grows it), and sending trades the question
+    // for its summary in place
+    const frame = (content: ReactNode) => (
+        <div className={className}>
+            <AutoHeight>
+                <AnimatePresence initial={false} mode="wait">
+                    <motion.div key={sent ? "sent" : "ask"} variants={viewFade} initial="initial" animate="animate">
+                        {content}
+                    </motion.div>
+                </AnimatePresence>
+            </AutoHeight>
+        </div>
+    );
     if (sent) {
         const chosen = questions
             .flatMap((q, qi) => {
@@ -349,8 +388,8 @@ export function AnswerBar({
                 return Array.from(selections[qi] ?? []).map((oi) => cleanLabel(q.options?.[oi]?.label ?? ""));
             })
             .filter(Boolean);
-        return (
-            <div className={cn("text-[12px] text-secondary", className)}>
+        return frame(
+            <div className="text-[12px] text-secondary">
                 <Check size={12} aria-hidden className={cn("inline align-[-1px]", accent.check)} /> Answered
                 {chosen.length ? `: ${chosen.join(", ")}` : ""}
             </div>
@@ -391,20 +430,20 @@ export function AnswerBar({
     // one ask renders inline; multiple asks become tabs so they don't stack into a tall wall
     if (questions.length === 1) {
         const hint = answerHint(questions, selections, !!numbered, texts ?? {});
-        return (
-            <div className={className}>
+        return frame(
+            <>
                 {dismissControl}
                 {noteLine}
                 {renderGroup(0)}
                 {showHint && hint ? <div className="mt-2 text-[11px] text-secondary">{hint}</div> : null}
-            </div>
+            </>
         );
     }
 
     const idx = Math.max(0, Math.min(activeQuestion ?? 0, questions.length - 1));
     const hint = answerHint(questions, selections, !!numbered, texts ?? {});
-    return (
-        <div className={className}>
+    return frame(
+        <>
             {dismissControl}
             {noteLine}
             <div className="flex flex-wrap gap-1.5">
@@ -429,6 +468,6 @@ export function AnswerBar({
             </div>
             {renderGroup(idx)}
             {showHint && hint ? <div className="mt-2 text-[11px] text-secondary">{hint}</div> : null}
-        </div>
+        </>
     );
 }

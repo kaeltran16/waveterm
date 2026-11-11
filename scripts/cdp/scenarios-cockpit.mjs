@@ -41,6 +41,7 @@ import {
     treeRailRoster,
     waitForProjectInConfig,
 } from "./scenarios-shared.mjs";
+import { closeTabs, makeTab } from "./agent-page-fixtures.mjs";
 
 // --- exemplar: visual + DOM --------------------------------------------------------------------
 // Navigate each key surface, screenshot it, and assert (a) the active nav label matches and (b) the
@@ -427,7 +428,7 @@ export const uiApi = {
 // the Agent surface never defaults onto the lead and spends its one auto-open before step 4. Nothing is answered:
 // the fixture ask has no live block.
 const DOC_REVIEW_LEAD = "doc-review lead";
-const DOC_REVIEW_LEAD_ID = "fx-doc-lead";
+export const DOC_REVIEW_LEAD_ID = "fx-doc-lead";
 const DOC_REVIEW_WORKER = "doc-review worker";
 const DOC_REVIEW_WORKER_ID = "fx-doc-worker";
 const DOC_REVIEW_HEADING = "Doc review fixture plan";
@@ -446,7 +447,7 @@ const DOC_REVIEW_CHIP = "Plan review";
 // the lead's own approve option, when it proposes keeping the plan rather than fixing it (D19)
 const DOC_REVIEW_KEEP_LABEL = "Keep the plan";
 const DOC_REVIEW_PROPOSAL_TITLE = "The plan review failed twice. Proceed as the lead proposes?";
-const DOC_REVIEW_PANEL = `document.querySelector("[data-doc-review]")?.closest('[role="dialog"]')`;
+export const DOC_REVIEW_PANEL = `document.querySelector("[data-doc-review]")?.closest('[role="dialog"]')`;
 
 function docReviewRoster(
     runId,
@@ -885,6 +886,8 @@ const DOC_NOTES_EMPTY = "No note yet";
 const DOC_NOTES_LIB = `
     const panel = () => ${DOC_REVIEW_PANEL};
     const docRoot = () => panel()?.querySelector("[data-doc-review-doc]");
+    // the document sits in a fade wrapper inside its scroller
+    const docScroller = () => docRoot()?.closest(".sc");
     const settle = (ms = 200) => new Promise((r) => setTimeout(r, ms));
     const ranges = (name) => CSS.highlights.get(name)?.size ?? 0;
     const box = (r) => ({ top: r.top, bottom: r.bottom, left: r.left, right: r.right });
@@ -946,7 +949,7 @@ const DOC_NOTES_LIB = `
         if (!p) return { open: false };
         const notes = p.querySelector("[data-doc-notes]");
         const toggle = notes?.querySelector("[data-doc-notes-toggle]");
-        const list = toggle?.nextElementSibling;
+        const list = notes?.querySelector("[data-doc-notes-list]");
         const field = p.querySelector("[data-doc-note-field]");
         const decisions = p.querySelector("ol")?.parentElement;
         return {
@@ -1186,7 +1189,7 @@ export const docReviewNotes = {
 
         const s6 = await docNotesAct(
             h,
-            `const scroller = docRoot().parentElement;
+            `const scroller = docScroller();
             const pane = scroller.getBoundingClientRect();
             scroller.scrollTop += rangeOf(${docNotesJson(DOC_NOTES_LAST)}).getBoundingClientRect().bottom - pane.bottom;
             await settle();
@@ -1209,7 +1212,7 @@ export const docReviewNotes = {
             s6.out.scrolls && s6.out.scrollTop > 0 && s6.field != null && s6.field.bottom <= s6.out.selection.top && inside6,
             docNotesBrief(s6, { ...s6.out, fieldRect: s6.field, panelRect: s6.panel })
         );
-        const dropped6 = await docNotesAct(h, `key(fieldInput(), "Escape"); docRoot().parentElement.scrollTop = 0;`);
+        const dropped6 = await docNotesAct(h, `key(fieldInput(), "Escape"); docScroller().scrollTop = 0;`);
 
         await docReviewEscape(h);
         const gone7 = await docReviewWait(h, `!${DOC_REVIEW_PANEL}`, 3000);
@@ -1331,7 +1334,8 @@ export const docReviewNotes = {
         );
 
         const toggle = `panel().querySelector("[data-doc-notes-toggle]").click();`;
-        const collapsed11 = await docNotesAct(h, toggle);
+        // the list leaves through its exit, so it is still attached for durExit after the click
+        const collapsed11 = await docNotesAct(h, `${toggle} await settle(400);`);
         const expanded11 = await docNotesAct(h, toggle);
         const remove = `panel().querySelector('[data-doc-note-row] button[aria-label="Remove this note"]')`;
         const five11 = await docNotesAct(h, `${remove}.click();`);
@@ -1684,6 +1688,12 @@ export const shellTasksScenario = {
             ctx.transcript = writeShellTranscript(cwd, "shell-tasks", SHELL_TASKS);
             const failedTranscript = writeShellTranscript(cwd, "shell-failed", [SHELL_ONLY_FAILED]);
             ctx.stopTranscript = writeShellTranscript(cwd, "shell-stop", []);
+            // the Agent surface mounts the focused agent's terminal, whose controller resync fails on a made-up block
+            // and reads failed to start; a real block with no controller resyncs without starting anything
+            const blockIds = {};
+            for (const a of [SHELL_AGENT, SHELL_FAILED_AGENT, SHELL_STOP_AGENT]) {
+                blockIds[a.id] = (await makeTab(h, ctx, { label: `verify-${a.id}`, blockMeta: { view: "term", controller: null } })).blockId;
+            }
             const now = Date.now();
             const agent = (a, transcriptPath, idleSince, task) => ({
                 id: a.id,
@@ -1695,7 +1705,7 @@ export const shellTasksScenario = {
                 idleSince,
                 agent: "claude",
                 model: "opus",
-                blockId: `fx-blk-${a.id}`,
+                blockId: blockIds[a.id],
                 transcriptPath,
             });
             mkdirSync(new URL(".", TREE_RAIL_FIXTURE), { recursive: true });
@@ -2258,6 +2268,7 @@ export const shellTasksScenario = {
         // teardownFixtureRun removes the fixture roster, reloads onto the live roster and deletes the temp dir with
         // the transcripts and output files; a redirect task's log sits outside it
         for (const t of SHELL_TASKS.filter((t) => t.redirect)) rmSync(shellRedirectFile(t, ctx.cwd).path, { force: true });
+        await closeTabs(h, ctx);
         await teardownFixtureRun(h, ctx, "shell-tasks", {
             what: "restore the rail's visibility",
             fn: () => h.ev(restoreLocalStorage(RAIL_VISIBLE_KEY, ctx.prevRail)),

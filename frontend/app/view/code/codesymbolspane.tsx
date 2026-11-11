@@ -6,6 +6,7 @@
 // already open, so nothing is read. The outline is a per-language heuristic (codeoutline.ts), so each
 // empty state names its reason rather than a bare "nothing here".
 
+import { ViewFade } from "@/app/element/viewfade";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useMemo, useRef, useState, type KeyboardEvent } from "react";
@@ -66,40 +67,43 @@ export function CodeSymbolsPane() {
                     className="w-full rounded-[8px] border border-border bg-surface px-2 py-1 text-[12px] text-primary outline-none placeholder:text-muted"
                 />
             </div>
-            {empty != null ? (
-                <div data-code-symbols-empty className="px-3 py-2 text-[11.5px] text-muted">
-                    {empty}
-                </div>
-            ) : (
-                <div className="min-h-0 flex-1 overflow-y-auto pb-2">
-                    {shown.map((sym) => {
-                        const k = KIND_GLYPHS[sym.kind];
-                        return (
-                            <button
-                                key={`${sym.line}:${sym.name}`}
-                                type="button"
-                                data-code-symbol-row={sym.name}
-                                data-line={sym.line}
-                                onClick={() => goToLine(sym.line)}
-                                style={{ paddingLeft: ROW_PAD_PX + (nested ? sym.depth * INDENT_PX : 0) }}
-                                className="flex w-full cursor-pointer items-center gap-2 py-[2px] pr-3 text-left text-[11.5px] hover:bg-accent/10 focus-visible:bg-accent/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
-                            >
-                                <span
-                                    title={k.label}
-                                    className={cn(
-                                        "w-[12px] flex-none text-center font-mono text-[10.5px]",
-                                        sym.kind === "func" ? "text-accent-soft" : "text-muted"
-                                    )}
+            {/* the outline arriving (or a filter emptying it) trades the pane's content, so it fades in */}
+            <ViewFade fadeKey={empty != null ? "empty" : "outline"} className="flex min-h-0 flex-1 flex-col">
+                {empty != null ? (
+                    <div data-code-symbols-empty className="px-3 py-2 text-[11.5px] text-muted">
+                        {empty}
+                    </div>
+                ) : (
+                    <div className="min-h-0 flex-1 overflow-y-auto pb-2">
+                        {shown.map((sym) => {
+                            const k = KIND_GLYPHS[sym.kind];
+                            return (
+                                <button
+                                    key={`${sym.line}:${sym.name}`}
+                                    type="button"
+                                    data-code-symbol-row={sym.name}
+                                    data-line={sym.line}
+                                    onClick={() => goToLine(sym.line)}
+                                    style={{ paddingLeft: ROW_PAD_PX + (nested ? sym.depth * INDENT_PX : 0) }}
+                                    className="flex w-full cursor-pointer items-center gap-2 py-[2px] pr-3 text-left text-[11.5px] hover:bg-accent/10 focus-visible:bg-accent/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
                                 >
-                                    {k.glyph}
-                                </span>
-                                <span className="min-w-0 flex-1 truncate font-mono text-secondary">{sym.name}</span>
-                                <span className="flex-none font-mono text-[10.5px] text-muted">{sym.line}</span>
-                            </button>
-                        );
-                    })}
-                </div>
-            )}
+                                    <span
+                                        title={k.label}
+                                        className={cn(
+                                            "w-[12px] flex-none text-center font-mono text-[10.5px]",
+                                            sym.kind === "func" ? "text-accent-soft" : "text-muted"
+                                        )}
+                                    >
+                                        {k.glyph}
+                                    </span>
+                                    <span className="min-w-0 flex-1 truncate font-mono text-secondary">{sym.name}</span>
+                                    <span className="flex-none font-mono text-[10.5px] text-muted">{sym.line}</span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                )}
+            </ViewFade>
         </div>
     );
 }

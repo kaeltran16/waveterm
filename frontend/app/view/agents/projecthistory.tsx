@@ -4,7 +4,9 @@
 // The project Overview's History region: the last 30 days of ended sessions, with the runs they started. Rows render a
 // page at a time as the list scrolls, and a run's dag is read only once its row renders.
 
+import { PaneReveal } from "@/app/element/panereveal";
 import { Skeleton, SkeletonRows } from "@/app/element/skeleton";
+import { ViewFade } from "@/app/element/viewfade";
 import { globalStore } from "@/app/store/jotaiStore";
 import { isEditableTarget } from "@/app/store/keybindings/dispatcher";
 import * as WOS from "@/app/store/wos";
@@ -203,33 +205,38 @@ export function ProjectHistory({ model, project, path, close }: OverviewRegionPr
                     <span className="font-mono text-[11px] text-muted">{runsRead.error}</span>
                 </RegionAlert>
             ) : null}
-            {loading ? (
-                <HistorySkeleton />
-            ) : (
-                <>
-                    {all.length > 0 ? <HistorySearch inputRef={inputRef} query={query} setQuery={setQuery} /> : null}
-                    {all.length === 0 && !sessionsFailed ? (
-                        <RegionNote>
-                            No sessions in {project} in the {WINDOW_LABEL}.
-                        </RegionNote>
-                    ) : null}
-                    {all.length > 0 && shown.length === 0 ? (
-                        <RegionNote>No sessions match “{query.trim()}”.</RegionNote>
-                    ) : null}
-                    <div data-history-list className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-                        {shown.slice(0, count).map((e) => (
-                            <HistoryRow
-                                key={e.key}
-                                entry={e}
-                                now={minute}
-                                openSession={openSession}
-                                openRun={openRun}
-                            />
-                        ))}
-                        <div ref={sentinelRef} aria-hidden="true" />
-                    </div>
-                </>
-            )}
+            {/* the reads landing trade the skeleton for the rows, so they fade in */}
+            <ViewFade fadeKey={loading ? "loading" : "rows"} className="flex min-h-0 flex-1 flex-col gap-1.5">
+                {loading ? (
+                    <HistorySkeleton />
+                ) : (
+                    <>
+                        {all.length > 0 ? (
+                            <HistorySearch inputRef={inputRef} query={query} setQuery={setQuery} />
+                        ) : null}
+                        {all.length === 0 && !sessionsFailed ? (
+                            <RegionNote>
+                                No sessions in {project} in the {WINDOW_LABEL}.
+                            </RegionNote>
+                        ) : null}
+                        {all.length > 0 && shown.length === 0 ? (
+                            <RegionNote>No sessions match “{query.trim()}”.</RegionNote>
+                        ) : null}
+                        <div data-history-list className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+                            {shown.slice(0, count).map((e) => (
+                                <HistoryRow
+                                    key={e.key}
+                                    entry={e}
+                                    now={minute}
+                                    openSession={openSession}
+                                    openRun={openRun}
+                                />
+                            ))}
+                            <div ref={sentinelRef} aria-hidden="true" />
+                        </div>
+                    </>
+                )}
+            </ViewFade>
             <button type="button" onClick={openSessions} className={cn(LINK_BTN, "mt-2")}>
                 older sessions in Sessions ↗
             </button>
@@ -334,9 +341,13 @@ function HistoryRow({
                     {sessionLine(s)}
                 </span>
             </button>
-            {entry.runs.map((r) => (
-                <RunRow key={r.key} run={r} now={now} nested onOpen={() => openRun(r.runId)} />
-            ))}
+            {/* a session's runs showing up while the list is up (a run read retried, a run started) open under
+                it rather than shoving the rows below down in one frame */}
+            <PaneReveal open={entry.runs.length > 0} className="flex-none">
+                {entry.runs.map((r) => (
+                    <RunRow key={r.key} run={r} now={now} nested onOpen={() => openRun(r.runId)} />
+                ))}
+            </PaneReveal>
         </>
     );
 }

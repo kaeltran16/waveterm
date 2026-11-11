@@ -5,11 +5,18 @@
 // follow the storage-report canvas (Page.dc.html). The header's actions (Rescan, Clear and Clear's confirm) are
 // their own component because the Settings surface draws the section header.
 
+import { fmtSize } from "@/app/cockpit/resmon";
+import { CrossFade } from "@/app/element/crossfade";
+import { barFillClass, composerReveal, errorNudge, paneReveal } from "@/app/element/motiontokens";
+import { PaneReveal } from "@/app/element/panereveal";
+import { TickNumber } from "@/app/element/ticknumber";
+import { ViewSwap } from "@/app/element/viewswap";
 import { ConfirmDialog } from "@/app/modals/confirmdialog";
 import { openTarget } from "@/app/view/jarvis/openref";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { Trash } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import {
@@ -98,7 +105,8 @@ export function StorageHeaderActions() {
                         clear.enabled ? "cursor-pointer hover:border-accent-300 hover:bg-accent-300" : "opacity-60"
                     )}
                 >
-                    {clear.label}
+                    {/* Clear -> Clearing N of M… -> Clear again: the label trades in place */}
+                    <CrossFade swapKey={clear.label}>{clear.label}</CrossFade>
                 </button>
             ) : null}
             {plan != null ? (
@@ -177,24 +185,36 @@ export function StorageSection({ model }: { model: AgentsViewModel }) {
                     <span className="flex-1">{scanErrorText(e)}</span>
                 </div>
             ))}
-            {notice != null ? (
-                <div
-                    data-storage-result
-                    role="status"
-                    className="flex items-center gap-2.5 rounded-[10px] border border-border bg-surface-raised px-3.5 py-2.5 text-[12.5px] leading-[1.5] text-secondary"
-                >
-                    <span className="h-[7px] w-[7px] flex-none rounded-full bg-success" />
-                    <span className="flex-1">
-                        {notice.text}
-                        {notice.failure != null ? (
-                            <>
-                                {" "}
-                                <span className="text-error">{notice.failure}</span>: {notice.failureWhy}
-                            </>
-                        ) : null}
-                    </span>
-                </div>
-            ) : null}
+            {/* closes while a clear runs and opens on its result; AnimatePresence keeps the last result for the exit.
+                A failure in it is the user's clear failing, so it nudges once as the result opens. */}
+            <PaneReveal open={notice != null} variants={composerReveal}>
+                {notice != null ? (
+                    <div
+                        data-storage-result
+                        role="status"
+                        className="flex items-center gap-2.5 rounded-[10px] border border-border bg-surface-raised px-3.5 py-2.5 text-[12.5px] leading-[1.5] text-secondary"
+                    >
+                        <span className="h-[7px] w-[7px] flex-none rounded-full bg-success" />
+                        <span className="flex-1">
+                            {notice.text}
+                            {notice.failure != null ? (
+                                <>
+                                    {" "}
+                                    <motion.span
+                                        variants={errorNudge}
+                                        initial="initial"
+                                        animate="animate"
+                                        className="inline-block text-error"
+                                    >
+                                        {notice.failure}
+                                    </motion.span>
+                                    : {notice.failureWhy}
+                                </>
+                            ) : null}
+                        </span>
+                    </div>
+                ) : null}
+            </PaneReveal>
             <div className="grid grid-cols-3 gap-3">
                 {storageStats(r).map((t) => (
                     <div
@@ -206,15 +226,20 @@ export function StorageSection({ model }: { model: AgentsViewModel }) {
                             <span className={cn("h-[7px] w-[7px] rounded-full", GROUP_DOT[t.group])} />
                             {t.label}
                         </span>
-                        <span className="text-[21px] font-bold text-primary">{t.value}</span>
+                        <span className="text-[21px] font-bold text-primary">
+                            {t.bytes != null ? <TickNumber value={t.bytes} format={fmtSize} /> : t.value}
+                        </span>
                         <span className="text-[10.5px] text-muted">{t.sub}</span>
                     </div>
                 ))}
             </div>
-            {loading ? <Skeleton /> : null}
-            {sections.map((s) => (
-                <Section key={s.group} section={s} onOpenRun={openRun} onDelete={setDeletingId} />
-            ))}
+            {/* the scan landing fades the report in over the skeleton; what is there when the section opens shows at once */}
+            <ViewSwap swapKey={loading ? "loading" : "report"} className="flex flex-col gap-[22px]">
+                {loading ? <Skeleton /> : null}
+                {sections.map((s) => (
+                    <Section key={s.group} section={s} onOpenRun={openRun} onDelete={setDeletingId} />
+                ))}
+            </ViewSwap>
             {r.scants ? <p className={MONO_META}>{NOT_COUNTED_TEXT}</p> : null}
             {deleting != null ? (
                 <DeleteDialog
@@ -288,25 +313,29 @@ function Section({
                 </p>
             ) : null}
             {!empty ? (
-                <>
-                    <div className={cn(GRID, "pb-1.5", MONO_META)}>
-                        <span>folder</span>
-                        <span>left by</span>
-                        <span className="text-right">size</span>
-                        <span className="text-right">idle</span>
-                        <span>clearing it loses</span>
-                    </div>
-                    {section.rows.map((row) => (
-                        <Row
-                            key={row.id}
-                            row={row}
-                            bar={GROUP_BAR[section.group]}
-                            onOpenRun={onOpenRun}
-                            onDelete={onDelete}
-                        />
-                    ))}
-                </>
+                <div className={cn(GRID, "pb-1.5", MONO_META)}>
+                    <span>folder</span>
+                    <span>left by</span>
+                    <span className="text-right">size</span>
+                    <span className="text-right">idle</span>
+                    <span>clearing it loses</span>
+                </div>
             ) : null}
+            {/* a deleted or cleared row folds its height away, so the rows under it close up instead of jumping */}
+            <AnimatePresence initial={false}>
+                {section.rows.map((row) => (
+                    <motion.div
+                        key={row.id}
+                        variants={paneReveal}
+                        initial={false}
+                        animate="animate"
+                        exit="exit"
+                        className="overflow-hidden"
+                    >
+                        <Row row={row} bar={GROUP_BAR[section.group]} onOpenRun={onOpenRun} onDelete={onDelete} />
+                    </motion.div>
+                ))}
+            </AnimatePresence>
         </section>
     );
 }
@@ -353,7 +382,10 @@ function Row({
             </span>
             <span className="flex items-center gap-2.5">
                 <span className="h-1.5 flex-1 rounded-[3px] bg-surface-raised">
-                    <span className={cn("block h-1.5 rounded-[3px]", bar)} style={{ width: `${row.barPct}%` }} />
+                    <span
+                        className={cn("block h-1.5 rounded-[3px]", bar, barFillClass)}
+                        style={{ width: `${row.barPct}%` }}
+                    />
                 </span>
                 <span className="w-[52px] text-right font-mono text-[11.5px] text-secondary">{row.size}</span>
             </span>

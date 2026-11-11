@@ -5,6 +5,7 @@
 // Jira's project cell shares. The list's keys are local rather than keybindings.ts bindings: they only mean
 // anything while the search box has focus.
 
+import { PopoverReveal } from "@/app/element/popoverreveal";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { cn, fireAndForget } from "@/util/util";
@@ -113,7 +114,7 @@ export function ProjectPicker({
                     <path d="m6 9 6 6 6-6" />
                 </svg>
             </button>
-            {open ? (
+            <PopoverReveal open={open} origin="top">
                 <ProjectList
                     projects={projects}
                     top={recentNames(names, recent)}
@@ -130,7 +131,7 @@ export function ProjectPicker({
                         onRegister();
                     }}
                 />
-            ) : null}
+            </PopoverReveal>
         </div>
     );
 }

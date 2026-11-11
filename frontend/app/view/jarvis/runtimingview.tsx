@@ -3,6 +3,8 @@
 //
 // The run sheet's Timing section: one bar per activity on a since-launch axis (model: runtiming.ts).
 
+import { turnTransition } from "@/app/element/motiontokens";
+import { PaneReveal } from "@/app/element/panereveal";
 import { cn } from "@/util/util";
 import { ChevronRight } from "lucide-react";
 import { useState } from "react";
@@ -51,7 +53,11 @@ function TimingBody({ view }: { view: RunTimingView }) {
                 <ChevronRight
                     size={14}
                     aria-hidden
-                    className={cn("flex-none text-ink-mid transition-transform", open && "rotate-90")}
+                    style={turnTransition}
+                    className={cn(
+                        "flex-none text-ink-mid transition-transform motion-reduce:transition-none",
+                        open && "rotate-90"
+                    )}
                 />
                 <span className="text-[12px] font-semibold">Timing</span>
                 <span className="ml-auto font-mono text-[11px] text-secondary">{view.header}</span>
@@ -66,7 +72,7 @@ function TimingBody({ view }: { view: RunTimingView }) {
                     ))}
                 </div>
             ) : null}
-            {open ? (
+            <PaneReveal open={open}>
                 <div className="flex flex-col gap-3 pb-3.5">
                     <div className="ml-[144px] mr-[54px] flex justify-between font-mono text-[10.5px] text-ink-mid">
                         {view.axis.map((label, i) => (
@@ -95,7 +101,7 @@ function TimingBody({ view }: { view: RunTimingView }) {
                         ))}
                     </div>
                 </div>
-            ) : null}
+            </PaneReveal>
         </div>
     );
 }

@@ -6,10 +6,14 @@
 // (commentsend.ts decides) and sends them. It reads the stored batch for the source's key, so an ended
 // agent's batch still shows with no cwd published; the facts come from the batch's own source.
 
+import { CrossFade } from "@/app/element/crossfade";
+import { composerReveal, errorNudge } from "@/app/element/motiontokens";
+import { PaneReveal } from "@/app/element/panereveal";
 import * as WOS from "@/app/store/wos";
 import { cn } from "@/util/util";
 import { atom, useAtomValue, type Atom } from "jotai";
 import { Check, CircleAlert, MessageSquare, Plus } from "lucide-react";
+import { motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import { formatAge } from "./agentsviewmodel";
@@ -126,97 +130,101 @@ export function CommentSendBar({ model }: { model: AgentsViewModel }) {
         return null;
     }
     const shell = "flex-none border-t border-border bg-surface font-sans";
-    if (batch == null || recipient == null) {
-        const note = notes[source.key];
-        return (
-            <div data-comment-send-bar data-recipient-kind="none" className={shell}>
-                {note != null ? (
-                    <SentNote {...note} />
-                ) : (
-                    <div data-comment-hint className="flex h-[32px] items-center px-[18px] text-[11.5px] text-muted">
-                        <span>
-                            Press <kbd className="font-mono text-ink-mid">m</kbd> or click a line's + to comment for{" "}
-                            {source.label}
-                        </span>
-                    </div>
-                )}
-            </div>
-        );
-    }
-
-    const t = sendBarText(batchSummary(batch), recipient);
+    const t = batch != null && recipient != null ? sendBarText(batchSummary(batch), recipient) : null;
+    // one tree for every state, so a send landing reveals the sent note instead of swapping in a new bar
+    const note = t == null ? notes[source.key] : undefined;
     // count is "3 comments in 2 files": the bar sets the comments apart from the files
-    const cut = t.count.indexOf(" in ");
-    const comments = t.count.slice(0, cut);
-    const before = lead(recipient, t.count.slice(cut + 1));
-    const waiting = recipient.kind === "wait";
+    const cut = t?.count.indexOf(" in ") ?? -1;
+    const comments = t?.count.slice(0, cut) ?? "";
+    const before = t != null && recipient != null ? lead(recipient, t.count.slice(cut + 1)) : null;
+    const waiting = recipient?.kind === "wait";
     return (
-        <div data-comment-send-bar data-recipient-kind={recipient.kind} className={shell}>
-            {error != null ? (
-                <div
+        <div data-comment-send-bar data-recipient-kind={recipient?.kind ?? "none"} className={shell}>
+            <PaneReveal open={error != null && t != null} variants={composerReveal}>
+                <motion.div
                     data-comment-error
+                    variants={errorNudge}
+                    initial="initial"
+                    animate="animate"
                     className="flex items-center gap-[8px] border-b border-border bg-error/10 px-[18px] py-[8px]"
                 >
                     <CircleAlert size={13} className="flex-none text-error" />
                     <span className="text-[12px] text-error-soft">
-                        {error.replace(/\.$/, "")}. Your {comments} are kept.
+                        {error?.replace(/\.$/, "")}. Your {comments} are kept.
+                    </span>
+                </motion.div>
+            </PaneReveal>
+            <PaneReveal open={note != null} variants={composerReveal}>
+                {note != null ? <SentNote {...note} /> : null}
+            </PaneReveal>
+            {t == null && note == null ? (
+                <div data-comment-hint className="flex h-[32px] items-center px-[18px] text-[11.5px] text-muted">
+                    <span>
+                        Press <kbd className="font-mono text-ink-mid">m</kbd> or click a line's + to comment for{" "}
+                        {source.label}
                     </span>
                 </div>
             ) : null}
-            <div className={barRow}>
-                <MessageSquare size={14} className="flex-none text-accent-soft" />
-                <span data-comment-count className="flex-none text-[12.5px] font-semibold text-ink-hi">
-                    {comments}
-                </span>
-                {before != null ? <span className={cn(quiet, "flex-none")}>{before}</span> : null}
-                {recipient.kind === "live" ? (
-                    <span
-                        data-comment-recipient
-                        className="flex flex-none items-center gap-[6px] text-[12px] text-ink-hi"
-                    >
-                        {agent != null ? <AgentStateMark agent={agent} className="!h-[7px] !w-[7px]" /> : null}
-                        {recipient.name}
+            {t != null && batch != null && recipient != null ? (
+                <div className={barRow}>
+                    <MessageSquare size={14} className="flex-none text-accent-soft" />
+                    <span data-comment-count className="flex-none text-[12.5px] font-semibold text-ink-hi">
+                        {comments}
                     </span>
-                ) : recipient.kind === "new" ? (
-                    <span
-                        data-comment-recipient
-                        className="flex flex-none items-center gap-[6px] text-[12px] text-ink-hi"
-                    >
-                        <Plus size={12} strokeWidth={2.2} className="text-ink-mid" />a new agent
+                    {before != null ? <span className={cn(quiet, "flex-none")}>{before}</span> : null}
+                    {recipient.kind !== "wait" ? (
+                        <span data-comment-recipient className="flex flex-none items-center text-[12px] text-ink-hi">
+                            <CrossFade swapKey={recipient.kind} className="gap-[6px]">
+                                {recipient.kind === "live" ? (
+                                    <>
+                                        {agent != null ? (
+                                            <AgentStateMark agent={agent} className="!h-[7px] !w-[7px]" />
+                                        ) : null}
+                                        {recipient.name}
+                                    </>
+                                ) : (
+                                    <>
+                                        <Plus size={12} strokeWidth={2.2} className="text-ink-mid" />a new agent
+                                    </>
+                                )}
+                            </CrossFade>
+                        </span>
+                    ) : null}
+                    <span data-comment-detail className={cn(quiet, "min-w-0 truncate")}>
+                        {t.detail}
                     </span>
-                ) : null}
-                <span data-comment-detail className={cn(quiet, "min-w-0 truncate")}>
-                    {t.detail}
-                </span>
-                <span className="flex-1" />
-                <button
-                    data-comment-discard
-                    onClick={() => discardBatch(batch.source.key)}
-                    disabled={sending}
-                    className={cn(
-                        btn,
-                        "border border-edge-mid bg-surface-raised font-semibold text-ink-mid hover:text-ink-hi"
-                    )}
-                >
-                    Discard
-                </button>
-                <button
-                    data-comment-send
-                    onClick={send}
-                    disabled={waiting || sending}
-                    title={waiting ? t.detail : undefined}
-                    className={cn(
-                        btn,
-                        "font-bold",
-                        waiting || sending
-                            ? "cursor-default bg-surface-selected text-ink-faint"
-                            : "bg-accent text-background"
-                    )}
-                >
-                    {error != null ? "Send again" : t.action}
-                    {waiting ? null : <kbd className="font-mono text-[10.5px] font-normal">⇧↵</kbd>}
-                </button>
-            </div>
+                    <span className="flex-1" />
+                    <button
+                        data-comment-discard
+                        onClick={() => discardBatch(batch.source.key)}
+                        disabled={sending}
+                        className={cn(
+                            btn,
+                            "border border-edge-mid bg-surface-raised font-semibold text-ink-mid hover:text-ink-hi"
+                        )}
+                    >
+                        Discard
+                    </button>
+                    <button
+                        data-comment-send
+                        onClick={send}
+                        disabled={waiting || sending}
+                        title={waiting ? t.detail : undefined}
+                        className={cn(
+                            btn,
+                            "font-bold",
+                            waiting || sending
+                                ? "cursor-default bg-surface-selected text-ink-faint"
+                                : "bg-accent text-background"
+                        )}
+                    >
+                        <CrossFade swapKey={sending ? "sending" : error != null ? "again" : "send"}>
+                            {sending ? "Sending…" : error != null ? "Send again" : t.action}
+                        </CrossFade>
+                        {waiting ? null : <kbd className="font-mono text-[10.5px] font-normal">⇧↵</kbd>}
+                    </button>
+                </div>
+            ) : null}
         </div>
     );
 }

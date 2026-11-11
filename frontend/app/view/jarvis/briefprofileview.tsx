@@ -16,6 +16,9 @@
 // Nothing is written until Save, and a refused save leaves the draft standing with the server's message.
 // Autonomy is not here: it is one policy for all work, set from the Brief header.
 
+import { AutoHeight } from "@/app/element/autoheight";
+import { CrossFade } from "@/app/element/crossfade";
+import { viewFade } from "@/app/element/motiontokens";
 import { Skeleton } from "@/app/element/skeleton";
 import { ModalShell } from "@/app/modals/modalshell";
 import { channelsAtom, loadChannels } from "@/app/view/agents/channelsstore";
@@ -34,6 +37,7 @@ import { clampParallelism, DEFAULT_PARALLELISM } from "@/app/view/agents/runconf
 import { WorkerStepper } from "@/app/view/agents/runlauncher";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
+import { motion } from "motion/react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { briefUndo } from "./briefundo";
 import { GlobalPrinciplesEditor } from "./globalprincipleseditor";
@@ -159,28 +163,33 @@ function SourceCell({
     const reset = resetActionState(inherited, saving);
     return (
         <div className="flex items-center justify-end gap-2.5 text-[11.5px]">
-            {inherited ? (
-                <span className="flex items-center gap-1.5 text-muted">
-                    <span className="h-1.5 w-1.5 rounded-full border border-ink-faint" />
-                    Global
-                </span>
-            ) : (
-                <span className="flex items-center gap-1.5 text-accent-soft">
-                    <span className="h-1.5 w-1.5 rounded-full bg-accent" />
-                    Project
-                </span>
-            )}
-            {reset.show ? (
-                <button
-                    type="button"
-                    aria-label={`Reset ${label.toLowerCase()} to global`}
-                    onClick={onReset}
-                    disabled={reset.disabled}
-                    className="h-[22px] cursor-pointer rounded-[5px] border border-edge-mid px-2 text-ink-mid hover:border-edge-strong hover:text-secondary disabled:cursor-default disabled:opacity-40"
-                >
-                    Reset
-                </button>
-            ) : null}
+            <CrossFade swapKey={inherited ? "global" : "project"}>
+                {inherited ? (
+                    <span className="flex items-center gap-1.5 text-muted">
+                        <span className="h-1.5 w-1.5 rounded-full border border-ink-faint" />
+                        Global
+                    </span>
+                ) : (
+                    <span className="flex items-center gap-1.5 text-accent-soft">
+                        <span className="h-1.5 w-1.5 rounded-full bg-accent" />
+                        Project
+                    </span>
+                )}
+            </CrossFade>
+            {/* empty:hidden, so a row with no reset keeps no gap for it */}
+            <CrossFade swapKey={reset.show ? "reset" : "none"} className="empty:hidden">
+                {reset.show ? (
+                    <button
+                        type="button"
+                        aria-label={`Reset ${label.toLowerCase()} to global`}
+                        onClick={onReset}
+                        disabled={reset.disabled}
+                        className="h-[22px] cursor-pointer rounded-[5px] border border-edge-mid px-2 text-ink-mid hover:border-edge-strong hover:text-secondary disabled:cursor-default disabled:opacity-40"
+                    >
+                        Reset
+                    </button>
+                ) : null}
+            </CrossFade>
         </div>
     );
 }
@@ -461,6 +470,8 @@ export function BriefProfileModal({
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [pending, setPending] = useState<Pending | null>(null);
+    // a scope the user switched to fades in; the scope the modal opens on does not
+    const [scopeSwitched, setScopeSwitched] = useState(false);
 
     useEffect(() => {
         if (open) {
@@ -475,6 +486,7 @@ export function BriefProfileModal({
             setGlobalLoaded(null);
             setGlobalDraft(null);
             setPending(null);
+            setScopeSwitched(false);
         }
     }, [open]);
 
@@ -650,6 +662,7 @@ export function BriefProfileModal({
     };
     const pickScope = (s: Scope) => {
         touched();
+        setScopeSwitched(true);
         setScope(s);
     };
 
@@ -790,112 +803,128 @@ export function BriefProfileModal({
                         ))}
                     </div>
                 </header>
-                <div className="flex min-h-0 flex-1 flex-col gap-[22px] overflow-y-auto px-5 pt-[18px] pb-5">
-                    {!isGlobal && channelOptions.size > 0 ? (
-                        <div className="flex items-start gap-3">
-                            <span className="w-14 flex-none pt-[5px] text-[12px] text-ink-mid">Project</span>
-                            <ProjectChips
-                                names={[...channelOptions.keys()]}
-                                picked={pickedLabel}
-                                recent={null}
-                                onPick={(label) => {
-                                    const oid = channelOptions.get(label);
-                                    if (oid != null) {
-                                        pickProject(oid);
-                                    }
-                                }}
-                                columns={1}
-                            />
-                        </div>
-                    ) : null}
-                    {!ready && error == null ? <Skeleton className="h-24 rounded-[8px]" /> : null}
-                    {isGlobal && globalDraft != null ? (
-                        <>
-                            <section className="flex flex-col gap-2">
-                                <SectionHeader
-                                    title="Run defaults"
-                                    meta={
-                                        overridesError == null
-                                            ? "Projects without their own value use these"
-                                            : "Couldn't load which projects override these"
-                                    }
-                                    metaTitle={overridesError ?? undefined}
-                                />
-                                <DefaultsFields
-                                    inheritable={false}
-                                    draft={globalDraft}
-                                    base={globalDraft}
-                                    saving={saving}
-                                    set={setGlobal}
-                                    drop={dropGlobal}
-                                    aside={globalReach}
-                                    setWorkers={(choice) => editGlobal((g) => applyWorkersChoice(g, choice, false))}
-                                    setApprovals={(on) => editGlobal((g) => applyApprovals(g, on, false))}
-                                />
-                                <p className="m-0 text-[11.5px] leading-[1.45] text-muted">
-                                    Lead route is set per project; autonomy lives in the Brief header.
-                                </p>
-                            </section>
-                            <section className="flex flex-col gap-2">
-                                <SectionHeader title="Principles" meta="Every project starts from these" />
-                                <GlobalPrinciplesEditor
-                                    principles={globalDraft.principles ?? []}
-                                    notes={principleNotes}
-                                    disabled={saving}
-                                    onChange={(principles) => setGlobal({ principles })}
-                                />
-                                {removedNotes.map((n) => (
-                                    <span
-                                        key={n.id}
-                                        data-jarvis-removed-principle=""
-                                        title={n.text}
-                                        className="flex min-w-0 items-center gap-1.5 pl-2 text-[11.5px] text-asking"
-                                    >
-                                        <span className="h-[5px] w-[5px] flex-none rounded-full bg-asking" />
-                                        <span className="min-w-0 truncate">{n.text}</span>
-                                    </span>
-                                ))}
-                            </section>
-                        </>
-                    ) : null}
-                    {!isGlobal && loaded != null ? (
-                        <>
-                            <section className="flex flex-col gap-2">
-                                <SectionHeader title="Run defaults" meta={overrideSummary(draft)} />
-                                <DefaultsFields
-                                    inheritable
-                                    draft={draft}
-                                    base={loaded.global}
-                                    saving={saving}
-                                    set={set}
-                                    drop={drop}
-                                    aside={sourceCell}
-                                    routeRow={leadRouteRow}
-                                    setWorkers={(choice) => editDraft((d) => applyWorkersChoice(d, choice, true))}
-                                    setApprovals={(on) => editDraft((d) => applyApprovals(d, on, true))}
-                                />
-                            </section>
-                            <section className="flex flex-col gap-2">
-                                <SectionHeader
-                                    title="Principles"
-                                    meta={principleSummary(
-                                        principleRows(
-                                            inheritedPrinciples,
-                                            normalized(draft).principles,
-                                            loaded.diagnostics
-                                        )
-                                    )}
-                                />
-                                <PrinciplesEditor
-                                    global={loaded.global.principles ?? []}
-                                    patch={draft.principles}
-                                    diagnostics={loaded.diagnostics}
-                                    disabled={saving}
-                                    onChange={(patch) => set({ principles: patch })}
-                                />
-                            </section>
-                        </>
-                    ) : null}
+                <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 pt-[18px] pb-5">
+                    {/* the body grows from the skeleton to the loaded rows, and between scopes, instead of jumping */}
+                    <AutoHeight>
+                        <motion.div
+                            key={scope}
+                            data-jarvis-profile-body={scope}
+                            variants={viewFade}
+                            initial={scopeSwitched ? "initial" : false}
+                            animate="animate"
+                            className="flex flex-col gap-[22px]"
+                        >
+                            {!isGlobal && channelOptions.size > 0 ? (
+                                <div className="flex items-start gap-3">
+                                    <span className="w-14 flex-none pt-[5px] text-[12px] text-ink-mid">Project</span>
+                                    <ProjectChips
+                                        names={[...channelOptions.keys()]}
+                                        picked={pickedLabel}
+                                        recent={null}
+                                        onPick={(label) => {
+                                            const oid = channelOptions.get(label);
+                                            if (oid != null) {
+                                                pickProject(oid);
+                                            }
+                                        }}
+                                        columns={1}
+                                    />
+                                </div>
+                            ) : null}
+                            {!ready && error == null ? <Skeleton className="h-24 rounded-[8px]" /> : null}
+                            {isGlobal && globalDraft != null ? (
+                                <>
+                                    <section className="flex flex-col gap-2">
+                                        <SectionHeader
+                                            title="Run defaults"
+                                            meta={
+                                                overridesError == null
+                                                    ? "Projects without their own value use these"
+                                                    : "Couldn't load which projects override these"
+                                            }
+                                            metaTitle={overridesError ?? undefined}
+                                        />
+                                        <DefaultsFields
+                                            inheritable={false}
+                                            draft={globalDraft}
+                                            base={globalDraft}
+                                            saving={saving}
+                                            set={setGlobal}
+                                            drop={dropGlobal}
+                                            aside={globalReach}
+                                            setWorkers={(choice) =>
+                                                editGlobal((g) => applyWorkersChoice(g, choice, false))
+                                            }
+                                            setApprovals={(on) => editGlobal((g) => applyApprovals(g, on, false))}
+                                        />
+                                        <p className="m-0 text-[11.5px] leading-[1.45] text-muted">
+                                            Lead route is set per project; autonomy lives in the Brief header.
+                                        </p>
+                                    </section>
+                                    <section className="flex flex-col gap-2">
+                                        <SectionHeader title="Principles" meta="Every project starts from these" />
+                                        <GlobalPrinciplesEditor
+                                            principles={globalDraft.principles ?? []}
+                                            notes={principleNotes}
+                                            disabled={saving}
+                                            onChange={(principles) => setGlobal({ principles })}
+                                        />
+                                        {removedNotes.map((n) => (
+                                            <span
+                                                key={n.id}
+                                                data-jarvis-removed-principle=""
+                                                title={n.text}
+                                                className="flex min-w-0 items-center gap-1.5 pl-2 text-[11.5px] text-asking"
+                                            >
+                                                <span className="h-[5px] w-[5px] flex-none rounded-full bg-asking" />
+                                                <span className="min-w-0 truncate">{n.text}</span>
+                                            </span>
+                                        ))}
+                                    </section>
+                                </>
+                            ) : null}
+                            {!isGlobal && loaded != null ? (
+                                <>
+                                    <section className="flex flex-col gap-2">
+                                        <SectionHeader title="Run defaults" meta={overrideSummary(draft)} />
+                                        <DefaultsFields
+                                            inheritable
+                                            draft={draft}
+                                            base={loaded.global}
+                                            saving={saving}
+                                            set={set}
+                                            drop={drop}
+                                            aside={sourceCell}
+                                            routeRow={leadRouteRow}
+                                            setWorkers={(choice) =>
+                                                editDraft((d) => applyWorkersChoice(d, choice, true))
+                                            }
+                                            setApprovals={(on) => editDraft((d) => applyApprovals(d, on, true))}
+                                        />
+                                    </section>
+                                    <section className="flex flex-col gap-2">
+                                        <SectionHeader
+                                            title="Principles"
+                                            meta={principleSummary(
+                                                principleRows(
+                                                    inheritedPrinciples,
+                                                    normalized(draft).principles,
+                                                    loaded.diagnostics
+                                                )
+                                            )}
+                                        />
+                                        <PrinciplesEditor
+                                            global={loaded.global.principles ?? []}
+                                            patch={draft.principles}
+                                            diagnostics={loaded.diagnostics}
+                                            disabled={saving}
+                                            onChange={(patch) => set({ principles: patch })}
+                                        />
+                                    </section>
+                                </>
+                            ) : null}
+                        </motion.div>
+                    </AutoHeight>
                 </div>
                 <footer className="flex flex-none items-center gap-2 border-t border-border bg-surface-raised px-5 py-3">
                     {pending != null ? (
@@ -943,7 +972,9 @@ export function BriefProfileModal({
                                     canSave ? "bg-accent text-background hover:bg-accenthover" : "bg-border text-muted"
                                 )}
                             >
-                                {saving ? "Saving…" : isGlobal ? "Save global profile" : "Save profile"}
+                                <CrossFade swapKey={saving ? "saving" : "idle"}>
+                                    {saving ? "Saving…" : isGlobal ? "Save global profile" : "Save profile"}
+                                </CrossFade>
                             </button>
                         </>
                     )}

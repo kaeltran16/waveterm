@@ -68,7 +68,7 @@ describe("buildRunPeek: an orchestrator run", () => {
         expect(buildRunPeek(input()).phases).toEqual([
             { label: "Plan", state: "passed", tone: "done" },
             { label: "Plan review", state: "passed", tone: "done" },
-            { label: "Tasks", state: "8 of 8 landed", tone: "done" },
+            { label: "Tasks", state: "8 of 8 landed", tone: "done", count: 8 },
             { label: "Final", state: "unverified", tone: "warning" },
         ]);
     });
@@ -82,7 +82,7 @@ describe("buildRunPeek: an orchestrator run", () => {
         expect(buildRunPeek(input({ run: run({ status: "executing" }), group: g })).phases).toEqual([
             { label: "Plan", state: "passed", tone: "done" },
             { label: "Plan review", state: "accepted", tone: "done" },
-            { label: "Tasks", state: "1 of 3 landed", tone: "running" },
+            { label: "Tasks", state: "1 of 3 landed", tone: "running", count: 1 },
             { label: "Final", state: "waiting", tone: "pending" },
         ]);
     });
@@ -152,7 +152,7 @@ describe("buildRunPeek: an orchestrator run", () => {
             buildRunPeek(input({ group: group({ tasks: states.map((s, i) => task(`t-${i}`, s)) }) })).phases?.[2];
 
         it("is running with nothing landed when the graph has no tasks", () => {
-            expect(tasksPhase([])).toStrictEqual({ label: "Tasks", state: "0 of 0 landed", tone: "running" });
+            expect(tasksPhase([])).toStrictEqual({ label: "Tasks", state: "0 of 0 landed", tone: "running", count: 0 });
         });
 
         it("is done once every task landed", () => {
@@ -160,6 +160,7 @@ describe("buildRunPeek: an orchestrator run", () => {
                 label: "Tasks",
                 state: "2 of 2 landed",
                 tone: "done",
+                count: 2,
             });
         });
 
@@ -168,6 +169,7 @@ describe("buildRunPeek: an orchestrator run", () => {
                 label: "Tasks",
                 state: "1 of 3 landed",
                 tone: "failed",
+                count: 1,
             });
         });
 
@@ -178,6 +180,7 @@ describe("buildRunPeek: an orchestrator run", () => {
                     label: "Tasks",
                     state: "1 of 3 landed",
                     tone: "warning",
+                    count: 1,
                 });
             }
         );

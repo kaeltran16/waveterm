@@ -22,6 +22,7 @@ import { sameRepoPath } from "@/util/paths";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtom, useAtomValue } from "jotai";
 import { ArrowRight, ChevronDown, FilePlus, FolderGit2, FolderPlus, RotateCw, Save, Undo2 } from "lucide-react";
+import { MotionConfig } from "motion/react";
 import { useEffect, useInsertionEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { CodeChangedPane } from "./codechangedpane";
 import { projectDraftPaths } from "./codedraft";
@@ -209,177 +210,187 @@ export function CodeSurface({ model }: { model: AgentsViewModel }) {
     }, []);
 
     return (
-        <div className="relative flex h-full w-full flex-col">
-            <SurfaceToolbar
-                title="Code"
-                actions={
-                    <>
-                        <div className="relative">
-                            <button
-                                ref={pickerTriggerRef}
-                                type="button"
-                                data-code-project-picker
-                                onClick={() => togglePicker(!pickerOpen)}
-                                className="flex cursor-pointer items-center gap-1.5 rounded-[8px] border border-border bg-surface px-2.5 py-1 text-[12px] text-secondary hover:text-primary"
-                            >
-                                <FolderGit2 size={13} strokeWidth={1.8} />
-                                <span>{project?.name ?? "Pick a project"}</span>
-                                <ChevronDown size={13} strokeWidth={1.8} />
-                            </button>
-                            {pickerOpen ? (
-                                <div data-code-picker-backdrop className="fixed inset-0 z-50" onClick={closePicker} />
-                            ) : null}
-                            <PopoverReveal
-                                open={pickerOpen}
-                                origin="top right"
-                                className="absolute right-0 top-[calc(100%+6px)] z-[60] max-h-[70vh] min-w-[240px] overflow-y-auto rounded-[10px] border border-border bg-surface shadow-popover-md"
-                            >
-                                <PickerHeading first>Projects</PickerHeading>
-                                {projects.length === 0 ? (
-                                    <div className="px-3 py-2 text-[12px] text-muted">No registered projects</div>
-                                ) : (
-                                    projects.map((p) => (
-                                        <PickerRow
-                                            key={p.name}
-                                            label={p.name}
-                                            detail={p.path}
-                                            current={p.path === project?.path}
-                                            onClick={() => pick(p.path, () => selectProject(p))}
-                                        />
-                                    ))
-                                )}
-                                {otherCheckouts.length > 0 ? (
-                                    <div data-code-picker-section="worktrees">
-                                        <PickerHeading>Worktrees</PickerHeading>
-                                        {otherCheckouts.map((wt) => (
-                                            <PickerRow
-                                                key={wt.path}
-                                                label={wt.label}
-                                                detail={wt.path}
-                                                current={sameRepoPath(wt.path, project?.path ?? "")}
-                                                onClick={() => pick(wt.path, () => selectPath(wt.path))}
-                                            />
-                                        ))}
-                                    </div>
-                                ) : null}
-                                {shownRecents.length > 0 ? (
-                                    <div data-code-picker-section="recent">
-                                        <PickerHeading>Recent</PickerHeading>
-                                        {shownRecents.map((r) => (
-                                            <PickerRow
-                                                key={r.path}
-                                                label={r.name}
-                                                detail={r.path}
-                                                current={sameRepoPath(r.path, project?.path ?? "")}
-                                                onClick={() => openPicked(r.path)}
-                                            />
-                                        ))}
-                                    </div>
-                                ) : null}
-                                <form
-                                    data-code-picker-path
-                                    onSubmit={(e) => {
-                                        e.preventDefault();
-                                        openPicked(typedPath);
-                                    }}
-                                    className="flex flex-col gap-1 border-t border-border p-2"
+        <MotionConfig reducedMotion="user">
+            <div className="relative flex h-full w-full flex-col">
+                <SurfaceToolbar
+                    title="Code"
+                    actions={
+                        <>
+                            <div className="relative">
+                                <button
+                                    ref={pickerTriggerRef}
+                                    type="button"
+                                    data-code-project-picker
+                                    onClick={() => togglePicker(!pickerOpen)}
+                                    className="flex cursor-pointer items-center gap-1.5 rounded-[8px] border border-border bg-surface px-2.5 py-1 text-[12px] text-secondary hover:text-primary"
                                 >
-                                    <div className="flex items-center gap-1">
-                                        <input
-                                            value={typedPath}
-                                            placeholder="Path to a directory"
-                                            aria-label="Directory path"
-                                            aria-invalid={pickerError != null}
-                                            onChange={(e) => {
-                                                setTypedPath(e.target.value);
-                                                globalStore.set(codePickerErrorAtom, null);
-                                            }}
-                                            className={cn(
-                                                "w-full rounded-[8px] border bg-surface px-2 py-1 text-[12px] text-primary outline-none placeholder:text-muted",
-                                                pickerError != null ? "border-error" : "border-border"
-                                            )}
-                                        />
-                                        <button
-                                            type="submit"
-                                            title="Open directory"
-                                            aria-label="Open directory"
-                                            className="flex flex-none cursor-pointer items-center rounded-[8px] border border-border px-1.5 py-1 text-secondary hover:text-primary"
-                                        >
-                                            <ArrowRight size={13} strokeWidth={1.8} />
-                                        </button>
-                                    </div>
-                                    {pickerError != null ? (
-                                        <div role="alert" className="text-[11.5px] text-error">
-                                            {pickerError}
+                                    <FolderGit2 size={13} strokeWidth={1.8} />
+                                    <span>{project?.name ?? "Pick a project"}</span>
+                                    <ChevronDown size={13} strokeWidth={1.8} />
+                                </button>
+                                {pickerOpen ? (
+                                    <div
+                                        data-code-picker-backdrop
+                                        className="fixed inset-0 z-50"
+                                        onClick={closePicker}
+                                    />
+                                ) : null}
+                                <PopoverReveal
+                                    open={pickerOpen}
+                                    origin="top right"
+                                    className="absolute right-0 top-[calc(100%+6px)] z-[60] max-h-[70vh] min-w-[240px] overflow-y-auto rounded-[10px] border border-border bg-surface shadow-popover-md"
+                                >
+                                    <PickerHeading first>Projects</PickerHeading>
+                                    {projects.length === 0 ? (
+                                        <div className="px-3 py-2 text-[12px] text-muted">No registered projects</div>
+                                    ) : (
+                                        projects.map((p) => (
+                                            <PickerRow
+                                                key={p.name}
+                                                label={p.name}
+                                                detail={p.path}
+                                                current={p.path === project?.path}
+                                                onClick={() => pick(p.path, () => selectProject(p))}
+                                            />
+                                        ))
+                                    )}
+                                    {otherCheckouts.length > 0 ? (
+                                        <div data-code-picker-section="worktrees">
+                                            <PickerHeading>Worktrees</PickerHeading>
+                                            {otherCheckouts.map((wt) => (
+                                                <PickerRow
+                                                    key={wt.path}
+                                                    label={wt.label}
+                                                    detail={wt.path}
+                                                    current={sameRepoPath(wt.path, project?.path ?? "")}
+                                                    onClick={() => pick(wt.path, () => selectPath(wt.path))}
+                                                />
+                                            ))}
                                         </div>
                                     ) : null}
-                                </form>
-                            </PopoverReveal>
-                        </div>
-                        <CodeReviewBar model={model} />
-                        <UnsavedDrafts />
-                        <SaveControls />
-                        {/* the affordance for an empty or unfocused tree, where there is no row to
+                                    {shownRecents.length > 0 ? (
+                                        <div data-code-picker-section="recent">
+                                            <PickerHeading>Recent</PickerHeading>
+                                            {shownRecents.map((r) => (
+                                                <PickerRow
+                                                    key={r.path}
+                                                    label={r.name}
+                                                    detail={r.path}
+                                                    current={sameRepoPath(r.path, project?.path ?? "")}
+                                                    onClick={() => openPicked(r.path)}
+                                                />
+                                            ))}
+                                        </div>
+                                    ) : null}
+                                    <form
+                                        data-code-picker-path
+                                        onSubmit={(e) => {
+                                            e.preventDefault();
+                                            openPicked(typedPath);
+                                        }}
+                                        className="flex flex-col gap-1 border-t border-border p-2"
+                                    >
+                                        <div className="flex items-center gap-1">
+                                            <input
+                                                value={typedPath}
+                                                placeholder="Path to a directory"
+                                                aria-label="Directory path"
+                                                aria-invalid={pickerError != null}
+                                                onChange={(e) => {
+                                                    setTypedPath(e.target.value);
+                                                    globalStore.set(codePickerErrorAtom, null);
+                                                }}
+                                                className={cn(
+                                                    "w-full rounded-[8px] border bg-surface px-2 py-1 text-[12px] text-primary outline-none placeholder:text-muted",
+                                                    pickerError != null ? "border-error" : "border-border"
+                                                )}
+                                            />
+                                            <button
+                                                type="submit"
+                                                title="Open directory"
+                                                aria-label="Open directory"
+                                                className="flex flex-none cursor-pointer items-center rounded-[8px] border border-border px-1.5 py-1 text-secondary hover:text-primary"
+                                            >
+                                                <ArrowRight size={13} strokeWidth={1.8} />
+                                            </button>
+                                        </div>
+                                        {pickerError != null ? (
+                                            <div role="alert" className="text-[11.5px] text-error">
+                                                {pickerError}
+                                            </div>
+                                        ) : null}
+                                    </form>
+                                </PopoverReveal>
+                            </div>
+                            <CodeReviewBar model={model} />
+                            <UnsavedDrafts />
+                            <SaveControls />
+                            {/* the affordance for an empty or unfocused tree, where there is no row to
                             right-click */}
-                        <HeaderButton
-                            label="New file (n)"
-                            disabled={project == null}
-                            onClick={() => startCreate(false)}
-                        >
-                            <FilePlus size={13} strokeWidth={1.8} />
-                        </HeaderButton>
-                        <HeaderButton
-                            label="New folder (Shift+N)"
-                            disabled={project == null}
-                            onClick={() => startCreate(true)}
-                        >
-                            <FolderPlus size={13} strokeWidth={1.8} />
-                        </HeaderButton>
-                        <HeaderButton
-                            label="Refresh index"
-                            disabled={project == null}
-                            onClick={() => fireAndForget(refreshIndex)}
-                        >
-                            <RotateCw size={13} strokeWidth={1.8} />
-                        </HeaderButton>
-                        <HeaderButton label="Back" disabled={!canBack(history)} onClick={() => fireAndForget(goBack)}>
-                            ←
-                        </HeaderButton>
-                        <HeaderButton
-                            label="Forward"
-                            disabled={!canForward(history)}
-                            onClick={() => fireAndForget(goForward)}
-                        >
-                            →
-                        </HeaderButton>
-                    </>
-                }
-            >
-                {/* takes the spacer's place so a long path truncates instead of wrapping the actions */}
-                <ToolbarFact className="block min-w-0 grow-[999] basis-0 truncate">
-                    {project != null
-                        ? `${project.name} · ${project.path}${plain ? " · not a git repository" : ""}`
-                        : "No project selected"}
-                </ToolbarFact>
-            </SurfaceToolbar>
-            {indexError != null ? (
-                <SurfaceError
-                    message={`Could not list files: ${indexError}`}
-                    onRetry={() => fireAndForget(refreshIndex)}
-                />
-            ) : null}
-            {mutateError != null ? (
-                <SurfaceError
-                    message={mutateError}
-                    actionLabel="Dismiss"
-                    onRetry={() => globalStore.set(codeMutateErrorAtom, null)}
-                />
-            ) : null}
-            <SaveBanner />
-            <div className="min-h-0 flex-1">
-                <CodeBody model={model} onPickProject={() => togglePicker(true)} />
+                            <HeaderButton
+                                label="New file (n)"
+                                disabled={project == null}
+                                onClick={() => startCreate(false)}
+                            >
+                                <FilePlus size={13} strokeWidth={1.8} />
+                            </HeaderButton>
+                            <HeaderButton
+                                label="New folder (Shift+N)"
+                                disabled={project == null}
+                                onClick={() => startCreate(true)}
+                            >
+                                <FolderPlus size={13} strokeWidth={1.8} />
+                            </HeaderButton>
+                            <HeaderButton
+                                label="Refresh index"
+                                disabled={project == null}
+                                onClick={() => fireAndForget(refreshIndex)}
+                            >
+                                <RotateCw size={13} strokeWidth={1.8} />
+                            </HeaderButton>
+                            <HeaderButton
+                                label="Back"
+                                disabled={!canBack(history)}
+                                onClick={() => fireAndForget(goBack)}
+                            >
+                                ←
+                            </HeaderButton>
+                            <HeaderButton
+                                label="Forward"
+                                disabled={!canForward(history)}
+                                onClick={() => fireAndForget(goForward)}
+                            >
+                                →
+                            </HeaderButton>
+                        </>
+                    }
+                >
+                    {/* takes the spacer's place so a long path truncates instead of wrapping the actions */}
+                    <ToolbarFact className="block min-w-0 grow-[999] basis-0 truncate">
+                        {project != null
+                            ? `${project.name} · ${project.path}${plain ? " · not a git repository" : ""}`
+                            : "No project selected"}
+                    </ToolbarFact>
+                </SurfaceToolbar>
+                {indexError != null ? (
+                    <SurfaceError
+                        message={`Could not list files: ${indexError}`}
+                        onRetry={() => fireAndForget(refreshIndex)}
+                    />
+                ) : null}
+                {mutateError != null ? (
+                    <SurfaceError
+                        message={mutateError}
+                        actionLabel="Dismiss"
+                        onRetry={() => globalStore.set(codeMutateErrorAtom, null)}
+                    />
+                ) : null}
+                <SaveBanner />
+                <div className="min-h-0 flex-1">
+                    <CodeBody model={model} onPickProject={() => togglePicker(true)} />
+                </div>
             </div>
-        </div>
+        </MotionConfig>
     );
 }
 

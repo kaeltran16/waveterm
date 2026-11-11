@@ -1845,7 +1845,7 @@ export const agentRailFileLink = {
 // wavesrv serves the fixture board, so the pane shows it; the swap is under test, not the board.
 const CANVAS_BOARD = "Main.dc.html";
 const CANVAS_SWAP = `document.querySelector('[role="group"][aria-label="Show terminal or canvas"]')`;
-const CANVAS_TREE_TAG = `[...document.querySelectorAll("[data-agent-tree] button[aria-pressed]")].find((b) => (b.textContent || "").trim().startsWith("canvas"))`;
+export const CANVAS_TREE_TAG = `[...document.querySelectorAll("[data-agent-tree] button[aria-pressed]")].find((b) => (b.textContent || "").trim().startsWith("canvas"))`;
 // the poller ticks every 3s (CANVAS_POLL_MS), so one tick always lands inside this
 const CANVAS_REMOVED_WAIT_MS = 5000;
 const CANVAS_ROSTER_WAIT_MS = 10000;
@@ -2057,7 +2057,7 @@ const pressMarkKey = async (h, { key, code, keyCode }) => {
 };
 
 // a real drag over the board, in window coordinates, from 15%/15% to 45%/40% of its visible rect
-async function dragMarkBox(h) {
+export async function dragMarkBox(h) {
     const r = await h.ev(`(() => {
         const b = document.querySelector("[data-canvas-board]")?.getBoundingClientRect();
         return b ? { x: b.x, y: b.y, w: b.width, h: b.height } : null;
@@ -2268,8 +2268,8 @@ export const agentTerminalNames = {
 
 // --- canvas board tabs: each board on its own tab, and All lays them side by side -------------------------
 // Unlike canvas-swap, the boards are under test: wavesrv serves them from the fixture's design folder.
-const CANVAS_TABS_TOPIC = "verify-canvas-tabs";
-const CANVAS_TABS = `document.querySelector('[role="tablist"][aria-label="Boards"]')`;
+export const CANVAS_TABS_TOPIC = "verify-canvas-tabs";
+export const CANVAS_TABS = `document.querySelector('[role="tablist"][aria-label="Boards"]')`;
 
 const canvasTabFrames = (h) =>
     h.ev(`(() => ({

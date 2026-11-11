@@ -4,7 +4,11 @@
 // The builder check's review of what it changed, the rail of the builder's answered questions beside it, and the
 // review's key hints.
 
+import { turnTransition, viewFade } from "@/app/element/motiontokens";
+import { PaneReveal } from "@/app/element/panereveal";
+import { TickNumber } from "@/app/element/ticknumber";
 import { cn } from "@/util/util";
+import { motion } from "motion/react";
 import { Fragment, useEffect, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
@@ -32,7 +36,7 @@ import {
     DOT_GUESS,
     DOT_OPEN,
     DOT_YOURS,
-    ERROR_LINE,
+    ErrorLine,
     FIELD,
     LINK,
     onEnter,
@@ -41,6 +45,7 @@ import {
     SaidLine,
     SECTION_HEAD,
     useAction,
+    ViewSwap,
     WORKING_TITLE,
 } from "./brainstormui";
 
@@ -65,7 +70,8 @@ const REVIEW_DOT: Record<PartView, string> = {
 };
 const QUIET_BTN =
     "cursor-pointer whitespace-nowrap border-0 bg-transparent px-[2px] py-[4px] text-[12px] text-ink-mid hover:text-secondary disabled:cursor-default disabled:opacity-50";
-const UNDER_ROW = "col-[3/-1] flex flex-col gap-[4px]";
+const UNDER_COL = "col-[3/-1]";
+const UNDER_BODY = "flex flex-col gap-[4px]";
 const REVIEW_KEYS: [string, string][] = [
     ["j k", "Next or previous decision"],
     ["Enter", "Open or close the decision"],
@@ -120,7 +126,9 @@ export function CheckReview({
                 {r.changed.length > 0 ? (
                     <section aria-label="Changed" data-brainstorm-review-section="changed" className="flex flex-col">
                         <div className="flex items-baseline gap-[8px] px-[14px] pb-[6px]">
-                            <h2 className={SECTION_HEAD}>Changed since you confirmed · {r.changed.length}</h2>
+                            <h2 className={SECTION_HEAD}>
+                                Changed since you confirmed · <TickNumber value={r.changed.length} />
+                            </h2>
                             {r.anyWas ? (
                                 <span className="text-[12px] text-muted">open one to see what it was</span>
                             ) : null}
@@ -158,9 +166,9 @@ function KeepAll({ agent, f, pending }: { agent: AgentVM; f: BrainstormFile; pen
                 onClick={() => void act.run(() => sendBrainstorm(agent, { kind: "keep-all" }))}
                 className={cn(PART_BTN, "whitespace-nowrap")}
             >
-                Keep all {pending} changes
+                Keep all <TickNumber value={pending} /> changes
             </button>
-            {act.error != null ? <span className={ERROR_LINE}>{act.error}</span> : null}
+            <ErrorLine error={act.error} />
         </span>
     );
 }
@@ -224,23 +232,35 @@ function ReviewRowView({
             </span>
         );
     } else if (row.action === "confirm") {
-        right = editing ? (
-            <span className={STACK_ACTIONS} />
-        ) : (
-            <span className={cn("-mt-[3px] flex items-center justify-end gap-[12px]", STACK_ACTIONS)}>
-                <button
-                    type="button"
-                    disabled={locked}
-                    title={lockTitle}
-                    onClick={() => void send({ kind: "confirm", part: row.id })}
-                    className={cn(PART_BTN, "whitespace-nowrap")}
-                >
-                    That’s right
-                </button>
-                <button type="button" disabled={locked} title={lockTitle} onClick={startEdit} className={QUIET_BTN}>
-                    Edit
-                </button>
-            </span>
+        // the actions give way to the edit box under the row, and come back when it closes
+        right = (
+            <ViewSwap
+                swapKey={editing ? "editing" : "actions"}
+                className={cn(!editing && "-mt-[3px] flex items-center justify-end gap-[12px]", STACK_ACTIONS)}
+            >
+                {editing ? null : (
+                    <>
+                        <button
+                            type="button"
+                            disabled={locked}
+                            title={lockTitle}
+                            onClick={() => void send({ kind: "confirm", part: row.id })}
+                            className={cn(PART_BTN, "whitespace-nowrap")}
+                        >
+                            That’s right
+                        </button>
+                        <button
+                            type="button"
+                            disabled={locked}
+                            title={lockTitle}
+                            onClick={startEdit}
+                            className={QUIET_BTN}
+                        >
+                            Edit
+                        </button>
+                    </>
+                )}
+            </ViewSwap>
         );
     } else if (row.action === "answer") {
         right = (
@@ -305,8 +325,9 @@ function ReviewRowView({
                     aria-label={`${open ? "Hide" : "Show"} ${row.hasWas ? "what it was" : "it"}`}
                     aria-expanded={open}
                     onClick={toggle}
+                    style={turnTransition}
                     className={cn(
-                        "mt-[4px] flex w-[12px] cursor-pointer border-0 bg-transparent p-0 text-muted",
+                        "mt-[4px] flex w-[12px] cursor-pointer border-0 bg-transparent p-0 text-muted transition-transform motion-reduce:transition-none",
                         open && "rotate-180"
                     )}
                 >
@@ -317,8 +338,8 @@ function ReviewRowView({
             ) : (
                 <span />
             )}
-            {open && expandable ? (
-                <div data-brainstorm-review-diff className={cn(UNDER_ROW, under)}>
+            <PaneReveal open={open && expandable} className={cn(UNDER_COL, under)}>
+                <div data-brainstorm-review-diff className={UNDER_BODY}>
                     {/* the cause is already under the title, so the diff leaves out its why */}
                     {row.was != null && part != null ? (
                         <ChangeDiff part={{ ...part, why: undefined }} />
@@ -329,9 +350,15 @@ function ReviewRowView({
                     )}
                     {part != null ? <PartMockups agentId={agent.id} s={s} f={f} part={part} /> : null}
                 </div>
-            ) : null}
+            </PaneReveal>
             {editing ? (
-                <div className={cn(UNDER_ROW, under)}>
+                // editing starts false, so this mounts only on the user's Edit
+                <motion.div
+                    variants={viewFade}
+                    initial="initial"
+                    animate="animate"
+                    className={cn(UNDER_COL, UNDER_BODY, under)}
+                >
                     <textarea
                         data-brainstorm-edit
                         aria-label={`Edit ${row.title}`}
@@ -360,7 +387,7 @@ function ReviewRowView({
                         className={FIELD}
                     />
                     <span className="text-[11.5px] text-muted">Enter sends · Esc cancels</span>
-                </div>
+                </motion.div>
             ) : null}
             {row.calls.map((c, i) => (
                 <div
@@ -375,7 +402,7 @@ function ReviewRowView({
                     {c}
                 </div>
             ))}
-            {act.error != null ? <span className={cn(ERROR_LINE, "col-[3/-1]", under)}>{act.error}</span> : null}
+            <ErrorLine error={act.error} className={cn("col-[3/-1]", under)} />
         </div>
     );
 }

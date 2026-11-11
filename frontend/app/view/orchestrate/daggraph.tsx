@@ -18,6 +18,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { atom, useAtom, useAtomValue } from "jotai";
+import { AnimatePresence } from "motion/react";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useFinalStageView } from "../agents/finalstageviews";
 import { runFinished } from "../agents/runlineage";
@@ -56,7 +57,7 @@ import {
     type RoutedEdgeData,
 } from "./dagnodes";
 import { nextSelection, PEEK_PAD_PX } from "./dagpeek";
-import type { PeekPlace } from "./dagpeekcard";
+import { DagPeekShell, type PeekPlace } from "./dagpeekcard";
 import { buildViewData, hoveredTaskAtom, mergeReadyIds, selectedTaskIdAtom, useDagGroup } from "./dagstore";
 import { DagTaskPeek, openTaskFromGraph } from "./dagtaskpeek";
 import { enterOpensTask } from "./taskcorrelate";
@@ -65,6 +66,8 @@ import { stageEntries, stageTone, type StageEntry } from "./taskroute";
 // fitView's padding, as a fraction of the pane
 const FIT_PADDING = 0.1;
 const PAN_MS = 200;
+// one key for every selection's card, so choosing another node keeps the card instead of replacing it
+const PEEK_KEY = "peek";
 
 const STAGE_DOT: Record<StageEntry["tone"], string> = {
     done: "border-success bg-success",
@@ -414,8 +417,10 @@ function DagGraphInner({ oref, owner, harnesses }: { oref: string; owner: Run; h
         ? (built.find((n) => n.id === selectedTask.id)?.data as unknown as DagCardData | undefined)?.view
         : undefined;
     const paneEl = paneElRef.current;
+    // a new selection keeps the card: until its anchor resolves (in the layout effect, before paint) the card
+    // still follows the last node, rather than unmounting and replaying its reveal
     const place: PeekPlace | null =
-        anchor != null && anchor.id === selectedId && paneEl != null
+        anchor != null && selectedId != null && paneEl != null
             ? {
                   anchor: anchor.el,
                   boundary: paneEl,
@@ -530,20 +535,37 @@ function DagGraphInner({ oref, owner, harnesses }: { oref: string; owner: Run; h
                         </button>
                     ) : null}
                 </div>
-                {place == null ? null : selectedTask && selectedView ? (
-                    <DagTaskPeek
-                        key={selectedTask.id}
-                        group={group}
-                        owner={owner}
-                        view={selectedView}
-                        task={selectedTask}
-                        digestTask={digestById.get(selectedTask.id)}
-                        briefs={briefs}
-                        place={place}
-                    />
-                ) : selectedId === FINAL_NODE_ID ? (
-                    <DagFinalPeek group={group} owner={owner} view={finalView} place={place} />
-                ) : null}
+                <AnimatePresence initial={false}>
+                    {place == null ? null : selectedTask && selectedView ? (
+                        <DagPeekShell
+                            key={PEEK_KEY}
+                            place={place}
+                            attrs={{ "data-dag-task-peek": selectedTask.id }}
+                            label={`${selectedTask.id} details`}
+                            contentKey={selectedTask.id}
+                        >
+                            <DagTaskPeek
+                                group={group}
+                                owner={owner}
+                                view={selectedView}
+                                task={selectedTask}
+                                digestTask={digestById.get(selectedTask.id)}
+                                briefs={briefs}
+                                place={place}
+                            />
+                        </DagPeekShell>
+                    ) : selectedId === FINAL_NODE_ID ? (
+                        <DagPeekShell
+                            key={PEEK_KEY}
+                            place={place}
+                            attrs={{ "data-dag-final-peek": "" }}
+                            label="Final verification details"
+                            contentKey={FINAL_NODE_ID}
+                        >
+                            <DagFinalPeek group={group} owner={owner} view={finalView} place={place} />
+                        </DagPeekShell>
+                    ) : null}
+                </AnimatePresence>
             </div>
         </div>
     );

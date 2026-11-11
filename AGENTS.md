@@ -133,4 +133,6 @@ Full map: `docs/reference/architecture.md`. Read it before working in an area yo
     interaction name the step that shows it, adding one if none does (opening its surface does not count;
     with a Prototype, every board needs one). Final runs only the named scenarios, so a UI no scenario opens
     goes unverified.
+  - **A task that builds a view names the state changes it adds and the moment each uses**
+    (`docs/reference/motion-system.md`), and its scenario step shows one of them.
   - Tasks with no `**Depends on:**` line run serially; the Depends lines set the plan's width.

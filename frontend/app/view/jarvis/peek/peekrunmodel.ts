@@ -15,7 +15,8 @@ import type { PeekFacts } from "../peekstore";
 
 export type PeekTone = "done" | "running" | "warning" | "failed" | "pending";
 
-export type PeekPhase = { label: string; state: string; tone: PeekTone };
+// count is the number state leads with (the tasks landed), so the view can roll it when it changes
+export type PeekPhase = { label: string; state: string; tone: PeekTone; count?: number };
 
 export type PeekTaskRow = { id: string; title: string; mark: PeekTone; state: string; tokens: string };
 
@@ -110,15 +111,15 @@ function tasksPhase(group: TaskGroup | null): PeekPhase {
     const { done, total } = runProgress(group);
     const state = `${done} of ${total} landed`;
     if (total > 0 && done === total) {
-        return { label: "Tasks", state, tone: "done" };
+        return { label: "Tasks", state, tone: "done", count: done };
     }
     if (group.tasks.some((t) => FAILED_STATES.has(t.state))) {
-        return { label: "Tasks", state, tone: "failed" };
+        return { label: "Tasks", state, tone: "failed", count: done };
     }
     if (group.tasks.some((t) => ATTENTION_STATES.has(t.state))) {
-        return { label: "Tasks", state, tone: "warning" };
+        return { label: "Tasks", state, tone: "warning", count: done };
     }
-    return { label: "Tasks", state, tone: "running" };
+    return { label: "Tasks", state, tone: "running", count: done };
 }
 
 const FINAL_TONE: Record<string, PeekTone> = {

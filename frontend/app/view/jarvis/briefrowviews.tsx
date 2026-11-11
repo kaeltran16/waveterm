@@ -6,10 +6,13 @@
 // design gives them different anatomies: Waiting acts in place, Runs is two lines under a type badge,
 // Behind you is two lines under a wording column.
 
+import { useChangeFlash } from "@/app/element/motionhooks";
+import { changeFlashClass, microFade } from "@/app/element/motiontokens";
 import { getSettingsKeyAtom } from "@/app/store/global";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { ChevronDown, ChevronRight, CornerDownRight } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import type { ReactNode } from "react";
 import type { QueueAct } from "./briefingmodel";
 import type { BriefLine, RunRowFace } from "./briefrows";
@@ -273,6 +276,7 @@ export function RunRowView({
     line,
     face,
     focused,
+    fresh,
     selected,
     onOpenSheet,
     onOpenChunk,
@@ -283,6 +287,7 @@ export function RunRowView({
     line: BriefLine;
     face: RunRowFace;
     focused: boolean;
+    fresh: boolean;
     selected: boolean;
     onOpenSheet?: (e: React.MouseEvent) => void;
     onOpenChunk: () => void;
@@ -294,6 +299,8 @@ export function RunRowView({
         e.stopPropagation();
         fn();
     };
+    // the run moving to another chunk under the user washes the label once
+    const chunkFlash = useChangeFlash(face.chunkLabel);
     return (
         <div
             data-jarvis-brief-row="session"
@@ -305,7 +312,8 @@ export function RunRowView({
                 ROW_BORDER,
                 onOpenSheet != null && "cursor-pointer",
                 selected && "bg-surface-selected",
-                focused && CURSOR_RING
+                focused && CURSOR_RING,
+                fresh && "fresh-mark"
             )}
         >
             <span className={cn("h-[7px] w-[7px] flex-none rounded-full", DOT[face.dot])} />
@@ -335,7 +343,10 @@ export function RunRowView({
                             type="button"
                             title="Open this chunk"
                             onClick={stop(onOpenChunk)}
-                            className="flex min-w-0 cursor-pointer items-center gap-1 font-mono text-[10.5px] text-muted hover:text-accent-soft"
+                            className={cn(
+                                "flex min-w-0 cursor-pointer items-center gap-1 font-mono text-[10.5px] text-muted hover:text-accent-soft",
+                                chunkFlash && changeFlashClass
+                            )}
                         >
                             <CornerDownRight size={11} aria-hidden className="flex-none" />
                             <span className="truncate">{face.chunkLabel}</span>
@@ -351,29 +362,44 @@ export function RunRowView({
             >
                 {face.state}
             </span>
+            {/* a run starting to ask, or ending, brings its control in or out with a fade rather than a cut */}
             <div className="flex flex-none justify-end gap-1">
-                {face.asking ? (
-                    <button
-                        type="button"
-                        onClick={stop(onAnswer)}
-                        className="cursor-pointer rounded-[6px] border border-asking/35 bg-asking/12 px-2 py-[3px] text-[10.5px] font-bold text-asking hover:bg-asking/20"
-                    >
-                        Answer
-                    </button>
-                ) : null}
+                <AnimatePresence initial={false}>
+                    {face.asking ? (
+                        <motion.button
+                            key="answer"
+                            type="button"
+                            variants={microFade}
+                            initial="initial"
+                            animate="animate"
+                            exit="exit"
+                            onClick={stop(onAnswer)}
+                            className="cursor-pointer rounded-[6px] border border-asking/35 bg-asking/12 px-2 py-[3px] text-[10.5px] font-bold text-asking hover:bg-asking/20"
+                        >
+                            Answer
+                        </motion.button>
+                    ) : null}
+                </AnimatePresence>
                 <button type="button" onClick={stop(onOpenAgent)} className={SMALL_BTN}>
                     Open
                 </button>
-                {face.canStop ? (
-                    <button
-                        type="button"
-                        title="Stop this session"
-                        onClick={stop(onStop)}
-                        className={cn(SMALL_BTN, "text-ink-mid hover:border-error/50 hover:text-error")}
-                    >
-                        Stop
-                    </button>
-                ) : null}
+                <AnimatePresence initial={false}>
+                    {face.canStop ? (
+                        <motion.button
+                            key="stop"
+                            type="button"
+                            title="Stop this session"
+                            variants={microFade}
+                            initial="initial"
+                            animate="animate"
+                            exit="exit"
+                            onClick={stop(onStop)}
+                            className={cn(SMALL_BTN, "text-ink-mid hover:border-error/50 hover:text-error")}
+                        >
+                            Stop
+                        </motion.button>
+                    ) : null}
+                </AnimatePresence>
             </div>
         </div>
     );

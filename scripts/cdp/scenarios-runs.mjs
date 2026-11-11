@@ -118,7 +118,7 @@ const rvFact = (nodeExpr) =>
     `(${nodeExpr}?.querySelector("[data-dag-node-fact]")?.textContent ?? "").replace(/\\s+/g, " ").replace(/^\\s*·\\s*/, "").trim()`;
 
 // opens the run's sheet, then its DAG from the dock; true once the graph shows a card
-async function rvOpenDag(h, runId) {
+export async function rvOpenDag(h, runId) {
     if ((await h.activeSurfaceLabel()) !== SURFACE_LABEL.jarvis) await h.goto("jarvis");
     await h.ev(openAddressExpr(`run:${runId}`));
     const sheet = await polishWaitFor(h, `!!${RV_OPEN_DAG}`, 15000);
@@ -1494,11 +1494,13 @@ export const leadCardMergeGate = {
     },
 };
 
-// Page-only: the run's dag in the page takes `tasks` (fields per task id; an id it lacks is added) at one version past
+// Page-only: the run's dag in the page takes `fields` (its own top-level fields, such as status or final) and
+// `tasks` (fields per task id; an id it lacks is added) at one version past
 // the one it holds, and the dag status RPC answers that version with `digest` (fields per task row, added likewise):
-// the merge gate's held state and a task's actions are digest fields no RPC writes. undoPageDag puts the RPC back
+// the merge gate's held state and a task's actions are digest fields no RPC writes; `next`, when given, replaces the
+// digest's next step (the sheet's next: line). undoPageDag puts the RPC back
 // and reloads the stored dag, whose own version brings the real digest back.
-const injectPageDag = (h, runId, { tasks = {}, digest = {} }) =>
+export const injectPageDag = (h, runId, { tasks = {}, digest = {}, next, fields = {} }) =>
     lookEval(h, `
         const { RpcApi } = await mod("app/store/wshclientapi.ts");
         const WOS = await mod("app/store/wos.ts");
@@ -1515,11 +1517,11 @@ const injectPageDag = (h, runId, { tasks = {}, digest = {} }) =>
             const rtn = await saved.orig.call(RpcApi, client, data, opts);
             if (data?.runid !== runId || rtn?.digest == null) return rtn;
             const tasks = merge(rtn.digest.tasks ?? [], "taskid", ${JSON.stringify(digest)});
-            return { ...rtn, digest: { ...rtn.digest, dagversion: version, tasks } };
+            return { ...rtn, digest: { ...rtn.digest, dagversion: version, tasks${next ? `, next: ${JSON.stringify(next)}` : ""} } };
         };
-        WOS.setObjectValue({ ...dag, version, tasks: merge(dag.tasks ?? [], "id", ${JSON.stringify(tasks)}) });
+        WOS.setObjectValue({ ...dag, ...${JSON.stringify(fields)}, version, tasks: merge(dag.tasks ?? [], "id", ${JSON.stringify(tasks)}) });
         return "ok";`);
-const undoPageDag = (h, runId) =>
+export const undoPageDag = (h, runId) =>
     lookEval(h, `
         const { RpcApi } = await mod("app/store/wshclientapi.ts");
         const WOS = await mod("app/store/wos.ts");
@@ -2621,11 +2623,11 @@ const dagPeekPrint = (dag) => {
     const t = (id) => (dag?.tasks ?? []).find((x) => x.id === id);
     return JSON.stringify([dag?.check ?? "", dag?.verify ?? "", dag?.finalcmd ?? "", dag?.final ?? null, t("t-2")?.state, t("t-3")?.state, t("t-3")?.escalations ?? 0]);
 };
-const DAG_PEEK_MODAL = `document.querySelector("[data-dag-modal-kind]")`;
-const dagPeekTaskSel = (id) => `[data-dag-task-peek="${id}"]`;
-const DAG_PEEK_FINAL_SEL = "[data-dag-final-peek]";
-const dagPeekCard = (sel) => `${DAG_PEEK_MODAL}?.querySelector(${JSON.stringify(sel)})`;
-const dagPeekClickNode = (id) => `${DAG_PEEK_MODAL}?.querySelector('[data-dag-node="${id}"]')?.click()`;
+export const DAG_PEEK_MODAL = `document.querySelector("[data-dag-modal-kind]")`;
+export const dagPeekTaskSel = (id) => `[data-dag-task-peek="${id}"]`;
+export const DAG_PEEK_FINAL_SEL = "[data-dag-final-peek]";
+export const dagPeekCard = (sel) => `${DAG_PEEK_MODAL}?.querySelector(${JSON.stringify(sel)})`;
+export const dagPeekClickNode = (id) => `${DAG_PEEK_MODAL}?.querySelector('[data-dag-node="${id}"]')?.click()`;
 const dagPeekAnyCard = `!!document.querySelector("[data-dag-task-peek], [data-dag-final-peek], [data-dag-peek]")`;
 // the card is a sibling of .react-flow inside the pane div, so .react-flow's parent is the pane
 const DAG_PEEK_LIB = `
@@ -2681,7 +2683,7 @@ const DAG_PEEK_EMPTY = `(() => {
 })()`;
 const DAG_PEEK_RAIL = `${DAG_PEEK_MODAL}?.querySelector("[data-timeline-rail]")`;
 // the rail's history has loaded: a run:event published before that is overwritten by the load
-const DAG_PEEK_RAIL_LIVE = `(${DAG_PEEK_RAIL}?.textContent ?? "").includes("● live")`;
+export const DAG_PEEK_RAIL_LIVE = `(${DAG_PEEK_RAIL}?.textContent ?? "").includes("● live")`;
 // the rail's pressed filter and the task of each row it shows
 const DAG_PEEK_RAIL_STATE = `(() => {
     const rail = ${DAG_PEEK_RAIL};
@@ -2724,7 +2726,7 @@ const DAG_PEEK_RESTORE = `(() => {
     return "restored";
 })()`;
 
-async function dagPeekOpen(h, sel, nodeId) {
+export async function dagPeekOpen(h, sel, nodeId) {
     if (!(await h.ev(`!!${dagPeekCard(sel)}`))) await h.ev(dagPeekClickNode(nodeId));
     return polishWaitFor(h, `!!${dagPeekCard(sel)}`, 4000);
 }
@@ -2741,7 +2743,7 @@ async function dagPeekSettled(h) {
     return last;
 }
 
-async function dagPeekPublish(h, ctx, events) {
+export async function dagPeekPublish(h, ctx, events) {
     const now = Date.now();
     for (const [i, [kind, detail, ago]] of events.entries()) {
         const event = {
@@ -4996,7 +4998,7 @@ async function arrangeFinalStage(h, ctx) {
     const verifierRun = await fstWriteRun(h, ctx.verifierRunId, (run) => ({ ...run, stagerole: "verifier", dagoref: ctx.dagId }));
     ctx.verifierSeeded = verifierRun?.stagerole === "verifier" && verifierRun.dagoref === ctx.dagId && !verifierRun.completedts;
     await h.ev(`localStorage.setItem(${JSON.stringify(RAIL_VISIBLE_KEY)}, "true")`);
-    await fstShow(h, ctx, "waiting");
+    ctx.waiting = await fstShow(h, ctx, "waiting");
     ctx.leadFocused = await fstBoot(h, ctx, false);
 }
 
@@ -5050,9 +5052,16 @@ export const finalStageScenario = {
             { landPath: ctx.landPath, root: wtRoot, cwd: ctx.cwd }
         );
 
-        // --- Part B: the States rows, on a dag the engine leaves alone ---
+        // --- Part B: the States rows, on a dag whose final the engine leaves alone ---
         let a = await fstAgent(h, (s) => s.rows.length === 0 && s.railSteps === 0);
-        let d = await fstDag(h, ctx, (s) => s.node.meta === "waits on every task");
+        // t-1's worker still ticks the dag, so every wait on a seeded row takes its nudge (fstShow); a seed lost
+        // here leaves no commands, and the strip draws the Verifier alone
+        let d = await fstDag(
+            h,
+            ctx,
+            (s) => s.node.meta === "waits on every task" && fstSame(s.node.strip, fstRepeat("waiting", 5)),
+            ctx.waiting
+        );
         rec(
             "B1. tasks still running: no tree row and no slot; the last node reads waits on every task over five waiting segments",
             () =>
@@ -5066,12 +5075,12 @@ export const finalStageScenario = {
         );
         await shot("b1-waiting-dag");
 
-        await fstShow(h, ctx, "tree");
-        a = await fstAgent(h, (s) => s.rows.length === 1 && s.rows[0].sub.startsWith("Tree"));
+        let wait = await fstShow(h, ctx, "tree");
+        a = await fstAgent(h, (s) => s.rows.length === 1 && s.rows[0].sub.startsWith("Tree"), wait);
         await clickRow();
         a = await fstUntil(h, FST_AGENT, (s) => s.rows[0].selected && s.pane != null && s.stage != null);
         await shot("b2-tree-pane");
-        d = await fstDag(h, ctx, (s) => s.node.meta.startsWith("round 1 · Tree"));
+        d = await fstDag(h, ctx, (s) => s.node.meta.startsWith("round 1 · Tree"), wait);
         rec(
             "B2. preparing the tree: Tree · <time> · step 1 of 5, the step list with Tree running, no output box, and End final stage",
             () =>
@@ -5093,10 +5102,10 @@ export const finalStageScenario = {
         );
         await shot("b2-tree-dag");
 
-        let wait = await fstShow(h, ctx, "alongside");
+        wait = await fstShow(h, ctx, "alongside");
         a = await fstAgent(h, (s) => s.rows[0].sub.startsWith("Check") && s.pane.steps[0].text === "passed 22s", wait);
         await shot("b3-alongside-pane");
-        d = await fstDag(h, ctx, (s) => s.node.meta === "round 1 · Check · verifier");
+        d = await fstDag(h, ctx, (s) => s.node.meta === "round 1 · Check · verifier", wait);
         rec(
             "B3. verifier alongside (no Final command): four steps, the Verifier running beside Check, Tree's time from its event",
             () =>
@@ -5114,7 +5123,7 @@ export const finalStageScenario = {
         wait = await fstShow(h, ctx, "reviewing");
         a = await fstAgent(h, (s) => s.rows[0].sub.startsWith("verifier reviewing") && s.pane.steps[3].state === "passed", wait);
         await shot("b4-reviewing-pane");
-        d = await fstDag(h, ctx, (s) => s.node.meta.startsWith("round 2 · verifier"));
+        d = await fstDag(h, ctx, (s) => s.node.meta.startsWith("round 2 · verifier"), wait);
         rec(
             "B4. verifier reviewing with its tab gone: the row is the stage's own, every command passed, the Verifier running, round 1 one line",
             () =>
@@ -5138,7 +5147,7 @@ export const finalStageScenario = {
         await finalShotsClick(h, `${FST_PANE}?.querySelector("[data-final-shots-link]")`);
         const paneViewer = (await fstUntil(h, FST_AGENT, (s) => s.viewer))?.viewer;
         await closeViewer();
-        d = await fstDag(h, ctx, (s) => s.node.meta === "round 1 · failed at Final");
+        d = await fstDag(h, ctx, (s) => s.node.meta === "round 1 · failed at Final", wait);
         await shot("b5-failed-dag");
         await finalShotsClick(h, `${FST_DAG_PEEK}?.querySelector("[data-final-shots-link]")`);
         const peekViewer = (await fstUntil(h, FST_DAG, (s) => s.viewer))?.viewer;
@@ -5186,7 +5195,7 @@ export const finalStageScenario = {
         await finalShotsClick(h, `${FST_RAIL}?.querySelector('[data-final-rail] [data-final-step="check"]')`);
         const keptRail = await fstUntil(h, keptRead, (s) => s.rail.includes(FST_KEPT_MARK));
         await shot("b5b-kept-rail");
-        await fstDag(h, ctx, (s) => s.node.meta === "round 1 · failed at Final");
+        await fstDag(h, ctx, (s) => s.node.meta === "round 1 · failed at Final", wait);
         const dagCell = `${FST_DAG_PEEK}?.querySelector('[data-final-step="check"]')`;
         const dagRead = `(() => ({
             text: (${FST_DAG_PEEK}?.textContent ?? "").replace(/\\s+/g, " ").trim(),
@@ -5196,7 +5205,8 @@ export const finalStageScenario = {
         const keptDag = await fstUntil(h, dagRead, (s) => s.text.includes(FST_KEPT_MARK));
         await shot("b5b-kept-dag");
         await finalShotsClick(h, dagCell);
-        const keptDagClosed = await fstUntil(h, dagRead, (s) => s.expanded.length === 0);
+        // the output leaves through its pane's exit, so its text is waited out too
+        const keptDagClosed = await fstUntil(h, dagRead, (s) => s.expanded.length === 0 && !s.text.includes(FST_KEPT_MARK));
         rec(
             "B5b. a step that ended opens the output it kept: Check's from the pane, the rail and the DAG peek card (under its row, the outcome still shown), Verify's says none was kept, and a second click returns to the outcome",
             () =>
@@ -5213,10 +5223,10 @@ export const finalStageScenario = {
             { keptCheck, keptGone, keptClosed, keptRail, keptDag, keptDagClosed }
         );
 
-        await fstShow(h, ctx, "fixing");
-        a = await fstAgent(h, (s) => s.rows[0].sub.startsWith("round 2") && s.rows[0].tone === "wait");
+        wait = await fstShow(h, ctx, "fixing");
+        a = await fstAgent(h, (s) => s.rows[0].sub.startsWith("round 2") && s.rows[0].tone === "wait", wait);
         await shot("b6-fixing-pane");
-        d = await fstDag(h, ctx, (s) => s.node.meta.startsWith("round 2 waits on"));
+        d = await fstDag(h, ctx, (s) => s.node.meta.startsWith("round 2 waits on"), wait);
         rec(
             "B6. fix round under way: round 2 waits on the unfinished tasks, every step waiting, round 1 one past-round line",
             () =>
@@ -5233,9 +5243,9 @@ export const finalStageScenario = {
 
         // the verifier's tab joins the roster. Until the stage names its run, that tab is a stage row an earlier
         // round left, and the stage's row is its own
-        await fstShow(h, ctx, "reviewing", { verifier: false });
+        wait = await fstShow(h, ctx, "reviewing", { verifier: false });
         const rebooted = await fstBoot(h, ctx, true);
-        await fstAgent(h, (s) => s.rows.length === 1);
+        await fstAgent(h, (s) => s.rows.length === 1, wait);
         await clickRow();
         const own = await fstUntil(h, FST_AGENT, (s) => s.rows[0].selected && s.pane != null);
         wait = await fstShow(h, ctx, "reviewing");
@@ -5259,7 +5269,7 @@ export const finalStageScenario = {
         // away from the row, so landing on it is the Enter's doing
         await fstFocusLead(h);
         const away = await fstUntil(h, FST_AGENT, (s) => s.rows[0].selected === false);
-        d = await fstDag(h, ctx, (s) => s.peek.open === true);
+        d = await fstDag(h, ctx, (s) => s.peek.open === true, wait);
         await shot("b7-session-dag");
         const entered = await h.ev(`(() => {
             const node = ${FST_NODE}?.closest(".react-flow__node");
@@ -5295,7 +5305,7 @@ export const finalStageScenario = {
         wait = await fstShow(h, ctx, "unverified");
         a = await fstAgent(h, (s) => s.rows[0].tone === "warn" && s.stage.steps[4].state === "unverified", wait);
         await shot("b8-unverified-agent");
-        d = await fstDag(h, ctx, (s) => s.node.meta === "round 2 · unverified");
+        d = await fstDag(h, ctx, (s) => s.node.meta === "round 2 · unverified", wait);
         rec(
             "B8. unverified in round 2 on the verifier's verdict: unverified · 1 reason, the reason whole, the Verifier unverified, round 1 one line",
             () =>
@@ -5317,14 +5327,14 @@ export const finalStageScenario = {
         await h.goto("agent");
         // off the row, or the fold stays open under the reader
         await fstFocusLead(h);
-        const folded = await fstUntil(h, FST_AGENT, (s) => s.rows.length === 0 && s.fold != null);
+        const folded = await fstUntil(h, FST_AGENT, (s) => s.rows.length === 0 && s.fold != null, wait);
         await shot("b9-passed-folded");
         await finalShotsClick(h, FST_FOLD);
         await fstUntil(h, FST_AGENT, (s) => s.rows.length === 1);
         await clickRow();
         a = await fstUntil(h, FST_AGENT, (s) => s.rows[0].sub === `passed · ${FST_TOTAL}` && s.stage != null, wait);
         await shot("b9-passed-agent");
-        d = await fstDag(h, ctx, (s) => s.node.meta === `round 2 · passed · ${FST_TOTAL}`);
+        d = await fstDag(h, ctx, (s) => s.node.meta === `round 2 · passed · ${FST_TOTAL}`, wait);
         rec(
             "B9. passed in round 2: the row is inside the run's finished group, every step shows its time, and the row and the node show the total",
             () =>
@@ -5350,7 +5360,7 @@ export const finalStageScenario = {
         await clickRow();
         a = await fstUntil(h, FST_AGENT, (s) => s.rows[0].sub === "passed" && s.stage.steps[0].text === "passed 22s", wait);
         await shot("b10-no-total-agent");
-        d = await fstDag(h, ctx, (s) => s.node.meta === "round 2 · passed");
+        d = await fstDag(h, ctx, (s) => s.node.meta === "round 2 · passed", wait);
         rec(
             "B10. with one step's event gone: the total leaves the row and the node, that step shows no time, and every state stays passed",
             () =>

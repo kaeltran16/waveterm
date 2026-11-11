@@ -11,7 +11,12 @@
 // owns the status write on it, including the terminal-status question, which both hosts ask in place; the
 // Brief's modal and the avatar popup's record item both render it.
 
+import { AutoHeight } from "@/app/element/autoheight";
+import { useChangeFlash } from "@/app/element/motionhooks";
+import { changeFlashClass, MOTION } from "@/app/element/motiontokens";
+import { PaneReveal } from "@/app/element/panereveal";
 import { Skeleton, SkeletonLine } from "@/app/element/skeleton";
+import { ViewSwap } from "@/app/element/viewswap";
 import { ModalShell } from "@/app/modals/modalshell";
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
@@ -202,10 +207,12 @@ function RunRowView({ row, model, place }: { row: PeekRunRow; model: AgentsViewM
 // Brief a dialog over the modal would stack two modals both claiming Escape.
 function InlineConfirm({
     status,
+    flash,
     onConfirm,
     onCancel,
 }: {
     status: string;
+    flash: boolean;
     onConfirm: () => void;
     onCancel: () => void;
 }) {
@@ -213,7 +220,10 @@ function InlineConfirm({
     return (
         <div
             data-jarvis-peek-confirm={status}
-            className="mx-[18px] mt-2.5 flex flex-none items-center gap-3 rounded-[8px] border border-edge-mid bg-surface px-3 py-2.5"
+            className={cn(
+                "mx-[18px] mt-2.5 flex flex-none items-center gap-3 rounded-[8px] border border-edge-mid bg-surface px-3 py-2.5",
+                flash && changeFlashClass
+            )}
         >
             <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <span className="text-[12px] font-semibold text-ink-hi">{copy.title}</span>
@@ -289,6 +299,8 @@ export function RecordPeekBody({
     const [objectiveOpen, setObjectiveOpen] = useState(false);
     const [decisionsOpen, setDecisionsOpen] = useState(false);
     const decisionsRef = useRef<HTMLDivElement | null>(null);
+    // the question arriving under the toggle the user just pressed washes once, so it reads as the answer to it
+    const askFlash = useChangeFlash(asking);
 
     // both caches, because the peek's two halves come from different reads: the record's own fields, and the
     // runs attributed to it (a dossier has no run list of its own — ResolveSpaceScope answers that).
@@ -326,12 +338,13 @@ export function RecordPeekBody({
     }, [anchor, decisions]);
 
     // the log opens below the runs, so opening it from the footer brings it into sight. Not done for an anchored
-    // open: the anchored card scrolls itself into view.
+    // open: the anchored card scrolls itself into view. Once the reveal has grown it: scrolled to mid-reveal, only
+    // the log's first rows would come into sight.
     const toggleDecisions = () => {
         const opening = !decisionsOpen;
         setDecisionsOpen(opening);
         if (opening) {
-            requestAnimationFrame(() => decisionsRef.current?.scrollIntoView({ block: "nearest" }));
+            setTimeout(() => decisionsRef.current?.scrollIntoView({ block: "nearest" }), MOTION.durMacro * 1000);
         }
     };
 
@@ -404,6 +417,7 @@ export function RecordPeekBody({
                 {asking != null ? (
                     <InlineConfirm
                         status={asking}
+                        flash={askFlash}
                         onConfirm={() => {
                             setDossierStatus(recordId, asking);
                             setAsking(null);
@@ -414,16 +428,20 @@ export function RecordPeekBody({
                 <div className="flex min-h-0 flex-col gap-4 overflow-y-auto px-[18px] pt-4 pb-[18px]">
                     {peek.body != null ? (
                         <div className="flex flex-col gap-1.5">
-                            <p
-                                data-jarvis-peek-body
-                                className={cn(
-                                    "m-0 whitespace-pre-line text-[13px] leading-[1.6]",
-                                    peek.bodyIsAbsence ? "text-muted" : "text-ink-mid",
-                                    peek.bodyMore != null && !objectiveOpen && "line-clamp-4"
-                                )}
-                            >
-                                {peek.body}
-                            </p>
+                            {/* the objective is one clamped text, not a pane that mounts, so its height follows
+                                the clamp rather than revealing a second element */}
+                            <AutoHeight className="flex-none">
+                                <p
+                                    data-jarvis-peek-body
+                                    className={cn(
+                                        "m-0 whitespace-pre-line text-[13px] leading-[1.6]",
+                                        peek.bodyIsAbsence ? "text-muted" : "text-ink-mid",
+                                        peek.bodyMore != null && !objectiveOpen && "line-clamp-4"
+                                    )}
+                                >
+                                    {peek.body}
+                                </p>
+                            </AutoHeight>
                             {peek.bodyMore != null ? (
                                 <button
                                     type="button"
@@ -444,30 +462,42 @@ export function RecordPeekBody({
                             <span className="flex-1" />
                             <span className={cn("flex-none", MONO_FAINT)}>{peek.fleetMeta}</span>
                         </div>
-                        <div className="flex flex-col overflow-hidden rounded-[9px] border border-border bg-background">
-                            {peek.runsLoading ? (
-                                <div data-jarvis-peek-runs-loading className="flex flex-col">
-                                    {RUN_SKELETON_WIDTHS.map((w) => (
-                                        <div key={w} className="border-b border-edge-faint px-3 py-2.5 last:border-b-0">
-                                            <SkeletonLine className={cn("h-2.5", w)} />
-                                        </div>
-                                    ))}
-                                </div>
-                            ) : peek.runsAbsent != null ? (
-                                <div className="px-3 py-2.5 font-mono text-[11px] text-muted">{peek.runsAbsent}</div>
-                            ) : (
-                                peek.runs.map((row) => (
-                                    <RunRowView key={row.runId} row={row} model={model} place={place} />
-                                ))
-                            )}
-                        </div>
+                        {/* the read landing swaps the skeleton for the runs (or their absence): the table's height
+                            follows and the new rows fade in, rather than the footer jumping */}
+                        <AutoHeight className="flex-none overflow-hidden rounded-[9px] border border-border bg-background">
+                            <ViewSwap
+                                swapKey={peek.runsLoading ? "loading" : peek.runsAbsent != null ? "absent" : "runs"}
+                                className="flex flex-col"
+                            >
+                                {peek.runsLoading ? (
+                                    <div data-jarvis-peek-runs-loading className="flex flex-col">
+                                        {RUN_SKELETON_WIDTHS.map((w) => (
+                                            <div
+                                                key={w}
+                                                className="border-b border-edge-faint px-3 py-2.5 last:border-b-0"
+                                            >
+                                                <SkeletonLine className={cn("h-2.5", w)} />
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : peek.runsAbsent != null ? (
+                                    <div className="px-3 py-2.5 font-mono text-[11px] text-muted">
+                                        {peek.runsAbsent}
+                                    </div>
+                                ) : (
+                                    peek.runs.map((row) => (
+                                        <RunRowView key={row.runId} row={row} model={model} place={place} />
+                                    ))
+                                )}
+                            </ViewSwap>
+                        </AutoHeight>
                     </div>
-                    {decisionsOpen ? (
+                    <PaneReveal open={decisionsOpen} className="flex-none">
                         <div ref={decisionsRef} data-jarvis-peek-decision-log className="flex flex-col">
                             <span className="px-0.5 pb-2 text-[12.5px] font-semibold text-secondary">Decisions</span>
                             <DecisionLog decisions={decisions ?? []} dossierId={recordId} />
                         </div>
-                    ) : null}
+                    </PaneReveal>
                 </div>
                 <div className="flex flex-none items-center gap-2 border-t border-border px-[18px] py-3">
                     <button

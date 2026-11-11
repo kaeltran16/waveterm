@@ -1,6 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { fmtSize } from "@/app/cockpit/resmon";
 import { describe, expect, it } from "vitest";
 import { storageScenarios } from "./storagefixtures";
 import {
@@ -79,10 +80,18 @@ describe("storage (board Main)", () => {
     });
     it("shows the stat tiles, the Clear button and the nav summary", () => {
         expect(storageStats(S.storage)).toEqual([
-            { group: "left", label: "Left over", value: "363 MB", sub: "11 items" },
-            { group: "inuse", label: "In use", value: "51 MB", sub: "1 live run" },
-            { group: "kept", label: "Kept on purpose", value: "14.2 GB", sub: "7 items · caches and history" },
+            { group: "left", label: "Left over", value: "363 MB", bytes: expect.any(Number), sub: "11 items" },
+            { group: "inuse", label: "In use", value: "51 MB", bytes: expect.any(Number), sub: "1 live run" },
+            {
+                group: "kept",
+                label: "Kept on purpose",
+                value: "14.2 GB",
+                bytes: expect.any(Number),
+                sub: "7 items · caches and history",
+            },
         ]);
+        // the tile rolls bytes, so it has to be the number the shown value was formatted from
+        expect(storageStats(S.storage).map((t) => fmtSize(t.bytes ?? -1))).toEqual(["363 MB", "51 MB", "14.2 GB"]);
         expect(clearButton(S.storage)).toEqual({ show: true, enabled: true, label: "Clear 314 MB left over" });
         expect(rescanEnabled(S.storage)).toBe(true);
         expect(navSummary(S.storage)).toEqual({ count: "14.6 GB", pill: "363 MB left over" });
@@ -284,10 +293,10 @@ describe("states", () => {
         expect(row(S.cleared, SKIPPED).canDelete).toBe(true);
     });
     it("scanning: pending stats, no sections, no Clear, polling", () => {
-        expect(storageStats(S.scanning).map((t) => [t.value, t.sub])).toEqual([
-            ["…", "scanning"],
-            ["…", "scanning"],
-            ["…", "scanning"],
+        expect(storageStats(S.scanning).map((t) => [t.value, t.bytes, t.sub])).toEqual([
+            ["…", null, "scanning"],
+            ["…", null, "scanning"],
+            ["…", null, "scanning"],
         ]);
         expect(storageSections(S.scanning, NOW)).toEqual([]);
         expect(clearButton(S.scanning).show).toBe(false);

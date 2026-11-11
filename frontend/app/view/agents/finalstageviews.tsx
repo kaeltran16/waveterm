@@ -4,6 +4,12 @@
 // The final stage's shared views: the Agent surface's pane and rails and the DAG's node and rail all draw the
 // stage with these, from the one view finalstage.ts derives. Nothing here decides a state, a time or a label.
 
+import { AutoHeight } from "@/app/element/autoheight";
+import { CrossFade } from "@/app/element/crossfade";
+import { DrawCheck } from "@/app/element/drawcheck";
+import { errorNudge } from "@/app/element/motiontokens";
+import { PaneReveal } from "@/app/element/panereveal";
+import { PopoverReveal } from "@/app/element/popoverreveal";
 import * as WOS from "@/app/store/wos";
 import { finalCheckEntry } from "@/app/view/jarvis/finalshotsmodel";
 import { FinalShotsViewer } from "@/app/view/jarvis/finalshotsviewer";
@@ -13,6 +19,7 @@ import { getWebServerEndpoint } from "@/util/endpoints";
 import { fetch } from "@/util/fetchutil";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtomValue, type Atom } from "jotai";
+import { AnimatePresence, motion, MotionConfig } from "motion/react";
 import { useEffect, useState } from "react";
 import { dockButtonClass, EndFinalForm } from "./endfinalform";
 import {
@@ -65,8 +72,17 @@ const STATE_INK: Record<FinalTone, string> = {
 const STEP_CELL_MIN_PX = 100;
 const LINK = "cursor-pointer font-mono text-[10.5px] font-semibold text-accent-soft hover:text-accent";
 
+// a passed step's mark is a check, drawn on when the step passes while on screen; the dot of any other tone
+// cross-fades as the tone moves, so a step changing state reads as a change, not a repaint
 function StepMark({ tone }: { tone: FinalTone }) {
-    return <span aria-hidden className={cn("size-[7px] flex-none rounded-full", MARK[tone])} />;
+    return (
+        <span aria-hidden className="relative flex size-[7px] flex-none items-center justify-center">
+            <CrossFade swapKey={tone}>
+                {tone === "pass" ? null : <span className={cn("size-[7px] rounded-full", MARK[tone])} />}
+            </CrossFade>
+            <DrawCheck done={tone === "pass"} className="absolute size-[11px] text-success" />
+        </span>
+    );
 }
 
 function StepLabel({ step, className }: { step: FinalStep; className?: string }) {
@@ -176,11 +192,11 @@ export function FinalStepList({ steps, showCommand }: { steps: FinalStep[]; show
                             )}
                             <StepText step={step} />
                         </div>
-                        {isOpen ? (
-                            <div className="sc mb-1.5 max-h-[320px] overflow-auto">
+                        <PaneReveal open={isOpen}>
+                            <div data-final-step-output={step.key} className="sc mb-1.5 max-h-[320px] overflow-auto">
                                 <FinalKeptOutput kept={step.kept} />
                             </div>
-                        ) : null}
+                        </PaneReveal>
                     </div>
                 );
             })}
@@ -323,14 +339,14 @@ function PastRound({ line, group }: { line: FinalRoundLine; group: TaskGroup }) 
                     </button>
                 ) : null}
             </div>
-            {open ? (
+            <PaneReveal open={open}>
                 <div
                     data-final-past-round-detail
                     className="sc mb-1.5 max-h-[240px] overflow-auto whitespace-pre rounded-[6px] border border-edge-mid bg-surface-code px-[9px] py-[7px] font-mono text-[10.5px] leading-[1.55] text-ink-mid"
                 >
                     {line.detail}
                 </div>
-            ) : null}
+            </PaneReveal>
             {/* outside the line: the portaled viewer's clicks still bubble through the React tree */}
             {viewing ? (
                 <FinalShotsViewer group={group} initial={{ round: line.round }} onClose={() => setViewing(false)} />
@@ -339,17 +355,19 @@ function PastRound({ line, group }: { line: FinalRoundLine; group: TaskGroup }) 
     );
 }
 
-// a line per earlier round, oldest first
+// a line per earlier round, oldest first; the list follows its height as a round joins it or a line opens
 export function FinalPastRounds({ past, group }: { past: FinalRoundLine[]; group: TaskGroup }) {
     if (past.length === 0) {
         return null;
     }
     return (
-        <div className="flex flex-col">
-            {past.map((line) => (
-                <PastRound key={line.round} line={line} group={group} />
-            ))}
-        </div>
+        <AutoHeight>
+            <div className="flex flex-col">
+                {past.map((line) => (
+                    <PastRound key={line.round} line={line} group={group} />
+                ))}
+            </div>
+        </AutoHeight>
     );
 }
 
@@ -377,14 +395,19 @@ export function FinalOutcome({
                 </div>
             ) : null}
             {view.unverified.length > 0 ? (
-                <ul className="flex flex-col gap-1">
-                    {view.unverified.map((reason, i) => (
-                        <li key={i} className="flex items-baseline gap-[9px] text-[12px] leading-[1.5] text-secondary">
-                            <span aria-hidden className="size-[7px] flex-none rounded-full bg-warning" />
-                            <span className="min-w-0 whitespace-pre-wrap break-words">{reason}</span>
-                        </li>
-                    ))}
-                </ul>
+                <AutoHeight>
+                    <ul className="flex flex-col gap-1">
+                        {view.unverified.map((reason, i) => (
+                            <li
+                                key={i}
+                                className="flex items-baseline gap-[9px] text-[12px] leading-[1.5] text-secondary"
+                            >
+                                <span aria-hidden className="size-[7px] flex-none rounded-full bg-warning" />
+                                <span className="min-w-0 whitespace-pre-wrap break-words">{reason}</span>
+                            </li>
+                        ))}
+                    </ul>
+                </AutoHeight>
             ) : null}
             {pastLabel != null && view.past.length > 0 ? (
                 <div className="flex flex-col">
@@ -423,6 +446,28 @@ export function FinalShotsLink({ group }: { group: TaskGroup | undefined }) {
     );
 }
 
+// A refusal from the engine, beside the button that asked: it nudges once as it appears, saying "your action
+// failed, here". initial={false}, so one already showing when the view mounts stays still.
+function ActionError({ error }: { error: string | null }) {
+    return (
+        <MotionConfig reducedMotion="user">
+            <AnimatePresence initial={false}>
+                {error != null && (
+                    <motion.span
+                        key="error"
+                        variants={errorNudge}
+                        initial="initial"
+                        animate="animate"
+                        className="text-[11px] text-error"
+                    >
+                        {error}
+                    </motion.span>
+                )}
+            </AnimatePresence>
+        </MotionConfig>
+    );
+}
+
 // End final stage, while the stage runs. The form opens under the button, and a refusal from the engine
 // stays beside it.
 export function EndFinalStage({
@@ -446,7 +491,7 @@ export function EndFinalStage({
     }
     return (
         <div className="relative flex flex-none items-center gap-2">
-            {error != null ? <span className="text-[11px] text-error">{error}</span> : null}
+            <ActionError error={error} />
             <button
                 type="button"
                 data-final-end
@@ -459,32 +504,32 @@ export function EndFinalStage({
             >
                 End final stage
             </button>
-            {ending ? (
-                <div className="absolute right-0 top-full z-10 mt-1.5 w-[340px] rounded-[9px] border border-edge-mid bg-surface-raised p-2.5">
-                    <EndFinalForm
-                        channelId={channelId}
-                        runId={runId}
-                        onClose={() => setEnding(false)}
-                        onError={setError}
-                    />
-                </div>
-            ) : null}
+            <PopoverReveal
+                open={ending}
+                origin="top right"
+                className="absolute right-0 top-full z-10 mt-1.5 w-[340px] rounded-[9px] border border-edge-mid bg-surface-raised p-2.5"
+            >
+                <EndFinalForm channelId={channelId} runId={runId} onClose={() => setEnding(false)} onError={setError} />
+            </PopoverReveal>
         </div>
     );
 }
 
 // Rerun final stage, once a stage failed on something outside the code (a service down, a tool missing) that the
 // human then fixed. It runs in the same round, so it spends no fix round. A refusal from the engine stays beside it.
+// onRerun tells the site that the human asked, so a failure that follows can say it answers them.
 export function RerunFinalStage({
     group,
     channelId,
     runId,
     className,
+    onRerun,
 }: {
     group: TaskGroup | null | undefined;
     channelId: string;
     runId: string;
     className: string;
+    onRerun?: () => void;
 }) {
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -494,6 +539,7 @@ export function RerunFinalStage({
     const rerun = () => {
         setError(null);
         setBusy(true);
+        onRerun?.();
         fireAndForget(async () => {
             try {
                 await rerunFinalStage(channelId, runId);
@@ -506,7 +552,7 @@ export function RerunFinalStage({
     };
     return (
         <div className="flex flex-none items-center gap-2">
-            {error != null ? <span className="text-[11px] text-error">{error}</span> : null}
+            <ActionError error={error} />
             <button
                 type="button"
                 data-final-rerun
