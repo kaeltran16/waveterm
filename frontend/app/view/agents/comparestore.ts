@@ -75,6 +75,13 @@ function activeForm(): CompareForm {
 // into another one it names branches that do not resolve there.
 const remembered = { cwd: "" };
 
+// The repository the comparison on screen is in, or null outside compare. Every compare read records
+// it (enterCompare is the only way in), whereas the change list's cwd is null while each ref or form
+// change reloads that list, and the scope's origin names no folder for an agent.
+export function compareCwd(): string | null {
+    return globalStore.get(compareOnAtom) && remembered.cwd ? remembered.cwd : null;
+}
+
 // Restores the range comparison interrupted. Named leaveCompare rather than exitCompare because it
 // now moves the surface somewhere specific instead of clearing a flag.
 export function leaveCompare(): void {

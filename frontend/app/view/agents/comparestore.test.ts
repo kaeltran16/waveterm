@@ -24,6 +24,7 @@ import { AGGREGATE } from "./comparerows";
 import {
     compareAggregateAtom,
     compareCommitFailureAtom,
+    compareCwd,
     compareErrorAtom,
     compareHasRemoteAtom,
     compareOnAtom,
@@ -151,6 +152,35 @@ describe("comparison as a range", () => {
         await enterCompare("/repo-b", "feat/b");
 
         expect(globalStore.get(compareRefsAtom)).toEqual({ base: "trunk", head: "feat/b" });
+    });
+});
+
+// Every ref or form change reloads the change list, which has no cwd until it lands; the picker's apply
+// and swap must still reach the repository the comparison is in rather than silently doing nothing (FS R11).
+describe("the repository a comparison acts on", () => {
+    it("is the one compare was entered in, for as long as compare is on", async () => {
+        globalStore.set(diffScopeAtom, base);
+        listBranches.mockResolvedValue({ branches: [], default: "main" });
+        divergence.mockResolvedValue({ isrepo: true, ahead: [], behind: [], mergebase: "m1" });
+        compareChanges.mockResolvedValue({ isrepo: true, statusz: "", numstat: "" });
+
+        await enterCompare("/repo-a", "feat");
+        expect(compareCwd()).toBe("/repo-a");
+        await setCompareRefs(compareCwd()!, "main", "other");
+        expect(compareCwd()).toBe("/repo-a");
+
+        leaveCompare();
+        expect(compareCwd()).toBeNull();
+
+        globalStore.set(diffScopeAtom, base);
+        await enterCompare("/repo-b", "feat");
+        expect(compareCwd()).toBe("/repo-b");
+        leaveCompare();
+    });
+
+    it("is none outside compare, even with a pair remembered", () => {
+        globalStore.set(diffScopeAtom, base);
+        expect(compareCwd()).toBeNull();
     });
 });
 
