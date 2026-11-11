@@ -202,6 +202,18 @@ func TestParsePlanFenceClosesOnlyOnALongEnoughRun(t *testing.T) {
 	}
 }
 
+// a near-miss heading would otherwise fold the task into the one before it
+func TestParsePlanRefusesANearMissTaskHeading(t *testing.T) {
+	for _, heading := range []string{"### Task 3 - c", "#### Task 3: c", " ### Task 3: c", "### task 3: c"} {
+		t.Run(heading, func(t *testing.T) {
+			_, err := ParsePlan("### Task 1: a\nx\n### Task 2: b\ny\n" + heading + "\nz\n")
+			if err == nil || !strings.Contains(err.Error(), "not a task heading") {
+				t.Fatalf("got err %v, want %q refused", err, heading)
+			}
+		})
+	}
+}
+
 func TestParsePlanStripsABOM(t *testing.T) {
 	p := mustParsePlan(t, "\xef\xbb\xbf**Verify:** `go test ./...`\n\n### Task 1: a\nbody\n")
 	if p.Verify != "go test ./..." || p.Preamble != "" {

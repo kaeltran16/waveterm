@@ -139,6 +139,10 @@ var (
 	planTaskRefRe     = regexp.MustCompile(`^Task (\d+)(?:\s*\((.*)\))?$`)
 )
 
+// planNearTaskHeadingRe matches a heading meant as a task that planTaskHeadingRe misses, which would
+// otherwise fold into the task before it.
+var planNearTaskHeadingRe = regexp.MustCompile(`(?i)^\s*#{2,}\s*Task\s*\d+`)
+
 func planTaskID(n int) string {
 	return "t-" + strconv.Itoa(n)
 }
@@ -232,6 +236,9 @@ func ParsePlan(src string) (Plan, error) {
 			p.Tasks = append(p.Tasks, task)
 			inTaskHead, dependsAllowed = true, true
 			continue
+		}
+		if planNearTaskHeadingRe.MatchString(line) {
+			return Plan{}, fmt.Errorf("plan heading %q is not a task heading: write it as \"### Task %d: <title>\", at the start of the line under ## or ###", strings.TrimSpace(line), len(p.Tasks)+1)
 		}
 		if len(p.Tasks) == 0 {
 			consumed, err := readPlanPreamble(&p, line)
