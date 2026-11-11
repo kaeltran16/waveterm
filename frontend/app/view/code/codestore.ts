@@ -1079,7 +1079,37 @@ export function revertDraft(): void {
 // braces: agents run against this same working tree, so "changed since you opened it" is the normal
 // case, not the exotic one. On conflict we refuse and keep the draft — the user's text is never the
 // thing we throw away.
+// the open files with a save out, each with whether another was asked for meanwhile
+const savesOut = new Map<string, boolean>();
+
+// One save per file at a time. A second Ctrl+S during a save (a double tap, key repeat, or after typing more)
+// would stat the size and modtime the first one just wrote, read it as someone else's change and raise a
+// conflict over the app's own write; instead it runs once the first lands, against the base that one left.
 export async function saveCurrent(): Promise<void> {
+    const project = globalStore.get(codeProjectAtom);
+    const file = globalStore.get(codeFileAtom);
+    if (project == null || file.kind !== "text") {
+        return;
+    }
+    const abs = draftKey(project, file.path);
+    if (savesOut.has(abs)) {
+        savesOut.set(abs, true);
+        return;
+    }
+    savesOut.set(abs, false);
+    try {
+        await saveOpenFile();
+    } finally {
+        const again = savesOut.get(abs);
+        savesOut.delete(abs);
+        const open = globalStore.get(codeFileAtom);
+        if (again && globalStore.get(codeProjectAtom) === project && open.kind === "text" && open.path === file.path) {
+            await saveCurrent();
+        }
+    }
+}
+
+async function saveOpenFile(): Promise<void> {
     const project = globalStore.get(codeProjectAtom);
     const file = globalStore.get(codeFileAtom);
     if (project == null || file.kind !== "text") {

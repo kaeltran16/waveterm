@@ -438,6 +438,30 @@ describe("saveCurrent", () => {
         expect(globalStore.get(codeSaveAtom).kind).toBe("idle");
     });
 
+    it("a second save asked for during one waits for it, and does not refuse the app's own write", async () => {
+        seedSession(["src/a.ts"]);
+        editDraft("one\nmine\n");
+        const write = deferred<void>();
+        fileWrite.mockReturnValueOnce(write.promise).mockResolvedValue(undefined);
+        fileInfo
+            .mockResolvedValueOnce({ size: 4, modtime: 1 })
+            .mockResolvedValueOnce({ size: 9, modtime: 2 })
+            .mockResolvedValueOnce({ size: 9, modtime: 2 })
+            .mockResolvedValueOnce({ size: 14, modtime: 3 });
+
+        const first = saveCurrent();
+        await vi.waitFor(() => expect(fileWrite).toHaveBeenCalledTimes(1));
+        editDraft("one\nmine\nmore\n");
+        const second = saveCurrent();
+        expect(fileWrite).toHaveBeenCalledTimes(1);
+        write.resolve();
+        await Promise.all([first, second]);
+
+        expect(fileWrite).toHaveBeenCalledTimes(2);
+        expect(globalStore.get(codeSaveAtom).kind).toBe("saved");
+        expect(globalStore.get(codeStaleAtom)).toBeNull();
+    });
+
     it("a save that lands after another file opened leaves that file on screen", async () => {
         const project = seedSession(["src/a.ts", "src/b.ts"]);
         editDraft("one\nmine\n");
