@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@/app/store/wshclientapi", () => ({ RpcApi: {} }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 
-import { pollCanvasOnce, type CanvasIO, type HttpStatus } from "./canvaspoller";
+import { canvasOnScreen, pollCanvasOnce, type CanvasIO, type HttpStatus } from "./canvaspoller";
 import type { CanvasState } from "./canvasstore";
 
 const NOW = 50_000;
@@ -164,6 +164,18 @@ describe("pollCanvasOnce", () => {
         expect((await pollCanvasOnce(inTerminal, io, NOW)).reloadKey).toBeUndefined();
     });
 
+    it("reloads a board a brainstorm opened full size, which leaves the canvas in terminal mode", async () => {
+        const io = fakeIO({ files: { "Main.dc.html": 5000 } });
+        const fullSize = state({
+            base: BASE,
+            board: "Main.dc.html",
+            lastModifiedMs: 1000,
+            mode: "terminal",
+            reloadKey: 4,
+        });
+        expect((await pollCanvasOnce(fullSize, io, NOW, true)).reloadKey).toBe(5);
+    });
+
     it("does not reload on the first read", async () => {
         const io = fakeIO({ files: { "Main.dc.html": 1000 } });
         expect((await pollCanvasOnce(state({ base: BASE }), io, NOW)).reloadKey).toBeUndefined();
@@ -183,5 +195,21 @@ describe("pollCanvasOnce", () => {
         await pollCanvasOnce(state({ base: BASE }), io, NOW);
         expect(io.serves).toEqual([]);
         expect(io.urls.every((u) => u.startsWith(`${BASE}/`))).toBe(true);
+    });
+});
+
+describe("canvasOnScreen", () => {
+    const board = (mode: "terminal" | "brainstorm", open: string | null) => ({ mode, board: open });
+
+    it("is the canvas pane in canvas mode when the agent has no brainstorm", () => {
+        expect(canvasOnScreen(state({ mode: "canvas" }), null)).toBe(true);
+        expect(canvasOnScreen(state({ mode: "terminal" }), null)).toBe(false);
+    });
+    it("is a brainstorm's full-size board whatever the canvas mode", () => {
+        expect(canvasOnScreen(state({ mode: "terminal" }), board("brainstorm", "Main.dc.html"))).toBe(true);
+    });
+    it("is off while the brainstorm shows no board or the terminal", () => {
+        expect(canvasOnScreen(state({ mode: "canvas" }), board("brainstorm", null))).toBe(false);
+        expect(canvasOnScreen(state({ mode: "canvas" }), board("terminal", "Main.dc.html"))).toBe(false);
     });
 });
