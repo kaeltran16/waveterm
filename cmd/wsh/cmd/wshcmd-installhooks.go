@@ -397,25 +397,33 @@ func buildManagedGroup(mh managedHook, wshExe string) map[string]any {
 	return group
 }
 
-func groupIsManaged(group any) bool {
+// withoutManagedHooks returns group with Arc's hooks taken out, and false when nothing else is left in it.
+// A group Arc shares with a user's or another tool's hook keeps that hook, so a rewrite only replaces
+// Arc's own.
+func withoutManagedHooks(group any) (any, bool) {
 	gm, ok := group.(map[string]any)
 	if !ok {
-		return false
+		return group, true
 	}
 	hs, ok := gm["hooks"].([]any)
 	if !ok {
-		return false
+		return group, true
 	}
+	var kept []any
 	for _, h := range hs {
 		hm, ok := h.(map[string]any)
-		if !ok {
-			continue
+		if ok {
+			if c, ok := hm["command"].(string); ok && isManagedCommand(c) {
+				continue
+			}
 		}
-		if c, ok := hm["command"].(string); ok && isManagedCommand(c) {
-			return true
-		}
+		kept = append(kept, h)
 	}
-	return false
+	if len(kept) == 0 {
+		return nil, false
+	}
+	gm["hooks"] = kept
+	return gm, true
 }
 
 // managedHookAsync is whether Arc writes the (event, matcher, args) hook as a background one.
@@ -447,8 +455,8 @@ func mergeAgentHooks(existing map[string]any, wshExe string) map[string]any {
 		var kept []any
 		if groups, ok := hooks[event].([]any); ok {
 			for _, g := range groups {
-				if !groupIsManaged(g) {
-					kept = append(kept, g)
+				if rest, ok := withoutManagedHooks(g); ok {
+					kept = append(kept, rest)
 				}
 			}
 		}

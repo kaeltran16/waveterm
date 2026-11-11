@@ -1281,3 +1281,39 @@ func TestMergePiSettingsDefaults_unreadableSettingsAreNotReplaced(t *testing.T) 
 		t.Fatalf("merge wrote %s.tmp over unreadable settings", path)
 	}
 }
+
+// a user's hook sharing a group with an Arc hook survives the rewrite; only Arc's own hook is replaced
+func TestMergeAgentHooksKeepsForeignHookInAManagedGroup(t *testing.T) {
+	existing := map[string]any{
+		"hooks": map[string]any{
+			"Stop": []any{
+				map[string]any{"hooks": []any{
+					map[string]any{"type": "command", "command": `C:\old\wsh.exe agent-hook`},
+					map[string]any{"type": "command", "command": "node C:/tools/my-stop-notify.js"},
+				}},
+			},
+		},
+	}
+	got := mergeAgentHooks(existing, testWsh)
+	found := false
+	for _, g := range got["hooks"].(map[string]any)["Stop"].([]any) {
+		for _, h := range g.(map[string]any)["hooks"].([]any) {
+			c := h.(map[string]any)["command"].(string)
+			if c == "node C:/tools/my-stop-notify.js" {
+				found = true
+			}
+			if strings.Contains(c, `C:\old\wsh.exe`) {
+				t.Fatalf("stale Arc hook kept: %q", c)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("user hook in a group with an Arc hook was dropped")
+	}
+	if n := countManaged(t, got); n != len(managedHooks) {
+		t.Fatalf("managed entries = %d, want %d", n, len(managedHooks))
+	}
+	if again := mergeAgentHooks(got, testWsh); countManaged(t, again) != len(managedHooks) {
+		t.Fatal("re-merge duplicated managed entries")
+	}
+}
