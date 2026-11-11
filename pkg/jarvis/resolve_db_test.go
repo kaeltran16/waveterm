@@ -321,3 +321,68 @@ func TestResolveRunWorkerFromMeta_UnstampedTabIsNoRun(t *testing.T) {
 		t.Fatalf("an unstamped tab resolved to run %s; want no run, without a scan", m.Run.ID)
 	}
 }
+
+// a stamp that names a run no longer listing its tab fell back to the ~330 ms scan of every run row on every
+// call (attention polls every 5-10s): the scan's answer holds until the stamp changes, so it runs once
+func TestResolveRunWorkerFromMeta_StaleStampScansOnce(t *testing.T) {
+	ctx := context.Background()
+	scans := 0
+	orig := scanRunWorker
+	scanRunWorker = func(ctx context.Context, oref string) *RunWorkerMatch {
+		scans++
+		return orig(ctx, oref)
+	}
+	t.Cleanup(func() { scanRunWorker = orig })
+	ch, err := wstore.CreateChannel(ctx, "rw-stale", "/p")
+	if err != nil {
+		t.Fatalf("create channel: %v", err)
+	}
+	chORef := waveobj.MakeORef(waveobj.OType_Channel, ch.OID).String()
+	appendRun := func(workers ...string) string {
+		id := uuid.NewString()
+		run := waveobj.Run{ID: id, Goal: "g", Status: "executing", CreatedTs: 1,
+			Phases: []waveobj.RunPhase{{Kind: PhaseKind_Execute, WorkerOrefs: workers}}}
+		if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
+			t.Fatalf("append run: %v", err)
+		}
+		return id
+	}
+	stamp := func(tab, runID string) {
+		if err := wstore.StampWorkerOwner(ctx, tab, waveobj.MakeORef(waveobj.OType_Run, runID).String(), chORef); err != nil {
+			t.Fatalf("stamp: %v", err)
+		}
+	}
+	elsewhere := appendRun()
+
+	listed := seedWorkerTab(t, ctx)
+	owner := appendRun(listed)
+	stamp(listed, elsewhere)
+	for i := range 2 {
+		if m := ResolveRunWorkerFromMeta(ctx, listed); m == nil || m.Run.ID != owner {
+			t.Fatalf("call %d: resolved %+v, want run %s, which lists the tab", i, m, owner)
+		}
+	}
+	if scans != 1 {
+		t.Errorf("a stale stamp whose tab another run lists: %d scans over 2 calls, want 1", scans)
+	}
+
+	scans = 0
+	unlisted := seedWorkerTab(t, ctx)
+	stamp(unlisted, elsewhere)
+	for i := range 2 {
+		if m := ResolveRunWorkerFromMeta(ctx, unlisted); m != nil {
+			t.Fatalf("call %d: resolved run %s, want none", i, m.Run.ID)
+		}
+	}
+	if scans != 1 {
+		t.Errorf("a stale stamp no run lists: %d scans over 2 calls, want 1", scans)
+	}
+
+	// a new stamp is a new answer
+	scans = 0
+	later := appendRun(unlisted)
+	stamp(unlisted, later)
+	if m := ResolveRunWorkerFromMeta(ctx, unlisted); m == nil || m.Run.ID != later || scans != 0 {
+		t.Errorf("restamped tab: resolved %+v with %d scans, want run %s off the stamp", m, scans, later)
+	}
+}

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log"
 	"slices"
+	"sync"
 
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
@@ -112,35 +113,82 @@ type RunWorkerMatch struct {
 // stamp (jarvis:runoref/channeloref) off the worker tab, then loading the run + channel rows. It is NOT
 // gated by the tier: it answers "whose worker is this", and handleAsk applies the tier to the channel it
 // returns. A tab with no runoref is no run's worker: every spawn stamps its tab before the process starts,
-// and the run-row scan costs hundreds of ms on a store of thousands of runs. A gone tab or a stamp that
-// fails to resolve falls back to the scan. nil = no run.
+// and the run-row scan costs hundreds of ms on a store of thousands of runs. A gone tab falls back to the
+// scan, and a stamp that fails to resolve to it once per stamp. nil = no run.
 func ResolveRunWorkerFromMeta(ctx context.Context, askingORef string) *RunWorkerMatch {
 	runORef, channelORef, err := wstore.GetWorkerOwner(ctx, askingORef)
 	if err == nil && runORef == "" {
 		return nil
 	}
-	if err != nil || channelORef == "" {
-		return resolveRunWorkerByScan(ctx, askingORef)
+	if err != nil {
+		return scanRunWorker(ctx, askingORef)
 	}
+	if m := resolveStampedWorker(ctx, askingORef, runORef, channelORef); m != nil {
+		return m
+	}
+	return resolveStaleStamp(ctx, askingORef, runORef+" "+channelORef)
+}
+
+// resolveStampedWorker is the run and channel the orefs name, when the run still lists the worker; nil else.
+func resolveStampedWorker(ctx context.Context, workerORef, runORef, channelORef string) *RunWorkerMatch {
 	runRef, err1 := waveobj.ParseORef(runORef)
 	chRef, err2 := waveobj.ParseORef(channelORef)
 	if err1 != nil || err2 != nil {
-		return resolveRunWorkerByScan(ctx, askingORef)
+		return nil
 	}
 	run, err := wstore.GetRun(ctx, chRef.OID, runRef.OID)
 	if err != nil || run == nil {
-		return resolveRunWorkerByScan(ctx, askingORef)
+		return nil
 	}
 	ch, err := wstore.DBMustGet[*waveobj.Channel](ctx, chRef.OID)
 	if err != nil || ch == nil {
-		return resolveRunWorkerByScan(ctx, askingORef)
+		return nil
 	}
-	phaseIdx := phaseIdxForWorker(run, askingORef)
+	phaseIdx := phaseIdxForWorker(run, workerORef)
 	if phaseIdx < 0 {
-		// stamp is stale (worker no longer in a phase) — trust the scan
-		return resolveRunWorkerByScan(ctx, askingORef)
+		return nil
 	}
 	return &RunWorkerMatch{Channel: ch, Run: run, PhaseIdx: phaseIdx}
+}
+
+// staleStamp is what the scan found for a tab whose stamp did not resolve: the stamp, and the found run's
+// orefs ("" for no run).
+type staleStamp struct {
+	stamp       string
+	runORef     string
+	channelORef string
+}
+
+var staleStamps = struct {
+	sync.Mutex
+	byWorker map[string]staleStamp
+}{byWorker: map[string]staleStamp{}}
+
+// resolveStaleStamp trusts the scan for a stamp that does not resolve, and scans once per stamp: everything
+// that adds a tab to a run's phases restamps it, so the answer holds until the stamp changes. A remembered run
+// that no longer lists the tab is scanned for again.
+func resolveStaleStamp(ctx context.Context, workerORef, stamp string) *RunWorkerMatch {
+	staleStamps.Lock()
+	seen, ok := staleStamps.byWorker[workerORef]
+	staleStamps.Unlock()
+	if ok && seen.stamp == stamp {
+		if seen.runORef == "" {
+			return nil
+		}
+		if m := resolveStampedWorker(ctx, workerORef, seen.runORef, seen.channelORef); m != nil {
+			return m
+		}
+	}
+	m := scanRunWorker(ctx, workerORef)
+	seen = staleStamp{stamp: stamp}
+	if m != nil {
+		seen.runORef = waveobj.MakeORef(waveobj.OType_Run, m.Run.ID).String()
+		seen.channelORef = waveobj.MakeORef(waveobj.OType_Channel, m.Channel.OID).String()
+	}
+	staleStamps.Lock()
+	staleStamps.byWorker[workerORef] = seen
+	staleStamps.Unlock()
+	return m
 }
 
 func phaseIdxForWorker(run *waveobj.Run, workerORef string) int {
@@ -153,6 +201,9 @@ func phaseIdxForWorker(run *waveobj.Run, workerORef string) int {
 	}
 	return -1
 }
+
+// scanRunWorker is resolveRunWorkerByScan. A var so tests count the scans.
+var scanRunWorker = resolveRunWorkerByScan
 
 // resolveRunWorkerByScan is the fallback for a worker with no usable stamp: the oldest run row one of
 // whose phases lists the oref. The store only narrows the rows to those whose text contains the oref, so
