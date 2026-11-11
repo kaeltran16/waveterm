@@ -145,8 +145,10 @@ export function foldHits(results: SessionSearchResult[]): Map<string, CardMatch>
             results: ordered,
             total: ordered.reduce((n, r) => n + r.turnhits + r.eventhits, 0),
             hits: ordered.flatMap((r) =>
-                (r.hits ?? []).map((hit) => ({
-                    key: `${sessionKey(r.session)}:${hit.kind}:${hit.ord}`,
+                // the hit's place in its session's list too: the server sends one hit per matched range, and an
+                // event's ord is its event index, so two ranges in one event share kind and ord
+                (r.hits ?? []).map((hit, i) => ({
+                    key: `${sessionKey(r.session)}:${hit.kind}:${hit.ord}:${i}`,
                     who: whoOf(r.session, hit),
                     hit,
                     result: r,
