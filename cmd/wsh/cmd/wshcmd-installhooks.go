@@ -33,7 +33,7 @@ type managedHook struct {
 	Matcher string // "" => no matcher key (matches all)
 	Args    string // wsh subcommand + flags, e.g. "agent-hook", "ask", "ask --clear"
 	Timeout int
-	// Async runs the hook in the background, so claude does not wait for it. Only the two reports that
+	// Async runs the hook in the background, so claude does not wait for it. Only the reports that
 	// fire on every tool call take it: the rest fire once a turn, and a headless claude kills an async
 	// hook still running at teardown, which would lose a Stop.
 	Async bool
@@ -44,6 +44,8 @@ var managedHooks = []managedHook{
 	{Event: "PreToolUse", Args: "agent-hook", Timeout: 10, Async: true},
 	{Event: "PreToolUse", Matcher: "AskUserQuestion", Args: "ask", Timeout: 3600},
 	{Event: "PostToolUse", Args: "agent-hook", Timeout: 10, Async: true},
+	// a call that ran and failed fires this instead of PostToolUse; it retires a request answered in the terminal
+	{Event: "PostToolUseFailure", Args: "agent-hook", Timeout: 10, Async: true},
 	{Event: "PostToolUse", Matcher: "AskUserQuestion", Args: "ask --clear", Timeout: 10},
 	// synchronous: its output is the turn's added context, which a background hook's never reaches
 	{Event: "PostToolUse", Matcher: "Skill", Args: "agent-hook --skill-context", Timeout: 10},

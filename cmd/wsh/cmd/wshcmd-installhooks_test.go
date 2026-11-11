@@ -1317,3 +1317,14 @@ func TestMergeAgentHooksKeepsForeignHookInAManagedGroup(t *testing.T) {
 		t.Fatal("re-merge duplicated managed entries")
 	}
 }
+
+// a call approved in the terminal that then fails reports PostToolUseFailure only, which retires its request
+func TestPostToolUseFailureHookIsManaged(t *testing.T) {
+	want := managedHook{Event: "PostToolUseFailure", Args: "agent-hook", Timeout: 10, Async: true}
+	for _, mh := range managedHooks {
+		if mh == want {
+			return
+		}
+	}
+	t.Fatalf("managed hooks missing %+v", want)
+}

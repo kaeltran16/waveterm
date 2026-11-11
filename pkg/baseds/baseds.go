@@ -43,9 +43,11 @@ const (
 	AgentHook_UserPromptSubmit = "UserPromptSubmit"
 	AgentHook_PreToolUse       = "PreToolUse"
 	AgentHook_PostToolUse      = "PostToolUse"
-	AgentHook_Stop             = "Stop"
-	AgentHook_Notification     = "Notification"
-	AgentHook_SessionStart     = "SessionStart"
+	// a tool call that ran and failed; claude fires it instead of PostToolUse
+	AgentHook_PostToolUseFailure = "PostToolUseFailure"
+	AgentHook_Stop               = "Stop"
+	AgentHook_Notification       = "Notification"
+	AgentHook_SessionStart       = "SessionStart"
 )
 
 // AgentUsage is an optional usage snapshot carried on AgentStatusData, sourced from the Claude
