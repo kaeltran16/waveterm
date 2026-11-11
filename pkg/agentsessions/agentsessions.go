@@ -224,6 +224,10 @@ func claudeSessionFrom(id string, recs []claudeLine) *SessionInfo {
 		}
 		if !hasTask && rec.Type == "user" {
 			raw := stringContent(rec.Message.Content)
+			// a prompt sent with an image is recorded as blocks; a meta record's blocks are a skill body claude injected
+			if raw == "" && !rec.IsMeta {
+				raw = claudePromptText(rec.Message.Content)
+			}
 			if title := sessionTitle(raw); title == "" {
 				continue
 			} else if isBareCommand(raw, title) {
