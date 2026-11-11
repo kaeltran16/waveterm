@@ -2389,6 +2389,11 @@ export const jarvisPeek = {
         };
         const PICKER = '[data-pet-peek] [data-testid="harness-picker"]';
         ctx.prevHarness = await h.ev(`document.querySelector(${JSON.stringify(PICKER)})?.dataset.harnessRuntime ?? null`);
+        // the server takes runtime and model only as a pair, so teardown restores both
+        const settings = (await h.rpc("getfullconfig", null))?.settings ?? {};
+        ctx.prevRoute = settings["harness:preferredruntime"]
+            ? { runtime: settings["harness:preferredruntime"], model: settings["harness:preferredmodel"] ?? "" }
+            : null;
         const chip = await centerOf(PICKER);
         if (chip != null) await clickAt(chip);
         await settle(400);
@@ -2599,9 +2604,12 @@ export const jarvisPeek = {
             globalThis.__wavePetStore?.setAttention([]);
             return true;
         })()`);
-        if (ctx.harnessPicked != null && ctx.prevHarness != null && ctx.harnessPicked !== ctx.prevHarness) {
+        if (ctx.harnessPicked != null && ctx.prevRoute != null && ctx.harnessPicked !== ctx.prevHarness) {
             try {
-                await h.rpc("setconfig", { "harness:preferredruntime": ctx.prevHarness });
+                await h.rpc("setconfig", {
+                    "harness:preferredruntime": ctx.prevRoute.runtime,
+                    "harness:preferredmodel": ctx.prevRoute.model,
+                });
             } catch (e) {
                 console.error(`jarvis-peek teardown: restore the harness preference failed: ${e?.message ?? e}`);
             }
@@ -3349,15 +3357,39 @@ export const briefComposerSteerOnly = {
 // What the same stored value means now (briefrestore.ts): a dossier opens the record peek, while a channel
 // and a conversation left over from before Ask was retired are cleared. Each case needs its
 // own reload, because the restore is once per frontend load by design.
+// a fresh store (the Final stage's) has neither a record nor a channel, so the arrange makes a channel and a held
+// quick run in it, whose CreateRun captures a record; the goal's slug names it, so a later run reuses that record
+const BRIEF_RESTORE_GOAL = "verify brief-restore: a stored subject, do nothing";
 export const briefRestore = {
     name: "brief-restore",
     surface: "jarvis",
-    async arrange() {
-        return {};
+    async arrange(h) {
+        const ctx = { cwd: mkdtempSync(join(tmpdir(), "verify-brief-restore-")) };
+        try {
+            const wslist = await h.rpc("workspacelist", null);
+            ctx.channelId = (await h.rpc("createchannel", { name: "verify-brief-restore", projectpath: ctx.cwd })).oid;
+            const created = await h.rpc("createrun", {
+                channelid: ctx.channelId,
+                workspaceid: wslist[0].workspacedata.oid,
+                goal: BRIEF_RESTORE_GOAL,
+                runtime: "claude",
+                mode: "quick",
+                deferstart: true,
+            });
+            ctx.runId = created.run.id;
+            ctx.landPath = created.run.landpath;
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
     },
-    async assert(h) {
+    async assert(h, ctx) {
         const steps = [];
         const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        if (ctx.arrangeError != null) {
+            rec("0. a channel and a held run with its record were made", false, ctx.arrangeError);
+            return steps;
+        }
         const settle = (ms) => h.ev(`new Promise((r) => setTimeout(r, ${ms}))`);
         await h.ev(`localStorage.setItem('jarvis.subject.last', null)`);
 
@@ -3452,8 +3484,9 @@ export const briefRestore = {
         }
         return steps;
     },
-    async teardown(h) {
+    async teardown(h, ctx) {
         await h.ev(`localStorage.removeItem('jarvis.subject.last')`);
+        await teardownFixtureRun(h, ctx, "brief-restore");
         await h.goto("cockpit");
     },
 };

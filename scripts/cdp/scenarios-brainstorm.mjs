@@ -1616,10 +1616,13 @@ export const brainstormQuestionReasons = bsBoardScenario("brainstorm-question-re
         return { sideBySide: b.left > a.right - 1 && Math.abs(a.top - b.top) < 2 };
     })()`);
     rec("1b. the pros and cons sit side by side, pros on the left", grid?.sideBySide === true, grid);
+    // the lists animate out and back in, so wait for each end state rather than reading mid-animation
     await bsClick(h, BS_PANE, "Hide pros and cons");
+    await polishWaitFor(h, `(${BSR_READ_OPTIONS})?.options.every((o) => o.pros.length === 0 && o.cons.length === 0)`, 2000);
     const hidden = await h.ev(BSR_READ_OPTIONS);
     await h.shot("cdp-shots/brainstorm-question-reasons-hidden.png");
     await bsClick(h, BS_PANE, "Show pros and cons");
+    await polishWaitFor(h, `(${BSR_READ_OPTIONS})?.options.every((o) => o.pros.length > 0)`, 2000);
     const again = await h.ev(BSR_READ_OPTIONS);
     rec(
         "2. Hide pros and cons hides every answer's lists and keeps the read and the answers; Show pros and cons brings them back",
@@ -1780,8 +1783,8 @@ export const brainstormReviewSkim = bsBoardScenario("brainstorm-review-skim", "d
     const r = await h.ev(BSR_READ_REVIEW);
     await h.shot("cdp-shots/brainstorm-review-skim.png");
     const guesses = BSR_DECISIONS.filter((d) => d.state === "guess");
-    // the pane lists decisions newest first
-    const shown = [...BSR_DECISIONS].reverse();
+    // the pane lists decisions newest first, with the builder part last (brainstormmodel.ts)
+    const shown = [...BSR_DECISIONS.filter((d) => d.id !== "builder").reverse(), ...BSR_DECISIONS.filter((d) => d.id === "builder")];
     const wantRight = (d) => (d.state === "guess" ? ["That’s right", "Edit"] : ["Edit"]);
     rec(
         "1. the design before the builder check (Review-Skim): Confirm the design with Confirm all 5 guesses, each decision one row of title, gist and source with That’s right and Edit, or Yours and Edit",

@@ -417,7 +417,8 @@ const finalFingerprint = (final, past) =>
 let seedStamp = 0;
 
 // Puts the stored dag into a state the engine has not reached: change maps the dag as read to the dag to
-// write, and print reduces a dag to what the seed must hold.
+// write, and print reduces a dag to what the seed must hold. Returns a nudge that seeds again once the stored dag
+// lost it: while a worker is live the engine still ticks, and a tick writes its whole snapshot back over the seed
 export async function seedDag(h, ctx, change, print) {
     const oref = `dag:${ctx.dagId}`;
     let want = null;
@@ -436,6 +437,9 @@ export async function seedDag(h, ctx, change, print) {
     // changes: a per-ctx count restarted at 1 for a caller passing a fresh ctx, so the second seed never reached it
     seedStamp = Math.max(seedStamp + 1, Date.now());
     await h.rpc("setmeta", { oref, meta: { [FINAL_SHOTS_SEED_KEY]: seedStamp } });
+    return async () => {
+        if (print(await waveService(h, "object", "GetObject", [oref])) !== want) await seedDag(h, ctx, change, print);
+    };
 }
 
 export const seedFinalShots = (h, ctx, { final, pastfinals }) =>
