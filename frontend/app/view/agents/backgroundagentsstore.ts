@@ -40,6 +40,29 @@ export async function dismissBackgroundAgent(sessionId: string): Promise<void> {
     }
 }
 
+// the poller's tick: a hidden window skips the shell-out (~0.5 s of CPU each, measured), as resmon does
+export async function pollBackgroundAgents(): Promise<void> {
+    if (typeof document !== "undefined" && document.hidden) {
+        return;
+    }
+    await loadBackgroundAgents();
+}
+
+function sameBackgroundAgents(a: BackgroundAgentData[], b: BackgroundAgentData[]): boolean {
+    return (
+        a.length === b.length &&
+        a.every(
+            (x, i) =>
+                x.sessionid === b[i].sessionid &&
+                x.cwd === b[i].cwd &&
+                x.kind === b[i].kind &&
+                x.name === b[i].name &&
+                x.state === b[i].state &&
+                x.startedts === b[i].startedts
+        )
+    );
+}
+
 export async function loadBackgroundAgents(): Promise<void> {
     const seq = ++loadSeq;
     try {
@@ -48,10 +71,15 @@ export async function loadBackgroundAgents(): Promise<void> {
             return;
         }
         const prev = globalStore.get(backgroundAgentsAtom);
-        globalStore.set(backgroundAgentsAtom, rtn.agents ?? []);
+        const next = rtn.agents ?? [];
         globalStore.set(backgroundAgentsErrorAtom, false);
+        // an unchanged listing keeps prev, so the derived atoms and the strip do not re-run every tick
+        if (sameBackgroundAgents(prev, next)) {
+            return;
+        }
+        globalStore.set(backgroundAgentsAtom, next);
         // the one place prev and next meet; a failed load kept the last-good list and runs no diff
-        for (const ev of agentFinishedFromDiff(prev, rtn.agents ?? [], dismissedAgentIds, Date.now())) {
+        for (const ev of agentFinishedFromDiff(prev, next, dismissedAgentIds, Date.now())) {
             pushPetEvent(ev);
         }
     } catch {
