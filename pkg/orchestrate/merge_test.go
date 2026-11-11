@@ -436,3 +436,26 @@ func TestIndexCleanReportsWhatGitCannotRead(t *testing.T) {
 		t.Fatalf("a staged change: clean=%v err=%v", clean, err)
 	}
 }
+
+// only a missing branch is a squash that landed on an earlier attempt: a probe git could not answer read the same,
+// and the caller stamped the lane merged and removed its unmerged branch
+func TestMergeReportsABranchProbeGitCouldNotAnswer(t *testing.T) {
+	dir := newGitRepo(t)
+	base := gitCmd(t, dir, "rev-parse", "HEAD")
+	wt, _ := CreateRunWorktree(context.Background(), dir, "run-1", base)
+	writeFile(t, filepath.Join(wt, "feature.txt"), "feat\n")
+	gitCmd(t, wt, "add", ".")
+	gitCmd(t, wt, "commit", "-m", "feature")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if sha, err := MergeRunWorktree(ctx, dir, "run-1", MergeLane{Title: "lane"}, nil); err == nil {
+		t.Fatalf("want the probe's error, got merged with commit %q", sha)
+	}
+	if sha, err := MergeRunWorktree(context.Background(), dir, "run-1", MergeLane{Title: "lane"}, nil); err != nil || sha == "" {
+		t.Fatalf("the lane still lands once git answers: sha=%q err=%v", sha, err)
+	}
+	gitCmd(t, dir, "update-ref", "-d", "refs/heads/wave/run-1")
+	if sha, err := MergeRunWorktree(context.Background(), dir, "run-1", MergeLane{Title: "lane"}, nil); err != nil || sha != "" {
+		t.Fatalf("a gone branch lands nothing and is no error: sha=%q err=%v", sha, err)
+	}
+}
