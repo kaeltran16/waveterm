@@ -11,6 +11,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io/fs"
 	"log"
 	"os"
@@ -319,11 +320,11 @@ var usageMarker = []byte(`"usage"`)
 
 // scanLines returns the non-blank lines of path that keep accepts (nil keeps all). It streams: a scan
 // reads transcripts in parallel, and holding each one whole made that burst, not the live heap, the
-// size wavesrv stayed at.
-func scanLines(path string, keep func(line []byte) bool) []string {
+// size wavesrv stayed at. err is the open's: a file that could not be opened was not read.
+func scanLines(path string, keep func(line []byte) bool) ([]string, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	defer file.Close()
 	scanner := bufio.NewScanner(file)
@@ -339,11 +340,12 @@ func scanLines(path string, keep func(line []byte) bool) []string {
 	if err := scanner.Err(); err != nil {
 		log.Printf("usagestats: reading %s stopped early: %v", path, err)
 	}
-	return lines
+	return lines, nil
 }
 
 func readLines(path string) []string {
-	return scanLines(path, nil)
+	lines, _ := scanLines(path, nil)
+	return lines
 }
 
 // filterUsageLines returns the subset of lines that could carry Claude token usage — only assistant
@@ -366,7 +368,8 @@ func filterUsageLines(lines []string) []string {
 // readClaudeLines reads a Claude transcript, keeping only usage-bearing lines (see filterUsageLines)
 // as they stream past, so the rest of the file is never held.
 func readClaudeLines(path string) []string {
-	return scanLines(path, func(line []byte) bool { return bytes.Contains(line, usageMarker) })
+	lines, _ := scanLines(path, func(line []byte) bool { return bytes.Contains(line, usageMarker) })
+	return lines
 }
 
 // inWindow reports whether the file at path was modified at/after cutoff. A zero cutoff
@@ -573,11 +576,14 @@ func parseFile(f scanFile) fileParse {
 	var p fileParse
 	switch f.kind {
 	case scanCodex:
-		lines := readLines(f.path)
+		lines, err := scanLines(f.path, nil)
+		p.unread = err != nil
 		p.records = extractCodex(lines)
 		p.cwd = codexCwd(lines)
 	case scanOpencode:
-		if data, err := os.ReadFile(f.path); err == nil {
+		data, err := os.ReadFile(f.path)
+		p.unread = err != nil
+		if err == nil {
 			if rec, ok := extractOpencode(data); ok {
 				p.records = []Record{rec}
 			}
@@ -587,12 +593,17 @@ func parseFile(f scanFile) fileParse {
 			Directory string `json:"directory"`
 			Title     string `json:"title"`
 		}
-		if data, err := os.ReadFile(f.path); err == nil && json.Unmarshal(data, &info) == nil {
+		data, err := os.ReadFile(f.path)
+		p.unread = err != nil
+		if err == nil && json.Unmarshal(data, &info) == nil {
 			p.cwd, p.title = info.Directory, info.Title
 		}
 	case scanPi:
 		file, err := pisession.Read(f.path)
 		if err != nil {
+			// a malformed file stays cached as empty; one that could not be read is retried
+			var pathErr *fs.PathError
+			p.unread = errors.As(err, &pathErr)
 			return p
 		}
 		p.records = extractPi(file, time.Time{})
@@ -623,7 +634,7 @@ var (
 // that carries one) and its title (the last ai-title line: claude rewrites it as the session moves).
 func parseClaudeFile(path string) fileParse {
 	var p fileParse
-	lines := scanLines(path, func(line []byte) bool {
+	lines, err := scanLines(path, func(line []byte) bool {
 		wantCwd := p.cwd == "" && bytes.Contains(line, cwdMarker)
 		if wantCwd || bytes.Contains(line, titleMarker) {
 			var rec struct {
@@ -641,6 +652,7 @@ func parseClaudeFile(path string) fileParse {
 		}
 		return bytes.Contains(line, usageMarker)
 	})
+	p.unread = err != nil
 	p.records = dedupe(extractClaude(lines))
 	return p
 }
@@ -686,6 +698,9 @@ type fileParse struct {
 	records []Record
 	cwd     string
 	title   string
+	// unread marks a file that could not be read (a lock, a handle limit): it is not cached, or its
+	// usage would stay missing until restart, since a finished transcript's mtime and size never change
+	unread bool
 }
 
 // parseCache holds each scanned file's records by path. Reading and parsing the transcripts is nearly
@@ -710,7 +725,9 @@ func cachedParse(f scanFile) fileParse {
 	}
 	p := parseFile(f)
 	p.mod, p.size = info.ModTime(), info.Size()
-	parseCache.Store(f.path, p)
+	if !p.unread {
+		parseCache.Store(f.path, p)
+	}
 	return p
 }
 

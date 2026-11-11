@@ -367,3 +367,24 @@ func TestPinnedSessionPastTheWindowStaysCached(t *testing.T) {
 		t.Fatalf("the pinned transcript was read %d times in 3 list calls, want 1", n)
 	}
 }
+
+// a read that fails once (an antivirus or backup lock) must not cache a finished transcript as "not a
+// session": its mtime and size never change again, so the session would stay hidden until restart
+func TestIndexedRetriesATranscriptWhoseReadFailed(t *testing.T) {
+	dir := indexHome(t)
+	writeSession(t, dir, "locked", "read me later", time.Hour)
+	orig := readLines
+	failed := false
+	readLines = func(path string) []string {
+		if !failed {
+			failed = true
+			return nil
+		}
+		return orig(path)
+	}
+	t.Cleanup(func() { readLines = orig })
+	Indexed(IndexWindowDays)
+	if got, _ := Indexed(IndexWindowDays); len(got) != 1 || got[0].Info.ID != "locked" {
+		t.Fatalf("want the session once the read succeeds, got %+v", got)
+	}
+}
