@@ -54,7 +54,7 @@ func (ws *WshServer) AgentSyncAdoptCommand(ctx context.Context, data wshrpc.Comm
 	}
 	if err != nil {
 		// a partial plan is data the caller must see, not just an error string
-		return rtn, fmt.Errorf("adopting harness skills: %w", err)
+		rtn.Error = fmt.Sprintf("adopting harness skills: %v", err)
 	}
 	return rtn, nil
 }
