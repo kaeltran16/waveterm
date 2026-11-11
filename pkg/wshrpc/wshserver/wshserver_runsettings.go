@@ -65,10 +65,17 @@ func validateWorkersSetting(route *waveobj.RoutePin, picks bool) error {
 	return nil
 }
 
-// validateGlobalEngineDefaults validates the global profile's workers and reviewer settings as
+// validateGlobalEngineDefaults validates the global profile's width, workers and reviewer settings as
 // validateEngineDefaults does an override's.
 func validateGlobalEngineDefaults(p waveobj.JarvisProfile) error {
+	// the global profile's 0 is its documented "let the lead choose", not an explicit width
+	if err := validateParallelism(p.Parallelism, true); err != nil {
+		return err
+	}
 	if err := validateWorkersSetting(p.WorkerRoute, p.ReviewerPicks); err != nil {
+		return err
+	}
+	if err := validateRoute("workerRoute", p.WorkerRoute, false); err != nil {
 		return err
 	}
 	if err := validateRoute("reviewerRoute", p.ReviewerRoute, false); err != nil {
