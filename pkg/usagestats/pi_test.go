@@ -9,6 +9,7 @@ package usagestats
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -442,5 +443,30 @@ func TestTranscriptUsagePiNoSubagents(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].Input != 100 || got[0].Output != 50 || got[0].Msgs != 1 {
 		t.Fatalf("buckets = %+v, want the parent's single 100/50 bucket", got)
+	}
+}
+
+// pi's /fork copies the parent's entries, ids, timestamps and usage included, into a new session file:
+// that usage was billed once. A separate session that happens to reuse an 8-hex entry id is still billed.
+func TestScanRootsBillsForkedPiEntriesOnce(t *testing.T) {
+	piRoot := filepath.Join(t.TempDir(), "pi", "agent", "sessions")
+	if err := os.MkdirAll(piRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fork := strings.Replace(piFixture, `"id":"s1",`, `"id":"s2","parentSession":"s.jsonl",`, 1)
+	other := strings.ReplaceAll(strings.Replace(piFixture, `"id":"s1",`, `"id":"s3",`, 1), "2026-08-11T03:", "2026-08-12T03:")
+	for name, content := range map[string]string{"s.jsonl": piFixture, "s2.jsonl": fork, "s3.jsonl": other} {
+		if err := os.WriteFile(filepath.Join(piRoot, name), []byte(content+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, _ := scanRoots(filepath.Join(piRoot, "claude-missing"), filepath.Join(piRoot, "codex-missing"), filepath.Join(piRoot, "opencode-missing"), piRoot, 0)
+	input, msgs := 0, 0
+	for _, b := range got {
+		input += b.Input
+		msgs += b.Msgs
+	}
+	if want := 2 * (100 + 40 + 5 + 300 + 15); input != want || msgs != 10 {
+		t.Errorf("input = %d, msgs = %d; want %d, 10 (the fork's copies billed once)", input, msgs, want)
 	}
 }

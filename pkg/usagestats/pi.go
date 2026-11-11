@@ -87,6 +87,8 @@ func extractPi(file *pisession.File, cutoff time.Time) []Record {
 		}
 		cost := e.Usage.Cost.Total
 		out = append(out, Record{
+			// a fork copies its parent's entries verbatim; the 8-hex id alone collides across sessions
+			ID: "pi:" + e.ID + ":" + e.Timestamp,
 			TS: ts, Harness: "pi", Provider: provider, Model: model,
 			Input: e.Usage.Input, Output: output, Reasoning: reasoning,
 			CacheRead: e.Usage.CacheRead, CacheCreate: e.Usage.CacheWrite,
