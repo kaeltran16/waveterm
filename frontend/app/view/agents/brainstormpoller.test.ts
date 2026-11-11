@@ -14,6 +14,7 @@ import {
     readTurnCanvases,
     reconcileBrainstorms,
     settleBrainstorm,
+    terminalAnswerStopsJudge,
     type BrainstormIO,
 } from "./brainstormpoller";
 import type { BrainstormState } from "./brainstormstore";
@@ -302,6 +303,23 @@ describe("settleBrainstorm", () => {
     });
 });
 
+describe("terminalAnswerStopsJudge", () => {
+    const answer = { at: 1000, modifiedMs: 500, kind: "answer" as const };
+    const reading = { brainstormJudge: { state: "reading" as const, ts: 400 } };
+
+    it("stops a reading judge once the poll finds an answer typed in the terminal", () => {
+        expect(terminalAnswerStopsJudge(null, answer, reading)).toBe(true);
+    });
+
+    it("leaves the judge alone for a line already pending, one it delivered, or no judge reading", () => {
+        expect(terminalAnswerStopsJudge(answer, answer, reading)).toBe(false);
+        expect(terminalAnswerStopsJudge(null, { ...answer, kind: "judged" }, reading)).toBe(false);
+        expect(terminalAnswerStopsJudge(null, answer, { brainstormJudge: { state: "answered", ts: 400 } })).toBe(false);
+        expect(terminalAnswerStopsJudge(null, answer, undefined)).toBe(false);
+        expect(terminalAnswerStopsJudge(null, null, reading)).toBe(false);
+    });
+});
+
 describe("listOpenBrainstorms", () => {
     const dir = "/p/.superpowers/brainstorm";
     const at = (topic: string) => `${dir}/${topic}/brainstorm.json`;
@@ -333,7 +351,7 @@ describe("listOpenBrainstorms", () => {
     it("lists the unapproved brainstorms, newest first, with their open question", async () => {
         const io = listIO(["old", "approved", "new", "notes", "broken", "busy"], {
             [at("old")]: { text: fileText({ title: "Old one" }), modifiedMs: 10 },
-            [at("approved")]: { text: fileText({ done: true }), modifiedMs: 30 },
+            [at("approved")]: { text: fileText({ done: true, question: null, run: "run-1" }), modifiedMs: 30 },
             [at("new")]: { text: fileText({ title: "New one", question: null }), modifiedMs: 20 },
             [at("broken")]: { text: "{", modifiedMs: 40 },
             [at("busy")]: "fails",
@@ -342,6 +360,13 @@ describe("listOpenBrainstorms", () => {
             { topic: "new", path: at("new"), title: "New one", modifiedMs: 20 },
             { topic: "old", path: at("old"), title: "Old one", modifiedMs: 10 },
         ]);
+    });
+
+    it("keeps a talk that ended but was never approved: done only means nothing is left to ask", async () => {
+        const io = listIO(["ended"], {
+            [at("ended")]: { text: fileText({ done: true, question: null }), modifiedMs: 10 },
+        });
+        expect((await listOpenBrainstorms("/p", io)).map((b) => b.topic)).toEqual(["ended"]);
     });
 
     it("is empty for a project that never brainstormed", async () => {
