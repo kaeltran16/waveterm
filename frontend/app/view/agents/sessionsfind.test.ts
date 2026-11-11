@@ -172,6 +172,9 @@ describe("findTerms", () => {
         expect(findTerms("Hook  Timeout")).toEqual(["hook", "timeout"]);
         expect(findTerms('"dial timeout" warm')).toEqual(["dial timeout", "warm"]);
         expect(findTerms('"open')).toEqual(["open"]);
+        // as ParseQuery: an unclosed quote is dropped and the rest read as words, not one phrase
+        expect(findTerms('"dial timeout')).toEqual(["dial", "timeout"]);
+        expect(findTerms('"a b" "dial timeout')).toEqual(["a b", "dial", "timeout"]);
     });
 
     it("findTerms of an empty or bare-quote query is empty", () => {

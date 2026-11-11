@@ -128,8 +128,12 @@ export function findRanges(text: string, terms: string[]): [number, number][] {
 // The terms of a query the user refines in the find bar, by the search's own rule (ParseQuery,
 // pkg/agentsessions): lower-cased words, and double-quoted text as one term; an unclosed quote runs to the end.
 export function findTerms(query: string): string[] {
-    return query.split('"').flatMap((part, i) => {
+    const parts = query.split('"');
+    // an even count of parts is an odd count of quotes: ParseQuery drops the unclosed one and reads what follows
+    // it as separate words, not a phrase
+    const unclosed = parts.length % 2 === 0 ? parts.length - 1 : -1;
+    return parts.flatMap((part, i) => {
         const words = part.toLowerCase().split(/\s+/).filter(Boolean);
-        return i % 2 === 1 ? (words.length ? [words.join(" ")] : []) : words;
+        return i % 2 === 1 && i !== unclosed ? (words.length ? [words.join(" ")] : []) : words;
     });
 }
