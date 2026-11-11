@@ -100,7 +100,7 @@ describe("blameClick", () => {
 });
 
 describe("blameIsCurrent", () => {
-    const ready: BlameState = { kind: "ready", path: "a.go", modtime: 10, entries: [] };
+    const ready: BlameState = { kind: "ready", path: "a.go", modtime: 10, head: "h1", entries: [] };
 
     it("holds for the same path and modtime", () => {
         expect(blameIsCurrent(ready, "a.go", 10)).toBe(true);
@@ -109,6 +109,13 @@ describe("blameIsCurrent", () => {
     it("fails for another path or another modtime", () => {
         expect(blameIsCurrent(ready, "b.go", 10)).toBe(false);
         expect(blameIsCurrent(ready, "a.go", 11)).toBe(false);
+    });
+
+    it("is stale once HEAD moves, though the file's modtime did not", () => {
+        expect(blameIsCurrent(ready, "a.go", 10, "h1")).toBe(true);
+        expect(blameIsCurrent(ready, "a.go", 10, "h2")).toBe(false);
+        // HEAD not read yet: nothing to compare against
+        expect(blameIsCurrent(ready, "a.go", 10, "")).toBe(true);
     });
 
     it("fails while loading, after an error, or before any load", () => {

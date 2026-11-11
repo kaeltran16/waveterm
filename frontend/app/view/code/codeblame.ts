@@ -23,7 +23,7 @@ export interface BlameEntry {
 export type BlameState =
     | { kind: "idle" }
     | { kind: "loading"; path: string }
-    | { kind: "ready"; path: string; modtime: number; entries: BlameEntry[] }
+    | { kind: "ready"; path: string; modtime: number; head: string; entries: BlameEntry[] }
     | { kind: "error"; path: string; message: string };
 
 export type BlameClick = { kind: "open-run"; runId: string } | { kind: "copy-sha"; sha: string } | { kind: "none" };
@@ -77,8 +77,15 @@ export function blameClick(e: BlameEntry): BlameClick {
     return e.run != null ? { kind: "open-run", runId: e.run.runId } : { kind: "copy-sha", sha: e.sha };
 }
 
-export function blameIsCurrent(state: BlameState, path: string, modtime: number): boolean {
-    return state.kind === "ready" && state.path === path && state.modtime === modtime;
+// Blame also answers for HEAD: a commit of the open file's changes leaves its modtime alone but makes its lines
+// committed. An unknown HEAD ("", no status read yet) on either side is taken as unchanged.
+export function blameIsCurrent(state: BlameState, path: string, modtime: number, head = ""): boolean {
+    return (
+        state.kind === "ready" &&
+        state.path === path &&
+        state.modtime === modtime &&
+        (head === "" || state.head === "" || state.head === head)
+    );
 }
 
 // past this many cells (changed saved lines times changed buffer lines) the middle is not diffed: the table

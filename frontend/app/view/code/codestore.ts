@@ -115,6 +115,8 @@ export const codePlainAtom = atom((get) => get(codeIndexAtom)?.isRepo === false)
 export { NOT_TRACKED } from "./codeclassify";
 export const codeExpandedAtom = atom<Set<string>>(new Set<string>()) as PrimitiveAtom<Set<string>>;
 export const codeFileAtom = atom<CodeFile>({ kind: "none" }) as PrimitiveAtom<CodeFile>;
+// the repository's HEAD as the last status read saw it; "" until one has, or in a folder that is not a repository
+export const codeHeadShaAtom = atom<string>("") as PrimitiveAtom<string>;
 export const codeHistoryAtom = atom<History>(EMPTY_HISTORY) as PrimitiveAtom<History>;
 // every checkout of the selected project's repository, main first; empty until loaded
 export const codeWorktreesAtom = atom<GitWorktree[]>([]) as PrimitiveAtom<GitWorktree[]>;
@@ -303,6 +305,7 @@ export async function selectProject(p: CodeProject | null): Promise<void> {
     globalStore.set(codeViewModeAtom, "preview");
     globalStore.set(codeStatusAtom, null);
     globalStore.set(codeStatusErrorAtom, null);
+    globalStore.set(codeHeadShaAtom, "");
     globalStore.set(codeHeadAtom, { kind: "idle" });
     globalStore.set(codeDiffTargetAtom, "head");
     globalStore.set(codeDiffBaseAtom, null);
@@ -500,6 +503,7 @@ export async function loadStatus(): Promise<void> {
             codeStatusAtom,
             statusByPath(parseGitChanges(res?.statusz ?? "", res?.numstat ?? "", res?.numstaterror))
         );
+        globalStore.set(codeHeadShaAtom, res?.head ?? "");
         globalStore.set(codeStatusErrorAtom, null);
     } catch (e) {
         if (current.statusToken !== token) {
