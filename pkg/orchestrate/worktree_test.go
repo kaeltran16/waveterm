@@ -2,10 +2,12 @@ package orchestrate
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -583,4 +585,17 @@ func TestConcurrentWorktreeAddAndRemoveDoNotFail(t *testing.T) {
 	for err := range errs {
 		t.Error(err)
 	}
+}
+
+// failGit fails every git call in dir whose arguments include arg, as a git unable to read the repository would
+// (exit 128), until the test ends.
+func failGit(t *testing.T, dir, arg string) {
+	t.Helper()
+	gitFault = func(d string, args []string) error {
+		if d == dir && slices.Contains(args, arg) {
+			return errors.New("exit status 128: injected failure")
+		}
+		return nil
+	}
+	t.Cleanup(func() { gitFault = nil })
 }

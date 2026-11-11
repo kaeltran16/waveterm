@@ -25,6 +25,10 @@ var ErrNotGitRepo = errors.New("not a git repo")
 // ended. A var for tests.
 var gitWaitDelay = planCommandWaitDelay
 
+// gitFault fails the git call it returns an error for, before it runs: no repository state fails only one probe
+// (rev-parse -q --verify and show-ref -q answer 1 even for a ref they cannot read). A var for tests.
+var gitFault func(dir string, args []string) error
+
 func git(ctx context.Context, dir string, args ...string) (string, error) {
 	out, err := gitRaw(ctx, dir, args...)
 	return strings.TrimSpace(out), err
@@ -33,6 +37,11 @@ func git(ctx context.Context, dir string, args ...string) (string, error) {
 // gitRaw is git with stdout as git wrote it, for output used whole rather than parsed: trimmed, a patch loses its
 // final newline and a trailing blank context line, and git apply rejects it as corrupt.
 func gitRaw(ctx context.Context, dir string, args ...string) (string, error) {
+	if gitFault != nil {
+		if err := gitFault(dir, args); err != nil {
+			return "", fmt.Errorf("git %v: %w", args, err)
+		}
+	}
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
 	// without it the call waits for the pipe, not the process: a descendant git left behind (a hook, a helper)
 	// holds the pipe open past git's exit and past the context, and most callers hold a dag lock
