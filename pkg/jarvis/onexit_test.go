@@ -59,6 +59,14 @@ func TestOutcomeSummary(t *testing.T) {
 			t.Errorf("got len %d, want 160", len(got))
 		}
 	})
+
+	t.Run("does not split a rune at the cut", func(t *testing.T) {
+		long := strings.Repeat("x", 159) + "—" + strings.Repeat("x", 40)
+		sess := &agentsessions.SessionInfo{Events: []agentsessions.SessionEvent{{Text: long}}}
+		if got := outcomeSummary(sess); !utf8.ValidString(got) || got != strings.Repeat("x", 159) {
+			t.Errorf("got %q, want the 159 bytes before the split em dash", got)
+		}
+	})
 }
 
 // Guards J5: abnormal exit paths must log — a silent outcome is indistinguishable from

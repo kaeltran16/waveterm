@@ -139,18 +139,51 @@ var (
 	planTaskRefRe     = regexp.MustCompile(`^Task (\d+)(?:\s*\((.*)\))?$`)
 )
 
+// planNearTaskHeadingRe matches a heading meant as a task that planTaskHeadingRe misses, which would
+// otherwise fold into the task before it.
+var planNearTaskHeadingRe = regexp.MustCompile(`(?i)^\s*#{2,}\s*Task\s*\d+`)
+
 func planTaskID(n int) string {
 	return "t-" + strconv.Itoa(n)
 }
 
-func planFenceMarker(line string) string {
+// codeFence tracks whether markdown lines sit inside a fenced code block. As in CommonMark, an opener may
+// follow a list marker ("- ```bash"), and only a run of the opener's character at least as long, with
+// nothing after it, closes the block: an indented closer must not reopen it, nor an inner ``` close a ````.
+type codeFence struct {
+	char byte
+	n    int
+}
+
+var fenceListMarkerRe = regexp.MustCompile(`^(?:[-*+]|\d+[.)])[ \t]+`)
+
+// step reports whether line opens, closes or sits inside a fence, and advances past it.
+func (f *codeFence) step(line string) bool {
 	trimmed := strings.TrimLeft(line, " \t")
-	for _, marker := range []string{"```", "~~~"} {
-		if strings.HasPrefix(trimmed, marker) {
-			return marker
+	if f.n > 0 {
+		if n := fenceRun(trimmed); n >= f.n && trimmed[0] == f.char && strings.TrimSpace(trimmed[n:]) == "" {
+			f.n = 0
 		}
+		return true
 	}
-	return ""
+	trimmed = fenceListMarkerRe.ReplaceAllString(trimmed, "")
+	if n := fenceRun(trimmed); n >= 3 {
+		f.char, f.n = trimmed[0], n
+		return true
+	}
+	return false
+}
+
+// fenceRun is the length of the run of backticks or tildes s starts with.
+func fenceRun(s string) int {
+	if s == "" || (s[0] != '`' && s[0] != '~') {
+		return 0
+	}
+	n := 1
+	for n < len(s) && s[n] == s[0] {
+		n++
+	}
+	return n
 }
 
 // ParsePlan reads a plan in PlanFormat. Lines inside code fences are task text only, so a plan that
@@ -165,7 +198,7 @@ func ParsePlan(src string) (Plan, error) {
 	bare := map[int][]int{}
 	// explicit is each task index whose Depends line replaced the default edge to the task before it
 	explicit := map[int]bool{}
-	fence := ""
+	var fence codeFence
 	inTaskHead, dependsAllowed := false, false
 	flush := func() {
 		if len(p.Tasks) > 0 {
@@ -180,18 +213,10 @@ func ParsePlan(src string) (Plan, error) {
 			body = append(body, line)
 		}
 	}
+	src = strings.TrimPrefix(src, utf8BOM)
 	for _, line := range strings.Split(strings.ReplaceAll(src, "\r\n", "\n"), "\n") {
-		if marker := planFenceMarker(line); marker != "" && (fence == "" || marker == fence) {
-			if fence == "" {
-				fence = marker
-			} else {
-				fence = ""
-			}
+		if fence.step(line) {
 			inTaskHead = false
-			preambleLine(line)
-			continue
-		}
-		if fence != "" {
 			preambleLine(line)
 			continue
 		}
@@ -212,6 +237,9 @@ func ParsePlan(src string) (Plan, error) {
 			inTaskHead, dependsAllowed = true, true
 			continue
 		}
+		if planNearTaskHeadingRe.MatchString(line) {
+			return Plan{}, fmt.Errorf("plan heading %q is not a task heading: write it as \"### Task %d: <title>\", at the start of the line under ## or ###", strings.TrimSpace(line), len(p.Tasks)+1)
+		}
 		if len(p.Tasks) == 0 {
 			consumed, err := readPlanPreamble(&p, line)
 			if err != nil {
@@ -227,7 +255,10 @@ func ParsePlan(src string) (Plan, error) {
 				continue
 			}
 			task := &p.Tasks[len(p.Tasks)-1]
-			if m := planDependsRe.FindStringSubmatch(line); m != nil && dependsAllowed {
+			if m := planDependsRe.FindStringSubmatch(line); m != nil {
+				if !dependsAllowed {
+					return Plan{}, fmt.Errorf("task %d: **Depends on:** must be the first line under its heading, once, before its Chunk, Model and Files lines", len(p.Tasks))
+				}
 				deps, unexplained, err := parsePlanDepends(m[1], len(p.Tasks))
 				if err != nil {
 					return Plan{}, err

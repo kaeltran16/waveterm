@@ -1121,3 +1121,35 @@ func verificationCommands(lines []string) []waveobj.EvidenceVerif {
 	acc.addTranscript(lines)
 	return acc.out
 }
+
+// a branch-landed lead with no commit works in its own tree: the fallback diffs that tree, not the checkout,
+// where the human's own uncommitted edits sit
+func TestSealEvidenceFallbackDiffsTheLandingTree(t *testing.T) {
+	dir := t.TempDir()
+	gitCmd(t, dir, "init", "-b", "main")
+	if err := os.WriteFile(filepath.Join(dir, "base.txt"), []byte("base\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitCmd(t, dir, "add", ".")
+	gitCmd(t, dir, "commit", "-m", "base")
+	base, err := gitinfo.HeadCommit(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree := filepath.Join(t.TempDir(), "land")
+	gitCmd(t, dir, "worktree", "add", "-b", "wave/r3", tree, base)
+	if err := os.WriteFile(filepath.Join(dir, "human.txt"), []byte("h\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tree, "run.txt"), []byte("r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	run := &waveobj.Run{
+		ID: "r3", Status: RunStatus_Done, ProjectPath: dir, LandPath: tree, BaseCommit: base, CreatedTs: 1000, // EndCommit empty
+		Phases: []waveobj.RunPhase{{Kind: PhaseKind_Execute, State: PhaseState_Done, DoneTs: 5000}},
+	}
+	if got := sealedPaths(t, run); !got["run.txt"] || got["human.txt"] {
+		t.Errorf("sealed files = %v, want the landing tree's run.txt and not the checkout's human.txt", got)
+	}
+}

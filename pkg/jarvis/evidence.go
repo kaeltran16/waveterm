@@ -572,7 +572,7 @@ func laneMergeCommits(ctx context.Context, run *waveobj.Run) map[string]bool {
 
 // SealEvidence derives and freezes a run's evidence snapshot. Idempotent: a run that already has
 // Evidence is left untouched (immutability). Locates transcripts from phase WorkerOrefs and git data
-// from ProjectPath — everything it needs is on the run. A transcript I/O failure degrades that section
+// from ProjectPath and LandPath — everything it needs is on the run. A transcript I/O failure degrades that section
 // to empty, but a git failure or a context timeout fails the seal (returns an error, leaves Evidence nil)
 // so the backfill can retry rather than freezing an empty file list into the immutable snapshot.
 func SealEvidence(ctx context.Context, run *waveobj.Run) error {
@@ -617,7 +617,8 @@ func SealEvidence(ctx context.Context, run *waveobj.Run) error {
 	// git-derived: files touched. prefer the run's own commit range (BaseCommit..EndCommit) — under
 	// delegator fan-out the shared ProjectPath tree holds every sibling merged since BaseCommit, so a
 	// working-tree diff over-attributes. fall back to the working-tree-vs-baseline diff when the worker
-	// reported no commit (the common single-run case, unchanged) or the reported SHA is unresolvable.
+	// reported no commit (the common single-run case, unchanged) or the reported SHA is unresolvable. that
+	// fallback diffs the tree the run worked in, its landing tree when it has one, not the shared checkout.
 	// a git failure or context timeout must NOT seal an empty file list into the immutable snapshot —
 	// return an error and leave Evidence nil so the backfill (SealRunEvidenceCommand) retries. a clean
 	// non-repo result (IsRepo false, no error) is a legitimate empty.
@@ -634,10 +635,10 @@ func SealEvidence(ctx context.Context, run *waveobj.Run) error {
 			}
 		}
 		if ch, gerr = rangeChanges(ctx, run.ProjectPath, run.BaseCommit, run.EndCommit); gerr != nil {
-			ch, gerr = gitinfo.GetChanges(ctx, run.ProjectPath, run.BaseCommit) // reported SHA unresolvable
+			ch, gerr = gitinfo.GetChanges(ctx, LandPath(run), run.BaseCommit) // reported SHA unresolvable
 		}
 	} else {
-		ch, gerr = gitinfo.GetChanges(ctx, run.ProjectPath, run.BaseCommit)
+		ch, gerr = gitinfo.GetChanges(ctx, LandPath(run), run.BaseCommit)
 	}
 	if gerr != nil {
 		return fmt.Errorf("evidence: computing git changes: %w", gerr)

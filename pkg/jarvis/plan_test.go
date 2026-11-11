@@ -183,6 +183,44 @@ func TestParsePlanIgnoresFencedLines(t *testing.T) {
 	}
 }
 
+func TestParsePlanFenceOpenedOnAListItem(t *testing.T) {
+	src := "### Task 1: a\n- run:\n- ```bash\n  go test ./pkg/x\n  ```\n\n### Task 2: b\n**Depends on:** none\n\n### Task 3: c\n"
+	p := mustParsePlan(t, src)
+	if want := []string{"t-1:", "t-2:", "t-3:t-2"}; !reflect.DeepEqual(depLists(p.Tasks), want) {
+		t.Fatalf("the list item's closing fence must not open a new one, got %v, want %v", depLists(p.Tasks), want)
+	}
+}
+
+func TestParsePlanFenceClosesOnlyOnALongEnoughRun(t *testing.T) {
+	src := "### Task 1: a\n````markdown\n```md\n### Task 9: sample\n```\n````\n\n### Task 2: b\n"
+	p := mustParsePlan(t, src)
+	if want := []string{"t-1:", "t-2:t-1"}; !reflect.DeepEqual(depLists(p.Tasks), want) {
+		t.Fatalf("an inner ``` block must not close a ```` fence, got %v, want %v", depLists(p.Tasks), want)
+	}
+	if !strings.Contains(p.Tasks[0].Description, "### Task 9: sample") {
+		t.Fatalf("fenced lines stay in the task text, got %q", p.Tasks[0].Description)
+	}
+}
+
+// a near-miss heading would otherwise fold the task into the one before it
+func TestParsePlanRefusesANearMissTaskHeading(t *testing.T) {
+	for _, heading := range []string{"### Task 3 - c", "#### Task 3: c", " ### Task 3: c", "### task 3: c"} {
+		t.Run(heading, func(t *testing.T) {
+			_, err := ParsePlan("### Task 1: a\nx\n### Task 2: b\ny\n" + heading + "\nz\n")
+			if err == nil || !strings.Contains(err.Error(), "not a task heading") {
+				t.Fatalf("got err %v, want %q refused", err, heading)
+			}
+		})
+	}
+}
+
+func TestParsePlanStripsABOM(t *testing.T) {
+	p := mustParsePlan(t, "\xef\xbb\xbf**Verify:** `go test ./...`\n\n### Task 1: a\nbody\n")
+	if p.Verify != "go test ./..." || p.Preamble != "" {
+		t.Fatalf("got verify %q, preamble %q", p.Verify, p.Preamble)
+	}
+}
+
 func TestParsePlanCRLF(t *testing.T) {
 	p := mustParsePlan(t, "**Verify:** `go test ./...`\r\n\r\n### Task 1: a\r\nbody\r\n### Task 2: b\r\n**Depends on:** none\r\n")
 	if p.Verify != "go test ./..." || p.Tasks[0].Label != "a" || p.Tasks[0].Description != "body" {
@@ -307,17 +345,28 @@ func TestParsePlanEffortRejects(t *testing.T) {
 }
 
 func TestParsePlanChunkLineLaterIsTaskText(t *testing.T) {
-	src := "**Effort:** e1\n\n### Task 1: a\n**Depends on:** none\nsome text\n**Chunk:** late\n\n" +
-		"### Task 2: b\n**Chunk:** early\n**Depends on:** none\nx\n"
+	src := "**Effort:** e1\n\n### Task 1: a\n**Depends on:** none\nsome text\n**Chunk:** late\n"
 	p := mustParsePlan(t, src)
 	if len(p.Tasks[0].Chunks) != 0 || !strings.Contains(p.Tasks[0].Description, "**Chunk:** late") {
 		t.Fatalf("a Chunk line after task text is task text, got chunks %v, description %q", p.Tasks[0].Chunks, p.Tasks[0].Description)
 	}
-	if got := p.Tasks[1].Chunks; !reflect.DeepEqual(got, []string{"early"}) || !strings.Contains(p.Tasks[1].Description, "**Depends on:** none") {
-		t.Fatalf("a Depends line after a Chunk line is task text, got chunks %v, description %q", got, p.Tasks[1].Description)
-	}
-	if len(p.Tasks[1].Deps) != 1 {
-		t.Fatalf("task 2 keeps its default dependency, got %v", p.Tasks[1].Deps)
+}
+
+// a Depends line after a Chunk, Model or Files line would otherwise be dropped, keeping the implicit edge to the
+// task before while the worker's prompt names another
+func TestParsePlanRefusesADependsLineAfterTheTaskHead(t *testing.T) {
+	for name, head := range map[string]string{
+		"after Files": "**Files:** `c.go`\n",
+		"after Chunk": "**Chunk:** early\n",
+		"after Model": "**Model:** claude-opus-5\n",
+		"twice":       "**Depends on:** none\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			src := "**Effort:** e1\n\n### Task 1: a\nx\n### Task 2: b\n**Depends on:** none\ny\n### Task 3: c\n" + head + "**Depends on:** Task 1 (uses the parser it adds)\nz\n"
+			if _, err := ParsePlan(src); err == nil || !strings.Contains(err.Error(), "first line under its heading") {
+				t.Fatalf("got err %v, want the late Depends line refused", err)
+			}
+		})
 	}
 }
 
