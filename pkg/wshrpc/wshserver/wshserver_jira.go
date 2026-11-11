@@ -69,19 +69,19 @@ func jiraClient() (*jira.Client, jira.Config, error) {
 // request it refuses for the request's own sake (a missing key, a bad move) still means the connection
 // works; only an auth refusal, a server error or no answer marks it failed. Errors that never reached
 // Jira say nothing about the connection.
-func noteJira(displayName string, err error) error {
+func noteJira(cfg jira.Config, displayName string, err error) error {
 	var he *jira.HTTPError
 	switch {
 	case err == nil:
-		jira.NoteConnection(displayName, nil, jiraNow())
+		jira.NoteConnection(cfg, displayName, nil, jiraNow())
 	case errors.As(err, &he):
 		if he.Status == http.StatusUnauthorized || he.Status == http.StatusForbidden || he.Status >= http.StatusInternalServerError {
-			jira.NoteConnection("", err, jiraNow())
+			jira.NoteConnection(cfg, "", err, jiraNow())
 		} else {
-			jira.NoteConnection("", nil, jiraNow())
+			jira.NoteConnection(cfg, "", nil, jiraNow())
 		}
 	case strings.HasPrefix(err.Error(), jira.CodeUnreachable):
-		jira.NoteConnection("", err, jiraNow())
+		jira.NoteConnection(cfg, "", err, jiraNow())
 	}
 	return err
 }
@@ -99,12 +99,12 @@ func (ws *WshServer) JiraConnectionCommand(ctx context.Context, data wshrpc.Comm
 		name, err := jira.New(cfg, nil).Myself(ctx)
 		if err != nil {
 			// Test again reports on the connection itself: every refusal counts, a 404 included
-			jira.NoteConnection("", err, jiraNow())
+			jira.NoteConnection(cfg, "", err, jiraNow())
 		} else {
-			noteJira(name, nil)
+			noteJira(cfg, name, nil)
 		}
 	}
-	conn := jira.LastConnection()
+	conn := jira.LastConnection(cfg)
 	conn.Configured = true
 	conn.Site = cfg.Site
 	return &conn, nil
@@ -132,7 +132,7 @@ func (ws *WshServer) JiraCheckCommand(ctx context.Context) (*wshrpc.CommandJiraC
 		return nil, err
 	}
 	tickets, err := client.SearchOpen(ctx)
-	if noteJira("", err) != nil {
+	if noteJira(client.Config(), "", err) != nil {
 		return nil, err
 	}
 	now := jiraNow()
@@ -183,7 +183,7 @@ func (ws *WshServer) JiraShowCommand(ctx context.Context, data wshrpc.CommandJir
 		return nil, err
 	}
 	t, err := client.IssueDetail(ctx, data.Key)
-	if noteJira("", err) != nil {
+	if noteJira(client.Config(), "", err) != nil {
 		return nil, err
 	}
 	now := jiraNow()
@@ -204,7 +204,7 @@ func (ws *WshServer) JiraAttachmentsCommand(ctx context.Context, data wshrpc.Com
 		return nil, err
 	}
 	atts, err := client.Attachments(ctx, data.Key)
-	if noteJira("", err) != nil {
+	if noteJira(client.Config(), "", err) != nil {
 		return nil, err
 	}
 	if atts == nil {
@@ -221,7 +221,7 @@ func (ws *WshServer) JiraAttachmentReadCommand(ctx context.Context, data wshrpc.
 		return nil, err
 	}
 	atts, err := client.Attachments(ctx, data.Key)
-	if noteJira("", err) != nil {
+	if noteJira(client.Config(), "", err) != nil {
 		return nil, err
 	}
 	i := slices.IndexFunc(atts, func(a wshrpc.JiraAttachment) bool { return a.ID == data.ID })
@@ -233,7 +233,7 @@ func (ws *WshServer) JiraAttachmentReadCommand(ctx context.Context, data wshrpc.
 		return nil, jira.TooLarge(att.ID)
 	}
 	raw, err := client.AttachmentContent(ctx, data.Key, att.ID)
-	if noteJira("", err) != nil {
+	if noteJira(client.Config(), "", err) != nil {
 		return nil, err
 	}
 	return &wshrpc.CommandJiraAttachmentReadRtnData{Attachment: att, Data64: base64.StdEncoding.EncodeToString(raw)}, nil
@@ -292,11 +292,11 @@ func (ws *WshServer) JiraPostDraftCommand(ctx context.Context, data wshrpc.Comma
 		return nil, err
 	}
 	t, err := client.Issue(ctx, key)
-	if noteJira("", err) != nil {
+	if noteJira(client.Config(), "", err) != nil {
 		return nil, err
 	}
 	transitions, err := client.Transitions(ctx, key)
-	if noteJira("", err) != nil {
+	if noteJira(client.Config(), "", err) != nil {
 		return nil, err
 	}
 	if err := jira.RecordSeen(ctx, t, "post", jiraNow()); err != nil {
@@ -390,7 +390,7 @@ func resolveMove(ctx context.Context, client *jira.Client, key, id string) (*jir
 		return nil, nil
 	}
 	transitions, err := client.Transitions(ctx, key)
-	if noteJira("", err) != nil {
+	if noteJira(client.Config(), "", err) != nil {
 		return nil, err
 	}
 	for _, t := range transitions {
@@ -480,7 +480,7 @@ func (ws *WshServer) JiraPostCommand(ctx context.Context, data wshrpc.CommandJir
 		return nil, err
 	}
 	t, err := client.Issue(ctx, key)
-	if noteJira("", err) != nil {
+	if noteJira(client.Config(), "", err) != nil {
 		return nil, err
 	}
 	move, err := resolveMove(ctx, client, key, data.TransitionID)
@@ -488,7 +488,7 @@ func (ws *WshServer) JiraPostCommand(ctx context.Context, data wshrpc.CommandJir
 		return nil, err
 	}
 	url, err := client.AddComment(ctx, key, comment)
-	if noteJira("", err) != nil {
+	if noteJira(client.Config(), "", err) != nil {
 		return nil, err
 	}
 	post := waveobj.EffortJiraPost{Ts: jiraNow(), CommentURL: url, From: t.Status}
@@ -500,7 +500,7 @@ func (ws *WshServer) JiraPostCommand(ctx context.Context, data wshrpc.CommandJir
 		logSeenAfterPost(ctx, t)
 		return rtn, nil
 	}
-	if err := noteJira("", client.DoTransition(ctx, key, move.id)); err != nil {
+	if err := noteJira(client.Config(), "", client.DoTransition(ctx, key, move.id)); err != nil {
 		post.MoveError = err.Error()
 		rtn.MoveError = post.MoveError
 	} else {
@@ -512,7 +512,7 @@ func (ws *WshServer) JiraPostCommand(ctx context.Context, data wshrpc.CommandJir
 	}
 	// Jira's own status after the move, above all when it refused it
 	after, err := client.Issue(ctx, key)
-	if noteJira("", err) != nil {
+	if noteJira(client.Config(), "", err) != nil {
 		log.Printf("jira: re-reading %s after the post: %v\n", key, err)
 		return rtn, nil
 	}

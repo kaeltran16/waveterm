@@ -5,6 +5,7 @@ package jira
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"slices"
@@ -88,17 +89,28 @@ func Cached(key string) (wshrpc.JiraTicket, int64, bool) {
 	return entry.ticket, entry.ts, ok
 }
 
-// the outcome of the last Jira call, for Settings > Jira without a call of its own
+// the outcome of the last Jira call, for Settings > Jira without a call of its own, with the credentials
+// it was learned with: an outcome says nothing about a site, email or token it was not tried with
 var connMem = struct {
 	sync.Mutex
+	key  [sha256.Size]byte
 	conn wshrpc.JiraConnection
 }{}
 
-// NoteConnection records a Jira call's outcome. Every call moves CheckedTs and Error; only a success
-// moves LastOkTs, and the display name when the call knows it, so a refusal keeps when Jira last answered.
-func NoteConnection(displayName string, err error, now int64) {
+func credentialKey(cfg Config) [sha256.Size]byte {
+	return sha256.Sum256([]byte(fmt.Sprintf("%q %q %q", cfg.Site, cfg.Email, cfg.Token)))
+}
+
+// NoteConnection records a Jira call's outcome under the credentials cfg made it with, dropping what other
+// credentials learned. Every call moves CheckedTs and Error; only a success moves LastOkTs, and the
+// display name when the call knows it, so a refusal keeps when Jira last answered.
+func NoteConnection(cfg Config, displayName string, err error, now int64) {
 	connMem.Lock()
 	defer connMem.Unlock()
+	if key := credentialKey(cfg); key != connMem.key {
+		connMem.key = key
+		connMem.conn = wshrpc.JiraConnection{}
+	}
 	c := &connMem.conn
 	c.CheckedTs = now
 	if err != nil {
@@ -114,15 +126,13 @@ func NoteConnection(displayName string, err error, now int64) {
 	}
 }
 
-// LastConnection is what the last Jira call learned: Ok, DisplayName, CheckedTs, LastOkTs and Error.
-func LastConnection() wshrpc.JiraConnection {
+// LastConnection is what the last Jira call made with cfg's credentials learned: Ok, DisplayName,
+// CheckedTs, LastOkTs and Error. Empty (not checked yet) when the last call used other credentials.
+func LastConnection(cfg Config) wshrpc.JiraConnection {
 	connMem.Lock()
 	defer connMem.Unlock()
+	if connMem.key != credentialKey(cfg) {
+		return wshrpc.JiraConnection{}
+	}
 	return connMem.conn
-}
-
-func setConnection(c wshrpc.JiraConnection) {
-	connMem.Lock()
-	connMem.conn = c
-	connMem.Unlock()
 }

@@ -1903,6 +1903,8 @@ function JiraSection() {
     const email = (useAtomValue(getSettingsKeyAtom("jira:email")) as string) ?? "";
 
     const [hasToken, setHasToken] = useState(false);
+    // bumps on every saved token: replacing one leaves hasToken true, and the line must still be read again
+    const [tokenRev, setTokenRev] = useState(0);
     const [replacing, setReplacing] = useState(false);
     const [siteError, setSiteError] = useState<string | null>(null);
     const [tokenError, setTokenError] = useState<string | null>(null);
@@ -1933,7 +1935,7 @@ function JiraSection() {
     // a changed site, email or token changes what is missing, so the line is read again (never a Jira call)
     useEffect(() => {
         fireAndForget(() => readConnection(false));
-    }, [site, email, hasToken]);
+    }, [site, email, hasToken, tokenRev]);
 
     const testAgain = () =>
         fireAndForget(async () => {
@@ -1958,6 +1960,7 @@ function JiraSection() {
         try {
             await RpcApi.SetSecretsCommand(TabRpcClient, { [JIRA_SECRET_NAME]: token });
             setHasToken(true);
+            setTokenRev((n) => n + 1);
             setReplacing(false);
             return true;
         } catch (e) {
