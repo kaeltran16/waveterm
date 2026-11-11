@@ -152,6 +152,21 @@ func TestRecoveryPatch(t *testing.T) {
 	}
 }
 
+// the patch is git's diff as written: trimmed, it lost its final newline and git apply rejected it as corrupt
+func TestRecoveryPatchApplies(t *testing.T) {
+	dir := newGitRepo(t)
+	base := gitCmd(t, dir, "rev-parse", "HEAD")
+	wt, _ := CreateRunWorktree(context.Background(), dir, "run-1", base)
+	writeFile(t, filepath.Join(wt, "new.txt"), "one\ntwo\n\n")
+	gitCmd(t, wt, "add", ".")
+	gitCmd(t, wt, "commit", "-m", "wip")
+	writeFile(t, filepath.Join(wt, "dirty.txt"), "uncommitted\n")
+	if err := DumpRecoveryPatch(context.Background(), dir, "run-1", ""); err != nil {
+		t.Fatal(err)
+	}
+	gitCmd(t, dir, "apply", "--check", filepath.Join(dir, ".waveterm", "recovery", "run-1.patch"))
+}
+
 func TestEnsureRunWorktreeReusesCleanTree(t *testing.T) {
 	dir := newGitRepo(t)
 	base := gitCmd(t, dir, "rev-parse", "HEAD")

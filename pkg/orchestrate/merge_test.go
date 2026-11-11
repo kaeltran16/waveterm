@@ -357,3 +357,82 @@ func TestConflictedFilesNamesWhatTheSquashLeftUnmerged(t *testing.T) {
 		t.Fatalf("conflicted files = %q, want [base.txt]", files)
 	}
 }
+
+// refuseCommits installs a commit-msg hook in dir's repo that refuses every commit, as a project's own hook or a
+// failing signer would.
+func refuseCommits(t *testing.T, dir string) {
+	t.Helper()
+	hook := filepath.Join(gitCmd(t, dir, "rev-parse", "--git-common-dir"), "hooks", "commit-msg")
+	if !filepath.IsAbs(hook) {
+		hook = filepath.Join(dir, hook)
+	}
+	writeFile(t, hook, "#!/bin/sh\necho refused by hook >&2\nexit 1\n")
+	if err := os.Chmod(hook, 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// a squash whose commit git refuses goes back out of the checkout: left staged, every later merge held at the
+// clean-index check without counting a failure, so the lead was never told. The checkout's own edits and the
+// uncommitted docs the squash would have folded in stay as they were.
+func TestMergeCommitRefusedPutsTheSquashBack(t *testing.T) {
+	dir := newGitRepo(t)
+	base := gitCmd(t, dir, "rev-parse", "HEAD")
+	wt, _ := CreateRunWorktree(context.Background(), dir, "run-1", base)
+	writeFile(t, filepath.Join(wt, "feature.txt"), "feat\n")
+	gitCmd(t, wt, "add", ".")
+	gitCmd(t, wt, "commit", "-m", "feature")
+	spec := filepath.Join(dir, "spec.md")
+	writeFile(t, spec, "# spec\n")
+	writeFile(t, filepath.Join(dir, "scratch.txt"), "the human's\n")
+	refuseCommits(t, dir)
+
+	if _, err := MergeRunWorktree(context.Background(), dir, "run-1", MergeLane{Title: "lane"}, []string{spec}); err == nil || !strings.Contains(err.Error(), "merge commit") {
+		t.Fatalf("want the refused commit's error, got %v", err)
+	}
+	if clean, err := IndexClean(context.Background(), dir); err != nil || !clean {
+		t.Fatalf("the refused squash must not stay staged: clean=%v err=%v\n%s", clean, err, gitCmd(t, dir, "status", "--porcelain"))
+	}
+	if _, err := os.Stat(filepath.Join(dir, "feature.txt")); !os.IsNotExist(err) {
+		t.Fatalf("the squash's file must leave the checkout, stat err = %v", err)
+	}
+	if got := readFile(t, spec); got != "# spec\n" {
+		t.Fatalf("the fold doc must stay on disk, got %q", got)
+	}
+	if got := readFile(t, filepath.Join(dir, "scratch.txt")); got != "the human's\n" {
+		t.Fatalf("the checkout's own file must stay, got %q", got)
+	}
+	if got := gitCmd(t, dir, "rev-parse", "HEAD"); got != base {
+		t.Fatalf("nothing may be committed, HEAD moved to %s", got)
+	}
+}
+
+// a continue's staged tree is the resolver's work: a refused commit leaves it for the next --continue
+func TestMergeContinueCommitRefusedKeepsTheResolution(t *testing.T) {
+	dir := conflictedSquash(t)
+	gitCmd(t, dir, "add", "-A")
+	staged := gitCmd(t, dir, "diff", "--cached", "--name-only")
+	refuseCommits(t, dir)
+	if _, err := MergeContinue(context.Background(), dir, "run-1", MergeLane{Title: "lane"}, nil); err == nil {
+		t.Fatal("want the refused commit's error")
+	}
+	if got := gitCmd(t, dir, "diff", "--cached", "--name-only"); got != staged || got == "" {
+		t.Fatalf("the resolution must stay staged: want %q, got %q", staged, got)
+	}
+}
+
+// only exit 1 is "staged changes": git unable to read the checkout is an error, not a hold nobody counts
+func TestIndexCleanReportsWhatGitCannotRead(t *testing.T) {
+	if clean, err := IndexClean(context.Background(), t.TempDir()); err == nil {
+		t.Fatalf("a directory that is not a repository must be an error, got clean=%v", clean)
+	}
+	dir := newGitRepo(t)
+	if clean, err := IndexClean(context.Background(), dir); err != nil || !clean {
+		t.Fatalf("a clean checkout: clean=%v err=%v", clean, err)
+	}
+	writeFile(t, filepath.Join(dir, "staged.txt"), "x\n")
+	gitCmd(t, dir, "add", "staged.txt")
+	if clean, err := IndexClean(context.Background(), dir); err != nil || clean {
+		t.Fatalf("a staged change: clean=%v err=%v", clean, err)
+	}
+}
