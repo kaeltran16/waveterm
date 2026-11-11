@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/wavetermdev/waveterm/pkg/claudemod"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 )
 
@@ -898,11 +899,9 @@ const arcPackageEntry = "git:github.com/kaeltran16/waveterm"
 // Returns what was installed and what was skipped for the idempotent report.
 func mergePiSettingsDefaults(home string) (installed []string, skipped []string, err error) {
 	path := filepath.Join(home, ".pi", "agent", "settings.json")
-	settings := map[string]any{}
-	if b, rerr := os.ReadFile(path); rerr == nil && len(strings.TrimSpace(string(b))) > 0 {
-		if uerr := json.Unmarshal(b, &settings); uerr != nil {
-			return nil, nil, fmt.Errorf("parsing %s: %w", path, uerr)
-		}
+	settings, err := claudemod.ReadSettings(path)
+	if err != nil {
+		return nil, nil, err
 	}
 	if _, ok := settings["theme"]; !ok {
 		settings["theme"] = "arc"
@@ -1006,11 +1005,9 @@ func installAgentHooksRun(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	existing := map[string]any{}
-	if b, err := os.ReadFile(path); err == nil && len(strings.TrimSpace(string(b))) > 0 {
-		if err := json.Unmarshal(b, &existing); err != nil {
-			return fmt.Errorf("parsing %s: %w", path, err)
-		}
+	existing, err := claudemod.ReadSettings(path)
+	if err != nil {
+		return err
 	}
 
 	modsSupported := claudeSupportsMods()

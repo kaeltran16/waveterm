@@ -59,7 +59,9 @@ func SetOption(plugin, field string, value bool) error {
 	return setOptionIn(path, plugin, field, value)
 }
 
-func readSettings(path string) (map[string]any, error) {
+// ReadSettings reads a settings.json for a read-modify-write: a missing or blank file is no settings,
+// any other read error is returned so the caller never writes over settings it could not see.
+func ReadSettings(path string) (map[string]any, error) {
 	settings := map[string]any{}
 	b, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
@@ -83,7 +85,7 @@ func entryKeys(plugin string) []string {
 }
 
 func optionsIn(path, plugin string) (map[string]any, error) {
-	settings, err := readSettings(path)
+	settings, err := ReadSettings(path)
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +100,7 @@ func optionsIn(path, plugin string) (map[string]any, error) {
 }
 
 func setOptionIn(path, plugin, field string, value bool) error {
-	settings, err := readSettings(path)
+	settings, err := ReadSettings(path)
 	if err != nil {
 		return err
 	}

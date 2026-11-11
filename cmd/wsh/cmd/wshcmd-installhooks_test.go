@@ -1235,3 +1235,49 @@ func TestSubagentStopIsNotManagedAndAnOldEntryIsPruned(t *testing.T) {
 		t.Fatalf("the old SubagentStop entry survived the merge: %v", hooks["SubagentStop"])
 	}
 }
+
+// stubInstallHome points the install at a throwaway home with no claude, opencode or pi on PATH.
+func stubInstallHome(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("HOME", home)
+	stubClaudeVersion(t, "", os.ErrNotExist)
+	origOpencode, origPi := opencodeLookPath, piLookPath
+	opencodeLookPath = func(string) (string, error) { return "", os.ErrNotExist }
+	piLookPath = func(string) (string, error) { return "", os.ErrNotExist }
+	t.Cleanup(func() { opencodeLookPath, piLookPath = origOpencode, origPi })
+	return home
+}
+
+// a settings.json that exists but cannot be read (a sharing violation at launch; a directory stands in
+// here) must stop the install, never be taken for "no settings" and replaced by an Arc-only file
+func TestInstallAgentHooks_unreadableSettingsAreNotReplaced(t *testing.T) {
+	home := stubInstallHome(t)
+	path := filepath.Join(home, ".claude", "settings.json")
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	err := installAgentHooksRun(nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "reading") {
+		t.Fatalf("install err = %v, want a read error", err)
+	}
+	if _, serr := os.Stat(path + ".tmp"); serr == nil {
+		t.Fatalf("install wrote %s.tmp over unreadable settings", path)
+	}
+}
+
+func TestMergePiSettingsDefaults_unreadableSettingsAreNotReplaced(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, ".pi", "agent", "settings.json")
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := mergePiSettingsDefaults(home)
+	if err == nil || !strings.Contains(err.Error(), "reading") {
+		t.Fatalf("merge err = %v, want a read error", err)
+	}
+	if _, serr := os.Stat(path + ".tmp"); serr == nil {
+		t.Fatalf("merge wrote %s.tmp over unreadable settings", path)
+	}
+}
