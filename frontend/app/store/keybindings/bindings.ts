@@ -16,6 +16,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { confirmCloseSession } from "@/app/view/agents/agentactions";
 import { AgentsViewModel, SURFACE_ORDER, type SurfaceKey } from "@/app/view/agents/agents";
 import { answerDigitTarget, canSubmitAsk, moveCursor, type AgentVM } from "@/app/view/agents/agentsviewmodel";
+import { enterAction, pickAdvance } from "@/app/view/agents/askflow";
 import {
     checkMain,
     checkReview,
@@ -984,6 +985,37 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
         return ok ? id : null;
     };
     const codePeekFocused = () => globalStore.get(codePeekFocusedAtom);
+    // the Rendered view's ask dock draws only for an asking agent, and only the focused agent's view is mounted, so a
+    // dock in the DOM is the renderable focused agent's
+    const renderedAsker = (): AgentVM | null => {
+        if (document.querySelector("[data-rendered-ask]") == null) {
+            return null;
+        }
+        const id = renderableId();
+        const agent = globalStore.get(model.agentsAtom).find((a) => a.id === id);
+        return agent?.state === "asking" ? agent : null;
+    };
+    const askAnswers = (id: string) => ({
+        sel: globalStore.get(model.answerSelAtom)[id] ?? {},
+        txt: globalStore.get(model.answerTextAtom)[id] ?? {},
+    });
+    const selectAskQuestion = (id: string, qi: number) =>
+        globalStore.set(model.answerTabAtom, (prev) => ({ ...prev, [id]: qi }));
+    // a digit picks as the cockpit's does: toggle, move on from a single-select question, never send
+    const pickAskDigit = (n: number): boolean | void => {
+        const asker = renderedAsker();
+        const target =
+            asker != null ? answerDigitTarget(asker, globalStore.get(model.answerTabAtom)[asker.id] ?? 0, n) : null;
+        if (target == null) {
+            return false;
+        }
+        model.toggleAnswer(asker.id, target.qi, target.oi);
+        const { sel, txt } = askAnswers(asker.id);
+        const next = pickAdvance(asker.ask?.questions ?? [], sel, txt, target.qi);
+        if (next != null) {
+            selectAskQuestion(asker.id, next);
+        }
+    };
     // the step the brainstorm pane's back control takes, which Esc takes too. A drawn mark's note owns Esc on the
     // board (it drops the mark there), so the board's step waits for it even while the note's field is unfocused
     const paneStep = () => {
@@ -1238,24 +1270,55 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             },
         },
         // the band owns the in-flight lock and the error, so a digit presses its button; only the focused agent's
-        // rendered view is mounted, so the band in the DOM is that agent's
-        ...Array.from({ length: 9 }, (_, i): Binding => ({
-            id: `agent:permission-choice-${i + 1}`,
-            keys: String(i + 1),
+        // rendered view is mounted, so the band in the DOM is that agent's. With no band, the digit answers the ask
+        // dock, since the dispatcher never falls through to a second binding on the same key
+        ...Array.from(
+            { length: 9 },
+            (_, i): Binding => ({
+                id: `agent:permission-choice-${i + 1}`,
+                keys: String(i + 1),
+                group: "Agent",
+                label: `Answer the permission prompt with choice ${i + 1}`,
+                paletteHidden: true,
+                when: (ctx) => nav(ctx) && !ctx.editable,
+                run: () => {
+                    const button = document.querySelector<HTMLButtonElement>(
+                        `[data-permission-band] [data-permission-choice="${i}"]`
+                    );
+                    if (button == null) {
+                        return pickAskDigit(i + 1);
+                    }
+                    if (button.disabled) {
+                        return false;
+                    }
+                    button.click();
+                },
+            })
+        ),
+        {
+            id: "agent:ask-submit",
+            keys: "Enter",
             group: "Agent",
-            label: `Answer the permission prompt with choice ${i + 1}`,
+            label: "Send the answer to the agent's question",
             paletteHidden: true,
-            when: (ctx) => nav(ctx) && !ctx.editable,
+            when: (ctx) => nav(ctx) && !ctx.editable && !codePeekFocused(),
+            // Enter on a button outside the dock is that button's own press
             run: () => {
-                const button = document.querySelector<HTMLButtonElement>(
-                    `[data-permission-band] [data-permission-choice="${i}"]`
-                );
-                if (button == null || button.disabled) {
+                const asker = renderedAsker();
+                const active = document.activeElement;
+                if (asker == null || (active?.tagName === "BUTTON" && active.closest("[data-rendered-ask]") == null)) {
                     return false;
                 }
-                button.click();
+                const { sel, txt } = askAnswers(asker.id);
+                const tab = globalStore.get(model.answerTabAtom)[asker.id] ?? 0;
+                const action = enterAction(asker.ask?.questions ?? [], sel, txt, tab);
+                if (action.kind === "submit") {
+                    model.submitAnswer(asker.id);
+                } else {
+                    selectAskQuestion(asker.id, action.qi);
+                }
             },
-        })),
+        },
         {
             id: "agent:review",
             keys: "r",

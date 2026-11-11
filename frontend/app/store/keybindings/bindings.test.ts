@@ -2764,3 +2764,56 @@ describe("sessions surface bindings", () => {
         expect(search().run(on)).toBe(false);
     });
 });
+
+describe("Rendered ask dock keys", () => {
+    const nav: KeyContext = { surface: "agent", editable: false, modalOpen: false, leader: null };
+    const multi = { question: "Which?", multiSelect: true, options: [{ label: "x" }, { label: "y" }] };
+    let model: any;
+    const byId = (id: string) => buildAgentBindings(model).find((b) => b.id === id)!;
+    const dock = (shown: boolean) =>
+        vi.stubGlobal("document", {
+            activeElement: null,
+            querySelector: (sel: string) => (shown && sel === "[data-rendered-ask]" ? {} : null),
+        });
+
+    beforeEach(() => {
+        dock(true);
+        const selAtom = atom<Record<string, Record<number, Set<number>>>>({});
+        model = {
+            ...stubModel("a1"),
+            agentsAtom: atom<any[]>([
+                { id: "a1", agent: "claude", blockId: "b1", state: "asking", ask: { questions: [multi] } },
+            ]),
+            answerSelAtom: selAtom,
+            answerTextAtom: atom({}),
+            answerTabAtom: atom({}),
+            toggleAnswer: vi.fn((id: string, qi: number, oi: number) =>
+                globalStore.set(selAtom, { [id]: { [qi]: new Set([oi]) } })
+            ),
+            submitAnswer: vi.fn(),
+        };
+    });
+
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    it("a digit picks a multi-select option and Enter sends the answer", () => {
+        expect(byId("agent:permission-choice-2").run(nav)).not.toBe(false);
+        expect(model.toggleAnswer).toHaveBeenCalledWith("a1", 0, 1);
+        expect(byId("agent:ask-submit").run(nav)).not.toBe(false);
+        expect(model.submitAnswer).toHaveBeenCalledWith("a1");
+    });
+
+    it("Enter with nothing picked sends nothing", () => {
+        byId("agent:ask-submit").run(nav);
+        expect(model.submitAnswer).not.toHaveBeenCalled();
+    });
+
+    it("lets the keys pass while no dock is on screen", () => {
+        dock(false);
+        expect(byId("agent:permission-choice-1").run(nav)).toBe(false);
+        expect(byId("agent:ask-submit").run(nav)).toBe(false);
+        expect(model.toggleAnswer).not.toHaveBeenCalled();
+    });
+});
