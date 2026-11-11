@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
 
@@ -150,5 +151,21 @@ func TestCancelGroupCancelsReviewStates(t *testing.T) {
 	CancelGroup(g)
 	if g.Tasks[1].State != TaskState_Cancelled || g.Tasks[2].State != TaskState_Cancelled {
 		t.Fatalf("cancel must end review states, got %s and %s", g.Tasks[1].State, g.Tasks[2].State)
+	}
+}
+
+// a run cancelled while a merge conflict, a Verify or a failed Verify holds a task must still read as terminal, or the
+// lead's tab is never closed
+func TestCancelGroupEndsLandingStates(t *testing.T) {
+	g := groupWith(TaskState_BlockedMerge, TaskState_Verifying, TaskState_VerifyFailed, TaskState_Pending)
+	CancelGroup(g)
+	for _, task := range g.Tasks {
+		if !taskStates[task.State].terminal {
+			t.Fatalf("task %s left %s by cancel", task.ID, task.State)
+		}
+	}
+	owner := &waveobj.Run{Mode: jarvis.RunMode_Orchestrator, Status: jarvis.RunStatus_Cancelled}
+	if !ShouldCloseOrchestratorLead(owner, g) {
+		t.Fatal("a cancelled dag's lead must be closeable")
 	}
 }

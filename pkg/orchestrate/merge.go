@@ -75,8 +75,11 @@ func MergeContinue(ctx context.Context, projectPath, runID string, lane MergeLan
 // it, then commits. A path git refuses to stage, because it is ignored or outside the repository, is logged
 // and left out: the docs are not worth failing a merge over. resolved is a continue after a conflict: with
 // nothing staged it lands nothing, since HEAD is then the lane's squash from an earlier attempt or not the lane's
-// at all (the squash was thrown away, or its resolver committed it under a message of their own).
+// at all (the squash was thrown away, or its resolver committed it under a message of their own). A commit git
+// refuses (a hook, signing, a held index.lock) puts an automatic squash back (undoMerge): left staged, it would hold
+// every later merge at the clean-index check, uncounted. A continue's staged tree is its resolver's work and stays.
 func finishMerge(ctx context.Context, projectPath, runID string, lane MergeLane, fold []string, resolved bool) (string, error) {
+	var folded []string
 	for _, path := range fold {
 		staged, err := foldIntoTree(ctx, projectPath, path)
 		if err == nil {
@@ -84,7 +87,9 @@ func finishMerge(ctx context.Context, projectPath, runID string, lane MergeLane,
 		}
 		if err != nil {
 			log.Printf("merge %s: not committing %s with the squash: %v", runID, path, err)
+			continue
 		}
+		folded = append(folded, staged)
 	}
 	if _, err := git(ctx, projectPath, "commit", "-m", mergeMessage(ctx, projectPath, runID, lane)); err != nil {
 		// "nothing to commit": a retry whose squash commit already landed on the prior attempt, a branch whose
@@ -96,9 +101,29 @@ func finishMerge(ctx context.Context, projectPath, runID string, lane MergeLane,
 			}
 			return sha, lerr
 		}
-		return "", fmt.Errorf("merge commit: %w", err)
+		err = fmt.Errorf("merge commit: %w", err)
+		if !resolved {
+			if uerr := undoMerge(ctx, projectPath, folded); uerr != nil {
+				err = errors.Join(err, fmt.Errorf("putting the squash back: %w", uerr))
+			}
+		}
+		return "", err
 	}
 	return git(ctx, projectPath, "rev-parse", "HEAD")
+}
+
+// undoMerge puts tree back at HEAD after a merge git started and could not finish: the squash's or the merge's
+// staged result and MERGE_HEAD go, while uncommitted edits outside the merge stay, as git merge --abort keeps them.
+// unstage names files staged into the merge that were not in it, the folded docs: they are unstaged first, so the
+// reset leaves them on disk as they were before.
+func undoMerge(ctx context.Context, tree string, unstage []string) error {
+	if len(unstage) > 0 {
+		if _, err := git(ctx, tree, append([]string{"reset", "-q", "--"}, unstage...)...); err != nil {
+			return err
+		}
+	}
+	_, err := git(ctx, tree, "reset", "--merge")
+	return err
 }
 
 // foldIntoTree returns the path to stage for a fold doc. A run landing on its own branch merges in a tree

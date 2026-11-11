@@ -198,6 +198,29 @@ func TestEarlyLaneHeldUntilBaseLaneMerged(t *testing.T) {
 		}
 	})
 
+	// b passed review on a's rejected commits; skipping a must restart b, not land those commits with b's squash
+	t.Run("base skipped", func(t *testing.T) {
+		f, merged := earlyMergeFixture(t, []waveobj.TaskNode{
+			{ID: "a", Label: "a"},
+			{ID: "b", Label: "b", Deps: []string{"a"}},
+			{ID: "x", Label: "x", Deps: []string{"a"}},
+		}, []string{"b"}, map[string]string{"b": "a"})
+		if err := updateDagForTest(f, func(g *waveobj.TaskGroup) {
+			a := taskByID(g, "a")
+			a.State, a.RunID = TaskState_Skipped, ""
+		}); err != nil {
+			t.Fatal(err)
+		}
+
+		assertOffered(t, f)
+		if err := MergeTask(f.ctx, f.channel, f.ownerID, "b"); !errors.Is(err, errProjectBusy) {
+			t.Fatalf("b is held while its base a is skipped, got %v", err)
+		}
+		if len(*merged) != 0 {
+			t.Fatalf("nothing lands on a skipped base, merged %v", *merged)
+		}
+	})
+
 	t.Run("base review-failed until the lead approves", func(t *testing.T) {
 		f, merged := earlyMergeFixture(t, []waveobj.TaskNode{
 			{ID: "a", Label: "a"},

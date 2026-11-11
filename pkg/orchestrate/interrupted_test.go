@@ -9,7 +9,9 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
+	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
@@ -197,5 +199,51 @@ func TestMarkInterruptedRunsCancelsDagRunsNoTaskReferences(t *testing.T) {
 	}
 	if !slices.Equal(stopped, []string{orphan.ID}) {
 		t.Fatalf("stopped %v, want only the orphan %s, so a resync cannot start its worker again", stopped, orphan.ID)
+	}
+}
+
+// a resume that spawned its new tab and then failed stops that tab, as dispatch stops an unrecorded worker: left
+// armed, it is a worker no run drives, and each retry of the resume adds another
+func TestResumeInNewTabStopsTheTabItSpawnedOnError(t *testing.T) {
+	for name, c := range map[string]struct {
+		closed    string
+		resumeErr error
+	}{
+		"the closed tab left the phase": {closed: "tab:elsewhere"},
+		"the resume fails":              {closed: "tab:worker", resumeErr: errors.New("no session")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			channelId, stored := newInterruptedRun(t, nil)
+			run, err := wstore.GetRun(ctx, channelId, stored.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			tabID := uuid.NewString()
+			if err := wstore.DBInsert(ctx, &waveobj.Tab{OID: tabID, Meta: waveobj.MetaMapType{}}); err != nil {
+				t.Fatal(err)
+			}
+			spawned := waveobj.MakeORef(waveobj.OType_Tab, tabID).String()
+			oldSpawn, oldResume, oldStop := jarvis.SpawnRunWorker, jarvis.ResumeRunWorker, stopSpawnedWorker
+			jarvis.SpawnRunWorker = func(context.Context, runroute.Capability, string, string, string, string, jarvis.RunWorkerOptions) (string, error) {
+				return spawned, nil
+			}
+			jarvis.ResumeRunWorker = func(context.Context, string, string, string, string) error { return c.resumeErr }
+			var stopped []string
+			stopSpawnedWorker = func(_ context.Context, worker string) error {
+				stopped = append(stopped, worker)
+				return nil
+			}
+			restoreAfterStages(t, func() {
+				jarvis.SpawnRunWorker, jarvis.ResumeRunWorker, stopSpawnedWorker = oldSpawn, oldResume, oldStop
+			})
+
+			if err := resumeInNewTab(ctx, run, 0, c.closed, "nudge"); err == nil {
+				t.Fatal("want the resume's error")
+			}
+			if !slices.Equal(stopped, []string{spawned}) {
+				t.Fatalf("stopped %v, want the spawned tab %s", stopped, spawned)
+			}
+		})
 	}
 }

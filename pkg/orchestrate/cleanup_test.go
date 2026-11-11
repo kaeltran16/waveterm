@@ -612,3 +612,36 @@ func TestRetryCleanupWorksOnACancelledDag(t *testing.T) {
 		t.Fatalf("retry-cleanup on a cancelled dag: %v", err)
 	}
 }
+
+// a debt retry reads an unmerged task, removes only its leftovers, and meanwhile the lane merges and owes its whole
+// tree; the retry's stale result must not clear that debt, or the merge's own removal finds none and leaves the tree
+func TestALeftoversPassKeepsTheDebtAMergeSetMeanwhile(t *testing.T) {
+	ctx, g := storedCleanupGroup(t, "cleanup-stale", func(g *waveobj.TaskGroup) {
+		g.Tasks[0].CleanupError = "leftover directory held"
+		g.Tasks[0].CleanupAttempts = 1
+	})
+	orig := cleanupTaskWorktree
+	cleanupTaskWorktree = func(ctx context.Context, snap *waveobj.TaskGroup, taskID string) error {
+		if err := wstore.UpdateDag(ctx, g.OID, func(cur *waveobj.TaskGroup) error {
+			task := taskByID(cur, taskID)
+			task.Merged, task.CleanupPending = true, true
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return orig(ctx, snap, taskID)
+	}
+	restoreAfterStages(t, func() { cleanupTaskWorktree = orig })
+	stubCleanupRemover(t, func(context.Context, string, string) error { return nil })
+
+	if err := removeTaskTree(ctx, g.OID, g.Tasks[0].ID, false); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := wstore.GetDag(ctx, g.OID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task := stored.Tasks[0]; !task.Merged || !task.CleanupPending {
+		t.Fatalf("the merge's removal is still owed, got merged=%v pending=%v error=%q", task.Merged, task.CleanupPending, task.CleanupError)
+	}
+}

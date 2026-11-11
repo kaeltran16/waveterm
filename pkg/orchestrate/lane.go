@@ -57,11 +57,7 @@ func laneMergeReady(g *waveobj.TaskGroup, lane []string) *waveobj.TaskNode {
 		return nil
 	}
 	for _, id := range lane {
-		t := taskByID(g, id)
-		if t.State == TaskState_Skipped {
-			continue
-		}
-		if t.State != TaskState_Done {
+		if !taskStates[taskByID(g, id).State].settled {
 			return nil
 		}
 	}
@@ -137,16 +133,13 @@ func earlyBaseLive(g *waveobj.TaskGroup, t *waveobj.TaskNode) bool {
 	if laneMerged(g, laneOf(g, base.ID)) {
 		return true
 	}
-	switch base.State {
-	case TaskState_Reviewing, TaskState_ReviewFailed, TaskState_Done, TaskState_BlockedMerge,
-		TaskState_Verifying, TaskState_VerifyFailed:
-		return true
-	}
-	return false
+	return taskStates[base.State].workerDone
 }
 
 // earlyBaseUnmerged returns the base task the lane's head branched from while that base's lane has not merged:
-// the lane may not merge before it. Nil for a lane with no early base, or one whose base has merged.
+// the lane may not merge before it. A skipped base is returned too, as earlyBaseLive reads it: laneMerged counts its
+// lane merged, but the lane's branch still holds the skipped work, so the lane restarts rather than land it. Nil for
+// a lane with no early base, or one whose base has merged.
 func earlyBaseUnmerged(g *waveobj.TaskGroup, lane []string) *waveobj.TaskNode {
 	if len(lane) == 0 {
 		return nil
@@ -156,7 +149,7 @@ func earlyBaseUnmerged(g *waveobj.TaskGroup, lane []string) *waveobj.TaskNode {
 		return nil
 	}
 	base := taskByID(g, head.EarlyBaseTask)
-	if base == nil || laneMerged(g, laneOf(g, base.ID)) {
+	if base == nil || (base.State != TaskState_Skipped && laneMerged(g, laneOf(g, base.ID))) {
 		return nil
 	}
 	return base

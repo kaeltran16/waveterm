@@ -358,6 +358,30 @@ func TestLandAbortsAConflictedMerge(t *testing.T) {
 	}
 }
 
+// a merge refused at its commit (a commit-msg hook here) leaves MERGE_HEAD and no conflict; the land aborts it, or
+// the checkout stays mid-merge with the run's change staged and every later land holds on it
+func TestLandAbortsAMergeItsCommitRefused(t *testing.T) {
+	f, tree := landFixture(t)
+	commitOnBranch(t, tree, "feature.txt", "branch\n")
+	f.setFinal(t, &waveobj.FinalStage{State: FinalState_Passed, Round: 1, Commit: gitCmd(t, tree, "rev-parse", "HEAD")})
+	head := gitCmd(t, f.project, "rev-parse", "HEAD")
+	refuseCommits(t, f.project)
+
+	land := f.landRun(t, false)
+	if land.State != LandState_Held || !strings.Contains(land.Reason, "aborted") {
+		t.Fatalf("land = %+v, want held on the refused, aborted merge", land)
+	}
+	if mergeInProgress(f.project) {
+		t.Fatal("the refused merge was left in progress")
+	}
+	if status := gitCmd(t, f.project, "status", "--porcelain"); status != "" {
+		t.Fatalf("checkout left dirty after the abort:\n%s", status)
+	}
+	if got := gitCmd(t, f.project, "rev-parse", "HEAD"); got != head {
+		t.Fatalf("nothing may land, HEAD moved to %s", got)
+	}
+}
+
 func TestLandKeepsUncommittedEdits(t *testing.T) {
 	// run d9a7d94b re-ran Check and Verify for ~7 min before git merge refused the human's unstaged edit
 	t.Run("an edit to a file the branch changes holds the land before Verify", func(t *testing.T) {

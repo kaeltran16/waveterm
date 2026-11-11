@@ -461,15 +461,15 @@ const (
 	TaskModelSource_Escalation = "escalation"
 )
 
-// TaskNode is one unit of work in a TaskGroup DAG. State is derived by the engine
-// (pkg/orchestrate), never hand-set — mirrors the RunStatus discipline.
+// TaskNode is one unit of work in a TaskGroup DAG. State is the engine's (pkg/orchestrate) to write: derived
+// from the child run, or set by its actions, merge path, Verify and review loop. Nothing outside the engine sets it.
 type TaskNode struct {
 	ID          string   `json:"id"` // "t-1", unique within the group
 	Label       string   `json:"label,omitempty"`
 	Description string   `json:"description,omitempty"` // plan context for the child (pins decisions the child must not re-ask)
 	Deps        []string `json:"deps,omitempty"`
 	Chunks      []string `json:"chunks,omitempty"`    // labels of the dag's effort chunks this task closes when it lands
-	State       string   `json:"state"`               // pending|ready|running|stalled|done|failed|cancelled|skipped|blocked-merge|verifying|verify-failed
+	State       string   `json:"state"`               // pending|ready|running|stalled|reviewing|review-failed|done|failed|cancelled|skipped|blocked-merge|verifying|verify-failed
 	RunID       string   `json:"runid,omitempty"`     // child run once spawned
 	SpawnedTs   int64    `json:"spawnedts,omitempty"` // when RunID's worker was spawned (UnixMilli), restamped each attempt
 	Merged      bool     `json:"merged,omitempty"`    // successful squash-merge back into the project branch
