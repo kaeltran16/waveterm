@@ -679,3 +679,13 @@ func TestReconcileLeavesAnUnmanagedDirDifferingOnlyInCase(t *testing.T) {
 		t.Errorf("the user's SKILL.md = %q, want it untouched", got)
 	}
 }
+
+// a SKILL.md checked out with CRLF line endings still has frontmatter, so a delta merges into it
+// rather than stacking a second block on top
+func TestApplyOverridesMergesIntoACRLFFrontmatter(t *testing.T) {
+	doc := "---\r\nname: x\r\ndescription: d\r\n---\r\n# Body\r\n"
+	got := applyOverrides(doc, []fmEntry{{key: "model", text: "model: opus\n"}})
+	if want := "---\nname: x\r\ndescription: d\r\nmodel: opus\n---\n# Body\r\n"; got != want {
+		t.Fatalf("applyOverrides = %q, want %q", got, want)
+	}
+}

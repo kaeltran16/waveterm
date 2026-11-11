@@ -47,15 +47,20 @@ type fmEntry struct {
 
 // splitFrontmatter separates a leading YAML frontmatter block (without its fences) from the rest of
 // the document. ok is false when the file does not open with a fence, so it has none to merge into.
+// A CRLF file (a Windows checkout) splits the same way; its lines keep their \r.
 func splitFrontmatter(data string) (block, rest string, ok bool) {
-	if !strings.HasPrefix(data, "---\n") {
+	start := len("---\n")
+	if strings.HasPrefix(data, "---\r\n") {
+		start++
+	} else if !strings.HasPrefix(data, "---\n") {
 		return "", data, false
 	}
-	end := strings.Index(data[4:], "\n---")
+	end := strings.Index(data[start:], "\n---")
 	if end < 0 {
 		return "", data, false
 	}
-	return data[4 : 4+end+1], strings.TrimPrefix(data[4+end+len("\n---"):], "\n"), true
+	rest = strings.TrimPrefix(strings.TrimPrefix(data[start+end+len("\n---"):], "\r"), "\n")
+	return data[start : start+end+1], rest, true
 }
 
 // linesWithEnds splits into lines that keep their trailing newline, so reassembly is byte-exact.
