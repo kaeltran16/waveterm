@@ -6,7 +6,8 @@ what. New deferrals get their full entry appended to `docs/deferred.md`, then a 
 Pruned 2026-10-05: every row was re-checked against git and the closed ones removed (the shipped
 orchestrator rows F11–F26, the closed scans, the Jarvis Brief B5 table, the recall-arm held items).
 Recover the pre-prune list with `git show c99f2041:docs/open-issues.md`. The orchestrator flaw history
-(F1–F26) stays in `docs/orchestrator-redesign-flaws.md`.
+(F1–F21) stays in `docs/orchestrator-redesign-flaws.md`; F22–F26, found live 2026-09-05, were rows of
+this file only and are in that pre-prune list.
 
 The rows of that prune were worked as chunks of `effort:c732b933-f976-4263-b191-fd95454c3d84`, archived
 2026-10-06 with nothing actionable left (`wsh effort show c732b933-f976-4263-b191-fd95454c3d84`).

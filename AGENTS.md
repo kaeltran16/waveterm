@@ -92,8 +92,10 @@ Full map: `docs/reference/architecture.md`. Read it before working in an area yo
   agents report into and drive the cockpit. The managed hook list is `cmd/wsh/cmd/wshcmd-installhooks.go`.
 - **`pkg/wshrpc` is the spine:** nearly all cross-process behavior is a typed wshrpc command, composed from
   per-domain `wshrpctypes_*.go`.
-- **`pkg/orchestrate`** is the deterministic DAG engine behind orchestrator runs; run workers are claude +
-  pi only. Older specs describe removed models; `docs/orchestrator-guide.md` is current.
+- **`pkg/orchestrate`** is the DAG engine behind orchestrator runs. Code schedules, merges, runs the plan's
+  commands and lands; the plan review, task reviews and final verify are model sessions it starts and whose
+  verdicts it applies, and the lead judges what it is woken for. Run workers are claude + pi only. Older specs
+  describe removed models; `docs/orchestrator-guide.md` is current.
 - **Frontend** (`frontend/`, React 19 + Vite + Tailwind 4 + jotai): one window with N surfaces, not tabs.
   Surface keys are not labels (`files` renders as "Diff"); the order is `SURFACE_ORDER` in
   `frontend/app/view/agents/agents.tsx`.

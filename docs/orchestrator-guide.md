@@ -604,6 +604,11 @@ design canvas), the plan and the files they name. The full checklist is that:
 - the commands the plan names exist;
 - no Setup, Check or Verify command, and no task step, names a path a task of the plan creates, unless that
   task is among the step's Depends (Final may);
+- no Verify, Check or Final command, and no task step, rebuilds the environment on every call (a scratch
+  worktree, a package install per call): the engine already prepares each tree;
+- asked only of a plan with no Setup (no Setup line and no `.arc/setup`), where each tree gets the main
+  checkout's linked `node_modules`: a task that changes a `package.json` or lockfile comes with a Setup line that
+  installs;
 - every task that changes a view, a visual state or an interaction names the scenario step that shows it, and
   Final runs that scenario; with a Prototype, every board has one.
 
@@ -792,6 +797,9 @@ is retried once; after that the lead counts as dead and its events come to you.
 | **Worker hung** (15 min silent, process alive, no ask pending) | same as a failure | same |
 | **Worker may be stuck** (worktree unchanged 20 min while active) | `dag tell`, `dag retry`, `dag escalate`, or lets it run | same |
 | **Worker never started** (5 min after spawn, its terminal's shell never came up) | `dag retry` | same |
+| **Worker ended its turn** (3 min idle at its prompt, its run still open, no ask pending) | reads its last message in `dag status <task>`, which says whether its complete did not land or it stopped on a question asked in prose, then acts as on a failure; the engine never retries it, since its work may be done | same |
+| **Worker's last turn failed** (idle after its provider refused the turn, for example a lapsed subscription or a model the account cannot run) | reads the provider's words in the wake; a retry on the same route is refused the same way, so `dag escalate --model`, `dag skip`, or forwards | same |
+| **Worker exited without reporting** (process gone while its task still runs: a reboot, a lost exit event) | same as a failure | same |
 | **Final stage failed** | writes a fix plan and runs `dag submit --round --plan <fix plan>` (tasks only: the round runs the run's own Verify, Setup, Check and Final, and a fix plan naming different ones is refused); puts it to you when no round is left or the fix is a product call, and on your `One more round` submits with `--granted "<your words>"` | a failed last round, or a product call |
 | **Run finished** | fixes and commits what the landed tasks left behind, writes a judgment-only report to a file (a line per task, its decisions and why, wrap-up commits, open issues; the engine records landed commits, worktrees left behind, counts and unverified reasons in the sealed record), runs one round for the open issues inside the goal when the wake says a round is left, and adds the rest to the run's effort; fixes a land conflict the wake names, and only reports any other land blocker (never touching uncommitted changes that are not its own); then completes on its own with `wsh jarvis complete --report <file>`, which lands the branch and prints `landed <sha>` or `held: <reason>` for its report | a question only when a decision is needed (a failed verification or a deviation), then the Done face |
 
@@ -937,11 +945,15 @@ A run after `dag submit` is the engine's: its watchdog picks the dag up again at
 
 ### The engine is stuck
 
-A scheduler tick that has not finished in 12 minutes, or a merge-point Verify that has held the project checkout
-for 30, is in a wait the engine cannot end. The timeline gains an **Engine stuck** row, the lead is woken to put
-it to you, and the server log (`waveapp.log`) gets a dump of every goroutine, taken at the report. The other
-runs keep being ticked. Nothing in the run advances until Arc is restarted; after a restart the dag resumes from
-where it was, as above. The row is reported once per stuck tick or Verify.
+A scheduler tick that has not finished in 44 minutes, or a merge-point Verify that has held the project checkout
+for 62, is in a wait the engine cannot end. The tick threshold is the tick budget (`scheduleTickTimeout`: 8 tasks
+× (two 60s spawn budgets + the 2-minute `SetupTimeout`) + 10 minutes = 42) plus one Setup holding the dag lock;
+the Verify one is `VerifyTimeout` (20) plus one tick budget (`pkg/orchestrate/watchdog.go`). Each is the longest a
+healthy tick or Verify can take, so a report means a wait nothing will end rather than a slow one (a failed
+batch's bisect, which runs Verify again under the same claim, can still be reported while it works). The timeline
+gains an **Engine stuck** row, the lead is woken to put it to you, and the server log (`waveapp.log`) gets a dump
+of every goroutine, taken at the report. The other runs keep being ticked. Nothing in the run advances until Arc
+is restarted; after a restart the dag resumes from where it was, as above. The row is reported once per stuck tick or Verify.
 
 ### Autonomous runs
 
