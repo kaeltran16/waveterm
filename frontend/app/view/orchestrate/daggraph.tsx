@@ -57,7 +57,7 @@ import {
 } from "./dagnodes";
 import { nextSelection, PEEK_PAD_PX } from "./dagpeek";
 import { DagPeekShell, type PeekPlace } from "./dagpeekcard";
-import { buildViewData, hoveredTaskAtom, mergeReadyIds, selectedTaskIdAtom, useDagGroup } from "./dagstore";
+import { buildViewData, clearHover, hoveredTaskAtom, mergeReadyIds, selectedTaskIdAtom, useDagGroup } from "./dagstore";
 import { DagTaskPeek, openTaskFromGraph } from "./dagtaskpeek";
 import { enterOpensTask, graphKeysYield } from "./taskcorrelate";
 import { stageEntries, stageTone, type StageEntry } from "./taskroute";
@@ -167,7 +167,7 @@ function DagGraphInner({ oref, owner, harnesses }: { oref: string; owner: Run; h
             return;
         }
         // a timeline hover belongs to the timeline; leaving a card clears only the graph's own
-        if (globalStore.get(hoveredTaskAtom)?.from === "graph") globalStore.set(hoveredTaskAtom, null);
+        clearHover("graph");
     }, []);
     // closing the modal under the pointer never fires the card's pointer-leave
     useEffect(() => () => onHover(null), [onHover]);
