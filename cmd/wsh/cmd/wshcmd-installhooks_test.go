@@ -1219,3 +1219,19 @@ func TestPermissionRequestHookIsManaged(t *testing.T) {
 		t.Fatalf("PermissionRequest groups after two merges = %d, want 1", len(groups))
 	}
 }
+
+// SubagentStop spawned wsh on every subagent's end for a hook that reports nothing
+func TestSubagentStopIsNotManagedAndAnOldEntryIsPruned(t *testing.T) {
+	for _, mh := range managedHooks {
+		if mh.Event == "SubagentStop" {
+			t.Fatalf("SubagentStop still managed: %+v", mh)
+		}
+	}
+	existing := map[string]any{"hooks": map[string]any{"SubagentStop": []any{
+		map[string]any{"hooks": []any{map[string]any{"type": "command", "command": testWsh + " agent-hook", "timeout": 10}}},
+	}}}
+	hooks, _ := mergeAgentHooks(existing, testWsh)["hooks"].(map[string]any)
+	if _, present := hooks["SubagentStop"]; present {
+		t.Fatalf("the old SubagentStop entry survived the merge: %v", hooks["SubagentStop"])
+	}
+}
