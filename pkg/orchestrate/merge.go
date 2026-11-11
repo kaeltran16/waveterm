@@ -38,8 +38,13 @@ func MergeRunWorktree(ctx context.Context, projectPath, runID string, lane Merge
 	branch := "wave/" + runID
 	// Idempotency: if the branch is already gone, the squash commit landed on a prior attempt that failed only
 	// on worktree cleanup. Nothing marks which commit that was, so it lands nothing more and credits none, and
-	// the caller can still stamp Merged and clean up.
-	if _, err := git(ctx, projectPath, "rev-parse", "--verify", branch); err != nil {
+	// the caller can still stamp Merged and clean up. Only a missing branch reads so: a probe git cannot answer would
+	// have the caller stamp the lane merged and remove its unmerged branch.
+	exists, err := gitAsk(ctx, projectPath, "rev-parse", "-q", "--verify", branch)
+	if err != nil {
+		return "", fmt.Errorf("reading %s: %w", branch, err)
+	}
+	if !exists {
 		return "", nil
 	}
 	if _, err := git(ctx, projectPath, "merge", "--squash", branch); err != nil {

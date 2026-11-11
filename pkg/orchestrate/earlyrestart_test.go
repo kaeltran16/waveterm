@@ -385,3 +385,21 @@ func TestRestartWithSkippedHeadDiscardsTreeForNextTask(t *testing.T) {
 		}
 	}
 }
+
+// only a missing branch is nothing to discard: a probe git could not answer read the same, the restart was marked
+// done, and the next dispatch took the old branch, with its discarded base, for a retry
+func TestDiscardLaneTreeReportsABranchProbeGitCouldNotAnswer(t *testing.T) {
+	ctx := context.Background()
+	dir := newGitRepo(t)
+	key := TaskWorktreeKey("owner-1", "t-2")
+	if _, _, _, err := EnsureRunWorktree(ctx, dir, key, gitCmd(t, dir, "rev-parse", "HEAD")); err != nil {
+		t.Fatal(err)
+	}
+	failGit(t, dir, "show-ref")
+	if err := discardLaneTree(ctx, dir, key); err == nil {
+		t.Fatal("want the probe's error")
+	}
+	if _, err := WorktreeHeadCommit(ctx, dir, key); err != nil {
+		t.Fatalf("the branch is still there, so the restart is not done: %v", err)
+	}
+}

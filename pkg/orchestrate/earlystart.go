@@ -128,7 +128,12 @@ func discardLaneTree(ctx context.Context, projectPath, key string) error {
 		return fmt.Errorf("discarding the restarted lane's tree: %w", err)
 	}
 	branch := "refs/heads/wave/" + key
-	if _, err := git(ctx, projectPath, "show-ref", "--verify", "-q", branch); err != nil {
+	// only a missing branch is nothing to discard: one kept would be the next dispatch's retry, on the old base
+	exists, err := gitAsk(ctx, projectPath, "show-ref", "--verify", "-q", branch)
+	if err != nil {
+		return fmt.Errorf("reading the restarted lane's branch wave/%s: %w", key, err)
+	}
+	if !exists {
 		return nil
 	}
 	// update-ref, not branch -D, as RemoveRunWorktree: branch -D rewrites .git/config

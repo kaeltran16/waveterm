@@ -755,6 +755,31 @@ func TestLandHoldsALandingTreeLeftMidMerge(t *testing.T) {
 	f.assertHeld(t, f.landRun(t, false), head, "mid-merge")
 }
 
+// whether the landing tree is mid-merge is asked before the check runs there: a probe git could not answer read as
+// "no", so the check ran over the open merge, the run landed, and the land removed the tree with the merge in it
+func TestLandHoldsWhenGitCannotSayTheLandingTreeIsMidMerge(t *testing.T) {
+	f, tree := landFixture(t)
+	commitOnBranch(t, tree, "wrapup.md", "wrap-up\n")
+	gitDir := gitCmd(t, tree, "rev-parse", "--git-dir")
+	if !filepath.IsAbs(gitDir) {
+		gitDir = filepath.Join(tree, gitDir)
+	}
+	// a merge with nothing to change: the tree has no uncommitted changes for landingTreeHold to see
+	writeFile(t, filepath.Join(gitDir, "MERGE_HEAD"), gitCmd(t, f.project, "rev-parse", "main")+"\n")
+	marker := filepath.ToSlash(filepath.Join(t.TempDir(), "verified"))
+	f.setLandCommands(t, "", "touch '"+marker+"'")
+	failGit(t, tree, "MERGE_HEAD")
+	head := gitCmd(t, f.project, "rev-parse", "main")
+
+	f.assertHeld(t, f.landRun(t, false), head, "mid-merge")
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("Verify ran over the open merge, stat err %v", err)
+	}
+	if !mergeInProgress(tree) {
+		t.Fatal("the landing tree's open merge is gone")
+	}
+}
+
 func TestLandNotesCommitsThatLandedOnTheBaseDuringTheRun(t *testing.T) {
 	f, _ := landFixture(t)
 	commitOnBranch(t, f.project, "one.txt", "1\n")

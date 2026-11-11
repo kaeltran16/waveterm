@@ -25,6 +25,10 @@ var ErrNotGitRepo = errors.New("not a git repo")
 // ended. A var for tests.
 var gitWaitDelay = planCommandWaitDelay
 
+// gitFault fails the git call it returns an error for, before it runs: no repository state fails only one probe
+// (rev-parse -q --verify and show-ref -q answer 1 even for a ref they cannot read). A var for tests.
+var gitFault func(dir string, args []string) error
+
 func git(ctx context.Context, dir string, args ...string) (string, error) {
 	out, err := gitRaw(ctx, dir, args...)
 	return strings.TrimSpace(out), err
@@ -33,6 +37,11 @@ func git(ctx context.Context, dir string, args ...string) (string, error) {
 // gitRaw is git with stdout as git wrote it, for output used whole rather than parsed: trimmed, a patch loses its
 // final newline and a trailing blank context line, and git apply rejects it as corrupt.
 func gitRaw(ctx context.Context, dir string, args ...string) (string, error) {
+	if gitFault != nil {
+		if err := gitFault(dir, args); err != nil {
+			return "", fmt.Errorf("git %v: %w", args, err)
+		}
+	}
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
 	// without it the call waits for the pipe, not the process: a descendant git left behind (a hook, a helper)
 	// holds the pipe open past git's exit and past the context, and most callers hold a dag lock
@@ -54,11 +63,12 @@ func gitRaw(ctx context.Context, dir string, args ...string) (string, error) {
 }
 
 // gitAsk runs a git command that answers a yes/no question by its exit code: 0 is yes and 1 is no. Any other
-// failure (128: not a repository, a corrupt index, dubious ownership) is an error, not a no.
+// failure (128: not a repository, a corrupt index, dubious ownership) is an error, not a no, and so is a git its
+// context killed: on Windows a killed process exits 1.
 func gitAsk(ctx context.Context, dir string, args ...string) (bool, error) {
 	_, err := gitRaw(ctx, dir, args...)
 	var exit *exec.ExitError
-	if errors.As(err, &exit) && exit.ExitCode() == 1 {
+	if errors.As(err, &exit) && exit.ExitCode() == 1 && ctx.Err() == nil {
 		return false, nil
 	}
 	return err == nil, err
@@ -434,17 +444,19 @@ func worktreeOnBranch(ctx context.Context, wt, runID string) bool {
 // = the project head), and uncommitted changes inside the linked tree. Diffing from the fork point keeps
 // out the lanes that landed before it was cut and anything committed on landHead since.
 func DumpRecoveryPatch(ctx context.Context, projectPath, runID, landHead string) error {
-	return dumpRecoveryPatch(ctx, projectPath, runID, landHead, runID)
+	_, err := dumpRecoveryPatch(ctx, projectPath, runID, landHead, runID)
+	return err
 }
 
-// dumpRecoveryPatch is DumpRecoveryPatch writing to recovery/<name>.patch, or beside it (writeNewPatch).
-func dumpRecoveryPatch(ctx context.Context, projectPath, runID, landHead, name string) error {
+// dumpRecoveryPatch is DumpRecoveryPatch writing to recovery/<name>.patch, or beside it (writeNewPatch). It returns
+// the file's name.
+func dumpRecoveryPatch(ctx context.Context, projectPath, runID, landHead, name string) (string, error) {
 	if landHead == "" {
 		landHead = "HEAD"
 	}
 	patch, err := gitRaw(ctx, projectPath, "diff", landHead+"...wave/"+runID)
 	if err != nil {
-		return err
+		return "", err
 	}
 	wt := laneTree(ctx, projectPath, runID)
 	// a leftover directory git no longer knows as the branch's tree is not one: git run there stages the project checkout
@@ -459,14 +471,15 @@ func dumpRecoveryPatch(ctx context.Context, projectPath, runID, landHead, name s
 	}
 	recDir := filepath.Join(projectPath, ".waveterm", "recovery")
 	if err := os.MkdirAll(recDir, 0o755); err != nil {
-		return err
+		return "", err
 	}
 	return writeNewPatch(recDir, name, patch)
 }
 
 // writeNewPatch writes patch to dir/<name>.patch, or <name>-2.patch and up when that exists: a lane rebuilt dirty
-// twice dumps under the same name, and the earlier patch is the only copy of that attempt's uncommitted work.
-func writeNewPatch(dir, name, patch string) error {
+// twice dumps under the same name, and the earlier patch is the only copy of that attempt's uncommitted work. It
+// returns the file's name.
+func writeNewPatch(dir, name, patch string) (string, error) {
 	for n := 1; ; n++ {
 		file := name + ".patch"
 		if n > 1 {
@@ -477,10 +490,10 @@ func writeNewPatch(dir, name, patch string) error {
 			continue
 		}
 		if err != nil {
-			return err
+			return "", err
 		}
 		_, err = f.WriteString(patch)
-		return errors.Join(err, f.Close())
+		return file, errors.Join(err, f.Close())
 	}
 }
 
