@@ -2043,7 +2043,8 @@ const bsabRead = (group = "Answers") => `(() => {
             thumbs,
             inRow: thumbs.every((t) => t.left >= rr.left && t.right <= rr.right && t.top >= rr.top && t.bottom <= rr.bottom),
             rightOfLabel: btn != null && thumbs.every((t) => t.left >= box(btn).right - 1),
-            rightOfReasons: reasons ? thumbs.every((t) => t.left >= box(reasons).right - 1) : null,
+            belowLabel: btn != null && thumbs.every((t) => t.top >= box(btn).bottom - 1),
+            belowReasons: reasons ? thumbs.every((t) => t.top >= box(reasons).bottom - 1) : null,
             overflow: row.scrollWidth > row.clientWidth,
         };
     });
@@ -2124,13 +2125,13 @@ export const brainstormAnswerBoards = {
 
         await h.shot("cdp-shots/brainstorm-answer-boards-1-in-row.png");
         rec(
-            "1. (In-row) A's row holds the Left-rail thumbnail with Open full size, inside the row and right of its label; B's row holds Top-strip only, Gone.dc.html (not on disk) left out",
+            "1. (In-row) A's row holds the Left-rail thumbnail with Open full size, inside the row and under its label; B's row holds Top-strip only, Gone.dc.html (not on disk) left out",
             r.rows.length === 3 &&
                 aRail != null &&
                 aRail.frame &&
                 aRail.open === "Open full size" &&
                 a.inRow &&
-                a.rightOfLabel &&
+                a.belowLabel &&
                 JSON.stringify(names(b)) === JSON.stringify([BSAB_STRIP]) &&
                 b.thumbs[0].frame &&
                 b.thumbs[0].open === "Open full size" &&
@@ -2161,9 +2162,9 @@ export const brainstormAnswerBoards = {
         );
 
         rec(
-            "3. (Long-A-rows) A's thumbnails sit right of its pros and cons, and nothing overflows the pane's width",
-            a?.rightOfReasons === true && !r.overflow,
-            { rightOfReasons: a?.rightOfReasons, overflow: r.overflow }
+            "3. (Long-A-rows) A's two thumbnails sit under its pros and cons, so the text keeps the row's width, and nothing overflows the pane's width",
+            a?.belowReasons === true && !r.overflow,
+            { belowReasons: a?.belowReasons, overflow: r.overflow }
         );
 
         await h.ev(
@@ -2235,7 +2236,7 @@ export const brainstormAnswerBoards = {
         await h.shot("cdp-shots/brainstorm-answer-boards-5-judging.png");
         const [ja, jb, jc] = j.rows;
         rec(
-            "5. (Judge wait) the approach rows hold their own boards: A's Top-strip uncaptioned, B none and no slot, C's two captioned side by side, all inside their rows right of the label; Run-sheet-today shows once above, under For every answer",
+            "5. (Judge wait) the approach rows hold their own boards: A's Top-strip uncaptioned, B none and no slot, C's two captioned side by side, all inside their rows, A's right of its label and C's under it; Run-sheet-today shows once above, under For every answer",
             j.rows.length === 3 &&
                 JSON.stringify(names(ja)) === JSON.stringify([BSAB_STRIP]) &&
                 ja.thumbs[0].frame &&
@@ -2243,7 +2244,9 @@ export const brainstormAnswerBoards = {
                 !jb.slot &&
                 JSON.stringify(names(jc)) === JSON.stringify([BSAB_RAIL, BSAB_RAIL_FAILED]) &&
                 JSON.stringify(jc.thumbs.map((t) => t.caption)) === JSON.stringify(["Left-rail", "Left-rail-failed"]) &&
-                [ja, jc].every((row) => row.inRow && row.rightOfLabel) &&
+                [ja, jc].every((row) => row.inRow) &&
+                ja.rightOfLabel &&
+                jc.belowLabel &&
                 JSON.stringify(j.shared.map((t) => t.name)) === JSON.stringify([BSAB_TODAY]) &&
                 j.sharedHead === "For every answer" &&
                 j.sharedAbove &&

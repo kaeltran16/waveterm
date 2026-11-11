@@ -54,12 +54,10 @@ import { entriesAtomFor } from "./livetranscriptatoms";
 import { VERB } from "./narrationtimeline";
 
 const THUMB_W = 300;
-// in a question, an answer's only board and each board every answer shares
+// in a question: an answer's boards and each board every answer shares
 const THUMB_W_QUESTION = 200;
 // the boards the agent wrote this turn, under the Working view's step line
 const THUMB_W_TURN = 220;
-// several boards side by side in one answer's row, which still fits beside a long pros and cons grid
-const THUMB_W_ROW_SEVERAL = 150;
 const THUMB_MAX_H = 200;
 
 export const WORKING_TITLE = "The agent is writing; this opens when it asks again";
@@ -94,6 +92,8 @@ const OPTION_ROW =
 const OPTION_ROW_PLAIN = "border-edge-mid bg-surface has-[>button:enabled:hover]:border-edge-strong";
 const OPTION_BTN =
     "flex w-full cursor-pointer items-center border-0 bg-transparent text-left outline-none disabled:cursor-default";
+// a row with one board holds it on its right; the second row takes the board's extra height, so the button keeps its own
+const ROW_BESIDE_GRID = "grid grid-cols-[minmax(0,1fr)_auto] grid-rows-[auto_1fr]";
 const OPTION_LETTER =
     "flex flex-none items-center justify-center rounded-[6px] border border-edge-strong font-mono font-semibold text-secondary";
 const SEGMENT = "box-border h-[6px] w-[22px] flex-none rounded-[3px]";
@@ -384,7 +384,7 @@ export function QuestionAnswers({
     q: BrainstormQuestion;
     ans: Answer;
     compact: boolean;
-    rowBoards?: (i: number) => ReactNode;
+    rowBoards?: (i: number) => RowBoards | null;
 }) {
     const [shown, setShown] = useState(true);
     if (q.options == null) {
@@ -514,7 +514,7 @@ export function Options({
     compact: boolean;
     reasons: boolean;
     pickLabel: string;
-    rowBoards?: (i: number) => ReactNode;
+    rowBoards?: (i: number) => RowBoards | null;
 }) {
     return (
         <div role="group" aria-label="Answers" className={cn("flex flex-col", compact ? "gap-[6px]" : "gap-[10px]")}>
@@ -525,8 +525,7 @@ export function Options({
                         key={i}
                         className={cn(
                             OPTION_ROW,
-                            // the second row takes the boards' extra height, so the button keeps its own
-                            side != null && "grid grid-cols-[minmax(0,1fr)_auto] grid-rows-[auto_1fr]",
+                            side?.below === false && ROW_BESIDE_GRID,
                             o.pick
                                 ? "border-accent/55 bg-accent/8 has-[>button:enabled:hover]:bg-accentbg"
                                 : OPTION_ROW_PLAIN
@@ -587,12 +586,18 @@ export function Options({
                         {side != null ? (
                             <div
                                 data-brainstorm-row-boards
-                                className={cn(
-                                    "col-start-2 row-span-2 row-start-1",
-                                    compact ? "py-[9px] pr-[12px]" : "py-[16px] pr-[20px]"
-                                )}
+                                className={
+                                    side.below
+                                        ? compact
+                                            ? "pb-[10px] pl-[48px] pr-[12px]"
+                                            : "pb-[16px] pl-[68px] pr-[20px]"
+                                        : cn(
+                                              "col-start-2 row-span-2 row-start-1",
+                                              compact ? "py-[9px] pr-[12px]" : "py-[16px] pr-[20px]"
+                                          )
+                                }
                             >
-                                {side}
+                                {side.node}
                             </div>
                         ) : null}
                     </div>
@@ -826,14 +831,18 @@ export function QuestionMain({
     );
 }
 
-// the asked question's boards and spikes: shared draws over the rows, rowBoards(i) beside row i (judging: the
-// approach rows)
+// a row's boards and spikes, and whether they take a band under its text: several boards side by side would squeeze
+// the text to a sliver beside them
+type RowBoards = { node: ReactNode; below: boolean };
+
+// the asked question's boards and spikes: shared draws over the rows, rowBoards(i) in row i (judging: the approach
+// rows)
 function questionBoards(
     agentId: string,
     s: BrainstormState,
     f: BrainstormFile,
     judging: boolean
-): { shared: ReactNode | null; rowBoards: (i: number) => ReactNode | null } {
+): { shared: ReactNode | null; rowBoards: (i: number) => RowBoards | null } {
     const layout = questionBoardLayout(
         f,
         s.base,
@@ -856,33 +865,34 @@ function questionBoards(
     const links = (paths: string[] | undefined) =>
         paths != null && paths.length > 0 ? <Spikes base={s.base!} canvas={f.canvas!} spikes={paths} /> : null;
     // a row with nothing to show has no slot; an only board needs no caption, since the row's label names it
-    const rowBoards = (i: number) => {
+    const rowBoards = (i: number): RowBoards | null => {
         const boards = layout?.rows[i] ?? [];
         const live = links(spikes?.rows[i]);
-        const pics =
-            boards.length === 0
-                ? null
-                : boards.length === 1
-                  ? thumbs(boards, THUMB_W_QUESTION, null)
-                  : thumbs(boards, THUMB_W_ROW_SEVERAL, boardLabel);
+        const below = boards.length > 1;
+        const pics = boards.length === 0 ? null : thumbs(boards, THUMB_W_QUESTION, below ? boardLabel : null);
         if (pics == null && live == null) {
             return null;
         }
         // keyed on what the row shows, so a board the agent adds while the question is open fades in
         const shows = [...boards, ...(spikes?.rows[i] ?? [])].join("\n");
-        return (
+        const node = (
             <ViewSwap swapKey={shows}>
                 {live == null ? (
                     pics
                 ) : (
-                    // as wide as the boards over it, so a long spike path wraps rather than widening the row
-                    <div className="flex w-min flex-col gap-[8px]" style={{ minWidth: THUMB_W_QUESTION }}>
+                    // beside the text, as wide as the board over it, so a long spike path wraps rather than widening
+                    // the row
+                    <div
+                        className={cn("flex flex-col gap-[8px]", !below && "w-min")}
+                        style={below ? undefined : { minWidth: THUMB_W_QUESTION }}
+                    >
                         {pics}
                         {live}
                     </div>
                 )}
             </ViewSwap>
         );
+        return { node, below };
     };
     const sharedBoards = layout != null && layout.shared.length > 0 ? thumbs(layout.shared, THUMB_W_QUESTION) : null;
     const sharedSpikes = links(spikes?.shared);
@@ -1041,7 +1051,7 @@ export function JudgingMain({
                                     className={cn(
                                         OPTION_ROW,
                                         OPTION_ROW_PLAIN,
-                                        side != null && "grid grid-cols-[minmax(0,1fr)_auto] grid-rows-[auto_1fr]"
+                                        side?.below === false && ROW_BESIDE_GRID
                                     )}
                                 >
                                     <button
@@ -1086,9 +1096,13 @@ export function JudgingMain({
                                     {side != null ? (
                                         <div
                                             data-brainstorm-row-boards
-                                            className="col-start-2 row-span-2 row-start-1 py-[9px] pr-[12px]"
+                                            className={
+                                                side.below
+                                                    ? "pb-[12px] pl-[50px] pr-[16px] pt-[4px]"
+                                                    : "col-start-2 row-span-2 row-start-1 py-[9px] pr-[12px]"
+                                            }
                                         >
-                                            {side}
+                                            {side.node}
                                         </div>
                                     ) : null}
                                 </div>
