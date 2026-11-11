@@ -41,6 +41,7 @@ import {
     codeSidebarDragEndWidth,
     codeSidebarDragWidthForWorkspace,
     codeSidebarMaxWidth,
+    codeSidebarOpensFor,
     codeSidebarPrefsJson,
     codeSidebarVisibility,
     codeSidebarWidthAfterPointer,
@@ -55,6 +56,7 @@ import {
     checkStale,
     codeBodyPhase,
     codeDraftsAtom,
+    codeEditAtom,
     codeFileAtom,
     codeHistoryAtom,
     codeIndexAtom,
@@ -782,6 +784,19 @@ function CodePanes({ model }: { model: AgentsViewModel }) {
         persist({ ...prefs, open });
         focusAfterRender(open ? collapseRef : openerRef);
     };
+
+    // the toolbar's New file and New folder draw their name input in the Files tree. It mounted hidden, so its
+    // autofocus missed: focus it once the sidebar shows
+    const edit = useAtomValue(codeEditAtom);
+    useEffect(() => {
+        if (codeSidebarOpensFor(edit, prefs.open)) {
+            restoreFocusRef.current = false;
+            persist({ ...prefs, open: true });
+            window.requestAnimationFrame(() =>
+                sidebarRef.current?.querySelector<HTMLInputElement>("[data-code-name-input]")?.focus()
+            );
+        }
+    }, [edit]);
 
     const endDrag = (event: React.PointerEvent<HTMLDivElement>, commit: boolean) => {
         const drag = dragRef.current;

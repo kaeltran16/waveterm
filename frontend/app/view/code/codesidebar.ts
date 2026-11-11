@@ -4,6 +4,8 @@
 // Pure geometry and persistence rules for the Code sidebar. The component owns DOM events; this
 // module keeps bounds and external values deterministic and testable.
 
+import type { CodeEdit } from "./codestore";
+
 export const CODE_SIDEBAR_MIN_WIDTH = 200;
 export const CODE_SIDEBAR_MAX_WIDTH = 480;
 export const CODE_SIDEBAR_EDITOR_FLOOR = 280;
@@ -55,6 +57,12 @@ export function codeSidebarVisibility(workspaceWidth: number, open: boolean): Co
         workspaceWidth > 0 &&
         workspaceWidth < CODE_SIDEBAR_MIN_WIDTH + CODE_SIDEBAR_EDITOR_FLOOR + CODE_SIDEBAR_SEPARATOR_WIDTH;
     return { temporary, compact: temporary || !open };
+}
+
+// a create started from the toolbar draws its name input in the Files tree, so a collapsed sidebar opens for it; a
+// rename starts from the tree, which is open already
+export function codeSidebarOpensFor(edit: CodeEdit, open: boolean): boolean {
+    return edit?.kind === "create" && !open;
 }
 
 export function codeSidebarWidthFor(mode: CodeSidebarMode, widths: CodeSidebarWidths, workspaceWidth: number): number {

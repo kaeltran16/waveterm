@@ -10,6 +10,7 @@ import {
     codeSidebarDragEndWidth,
     codeSidebarDragWidthForWorkspace,
     codeSidebarMaxWidth,
+    codeSidebarOpensFor,
     codeSidebarPrefsJson,
     codeSidebarVisibility,
     codeSidebarWidthAfterPointer,
@@ -95,5 +96,17 @@ describe("Code sidebar geometry", () => {
         expect(codeSidebarVisibility(488, true)).toEqual({ temporary: false, compact: false });
         expect(codeSidebarVisibility(760, false)).toEqual({ temporary: false, compact: true });
         expect(codeSidebarVisibility(0, true)).toEqual({ temporary: false, compact: false });
+    });
+});
+
+describe("codeSidebarOpensFor", () => {
+    it("opens a collapsed sidebar for a new file or folder, whose name input is in the Files tree", () => {
+        expect(codeSidebarOpensFor({ kind: "create", dir: "", isDir: false }, false)).toBe(true);
+        expect(codeSidebarOpensFor({ kind: "create", dir: "src", isDir: true }, false)).toBe(true);
+    });
+    it("leaves it as it is when already open, for a rename, or with nothing being edited", () => {
+        expect(codeSidebarOpensFor({ kind: "create", dir: "", isDir: false }, true)).toBe(false);
+        expect(codeSidebarOpensFor({ kind: "rename", path: "a.ts" }, false)).toBe(false);
+        expect(codeSidebarOpensFor(null, false)).toBe(false);
     });
 });
