@@ -294,8 +294,9 @@ func TestAgentsWaitStallGateOnlyBeforeATurnStarts(t *testing.T) {
 	stale := wshrpc.CommandAgentsReadRtnData{State: wshrpc.AgentsState_Idle, Answer: "old", AnswerTs: agentsTestSentTs}
 	// a send that joined a running turn: the target may read idle briefly between turns
 	joined := &wshrpc.CommandAgentsSendRtnData{TabId: agentsTestTabA, SentTs: agentsTestSentTs, MidTurn: true}
-	if _, _, err := agentsWaitScriptSent(t, joined, 2*time.Minute, stale); err == nil || !strings.Contains(err.Error(), "still working after") {
-		t.Errorf("mid-turn send: err = %v, want the plain timeout", err)
+	if _, _, err := agentsWaitScriptSent(t, joined, 2*time.Minute, stale); err == nil || !strings.Contains(err.Error(), "is idle after") ||
+		strings.Contains(err.Error(), "working") {
+		t.Errorf("mid-turn send: err = %v, want the plain timeout naming the idle state", err)
 	}
 	// a turn that started and is slow is not a stall
 	working := wshrpc.CommandAgentsReadRtnData{State: wshrpc.AgentsState_Working, Answer: "old", AnswerTs: agentsTestSentTs}

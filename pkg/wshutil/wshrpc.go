@@ -66,6 +66,8 @@ type WshRpc struct {
 	Debug              bool
 	DebugName          string
 	ServerDone         bool
+	// a request holds it to send on OutputCh, and runServer takes it alone to close OutputCh
+	outputLock sync.RWMutex
 }
 
 type wshRpcContextKey struct{}
@@ -271,27 +273,9 @@ func (w *WshRpc) cancelRequest(reqId string) {
 		handler.canceled.Store(true)
 		// Cancel the request context too, not just the bool: a streaming handler selects on
 		// ctx.Done() (see streamTranscript), so this unwinds its goroutine + any fsnotify watcher
-		// while the link is still up — the still-connected counterpart of CancelRequestsForLink's
-		// per-link reap. close() is idempotent, so a later SendResponse(done)/finalize is safe.
+		// while the link is still up; a gone link's requests get the same cancel from the router's
+		// UnregisterLink. close() is idempotent, so a later SendResponse(done)/finalize is safe.
 		handler.close()
-	}
-}
-
-// CancelRequestsForLink cancels the context of every in-flight response handler whose request
-// entered on the given link. Used to reclaim streaming RPCs (goroutine + fsnotify watcher) when the
-// originating websocket connection tears down. close() invokes the handler's contextCancelFn, which
-// for a streaming handler fires its <-ctx.Done() finalize path.
-func (w *WshRpc) CancelRequestsForLink(linkId baseds.LinkId) {
-	w.Lock.Lock()
-	handlers := make([]*RpcResponseHandler, 0)
-	for _, h := range w.ResponseHandlerMap {
-		if h.GetIngressLinkId() == linkId {
-			handlers = append(handlers, h)
-		}
-	}
-	w.Lock.Unlock()
-	for _, h := range handlers {
-		h.close()
 	}
 }
 
@@ -400,9 +384,12 @@ func (w *WshRpc) handleRequestInternal(req *RpcMessage, ingressLinkId baseds.Lin
 func (w *WshRpc) runServer() {
 	defer func() {
 		panichandler.PanicHandler("wshrpc.runServer", recover())
-		close(w.OutputCh)
 		w.setServerDone()
+		// failing the pending calls cancels their contexts, which frees a request blocked on a full OutputCh
 		w.failPendingRpcs(errors.New("rpc connection closed"))
+		w.outputLock.Lock()
+		close(w.OutputCh)
+		w.outputLock.Unlock()
 	}()
 outer:
 	for {
@@ -486,9 +473,14 @@ func (w *WshRpc) SetServerImpl(serverImpl ServerImpl) {
 	w.ServerImpl = serverImpl
 }
 
-func (w *WshRpc) registerRpc(handler *RpcRequestHandler, command string, route string, reqId string) chan *RpcMessage {
+// registerRpc refuses once the server is done: failPendingRpcs has run or is about to, and nothing else
+// would answer the call.
+func (w *WshRpc) registerRpc(handler *RpcRequestHandler, command string, route string, reqId string) (chan *RpcMessage, error) {
 	w.Lock.Lock()
 	defer w.Lock.Unlock()
+	if w.ServerDone {
+		return nil, errServerDone
+	}
 	rpcCh := make(chan *RpcMessage, RespChSize)
 	w.RpcMap[reqId] = &rpcData{
 		Handler: handler,
@@ -503,7 +495,7 @@ func (w *WshRpc) registerRpc(handler *RpcRequestHandler, command string, route s
 		<-handler.ctx.Done()
 		w.retrySendTimeout(reqId)
 	}()
-	return rpcCh
+	return rpcCh, nil
 }
 
 func (w *WshRpc) unregisterRpc(reqId string, err error) {
@@ -807,9 +799,14 @@ func (handler *RpcResponseHandler) IsDone() bool {
 	return handler.done.Load()
 }
 
+var errServerDone = errors.New("server is no longer running, cannot send new requests")
+
 func (w *WshRpc) SendComplexRequest(command string, data any, opts *wshrpc.RpcOpts) (rtnHandler *RpcRequestHandler, rtnErr error) {
+	// held through the send below, so OutputCh cannot close between this check and the send
+	w.outputLock.RLock()
+	defer w.outputLock.RUnlock()
 	if w.IsServerDone() {
-		return nil, errors.New("server is no longer running, cannot send new requests")
+		return nil, errServerDone
 	}
 	if opts == nil {
 		opts = &wshrpc.RpcOpts{}
@@ -846,7 +843,11 @@ func (w *WshRpc) SendComplexRequest(command string, data any, opts *wshrpc.RpcOp
 		return nil, err
 	}
 	if handler.reqId != "" {
-		handler.respCh = w.registerRpc(handler, command, opts.Route, handler.reqId)
+		handler.respCh, err = w.registerRpc(handler, command, opts.Route, handler.reqId)
+		if err != nil {
+			handler.callContextCancelFn()
+			return nil, err
+		}
 	} else {
 		// a no-response request must stay out of RpcMap: every one would share the "" key, so one finishing
 		// unregistered (and cancelled) another still waiting on a full OutputCh, which then dropped its message

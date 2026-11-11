@@ -48,3 +48,23 @@ func TestClientCallFailsWhenServerDropsConnection(t *testing.T) {
 		t.Fatal("a call after the connection dropped returned no error")
 	}
 }
+
+// the output side ending cleanly sent nothing on the error channel and never closed it, so the goroutine
+// SetupDomainSocketRpcClient parks on it to close the connection leaked for every client
+func TestConnErrChEndsWhenOutputEndsCleanly(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	_, errCh, err := SetupConnRpcClient(clientConn, nil, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// the input's end ends the rpc, which closes its output: the writer returns with nothing left to write
+	serverConn.Close()
+	select {
+	case err, more := <-errCh:
+		if more || err != nil {
+			t.Fatalf("errCh gave %v (more %v), want it closed with no error", err, more)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("errCh still open 3s after the output ended cleanly")
+	}
+}

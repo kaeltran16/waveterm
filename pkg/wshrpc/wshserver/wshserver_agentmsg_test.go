@@ -130,7 +130,8 @@ func TestAgentsRosterStates(t *testing.T) {
 		want    string
 	}{
 		{baseds.AgentState_Idle, false, wshrpc.AgentsState_Idle},
-		{baseds.AgentState_Waiting, false, wshrpc.AgentsState_Idle},
+		// a permission prompt or another dialog: a typed message would land in it
+		{baseds.AgentState_Waiting, false, wshrpc.AgentsState_Asking},
 		{baseds.AgentState_Working, false, wshrpc.AgentsState_Working},
 		{baseds.AgentState_Asking, false, wshrpc.AgentsState_Asking},
 		// a Notification mid-question reports waiting, so the open ask alone has to say asking
@@ -249,6 +250,9 @@ func TestAgentsResolve(t *testing.T) {
 func TestAgentsSendRefusals(t *testing.T) {
 	asking := threeAgents()
 	asking.Tabs[1].OpenAsk = true
+	permission := threeAgents()
+	permission.Tabs[1].Status.State = baseds.AgentState_Waiting
+	permission.Tabs[1].Status.NotificationType = "permission_prompt"
 	cases := []struct {
 		name    string
 		facts   *agentRosterFacts
@@ -265,6 +269,7 @@ func TestAgentsSendRefusals(t *testing.T) {
 			arrange: func() { agentmsg.NoteSent(agentsBlockB, agentsBlockA) }, want: "wsh agents read"},
 		{name: "empty text", data: wshrpc.CommandAgentsSendData{Tab: agentsTabB, Text: " \n\t", FromORef: blockORef(agentsBlockA)}, want: "message is empty"},
 		{name: "asking with no stream", facts: asking, data: wshrpc.CommandAgentsSendData{Tab: agentsTabB, Text: "hi", FromORef: blockORef(agentsBlockA)}, want: "question open"},
+		{name: "permission prompt with no stream", facts: permission, data: wshrpc.CommandAgentsSendData{Tab: agentsTabB, Text: "hi", FromORef: blockORef(agentsBlockA)}, want: "permission prompt open"},
 	}
 	seen := map[string]string{}
 	for _, c := range cases {

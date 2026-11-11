@@ -61,8 +61,8 @@ command wait for it.`,
 var agentsWaitCmd = &cobra.Command{
 	Use:   "wait <tab>",
 	Short: "wait until a live agent is idle or asking the user, and print its answer",
-	Long: `Wait until a live agent settles: it is idle (and its last answer is printed) or it has a question open
-for the user. --until idle or --until asking waits for that state alone. Returns at once when the agent is
+	Long: `Wait until a live agent settles: it is idle (and its last answer is printed) or it has a question or a
+permission prompt open for the user. --until idle or --until asking waits for that state alone. Returns at once when the agent is
 already in it.`,
 	Args:    cobra.ExactArgs(1),
 	PreRunE: preRunSetupRpcClient,
@@ -324,7 +324,10 @@ func agentsWait(read func() (*wshrpc.CommandAgentsReadRtnData, error), sleep fun
 		return false, nil
 	})
 	if errors.Is(err, errAgentsPollTimeout) {
-		return nil, fmt.Errorf("%s is still working after %s; run 'wsh agents wait %s' to keep waiting", id, timeout, id)
+		if r.State == wshrpc.AgentsState_Working {
+			return nil, fmt.Errorf("%s is still working after %s; run 'wsh agents wait %s' to keep waiting", id, timeout, id)
+		}
+		return nil, fmt.Errorf("%s is %s after %s and has not answered since the send; run 'wsh agents wait %s' to keep waiting", id, r.State, timeout, id)
 	}
 	return r, err
 }
@@ -372,7 +375,7 @@ func agentsWaitRun(cmd *cobra.Command, args []string) error {
 func agentsWaitLines(r *wshrpc.CommandAgentsReadRtnData) []string {
 	if r.State == wshrpc.AgentsState_Asking {
 		id := agentsShort(r.TabId)
-		return []string{fmt.Sprintf("%s is waiting on the user: it has a question open. Once it is answered, run 'wsh agents read %s'", id, id)}
+		return []string{fmt.Sprintf("%s is waiting on the user: it has a question or a permission prompt open. Once it is answered, run 'wsh agents read %s'", id, id)}
 	}
 	return agentsReadLines(r)
 }

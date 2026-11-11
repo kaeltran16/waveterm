@@ -6,8 +6,10 @@ package wshutil
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/baseds"
+	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 )
 
 // routeRequest sends a command from a fresh caller link to a leaf bound to DefaultRoute and waits until
@@ -65,4 +67,28 @@ func TestCancelDropsTheRoutingEntry(t *testing.T) {
 
 	waitUntil(t, "the cancel to reach the handler", func() bool { return leafGotCancel(leaf, "r1") })
 	waitUntil(t, "r1's routing entry to go", func() bool { return !hasRouteInfo(router, "r1") })
+}
+
+// pkg/web called the main rpc's own per-link reap after UnregisterLink; the router's cancel reaches a real rpc
+// server's handler on its own, so that second call was redundant
+func TestUnregisterLinkCancelsTheHandlerContext(t *testing.T) {
+	router := NewWshRouter()
+	server := MakeWshRpc(wshrpc.RpcContext{}, nil, "test")
+	if _, err := router.RegisterTrustedLeaf(server, DefaultRoute); err != nil {
+		t.Fatal(err)
+	}
+	callerLink := router.RegisterTrustedRouter(newGatedClient(t))
+	h, ctx := mkHandler(server, "r1", callerLink)
+	server.Lock.Lock()
+	server.ResponseHandlerMap["r1"] = h
+	server.Lock.Unlock()
+	router.registerRouteInfo("r1", callerLink, DefaultRoute)
+
+	router.UnregisterLink(callerLink)
+
+	select {
+	case <-ctx.Done():
+	case <-time.After(3 * time.Second):
+		t.Fatal("the gone link's handler context was not cancelled")
+	}
 }
