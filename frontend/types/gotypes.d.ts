@@ -1653,6 +1653,7 @@ declare global {
     type CommandReportRunPhaseRtnData = {
         land?: RunLand;
         landerror?: string;
+        error?: string;
     };
 
     // wshrpc.CommandResMonKillChildrenData

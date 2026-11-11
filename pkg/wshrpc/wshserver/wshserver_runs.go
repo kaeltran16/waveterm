@@ -973,7 +973,10 @@ func (ws *WshServer) ReportRunPhaseCommand(ctx context.Context, data wshrpc.Comm
 	if lerr != nil {
 		rtn.LandError = lerr.Error()
 	}
-	return rtn, err
+	if err != nil {
+		rtn.Error = err.Error()
+	}
+	return rtn, nil
 }
 
 func (ws *WshServer) CancelRunCommand(ctx context.Context, data wshrpc.CommandCancelRunData) error {
