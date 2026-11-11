@@ -1142,7 +1142,8 @@ export const briefPeek = {
         const logOpen = await readLog();
         await h.shot("cdp-shots/brief-peek-decisions.png");
         await h.ev(`${TOGGLE}?.click()`);
-        await settle(300);
+        // the log leaves through PaneReveal's exit (durExit), so poll for its absence rather than sleep past it
+        await polishWaitFor(h, `!document.querySelector('${LOG}')`, 2000);
         const logClosed = await readLog();
         await h.cdp("Emulation.clearDeviceMetricsOverride", {}).catch(() => {});
         steps.push({
@@ -1168,16 +1169,25 @@ export const briefPeek = {
         await h.ev(
             `${FORM_INPUT}?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }))`
         );
-        await settle(400);
-        const afterEsc = await h.ev(`({
-            form: document.querySelector('${LOG} [data-jarvis-decision-form]') != null,
-            add: document.querySelector('${LOG} [data-jarvis-decision-add]') != null,
-            peek: document.querySelector('${BAND}') != null,
-        })`);
+        // the form leaves through PaneReveal's exit, so it stays attached for the fade: poll for its absence
+        const escAt = Date.now();
+        const formLeft = await polishWaitFor(h, `!document.querySelector('${LOG} [data-jarvis-decision-form]')`, 2000);
+        const formLeftMs = formLeft ? Date.now() - escAt : null;
+        const afterEsc = await h.ev(`(() => {
+            const form = document.querySelector('${LOG} [data-jarvis-decision-form]');
+            const wrap = form?.parentElement;
+            return {
+                form: form != null,
+                add: document.querySelector('${LOG} [data-jarvis-decision-add]') != null,
+                peek: document.querySelector('${BAND}') != null,
+                // when the form is stuck, its exit wrapper's inline style tells a stalled exit from one never begun
+                wrapStyle: wrap ? wrap.getAttribute('style') : null,
+            };
+        })()`);
         steps.push({
             step: "13. Escape in the Add decision form closes the form and leaves the peek open",
             ok: typed === true && afterEsc.form === false && afterEsc.add === true && afterEsc.peek === true,
-            detail: JSON.stringify({ typed, afterEsc }),
+            detail: JSON.stringify({ typed, formLeftMs, afterEsc }),
         });
         await pressEscape();
         await polishWaitFor(h, `!document.querySelector('${BAND}')`, 3000);
