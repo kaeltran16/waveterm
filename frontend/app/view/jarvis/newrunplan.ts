@@ -12,7 +12,6 @@ export type PlanModelTone = "plan-live" | "plan-ignored" | "at-review" | "worker
 export interface PlanModelRow {
     id: string;
     title: string;
-    lane: string;
     needs: string;
     model: string;
     tone: PlanModelTone;
@@ -35,7 +34,6 @@ export function planModelRows(tasks: DagPlanPreviewTask[], workers: WorkersSetti
     return tasks.map((task) => ({
         id: task.id,
         title: task.title,
-        lane: String(task.lane),
         needs: task.deps?.length ? task.deps.join(", ") : "–",
         ...modelCell(task, workers),
     }));

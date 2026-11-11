@@ -67,7 +67,6 @@ import { useFinalStageView } from "./finalstageviews";
 import { LEAD_MARK_CLASS, leadMark } from "./leadcardmodel";
 import {
     isEndedWorkerId,
-    laneLabel,
     leadDisplayName,
     runAgentsOf,
     runProgress,
@@ -934,14 +933,12 @@ function WorkerRow({
     // the task's state and question belong to its worker's row, not to the tabs nested under it
     const done = !nested && task.state === "done" && gate == null;
     const tone = nested ? undefined : workerRowTone(task);
-    const lane = laneLabel(run.digest, task.id);
     const ask = done || nested ? undefined : workerAsk(run.digest, task.id);
     const selected = focusKey != null && focusId === focusKey;
     const waits = done || nested ? undefined : unmetDeps(run.dag, task);
     const asksYou = !done && ask?.owner !== "lead" && (ask?.owner === "you" || agent?.state === "asking");
     const sub = workerSubtext({
         taskId: task.id,
-        lane,
         // a question's age is how long it has waited; otherwise the worker's own elapsed time, not its last activity
         age: !nested && !ask ? taskElapsed(task, now) : agent ? formatAgeShort(displayAgeMs(agent, now)) : "",
         ask,

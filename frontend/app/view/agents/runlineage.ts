@@ -446,15 +446,6 @@ export function leadDisplayName(
     return run?.planTitled || run?.dag != null ? run.title : agent.name;
 }
 
-// laneLabel is the letter a task's lane goes by, in the plan order the digest lists lanes in.
-export function laneLabel(digest: DagStatusDigest | undefined, taskId: string): string | undefined {
-    const i = (digest?.lanes ?? []).findIndex((lane) => lane.includes(taskId));
-    if (i < 0) {
-        return undefined;
-    }
-    return i < 26 ? String.fromCharCode(65 + i) : String(i + 1);
-}
-
 const MERGE_HOLD_REASON: Record<string, string> = {
     verifying: "Verify",
     "verify-failed": "failed Verify",
@@ -507,7 +498,6 @@ export function formatLeft(ms: number): string {
 
 export interface WorkerLine {
     taskId: string;
-    lane?: string;
     age: string;
     ask?: WorkerAsk;
     // a finished task's outcome ("landed" / "done")
@@ -519,23 +509,21 @@ export interface WorkerLine {
 }
 
 // workerSubtext is a worker row's second line, led by its task id since the row's title is the task's label:
-// what it came to, what it waits on, whose turn its question is, what state it is in, else its lane and age.
+// what it came to, what it waits on, whose turn its question is, what state it is in, else its age.
 export function workerSubtext(w: WorkerLine): string {
-    const lane = w.lane ? `lane ${w.lane}` : "";
     let tail: string[];
     if (w.outcome) {
-        tail = [lane, w.outcome];
+        tail = [w.outcome];
     } else if (w.waits) {
-        tail = [lane, w.waits.length > 0 ? `waits on ${w.waits.join(", ")}` : "queued"];
+        tail = [w.waits.length > 0 ? `waits on ${w.waits.join(", ")}` : "queued"];
     } else if (w.ask?.owner === "lead") {
         tail = ["asked the lead", w.age];
     } else if (w.ask?.owner === "you") {
         tail = ["asks you", w.age];
     } else if (w.state) {
-        // the state leads: the lane is what truncation should cut
-        tail = [w.state, lane];
+        tail = [w.state];
     } else {
-        tail = [lane, w.age];
+        tail = [w.age];
     }
     return [w.taskId, ...tail].filter(Boolean).join(" · ");
 }

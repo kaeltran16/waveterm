@@ -81,12 +81,10 @@ type CommandDagPlanPreviewRtnData struct {
 	Tasks  []DagPlanPreviewTask `json:"tasks,omitempty"`
 }
 
-// DagPlanPreviewTask is one task of a previewed plan. Lane is 1-based, in jarvis.Lanes order; Model is the
-// task's Model line, empty when it has none.
+// DagPlanPreviewTask is one task of a previewed plan. Model is the task's Model line, empty when it has none.
 type DagPlanPreviewTask struct {
 	Id    string   `json:"id"`
 	Title string   `json:"title"`
-	Lane  int      `json:"lane"`
 	Deps  []string `json:"deps,omitempty"`
 	Model string   `json:"model,omitempty"`
 }

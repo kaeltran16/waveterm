@@ -955,7 +955,6 @@ function rowInput(task: Partial<TaskNode>, over: Partial<SheetRowInput> = {}): S
             ["t-1", { label: "fix the store layer", state: "running" }],
             ["t-2", { label: "fix the backend", state: "running" }],
         ]),
-        lanes: [["t-1"], ["t-2"], ["t-3"]],
         durations: undefined,
         recovery: null,
         askOwner: null,
@@ -994,14 +993,14 @@ describe("taskRow", () => {
         });
     });
 
-    it("prints a done task's lane, time and child run", () => {
+    it("prints a done task's time and child run", () => {
         const r = taskRow(
             rowInput(
                 { id: "t-3", state: "done", runid: "8a43ffff" },
                 { worker: { state: "unavailable", runId: "8a43ffff" }, durations: [{ taskid: "t-3", runms: 14 * MIN }] }
             )
         );
-        expect(r).toMatchObject({ meta: "lane 3 · 14m · child run 8a43", state: "done", action: "open-child-run" });
+        expect(r).toMatchObject({ meta: "14m · child run 8a43", state: "done", action: "open-child-run" });
     });
 
     it("names what a queued task waits on", () => {
@@ -1121,7 +1120,7 @@ describe("taskRow", () => {
             )
         );
         expect(r.meta).toBe("14m · child run 8a43");
-        expect(taskRow(rowInput({ id: "t-2", state: "done" })).meta).toBe("lane 2");
+        expect(taskRow(rowInput({ id: "t-2", state: "done" })).meta).toBe("");
     });
 
     it("shows a failed Verify's own first error line, not the merge's", () => {
@@ -1167,10 +1166,10 @@ describe("taskRow", () => {
         };
         const r = taskRow(rowInput({ id: "t-2", state: "done" }, { td, gate }));
         expect(r).toMatchObject({ meta: "merge ready · waits on t-3's Verify", state: "done" });
-        // a ready tip keeps its lane line: its attention row already says merge ready
+        // a ready tip keeps its plain line: its attention row already says merge ready
         const ready = { ...td, mergestate: "ready", mergeheldby: undefined };
         const readyGate = { ...gate, digest: { tasks: [ready] } as DagStatusDigest };
-        expect(taskRow(rowInput({ id: "t-2", state: "done" }, { td: ready, gate: readyGate })).meta).toBe("lane 2");
+        expect(taskRow(rowInput({ id: "t-2", state: "done" }, { td: ready, gate: readyGate })).meta).toBe("");
     });
 });
 

@@ -334,13 +334,10 @@ function Lanes({ model, run, leadAsks }: { model: AgentsViewModel; run: RunInfo;
                         <div
                             onClick={agent ? () => globalStore.set(model.focusIdAtom, agent.id) : undefined}
                             className={cn(
-                                "grid grid-cols-[20px_minmax(0,1fr)_auto] items-center gap-[9px] p-[6px]",
+                                "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-[9px] p-[6px]",
                                 agent && "cursor-pointer"
                             )}
                         >
-                            <span className="flex h-[20px] w-[20px] items-center justify-center rounded-[5px] border border-edge-mid font-mono text-[10.5px] font-semibold text-ink-mid">
-                                {r.key}
-                            </span>
                             <div className="min-w-0">
                                 <div
                                     className={cn(

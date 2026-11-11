@@ -22,7 +22,6 @@ import {
     formatLeft,
     holdsTask,
     isEndedWorkerId,
-    laneLabel,
     leadAgentOf,
     leadDisplayName,
     leadRunTabIds,
@@ -150,14 +149,6 @@ describe("run facts", () => {
         expect(stripEffortRefs("Keep effort:later and (notes)")).toBe("Keep effort:later and (notes)");
     });
 
-    it("letters lanes in plan order", () => {
-        const digest = { lanes: [["t-1", "t-3"], ["t-2"]] } as DagStatusDigest;
-        expect(laneLabel(digest, "t-3")).toBe("A");
-        expect(laneLabel(digest, "t-2")).toBe("B");
-        expect(laneLabel(digest, "t-9")).toBeUndefined();
-        expect(laneLabel(undefined, "t-1")).toBeUndefined();
-    });
-
     it("says who holds a task's question", () => {
         const digest = {
             tasks: [
@@ -171,20 +162,15 @@ describe("run facts", () => {
         expect(workerAsk(digest, "t-3")).toBeUndefined();
     });
 
-    it("writes a worker's second line from its question, else its lane and age", () => {
-        expect(workerSubtext({ taskId: "t-2", ask: { owner: "lead", deadline: 481_000 }, lane: "B", age: "6m" })).toBe(
+    it("writes a worker's second line from its question, else its age", () => {
+        expect(workerSubtext({ taskId: "t-2", ask: { owner: "lead", deadline: 481_000 }, age: "6m" })).toBe(
             "t-2 · asked the lead · 6m"
         );
-        expect(workerSubtext({ taskId: "t-3", ask: { owner: "you" }, lane: "C", age: "3m" })).toBe(
-            "t-3 · asks you · 3m"
-        );
-        expect(workerSubtext({ taskId: "t-2", lane: "B", age: "6m" })).toBe("t-2 · lane B · 6m");
+        expect(workerSubtext({ taskId: "t-3", ask: { owner: "you" }, age: "3m" })).toBe("t-3 · asks you · 3m");
         expect(workerSubtext({ taskId: "t-2", age: "6m" })).toBe("t-2 · 6m");
-        expect(workerSubtext({ taskId: "t-1", lane: "A", age: "", outcome: "landed" })).toBe("t-1 · lane A · landed");
-        expect(workerSubtext({ taskId: "t-4", lane: "A", age: "", waits: ["t-2", "t-3"] })).toBe(
-            "t-4 · lane A · waits on t-2, t-3"
-        );
-        expect(workerSubtext({ taskId: "t-4", lane: "A", age: "", waits: [] })).toBe("t-4 · lane A · queued");
+        expect(workerSubtext({ taskId: "t-1", age: "", outcome: "landed" })).toBe("t-1 · landed");
+        expect(workerSubtext({ taskId: "t-4", age: "", waits: ["t-2", "t-3"] })).toBe("t-4 · waits on t-2, t-3");
+        expect(workerSubtext({ taskId: "t-4", age: "", waits: [] })).toBe("t-4 · queued");
         expect(formatLeft(59_000)).toBe("<1m left");
     });
 
@@ -565,13 +551,9 @@ describe("a task past its worker", () => {
         expect(taskElapsed({ id: "t", state: "running" } as TaskNode, now)).toBe("");
     });
 
-    it("leads the worker row with its state in place of its age, so truncation drops the lane first", () => {
-        expect(workerSubtext({ taskId: "t-1", lane: "A", age: "3m", state: "verifying 2m" })).toBe(
-            "t-1 · verifying 2m · lane A"
-        );
-        expect(workerSubtext({ taskId: "t-2", lane: "B", age: "1m", state: "reviewing" })).toBe(
-            "t-2 · reviewing · lane B"
-        );
+    it("shows the worker row's state in place of its age", () => {
+        expect(workerSubtext({ taskId: "t-1", age: "3m", state: "verifying 2m" })).toBe("t-1 · verifying 2m");
+        expect(workerSubtext({ taskId: "t-2", age: "1m", state: "reviewing" })).toBe("t-2 · reviewing");
     });
 
     it("gives a merged task still verifying an ended worker, so its transcript opens", () => {

@@ -154,17 +154,11 @@ func (ws *WshServer) DagPlanPreviewCommand(ctx context.Context, data wshrpc.Comm
 	}, nil
 }
 
-// planPreviewTasks lists a plan's tasks in plan order, each with its 1-based lane and its Model line.
+// planPreviewTasks lists a plan's tasks in plan order, each with its Model line.
 func planPreviewTasks(tasks []waveobj.TaskNode) []wshrpc.DagPlanPreviewTask {
-	laneOf := map[string]int{}
-	for i, lane := range jarvis.Lanes(tasks) {
-		for _, id := range lane {
-			laneOf[id] = i + 1
-		}
-	}
 	out := make([]wshrpc.DagPlanPreviewTask, len(tasks))
 	for i, t := range tasks {
-		out[i] = wshrpc.DagPlanPreviewTask{Id: t.ID, Title: t.Label, Lane: laneOf[t.ID]}
+		out[i] = wshrpc.DagPlanPreviewTask{Id: t.ID, Title: t.Label}
 		if len(t.Deps) > 0 {
 			out[i].Deps = t.Deps
 		}

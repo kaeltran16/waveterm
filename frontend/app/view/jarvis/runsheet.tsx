@@ -850,7 +850,6 @@ function TaskRow({
         td,
         worker,
         briefs,
-        lanes: digest.lanes,
         durations: digest.durations?.tasks,
         recovery: recovery != null ? recoveryText(recovery, task.state) : null,
         askOwner,

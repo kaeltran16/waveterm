@@ -152,9 +152,9 @@ func TestDagPlanPreviewTasks(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []wshrpc.DagPlanPreviewTask{
-		{Id: "t-1", Title: "input", Lane: 1},
-		{Id: "t-2", Title: "totals", Lane: 1, Deps: []string{"t-1"}, Model: "sonnet"},
-		{Id: "t-3", Title: "docs", Lane: 2},
+		{Id: "t-1", Title: "input"},
+		{Id: "t-2", Title: "totals", Deps: []string{"t-1"}, Model: "sonnet"},
+		{Id: "t-3", Title: "docs"},
 	}
 	if !reflect.DeepEqual(got.Tasks, want) {
 		t.Fatalf("preview tasks = %+v, want %+v", got.Tasks, want)

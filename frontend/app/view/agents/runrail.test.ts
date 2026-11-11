@@ -54,7 +54,7 @@ function task(id: string, state: string, over: Partial<TaskNode> = {}): TaskNode
     return { id, label: `do ${id}`, state, ...over };
 }
 
-// lanes A: t-1 -> t-3, B: t-2 -> t-4, C: t-5 joining A and B
+// lanes t-1 -> t-3, t-2 -> t-4, and t-5 joining both
 const dag = {
     tasks: [
         task("t-1", "done", { merged: true }),
@@ -74,10 +74,10 @@ const digest = {
 describe("laneRows", () => {
     it("names each lane's task in play and where it stands", () => {
         expect(laneRows(dag, digest, 0)).toEqual([
-            { key: "A", taskId: "t-3", name: "t-3 · do t-3", hist: "t-1 landed", state: "working", text: "working" },
-            { key: "B", taskId: "t-4", name: "t-4 · do t-4", hist: "t-2 landed", state: "lead", text: "lead" },
+            { key: "t-1", taskId: "t-3", name: "t-3 · do t-3", hist: "t-1 landed", state: "working", text: "working" },
+            { key: "t-2", taskId: "t-4", name: "t-4 · do t-4", hist: "t-2 landed", state: "lead", text: "lead" },
             {
-                key: "C",
+                key: "t-5",
                 taskId: "t-5",
                 name: "t-5 · do t-5",
                 hist: "waits on t-3, t-4",
@@ -98,7 +98,7 @@ describe("laneRows", () => {
         } as TaskGroup;
         const d = { lanes: [["t-1", "t-2"]], report: { commits: [{ taskid: "t-2", commit: "9e04f1aa77" }] } };
         expect(laneRows(finished, d as DagStatusDigest, 0)).toEqual([
-            { key: "A", taskId: "t-2", name: "t-2 · do t-2", hist: "9e04f1a", state: "done", text: "landed" },
+            { key: "t-1", taskId: "t-2", name: "t-2 · do t-2", hist: "9e04f1a", state: "done", text: "landed" },
         ]);
     });
 
@@ -108,7 +108,7 @@ describe("laneRows", () => {
         } as TaskGroup;
         const d = { lanes: [["t-1", "t-2", "t-3"]] } as DagStatusDigest;
         expect(laneRows(g, d, 0)).toEqual([
-            { key: "A", taskId: "t-2", name: "t-2 · do t-2", hist: "t-1 landed", state: "working", text: "working" },
+            { key: "t-1", taskId: "t-2", name: "t-2 · do t-2", hist: "t-1 landed", state: "working", text: "working" },
         ]);
     });
 
@@ -116,7 +116,7 @@ describe("laneRows", () => {
         const g = { tasks: [task("t-1", "done", { merged: true }), task("t-2", "skipped")] } as TaskGroup;
         const d = { lanes: [["t-1", "t-2"]] } as DagStatusDigest;
         expect(laneRows(g, d, 0)).toEqual([
-            { key: "A", taskId: "t-2", name: "t-2 · do t-2", hist: "", state: "muted", text: "skipped" },
+            { key: "t-1", taskId: "t-2", name: "t-2 · do t-2", hist: "", state: "muted", text: "skipped" },
         ]);
     });
 
@@ -130,7 +130,7 @@ describe("laneRows", () => {
         } as TaskGroup;
         const d = { lanes: [["t-3"]] } as DagStatusDigest;
         expect(laneRows(g, d, 0)[0]).toEqual({
-            key: "A",
+            key: "t-3",
             taskId: "t-3",
             name: "t-3 · do t-3",
             hist: "waits on t-2",
@@ -157,7 +157,7 @@ describe("laneRows", () => {
         const d = { lanes: [["t-1", "t-2"]] } as DagStatusDigest;
         expect(laneRows(g, d, 0)).toEqual([
             {
-                key: "A",
+                key: "t-1",
                 taskId: "t-2",
                 name: "t-2 · do t-2",
                 hist: "t-1 landed",
@@ -185,7 +185,7 @@ describe("laneRows", () => {
 
         it("reads a held tip as pending, waiting on the holder", () => {
             expect(laneRows(g, gate({ mergestate: "held", mergeheldby: "t-3" }), 0)[0]).toEqual({
-                key: "A",
+                key: "t-1",
                 taskId: "t-2",
                 name: "t-2 · do t-2",
                 hist: "t-1 landed",
@@ -224,13 +224,16 @@ describe("runSegments", () => {
 describe("taskFacts", () => {
     it("says a running task's lane, what it depends on and how long this attempt has run", () => {
         expect(taskFacts(dag, digest, "t-3", NOW)).toEqual({
-            lane: "A",
-            laneText: "A · t-1 → t-3",
+            laneText: "t-1 → t-3",
             depends: "t-1 · landed",
             resultLabel: "Attempt",
             result: "1 · 4m",
             landed: false,
         });
+    });
+
+    it("names no lane for a task alone in its lane", () => {
+        expect(taskFacts(dag, { ...digest, lanes: [["t-3"]] }, "t-3", NOW)?.laneText).toBeUndefined();
     });
 
     it("counts a retried task's attempt past its failures", () => {

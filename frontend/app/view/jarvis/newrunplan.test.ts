@@ -5,13 +5,13 @@ import { describe, expect, it } from "vitest";
 import { planMixLine, planModelRows, workersModelName } from "./newrunplan";
 
 const tasks: DagPlanPreviewTask[] = [
-    { id: "t-1", title: "Wire fields", lane: 1 },
-    { id: "t-2", title: "Migrate pins", lane: 1, deps: ["t-1"], model: "claude-sonnet-5-5" },
-    { id: "t-3", title: "Docs", lane: 2, deps: ["t-1", "t-2"], model: "sonnet" },
+    { id: "t-1", title: "Wire fields" },
+    { id: "t-2", title: "Migrate pins", deps: ["t-1"], model: "claude-sonnet-5-5" },
+    { id: "t-3", title: "Docs", deps: ["t-1", "t-2"], model: "sonnet" },
 ];
 const noLines: DagPlanPreviewTask[] = [
-    { id: "t-1", title: "One", lane: 1 },
-    { id: "t-2", title: "Two", lane: 2, deps: [] },
+    { id: "t-1", title: "One" },
+    { id: "t-2", title: "Two", deps: [] },
 ];
 
 describe("planModelRows", () => {
@@ -43,9 +43,9 @@ describe("planModelRows", () => {
         expect(rows.map((r) => r.needs)).toEqual(["–", "t-1", "t-1, t-2", "–", "–"]);
     });
 
-    it("carries id, title and lane through", () => {
+    it("carries id and title through", () => {
         const [row] = planModelRows(tasks.slice(1, 2), { picks: false, model: "lead" });
-        expect(row).toMatchObject({ id: "t-2", title: "Migrate pins", lane: "1" });
+        expect(row).toMatchObject({ id: "t-2", title: "Migrate pins" });
     });
 });
 

@@ -106,7 +106,7 @@ describe("buildLeadCard", () => {
         expect(vm.waiting.map((r) => r.taskId)).toEqual(["t3"]);
         expect(vm.rows[0]).toMatchObject({
             key: rowKey("lead", "t2"),
-            sub: "t2 · lane A · editing store.ts",
+            sub: "t2 · editing store.ts",
             actions: ["tell"],
             openId: "w2",
         });
@@ -455,17 +455,17 @@ describe("buildLeadCard lane wait", () => {
     it("reads a done task waiting on its lane as waiting to land with the lane's tip", () => {
         const vm = buildLeadCard(input(laned("waiting")));
         const row = vm.waiting.find((r) => r.taskId === "t-2");
-        expect(row).toMatchObject({ kind: "wait", tone: "muted", sub: "t-2 · lane B · done · lands with t-3" });
+        expect(row).toMatchObject({ kind: "wait", tone: "muted", sub: "t-2 · done · lands with t-3" });
         expect(vm.done.some((r) => r.taskId === "t-2")).toBe(false);
     });
 
     it("never says a single-task lane lands with itself", () => {
         const vm = buildLeadCard(input(laned("waiting", [["t-1"], ["t-2"], ["t-3"]])));
-        expect(vm.waiting.find((r) => r.taskId === "t-2")?.sub).toBe("t-2 · lane B · done · waiting to land");
+        expect(vm.waiting.find((r) => r.taskId === "t-2")?.sub).toBe("t-2 · done · waiting to land");
     });
 
     it("reads a merged task as landed", () => {
-        expect(buildLeadCard(input(laned("merged"))).done[0].sub).toBe("t-2 · lane B · landed");
+        expect(buildLeadCard(input(laned("merged"))).done[0].sub).toBe("t-2 · landed");
     });
 });
 
@@ -968,7 +968,7 @@ describe("lead card phase 3 fixes", () => {
         const row = buildLeadCard(input(run)).rows[0];
         expect(row).toMatchObject({
             taskId: "t1",
-            sub: "t1 · lane A · merge ready",
+            sub: "t1 · merge ready",
             openLabel: "Open transcript",
             needsYou: false,
             actions: [],
@@ -985,7 +985,7 @@ describe("lead card phase 3 fixes", () => {
         expect(row).toMatchObject({
             kind: "live",
             tone: "wait",
-            sub: "t1 · lane A · merge ready · waits on t8's Verify",
+            sub: "t1 · merge ready · waits on t8's Verify",
             openLabel: "Open transcript",
             needsYou: false,
             actions: [],

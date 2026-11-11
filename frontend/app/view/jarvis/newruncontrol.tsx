@@ -105,7 +105,7 @@ const CANCEL_BTN =
 // RoutePicker caps its trigger for the inline rows it usually sits in; a Models row gives it the column
 const FULL_WIDTH_PICKER =
     "min-w-0 flex-1 [&>div]:w-full [&>div>button]:w-full [&>div>button]:max-w-none [&>div>button]:justify-between";
-const PLAN_GRID = "grid grid-cols-[40px_minmax(0,1fr)_44px_96px_112px] gap-x-2.5 px-3";
+const PLAN_GRID = "grid grid-cols-[40px_minmax(0,1fr)_96px_112px] gap-x-2.5 px-3";
 const START_LABEL: Record<StartFrom, string> = { design: "Approved design", goal: "Goal", plan: "Plan file" };
 const DESIGN_FIRST_OPTIONS: DesignFirst[] = ["", "brainstorm", "canvas"];
 const DESIGN_FIRST_LABEL: Record<DesignFirst, string> = { "": "Off", brainstorm: "Brainstorm", canvas: "Mock up" };
@@ -326,7 +326,6 @@ function PlanTable({ result, workers }: { result: CommandDagPlanPreviewRtnData; 
                 >
                     <span>task</span>
                     <span>title</span>
-                    <span>lane</span>
                     <span>needs</span>
                     <span>model</span>
                 </div>
@@ -337,7 +336,6 @@ function PlanTable({ result, workers }: { result: CommandDagPlanPreviewRtnData; 
                     >
                         <span className="font-mono text-[10.5px] text-muted">{row.id}</span>
                         <span className="truncate text-[12px] text-ink-hi">{row.title}</span>
-                        <span className="font-mono text-[10.5px] text-ink-mid">{row.lane}</span>
                         <span className="truncate font-mono text-[10.5px] text-muted">{row.needs}</span>
                         <span
                             title={row.model}

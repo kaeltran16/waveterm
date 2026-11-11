@@ -2034,7 +2034,6 @@ declare global {
     type DagPlanPreviewTask = {
         id: string;
         title: string;
-        lane: number;
         deps?: string[];
         model?: string;
     };

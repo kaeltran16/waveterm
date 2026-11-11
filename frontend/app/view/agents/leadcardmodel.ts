@@ -17,7 +17,6 @@ import {
     endedWorkerId,
     failedWithTranscript,
     formatLeft,
-    laneLabel,
     leadStandingBy,
     mergeGateLine,
     runEngineBusy,
@@ -178,8 +177,6 @@ function taskRow(input: LeadCardInput, task: TaskNode): TaskRowVM {
     // a failure the lead handed to you is yours whatever the lead's state
     const forwarded = (td?.forwardedts ?? 0) > 0;
     const judge = input.lead != null && !input.leadDown && !forwarded;
-    const lane = laneLabel(run.digest, task.id);
-    const laneText = lane ? `lane ${lane}` : "";
     const join = (...parts: (string | undefined)[]) => parts.filter(Boolean).join(" · ");
     const worker = taskAgentOf(lineage, roster, run.runId, task.id);
     // a failed task's worker tab is reaped with its tree; its session's transcript is still there to read
@@ -192,7 +189,7 @@ function taskRow(input: LeadCardInput, task: TaskNode): TaskRowVM {
         taskId: task.id,
         state: task.state,
         label: task.label || task.id,
-        sub: join(task.id, laneText),
+        sub: task.id,
         tone: "run",
         kind: "live",
         age: task.firstactivity ? formatElapsed(now - task.firstactivity) : undefined,
@@ -211,7 +208,7 @@ function taskRow(input: LeadCardInput, task: TaskNode): TaskRowVM {
                     ...base,
                     tone: "wait",
                     tag: mergeWaitTag(td?.mergegatets, now),
-                    sub: join(task.id, laneText, gate),
+                    sub: join(task.id, gate),
                     openId: endedWorkerId(run.runId, task.id),
                     openLabel: "Open transcript",
                 };
@@ -225,12 +222,7 @@ function taskRow(input: LeadCardInput, task: TaskNode): TaskRowVM {
                     tone: "muted",
                     age: undefined,
                     openId: undefined,
-                    sub: join(
-                        task.id,
-                        laneText,
-                        "done",
-                        tip && tip !== task.id ? `lands with ${tip}` : "waiting to land"
-                    ),
+                    sub: join(task.id, "done", tip && tip !== task.id ? `lands with ${tip}` : "waiting to land"),
                 };
             }
             const ranMs = run.digest?.durations?.tasks?.find((t) => t.taskid === task.id)?.runms;
@@ -239,7 +231,7 @@ function taskRow(input: LeadCardInput, task: TaskNode): TaskRowVM {
                 kind: "done",
                 tone: "ok",
                 age: ranMs ? formatElapsed(ranMs) : undefined,
-                sub: join(task.id, laneText, "landed"),
+                sub: join(task.id, "landed"),
                 openId: endedWorkerId(run.runId, task.id),
             };
         }
@@ -249,7 +241,7 @@ function taskRow(input: LeadCardInput, task: TaskNode): TaskRowVM {
                 ...base,
                 kind: "done",
                 tone: "muted",
-                sub: join(task.id, laneText, task.state),
+                sub: join(task.id, task.state),
                 age: undefined,
                 openId: undefined,
             };
@@ -279,7 +271,6 @@ function taskRow(input: LeadCardInput, task: TaskNode): TaskRowVM {
                 tone: task.state === "stalled" ? "warn" : "err",
                 sub: join(
                     task.id,
-                    laneText,
                     task.state === "stalled" ? "no output · process alive" : task.lastfailurekind || "failed"
                 ),
                 tag: forwarded ? "needs you" : judge ? "lead judging" : undefined,
@@ -292,7 +283,7 @@ function taskRow(input: LeadCardInput, task: TaskNode): TaskRowVM {
                 ...base,
                 ...failedOpen,
                 tone: "err",
-                sub: join(task.id, laneText, task.state === "verify-failed" ? "Verify failed" : "merge conflict"),
+                sub: join(task.id, task.state === "verify-failed" ? "Verify failed" : "merge conflict"),
                 detail: verifyFailLine(task, td),
                 tag: judge ? "lead fixing" : "needs you",
                 needsYou: !judge,
@@ -305,7 +296,7 @@ function taskRow(input: LeadCardInput, task: TaskNode): TaskRowVM {
                 ...base,
                 tone: "soft",
                 tag: taskStateLabel(task, now),
-                sub: join(task.id, laneText, "merged · Verify running"),
+                sub: join(task.id, "merged · Verify running"),
             };
         case "pending":
         case "ready": {
@@ -328,7 +319,7 @@ function taskRow(input: LeadCardInput, task: TaskNode): TaskRowVM {
         }
     }
     if (worker == null) {
-        return { ...base, sub: join(task.id, laneText, "running") };
+        return { ...base, sub: join(task.id, "running") };
     }
     const ask = workerAsk(run.digest, task.id);
     if (ask?.owner === "lead") {
@@ -344,7 +335,7 @@ function taskRow(input: LeadCardInput, task: TaskNode): TaskRowVM {
     if (workerNeedsYou(run, task.id, worker) && worker.ask != null) {
         return { ...base, tone: "ask", tag: "asking", inline: "ask", needsYou: true, sub: join(task.id, "asks you") };
     }
-    return { ...base, sub: join(task.id, laneText, worker.activity), actions: ["tell"] };
+    return { ...base, sub: join(task.id, worker.activity), actions: ["tell"] };
 }
 
 // the last task of a task's lane, which the lane lands with

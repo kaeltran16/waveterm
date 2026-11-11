@@ -6,7 +6,7 @@
 
 import { formatAgeShort } from "./agentsviewmodel";
 import { ASK_OWNER_USER } from "./childaskmodel";
-import { laneLabel, mergeGateLine, taskStateLabel, workerAsk, type RunInfo } from "./runlineage";
+import { mergeGateLine, taskStateLabel, workerAsk, type RunInfo } from "./runlineage";
 import { finalFailedWait } from "./runmodel";
 import { eventText } from "./runtimeline";
 
@@ -14,6 +14,7 @@ import { eventText } from "./runtimeline";
 export type LaneState = "done" | "working" | "asking" | "lead" | "pending" | "failed" | "muted";
 
 export interface LaneRow {
+    // the lane's first task, which keys the row
     key: string;
     // the task in play, which a click on the row lands on
     taskId: string;
@@ -152,12 +153,12 @@ export function laneRows(dag: TaskGroup | undefined, digest: DagStatusDigest | u
     const byId = new Map((dag?.tasks ?? []).map((t) => [t.id, t] as const));
     return (digest?.lanes ?? []).flatMap((ids) => {
         const tasks = ids.map((id) => byId.get(id)).filter((t): t is TaskNode => t != null);
-        return tasks.length === 0 ? [] : [laneRow(laneLabel(digest, ids[0])!, tasks, byId, { dag, digest }, now)];
+        return tasks.length === 0 ? [] : [laneRow(ids[0], tasks, byId, { dag, digest }, now)];
     });
 }
 
 export interface TaskFacts {
-    lane?: string;
+    // the chain of tasks the task shares a lane with, for a lane of more than one task
     laneText?: string;
     depends: string;
     // "Attempt" while the task is in play, "Result" once it is finished
@@ -178,7 +179,6 @@ export function taskFacts(
         return undefined;
     }
     const byId = new Map((dag?.tasks ?? []).map((t) => [t.id, t] as const));
-    const lane = laneLabel(digest, taskId);
     const laneIds = digest?.lanes?.find((l) => l.includes(taskId));
     const depends =
         (task.deps ?? [])
@@ -188,8 +188,7 @@ export function taskFacts(
             })
             .join(", ") || "none";
     const facts: TaskFacts = {
-        lane,
-        laneText: lane && laneIds ? `${lane} · ${laneIds.join(" → ")}` : undefined,
+        laneText: laneIds && laneIds.length > 1 ? laneIds.join(" → ") : undefined,
         depends,
         resultLabel: "Attempt",
         result: "",

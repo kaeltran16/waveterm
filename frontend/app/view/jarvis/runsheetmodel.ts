@@ -486,7 +486,6 @@ export type SheetRowInput = {
     td: DagTaskDigest | undefined;
     worker: TaskWorkerView;
     briefs: Map<string, TaskBrief>;
-    lanes: string[][] | undefined;
     durations: DagTaskDuration[] | undefined;
     // the recovery line (recoveryText), or null when the task has no failure history
     recovery: string | null;
@@ -501,11 +500,6 @@ export type SheetRowInput = {
 
 function shortRun(runId: string): string {
     return `child run ${runId.slice(0, 4)}`;
-}
-
-function laneOf(taskId: string, lanes: string[][] | undefined): number | null {
-    const idx = (lanes ?? []).findIndex((lane) => lane.includes(taskId));
-    return idx >= 0 ? idx + 1 : null;
 }
 
 // One task as one row. Failure text is the row's own state column plus one meta line, never extra lines
@@ -598,13 +592,10 @@ function liveTaskRow(input: SheetRowInput): SheetRow {
                     action: workerAction,
                 };
             }
-            const lane = laneOf(task.id, input.lanes);
             const runMs = input.durations?.find((d) => d.taskid === task.id)?.runms;
-            const parts = [
-                lane != null ? `lane ${lane}` : null,
-                runMs ? formatElapsed(runMs) : null,
-                task.runid ? shortRun(task.runid) : null,
-            ].filter((p): p is string => p != null);
+            const parts = [runMs ? formatElapsed(runMs) : null, task.runid ? shortRun(task.runid) : null].filter(
+                (p): p is string => p != null
+            );
             return {
                 ...base,
                 meta: parts.join(" · "),
