@@ -12,8 +12,12 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/wavetermdev/waveterm/pkg/util/shellutil"
+	"github.com/wavetermdev/waveterm/pkg/wavebase"
 )
 
 const testApiKey = "sk-ant-x-abcd"
@@ -403,5 +407,83 @@ func TestRemoveClaudeApiKey(t *testing.T) {
 	}
 	if listApiKey(t).Saved {
 		t.Error("list still reports the key saved")
+	}
+}
+
+// withHelperWshHome points the default helper wsh lookup at a temp home and app dir, each wsh present
+// only when asked for.
+func withHelperWshHome(t *testing.T, stable, own bool) (string, string) {
+	t.Helper()
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("HOME", home)
+	oldApp := wavebase.AppPath_VarCache
+	wavebase.AppPath_VarCache = filepath.Join(dir, "app")
+	t.Cleanup(func() { wavebase.AppPath_VarCache = oldApp })
+	claudeHelperWsh = defaultClaudeHelperWsh
+	stablePath := wavebase.StableWshPath(home)
+	ownPath, err := shellutil.GetLocalWshBinaryPath(wavebase.WaveVersion, runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range []struct {
+		path string
+		make bool
+	}{{stablePath, stable}, {ownPath, own}} {
+		if !w.make {
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(w.path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(w.path, []byte("wsh"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return stablePath, ownPath
+}
+
+// a dev app that skips the global install (Final's) has no ~/.arc/bin copy on a machine without packaged
+// Arc; it switches with its own wsh.
+func TestSwitchToApiKeyDevNoGlobalInstallUsesOwnWsh(t *testing.T) {
+	f := withClaudeApiKeyFiles(t, "", "")
+	f.store[ClaudeApiKeySecretName] = testApiKey
+	_, own := withHelperWshHome(t, false, true)
+	t.Setenv(devNoGlobalInstallEnv, "1")
+	if err := SwitchToClaudeApiKey(); err != nil {
+		t.Fatal(err)
+	}
+	f.wsh = own
+	if helper, _ := f.settingsHelper(t); helper != f.wantHelper() {
+		t.Errorf("apiKeyHelper = %q, want %q", helper, f.wantHelper())
+	}
+}
+
+// in a normal install the helper is the stable copy, and its absence still refuses even with the app's
+// own wsh present.
+func TestSwitchToApiKeyNormalInstallNeedsStableWsh(t *testing.T) {
+	f := withClaudeApiKeyFiles(t, "", "")
+	f.store[ClaudeApiKeySecretName] = testApiKey
+	stable, _ := withHelperWshHome(t, false, true)
+	t.Setenv(devNoGlobalInstallEnv, "")
+	err := SwitchToClaudeApiKey()
+	if err == nil || !strings.Contains(err.Error(), stable) {
+		t.Fatalf("err = %v, want a refusal naming %s", err, stable)
+	}
+	if _, err := os.Stat(f.settingsPath); !os.IsNotExist(err) {
+		t.Errorf("a refused switch wrote settings: stat err = %v", err)
+	}
+}
+
+// the dev fallback still refuses when its own wsh is missing too.
+func TestSwitchToApiKeyDevNoGlobalInstallNeedsOwnWsh(t *testing.T) {
+	f := withClaudeApiKeyFiles(t, "", "")
+	f.store[ClaudeApiKeySecretName] = testApiKey
+	_, own := withHelperWshHome(t, true, false)
+	t.Setenv(devNoGlobalInstallEnv, "1")
+	err := SwitchToClaudeApiKey()
+	if err == nil || !strings.Contains(err.Error(), own) {
+		t.Fatalf("err = %v, want a refusal naming %s", err, own)
 	}
 }
