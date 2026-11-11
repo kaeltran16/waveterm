@@ -7,6 +7,9 @@ import (
 	"encoding/json"
 	"regexp"
 	"testing"
+
+	"github.com/spf13/cobra"
+	"github.com/wavetermdev/waveterm/pkg/wshutil"
 )
 
 func TestToolKeyStableAcrossKeyOrder(t *testing.T) {
@@ -89,5 +92,36 @@ func TestPermissionCommandRegistered(t *testing.T) {
 	}
 	if !found.Hidden {
 		t.Fatalf("permission must be hidden")
+	}
+}
+
+// the hooks are installed in the user's global settings, so a claude outside Arc runs them too: there they
+// must exit 0 with nothing to do, as agent-hook does, not fail on every prompt
+func TestHookCommandsNoOpOutsideArc(t *testing.T) {
+	t.Setenv(wshutil.WaveJwtTokenVarName, "")
+	run := func(c *cobra.Command) error {
+		if c.PreRunE != nil {
+			if err := c.PreRunE(c, nil); err != nil {
+				return err
+			}
+		}
+		return c.RunE(c, nil)
+	}
+	if err := run(permissionCmd); err != nil {
+		t.Fatalf("permission outside Arc: %v", err)
+	}
+	if err := run(askCmd); err != nil {
+		t.Fatalf("ask outside Arc: %v", err)
+	}
+	askClear = true
+	t.Cleanup(func() { askClear = false })
+	if err := run(askCmd); err != nil {
+		t.Fatalf("ask --clear outside Arc: %v", err)
+	}
+	// pi's bridge waits for an answer and must hear that none can come
+	askClear, askWait = false, true
+	t.Cleanup(func() { askWait = false })
+	if err := run(askCmd); err == nil {
+		t.Fatal("ask --wait outside Arc succeeded, want an error")
 	}
 }

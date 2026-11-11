@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc/wshclient"
+	"github.com/wavetermdev/waveterm/pkg/wshutil"
 )
 
 const toolKeyHexLen = 16
@@ -29,7 +30,6 @@ var permissionCmd = &cobra.Command{
 	Short:                 "project a Claude Code permission prompt into the Arc cockpit (non-blocking)",
 	Args:                  cobra.NoArgs,
 	RunE:                  permissionRun,
-	PreRunE:               preRunSetupRpcClient,
 	Hidden:                true,
 	DisableFlagsInUseLine: true,
 	SilenceUsage:          true,
@@ -39,7 +39,19 @@ func init() {
 	rootCmd.AddCommand(permissionCmd)
 }
 
+// outsideArc reports a hook run by a claude Arc did not start: the hooks sit in the user's global settings,
+// and with no cockpit to project into the hook exits 0 and claude carries on alone, as agent-hook does
+func outsideArc() bool {
+	return os.Getenv(wshutil.WaveJwtTokenVarName) == ""
+}
+
 func permissionRun(cmd *cobra.Command, args []string) error {
+	if outsideArc() {
+		return nil
+	}
+	if err := preRunSetupRpcClient(cmd, args); err != nil {
+		return err
+	}
 	raw, err := io.ReadAll(os.Stdin)
 	if err != nil {
 		return fmt.Errorf("reading stdin: %w", err)

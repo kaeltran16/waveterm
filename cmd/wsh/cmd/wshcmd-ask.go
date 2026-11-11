@@ -30,7 +30,6 @@ var askCmd = &cobra.Command{
 	Short:                 "project an AskUserQuestion into the Wave Agents panel (non-blocking)",
 	Args:                  cobra.NoArgs,
 	RunE:                  askRun,
-	PreRunE:               preRunSetupRpcClient,
 	Hidden:                true,
 	DisableFlagsInUseLine: true,
 }
@@ -46,6 +45,13 @@ func init() {
 // any error returned here exits non-zero; the hooks treat non-zero / failure as
 // "the native terminal prompt handles it" (graceful degradation).
 func askRun(cmd *cobra.Command, args []string) (rtnErr error) {
+	// a waiting ask (pi's bridge) must hear that no answer can come; the hook forms have nothing to do
+	if outsideArc() && !askWait {
+		return nil
+	}
+	if err := preRunSetupRpcClient(cmd, args); err != nil {
+		return err
+	}
 	oref, err := resolveBlockArg()
 	if err != nil {
 		return fmt.Errorf("resolving block: %w", err)
