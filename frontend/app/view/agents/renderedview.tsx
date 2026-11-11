@@ -19,6 +19,7 @@ import { entriesAtomFor } from "./livetranscriptatoms";
 import { NarrationTimeline } from "./narrationtimeline";
 import { NowLine } from "./nowlineview";
 import { PermissionBand } from "./permissionband";
+import { anchorMarks } from "./permissionmodel";
 import { permissionLogAtom } from "./permissionstore";
 import { RenderedComposer } from "./renderedcomposer";
 import { isPickerCommand, pickerFlipAtom, shouldUnflip } from "./renderedmode";
@@ -101,7 +102,7 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
                             <NarrationTimeline
                                 entries={entries}
                                 renderers
-                                marks={marks}
+                                marks={anchorMarks(entries, marks)}
                                 accentLatest
                                 active={agent.state === "working"}
                             />
@@ -126,7 +127,6 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
             <PermissionBand
                 agentId={agent.id}
                 blockId={agent.blockId}
-                entryCount={entries.length}
                 onLastChoice={() => composerRef.current?.focus()}
             />
             <div data-rendered-composer className="shrink-0 px-[22px] pb-4">

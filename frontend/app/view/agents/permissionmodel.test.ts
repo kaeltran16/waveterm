@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
-import type { TimelineItem } from "./agentsviewmodel";
-import { permissionLogText, permissionPreview, permissionTitle, placeMarks, relativeToCwd } from "./permissionmodel";
+import type { AgentEntry, TimelineItem } from "./agentsviewmodel";
+import {
+    anchorMarks,
+    permissionLogText,
+    permissionPreview,
+    permissionTitle,
+    placeMarks,
+    relativeToCwd,
+} from "./permissionmodel";
 
 function perm(toolname: string, input: unknown, choices = ["Yes", "No, tell Claude what to do"]): AgentPermissionData {
     return {
@@ -148,5 +155,27 @@ describe("placeMarks", () => {
         const { lead, after } = placeMarks(items.slice(1), [{ afterEntry: 1, text: "early" }]);
         expect(lead.map((m) => m.text)).toEqual(["early"]);
         expect(after.size).toBe(0);
+    });
+});
+
+describe("anchorMarks", () => {
+    const user = (text: string, ts: number): AgentEntry => ({ kind: "user", text, ts });
+    const ran: AgentEntry = { kind: "action", verb: "ran", target: "npm test", outcome: "ok" };
+    const mark = { ts: 1500, text: "Yes: npm test" };
+
+    it("goes after the entries that were there when it was answered", () => {
+        const entries = [user("go", 1000), ran, user("next", 2000)];
+        expect(anchorMarks(entries, [mark])).toEqual([{ afterEntry: 2, text: "Yes: npm test" }]);
+        expect(anchorMarks(entries.slice(0, 2), [mark])).toEqual([{ afterEntry: 2, text: "Yes: npm test" }]);
+    });
+
+    it("keeps its place when a trim drops the entries before it", () => {
+        const trimmed = [user("again", 1200), ran, user("next", 2000)];
+        expect(anchorMarks(trimmed, [mark])).toEqual([{ afterEntry: 2, text: "Yes: npm test" }]);
+    });
+
+    it("is dropped once the window no longer holds it, as after /clear or a trim", () => {
+        expect(anchorMarks([user("fresh", 3000), ran], [mark])).toEqual([]);
+        expect(anchorMarks([ran], [mark])).toEqual([]);
     });
 });

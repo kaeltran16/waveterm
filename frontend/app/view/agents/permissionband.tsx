@@ -59,12 +59,10 @@ function Preview({ preview }: { preview: PermissionPreview }) {
 function RequestBand({
     agentId,
     request,
-    entryCount,
     onLastChoice,
 }: {
     agentId: string;
     request: AgentPermissionData;
-    entryCount: number;
     onLastChoice: () => void;
 }) {
     // the agent's working dir, so its absolute paths read relative
@@ -90,7 +88,7 @@ function RequestBand({
         }
         globalStore.set(permissionLogAtom(agentId), (prev) => [
             ...prev,
-            { afterEntry: entryCount, text: permissionLogText(request, choice, cwd) },
+            { ts: Date.now(), text: permissionLogText(request, choice, cwd) },
         ]);
         // the server's cleared event retires it too; dropping it here keeps the band from lingering on a slow event
         removeAgentPermission(request.oref, request.permid);
@@ -133,12 +131,10 @@ function RequestBand({
 export function PermissionBand({
     agentId,
     blockId,
-    entryCount,
     onLastChoice,
 }: {
     agentId: string;
     blockId: string;
-    entryCount: number;
     onLastChoice: () => void;
 }) {
     const pending = useAtomValue(getAgentPermissionsAtom(`block:${blockId}`));
@@ -152,7 +148,6 @@ export function PermissionBand({
                     key={pending[0].permid}
                     agentId={agentId}
                     request={pending[0]}
-                    entryCount={entryCount}
                     onLastChoice={onLastChoice}
                 />
             ) : (
