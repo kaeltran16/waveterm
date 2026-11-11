@@ -24,9 +24,11 @@ export function usageBackStep(lens: UsageLens, scopeKey: string, item: UsageWork
     return scopeKey !== ALL_SCOPE ? { scope: ALL_SCOPE, item: null } : null;
 }
 
-// scope keys ("all", project paths, `effort:<oid>`) and row keys (`run:` / `session:`) never collide
-export function usageNavIds(scopeIds: string[], rowKeys: string[]): string[] {
-    return [...scopeIds, ...rowKeys];
+// scope keys ("all", project paths, `effort:<oid>`) and row keys (`run:` / `session:`) never collide. With the
+// cursor in a scope's rows (`inRowsOf`), the way out upward is that scope's card: the id before the rows would
+// otherwise be the last card, and landing there switches the page to another scope.
+export function usageNavIds(scopeIds: string[], rowKeys: string[], inRowsOf?: string): string[] {
+    return inRowsOf != null ? [inRowsOf, ...rowKeys] : [...scopeIds, ...rowKeys];
 }
 
 export type UsageCursor = { kind: "scope" | "row"; id: string };

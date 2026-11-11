@@ -825,7 +825,7 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
         const scopeIds = [ALL_SCOPE, ...attr.projects.map((p) => p.key), ...attr.initiatives.map((i) => i.key)];
         return {
             surface: "usage",
-            navigableIds: usageNavIds(scopeIds, rowKeys),
+            navigableIds: usageNavIds(scopeIds, rowKeys, cursorRow != null ? workScope : undefined),
             cursorId: cursorRow ?? (workItem != null ? undefined : workScope),
             setCursor: (id) => {
                 const cursor = resolveUsageCursor(id, scopeIds);
