@@ -390,7 +390,8 @@ None of the fixes has run live; they are unit-tested (`TestRunFinishedWakeNamesT
 
 ## Constraints carried into the redesign
 
-- KISS/YAGNI: no new subsystems, no per-task timeout policies, no message bus. Only the failure modes
+- KISS/YAGNI: no new subsystems, no per-task timeout policies (the engine's timeouts
+  are package-wide constants; no task or plan sets its own), no message bus. Only the failure modes
   observed above.
 - The lead is the child's human: children stay headless; every question routes to lead or cockpit.
 - Everything is verifiable with a live DAG run (the evidence goal re-run is the validation case).

@@ -59,6 +59,7 @@ import {
     compareAggregateAtom,
     compareBranchesAtom,
     compareCommitFailureAtom,
+    compareCwd,
     compareErrorAtom,
     compareHasRemoteAtom,
     compareOnAtom,
@@ -633,12 +634,18 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                 onEdit={() => setPickerOpen(true)}
                                 onApply={(b, h) => {
                                     setPickerOpen(false);
-                                    if (state?.cwd) {
-                                        fireAndForget(() => setCompareRefs(state.cwd!, b, h));
+                                    const cwd = compareCwd();
+                                    if (cwd) {
+                                        fireAndForget(() => setCompareRefs(cwd, b, h));
                                     }
                                 }}
                                 onCancel={() => setPickerOpen(false)}
-                                onSwap={() => state?.cwd && fireAndForget(() => swapCompareRefs(state.cwd!))}
+                                onSwap={() => {
+                                    const cwd = compareCwd();
+                                    if (cwd) {
+                                        fireAndForget(() => swapCompareRefs(cwd));
+                                    }
+                                }}
                             />
                         </div>
                     ) : null}
