@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -140,7 +141,8 @@ func unmanagedCopies(p Paths) ([]skillCopy, error) {
 		}
 		sort.Slice(observed, func(i, j int) bool { return observed[i].Name < observed[j].Name })
 		for _, e := range observed {
-			if !e.Managed && !e.Linked && isSkillDir(dir, e.Name) {
+			// a retired shipped name is deleted from the vault by every seed, so adopting it would lose the skill
+			if !e.Managed && !e.Linked && isSkillDir(dir, e.Name) && !slices.Contains(retiredShipped, e.Name) {
 				out = append(out, skillCopy{runtime: spec.Runtime, name: e.Name, from: filepath.Join(dir, e.Name)})
 			}
 		}

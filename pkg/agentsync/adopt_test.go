@@ -389,3 +389,22 @@ func TestAdoptSkipList(t *testing.T) {
 		}
 	}
 }
+
+func TestAdoptLeavesASkillUnderARetiredShippedName(t *testing.T) {
+	p := testPaths(t, "", ".claude")
+	p.Shipped = shippedFS()
+	writeFile(t, filepath.Join(p.Home, ".claude", "CLAUDE.md"), "# Prefs\n")
+	own := filepath.Join(p.Home, ".claude", "skills", "design-local")
+	writeFile(t, filepath.Join(own, skillFile), "---\nname: design-local\n---\nmine\n")
+
+	plan, err := Adopt(p, true, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Moves) != 0 {
+		t.Errorf("plan = %+v, want no move: the seed deletes a retired name from the vault", plan)
+	}
+	if got := readFile(t, filepath.Join(own, skillFile)); got != "---\nname: design-local\n---\nmine\n" {
+		t.Errorf("the user's own skill = %q, want it left where it was", got)
+	}
+}
