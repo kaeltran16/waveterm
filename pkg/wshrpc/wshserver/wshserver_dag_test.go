@@ -904,24 +904,14 @@ func TestDagMergeCleanupFailurePersistsDebt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if finalDag.Tasks[0].CleanupPending || finalDag.Tasks[0].CleanupError != "" || finalDag.Status != orchestrate.DagStatus_Finalizing {
-		t.Fatalf("retry must clear debt and hand the dag to the final stage: %s %+v", finalDag.Status, finalDag.Tasks[0])
+	if finalDag.Tasks[0].CleanupPending || finalDag.Tasks[0].CleanupError != "" {
+		t.Fatalf("retry must clear the debt: %+v", finalDag.Tasks[0])
 	}
-	// the next tick runs the final stage, which has no commands here and goes straight to its verifier
-	if err := orchestrate.Schedule(ctx, g.OID); err != nil {
-		t.Fatal(err)
-	}
-	if finalDag, err = wstore.GetDag(ctx, g.OID); err != nil || finalDag.Final == nil || finalDag.Final.VerifierRunID == "" {
-		t.Fatalf("the final stage must start its verifier, got %+v (%v)", finalDag, err)
-	}
-	if err := orchestrate.RecordFinalVerdict(ctx, g.OID, finalDag.Final.VerifierRunID, orchestrate.ReviewVerdict_Pass, "the change does what the spec asks", ""); err != nil {
-		t.Fatal(err)
-	}
-	if err := orchestrate.Schedule(ctx, g.OID); err != nil {
-		t.Fatal(err)
-	}
-	if finalDag, err = wstore.GetDag(ctx, g.OID); err != nil || finalDag.Status != orchestrate.DagStatus_Done {
-		t.Fatalf("the tick after the retry finishes the dag, got %+v (%v)", finalDag, err)
+	// the run has no landing tree (it lands where checkout landing did), so its final stage checks nothing and
+	// says why instead of running in the shared checkout
+	if finalDag.Status != orchestrate.DagStatus_Done || finalDag.Final == nil || finalDag.Final.State != orchestrate.FinalState_Unverified ||
+		!strings.Contains(strings.Join(finalDag.Final.Unverified, "\n"), "no landing tree") {
+		t.Fatalf("the retry hands the dag to a final stage that reports the missing landing tree, got %s %+v", finalDag.Status, finalDag.Final)
 	}
 }
 

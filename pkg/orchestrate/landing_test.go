@@ -34,6 +34,16 @@ func (f *mergeFixture) land(t *testing.T) string {
 	return wt
 }
 
+// landPath is the fixture's owner run's landing tree.
+func (f *mergeFixture) landPath(t *testing.T) string {
+	t.Helper()
+	owner, err := wstore.GetRun(f.ctx, f.channel, f.ownerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return owner.LandPath
+}
+
 // laneCommit commits file on taskID's lane tree, cut from the landing branch, as its worker would.
 func (f *mergeFixture) laneCommit(t *testing.T, taskID, file string) {
 	t.Helper()
@@ -280,58 +290,5 @@ func writeFile(t *testing.T, path, content string) {
 	}
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
-	}
-}
-
-// foldFixture is a repo with a landing tree and one lane committing files, each cut from the same base.
-func foldFixture(t *testing.T, laneFiles map[string]string) (dir, base, tree string) {
-	t.Helper()
-	dir = newGitRepo(t)
-	base = gitCmd(t, dir, "rev-parse", "HEAD")
-	tree, err := CreateRunWorktree(context.Background(), dir, "run-1", base)
-	if err != nil {
-		t.Fatal(err)
-	}
-	lane, err := CreateRunWorktree(context.Background(), dir, "run-1-t-1", base)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for rel, content := range laneFiles {
-		writeFile(t, filepath.Join(lane, rel), content)
-	}
-	gitCmd(t, lane, "add", ".")
-	gitCmd(t, lane, "commit", "-m", "feature")
-	return dir, base, tree
-}
-
-// a plan-path run's plan sits untracked in the checkout, outside the landing tree; it lands at the same
-// repo-relative path in the tree
-func TestFoldCopiesACheckoutDocIntoTheLandingTree(t *testing.T) {
-	dir, base, tree := foldFixture(t, map[string]string{"feature.txt": "feat\n"})
-	plan := filepath.Join(dir, "docs", "plan.md")
-	writeFile(t, plan, "# plan\n")
-
-	if _, err := MergeRunWorktree(context.Background(), tree, "run-1-t-1", MergeLane{Title: "lane"}, []string{plan}); err != nil {
-		t.Fatal(err)
-	}
-	if got, want := committedFiles(t, tree, "HEAD"), []string{"docs/plan.md", "feature.txt"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("squash commit files = %v, want %v", got, want)
-	}
-	if got := gitCmd(t, dir, "rev-parse", "HEAD"); got != base {
-		t.Fatalf("the checkout moved to %s", got)
-	}
-}
-
-// the lane's own edit of the same path is the run's work; the checkout's copy must not replace it
-func TestFoldNeverOverwritesADifferentFileInTheTree(t *testing.T) {
-	dir, _, tree := foldFixture(t, map[string]string{"docs/plan.md": "# plan, as the lane amended it\n"})
-	plan := filepath.Join(dir, "docs", "plan.md")
-	writeFile(t, plan, "# plan\n")
-
-	if _, err := MergeRunWorktree(context.Background(), tree, "run-1-t-1", MergeLane{Title: "lane"}, []string{plan}); err != nil {
-		t.Fatal(err)
-	}
-	if got := gitCmd(t, tree, "show", "HEAD:docs/plan.md"); got != "# plan, as the lane amended it" {
-		t.Fatalf("landed docs/plan.md = %q, want the lane's version", got)
 	}
 }

@@ -64,7 +64,6 @@ func skipVerifier(_, _ context.Context, g *waveobj.TaskGroup, owner *waveobj.Run
 		return
 	}
 	finishFinal(context.Background(), g, true, afterCommit)
-	releaseFinalTree(g, owner, afterCommit)
 }
 
 // stageLeakTimeout bounds how long a test's cleanup waits for the background stages it started.

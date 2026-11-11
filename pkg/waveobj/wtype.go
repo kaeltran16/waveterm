@@ -646,9 +646,8 @@ type TaskGroup struct {
 
 	// PlanPath and SpecPath are the plan a dag was submitted from and the spec it implements. A branch-landed
 	// dag commits both on its branch at submit and keeps them repo-relative, so each reader resolves them in
-	// its own tree. A checkout-landed dag keeps them absolute and uncommitted in the project checkout until
-	// its first squash merge, which stages both so the docs land with the work they describe. Empty for a dag
-	// submitted as JSON.
+	// its own tree. A dag whose run has no landing tree (outside git, or stored from when runs could land in
+	// the checkout) keeps them absolute. Empty for a dag submitted as JSON.
 	PlanPath string `json:"planpath,omitempty"`
 	SpecPath string `json:"specpath,omitempty"`
 
@@ -972,8 +971,6 @@ type JarvisProfile struct {
 	ReviewerRoute *RoutePin `json:"reviewerroute,omitempty"`
 	// LightReviewerRoute is the default route for a new run's plan review second pass and follow-up reviewers (nil = claude/sonnet).
 	LightReviewerRoute *RoutePin `json:"lightreviewerroute,omitempty"`
-	// Landing is where an engine run's lanes land: checkout | branch (empty = branch).
-	Landing string `json:"landing,omitempty"`
 	// Autonomous defaults a new orchestrator run's Approvals to Autonomous (false = Ask me).
 	Autonomous bool `json:"autonomous,omitempty"`
 }
@@ -992,7 +989,6 @@ type ProfileOverride struct {
 	ReviewerRoute *RoutePin `json:"reviewerroute,omitempty"`
 	// LightReviewerRoute: nil = inherit the global section (whose nil = claude/sonnet).
 	LightReviewerRoute *RoutePin `json:"lightreviewerroute,omitempty"`
-	Landing            *string   `json:"landing,omitempty"`
 	Autonomous         *bool     `json:"autonomous,omitempty"`
 }
 

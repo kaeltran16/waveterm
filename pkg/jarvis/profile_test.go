@@ -431,64 +431,7 @@ func TestProfileOverrideIsEmptyUnderstandsEngineDefaults(t *testing.T) {
 	}
 }
 
-// Landing resolves like defaultmode: the global value stands until an override replaces it.
-func TestResolveProfileLanding(t *testing.T) {
-	global := waveobj.JarvisProfile{Landing: Landing_Branch}
-	if got := ResolveProfile(global, nil); got.Landing != Landing_Branch {
-		t.Errorf("landing = %q, want the global %q", got.Landing, Landing_Branch)
-	}
-	if got := ResolveProfile(global, &waveobj.ProfileOverride{Landing: strPtr(Landing_Checkout)}); got.Landing != Landing_Checkout {
-		t.Errorf("landing = %q, want the override's %q", got.Landing, Landing_Checkout)
-	}
-	if ProfileOverrideIsEmpty(&waveobj.ProfileOverride{Landing: strPtr(Landing_Branch)}) {
-		t.Error("an override carrying only landing is not empty")
-	}
-}
-
-func TestValidateLanding(t *testing.T) {
-	for _, ok := range []string{"", Landing_Checkout, Landing_Branch} {
-		if err := ValidateLanding(ok); err != nil {
-			t.Errorf("ValidateLanding(%q) = %v, want nil", ok, err)
-		}
-	}
-	if err := ValidateLanding("worktree"); err == nil {
-		t.Error("an unknown landing must be refused")
-	}
-}
-
-// a run's own request wins over the profile, and a landing no one chose is a branch
-func TestEffectiveLanding(t *testing.T) {
-	cases := []struct{ requested, profile, want string }{
-		{"", "", Landing_Branch},
-		{"", Landing_Checkout, Landing_Checkout},
-		{Landing_Checkout, Landing_Branch, Landing_Checkout},
-		{Landing_Branch, Landing_Checkout, Landing_Branch},
-	}
-	for _, c := range cases {
-		if got := EffectiveLanding(c.requested, c.profile); got != c.want {
-			t.Errorf("EffectiveLanding(%q, %q) = %q, want %q", c.requested, c.profile, got, c.want)
-		}
-	}
-}
-
-func TestSaveGlobalProfileRejectsUnknownLanding(t *testing.T) {
-	dir := t.TempDir()
-	withConfigHome(t, dir)
-	profile := BuiltinProfile()
-	profile.Landing = "elsewhere"
-	if err := SaveGlobalProfile(profile); err == nil {
-		t.Fatal("expected an unknown landing to be refused")
-	}
-	profile.Landing = Landing_Branch
-	if err := SaveGlobalProfile(profile); err != nil {
-		t.Fatalf("save: %v", err)
-	}
-	if got := LoadGlobalProfile(); got.Landing != Landing_Branch {
-		t.Fatalf("landing not persisted: %q", got.Landing)
-	}
-}
-
-// Autonomous resolves like landing: the global value stands until an override replaces it either way.
+// Autonomous resolves like defaultmode: the global value stands until an override replaces it either way.
 func TestResolveProfileAutonomous(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -514,5 +457,33 @@ func TestProfileOverrideIsEmptyAutonomous(t *testing.T) {
 		if ProfileOverrideIsEmpty(&waveobj.ProfileOverride{Autonomous: boolPtr(v)}) {
 			t.Errorf("an override carrying only autonomous=%v must not read as empty", v)
 		}
+	}
+}
+
+// checkout landing is gone: a stored profile or project override that still names it loads, and the key is
+// dropped, so every run lands on a branch
+func TestAStoredCheckoutLandingLoadsAndIsDropped(t *testing.T) {
+	withConfigHome(t, t.TempDir())
+	path := globalProfilePath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"principles":[{"id":"small","text":"Keep it small."}],"landing":"checkout"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := LoadGlobalProfile()
+	if len(got.Principles) != 1 || got.Principles[0].ID != "small" {
+		t.Fatalf("the stored profile must load, not fall back to the builtin, got %+v", got.Principles)
+	}
+	data, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "landing") {
+		t.Fatalf("the landing key must not survive a load, got %s", data)
+	}
+	ch := &waveobj.Channel{Meta: waveobj.MetaMapType{MetaKey_JarvisProfile: map[string]any{"landing": "checkout"}}}
+	if o := OverrideFromMeta(ch); o == nil || !ProfileOverrideIsEmpty(o) {
+		t.Fatalf("an override carrying only landing reads as empty, got %+v", o)
 	}
 }

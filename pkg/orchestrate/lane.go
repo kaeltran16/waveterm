@@ -4,7 +4,6 @@
 package orchestrate
 
 import (
-	"path/filepath"
 	"slices"
 	"strings"
 
@@ -104,23 +103,4 @@ func laneMergeMessage(g *waveobj.TaskGroup, lane []string) string {
 		labels = append(labels, label)
 	}
 	return strings.Join(labels, "; ")
-}
-
-// laneFold lists the spec and plan to stage into the dag's first squash commit, so the docs land with the
-// work they describe. Nil once anything has merged, and for a dag submitted without them. A branch-landed
-// dag's docs were committed on its branch at submit (SnapshotDocs), which leaves its paths repo-relative:
-// there is nothing left to fold.
-func laneFold(g *waveobj.TaskGroup) []string {
-	for i := range g.Tasks {
-		if g.Tasks[i].Merged {
-			return nil
-		}
-	}
-	var paths []string
-	for _, p := range []string{g.SpecPath, g.PlanPath} {
-		if p != "" && filepath.IsAbs(p) {
-			paths = append(paths, p)
-		}
-	}
-	return paths
 }

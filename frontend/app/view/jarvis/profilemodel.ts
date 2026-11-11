@@ -229,7 +229,6 @@ export function profileOverrideIsEmpty(o: ProfileOverride | null | undefined): b
         cleanPatch(o.principles) == null &&
         o.route == null &&
         o.defaultmode == null &&
-        o.landing == null &&
         o.parallelism == null &&
         o.workerroute == null &&
         o.reviewerpicks == null &&
@@ -325,7 +324,6 @@ const OVERRIDE_FIELDS = [
     "workerroute",
     "reviewerroute",
     "lightreviewerroute",
-    "landing",
     "autonomous",
 ] as const;
 export type GlobalDefaultKey =
@@ -334,7 +332,6 @@ export type GlobalDefaultKey =
     | "workerroute"
     | "reviewerroute"
     | "lightreviewerroute"
-    | "landing"
     | "autonomous";
 // the fields both scopes share. ProfileOverride and JarvisProfile agree on all of them; `route` is the one
 // that does not exist globally, which is why the modal passes its lead-route row in.

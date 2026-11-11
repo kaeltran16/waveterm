@@ -378,9 +378,6 @@ func (ws *WshServer) createRun(ctx context.Context, data wshrpc.CommandCreateRun
 		}
 		data.Orchestration = jarvis.Orchestration_Engine
 	}
-	if err := jarvis.ValidateLanding(data.Landing); err != nil {
-		return nil, err
-	}
 	if data.ChannelId == "" || data.WorkspaceId == "" || data.Goal == "" {
 		return nil, fmt.Errorf("channelid, workspaceid and goal are required")
 	}
@@ -524,10 +521,11 @@ func (ws *WshServer) createRun(ctx context.Context, data wshrpc.CommandCreateRun
 	run.ChannelOID = data.ChannelId
 	// lifecycle log seeded before worker spawn, so a spawn failure still shows the run was created.
 	appendRunEvent(ctx, data.ChannelId, run.ID, waveobj.RunEventKindCreated, nil, map[string]any{"runtime": run.Runtime, "mode": run.Mode})
-	// an unborn repo has no base to branch from, and a non-git project has no lanes to land
-	if engineLaunch && jarvis.EffectiveLanding(data.Landing, resolved.Landing) == jarvis.Landing_Branch && run.BaseCommit != "" {
+	// every engine run lands on its own branch; an unborn repo has no base to branch from, and a non-git project
+	// has no lanes to land
+	if engineLaunch && run.BaseCommit != "" {
 		if err := landRunOnBranch(ctx, data.ChannelId, &run); err != nil {
-			// a run that asked for its own branch must not fall back to landing in the checkout
+			// a run must not fall back to landing in the checkout
 			if cerr := ws.CancelRunCommand(ctx, wshrpc.CommandCancelRunData{ChannelId: data.ChannelId, RunId: run.ID}); cerr != nil {
 				log.Printf("CreateRun: cancelling run %s after its landing tree failed: %v", run.ID, cerr)
 			}

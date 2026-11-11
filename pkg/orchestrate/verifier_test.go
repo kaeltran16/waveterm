@@ -24,8 +24,8 @@ func useVerifier(t *testing.T) {
 	restoreAfterStages(t, func() { startVerifier = skipVerifier })
 }
 
-// verifyingFixture is a checkout-landed dag whose final stage runs only a passing Verify: its verifier is
-// working in the detached final tree. It returns the verifier's run id.
+// verifyingFixture is a branch-landed dag whose final stage runs only a passing Verify: its verifier is
+// working in the landing tree. It returns the verifier's run id.
 func verifyingFixture(t *testing.T) (*mergeFixture, *fakeLead, string) {
 	t.Helper()
 	useVerifier(t)
@@ -66,8 +66,8 @@ func TestTheVerifierJudgesTheMergedResultOnceTheStepsPass(t *testing.T) {
 		t.Fatalf("passing steps hand the result to one verifier, got %s / %s after %d spawns", g.Final.State, g.Status, len(*calls))
 	}
 	c := (*calls)[0]
-	if c.cwd != g.Final.Tree || g.Final.Tree != worktreeDir(f.project, f.ownerID+"-final") {
-		t.Fatalf("the verifier works in the detached final tree, got cwd %q tree %q", c.cwd, g.Final.Tree)
+	if c.cwd != g.Final.Tree || g.Final.Tree != f.landPath(t) {
+		t.Fatalf("the verifier works in the landing tree, got cwd %q tree %q", c.cwd, g.Final.Tree)
 	}
 	verifier, err := wstore.GetRun(f.ctx, f.channel, g.Final.VerifierRunID)
 	if err != nil {
@@ -142,8 +142,8 @@ func TestFinalVerdicts(t *testing.T) {
 			} else if g.Status != DagStatus_Done {
 				t.Fatalf("a pass makes the dag done, got %s", g.Status)
 			}
-			if _, err := os.Stat(tree); !os.IsNotExist(err) {
-				t.Fatalf("the detached final tree is removed once the verdict is in, stat err %v", err)
+			if _, err := os.Stat(tree); err != nil {
+				t.Fatalf("the run keeps its landing tree, stat err %v", err)
 			}
 		})
 	}
@@ -169,8 +169,8 @@ func TestAVerifierLostTwiceLeavesTheResultUnverified(t *testing.T) {
 	if g.Final.State != FinalState_Unverified || g.Status != DagStatus_Done || len(g.Final.Unverified) != 1 || !strings.HasPrefix(g.Final.Unverified[0], "the verifier did not finish") {
 		t.Fatalf("want done and unverified because the verifier did not finish, got %s / %+v", g.Status, g.Final)
 	}
-	if _, err := os.Stat(tree); !os.IsNotExist(err) {
-		t.Fatalf("the detached final tree is removed once the stage gives up, stat err %v", err)
+	if _, err := os.Stat(tree); err != nil {
+		t.Fatalf("the run keeps its landing tree, stat err %v", err)
 	}
 }
 

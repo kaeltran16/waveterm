@@ -208,16 +208,7 @@ func advanceFinal(ctx, spawnCtx context.Context, g *waveobj.TaskGroup, owner *wa
 			case !IsGitRepo(owner.ProjectPath):
 				f.Unverified = append(f.Unverified, notGitRepo(owner.ProjectPath).Error())
 			default:
-				// the verifier reads a detached tree, never the shared checkout; releaseFinalTree removes it
-				tree, _, err := finalTree(ctx, g, owner)
-				if err != nil {
-					f.Unverified = append(f.Unverified, finalTreeFailed+err.Error())
-					break
-				}
-				f.Tree = tree
-				if f.Commit, err = git(ctx, tree, "rev-parse", "HEAD"); err != nil {
-					log.Printf("dag %s: reading the final tree's head: %v", g.OID, err)
-				}
+				f.Unverified = append(f.Unverified, finalTreeFailed+errNoLandingTree.Error())
 			}
 			f.State = FinalState_Verifying
 			startVerifier(ctx, spawnCtx, g, owner, afterCommit)
@@ -260,20 +251,14 @@ func startFinalCommands(dagID string, owner *waveobj.Run) {
 		cancel()
 		bg := context.Background()
 		spawnCtx, spawnCancel := context.WithTimeout(bg, jarvis.RunWorkerSpawnTimeout)
-		removeTree := !res.onStage
 		if err := WithDagMutation(dagID, func() error {
 			// read with the stage, under the lock: a stop that came after the commands returned counts too
 			res.stopped = finalStopped(run)
-			var rerr error
-			removeTree, rerr = recordFinalLocked(bg, spawnCtx, dagID, owner, res)
-			return rerr
+			return recordFinalLocked(bg, spawnCtx, dagID, owner, res)
 		}); err != nil {
 			log.Printf("dag %s: recording the final stage: %v", dagID, err)
 		}
 		spawnCancel()
-		if removeTree {
-			removeFinalTree(dagID, owner, res.tree)
-		}
 		finalRuns.Lock()
 		delete(finalRuns.byDag, dagID)
 		finalRuns.Unlock()
@@ -318,7 +303,7 @@ func runFinalSteps(ctx context.Context, dagID string, owner *waveobj.Run) finalR
 	} else {
 		var tree string
 		if !step(FinalStep_Tree, func(planProgress) (bool, string) {
-			tree, _, err = finalTree(ctx, g, owner)
+			tree, err = finalTree(ctx, owner)
 			return err == nil, ""
 		}) {
 			res.unverified = []string{finalTreeFailed + err.Error()}
@@ -585,20 +570,18 @@ func startVerifierAlongsideLocked(ctx, spawnCtx context.Context, dagID string, o
 // recordFinalLocked writes what the deterministic steps found. A failure ends the stage, and stops a verifier
 // working alongside whatever it said; otherwise the verifier's verdict, given already or still to come, judges
 // the result. A dag that was cancelled, moved to another round meanwhile, or whose commands were stopped (an end, and
-// perhaps a rerun of the same round since), takes nothing. It reports whether
-// the caller must remove the tree: one the stage never took, or any on a cancelled dag, whose stage stopped
-// before it could release it. The caller holds the dag mutation lock.
-func recordFinalLocked(ctx, spawnCtx context.Context, dagID string, owner *waveobj.Run, res finalResult) (bool, error) {
+// perhaps a rerun of the same round since), takes nothing. The caller holds the dag mutation lock.
+func recordFinalLocked(ctx, spawnCtx context.Context, dagID string, owner *waveobj.Run, res finalResult) error {
 	g, err := wstore.GetDag(ctx, dagID)
 	if err != nil {
-		return !res.onStage, err
+		return err
 	}
 	f := g.Final
 	if g.Status == DagStatus_Cancelled {
-		return true, nil
+		return nil
 	}
 	if res.stopped || f == nil || f.Round != res.round || (f.State != FinalState_Checking && f.State != FinalState_Final) {
-		return !res.onStage, nil
+		return nil
 	}
 	f.Tree, f.Commit = res.tree, res.commit
 	f.Shots, f.ShotsManifest = res.shots, res.shotsManifest
@@ -613,29 +596,26 @@ func recordFinalLocked(ctx, spawnCtx context.Context, dagID string, owner *waveo
 			stopReviewer(ctx, g, f.VerifierRunID, &afterCommit)
 		}
 		finishFinal(ctx, g, false, &afterCommit)
-		releaseFinalTree(g, owner, &afterCommit)
 	case !res.onStage:
 		f.State = FinalState_Verifying
 		startVerifier(ctx, spawnCtx, g, owner, &afterCommit)
 	case held:
 		applyFinalVerdict(f, verdict)
 		finishFinal(ctx, g, true, &afterCommit)
-		releaseFinalTree(g, owner, &afterCommit)
 	case verifierGaveUp(f):
 		finishFinal(ctx, g, false, &afterCommit)
-		releaseFinalTree(g, owner, &afterCommit)
 	default:
 		// the verifier alongside has not given its verdict; RecordFinalVerdict ends the stage on it
 		f.State = FinalState_Verifying
 	}
 	RecomputeDagStatus(g)
 	if err := persistDag(ctx, g); err != nil {
-		return false, err
+		return err
 	}
 	for _, fn := range afterCommit {
 		fn()
 	}
-	return false, nil
+	return nil
 }
 
 // startVerifier is startVerifierSession, a var so the tests of everything but the final stage can end the stage
@@ -716,7 +696,6 @@ func finishFinal(ctx context.Context, g *waveobj.TaskGroup, judged bool, afterCo
 // and a human's end both finish through it. The caller holds the dag mutation lock and runs afterCommit after it.
 func settleFinalLocked(ctx context.Context, g *waveobj.TaskGroup, owner *waveobj.Run, judged bool, afterCommit *[]func()) error {
 	finishFinal(ctx, g, judged, afterCommit)
-	releaseFinalTree(g, owner, afterCommit)
 	RecomputeDagStatus(g)
 	return persistDag(ctx, g)
 }
@@ -840,69 +819,23 @@ func answerLeadWithRerun(ctx context.Context, channelID, runID string, round int
 	}
 }
 
-// removeStaleFinalTree is removeWorktreeDir, a var so a test can leave a stale final tree in place on any platform.
-var removeStaleFinalTree = removeWorktreeDir
+// errNoLandingTree is why a git run without a landing tree gets no final checks: the stage never runs in the shared
+// checkout. Every engine run lands on its own branch; one without a tree was started to land in the checkout, which
+// the engine no longer does, or in a repository with no commit to branch from.
+var errNoLandingTree = errors.New("the run has no landing tree on its own branch, and the final stage never runs in the shared checkout")
 
-// freeFinalTreeDir is the first directory beside a held final tree that nothing occupies: an earlier round's
-// stand-in can still be held too.
-func freeFinalTreeDir(held string) string {
-	for n := 2; ; n++ {
-		wt := fmt.Sprintf("%s-%d", held, n)
-		if _, err := os.Stat(wt); err != nil {
-			return wt
+// finalTree is where the final stage runs: the run's landing tree, which the run keeps.
+func finalTree(ctx context.Context, owner *waveobj.Run) (string, error) {
+	if owner.LandPath == "" {
+		if !IsGitRepo(owner.ProjectPath) {
+			return "", notGitRepo(owner.ProjectPath)
 		}
+		return "", errNoLandingTree
 	}
-}
-
-// finalTree is where the final stage runs: the landing tree for a dag landing on its own branch. A dag landing
-// in the checkout gets a detached worktree at the checkout's HEAD, prepared with Setup, because the stage never
-// runs in the shared checkout: <run>-final, or a directory beside it while a stale one cannot be removed.
-// cleanup removes a tree the stage made.
-func finalTree(ctx context.Context, g *waveobj.TaskGroup, owner *waveobj.Run) (string, func(), error) {
-	if owner.LandPath != "" {
-		if err := checkLandingTree(ctx, owner); err != nil {
-			return "", nil, err
-		}
-		return owner.LandPath, func() {}, nil
+	if err := checkLandingTree(ctx, owner); err != nil {
+		return "", err
 	}
-	if !IsGitRepo(owner.ProjectPath) {
-		return "", nil, notGitRepo(owner.ProjectPath)
-	}
-	key := owner.ID + "-final"
-	standIn := ""
-	// a tree a lost stage left behind would refuse the add
-	stale := worktreeDir(owner.ProjectPath, key)
-	if _, err := os.Stat(stale); err == nil {
-		if err := removeStaleFinalTree(ctx, owner.ProjectPath, stale); err != nil {
-			// a verifier that outlived its stage holds the directory on Windows until it exits, and the round
-			// must not wait for it
-			log.Printf("dag %s: removing a stale final tree, so the stage runs beside it: %v", g.OID, err)
-			removeFinalTree(g.OID, owner, stale)
-			standIn = freeFinalTreeDir(stale)
-		}
-	}
-	// claimed after the removal: a removed legacy tree comes back under the short root
-	wt, err := claimWorktreeDir(owner.ProjectPath, key)
-	if err != nil {
-		return "", nil, fmt.Errorf("creating the final tree: %w", err)
-	}
-	if standIn != "" {
-		wt = standIn
-	}
-	takeFinalTreeDir(wt)
-	if _, err := addWorktree(ctx, owner.ProjectPath, "--detach", wt, "HEAD"); err != nil {
-		return "", nil, fmt.Errorf("creating the final tree: %w", err)
-	}
-	cleanup := func() {
-		if err := removeWorktreeDir(context.Background(), owner.ProjectPath, wt); err != nil {
-			log.Printf("dag %s: removing the final tree: %v", g.OID, err)
-		}
-	}
-	if _, _, err := PrepareTree(withRunCmdOwner(ctx, owner.ID, PlanCmd_Setup, ""), wt, g.Setup); err != nil {
-		cleanup()
-		return "", nil, fmt.Errorf("Setup failed in the final tree: %s", failureDetail(err))
-	}
-	return wt, cleanup, nil
+	return owner.LandPath, nil
 }
 
 // runFinalCommand runs the plan's Final command in tree with ARC_FINAL_OUT set to a fresh outDir, and returns

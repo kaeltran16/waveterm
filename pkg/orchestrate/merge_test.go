@@ -22,7 +22,7 @@ func TestMergeSquash(t *testing.T) {
 	os.WriteFile(filepath.Join(wt, "feature.txt"), []byte("feat\n"), 0o644)
 	gitCmd(t, wt, "add", ".")
 	gitCmd(t, wt, "commit", "-m", "feature")
-	sha, err := MergeRunWorktree(context.Background(), dir, "run-1", MergeLane{Title: "do the thing"}, nil)
+	sha, err := MergeRunWorktree(context.Background(), dir, "run-1", MergeLane{Title: "do the thing"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestMergeSquashKeepsTheWorkersCommitMessages(t *testing.T) {
 		gitCmd(t, wt, "add", ".")
 		gitCmd(t, wt, "commit", "-m", msg)
 	}
-	if _, err := MergeRunWorktree(context.Background(), dir, "run-1", MergeLane{Title: "Add the feature", TaskIDs: []string{"t-1"}}, nil); err != nil {
+	if _, err := MergeRunWorktree(context.Background(), dir, "run-1", MergeLane{Title: "Add the feature", TaskIDs: []string{"t-1"}}); err != nil {
 		t.Fatal(err)
 	}
 	want := "feat(x): add the feature\n\nwhy it exists\n\ndocs: record the feature"
@@ -72,7 +72,7 @@ func TestMergeSquashOfASeveralTaskLaneNamesEveryTask(t *testing.T) {
 		gitCmd(t, wt, "commit", "-m", msg)
 	}
 	lane := MergeLane{Title: "schema; ui", TaskIDs: []string{"t-1", "t-4"}}
-	landed, err := MergeRunWorktree(context.Background(), dir, "run-1", lane, nil)
+	landed, err := MergeRunWorktree(context.Background(), dir, "run-1", lane)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestMergeSquashOfASeveralTaskLaneNamesEveryTask(t *testing.T) {
 	if got := gitCmd(t, dir, "log", "-1", "--format=%B"); got != want {
 		t.Fatalf("squash message = %q, want %q", got, want)
 	}
-	if sha, err := MergeRunWorktree(context.Background(), dir, "run-1", lane, nil); err != nil || sha != landed {
+	if sha, err := MergeRunWorktree(context.Background(), dir, "run-1", lane); err != nil || sha != landed {
 		t.Fatalf("retry: want %s, got %q (%v)", landed, sha, err)
 	}
 }
@@ -96,7 +96,7 @@ func TestMergeSquashOfASeveralTaskLaneCutsItsSubjectLine(t *testing.T) {
 		gitCmd(t, wt, "commit", "-m", msg)
 	}
 	title := "F16 — the digest carries the merge gate's clock; `dag status` shows its age; F16 — the lead card shows a waiting merge gate and its age"
-	if _, err := MergeRunWorktree(context.Background(), dir, "run-1", MergeLane{Title: title, TaskIDs: []string{"t-2", "t-3"}}, nil); err != nil {
+	if _, err := MergeRunWorktree(context.Background(), dir, "run-1", MergeLane{Title: title, TaskIDs: []string{"t-2", "t-3"}}); err != nil {
 		t.Fatal(err)
 	}
 	subject := gitCmd(t, dir, "log", "-1", "--format=%s")
@@ -121,7 +121,7 @@ func TestMergeSquashCutsAWorkersOverlongSubject(t *testing.T) {
 	os.WriteFile(filepath.Join(wt, "f.txt"), []byte("x\n"), 0o644)
 	gitCmd(t, wt, "add", ".")
 	gitCmd(t, wt, "commit", "-m", long+"\n\nwhy it changed")
-	if _, err := MergeRunWorktree(context.Background(), dir, "run-1", MergeLane{Title: "user update", TaskIDs: []string{"t-2"}}, nil); err != nil {
+	if _, err := MergeRunWorktree(context.Background(), dir, "run-1", MergeLane{Title: "user update", TaskIDs: []string{"t-2"}}); err != nil {
 		t.Fatal(err)
 	}
 	subject := gitCmd(t, dir, "log", "-1", "--format=%s")
@@ -157,7 +157,7 @@ func TestMergeSquashFallsBackToTheLaneLabel(t *testing.T) {
 	os.WriteFile(filepath.Join(wt, "feature.txt"), []byte("feat\n"), 0o644)
 	gitCmd(t, wt, "add", ".")
 	gitCmd(t, wt, "commit", "--allow-empty-message", "-m", "")
-	if _, err := MergeRunWorktree(context.Background(), dir, "run-1", MergeLane{Title: "Add the feature"}, nil); err != nil {
+	if _, err := MergeRunWorktree(context.Background(), dir, "run-1", MergeLane{Title: "Add the feature"}); err != nil {
 		t.Fatal(err)
 	}
 	if got, want := gitCmd(t, dir, "log", "-1", "--format=%B"), "chore: Add the feature"; got != want {
@@ -175,14 +175,14 @@ func TestMergeConflictBlocked(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "base.txt"), []byte("parent change\n"), 0o644)
 	gitCmd(t, dir, "add", ".")
 	gitCmd(t, dir, "commit", "-m", "parent")
-	_, err := MergeRunWorktree(context.Background(), dir, "run-1", MergeLane{Title: "do the thing"}, nil)
+	_, err := MergeRunWorktree(context.Background(), dir, "run-1", MergeLane{Title: "do the thing"})
 	if !errors.Is(err, ErrMergeConflict) {
 		t.Fatalf("want ErrMergeConflict, got %v", err)
 	}
 	// resolve in the project tree, then continue
 	os.WriteFile(filepath.Join(dir, "base.txt"), []byte("resolved\n"), 0o644)
 	gitCmd(t, dir, "add", ".")
-	if _, err := MergeContinue(context.Background(), dir, "run-1", MergeLane{Title: "do the thing"}, nil); err != nil {
+	if _, err := MergeContinue(context.Background(), dir, "run-1", MergeLane{Title: "do the thing"}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -199,7 +199,7 @@ func conflictedSquash(t *testing.T) string {
 	os.WriteFile(filepath.Join(dir, "base.txt"), []byte("parent change\n"), 0o644)
 	gitCmd(t, dir, "add", ".")
 	gitCmd(t, dir, "commit", "-m", "parent")
-	if _, err := MergeRunWorktree(context.Background(), dir, "run-1", MergeLane{Title: "do the thing"}, nil); !errors.Is(err, ErrMergeConflict) {
+	if _, err := MergeRunWorktree(context.Background(), dir, "run-1", MergeLane{Title: "do the thing"}); !errors.Is(err, ErrMergeConflict) {
 		t.Fatalf("want ErrMergeConflict, got %v", err)
 	}
 	return dir
@@ -213,7 +213,7 @@ func TestMergeContinueRefusesWhatTheLaneDidNotLand(t *testing.T) {
 		dir := conflictedSquash(t)
 		head := gitCmd(t, dir, "rev-parse", "HEAD")
 		gitCmd(t, dir, "reset", "-q", "--hard")
-		if sha, err := MergeContinue(context.Background(), dir, "run-1", MergeLane{Title: "do the thing"}, nil); err == nil {
+		if sha, err := MergeContinue(context.Background(), dir, "run-1", MergeLane{Title: "do the thing"}); err == nil {
 			t.Fatalf("continue credited %q to a squash that was thrown away", sha)
 		}
 		if got := gitCmd(t, dir, "rev-parse", "HEAD"); got != head {
@@ -225,21 +225,21 @@ func TestMergeContinueRefusesWhatTheLaneDidNotLand(t *testing.T) {
 		os.WriteFile(filepath.Join(dir, "base.txt"), []byte("parent change\nchild change\n"), 0o644)
 		gitCmd(t, dir, "add", ".")
 		gitCmd(t, dir, "commit", "-m", "resolve the base.txt conflict")
-		_, err := MergeContinue(context.Background(), dir, "run-1", MergeLane{Title: "do the thing"}, nil)
+		_, err := MergeContinue(context.Background(), dir, "run-1", MergeLane{Title: "do the thing"})
 		if err == nil || !strings.Contains(err.Error(), "git reset --soft HEAD~1") {
 			t.Fatalf("continue over the resolver's own commit: err = %v, want a refusal naming the undo", err)
 		}
 		// the way out the refusal names lands the squash under the lane's message, and a retry recognizes it
 		gitCmd(t, dir, "reset", "-q", "--soft", "HEAD~1")
 		lane := MergeLane{Title: "do the thing", TaskIDs: []string{"t-1"}}
-		landed, err := MergeContinue(context.Background(), dir, "run-1", lane, nil)
+		landed, err := MergeContinue(context.Background(), dir, "run-1", lane)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if msg := gitCmd(t, dir, "log", "-1", "--format=%B"); strings.Contains(msg, "Arc-") {
 			t.Fatalf("squash message carries a trailer: %q", msg)
 		}
-		if sha, err := MergeContinue(context.Background(), dir, "run-1", lane, nil); err != nil || sha != landed {
+		if sha, err := MergeContinue(context.Background(), dir, "run-1", lane); err != nil || sha != landed {
 			t.Fatalf("retried continue: want %s, got %q (%v)", landed, sha, err)
 		}
 	})
@@ -271,7 +271,7 @@ func TestMergeOfALaneThatLandedNothingReturnsNoCommit(t *testing.T) {
 			}
 			work(t, wt)
 
-			sha, err := MergeRunWorktree(context.Background(), dir, "run-2", MergeLane{Title: "verify only"}, nil)
+			sha, err := MergeRunWorktree(context.Background(), dir, "run-2", MergeLane{Title: "verify only"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -295,17 +295,17 @@ func TestMergeRetryAfterTheSquashLandedReturnsItsCommit(t *testing.T) {
 	gitCmd(t, wt, "add", ".")
 	// a worker commits well before its merge; in the same second the squash would be this very commit
 	gitCmd(t, wt, "commit", "--date", "2020-01-01T00:00:00", "-m", "feature")
-	landed, err := MergeRunWorktree(context.Background(), dir, "run-1", MergeLane{Title: "do the thing"}, nil)
+	landed, err := MergeRunWorktree(context.Background(), dir, "run-1", MergeLane{Title: "do the thing"})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if sha, err := MergeRunWorktree(context.Background(), dir, "run-1", MergeLane{Title: "do the thing"}, nil); err != nil || sha != landed {
+	if sha, err := MergeRunWorktree(context.Background(), dir, "run-1", MergeLane{Title: "do the thing"}); err != nil || sha != landed {
 		t.Fatalf("branch still present: want %s, got %q (%v)", landed, sha, err)
 	}
 	gitCmd(t, dir, "worktree", "remove", "--force", wt)
 	gitCmd(t, dir, "branch", "-D", "wave/run-1")
-	if sha, err := MergeRunWorktree(context.Background(), dir, "run-1", MergeLane{Title: "do the thing"}, nil); err != nil || sha != "" {
+	if sha, err := MergeRunWorktree(context.Background(), dir, "run-1", MergeLane{Title: "do the thing"}); err != nil || sha != "" {
 		t.Fatalf("branch deleted: want no commit, got %q (%v)", sha, err)
 	}
 	if got := gitCmd(t, dir, "rev-parse", "HEAD"); got != landed {
@@ -315,34 +315,9 @@ func TestMergeRetryAfterTheSquashLandedReturnsItsCommit(t *testing.T) {
 
 func TestMergeRunWorktreeNonGit(t *testing.T) {
 	dir := t.TempDir()
-	_, err := MergeRunWorktree(context.Background(), dir, "run-1", MergeLane{Title: "x"}, nil)
+	_, err := MergeRunWorktree(context.Background(), dir, "run-1", MergeLane{Title: "x"})
 	if !errors.Is(err, ErrNotGitRepo) {
 		t.Fatalf("want ErrNotGitRepo, got %v", err)
-	}
-}
-
-// the run's spec and plan sit uncommitted in the project checkout until its first merge, which lands them
-// with the work they describe
-func TestMergeRunWorktreeFoldsDocsIntoTheSquashCommit(t *testing.T) {
-	dir := newGitRepo(t)
-	base := gitCmd(t, dir, "rev-parse", "HEAD")
-	wt, _ := CreateRunWorktree(context.Background(), dir, "run-1", base)
-	os.WriteFile(filepath.Join(wt, "feature.txt"), []byte("feat\n"), 0o644)
-	gitCmd(t, wt, "add", ".")
-	gitCmd(t, wt, "commit", "-m", "feature")
-	spec := filepath.Join(dir, "spec.md")
-	plan := filepath.Join(dir, "plan.md")
-	os.WriteFile(spec, []byte("# spec\n"), 0o644)
-	os.WriteFile(plan, []byte("# plan\n"), 0o644)
-	outside := filepath.Join(t.TempDir(), "elsewhere.md")
-	os.WriteFile(outside, []byte("# not in this repo\n"), 0o644)
-
-	if _, err := MergeRunWorktree(context.Background(), dir, "run-1", MergeLane{Title: "lane"}, []string{spec, plan, outside}); err != nil {
-		t.Fatalf("a path git will not stage must not fail the merge: %v", err)
-	}
-	files := strings.Fields(gitCmd(t, dir, "show", "--name-only", "--format=", "HEAD"))
-	if want := []string{"feature.txt", "plan.md", "spec.md"}; !reflect.DeepEqual(files, want) {
-		t.Fatalf("squash commit files = %v, want %v", files, want)
 	}
 }
 
@@ -373,8 +348,8 @@ func refuseCommits(t *testing.T, dir string) {
 }
 
 // a squash whose commit git refuses goes back out of the checkout: left staged, every later merge held at the
-// clean-index check without counting a failure, so the lead was never told. The checkout's own edits and the
-// uncommitted docs the squash would have folded in stay as they were.
+// clean-index check without counting a failure, so the lead was never told. The checkout's own edits stay as
+// they were.
 func TestMergeCommitRefusedPutsTheSquashBack(t *testing.T) {
 	dir := newGitRepo(t)
 	base := gitCmd(t, dir, "rev-parse", "HEAD")
@@ -382,12 +357,10 @@ func TestMergeCommitRefusedPutsTheSquashBack(t *testing.T) {
 	writeFile(t, filepath.Join(wt, "feature.txt"), "feat\n")
 	gitCmd(t, wt, "add", ".")
 	gitCmd(t, wt, "commit", "-m", "feature")
-	spec := filepath.Join(dir, "spec.md")
-	writeFile(t, spec, "# spec\n")
 	writeFile(t, filepath.Join(dir, "scratch.txt"), "the human's\n")
 	refuseCommits(t, dir)
 
-	if _, err := MergeRunWorktree(context.Background(), dir, "run-1", MergeLane{Title: "lane"}, []string{spec}); err == nil || !strings.Contains(err.Error(), "merge commit") {
+	if _, err := MergeRunWorktree(context.Background(), dir, "run-1", MergeLane{Title: "lane"}); err == nil || !strings.Contains(err.Error(), "merge commit") {
 		t.Fatalf("want the refused commit's error, got %v", err)
 	}
 	if clean, err := IndexClean(context.Background(), dir); err != nil || !clean {
@@ -395,9 +368,6 @@ func TestMergeCommitRefusedPutsTheSquashBack(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "feature.txt")); !os.IsNotExist(err) {
 		t.Fatalf("the squash's file must leave the checkout, stat err = %v", err)
-	}
-	if got := readFile(t, spec); got != "# spec\n" {
-		t.Fatalf("the fold doc must stay on disk, got %q", got)
 	}
 	if got := readFile(t, filepath.Join(dir, "scratch.txt")); got != "the human's\n" {
 		t.Fatalf("the checkout's own file must stay, got %q", got)
@@ -413,7 +383,7 @@ func TestMergeContinueCommitRefusedKeepsTheResolution(t *testing.T) {
 	gitCmd(t, dir, "add", "-A")
 	staged := gitCmd(t, dir, "diff", "--cached", "--name-only")
 	refuseCommits(t, dir)
-	if _, err := MergeContinue(context.Background(), dir, "run-1", MergeLane{Title: "lane"}, nil); err == nil {
+	if _, err := MergeContinue(context.Background(), dir, "run-1", MergeLane{Title: "lane"}); err == nil {
 		t.Fatal("want the refused commit's error")
 	}
 	if got := gitCmd(t, dir, "diff", "--cached", "--name-only"); got != staged || got == "" {
@@ -448,14 +418,14 @@ func TestMergeReportsABranchProbeGitCouldNotAnswer(t *testing.T) {
 	gitCmd(t, wt, "commit", "-m", "feature")
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if sha, err := MergeRunWorktree(ctx, dir, "run-1", MergeLane{Title: "lane"}, nil); err == nil {
+	if sha, err := MergeRunWorktree(ctx, dir, "run-1", MergeLane{Title: "lane"}); err == nil {
 		t.Fatalf("want the probe's error, got merged with commit %q", sha)
 	}
-	if sha, err := MergeRunWorktree(context.Background(), dir, "run-1", MergeLane{Title: "lane"}, nil); err != nil || sha == "" {
+	if sha, err := MergeRunWorktree(context.Background(), dir, "run-1", MergeLane{Title: "lane"}); err != nil || sha == "" {
 		t.Fatalf("the lane still lands once git answers: sha=%q err=%v", sha, err)
 	}
 	gitCmd(t, dir, "update-ref", "-d", "refs/heads/wave/run-1")
-	if sha, err := MergeRunWorktree(context.Background(), dir, "run-1", MergeLane{Title: "lane"}, nil); err != nil || sha != "" {
+	if sha, err := MergeRunWorktree(context.Background(), dir, "run-1", MergeLane{Title: "lane"}); err != nil || sha != "" {
 		t.Fatalf("a gone branch lands nothing and is no error: sha=%q err=%v", sha, err)
 	}
 }

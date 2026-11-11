@@ -14,7 +14,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
-	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
@@ -69,13 +68,6 @@ func TestWorktreeDirMapping(t *testing.T) {
 		if got := worktreeDir(project, key); got != filepath.Join(root, want) {
 			t.Errorf("worktreeDir(%s) = %s, want %s", key, got, filepath.Join(root, want))
 		}
-	}
-	held := worktreeDir(project, id+"-final")
-	if err := os.MkdirAll(held, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if got, want := freeFinalTreeDir(held), filepath.Join(root, short+"-final-2"); got != want {
-		t.Fatalf("the stand-in beside a held final tree = %s, want %s", got, want)
 	}
 }
 
@@ -277,10 +269,6 @@ func TestTreeCreationFailsOnAnUnwritableRoot(t *testing.T) {
 	if _, _, _, err := EnsureRunWorktree(ctx, dir, id+"-t-1", base); err == nil || !strings.Contains(err.Error(), file) {
 		t.Fatalf("EnsureRunWorktree error %v should name the root %s", err, file)
 	}
-	owner := &waveobj.Run{ID: id, ProjectPath: dir}
-	if _, _, err := finalTree(ctx, &waveobj.TaskGroup{OID: "dag-u"}, owner); err == nil || !strings.Contains(err.Error(), file) {
-		t.Fatalf("finalTree error %v should name the root %s", err, file)
-	}
 	err := withDetachedTree(ctx, dir, id+"-base", "base tree", base, "", func(string) error { return nil })
 	if err == nil || !strings.Contains(err.Error(), file) {
 		t.Fatalf("withDetachedTree error %v should name the root %s", err, file)
@@ -311,22 +299,6 @@ func TestEnsureRunWorktreeUnderShortRoot(t *testing.T) {
 
 func TestDetachedTreesUnderShortRoot(t *testing.T) {
 	ctx := context.Background()
-	t.Run("final tree", func(t *testing.T) {
-		dir := newGitRepo(t)
-		root := worktreeRoot()
-		id := uuid.NewString()
-		tree, cleanup, err := finalTree(ctx, &waveobj.TaskGroup{OID: "dag-r"}, &waveobj.Run{ID: id, ProjectPath: dir})
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer cleanup()
-		if want := filepath.Join(root, id[:runPrefixLen]+"-final"); tree != want {
-			t.Fatalf("final tree at %s, want %s", tree, want)
-		}
-		if readMarker(t, root, id) != id {
-			t.Fatal("the final tree's claim writes the marker")
-		}
-	})
 	for _, suffix := range []string{"-base", "-bisect"} {
 		t.Run(suffix, func(t *testing.T) {
 			dir := newGitRepo(t)

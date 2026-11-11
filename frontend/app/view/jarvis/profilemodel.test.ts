@@ -230,7 +230,6 @@ describe("profileOverrideIsEmpty", () => {
         ["worker route", { workerroute: { runtime: "pi" } }, false],
         ["lead route", { route: { runtime: "pi" } }, false],
         ["default mode", { defaultmode: "orchestrator" }, false],
-        ["landing", { landing: "branch" }, false],
         ["approvals", { autonomous: false }, false],
         ["patch with a disable", { principles: { disabled: ["a"] } }, false],
     ];
@@ -254,13 +253,20 @@ describe("resetActionState", () => {
     });
 });
 
+// checkout landing was removed: a project override stored before then can still carry the key, which is no
+// longer a setting and must not make the project read as having one
+describe("a stored landing override", () => {
+    const stored = { landing: "checkout" } as unknown as ProfileOverride;
+    it("reads as no override", () => {
+        expect(profileOverrideIsEmpty(stored)).toBe(true);
+        expect(overrideSummary(stored)).toBe("All from global");
+    });
+});
+
 describe("overrideSummary", () => {
     it("counts the rows a project sets, including the lead route", () => {
         expect(overrideSummary({})).toBe("All from global");
         expect(overrideSummary({ parallelism: 3, route: { runtime: "claude" } })).toBe("2 set for this project");
-    });
-    it("counts where runs land", () => {
-        expect(overrideSummary({ landing: "checkout" })).toBe("1 set for this project");
     });
     it("does not count principles, which have their own section", () => {
         expect(overrideSummary({ principles: { disabled: ["a"] } })).toBe("All from global");
@@ -294,8 +300,8 @@ describe("approvals row", () => {
         expect(overrideSummary(o)).toBe("1 set for this project");
     });
     it("Reset removes it and the row reads Global", () => {
-        const after = resetRow({ autonomous: true, landing: "checkout" }, "autonomous");
-        expect(after).toEqual({ landing: "checkout" });
+        const after = resetRow({ autonomous: true, parallelism: 3 }, "autonomous");
+        expect(after).toEqual({ parallelism: 3 });
         expect(approvalsRow(after, global(true), true)).toEqual({ autonomous: true, inherited: true });
         expect(profileOverrideIsEmpty(resetRow({ autonomous: false }, "autonomous"))).toBe(true);
     });
@@ -321,10 +327,10 @@ describe("approvals row", () => {
 // a row's Reset drops just that row; the workers row drops both halves of its pair
 describe("resetRow", () => {
     it("drops only the named key", () => {
-        expect(resetRow({ landing: "checkout", parallelism: 3 }, "landing")).toEqual({ parallelism: 3 });
+        expect(resetRow({ defaultmode: "orchestrator", parallelism: 3 }, "defaultmode")).toEqual({ parallelism: 3 });
     });
     it("drops worker route and reviewer picks together", () => {
-        expect(resetRow({ reviewerpicks: false, landing: "branch" }, "workerroute")).toEqual({ landing: "branch" });
+        expect(resetRow({ reviewerpicks: false, parallelism: 3 }, "workerroute")).toEqual({ parallelism: 3 });
     });
 });
 
@@ -347,12 +353,6 @@ describe("defaultReach", () => {
     it("counts several projects that set their own, and none reached", () => {
         const all = [P("a", { workerroute: { runtime: "pi" } }), P("b", { workerroute: { runtime: "claude" } })];
         expect(defaultReach(all, "workerroute")).toEqual({ main: "No projects", sub: "2 set their own" });
-    });
-    it("counts a project's own landing against the global one", () => {
-        expect(defaultReach([P("opal"), P("wave", { landing: "checkout" })], "landing")).toEqual({
-            main: "1 of 2 projects",
-            sub: "wave sets its own",
-        });
     });
 });
 

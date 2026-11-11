@@ -5,7 +5,6 @@ package orchestrate
 
 import (
 	"context"
-	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -48,6 +47,7 @@ func TestFinalVerifyStandsInOnlyForTheLastMerge(t *testing.T) {
 func lastMergeFixture(t *testing.T, verify func(dir string) error) (*mergeFixture, *planCalls, string) {
 	t.Helper()
 	f := newMergeFixture(t, []waveobj.TaskNode{{ID: "t-0", Label: "first"}, {ID: "t-1", Label: "second"}})
+	f.land(t)
 	f.setPlanCommands(t, verifyCmd, "")
 	effort := f.effortFor(t, "first's", "second's")
 	f.taskChunks(t, "t-0", "first's")
@@ -60,7 +60,7 @@ func lastMergeFixture(t *testing.T, verify func(dir string) error) (*mergeFixtur
 		t.Fatal(err)
 	}
 	await()
-	if n := len(calls.in(f.project)); n != 1 || f.dag(t).Tasks[0].State != TaskState_Done {
+	if n := len(calls.in(f.landPath(t))); n != 1 || f.dag(t).Tasks[0].State != TaskState_Done {
 		t.Fatalf("setup: a merge with a task still open runs its own Verify, got %d runs and %s", n, f.dag(t).Tasks[0].State)
 	}
 	if c := chunkOf(t, f.ctx, effort, "first's"); c.Status != "done" {
@@ -88,9 +88,9 @@ func TestTheLastMergeLeavesItsVerifyToTheFinalStage(t *testing.T) {
 	if g.Tasks[1].State != TaskState_Done || !g.Tasks[1].Merged || g.Tasks[1].VerifyStartedTs != 0 {
 		t.Fatalf("the last merge is done without verifying, got %s merged=%v started=%d", g.Tasks[1].State, g.Tasks[1].Merged, g.Tasks[1].VerifyStartedTs)
 	}
-	// t-0's merge Verify in the checkout, then the final stage's in its own tree: none for t-1's merge
+	// t-0's merge Verify, then the final stage's, both in the landing tree: none for t-1's merge
 	list := calls.list()
-	if len(list) != 2 || len(calls.in(f.project)) != 1 || filepath.Clean(list[1].dir) == filepath.Clean(f.project) {
+	if len(list) != 2 || len(calls.in(f.landPath(t))) != 2 {
 		t.Fatalf("want t-0's Verify and the final stage's, one each, got %+v", list)
 	}
 	if g.Final == nil || g.Final.State != FinalState_Passed || g.Status != DagStatus_Done {
@@ -121,15 +121,13 @@ func TestTheLastMergeLeavesItsVerifyToTheFinalStage(t *testing.T) {
 func TestAFailingFinalVerifyAfterASkippedOneBlocksTheRun(t *testing.T) {
 	lead := newFakeLead(t)
 	var failing atomic.Bool
-	var project string
-	f, calls, effort := lastMergeFixture(t, func(dir string) error {
-		// only the final stage's Verify, in its own tree
-		if failing.Load() && filepath.Clean(dir) != filepath.Clean(project) {
+	f, calls, effort := lastMergeFixture(t, func(string) error {
+		// only the final stage's Verify: the last merge runs none of its own
+		if failing.Load() {
 			return &planCommandError{exitCode: 1, output: "--- FAIL: TestX"}
 		}
 		return nil
 	})
-	project = f.project
 	failing.Store(true)
 
 	g := runFinal(t, f)
@@ -159,7 +157,7 @@ func TestAFailingFinalVerifyAfterASkippedOneBlocksTheRun(t *testing.T) {
 	}
 	fix := round.Tasks[2].ID
 	f.finish(t, fix)
-	before := len(calls.in(f.project))
+	before := len(calls.in(f.landPath(t)))
 	await := awaitVerify(t)
 	// the Verify's own tick may start round 2 before this test asks
 	finalDone := awaitFinal(t)
@@ -167,7 +165,7 @@ func TestAFailingFinalVerifyAfterASkippedOneBlocksTheRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	await()
-	if n := len(calls.in(f.project)) - before; n != 1 || mergedRow(lead, fix)["verify"] != nil {
+	if n := len(calls.in(f.landPath(t))) - before; n != 1 || mergedRow(lead, fix)["verify"] != nil {
 		t.Fatalf("a fix round's merge verifies, got %d runs and %v", n, mergedRow(lead, fix))
 	}
 

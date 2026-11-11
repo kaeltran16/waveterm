@@ -46,12 +46,6 @@ func TestRunsStartData(t *testing.T) {
 		{name: "deleted pipeline mode is refused", opts: runsStartOpts{goal: "g", mode: "pipeline"}, wantErr: "--mode must be quick or orchestrator"},
 		{name: "needs a goal or a plan", opts: runsStartOpts{}, wantErr: "pass a goal"},
 		{name: "parallelism needs orchestrator", opts: runsStartOpts{goal: "g", parallelism: 3}, wantErr: "need an orchestrator run"},
-		{name: "landing needs orchestrator", opts: runsStartOpts{goal: "g", landing: jarvis.Landing_Checkout}, wantErr: "need an orchestrator run"},
-		{name: "landing is sent", opts: runsStartOpts{goal: "g", mode: jarvis.RunMode_Orchestrator, landing: jarvis.Landing_Checkout}, check: func(t *testing.T, d wshrpc.CommandCreateRunData) {
-			if d.Landing != jarvis.Landing_Checkout {
-				t.Fatalf("landing = %q, want %q", d.Landing, jarvis.Landing_Checkout)
-			}
-		}},
 		{name: "prototype needs orchestrator", opts: runsStartOpts{goal: "g", prototype: "Main.dc.html"}, wantErr: "--prototype"},
 		{name: "prototype is sent", opts: runsStartOpts{goal: "g", mode: jarvis.RunMode_Orchestrator, prototype: "Main.dc.html"}, check: func(t *testing.T, d wshrpc.CommandCreateRunData) {
 			if d.Prototype != "Main.dc.html" {

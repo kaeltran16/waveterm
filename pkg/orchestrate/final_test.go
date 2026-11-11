@@ -6,13 +6,13 @@ package orchestrate
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -24,11 +24,19 @@ import (
 // passVerify is a Verify the final stage can run for real and pass.
 const passVerify = "true"
 
-// finalFixture is a checkout-landed git dag whose one task has landed, with the plan's Verify, Check and
+// finalFixture is a branch-landed git dag whose one task has landed, with the plan's Verify, Check and
 // Final commands set. Its next tick starts the final stage.
 func finalFixture(t *testing.T, verify, check, finalCmd string) *mergeFixture {
 	t.Helper()
 	f := newMergeFixture(t, []waveobj.TaskNode{{ID: "t-0", Label: "first"}})
+	// the final stage runs only in a landing tree, and the land merges back into main
+	f.land(t)
+	if err := wstore.UpdateRun(f.ctx, f.channel, f.ownerID, func(r *waveobj.Run) error {
+		r.BaseBranch = "main"
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
 	f.finish(t, "t-0")
 	if err := wstore.UpdateDag(f.ctx, f.dagID, func(cur *waveobj.TaskGroup) error {
 		cur.Tasks[0].Merged = true
@@ -132,7 +140,7 @@ func TestFinalVerifyFailureFailsTheStage(t *testing.T) {
 
 func TestFinalCheckFailureFailsTheStageWithItsTailAndWakesTheLead(t *testing.T) {
 	lead := newFakeLead(t)
-	// the branch name shows the Check ran in a detached tree, not in the shared checkout
+	// the branch name shows the Check ran in the landing tree, not in the shared checkout
 	f := finalFixture(t, passVerify, "git rev-parse --abbrev-ref HEAD; echo 'vet: x.go:3: unreachable code'; exit 1", "")
 
 	g := runFinal(t, f)
@@ -140,14 +148,14 @@ func TestFinalCheckFailureFailsTheStageWithItsTailAndWakesTheLead(t *testing.T) 
 	if g.Final.State != FinalState_Failed || g.Status != DagStatus_Blocked || BlockingKind(g) != BlockingKindFinalFailed {
 		t.Fatalf("a failing Check fails the stage and blocks the dag, got %s / %s / %q", g.Final.State, g.Status, BlockingKind(g))
 	}
-	if !strings.Contains(g.Final.Detail, "(exit 1)") || !strings.Contains(g.Final.Detail, "HEAD\nvet: x.go:3: unreachable code") {
-		t.Fatalf("Detail holds the exit and the output tail from the detached tree, got %q", g.Final.Detail)
+	if !strings.Contains(g.Final.Detail, "(exit 1)") || !strings.Contains(g.Final.Detail, "wave/"+f.ownerID+"\nvet: x.go:3: unreachable code") {
+		t.Fatalf("Detail holds the exit and the output tail from the landing tree, got %q", g.Final.Detail)
 	}
 	if len(lead.sends) != 1 || !strings.Contains(lead.sends[0], g.Final.Detail) || !strings.Contains(lead.sends[0], "wsh jarvis dag submit --round") {
 		t.Fatalf("the lead is woken with the Detail whole and the fix round, got %q", lead.sends)
 	}
 	if _, err := os.Stat(worktreeDir(f.project, f.ownerID+"-final")); !os.IsNotExist(err) {
-		t.Fatalf("the detached final tree is removed once the stage ends, stat err %v", err)
+		t.Fatalf("no detached final tree is made, stat err %v", err)
 	}
 }
 
@@ -282,7 +290,7 @@ func TestRunFinishedWakeNamesTheConflictsTheLandWouldHoldOn(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			lead := newFakeLead(t)
 			f := finalFixture(t, passVerify, "", "")
-			tree := f.land(t)
+			tree := f.landPath(t)
 			if err := wstore.UpdateRun(f.ctx, f.channel, f.ownerID, func(r *waveobj.Run) error {
 				r.BaseBranch = "main"
 				return nil
@@ -417,140 +425,32 @@ func TestCancelStopsARunningFinalCommand(t *testing.T) {
 	}
 }
 
-// stageKey marks the context a test passes finalTree; the retried removal runs on a context of its own.
-type stageKey struct{}
-
-// holdFinalTrees makes a final tree's removal fail as a held directory does on Windows while held says so, and
-// retries it every 5ms for up to 5s.
-func holdFinalTrees(t *testing.T, held func(context.Context) bool) {
-	t.Helper()
-	attempts, interval := finalTreeRemoveAttempts, finalTreeRemoveInterval
-	removeStaleFinalTree = func(ctx context.Context, project, wt string) error {
-		if held(ctx) {
-			return fmt.Errorf("being used by another process")
-		}
-		return removeWorktreeDir(ctx, project, wt)
-	}
-	finalTreeRemoveAttempts, finalTreeRemoveInterval = 1000, 5*time.Millisecond
-	restoreAfterStages(t, func() {
-		removeStaleFinalTree = removeWorktreeDir
-		finalTreeRemoveAttempts, finalTreeRemoveInterval = attempts, interval
-	})
-}
-
+// The final stage runs in the run's landing tree and never in the shared checkout: a run without one, such as a
+// stored run started to land in the checkout, gets no tree and says why.
 func TestFinalTree(t *testing.T) {
 	ctx := context.Background()
-	t.Run("a checkout-landed dag gets a detached tree at HEAD, prepared by Setup and removed by cleanup", func(t *testing.T) {
-		repo := newGitRepo(t)
-		owner := &waveobj.Run{ID: "run-f", ProjectPath: repo}
-		g := &waveobj.TaskGroup{OID: "dag-f", Setup: "echo prepared > setup.txt"}
-		tree, cleanup, err := finalTree(ctx, g, owner)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if tree == repo || gitCmd(t, tree, "rev-parse", "--abbrev-ref", "HEAD") != "HEAD" {
-			t.Fatalf("want a detached tree of its own, got %s", tree)
-		}
-		if gitCmd(t, tree, "rev-parse", "HEAD") != gitCmd(t, repo, "rev-parse", "HEAD") {
-			t.Fatal("the tree is at the checkout's HEAD")
-		}
-		if _, err := os.Stat(filepath.Join(tree, "setup.txt")); err != nil {
-			t.Fatalf("Setup ran in the tree: %v", err)
-		}
-		cleanup()
-		if _, err := os.Stat(tree); !os.IsNotExist(err) {
-			t.Fatalf("cleanup removes the tree, stat err %v", err)
-		}
-		if strings.Contains(gitCmd(t, repo, "worktree", "list"), filepath.Base(tree)) {
-			t.Fatal("cleanup unregisters the tree")
-		}
-	})
-	t.Run("a stale final tree that cannot be removed leaves the stage a tree beside it", func(t *testing.T) {
-		repo := newGitRepo(t)
-		owner := &waveobj.Run{ID: "run-h", ProjectPath: repo}
-		g := &waveobj.TaskGroup{OID: "dag-h"}
-		stale, _, err := finalTree(ctx, g, owner)
-		if err != nil {
-			t.Fatal(err)
-		}
-		// the stage's own removal finds the tree held, and the retrying removal it hands it to does not
-		holdFinalTrees(t, func(ctx context.Context) bool { return ctx.Value(stageKey{}) != nil })
-		tree, cleanup, err := finalTree(context.WithValue(ctx, stageKey{}, true), g, owner)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if tree == stale || filepath.Dir(tree) != filepath.Dir(stale) {
-			t.Fatalf("want another directory beside %s, got %s", stale, tree)
-		}
-		if gitCmd(t, tree, "rev-parse", "--abbrev-ref", "HEAD") != "HEAD" || gitCmd(t, tree, "rev-parse", "HEAD") != gitCmd(t, repo, "rev-parse", "HEAD") {
-			t.Fatalf("want a detached tree at the checkout's HEAD, got %s", tree)
-		}
-		// nothing holds the stale tree here, so the retrying removal it was handed to takes it at once
-		if _, err := os.Stat(stale); !os.IsNotExist(err) {
-			t.Fatalf("the stale tree is handed to the retrying removal, stat err %v", err)
-		}
-		cleanup()
-		if _, err := os.Stat(tree); !os.IsNotExist(err) {
-			t.Fatalf("cleanup removes the tree the stage used, stat err %v", err)
-		}
-	})
-	t.Run("a stale final tree that can be removed gives its directory to the next round", func(t *testing.T) {
-		repo := newGitRepo(t)
-		owner := &waveobj.Run{ID: "run-s", ProjectPath: repo}
-		g := &waveobj.TaskGroup{OID: "dag-s"}
-		stale, _, err := finalTree(ctx, g, owner)
-		if err != nil {
-			t.Fatal(err)
-		}
-		tree, cleanup, err := finalTree(ctx, g, owner)
-		if err != nil || tree != stale {
-			t.Fatalf("want the stale tree's directory %s again, got %s (%v)", stale, tree, err)
-		}
-		cleanup()
-	})
-	// the removal retried for round 1's held tree outlived round 2's removal of it, and took the tree round 2
-	// had just made at the same path
-	t.Run("a retried removal stops once the next round has taken the tree's directory", func(t *testing.T) {
-		repo := newGitRepo(t)
-		owner := &waveobj.Run{ID: "run-r", ProjectPath: repo}
-		g := &waveobj.TaskGroup{OID: "dag-r"}
-		round1, _, err := finalTree(ctx, g, owner)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var released atomic.Bool
-		holdFinalTrees(t, func(ctx context.Context) bool { return ctx.Value(stageKey{}) == nil && !released.Load() })
-		removeFinalTree(g.OID, owner, round1) // round 1's verifier still holds it: the removal retries
-		round2, cleanup, err := finalTree(context.WithValue(ctx, stageKey{}, true), g, owner)
-		if err != nil || round2 != round1 {
-			t.Fatalf("want round 1's directory %s again, got %s (%v)", round1, round2, err)
-		}
-		released.Store(true)
-		waitStages(t)
-		if _, err := os.Stat(filepath.Join(round2, ".git")); err != nil {
-			t.Fatalf("round 1's retried removal took round 2's tree: %v", err)
-		}
-		cleanup()
-	})
-	t.Run("a branch-landed dag runs in its landing tree", func(t *testing.T) {
+	t.Run("a branch-landed dag uses its landing tree", func(t *testing.T) {
 		repo := newGitRepo(t)
 		wt, err := CreateRunWorktree(ctx, repo, "run-b", "")
 		if err != nil {
 			t.Fatal(err)
 		}
-		owner := &waveobj.Run{ID: "run-b", ProjectPath: repo, LandPath: wt}
-		tree, cleanup, err := finalTree(ctx, &waveobj.TaskGroup{OID: "dag-b"}, owner)
-		if err != nil || tree != wt {
+		if tree, err := finalTree(ctx, &waveobj.Run{ID: "run-b", ProjectPath: repo, LandPath: wt}); err != nil || tree != wt {
 			t.Fatalf("want the landing tree %s, got %s (%v)", wt, tree, err)
 		}
-		cleanup()
-		if _, err := os.Stat(wt); err != nil {
-			t.Fatalf("cleanup leaves the landing tree: %v", err)
+	})
+	t.Run("a git run without a landing tree has none", func(t *testing.T) {
+		repo := newGitRepo(t)
+		if tree, err := finalTree(ctx, &waveobj.Run{ID: "run-c", ProjectPath: repo}); !errors.Is(err, errNoLandingTree) || tree != "" {
+			t.Fatalf("want errNoLandingTree and no tree, got %q (%v)", tree, err)
+		}
+		if _, err := os.Stat(worktreeDir(repo, "run-c-final")); !os.IsNotExist(err) {
+			t.Fatalf("no detached final tree may be made, stat err %v", err)
 		}
 	})
 	t.Run("a dag outside git has no tree", func(t *testing.T) {
 		owner := &waveobj.Run{ID: "run-n", ProjectPath: t.TempDir()}
-		if _, _, err := finalTree(ctx, &waveobj.TaskGroup{OID: "dag-n"}, owner); err == nil || !strings.Contains(err.Error(), "not a git repository") {
+		if _, err := finalTree(ctx, owner); err == nil || !strings.Contains(err.Error(), "not a git repository") {
 			t.Fatalf("want not a git repository, got %v", err)
 		}
 	})

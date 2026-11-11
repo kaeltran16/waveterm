@@ -731,7 +731,6 @@ declare global {
         parallelism?: number;
         playbookid?: string;
         mode?: string;
-        landing?: string;
         effortoid?: string;
         chunklabel?: string;
         deferstart?: boolean;
@@ -2568,7 +2567,6 @@ declare global {
         reviewerpicks?: boolean;
         reviewerroute?: RoutePin;
         lightreviewerroute?: RoutePin;
-        landing?: string;
         autonomous?: boolean;
     };
 
@@ -2973,7 +2971,6 @@ declare global {
         reviewerpicks?: boolean;
         reviewerroute?: RoutePin;
         lightreviewerroute?: RoutePin;
-        landing?: string;
         autonomous?: boolean;
     };
 

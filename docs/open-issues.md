@@ -42,7 +42,7 @@ Status legend:
 
 Tracked in their own initiatives, not here:
 
-- **Orchestrator wall-clock** — effort `b1fe5d7e`: live-verify the unit-tested fixes, the round-2 final tree lock, the Timing section live check.
+- **Orchestrator wall-clock** — effort `b1fe5d7e`: live-verify the unit-tested fixes, the Timing section live check.
 
 ---
 
@@ -89,8 +89,6 @@ Cockpit and surfaces:
 
 Orchestrator:
 
-- **Cross-run Verify hold under `--landing checkout`** (2026-09-15) — one run's failed Verify does not
-  hold another run's merges in the same checkout. Branch landing, the default, is unaffected.
 - **DAG liveness batching (M1)** — 42.7 ms per running task per 30 s tick on 191 session files; build
   the per-schedule snapshot only when the corpus nears ~3,000 files.
 - **Automated board rendering** for the final verifier — revive when a verdict misses a layout defect a

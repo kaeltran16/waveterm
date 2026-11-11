@@ -144,7 +144,7 @@ func TestAConflictMidBatchDefersTheBatchVerifyToTheContinue(t *testing.T) {
 		return "sha-a", nil
 	})
 	orig := continueMerge
-	continueMerge = func(context.Context, string, string, MergeLane, []string) (string, error) { return "sha-b", nil }
+	continueMerge = func(context.Context, string, string, MergeLane) (string, error) { return "sha-b", nil }
 	restoreAfterStages(t, func() { continueMerge = orig })
 	calls := stubPlanCommand(t, func(context.Context, string, string) error { return nil })
 	await := awaitVerify(t)
@@ -169,8 +169,8 @@ func TestAConflictMidBatchDefersTheBatchVerifyToTheContinue(t *testing.T) {
 	await()
 	finalDone() // every task lands here, so the tick starts the final stage, which must not outlive this test's stubs
 
-	finalTree := worktreeDir(f.projectPath(t), f.ownerID+"-final")
-	if n := len(calls.list()) - len(calls.in(finalTree)); n != 1 {
+	// the fixture has no landing tree, so its final stage runs no Verify and every run counted is a merge's
+	if n := len(calls.list()); n != 1 {
 		t.Fatalf("the continue's Verify judges both lanes, want 1 run, got %d", n)
 	}
 	for _, task := range f.dag(t).Tasks {
