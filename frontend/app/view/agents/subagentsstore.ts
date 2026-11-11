@@ -67,10 +67,10 @@ export async function refreshSubagents(id: string, transcriptPath: string | unde
             return;
         }
         setList(id, correlateSubagents(extractSubagentSpawns(tr.lines ?? []), files));
-    } catch {
-        if (loadSeq.get(id) === seq) {
-            setList(id, null);
-        }
+    } catch (e) {
+        // keep the last known list, as shelltasksstore does: clearing it reads as the agent's background
+        // subagents finishing (the rail says finished, the card settles and leaves for Idle). The next load retries
+        console.warn("reading the subagents of", id, e);
     }
 }
 
