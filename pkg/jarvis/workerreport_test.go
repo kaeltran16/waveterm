@@ -121,6 +121,17 @@ func TestWorkerReportFencedHeadingIsContent(t *testing.T) {
 	}
 }
 
+func TestWorkerReportFenceOpenedOnAListItem(t *testing.T) {
+	text := strings.Replace(validReport, "landed it", "ran:\n- ```bash\n  go test ./pkg/x\n  ```", 1)
+	rep, err := ParseWorkerReport(text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(rep.Done, "```") || rep.ForLater != "use X" {
+		t.Fatalf("got %+v", rep)
+	}
+}
+
 func TestWorkerReportSection(t *testing.T) {
 	rep, _ := ParseWorkerReport(validReport)
 	if got, ok := rep.Section("not-verified"); !ok || got != "" {

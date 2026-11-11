@@ -63,7 +63,6 @@ const WorkerReportTemplate = `## Done
 
 const (
 	reportHeadingPrefix = "## "
-	reportFence         = "```"
 	reportNone          = "none"
 	reportBOM           = "\xef\xbb\xbf"
 	strayQuoteMaxRunes  = 60
@@ -128,14 +127,12 @@ func ParseWorkerReport(text string) (WorkerReport, error) {
 		bodies   = map[string][]string{}
 		seen     = map[string]bool{}
 		cur      string // key of the section being read; "" before the first heading, "?" under an unknown one
-		inFence  bool
+		fence    codeFence
 		started  bool
 		preamble []string
 	)
 	for _, line := range strings.Split(text, "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), reportFence) {
-			inFence = !inFence
-		} else if !inFence && strings.HasPrefix(line, reportHeadingPrefix) {
+		if !fence.step(line) && strings.HasPrefix(line, reportHeadingPrefix) {
 			started = true
 			name := strings.TrimSpace(strings.TrimPrefix(line, reportHeadingPrefix))
 			sec, ok := sectionByHeading(name)
