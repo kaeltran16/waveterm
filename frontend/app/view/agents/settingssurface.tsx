@@ -43,7 +43,7 @@ import {
     startupSurfaceOptions,
     vaultPathError,
 } from "./cockpitprefsstore";
-import { DEFAULT_MONO, DEFAULT_SANS, DEFAULT_TERM_FONT, MONO_FONTS, SANS_FONTS, stackOf } from "./fonts";
+import { DEFAULT_MONO, DEFAULT_SANS, MONO_FONTS, SANS_FONTS, termFontId, termFontPatch } from "./fonts";
 import { fontMonoAtom, fontSansAtom } from "./fontstore";
 import { harnessPickerItems } from "./harnesspicker";
 import { harnessPreferenceAtom, setPreferredRoute } from "./harnessstore";
@@ -894,9 +894,8 @@ function Swatch({ color }: { color: string }) {
 function FontsSection() {
     const [sans, setSans] = useAtom(fontSansAtom);
     const [mono, setMono] = useAtom(fontMonoAtom);
-    const termFontStack = (useAtomValue(getSettingsKeyAtom("term:fontfamily")) as string) ?? "";
-    // terminal font is stored as the full stack string; match it back to a catalog id for the control.
-    const termFontId = MONO_FONTS.find((f) => f.stack === termFontStack)?.id ?? DEFAULT_TERM_FONT;
+    const termFont = termFontId((useAtomValue(getSettingsKeyAtom("term:fontfamily")) as string) ?? "");
+    const shippedTermFont = useAtomValue(defaultSettingsAtom)?.["term:fontfamily"] as string | undefined;
     const sansOpts = SANS_FONTS.map((f) => ({ id: f.id, label: f.label }));
     const monoOpts = MONO_FONTS.map((f) => ({ id: f.id, label: f.label }));
     return (
@@ -910,8 +909,8 @@ function FontsSection() {
             <SettingRow id="fonts.term">
                 <Segmented
                     options={monoOpts}
-                    value={termFontId}
-                    onChange={(id) => writeConfig({ "term:fontfamily": stackOf(MONO_FONTS, id) })}
+                    value={termFont}
+                    onChange={(id) => writeConfig({ "term:fontfamily": termFontPatch(id, shippedTermFont) })}
                 />
             </SettingRow>
         </div>

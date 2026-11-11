@@ -33,6 +33,26 @@ export function stackOf(list: FontDef[], id: string): string {
     return (list.find((f) => f.id === id) ?? list[0]).stack;
 }
 
+// The catalog id of a stored term:fontfamily. It is written as a catalog stack, but the shipped default
+// (and a hand edit) is a bare family name, which names the same face.
+export function termFontId(stored: string): string {
+    const name = stored
+        .trim()
+        .replace(/^["']|["']$/g, "")
+        .toLowerCase();
+    const font = MONO_FONTS.find((f) => f.stack === stored || f.label.toLowerCase() === name);
+    return font?.id ?? DEFAULT_TERM_FONT;
+}
+
+// The term:fontfamily value a pick writes: null drops the override when the pick is the shipped default's
+// face, so choosing the face already in use does not mark the row changed.
+export function termFontPatch(id: string, shipped: string | null | undefined): string | null {
+    if (shipped != null && termFontId(shipped) === id) {
+        return null;
+    }
+    return stackOf(MONO_FONTS, id);
+}
+
 // Write the sans/mono font vars onto a root element's inline style (highest specificity — beats the
 // @theme :root rule). Also sets Tailwind v4's --default-*-font-family (which default to var(--font-*))
 // so the base body/code font follows even if a layer pinned them. Kept tiny + injectable for testing.
