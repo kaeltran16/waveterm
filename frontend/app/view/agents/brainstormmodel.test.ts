@@ -563,6 +563,13 @@ describe("builderCheckView", () => {
         expect(builderCheckView(rec("answered"), null, checked, 1200, idleBefore)).toEqual({ kind: "none" });
     });
 
+    it("answered stays taken through a later turn, one that started after the agent wrote the questions in", () => {
+        expect(builderCheckView(rec("answered"), null, ready, 1200, working, 1500)).toEqual({ kind: "none" });
+        // the turn that takes them in started before its own write
+        expect(builderCheckView(rec("answered"), null, ready, 1200, working, 1100)).toEqual(TAKING_IN);
+        expect(builderCheckView(rec("answered"), null, ready, 900, working, 1500)).toEqual(TAKING_IN);
+    });
+
     it("failed shows its reason while the file has no check, and hides once it has one", () => {
         const failed = rec("failed", { reason: "The builder ended without its questions." });
         expect(builderCheckView(failed, null, ready, 500, idleBefore)).toEqual({

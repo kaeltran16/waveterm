@@ -468,13 +468,15 @@ export function nextSentCheckAt(
 }
 
 // the builder check as the pane shows it. Once the agent takes the delivered questions the record is inert and the
-// file's check drives the view; a failure shows only while the file has no check
+// file's check drives the view; a failure shows only while the file has no check. turnStartMs is when the agent's
+// current turn started: one that started after the agent wrote the questions in is a later turn, not the taking in
 export function builderCheckView(
     record: BuilderCheckRecord | undefined,
     sentCheckAt: number | null,
     f: BrainstormFile | null,
     modifiedMs: number | null,
-    agent: Pick<AgentVM, "state" | "idleSince"> | undefined
+    agent: Pick<AgentVM, "state" | "idleSince"> | undefined,
+    turnStartMs?: number
 ): BuilderCheckView {
     const unchecked = f?.check == null;
     if (sentCheckAt != null && (record == null || record.ts < sentCheckAt)) {
@@ -484,7 +486,9 @@ export function builderCheckView(
         return { kind: "pending", stage: "reading", text: PENDING_CHECK };
     }
     if (record?.state === "answered") {
-        const taken = lineTaken(record.ts, modifiedMs != null && modifiedMs > record.ts, agent);
+        const written = modifiedMs != null && modifiedMs > record.ts;
+        const laterTurn = written && turnStartMs != null && turnStartMs > modifiedMs;
+        const taken = laterTurn || lineTaken(record.ts, written, agent);
         return taken ? { kind: "none" } : { kind: "pending", stage: "taking-in", text: CHECK_TAKING_IN };
     }
     if (record?.state === "failed" && unchecked) {

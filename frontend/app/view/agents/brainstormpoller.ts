@@ -312,15 +312,18 @@ async function pollAndMerge(agentId: string, agent: AgentVM | undefined, io: Bra
     if (cur == null || cur.path !== s.path) {
         return;
     }
-    const settled = settleBrainstorm(cur, patch, agent, turnStartOf(agent));
+    const turnStartMs = turnStartOf(agent);
+    const settled = settleBrainstorm(cur, patch, agent, turnStartMs);
     if (agent?.blockId && terminalAnswerStopsJudge(cur.sent, settled.sent, agent)) {
         const blockid = agent.blockId;
         RpcApi.BrainstormJudgeStopCommand(TabRpcClient, { blockid }).catch((e) =>
             console.warn("brainstorm: stopping the judge after a terminal answer failed", blockid, e)
         );
     }
-    if (Object.keys(patch).length > 0 || settled.sent !== cur.sent || settled.sentCheckAt !== cur.sentCheckAt) {
-        updateBrainstorm(agentId, (c) => (c.path === s.path ? { ...c, ...patch, ...settled } : c));
+    const moved =
+        settled.sent !== cur.sent || settled.sentCheckAt !== cur.sentCheckAt || turnStartMs !== cur.turnStartMs;
+    if (Object.keys(patch).length > 0 || moved) {
+        updateBrainstorm(agentId, (c) => (c.path === s.path ? { ...c, ...patch, ...settled, turnStartMs } : c));
     }
     if (patch.file != null) {
         baselineBrainstormSeen(s.path, patch.file);
