@@ -16,7 +16,7 @@ import * as jotai from "jotai";
 import * as React from "react";
 import { TermLinkTooltip } from "./term-tooltip";
 import { TermThemeUpdater } from "./termtheme";
-import { normalizeCursorStyle } from "./termutil";
+import { normalizeCursorStyle, termScrollback } from "./termutil";
 import { TermWrap } from "./termwrap";
 import "./xterm.css";
 
@@ -40,19 +40,7 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
             activePalette(globalStore.get(themePresetAtom)),
             globalStore.get(themeOverridesAtom)
         );
-        let termScrollback = 2000;
-        if (termSettings?.["term:scrollback"]) {
-            termScrollback = Math.floor(termSettings["term:scrollback"]);
-        }
-        if (blockData?.meta?.["term:scrollback"]) {
-            termScrollback = Math.floor(blockData.meta["term:scrollback"]);
-        }
-        if (termScrollback < 0) {
-            termScrollback = 0;
-        }
-        if (termScrollback > 50000) {
-            termScrollback = 50000;
-        }
+        const scrollback = termScrollback(termSettings?.["term:scrollback"], blockData?.meta?.["term:scrollback"]);
         const termAllowBPM = globalStore.get(model.termBPMAtom) ?? true;
         const termMacOptionIsMeta = globalStore.get(termMacOptionIsMetaAtom) ?? false;
         const termCursorStyle = normalizeCursorStyle(globalStore.get(getOverrideConfigAtom(blockId, "term:cursor")));
@@ -70,7 +58,7 @@ const TerminalView = ({ blockId, model }: ViewComponentProps<TermViewModel>) => 
                 fontWeight: "normal",
                 fontWeightBold: "bold",
                 allowTransparency: true,
-                scrollback: termScrollback,
+                scrollback,
                 ignoreBracketedPasteMode: !termAllowBPM,
                 macOptionIsMeta: termMacOptionIsMeta,
                 cursorStyle: termCursorStyle,

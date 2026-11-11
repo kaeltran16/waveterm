@@ -15,6 +15,7 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { parseJiraError } from "@/app/view/jarvis/jiraticket";
+import { termScrollback } from "@/app/view/term/termutil";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtom, useAtomValue } from "jotai";
 import { Check, Folder, KeyRound, RefreshCw, Search } from "lucide-react";
@@ -1477,7 +1478,7 @@ function RunRouteSection() {
 
 function TerminalSection() {
     const fontSize = (useAtomValue(getSettingsKeyAtom("term:fontsize")) as number) ?? 12;
-    const scrollback = (useAtomValue(getSettingsKeyAtom("term:scrollback")) as number) ?? 1000;
+    const scrollback = termScrollback(useAtomValue(getSettingsKeyAtom("term:scrollback")) as number);
     const cursorRaw = (useAtomValue(getSettingsKeyAtom("term:cursor")) as string) ?? "block";
     const cursorBlink = (useAtomValue(getSettingsKeyAtom("term:cursorblink")) as boolean) ?? false;
     const copyOnSelect = (useAtomValue(getSettingsKeyAtom("term:copyonselect")) as boolean) ?? false;
