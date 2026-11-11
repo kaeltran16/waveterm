@@ -503,8 +503,7 @@ async function selectDag(
 }
 
 async function selectSheet(model: AgentsViewModel, sheet: Sheet, current: () => boolean): Promise<OpenResult> {
-    await openChannelSheet(sheet.channelId, sheet.runId ?? null);
-    if (!current()) {
+    if (!(await openChannelSheet(sheet.channelId, sheet.runId ?? null, current))) {
         return SUPERSEDED;
     }
     landOn(model.surfaceAtom, "jarvis", "sheet");
@@ -744,13 +743,23 @@ function selectWorkflowScan(model: AgentsViewModel, runId: string): OpenResult {
 // selected had a null run and read "Reading this channel…" forever. Exported for Jarvis's own flow (the
 // investigation draft), not for cross-surface callers — those open a target. + Run is one of those: it
 // sits on the app bar, so a launch started from any surface has to land through the router.
-export async function openChannelSheet(channelId: string, runId: string | null): Promise<void> {
+// `current` is the landing's guard: a newer open during the channel load owns the subject and the sheet, so
+// this one writes neither and reports false.
+export async function openChannelSheet(
+    channelId: string,
+    runId: string | null,
+    current: () => boolean = () => true
+): Promise<boolean> {
     await selectChannel(channelId);
+    if (!current()) {
+        return false;
+    }
     selectSubject({ kind: "channel", id: channelId });
     if (runId != null) {
         setActiveRunId(channelId, runId);
     }
     globalStore.set(briefSheetOpenAtom, true);
+    return true;
 }
 
 function openEffortSheet(effortId: string): void {
