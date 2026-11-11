@@ -284,6 +284,9 @@ const indexCache = new Map<string, CodeIndex>();
 const current = { indexToken: "", fileToken: "", statusToken: "", headToken: "", worktreesToken: "" };
 
 export async function selectProject(p: CodeProject | null): Promise<void> {
+    // a file or committed-copy read still out belongs to the project being left
+    current.fileToken = "";
+    current.headToken = "";
     globalStore.set(codeProjectAtom, p);
     // only a real selection is worth remembering; the null reset must not clobber the last good one
     if (p != null) {
@@ -556,7 +559,7 @@ export async function loadCommitted(rel: string, ref: string): Promise<void> {
     if (project == null) {
         return;
     }
-    const token = `head:${rel}:${ref}`;
+    const token = `head:${project.path}:${rel}:${ref}`;
     current.headToken = token;
     globalStore.set(codeHeadAtom, { kind: "loading", path: rel, ref });
     try {
@@ -611,7 +614,7 @@ export async function loadDisk(rel: string): Promise<void> {
     if (project == null) {
         return;
     }
-    const token = `head:${rel}:${DISK_REF}`;
+    const token = `head:${project.path}:${rel}:${DISK_REF}`;
     current.headToken = token;
     globalStore.set(codeHeadAtom, { kind: "loading", path: rel, ref: DISK_REF });
     try {
@@ -949,7 +952,7 @@ export async function openPath(rel: string, opts?: { pushHistory?: boolean; line
     if (globalStore.get(codePendingJumpAtom)?.path !== rel) {
         globalStore.set(codePendingJumpAtom, null);
     }
-    const token = `file:${rel}`;
+    const token = `file:${project.path}:${rel}`;
     current.fileToken = token;
     const abs = joinRepoPath(project.path, rel);
     // deferred until the path is known to be a file, so a folder leaves history and the save state alone
@@ -1088,10 +1091,19 @@ export async function saveCurrent(): Promise<void> {
     if (draft == null) {
         return; // nothing unsaved
     }
+    // the save state, the stale bar and the buffer all speak for the open file: a save that lands after the
+    // user moved to another file or project still settles its draft, but writes none of them
+    const stillOpen = () => {
+        const open = globalStore.get(codeFileAtom);
+        return globalStore.get(codeProjectAtom) === project && open.kind !== "none" && open.path === rel;
+    };
     globalStore.set(codeSaveAtom, { kind: "saving", path: rel });
     try {
         const latest = await RpcApi.FileInfoCommand(TabRpcClient, { info: { path: abs } });
         const conflict = conflictOf(draft.base, latest);
+        if (conflict !== "none" && !stillOpen()) {
+            return;
+        }
         if (conflict !== "none") {
             globalStore.set(codeSaveAtom, { kind: "conflict", path: rel, message: conflictMessage(conflict) });
             // the stale bar is the one "the disk moved" banner; it reads the refusal off codeSaveAtom
@@ -1106,15 +1118,21 @@ export async function saveCurrent(): Promise<void> {
             size: after?.size ?? draft.text.length,
             modtime: after?.modtime ?? 0,
         };
-        globalStore.set(codeFileAtom, { kind: "text", path: rel, ...written });
         globalStore.set(codeDraftsAtom, (d) => afterSave(d, abs, written));
+        void loadStatus(); // a write is exactly what turns an unchanged file into a modified one
+        if (!stillOpen()) {
+            return;
+        }
+        globalStore.set(codeFileAtom, { kind: "text", path: rel, ...written });
         if (!globalStore.get(codeDraftsAtom).has(abs)) {
             // text typed during the write is still unsaved, and editDraft already reset the state to idle
             globalStore.set(codeSaveAtom, { kind: "saved", path: rel });
         }
-        void loadStatus(); // a write is exactly what turns an unchanged file into a modified one
         globalStore.set(codeStaleAtom, null); // we just wrote it, so the disk copy is ours again
     } catch (e) {
+        if (!stillOpen()) {
+            return;
+        }
         globalStore.set(codeSaveAtom, {
             kind: "error",
             path: rel,

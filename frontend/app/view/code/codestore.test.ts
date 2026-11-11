@@ -437,6 +437,58 @@ describe("saveCurrent", () => {
         });
         expect(globalStore.get(codeSaveAtom).kind).toBe("idle");
     });
+
+    it("a save that lands after another file opened leaves that file on screen", async () => {
+        const project = seedSession(["src/a.ts", "src/b.ts"]);
+        editDraft("one\nmine\n");
+        const write = deferred<void>();
+        fileWrite.mockReturnValue(write.promise);
+        fileInfo.mockResolvedValueOnce({ size: 4, modtime: 1 }).mockResolvedValueOnce({ size: 10, modtime: 2 });
+
+        const saving = saveCurrent();
+        await vi.waitFor(() => expect(fileWrite).toHaveBeenCalled());
+        globalStore.set(codeFileAtom, text("src/b.ts", "b\n"));
+        write.resolve();
+        await saving;
+
+        expect(globalStore.get(codeFileAtom)).toMatchObject({ path: "src/b.ts", text: "b\n" });
+        expect(globalStore.get(codeSaveAtom).kind).not.toBe("saved");
+        // the draft it wrote is settled all the same
+        expect(globalStore.get(codeDraftsAtom).has(draftKey(project, "src/a.ts"))).toBe(false);
+    });
+
+    it("a refusal that lands after another file opened raises no stale bar over it", async () => {
+        seedSession(["src/a.ts", "src/b.ts"]);
+        editDraft("one\nmine\n");
+        const stat = deferred<{ size: number; modtime: number }>();
+        fileInfo.mockReturnValueOnce(stat.promise);
+
+        const saving = saveCurrent();
+        globalStore.set(codeFileAtom, text("src/b.ts", "b\n"));
+        globalStore.set(codeSaveAtom, { kind: "idle" });
+        stat.resolve({ size: 99, modtime: 2 });
+        await saving;
+
+        expect(globalStore.get(codeStaleAtom)).toBeNull();
+        expect(globalStore.get(codeSaveAtom).kind).toBe("idle");
+    });
+});
+
+describe("a read started in the project being left", () => {
+    it("never lands in the next project", async () => {
+        seedSession(["src/a.ts"]);
+        const stat = deferred<{ size: number; modtime: number }>();
+        fileInfo.mockReturnValueOnce(stat.promise);
+        const opening = openPath("src/c.ts");
+        listFiles.mockResolvedValue({ files: ["src/c.ts"], isrepo: true });
+        await selectProject(nextProject());
+
+        stat.resolve({ size: 2, modtime: 1 });
+        fileRead.mockResolvedValue({ data64: btoa("A\n"), info: { size: 2, modtime: 1 } });
+        await opening;
+
+        expect(globalStore.get(codeFileAtom)).toEqual({ kind: "none" });
+    });
 });
 
 describe("diff targets", () => {
