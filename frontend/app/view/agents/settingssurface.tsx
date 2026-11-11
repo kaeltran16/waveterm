@@ -83,7 +83,12 @@ import {
     type SettingRowDef,
     type SettingSectionDef,
 } from "./settingsmodel";
-import { pendingSettingsSectionAtom, settingsSectionAtom, takePendingSettingsSection } from "./settingsstore";
+import {
+    pendingSettingsSectionAtom,
+    settingsSectionAtom,
+    takePendingSettingsSection,
+    writeConfig,
+} from "./settingsstore";
 import { navSummary } from "./storagemodel";
 import { StorageHeaderActions, StorageSection } from "./storagesection";
 import { loadStorage, startStoragePoll, storageReportAtom } from "./storagestore";
@@ -104,13 +109,6 @@ const OVERRIDE_ROLES: OverrideRole[] = ["accent", "success", "warning", "error"]
 const defaultSettingsAtom = atom(
     (get) => (get(atoms.fullConfigAtom)?.defaultsettings ?? null) as Record<string, unknown> | null
 );
-
-// SetConfigCommand's data param is a typed settings map; a dynamic-key patch needs the cast. A null
-// value deletes the key from settings.json (wconfig.SetBaseConfigValue), which is how Revert works —
-// dropping the override lets the shipped default take over again.
-function writeConfig(patch: Record<string, unknown>) {
-    void RpcApi.SetConfigCommand(TabRpcClient, patch as Parameters<typeof RpcApi.SetConfigCommand>[1]);
-}
 
 // Every value here is a scalar, so identity is enough; the ?? folds an absent key and an explicit null
 // together, since both mean "not set".
