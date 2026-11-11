@@ -219,8 +219,14 @@ export function consumeBriefingLanding(): void {
     landingConsumed = true;
 }
 
-// the Brief composer's draft. Module scope so it survives the surface unmounting on a nav switch.
-export const briefDraftAtom = atom("");
+// the run sheet composers' drafts, keyed by run: a steer typed on one run must never be what Enter sends to the
+// next run opened. Module scope so they survive the surface unmounting on a nav switch.
+export const briefDraftsAtom = atom<Record<string, string>>({}) as PrimitiveAtom<Record<string, string>>;
+
+// Pure: a send that did not land gives its words back ahead of anything typed since, rather than over it.
+export function restoredDraft(current: string, unsent: string): string {
+    return current.trim() === "" ? unsent : `${unsent}\n${current}`;
+}
 
 // The once-per-launch guard on the Brief's subject restore. Session-scoped: the Brief unmounts on every nav
 // switch, so a restore keyed to the surface would re-run — and re-open a peek the user had already closed —

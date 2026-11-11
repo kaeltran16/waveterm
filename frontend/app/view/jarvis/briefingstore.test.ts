@@ -37,6 +37,7 @@ import {
     briefingStateAtom,
     loadBriefingAsync,
     markBriefingSeen,
+    restoredDraft,
     SEEN_HOLD_MS,
     settleSeen,
 } from "./briefingstore";
@@ -428,5 +429,17 @@ describe("settleSeen", () => {
 
     it("lets a due mark seed an empty cursor whatever its value", () => {
         expect(settleSeen(null, [{ through: 0, at: 0 }], T0)).toEqual({ cursor: 0, marks: [] });
+    });
+});
+
+describe("restoredDraft", () => {
+    it("puts an unsent message back in an empty box", () => {
+        expect(restoredDraft("", "stop the deploy")).toBe("stop the deploy");
+    });
+
+    it("keeps what was typed since, after the unsent words", () => {
+        expect(restoredDraft("and rerun", "stop the deploy")).toBe(
+            ["stop the deploy", "and rerun"].join(String.fromCharCode(10))
+        );
     });
 });
