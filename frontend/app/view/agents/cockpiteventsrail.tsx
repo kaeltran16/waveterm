@@ -33,15 +33,18 @@ import {
     fillAskedText,
     groupRailEvents,
     leadAskEvents,
+    markRailRead,
     mergeRailEvents,
+    NO_RAIL_SEEN,
     RAIL_MAX,
     runRailEvents,
     scopeRailRows,
-    splitUnread,
+    splitUnreadScoped,
     type AgentSnap,
     type RailEvent,
     type RailKind,
     type RailRow,
+    type RailSeen,
 } from "./cockpitevents";
 import type { Lineage } from "./runlineage";
 import { SectionLabel } from "./sectionlabel";
@@ -53,7 +56,7 @@ const snapsAtom = atom<Record<string, AgentSnap>>({}) as PrimitiveAtom<Record<st
 const leadSnapsAtom = atom<Record<string, AgentState>>({}) as PrimitiveAtom<Record<string, AgentState>>;
 // exported for reading only (the project Overview's Finished region); the rail alone writes them
 export const agentEventsAtom = atom<RailEvent[]>([]) as PrimitiveAtom<RailEvent[]>;
-export const seenTsAtom = atom<number>(0) as PrimitiveAtom<number>;
+export const railSeenAtom = atom<RailSeen>(NO_RAIL_SEEN) as PrimitiveAtom<RailSeen>;
 
 const KIND: Record<RailKind, { icon: LucideIcon; verb: string; tone: string }> = {
     asked: { icon: MessageCircleQuestion, verb: "asked", tone: "text-warning" },
@@ -117,7 +120,7 @@ export function useRailRows(
     runEvents: Record<string, RunEvent[]>
 ): { all: RailEvent[]; fresh: RailEvent[]; old: RailEvent[] } {
     const agentEvents = useAtomValue(agentEventsAtom);
-    const seenTs = useAtomValue(seenTsAtom);
+    const seen = useAtomValue(railSeenAtom);
     const agents = useAtomValue(model.agentsAtom);
     const projectFilter = useAtomValue(model.projectFilterAtom);
     const all = useMemo(() => {
@@ -128,7 +131,7 @@ export function useRailRows(
         );
         return scopeRailRows(mergeRailEvents([agentEvents, ...runLists]), agents, lineage, projectFilter);
     }, [agentEvents, lineage, runEvents, agents, projectFilter]);
-    return { all, ...splitUnread(all, seenTs) };
+    return { all, ...splitUnreadScoped(all, seen, agents, lineage) };
 }
 
 export function CockpitEventsRail({
@@ -257,7 +260,16 @@ export function CockpitEventsRail({
                     {fresh.length > 0 ? (
                         <button
                             type="button"
-                            onClick={() => globalStore.set(seenTsAtom, all[0].ts)}
+                            onClick={() =>
+                                globalStore.set(
+                                    railSeenAtom,
+                                    markRailRead(
+                                        globalStore.get(railSeenAtom),
+                                        globalStore.get(model.projectFilterAtom),
+                                        all[0].ts
+                                    )
+                                )
+                            }
                             className="cursor-pointer border-0 bg-transparent text-[11.5px] text-accent hover:text-accent-soft"
                         >
                             Mark all read

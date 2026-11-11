@@ -17,7 +17,8 @@ import { AnimatePresence, motion, type Transition } from "motion/react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
 import { formatAge, projectOf, type AgentVM } from "./agentsviewmodel";
 import { leadlessCardId } from "./cardgridlayout";
-import { agentEventsAtom, seenTsAtom } from "./cockpiteventsrail";
+import { seenTsFor } from "./cockpitevents";
+import { agentEventsAtom, railSeenAtom } from "./cockpiteventsrail";
 import { RegionHead, RegionNote, type OverviewRegionProps } from "./overviewregion";
 import {
     finishedRows,
@@ -91,7 +92,7 @@ export function ProjectNow({ model, project, close }: OverviewRegionProps) {
     const allTerminals = useAtomValue(model.terminalsAtom);
     const now = useAtomValue(model.structuralNowAtom);
     const agentEvents = useAtomValue(agentEventsAtom);
-    const seenTs = useAtomValue(seenTsAtom);
+    const seenTs = seenTsFor(useAtomValue(railSeenAtom), project);
     const terminals = useTerminalReads(allTerminals.filter((t) => projectOf(t) === project));
     const runEvents = useRunEvents(lineage);
     const running = runningRows(agents, terminals, lineage, project, now);
