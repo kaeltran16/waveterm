@@ -147,6 +147,11 @@ function EffortCreateDialog({ model, onClose, edit, open }: EffortCreateFormProp
     const line = lookupLine(lookup);
 
     const submit = async (): Promise<void> => {
+        // Ctrl+Enter reaches here without the button's canSubmit gate: a second press during the create RPC
+        // would create the initiative twice
+        if (submitting) {
+            return;
+        }
         setTitleError(title.trim() === "" ? "Title is required" : null);
         if (title.trim() === "") {
             setFailures((n) => n + 1);
