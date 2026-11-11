@@ -1015,12 +1015,14 @@ func installAgentHooksRun(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// probe first: claude --version can take seconds, and settings read before it would be written back
+	// over anything saved meanwhile
+	modsSupported := claudeSupportsMods()
 	existing, err := claudemod.ReadSettings(path)
 	if err != nil {
 		return err
 	}
 
-	modsSupported := claudeSupportsMods()
 	if configIsHealthy(existing, wsh, modDirs, modsSupported) {
 		fmt.Printf("Arc agent hooks already installed in %s (skipping)\n", path)
 	} else {

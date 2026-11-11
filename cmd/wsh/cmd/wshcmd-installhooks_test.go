@@ -1328,3 +1328,33 @@ func TestPostToolUseFailureHookIsManaged(t *testing.T) {
 	}
 	t.Fatalf("managed hooks missing %+v", want)
 }
+
+// claude --version can take seconds; a settings.json written meanwhile (a running claude, Settings > Skim)
+// must be what the install merges into, not the copy read before the probe
+func TestInstallAgentHooks_keepsAWriteMadeDuringTheVersionProbe(t *testing.T) {
+	home := stubInstallHome(t)
+	path := filepath.Join(home, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	claudeVersionOutput = func() (string, error) {
+		if err := os.WriteFile(path, []byte(`{"model":"opus"}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return "", os.ErrNotExist
+	}
+	if err := installAgentHooksRun(nil, nil); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["model"] != "opus" {
+		t.Fatalf("the write made during the probe was lost: %s", b)
+	}
+}
