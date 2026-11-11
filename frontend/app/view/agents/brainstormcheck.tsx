@@ -27,7 +27,7 @@ import {
     type TrackSegment,
 } from "./brainstormmodel";
 import { AnsweredRail, CheckReview, ReviewHints } from "./brainstormreview";
-import { approveAndOpenRun, openRunLauncher, sendBrainstorm } from "./brainstormsend";
+import { approveAndChangeRun, approveAndOpenRun, sendBrainstorm } from "./brainstormsend";
 import { openBrainstormDesign, setReviewCursor, type BrainstormState } from "./brainstormstore";
 import {
     AnswerBox,
@@ -354,7 +354,13 @@ function ApproveBar({
                     </span>
                     <span className="truncate font-mono text-[11px] text-muted">
                         {runLine(projectOf(agent))} ·{" "}
-                        <button type="button" onClick={() => openRunLauncher(model, agent, s)} className={LINK}>
+                        <button
+                            type="button"
+                            disabled={blocker != null || act.busy}
+                            title={blocker ?? undefined}
+                            onClick={() => void act.run(() => approveAndChangeRun(model, agent, s))}
+                            className={cn(LINK, "disabled:cursor-default disabled:opacity-50")}
+                        >
                             Change
                         </button>
                     </span>

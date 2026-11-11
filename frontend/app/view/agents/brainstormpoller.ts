@@ -26,6 +26,7 @@ import {
     terminalAnswer,
     type BrainstormFile,
     type OpenBrainstorm,
+    type SentLine,
 } from "./brainstormmodel";
 import {
     attachBrainstorm,
@@ -59,7 +60,8 @@ export type BrainstormIO = {
 
 export type OpenBrainstormsIO = Pick<BrainstormIO, "stat" | "read"> & { list(dir: string): Promise<string[]> };
 
-// a project's brainstorms that were never approved, newest first: what a new agent can carry on. One that can't be read
+// a project's brainstorms that were never approved, newest first: what a new agent can carry on. Approved is a run set
+// from it; done only means nothing is left to ask, and a done talk can still be confirmed or checked. One that can't be read
 // right now (mid-write, or not a brainstorm) is left out rather than failing the list.
 export async function listOpenBrainstorms(cwd: string, io: OpenBrainstormsIO): Promise<OpenBrainstorm[]> {
     const dir = brainstormsDir(cwd);
@@ -75,7 +77,7 @@ export async function listOpenBrainstorms(cwd: string, io: OpenBrainstormsIO): P
                     return null;
                 }
                 const parsed = parseBrainstorm(await io.read(path));
-                if (!("file" in parsed) || parsed.file.done) {
+                if (!("file" in parsed) || parsed.file.run != null) {
                     return null;
                 }
                 const modifiedMs = st.modifiedMs ?? 0;
@@ -284,6 +286,17 @@ export function settleBrainstorm(
     return { sent, sentCheckAt: nextSentCheckAt(cur.sentCheckAt, cur.sent, settled, agent?.builderCheck) };
 }
 
+// an answer typed in the terminal ends the judge's wait as one sent from the pane does (sendBrainstorm): a judge left
+// reading holds the next approach question's judge, and its result would land on a question already answered. Only
+// the poll that first finds the answer stops it, and only a judge Arc's record says is still reading.
+export function terminalAnswerStopsJudge(
+    prev: SentLine | null,
+    next: SentLine | null,
+    agent: Pick<AgentVM, "brainstormJudge"> | undefined
+): boolean {
+    return prev == null && next?.kind === "answer" && agent?.brainstormJudge?.state === "reading";
+}
+
 // A result that lands after the brainstorm was detached or replaced is dropped rather than written over it. The
 // sent line settles against the agent as the roster has it, before the overlay reads a question as asking. A removed
 // brainstorm is still polled, so a file that comes back leaves the gone view.
@@ -299,9 +312,18 @@ async function pollAndMerge(agentId: string, agent: AgentVM | undefined, io: Bra
     if (cur == null || cur.path !== s.path) {
         return;
     }
-    const settled = settleBrainstorm(cur, patch, agent, turnStartOf(agent));
-    if (Object.keys(patch).length > 0 || settled.sent !== cur.sent || settled.sentCheckAt !== cur.sentCheckAt) {
-        updateBrainstorm(agentId, (c) => (c.path === s.path ? { ...c, ...patch, ...settled } : c));
+    const turnStartMs = turnStartOf(agent);
+    const settled = settleBrainstorm(cur, patch, agent, turnStartMs);
+    if (agent?.blockId && terminalAnswerStopsJudge(cur.sent, settled.sent, agent)) {
+        const blockid = agent.blockId;
+        RpcApi.BrainstormJudgeStopCommand(TabRpcClient, { blockid }).catch((e) =>
+            console.warn("brainstorm: stopping the judge after a terminal answer failed", blockid, e)
+        );
+    }
+    const moved =
+        settled.sent !== cur.sent || settled.sentCheckAt !== cur.sentCheckAt || turnStartMs !== cur.turnStartMs;
+    if (Object.keys(patch).length > 0 || moved) {
+        updateBrainstorm(agentId, (c) => (c.path === s.path ? { ...c, ...patch, ...settled, turnStartMs } : c));
     }
     if (patch.file != null) {
         baselineBrainstormSeen(s.path, patch.file);

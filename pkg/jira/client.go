@@ -53,6 +53,11 @@ func New(cfg Config, hc *http.Client) *Client {
 	return &Client{cfg: cfg, hc: hc}
 }
 
+// Config is the credentials the client calls Jira with.
+func (c *Client) Config() Config {
+	return c.cfg
+}
+
 // site -> id of its "Acceptance Criteria" field ("" when the site has none); a site's fields rarely
 // change, so one lookup per site per wavesrv run
 var acFieldCache = struct {

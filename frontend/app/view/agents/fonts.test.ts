@@ -2,7 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { applyFontVars, DEFAULT_MONO, DEFAULT_SANS, MONO_FONTS, SANS_FONTS, stackOf } from "./fonts";
+import {
+    applyFontVars,
+    DEFAULT_MONO,
+    DEFAULT_SANS,
+    DEFAULT_TERM_FONT,
+    MONO_FONTS,
+    SANS_FONTS,
+    stackOf,
+    termFontId,
+    termFontPatch,
+} from "./fonts";
 
 describe("font catalog", () => {
     it("sans list has unique ids and includes the default", () => {
@@ -39,5 +49,27 @@ describe("applyFontVars", () => {
         applyFontVars(root as unknown as HTMLElement, "inter", "firacode");
         expect(set["--font-sans"]).toBe('"Inter", system-ui, sans-serif');
         expect(set["--font-mono"]).toBe('"Fira Code", monospace');
+    });
+});
+
+describe("termFontId", () => {
+    it("matches the bare family name the shipped default stores", () => {
+        expect(termFontId("Fira Code")).toBe("firacode");
+    });
+    it("matches a catalog stack", () => {
+        expect(termFontId('"JetBrains Mono", monospace')).toBe("jetbrains");
+    });
+    it("falls back to the terminal's own fallback when unset or unknown", () => {
+        expect(termFontId("")).toBe(DEFAULT_TERM_FONT);
+        expect(termFontId("Comic Mono")).toBe(DEFAULT_TERM_FONT);
+    });
+});
+
+describe("termFontPatch", () => {
+    it("drops the override when the pick is the shipped default's face", () => {
+        expect(termFontPatch("firacode", "Fira Code")).toBeNull();
+    });
+    it("writes the catalog stack for any other face", () => {
+        expect(termFontPatch("hack", "Fira Code")).toBe('"Hack", monospace');
     });
 });

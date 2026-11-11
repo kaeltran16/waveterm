@@ -245,7 +245,7 @@ function Design({
     const [target, setTarget] = useState<string | null>(null);
     // the design's rows the user opened or closed; kept here so they survive the question taking the main area
     const [opened, setOpened] = useState<Record<string, boolean>>({});
-    const check = builderCheckView(agent.builderCheck, s.sentCheckAt, s.file, s.modifiedMs, agent);
+    const check = builderCheckView(agent.builderCheck, s.sentCheckAt, s.file, s.modifiedMs, agent, s.turnStartMs);
     const lock = editLock(f, check);
     const view = mainView(f, s.designOpen, s.sent != null);
     const talkKey = view === "question" ? `question:${f.question!.n}` : view;

@@ -17,6 +17,7 @@ import {
     scanErrorText,
     scannedLabel,
     shouldAutoScan,
+    storageAlerts,
     storageSections,
     storageStats,
     type StorageRowVM,
@@ -492,5 +493,18 @@ describe("deletePlan wording", () => {
         expect(text(plan({ branch: BRANCH, onlycount: 2 }).lead)).toBe(
             "Deletes the branch wave/5c5c5c5c. These 2 commits are on no other branch and are lost for good:"
         );
+    });
+});
+
+describe("storageAlerts", () => {
+    it("shows a failed scan or clear before the per-project errors", () => {
+        const r: StorageReportData = { ...S.error, joberror: "scan failed: open C:\runs: access denied" };
+        expect(storageAlerts(r).map((a) => a.text)).toEqual([
+            "Scan failed: open C:\runs: access denied",
+            ...S.error.errors.map(scanErrorText),
+        ]);
+    });
+    it("is empty when nothing failed", () => {
+        expect(storageAlerts(S.clean)).toEqual([]);
     });
 });

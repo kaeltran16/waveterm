@@ -549,6 +549,15 @@ export function vaultSyncButton(s: VaultStatusRtnData | null, clicking: boolean)
     return { enabled: s != null && !s.off, label: "Sync now" };
 }
 
+export const VAULT_STATUS_POLL_MS = 2000;
+
+// how soon the Vault section re-reads a status that says a sync runs. wavesrv also syncs after a synced
+// setting changes, at launch and on window focus, and the status read on opening would otherwise keep
+// the row "Syncing…" until the section is reopened. A click's own sync reloads when it completes.
+export function vaultStatusPollMs(s: VaultStatusRtnData | null, clicking: boolean): number | null {
+    return s?.running && !clicking ? VAULT_STATUS_POLL_MS : null;
+}
+
 // what a rejected Sync now puts in the row's error note. a sync's own failure is already in the reloaded
 // status as `lasterror` (shown by the status line), so only an RPC failure gets a note: the status has no
 // error, could not be loaded, or still runs (the RPC timeout fired mid-sync).
@@ -557,6 +566,30 @@ export function vaultSyncFailureNote(err: string, reloaded: VaultStatusRtnData |
         return err;
     }
     return null;
+}
+
+// a commit-on-blur field's key and blur handling. Enter and Escape both leave the field by blurring it,
+// and the blur is the one place that commits: the blur runs synchronously inside the keydown, from the
+// render that still holds the typed draft, so committing in the keydown as well fired twice, and
+// resetting the draft before the blur could not stop the abandoned text from being committed.
+export function commitFieldGate() {
+    let abandoned = false;
+    return {
+        // whether the key leaves the field
+        key(key: string): boolean {
+            if (key === "Escape") {
+                abandoned = true;
+                return true;
+            }
+            return key === "Enter";
+        },
+        // whether this blur commits the draft
+        blur(): boolean {
+            const commit = !abandoned;
+            abandoned = false;
+            return commit;
+        },
+    };
 }
 
 const JIRA_SITE_RE = /^https:\/\/[a-z0-9-]+\.atlassian\.net\/?$/i;

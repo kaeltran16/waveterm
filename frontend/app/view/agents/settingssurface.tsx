@@ -15,6 +15,7 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { parseJiraError } from "@/app/view/jarvis/jiraticket";
+import { termScrollback } from "@/app/view/term/termutil";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtom, useAtomValue } from "jotai";
 import { Check, Folder, KeyRound, RefreshCw, Search } from "lucide-react";
@@ -43,7 +44,7 @@ import {
     startupSurfaceOptions,
     vaultPathError,
 } from "./cockpitprefsstore";
-import { DEFAULT_MONO, DEFAULT_SANS, DEFAULT_TERM_FONT, MONO_FONTS, SANS_FONTS, stackOf } from "./fonts";
+import { DEFAULT_MONO, DEFAULT_SANS, MONO_FONTS, SANS_FONTS, termFontId, termFontPatch } from "./fonts";
 import { fontMonoAtom, fontSansAtom } from "./fontstore";
 import { harnessPickerItems } from "./harnesspicker";
 import { harnessPreferenceAtom, setPreferredRoute } from "./harnessstore";
@@ -57,6 +58,7 @@ import { remoteStatusAtom, saveRemoteSetup, setRemoteOn } from "./remotestore";
 import { RoutePicker } from "./routepicker";
 import {
     changedCount,
+    commitFieldGate,
     countLabel,
     filterSections,
     FLAG_RUNTIMES,
@@ -74,13 +76,19 @@ import {
     SKIM_FIELDS,
     SKIM_PLUGIN,
     vaultStatusLine,
+    vaultStatusPollMs,
     vaultSyncButton,
     vaultSyncFailureNote,
     visibleRowIds,
     type SettingRowDef,
     type SettingSectionDef,
 } from "./settingsmodel";
-import { pendingSettingsSectionAtom, settingsSectionAtom, takePendingSettingsSection } from "./settingsstore";
+import {
+    pendingSettingsSectionAtom,
+    settingsSectionAtom,
+    takePendingSettingsSection,
+    writeConfig,
+} from "./settingsstore";
 import { navSummary } from "./storagemodel";
 import { StorageHeaderActions, StorageSection } from "./storagesection";
 import { loadStorage, startStoragePoll, storageReportAtom } from "./storagestore";
@@ -101,13 +109,6 @@ const OVERRIDE_ROLES: OverrideRole[] = ["accent", "success", "warning", "error"]
 const defaultSettingsAtom = atom(
     (get) => (get(atoms.fullConfigAtom)?.defaultsettings ?? null) as Record<string, unknown> | null
 );
-
-// SetConfigCommand's data param is a typed settings map; a dynamic-key patch needs the cast. A null
-// value deletes the key from settings.json (wconfig.SetBaseConfigValue), which is how Revert works —
-// dropping the override lets the shipped default take over again.
-function writeConfig(patch: Record<string, unknown>) {
-    void RpcApi.SetConfigCommand(TabRpcClient, patch as Parameters<typeof RpcApi.SetConfigCommand>[1]);
-}
 
 // Every value here is a scalar, so identity is enough; the ?? folds an absent key and an explicit null
 // together, since both mean "not set".
@@ -659,6 +660,7 @@ function CommitText({
     children?: ReactNode;
 }) {
     const [draft, setDraft] = useState(value);
+    const [gate] = useState(commitFieldGate);
     const external = useRef(value);
     useEffect(() => {
         if (value !== external.current) {
@@ -682,13 +684,12 @@ function CommitText({
                 disabled={disabled}
                 spellCheck={false}
                 onChange={(e) => setDraft(e.target.value)}
-                onBlur={commit}
+                onBlur={() => gate.blur() && commit()}
                 onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                        commit();
-                        e.currentTarget.blur();
-                    } else if (e.key === "Escape") {
+                    if (e.key === "Escape") {
                         setDraft(value);
+                    }
+                    if (gate.key(e.key)) {
                         e.currentTarget.blur();
                     }
                 }}
@@ -707,6 +708,7 @@ function CommitText({
 // once the key actually lands — a failed write leaves what you pasted in place.
 function SecretInput({ placeholder, onCommit }: { placeholder: string; onCommit: (v: string) => Promise<boolean> }) {
     const [draft, setDraft] = useState("");
+    const [gate] = useState(commitFieldGate);
     const commit = () => {
         const v = draft.trim();
         if (v === "") {
@@ -726,13 +728,12 @@ function SecretInput({ placeholder, onCommit }: { placeholder: string; onCommit:
             spellCheck={false}
             autoComplete="off"
             onChange={(e) => setDraft(e.target.value)}
-            onBlur={commit}
+            onBlur={() => gate.blur() && commit()}
             onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                    commit();
-                    e.currentTarget.blur();
-                } else if (e.key === "Escape") {
+                if (e.key === "Escape") {
                     setDraft("");
+                }
+                if (gate.key(e.key)) {
                     e.currentTarget.blur();
                 }
             }}
@@ -893,9 +894,8 @@ function Swatch({ color }: { color: string }) {
 function FontsSection() {
     const [sans, setSans] = useAtom(fontSansAtom);
     const [mono, setMono] = useAtom(fontMonoAtom);
-    const termFontStack = (useAtomValue(getSettingsKeyAtom("term:fontfamily")) as string) ?? "";
-    // terminal font is stored as the full stack string; match it back to a catalog id for the control.
-    const termFontId = MONO_FONTS.find((f) => f.stack === termFontStack)?.id ?? DEFAULT_TERM_FONT;
+    const termFont = termFontId((useAtomValue(getSettingsKeyAtom("term:fontfamily")) as string) ?? "");
+    const shippedTermFont = useAtomValue(defaultSettingsAtom)?.["term:fontfamily"] as string | undefined;
     const sansOpts = SANS_FONTS.map((f) => ({ id: f.id, label: f.label }));
     const monoOpts = MONO_FONTS.map((f) => ({ id: f.id, label: f.label }));
     return (
@@ -909,8 +909,8 @@ function FontsSection() {
             <SettingRow id="fonts.term">
                 <Segmented
                     options={monoOpts}
-                    value={termFontId}
-                    onChange={(id) => writeConfig({ "term:fontfamily": stackOf(MONO_FONTS, id) })}
+                    value={termFont}
+                    onChange={(id) => writeConfig({ "term:fontfamily": termFontPatch(id, shippedTermFont) })}
                 />
             </SettingRow>
         </div>
@@ -1476,7 +1476,7 @@ function RunRouteSection() {
 
 function TerminalSection() {
     const fontSize = (useAtomValue(getSettingsKeyAtom("term:fontsize")) as number) ?? 12;
-    const scrollback = (useAtomValue(getSettingsKeyAtom("term:scrollback")) as number) ?? 1000;
+    const scrollback = termScrollback(useAtomValue(getSettingsKeyAtom("term:scrollback")) as number);
     const cursorRaw = (useAtomValue(getSettingsKeyAtom("term:cursor")) as string) ?? "block";
     const cursorBlink = (useAtomValue(getSettingsKeyAtom("term:cursorblink")) as boolean) ?? false;
     const copyOnSelect = (useAtomValue(getSettingsKeyAtom("term:copyonselect")) as boolean) ?? false;
@@ -1549,9 +1549,18 @@ function MemorySection() {
         }
     };
     const loadStatus = () => fireAndForget(reloadStatus);
+    // a new vault path is a different vault, with its own remote and last sync
     useEffect(() => {
         loadStatus();
-    }, []);
+    }, [stored]);
+    const pollMs = vaultStatusPollMs(status, clicking);
+    useEffect(() => {
+        if (pollMs == null) {
+            return;
+        }
+        const t = setTimeout(loadStatus, pollMs);
+        return () => clearTimeout(t);
+    }, [status, pollMs]);
     const setRemote = (url: string) =>
         fireAndForget(async () => {
             setRemoteError(null);
@@ -1892,6 +1901,8 @@ function JiraSection() {
     const email = (useAtomValue(getSettingsKeyAtom("jira:email")) as string) ?? "";
 
     const [hasToken, setHasToken] = useState(false);
+    // bumps on every saved token: replacing one leaves hasToken true, and the line must still be read again
+    const [tokenRev, setTokenRev] = useState(0);
     const [replacing, setReplacing] = useState(false);
     const [siteError, setSiteError] = useState<string | null>(null);
     const [tokenError, setTokenError] = useState<string | null>(null);
@@ -1922,7 +1933,7 @@ function JiraSection() {
     // a changed site, email or token changes what is missing, so the line is read again (never a Jira call)
     useEffect(() => {
         fireAndForget(() => readConnection(false));
-    }, [site, email, hasToken]);
+    }, [site, email, hasToken, tokenRev]);
 
     const testAgain = () =>
         fireAndForget(async () => {
@@ -1947,6 +1958,7 @@ function JiraSection() {
         try {
             await RpcApi.SetSecretsCommand(TabRpcClient, { [JIRA_SECRET_NAME]: token });
             setHasToken(true);
+            setTokenRev((n) => n + 1);
             setReplacing(false);
             return true;
         } catch (e) {

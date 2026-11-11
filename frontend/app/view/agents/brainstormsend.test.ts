@@ -9,7 +9,14 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
 import { brainstormLine, runPrefill, type BrainstormAction, type BrainstormFile } from "./brainstormmodel";
-import { approveAndOpenRun, openRunLauncher, pickPart, reportSendFailure, sendBrainstorm } from "./brainstormsend";
+import {
+    approveAndChangeRun,
+    approveAndOpenRun,
+    openRunLauncher,
+    pickPart,
+    reportSendFailure,
+    sendBrainstorm,
+} from "./brainstormsend";
 import {
     attachBrainstorm,
     brainstormsAtom,
@@ -287,6 +294,30 @@ describe("sendBrainstorm", () => {
         const io = fakeIO();
         await sendBrainstorm(AGENT, { kind: "answer", text: "yes" }, io);
         expect(io.calls).toEqual(["prompt blk-1"]);
+    });
+});
+
+describe("approveAndChangeRun", () => {
+    it("approves before it opens the launcher, as Approve does", async () => {
+        const model = fakeModel();
+        const seen: unknown[] = [];
+        const io = {
+            prompt: async (blockId: string, text: string) => {
+                seen.push([blockId, text, globalStore.get(model.newRunOpenAtom)]);
+            },
+            stopJudge: async () => {},
+        };
+        await approveAndChangeRun(model, AGENT, STATE, io);
+        expect(seen).toEqual([["blk-1", "brainstorm: approved", false]]);
+        expect(globalStore.get(newRunPrefillAtom)).toMatchObject(runPrefill(FILE, { projectName: "siem", cwd: "/p" }));
+        expect(globalStore.get(model.newRunOpenAtom)).toBe(true);
+    });
+
+    it("leaves the launcher closed when the approval cannot be sent", async () => {
+        const model = fakeModel();
+        await expect(approveAndChangeRun(model, AGENT, STATE, fakeIO(true))).rejects.toThrow("Couldn't send to");
+        expect(globalStore.get(newRunPrefillAtom)).toBeNull();
+        expect(globalStore.get(model.newRunOpenAtom)).toBe(false);
     });
 });
 

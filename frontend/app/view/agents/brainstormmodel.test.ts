@@ -233,6 +233,36 @@ describe("parseBrainstorm", () => {
         expect(r.file.check?.answered).toEqual(["done one"]);
     });
 
+    it("reads a blank builder answer as unanswered, as the judge does", () => {
+        const r = parseBrainstorm(
+            raw({
+                check: {
+                    yours: [
+                        { q: "Q?", a: "" },
+                        { q: "R?", a: "  " },
+                    ],
+                    calls: [],
+                    answered: [],
+                },
+            })
+        );
+        expect(r.ok).toBe(true);
+        if (!r.ok) {
+            return;
+        }
+        expect(r.file.check?.yours).toEqual([{ q: "Q?" }, { q: "R?" }]);
+    });
+
+    it("reads a blank working or run as not set", () => {
+        const r = parseBrainstorm(raw({ working: "", run: " " }));
+        expect(r.ok).toBe(true);
+        if (!r.ok) {
+            return;
+        }
+        expect(r.file.working).toBeNull();
+        expect(r.file.run).toBeNull();
+    });
+
     it("reads a builder question's into as a string or a list, and its label, part and options", () => {
         const options = [
             { label: "Resolve itself", detail: "once caught up", pick: true, pros: ["no rota"], cons: ["flaps"] },
@@ -531,6 +561,13 @@ describe("builderCheckView", () => {
         expect(builderCheckView(rec("answered"), null, ready, 1200, working)).toEqual(TAKING_IN);
         expect(builderCheckView(rec("answered"), null, ready, 1000, idleBefore)).toEqual(TAKING_IN);
         expect(builderCheckView(rec("answered"), null, checked, 1200, idleBefore)).toEqual({ kind: "none" });
+    });
+
+    it("answered stays taken through a later turn, one that started after the agent wrote the questions in", () => {
+        expect(builderCheckView(rec("answered"), null, ready, 1200, working, 1500)).toEqual({ kind: "none" });
+        // the turn that takes them in started before its own write
+        expect(builderCheckView(rec("answered"), null, ready, 1200, working, 1100)).toEqual(TAKING_IN);
+        expect(builderCheckView(rec("answered"), null, ready, 900, working, 1500)).toEqual(TAKING_IN);
     });
 
     it("failed shows its reason while the file has no check, and hides once it has one", () => {

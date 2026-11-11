@@ -45,6 +45,7 @@ import {
     currentTab,
     paneState,
     prototypePath,
+    removedExit,
     shownBoard,
     shownBoards,
     updatedAgo,
@@ -233,7 +234,7 @@ export function CanvasPane({
                 {pane === "server-down" ? (
                     <ServerDown />
                 ) : pane === "removed" ? (
-                    <Removed agent={agent} topic={s.topic} />
+                    <Removed agent={agent} topic={s.topic} onBack={onBack} backLabel={backLabel} />
                 ) : (
                     // the shown boards (every one under All) at their canvas.json frames, each iframe at the board's full size, so the canvas
                     // scrolls here, in Arc, instead of showing the board pages' own scrollbars. The gutter is
@@ -556,16 +557,31 @@ function ServerDown() {
     );
 }
 
-function Removed({ agent, topic }: { agent: AgentVM; topic: string }) {
+function Removed({
+    agent,
+    topic,
+    onBack,
+    backLabel,
+}: {
+    agent: AgentVM;
+    topic: string;
+    onBack?: () => void;
+    backLabel?: string;
+}) {
+    const exit = removedExit(onBack != null ? (backLabel ?? "Back") : undefined);
     return (
         <EdgeState>
             <span className="text-[14px] font-semibold text-primary">{topic} was removed</span>
             <span className={EXPLAINER}>
-                Its folder under .superpowers/design is gone, usually because the feature shipped. The swap control
-                disappears once you go back to the terminal.
+                Its folder under .superpowers/design is gone, usually because the feature shipped.
+                {exit.detach ? " The swap control disappears once you go back to the terminal." : ""}
             </span>
-            <button type="button" onClick={() => detachCanvas(agent.id)} className={cn("mt-[4px]", CANVAS_BTN)}>
-                Back to terminal
+            <button
+                type="button"
+                onClick={() => (exit.detach ? detachCanvas(agent.id) : onBack?.())}
+                className={cn("mt-[4px]", CANVAS_BTN)}
+            >
+                {exit.label}
             </button>
         </EdgeState>
     );

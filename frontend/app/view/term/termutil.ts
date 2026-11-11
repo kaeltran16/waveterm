@@ -15,6 +15,16 @@ export function trimTerminalSelection(text: string): string {
         .join("\n");
 }
 
+const DEFAULT_SCROLLBACK = 2000;
+const MAX_SCROLLBACK = 50000;
+
+// the lines a terminal keeps: a block's own term:scrollback over the setting, 2000 when neither is set.
+// Settings > Terminal shows the same number for an unset key.
+export function termScrollback(setting: number | null | undefined, block?: number | null): number {
+    const n = Math.floor(block || setting || DEFAULT_SCROLLBACK);
+    return Math.min(MAX_SCROLLBACK, Math.max(0, n));
+}
+
 export function normalizeCursorStyle(cursorStyle: string): TermTypes.Terminal["options"]["cursorStyle"] {
     if (cursorStyle === "underline" || cursorStyle === "bar") {
         return cursorStyle;

@@ -5,6 +5,7 @@ package jira
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"reflect"
 	"testing"
@@ -107,30 +108,60 @@ func TestRecordSeenCaches(t *testing.T) {
 	}
 }
 
-func TestNoteConnectionKeepsLastOk(t *testing.T) {
-	prev := LastConnection()
-	t.Cleanup(func() { setConnection(prev) })
-	setConnection(wshrpc.JiraConnection{})
+func resetConnection(t *testing.T) {
+	connMem.Lock()
+	prevKey, prevConn := connMem.key, connMem.conn
+	connMem.key, connMem.conn = [sha256.Size]byte{}, wshrpc.JiraConnection{}
+	connMem.Unlock()
+	t.Cleanup(func() {
+		connMem.Lock()
+		connMem.key, connMem.conn = prevKey, prevConn
+		connMem.Unlock()
+	})
+}
 
-	NoteConnection("Fixture User", nil, 100)
-	got := LastConnection()
+var connCfg = Config{Site: "https://acme.atlassian.net", Email: "me@acme.test", Token: "tok-1"}
+
+func TestNoteConnectionKeepsLastOk(t *testing.T) {
+	resetConnection(t)
+
+	NoteConnection(connCfg, "Fixture User", nil, 100)
+	got := LastConnection(connCfg)
 	if !got.Ok || got.DisplayName != "Fixture User" || got.CheckedTs != 100 || got.LastOkTs != 100 || got.Error != "" {
 		t.Fatalf("after success: %+v", got)
 	}
-	NoteConnection("", nil, 150)
-	if got := LastConnection(); got.DisplayName != "Fixture User" || got.LastOkTs != 150 {
+	NoteConnection(connCfg, "", nil, 150)
+	if got := LastConnection(connCfg); got.DisplayName != "Fixture User" || got.LastOkTs != 150 {
 		t.Fatalf("a success with no name dropped the name: %+v", got)
 	}
-	NoteConnection("", &HTTPError{Status: 401, Message: "Unauthorized"}, 200)
-	got = LastConnection()
+	NoteConnection(connCfg, "", &HTTPError{Status: 401, Message: "Unauthorized"}, 200)
+	got = LastConnection(connCfg)
 	if got.Ok || got.DisplayName != "Fixture User" || got.LastOkTs != 150 || got.CheckedTs != 200 {
 		t.Fatalf("after failure: %+v", got)
 	}
 	if got.Error != "EC-JIRA-HTTP 401: Unauthorized" {
 		t.Errorf("Error = %q", got.Error)
 	}
-	NoteConnection("", Unreachable(errors.New("dial tcp: refused")), 250)
-	if got := LastConnection(); got.CheckedTs != 250 || got.Error != "EC-JIRA-UNREACHABLE: dial tcp: refused" {
+	NoteConnection(connCfg, "", Unreachable(errors.New("dial tcp: refused")), 250)
+	if got := LastConnection(connCfg); got.CheckedTs != 250 || got.Error != "EC-JIRA-UNREACHABLE: dial tcp: refused" {
 		t.Fatalf("after unreachable: %+v", got)
+	}
+}
+
+func TestLastConnectionIsPerCredentials(t *testing.T) {
+	resetConnection(t)
+	NoteConnection(connCfg, "Fixture User", nil, 100)
+	for name, other := range map[string]Config{
+		"site":  {Site: "https://other.atlassian.net", Email: connCfg.Email, Token: connCfg.Token},
+		"email": {Site: connCfg.Site, Email: "you@acme.test", Token: connCfg.Token},
+		"token": {Site: connCfg.Site, Email: connCfg.Email, Token: "tok-bad"},
+	} {
+		if got := LastConnection(other); got.Ok || got.CheckedTs != 0 || got.DisplayName != "" {
+			t.Errorf("a changed %s reads the old outcome: %+v", name, got)
+		}
+	}
+	NoteConnection(Config{Site: connCfg.Site, Email: connCfg.Email, Token: "tok-bad"}, "", errors.New("EC-JIRA-HTTP 401"), 200)
+	if got := LastConnection(connCfg); got.Ok || got.CheckedTs != 0 {
+		t.Errorf("another token's outcome kept the old record: %+v", got)
 	}
 }
