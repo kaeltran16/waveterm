@@ -43,8 +43,8 @@ func TestResolveRunWorkerFromMeta_ResolvesAStampedWorker(t *testing.T) {
 	}
 }
 
-// TestResolveRunWorkerFromMeta_FallsBackToScan proves a worker with no owner stamp still resolves, to
-// the run row whose phase lists it, so a missing best-effort stamp never regresses resolution.
+// TestResolveRunWorkerFromMeta_FallsBackToScan proves a worker whose tab is gone (its exit being handled)
+// still resolves, to the run row whose phase lists it: there is no tab left to carry a stamp.
 func TestResolveRunWorkerFromMeta_FallsBackToScan(t *testing.T) {
 	ctx := context.Background()
 	ch, err := wstore.CreateChannel(ctx, "rw-fallback", "/p")
@@ -58,7 +58,7 @@ func TestResolveRunWorkerFromMeta_FallsBackToScan(t *testing.T) {
 	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
 		t.Fatalf("append run: %v", err)
 	}
-	m := ResolveRunWorkerFromMeta(ctx, unstamped) // no stamp -> fallback scan
+	m := ResolveRunWorkerFromMeta(ctx, unstamped) // no tab -> fallback scan
 	if m == nil || m.Run.ID != runID || m.PhaseIdx != 0 || m.Channel.OID != ch.OID {
 		t.Fatalf("fallback resolve wrong: %+v", m)
 	}
@@ -295,5 +295,29 @@ func TestPostOutcomeOnlyForDispatchedWorker(t *testing.T) {
 	PostOutcome(full2, worker2, "claude", OutcomeData{Status: "done", Summary: "s"})
 	if got := countOutcomes(t, ctx, ch2.OID, worker2); got != 0 {
 		t.Fatalf("undispatched worker must get no outcome, got %d", got)
+	}
+}
+
+// every spawn stamps its worker tab before the process starts, so a live tab with no stamp is a plain agent:
+// scanning every run row for it cost ~330 ms per call on a 3,700-run store and never found an owner
+func TestResolveRunWorkerFromMeta_UnstampedTabIsNoRun(t *testing.T) {
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "rw-unstamped", "/p")
+	if err != nil {
+		t.Fatalf("create channel: %v", err)
+	}
+	tabOID := uuid.NewString()
+	if err := wstore.DBInsert(ctx, &waveobj.Tab{OID: tabOID, Name: "plain", Meta: waveobj.MetaMapType{}}); err != nil {
+		t.Fatalf("seed tab: %v", err)
+	}
+	tab := waveobj.MakeORef(waveobj.OType_Tab, tabOID).String()
+	// a run row that lists the tab: only the scan would find it
+	run := waveobj.Run{ID: uuid.NewString(), Goal: "g", Status: "executing", CreatedTs: 1,
+		Phases: []waveobj.RunPhase{{Kind: PhaseKind_Execute, WorkerOrefs: []string{tab}}}}
+	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
+		t.Fatalf("append run: %v", err)
+	}
+	if m := ResolveRunWorkerFromMeta(ctx, tab); m != nil {
+		t.Fatalf("an unstamped tab resolved to run %s; want no run, without a scan", m.Run.ID)
 	}
 }

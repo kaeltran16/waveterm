@@ -38,6 +38,17 @@ func workerPhase(tabORef string) []waveobj.RunPhase {
 	return []waveobj.RunPhase{{Kind: "execute", State: "running", WorkerOrefs: []string{tabORef}}}
 }
 
+// seedWorkerRun stores run with tabORef as its worker, stamped as every spawn stamps it
+func seedWorkerRun(t *testing.T, channelId, tabORef string, run waveobj.Run) waveobj.Run {
+	t.Helper()
+	run.Phases = workerPhase(tabORef)
+	run = seedUsageRun(t, channelId, run)
+	if err := wstore.StampWorkerOwner(context.Background(), tabORef, "run:"+run.ID, "channel:"+run.ChannelOID); err != nil {
+		t.Fatal(err)
+	}
+	return run
+}
+
 func TestResMonResolverLabels(t *testing.T) {
 	ctx := context.Background()
 	blockOwner := func(id string) jobobject.Owner { return jobobject.Owner{Kind: jobobject.OwnerKind_Block, Id: id} }
@@ -47,17 +58,17 @@ func TestResMonResolverLabels(t *testing.T) {
 	leadBlock, leadTab := seedResMonTab(t, "lead tab", "pi")
 	workerBlock, workerTab := seedResMonTab(t, "worker tab", "pi")
 
-	lead := seedUsageRun(t, "", waveobj.Run{Mode: "orchestrator", Goal: "the goal\nmore", DagORef: uuid.NewString(), Phases: workerPhase(leadTab)})
+	lead := seedWorkerRun(t, "", leadTab, waveobj.Run{Mode: "orchestrator", Goal: "the goal\nmore", DagORef: uuid.NewString()})
 	dag := waveobj.TaskGroup{OID: lead.DagORef, ID: lead.DagORef, RunID: lead.ID, ChannelId: lead.ChannelOID, Title: "cache-miss notice",
 		Tasks: []waveobj.TaskNode{{ID: "2"}}}
 	if err := wstore.AppendDag(ctx, &dag); err != nil {
 		t.Fatal(err)
 	}
-	seedUsageRun(t, lead.ChannelOID, waveobj.Run{TaskId: "2", DagORef: lead.DagORef, Phases: workerPhase(workerTab)})
+	seedWorkerRun(t, lead.ChannelOID, workerTab, waveobj.Run{TaskId: "2", DagORef: lead.DagORef})
 	reviewBlock, reviewTab := seedResMonTab(t, "review tab", "claude")
-	seedUsageRun(t, lead.ChannelOID, waveobj.Run{TaskId: "2", Review: true, DagORef: lead.DagORef, Phases: workerPhase(reviewTab)})
+	seedWorkerRun(t, lead.ChannelOID, reviewTab, waveobj.Run{TaskId: "2", Review: true, DagORef: lead.DagORef})
 	verifierBlock, verifierTab := seedResMonTab(t, "verifier tab", "claude")
-	seedUsageRun(t, lead.ChannelOID, waveobj.Run{StageRole: jarvis.UsageRole_Verifier, DagORef: lead.DagORef, Phases: workerPhase(verifierTab)})
+	seedWorkerRun(t, lead.ChannelOID, verifierTab, waveobj.Run{StageRole: jarvis.UsageRole_Verifier, DagORef: lead.DagORef})
 	quick := seedUsageRun(t, "", waveobj.Run{Mode: "quick", Goal: "fix the cache\nthen tidy"})
 	goneRun := uuid.NewString()
 

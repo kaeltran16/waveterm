@@ -82,7 +82,7 @@ type AgentStatusData struct {
 	Hook string `json:"hook,omitempty"`
 	// NotificationType is the notification_type of Claude Code's Notification hook; only that hook sets it
 	NotificationType string `json:"notificationtype,omitempty"`
-	// Ended is set by pi's shutdown report: pi exited back to its shell, which keeps running
+	// Ended is set by pi's shutdown report and claude's SessionEnd: the agent exited back to its shell, which keeps running
 	Ended bool `json:"ended,omitempty"`
 	// PermissionMode is the permission_mode every Claude Code hook payload carries (default, acceptEdits, plan, ...)
 	PermissionMode string `json:"permissionmode,omitempty"`

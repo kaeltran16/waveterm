@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/wavetermdev/waveterm/pkg/baseds"
+	"github.com/wavetermdev/waveterm/pkg/orchestrate"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 )
 
@@ -200,6 +202,11 @@ const agentsTestSentTs = int64(1_000_000)
 // sleeping moves, and reports how many reads it took
 func agentsWaitScript(t *testing.T, timeout time.Duration, reads ...wshrpc.CommandAgentsReadRtnData) (*wshrpc.CommandAgentsReadRtnData, int, error) {
 	t.Helper()
+	return agentsWaitScriptSent(t, &wshrpc.CommandAgentsSendRtnData{TabId: agentsTestTabA, SentTs: agentsTestSentTs}, timeout, reads...)
+}
+
+func agentsWaitScriptSent(t *testing.T, sent *wshrpc.CommandAgentsSendRtnData, timeout time.Duration, reads ...wshrpc.CommandAgentsReadRtnData) (*wshrpc.CommandAgentsReadRtnData, int, error) {
+	t.Helper()
 	clock := time.UnixMilli(agentsTestSentTs)
 	n := 0
 	read := func() (*wshrpc.CommandAgentsReadRtnData, error) {
@@ -214,7 +221,6 @@ func agentsWaitScript(t *testing.T, timeout time.Duration, reads ...wshrpc.Comma
 		}
 		clock = clock.Add(d)
 	}
-	sent := &wshrpc.CommandAgentsSendRtnData{TabId: agentsTestTabA, SentTs: agentsTestSentTs}
 	r, err := agentsWait(read, sleep, func() time.Time { return clock }, sent, timeout)
 	return r, n, err
 }
@@ -263,11 +269,38 @@ func TestAgentsWaitTimesOut(t *testing.T) {
 	if r != nil || err == nil {
 		t.Fatalf("got %+v, %v; want a timeout error", r, err)
 	}
-	if !strings.Contains(err.Error(), "still working") || !strings.Contains(err.Error(), "wsh agents read aaaaaaaa") {
-		t.Errorf("err = %v, want it to say the target is still working and how to read later", err)
+	if !strings.Contains(err.Error(), "still working") || !strings.Contains(err.Error(), "wsh agents wait aaaaaaaa") {
+		t.Errorf("err = %v, want it to say the target is still working and how to keep waiting", err)
 	}
 	if n != 4 {
 		t.Errorf("reads = %d, want 4 (one at the start, one per poll until the timeout)", n)
+	}
+}
+
+// a send that never started a turn left the target idle on its older answer, and --wait sat out the full
+// timeout before saying anything
+func TestAgentsWaitFailsFastWhenNoTurnStarts(t *testing.T) {
+	stale := wshrpc.CommandAgentsReadRtnData{State: wshrpc.AgentsState_Idle, Answer: "old", AnswerTs: agentsTestSentTs}
+	r, n, err := agentsWaitScript(t, 10*time.Minute, stale)
+	if r != nil || err == nil || !strings.Contains(err.Error(), "did not start a turn") {
+		t.Fatalf("got %+v, %v; want an error saying no turn started", r, err)
+	}
+	if want := int(orchestrate.WakeConfirmTimeout/agentsWaitPoll) + 1; n != want {
+		t.Errorf("reads = %d, want %d (the gate is the engine's wake-confirm window, not the timeout)", n, want)
+	}
+}
+
+func TestAgentsWaitStallGateOnlyBeforeATurnStarts(t *testing.T) {
+	stale := wshrpc.CommandAgentsReadRtnData{State: wshrpc.AgentsState_Idle, Answer: "old", AnswerTs: agentsTestSentTs}
+	// a send that joined a running turn: the target may read idle briefly between turns
+	joined := &wshrpc.CommandAgentsSendRtnData{TabId: agentsTestTabA, SentTs: agentsTestSentTs, MidTurn: true}
+	if _, _, err := agentsWaitScriptSent(t, joined, 2*time.Minute, stale); err == nil || !strings.Contains(err.Error(), "still working after") {
+		t.Errorf("mid-turn send: err = %v, want the plain timeout", err)
+	}
+	// a turn that started and is slow is not a stall
+	working := wshrpc.CommandAgentsReadRtnData{State: wshrpc.AgentsState_Working, Answer: "old", AnswerTs: agentsTestSentTs}
+	if _, _, err := agentsWaitScript(t, 2*time.Minute, stale, working); err == nil || !strings.Contains(err.Error(), "still working after") {
+		t.Errorf("started turn: err = %v, want the plain timeout", err)
 	}
 }
 
@@ -278,6 +311,94 @@ func TestAgentsWaitReturnsAReadError(t *testing.T) {
 	_, err := agentsWait(read, sleep, time.Now, &wshrpc.CommandAgentsSendRtnData{TabId: agentsTestTabA}, time.Minute)
 	if !errors.Is(err, boom) {
 		t.Errorf("err = %v, want the read's error as it came", err)
+	}
+}
+
+// agentsWaitUntilScript runs agentsWaitUntil over scripted reads (the last one repeats) with a clock that only
+// sleeping moves, and reports how many reads it took
+func agentsWaitUntilScript(t *testing.T, until string, timeout time.Duration, reads ...wshrpc.CommandAgentsReadRtnData) (*wshrpc.CommandAgentsReadRtnData, int, error) {
+	t.Helper()
+	clock := time.UnixMilli(agentsTestSentTs)
+	n := 0
+	read := func() (*wshrpc.CommandAgentsReadRtnData, error) {
+		r := reads[min(n, len(reads)-1)]
+		r.TabId = agentsTestTabA
+		n++
+		return &r, nil
+	}
+	sleep := func(d time.Duration) { clock = clock.Add(d) }
+	r, err := agentsWaitUntil(read, sleep, func() time.Time { return clock }, until, timeout)
+	return r, n, err
+}
+
+// the only wait was attached to send, so after a timeout the caller polled wsh agents read by hand
+func TestAgentsWaitUntil(t *testing.T) {
+	working := wshrpc.CommandAgentsReadRtnData{State: wshrpc.AgentsState_Working}
+	idle := wshrpc.CommandAgentsReadRtnData{State: wshrpc.AgentsState_Idle, Answer: "done", AnswerTs: 5}
+	asking := wshrpc.CommandAgentsReadRtnData{State: wshrpc.AgentsState_Asking}
+	cases := []struct {
+		name   string
+		until  string
+		reads  []wshrpc.CommandAgentsReadRtnData
+		want   string
+		nReads int
+	}{
+		{"settles on idle", "", []wshrpc.CommandAgentsReadRtnData{working, working, idle}, wshrpc.AgentsState_Idle, 3},
+		{"settles on asking", "", []wshrpc.CommandAgentsReadRtnData{working, asking}, wshrpc.AgentsState_Asking, 2},
+		{"already idle returns at once", "", []wshrpc.CommandAgentsReadRtnData{idle}, wshrpc.AgentsState_Idle, 1},
+		{"until asking passes idle by", wshrpc.AgentsState_Asking, []wshrpc.CommandAgentsReadRtnData{idle, working, asking}, wshrpc.AgentsState_Asking, 3},
+		{"until idle passes asking by", wshrpc.AgentsState_Idle, []wshrpc.CommandAgentsReadRtnData{asking, working, idle}, wshrpc.AgentsState_Idle, 3},
+	}
+	for _, c := range cases {
+		r, n, err := agentsWaitUntilScript(t, c.until, time.Minute, c.reads...)
+		if err != nil || r.State != c.want || n != c.nReads {
+			t.Errorf("%s: got %+v after %d reads, %v; want state %s after %d", c.name, r, n, err, c.want, c.nReads)
+		}
+	}
+	r, n, err := agentsWaitUntilScript(t, wshrpc.AgentsState_Asking, 3*agentsWaitPoll, idle)
+	if r != nil || err == nil || !strings.Contains(err.Error(), "still idle") || !strings.Contains(err.Error(), "wsh agents wait aaaaaaaa") || n != 4 {
+		t.Errorf("timeout: got %+v after %d reads, %v; want an error naming the state and how to wait again", r, n, err)
+	}
+}
+
+func TestAgentsWaitUntilFlag(t *testing.T) {
+	for _, ok := range []string{"", "idle", "asking"} {
+		if err := agentsCheckUntil(ok); err != nil {
+			t.Errorf("--until %q: %v", ok, err)
+		}
+	}
+	if err := agentsCheckUntil("working"); err == nil || !strings.Contains(err.Error(), "idle or asking") {
+		t.Errorf("--until working: err = %v", err)
+	}
+}
+
+func TestAgentsExplainLines(t *testing.T) {
+	now := time.UnixMilli(agentsTestSentTs + 12_000)
+	live := &wshrpc.CommandAgentsExplainRtnData{
+		TabId: agentsTestTabA, Name: "design lead", BlockId: "b1", ShellRunning: true, HasStream: true, OpenAsk: true, Live: true, State: wshrpc.AgentsState_Asking,
+		Status: baseds.AgentStatusData{Agent: "claude", State: baseds.AgentState_Waiting, Hook: "Notification", NotificationType: "permission_prompt", Ts: agentsTestSentTs, Detail: "editing a.go", Cwd: `C:\work\arc`, TranscriptPath: `C:\t.jsonl`},
+	}
+	got := strings.Join(agentsExplainLines(live, now), "\n")
+	for _, want := range []string{
+		agentsTestTabA + " (design lead)",
+		"yes, as asking",
+		"claude reported waiting from Notification (permission_prompt) 12s ago: editing a.go",
+		"shell     running",
+		"open: a prompt runs over the mod",
+		"question  open",
+		`C:\work\arc`,
+		`C:\t.jsonl`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("live explain lacks %q:\n%s", want, got)
+		}
+	}
+	gone := &wshrpc.CommandAgentsExplainRtnData{TabId: agentsTestTabB, Name: "scratch", NotLive: "its terminal has no running shell"}
+	got = strings.Join(agentsExplainLines(gone, now), "\n")
+	for _, want := range []string{"no: its terminal has no running shell", "none reported since wavesrv started", "not running", "none: a prompt is typed", "question  none"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("not-live explain lacks %q:\n%s", want, got)
+		}
 	}
 }
 

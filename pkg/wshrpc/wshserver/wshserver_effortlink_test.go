@@ -123,6 +123,9 @@ func TestEffortRunWorkerIsNotLinked(t *testing.T) {
 	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
 		t.Fatal(err)
 	}
+	if err := wstore.StampWorkerOwner(ctx, "tab:"+tabID, "run:"+run.ID, "channel:"+ch.OID); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := ws.EffortGetCommand(ctx, wshrpc.CommandEffortGetData{EffortOID: oid, SourceBlock: src}); err != nil {
 		t.Fatal(err)
 	}

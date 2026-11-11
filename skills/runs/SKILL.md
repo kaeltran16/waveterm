@@ -21,7 +21,9 @@ Message a live agent (claude or pi) with `wsh agents`:
   when that is not the project's checkout (a worktree), and its task title. `(you)` marks your own tab.
   Rows of one project can share a name: pick the target by folder and title, never by name alone.
 - `wsh agents send <tab> "<text>"` hands the agent a prompt; `--file <path>` reads the text from a file, `--wait` blocks until it has answered.
+- `wsh agents wait <tab>` blocks until the agent is idle (printing its answer) or asking the user; `--until idle|asking` waits for one of them.
 - `wsh agents read <tab>` prints the agent's last answer.
+- `wsh agents explain <tab>` prints why a tab reads as it does: live or not and why, its latest status and the hook behind it.
 
 Rules:
 - A launch can take minutes. If `start` reports no reply, the run may have started anyway:

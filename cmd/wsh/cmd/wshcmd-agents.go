@@ -4,6 +4,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -11,6 +12,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/wavetermdev/waveterm/pkg/baseds"
+	"github.com/wavetermdev/waveterm/pkg/orchestrate"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc/wshclient"
 )
@@ -55,6 +58,28 @@ command wait for it.`,
 	RunE:    agentsSendRun,
 }
 
+var agentsWaitCmd = &cobra.Command{
+	Use:   "wait <tab>",
+	Short: "wait until a live agent is idle or asking the user, and print its answer",
+	Long: `Wait until a live agent settles: it is idle (and its last answer is printed) or it has a question open
+for the user. --until idle or --until asking waits for that state alone. Returns at once when the agent is
+already in it.`,
+	Args:    cobra.ExactArgs(1),
+	PreRunE: preRunSetupRpcClient,
+	RunE:    agentsWaitRun,
+}
+
+var agentsExplainCmd = &cobra.Command{
+	Use:   "explain <tab>",
+	Short: "print what Arc knows about a tab's agent and why it reads as live or not",
+	Long: `Print what Arc reads about a tab's agent: whether 'wsh agents list' shows it and why not, its latest
+status with the hook that reported it and when, whether its shell runs, whether its mod's control stream is
+open and whether it has a question open. <tab> is a tab id or a unique prefix of one, a live agent or not.`,
+	Args:    cobra.ExactArgs(1),
+	PreRunE: preRunSetupRpcClient,
+	RunE:    agentsExplainRun,
+}
+
 var agentsReadCmd = &cobra.Command{
 	Use:     "read <tab>",
 	Short:   "print a live agent's last answer",
@@ -69,8 +94,11 @@ func init() {
 	agentsSendCmd.Flags().String("file", "", "read the text from this file instead of the argument")
 	agentsSendCmd.Flags().Bool("wait", false, "wait for the target's answer and print it")
 	agentsSendCmd.Flags().Duration("timeout", agentsWaitDefault, "how long --wait waits")
+	agentsWaitCmd.Flags().String("until", "", "idle or asking; either by default")
+	agentsWaitCmd.Flags().Duration("timeout", agentsWaitDefault, "how long to wait")
 	agentsReadCmd.Flags().Bool("json", false, "JSON output")
-	agentsCmd.AddCommand(agentsListCmd, agentsSendCmd, agentsReadCmd)
+	agentsExplainCmd.Flags().Bool("json", false, "JSON output")
+	agentsCmd.AddCommand(agentsListCmd, agentsSendCmd, agentsWaitCmd, agentsReadCmd, agentsExplainCmd)
 	rootCmd.AddCommand(agentsCmd)
 }
 
@@ -244,29 +272,101 @@ func agentsSendLines(sent *wshrpc.CommandAgentsSendRtnData) []string {
 	}
 }
 
-// agentsWait polls read until the target has answered the send: it is no longer working and its last
-// answer is newer than the send. A target that ends up asking the user is returned as it stands, since
-// only the user can move it on. read, sleep and now are parameters so a test scripts them.
-func agentsWait(read func() (*wshrpc.CommandAgentsReadRtnData, error), sleep func(time.Duration), now func() time.Time,
-	sent *wshrpc.CommandAgentsSendRtnData, timeout time.Duration) (*wshrpc.CommandAgentsReadRtnData, error) {
-	deadline := now().Add(timeout)
+// errAgentsPollTimeout is agentsPoll's timeout, which each caller words for itself
+var errAgentsPollTimeout = errors.New("timed out")
+
+// agentsPoll reads every agentsWaitPoll until settled says the read ends the wait or fails, or the timeout
+// passes, when it returns the last read with errAgentsPollTimeout. read, sleep and now are parameters so a
+// test scripts them.
+func agentsPoll(read func() (*wshrpc.CommandAgentsReadRtnData, error), sleep func(time.Duration), now func() time.Time,
+	timeout time.Duration, settled func(r *wshrpc.CommandAgentsReadRtnData, elapsed time.Duration) (bool, error)) (*wshrpc.CommandAgentsReadRtnData, error) {
+	start := now()
 	for {
 		r, err := read()
 		if err != nil {
 			return nil, err
 		}
-		if r.State == wshrpc.AgentsState_Asking {
+		done, err := settled(r, now().Sub(start))
+		if err != nil {
+			return nil, err
+		}
+		if done {
 			return r, nil
 		}
-		if r.State != wshrpc.AgentsState_Working && r.AnswerTs > sent.SentTs {
-			return r, nil
-		}
-		if !now().Before(deadline) {
-			id := agentsShort(sent.TabId)
-			return nil, fmt.Errorf("%s is still working after %s; run 'wsh agents read %s' later", id, timeout, id)
+		if now().Sub(start) >= timeout {
+			return r, errAgentsPollTimeout
 		}
 		sleep(agentsWaitPoll)
 	}
+}
+
+// agentsWait polls read until the target has answered the send: it is no longer working and its last
+// answer is newer than the send. A target that ends up asking the user is returned as it stands, since
+// only the user can move it on. A send that started a turn fails once the target has stayed idle for the
+// engine's wake-confirm window: the message did not reach the session.
+func agentsWait(read func() (*wshrpc.CommandAgentsReadRtnData, error), sleep func(time.Duration), now func() time.Time,
+	sent *wshrpc.CommandAgentsSendRtnData, timeout time.Duration) (*wshrpc.CommandAgentsReadRtnData, error) {
+	id := agentsShort(sent.TabId)
+	// a send into a running turn has no start to see, and the target may read idle between its turns
+	started := sent.MidTurn
+	r, err := agentsPoll(read, sleep, now, timeout, func(r *wshrpc.CommandAgentsReadRtnData, elapsed time.Duration) (bool, error) {
+		if r.State == wshrpc.AgentsState_Asking {
+			return true, nil
+		}
+		if r.State != wshrpc.AgentsState_Working && r.AnswerTs > sent.SentTs {
+			return true, nil
+		}
+		started = started || r.State != wshrpc.AgentsState_Idle
+		if !started && elapsed >= orchestrate.WakeConfirmTimeout {
+			return false, fmt.Errorf("%s did not start a turn within %s, so the message may not have reached it; look at its terminal, or run 'wsh agents wait %s' later",
+				id, orchestrate.WakeConfirmTimeout, id)
+		}
+		return false, nil
+	})
+	if errors.Is(err, errAgentsPollTimeout) {
+		return nil, fmt.Errorf("%s is still working after %s; run 'wsh agents wait %s' to keep waiting", id, timeout, id)
+	}
+	return r, err
+}
+
+// agentsCheckUntil refuses an --until other than the two states a caller can act on
+func agentsCheckUntil(until string) error {
+	if until != "" && until != wshrpc.AgentsState_Idle && until != wshrpc.AgentsState_Asking {
+		return fmt.Errorf("--until is idle or asking, got %q", until)
+	}
+	return nil
+}
+
+// agentsWaitUntil polls read until the agent is in the until state, or idle or asking for an empty until.
+func agentsWaitUntil(read func() (*wshrpc.CommandAgentsReadRtnData, error), sleep func(time.Duration), now func() time.Time,
+	until string, timeout time.Duration) (*wshrpc.CommandAgentsReadRtnData, error) {
+	r, err := agentsPoll(read, sleep, now, timeout, func(r *wshrpc.CommandAgentsReadRtnData, _ time.Duration) (bool, error) {
+		return r.State == until || (until == "" && r.State != wshrpc.AgentsState_Working), nil
+	})
+	if errors.Is(err, errAgentsPollTimeout) {
+		id := agentsShort(r.TabId)
+		return nil, fmt.Errorf("%s is still %s after %s; run 'wsh agents wait %s' to keep waiting", id, r.State, timeout, id)
+	}
+	return r, err
+}
+
+func agentsWaitRun(cmd *cobra.Command, args []string) error {
+	until, _ := cmd.Flags().GetString("until")
+	if err := agentsCheckUntil(until); err != nil {
+		return err
+	}
+	timeout, _ := cmd.Flags().GetDuration("timeout")
+	read := func() (*wshrpc.CommandAgentsReadRtnData, error) {
+		return wshclient.AgentsReadCommand(RpcClient, wshrpc.CommandAgentsReadData{Tab: args[0]}, &wshrpc.RpcOpts{Timeout: runsReadTimeoutMs})
+	}
+	r, err := agentsWaitUntil(read, time.Sleep, time.Now, until, timeout)
+	if err != nil {
+		return err
+	}
+	for _, line := range agentsWaitLines(r) {
+		fmt.Println(line)
+	}
+	return nil
 }
 
 func agentsWaitLines(r *wshrpc.CommandAgentsReadRtnData) []string {
@@ -296,4 +396,71 @@ func agentsReadLines(r *wshrpc.CommandAgentsReadRtnData) []string {
 		return []string{fmt.Sprintf("%s has not answered yet (state: %s)", agentsShort(r.TabId), r.State)}
 	}
 	return []string{r.Answer}
+}
+
+func agentsExplainRun(cmd *cobra.Command, args []string) error {
+	rtn, err := wshclient.AgentsExplainCommand(RpcClient, wshrpc.CommandAgentsExplainData{Tab: args[0]}, &wshrpc.RpcOpts{Timeout: runsReadTimeoutMs})
+	if err != nil {
+		return err
+	}
+	if isJSON(cmd) {
+		return jsonOut(rtn)
+	}
+	for _, line := range agentsExplainLines(rtn, time.Now()) {
+		fmt.Println(line)
+	}
+	return nil
+}
+
+func agentsExplainLines(r *wshrpc.CommandAgentsExplainRtnData, now time.Time) []string {
+	live := "yes, as " + r.State
+	if !r.Live {
+		live = "no: " + r.NotLive
+	}
+	shell := "not running"
+	if r.ShellRunning {
+		shell = "running"
+	}
+	stream := "none: a prompt is typed into the terminal"
+	if r.HasStream {
+		stream = "open: a prompt runs over the mod"
+	}
+	question := "none"
+	if r.OpenAsk {
+		question = "open"
+	}
+	lines := []string{
+		fmt.Sprintf("tab       %s (%s)", r.TabId, r.Name),
+		"live      " + live,
+		"status    " + agentsExplainStatus(r.Status, now),
+		"shell     " + shell,
+		"stream    " + stream,
+		"question  " + question,
+	}
+	if r.Status.Cwd != "" {
+		lines = append(lines, "cwd       "+r.Status.Cwd)
+	}
+	if r.Status.TranscriptPath != "" {
+		lines = append(lines, "transcript "+r.Status.TranscriptPath)
+	}
+	return lines
+}
+
+// agentsExplainStatus is the latest status report on one line: who reported what, from which hook, how long ago
+func agentsExplainStatus(s baseds.AgentStatusData, now time.Time) string {
+	if s.State == "" {
+		return "none reported since wavesrv started"
+	}
+	line := s.Agent + " reported " + s.State
+	if s.Hook != "" {
+		line += " from " + s.Hook
+		if s.NotificationType != "" {
+			line += " (" + s.NotificationType + ")"
+		}
+	}
+	line += " " + now.Sub(time.UnixMilli(s.Ts)).Round(time.Second).String() + " ago"
+	if s.Detail != "" {
+		line += ": " + s.Detail
+	}
+	return line
 }

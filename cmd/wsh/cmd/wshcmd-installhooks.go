@@ -51,7 +51,6 @@ var managedHooks = []managedHook{
 	// projects the request
 	{Event: "PermissionRequest", Args: "permission", Timeout: 10},
 	{Event: "Stop", Args: "agent-hook", Timeout: 10},
-	{Event: "SubagentStop", Args: "agent-hook", Timeout: 10},
 	{Event: "UserPromptSubmit", Args: "agent-hook", Timeout: 10},
 	// a compaction reports working and its end reports idle: the wake adapter types a lead's handoff
 	// /compact as a wake that working confirms, and holds later wakes until the session is back
@@ -61,6 +60,8 @@ var managedHooks = []managedHook{
 	{Event: "SessionStart", Matcher: "compact", Args: "jarvis dag rules --inject", Timeout: 15},
 	// /clear opens a new transcript: report it now so the cockpit follows the new file before the next prompt
 	{Event: "SessionStart", Matcher: "clear", Args: "agent-hook", Timeout: 10},
+	// the shell outlives claude, so only this report tells the roster the session is gone
+	{Event: "SessionEnd", Args: "agent-hook", Timeout: 10},
 }
 
 func managedEventOrder() []string {

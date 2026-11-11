@@ -304,6 +304,7 @@ func seedOrchestratorRunWorker(t *testing.T, ctx context.Context, submitted, chi
 			t.Fatalf("append run: %v", err)
 		}
 	}
+	stampTestWorker(t, ctx, tabId, worker.ID, ch.OID)
 	return ch, waveobj.MakeORef(waveobj.OType_Block, blockId).String()
 }
 
@@ -378,7 +379,17 @@ func seedQuickRunWorker(t *testing.T, ctx context.Context, meta waveobj.MetaMapT
 	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
 		t.Fatalf("append run: %v", err)
 	}
+	stampTestWorker(t, ctx, tabId, run.ID, ch.OID)
 	return ch, waveobj.MakeORef(waveobj.OType_Block, blockId).String()
+}
+
+// stampTestWorker stamps a seeded worker tab with its run, as every spawn does before the process starts
+func stampTestWorker(t *testing.T, ctx context.Context, tabId, runId, channelId string) {
+	t.Helper()
+	if err := wstore.StampWorkerOwner(ctx, waveobj.MakeORef(waveobj.OType_Tab, tabId).String(),
+		waveobj.MakeORef(waveobj.OType_Run, runId).String(), waveobj.MakeORef(waveobj.OType_Channel, channelId).String()); err != nil {
+		t.Fatalf("stamp worker: %v", err)
+	}
 }
 
 // The tier governs run workers too: a project set to concierge leaves a quick run's routine question
