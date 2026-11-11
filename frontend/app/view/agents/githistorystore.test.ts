@@ -381,6 +381,19 @@ describe("range changes do not re-read git", () => {
 
         expect(globalStore.get(historyScrollAtom)).toBe(0);
     });
+
+    it("drops the old repository's filters, and does not send them to the new one", async () => {
+        gitHistory.mockResolvedValue({ isrepo: true, head: "aaa1111", commits: [commit("aaa1111", "tip commit")] });
+
+        await loadHistory("/repo", {});
+        globalStore.set(historyFiltersAtom, { author: "", path: "frontend/app/only-here", text: "" });
+        await loadHistory("/repo", {});
+        expect(gitHistory.mock.calls.at(-1)![1]).toMatchObject({ path: "frontend/app/only-here" });
+        await loadHistory("/other", {});
+
+        expect(globalStore.get(historyFiltersAtom)).toEqual({ author: "", path: "", text: "" });
+        expect(gitHistory.mock.calls.at(-1)![1]).not.toHaveProperty("path");
+    });
 });
 
 // The Diff surface polls the change list every 10s while it is on screen, but nothing re-read the

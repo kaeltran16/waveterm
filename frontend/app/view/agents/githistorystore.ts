@@ -91,7 +91,8 @@ export const activeChangesAtom = atom<GitChanges | null>((get) =>
     get(selectedCommitAtom) === WORKING_TREE ? (get(filesStateAtom)?.changes ?? null) : get(commitChangesAtom)
 );
 
-const current = { token: "" };
+// cwd: the repository the column was last loaded for; a load for another drops that one's filters
+const current = { token: "", cwd: "" };
 // The scope key the selection was last settled for. A load for a different one is a new subject (a run
 // link opened over a project), so the remembered row gives way to the default; "" = none yet.
 const settled = { scope: "" };
@@ -117,6 +118,7 @@ export function setHistoryOpts(opts: LoadHistoryOpts): void {
 // every return to the Diff surface used to land back at the top of an unfiltered list.
 export function resetHistory(): void {
     current.token = "";
+    current.cwd = "";
     settled.scope = "";
     if (filterTimer != null) {
         clearTimeout(filterTimer);
@@ -172,6 +174,12 @@ export async function loadHistory(
         resetHistory();
         return;
     }
+    // the filters belong to the repository they were typed in (see resetHistory): a path that exists only
+    // there would read here as "No commits match", and hide the uncommitted row with it
+    if (current.cwd !== "" && current.cwd !== cwd) {
+        globalStore.set(historyFiltersAtom, NO_FILTERS);
+    }
+    current.cwd = cwd;
     const filters = globalStore.get(historyFiltersAtom);
     const token = loadToken(cwd, filters, opts.ref);
     // Blanking the list to signal "loading" unmounts every row, which collapses the scroll container:
