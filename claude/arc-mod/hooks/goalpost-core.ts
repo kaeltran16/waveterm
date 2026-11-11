@@ -808,10 +808,12 @@ function coverageFindings({ path, before, after }: FileChange): GoalpostFinding[
  * Everything a change to one file does to lower the bar, in the categories
  * that are on.
  */
-export function inspectChange(change: FileChange, options: DetectOptions): GoalpostFinding[] {
-    if (change.before === change.after) {
+export function inspectChange(raw: FileChange, options: DetectOptions): GoalpostFinding[] {
+    if (raw.before === raw.after) {
         return [];
     }
+    // the path patterns are written for /, and claude on Windows passes file_path with \
+    const change = { ...raw, path: raw.path.replaceAll("\\", "/") };
     const all = [
         ...testFindings(change, options.testPattern),
         ...suppressionFindings(change),
