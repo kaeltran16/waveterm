@@ -119,11 +119,15 @@ function finishGroup(g: EventGroup): EventGroup {
     };
 }
 
+// Events arrive newest-first (the history read and the live stream's unshift alike), so reversing before the stable
+// sort keeps same-millisecond events in the order they happened. A group's id names its first event, not its place
+// in the sorted list: an event stamped earlier than ones already shown (task-spawned is written after its batch)
+// would otherwise re-key every later group, remounting rows and folding an open one.
 export function groupEvents(events: RunEvent[]): EventGroup[] {
-    const sorted = [...events].sort((a, b) => a.ts - b.ts);
+    const sorted = [...events].reverse().sort((a, b) => a.ts - b.ts);
     const groups: EventGroup[] = [];
     const open = new Map<string, EventGroup>();
-    sorted.forEach((e, i) => {
+    sorted.forEach((e) => {
         const key = groupKey(e);
         const g = open.get(key);
         if (g && e.ts - g.last <= BURST_MS) {
@@ -132,7 +136,7 @@ export function groupEvents(events: RunEvent[]): EventGroup[] {
             return;
         }
         const ng: EventGroup = {
-            id: `${key}@${i}`,
+            id: `${key}@${e.id}`,
             taskId: taskIdOf(e),
             items: [e],
             first: e.ts,

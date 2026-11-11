@@ -81,12 +81,26 @@ describe("groupEvents", () => {
         expect(groupEvents([ev(0, "task-spawned", "t-1"), ev(4, "task-told", "t-1")])).toHaveLength(2);
     });
     it("orders a burst's items and bounds by time whatever order the events arrive in", () => {
-        const g = groupEvents([ev(2, "task-told", "t-1"), ev(0, "task-spawned", "t-1"), ev(1, "task-retried", "t-1")]);
+        const spawned = ev(0, "task-spawned", "t-1");
+        const g = groupEvents([ev(2, "task-told", "t-1"), spawned, ev(1, "task-retried", "t-1")]);
         expect(g).toHaveLength(1);
         expect(g[0].items.map((e) => e.ts / MIN)).toEqual([0, 1, 2]);
         expect(g[0].first).toBe(0);
         expect(g[0].last).toBe(2 * MIN);
-        expect(g[0].id).toBe("t-1:work@0");
+        expect(g[0].id).toBe(`t-1:work@${spawned.id}`);
+    });
+    it("keeps every later group's id when an event stamped earlier arrives", () => {
+        const later = [ev(10, "task-told", "t-2"), ev(20, "task-told", "t-3")];
+        const before = groupEvents(later).map((g) => g.id);
+        const after = groupEvents([...later, ev(0, "task-spawned", "t-1")]);
+        expect(after.filter((g) => g.taskId !== "t-1").map((g) => g.id)).toEqual(before);
+    });
+    it("keeps same-millisecond events in the order they happened", () => {
+        const first = ev(0, "task-spawned", "t-1");
+        const second = ev(0, "task-told", "t-1");
+        // newest-first, as the history and the live stream deliver them
+        const g = groupEvents([second, first]);
+        expect(g[0].items.map((e) => e.id)).toEqual([first.id, second.id]);
     });
     it("keeps an event exactly at the burst window in the burst", () => {
         const g = groupEvents([ev(0, "task-spawned", "t-1"), ev(3, "task-told", "t-1")]);
