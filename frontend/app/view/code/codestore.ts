@@ -22,6 +22,7 @@ import { debounce } from "throttle-debounce";
 import { classifyFile, hasNulByte, HEAD_BINARY, HEAD_TOOLARGE, MAX_VIEW_BYTES } from "./codeclassify";
 import { diffBaseOf, nextDiffStep, type DiffBase, type DiffStep, type DiffTarget } from "./codedifftarget";
 import {
+    afterSave,
     conflictMessage,
     conflictOf,
     nextDrafts,
@@ -1097,15 +1098,17 @@ export async function saveCurrent(): Promise<void> {
         await RpcApi.FileWriteCommand(TabRpcClient, { info: { path: abs }, data64: stringToBase64(draft.text) });
         // re-stat so a second save compares against what we just wrote rather than the pre-save state
         const after = await RpcApi.FileInfoCommand(TabRpcClient, { info: { path: abs } });
-        globalStore.set(codeFileAtom, {
-            kind: "text",
-            path: rel,
+        const written: FileBase = {
             text: draft.text,
             size: after?.size ?? draft.text.length,
             modtime: after?.modtime ?? 0,
-        });
-        globalStore.set(codeDraftsAtom, (d) => withoutDraft(d, abs));
-        globalStore.set(codeSaveAtom, { kind: "saved", path: rel });
+        };
+        globalStore.set(codeFileAtom, { kind: "text", path: rel, ...written });
+        globalStore.set(codeDraftsAtom, (d) => afterSave(d, abs, written));
+        if (!globalStore.get(codeDraftsAtom).has(abs)) {
+            // text typed during the write is still unsaved, and editDraft already reset the state to idle
+            globalStore.set(codeSaveAtom, { kind: "saved", path: rel });
+        }
         void loadStatus(); // a write is exactly what turns an unchanged file into a modified one
         globalStore.set(codeStaleAtom, null); // we just wrote it, so the disk copy is ours again
     } catch (e) {

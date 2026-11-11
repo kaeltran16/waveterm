@@ -12,6 +12,7 @@ const fileMkdir = vi.fn();
 const fileMove = vi.fn();
 const listWorktrees = vi.fn();
 const fileRead = vi.fn();
+const fileWrite = vi.fn();
 const listBranches = vi.fn();
 const divergence = vi.fn();
 vi.mock("@/app/store/wshclientapi", () => ({
@@ -26,6 +27,7 @@ vi.mock("@/app/store/wshclientapi", () => ({
         FileMkdirCommand: (...a: any[]) => fileMkdir(...a),
         FileMoveCommand: (...a: any[]) => fileMove(...a),
         FileReadCommand: (...a: any[]) => fileRead(...a),
+        FileWriteCommand: (...a: any[]) => fileWrite(...a),
     },
 }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
@@ -44,6 +46,7 @@ import {
     codeCursorAtom,
     codeDiffBaseAtom,
     codeDiffTargetAtom,
+    codeDraftsAtom,
     codeEditAtom,
     codeExpandedAtom,
     codeFileAtom,
@@ -62,6 +65,7 @@ import {
     createEntry,
     cycleDiff,
     deletePath,
+    draftKey,
     editDraft,
     ensureIndex,
     goToLine,
@@ -408,6 +412,30 @@ describe("saveCurrent", () => {
 
         expect(globalStore.get(codeSaveAtom)).toMatchObject({ kind: "conflict", path: "src/a.ts" });
         expect(globalStore.get(codeStaleAtom)).toEqual({ path: "src/a.ts" });
+    });
+
+    it("keeps text typed while the save was in flight", async () => {
+        const project = seedSession(["src/a.ts"]);
+        const saved = "one\nmine\n";
+        const typedDuringSave = "one\nmine\nmore\n";
+        editDraft(saved);
+        const write = deferred<void>();
+        fileWrite.mockReturnValue(write.promise);
+        fileInfo.mockResolvedValueOnce({ size: 4, modtime: 1 }).mockResolvedValueOnce({ size: 10, modtime: 2 });
+
+        const saving = saveCurrent();
+        await vi.waitFor(() => expect(fileWrite).toHaveBeenCalled());
+        editDraft(typedDuringSave);
+        write.resolve();
+        await saving;
+
+        const key = draftKey(project, "src/a.ts");
+        expect(globalStore.get(codeFileAtom)).toMatchObject({ text: saved, size: 10, modtime: 2 });
+        expect(globalStore.get(codeDraftsAtom).get(key)).toEqual({
+            text: typedDuringSave,
+            base: { text: saved, size: 10, modtime: 2 },
+        });
+        expect(globalStore.get(codeSaveAtom).kind).toBe("idle");
     });
 });
 

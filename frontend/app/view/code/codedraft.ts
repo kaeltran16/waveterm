@@ -66,6 +66,17 @@ export function nextDrafts(drafts: Drafts, key: string, base: FileBase, text: st
     return out;
 }
 
+// A save writes the text it captured at Ctrl+S, but typing goes on while the write is out. The draft
+// left at that point is re-pinned onto what was written, so it stays dirty against the new disk state
+// and a second save compares against our own write; only a draft that equals the write is cleared.
+export function afterSave(drafts: Drafts, key: string, written: FileBase): Map<string, Draft> {
+    const current = drafts.get(key);
+    if (current == null) {
+        return new Map(drafts);
+    }
+    return nextDrafts(drafts, key, written, current.text);
+}
+
 export function withoutDraft(drafts: Drafts, key: string): Map<string, Draft> {
     const out = new Map(drafts);
     out.delete(key);
