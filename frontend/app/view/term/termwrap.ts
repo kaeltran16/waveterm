@@ -30,6 +30,7 @@ import { colord } from "colord";
 import debug from "debug";
 import * as jotai from "jotai";
 import { debounce } from "throttle-debounce";
+import { startIdleLoop } from "./idleloop";
 import {
     handleOsc16162Command,
     handleOsc52Command,
@@ -58,6 +59,7 @@ const dlog = debug("wave:termwrap");
 const TermFileName = "term";
 const TermCacheFileName = "cache:term:full";
 const MinDataProcessedForCache = 100 * 1024;
+const IdleCacheIntervalMs = 5000;
 export const SupportsImageInput = true;
 const MaxRepaintTransactionMs = 2000;
 const WebglRetryDelayMs = 2000;
@@ -127,6 +129,8 @@ export class TermWrap {
     pasteActive: boolean = false;
     lastUpdated: number;
     promptMarkers: TermTypes.IMarker[] = [];
+    private disposed = false;
+    private stopIdleCache: (() => void) | null = null;
     shellIntegrationStatusAtom: jotai.PrimitiveAtom<ShellIntegrationStatus | null>;
     nodeModel: BlockNodeModel; // this can be null
     hoveredLinkUri: string | null = null;
@@ -468,6 +472,8 @@ export class TermWrap {
     }
 
     dispose() {
+        this.disposed = true;
+        this.stopIdleCache?.();
         this.promptMarkers.forEach((marker) => {
             try {
                 marker.dispose();
@@ -907,12 +913,11 @@ export class TermWrap {
     }
 
     runProcessIdleTimeout() {
-        setTimeout(() => {
-            window.requestIdleCallback(() => {
-                this.processAndCacheData();
-                this.runProcessIdleTimeout();
-            });
-        }, 5000);
+        // initTerminal awaits before starting this, so the terminal may already be disposed
+        if (this.disposed) {
+            return;
+        }
+        this.stopIdleCache = startIdleLoop(() => this.processAndCacheData(), IdleCacheIntervalMs);
     }
 
     async pasteHandler(e?: ClipboardEvent): Promise<void> {
