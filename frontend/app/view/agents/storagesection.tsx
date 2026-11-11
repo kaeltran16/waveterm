@@ -27,9 +27,9 @@ import {
     NOT_COUNTED_TEXT,
     rescanEnabled,
     resultNotice,
-    scanErrorText,
     scannedLabel,
     shouldAutoScan,
+    storageAlerts,
     storageSections,
     storageStats,
     type StorageRowVM,
@@ -175,14 +175,14 @@ export function StorageSection({ model }: { model: AgentsViewModel }) {
 
     return (
         <div className="flex min-w-0 flex-col gap-[22px] pt-2.5">
-            {(r.errors ?? []).map((e) => (
+            {storageAlerts(r).map((a) => (
                 <div
-                    key={e.projectpath || e.projectname}
+                    key={a.key}
                     data-storage-error
                     role="alert"
                     className="flex items-center gap-3 rounded-[10px] border border-error/40 bg-error/10 px-3.5 py-2.5 text-[12.5px] leading-[1.5] text-error"
                 >
-                    <span className="flex-1">{scanErrorText(e)}</span>
+                    <span className="flex-1">{a.text}</span>
                 </div>
             ))}
             {/* closes while a clear runs and opens on its result; AnimatePresence keeps the last result for the exit.

@@ -525,6 +525,16 @@ export function scanErrorText(e: StorageScanError): string {
     return `Couldn’t list the run trees of ${e.projectname}: ${e.error}. Its folders are left out until the project path is fixed.`;
 }
 
+// the section's alert lines: a whole scan, clear or report save failing (joberror) first, then each project
+// the scan could not list
+export function storageAlerts(r: StorageReportData): { key: string; text: string }[] {
+    const alerts = (r.errors ?? []).map((e) => ({ key: e.projectpath || e.projectname, text: scanErrorText(e) }));
+    if (r.joberror) {
+        alerts.unshift({ key: "joberror", text: r.joberror.charAt(0).toUpperCase() + r.joberror.slice(1) });
+    }
+    return alerts;
+}
+
 export function navSummary(r: StorageReportData | null): { count: string; pill: string | null } {
     if (!r?.scants) {
         return { count: PENDING, pill: null };
