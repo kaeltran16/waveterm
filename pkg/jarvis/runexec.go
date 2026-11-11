@@ -6,6 +6,7 @@ package jarvis
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -166,6 +167,9 @@ type RunWorkerOptions struct {
 // createWorkerTab is the tab-creation seam, so tests make a tab without a layout or a live workspace.
 var createWorkerTab = wcore.CreateTab
 
+// deleteWorkerTab removes the tab of a spawn that failed part-way; a seam for the same reason.
+var deleteWorkerTab = wcore.DeleteTab
+
 // sendWorkerTabUpdates broadcasts the object updates a spawn collected. A var so tests can record them.
 var sendWorkerTabUpdates = func(updates waveobj.UpdatesRtnType) { wps.Broker.SendUpdateEvents(updates) }
 
@@ -295,6 +299,17 @@ var SpawnRunWorker = func(ctx context.Context, cap runroute.Capability, workspac
 	if err != nil {
 		return "", fmt.Errorf("creating worker tab: %w", err)
 	}
+	// a failure from here returns no oref, so no caller can remove the tab; uncancelled, since an expired
+	// spawn ctx is one way to fail, and before the deferred broadcast above, which then carries the delete
+	spawned := false
+	defer func() {
+		if spawned {
+			return
+		}
+		if _, derr := deleteWorkerTab(context.WithoutCancel(ctx), workspaceId, tabId, false); derr != nil {
+			log.Printf("removing worker tab %s of a failed spawn: %v", tabId, derr)
+		}
+	}()
 	tab, err := wstore.DBMustGet[*waveobj.Tab](ctx, tabId)
 	if err != nil {
 		return "", fmt.Errorf("loading worker tab: %w", err)
@@ -332,6 +347,7 @@ var SpawnRunWorker = func(ctx context.Context, cap runroute.Capability, workspac
 	if err := persistWorkerBlockMeta(ctx, blockId, blockMeta); err != nil {
 		return "", fmt.Errorf("setting worker block meta: %w", err)
 	}
+	spawned = true
 	return waveobj.MakeORef(waveobj.OType_Tab, tabId).String(), nil
 }
 

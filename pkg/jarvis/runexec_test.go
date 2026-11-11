@@ -379,6 +379,33 @@ func piCap(t *testing.T) runroute.Capability {
 	return cap
 }
 
+// a spawn that fails after its tab exists returns no oref, so no caller can remove the tab: the spawn does
+func TestSpawnRunWorkerRemovesItsTabOnFailure(t *testing.T) {
+	stubWorkerSpawn(t)
+	oldDelete := deleteWorkerTab
+	t.Cleanup(func() { deleteWorkerTab = oldDelete })
+	var deleted []string
+	deleteWorkerTab = func(ctx context.Context, workspaceId, tabId string, _ bool) (string, error) {
+		deleted = append(deleted, workspaceId+"/"+tabId)
+		return "", nil
+	}
+	var tabID string
+	stubCreate := createWorkerTab
+	createWorkerTab = func(ctx context.Context, workspaceId, name string, activate, initial bool) (string, error) {
+		id, err := stubCreate(ctx, workspaceId, name, activate, initial)
+		tabID = id
+		return id, err
+	}
+	persistWorkerBlockMeta = func(context.Context, string, waveobj.MetaMapType) error { return errors.New("write failed") }
+	oref, err := SpawnRunWorker(context.Background(), piCap(t), "ws-1", "proj", "", "do it", RunWorkerOptions{})
+	if err == nil || oref != "" {
+		t.Fatalf("got oref %q, err %v, want the meta failure", oref, err)
+	}
+	if want := []string{"ws-1/" + tabID}; !reflect.DeepEqual(deleted, want) {
+		t.Fatalf("deleted %v, want %v", deleted, want)
+	}
+}
+
 // the engine's dispatch passes a ctx that collects nothing; the tab must still reach the app
 func TestSpawnRunWorkerBroadcastsItsTab(t *testing.T) {
 	sent := stubWorkerSpawn(t)
