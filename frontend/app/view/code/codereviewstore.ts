@@ -68,6 +68,9 @@ if (typeof window !== "undefined") {
     });
 }
 export const codeCommentDraftAtom = atom<CommentDraft | null>(null) as PrimitiveAtom<CommentDraft | null>;
+// a draft names its file by relative path only: another checkout of the same repository has that path too, and
+// would take the draft (anchor and lines read from this one's file) as its own
+globalStore.sub(codeProjectAtom, () => globalStore.set(codeCommentDraftAtom, null));
 export const codeReviewSendOpenAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
 // A comment asked for outside the source editor: the view switches to Source, and the viewer starts the
 // comment once the editor has mounted and its caret can be read (consumePendingComment).

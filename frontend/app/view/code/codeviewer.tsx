@@ -410,6 +410,10 @@ function CommentInput({ path }: { path: string }) {
     const ed = useAtomValue(editorAtom);
     const layout = useEditorLineLayout();
     const [note, setNote] = useState("");
+    // the note belongs to its draft: one dropped (a project switch, Escape) takes the typed text with it
+    if (draft == null && note !== "") {
+        setNote("");
+    }
     const boxRef = useRef<HTMLDivElement>(null);
     const shown = draft != null && draft.path === path && layout != null;
     // An empty view zone as tall as the input pushes the lines after the draft down, so the input sits in
