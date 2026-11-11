@@ -324,7 +324,10 @@ func agentsWait(read func() (*wshrpc.CommandAgentsReadRtnData, error), sleep fun
 		return false, nil
 	})
 	if errors.Is(err, errAgentsPollTimeout) {
-		return nil, fmt.Errorf("%s is still working after %s; run 'wsh agents wait %s' to keep waiting", id, timeout, id)
+		if r.State == wshrpc.AgentsState_Working {
+			return nil, fmt.Errorf("%s is still working after %s; run 'wsh agents wait %s' to keep waiting", id, timeout, id)
+		}
+		return nil, fmt.Errorf("%s is %s after %s and has not answered since the send; run 'wsh agents wait %s' to keep waiting", id, r.State, timeout, id)
 	}
 	return r, err
 }
