@@ -732,6 +732,8 @@ func (handler *RpcResponseHandler) SendResponse(data any, done bool) error {
 	}
 	barr, err := json.Marshal(msg)
 	if err != nil {
+		// the caller must still hear back: once done, Finalize sends nothing and it would wait out its timeout
+		handler.SendResponseError(fmt.Errorf("cannot encode %q response: %w", handler.command, err))
 		return err
 	}
 	if !handler.sendToOutput(barr) {
