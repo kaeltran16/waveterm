@@ -603,3 +603,101 @@ func TestTempVarPath(t *testing.T) {
 		}
 	}
 }
+
+// boundedTranscript is a transcript that exercises the bounded readers' edges: a 2 MB line (past any
+// block and bufio size), blank and whitespace-only lines, CRLF endings and an unterminated last line.
+func boundedTranscript() string {
+	var b strings.Builder
+	for i := 0; i < 300; i++ {
+		fmt.Fprintf(&b, "{\"n\":%d,\"pad\":\"%s\"}\n", i, strings.Repeat("x", i*37%900))
+		switch i {
+		case 7:
+			b.WriteString("\n   \n")
+		case 120:
+			b.WriteString("{\"big\":\"" + strings.Repeat("y", 2<<20) + "\"}\n")
+		case 200:
+			b.WriteString("{\"crlf\":1}\r\n\r\n")
+		}
+	}
+	b.WriteString("{\"partial\":true")
+	return b.String()
+}
+
+// the bounded tail and head reads return exactly what the whole-file read does, sliced
+func TestTranscriptBoundedReadsMatchWholeFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "t.jsonl")
+	writeFile(t, path, boundedTranscript())
+	all, err := readTranscriptLines(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []int{1, 2, 3, 50, 99, 100, 101, 180, 181, 182, len(all) - 1, len(all), len(all) + 5} {
+		tail, err := readTranscriptTail(path, n)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := all[max(0, len(all)-n):]
+		if !reflect.DeepEqual(tail, want) {
+			t.Fatalf("tail %d: got %d lines, want %d (first got %.40q, want %.40q)", n, len(tail), len(want), tail[0], want[0])
+		}
+		head, err := readTranscriptHead(path, n)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := all[:min(n, len(all))]; !reflect.DeepEqual(head, want) {
+			t.Fatalf("head %d: got %d lines, want %d", n, len(head), len(want))
+		}
+	}
+}
+
+// the tail read stops at a line boundary once it holds n lines, so it reads the tail, not the file
+func TestReadTailReadsTheTail(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "t.jsonl")
+	content := boundedTranscript()
+	writeFile(t, path, content)
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	size := int64(len(content))
+	for _, n := range []int{1, 2, 50} {
+		off, data, err := readTail(f, size, n)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if off == 0 || content[off-1] != '\n' || string(data) != content[off:] {
+			t.Fatalf("n=%d: off %d is not a line boundary holding the rest of the file", n, off)
+		}
+		// the last 50 lines are under 64 KB, so one or two blocks hold them
+		if len(data) > 2*tailBlockSize {
+			t.Errorf("n=%d: read %d bytes of a %d-byte file", n, len(data), size)
+		}
+	}
+	if off, data, err := readTail(f, size, 100000); err != nil || off != 0 || string(data) != content {
+		t.Errorf("more lines than the file: off %d, %d bytes, err %v; want the whole file", off, len(data), err)
+	}
+}
+
+// a stream backlog with a line limit starts at the tail and then follows appends as before
+func TestStreamTranscriptBacklogStartsAtTail(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "t.jsonl")
+	writeFile(t, path, "a\nb\n\nc\n")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ch := make(chan wshrpc.RespOrErrorUnion[wshrpc.AgentTranscriptUpdate], 8)
+	go func() { _ = streamTranscript(ctx, path, 2, ch) }()
+	first := <-ch
+	if !reflect.DeepEqual(first.Response.Lines, []string{"b", "c"}) {
+		t.Fatalf("backlog = %v, want [b c]", first.Response.Lines)
+	}
+	appendFile(t, path, "d\n")
+	select {
+	case next := <-ch:
+		if !reflect.DeepEqual(next.Response.Lines, []string{"d"}) {
+			t.Fatalf("append = %v, want [d]", next.Response.Lines)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no update after append")
+	}
+}

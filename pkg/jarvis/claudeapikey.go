@@ -14,10 +14,12 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/util/fileutil"
+	"github.com/wavetermdev/waveterm/pkg/util/shellutil"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 )
@@ -38,15 +40,29 @@ const (
 	anthropicVersion            = "2023-06-01"
 	// the API's error bodies are small JSON; this only bounds a misbehaving proxy
 	maxAnthropicErrorBody = 64 * 1024
+	// devNoGlobalInstallEnv is src-tauri/src/paths.rs's DEV_NO_GLOBAL_INSTALL_ENV, which wavesrv inherits
+	devNoGlobalInstallEnv = "ARC_DEV_NO_GLOBAL_INSTALL"
 )
 
 // Package vars so tests never touch the real wsh, config dir or network.
 var (
-	claudeHelperWsh       = func() string { return wavebase.StableWshPath(wavebase.GetHomeDir()) }
+	claudeHelperWsh       = defaultClaudeHelperWsh
 	claudeHelperConfigDir = wavebase.GetWaveConfigDir
 	anthropicAPIBase      = "https://api.anthropic.com"
 	validateClaudeApiKey  = defaultValidateClaudeApiKey
 )
+
+// defaultClaudeHelperWsh is the stable ~/.arc/bin copy every hook runs. A dev app started with
+// devNoGlobalInstallEnv never installs that copy (and must not lean on one another Arc left), so it names
+// its own wsh instead, as resolveHookWsh does when no stable copy exists.
+func defaultClaudeHelperWsh() string {
+	if os.Getenv(devNoGlobalInstallEnv) != "" {
+		if own, err := shellutil.GetLocalWshBinaryPath(wavebase.WaveVersion, runtime.GOOS, runtime.GOARCH); err == nil {
+			return own
+		}
+	}
+	return wavebase.StableWshPath(wavebase.GetHomeDir())
+}
 
 // defaultValidateClaudeApiKey makes the cheapest authenticated request: listing one model.
 func defaultValidateClaudeApiKey(ctx context.Context, key string) error {
