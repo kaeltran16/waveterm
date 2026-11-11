@@ -891,15 +891,18 @@ function underOrEqual(path: string, dir: string): boolean {
 // Shared by the tree context menu and the Delete keybinding, the way memstore's confirmDeleteNote
 // is shared by its list menu and its detail pane.
 export function confirmDelete(rel: string, isDir: boolean): void {
-    const paths = globalStore.get(codeIndexAtom)?.paths ?? [];
+    const index = globalStore.get(codeIndexAtom);
+    const paths = index?.paths ?? [];
     const status = globalStore.get(codeStatusAtom);
+    const git = index?.isRepo === false ? "plain" : status == null ? "unknown" : "repo";
     const under = isDir ? paths.filter((p) => p.startsWith(`${rel}/`)) : [rel];
     modalsModel.pushModal("ConfirmModal", {
         title: isDir ? "Delete folder" : "Delete file",
         message: deleteWarning(
             rel,
             under.map((p) => status?.get(p)),
-            isDir
+            isDir,
+            git
         ),
         confirmLabel: "Delete",
         destructive: true,
