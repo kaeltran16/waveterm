@@ -351,3 +351,19 @@ func TestPinnedSessionsSkipsHave(t *testing.T) {
 		t.Fatalf("a key the caller has is not read, got %d reads", n)
 	}
 }
+
+// a pinned session past the window is read once: the window's prune must not drop what PinnedSessions cached
+func TestPinnedSessionPastTheWindowStaysCached(t *testing.T) {
+	dir := indexHome(t)
+	path := writeSession(t, dir, "old", "pinned long ago", 40*24*time.Hour)
+	reads := countReads(t)
+	for i := 0; i < 3; i++ {
+		Indexed(IndexWindowDays)
+		if got := PinnedSessions([]string{"claude:old"}, map[string]bool{}); len(got) != 1 {
+			t.Fatalf("want the pinned session, got %d", len(got))
+		}
+	}
+	if n := reads()[path]; n != 1 {
+		t.Fatalf("the pinned transcript was read %d times in 3 list calls, want 1", n)
+	}
+}
