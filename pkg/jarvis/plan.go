@@ -209,6 +209,7 @@ func ParsePlan(src string) (Plan, error) {
 			body = append(body, line)
 		}
 	}
+	src = strings.TrimPrefix(src, utf8BOM)
 	for _, line := range strings.Split(strings.ReplaceAll(src, "\r\n", "\n"), "\n") {
 		if fence.step(line) {
 			inTaskHead = false

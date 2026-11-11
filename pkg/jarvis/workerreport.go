@@ -64,7 +64,7 @@ const WorkerReportTemplate = `## Done
 const (
 	reportHeadingPrefix = "## "
 	reportNone          = "none"
-	reportBOM           = "\xef\xbb\xbf"
+	utf8BOM             = "\xef\xbb\xbf"
 	strayQuoteMaxRunes  = 60
 )
 
@@ -116,7 +116,7 @@ func quoteStray(s string) string {
 // ParseWorkerReport splits a report into its five sections. Every problem is named in one error so a single
 // retry can fix the report.
 func ParseWorkerReport(text string) (WorkerReport, error) {
-	text = strings.TrimPrefix(text, reportBOM)
+	text = strings.TrimPrefix(text, utf8BOM)
 	text = strings.ReplaceAll(text, "\r\n", "\n")
 
 	var (

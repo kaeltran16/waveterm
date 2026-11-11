@@ -202,6 +202,13 @@ func TestParsePlanFenceClosesOnlyOnALongEnoughRun(t *testing.T) {
 	}
 }
 
+func TestParsePlanStripsABOM(t *testing.T) {
+	p := mustParsePlan(t, "\xef\xbb\xbf**Verify:** `go test ./...`\n\n### Task 1: a\nbody\n")
+	if p.Verify != "go test ./..." || p.Preamble != "" {
+		t.Fatalf("got verify %q, preamble %q", p.Verify, p.Preamble)
+	}
+}
+
 func TestParsePlanCRLF(t *testing.T) {
 	p := mustParsePlan(t, "**Verify:** `go test ./...`\r\n\r\n### Task 1: a\r\nbody\r\n### Task 2: b\r\n**Depends on:** none\r\n")
 	if p.Verify != "go test ./..." || p.Tasks[0].Label != "a" || p.Tasks[0].Description != "body" {
