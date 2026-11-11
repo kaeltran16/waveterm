@@ -525,6 +525,21 @@ describe("list-nav bindings", () => {
         globalStore.set(listNavAtom, null);
     });
 
+    it("a move clamped at an end leaves the selected row alone", () => {
+        const seen: string[] = [];
+        globalStore.set(listNavAtom, {
+            surface: "jarvis",
+            navigableIds: ["a", "b"],
+            cursorId: "a",
+            setCursor: (id) => seen.push(id),
+        });
+        buildListNavBindings(stubModel())
+            .find((b) => b.id === "list:prev-k")!
+            .run(chanCtx);
+        expect(seen).toEqual([]);
+        globalStore.set(listNavAtom, null);
+    });
+
     it("first press from an empty/absent cursor lands on the first id", () => {
         const seen: string[] = [];
         globalStore.set(listNavAtom, {

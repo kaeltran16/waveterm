@@ -521,7 +521,9 @@ export function buildListNavBindings(model: AgentsViewModel): Binding[] {
             return;
         }
         const next = moveCursor(c.navigableIds, c.cursorId, delta);
-        if (next != null) {
+        // clamped at the ends to the row already selected: re-selecting it would re-read its files and reopen
+        // the first one (the Diff), once per key repeat
+        if (next != null && next !== c.cursorId) {
             c.setCursor(next);
         }
     };
