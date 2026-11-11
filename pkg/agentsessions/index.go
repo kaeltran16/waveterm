@@ -93,6 +93,12 @@ func Indexed(windowDays int) (sessions []IndexedSession, complete bool) {
 func PinnedSessions(keys []string, have map[string]bool) []SessionInfo {
 	var out []SessionInfo
 	seen := map[string]bool{}
+	located := map[string]bool{}
+	defer func() {
+		scanCacheMu.Lock()
+		pinnedPaths = located
+		scanCacheMu.Unlock()
+	}()
 	for _, key := range keys {
 		if have[key] || seen[key] {
 			continue
@@ -102,6 +108,7 @@ func PinnedSessions(keys []string, have map[string]bool) []SessionInfo {
 		if !ok {
 			continue
 		}
+		located[c.path] = true
 		e, ok := cachedEntry(c)
 		if !ok {
 			e = parseCandidate(c)
@@ -138,8 +145,12 @@ func pinnedCandidate(key string) (candidate, bool) {
 	return candidate{}, false
 }
 
-// pruneScanCache drops entries whose transcript is not among cands, so the cache holds the window's
-// transcripts and never the deleted or aged-out ones.
+// pinnedPaths are the transcripts the last PinnedSessions call located, under scanCacheMu. The prune keeps
+// them: a pin past the window would otherwise be fully re-read on every list call, outside any budget.
+var pinnedPaths map[string]bool
+
+// pruneScanCache drops entries whose transcript is not among cands or pinnedPaths, so the cache holds the
+// window's and the pins' transcripts and never the deleted, aged-out or unpinned ones.
 func pruneScanCache(cands []candidate) {
 	keep := make(map[string]bool, len(cands))
 	for _, c := range cands {
@@ -148,7 +159,7 @@ func pruneScanCache(cands []candidate) {
 	scanCacheMu.Lock()
 	defer scanCacheMu.Unlock()
 	for path := range scanCache {
-		if !keep[path] {
+		if !keep[path] && !pinnedPaths[path] {
 			delete(scanCache, path)
 		}
 	}

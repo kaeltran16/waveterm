@@ -351,3 +351,40 @@ func TestPinnedSessionsSkipsHave(t *testing.T) {
 		t.Fatalf("a key the caller has is not read, got %d reads", n)
 	}
 }
+
+// a pinned session past the window is read once: the window's prune must not drop what PinnedSessions cached
+func TestPinnedSessionPastTheWindowStaysCached(t *testing.T) {
+	dir := indexHome(t)
+	path := writeSession(t, dir, "old", "pinned long ago", 40*24*time.Hour)
+	reads := countReads(t)
+	for i := 0; i < 3; i++ {
+		Indexed(IndexWindowDays)
+		if got := PinnedSessions([]string{"claude:old"}, map[string]bool{}); len(got) != 1 {
+			t.Fatalf("want the pinned session, got %d", len(got))
+		}
+	}
+	if n := reads()[path]; n != 1 {
+		t.Fatalf("the pinned transcript was read %d times in 3 list calls, want 1", n)
+	}
+}
+
+// a read that fails once (an antivirus or backup lock) must not cache a finished transcript as "not a
+// session": its mtime and size never change again, so the session would stay hidden until restart
+func TestIndexedRetriesATranscriptWhoseReadFailed(t *testing.T) {
+	dir := indexHome(t)
+	writeSession(t, dir, "locked", "read me later", time.Hour)
+	orig := readLines
+	failed := false
+	readLines = func(path string) []string {
+		if !failed {
+			failed = true
+			return nil
+		}
+		return orig(path)
+	}
+	t.Cleanup(func() { readLines = orig })
+	Indexed(IndexWindowDays)
+	if got, _ := Indexed(IndexWindowDays); len(got) != 1 || got[0].Info.ID != "locked" {
+		t.Fatalf("want the session once the read succeeds, got %+v", got)
+	}
+}

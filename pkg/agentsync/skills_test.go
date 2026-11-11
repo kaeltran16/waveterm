@@ -659,3 +659,33 @@ func TestSkillLinksListsEveryLink(t *testing.T) {
 		}
 	}
 }
+
+// on Windows Review and review are one directory, so a vault skill must not write over a user's own
+// directory whose name differs only in case
+func TestReconcileLeavesAnUnmanagedDirDifferingOnlyInCase(t *testing.T) {
+	p := testPaths(t, "", ".claude")
+	seedSkill(t, p, "Review")
+	own := filepath.Join(p.Home, ".claude", "skills", "review")
+	writeFile(t, filepath.Join(own, skillFile), "---\nname: review\n---\nmine\n")
+	writeFile(t, filepath.Join(own, "notes.md"), "keep\n")
+
+	if _, err := Apply(p, false); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, filepath.Join(own, "notes.md")); got != "keep\n" {
+		t.Errorf("notes.md = %q", got)
+	}
+	if got := readFile(t, filepath.Join(own, skillFile)); got != "---\nname: review\n---\nmine\n" {
+		t.Errorf("the user's SKILL.md = %q, want it untouched", got)
+	}
+}
+
+// a SKILL.md checked out with CRLF line endings still has frontmatter, so a delta merges into it
+// rather than stacking a second block on top
+func TestApplyOverridesMergesIntoACRLFFrontmatter(t *testing.T) {
+	doc := "---\r\nname: x\r\ndescription: d\r\n---\r\n# Body\r\n"
+	got := applyOverrides(doc, []fmEntry{{key: "model", text: "model: opus\n"}})
+	if want := "---\nname: x\r\ndescription: d\r\nmodel: opus\n---\n# Body\r\n"; got != want {
+		t.Fatalf("applyOverrides = %q, want %q", got, want)
+	}
+}

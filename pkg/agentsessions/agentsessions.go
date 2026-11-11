@@ -224,6 +224,10 @@ func claudeSessionFrom(id string, recs []claudeLine) *SessionInfo {
 		}
 		if !hasTask && rec.Type == "user" {
 			raw := stringContent(rec.Message.Content)
+			// a prompt sent with an image is recorded as blocks; a meta record's blocks are a skill body claude injected
+			if raw == "" && !rec.IsMeta {
+				raw = claudePromptText(rec.Message.Content)
+			}
 			if title := sessionTitle(raw); title == "" {
 				continue
 			} else if isBareCommand(raw, title) {
@@ -1177,10 +1181,16 @@ func cachedEntry(c candidate) (scanCacheEntry, bool) {
 	return e, ok && e.mtime.Equal(c.mtime) && e.size == c.size
 }
 
-// parseCandidate reads and derives one candidate, and caches the result.
+// parseCandidate reads and derives one candidate, and caches the result unless the read failed.
 func parseCandidate(c candidate) scanCacheEntry {
-	s, se, turns := c.p.fused(c.path, c.stem, readLines(c.path))
+	lines := readLines(c.path)
+	s, se, turns := c.p.fused(c.path, c.stem, lines)
 	e := scanCacheEntry{mtime: c.mtime, size: c.size, info: s, se: se, turns: turns}
+	// a non-empty file that gave no line was not read (a lock, a handle limit); caching that would hide a
+	// finished session until restart, since its mtime and size never change again
+	if len(lines) == 0 && c.size > 0 {
+		return e
+	}
 	scanCacheMu.Lock()
 	if len(scanCache) >= scanCacheMax {
 		clear(scanCache)

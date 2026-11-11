@@ -68,3 +68,19 @@ func TestExtractSessionUnknownRuntime(t *testing.T) {
 		t.Fatal("want error for unknown runtime")
 	}
 }
+
+func TestExtractSessionTitlesFromBlockPrompt(t *testing.T) {
+	// a prompt sent with a pasted image is recorded as content blocks, not a string
+	path := writeTranscript(t, []string{
+		`{"type":"user","cwd":"/repo","message":{"content":[{"type":"text","text":"fix this layout"},{"type":"image","source":{"type":"base64","data":"x"}}]}}`,
+		`{"type":"assistant","message":{"content":[{"type":"text","text":"fixed"}]}}`,
+		`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}`,
+	})
+	s, err := ExtractSession(path, "claude")
+	if err != nil || s == nil {
+		t.Fatalf("session = %v, err = %v", s, err)
+	}
+	if s.Task != "fix this layout" {
+		t.Errorf("task = %q, want %q", s.Task, "fix this layout")
+	}
+}
