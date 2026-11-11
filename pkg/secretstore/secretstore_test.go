@@ -160,6 +160,21 @@ func TestUnreadableSecretsFileFailsLoudly(t *testing.T) {
 	}
 }
 
+// the same holds when the bytes cannot be read at all (a sharing violation, access denied, an I/O
+// error); a directory at the path is the portable stand-in
+func TestSecretsFileReadFailureFailsLoudly(t *testing.T) {
+	dir := useConfigDir(t)
+	if err := os.Mkdir(filepath.Join(dir, SecretsFileName), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := GetSecret("jarvis_embedapikey"); err == nil {
+		t.Fatal("unreadable secrets file read as an empty store instead of erroring")
+	}
+	if err := SetSecret("jarvis_embedapikey", "v"); err == nil {
+		t.Fatal("SetSecret over an unreadable secrets file succeeded")
+	}
+}
+
 func TestFlushWritesBeforeDebounce(t *testing.T) {
 	requirePersistence(t)
 	dir := useConfigDir(t)
