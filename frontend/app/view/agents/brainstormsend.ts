@@ -132,18 +132,6 @@ export function openRunLauncher(
     globalStore.set(model.newRunOpenAtom, true);
 }
 
-// the approve bar's Change: the same approval, then the launcher, where the run is set up before it starts. Opening the
-// launcher on its own started a run the agent never heard approved
-export async function approveAndChangeRun(
-    model: AgentsViewModel,
-    agent: AgentVM,
-    s: BrainstormState,
-    io: PromptIO = tauriPromptIO
-): Promise<void> {
-    await sendBrainstorm(agent, { kind: "approved" }, io);
-    openRunLauncher(model, agent, s, io);
-}
-
 // the agent hears it is approved first, so a line that cannot be sent leaves the launcher closed. A run waiting
 // on this session takes the design and starts its lead; any other session gets the launcher
 export async function approveAndOpenRun(
