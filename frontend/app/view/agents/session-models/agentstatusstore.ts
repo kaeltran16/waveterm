@@ -7,6 +7,7 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { fireAndForget } from "@/util/util";
 import { atom, type PrimitiveAtom } from "jotai";
+import type { OptimisticMode } from "../headercontrolsmodel";
 import { recordRateLimit } from "../ratelimitstore";
 import { persistResume } from "./agentresumestore";
 
@@ -140,6 +141,31 @@ export function getPermissionModeAtom(oref: string): PrimitiveAtom<string | null
     return modeAtom;
 }
 
+// per-block every permission mode the agent has reported: the header learns the session's Shift+Tab cycle from it
+const seenPermissionModesAtoms = new Map<string, PrimitiveAtom<ReadonlySet<string>>>();
+
+export function getSeenPermissionModesAtom(oref: string): PrimitiveAtom<ReadonlySet<string>> {
+    let seenAtom = seenPermissionModesAtoms.get(oref);
+    if (!seenAtom) {
+        seenAtom = atom<ReadonlySet<string>>(new Set<string>());
+        seenPermissionModesAtoms.set(oref, seenAtom);
+    }
+    return seenAtom;
+}
+
+// per-block mode the header just typed toward; an atom rather than component state because the header remounts per
+// agent, and a switch away and back while idle (no hook fires) would otherwise compute the next keys from a stale mode
+const optimisticPermissionModeAtoms = new Map<string, PrimitiveAtom<OptimisticMode | null>>();
+
+export function getOptimisticPermissionModeAtom(oref: string): PrimitiveAtom<OptimisticMode | null> {
+    let modeAtom = optimisticPermissionModeAtoms.get(oref);
+    if (!modeAtom) {
+        modeAtom = atom(null) as PrimitiveAtom<OptimisticMode | null>;
+        optimisticPermissionModeAtoms.set(oref, modeAtom);
+    }
+    return modeAtom;
+}
+
 // per-block manual expand override (undefined = auto). Reset to undefined on the parent's idle transition.
 const subagentExpandAtoms = new Map<string, PrimitiveAtom<boolean>>();
 
@@ -191,6 +217,10 @@ export function setupAgentStatusSubscription() {
             const permissionMode = data.permissionmode;
             if (permissionMode) {
                 globalStore.set(getPermissionModeAtom(data.oref), permissionMode);
+                const seenAtom = getSeenPermissionModesAtom(data.oref);
+                if (!globalStore.get(seenAtom).has(permissionMode)) {
+                    globalStore.set(seenAtom, (seen) => new Set(seen).add(permissionMode));
+                }
             }
             // a delta-only event carries an empty state; only a real state update should touch the parent atom
             if (data.state) {

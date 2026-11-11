@@ -1,21 +1,56 @@
 import { describe, expect, it } from "vitest";
-import { MODEL_ALIASES, modelCommand, permissionModeKeys, permissionModeLabel } from "./headercontrolsmodel";
+import {
+    MODEL_ALIASES,
+    modelCommand,
+    permissionCycle,
+    permissionModeKeys,
+    permissionModeLabel,
+    shownPermissionMode,
+} from "./headercontrolsmodel";
 
 const SHIFT_TAB = "\x1b[Z";
 
+describe("permissionCycle", () => {
+    it("is default -> acceptEdits -> plan until the session reports auto", () => {
+        expect(permissionCycle(new Set(["default", "plan"]))).toEqual(["default", "acceptEdits", "plan"]);
+    });
+    it("walks auto after plan once the session has reported it", () => {
+        expect(permissionCycle(new Set(["auto"]))).toEqual(["default", "acceptEdits", "plan", "auto"]);
+    });
+});
+
 describe("permissionModeKeys", () => {
+    const three = permissionCycle(new Set());
+    const four = permissionCycle(new Set(["auto"]));
+
     it("types one shift+tab per step around the default -> acceptEdits -> plan cycle", () => {
-        expect(permissionModeKeys("default", "plan")).toEqual([SHIFT_TAB, SHIFT_TAB]);
-        expect(permissionModeKeys("plan", "default")).toEqual([SHIFT_TAB]);
-        expect(permissionModeKeys("default", "acceptEdits")).toEqual([SHIFT_TAB]);
-        expect(permissionModeKeys("acceptEdits", "default")).toEqual([SHIFT_TAB, SHIFT_TAB]);
+        expect(permissionModeKeys(three, "default", "plan")).toEqual([SHIFT_TAB, SHIFT_TAB]);
+        expect(permissionModeKeys(three, "plan", "default")).toEqual([SHIFT_TAB]);
+        expect(permissionModeKeys(three, "default", "acceptEdits")).toEqual([SHIFT_TAB]);
+        expect(permissionModeKeys(three, "acceptEdits", "default")).toEqual([SHIFT_TAB, SHIFT_TAB]);
+    });
+    it("steps through auto when it is in the cycle", () => {
+        expect(permissionModeKeys(four, "plan", "default")).toEqual([SHIFT_TAB, SHIFT_TAB]);
+        expect(permissionModeKeys(four, "auto", "default")).toEqual([SHIFT_TAB]);
+        expect(permissionModeKeys(four, "default", "auto")).toEqual([SHIFT_TAB, SHIFT_TAB, SHIFT_TAB]);
     });
     it("types nothing when already there", () => {
-        expect(permissionModeKeys("plan", "plan")).toEqual([]);
+        expect(permissionModeKeys(three, "plan", "plan")).toEqual([]);
     });
     it("is null when either mode is outside the cycle", () => {
-        expect(permissionModeKeys("bypassPermissions", "default")).toBeNull();
-        expect(permissionModeKeys("default", "bypassPermissions")).toBeNull();
+        expect(permissionModeKeys(three, "bypassPermissions", "default")).toBeNull();
+        expect(permissionModeKeys(three, "default", "bypassPermissions")).toBeNull();
+        expect(permissionModeKeys(three, "auto", "default")).toBeNull();
+    });
+});
+
+describe("shownPermissionMode", () => {
+    it("shows the typed mode until a newer hook reports the real one", () => {
+        expect(shownPermissionMode({ mode: "plan", hookTs: 5 }, 5, "default")).toBe("plan");
+        expect(shownPermissionMode({ mode: "plan", hookTs: 5 }, 6, "acceptEdits")).toBe("acceptEdits");
+    });
+    it("shows the reported mode with nothing typed", () => {
+        expect(shownPermissionMode(null, 5, "default")).toBe("default");
     });
 });
 
