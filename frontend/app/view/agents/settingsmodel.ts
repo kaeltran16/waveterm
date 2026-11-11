@@ -559,6 +559,30 @@ export function vaultSyncFailureNote(err: string, reloaded: VaultStatusRtnData |
     return null;
 }
 
+// a commit-on-blur field's key and blur handling. Enter and Escape both leave the field by blurring it,
+// and the blur is the one place that commits: the blur runs synchronously inside the keydown, from the
+// render that still holds the typed draft, so committing in the keydown as well fired twice, and
+// resetting the draft before the blur could not stop the abandoned text from being committed.
+export function commitFieldGate() {
+    let abandoned = false;
+    return {
+        // whether the key leaves the field
+        key(key: string): boolean {
+            if (key === "Escape") {
+                abandoned = true;
+                return true;
+            }
+            return key === "Enter";
+        },
+        // whether this blur commits the draft
+        blur(): boolean {
+            const commit = !abandoned;
+            abandoned = false;
+            return commit;
+        },
+    };
+}
+
 const JIRA_SITE_RE = /^https:\/\/[a-z0-9-]+\.atlassian\.net\/?$/i;
 
 // null when the site may be saved: empty disconnects, otherwise only a Jira Cloud address is accepted

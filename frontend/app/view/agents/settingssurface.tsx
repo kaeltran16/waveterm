@@ -57,6 +57,7 @@ import { remoteStatusAtom, saveRemoteSetup, setRemoteOn } from "./remotestore";
 import { RoutePicker } from "./routepicker";
 import {
     changedCount,
+    commitFieldGate,
     countLabel,
     filterSections,
     FLAG_RUNTIMES,
@@ -659,6 +660,7 @@ function CommitText({
     children?: ReactNode;
 }) {
     const [draft, setDraft] = useState(value);
+    const [gate] = useState(commitFieldGate);
     const external = useRef(value);
     useEffect(() => {
         if (value !== external.current) {
@@ -682,13 +684,12 @@ function CommitText({
                 disabled={disabled}
                 spellCheck={false}
                 onChange={(e) => setDraft(e.target.value)}
-                onBlur={commit}
+                onBlur={() => gate.blur() && commit()}
                 onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                        commit();
-                        e.currentTarget.blur();
-                    } else if (e.key === "Escape") {
+                    if (e.key === "Escape") {
                         setDraft(value);
+                    }
+                    if (gate.key(e.key)) {
                         e.currentTarget.blur();
                     }
                 }}
@@ -707,6 +708,7 @@ function CommitText({
 // once the key actually lands — a failed write leaves what you pasted in place.
 function SecretInput({ placeholder, onCommit }: { placeholder: string; onCommit: (v: string) => Promise<boolean> }) {
     const [draft, setDraft] = useState("");
+    const [gate] = useState(commitFieldGate);
     const commit = () => {
         const v = draft.trim();
         if (v === "") {
@@ -726,13 +728,12 @@ function SecretInput({ placeholder, onCommit }: { placeholder: string; onCommit:
             spellCheck={false}
             autoComplete="off"
             onChange={(e) => setDraft(e.target.value)}
-            onBlur={commit}
+            onBlur={() => gate.blur() && commit()}
             onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                    commit();
-                    e.currentTarget.blur();
-                } else if (e.key === "Escape") {
+                if (e.key === "Escape") {
                     setDraft("");
+                }
+                if (gate.key(e.key)) {
                     e.currentTarget.blur();
                 }
             }}

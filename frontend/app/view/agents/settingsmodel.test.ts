@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { RUNTIME_FLAGS } from "./launch";
 import {
     changedCount,
+    commitFieldGate,
     countLabel,
     filterSections,
     flagRowId,
@@ -529,5 +530,39 @@ describe("jiraConnectionLine", () => {
             NOW
         );
         expect(line.text).toBe("dial tcp: no such host");
+    });
+});
+
+describe("commitFieldGate", () => {
+    // drives the gate the way the input's handlers do: a key that leaves the field blurs it, and the
+    // blur commits when the gate says so
+    function press(gate: ReturnType<typeof commitFieldGate>, key: string, commits: string[], draft: string) {
+        if (gate.key(key) && gate.blur()) {
+            commits.push(draft);
+        }
+    }
+
+    it("commits once on Enter", () => {
+        const gate = commitFieldGate();
+        const commits: string[] = [];
+        press(gate, "Enter", commits, "new");
+        expect(commits).toEqual(["new"]);
+    });
+
+    it("does not commit the draft Escape abandons", () => {
+        const gate = commitFieldGate();
+        const commits: string[] = [];
+        press(gate, "Escape", commits, "typo");
+        expect(commits).toEqual([]);
+    });
+
+    it("commits a later blur after an Escape", () => {
+        const gate = commitFieldGate();
+        press(gate, "Escape", [], "typo");
+        expect(gate.blur()).toBe(true);
+    });
+
+    it("ignores other keys", () => {
+        expect(commitFieldGate().key("a")).toBe(false);
     });
 });
