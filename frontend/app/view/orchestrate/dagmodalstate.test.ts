@@ -12,6 +12,7 @@ import {
     closeDagModal,
     DAG_MODAL_ID,
     dagModalAgentsContextAtom,
+    dagModalKey,
     dagModalStateAtom,
     dismissDagModal,
     escapeDagModal,
@@ -160,5 +161,25 @@ describe("the DAG modal on the modal stack", () => {
         expect(isTopModal(DAG_MODAL_ID)).toBe(true);
         reregisterDag();
         unregisterSheet();
+    });
+});
+
+describe("dagModalKey", () => {
+    it("takes Escape and Tab while the modal is on top, and nothing else", () => {
+        const unregister = registerModal(DAG_MODAL_ID);
+        expect(dagModalKey("Escape")).toBe("escape");
+        expect(dagModalKey("Tab")).toBe("tab");
+        expect(dagModalKey("ArrowDown")).toBeNull();
+        unregister();
+    });
+
+    it("leaves both to a confirm opened above it", () => {
+        const unregisterDag = registerModal(DAG_MODAL_ID);
+        const unregisterConfirm = registerModal("confirm");
+        expect(dagModalKey("Escape")).toBeNull();
+        expect(dagModalKey("Tab")).toBeNull();
+        unregisterConfirm();
+        expect(dagModalKey("Escape")).toBe("escape");
+        unregisterDag();
     });
 });
