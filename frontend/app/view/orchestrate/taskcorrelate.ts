@@ -88,6 +88,13 @@ export function openTaskWorker(view: TaskWorkerView, model: AgentsViewModel, eve
 // enterOpensTask reports whether Enter in the graph opens the selected task's worker. A focused button or
 // link already takes Enter as its click, and a field takes it as text; opening the worker as well would do
 // two things on one press.
+// Pure: whether the graph's arrow and zoom keys leave this focus alone. A text field types, and a popover that
+// walks its own rows with the arrows (data-owns-arrows, the route picker) moves focus to a row before the key
+// reaches the window, so the focused row button is what says the key was the popover's.
+export function graphKeysYield(active: Element | null): boolean {
+    return isEditableTarget(active) || active?.closest("[data-owns-arrows]") != null;
+}
+
 export function enterOpensTask(active: Element | null): boolean {
     if (active?.tagName === "BUTTON" || active?.tagName === "A") {
         return false;

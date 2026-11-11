@@ -211,7 +211,13 @@ export function RoutePicker({
             </button>
             <FloatingPortal>
                 {/* above ModalShell's z-[70] backdrop: the launcher's pickers live inside a modal */}
-                <div ref={refs.setFloating} style={floatingStyles} {...getFloatingProps()} className="z-[80]">
+                <div
+                    ref={refs.setFloating}
+                    style={floatingStyles}
+                    {...getFloatingProps()}
+                    data-owns-arrows
+                    className="z-[80]"
+                >
                 <PopoverReveal
                     open={open}
                     origin="bottom left"
