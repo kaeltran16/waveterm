@@ -68,8 +68,9 @@ func SetupConnRpcClient(conn net.Conn, serverImpl ServerImpl, debugStr string) (
 		writeErr := AdaptOutputChToStream(outputCh, conn)
 		if writeErr != nil {
 			writeErrCh <- writeErr
-			close(writeErrCh)
 		}
+		// closed on a clean end too, or a reader waiting for the output's end waits forever
+		close(writeErrCh)
 	}()
 	go func() {
 		defer func() {
