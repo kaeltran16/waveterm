@@ -75,7 +75,8 @@ func (ws *WshServer) AskCommand(ctx context.Context, data wshrpc.CommandAskData)
 		return wshrpc.AskRtnData{AskId: askId, Answers: res.Answers, Cancelled: res.Cancelled}, nil
 	case <-ctx.Done():
 		agentask.GlobalRegistry.RemoveWaiter(askId)
-		agentask.GlobalRegistry.Drop(data.ORef)
+		// this call's ask only: a newer ask raised in the same block since then has a live caller of its own
+		agentask.GlobalRegistry.Claim(data.ORef, askId)
 		recordAskTransition(data.ORef, askId, waveobj.RunEventKindChildAskCleared, orchestrate.AskClearReasonWaiterEnded)
 		publishAgentAsk(baseds.AgentAskData{ORef: data.ORef, AskId: askId, Cleared: true})
 		return wshrpc.AskRtnData{}, ctx.Err()
