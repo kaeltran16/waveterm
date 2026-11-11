@@ -17,12 +17,10 @@ import (
 var ErrMergeConflict = errors.New("merge conflict")
 
 // MergeLane is what a lane's squash commit names: Title is its task titles, joined, and TaskIDs the tasks it
-// lands. Skipped tasks are in neither, since they landed nothing. Base is the commit an early-started lane
-// branched from on its predecessor's branch, "" for a lane that branched from the project branch.
+// lands. Skipped tasks are in neither, since they landed nothing.
 type MergeLane struct {
 	Title   string
 	TaskIDs []string
-	Base    string
 }
 
 // MergeRunWorktree squash-merges wave/<runID> into the project branch and returns the merge commit
@@ -158,20 +156,14 @@ func foldIntoTree(ctx context.Context, tree, path string) (string, error) {
 	return target, os.WriteFile(target, data, 0o644)
 }
 
-// mergeMessage is the branch's commit messages, oldest first, each once and without agent attribution. A
-// branch from the project branch makes HEAD..branch exactly its workers' commits; an early-started one holds its
-// predecessor's commits too, which that lane's squash left off HEAD's history, so it logs from lane.Base, still
-// excluding HEAD: a worker that reset or rebased onto the project branch holds squashes already landed there. A
+// mergeMessage is the branch's commit messages, oldest first, each once and without agent attribution. The
+// branch always starts at a commit on the project branch, so HEAD..branch is exactly its workers' commits. A
 // lane of several tasks takes its title as the subject, since any one worker's subject names only that worker's
 // task, cut to a subject line as a land title is: two task titles joined run past it, typed from the workers'
 // subjects. A one-task lane falls back to the title only when the messages are empty or unreadable.
 func mergeMessage(ctx context.Context, projectPath, runID string, lane MergeLane) string {
 	var msgs, subjects []string
-	args := []string{"log", "--reverse", "--format=%B%x00", "wave/" + runID, "^HEAD"}
-	if lane.Base != "" {
-		args = append(args, "^"+lane.Base)
-	}
-	out, err := git(ctx, projectPath, args...)
+	out, err := git(ctx, projectPath, "log", "--reverse", "--format=%B%x00", "HEAD..wave/"+runID)
 	if err != nil {
 		log.Printf("merge %s: reading the branch's commit messages: %v", runID, err)
 	}

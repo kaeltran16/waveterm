@@ -26,7 +26,7 @@ var mergeWorktree = MergeRunWorktree
 var continueMerge = MergeContinue
 
 // mergeLane is what the squash commit of lane names, less its skipped tasks, as laneMergeMessage leaves them
-// out of the title, and where its own commits start when its head started early.
+// out of the title.
 func mergeLane(g *waveobj.TaskGroup, lane []string) MergeLane {
 	var ids []string
 	for _, id := range lane {
@@ -34,13 +34,7 @@ func mergeLane(g *waveobj.TaskGroup, lane []string) MergeLane {
 			ids = append(ids, id)
 		}
 	}
-	ml := MergeLane{Title: laneMergeMessage(g, lane), TaskIDs: ids}
-	if len(lane) > 0 {
-		if head := taskByID(g, lane[0]); head != nil {
-			ml.Base = head.EarlyBaseCommit
-		}
-	}
-	return ml
+	return MergeLane{Title: laneMergeMessage(g, lane), TaskIDs: ids}
 }
 
 // mergeFailureLimit is how many consecutive refusals the automatic path absorbs before the task blocks
@@ -268,9 +262,6 @@ func mergeTaskLocked(ctx context.Context, channelID string, owner *waveobj.Run, 
 	}
 	if task.RunID == "" {
 		return "", fmt.Errorf("task %s has no child run", task.ID)
-	}
-	if base := earlyBaseUnmerged(g, lane); base != nil {
-		return "", fmt.Errorf("%w: task %s started on task %s's lane, which has not merged", errProjectBusy, lane[0], base.ID)
 	}
 	if held := conflictAwaitingContinue(g, task.ID); held != "" {
 		return "", fmt.Errorf("%w: task %s's merge conflict is waiting for `wsh jarvis dag merge %s --continue`", errProjectBusy, held, held)

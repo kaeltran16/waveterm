@@ -2055,7 +2055,6 @@ declare global {
         unverifiednotes?: DagUnverifiedNote[];
         answered: number;
         forwarded: number;
-        restarted?: number;
         usage?: UsageRow[];
     };
 
@@ -2105,7 +2104,6 @@ declare global {
         verifylastline?: string;
         mergegatets?: number;
         recoveredretry?: boolean;
-        earlybase?: string;
         mergestate: string;
         cleanupstate: string;
         reportsections?: string[];
@@ -3611,11 +3609,6 @@ declare global {
         leadguidance?: string;
         leadnotes?: string[];
         leadtold?: string[];
-        earlybasetask?: string;
-        earlybasecommit?: string;
-        earlyrestarts?: number;
-        discardtree?: boolean;
-        restartts?: number;
     };
 
     // waveobj.TermSize

@@ -65,7 +65,6 @@ const STEP_LABEL = new Map<string, string>([
     ["task-first-activity", "first output"],
     ["task-stalled", "stalled"],
     ["task-retried", "retried"],
-    ["task-restarted", "restarted"],
     ["task-skipped", "skipped"],
     ["task-escalated", "escalated"],
     ["final-rerun", "final rerun"],
@@ -229,8 +228,6 @@ export function snippetOf(e: RunEvent): string {
         case "task-escalated":
         case "final-rerun":
             return eventText(e);
-        case "task-restarted":
-            return str(d.reason);
         case "task-spawned":
             return num(d.worktreems)
                 ? `worktree ${secs(num(d.worktreems))} · setup ${secs(num(d.setupms))} · spawn ${secs(num(d.spawnms))}`

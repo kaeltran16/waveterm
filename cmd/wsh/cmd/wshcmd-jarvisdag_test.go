@@ -1079,14 +1079,3 @@ func TestDagTaskStatusLinesShowOnlyThatTask(t *testing.T) {
 		t.Fatalf("an unknown task must error naming it, got %v", err)
 	}
 }
-
-func TestReportLineShowsRestartsOnlyWhenThereAreSome(t *testing.T) {
-	d := wshrpc.DagStatusDigest{}
-	if line := reportLine(d); strings.Contains(line, "restarted") {
-		t.Fatalf("no restarts, nothing to say, got %q", line)
-	}
-	d.Report.Restarted = 2
-	if line := reportLine(d); !strings.Contains(line, "restarted (predecessor review failed) 2") {
-		t.Fatalf("the report line names the restarts, got %q", line)
-	}
-}
