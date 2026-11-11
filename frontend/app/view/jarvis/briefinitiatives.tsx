@@ -331,6 +331,7 @@ export function BriefChunkPane({
                 <ChunkSidebar
                     key="chunk-sidebar"
                     model={model}
+                    chunkId={selectedChunk.id}
                     initiative={initiative}
                     label={selectedChunk.row.label}
                     stage={selectedChunk.row.stage}
