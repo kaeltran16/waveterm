@@ -539,11 +539,11 @@ async function loadCanvas(
     if (!isCanvasSegment(topic) || (board != null && !isCanvasSegment(board))) {
         return { ok: false, reason: "unsupported", message: `Not a canvas name: ${topic}` };
     }
+    const roster = [...globalStore.get(model.agentsAtom), ...globalStore.get(model.terminalsAtom)];
     if (caller == null) {
-        const owner = canvasOwner(topic);
+        const owner = canvasOwner(topic, new Set(roster.map((a) => a.id)));
         return owner != null ? loaded({ owner }) : unavailable(`No agent has the canvas ${topic} open`);
     }
-    const roster = [...globalStore.get(model.agentsAtom), ...globalStore.get(model.terminalsAtom)];
     const agent = roster.find((a) => a.blockId != null && a.blockId === caller.blockId);
     if (agent == null || !caller.cwd) {
         return unavailable(`Run wsh ui reveal canvas:${topic} from the agent's terminal`);

@@ -639,6 +639,15 @@ describe("canvas landing", () => {
         expect(rpc.FileInfoCommand).not.toHaveBeenCalled();
     });
 
+    it("without a caller, skips a closed agent that still held the canvas", async () => {
+        const model = makeModel(["a2"]);
+        attachCanvas("a1", { topic: "t", dir: DIR, projectDir: CWD }, 1);
+        attachCanvas("a2", { topic: "t", dir: DIR, projectDir: CWD }, 1);
+        expect(await openAddress(model, "canvas:t", undefined, noReport)).toEqual({ ok: true });
+        expect(globalStore.get(model.focusIdAtom)).toBe("a2");
+        expect(getCanvas("a2")?.mode).toBe("canvas");
+    });
+
     it("without a caller or an owner, says no agent has it open", async () => {
         const model = makeModel(["a1"]);
         expect(await openAddress(model, "canvas:t", undefined, noReport)).toEqual({
