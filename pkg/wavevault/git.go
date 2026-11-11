@@ -35,7 +35,7 @@ var syncGitEnv = []string{"GIT_TERMINAL_PROMPT=0", "GCM_INTERACTIVE=never"}
 
 // gitCommand builds `git -C dir args...`. WaitDelay: a timeout kills git only, and a helper it started
 // (ssh, git-remote-https) can hold the output pipe open long past it, so without it the pipe, not the
-// timeout, bounds the call, with the vault lock held.
+// timeout, bounds the call, often with the vault lock held.
 func gitCommand(ctx context.Context, dir string, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
 	cmd.WaitDelay = gitWaitDelay
