@@ -268,8 +268,8 @@ func TestAgentsWaitTimesOut(t *testing.T) {
 	if r != nil || err == nil {
 		t.Fatalf("got %+v, %v; want a timeout error", r, err)
 	}
-	if !strings.Contains(err.Error(), "still working") || !strings.Contains(err.Error(), "wsh agents read aaaaaaaa") {
-		t.Errorf("err = %v, want it to say the target is still working and how to read later", err)
+	if !strings.Contains(err.Error(), "still working") || !strings.Contains(err.Error(), "wsh agents wait aaaaaaaa") {
+		t.Errorf("err = %v, want it to say the target is still working and how to keep waiting", err)
 	}
 	if n != 4 {
 		t.Errorf("reads = %d, want 4 (one at the start, one per poll until the timeout)", n)
@@ -310,6 +310,64 @@ func TestAgentsWaitReturnsAReadError(t *testing.T) {
 	_, err := agentsWait(read, sleep, time.Now, &wshrpc.CommandAgentsSendRtnData{TabId: agentsTestTabA}, time.Minute)
 	if !errors.Is(err, boom) {
 		t.Errorf("err = %v, want the read's error as it came", err)
+	}
+}
+
+// agentsWaitUntilScript runs agentsWaitUntil over scripted reads (the last one repeats) with a clock that only
+// sleeping moves, and reports how many reads it took
+func agentsWaitUntilScript(t *testing.T, until string, timeout time.Duration, reads ...wshrpc.CommandAgentsReadRtnData) (*wshrpc.CommandAgentsReadRtnData, int, error) {
+	t.Helper()
+	clock := time.UnixMilli(agentsTestSentTs)
+	n := 0
+	read := func() (*wshrpc.CommandAgentsReadRtnData, error) {
+		r := reads[min(n, len(reads)-1)]
+		r.TabId = agentsTestTabA
+		n++
+		return &r, nil
+	}
+	sleep := func(d time.Duration) { clock = clock.Add(d) }
+	r, err := agentsWaitUntil(read, sleep, func() time.Time { return clock }, until, timeout)
+	return r, n, err
+}
+
+// the only wait was attached to send, so after a timeout the caller polled wsh agents read by hand
+func TestAgentsWaitUntil(t *testing.T) {
+	working := wshrpc.CommandAgentsReadRtnData{State: wshrpc.AgentsState_Working}
+	idle := wshrpc.CommandAgentsReadRtnData{State: wshrpc.AgentsState_Idle, Answer: "done", AnswerTs: 5}
+	asking := wshrpc.CommandAgentsReadRtnData{State: wshrpc.AgentsState_Asking}
+	cases := []struct {
+		name   string
+		until  string
+		reads  []wshrpc.CommandAgentsReadRtnData
+		want   string
+		nReads int
+	}{
+		{"settles on idle", "", []wshrpc.CommandAgentsReadRtnData{working, working, idle}, wshrpc.AgentsState_Idle, 3},
+		{"settles on asking", "", []wshrpc.CommandAgentsReadRtnData{working, asking}, wshrpc.AgentsState_Asking, 2},
+		{"already idle returns at once", "", []wshrpc.CommandAgentsReadRtnData{idle}, wshrpc.AgentsState_Idle, 1},
+		{"until asking passes idle by", wshrpc.AgentsState_Asking, []wshrpc.CommandAgentsReadRtnData{idle, working, asking}, wshrpc.AgentsState_Asking, 3},
+		{"until idle passes asking by", wshrpc.AgentsState_Idle, []wshrpc.CommandAgentsReadRtnData{asking, working, idle}, wshrpc.AgentsState_Idle, 3},
+	}
+	for _, c := range cases {
+		r, n, err := agentsWaitUntilScript(t, c.until, time.Minute, c.reads...)
+		if err != nil || r.State != c.want || n != c.nReads {
+			t.Errorf("%s: got %+v after %d reads, %v; want state %s after %d", c.name, r, n, err, c.want, c.nReads)
+		}
+	}
+	r, n, err := agentsWaitUntilScript(t, wshrpc.AgentsState_Asking, 3*agentsWaitPoll, idle)
+	if r != nil || err == nil || !strings.Contains(err.Error(), "still idle") || !strings.Contains(err.Error(), "wsh agents wait aaaaaaaa") || n != 4 {
+		t.Errorf("timeout: got %+v after %d reads, %v; want an error naming the state and how to wait again", r, n, err)
+	}
+}
+
+func TestAgentsWaitUntilFlag(t *testing.T) {
+	for _, ok := range []string{"", "idle", "asking"} {
+		if err := agentsCheckUntil(ok); err != nil {
+			t.Errorf("--until %q: %v", ok, err)
+		}
+	}
+	if err := agentsCheckUntil("working"); err == nil || !strings.Contains(err.Error(), "idle or asking") {
+		t.Errorf("--until working: err = %v", err)
 	}
 }
 
