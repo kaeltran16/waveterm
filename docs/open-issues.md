@@ -48,6 +48,7 @@ Status legend:
 Tracked in their own initiatives, not here:
 
 - **Orchestrator wall-clock** — effort `b1fe5d7e`: live-verify the unit-tested fixes, the round-2 final tree lock, the Timing section live check.
+- **Initiatives balloon with run fallout** — effort `728d3e5b`: the lead adds every open issue as a flat chunk (`pkg/jarvis/leadprompt.go:180`); decide how it sorts them against the goal.
 
 ---
 
