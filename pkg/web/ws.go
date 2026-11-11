@@ -20,7 +20,6 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/eventbus"
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
 	"github.com/wavetermdev/waveterm/pkg/web/webcmd"
-	"github.com/wavetermdev/waveterm/pkg/wshrpc/wshserver"
 	"github.com/wavetermdev/waveterm/pkg/wshutil"
 )
 
@@ -229,10 +228,8 @@ func registerConn(wsConnId string, stableId string, wproxy *wshutil.WshRpcProxy)
 	if curConnInfo != nil {
 		log.Printf("[websocket] warning: replacing existing connection for stableid %q\n", stableId)
 		if curConnInfo.LinkId != baseds.NoLinkId {
+			// cancels the old link's in-flight requests too, or its streaming RPCs leak until their timeout
 			wshutil.DefaultRouter.UnregisterLink(curConnInfo.LinkId)
-			// same reclaim as unregisterConn: a same-stableId reconnect replaces the old link here
-			// (not via unregisterConn), so its streaming RPCs would otherwise leak until the 1-year timeout.
-			wshserver.GetMainRpcClient().CancelRequestsForLink(curConnInfo.LinkId)
 		}
 	}
 	linkId := wshutil.DefaultRouter.RegisterTrustedRouter(wproxy)
@@ -252,10 +249,8 @@ func unregisterConn(wsConnId string, stableId string) {
 	}
 	delete(RouteToConnMap, stableId)
 	if curConnInfo.LinkId != baseds.NoLinkId {
+		// cancels the link's in-flight requests too, or its streaming RPCs leak until their timeout
 		wshutil.DefaultRouter.UnregisterLink(curConnInfo.LinkId)
-		// reclaim streaming RPCs (e.g. StreamAgentTranscript) that entered on this connection —
-		// their server ctx is a 1-year timeout with no other cancel, so they leak on drop otherwise.
-		wshserver.GetMainRpcClient().CancelRequestsForLink(curConnInfo.LinkId)
 	}
 }
 

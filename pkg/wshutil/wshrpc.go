@@ -273,27 +273,9 @@ func (w *WshRpc) cancelRequest(reqId string) {
 		handler.canceled.Store(true)
 		// Cancel the request context too, not just the bool: a streaming handler selects on
 		// ctx.Done() (see streamTranscript), so this unwinds its goroutine + any fsnotify watcher
-		// while the link is still up — the still-connected counterpart of CancelRequestsForLink's
-		// per-link reap. close() is idempotent, so a later SendResponse(done)/finalize is safe.
+		// while the link is still up; a gone link's requests get the same cancel from the router's
+		// UnregisterLink. close() is idempotent, so a later SendResponse(done)/finalize is safe.
 		handler.close()
-	}
-}
-
-// CancelRequestsForLink cancels the context of every in-flight response handler whose request
-// entered on the given link. Used to reclaim streaming RPCs (goroutine + fsnotify watcher) when the
-// originating websocket connection tears down. close() invokes the handler's contextCancelFn, which
-// for a streaming handler fires its <-ctx.Done() finalize path.
-func (w *WshRpc) CancelRequestsForLink(linkId baseds.LinkId) {
-	w.Lock.Lock()
-	handlers := make([]*RpcResponseHandler, 0)
-	for _, h := range w.ResponseHandlerMap {
-		if h.GetIngressLinkId() == linkId {
-			handlers = append(handlers, h)
-		}
-	}
-	w.Lock.Unlock()
-	for _, h := range handlers {
-		h.close()
 	}
 }
 
