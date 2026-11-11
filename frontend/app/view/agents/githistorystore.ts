@@ -376,6 +376,12 @@ export async function loadMoreHistory(): Promise<void> {
         if (current.token !== token) {
             return; // scope or filters moved on: this page belongs to a list that no longer exists
         }
+        // an in-place refresh (a new commit, r) shares the token but replaced the list: the page was cut from
+        // the old one, and appending it would drop what the refresh brought in
+        if (globalStore.get(historyCommitsAtom) !== commits) {
+            globalStore.set(historyAppendAtom, "idle");
+            return;
+        }
         if (h.failure) {
             globalStore.set(historyAppendAtom, "failed");
             return;
@@ -466,6 +472,9 @@ export function startFromTop(): void {
 
 export function retryHistory(): void {
     globalStore.set(historyFailureAtom, null); // show the skeleton, not stale evidence, while retrying
+    // the failure left an empty list, which reads as "No commits": the retry has the same token, so it would
+    // keep it on screen and start no slow-read clock
+    globalStore.set(historyCommitsAtom, null);
     reloadFirstPage();
 }
 
