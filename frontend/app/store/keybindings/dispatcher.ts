@@ -54,6 +54,11 @@ export function controlOwnsKey(e: WaveKeyboardEvent, active: Element | null, tab
     return (e.key === "Enter" || e.key === " ") && isPressable(active);
 }
 
+/** Whether a control reached with Tab owns this key: a surface's own key handler stands down for it too. */
+export function tabbedControlOwns(e: KeyboardEvent | React.KeyboardEvent): boolean {
+    return controlOwnsKey(keyutil.adaptFromReactOrNativeKeyEvent(e), document.activeElement, tabbedTo);
+}
+
 function setLeader(next: string | null): void {
     leader = next;
     globalStore.set(activeLeaderAtom, next);
