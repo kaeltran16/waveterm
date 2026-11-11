@@ -157,11 +157,10 @@ Every other action is a `brainstorm:` line:
 | `brainstorm: skip questions` | Stop asking. Write every `asked` and `open` part as a `guess`, set `question: null` and `done: true`. The part the open question asks takes that question's pick (yours, or the judge's) as its guess, never a different call. |
 | `brainstorm: judged <path>` | The judge weighed the open question. Copy the file at `<path>` onto `question` with the one-line script under **Approach questions go to the judge**, which sets `working` to `null` in the same write; never retype it. End the turn on the question. |
 | `brainstorm: judge failed: <reason>` | The judge did not weigh the open question (ignore it for a question no longer open, as the section after **Approach questions go to the judge** says). Write your own `options` and `read` with one `pick`, set `question.judge` to `{ "failed": "<reason>" }` and `working` to `null`, and end the turn on the question. |
-| `brainstorm: confirm <part id>` | Make that part `yours`; drop its `was` and `why`. |
 | `brainstorm: confirm every guess` | Make every `guess` part that has no `was` `yours`. A part with `was` stays a guess: it waits for keep or restore. |
 | `brainstorm: edit <part id>: <text>` | Replace that part's `body` with the text (fix only obvious typos), make it `yours`, drop `was` and `why`. |
-| `brainstorm: keep <part id>` | The user accepts your change to a part they had confirmed: make it `yours`, drop `was` and `why`. |
-| `brainstorm: restore <part id>` | Put their version back: `body` = `was`, make it `yours`, drop `was` and `why`. |
+| `brainstorm: settle keep <ids>; restore <ids>; confirm <ids>` | The user's picks on several parts at once; any verb may be missing, `<ids>` is comma-separated. `keep`: they accept your change to a part they had confirmed; make it `yours`, drop `was` and `why`. `restore`: put their version back, `body` = `was`, make it `yours`, drop `was` and `why`. `confirm`: make the guess `yours`. All in the one write. |
+| `brainstorm: settle …; then: <line>` | Settle as above, then act on `<line>` as if it had arrived alone (an answer, a pushback, or another `brainstorm:` line), in the same turn and the same write. |
 | `brainstorm: keep every change` | `keep` every part that has `was`, in one write. |
 | `brainstorm: check` | Write the spec, run `wsh brainstorm check <path>`, end the turn. Builder check, below. |
 | `brainstorm: builder questions <path>` | Sort the reviewer's questions into `check`. Builder check, below. |
@@ -373,7 +372,7 @@ file holds, and a question asked only in the terminal leaves the user with nothi
 builder's questions for the user are the one exception: they live in `check.yours`, which Arc asks.
 
 **Playbacks are parts.** Write or rewrite a playback as a `guess`. It becomes `yours` only on
-`brainstorm: confirm`, `brainstorm: edit`, or when the user's own words are the part.
+a `confirm` in `brainstorm: settle`, `brainstorm: edit`, or when the user's own words are the part.
 
 **A later answer changes earlier parts.** When an answer overrides or narrows what a part already
 says, rewrite that part in the same write, whatever its state, and check every other part the

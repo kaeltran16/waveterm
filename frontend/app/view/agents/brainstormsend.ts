@@ -11,12 +11,17 @@ import { newRunPrefillAtom } from "@/app/view/jarvis/newruncontrol";
 import type { AgentsViewModel } from "./agents";
 import { projectOf, type AgentVM } from "./agentsviewmodel";
 import {
-    brainstormLine,
+    allPicked,
+    carriedPicks,
     runPrefill,
     sendBlocker,
+    sendLine,
     sentKind,
     stopsJudge,
+    togglePick,
     type BrainstormAction,
+    type PartPick,
+    type SentLine,
 } from "./brainstormmodel";
 import { getBrainstorm, shownBrainstormFile, updateBrainstorm, type BrainstormState } from "./brainstormstore";
 import { routeDesign, tauriDesignAttach, type DesignAttach } from "./designroute";
@@ -43,14 +48,16 @@ export async function sendBrainstorm(
     io: PromptIO = tauriPromptIO,
     now: number = Date.now()
 ): Promise<void> {
-    const line = brainstormLine(action);
+    const state = getBrainstorm(agent.id);
+    const file = state?.file ?? null;
+    const picks = state?.picks ?? {};
+    const line = sendLine(action, file, picks);
     if (line == null) {
         throw new Error("Nothing to send");
     }
     if (!agent.blockId) {
         throw new Error("This agent has no terminal to send to");
     }
-    const state = getBrainstorm(agent.id);
     const blocked = sendBlocker(action, shownBrainstormFile(state));
     if (blocked != null) {
         throw new Error(blocked);
@@ -71,7 +78,28 @@ export async function sendBrainstorm(
     }
     // the agent writes its file once, at the end of its turn: until then the pane says it is writing
     const modifiedMs = getBrainstorm(agent.id)?.modifiedMs ?? null;
-    updateBrainstorm(agent.id, (s) => ({ ...s, sent: { at: now, modifiedMs, kind: sentKind(action) } }));
+    const carried = carriedPicks(action, file, picks);
+    const sent: SentLine = { at: now, modifiedMs, kind: sentKind(action) };
+    if (Object.keys(carried).length > 0) {
+        sent.picks = carried;
+    }
+    updateBrainstorm(agent.id, (s) => ({ ...s, sent, picks: {} }));
+}
+
+// a pick stays in the pane; the one that leaves nothing to settle sends them all
+export async function pickPart(
+    agent: AgentVM,
+    part: string,
+    pick: PartPick,
+    io: PromptIO = tauriPromptIO,
+    now: number = Date.now()
+): Promise<void> {
+    updateBrainstorm(agent.id, (s) => ({ ...s, picks: togglePick(s.picks, part, pick) }));
+    const s = getBrainstorm(agent.id);
+    const shown = shownBrainstormFile(s);
+    if (s != null && shown != null && shown.working == null && allPicked(shown, s.picks)) {
+        await sendBrainstorm(agent, { kind: "settle" }, io, now);
+    }
 }
 
 // a send with no component to hold an error line (a key, or a run id that lands after the pane is left) reports

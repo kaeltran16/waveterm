@@ -11,7 +11,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { confirmCloseSession } from "@/app/view/agents/agentactions";
 import { AgentsViewModel, SURFACE_ORDER, type SurfaceKey } from "@/app/view/agents/agents";
 import type { BrainstormFile } from "@/app/view/agents/brainstormmodel";
-import { sendBrainstorm } from "@/app/view/agents/brainstormsend";
+import { pickPart, sendBrainstorm } from "@/app/view/agents/brainstormsend";
 import {
     attachBrainstorm,
     detachBrainstorm,
@@ -119,6 +119,7 @@ vi.mock("@/app/view/agents/agentactions", async (orig) => ({
 vi.mock("@/app/view/agents/brainstormsend", async (orig) => ({
     ...(await orig<typeof import("@/app/view/agents/brainstormsend")>()),
     sendBrainstorm: vi.fn(async () => {}),
+    pickPart: vi.fn(async () => {}),
 }));
 // the real function, watched: with no editor mounted it declines on its own
 vi.mock("@/app/view/agents/diffcommentlayer", async (orig) => {
@@ -2653,6 +2654,7 @@ describe("brainstorm check review keys", () => {
 
     beforeEach(() => {
         vi.mocked(sendBrainstorm).mockClear();
+        vi.mocked(pickPart).mockClear();
         vi.stubGlobal("document", { activeElement: null });
         model = {
             ...stubModel("a1"),
@@ -2732,23 +2734,24 @@ describe("brainstorm check review keys", () => {
         expect(getBrainstorm("a1")!.review.cursor).toBe("grain");
     });
 
-    it("y keeps a change and u puts mine back, each for the cursor row", () => {
+    it("y picks keep and u picks put mine back, each for the cursor row", () => {
         setReviewCursor("a1", "grain");
         find("agent:brainstorm-review-keep").run(nav);
         find("agent:brainstorm-review-restore").run(nav);
-        expect(vi.mocked(sendBrainstorm).mock.calls.map((c) => c[1])).toEqual([
-            { kind: "keep", part: "grain" },
-            { kind: "restore", part: "grain" },
+        expect(vi.mocked(pickPart).mock.calls.map((c) => [c[1], c[2]])).toEqual([
+            ["grain", "keep"],
+            ["grain", "restore"],
         ]);
-        expect(vi.mocked(sendBrainstorm).mock.calls[0][0]).toMatchObject({ id: "a1", blockId: "b1" });
+        expect(vi.mocked(pickPart).mock.calls[0][0]).toMatchObject({ id: "a1", blockId: "b1" });
+        expect(sendBrainstorm).not.toHaveBeenCalled();
     });
 
-    it("on a guess y confirms it and u passes the key on, sending nothing", () => {
+    it("on a guess y picks confirm and u passes the key on, picking nothing", () => {
         setReviewCursor("a1", "torch");
         find("agent:brainstorm-review-keep").run(nav);
-        expect(vi.mocked(sendBrainstorm).mock.calls.map((c) => c[1])).toEqual([{ kind: "confirm", part: "torch" }]);
+        expect(vi.mocked(pickPart).mock.calls.map((c) => [c[1], c[2]])).toEqual([["torch", "confirm"]]);
         expect(find("agent:brainstorm-review-restore").run(nav)).toBe(false);
-        expect(sendBrainstorm).toHaveBeenCalledTimes(1);
+        expect(pickPart).toHaveBeenCalledTimes(1);
     });
 
     it("while the agent writes y and u pass the key on, as the row's buttons are locked", () => {
@@ -2756,7 +2759,7 @@ describe("brainstorm check review keys", () => {
         withFile({ ...checked, working: "Rewriting the forecast grain" });
         expect(find("agent:brainstorm-review-keep").run(nav)).toBe(false);
         expect(find("agent:brainstorm-review-restore").run(nav)).toBe(false);
-        expect(sendBrainstorm).not.toHaveBeenCalled();
+        expect(pickPart).not.toHaveBeenCalled();
     });
 
     it("with no cursor row y, u and Enter pass the key on", () => {

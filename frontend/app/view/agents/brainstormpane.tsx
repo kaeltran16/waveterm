@@ -44,6 +44,7 @@ import {
     partAnswer,
     partGist,
     partView,
+    pickCount,
     reviewHead,
     unseenSince,
     type BoardPick,
@@ -54,11 +55,13 @@ import {
     type BuilderCheckView,
     type EditLock,
     type HistoryRow,
+    type PartPick,
     type PartView,
     type Unseen,
 } from "./brainstormmodel";
+import { PicksBar } from "./brainstormreview";
 import { RunStep } from "./brainstormrun";
-import { sendBrainstorm } from "./brainstormsend";
+import { pickPart, sendBrainstorm } from "./brainstormsend";
 import {
     brainstormAtom,
     brainstormSeenAtom,
@@ -67,6 +70,7 @@ import {
     openBrainstormBoard,
     openBrainstormDesign,
     shownBrainstormFile,
+    shownPicks,
     type BrainstormState,
 } from "./brainstormstore";
 import {
@@ -88,6 +92,7 @@ import {
     onEnter,
     PART_BTN,
     PartMockups,
+    PickButton,
     QuestionMain,
     SaidLine,
     SECTION_HEAD,
@@ -322,7 +327,12 @@ function Design({
                         )}
                     </motion.div>
                     {view === "design" ? (
-                        <LineBar agent={agent} box={lineBox(f, check.kind === "pending")} lock={lock} />
+                        <LineBar
+                            agent={agent}
+                            box={lineBox(f, check.kind === "pending")}
+                            lock={lock}
+                            carrying={pickCount(f, s.picks).picked}
+                        />
                     ) : null}
                 </div>
                 <DecidedRail f={f} unseen={unseen} goTo={goTo} />
@@ -457,8 +467,10 @@ function DesignMain({
                     {check.kind === "pending" ? (
                         <CheckWait record={agent.builderCheck} check={check} nowAtom={nowAtom} />
                     ) : leftPanel(f) !== "none" ? (
-                        <ReviewHead agent={agent} f={f} check={check} />
+                        <ReviewHead agent={agent} s={s} f={f} check={check} />
                     ) : null}
+                    {/* apart from the head, which a question in the main area hides: picks made over it still need Send */}
+                    <PicksBar agent={agent} s={s} f={f} className="px-[14px]" />
                     <section
                         data-brainstorm-decisions
                         aria-label="Decisions"
@@ -595,8 +607,20 @@ function CheckWait({
 }
 
 // what stands before the builder check, in one line, and the one press that moves it on
-function ReviewHead({ agent, f, check }: { agent: AgentVM; f: BrainstormFile; check: BuilderCheckView }) {
+function ReviewHead({
+    agent,
+    s,
+    f,
+    check,
+}: {
+    agent: AgentVM;
+    s: BrainstormState;
+    f: BrainstormFile;
+    check: BuilderCheckView;
+}) {
     const head = reviewHead(f, check);
+    // with picks waiting, their Send is the press that moves the design on
+    const picking = pickCount(f, s.picks).picked > 0;
     const act = useAction();
     const send = (action: BrainstormAction) => void act.run(() => sendBrainstorm(agent, action));
     return (
@@ -614,7 +638,7 @@ function ReviewHead({ agent, f, check }: { agent: AgentVM; f: BrainstormFile; ch
                         data-brainstorm-confirm-all
                         disabled={act.busy}
                         onClick={() => send({ kind: "confirm-all" })}
-                        className={cn(CANVAS_PRIMARY_BTN, "flex-none")}
+                        className={cn(picking ? CANVAS_BTN : CANVAS_PRIMARY_BTN, "flex-none")}
                     >
                         Confirm all {head.guesses} guesses
                     </button>
@@ -733,21 +757,33 @@ function PartRow({
         </button>
     );
     const askedHere = f.question?.part === part.id;
+    const picked = shownPicks(s)[part.id];
+    const pickBtn = (label: string, pick: PartPick, quiet = false) => (
+        <PickButton
+            label={label}
+            pressed={picked === pick}
+            dimmed={picked != null}
+            className={cn(PART_BTN, quiet && "text-secondary")}
+            disabled={locked}
+            title={title}
+            onClick={() => void act.run(() => pickPart(agent, part.id, pick))}
+        />
+    );
     let right: ReactNode = null;
     if (note) {
         right = quietEdit;
     } else if (view === "guess") {
         right = editing ? null : (
             <>
-                {btn("That’s right", () => void send({ kind: "confirm", part: part.id }))}
+                {pickBtn("That’s right", "confirm")}
                 {btn("Edit", startEdit, true)}
             </>
         );
     } else if (view === "changed") {
         right = (
             <>
-                {btn("Keep the change", () => void send({ kind: "keep", part: part.id }))}
-                {btn("Put mine back", () => void send({ kind: "restore", part: part.id }), true)}
+                {pickBtn("Keep the change", "keep")}
+                {pickBtn("Put mine back", "restore", true)}
             </>
         );
     } else if (view === "yours") {

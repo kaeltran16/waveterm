@@ -27,6 +27,7 @@ import {
     partSpikes,
     partTitle,
     phaseSteps,
+    plural,
     progressView,
     questionBoardLayout,
     questionSpikes,
@@ -721,7 +722,18 @@ export function AnswerBox({
 
 // a line of the user's own while no question is open, sent as the question's typed answer is: the agent reads it as
 // pushback or a question back, and answers with a question
-export function LineBar({ agent, box, lock = "working" }: { agent: AgentVM; box: LineBox; lock?: EditLock }) {
+// carrying is how many picks wait: the line takes them with it
+export function LineBar({
+    agent,
+    box,
+    lock = "working",
+    carrying = 0,
+}: {
+    agent: AgentVM;
+    box: LineBox;
+    lock?: EditLock;
+    carrying?: number;
+}) {
     const ans = useAnswer(agent);
     if (box === "none") {
         return null;
@@ -738,8 +750,54 @@ export function LineBar({ agent, box, lock = "working" }: { agent: AgentVM; box:
                 lockedBy={lock}
                 placeholder="Push back, or ask the agent something…"
             />
+            {carrying > 0 && box !== "locked" ? (
+                <span data-brainstorm-line-carries className="text-[11.5px] text-muted">
+                    Your {plural(carrying, "choice goes", "choices go")} with this line.
+                </span>
+            ) : null}
             <ErrorLine error={ans.act.error} />
         </div>
+    );
+}
+
+const PICK_ON =
+    "inline-flex cursor-pointer items-center gap-[5px] whitespace-nowrap rounded-[7px] border border-accent bg-accentbg px-[10px] py-[4px] text-[12px] font-semibold text-accent-soft disabled:cursor-default disabled:opacity-50";
+
+// a keep, put back or confirm button: pressed, it shows the pick it holds and a press takes the pick back. The other
+// choice on its row dims while one is picked
+export function PickButton({
+    label,
+    pressed,
+    dimmed,
+    className,
+    disabled,
+    title,
+    onClick,
+}: {
+    label: string;
+    pressed: boolean;
+    dimmed: boolean;
+    className: string;
+    disabled: boolean;
+    title?: string;
+    onClick: () => void;
+}) {
+    return (
+        <button
+            type="button"
+            aria-pressed={pressed}
+            disabled={disabled}
+            title={title}
+            onClick={onClick}
+            className={pressed ? PICK_ON : cn(className, dimmed && "opacity-60")}
+        >
+            {pressed ? (
+                <svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path d="M3.5 8.5l3 3 6-7" stroke="currentColor" strokeWidth="2" />
+                </svg>
+            ) : null}
+            {label}
+        </button>
     );
 }
 

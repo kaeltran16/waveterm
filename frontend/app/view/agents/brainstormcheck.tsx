@@ -19,6 +19,7 @@ import {
     checkUnder,
     lineBox,
     partTitle,
+    pickCount,
     runLine,
     type AskModel,
     type BrainstormFile,
@@ -124,7 +125,9 @@ export function Check({
                             <CheckReview model={model} agent={agent} s={s} f={f} />
                         )}
                     </ViewSwap>
-                    {main === "review" ? <LineBar agent={agent} box={lineBox(f)} /> : null}
+                    {main === "review" ? (
+                        <LineBar agent={agent} box={lineBox(f)} carrying={pickCount(f, s.picks).picked} />
+                    ) : null}
                     <ApproveBar model={model} agent={agent} s={s} f={f} />
                 </div>
                 {main === "review" ? <AnsweredRail f={f} agent={agent} /> : <AskRail f={f} goTo={goTo} />}

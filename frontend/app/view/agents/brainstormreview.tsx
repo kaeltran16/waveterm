@@ -19,14 +19,24 @@ import {
     hasMockups,
     partAnswer,
     partGist,
+    pickCount,
+    picksLine,
+    plural,
     type BrainstormAction,
     type BrainstormFile,
     type BrainstormPart,
+    type PartPick,
     type PartView,
     type ReviewRow,
 } from "./brainstormmodel";
-import { sendBrainstorm } from "./brainstormsend";
-import { openBrainstormDesign, setReviewCursor, toggleReviewRow, type BrainstormState } from "./brainstormstore";
+import { pickPart, sendBrainstorm } from "./brainstormsend";
+import {
+    openBrainstormDesign,
+    setReviewCursor,
+    shownPicks,
+    toggleReviewRow,
+    type BrainstormState,
+} from "./brainstormstore";
 import {
     BS_RAIL,
     ChangeDiff,
@@ -42,12 +52,14 @@ import {
     onEnter,
     PART_BTN,
     PartMockups,
+    PickButton,
     SaidLine,
     SECTION_HEAD,
     useAction,
     ViewSwap,
     WORKING_TITLE,
 } from "./brainstormui";
+import { CANVAS_PRIMARY_BTN } from "./canvaspane";
 
 const ROW_GRID =
     "grid grid-cols-[7px_minmax(120px,190px)_minmax(0,1fr)_max-content_12px] items-start gap-x-[12px] gap-y-[6px] border-t border-edge-faint px-[14px] py-[9px]";
@@ -123,6 +135,7 @@ export function CheckReview({
                         </span>
                     ) : null}
                 </div>
+                <PicksBar agent={agent} s={s} f={f} className="px-[14px]" />
                 {r.changed.length > 0 ? (
                     <section aria-label="Changed" data-brainstorm-review-section="changed" className="flex flex-col">
                         <div className="flex items-baseline gap-[8px] px-[14px] pb-[6px]">
@@ -173,6 +186,51 @@ function KeepAll({ agent, f, pending }: { agent: AgentVM; f: BrainstormFile; pen
     );
 }
 
+// the picks waiting to go, and the press that sends them before every decision is settled
+export function PicksBar({
+    agent,
+    s,
+    f,
+    className,
+}: {
+    agent: AgentVM;
+    s: BrainstormState;
+    f: BrainstormFile;
+    className?: string;
+}) {
+    const act = useAction();
+    const c = pickCount(f, s.picks);
+    if (c.picked === 0) {
+        return null;
+    }
+    const working = f.working != null;
+    return (
+        <div data-brainstorm-picks className={cn("flex flex-col gap-[4px]", className)}>
+            <div className="flex items-center gap-[14px]">
+                <div className="flex min-w-0 flex-1 flex-col gap-[2px]">
+                    <span data-brainstorm-picks-line className="text-[13px] leading-[1.5] text-secondary">
+                        {picksLine(c)}
+                    </span>
+                    <span className="text-[12px] text-muted">
+                        They go with the next line you send, or by themselves once every decision is settled.
+                    </span>
+                </div>
+                <button
+                    type="button"
+                    data-brainstorm-send-picks
+                    disabled={act.busy || working}
+                    title={working ? WORKING_TITLE : undefined}
+                    onClick={() => void act.run(() => sendBrainstorm(agent, { kind: "settle" }))}
+                    className={cn(CANVAS_PRIMARY_BTN, "flex-none")}
+                >
+                    Send {plural(c.picked, "choice", "choices")}
+                </button>
+            </div>
+            <ErrorLine error={act.error} />
+        </div>
+    );
+}
+
 // one decision on one grid line: dot, title, what it says now with its cause, the one action it asks for, and the
 // arrow that opens what it was
 function ReviewRowView({
@@ -207,28 +265,24 @@ function ReviewRowView({
     };
     const stacks = row.action === "keep-restore" || row.action === "confirm";
     const under = stacks && STACK_UNDER;
+    const picked = shownPicks(s)[row.id];
+    const pickBtn = (label: string, pick: PartPick, className: string) => (
+        <PickButton
+            label={label}
+            pressed={picked === pick}
+            dimmed={picked != null}
+            className={className}
+            disabled={locked}
+            title={lockTitle}
+            onClick={() => void act.run(() => pickPart(agent, row.id, pick))}
+        />
+    );
     let right = null;
     if (row.action === "keep-restore") {
         right = (
             <span className={cn("-mt-[3px] flex items-center justify-end gap-[12px]", STACK_ACTIONS)}>
-                <button
-                    type="button"
-                    disabled={locked}
-                    title={lockTitle}
-                    onClick={() => void send({ kind: "keep", part: row.id })}
-                    className={cn(PART_BTN, "whitespace-nowrap")}
-                >
-                    Keep the change
-                </button>
-                <button
-                    type="button"
-                    disabled={locked}
-                    title={lockTitle}
-                    onClick={() => void send({ kind: "restore", part: row.id })}
-                    className={QUIET_BTN}
-                >
-                    Put mine back
-                </button>
+                {pickBtn("Keep the change", "keep", cn(PART_BTN, "whitespace-nowrap"))}
+                {pickBtn("Put mine back", "restore", QUIET_BTN)}
             </span>
         );
     } else if (row.action === "confirm") {
@@ -240,15 +294,7 @@ function ReviewRowView({
             >
                 {editing ? null : (
                     <>
-                        <button
-                            type="button"
-                            disabled={locked}
-                            title={lockTitle}
-                            onClick={() => void send({ kind: "confirm", part: row.id })}
-                            className={cn(PART_BTN, "whitespace-nowrap")}
-                        >
-                            That’s right
-                        </button>
+                        {pickBtn("That’s right", "confirm", cn(PART_BTN, "whitespace-nowrap"))}
                         <button
                             type="button"
                             disabled={locked}

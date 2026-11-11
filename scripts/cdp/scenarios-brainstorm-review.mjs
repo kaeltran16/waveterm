@@ -1,5 +1,7 @@
 // The builder check's review of what it changed (the Check-Review board). kit is scenarios-brainstorm.mjs's BS_KIT.
 
+import { bsPressedExpr } from "./scenarios-shared.mjs";
+
 // the board's copy: detector-engine-models after its builder check, with question 16 still open
 const CR_TOPIC = "detector-engine-models";
 const CR_CHANGED = [
@@ -182,7 +184,7 @@ const CR_TYPED_REMOVE = `(() => {
     }
     return true;
 })()`;
-// the agent prompt refused, as a session gone away refuses it: a send key must say so in an error toast
+// the agent prompt refused, as a session gone away refuses it: a Send must say so under its button
 const CR_REFUSAL = "arc-test: the agent refused the line";
 const CR_REFUSE_INSTALL = `(() => {
     const c = window.TabRpcClient;
@@ -202,8 +204,9 @@ const CR_REFUSE_REMOVE = `(() => {
     }
     return true;
 })()`;
-const CR_ERROR_TOAST = `[...document.querySelectorAll('[data-notification-toast="error"]')].map((t) => t.innerText.replace(/\\s+/g, " ").trim()).find((t) => t.includes(${JSON.stringify(CR_REFUSAL)})) ?? null`;
-const CR_TOAST_WAIT_MS = 3000;
+const CR_REFUSE_WAIT_MS = 3000;
+// the rows a pick settles: the eight changes and the one plain guess
+const CR_PICKABLE = 9;
 const CR_PROMPT = /[>$#%]$/;
 const CR_PROMPT_WAIT_MS = 20000;
 const CR_KEYS = {
@@ -354,6 +357,15 @@ export default function (kit) {
         return false;
     }
 
+    // a key or click that picks: the row's button reads pressed, and nothing is sent
+    async function picks(h, row, label, act) {
+        const before = await h.ev(`(window.__bsTyped ?? []).length`);
+        await act();
+        const pressed = await polishWaitFor(h, `${bsPressedExpr(ROW(row), label)} === "true"`, 2000);
+        const sent = (await h.ev(`(window.__bsTyped ?? []).length`)) - before;
+        return { ok: pressed && sent === 0, detail: { row, label, pressed, sent } };
+    }
+
     // one line sent by `act`, checked, then settled as the agent having taken it
     async function sends(h, ctx, line, act) {
         const mark = await bsMark(h, ctx, line);
@@ -489,54 +501,67 @@ export default function (kit) {
             const keysArrive = clicked && (await bsKeysArrive(h));
             if (!keysArrive) {
                 skip("3. clicking a row moves the cursor; j, Enter, y and u act on it", `could not verify: CDP keys do not reach the page (clicked ${clicked}, cursor ${clickCursor})`);
-                skip("3b. a review send key the agent prompt refuses raises an error toast", "could not verify: CDP keys do not reach the page");
             } else {
                 await key(h, "j");
                 const jCursor = await cursorOn(h, "grain");
                 await key(h, "Enter");
                 const entered = await polishWaitFor(h, `${ROW("grain")}?.querySelector("[data-brainstorm-review-toggle]")?.getAttribute("aria-expanded") === "true"`, 2000);
-                const yTyped = await sends(h, ctx, "brainstorm: keep grain", () => key(h, "y"));
+                const yPick = await picks(h, "grain", "Keep the change", () => key(h, "y"));
                 await key(h, "j");
                 const jCursor2 = await cursorOn(h, "role");
-                const uTyped = await sends(h, ctx, "brainstorm: restore role", () => key(h, "u"));
+                const uPick = await picks(h, "role", "Put mine back", () => key(h, "u"));
                 rec(
-                    "3. clicking a row moves the cursor to it; j moves it on, Enter opens it, y keeps it and u on the next row puts mine back",
-                    prompt && clickCursor && jCursor && entered && yTyped.ok && jCursor2 && uTyped.ok,
-                    { prompt, clickCursor, jCursor, entered, y: yTyped.detail, jCursor2, u: uTyped.detail }
-                );
-
-                // the cursor still on role: y sends brainstorm: keep role, which the stubbed prompt refuses
-                const stubbed = await h.ev(CR_REFUSE_INSTALL);
-                let toast = null;
-                try {
-                    await key(h, "y");
-                    if (await polishWaitFor(h, `(${CR_ERROR_TOAST}) != null`, CR_TOAST_WAIT_MS)) toast = await h.ev(CR_ERROR_TOAST);
-                } finally {
-                    await h.ev(CR_REFUSE_REMOVE);
-                }
-                rec(
-                    "3b. a review send key the agent prompt refuses raises an error toast with the refusal's text",
-                    stubbed && toast != null && toast.includes("Couldn't send to"),
-                    { stubbed, toast }
+                    "3. clicking a row moves the cursor to it; j moves it on, Enter opens it, y picks keep and u on the next row picks put mine back, sending nothing",
+                    prompt && clickCursor && jCursor && entered && yPick.ok && jCursor2 && uPick.ok,
+                    { prompt, clickCursor, jCursor, entered, y: yPick.detail, jCursor2, u: uPick.detail }
                 );
             }
 
-            const keep = await sends(h, ctx, "brainstorm: keep damping", () => bsClick(h, ROW("damping"), "Keep the change"));
-            const restore = await sends(h, ctx, "brainstorm: restore model", () => bsClick(h, ROW("model"), "Put mine back"));
-            const confirm = await sends(h, ctx, "brainstorm: confirm torch", () => bsClick(h, ROW("torch"), "That’s right"));
+            const keep = await picks(h, "damping", "Keep the change", () => bsClick(h, ROW("damping"), "Keep the change"));
+            const restore = await picks(h, "model", "Put mine back", () => bsClick(h, ROW("model"), "Put mine back"));
+            const confirm = await picks(h, "torch", "That’s right", () => bsClick(h, ROW("torch"), "That’s right"));
+            // a second press takes the pick back, and a third makes it again
+            await bsClick(h, ROW("damping"), "Keep the change");
+            const unpicked = await polishWaitFor(h, `${bsPressedExpr(ROW("damping"), "Keep the change")} === "false"`, 2000);
+            const repick = await picks(h, "damping", "Keep the change", () => bsClick(h, ROW("damping"), "Keep the change"));
             const editClicked = await bsClick(h, ROW("torch"), "Edit");
             const editOpen = await polishWaitFor(h, `${ROW("torch")}?.querySelector("[data-brainstorm-edit]")?.value === ${JSON.stringify(CR_GUESS.body)}`, 2000);
             rec(
-                "4. Keep the change, Put mine back and That’s right send their lines by click; Edit opens the edit box",
-                prompt && keep.ok && restore.ok && confirm.ok && editClicked === "clicked" && editOpen,
-                { keep: keep.detail, restore: restore.detail, confirm: confirm.detail, editClicked, editOpen }
+                "4. Keep the change, Put mine back and That’s right pick by click and send nothing; a second press takes a pick back; Edit opens the edit box",
+                keep.ok && restore.ok && confirm.ok && unpicked && repick.ok && editClicked === "clicked" && editOpen,
+                { keep: keep.detail, restore: restore.detail, confirm: confirm.detail, unpicked, repick: repick.detail, editClicked, editOpen }
             );
             await h.ev(`${ROW("torch")}?.querySelector("[data-brainstorm-edit]")?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }))`);
+
+            // the picks go as one line: y and u's picks join the clicks' when the keys reached the page
+            const n = keysArrive ? 5 : 3;
+            const settle = `brainstorm: settle keep ${keysArrive ? "grain, " : ""}damping; restore ${keysArrive ? "role, " : ""}model; confirm torch`;
+            const PICKS = `${REVIEW}?.querySelector("[data-brainstorm-picks]")`;
+            await h.shot("cdp-shots/brainstorm-check-review-picked.png");
+            const stubbed = await h.ev(CR_REFUSE_INSTALL);
+            let refused = null;
+            let left = null;
+            try {
+                await bsClick(h, PICKS, `Send ${n} choices`);
+                if (await polishWaitFor(h, `(${PICKS}?.innerText ?? "").includes(${JSON.stringify(CR_REFUSAL)})`, CR_REFUSE_WAIT_MS)) {
+                    refused = await h.ev(`${PICKS}?.innerText.replace(/\\s+/g, " ").trim()`);
+                }
+                left = await h.ev(`${PICKS}?.querySelector("[data-brainstorm-picks-line]")?.textContent ?? null`);
+            } finally {
+                await h.ev(CR_REFUSE_REMOVE);
+            }
+            rec(
+                "4a. a Send the agent prompt refuses says so under the button, and every pick stays",
+                stubbed && refused != null && refused.includes("Couldn't send to") && left === `${n} choices ready to send · ${CR_PICKABLE - n} decisions still to settle`,
+                { stubbed, refused, left }
+            );
+            const sent = await sends(h, ctx, settle, () => bsClick(h, PICKS, `Send ${n} choices`));
+            rec(`4b. Send ${n} choices sends ${settle}`, prompt && sent.ok, sent.detail);
 
             const keepAll = await sends(h, ctx, "brainstorm: keep every change", () =>
                 bsClick(h, `${REVIEW}?.querySelector('[data-brainstorm-review-section="changed"]')`, "Keep all 8 changes")
             );
-            rec("4b. Keep all 8 changes sends brainstorm: keep every change", prompt && keepAll.ok, keepAll.detail);
+            rec("4c. Keep all 8 changes sends brainstorm: keep every change", prompt && keepAll.ok, keepAll.detail);
 
             const openLink = async (kind, title, id) => {
                 await bsClick(h, `${REVIEW}?.querySelector('[data-brainstorm-review-links="${kind}"]')`, title);

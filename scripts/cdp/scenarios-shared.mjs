@@ -1045,6 +1045,15 @@ export const bsClick = (h, scope, label) =>
         return "clicked";
     })()`);
 
+// the aria-pressed of the button labelled `label` inside the scope, as an expression: "true" while it holds a pick
+export const bsPressedExpr = (scope, label) => `(() => {
+        const b = [...(${scope}?.querySelectorAll("button") ?? [])]
+            .find((x) => (x.textContent || "").replace(/\\s+/g, " ").trim() === ${JSON.stringify(label)});
+        return b ? b.getAttribute("aria-pressed") : "missing";
+    })()`;
+
+export const bsPressed = (h, scope, label) => h.ev(bsPressedExpr(scope, label));
+
 export const bsPublishStatus = (h, ctx) =>
     h.rpc("eventpublish", {
         event: "agent:status",

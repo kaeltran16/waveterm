@@ -53,10 +53,11 @@ the skill tells them not to use it: a lead routes every question through AskUser
 | (the judge failed or was lost) | `brainstorm: judge failed: <reason>`, sent by the server | writes its own options and pick, sets `question.judge` to `{ "failed": <reason> }`, clears `working` |
 | An answer or Skip during the judge's wait | the line, as typed, or `brainstorm: skip questions` (Arc has stopped the judge first) | an answer is recorded as any answer, with `working` back to `null`; Skip works as above |
 | Push back on a judged question, or type "double check" | the line, as typed | adds any alternative it names to `approaches`, runs `wsh brainstorm judge <brainstorm.json> --line <the line>`, ends its turn |
-| That's right | `brainstorm: confirm <part>` | makes the part yours |
+| That's right, Keep the change, Put mine back | nothing yet: the pick waits in the pane (a second press takes it back) | |
+| Send N choices, or the pick that leaves no decision to settle | `brainstorm: settle keep <ids>; restore <ids>; confirm <ids>` | settles every pick in one write |
+| Any other line sent while picks wait | `brainstorm: settle …; then: <the line>` | settles the picks, then acts on the line as if it came alone |
 | Confirm all N guesses | `brainstorm: confirm every guess` | makes every plain guess yours (a changed part still waits) |
 | Edit, Enter | `brainstorm: edit <part>: <text>` | replaces the part's body, makes it yours |
-| Keep the change / Put mine back | `brainstorm: keep <part>` / `brainstorm: restore <part>` | settles a part it changed after you confirmed it |
 | Keep all N changes | `brainstorm: keep every change` | keeps every part it changed after you confirmed it |
 | Check with a builder | `brainstorm: check` | writes the spec, runs `wsh brainstorm check <brainstorm.json>`, ends its turn; Arc launches the reviewer |
 | (the reviewer is done) | `brainstorm: builder questions <path>`, sent by the server | reads the questions file, sorts it into `check`, folds it into the parts and the spec |
@@ -65,6 +66,12 @@ the skill tells them not to use it: a lead routes every question through AskUser
 | Keep talking | `brainstorm: keep talking` | clears `done` and `check`, asks again |
 | Approve and start run | `brainstorm: approved`, then the launcher opens | stops; does not start a run itself |
 | (the run starts) | `brainstorm: run <id>`, sent by the launcher | records `run` |
+
+Picks are batched because each line costs the agent a turn: keeping three changes one by one was
+three turns in a row, each locking the pane. They live in the brainstorm state (`picks`), so they
+survive a surface switch; a pick whose part the agent has since rewritten no longer fits it and is
+dropped (`livePicks` in `brainstormmodel.ts`). A sent line's picks stay drawn as picked until the agent
+takes it (`SentLine.picks`). The review's `y` and `u` pick as the buttons do.
 
 Lines go out through `AgentPromptCommand` (`brainstormsend.ts`), the same path canvas marks use:
 a session whose arc mod holds a control stream runs the line as a prompt, leaving a half-typed draft

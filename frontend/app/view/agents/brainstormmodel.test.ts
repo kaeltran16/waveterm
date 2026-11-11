@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { AgentVM } from "./agentsviewmodel";
 import {
     BUILDER_PART,
+    allPicked,
     answerLine,
     answeredLine,
     answeredQuestions,
@@ -23,6 +24,7 @@ import {
     brainstormWait,
     builderCheckView,
     canCheck,
+    carriedPicks,
     checkAsk,
     checkClock,
     checkMain,
@@ -51,6 +53,7 @@ import {
     judgeWork,
     leftPanel,
     lineBox,
+    livePicks,
     mainView,
     nextSentCheckAt,
     notAttached,
@@ -68,7 +71,10 @@ import {
     partTitle,
     partView,
     phaseSteps,
+    pickCount,
     pickableOptions,
+    pickableParts,
+    picksLine,
     progressView,
     questionBoardLayout,
     questionSpikes,
@@ -79,13 +85,16 @@ import {
     runPrefill,
     seenMark,
     sendBlocker,
+    sendLine,
     sentKind,
     sentenceDiff,
+    settleLine,
     settleSent,
     shownFile,
     spikeUrl,
     stopsJudge,
     terminalAnswer,
+    togglePick,
     treeLine,
     unseenSince,
     withBrainstorm,
@@ -640,7 +649,7 @@ describe("stopsJudge", () => {
     });
 
     it("is not any other line", () => {
-        expect(stopsJudge({ kind: "confirm", part: "a" }, waitFile(), false)).toBe(false);
+        expect(stopsJudge({ kind: "settle" }, waitFile(), false)).toBe(false);
         expect(stopsJudge({ kind: "edit", part: "a", text: "x" }, waitFile(), false)).toBe(false);
         expect(stopsJudge({ kind: "guess" }, waitFile(), false)).toBe(false);
     });
@@ -697,11 +706,8 @@ describe("brainstormLine", () => {
         expect(brainstormLine({ kind: "answer", text: "my answer" })).toBe("my answer");
         expect(brainstormLine({ kind: "guess" })).toBe("brainstorm: guess");
         expect(brainstormLine({ kind: "skip" })).toBe("brainstorm: skip questions");
-        expect(brainstormLine({ kind: "confirm", part: "p" })).toBe("brainstorm: confirm p");
         expect(brainstormLine({ kind: "confirm-all" })).toBe("brainstorm: confirm every guess");
         expect(brainstormLine({ kind: "edit", part: "p", text: "new" })).toBe("brainstorm: edit p: new");
-        expect(brainstormLine({ kind: "keep", part: "p" })).toBe("brainstorm: keep p");
-        expect(brainstormLine({ kind: "restore", part: "p" })).toBe("brainstorm: restore p");
         expect(brainstormLine({ kind: "keep-all" })).toBe("brainstorm: keep every change");
         expect(brainstormLine({ kind: "check" })).toBe("brainstorm: check");
         expect(brainstormLine({ kind: "builder-answer", text: "x" })).toBe("brainstorm: builder answer: x");
@@ -709,6 +715,8 @@ describe("brainstormLine", () => {
         expect(brainstormLine({ kind: "approved" })).toBe("brainstorm: approved");
         expect(brainstormLine({ kind: "keep-talking" })).toBe("brainstorm: keep talking");
         expect(brainstormLine({ kind: "run", runId: "r-1" })).toBe("brainstorm: run r-1");
+        // the picks' line, which needs the file: sendLine writes it
+        expect(brainstormLine({ kind: "settle" })).toBeNull();
     });
 
     it("joins a multi-line, tab-filled text into one line", () => {
@@ -720,6 +728,81 @@ describe("brainstormLine", () => {
         expect(brainstormLine({ kind: "answer", text: "  \n " })).toBeNull();
         expect(brainstormLine({ kind: "edit", part: "p", text: "\t" })).toBeNull();
         expect(brainstormLine({ kind: "builder-answer", text: "" })).toBeNull();
+    });
+});
+
+describe("picks", () => {
+    // two changes, a plain guess, one asked, one yours and a note: only the changes and the guess take a pick
+    const f = file({
+        parts: [
+            { id: "grain", title: "Grain", state: "guess", body: "daily", was: "hourly" },
+            { id: "torch", title: "Torch", state: "guess", body: "on" },
+            { id: "asked", title: "Asked", state: "asked", body: "" },
+            { id: "seed", title: "Seed", state: "guess", body: "b", was: "a" },
+            { id: "mine", title: "Mine", state: "yours", body: "x" },
+            { id: "found", title: "Found", state: "yours", kind: "note", body: "n" },
+        ],
+    });
+
+    it("takes a pick on every change and every plain guess, in the design's order", () => {
+        expect(pickableParts(f).map((p) => p.id)).toEqual(["grain", "torch", "seed"]);
+    });
+
+    it("keeps only the picks that fit the part as it is now", () => {
+        const picks = { grain: "restore", torch: "keep", seed: "confirm", mine: "keep", gone: "keep" } as const;
+        expect(livePicks(f, picks)).toEqual({ grain: "restore" });
+        expect(livePicks(f, { torch: "confirm", seed: "keep" })).toEqual({ torch: "confirm", seed: "keep" });
+    });
+
+    it("a second press of the same pick takes it back; the other pick replaces it", () => {
+        expect(togglePick({}, "grain", "keep")).toEqual({ grain: "keep" });
+        expect(togglePick({ grain: "keep" }, "grain", "restore")).toEqual({ grain: "restore" });
+        expect(togglePick({ grain: "keep", torch: "confirm" }, "grain", "keep")).toEqual({ torch: "confirm" });
+    });
+
+    it("counts what is picked and what is left, and is all picked only with nothing left", () => {
+        expect(pickCount(f, { grain: "keep" })).toEqual({ picked: 1, open: 2 });
+        expect(allPicked(f, { grain: "keep", torch: "confirm" })).toBe(false);
+        expect(allPicked(f, { grain: "keep", torch: "confirm", seed: "restore" })).toBe(true);
+        expect(allPicked(file(), {})).toBe(false);
+    });
+
+    it("says what is ready and what is left", () => {
+        expect(picksLine({ picked: 1, open: 2 })).toBe("1 choice ready to send · 2 decisions still to settle");
+        expect(picksLine({ picked: 3, open: 0 })).toBe("3 choices ready to send");
+    });
+
+    it("settles in one line, keeps then restores then confirms, each in the design's order", () => {
+        expect(settleLine(f, { seed: "keep", torch: "confirm", grain: "keep" })).toBe(
+            "brainstorm: settle keep grain, seed; confirm torch"
+        );
+        expect(settleLine(f, { seed: "restore" })).toBe("brainstorm: settle restore seed");
+        expect(settleLine(f, { mine: "keep" })).toBeNull();
+    });
+
+    it("a line sent with picks waiting carries them first", () => {
+        const picks = { grain: "keep", torch: "confirm" } as const;
+        expect(sendLine({ kind: "settle" }, f, picks)).toBe("brainstorm: settle keep grain; confirm torch");
+        expect(sendLine({ kind: "answer", text: "why\ndaily?" }, f, picks)).toBe(
+            "brainstorm: settle keep grain; confirm torch; then: why daily?"
+        );
+        expect(sendLine({ kind: "keep-all" }, f, { torch: "confirm" })).toBe(
+            "brainstorm: settle confirm torch; then: brainstorm: keep every change"
+        );
+    });
+
+    it("with no picks a line goes as it is, and a settle or a blank answer has nothing to send", () => {
+        expect(sendLine({ kind: "guess" }, f, {})).toBe("brainstorm: guess");
+        expect(sendLine({ kind: "settle" }, f, {})).toBeNull();
+        expect(sendLine({ kind: "answer", text: " " }, f, { grain: "keep" })).toBeNull();
+        expect(sendLine({ kind: "settle" }, null, { grain: "keep" })).toBeNull();
+    });
+
+    it("an edit drops its own part's pick and carries the rest", () => {
+        const edit = { kind: "edit", part: "torch", text: "off" } as const;
+        const picks = { grain: "keep", torch: "confirm" } as const;
+        expect(carriedPicks(edit, f, picks)).toEqual({ grain: "keep" });
+        expect(sendLine(edit, f, picks)).toBe("brainstorm: settle keep grain; then: brainstorm: edit torch: off");
     });
 });
 

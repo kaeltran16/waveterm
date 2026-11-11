@@ -25,10 +25,10 @@ import {
     paneBack,
     paneView,
     pickableOptions,
-    type BrainstormAction,
+    type PartPick,
     type ReviewRow,
 } from "@/app/view/agents/brainstormmodel";
-import { reportSendFailure, sendBrainstorm } from "@/app/view/agents/brainstormsend";
+import { pickPart, reportSendFailure } from "@/app/view/agents/brainstormsend";
 import {
     focusedBrainstorm,
     moveReviewCursor,
@@ -948,19 +948,19 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
         const f = shownBrainstormFile(brainstorm());
         return f == null ? [] : checkReview(f).cursorIds;
     };
-    // the row's line goes to the focused agent; with no row or no line for it, or while the agent writes (the row's
-    // buttons are locked then too), the key passes on
-    const sendReview = (action: (row: ReviewRow) => BrainstormAction | null) => {
+    // the key picks for the row as its button does; with no row or no pick for it, or while the agent writes (the
+    // row's buttons are locked then too), the key passes on
+    const pickReview = (pickFor: (row: ReviewRow) => PartPick | null) => {
         if (shownBrainstormFile(brainstorm())?.working != null) {
             return false;
         }
         const row = reviewRow();
-        const a = row == null ? null : action(row);
+        const pick = row == null ? null : pickFor(row);
         const agent = globalStore.get(model.agentsAtom).find((x) => x.id === focusId());
-        if (a == null || agent == null) {
+        if (row == null || pick == null || agent == null) {
             return false;
         }
-        sendBrainstorm(agent, a).catch((e) => reportSendFailure(agent.id, e));
+        pickPart(agent, row.id, pick).catch((e) => reportSendFailure(agent.id, e));
     };
     // the asked question's options the pane draws, each picked by its letter
     const pickable = () => {
@@ -1226,12 +1226,8 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             label: "Keep the review's change (confirm a guess)",
             when: inReview,
             run: () =>
-                sendReview((row) =>
-                    row.action === "keep-restore"
-                        ? { kind: "keep", part: row.id }
-                        : row.action === "confirm"
-                          ? { kind: "confirm", part: row.id }
-                          : null
+                pickReview((row) =>
+                    row.action === "keep-restore" ? "keep" : row.action === "confirm" ? "confirm" : null
                 ),
         },
         {
@@ -1240,7 +1236,7 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             group: "Agent",
             label: "Put mine back in the review",
             when: inReview,
-            run: () => sendReview((row) => (row.action === "keep-restore" ? { kind: "restore", part: row.id } : null)),
+            run: () => pickReview((row) => (row.action === "keep-restore" ? "restore" : null)),
         },
         {
             id: "agent:toggle-rail",

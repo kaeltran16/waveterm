@@ -402,7 +402,8 @@ export function canCheck(f: BrainstormFile): boolean {
 // the question, a check hands the design to a builder (its send time outlives the line, sentCheckAt), any other line
 // is a change. judged is the judge's result, which Arc delivers itself (terminalAnswer)
 export type SentKind = "answer" | "check" | "line" | "judged";
-export type SentLine = { at: number; modifiedMs: number | null; kind: SentKind };
+// picks are the ones the line carried: their parts read as picked until the agent has taken it
+export type SentLine = { at: number; modifiedMs: number | null; kind: SentKind; picks?: Picks };
 
 export function sentKind(a: BrainstormAction): SentKind {
     return a.kind === "answer" || a.kind === "check" ? a.kind : "line";
@@ -630,12 +631,11 @@ export type BrainstormAction =
     | { kind: "answer"; text: string }
     | { kind: "guess" }
     | { kind: "skip" }
-    | { kind: "confirm"; part: string }
     | { kind: "confirm-all" }
     | { kind: "edit"; part: string; text: string }
-    | { kind: "keep"; part: string }
-    | { kind: "restore"; part: string }
     | { kind: "keep-all" }
+    // the picks waiting in the pane, on their own
+    | { kind: "settle" }
     | { kind: "check" }
     | { kind: "builder-answer"; text: string }
     | { kind: "builder-decide" }
@@ -664,16 +664,13 @@ export function brainstormLine(a: BrainstormAction): string | null {
             return "brainstorm: guess";
         case "skip":
             return "brainstorm: skip questions";
-        case "confirm":
-            return `brainstorm: confirm ${a.part}`;
         case "confirm-all":
             return "brainstorm: confirm every guess";
-        case "keep":
-            return `brainstorm: keep ${a.part}`;
-        case "restore":
-            return `brainstorm: restore ${a.part}`;
         case "keep-all":
             return "brainstorm: keep every change";
+        // its line is the picks', which sendLine writes
+        case "settle":
+            return null;
         case "builder-decide":
             return "brainstorm: builder decide";
         case "check":
@@ -685,6 +682,98 @@ export function brainstormLine(a: BrainstormAction): string | null {
         case "run":
             return `brainstorm: run ${a.runId}`;
     }
+}
+
+// a choice on a part, held in the pane until it is sent: keeping or putting back a change, confirming a guess. One line
+// then settles them all, so a review costs the agent one turn rather than one per part
+export type PartPick = "keep" | "restore" | "confirm";
+export type Picks = Record<string, PartPick>;
+
+const PICK_ORDER: PartPick[] = ["keep", "restore", "confirm"];
+
+// the parts a pick settles, in the design's order: what the agent changed after you confirmed it, and its plain guesses
+export function pickableParts(f: BrainstormFile): BrainstormPart[] {
+    return decisionParts(f).filter((p) => {
+        const v = partView(f, p);
+        return v === "changed" || v === "guess";
+    });
+}
+
+// a pick holds only while it fits the part: a change takes keep or restore, a guess confirm. A part the agent has since
+// rewritten (made yours, changed again, asked about) drops it
+export function livePicks(f: BrainstormFile, picks: Picks): Picks {
+    const live: Picks = {};
+    for (const p of pickableParts(f)) {
+        const k = picks[p.id];
+        if (k != null && (partView(f, p) === "changed" ? k !== "confirm" : k === "confirm")) {
+            live[p.id] = k;
+        }
+    }
+    return live;
+}
+
+// pressing the pick a part already has takes it back
+export function togglePick(picks: Picks, part: string, pick: PartPick): Picks {
+    if (picks[part] !== pick) {
+        return { ...picks, [part]: pick };
+    }
+    const { [part]: _gone, ...rest } = picks;
+    return rest;
+}
+
+export type PickCount = { picked: number; open: number };
+
+export function pickCount(f: BrainstormFile, picks: Picks): PickCount {
+    const picked = Object.keys(livePicks(f, picks)).length;
+    return { picked, open: pickableParts(f).length - picked };
+}
+
+// once every part that takes a pick has one there is nothing left to wait for, so the picks go without a Send
+export function allPicked(f: BrainstormFile, picks: Picks): boolean {
+    const c = pickCount(f, picks);
+    return c.picked > 0 && c.open === 0;
+}
+
+export function picksLine(c: PickCount): string {
+    const ready = `${plural(c.picked, "choice", "choices")} ready to send`;
+    return c.open > 0 ? `${ready} · ${plural(c.open, "decision", "decisions")} still to settle` : ready;
+}
+
+// `brainstorm: settle keep a, b; restore c; confirm d`, each verb's parts in the design's order
+export function settleLine(f: BrainstormFile, picks: Picks): string | null {
+    const live = livePicks(f, picks);
+    const ids = pickableParts(f).map((p) => p.id);
+    const groups = PICK_ORDER.flatMap((k) => {
+        const of = ids.filter((id) => live[id] === k);
+        return of.length > 0 ? [`${k} ${of.join(", ")}`] : [];
+    });
+    return groups.length > 0 ? `brainstorm: settle ${groups.join("; ")}` : null;
+}
+
+// the picks a line carries: the ones that still fit, less an edit's own part, since the edit says what the user wants
+// of that part
+export function carriedPicks(a: BrainstormAction, f: BrainstormFile | null, picks: Picks): Picks {
+    if (f == null) {
+        return {};
+    }
+    const live = livePicks(f, picks);
+    if (a.kind === "edit") {
+        delete live[a.part];
+    }
+    return live;
+}
+
+// a line sent while picks wait carries them first, so the agent settles them in the same turn
+export function sendLine(a: BrainstormAction, f: BrainstormFile | null, picks: Picks): string | null {
+    const own = brainstormLine(a);
+    const settle = f != null ? settleLine(f, carriedPicks(a, f, picks)) : null;
+    if (a.kind === "settle") {
+        return settle;
+    }
+    if (own == null) {
+        return null;
+    }
+    return settle == null ? own : `${settle}; then: ${own}`;
 }
 
 // a part id the file names but does not define shows as the raw id

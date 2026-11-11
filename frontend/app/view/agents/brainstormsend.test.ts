@@ -9,11 +9,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
 import { brainstormLine, runPrefill, type BrainstormAction, type BrainstormFile } from "./brainstormmodel";
-import { approveAndOpenRun, openRunLauncher, reportSendFailure, sendBrainstorm } from "./brainstormsend";
+import { approveAndOpenRun, openRunLauncher, pickPart, reportSendFailure, sendBrainstorm } from "./brainstormsend";
 import {
     attachBrainstorm,
     brainstormsAtom,
     getBrainstorm,
+    shownPicks,
     updateBrainstorm,
     type BrainstormState,
 } from "./brainstormstore";
@@ -97,16 +98,63 @@ afterEach(() => {
     globalStore.set(toastsAtom, []);
 });
 
+// a change and a guess waiting on the user, beside a yours part
+const REVIEW: BrainstormFile = {
+    ...FILE,
+    done: true,
+    parts: [
+        { id: "grain", title: "Grain", state: "guess", body: "daily", was: "hourly" },
+        { id: "torch", title: "Torch", state: "guess", body: "on" },
+        { id: "page", title: "Page", state: "yours", body: "b" },
+    ],
+};
+
+describe("pickPart", () => {
+    beforeEach(() => updateBrainstorm(AGENT.id, (s) => ({ ...s, file: REVIEW })));
+
+    it("holds a pick in the pane and sends nothing while a decision is left", async () => {
+        const io = fakeIO();
+        await pickPart(AGENT, "grain", "restore", io);
+        expect(getBrainstorm(AGENT.id)?.picks).toEqual({ grain: "restore" });
+        expect(io.sent).toEqual([]);
+        await pickPart(AGENT, "grain", "restore", io);
+        expect(getBrainstorm(AGENT.id)?.picks).toEqual({});
+    });
+
+    it("the pick that leaves nothing to settle sends them all as one line", async () => {
+        const io = fakeIO();
+        await pickPart(AGENT, "torch", "confirm", io, 1000);
+        await pickPart(AGENT, "grain", "keep", io, 2000);
+        expect(io.sent).toEqual([["blk-1", "brainstorm: settle keep grain; confirm torch"]]);
+        const s = getBrainstorm(AGENT.id)!;
+        expect(s.picks).toEqual({});
+        expect(s.sent).toEqual({ at: 2000, modifiedMs: 500, kind: "line", picks: { grain: "keep", torch: "confirm" } });
+        expect(shownPicks(s)).toEqual({ grain: "keep", torch: "confirm" });
+    });
+
+    it("a failed send keeps the picks, to send again", async () => {
+        await pickPart(AGENT, "torch", "confirm", fakeIO(true));
+        await expect(pickPart(AGENT, "grain", "keep", fakeIO(true))).rejects.toThrow("Couldn't send");
+        expect(getBrainstorm(AGENT.id)?.picks).toEqual({ torch: "confirm", grain: "keep" });
+        expect(getBrainstorm(AGENT.id)?.sent).toBeNull();
+    });
+
+    it("sends nothing while the agent writes", async () => {
+        updateBrainstorm(AGENT.id, (s) => ({ ...s, file: { ...REVIEW, working: "Rewriting the grain" } }));
+        const io = fakeIO();
+        await pickPart(AGENT, "torch", "confirm", io);
+        await pickPart(AGENT, "grain", "keep", io);
+        expect(io.sent).toEqual([]);
+    });
+});
+
 describe("sendBrainstorm", () => {
     const actions: BrainstormAction[] = [
         { kind: "answer", text: "first line\n\tsecond  line" },
         { kind: "guess" },
         { kind: "skip" },
-        { kind: "confirm", part: "current" },
         { kind: "confirm-all" },
         { kind: "edit", part: "constraints", text: "No new\nservice." },
-        { kind: "keep", part: "constraints" },
-        { kind: "restore", part: "constraints" },
         { kind: "keep-all" },
         { kind: "check" },
         { kind: "builder-answer", text: "Only report." },
@@ -121,6 +169,20 @@ describe("sendBrainstorm", () => {
         expect(io.sent).toEqual([["blk-1", brainstormLine(action)]]);
     });
 
+    it("a line sent with picks waiting carries them, and clears them", async () => {
+        updateBrainstorm(AGENT.id, (s) => ({ ...s, file: REVIEW, picks: { grain: "restore" } }));
+        const io = fakeIO();
+        await sendBrainstorm(AGENT, { kind: "answer", text: "why daily?" }, io, 1000);
+        expect(io.sent).toEqual([["blk-1", "brainstorm: settle restore grain; then: why daily?"]]);
+        expect(getBrainstorm(AGENT.id)?.picks).toEqual({});
+        expect(getBrainstorm(AGENT.id)?.sent?.picks).toEqual({ grain: "restore" });
+    });
+
+    it("Send with no picks waiting has nothing to send", async () => {
+        updateBrainstorm(AGENT.id, (s) => ({ ...s, file: REVIEW }));
+        await expect(sendBrainstorm(AGENT, { kind: "settle" }, fakeIO())).rejects.toThrow("Nothing to send");
+    });
+
     it("sends a multi-line answer as one line", async () => {
         const io = fakeIO();
         await sendBrainstorm(AGENT, { kind: "answer", text: "  one\n\ntwo\tthree " }, io);
@@ -130,7 +192,7 @@ describe("sendBrainstorm", () => {
     it("records the sent line against the file as it was, an answer as an answer", async () => {
         await sendBrainstorm(AGENT, { kind: "answer", text: "yes" }, fakeIO(), 1000);
         expect(getBrainstorm(AGENT.id)?.sent).toEqual({ at: 1000, modifiedMs: 500, kind: "answer" });
-        await sendBrainstorm(AGENT, { kind: "confirm", part: "x" }, fakeIO(), 2000);
+        await sendBrainstorm(AGENT, { kind: "guess" }, fakeIO(), 2000);
         expect(getBrainstorm(AGENT.id)?.sent).toEqual({ at: 2000, modifiedMs: 500, kind: "line" });
         await sendBrainstorm(AGENT, { kind: "check" }, fakeIO(), 3000);
         expect(getBrainstorm(AGENT.id)?.sent).toEqual({ at: 3000, modifiedMs: 500, kind: "check" });
@@ -193,9 +255,9 @@ describe("sendBrainstorm", () => {
             }
         );
 
-        it("a confirm leaves the judge running", async () => {
+        it("an edit leaves the judge running", async () => {
             const io = fakeIO();
-            await sendBrainstorm(AGENT, { kind: "confirm", part: "page" }, io);
+            await sendBrainstorm(AGENT, { kind: "edit", part: "page", text: "x" }, io);
             expect(io.calls).toEqual(["prompt blk-1"]);
         });
 

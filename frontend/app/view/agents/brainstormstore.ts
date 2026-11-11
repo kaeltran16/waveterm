@@ -20,6 +20,7 @@ import {
     shownFile,
     type BrainstormFile,
     type BrainstormWait,
+    type Picks,
     type SeenMark,
     type SentLine,
 } from "./brainstormmodel";
@@ -53,6 +54,8 @@ export type BrainstormState = {
     turn: { read: string[]; canvases: Record<string, CanvasBoard[]> };
     // the last line Arc sent, until the agent has taken it (the poller settles it)
     sent: SentLine | null;
+    // keep, put back and confirm picks not sent yet: here, not in the pane, so they survive a surface switch
+    picks: Picks;
     // the send time of the last `brainstorm: check` the agent took, until Arc's check record is newer than it: with
     // none newer, the agent ended its turn without starting the check
     sentCheckAt: number | null;
@@ -64,6 +67,11 @@ export type BrainstormState = {
 // what every view draws: the file, with a pending sent line read as the agent writing
 export function shownBrainstormFile(s: BrainstormState | null | undefined): BrainstormFile | null {
     return s?.file != null ? shownFile(s.file, s.sent) : null;
+}
+
+// the picks a row draws as chosen: the ones waiting, and the ones a pending line carried until the agent takes it
+export function shownPicks(s: BrainstormState): Picks {
+    return { ...(s.sent?.picks ?? {}), ...s.picks };
 }
 
 // what the agent's brainstorm waits on the user for, its builder check's record included
@@ -144,6 +152,7 @@ export function attachBrainstorm(
         base: null,
         turn: { read: [], canvases: {} },
         sent: null,
+        picks: {},
         sentCheckAt: null,
         review: { cursor: null, open: {} },
     };

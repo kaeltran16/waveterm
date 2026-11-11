@@ -31,6 +31,8 @@ import {
     bsClick,
     bsFile,
     bsParts,
+    bsPressed,
+    bsPressedExpr,
     bsPublishStatus,
     bsReveal,
     bsShowPane,
@@ -784,16 +786,20 @@ export const brainstormMode = {
             { allLabel, confirmedAll, ...allTyped.detail, allLocked, allTook }
         );
 
-        mark = await bsMark(h, ctx, "brainstorm: confirm current");
+        // a pick waits in the pane; the next line sent carries it
+        mark = await bsMark(h, ctx, null);
         const confirmed = await bsClick(h, bsPartSel("current"), "That’s right");
-        const confirmTyped = await bsTyped(h, ctx, mark, "brainstorm: confirm current");
-        rec("2e. That’s right on Current state sends its confirm", confirmed === "clicked" && confirmTyped.ok, {
-            confirmed,
-            ...confirmTyped.detail,
-        });
-        await bsAgentTook(h, ctx);
+        const confirmPressed = await polishWaitFor(h, `${bsPressedExpr(bsPartSel("current"), "That’s right")} === "true"`, 2000);
+        // a question is open under the design, so there is no line box: the Send bar says where the pick goes
+        const carries = await h.ev(`document.querySelector("[data-brainstorm-picks-line]")?.textContent ?? null`);
+        const confirmQuiet = (await bsSentSince(h, mark)).length === 0;
+        rec(
+            "2e. That’s right on Current state picks it and sends nothing; the Send bar counts it",
+            confirmed === "clicked" && confirmPressed && confirmQuiet && carries === "1 choice ready to send · 2 decisions still to settle",
+            { confirmed, confirmPressed, confirmQuiet, carries }
+        );
 
-        const editLine = `brainstorm: edit constraints: ${BS_EDITED}`;
+        const editLine = `brainstorm: settle confirm current; then: brainstorm: edit constraints: ${BS_EDITED}`;
         mark = await bsMark(h, ctx, editLine);
         const editOpened = await bsClick(h, bsPartSel("constraints"), "Edit");
         await polishWaitFor(h, `!!${BS_EDIT}`, 2000);
@@ -827,7 +833,7 @@ export const brainstormMode = {
         await bsKey(h, BS_EDIT, "Enter", editVia);
         const editTyped = await bsTyped(h, ctx, mark, editLine);
         const editClosed = await polishWaitFor(h, `!${BS_EDIT}`, 2000);
-        rec("2g. Edit, new text, Enter sends the edit as one line and closes the box", editTyped.ok && editClosed, {
+        rec("2g. Edit, new text, Enter sends the edit as one line, carrying the waiting pick, and closes the box", editTyped.ok && editClosed, {
             ...editTyped.detail,
             editClosed,
             keys: editVia,
@@ -1096,21 +1102,27 @@ export const brainstormMode = {
                     "2 decisions are still the agent’s guess. 1 decision changed since you confirmed it. Each reads in one line; open one to read it whole.",
             { ...bsBrief(s5), part: changed?.text, diff, review: s5.review }
         );
-        mark = await bsMark(h, ctx, "brainstorm: keep constraints");
+        // a pick waits in the pane: nothing goes until Send, or until no decision is left to settle
+        mark = await bsMark(h, ctx, "brainstorm: settle restore constraints");
         const kept = await bsClick(h, bsPartSel("constraints"), "Keep the change");
-        const keepTyped = await bsTyped(h, ctx, mark, "brainstorm: keep constraints");
-        rec("5b. Keep the change sends brainstorm: keep constraints", kept === "clicked" && keepTyped.ok, {
-            kept,
-            ...keepTyped.detail,
-        });
-        await bsAgentTook(h, ctx);
-        mark = await bsMark(h, ctx, "brainstorm: restore constraints");
+        const keepPressed = await polishWaitFor(h, `${bsPressedExpr(bsPartSel("constraints"), "Keep the change")} === "true"`, 2000);
+        const picksLine = await h.ev(`document.querySelector("[data-brainstorm-picks-line]")?.textContent ?? null`);
+        const sentEarly = (await bsSentSince(h, mark)).length;
+        rec(
+            "5b. Keep the change picks it and sends nothing; the head says 1 choice is ready and 2 decisions are left",
+            kept === "clicked" && keepPressed && sentEarly === 0 && picksLine === "1 choice ready to send · 2 decisions still to settle",
+            { kept, keepPressed, sentEarly, picksLine }
+        );
         const restored = await bsClick(h, bsPartSel("constraints"), "Put mine back");
-        const restoreTyped = await bsTyped(h, ctx, mark, "brainstorm: restore constraints");
-        rec("5c. Put mine back sends brainstorm: restore constraints", restored === "clicked" && restoreTyped.ok, {
-            restored,
-            ...restoreTyped.detail,
-        });
+        const restorePressed = await polishWaitFor(h, `${bsPressedExpr(bsPartSel("constraints"), "Put mine back")} === "true"`, 2000);
+        const keepAfter = await bsPressed(h, bsPartSel("constraints"), "Keep the change");
+        const sendClicked = await bsClick(h, `document.querySelector("[data-brainstorm-picks]")`, "Send 1 choice");
+        const restoreTyped = await bsTyped(h, ctx, mark, "brainstorm: settle restore constraints");
+        rec(
+            "5c. Put mine back takes Keep's place, and Send 1 choice sends brainstorm: settle restore constraints",
+            restored === "clicked" && restorePressed && keepAfter === "false" && sendClicked === "clicked" && restoreTyped.ok,
+            { restored, restorePressed, keepAfter, sendClicked, ...restoreTyped.detail }
+        );
         await bsAgentTook(h, ctx);
         await bsCloseDesign(h);
 
