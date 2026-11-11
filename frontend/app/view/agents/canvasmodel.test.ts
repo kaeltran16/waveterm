@@ -17,6 +17,7 @@ import {
     paneState,
     parseCanvasPath,
     prototypePath,
+    removedExit,
     shownBoards,
     stepTab,
     updatedAgo,
@@ -268,6 +269,15 @@ describe("board tabs", () => {
         expect(buildGoal(dir, shownBoards(state({ boards: BOARDS, all: true })))).toBe(
             "Build the design in /p/.superpowers/design/t/project (boards: Main, States)"
         );
+    });
+});
+
+describe("removedExit", () => {
+    it("detaches a plain canvas and goes back to the terminal", () => {
+        expect(removedExit(undefined)).toEqual({ label: "Back to terminal", detach: true });
+    });
+    it("inside a brainstorm takes the brainstorm's own way back: its board view has no canvas to fall back to", () => {
+        expect(removedExit("Back to the question")).toEqual({ label: "Back to the question", detach: false });
     });
 });
 
