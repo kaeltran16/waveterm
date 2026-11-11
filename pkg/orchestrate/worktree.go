@@ -54,11 +54,12 @@ func gitRaw(ctx context.Context, dir string, args ...string) (string, error) {
 }
 
 // gitAsk runs a git command that answers a yes/no question by its exit code: 0 is yes and 1 is no. Any other
-// failure (128: not a repository, a corrupt index, dubious ownership) is an error, not a no.
+// failure (128: not a repository, a corrupt index, dubious ownership) is an error, not a no, and so is a git its
+// context killed: on Windows a killed process exits 1.
 func gitAsk(ctx context.Context, dir string, args ...string) (bool, error) {
 	_, err := gitRaw(ctx, dir, args...)
 	var exit *exec.ExitError
-	if errors.As(err, &exit) && exit.ExitCode() == 1 {
+	if errors.As(err, &exit) && exit.ExitCode() == 1 && ctx.Err() == nil {
 		return false, nil
 	}
 	return err == nil, err

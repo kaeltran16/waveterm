@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 )
@@ -149,6 +150,24 @@ func TestRecoveryPatch(t *testing.T) {
 	patch := filepath.Join(dir, ".waveterm", "recovery", "run-1.patch")
 	if _, err := os.Stat(patch); err != nil {
 		t.Fatalf("recovery patch missing: %v", err)
+	}
+}
+
+// a git its context killed has given no answer: on Windows a killed process exits 1, which gitAsk read as "no"
+func TestGitAskReportsAGitItsContextKilled(t *testing.T) {
+	old := gitWaitDelay
+	gitWaitDelay = 200 * time.Millisecond
+	defer func() { gitWaitDelay = old }()
+	dir := newGitRepo(t)
+	hook := filepath.Join(dir, ".git", "hooks", "pre-commit")
+	writeFile(t, hook, "#!/bin/sh\nsleep 10\n")
+	if err := os.Chmod(hook, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if yes, err := gitAsk(ctx, dir, "commit", "--allow-empty", "-q", "-m", "slow"); err == nil {
+		t.Fatalf("a killed git must be an error, got yes=%v", yes)
 	}
 }
 
