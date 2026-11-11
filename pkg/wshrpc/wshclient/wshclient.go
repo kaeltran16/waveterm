@@ -61,6 +61,12 @@ func AgentPromptCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentPromptData, o
 	return err
 }
 
+// command "agentsexplain", wshserver.AgentsExplainCommand
+func AgentsExplainCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentsExplainData, opts *wshrpc.RpcOpts) (*wshrpc.CommandAgentsExplainRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandAgentsExplainRtnData](w, "agentsexplain", data, opts)
+	return resp, err
+}
+
 // command "agentslist", wshserver.AgentsListCommand
 func AgentsListCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.CommandAgentsListRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandAgentsListRtnData](w, "agentslist", nil, opts)

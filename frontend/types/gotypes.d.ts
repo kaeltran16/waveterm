@@ -494,6 +494,25 @@ declare global {
         conflict: boolean;
     };
 
+    // wshrpc.CommandAgentsExplainData
+    type CommandAgentsExplainData = {
+        tab: string;
+    };
+
+    // wshrpc.CommandAgentsExplainRtnData
+    type CommandAgentsExplainRtnData = {
+        tabid: string;
+        name: string;
+        blockid: string;
+        shellrunning: boolean;
+        hasstream: boolean;
+        openask: boolean;
+        status: AgentStatusData;
+        live: boolean;
+        notlive?: string;
+        state?: string;
+    };
+
     // wshrpc.CommandAgentsListRtnData
     type CommandAgentsListRtnData = {
         agents: AgentInfo[];

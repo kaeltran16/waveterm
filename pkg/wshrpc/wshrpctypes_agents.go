@@ -3,7 +3,11 @@
 
 package wshrpc
 
-import "context"
+import (
+	"context"
+
+	"github.com/wavetermdev/waveterm/pkg/baseds"
+)
 
 type AgentCommands interface {
 	GetSessionGroupCommand(ctx context.Context, data CommandGetSessionGroupData) (*CommandGetSessionGroupRtnData, error)
@@ -24,6 +28,7 @@ type AgentCommands interface {
 	AgentsListCommand(ctx context.Context) (*CommandAgentsListRtnData, error)                                                             // the live claude and pi agent tabs
 	AgentsSendCommand(ctx context.Context, data CommandAgentsSendData) (*CommandAgentsSendRtnData, error)                                 // hand a prompt from one agent to another's live session
 	AgentsReadCommand(ctx context.Context, data CommandAgentsReadData) (*CommandAgentsReadRtnData, error)                                 // a live agent's state and last answer
+	AgentsExplainCommand(ctx context.Context, data CommandAgentsExplainData) (*CommandAgentsExplainRtnData, error)                        // what the roster reads about a tab and why it does or does not list it as live
 	AgentPromptCommand(ctx context.Context, data CommandAgentPromptData) error                                                            // the cockpit's own prompt to a block's agent session: its mod runs it, or it is typed
 	BrainstormCheckCommand(ctx context.Context, data CommandBrainstormCheckData) error                                                    // run the builder check on a brainstorm.json as a one-shot judging session
 	BrainstormJudgeCommand(ctx context.Context, data CommandBrainstormJudgeData) error                                                    // weigh a brainstorm.json's approach question with a one-shot blind judge
@@ -108,6 +113,24 @@ type CommandAgentsReadRtnData struct {
 	State    string `json:"state"`
 	Answer   string `json:"answer"`   // empty when the session has not answered yet
 	AnswerTs int64  `json:"answerts"` // transcript time of Answer, unix ms
+}
+
+type CommandAgentsExplainData struct {
+	Tab string `json:"tab"` // a tab id or a unique prefix of one, a live agent or not
+}
+
+// CommandAgentsExplainRtnData is what the roster reads about one tab and what it makes of it.
+type CommandAgentsExplainRtnData struct {
+	TabId        string                 `json:"tabid"`
+	Name         string                 `json:"name"`
+	BlockId      string                 `json:"blockid"` // the tab's first block, where its agent runs
+	ShellRunning bool                   `json:"shellrunning"`
+	HasStream    bool                   `json:"hasstream"` // the harness mod's control stream is open: a prompt runs over it instead of being typed
+	OpenAsk      bool                   `json:"openask"`
+	Status       baseds.AgentStatusData `json:"status"`            // the latest status report; its state is empty when none arrived
+	Live         bool                   `json:"live"`              // wsh agents list shows it
+	NotLive      string                 `json:"notlive,omitempty"` // why it is not live
+	State        string                 `json:"state,omitempty"`   // AgentsState_*, when live
 }
 
 type CommandGetSessionGroupData struct {

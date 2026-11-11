@@ -169,6 +169,51 @@ func TestAgentsRosterDropsAnEndedSession(t *testing.T) {
 	}
 }
 
+// why a tab reads as it does was log archaeology: the facts sat on the server with no way to ask for them
+func TestAgentsExplain(t *testing.T) {
+	facts := threeAgents()
+	facts.Tabs[0].Status.Hook = baseds.AgentHook_PreToolUse
+	facts.Tabs[0].Status.Ts = 1234
+	facts.Tabs[0].HasStream = true
+	facts.Tabs[0].OpenAsk = true
+	facts.Tabs[1].Status.Ended = true
+	facts.Tabs[2].ShellRunning = false
+	silent := agentFacts("dddd-tab", "fresh", "d0000000-0000-4000-8000-000000000004", "", "")
+	codex := agentFacts("eeee-tab", "codex", "e0000000-0000-4000-8000-000000000005", "codex", baseds.AgentState_Idle)
+	facts.Tabs = append(facts.Tabs, silent, codex)
+	scriptAgents(t, facts)
+	ws := &WshServer{}
+
+	live, err := ws.AgentsExplainCommand(context.Background(), wshrpc.CommandAgentsExplainData{Tab: "aaaa"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !live.Live || live.NotLive != "" || live.State != wshrpc.AgentsState_Asking || live.TabId != agentsTabA || live.BlockId != agentsBlockA ||
+		!live.ShellRunning || !live.HasStream || !live.OpenAsk || live.Status.Hook != baseds.AgentHook_PreToolUse || live.Status.Ts != 1234 {
+		t.Errorf("live tab = %+v", live)
+	}
+	cases := []struct{ tab, want string }{
+		{agentsTabB, "reported its end"},
+		{agentsTabC, "no running shell"},
+		{"dddd", "no claude or pi status"},
+		{"eeee", "codex"},
+	}
+	for _, c := range cases {
+		r, err := ws.AgentsExplainCommand(context.Background(), wshrpc.CommandAgentsExplainData{Tab: c.tab})
+		if err != nil {
+			t.Fatalf("%s: %v", c.tab, err)
+		}
+		if r.Live || r.State != "" || !strings.Contains(r.NotLive, c.want) {
+			t.Errorf("%s: live = %v, state = %q, not live = %q; want it not live because %q", c.tab, r.Live, r.State, r.NotLive, c.want)
+		}
+	}
+	for tab, want := range map[string]string{"zzzz": "no tab", "bbbb": "matches several", " ": "required"} {
+		if _, err := ws.AgentsExplainCommand(context.Background(), wshrpc.CommandAgentsExplainData{Tab: tab}); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("tab %q: err = %v, want one containing %q", tab, err, want)
+		}
+	}
+}
+
 func TestAgentsResolve(t *testing.T) {
 	facts := threeAgents()
 	// an id that is also the prefix of another's: the exact one wins

@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/orchestrate"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 )
@@ -368,6 +369,36 @@ func TestAgentsWaitUntilFlag(t *testing.T) {
 	}
 	if err := agentsCheckUntil("working"); err == nil || !strings.Contains(err.Error(), "idle or asking") {
 		t.Errorf("--until working: err = %v", err)
+	}
+}
+
+func TestAgentsExplainLines(t *testing.T) {
+	now := time.UnixMilli(agentsTestSentTs + 12_000)
+	live := &wshrpc.CommandAgentsExplainRtnData{
+		TabId: agentsTestTabA, Name: "design lead", BlockId: "b1", ShellRunning: true, HasStream: true, OpenAsk: true, Live: true, State: wshrpc.AgentsState_Asking,
+		Status: baseds.AgentStatusData{Agent: "claude", State: baseds.AgentState_Waiting, Hook: "Notification", NotificationType: "permission_prompt", Ts: agentsTestSentTs, Detail: "editing a.go", Cwd: `C:\work\arc`, TranscriptPath: `C:\t.jsonl`},
+	}
+	got := strings.Join(agentsExplainLines(live, now), "\n")
+	for _, want := range []string{
+		agentsTestTabA + " (design lead)",
+		"yes, as asking",
+		"claude reported waiting from Notification (permission_prompt) 12s ago: editing a.go",
+		"shell     running",
+		"open: a prompt runs over the mod",
+		"question  open",
+		`C:\work\arc`,
+		`C:\t.jsonl`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("live explain lacks %q:\n%s", want, got)
+		}
+	}
+	gone := &wshrpc.CommandAgentsExplainRtnData{TabId: agentsTestTabB, Name: "scratch", NotLive: "its terminal has no running shell"}
+	got = strings.Join(agentsExplainLines(gone, now), "\n")
+	for _, want := range []string{"no: its terminal has no running shell", "none reported since wavesrv started", "not running", "none: a prompt is typed", "question  none"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("not-live explain lacks %q:\n%s", want, got)
+		}
 	}
 }
 

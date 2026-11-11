@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/orchestrate"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc/wshclient"
@@ -68,6 +69,17 @@ already in it.`,
 	RunE:    agentsWaitRun,
 }
 
+var agentsExplainCmd = &cobra.Command{
+	Use:   "explain <tab>",
+	Short: "print what Arc knows about a tab's agent and why it reads as live or not",
+	Long: `Print what Arc reads about a tab's agent: whether 'wsh agents list' shows it and why not, its latest
+status with the hook that reported it and when, whether its shell runs, whether its mod's control stream is
+open and whether it has a question open. <tab> is a tab id or a unique prefix of one, a live agent or not.`,
+	Args:    cobra.ExactArgs(1),
+	PreRunE: preRunSetupRpcClient,
+	RunE:    agentsExplainRun,
+}
+
 var agentsReadCmd = &cobra.Command{
 	Use:     "read <tab>",
 	Short:   "print a live agent's last answer",
@@ -85,7 +97,8 @@ func init() {
 	agentsWaitCmd.Flags().String("until", "", "idle or asking; either by default")
 	agentsWaitCmd.Flags().Duration("timeout", agentsWaitDefault, "how long to wait")
 	agentsReadCmd.Flags().Bool("json", false, "JSON output")
-	agentsCmd.AddCommand(agentsListCmd, agentsSendCmd, agentsWaitCmd, agentsReadCmd)
+	agentsExplainCmd.Flags().Bool("json", false, "JSON output")
+	agentsCmd.AddCommand(agentsListCmd, agentsSendCmd, agentsWaitCmd, agentsReadCmd, agentsExplainCmd)
 	rootCmd.AddCommand(agentsCmd)
 }
 
@@ -383,4 +396,71 @@ func agentsReadLines(r *wshrpc.CommandAgentsReadRtnData) []string {
 		return []string{fmt.Sprintf("%s has not answered yet (state: %s)", agentsShort(r.TabId), r.State)}
 	}
 	return []string{r.Answer}
+}
+
+func agentsExplainRun(cmd *cobra.Command, args []string) error {
+	rtn, err := wshclient.AgentsExplainCommand(RpcClient, wshrpc.CommandAgentsExplainData{Tab: args[0]}, &wshrpc.RpcOpts{Timeout: runsReadTimeoutMs})
+	if err != nil {
+		return err
+	}
+	if isJSON(cmd) {
+		return jsonOut(rtn)
+	}
+	for _, line := range agentsExplainLines(rtn, time.Now()) {
+		fmt.Println(line)
+	}
+	return nil
+}
+
+func agentsExplainLines(r *wshrpc.CommandAgentsExplainRtnData, now time.Time) []string {
+	live := "yes, as " + r.State
+	if !r.Live {
+		live = "no: " + r.NotLive
+	}
+	shell := "not running"
+	if r.ShellRunning {
+		shell = "running"
+	}
+	stream := "none: a prompt is typed into the terminal"
+	if r.HasStream {
+		stream = "open: a prompt runs over the mod"
+	}
+	question := "none"
+	if r.OpenAsk {
+		question = "open"
+	}
+	lines := []string{
+		fmt.Sprintf("tab       %s (%s)", r.TabId, r.Name),
+		"live      " + live,
+		"status    " + agentsExplainStatus(r.Status, now),
+		"shell     " + shell,
+		"stream    " + stream,
+		"question  " + question,
+	}
+	if r.Status.Cwd != "" {
+		lines = append(lines, "cwd       "+r.Status.Cwd)
+	}
+	if r.Status.TranscriptPath != "" {
+		lines = append(lines, "transcript "+r.Status.TranscriptPath)
+	}
+	return lines
+}
+
+// agentsExplainStatus is the latest status report on one line: who reported what, from which hook, how long ago
+func agentsExplainStatus(s baseds.AgentStatusData, now time.Time) string {
+	if s.State == "" {
+		return "none reported since wavesrv started"
+	}
+	line := s.Agent + " reported " + s.State
+	if s.Hook != "" {
+		line += " from " + s.Hook
+		if s.NotificationType != "" {
+			line += " (" + s.NotificationType + ")"
+		}
+	}
+	line += " " + now.Sub(time.UnixMilli(s.Ts)).Round(time.Second).String() + " ago"
+	if s.Detail != "" {
+		line += ": " + s.Detail
+	}
+	return line
 }

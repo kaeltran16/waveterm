@@ -159,12 +159,27 @@ func agentsState(status string, openAsk bool) string {
 	return wshrpc.AgentsState_Working
 }
 
-// buildAgentRoster is the live claude and pi agent tabs, ordered by tab id. A session that reported its end
+// agentNotLive is why the roster leaves a tab out, "" for a live agent. A session that reported its end
 // exited back to its shell, where a typed send would land. A killed agent reports no end and still reads live.
+func agentNotLive(tf agentTabFacts) string {
+	switch {
+	case !tf.ShellRunning:
+		return "its terminal has no running shell"
+	case tf.Status.Agent == "":
+		return "no claude or pi status has reached it since wavesrv started"
+	case !agentHarnesses[tf.Status.Agent]:
+		return fmt.Sprintf("it runs %s, and only claude and pi sessions can be messaged", tf.Status.Agent)
+	case tf.Status.Ended:
+		return "the session reported its end and its shell kept running"
+	}
+	return ""
+}
+
+// buildAgentRoster is the live claude and pi agent tabs, ordered by tab id.
 func buildAgentRoster(facts *agentRosterFacts) []agentRow {
 	var rows []agentRow
 	for _, tf := range facts.Tabs {
-		if !tf.ShellRunning || !agentHarnesses[tf.Status.Agent] || tf.Status.Ended {
+		if agentNotLive(tf) != "" {
 			continue
 		}
 		row := agentRow{
@@ -369,6 +384,57 @@ func (ws *WshServer) AgentsReadCommand(ctx context.Context, data wshrpc.CommandA
 		rtn.Answer, rtn.AnswerTs = agentsessions.LastAnswer(tpath, target.Harness)
 	}
 	return rtn, nil
+}
+
+// AgentsExplainCommand is what the roster reads about a tab, live agent or not, and what it makes of it.
+func (ws *WshServer) AgentsExplainCommand(ctx context.Context, data wshrpc.CommandAgentsExplainData) (*wshrpc.CommandAgentsExplainRtnData, error) {
+	facts, err := loadAgentRosterFacts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	tf, err := resolveFactsTab(facts.Tabs, data.Tab)
+	if err != nil {
+		return nil, err
+	}
+	rtn := &wshrpc.CommandAgentsExplainRtnData{
+		TabId:        tf.Tab.OID,
+		Name:         tf.Tab.Name,
+		BlockId:      tf.BlockId,
+		ShellRunning: tf.ShellRunning,
+		HasStream:    tf.HasStream,
+		OpenAsk:      tf.OpenAsk,
+		Status:       tf.Status,
+		NotLive:      agentNotLive(*tf),
+	}
+	if rtn.Live = rtn.NotLive == ""; rtn.Live {
+		rtn.State = agentsState(tf.Status.State, tf.OpenAsk)
+	}
+	return rtn, nil
+}
+
+// resolveFactsTab finds any tab with a block by its id or a unique prefix of one: explain answers for a
+// tab the roster leaves out too.
+func resolveFactsTab(tabs []agentTabFacts, tab string) (*agentTabFacts, error) {
+	tab = strings.TrimSpace(tab)
+	if tab == "" {
+		return nil, fmt.Errorf("a tab id is required; wsh agents list shows the live agents")
+	}
+	var matches []*agentTabFacts
+	for i := range tabs {
+		if tabs[i].Tab.OID == tab {
+			return &tabs[i], nil
+		}
+		if strings.HasPrefix(tabs[i].Tab.OID, tab) {
+			matches = append(matches, &tabs[i])
+		}
+	}
+	switch len(matches) {
+	case 0:
+		return nil, fmt.Errorf("no tab %q with a terminal", tab)
+	case 1:
+		return matches[0], nil
+	}
+	return nil, fmt.Errorf("tab %q matches several tabs; use more of the id", tab)
 }
 
 // agentTranscriptPath is where a session's transcript is, "" when nothing says yet: what its status
