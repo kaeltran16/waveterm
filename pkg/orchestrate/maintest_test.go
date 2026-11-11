@@ -48,6 +48,11 @@ func TestMain(m *testing.M) {
 	// a fixture's worker has no transcript, and the lookup then globs every dir under the root: against the
 	// real ~/.claude/projects that was 1.4M file checks a run, all logged as test inputs for go to re-check
 	sessionsRootFor = func(string) string { return filepath.Join(dir, "sessions") }
+	// a claude worker spawn registers folder trust in claude's config: against the real ~/.claude.json every
+	// run left one entry per test temp dir, 8,000+ of them
+	if err := os.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(dir, "claude")); err != nil {
+		panic(err)
+	}
 	defer effortstore.UseRootForTest(filepath.Join(dir, "vault"))()
 	// a backstop for a test that makes trees without a repo fixture: none may land in the real user cache dir
 	defer UseWorktreeRootForTest(filepath.Join(dir, "arc-wt"))()
