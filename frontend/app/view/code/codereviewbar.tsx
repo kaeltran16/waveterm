@@ -55,7 +55,16 @@ export function CodeReviewBar({ model }: { model: AgentsViewModel }) {
 
     const comments = project == null ? [] : projectComments(reviews, project.path);
     const count = comments.length;
-    if (project == null || count === 0) {
+    const hidden = project == null || count === 0;
+    // the bar stays mounted while it draws nothing: a popover left open would keep its Escape and its backdrop
+    // live with nothing on screen, and reappear open with the next comment
+    useEffect(() => {
+        if (hidden) {
+            setListOpen(false);
+            setOpen(false);
+        }
+    }, [hidden]);
+    if (hidden) {
         return null;
     }
     const projectName = handoffProjectName(
