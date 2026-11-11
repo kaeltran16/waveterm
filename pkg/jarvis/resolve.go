@@ -111,11 +111,15 @@ type RunWorkerMatch struct {
 // ResolveRunWorkerFromMeta resolves the run/channel/phase owning a worker oref by reading the owner
 // stamp (jarvis:runoref/channeloref) off the worker tab, then loading the run + channel rows. It is NOT
 // gated by the tier: it answers "whose worker is this", and handleAsk applies the tier to the channel it
-// returns. On any miss (unstamped worker, empty runoref, load error) it falls back to the run-row scan so
-// a best-effort stamp gap can never regress resolution. nil = no run.
+// returns. A tab with no runoref is no run's worker: every spawn stamps its tab before the process starts,
+// and the run-row scan costs hundreds of ms on a store of thousands of runs. A gone tab or a stamp that
+// fails to resolve falls back to the scan. nil = no run.
 func ResolveRunWorkerFromMeta(ctx context.Context, askingORef string) *RunWorkerMatch {
 	runORef, channelORef, err := wstore.GetWorkerOwner(ctx, askingORef)
-	if err != nil || runORef == "" || channelORef == "" {
+	if err == nil && runORef == "" {
+		return nil
+	}
+	if err != nil || channelORef == "" {
 		return resolveRunWorkerByScan(ctx, askingORef)
 	}
 	runRef, err1 := waveobj.ParseORef(runORef)

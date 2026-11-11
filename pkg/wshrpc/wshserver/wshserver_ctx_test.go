@@ -147,3 +147,39 @@ func TestJarvisCtxEmptyForUnrelatedBlock(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// the owner of a block's tab is read off the tab's stamp: scanning every run row for it ran per live agent on
+// every resmon snapshot and cost ~330 ms per call on a 3,700-run store
+func TestOwnerRunForBlockReadsTheTabStamp(t *testing.T) {
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "ctx-stamp", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	stamped, unstamped := uuid.NewString(), uuid.NewString()
+	run := jarvis.NewRun("owner goal", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Orchestrator, jarvis.DefaultOrchestratorPlaybook(), 1)
+	run.Phases[0].WorkerOrefs = []string{"tab:" + stamped, "tab:" + unstamped}
+	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
+		t.Fatal(err)
+	}
+	blocks := map[string]string{}
+	for _, tabID := range []string{stamped, unstamped} {
+		blocks[tabID] = uuid.NewString()
+		if err := wstore.DBInsert(ctx, &waveobj.Tab{OID: tabID, Meta: waveobj.MetaMapType{}}); err != nil {
+			t.Fatal(err)
+		}
+		if err := wstore.DBInsert(ctx, &waveobj.Block{OID: blocks[tabID], ParentORef: "tab:" + tabID}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := wstore.StampWorkerOwner(ctx, "tab:"+stamped, "run:"+run.ID, "channel:"+ch.OID); err != nil {
+		t.Fatal(err)
+	}
+	got, channelId, ok := ownerRunForBlock(ctx, "block:"+blocks[stamped])
+	if !ok || got.ID != run.ID || channelId != ch.OID {
+		t.Fatalf("stamped tab: run %v in %q, ok %v; want run %s in %s", got, channelId, ok, run.ID, ch.OID)
+	}
+	if got, _, ok := ownerRunForBlock(ctx, "block:"+blocks[unstamped]); ok {
+		t.Fatalf("unstamped tab resolved to run %s; want no run, without a scan", got.ID)
+	}
+}
