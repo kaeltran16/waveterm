@@ -167,6 +167,27 @@ func TestRecoveryPatchApplies(t *testing.T) {
 	gitCmd(t, dir, "apply", "--check", filepath.Join(dir, ".waveterm", "recovery", "run-1.patch"))
 }
 
+// a lane rebuilt dirty twice dumps under the same name; the first patch is the only copy of that attempt's
+// uncommitted work, so the second goes beside it
+func TestRecoveryPatchNeverOverwritesAnEarlierOne(t *testing.T) {
+	dir := newGitRepo(t)
+	base := gitCmd(t, dir, "rev-parse", "HEAD")
+	wt, _ := CreateRunWorktree(context.Background(), dir, "run-1", base)
+	recDir := filepath.Join(dir, ".waveterm", "recovery")
+	for _, attempt := range []string{"first", "second"} {
+		writeFile(t, filepath.Join(wt, attempt+".txt"), attempt+"\n")
+		if err := DumpRecoveryPatch(context.Background(), dir, "run-1", ""); err != nil {
+			t.Fatal(err)
+		}
+		gitCmd(t, wt, "reset", "-q", "--hard")
+		gitCmd(t, wt, "clean", "-fdq")
+	}
+	first, second := readFile(t, filepath.Join(recDir, "run-1.patch")), readFile(t, filepath.Join(recDir, "run-1-2.patch"))
+	if !strings.Contains(first, "first.txt") || !strings.Contains(second, "second.txt") || strings.Contains(second, "first.txt") {
+		t.Fatalf("each dump keeps its own attempt:\nrun-1.patch:\n%s\nrun-1-2.patch:\n%s", first, second)
+	}
+}
+
 func TestEnsureRunWorktreeReusesCleanTree(t *testing.T) {
 	dir := newGitRepo(t)
 	base := gitCmd(t, dir, "rev-parse", "HEAD")

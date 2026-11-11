@@ -437,7 +437,7 @@ func DumpRecoveryPatch(ctx context.Context, projectPath, runID, landHead string)
 	return dumpRecoveryPatch(ctx, projectPath, runID, landHead, runID)
 }
 
-// dumpRecoveryPatch is DumpRecoveryPatch writing to recovery/<name>.patch.
+// dumpRecoveryPatch is DumpRecoveryPatch writing to recovery/<name>.patch, or beside it (writeNewPatch).
 func dumpRecoveryPatch(ctx context.Context, projectPath, runID, landHead, name string) error {
 	if landHead == "" {
 		landHead = "HEAD"
@@ -461,7 +461,27 @@ func dumpRecoveryPatch(ctx context.Context, projectPath, runID, landHead, name s
 	if err := os.MkdirAll(recDir, 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(recDir, name+".patch"), []byte(patch), 0o644)
+	return writeNewPatch(recDir, name, patch)
+}
+
+// writeNewPatch writes patch to dir/<name>.patch, or <name>-2.patch and up when that exists: a lane rebuilt dirty
+// twice dumps under the same name, and the earlier patch is the only copy of that attempt's uncommitted work.
+func writeNewPatch(dir, name, patch string) error {
+	for n := 1; ; n++ {
+		file := name + ".patch"
+		if n > 1 {
+			file = fmt.Sprintf("%s-%d.patch", name, n)
+		}
+		f, err := os.OpenFile(filepath.Join(dir, file), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if errors.Is(err, fs.ErrExist) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		_, err = f.WriteString(patch)
+		return errors.Join(err, f.Close())
+	}
 }
 
 // WorktreeHeadCommit returns the worktree branch's HEAD sha.
