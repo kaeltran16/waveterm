@@ -23,7 +23,9 @@ import {
     shownFlagRuntime,
     SKIM_FIELDS,
     SKIM_PLUGIN,
+    VAULT_STATUS_POLL_MS,
     vaultStatusLine,
+    vaultStatusPollMs,
     vaultSyncButton,
     vaultSyncFailureNote,
     visibleRowIds,
@@ -564,5 +566,18 @@ describe("commitFieldGate", () => {
 
     it("ignores other keys", () => {
         expect(commitFieldGate().key("a")).toBe(false);
+    });
+});
+
+describe("vaultStatusPollMs", () => {
+    it("polls while a sync the row did not start is running", () => {
+        expect(vaultStatusPollMs({ running: true } as VaultStatusRtnData, false)).toBe(VAULT_STATUS_POLL_MS);
+    });
+    it("leaves a click's own sync to its completion", () => {
+        expect(vaultStatusPollMs({ running: true } as VaultStatusRtnData, true)).toBeNull();
+    });
+    it("does not poll an idle or unloaded status", () => {
+        expect(vaultStatusPollMs({} as VaultStatusRtnData, false)).toBeNull();
+        expect(vaultStatusPollMs(null, false)).toBeNull();
     });
 });

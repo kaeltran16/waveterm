@@ -75,6 +75,7 @@ import {
     SKIM_FIELDS,
     SKIM_PLUGIN,
     vaultStatusLine,
+    vaultStatusPollMs,
     vaultSyncButton,
     vaultSyncFailureNote,
     visibleRowIds,
@@ -1549,9 +1550,18 @@ function MemorySection() {
         }
     };
     const loadStatus = () => fireAndForget(reloadStatus);
+    // a new vault path is a different vault, with its own remote and last sync
     useEffect(() => {
         loadStatus();
-    }, []);
+    }, [stored]);
+    const pollMs = vaultStatusPollMs(status, clicking);
+    useEffect(() => {
+        if (pollMs == null) {
+            return;
+        }
+        const t = setTimeout(loadStatus, pollMs);
+        return () => clearTimeout(t);
+    }, [status, pollMs]);
     const setRemote = (url: string) =>
         fireAndForget(async () => {
             setRemoteError(null);

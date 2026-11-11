@@ -549,6 +549,15 @@ export function vaultSyncButton(s: VaultStatusRtnData | null, clicking: boolean)
     return { enabled: s != null && !s.off, label: "Sync now" };
 }
 
+export const VAULT_STATUS_POLL_MS = 2000;
+
+// how soon the Vault section re-reads a status that says a sync runs. wavesrv also syncs after a synced
+// setting changes, at launch and on window focus, and the status read on opening would otherwise keep
+// the row "Syncing…" until the section is reopened. A click's own sync reloads when it completes.
+export function vaultStatusPollMs(s: VaultStatusRtnData | null, clicking: boolean): number | null {
+    return s?.running && !clicking ? VAULT_STATUS_POLL_MS : null;
+}
+
 // what a rejected Sync now puts in the row's error note. a sync's own failure is already in the reloaded
 // status as `lasterror` (shown by the status line), so only an RPC failure gets a note: the status has no
 // error, could not be loaded, or still runs (the RPC timeout fired mid-sync).
