@@ -291,3 +291,43 @@ func TestARerunWakeLaunchesNoLead(t *testing.T) {
 		t.Fatal("a failed stage beside it still launches one")
 	}
 }
+
+// a stage the human ended and reran in the same round, whose next tick started it again before the ended commands'
+// goroutine came back: that goroutine's killed result is the ended start's, and must not end the rerun failed
+func TestARerunIsNotEndedByTheStoppedCommandsResult(t *testing.T) {
+	marker := filepath.ToSlash(filepath.Join(t.TempDir(), "rerun"))
+	f := finalFixture(t, passVerify, "", "test -f "+marker+" || sleep 30")
+	await := awaitFinal(t)
+	if err := Schedule(f.ctx, f.dagID); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(30 * time.Second)
+	for f.dag(t).Final.State != FinalState_Final {
+		if time.Now().After(deadline) {
+			t.Fatal("the Final command did not start")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	writeFile(t, marker, "") // the rerun's Final command passes at once
+
+	// the end's stop, then the end, the rerun and the tick that starts the rerun, all before the stopped goroutine
+	// gets the lock to record
+	if err := WithDagMutation(f.dagID, func() error {
+		stopDagFinal(f.dagID)
+		return wstore.UpdateDag(f.ctx, f.dagID, func(cur *waveobj.TaskGroup) error {
+			round := cur.Final.Round
+			cur.Final = &waveobj.FinalStage{State: FinalState_Checking, Round: round, OutDir: finalOutDir(cur.OID, round), StartedTs: time.Now().UnixMilli()}
+			return nil
+		})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	await() // the stopped commands
+	if g := f.dag(t); g.Final.State == FinalState_Failed {
+		t.Fatalf("the stopped commands' result ended the rerun: %+v", g.Final)
+	}
+	await() // the rerun's own commands, started by the tick after the stopped ones let go
+	if g := f.dag(t); g.Final.State != FinalState_Passed || g.Final.Round != 1 {
+		t.Fatalf("the rerun passes in its round, got %s / %+v", g.Status, g.Final)
+	}
+}

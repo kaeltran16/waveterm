@@ -78,14 +78,22 @@ var finalCommandTimeout = FinalTimeout
 // tests can wait for it.
 var finalFinished = func(dagID string) {}
 
-// finalRuns holds the cancel of each dag's running final commands, and the verdict of a verifier that finished
-// before them. In memory only: a restart loses the commands and the verdict, and the next tick starts the
-// commands over from the persisted state and replaces the verifier, whose session ended with its verdict.
+// finalRuns holds each dag's running final commands, and the verdict of a verifier that finished before them. In
+// memory only: a restart loses the commands and the verdict, and the next tick starts the commands over from the
+// persisted state and replaces the verifier, whose session ended with its verdict.
 var finalRuns = struct {
 	sync.Mutex
-	byDag    map[string]context.CancelFunc
+	byDag    map[string]*finalCommands
 	verdicts map[string]finalVerdict
-}{byDag: make(map[string]context.CancelFunc), verdicts: make(map[string]finalVerdict)}
+}{byDag: make(map[string]*finalCommands), verdicts: make(map[string]finalVerdict)}
+
+// finalCommands is one start of a dag's final commands. stopped is set by stopDagFinal: the stage they ran for was
+// ended, so their result records nothing. Round and state cannot say so: a rerun restarts the same round, and its
+// next tick can move it to checking before the stopped commands come back.
+type finalCommands struct {
+	cancel  context.CancelFunc
+	stopped bool
+}
 
 // finalVerdict is a verifier's verdict on one round, held until the stage's commands finish.
 type finalVerdict struct {
@@ -101,9 +109,17 @@ func stopDagFinal(dagID string) {
 	finalRuns.Lock()
 	defer finalRuns.Unlock()
 	delete(finalRuns.verdicts, dagID)
-	if cancel := finalRuns.byDag[dagID]; cancel != nil {
-		cancel()
+	if c := finalRuns.byDag[dagID]; c != nil {
+		c.stopped = true
+		c.cancel()
 	}
+}
+
+// finalStopped reports whether stopDagFinal stopped c.
+func finalStopped(c *finalCommands) bool {
+	finalRuns.Lock()
+	defer finalRuns.Unlock()
+	return c.stopped
 }
 
 func holdFinalVerdict(dagID string, v finalVerdict) {
@@ -235,7 +251,8 @@ func startFinalCommands(dagID string, owner *waveobj.Run) {
 		cancel()
 		return
 	}
-	finalRuns.byDag[dagID] = cancel
+	run := &finalCommands{cancel: cancel}
+	finalRuns.byDag[dagID] = run
 	finalRuns.Unlock()
 	goStage("final "+dagID, func() {
 		defer finalFinished(dagID)
@@ -245,6 +262,8 @@ func startFinalCommands(dagID string, owner *waveobj.Run) {
 		spawnCtx, spawnCancel := context.WithTimeout(bg, jarvis.RunWorkerSpawnTimeout)
 		removeTree := !res.onStage
 		if err := WithDagMutation(dagID, func() error {
+			// read with the stage, under the lock: a stop that came after the commands returned counts too
+			res.stopped = finalStopped(run)
 			var rerr error
 			removeTree, rerr = recordFinalLocked(bg, spawnCtx, dagID, owner, res)
 			return rerr
@@ -276,6 +295,7 @@ type finalResult struct {
 	unverified    []string
 	onStage       bool
 	killed        bool // the failed step was killed from outside
+	stopped       bool // stopDagFinal stopped these commands: the stage they ran for was ended
 	shots         []waveobj.FinalShot
 	shotsManifest bool
 }
@@ -564,7 +584,8 @@ func startVerifierAlongsideLocked(ctx, spawnCtx context.Context, dagID string, o
 
 // recordFinalLocked writes what the deterministic steps found. A failure ends the stage, and stops a verifier
 // working alongside whatever it said; otherwise the verifier's verdict, given already or still to come, judges
-// the result. A dag that was cancelled, or moved to another round meanwhile, takes nothing. It reports whether
+// the result. A dag that was cancelled, moved to another round meanwhile, or whose commands were stopped (an end, and
+// perhaps a rerun of the same round since), takes nothing. It reports whether
 // the caller must remove the tree: one the stage never took, or any on a cancelled dag, whose stage stopped
 // before it could release it. The caller holds the dag mutation lock.
 func recordFinalLocked(ctx, spawnCtx context.Context, dagID string, owner *waveobj.Run, res finalResult) (bool, error) {
@@ -576,7 +597,7 @@ func recordFinalLocked(ctx, spawnCtx context.Context, dagID string, owner *waveo
 	if g.Status == DagStatus_Cancelled {
 		return true, nil
 	}
-	if f == nil || f.Round != res.round || (f.State != FinalState_Checking && f.State != FinalState_Final) {
+	if res.stopped || f == nil || f.Round != res.round || (f.State != FinalState_Checking && f.State != FinalState_Final) {
 		return !res.onStage, nil
 	}
 	f.Tree, f.Commit = res.tree, res.commit
