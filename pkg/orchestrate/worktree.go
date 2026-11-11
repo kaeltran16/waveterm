@@ -444,17 +444,19 @@ func worktreeOnBranch(ctx context.Context, wt, runID string) bool {
 // = the project head), and uncommitted changes inside the linked tree. Diffing from the fork point keeps
 // out the lanes that landed before it was cut and anything committed on landHead since.
 func DumpRecoveryPatch(ctx context.Context, projectPath, runID, landHead string) error {
-	return dumpRecoveryPatch(ctx, projectPath, runID, landHead, runID)
+	_, err := dumpRecoveryPatch(ctx, projectPath, runID, landHead, runID)
+	return err
 }
 
-// dumpRecoveryPatch is DumpRecoveryPatch writing to recovery/<name>.patch, or beside it (writeNewPatch).
-func dumpRecoveryPatch(ctx context.Context, projectPath, runID, landHead, name string) error {
+// dumpRecoveryPatch is DumpRecoveryPatch writing to recovery/<name>.patch, or beside it (writeNewPatch). It returns
+// the file's name.
+func dumpRecoveryPatch(ctx context.Context, projectPath, runID, landHead, name string) (string, error) {
 	if landHead == "" {
 		landHead = "HEAD"
 	}
 	patch, err := gitRaw(ctx, projectPath, "diff", landHead+"...wave/"+runID)
 	if err != nil {
-		return err
+		return "", err
 	}
 	wt := laneTree(ctx, projectPath, runID)
 	// a leftover directory git no longer knows as the branch's tree is not one: git run there stages the project checkout
@@ -469,14 +471,15 @@ func dumpRecoveryPatch(ctx context.Context, projectPath, runID, landHead, name s
 	}
 	recDir := filepath.Join(projectPath, ".waveterm", "recovery")
 	if err := os.MkdirAll(recDir, 0o755); err != nil {
-		return err
+		return "", err
 	}
 	return writeNewPatch(recDir, name, patch)
 }
 
 // writeNewPatch writes patch to dir/<name>.patch, or <name>-2.patch and up when that exists: a lane rebuilt dirty
-// twice dumps under the same name, and the earlier patch is the only copy of that attempt's uncommitted work.
-func writeNewPatch(dir, name, patch string) error {
+// twice dumps under the same name, and the earlier patch is the only copy of that attempt's uncommitted work. It
+// returns the file's name.
+func writeNewPatch(dir, name, patch string) (string, error) {
 	for n := 1; ; n++ {
 		file := name + ".patch"
 		if n > 1 {
@@ -487,10 +490,10 @@ func writeNewPatch(dir, name, patch string) error {
 			continue
 		}
 		if err != nil {
-			return err
+			return "", err
 		}
 		_, err = f.WriteString(patch)
-		return errors.Join(err, f.Close())
+		return file, errors.Join(err, f.Close())
 	}
 }
 
