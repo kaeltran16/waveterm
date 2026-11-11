@@ -50,6 +50,7 @@ import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
 import { sendPendingComments } from "@/app/view/agents/commentsend";
 import { sideJumpTarget, type CompareRow } from "@/app/view/agents/comparerows";
 import {
+    compareCwd,
     compareOnAtom,
     compareSelectionAtom,
     leaveCompare,
@@ -1604,9 +1605,10 @@ export function buildFilesBindings(): Binding[] {
             label: "Swap compare refs",
             when: inCompare,
             run: () => {
-                const cwd = globalStore.get(filesStateAtom)?.cwd;
+                // the comparison's own repository: the change list's cwd is null while a ref change reloads it
+                const cwd = compareCwd() ?? globalStore.get(filesStateAtom)?.cwd;
                 if (!cwd) {
-                    return false; // no repository resolved yet — nothing to re-read
+                    return false;
                 }
                 void swapCompareRefs(cwd);
             },
@@ -1759,10 +1761,11 @@ export function buildFilesBindings(): Binding[] {
             run: () => {
                 const cwd = globalStore.get(filesStateAtom)?.cwd ?? null;
                 void reloadChanges(cwd);
+                const compare = compareCwd() ?? cwd;
                 if (!globalStore.get(compareOnAtom)) {
                     refreshHistory();
-                } else if (cwd) {
-                    void refreshCompare(cwd);
+                } else if (compare) {
+                    void refreshCompare(compare);
                 }
             },
         },

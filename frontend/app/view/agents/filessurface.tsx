@@ -527,7 +527,12 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                 onCollapse={collapseHistory}
                 error={compareError}
                 loading={compareSides == null && compareError == null}
-                onSelect={(id) => state?.cwd && fireAndForget(() => selectCompareRow(state.cwd!, id))}
+                onSelect={(id) => {
+                    const cwd = compareCwd() ?? state?.cwd;
+                    if (cwd) {
+                        fireAndForget(() => selectCompareRow(cwd, id));
+                    }
+                }}
             />
         ) : historyFailedInColumn ? (
             // in place of the commit list; the working-tree row is the only row a failed read leaves, and with
@@ -547,10 +552,12 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                 compareOn ? (compareRows.filter((r) => r.kind === "commit") as CompareCommitRow[]) : (historyRows ?? [])
             }
             selected={compareOn ? compareSelection : selectedCommit}
-            onSelect={(hash) =>
-                state?.cwd &&
-                fireAndForget(() => (compareOn ? selectCompareRow(state.cwd!, hash) : selectCommit(state.cwd!, hash)))
-            }
+            onSelect={(hash) => {
+                const cwd = (compareOn ? compareCwd() : null) ?? state?.cwd;
+                if (cwd) {
+                    fireAndForget(() => (compareOn ? selectCompareRow(cwd, hash) : selectCommit(cwd, hash)));
+                }
+            }}
             expanded={layout === "overlay"}
             onToggle={() => globalStore.set(historyCollapsedAtom, layout === "overlay")}
             allChanges={compareOn}
@@ -634,14 +641,14 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                 onEdit={() => setPickerOpen(true)}
                                 onApply={(b, h) => {
                                     setPickerOpen(false);
-                                    const cwd = compareCwd();
+                                    const cwd = compareCwd() ?? state?.cwd;
                                     if (cwd) {
                                         fireAndForget(() => setCompareRefs(cwd, b, h));
                                     }
                                 }}
                                 onCancel={() => setPickerOpen(false)}
                                 onSwap={() => {
-                                    const cwd = compareCwd();
+                                    const cwd = compareCwd() ?? state?.cwd;
                                     if (cwd) {
                                         fireAndForget(() => swapCompareRefs(cwd));
                                     }
@@ -775,9 +782,12 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                                     changes={compareChanges}
                                                     selectedFile={compareFile}
                                                     onSelectFile={(path) => selectCompareFile(path)}
-                                                    onSetForm={(f) =>
-                                                        state?.cwd && fireAndForget(() => setCompareForm(state.cwd!, f))
-                                                    }
+                                                    onSetForm={(f) => {
+                                                        const cwd = compareCwd() ?? state?.cwd;
+                                                        if (cwd) {
+                                                            fireAndForget(() => setCompareForm(cwd, f));
+                                                        }
+                                                    }}
                                                     review={review}
                                                 />
                                             ) : (
@@ -788,7 +798,12 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                                     onSelectFile={(path) => selectCompareFile(path)}
                                                     review={review}
                                                     failure={compareCommitFailure}
-                                                    onRetry={() => state?.cwd && retryCompareRow(state.cwd)}
+                                                    onRetry={() => {
+                                                        const cwd = compareCwd() ?? state?.cwd;
+                                                        if (cwd) {
+                                                            retryCompareRow(cwd);
+                                                        }
+                                                    }}
                                                 />
                                             )
                                         ) : (

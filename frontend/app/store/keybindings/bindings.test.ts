@@ -33,7 +33,7 @@ import {
 } from "@/app/view/agents/canvasstore";
 import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
 import { registerCommentSend } from "@/app/view/agents/commentsend";
-import { refreshCompare } from "@/app/view/agents/comparestore";
+import { compareCwd, refreshCompare } from "@/app/view/agents/comparestore";
 import { commentOnSelection } from "@/app/view/agents/diffcommentlayer";
 import { filesSurfaceWidthAtom, historyCollapsedAtom } from "@/app/view/agents/difflayout";
 import { gotoChange } from "@/app/view/agents/diffnav";
@@ -134,6 +134,7 @@ vi.mock("@/app/view/agents/diffnav", async (orig) => ({
 vi.mock("@/app/view/agents/comparestore", async (orig) => ({
     ...(await orig<typeof import("@/app/view/agents/comparestore")>()),
     refreshCompare: vi.fn(async () => {}),
+    compareCwd: vi.fn(() => null),
 }));
 vi.mock("@/app/view/agents/githistorystore", async (orig) => ({
     ...(await orig<typeof import("@/app/view/agents/githistorystore")>()),
@@ -2292,6 +2293,15 @@ describe("Diff keys, DOM and toggles", () => {
         expect(refreshCompare).toHaveBeenCalledExactlyOnceWith("/repo");
         expect(refreshHistory).toHaveBeenCalledOnce();
         globalStore.set(filesStateAtom, null);
+    });
+
+    it("r in compare re-reads the comparison's own repository while the change list reloads", () => {
+        globalStore.set(filesStateAtom, null);
+        globalStore.set(diffScopeAtom, compare);
+        vi.mocked(refreshCompare).mockClear();
+        vi.mocked(compareCwd).mockReturnValueOnce("/cmp");
+        find("files:refresh").run(on);
+        expect(refreshCompare).toHaveBeenCalledExactlyOnceWith("/cmp");
     });
 
     describe("n / p step the file list", () => {
