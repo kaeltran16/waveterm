@@ -245,7 +245,9 @@ function ChannelRun({
     run: Run;
     onClose: () => void;
 }) {
-    return <RunSheet model={model} channel={channel} run={run} onClose={onClose} />;
+    // keyed by run: stepping to another run in the channel must not carry the dials, a save's notice, the dock's
+    // result or the composer's status over from the one before
+    return <RunSheet key={run.id} model={model} channel={channel} run={run} onClose={onClose} />;
 }
 
 // The launcher face's reading, in the slot where a run's verb would be: the two faces keep one layout.
