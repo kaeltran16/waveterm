@@ -150,15 +150,13 @@ func dropCache(path string) {
 	stateMu.Unlock()
 }
 
-// write replaces path with e atomically (temp file + rename) under the vault lock, so it never
-// interleaves with a sync, then caches e and pokes the sync loop. Callers hold the path lock.
-func write(root, path string, e *waveobj.Effort) error {
+// write replaces path with e atomically (temp file + rename), then caches e and pokes the sync loop.
+// Callers hold the path lock and the vault lock, so it never interleaves with a sync.
+func write(path string, e *waveobj.Effort) error {
 	b, err := wavevault.MarshalEffort(e)
 	if err != nil {
 		return err
 	}
-	unlock := wavevault.LockRoot(root)
-	defer unlock()
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create %s: %w", dir, err)
@@ -206,10 +204,12 @@ func Create(ctx context.Context, e *waveobj.Effort) error {
 	}
 	unlock := lockPath(path)
 	defer unlock()
+	unlockRoot := wavevault.LockRoot(root)
+	defer unlockRoot()
 	if _, err := os.Stat(path); err == nil {
 		return fmt.Errorf("effort %s already exists", e.OID)
 	}
-	if err := write(root, path, clone(e)); err != nil {
+	if err := write(path, clone(e)); err != nil {
 		return err
 	}
 	publishUpdate()
@@ -281,6 +281,10 @@ func Update(ctx context.Context, oid string, fn func(*waveobj.Effort) error) err
 	}
 	unlock := lockPath(path)
 	defer unlock()
+	// the vault lock spans the read too: a sync merging this file between the read and the write
+	// would otherwise be overwritten
+	unlockRoot := wavevault.LockRoot(root)
+	defer unlockRoot()
 	cur, err := load(path, oid)
 	if err != nil {
 		return err
@@ -291,7 +295,7 @@ func Update(ctx context.Context, oid string, fn func(*waveobj.Effort) error) err
 	}
 	e.Version++
 	e.UpdatedTs = time.Now().UnixMilli()
-	if err := write(root, path, e); err != nil {
+	if err := write(path, e); err != nil {
 		return err
 	}
 	publishUpdate()

@@ -344,6 +344,57 @@ func TestConcurrentUpdatesSameOID(t *testing.T) {
 	}
 }
 
+// a sync holds the vault lock while it merges the remote side into the file; an Update that arrives
+// meanwhile must apply its change on top of the merged file, not over it
+func TestUpdateWaitingOnSyncKeepsItsMerge(t *testing.T) {
+	root := useTempRoot(t)
+	e := mustCreate(t, &waveobj.Effort{Title: "synced"})
+	path := effortFile(root, e.OID)
+
+	unlockSync := wavevault.LockRoot(root)
+	done := make(chan error, 1)
+	go func() {
+		done <- Update(context.Background(), e.OID, func(x *waveobj.Effort) error {
+			x.Notes = append(x.Notes, waveobj.EffortNote{Ts: 2, Text: "local"})
+			return nil
+		})
+	}()
+	time.Sleep(100 * time.Millisecond) // let Update reach the vault lock
+	// read the file as a sync does: Update holds the path lock, so Get would wait on it
+	cur, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	merged, err := wavevault.ParseEffort(cur)
+	if err != nil {
+		t.Fatal(err)
+	}
+	merged.Notes = append(merged.Notes, waveobj.EffortNote{Ts: 1, Text: "from the other machine"})
+	b, err := wavevault.MarshalEffort(merged)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	unlockSync()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := Get(context.Background(), e.OID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	texts := []string{}
+	for _, n := range got.Notes {
+		texts = append(texts, n.Text)
+	}
+	if !slices.Contains(texts, "from the other machine") || !slices.Contains(texts, "local") {
+		t.Fatalf("want the merged note and the local note, got %v", texts)
+	}
+}
+
 func TestWritesPokeSync(t *testing.T) {
 	useTempRoot(t)
 	wavevault.PokedForTest()
