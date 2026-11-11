@@ -247,7 +247,10 @@ func ParsePlan(src string) (Plan, error) {
 				continue
 			}
 			task := &p.Tasks[len(p.Tasks)-1]
-			if m := planDependsRe.FindStringSubmatch(line); m != nil && dependsAllowed {
+			if m := planDependsRe.FindStringSubmatch(line); m != nil {
+				if !dependsAllowed {
+					return Plan{}, fmt.Errorf("task %d: **Depends on:** must be the first line under its heading, once, before its Chunk, Model and Files lines", len(p.Tasks))
+				}
 				deps, unexplained, err := parsePlanDepends(m[1], len(p.Tasks))
 				if err != nil {
 					return Plan{}, err

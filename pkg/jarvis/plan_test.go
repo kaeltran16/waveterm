@@ -326,17 +326,28 @@ func TestParsePlanEffortRejects(t *testing.T) {
 }
 
 func TestParsePlanChunkLineLaterIsTaskText(t *testing.T) {
-	src := "**Effort:** e1\n\n### Task 1: a\n**Depends on:** none\nsome text\n**Chunk:** late\n\n" +
-		"### Task 2: b\n**Chunk:** early\n**Depends on:** none\nx\n"
+	src := "**Effort:** e1\n\n### Task 1: a\n**Depends on:** none\nsome text\n**Chunk:** late\n"
 	p := mustParsePlan(t, src)
 	if len(p.Tasks[0].Chunks) != 0 || !strings.Contains(p.Tasks[0].Description, "**Chunk:** late") {
 		t.Fatalf("a Chunk line after task text is task text, got chunks %v, description %q", p.Tasks[0].Chunks, p.Tasks[0].Description)
 	}
-	if got := p.Tasks[1].Chunks; !reflect.DeepEqual(got, []string{"early"}) || !strings.Contains(p.Tasks[1].Description, "**Depends on:** none") {
-		t.Fatalf("a Depends line after a Chunk line is task text, got chunks %v, description %q", got, p.Tasks[1].Description)
-	}
-	if len(p.Tasks[1].Deps) != 1 {
-		t.Fatalf("task 2 keeps its default dependency, got %v", p.Tasks[1].Deps)
+}
+
+// a Depends line after a Chunk, Model or Files line would otherwise be dropped, keeping the implicit edge to the
+// task before while the worker's prompt names another
+func TestParsePlanRefusesADependsLineAfterTheTaskHead(t *testing.T) {
+	for name, head := range map[string]string{
+		"after Files": "**Files:** `c.go`\n",
+		"after Chunk": "**Chunk:** early\n",
+		"after Model": "**Model:** claude-opus-5\n",
+		"twice":       "**Depends on:** none\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			src := "**Effort:** e1\n\n### Task 1: a\nx\n### Task 2: b\n**Depends on:** none\ny\n### Task 3: c\n" + head + "**Depends on:** Task 1 (uses the parser it adds)\nz\n"
+			if _, err := ParsePlan(src); err == nil || !strings.Contains(err.Error(), "first line under its heading") {
+				t.Fatalf("got err %v, want the late Depends line refused", err)
+			}
+		})
 	}
 }
 

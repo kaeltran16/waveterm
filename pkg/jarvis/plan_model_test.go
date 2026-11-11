@@ -51,13 +51,6 @@ func TestParsePlanModelLine(t *testing.T) {
 			deps:  []string{"t-1"},
 			desc:  "do b\n**Model:** sonnet",
 		},
-		{
-			name:  "a Depends line after Model is task text",
-			task2: "**Model:** sonnet\n**Depends on:** none\ndo b",
-			model: "sonnet", source: waveobj.TaskModelSource_Plan,
-			deps: []string{"t-1"},
-			desc: "**Depends on:** none\ndo b",
-		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -95,6 +88,7 @@ func TestParsePlanModelLineRefused(t *testing.T) {
 		{"backticked", "**Model:** `sonnet`\ndo b", "task 2: **Model:**"},
 		{"a value with a space", "**Model:** claude opus\ndo b", "task 2: **Model:**"},
 		{"two Model lines", "**Model:** sonnet\n**Model:** opus\ndo b", "task 2: **Model:**"},
+		{"a Depends line after Model", "**Model:** sonnet\n**Depends on:** none\ndo b", "task 2: **Depends on:** must be the first line"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
