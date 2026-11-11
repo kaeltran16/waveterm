@@ -45,6 +45,7 @@ import {
 import {
     cockpitCounts,
     gridNotice,
+    offGridSections,
     orderIds,
     plural,
     prunedBackgrounded,
@@ -276,8 +277,12 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     };
     // a run card owns its lead and workers: they are its rows, never also plain agents below the grid
     const runMembers = runCardMemberIds(shownCards, lineage);
-    const ownParked = parkedIdle.filter((a) => !runMembers.has(a.id));
-    const ownBackgrounded = backgrounded.filter((a) => !runMembers.has(a.id));
+    const { backgrounded: ownBackgrounded, parked: ownParked } = offGridSections(
+        backgrounded,
+        parkedIdle,
+        backgroundedIds,
+        runMembers
+    );
     const navCols = columnNavIds(columns, (c) => rowsOf(c).map((r) => r.key));
     const navigableIds = navCols.flat();
     const rowTargets: Record<string, RowTarget> = {};
