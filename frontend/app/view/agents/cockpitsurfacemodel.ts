@@ -133,6 +133,22 @@ export function prunedBackgrounded(ids: Set<string>, agents: AgentVM[], lineage:
     return new Set([...ids].filter(keep));
 }
 
+// The plain-agent sections below the grid. A run card's members are its rows, never listed here. A backgrounded
+// lead stays backgrounded through its idle spells (prunedBackgrounded), and once past the idle grace it is parked
+// rather than in `backgrounded`: it still goes under Backgrounded, or its hidden run is listed nowhere as such.
+export function offGridSections(
+    backgrounded: AgentVM[],
+    parkedIdle: AgentVM[],
+    backgroundedIds: Set<string>,
+    runMembers: Set<string>
+): { backgrounded: AgentVM[]; parked: AgentVM[] } {
+    const own = (a: AgentVM) => !runMembers.has(a.id);
+    return {
+        backgrounded: [...backgrounded, ...parkedIdle.filter((a) => backgroundedIds.has(a.id))].filter(own),
+        parked: parkedIdle.filter((a) => own(a) && !backgroundedIds.has(a.id)),
+    };
+}
+
 export type RailSelectTarget = "grid" | "restore" | "terminal" | "agent";
 
 // where an Events row click goes: a card on the grid is cursored, a backgrounded agent restored, a parked idle

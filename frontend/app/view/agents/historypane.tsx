@@ -279,6 +279,19 @@ export function HistoryPane({
         el.scrollTop = initialScroll;
     }, [rows.length, initialScroll]);
 
+    // A selection that moves after mount (j/k, the list cursor, Start from the top) stays in view, and scrolling
+    // to it is what pages the list on past its first page. Not on mount: the restore above owns that frame.
+    const shownSel = useRef(selected);
+    useEffect(() => {
+        if (shownSel.current === selected) {
+            return;
+        }
+        shownSel.current = selected;
+        const idx = laned.findIndex((r) => r.hash === selected);
+        const rowEls = scrollRef.current?.querySelectorAll("[data-history-row]");
+        rowEls?.[idx]?.scrollIntoView({ block: "nearest" });
+    }, [selected]);
+
     const handleScroll = () => {
         const el = scrollRef.current;
         if (el == null) {

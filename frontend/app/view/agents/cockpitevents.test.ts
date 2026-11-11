@@ -9,11 +9,14 @@ import {
     finishes,
     groupRailEvents,
     leadAskEvents,
+    markRailRead,
     mergeRailEvents,
     nextSnap,
+    NO_RAIL_SEEN,
     runRailEvents,
     scopeRailRows,
     splitUnread,
+    splitUnreadScoped,
     type RailEvent,
 } from "./cockpitevents";
 import type { Lineage, RunInfo } from "./runlineage";
@@ -435,5 +438,13 @@ describe("scopeRailRows", () => {
     });
     it("scopes a run's row by its lead's project", () => {
         expect(scopeRailRows(rows, agents, lineage, "payments").map((r) => r.key)).toEqual(["p", "run"]);
+    });
+
+    it("Mark all read in one project leaves the other projects' unread events unread", () => {
+        const timed = [ev("p", { focusId: "p1", ts: 30 }), ev("w", { focusId: "w1", ts: 10 })];
+        const seen = markRailRead(NO_RAIL_SEEN, "payments", 30);
+        expect(splitUnreadScoped(timed, seen, agents, lineage).fresh.map((r) => r.key)).toEqual(["w"]);
+        const all = markRailRead(seen, "all", 30);
+        expect(splitUnreadScoped(timed, all, agents, lineage).fresh).toEqual([]);
     });
 });

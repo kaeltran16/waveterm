@@ -15,7 +15,7 @@ import { modelsText, summarizeUsage, usageText } from "../agents/runusage";
 import { chipGroups, liveSessions, pickNext, progressText, type ChipGroup } from "./dagcanvas";
 import { selectedTaskIdAtom } from "./dagstore";
 import { DAG_META } from "./dagtext";
-import { dagStatusPill, reviewersChip, workersChip, type DagStatusPill } from "./taskroute";
+import { dagCancellable, dagStatusPill, reviewersChip, workersChip, type DagStatusPill } from "./taskroute";
 
 // a chip's dot: filled for the groups that are doing or done something, an open ring for those that are not
 const CHIP_DOT = new Map<ChipGroup["key"], string>([
@@ -112,12 +112,7 @@ export function DagGraphHeader({ group, owner }: { group: TaskGroup; owner: Run 
                         <CrossFade swapKey={adjusting ? "done" : "adjust"}>{adjusting ? "Done" : "Adjust"}</CrossFade>
                     </button>
                 ) : null}
-                {/* awaiting-plan is cancellable too: abandoning a run at its gate is a normal answer, and the
-                    alternative would be approving work you do not want in order to be allowed to stop it */}
-                {group.status === "running" ||
-                group.status === "awaiting-plan" ||
-                group.status === "plan-review" ||
-                group.status === "finalizing" ? (
+                {dagCancellable(group.status) ? (
                     <>
                         <PaneReveal open={cancelError !== ""} variants={composerReveal}>
                             <motion.span

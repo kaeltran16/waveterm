@@ -18,6 +18,7 @@ import { DagGraphView } from "./daggraph";
 import {
     closeDagModal,
     DAG_MODAL_ID,
+    dagModalKey,
     dagModalStateAtom,
     dismissDagModal,
     escapeDagModal,
@@ -44,13 +45,14 @@ export function DagModal() {
     useEffect(() => {
         if (!open) return;
         const onKey = (event: KeyboardEvent) => {
-            if (event.key === "Escape") {
+            const key = dagModalKey(event.key);
+            if (key === "escape") {
                 event.preventDefault();
                 event.stopPropagation();
                 escapeDagModal();
                 return;
             }
-            if (event.key !== "Tab") return;
+            if (key !== "tab") return;
             event.preventDefault();
             event.stopPropagation();
             const panel = panelRef.current;

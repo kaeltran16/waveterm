@@ -91,7 +91,8 @@ export const activeChangesAtom = atom<GitChanges | null>((get) =>
     get(selectedCommitAtom) === WORKING_TREE ? (get(filesStateAtom)?.changes ?? null) : get(commitChangesAtom)
 );
 
-const current = { token: "" };
+// cwd: the repository the column was last loaded for; a load for another drops that one's filters
+const current = { token: "", cwd: "" };
 // The scope key the selection was last settled for. A load for a different one is a new subject (a run
 // link opened over a project), so the remembered row gives way to the default; "" = none yet.
 const settled = { scope: "" };
@@ -117,6 +118,7 @@ export function setHistoryOpts(opts: LoadHistoryOpts): void {
 // every return to the Diff surface used to land back at the top of an unfiltered list.
 export function resetHistory(): void {
     current.token = "";
+    current.cwd = "";
     settled.scope = "";
     if (filterTimer != null) {
         clearTimeout(filterTimer);
@@ -172,6 +174,12 @@ export async function loadHistory(
         resetHistory();
         return;
     }
+    // the filters belong to the repository they were typed in (see resetHistory): a path that exists only
+    // there would read here as "No commits match", and hide the uncommitted row with it
+    if (current.cwd !== "" && current.cwd !== cwd) {
+        globalStore.set(historyFiltersAtom, NO_FILTERS);
+    }
+    current.cwd = cwd;
     const filters = globalStore.get(historyFiltersAtom);
     const token = loadToken(cwd, filters, opts.ref);
     // Blanking the list to signal "loading" unmounts every row, which collapses the scroll container:
@@ -368,6 +376,12 @@ export async function loadMoreHistory(): Promise<void> {
         if (current.token !== token) {
             return; // scope or filters moved on: this page belongs to a list that no longer exists
         }
+        // an in-place refresh (a new commit, r) shares the token but replaced the list: the page was cut from
+        // the old one, and appending it would drop what the refresh brought in
+        if (globalStore.get(historyCommitsAtom) !== commits) {
+            globalStore.set(historyAppendAtom, "idle");
+            return;
+        }
         if (h.failure) {
             globalStore.set(historyAppendAtom, "failed");
             return;
@@ -391,6 +405,10 @@ export async function loadMoreHistory(): Promise<void> {
 // loaded rather than one page, so a reader who has paged down does not watch rows disappear.
 function reloadInPlace(): void {
     const cwd = globalStore.get(filesStateAtom)?.cwd ?? null;
+    // no repository loaded (or its load is in flight): a reload with no cwd would reset the column
+    if (cwd == null) {
+        return;
+    }
     const loaded = globalStore.get(historyCommitsAtom)?.length ?? 0;
     void loadHistory(cwd, globalStore.get(historyOptsAtom), undefined, Math.max(loaded, HISTORY_PAGE_SIZE));
 }
@@ -454,6 +472,9 @@ export function startFromTop(): void {
 
 export function retryHistory(): void {
     globalStore.set(historyFailureAtom, null); // show the skeleton, not stale evidence, while retrying
+    // the failure left an empty list, which reads as "No commits": the retry has the same token, so it would
+    // keep it on screen and start no slow-read clock
+    globalStore.set(historyCommitsAtom, null);
     reloadFirstPage();
 }
 

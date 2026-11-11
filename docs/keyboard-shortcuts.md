@@ -143,7 +143,8 @@ A link inside an item view does a full open, even with `Ctrl` held.
 | `f` | Toggle terminal fullscreen |
 | `v` | Toggle the focused Claude Code agent between Terminal and Rendered |
 | `Ctrl`+`Shift`+`B` | The same toggle, also while typing in the terminal or the composer, when the agent has no brainstorm or canvas (with one, it switches to that instead) |
-| `1`…`9` | In Rendered, with a permission prompt docked and focus outside the composer: answer it with that choice |
+| `1`…`9` | In Rendered, with a permission prompt docked and focus outside the composer: answer it with that choice; with a question docked instead, pick that option |
+| `Enter` | In Rendered, with a question docked and focus outside the composer: send the answer once every question is answered, else move to the next unanswered question |
 | `r` | Review: open the focused agent's Plan review or Plan approval dialog |
 | `p` | Hand the agent to the phone, or take it back |
 | `Esc` | Close an open shell task output peek, or an open subagent (back to the agent's terminal), else back to where you jumped from, else to Cockpit; exits fullscreen first |

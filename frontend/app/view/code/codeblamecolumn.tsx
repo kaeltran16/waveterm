@@ -15,7 +15,7 @@ import { useAtomValue } from "jotai";
 import { useEffect, useMemo } from "react";
 import { blameClick, blameIsCurrent, mapBlameLines, placeBlame, type BlameEntry } from "./codeblame";
 import { blameKey, codeBlameAtom, loadBlame } from "./codeblamestore";
-import { codeDraftsAtom } from "./codestore";
+import { codeDraftsAtom, codeHeadShaAtom } from "./codestore";
 
 export interface EditorLineLayout {
     top(line: number): number;
@@ -38,13 +38,15 @@ export function CodeBlameColumn({
 }) {
     const state = useAtomValue(codeBlameAtom);
     const drafts = useAtomValue(codeDraftsAtom);
+    const head = useAtomValue(codeHeadShaAtom);
     const lineCount = text.split("\n").length;
     useEffect(() => {
         void loadBlame(path, modtime, lineCount);
-    }, [path, modtime, lineCount]);
+    }, [path, modtime, lineCount, head]);
 
     const key = blameKey(path);
-    const entries = key != null && blameIsCurrent(state, key, modtime) && state.kind === "ready" ? state.entries : null;
+    const entries =
+        key != null && blameIsCurrent(state, key, modtime, head) && state.kind === "ready" ? state.entries : null;
     // blame describes the saved text; an unsaved draft moves its lines, so each entry follows its lines there
     const buffer = (key != null ? drafts.get(key)?.text : null) ?? text;
     const placed = useMemo(

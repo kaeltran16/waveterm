@@ -4,7 +4,15 @@
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { describe, expect, it, vi } from "vitest";
-import { dagAction, rowAction, runCardAction, runCardErrorAtom, tellingRowAtom } from "./leadcardactions";
+import {
+    dagAction,
+    reviewGuideAtom,
+    reviewGuideKey,
+    rowAction,
+    runCardAction,
+    runCardErrorAtom,
+    tellingRowAtom,
+} from "./leadcardactions";
 import { cardErrorShown } from "./leadcardmodel";
 
 vi.mock("@/app/store/wshclientapi", () => ({
@@ -94,6 +102,14 @@ describe("rowAction", () => {
             msg: "Continue t5: still conflicted",
             stamp: "blocked-merge|",
         });
+    });
+    it("a keyed Send back carries the guidance typed under the review", async () => {
+        globalStore.set(reviewGuideAtom, { [reviewGuideKey("R3", "t7")]: " check the retry path " });
+        await rowAction(run, { key: "row:L:t7", taskId: "t7" }, "sendback");
+        expect(RpcApi.DagActionCommand).toHaveBeenCalledWith(
+            {},
+            expect.objectContaining({ runid: "R3", taskid: "t7", action: "sendback", notes: "check the retry path" })
+        );
     });
     it("anything else is an engine action", async () => {
         await rowAction(run, { key: "row:L:t9", taskId: "t9" }, "retry");

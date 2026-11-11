@@ -810,6 +810,10 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
     );
     const cursorRow = rowCursor?.at === here && rowKeys.includes(rowCursor.key) ? rowCursor.key : undefined;
 
+    // the controller needs the rail's ids only: rows themselves are rebuilt on every clock tick (the plan donuts
+    // read the time), and a dep on them re-registered the controller, and bumped the key predicates, each second
+    const harnessKey = rows.map((r) => r.harness).join(",");
+    const harnessIds = useMemo(() => (harnessKey === "" ? [] : harnessKey.split(",")), [harnessKey]);
     const listNav = useMemo<ListNavController | null>(() => {
         if (lens === "workflow") {
             return null;
@@ -817,7 +821,7 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
         if (!work) {
             return {
                 surface: "usage",
-                navigableIds: [ALL, ...rows.map((r) => r.harness)],
+                navigableIds: [ALL, ...harnessIds],
                 cursorId: sel,
                 setCursor: setSel,
             };
@@ -825,7 +829,7 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
         const scopeIds = [ALL_SCOPE, ...attr.projects.map((p) => p.key), ...attr.initiatives.map((i) => i.key)];
         return {
             surface: "usage",
-            navigableIds: usageNavIds(scopeIds, rowKeys),
+            navigableIds: usageNavIds(scopeIds, rowKeys, cursorRow != null ? workScope : undefined),
             cursorId: cursorRow ?? (workItem != null ? undefined : workScope),
             setCursor: (id) => {
                 const cursor = resolveUsageCursor(id, scopeIds);
@@ -856,7 +860,7 @@ export function UsageSurface({ model }: { model: AgentsViewModel }) {
         openItem,
         workItem,
         workScope,
-        rows,
+        harnessIds,
         sel,
         setSel,
         setWorkScope,

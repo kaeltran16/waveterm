@@ -10,7 +10,7 @@ import { useDimensionsWithCallbackRef } from "@/app/hook/useDimensions";
 import { globalStore } from "@/app/store/jotaiStore";
 import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { cn, fireAndForget } from "@/util/util";
-import { atom, useAtomValue, type Atom, type PrimitiveAtom } from "jotai";
+import { atom, useAtom, useAtomValue, type Atom, type PrimitiveAtom } from "jotai";
 import { ArrowRight, ArrowUpRight, Check, ChevronDown, ChevronRight, SquareTerminal, Workflow } from "lucide-react";
 import { motion } from "motion/react";
 import { useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
@@ -34,6 +34,8 @@ import { parseDocReview } from "./docreview";
 import type { FinalTone } from "./finalstage";
 import {
     dagAction,
+    reviewGuideAtom,
+    reviewGuideKey,
     rowAction,
     runCardAction,
     runCardErrorAtom,
@@ -134,7 +136,7 @@ export function LeadCard(p: LeadCardProps) {
         useAtomValue(leadPaneOpenAtom)[run.runId] ?? (bodyRect == null || bodyRect.height >= LEAD_PANE_MIN_BODY_PX);
     const paneAskOpen = useAtomValue(leadPaneAskOpenAtom)[run.runId];
     const telling = useAtomValue(tellingRowAtom);
-    const [guide, setGuide] = useState<Record<string, string>>({});
+    const [guides, setGuides] = useAtom(reviewGuideAtom);
 
     // one path for every engine action, shared with the keyboard: a refusal is shown on the card, never swallowed
     const act = (label: string, fn: () => Promise<unknown>) => fireAndForget(() => runCardAction(run.runId, label, fn));
@@ -408,8 +410,13 @@ export function LeadCard(p: LeadCardProps) {
                                         {/* the choices are the lead's while it judges, as a failed task's are */}
                                         {row.inline === "review" ? (
                                             <ReviewChoices
-                                                guide={guide[row.taskId] ?? ""}
-                                                onGuide={(v) => setGuide((g) => ({ ...g, [row.taskId]: v }))}
+                                                guide={guides[reviewGuideKey(run.runId, row.taskId)] ?? ""}
+                                                onGuide={(v) =>
+                                                    setGuides((g) => ({
+                                                        ...g,
+                                                        [reviewGuideKey(run.runId, row.taskId)]: v,
+                                                    }))
+                                                }
                                                 onChoose={(action, notes) => dag(row.taskId, action, notes)}
                                             />
                                         ) : null}

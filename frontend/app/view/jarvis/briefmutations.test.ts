@@ -58,6 +58,7 @@ function fakeDeps() {
         run: vi.fn((fn: () => Promise<void>) => void fn()),
         setError: vi.fn(),
         closeInitiative: vi.fn(),
+        chunkRenamed: vi.fn(),
     } satisfies MutationDeps;
     return deps;
 }
@@ -523,5 +524,25 @@ describe("openChunkInPlan", () => {
         const { deps } = revealDeps(plan);
         await openChunkInPlan(deps, OREF, "gone");
         expect(deps.openStage).not.toHaveBeenCalled();
+    });
+});
+
+describe("renaming a chunk", () => {
+    it("moves the Brief's hold on the chunk's row id to the new label once the rename lands", async () => {
+        const deps = fakeDeps();
+        editsFor(deps).onRenameChunk("b", " b2 ");
+        expect(deps.store.renameChunk).toHaveBeenCalledWith(OREF, plan, "b", " b2 ");
+        await flush();
+        const line = "initiatives:" + OREF;
+        expect(deps.chunkRenamed).toHaveBeenCalledWith(`${line}/chunk:b`, `${line}/chunk:b2`);
+    });
+
+    it("leaves the hold alone when the rename is refused", async () => {
+        const deps = fakeDeps();
+        deps.store.renameChunk = vi.fn(() => Promise.reject(new Error("taken")));
+        deps.run = vi.fn((fn: () => Promise<void>) => void fn().catch(() => {}));
+        editsFor(deps).onRenameChunk("b", "c");
+        await flush();
+        expect(deps.chunkRenamed).not.toHaveBeenCalled();
     });
 });

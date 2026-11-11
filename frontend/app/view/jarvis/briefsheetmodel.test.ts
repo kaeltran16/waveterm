@@ -36,6 +36,16 @@ describe("sheetFace", () => {
         });
     });
 
+    it("waits, rather than drawing the launcher, while the active channel has not caught up to the subject", () => {
+        // stepping from a run in one channel to a run in another moves the active channel first: the launcher
+        // drawn in that window would mount with the wrong channel and reset its run configuration
+        expect(sheetFace(subject("channel", "ch1"), null, "ch2")).toEqual({
+            kind: "channel",
+            channelId: "ch1",
+            body: "pending",
+        });
+    });
+
     it("draws the initiative detail for an effort", () => {
         expect(sheetFace(subject("effort", "e1"), null)).toEqual({ kind: "effort", effortId: "e1" });
     });

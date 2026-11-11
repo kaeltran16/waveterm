@@ -12,6 +12,7 @@ const fileMkdir = vi.fn();
 const fileMove = vi.fn();
 const listWorktrees = vi.fn();
 const fileRead = vi.fn();
+const fileWrite = vi.fn();
 const listBranches = vi.fn();
 const divergence = vi.fn();
 vi.mock("@/app/store/wshclientapi", () => ({
@@ -26,6 +27,7 @@ vi.mock("@/app/store/wshclientapi", () => ({
         FileMkdirCommand: (...a: any[]) => fileMkdir(...a),
         FileMoveCommand: (...a: any[]) => fileMove(...a),
         FileReadCommand: (...a: any[]) => fileRead(...a),
+        FileWriteCommand: (...a: any[]) => fileWrite(...a),
     },
 }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
@@ -44,6 +46,7 @@ import {
     codeCursorAtom,
     codeDiffBaseAtom,
     codeDiffTargetAtom,
+    codeDraftsAtom,
     codeEditAtom,
     codeExpandedAtom,
     codeFileAtom,
@@ -62,6 +65,7 @@ import {
     createEntry,
     cycleDiff,
     deletePath,
+    draftKey,
     editDraft,
     ensureIndex,
     goToLine,
@@ -78,6 +82,7 @@ import {
     saveCurrent,
     selectProject,
     showDiffTarget,
+    startCreate,
     type CodeIndex,
 } from "./codestore";
 
@@ -408,6 +413,117 @@ describe("saveCurrent", () => {
 
         expect(globalStore.get(codeSaveAtom)).toMatchObject({ kind: "conflict", path: "src/a.ts" });
         expect(globalStore.get(codeStaleAtom)).toEqual({ path: "src/a.ts" });
+    });
+
+    it("keeps text typed while the save was in flight", async () => {
+        const project = seedSession(["src/a.ts"]);
+        const saved = "one\nmine\n";
+        const typedDuringSave = "one\nmine\nmore\n";
+        editDraft(saved);
+        const write = deferred<void>();
+        fileWrite.mockReturnValue(write.promise);
+        fileInfo.mockResolvedValueOnce({ size: 4, modtime: 1 }).mockResolvedValueOnce({ size: 10, modtime: 2 });
+
+        const saving = saveCurrent();
+        await vi.waitFor(() => expect(fileWrite).toHaveBeenCalled());
+        editDraft(typedDuringSave);
+        write.resolve();
+        await saving;
+
+        const key = draftKey(project, "src/a.ts");
+        expect(globalStore.get(codeFileAtom)).toMatchObject({ text: saved, size: 10, modtime: 2 });
+        expect(globalStore.get(codeDraftsAtom).get(key)).toEqual({
+            text: typedDuringSave,
+            base: { text: saved, size: 10, modtime: 2 },
+        });
+        expect(globalStore.get(codeSaveAtom).kind).toBe("idle");
+    });
+
+    it("a second save asked for during one waits for it, and does not refuse the app's own write", async () => {
+        seedSession(["src/a.ts"]);
+        editDraft("one\nmine\n");
+        const write = deferred<void>();
+        fileWrite.mockReturnValueOnce(write.promise).mockResolvedValue(undefined);
+        fileInfo
+            .mockResolvedValueOnce({ size: 4, modtime: 1 })
+            .mockResolvedValueOnce({ size: 9, modtime: 2 })
+            .mockResolvedValueOnce({ size: 9, modtime: 2 })
+            .mockResolvedValueOnce({ size: 14, modtime: 3 });
+
+        const first = saveCurrent();
+        await vi.waitFor(() => expect(fileWrite).toHaveBeenCalledTimes(1));
+        editDraft("one\nmine\nmore\n");
+        const second = saveCurrent();
+        expect(fileWrite).toHaveBeenCalledTimes(1);
+        write.resolve();
+        await Promise.all([first, second]);
+
+        expect(fileWrite).toHaveBeenCalledTimes(2);
+        expect(globalStore.get(codeSaveAtom).kind).toBe("saved");
+        expect(globalStore.get(codeStaleAtom)).toBeNull();
+    });
+
+    it("a save that lands after another file opened leaves that file on screen", async () => {
+        const project = seedSession(["src/a.ts", "src/b.ts"]);
+        editDraft("one\nmine\n");
+        const write = deferred<void>();
+        fileWrite.mockReturnValue(write.promise);
+        fileInfo.mockResolvedValueOnce({ size: 4, modtime: 1 }).mockResolvedValueOnce({ size: 10, modtime: 2 });
+
+        const saving = saveCurrent();
+        await vi.waitFor(() => expect(fileWrite).toHaveBeenCalled());
+        globalStore.set(codeFileAtom, text("src/b.ts", "b\n"));
+        write.resolve();
+        await saving;
+
+        expect(globalStore.get(codeFileAtom)).toMatchObject({ path: "src/b.ts", text: "b\n" });
+        expect(globalStore.get(codeSaveAtom).kind).not.toBe("saved");
+        // the draft it wrote is settled all the same
+        expect(globalStore.get(codeDraftsAtom).has(draftKey(project, "src/a.ts"))).toBe(false);
+    });
+
+    it("a refusal that lands after another file opened raises no stale bar over it", async () => {
+        seedSession(["src/a.ts", "src/b.ts"]);
+        editDraft("one\nmine\n");
+        const stat = deferred<{ size: number; modtime: number }>();
+        fileInfo.mockReturnValueOnce(stat.promise);
+
+        const saving = saveCurrent();
+        globalStore.set(codeFileAtom, text("src/b.ts", "b\n"));
+        globalStore.set(codeSaveAtom, { kind: "idle" });
+        stat.resolve({ size: 99, modtime: 2 });
+        await saving;
+
+        expect(globalStore.get(codeStaleAtom)).toBeNull();
+        expect(globalStore.get(codeSaveAtom).kind).toBe("idle");
+    });
+});
+
+describe("startCreate", () => {
+    it("shows the Files tree, which draws the name input", () => {
+        seedSession(["src/a.ts"]);
+        globalStore.set(codeSearchModeAtom, "search");
+        startCreate(false);
+        expect(globalStore.get(codeSearchModeAtom)).toBe("files");
+        expect(globalStore.get(codeEditAtom)).toMatchObject({ kind: "create", isDir: false });
+        globalStore.set(codeEditAtom, null);
+    });
+});
+
+describe("a read started in the project being left", () => {
+    it("never lands in the next project", async () => {
+        seedSession(["src/a.ts"]);
+        const stat = deferred<{ size: number; modtime: number }>();
+        fileInfo.mockReturnValueOnce(stat.promise);
+        const opening = openPath("src/c.ts");
+        listFiles.mockResolvedValue({ files: ["src/c.ts"], isrepo: true });
+        await selectProject(nextProject());
+
+        stat.resolve({ size: 2, modtime: 1 });
+        fileRead.mockResolvedValue({ data64: btoa("A\n"), info: { size: 2, modtime: 1 } });
+        await opening;
+
+        expect(globalStore.get(codeFileAtom)).toEqual({ kind: "none" });
     });
 });
 

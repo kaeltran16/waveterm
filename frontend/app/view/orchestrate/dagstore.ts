@@ -1,3 +1,4 @@
+import { globalStore } from "@/app/store/jotaiStore";
 import { atom, type PrimitiveAtom } from "jotai";
 import { useWaveObjectValue } from "../../store/wos";
 import { capabilityFor } from "../agents/route";
@@ -17,6 +18,14 @@ export const hoveredTaskAtom = atom<{ id: string; from: "graph" | "timeline" } |
     id: string;
     from: "graph" | "timeline";
 } | null>;
+
+// Clears the hover only if `from` set it: each side owns its own, and a hover that began on the other side meanwhile
+// is not this one's to clear. Unmounts call it too, since an unmount under the pointer fires no pointer-leave.
+export function clearHover(from: "graph" | "timeline"): void {
+    if (globalStore.get(hoveredTaskAtom)?.from === from) {
+        globalStore.set(hoveredTaskAtom, null);
+    }
+}
 
 export type DagNodeRoute = {
     source: RouteSource;

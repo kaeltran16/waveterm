@@ -22,6 +22,7 @@ import { debounce } from "throttle-debounce";
 import { classifyFile, hasNulByte, HEAD_BINARY, HEAD_TOOLARGE, MAX_VIEW_BYTES } from "./codeclassify";
 import { diffBaseOf, nextDiffStep, type DiffBase, type DiffStep, type DiffTarget } from "./codedifftarget";
 import {
+    afterSave,
     conflictMessage,
     conflictOf,
     nextDrafts,
@@ -114,6 +115,8 @@ export const codePlainAtom = atom((get) => get(codeIndexAtom)?.isRepo === false)
 export { NOT_TRACKED } from "./codeclassify";
 export const codeExpandedAtom = atom<Set<string>>(new Set<string>()) as PrimitiveAtom<Set<string>>;
 export const codeFileAtom = atom<CodeFile>({ kind: "none" }) as PrimitiveAtom<CodeFile>;
+// the repository's HEAD as the last status read saw it; "" until one has, or in a folder that is not a repository
+export const codeHeadShaAtom = atom<string>("") as PrimitiveAtom<string>;
 export const codeHistoryAtom = atom<History>(EMPTY_HISTORY) as PrimitiveAtom<History>;
 // every checkout of the selected project's repository, main first; empty until loaded
 export const codeWorktreesAtom = atom<GitWorktree[]>([]) as PrimitiveAtom<GitWorktree[]>;
@@ -283,6 +286,9 @@ const indexCache = new Map<string, CodeIndex>();
 const current = { indexToken: "", fileToken: "", statusToken: "", headToken: "", worktreesToken: "" };
 
 export async function selectProject(p: CodeProject | null): Promise<void> {
+    // a file or committed-copy read still out belongs to the project being left
+    current.fileToken = "";
+    current.headToken = "";
     globalStore.set(codeProjectAtom, p);
     // only a real selection is worth remembering; the null reset must not clobber the last good one
     if (p != null) {
@@ -299,6 +305,7 @@ export async function selectProject(p: CodeProject | null): Promise<void> {
     globalStore.set(codeViewModeAtom, "preview");
     globalStore.set(codeStatusAtom, null);
     globalStore.set(codeStatusErrorAtom, null);
+    globalStore.set(codeHeadShaAtom, "");
     globalStore.set(codeHeadAtom, { kind: "idle" });
     globalStore.set(codeDiffTargetAtom, "head");
     globalStore.set(codeDiffBaseAtom, null);
@@ -496,6 +503,7 @@ export async function loadStatus(): Promise<void> {
             codeStatusAtom,
             statusByPath(parseGitChanges(res?.statusz ?? "", res?.numstat ?? "", res?.numstaterror))
         );
+        globalStore.set(codeHeadShaAtom, res?.head ?? "");
         globalStore.set(codeStatusErrorAtom, null);
     } catch (e) {
         if (current.statusToken !== token) {
@@ -555,7 +563,7 @@ export async function loadCommitted(rel: string, ref: string): Promise<void> {
     if (project == null) {
         return;
     }
-    const token = `head:${rel}:${ref}`;
+    const token = `head:${project.path}:${rel}:${ref}`;
     current.headToken = token;
     globalStore.set(codeHeadAtom, { kind: "loading", path: rel, ref });
     try {
@@ -610,7 +618,7 @@ export async function loadDisk(rel: string): Promise<void> {
     if (project == null) {
         return;
     }
-    const token = `head:${rel}:${DISK_REF}`;
+    const token = `head:${project.path}:${rel}:${DISK_REF}`;
     current.headToken = token;
     globalStore.set(codeHeadAtom, { kind: "loading", path: rel, ref: DISK_REF });
     try {
@@ -744,6 +752,9 @@ export function startCreate(isDir: boolean): void {
         globalStore.set(codeExpandedAtom, expanded);
     }
     globalStore.set(codeEditAtom, { kind: "create", dir, isDir });
+    // the name input is drawn by the Files tree: from Search, Changed or Symbols the toolbar's New file would
+    // otherwise do nothing visible, and the input would pop up on the next switch to Files
+    globalStore.set(codeSearchModeAtom, "files");
 }
 
 export function startRename(path: string): void {
@@ -890,15 +901,18 @@ function underOrEqual(path: string, dir: string): boolean {
 // Shared by the tree context menu and the Delete keybinding, the way memstore's confirmDeleteNote
 // is shared by its list menu and its detail pane.
 export function confirmDelete(rel: string, isDir: boolean): void {
-    const paths = globalStore.get(codeIndexAtom)?.paths ?? [];
+    const index = globalStore.get(codeIndexAtom);
+    const paths = index?.paths ?? [];
     const status = globalStore.get(codeStatusAtom);
+    const git = index?.isRepo === false ? "plain" : status == null ? "unknown" : "repo";
     const under = isDir ? paths.filter((p) => p.startsWith(`${rel}/`)) : [rel];
     modalsModel.pushModal("ConfirmModal", {
         title: isDir ? "Delete folder" : "Delete file",
         message: deleteWarning(
             rel,
             under.map((p) => status?.get(p)),
-            isDir
+            isDir,
+            git
         ),
         confirmLabel: "Delete",
         destructive: true,
@@ -945,7 +959,7 @@ export async function openPath(rel: string, opts?: { pushHistory?: boolean; line
     if (globalStore.get(codePendingJumpAtom)?.path !== rel) {
         globalStore.set(codePendingJumpAtom, null);
     }
-    const token = `file:${rel}`;
+    const token = `file:${project.path}:${rel}`;
     current.fileToken = token;
     const abs = joinRepoPath(project.path, rel);
     // deferred until the path is known to be a file, so a folder leaves history and the save state alone
@@ -1072,7 +1086,37 @@ export function revertDraft(): void {
 // braces: agents run against this same working tree, so "changed since you opened it" is the normal
 // case, not the exotic one. On conflict we refuse and keep the draft — the user's text is never the
 // thing we throw away.
+// the open files with a save out, each with whether another was asked for meanwhile
+const savesOut = new Map<string, boolean>();
+
+// One save per file at a time. A second Ctrl+S during a save (a double tap, key repeat, or after typing more)
+// would stat the size and modtime the first one just wrote, read it as someone else's change and raise a
+// conflict over the app's own write; instead it runs once the first lands, against the base that one left.
 export async function saveCurrent(): Promise<void> {
+    const project = globalStore.get(codeProjectAtom);
+    const file = globalStore.get(codeFileAtom);
+    if (project == null || file.kind !== "text") {
+        return;
+    }
+    const abs = draftKey(project, file.path);
+    if (savesOut.has(abs)) {
+        savesOut.set(abs, true);
+        return;
+    }
+    savesOut.set(abs, false);
+    try {
+        await saveOpenFile();
+    } finally {
+        const again = savesOut.get(abs);
+        savesOut.delete(abs);
+        const open = globalStore.get(codeFileAtom);
+        if (again && globalStore.get(codeProjectAtom) === project && open.kind === "text" && open.path === file.path) {
+            await saveCurrent();
+        }
+    }
+}
+
+async function saveOpenFile(): Promise<void> {
     const project = globalStore.get(codeProjectAtom);
     const file = globalStore.get(codeFileAtom);
     if (project == null || file.kind !== "text") {
@@ -1084,10 +1128,19 @@ export async function saveCurrent(): Promise<void> {
     if (draft == null) {
         return; // nothing unsaved
     }
+    // the save state, the stale bar and the buffer all speak for the open file: a save that lands after the
+    // user moved to another file or project still settles its draft, but writes none of them
+    const stillOpen = () => {
+        const open = globalStore.get(codeFileAtom);
+        return globalStore.get(codeProjectAtom) === project && open.kind !== "none" && open.path === rel;
+    };
     globalStore.set(codeSaveAtom, { kind: "saving", path: rel });
     try {
         const latest = await RpcApi.FileInfoCommand(TabRpcClient, { info: { path: abs } });
         const conflict = conflictOf(draft.base, latest);
+        if (conflict !== "none" && !stillOpen()) {
+            return;
+        }
         if (conflict !== "none") {
             globalStore.set(codeSaveAtom, { kind: "conflict", path: rel, message: conflictMessage(conflict) });
             // the stale bar is the one "the disk moved" banner; it reads the refusal off codeSaveAtom
@@ -1097,18 +1150,26 @@ export async function saveCurrent(): Promise<void> {
         await RpcApi.FileWriteCommand(TabRpcClient, { info: { path: abs }, data64: stringToBase64(draft.text) });
         // re-stat so a second save compares against what we just wrote rather than the pre-save state
         const after = await RpcApi.FileInfoCommand(TabRpcClient, { info: { path: abs } });
-        globalStore.set(codeFileAtom, {
-            kind: "text",
-            path: rel,
+        const written: FileBase = {
             text: draft.text,
             size: after?.size ?? draft.text.length,
             modtime: after?.modtime ?? 0,
-        });
-        globalStore.set(codeDraftsAtom, (d) => withoutDraft(d, abs));
-        globalStore.set(codeSaveAtom, { kind: "saved", path: rel });
+        };
+        globalStore.set(codeDraftsAtom, (d) => afterSave(d, abs, written));
         void loadStatus(); // a write is exactly what turns an unchanged file into a modified one
+        if (!stillOpen()) {
+            return;
+        }
+        globalStore.set(codeFileAtom, { kind: "text", path: rel, ...written });
+        if (!globalStore.get(codeDraftsAtom).has(abs)) {
+            // text typed during the write is still unsaved, and editDraft already reset the state to idle
+            globalStore.set(codeSaveAtom, { kind: "saved", path: rel });
+        }
         globalStore.set(codeStaleAtom, null); // we just wrote it, so the disk copy is ours again
     } catch (e) {
+        if (!stillOpen()) {
+            return;
+        }
         globalStore.set(codeSaveAtom, {
             kind: "error",
             path: rel,

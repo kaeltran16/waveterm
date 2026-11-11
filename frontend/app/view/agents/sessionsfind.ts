@@ -7,6 +7,7 @@
 import { globalStore } from "@/app/store/jotaiStore";
 import { landOn } from "@/app/view/jarvis/returnsurface";
 import type { AgentsViewModel } from "./agents";
+import type { LiveSession } from "./sessionsarchivestore";
 import { sessionKey, sessionSelection } from "./sessionsruns";
 
 export interface SessionsFind {
@@ -40,6 +41,21 @@ export function openSessionHit(
     landOn(model.surfaceAtom, "sessions");
 }
 
+// The session a find was opened on, while the selection still shows its run member. A member's detail otherwise
+// shows its default session (live, else newest non-review), and a hit can sit in another one: the task's reviewer,
+// an older attempt, an earlier lead session. Undefined when no find applies or the run does not hold that session.
+export function foundSession(
+    find: SessionsFind | null,
+    sel: string,
+    member: string,
+    sessions: LiveSession[]
+): LiveSession | undefined {
+    if (find == null || find.at.member == null || findEnded(find, sel, member)) {
+        return undefined;
+    }
+    return sessions.find((s) => sessionKey(s) === find.sessionKey);
+}
+
 // Selecting another session ends a find. Read from the selection, never from the session a detail pane
 // renders: while the pane animates from one detail to another, the outgoing one still renders the old session.
 // The merged feed ("all") selects no session, so it leaves the find set.
@@ -51,6 +67,15 @@ export function findEnded(find: SessionsFind | null, sel: string, member: string
 }
 
 // the find bar's next position, wrapping; 0 when there is nothing to step through
+// The match the transcript was last centred on. A live session is reread every few seconds, which redraws every
+// range; re-centring on each reread would snap the reader back to the match while they scroll away to read. Only
+// a different match (another find, refined terms, a step) moves the view.
+export type FindMark = { find: SessionsFind | null; terms: string; pos: number };
+
+export function needsCentre(last: FindMark | null, next: FindMark): boolean {
+    return last == null || last.find !== next.find || last.terms !== next.terms || last.pos !== next.pos;
+}
+
 export function stepFind(pos: number, total: number, dir: 1 | -1): number {
     return total > 0 ? (pos + dir + total) % total : 0;
 }
@@ -103,8 +128,12 @@ export function findRanges(text: string, terms: string[]): [number, number][] {
 // The terms of a query the user refines in the find bar, by the search's own rule (ParseQuery,
 // pkg/agentsessions): lower-cased words, and double-quoted text as one term; an unclosed quote runs to the end.
 export function findTerms(query: string): string[] {
-    return query.split('"').flatMap((part, i) => {
+    const parts = query.split('"');
+    // an even count of parts is an odd count of quotes: ParseQuery drops the unclosed one and reads what follows
+    // it as separate words, not a phrase
+    const unclosed = parts.length % 2 === 0 ? parts.length - 1 : -1;
+    return parts.flatMap((part, i) => {
         const words = part.toLowerCase().split(/\s+/).filter(Boolean);
-        return i % 2 === 1 ? (words.length ? [words.join(" ")] : []) : words;
+        return i % 2 === 1 && i !== unclosed ? (words.length ? [words.join(" ")] : []) : words;
     });
 }

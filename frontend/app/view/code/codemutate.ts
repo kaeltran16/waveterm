@@ -108,7 +108,23 @@ export function renamedPath(path: string, from: string, to: string): string {
 // say what is true instead of a blanket "this cannot be undone" that is usually false — and for a
 // directory the weakest sentence wins, because one untracked file inside makes the whole delete
 // final and saying otherwise would be the one kind of wrong this sentence must never be.
-export function deleteWarning(rel: string, statuses: readonly (CodeStatus | undefined)[], isDir: boolean): string {
+//
+// `git` is what the statuses can be trusted for. A folder that is not a repository has no history at all, and a
+// status that has not loaded (or failed) says nothing, so neither may claim a committed copy survives.
+export type DeleteGit = "repo" | "plain" | "unknown";
+
+export function deleteWarning(
+    rel: string,
+    statuses: readonly (CodeStatus | undefined)[],
+    isDir: boolean,
+    git: DeleteGit = "repo"
+): string {
+    if (git !== "repo") {
+        const what = isDir ? `"${rel}" and everything inside it` : `"${rel}"`;
+        return git === "plain"
+            ? `Delete ${what}? This folder is not a git repository, so deleting it cannot be undone.`
+            : `Delete ${what}? Git status has not loaded, so it may not be recoverable.`;
+    }
     const untracked = statuses.some((s) => s?.status === "?");
     const stagedOnly = !untracked && statuses.some((s) => s?.status === "A");
     if (isDir) {

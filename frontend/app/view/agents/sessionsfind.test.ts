@@ -6,7 +6,17 @@ import { forgetOrigin } from "@/app/view/jarvis/returnsurface";
 import { atom, type PrimitiveAtom } from "jotai";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AgentsViewModel, SurfaceKey } from "./agents";
-import { findEnded, findRanges, findTerms, openSessionHit, stepFind, type SessionsFind } from "./sessionsfind";
+import type { LiveSession } from "./sessionsarchivestore";
+import {
+    findEnded,
+    findRanges,
+    findTerms,
+    foundSession,
+    needsCentre,
+    openSessionHit,
+    stepFind,
+    type SessionsFind,
+} from "./sessionsfind";
 import { LEAD_MEMBER, sessionKey, sessionSelection } from "./sessionsruns";
 
 function fakeModel() {
@@ -85,6 +95,19 @@ describe("openSessionHit", () => {
         expect(globalStore.get(m.sessionsFindAtom)?.sessionKey).toBe("claude:s1");
     });
 
+    it("shows the run member's session the hit is in, not its default one", () => {
+        const m = fakeModel();
+        const worker = session({ id: "w2", runid: "r9", role: "worker", taskid: "t-2" });
+        const reviewer = session({ id: "rv", runid: "r9", role: "review", taskid: "t-2" });
+        openSessionHit(m, result(reviewer, [hit("turn", 0)]), "fix", ["fix"]);
+        const find = globalStore.get(m.sessionsFindAtom);
+        const sel = globalStore.get(m.sessionsSelAtom);
+        const member = globalStore.get(m.sessionsMemberAtom);
+        expect(foundSession(find, sel, member, [worker, reviewer] as LiveSession[])).toBe(reviewer);
+        // another member selected: the find no longer applies
+        expect(foundSession(find, sel, "t-3", [worker, reviewer] as LiveSession[])).toBeUndefined();
+    });
+
     it("openSessionHit with no hits targets turn 0", () => {
         const m = fakeModel();
         globalStore.set(m.sessionsViewAtom, "activity");
@@ -149,6 +172,9 @@ describe("findTerms", () => {
         expect(findTerms("Hook  Timeout")).toEqual(["hook", "timeout"]);
         expect(findTerms('"dial timeout" warm')).toEqual(["dial timeout", "warm"]);
         expect(findTerms('"open')).toEqual(["open"]);
+        // as ParseQuery: an unclosed quote is dropped and the rest read as words, not one phrase
+        expect(findTerms('"dial timeout')).toEqual(["dial", "timeout"]);
+        expect(findTerms('"a b" "dial timeout')).toEqual(["a b", "dial", "timeout"]);
     });
 
     it("findTerms of an empty or bare-quote query is empty", () => {
@@ -189,5 +215,24 @@ describe("findEnded", () => {
 
     it("findEnded is false with no find", () => {
         expect(findEnded(null, "claude:a", "lead")).toBe(false);
+    });
+});
+
+describe("needsCentre", () => {
+    const find = { sessionKey: "s", query: "auth", terms: ["auth"] } as unknown as SessionsFind;
+    const mark = { find, terms: '["auth"]', pos: 2 };
+
+    it("centres the first time a match is drawn", () => {
+        expect(needsCentre(null, mark)).toBe(true);
+    });
+
+    it("leaves the view alone when a reread redraws the same match", () => {
+        expect(needsCentre(mark, { ...mark })).toBe(false);
+    });
+
+    it("moves to a stepped match, refined terms or a new find", () => {
+        expect(needsCentre(mark, { ...mark, pos: 3 })).toBe(true);
+        expect(needsCentre(mark, { ...mark, terms: '["auth","token"]' })).toBe(true);
+        expect(needsCentre(mark, { ...mark, find: { ...find } })).toBe(true);
     });
 });

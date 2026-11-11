@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { buildViewData, dagActionError, dagActionRoute, mergeReadyIds, routeSourceLabel } from "./dagstore";
+import { globalStore } from "@/app/store/jotaiStore";
+import {
+    buildViewData,
+    clearHover,
+    dagActionError,
+    dagActionRoute,
+    hoveredTaskAtom,
+    mergeReadyIds,
+    routeSourceLabel,
+} from "./dagstore";
 
 const group = {
     id: "dag-1",
@@ -194,5 +203,15 @@ describe("buildViewData for a failed review", () => {
         } as any;
         const { nodes } = buildViewData(reviewGroup, owner, harnesses, none);
         expect(nodes[0].actions).toEqual(["approve", "sendback", "retry", "skip", "escalate"]);
+    });
+});
+
+describe("clearHover", () => {
+    it("clears only the side's own hover", () => {
+        globalStore.set(hoveredTaskAtom, { id: "t-2", from: "timeline" });
+        clearHover("graph");
+        expect(globalStore.get(hoveredTaskAtom)).toEqual({ id: "t-2", from: "timeline" });
+        clearHover("timeline");
+        expect(globalStore.get(hoveredTaskAtom)).toBeNull();
     });
 });

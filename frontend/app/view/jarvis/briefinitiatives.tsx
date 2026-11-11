@@ -25,7 +25,6 @@ import { InitiativeDetail, type TrackerEdits } from "./inlinetrackerview";
 import { ticketUrl } from "./jiraticket";
 import { openOrPeek, openOrPeekAddress } from "./openref";
 import { TicketBar } from "./ticketbarview";
-import { chunkRef } from "./trackeredit";
 
 // The plan reveal clips only while its height animates: left clipped, it cut off the chunk and stage menus
 // that drop below the card's edge.
@@ -331,6 +330,7 @@ export function BriefChunkPane({
                 <ChunkSidebar
                     key="chunk-sidebar"
                     model={model}
+                    chunkId={selectedChunk.id}
                     initiative={initiative}
                     label={selectedChunk.row.label}
                     stage={selectedChunk.row.stage}
@@ -365,24 +365,16 @@ export function BriefChunkPane({
                     onSetStatus={(status) => edits?.onSetStatus(selectedChunk.row.label, status)}
                     onEditNote={(entry, text) =>
                         entry.noteAt != null &&
-                        runMutation(() =>
-                            editNote(
-                                selectedChunk.oref,
-                                chunkRef(planChunks, entry.chunk),
-                                entry.noteAt!,
-                                entry.ts,
-                                text
-                            )
-                        )
+                        runMutation(() => editNote(selectedChunk.oref, entry.chunk, entry.noteAt!, entry.ts, text))
                     }
                     onDeleteNote={(entry) => {
                         if (entry.noteAt == null) {
                             return;
                         }
-                        const at = entry.noteAt;
+                        const note = { at: entry.noteAt, ts: entry.ts, text: entry.text };
                         setReadingNote(new Set());
                         briefUndo.schedule([noteKey(selectedChunk.oref, entry.chunk, entry.ts)], "Note deleted", () =>
-                            removeNote(selectedChunk.oref, chunkRef(planChunks, entry.chunk), at, entry.ts)
+                            removeNote(selectedChunk.oref, planChunks, entry.chunk, note)
                         );
                     }}
                     onOpenSession={(c, e) =>

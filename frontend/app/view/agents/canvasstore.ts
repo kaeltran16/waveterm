@@ -92,9 +92,11 @@ export function detachCanvas(agentId: string): void {
     globalStore.set(canvasStateAtom(agentId), null);
 }
 
-export function canvasOwner(topic: string): string | null {
+// live is the roster's ids: a closed agent's canvas is never detached (only the removed-canvas button does that), so
+// the lookup has to skip it rather than land on an agent the surface no longer has
+export function canvasOwner(topic: string, live: ReadonlySet<string>): string | null {
     for (const id of attached) {
-        if (getCanvas(id)?.topic === topic) {
+        if (live.has(id) && getCanvas(id)?.topic === topic) {
             return id;
         }
     }

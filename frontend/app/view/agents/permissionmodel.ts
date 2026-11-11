@@ -4,7 +4,7 @@
 // What the permission band shows for a pending request: its title, a preview of what the tool would do, and the text
 // of the "allowed" timeline row once answered. Pure; the choice labels come from the server (agentask.PermissionChoices).
 
-import type { EditFile, TimelineItem } from "./agentsviewmodel";
+import type { AgentEntry, EditFile, TimelineItem } from "./agentsviewmodel";
 import { buildEditDiff } from "./tooldetail";
 
 export type PermissionPreview =
@@ -118,6 +118,30 @@ export function permissionLogText(p: AgentPermissionData, choice: number, cwd?: 
 // an "allowed" row the rendered view records after the band answers: drawn after the timeline item holding entry
 // afterEntry - 1
 export type TimelineMark = { afterEntry: number; text: string };
+
+// an answer the band gave, stamped with when it went. Not an entry index: the entries are re-based whenever the stream
+// restarts or trims (a /clear, a reconnect, a refocus re-tail, the line cap), and an index would then point elsewhere
+export type PermissionMark = { ts: number; text: string };
+
+function entryTime(e: AgentEntry): number | undefined {
+    return e.kind === "action" ? e.startedTs : "ts" in e ? e.ts : undefined;
+}
+
+// a mark goes before the first entry stamped after it. One older than every stamped entry belongs to entries this
+// window no longer holds (a /clear's old conversation, a trimmed head), so it is dropped rather than drawn at the top
+export function anchorMarks(entries: AgentEntry[], marks: PermissionMark[]): TimelineMark[] {
+    const times = entries.map(entryTime);
+    const first = times.find((t) => t != null);
+    const out: TimelineMark[] = [];
+    for (const m of marks) {
+        if (first == null || first > m.ts) {
+            continue;
+        }
+        const at = times.findIndex((t) => t != null && t > m.ts);
+        out.push({ afterEntry: at < 0 ? entries.length : at, text: m.text });
+    }
+    return out;
+}
 
 // an item covers the entries from its own start up to the next item's, so a mark goes after the last item starting at
 // or before afterEntry - 1 (keyed by the item's position in `items`); a mark before every item leads them

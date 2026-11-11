@@ -219,11 +219,19 @@ describe("marking", () => {
 describe("ownership", () => {
     it("finds the agent holding a topic, and forgets it on detach", () => {
         attachCanvas("a2", A, 100);
-        expect(canvasOwner("t")).toBe("a2");
-        expect(canvasOwner("u")).toBeNull();
+        const live = new Set(["a2"]);
+        expect(canvasOwner("t", live)).toBe("a2");
+        expect(canvasOwner("u", live)).toBeNull();
         detachCanvas("a2");
         expect(getCanvas("a2")).toBeNull();
-        expect(canvasOwner("t")).toBeNull();
+        expect(canvasOwner("t", live)).toBeNull();
+    });
+
+    it("skips an agent no longer in the roster", () => {
+        attachCanvas("a1", A, 100);
+        attachCanvas("a2", A, 100);
+        expect(canvasOwner("t", new Set(["a2"]))).toBe("a2");
+        expect(canvasOwner("t", new Set())).toBeNull();
     });
 });
 

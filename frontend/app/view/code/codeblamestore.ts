@@ -9,7 +9,7 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type PrimitiveAtom } from "jotai";
 import { blameEntries, blameIsCurrent, type BlameState } from "./codeblame";
-import { codeFileAtom, codeProjectAtom, codeViewModeAtom, draftKey } from "./codestore";
+import { codeFileAtom, codeHeadShaAtom, codeProjectAtom, codeViewModeAtom, draftKey } from "./codestore";
 import { showsSourceEditor } from "./codeviewmode";
 
 // past GitBlameCommand's own 30s budget: the client's timeout binds the server's context, and the first
@@ -30,10 +30,11 @@ export function blameKey(rel: string): string | null {
 export async function loadBlame(rel: string, modtime: number, lineCount: number): Promise<void> {
     const project = globalStore.get(codeProjectAtom);
     const key = blameKey(rel);
-    if (project == null || key == null || blameIsCurrent(globalStore.get(codeBlameAtom), key, modtime)) {
+    const head = globalStore.get(codeHeadShaAtom);
+    if (project == null || key == null || blameIsCurrent(globalStore.get(codeBlameAtom), key, modtime, head)) {
         return;
     }
-    const token = `${key}:${modtime}`;
+    const token = `${key}:${modtime}:${head}`;
     if (blameToken === token) {
         return; // this exact read is already in flight
     }
@@ -48,7 +49,13 @@ export async function loadBlame(rel: string, modtime: number, lineCount: number)
         if (blameToken !== token) {
             return;
         }
-        globalStore.set(codeBlameAtom, { kind: "ready", path: key, modtime, entries: blameEntries(rtn, lineCount) });
+        globalStore.set(codeBlameAtom, {
+            kind: "ready",
+            path: key,
+            modtime,
+            head,
+            entries: blameEntries(rtn, lineCount),
+        });
     } catch (e) {
         if (blameToken !== token) {
             return;

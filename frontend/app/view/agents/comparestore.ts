@@ -149,6 +149,10 @@ export async function enterCompare(cwd: string, currentBranch: string): Promise<
     globalStore.set(compareSidesAtom, null);
     globalStore.set(compareAggregateAtom, null);
     const def = await loadCompareRefsMeta(cwd);
+    // the branch list takes a moment: a source or range picked, or Escape pressed, meanwhile is the newer word
+    if (globalStore.get(diffScopeAtom) !== scope) {
+        return;
+    }
     const prev = remembered.cwd === cwd ? globalStore.get(compareRefsAtom) : null;
     const { base, head } = defaultComparePair({
         def,
@@ -289,6 +293,11 @@ export async function runFetch(cwd: string): Promise<void> {
         const prevAt = fetchStateOf(globalStore.get(fetchStatesAtom), cwd).at;
         setFetchState(cwd, { running: false, at: r.fetchedat || prevAt, failure: r.failure ?? null });
         if (r.failure != null) {
+            return;
+        }
+        // a fetch takes seconds: the surface may have moved to another repository, or out of compare, since.
+        // Re-reading this one then would put its branches in the picker and read the other's pair here.
+        if (!globalStore.get(compareOnAtom) || remembered.cwd !== cwd) {
             return;
         }
         // The refs moved, so what the picker suggests and what the comparison means both moved with

@@ -36,14 +36,16 @@ export function createUndoQueue(io: {
 }) {
     const windowMs = io.windowMs ?? UNDO_WINDOW_MS;
     const pending = new Map<number, Pending>();
-    let committing = 0;
+    // the keys of deletes whose window has passed and whose write is out: still hidden until it lands
+    const inFlight = new Map<number, string[]>();
     let nextId = 1;
     let toastId = 0;
     let toast: Omit<BriefToast, "pendingUndo"> | null = null;
     let expired = false;
     let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
-    const publish = () => io.setHidden(new Set([...pending.values()].flatMap((p) => p.keys)));
+    const publish = () =>
+        io.setHidden(new Set([...[...pending.values()].map((p) => p.keys), ...inFlight.values()].flat()));
     const cancel = (id: number) => {
         clearTimeout(pending.get(id)?.timer);
         pending.delete(id);
@@ -64,7 +66,7 @@ export function createUndoQueue(io: {
         if (toast == null) {
             return;
         }
-        if (expired && pending.size === 0 && committing === 0) {
+        if (expired && pending.size === 0 && inFlight.size === 0) {
             clearToast();
             return;
         }
@@ -88,14 +90,14 @@ export function createUndoQueue(io: {
             return;
         }
         cancel(id);
-        committing++;
+        inFlight.set(id, p.keys);
         render();
         try {
             await p.commit();
         } catch (e) {
             error(e instanceof Error ? e.message : String(e));
         } finally {
-            committing--;
+            inFlight.delete(id);
             publish();
             render();
         }

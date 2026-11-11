@@ -503,8 +503,7 @@ async function selectDag(
 }
 
 async function selectSheet(model: AgentsViewModel, sheet: Sheet, current: () => boolean): Promise<OpenResult> {
-    await openChannelSheet(sheet.channelId, sheet.runId ?? null);
-    if (!current()) {
+    if (!(await openChannelSheet(sheet.channelId, sheet.runId ?? null, current))) {
         return SUPERSEDED;
     }
     landOn(model.surfaceAtom, "jarvis", "sheet");
@@ -539,11 +538,11 @@ async function loadCanvas(
     if (!isCanvasSegment(topic) || (board != null && !isCanvasSegment(board))) {
         return { ok: false, reason: "unsupported", message: `Not a canvas name: ${topic}` };
     }
+    const roster = [...globalStore.get(model.agentsAtom), ...globalStore.get(model.terminalsAtom)];
     if (caller == null) {
-        const owner = canvasOwner(topic);
+        const owner = canvasOwner(topic, new Set(roster.map((a) => a.id)));
         return owner != null ? loaded({ owner }) : unavailable(`No agent has the canvas ${topic} open`);
     }
-    const roster = [...globalStore.get(model.agentsAtom), ...globalStore.get(model.terminalsAtom)];
     const agent = roster.find((a) => a.blockId != null && a.blockId === caller.blockId);
     if (agent == null || !caller.cwd) {
         return unavailable(`Run wsh ui reveal canvas:${topic} from the agent's terminal`);
@@ -744,13 +743,23 @@ function selectWorkflowScan(model: AgentsViewModel, runId: string): OpenResult {
 // selected had a null run and read "Reading this channel…" forever. Exported for Jarvis's own flow (the
 // investigation draft), not for cross-surface callers — those open a target. + Run is one of those: it
 // sits on the app bar, so a launch started from any surface has to land through the router.
-export async function openChannelSheet(channelId: string, runId: string | null): Promise<void> {
+// `current` is the landing's guard: a newer open during the channel load owns the subject and the sheet, so
+// this one writes neither and reports false.
+export async function openChannelSheet(
+    channelId: string,
+    runId: string | null,
+    current: () => boolean = () => true
+): Promise<boolean> {
     await selectChannel(channelId);
+    if (!current()) {
+        return false;
+    }
     selectSubject({ kind: "channel", id: channelId });
     if (runId != null) {
         setActiveRunId(channelId, runId);
     }
     globalStore.set(briefSheetOpenAtom, true);
+    return true;
 }
 
 function openEffortSheet(effortId: string): void {

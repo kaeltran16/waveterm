@@ -9,6 +9,7 @@ import {
     cockpitCounts,
     dismissKey,
     gridNotice,
+    offGridSections,
     orderIds,
     plural,
     prunedBackgrounded,
@@ -253,6 +254,22 @@ describe("prunedBackgrounded", () => {
     it("returns the same set when unchanged", () => {
         const ids = new Set(["t1"]);
         expect(prunedBackgrounded(ids, [agent({ id: "t1", state: "working" })], noLineage)).toBe(ids);
+    });
+});
+
+describe("offGridSections", () => {
+    it("lists a backgrounded run's lead under Backgrounded once it is parked idle, not under Idle", () => {
+        const lead = agent({ id: "lead", state: "idle" });
+        const plain = agent({ id: "p", state: "idle" });
+        const out = offGridSections([], [lead, plain], new Set(["lead"]), new Set());
+        expect(out.backgrounded.map((a) => a.id)).toEqual(["lead"]);
+        expect(out.parked.map((a) => a.id)).toEqual(["p"]);
+    });
+    it("leaves a run card's members out of both sections", () => {
+        const w = agent({ id: "w" });
+        const lead = agent({ id: "lead", state: "idle" });
+        const out = offGridSections([w], [lead], new Set(["w", "lead"]), new Set(["w", "lead"]));
+        expect(out).toEqual({ backgrounded: [], parked: [] });
     });
 });
 

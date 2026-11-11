@@ -37,6 +37,7 @@ import {
     mergeOrder,
     mergePendingLaunches,
     moveCursor,
+    nextAskAfterAnswer,
     nextAskId,
     nextUnansweredQuestion,
     partitionBackgrounded,
@@ -635,6 +636,17 @@ describe("nextAskId", () => {
     });
 });
 
+describe("nextAskAfterAnswer", () => {
+    const ask = (id: string, project: string, since: number) =>
+        ({ id, name: id, task: "", state: "asking", project, blockedSince: since }) as unknown as AgentVM;
+
+    it("moves to the next ask in the project the grid is scoped to, skipping one elsewhere", () => {
+        const agents = [ask("a", "P", 1), ask("b", "Q", 2), ask("c", "P", 3)];
+        expect(nextAskAfterAnswer(agents, "P", "a")).toBe("c");
+        expect(nextAskAfterAnswer(agents, "all", "a")).toBe("b");
+    });
+});
+
 describe("usageLevel", () => {
     it("bands by threshold (boundaries inclusive toward ok/warn)", () => {
         expect(usageLevel(0)).toBe("ok");
@@ -808,6 +820,10 @@ describe("cycleId", () => {
     it("wraps backward and returns undefined for empty", () => {
         expect(cycleId(["a", "b", "c"], "a", -1)).toBe("c");
         expect(cycleId([], "a", 1)).toBeUndefined();
+    });
+    it("starts at the first id backward too when current is unknown", () => {
+        expect(cycleId(["a", "b", "c"], "gone", -1)).toBe("a");
+        expect(cycleId(["a", "b", "c"], undefined, -1)).toBe("a");
     });
 });
 

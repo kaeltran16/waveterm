@@ -6,7 +6,7 @@
 // reload (effort 9868f8d2, decided frontend-only). Pure.
 
 import { isFinishTransition } from "./agentrowmodel";
-import { matchesProjectFilter, type AgentState, type AgentVM } from "./agentsviewmodel";
+import { matchesProjectFilter, projectOf, type AgentState, type AgentVM } from "./agentsviewmodel";
 import { leadlessCardId } from "./cardgridlayout";
 import { rowKey } from "./leadcardmodel";
 import type { Lineage, RunInfo } from "./runlineage";
@@ -281,19 +281,59 @@ export function scopeRailRows<T extends RailEvent>(
     if (projectFilter === "all") {
         return rows;
     }
+    const agentOf = railEventAgent(agents, lineage);
+    return rows.filter((e) => {
+        const a = agentOf(e);
+        return a != null && matchesProjectFilter(a, projectFilter);
+    });
+}
+
+// the agent an event is about: its own, or for a run's events the run's lead
+function railEventAgent(agents: AgentVM[], lineage: Lineage): (e: RailEvent) => AgentVM | undefined {
     const byId = new Map(agents.map((a) => [a.id, a]));
     const leadOf = (runId: string) =>
         Object.entries(lineage.roles).find(([, r]) => r.kind === "lead" && r.runId === runId)?.[0];
-    return rows.filter((e) => {
+    return (e) => {
         const id = e.group != null ? leadOf(e.group) : e.focusId;
-        const a = id != null ? byId.get(id) : undefined;
-        return a != null && matchesProjectFilter(a, projectFilter);
-    });
+        return id != null ? byId.get(id) : undefined;
+    };
 }
 
 /** Pure: events after the last "mark all read" are new. */
 export function splitUnread(events: RailEvent[], seenTs: number): { fresh: RailEvent[]; old: RailEvent[] } {
     return { fresh: events.filter((e) => e.ts > seenTs), old: events.filter((e) => e.ts <= seenTs) };
+}
+
+// "Mark all read" stamps the scope it was pressed in: one stamp taken from a project-scoped list would read every
+// older unread event in the other projects as seen without its ever being shown.
+export type RailSeen = { all: number; byProject: Record<string, number> };
+export const NO_RAIL_SEEN: RailSeen = { all: 0, byProject: {} };
+
+/** Pure: the seen state after "mark all read" in `projectFilter`, up to the newest event `ts` it showed. */
+export function markRailRead(seen: RailSeen, projectFilter: string, ts: number): RailSeen {
+    return projectFilter === "all"
+        ? { ...seen, all: ts }
+        : { ...seen, byProject: { ...seen.byProject, [projectFilter]: ts } };
+}
+
+/** Pure: the read stamp for one project's events: the latest of its own and the all-projects one. */
+export function seenTsFor(seen: RailSeen, project: string): number {
+    return Math.max(seen.all, seen.byProject[project] ?? 0);
+}
+
+/** Pure: splitUnread with each event read against its own project's stamp. */
+export function splitUnreadScoped(
+    events: RailEvent[],
+    seen: RailSeen,
+    agents: AgentVM[],
+    lineage: Lineage
+): { fresh: RailEvent[]; old: RailEvent[] } {
+    const agentOf = railEventAgent(agents, lineage);
+    const isFresh = (e: RailEvent) => {
+        const a = agentOf(e);
+        return e.ts > (a != null ? seenTsFor(seen, projectOf(a)) : seen.all);
+    };
+    return { fresh: events.filter(isFresh), old: events.filter((e) => !isFresh(e)) };
 }
 
 /** Pure: the rows a list shows. A run with several events shows its newest, which counts the rest, until it is

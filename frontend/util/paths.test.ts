@@ -21,6 +21,11 @@ describe("joinRepoPath", () => {
     it("does not choke on a trailing separator on the root", () => {
         expect(joinRepoPath("C:\\repo\\", "a.ts")).toBe("C:\\repo\\a.ts");
     });
+
+    it("keeps the leading pair of a UNC root", () => {
+        expect(joinRepoPath("\\\\server\\share\\repo", "src/a.ts")).toBe("\\\\server\\share\\repo\\src\\a.ts");
+        expect(joinRepoPath("//server/share/repo", "a.ts")).toBe("\\\\server\\share\\repo\\a.ts");
+    });
 });
 
 describe("sameRepoPath", () => {

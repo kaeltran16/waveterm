@@ -16,7 +16,7 @@ import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtom, useAtomValue } from "jotai";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { retryRunEvents, useRunEventsState } from "../agents/runeventstore";
 import {
     eventTitle,
@@ -29,7 +29,7 @@ import {
 import { setActiveRunId } from "../jarvis/jarvissubjectstore";
 import { selectedTaskOf } from "./dagfinal";
 import { dagModalAgentsContextAtom, dismissDagModal } from "./dagmodalstate";
-import { hoveredTaskAtom, selectedTaskIdAtom } from "./dagstore";
+import { clearHover, hoveredTaskAtom, selectedTaskIdAtom } from "./dagstore";
 import { relaunchLeadAction, type RelaunchLeadAction } from "./relaunchlead";
 import { eventClickTarget, selectionFilter, type TimelineFilter, type TimelineTarget } from "./timelinefilter";
 import {
@@ -87,6 +87,8 @@ export function TimelineRail({ channelId, runId, layout, ended }: TimelineRailPr
     // the final node shares the graph's selection; here it reads as no task selected
     const selectedTaskId = selectedTaskOf(useAtomValue(selectedTaskIdAtom));
     const [hovered, setHovered] = useAtom(hoveredTaskAtom);
+    // closing the modal under the pointer never fires the row's pointer-leave, and the atom outlives the modal
+    useEffect(() => () => clearHover("timeline"), []);
     const agentsCtx = useAtomValue(dagModalAgentsContextAtom);
     const tick = useAtomValue(agentsCtx?.model.nowAtom ?? NO_NOW_ATOM);
     const nowMs = agentsCtx ? tick : Date.now();

@@ -166,6 +166,22 @@ describe("reloadChanges, session range whose start did not resolve at load", () 
     });
 });
 
+describe("reloadChanges while a scope's load is in flight", () => {
+    it("leaves the load alone instead of writing an empty state over it", async () => {
+        let answer!: (v: unknown) => void;
+        gitChanges.mockImplementation(() => new Promise((r) => (answer = r)));
+        const loading = loadFilesForScope(projectScopeVal("p"));
+        await vi.waitFor(() => expect(gitChanges).toHaveBeenCalled());
+        // a poll tick reads the nulled state's cwd
+        await reloadChanges(globalStore.get(filesStateAtom)?.cwd ?? null);
+        expect(globalStore.get(filesStateAtom)).toBeNull();
+        answer({ isrepo: true, branch: "main", statusz: "M  x.ts\0", numstat: "1\t0\tx.ts\n" });
+        await loading;
+        expect(globalStore.get(filesStateAtom)?.cwd).toBe("/repo");
+        expect(gitChanges).toHaveBeenCalledTimes(1);
+    });
+});
+
 describe("loadFilesForScope, working range on an agent", () => {
     // Newly expressible: an agent's own worktree read with no anchor. Reaching this today would mean
     // selecting a registered project, which means clearing the agent.

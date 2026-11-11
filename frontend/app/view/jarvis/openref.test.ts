@@ -512,6 +512,23 @@ describe("a newer open", () => {
         expect(pushToast).not.toHaveBeenCalled();
     });
 
+    it("supersedes a run landing while its channel streams load, leaving the newer sheet alone", async () => {
+        const model = makeModel();
+        objects.set("run:r1", { oid: "r1", channeloid: "c1" });
+        objects.set("channel:c1", { oid: "c1" });
+        const streams = deferred<{ messages: [] }>();
+        rpc.GetChannelMessagesCommand.mockImplementation(() => streams.promise);
+        rpc.EffortGetCommand.mockResolvedValue({ effort: { oid: "e-1" } });
+        const first = openTarget(model, { kind: "run", runId: "r1" });
+        await vi.waitFor(() => expect(rpc.GetChannelMessagesCommand).toHaveBeenCalled());
+        expect(await openAddress(model, "effort:e-1")).toEqual({ ok: true });
+
+        streams.resolve({ messages: [] });
+        expect(await first).toEqual({ ok: false, reason: "superseded", message: "" });
+        expect(globalStore.get(activeSubjectAtom)).toEqual({ kind: "effort", id: "e-1" });
+        expect(globalStore.get(activeRunIdAtom)["c1"]).toBeUndefined();
+    });
+
     it("includes a click on an address nothing can open", async () => {
         const model = makeModel();
         const slow = deferred<unknown>();
@@ -637,6 +654,15 @@ describe("canvas landing", () => {
         expect(globalStore.get(model.focusIdAtom)).toBe("a2");
         expect(globalStore.get(model.surfaceAtom)).toBe("agent");
         expect(rpc.FileInfoCommand).not.toHaveBeenCalled();
+    });
+
+    it("without a caller, skips a closed agent that still held the canvas", async () => {
+        const model = makeModel(["a2"]);
+        attachCanvas("a1", { topic: "t", dir: DIR, projectDir: CWD }, 1);
+        attachCanvas("a2", { topic: "t", dir: DIR, projectDir: CWD }, 1);
+        expect(await openAddress(model, "canvas:t", undefined, noReport)).toEqual({ ok: true });
+        expect(globalStore.get(model.focusIdAtom)).toBe("a2");
+        expect(getCanvas("a2")?.mode).toBe("canvas");
     });
 
     it("without a caller or an owner, says no agent has it open", async () => {

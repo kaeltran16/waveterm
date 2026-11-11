@@ -207,3 +207,11 @@ describe("comment drafts", () => {
         expect(globalStore.get(codeCommentDraftAtom)).toBeNull();
     });
 });
+
+describe("the comment draft", () => {
+    it("is dropped when another project opens", () => {
+        globalStore.set(codeCommentDraftAtom, { path: "src/a.ts", startLine: 1, endLine: 2, anchor: "x" });
+        globalStore.set(codeProjectAtom, { name: "wt", path: "C:/repos/wt" });
+        expect(globalStore.get(codeCommentDraftAtom)).toBeNull();
+    });
+});

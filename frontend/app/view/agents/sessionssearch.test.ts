@@ -110,6 +110,13 @@ describe("foldHits", () => {
         expect(new Set(c.hits.map((h) => h.key)).size).toBe(3);
     });
 
+    it("keys two hits in one event apart", () => {
+        const s = session({ id: "s1" });
+        const m = foldHits([result(s, [hit({ kind: "event", ord: 4 }), hit({ kind: "event", ord: 4 })])]);
+        const hits = [...m.values()][0].hits;
+        expect(new Set(hits.map((h) => h.key)).size).toBe(2);
+    });
+
     it("foldHits keys a solo by runtime and id with you/agent speakers", () => {
         const solo = session({ id: "s9", runtime: "pi" });
         // a judge's run is its own, but its session stays a solo

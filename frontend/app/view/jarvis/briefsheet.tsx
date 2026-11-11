@@ -245,7 +245,9 @@ function ChannelRun({
     run: Run;
     onClose: () => void;
 }) {
-    return <RunSheet model={model} channel={channel} run={run} onClose={onClose} />;
+    // keyed by run: stepping to another run in the channel must not carry the dials, a save's notice, the dock's
+    // result or the composer's status over from the one before
+    return <RunSheet key={run.id} model={model} channel={channel} run={run} onClose={onClose} />;
 }
 
 // The launcher face's reading, in the slot where a run's verb would be: the two faces keep one layout.
@@ -333,7 +335,8 @@ export function BriefSheet({ model }: { model: AgentsViewModel }) {
 
     // memoized because the latch below has it in a dep array: sheetFace builds a fresh object each call,
     // so an unmemoized face would refire the latch every render and setState its way into a loop
-    const face = useMemo(() => sheetFace(subject, run), [subject, run]);
+    const channelId = channel?.oid ?? null;
+    const face = useMemo(() => sheetFace(subject, run, channelId), [subject, run, channelId]);
     const subjectId = subject?.id ?? null;
     const bandOpen = subjectId != null ? (bandsOpen[subjectId] ?? false) : false;
     const tags = run != null ? ambient.tagsFor({ oref: "run:" + run.id }) : [];
@@ -455,7 +458,7 @@ export function BriefSheet({ model }: { model: AgentsViewModel }) {
                             className="flex min-h-0 flex-1 flex-col"
                         >
                             {face.kind === "channel" ? (
-                                channel == null ? (
+                                channel == null || face.body === "pending" ? (
                                     <SheetChannelPending channelId={face.channelId} />
                                 ) : face.body === "run" && run != null ? (
                                     <ChannelRun model={model} channel={channel} run={run} onClose={close} />

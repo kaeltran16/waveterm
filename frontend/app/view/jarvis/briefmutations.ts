@@ -14,15 +14,7 @@ import type * as effortstore from "./effortstore";
 import type { ChunkRowModel } from "./effortstore";
 import { chunkRowId, stageRowId } from "./inlinetracker";
 import type { TrackerEdits } from "./inlinetrackerview";
-import {
-    appendInStageAt,
-    canRemove,
-    chunkRef,
-    moveTarget,
-    stageMoveTarget,
-    stageRunLabels,
-    stepChunk,
-} from "./trackeredit";
+import { appendInStageAt, canRemove, moveTarget, stageMoveTarget, stageRunLabels, stepChunk } from "./trackeredit";
 
 export type EffortOps = { togglePause: () => void; archive: () => void; unarchive: () => void; remove: () => void };
 
@@ -50,6 +42,8 @@ export type MutationDeps = {
     setError: (msg: string | null) => void;
     // collapses the Initiatives row with this line id if it is the open one
     closeInitiative: (lineId: string) => void;
+    // a chunk's row id is built from its label: a rename moves whatever the Brief held on the old id
+    chunkRenamed: (fromRowId: string, toRowId: string) => void;
 };
 
 export const initiativeLineId = (oref: string) => "initiatives:" + oref;
@@ -144,7 +138,6 @@ export function trackerEdits(
     const { store, undo, run } = deps;
     const { oref, chunks, pendingDeletes } = input;
     const indexOf = (label: string) => chunks.findIndex((c) => c.label === label);
-    const ref = (label: string) => chunkRef(chunks, label);
     const scheduleRemove = (labels: string[], text: string) => {
         const pending = chunks.filter((c) => pendingDeletes.has(chunkKey(oref, c.label))).map((c) => c.label);
         if (!canRemove(chunks, [...pending, ...labels])) {
@@ -167,10 +160,15 @@ export function trackerEdits(
         stages: stageOptions(chunks),
         onSetStatus: (label, next) => {
             const prev = chunks.find((c) => c.label === label)?.status ?? "pending";
-            run(() => store.setChunkStatus(oref, ref(label), next));
-            undo.notify(`Marked “${label}” ${next}`, () => run(() => store.setChunkStatus(oref, ref(label), prev)));
+            run(() => store.setChunkStatus(oref, label, next));
+            undo.notify(`Marked “${label}” ${next}`, () => run(() => store.setChunkStatus(oref, label, prev)));
         },
-        onRenameChunk: (label, next) => run(() => store.renameChunk(oref, chunks, label, next)),
+        onRenameChunk: (label, next) =>
+            run(async () => {
+                await store.renameChunk(oref, chunks, label, next);
+                const line = initiativeLineId(oref);
+                deps.chunkRenamed(chunkRowId(line, label), chunkRowId(line, next.trim()));
+            }),
         canMove: (label, dir) => moveTarget(chunks, label, dir) != null,
         onMoveChunk: (label, dir) => {
             const at = moveTarget(chunks, label, dir);
@@ -194,7 +192,7 @@ export function trackerEdits(
             );
         },
         onDeleteChunk: (label) => scheduleRemove([label], `Deleted “${label}”`),
-        onRenameStage: (at, next) => run(() => store.setChunkStage(oref, stageRunLabels(chunks, at).map(ref), next)),
+        onRenameStage: (at, next) => run(() => store.setChunkStage(oref, stageRunLabels(chunks, at), next)),
         onDeleteStage: (at) => {
             const labels = stageRunLabels(chunks, at);
             const name = chunks.find((c) => c.label === labels[0])?.stage || "unstaged";

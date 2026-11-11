@@ -13,14 +13,19 @@ import type { ActiveSubject } from "./jarvissubjectstore";
 
 export type SheetFace =
     | { kind: "none" }
-    | { kind: "channel"; channelId: string; body: "run" | "launcher" }
+    | { kind: "channel"; channelId: string; body: "run" | "launcher" | "pending" }
     | { kind: "effort"; effortId: string };
 
-export function sheetFace(subject: ActiveSubject | null, run: Run | null): SheetFace {
+// `activeChannelId` is the channel whose runs `run` was resolved from. Opening a channel switches it before
+// the subject follows, so a subject on another channel is mid-switch: neither its run nor "no run" is known yet.
+export function sheetFace(subject: ActiveSubject | null, run: Run | null, activeChannelId?: string | null): SheetFace {
     if (subject == null) {
         return { kind: "none" };
     }
     if (subject.kind === "channel") {
+        if (activeChannelId != null && activeChannelId !== subject.id) {
+            return { kind: "channel", channelId: subject.id, body: "pending" };
+        }
         // Composing a new run needs no case of its own: stageRunAtom already resolves NO run while a channel
         // is composing, so the launcher below is what that state produces. Re-deciding it here from
         // composingRunAtom would be a second copy of one rule, free to disagree with the first.

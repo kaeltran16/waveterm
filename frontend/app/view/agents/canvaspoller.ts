@@ -12,6 +12,7 @@ import { useAtomValue } from "jotai";
 import { useEffect } from "react";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
+import { getBrainstorm, type BrainstormState } from "./brainstormstore";
 import {
     boardsFromCanvasJson,
     boardUrl,
@@ -56,7 +57,21 @@ async function readServer(s: CanvasState, io: CanvasIO, base: string): Promise<S
     return { boards, lastModifiedMs };
 }
 
-export async function pollCanvasOnce(s: CanvasState, io: CanvasIO, now: number): Promise<Partial<CanvasState>> {
+// whether the agent surface is drawing the canvas's boards: its own pane, or a brainstorm's full-size board, which
+// draws the same pane while the canvas itself stays in terminal mode (agentsurface.tsx picks between them)
+export function canvasOnScreen(s: CanvasState, brainstorm: Pick<BrainstormState, "mode" | "board"> | null): boolean {
+    if (brainstorm == null) {
+        return s.mode === "canvas";
+    }
+    return brainstorm.mode === "brainstorm" && brainstorm.board != null;
+}
+
+export async function pollCanvasOnce(
+    s: CanvasState,
+    io: CanvasIO,
+    now: number,
+    onScreen = s.mode === "canvas"
+): Promise<Partial<CanvasState>> {
     if (!(await io.dirExists(canvasProjectDir(s.dir)))) {
         return { status: "removed" };
     }
@@ -72,7 +87,7 @@ export async function pollCanvasOnce(s: CanvasState, io: CanvasIO, now: number):
         boards: read.boards,
         lastModifiedMs: read.lastModifiedMs,
     };
-    if (s.mode === "canvas") {
+    if (onScreen) {
         patch.lastViewedMs = now;
         // every board is on screen, so any file passing the previous newest reloads them
         if (read.lastModifiedMs != null && s.lastModifiedMs != null && read.lastModifiedMs > s.lastModifiedMs) {
@@ -136,7 +151,7 @@ export async function pollAndMerge(agentId: string, io: CanvasIO = tauriCanvasIO
     if (s == null) {
         return;
     }
-    const patch = await pollCanvasOnce(s, io, Date.now());
+    const patch = await pollCanvasOnce(s, io, Date.now(), canvasOnScreen(s, getBrainstorm(agentId)));
     updateCanvas(agentId, (cur) => (cur.topic === s.topic && cur.dir === s.dir ? { ...cur, ...patch } : cur));
 }
 

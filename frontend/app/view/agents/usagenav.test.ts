@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
+import { moveCursor } from "./agentsviewmodel";
 import { resolveUsageCursor, usageBackStep, usageNavIds } from "./usagenav";
 
 describe("usageBackStep", () => {
@@ -44,6 +45,11 @@ describe("usageNavIds", () => {
 
     it("is just the scopes when no row shows", () => {
         expect(usageNavIds(["all"], [])).toEqual(["all"]);
+    });
+
+    it("leaves the rows upward onto the card they belong to, not the last card", () => {
+        const ids = usageNavIds(["all", "C:/a", "effort:e"], ["run:r1", "run:r2"], "all");
+        expect(moveCursor(ids, "run:r1", -1)).toBe("all");
     });
 });
 

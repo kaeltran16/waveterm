@@ -6,8 +6,10 @@
 // uses backslashes, so a raw `${root}/${rel}` join is mixed-separator. Normalizing the whole join
 // to backslashes is what makes open::that (ShellExecute) resolve it and a copied absolute path a
 // valid native Windows path.
+// A UNC root (\\server\share) keeps its leading pair: collapsed to one, it names a path on the current drive.
 export function joinRepoPath(root: string, rel: string): string {
-    return `${root}/${rel}`.replace(/\/+/g, "\\").replace(/\\+/g, "\\");
+    const joined = `${root}/${rel}`.replace(/[\\/]+/g, "\\");
+    return /^[\\/]{2}[^\\/]/.test(root) ? `\\${joined}` : joined;
 }
 
 // A repository path reaches the cockpit either from git (forward slashes) or from the config

@@ -17,7 +17,7 @@ import { useAtom, useAtomValue } from "jotai";
 import { useState } from "react";
 import { resolveComposerLabels } from "./briefcompose";
 import { resolveBriefComposerTarget } from "./briefcomposertarget";
-import { briefDraftAtom } from "./briefingstore";
+import { briefDraftsAtom, restoredDraft } from "./briefingstore";
 import { reducePrinciplePatch } from "./profilemodel";
 
 export function RunComposer({
@@ -34,7 +34,11 @@ export function RunComposer({
     const agents = useAtomValue(model.agentsAtom);
     const projects = useAtomValue(projectsAtom);
     const info = useAtomValue(runInfoAtom(run.id)).run;
-    const [draft, setDraft] = useAtom(briefDraftAtom);
+    const [drafts, setDrafts] = useAtom(briefDraftsAtom);
+    const runId = run.id;
+    const draft = drafts[runId] ?? "";
+    const setDraft = (text: string) => setDrafts((d) => ({ ...d, [runId]: text }));
+    const giveBack = (text: string) => setDrafts((d) => ({ ...d, [runId]: restoredDraft(d[runId] ?? "", text) }));
     // a directive lands in a terminal, not a thread, so its outcome is said here or nowhere
     const [status, setStatus] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
     const project = channelProjectLabel(channel, projects);
@@ -76,7 +80,7 @@ export function RunComposer({
             }
             if (!sent) {
                 // the roster moved between render and send: give the words back rather than eat them
-                setDraft(text);
+                giveBack(text);
                 setStatus({ tone: "error", text: `${target.workerName} is no longer live — nothing was sent.` });
             }
         });
@@ -106,7 +110,7 @@ export function RunComposer({
                 await refreshResolvedProfile(channelId);
                 setStatus({ tone: "ok", text: `Standing rule saved for ${sessionName}. It applies to future runs.` });
             } catch (e) {
-                setDraft(text);
+                giveBack(text);
                 setStatus({ tone: "error", text: String(e) });
             }
         });

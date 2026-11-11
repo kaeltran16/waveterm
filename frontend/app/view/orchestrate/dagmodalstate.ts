@@ -1,6 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { isTopModal } from "@/app/modals/modalstack";
 import { globalStore } from "@/app/store/jotaiStore";
 import { selectedTaskIdAtom } from "./dagstore";
 import { atom, type PrimitiveAtom } from "jotai";
@@ -88,6 +89,16 @@ export function dismissDagModal(): void {
 export function closeDagModal(): void {
     dismissDagModal();
     returnToOrigin("dag");
+}
+
+// Which of its keys the modal takes: Escape and Tab, and only while it is the top modal. A confirm, the Final shots
+// viewer or another shell opened above it owns them, or one Escape would close two layers and Tab would be pulled
+// into the panel behind.
+export function dagModalKey(key: string): "escape" | "tab" | null {
+    if (!isTopModal(DAG_MODAL_ID)) {
+        return null;
+    }
+    return key === "Escape" ? "escape" : key === "Tab" ? "tab" : null;
 }
 
 // escapeDagModal is Esc inside the modal: a selection is the nearer thing to dismiss, so it goes first

@@ -175,6 +175,20 @@ describe("deleteWarning", () => {
         expect(msg).toContain("3 files");
     });
 
+    it("claims no git history in a folder that is not a repository", () => {
+        for (const isDir of [false, true]) {
+            const msg = deleteWarning("x", [undefined], isDir, "plain");
+            expect(msg).not.toContain("git history");
+            expect(msg).toContain("cannot be undone");
+        }
+    });
+
+    it("claims no git history while the status is not loaded", () => {
+        const msg = deleteWarning("scratch.txt", [undefined], false, "unknown");
+        expect(msg).not.toContain("git history");
+        expect(msg).toContain("may not be recoverable");
+    });
+
     it("says the committed copies survive when everything under a directory is tracked", () => {
         const msg = deleteWarning("src/util", [undefined, { status: "M", adds: 2, dels: 1 }], true);
         expect(msg).toContain("committed copies stay in git history");

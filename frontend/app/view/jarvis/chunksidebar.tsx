@@ -87,6 +87,7 @@ function RunRecord({ dag }: { dag: EvidenceDag | undefined }) {
 
 export function ChunkSidebar({
     model,
+    chunkId,
     initiative,
     label,
     stage,
@@ -111,6 +112,8 @@ export function ChunkSidebar({
     onOpenSession,
 }: {
     model: AgentsViewModel;
+    // the chunk's row id: unique across initiatives, where a note's edit key is not
+    chunkId: string;
     initiative: string;
     label: string;
     stage: string;
@@ -139,6 +142,14 @@ export function ChunkSidebar({
     const cards = sidebarNotes(feed, label, now, expanded, ticket?.key);
     const [draft, setDraft] = useState("");
     const [editing, setEditing] = useState<{ key: string; text: string } | null>(null);
+    // one instance across chunks, so it slides in once rather than per step: what was typed for one chunk is
+    // dropped on the next, or Add note and Save would write it there
+    const [shownFor, setShownFor] = useState(chunkId);
+    if (shownFor !== chunkId) {
+        setShownFor(chunkId);
+        setDraft("");
+        setEditing(null);
+    }
     const submit = () => {
         const text = draft.trim();
         if (text !== "") {

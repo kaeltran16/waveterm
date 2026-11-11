@@ -358,6 +358,10 @@ function NameInput({
             animate="animate"
             style={{ paddingLeft: 8 + depth * 12 }}
             className="flex w-full items-center gap-1.5 overflow-hidden py-[3px] pr-2"
+            // a rename draws this inside its row, whose click opens the file or folds the folder: placing the caret
+            // must do neither
+            onClick={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => e.stopPropagation()}
         >
             <input
                 autoFocus

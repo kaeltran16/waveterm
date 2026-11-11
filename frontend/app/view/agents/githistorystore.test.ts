@@ -381,6 +381,19 @@ describe("range changes do not re-read git", () => {
 
         expect(globalStore.get(historyScrollAtom)).toBe(0);
     });
+
+    it("drops the old repository's filters, and does not send them to the new one", async () => {
+        gitHistory.mockResolvedValue({ isrepo: true, head: "aaa1111", commits: [commit("aaa1111", "tip commit")] });
+
+        await loadHistory("/repo", {});
+        globalStore.set(historyFiltersAtom, { author: "", path: "frontend/app/only-here", text: "" });
+        await loadHistory("/repo", {});
+        expect(gitHistory.mock.calls.at(-1)![1]).toMatchObject({ path: "frontend/app/only-here" });
+        await loadHistory("/other", {});
+
+        expect(globalStore.get(historyFiltersAtom)).toEqual({ author: "", path: "", text: "" });
+        expect(gitHistory.mock.calls.at(-1)![1]).not.toHaveProperty("path");
+    });
 });
 
 // The Diff surface polls the change list every 10s while it is on screen, but nothing re-read the
@@ -463,6 +476,29 @@ describe("refreshing the commit column", () => {
         expect(globalStore.get(historyHasMoreAtom)).toBe(true);
     });
 
+    it("drops a page whose list a refresh replaced while it loaded", async () => {
+        gitHistory.mockResolvedValue({
+            isrepo: true,
+            head: "aaa1111",
+            commits: Array.from({ length: 50 }, (_, i) => commit(`c${i}`, `commit ${i}`)),
+        });
+        await loadHistory(CWD, {});
+        await settle();
+        let page!: (v: unknown) => void;
+        gitHistory.mockReturnValueOnce(new Promise((r) => (page = r)));
+        const appending = loadMoreHistory();
+        const refreshed = [commit("new1", "landed"), ...Array.from({ length: 50 }, (_, i) => commit(`c${i}`, "x"))];
+        gitHistory.mockResolvedValue({ isrepo: true, head: "new1", commits: refreshed });
+        refreshHistoryIfMoved("new1");
+        await settle();
+
+        page({ isrepo: true, commits: Array.from({ length: 50 }, (_, i) => commit(`p${i}`, "older")) });
+        await appending;
+
+        expect(globalStore.get(historyCommitsAtom)?.[0].hash).toBe("new1");
+        expect(globalStore.get(historyCommitsAtom)).toHaveLength(51);
+    });
+
     // hasMorePages compared against the page constant, so a refresh that asked for 100 and got 73
     // would have claimed another page existed and left a footer that loads nothing forever.
     it("does not claim another page when a larger read comes back short", async () => {
@@ -524,6 +560,26 @@ describe("the slow-read clock", () => {
         gitHistory.mockRejectedValueOnce(new Error("socket closed"));
         await loadHistory("C:/other2", {});
         expect(globalStore.get(historyLoadStartedAtom)).toBeNull();
+    });
+
+    it("a retry after a failure shows the skeleton and starts the clock", async () => {
+        resetHistory();
+        gitHistory.mockRejectedValueOnce(new Error("socket closed"));
+        globalStore.set(filesStateAtom, {
+            cwd: "C:/failed",
+            branch: "",
+            isRepo: true,
+            changes: null,
+            ref: "",
+            head: "",
+            end: "",
+        });
+        await loadHistory("C:/failed", {});
+        expect(globalStore.get(historyCommitsAtom)).toEqual([]);
+        gitHistory.mockReturnValueOnce(new Promise(() => {}));
+        retryHistory();
+        expect(globalStore.get(historyCommitsAtom)).toBeNull();
+        expect(globalStore.get(historyLoadStartedAtom)).not.toBeNull();
     });
 
     it("restarts on retry", async () => {

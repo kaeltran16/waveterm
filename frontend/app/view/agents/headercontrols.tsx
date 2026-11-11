@@ -11,18 +11,25 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { stringToBase64 } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { ChevronDown } from "lucide-react";
-import { useRef, useState } from "react";
+import { useRef } from "react";
 import { sendAgentText, toastSendFailure } from "./agentsend";
 import type { AgentVM } from "./agentsviewmodel";
 import {
     MODEL_ALIASES,
     modelCommand,
-    PERMISSION_CYCLE,
+    permissionCycle,
     permissionModeKeys,
     permissionModeLabel,
+    shownPermissionMode,
 } from "./headercontrolsmodel";
 import { prettyModel } from "./modellabel";
-import { getAgentStatusAtom, getLastHookAtom, getPermissionModeAtom } from "./session-models/agentstatusstore";
+import {
+    getAgentStatusAtom,
+    getLastHookAtom,
+    getOptimisticPermissionModeAtom,
+    getPermissionModeAtom,
+    getSeenPermissionModesAtom,
+} from "./session-models/agentstatusstore";
 
 const KEY_GAP_MS = 60;
 
@@ -48,10 +55,11 @@ export function HeaderControls({ agent }: { agent: AgentVM }) {
     const status = useAtomValue(getAgentStatusAtom(oref));
     const reportedMode = useAtomValue(getPermissionModeAtom(oref));
     const lastHook = useAtomValue(getLastHookAtom(oref));
-    // the optimistic mode holds until the next status lands, which carries the mode the TUI really has
-    const [optimistic, setOptimistic] = useState<{ mode: string; hookTs?: number } | null>(null);
+    const optimisticAtom = getOptimisticPermissionModeAtom(oref);
+    const optimistic = useAtomValue(optimisticAtom);
+    const cycle = permissionCycle(useAtomValue(getSeenPermissionModesAtom(oref)));
     const busy = useRef(false);
-    const mode = optimistic != null && optimistic.hookTs === lastHook?.ts ? optimistic.mode : reportedMode;
+    const mode = shownPermissionMode(optimistic, lastHook?.ts, reportedMode);
     const modelLabel = (status?.model ? prettyModel(status.model) : (agent.model ?? "")).toLowerCase();
 
     const openModelMenu = (e: React.MouseEvent) => {
@@ -65,24 +73,24 @@ export function HeaderControls({ agent }: { agent: AgentVM }) {
     };
 
     const changeMode = async (target: string) => {
-        const keys = mode != null ? permissionModeKeys(mode, target) : null;
+        const keys = mode != null ? permissionModeKeys(cycle, mode, target) : null;
         if (keys == null || keys.length === 0 || busy.current) {
             return;
         }
         busy.current = true;
-        setOptimistic({ mode: target, hookTs: globalStore.get(getLastHookAtom(oref))?.ts });
+        globalStore.set(optimisticAtom, { mode: target, hookTs: globalStore.get(getLastHookAtom(oref))?.ts });
         try {
             await typeKeys(blockId, keys);
         } catch (err) {
             console.error("permission mode change failed", err);
-            setOptimistic(null);
+            globalStore.set(optimisticAtom, null);
         } finally {
             busy.current = false;
         }
     };
 
     const openModeMenu = (e: React.MouseEvent) => {
-        const items: ContextMenuItem[] = PERMISSION_CYCLE.map((m) => ({
+        const items: ContextMenuItem[] = cycle.map((m) => ({
             label: permissionModeLabel(m),
             type: "radio",
             checked: m === mode,
@@ -92,7 +100,7 @@ export function HeaderControls({ agent }: { agent: AgentVM }) {
     };
 
     // bypassPermissions or an unknown mode has no way to step around the cycle, so a chip would only be noise
-    const changeable = mode != null && PERMISSION_CYCLE.includes(mode);
+    const changeable = mode != null && cycle.includes(mode);
     const modeLabel = changeable ? permissionModeLabel(mode) : "";
 
     return (

@@ -1,7 +1,6 @@
 import { useDimensionsWithCallbackRef } from "@/app/hook/useDimensions";
 import { isTopModal } from "@/app/modals/modalstack";
 import { globalStore } from "@/app/store/jotaiStore";
-import { isEditableTarget } from "@/app/store/keybindings/dispatcher";
 import { GraphSkeleton } from "@/app/view/jarvis/graphskeleton";
 import { fireAndForget } from "@/util/util";
 import {
@@ -58,9 +57,9 @@ import {
 } from "./dagnodes";
 import { nextSelection, PEEK_PAD_PX } from "./dagpeek";
 import { DagPeekShell, type PeekPlace } from "./dagpeekcard";
-import { buildViewData, hoveredTaskAtom, mergeReadyIds, selectedTaskIdAtom, useDagGroup } from "./dagstore";
+import { buildViewData, clearHover, hoveredTaskAtom, mergeReadyIds, selectedTaskIdAtom, useDagGroup } from "./dagstore";
 import { DagTaskPeek, openTaskFromGraph } from "./dagtaskpeek";
-import { enterOpensTask } from "./taskcorrelate";
+import { enterOpensTask, graphKeysYield } from "./taskcorrelate";
 import { stageEntries, stageTone, type StageEntry } from "./taskroute";
 
 // fitView's padding, as a fraction of the pane
@@ -168,7 +167,7 @@ function DagGraphInner({ oref, owner, harnesses }: { oref: string; owner: Run; h
             return;
         }
         // a timeline hover belongs to the timeline; leaving a card clears only the graph's own
-        if (globalStore.get(hoveredTaskAtom)?.from === "graph") globalStore.set(hoveredTaskAtom, null);
+        clearHover("graph");
     }, []);
     // closing the modal under the pointer never fires the card's pointer-leave
     useEffect(() => () => onHover(null), [onHover]);
@@ -385,7 +384,7 @@ function DagGraphInner({ oref, owner, harnesses }: { oref: string; owner: Run; h
                 }
                 return;
             }
-            if (isEditableTarget(document.activeElement)) return;
+            if (graphKeysYield(document.activeElement)) return;
             const r = graphKey(e.key, {
                 tasks: layoutTasks,
                 selected: selectedId,

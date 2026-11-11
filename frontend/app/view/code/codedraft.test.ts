@@ -4,6 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+    afterSave,
     conflictOf,
     nextDrafts,
     parseStoredDrafts,
@@ -73,6 +74,27 @@ describe("nextDrafts", () => {
     it("pins the base it was given, so a later stat is compared against the read-time state", () => {
         const out = nextDrafts(new Map(), "/repo/a.go", base, "edited");
         expect(out.get("/repo/a.go")!.base).toEqual({ text: "hello", size: 5, modtime: 1000 });
+    });
+});
+
+describe("afterSave", () => {
+    const written: FileBase = { text: "hello world", size: 11, modtime: 2000 };
+
+    it("clears the draft that was written", () => {
+        const start = new Map<string, Draft>([["/repo/a.go", { text: "hello world", base }]]);
+        expect(afterSave(start, "/repo/a.go", written).has("/repo/a.go")).toBe(false);
+    });
+
+    it("keeps text typed during the write, pinned to what was written", () => {
+        const start = new Map<string, Draft>([["/repo/a.go", { text: "hello world!", base }]]);
+        expect(afterSave(start, "/repo/a.go", written).get("/repo/a.go")).toEqual({
+            text: "hello world!",
+            base: written,
+        });
+    });
+
+    it("leaves no draft when there was none", () => {
+        expect(afterSave(new Map(), "/repo/a.go", written).size).toBe(0);
     });
 });
 

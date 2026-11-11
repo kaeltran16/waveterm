@@ -408,6 +408,43 @@ describe("setCompareRefs", () => {
     });
 });
 
+describe("a slow read the surface moved on from", () => {
+    it("a fetch that returns after compare moved to another repository re-reads nothing", async () => {
+        globalStore.set(diffScopeAtom, base);
+        listBranches.mockResolvedValue({ branches: [], default: "main" });
+        divergence.mockResolvedValue({ isrepo: true, ahead: [], behind: [], mergebase: "m1" });
+        compareChanges.mockResolvedValue({ isrepo: true, statusz: "", numstat: "" });
+        await enterCompare("/A", "feat");
+        let fetched!: (v: unknown) => void;
+        gitFetch.mockImplementation(() => new Promise((r) => (fetched = r)));
+        const fetching = runFetch("/A");
+        await enterCompare("/B", "feat");
+        listBranches.mockClear();
+        divergence.mockClear();
+
+        fetched({ isrepo: true, fetchedat: 1 });
+        await fetching;
+
+        expect(listBranches).not.toHaveBeenCalled();
+        expect(divergence).not.toHaveBeenCalled();
+    });
+
+    it("entering compare stands down when the scope changed while the branch list loaded", async () => {
+        globalStore.set(diffScopeAtom, base);
+        let listed!: (v: unknown) => void;
+        listBranches.mockImplementation(() => new Promise((r) => (listed = r)));
+        const entering = enterCompare("/repo", "feat");
+        const picked: DiffScope = { ...base, range: { kind: "working" } };
+        globalStore.set(diffScopeAtom, picked);
+
+        listed({ branches: [], default: "main" });
+        await entering;
+
+        expect(globalStore.get(diffScopeAtom)).toBe(picked);
+        expect(divergence).not.toHaveBeenCalled();
+    });
+});
+
 describe("runFetch while and after it runs", () => {
     it("shows the fetch running with the last failure cleared and the clock kept", async () => {
         const old = { command: "git fetch", exitcode: 1, stderr: "old" };

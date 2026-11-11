@@ -11,11 +11,11 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { fireAndForget } from "@/util/util";
 import { atom, type PrimitiveAtom } from "jotai";
-import type { TimelineMark } from "./permissionmodel";
+import type { PermissionMark } from "./permissionmodel";
 
 // keyed by block ORef string ("block:<uuid>"), oldest first
 const permissionAtoms = new Map<string, PrimitiveAtom<AgentPermissionData[]>>();
-const logAtoms = new Map<string, PrimitiveAtom<TimelineMark[]>>();
+const logAtoms = new Map<string, PrimitiveAtom<PermissionMark[]>>();
 
 export function getAgentPermissionsAtom(oref: string): PrimitiveAtom<AgentPermissionData[]> {
     let a = permissionAtoms.get(oref);
@@ -28,10 +28,10 @@ export function getAgentPermissionsAtom(oref: string): PrimitiveAtom<AgentPermis
 
 // the band's answers this session, drawn as "allowed" rows in the timeline; not in the transcript, so a reload loses
 // them
-export function permissionLogAtom(agentId: string): PrimitiveAtom<TimelineMark[]> {
+export function permissionLogAtom(agentId: string): PrimitiveAtom<PermissionMark[]> {
     let a = logAtoms.get(agentId);
     if (a == null) {
-        a = atom<TimelineMark[]>([]);
+        a = atom<PermissionMark[]>([]);
         logAtoms.set(agentId, a);
     }
     return a;

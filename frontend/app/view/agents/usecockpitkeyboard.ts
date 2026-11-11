@@ -6,6 +6,7 @@
 // cockpitsurface.tsx as a hook taking a single deps object.
 
 import { globalStore } from "@/app/store/jotaiStore";
+import { tabbedControlOwns } from "@/app/store/keybindings/dispatcher";
 import { peekTarget } from "@/app/view/jarvis/openref";
 import { type KeyboardEvent, type MutableRefObject } from "react";
 import type { AgentsViewModel } from "./agents";
@@ -86,6 +87,14 @@ export function useCockpitKeyboard(deps: CockpitKeyDeps): (e: KeyboardEvent) => 
         const t = e.target as HTMLElement;
         if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable) {
             return; // typing — let the input own its keys
+        }
+        // every key here is a bare key: a chord the global dispatcher did not take is not this surface's
+        if (e.ctrlKey || e.altKey || e.metaKey) {
+            return;
+        }
+        // a button reached with Tab owns Enter and Space, as the dispatcher already lets it
+        if (tabbedControlOwns(e)) {
+            return;
         }
         // surface switch (`[`/`]`) now lives in the global keybinding registry (bindings.ts), so it
         // fires from every surface, not just the cockpit — see docs Pass A (F1/F2).

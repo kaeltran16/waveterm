@@ -32,6 +32,20 @@ describe("createUndoQueue", () => {
         expect(state.hidden.size).toBe(0);
     });
 
+    it("keeps a delete whose write is out hidden while another is scheduled or undone", async () => {
+        const { q, state } = harness();
+        let land!: () => void;
+        q.schedule(["chunk:e:a"], "Deleted a", () => new Promise<void>((r) => (land = r)));
+        await vi.advanceTimersByTimeAsync(5000);
+        q.schedule(["chunk:e:b"], "Deleted b", async () => {});
+        expect([...state.hidden].sort()).toEqual(["chunk:e:a", "chunk:e:b"]);
+        state.toast?.pendingUndo?.undo();
+        expect([...state.hidden]).toEqual(["chunk:e:a"]);
+        land();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(state.hidden.size).toBe(0);
+    });
+
     it("undo cancels the commit and unhides", async () => {
         const { q, state } = harness();
         const commit = vi.fn(async () => {});
