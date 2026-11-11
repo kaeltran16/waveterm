@@ -17,6 +17,11 @@ type ActionRun = Pick<RunInfo, "runId" | "channelId" | "dag" | "digest">;
 // the one task row whose Tell input is open; a key or a click opens it
 export const tellingRowAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 
+// the guidance typed under a failed review, per run and task (reviewGuideKey): shared by the row's Send back button
+// and its keyed action, so a key sends what the box holds
+export const reviewGuideAtom = atom<Record<string, string>>({}) as PrimitiveAtom<Record<string, string>>;
+export const reviewGuideKey = (runId: string, taskId: string) => `${runId}:${taskId}`;
+
 // the last refusal per run id; an action that starts clears its run's entry, and the card hides a task's once that
 // task has moved on (cardErrorShown)
 export const runCardErrorAtom = atom<Record<string, CardError>>({}) as PrimitiveAtom<Record<string, CardError>>;
@@ -97,6 +102,10 @@ export function rowAction(
                 taskid: row.taskId,
             })
         );
+    }
+    if (action === "sendback") {
+        const notes = globalStore.get(reviewGuideAtom)[reviewGuideKey(run.runId, row.taskId)]?.trim();
+        return dagAction(run, row.taskId, action, notes || undefined);
     }
     return dagAction(run, row.taskId, action);
 }
