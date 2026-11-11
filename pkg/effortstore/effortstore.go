@@ -233,9 +233,16 @@ func Get(ctx context.Context, oid string) (*waveobj.Effort, error) {
 // GetAll returns every readable effort, newest-updated first. A malformed file is logged and skipped.
 func GetAll(ctx context.Context) ([]*waveobj.Effort, error) {
 	dir := filepath.Join(vaultRoot(), wavevault.EffortsDir)
-	paths, err := filepath.Glob(filepath.Join(dir, "*"+effortExt))
-	if err != nil {
+	// not filepath.Glob: glob metacharacters in the vault path (a "vault [work]" folder) would match nothing
+	entries, err := os.ReadDir(dir)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("list efforts in %s: %w", dir, err)
+	}
+	var paths []string
+	for _, ent := range entries {
+		if !ent.IsDir() && filepath.Ext(ent.Name()) == effortExt {
+			paths = append(paths, filepath.Join(dir, ent.Name()))
+		}
 	}
 	pruneCache(dir, paths)
 	all := make([]*waveobj.Effort, 0, len(paths))

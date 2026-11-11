@@ -157,6 +157,19 @@ func TestGetAllSortedByUpdatedDesc(t *testing.T) {
 	}
 }
 
+func TestGetAllWithGlobCharsInVaultPath(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "vault [work]")
+	t.Cleanup(UseRootForTest(root))
+	e := mustCreate(t, &waveobj.Effort{Title: "listed"})
+	all, err := GetAll(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 1 || all[0].OID != e.OID {
+		t.Fatalf("want the one effort, got %+v", all)
+	}
+}
+
 func TestGetAllEmptyVault(t *testing.T) {
 	useTempRoot(t)
 	all, err := GetAll(context.Background())
