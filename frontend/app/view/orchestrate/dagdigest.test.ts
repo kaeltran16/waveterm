@@ -231,6 +231,8 @@ describe("freshness (finding 7)", () => {
     it("is stale the moment the observed dag version moves past it, not when the reload returns", () => {
         expect(digestStale(digest(4), 5)).toBe(true);
         expect(digestStale(digest(4), 4)).toBe(false);
+        // a refresh that failed at an unchanged version leaves the held digest possibly behind
+        expect(digestStale(digest(4), 4, "timeout")).toBe(true);
     });
 
     it("treats a missing digest as unavailable rather than stale", () => {
