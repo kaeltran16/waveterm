@@ -695,7 +695,7 @@ export default function (kit) {
 
                 // 6. everything settled: Approve is on; Change and Approve open New run, only Approve sends a line
                 bsWrite(ctx, SETTLED);
-                const s6 = await bsUntil(h, ctx, (s) => s.approve?.disabled === false);
+                const s6 = await bsUntil(h, ctx, (s) => s.approve?.disabled === false && s.approveReason === "");
                 mark = await bsMark(h, ctx, null);
                 const changeClicked = await bsClick(h, BS_APPROVE_BAR, "Change");
                 const changeOpen = await polishWaitFor(h, `!!${NEW_RUN}`, 3000);

@@ -2495,6 +2495,12 @@ export const monitorTasksScenario = {
         try {
             ctx.transcript = writeMonitorTranscript(cwd, "monitor-tasks", [MONITOR_SHELL], MONITORS);
             const persistTranscript = writeMonitorTranscript(cwd, "monitor-persistent", [], [MONITOR_PERSIST]);
+            // a real block with no controller per agent: the Agent surface mounts the focused agent's terminal, and a
+            // made-up block reads failed to start
+            const blockIds = {};
+            for (const a of [MONITOR_AGENT, MONITOR_PERSIST_AGENT]) {
+                blockIds[a.id] = (await makeTab(h, ctx, { label: `verify-${a.id}`, blockMeta: { view: "term", controller: null } })).blockId;
+            }
             const now = Date.now();
             const agent = (a, transcriptPath, task) => ({
                 id: a.id,
@@ -2507,7 +2513,7 @@ export const monitorTasksScenario = {
                 idleSince: now - 8 * MIN,
                 agent: "claude",
                 model: "opus",
-                blockId: `fx-blk-${a.id}`,
+                blockId: blockIds[a.id],
                 transcriptPath,
             });
             mkdirSync(new URL(".", TREE_RAIL_FIXTURE), { recursive: true });
@@ -2854,6 +2860,7 @@ export const monitorTasksScenario = {
         // teardownFixtureRun deletes the temp dir with the transcripts and the shell task's output; the monitors'
         // output files sit under claude's temp dir, keyed by that temp dir's name
         rmSync(join(tmpdir(), "claude", basename(ctx.cwd)), { recursive: true, force: true });
+        await closeTabs(h, ctx);
         await teardownFixtureRun(h, ctx, "monitor-tasks", {
             what: "restore the rail's visibility",
             fn: () => h.ev(restoreLocalStorage(RAIL_VISIBLE_KEY, ctx.prevRail)),
@@ -3098,6 +3105,11 @@ async function surfaceHeadersArrange(h) {
         writeFileSync(join(dir, "policy.go"), "package retry\n\nfunc Budget() int {\n    return 8\n}\n");
         git(dir, "add", ".");
         git(dir, "commit", "-q", "-m", "raise the budget");
+        // Diff shows Fetch only for a repo with a remote; a local bare one is enough and never touches the network
+        const origin = join(ctx.root, "origin.git");
+        git(ctx.root, "init", "-q", "--bare", origin);
+        git(dir, "remote", "add", "origin", origin);
+        git(dir, "push", "-q", "origin", "main");
         await h.rpc("createproject", { name: ctx.name, path: dir });
         ctx.madeProject = true;
 
@@ -3956,8 +3968,10 @@ export const cockpitRailTooltip = {
         }
         await lookHover(h, glyph.x, glyph.y);
         const tip = await lookEval(h, `
-            const tip = () => [...document.body.querySelectorAll("div")].find(
-                (d) => flat(d) === "Events" && d.style.opacity === "1" && !${LOOK_EVENTS_RAIL}?.contains(d)
+            // the strip's title draws in the title tooltip, which sets no inline opacity; the Tooltip primitive
+            // fades by it, so only an explicit 0 means hidden
+            const tip = () => [...document.querySelectorAll("[data-tooltip]")].find(
+                (d) => flat(d) === "Events" && d.style.opacity !== "0" && d.checkVisibility() && !${LOOK_EVENTS_RAIL}?.contains(d)
             );
             await until(() => tip() != null, 2000);
             await nap(200);
@@ -4304,13 +4318,14 @@ export const uiDrift = {
 
         // the cockpit's idle and backgrounded lanes and an agent card: their hovers sit on the surface ramp
         for (const [name, path, props] of [
-            ["IdleSection", "app/view/agents/idlesection.tsx", `{ agents: ${JSON.stringify([DRIFT_AGENTS[0]])}, onOpen() {} }`],
-            ["BackgroundedSection", "app/view/agents/backgroundedsection.tsx", `{ agents: ${JSON.stringify([DRIFT_AGENTS[1]])}, onRestore() {} }`],
+            ["IdleSection", "app/view/agents/idlesection.tsx", `{ agents: ${JSON.stringify([DRIFT_AGENTS[0]])}, nowAtom: J.atom(Date.now()), onOpen() {} }`],
+            ["BackgroundedSection", "app/view/agents/backgroundedsection.tsx", `{ agents: ${JSON.stringify([DRIFT_AGENTS[1]])}, nowAtom: J.atom(Date.now()), onRestore() {} }`],
         ]) {
             const label = name.toLowerCase();
             await run(label, async () => {
                 const s = await lookEval(h, `
                     unmountAll();
+                    const J = await dep("jotai");
                     const host = await mount(${JSON.stringify(path)}, ${JSON.stringify(name)}, ${props}, { style: "width:560px" });
                     // the section header is a clickable div
                     host.querySelector(".cursor-pointer")?.click();

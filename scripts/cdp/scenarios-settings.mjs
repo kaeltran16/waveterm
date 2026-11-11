@@ -2891,7 +2891,10 @@ const TOKEN_FIT = `(() => {
     const cs = getComputedStyle(input);
     const ctx = document.createElement('canvas').getContext('2d');
     ctx.font = cs.font;
-    const room = input.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    // the content box from the box model: WebView2 reports an input's clientWidth without its padding, so
+    // clientWidth minus the padding counted it twice
+    const px = (k) => parseFloat(cs[k]);
+    const room = input.offsetWidth - px('borderLeftWidth') - px('borderRightWidth') - px('paddingLeft') - px('paddingRight');
     return { room: Math.round(room), texts: ${JSON.stringify(TOKEN_PLACEHOLDERS)}.map((t) => Math.ceil(ctx.measureText(t).width)) };
 })()`;
 

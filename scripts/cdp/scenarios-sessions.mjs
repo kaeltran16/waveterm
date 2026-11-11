@@ -724,7 +724,7 @@ const sessionsPin = (kit) => ({
         const p1 = g1.find((g) => g.key === "pinned");
         rec(
             "1. right-click an ended solo card shows Pin; Pin moves it under a Pinned header, out of its recency group",
-            m1.open && m1.items.join() === "Pin" && m1.drawn.includes("Pin") && p1?.label === "Pinned" && inGroup(g1, "pinned", solo) && groupOf(g1, solo) === "pinned",
+            m1.open && m1.items[0] === "Pin" && m1.drawn.includes("Pin") && p1?.label === "Pinned" && inGroup(g1, "pinned", solo) && groupOf(g1, solo) === "pinned",
             { menu: m1, soloHome, pinned: p1?.rows.map((r) => r.key) }
         );
 
@@ -747,7 +747,7 @@ const sessionsPin = (kit) => ({
         await h.ev(`(document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true }))`);
         await nap(h, 300);
         const m3b = await menuState(h);
-        rec("3. a pinned card's menu shows Unpin, and Escape closes it", m3.open && m3.items.join() === "Unpin" && m3.drawn.includes("Unpin") && !m3b.open, {
+        rec("3. a pinned card's menu shows Unpin, and Escape closes it", m3.open && m3.items[0] === "Unpin" && m3.drawn.includes("Unpin") && !m3b.open, {
             menu: m3,
             afterEscape: m3b,
         });

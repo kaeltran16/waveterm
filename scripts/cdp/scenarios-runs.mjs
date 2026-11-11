@@ -83,6 +83,7 @@ import {
     waitForProjectInConfig,
     waveService,
 } from "./scenarios-shared.mjs";
+import { agentPage } from "./agent-page-fixtures.mjs";
 import {
     arrangeLiveRuns,
     arrangePhase2Runs,
@@ -2126,10 +2127,7 @@ export const runCost = {
             );
             if (!open) return { opened: false };
             open.click();
-            const line = () =>
-                [...(document.querySelector("[data-dag-modal-kind]")?.querySelectorAll("div") ?? [])].find(
-                    (d) => d.children.length === 0 && text(d).startsWith("parallelism")
-                );
+            const line = () => document.querySelector("[data-dag-modal-kind] [data-dag-progress]")?.parentElement ?? null;
             const shown = await until(() => text(line()).includes("≈"));
             return { opened: !!document.querySelector("[data-dag-modal-kind]"), shown, line: text(line()) };
         })()`);
@@ -2265,14 +2263,12 @@ export const dagObservability = {
             }
             const root = document.querySelector("[data-run-sheet]");
             if (!root) return null;
-            const nextEl = [...root.querySelectorAll("div")].find(
-                (d) => d.children.length === 1 && d.firstElementChild.textContent === "next: "
-            );
+            const nextEl = root.querySelector("[data-run-sheet-next]");
             return {
                 strip: root.querySelector("[role=img]")?.getAttribute("aria-label") ?? null,
                 rows: root.querySelectorAll("[data-run-sheet-row]").length,
                 verb: root.querySelector("[data-run-sheet-verb]")?.textContent.trim() ?? null,
-                next: nextEl ? nextEl.textContent.slice("next: ".length).trim() : null,
+                next: nextEl ? nextEl.textContent.trim() : null,
             };
         })()`);
         rec(
@@ -4022,8 +4018,16 @@ export const dagReviewerSession = {
         });
 
         await h.ev(`[...(${drsBox("Reviewer")}?.querySelectorAll("button") ?? [])].find((b) => /open in agent/i.test(b.innerText || ""))?.click()`);
-        const focused = await polishWaitFor(h, `${DRS_HEADER}.includes(${JSON.stringify(DRS_REVIEWER.name)})`, 5000);
+        // the header names a task's worker and reviewer alike by the task, so the focus is read from the store
+        const focusId = () => agentPage(h, `return globalStore.get(agentsModel().focusIdAtom);`);
+        let focus = null;
+        for (let waited = 0; waited < 5000 && focus !== DRS_REVIEWER.id; waited += 250) {
+            focus = await focusId();
+            if (focus !== DRS_REVIEWER.id) await polishNap(250);
+        }
+        const focused = focus === DRS_REVIEWER.id;
         const landed = await h.ev(`({ modalGone: ${DRS_MODAL} == null, header: ${DRS_HEADER} })`);
+        landed.focus = focus;
         await h.shot("cdp-shots/dag-reviewer-session-opened.png");
         steps.push({
             step: "2. the reviewer's Open in Agent closes the DAG and focuses the reviewer, not the worker",
@@ -5906,7 +5910,7 @@ export const autonomousRuns = {
             const models = [...(${NEW_RUN}?.querySelectorAll('span') ?? [])].find((s) => s.textContent.trim() === 'Models')?.parentElement;
             return {
                 pressed: [...(group?.querySelectorAll('button[aria-pressed="true"]') ?? [])].map((b) => b.textContent.trim()),
-                underModels: models != null && models.nextElementSibling === group?.parentElement,
+                underModels: models != null && group != null && !!models.nextElementSibling?.contains(group),
                 footer: ${flatOf(NEW_RUN_FOOTER)},
             };
         })()`);
@@ -6391,7 +6395,7 @@ const PLAN_REVIEW_TREE_ROWS = `(async () => {
     const flat = (el) => (el?.textContent ?? '').replace(/\\s+/g, ' ').trim();
     const tree = () => document.querySelector('[data-agent-tree]');
     const folds = () => [...(tree()?.querySelectorAll('div.cursor-pointer') ?? [])].filter(
-        (d) => /\\d+ reviews?$/.test(flat(d)) && d.querySelector('.lucide-chevron-right')
+        (d) => /\\d+ (plan )?reviews?$/.test(flat(d)) && d.querySelector('.lucide-chevron-right')
     );
     const titles = () => [...(tree()?.querySelectorAll('div') ?? [])].filter(
         (d) => d.children.length === 0 && flat(d).startsWith(${JSON.stringify(PLAN_REVIEW_TITLE)})
@@ -6655,8 +6659,9 @@ async function planReviewEnded(h, ctx, rec) {
     ctx.dagId = g?.oid ?? g?.id;
     const n = g?.tasks?.length ?? 0;
     let seeded = "ok";
+    let nudge = null;
     try {
-        await seedDag(
+        nudge = await seedDag(
             h,
             ctx,
             (dag) => {
@@ -6669,7 +6674,10 @@ async function planReviewEnded(h, ctx, rec) {
         seeded = String(e?.message ?? e);
     }
     const graph = (await h.ev(`!!${RV_MODAL}`)) ? { ok: true } : await openRunGraph(h, ctx);
-    await polishWaitFor(h, `(${RV_MODAL}?.querySelector("[data-dag-progress]")?.textContent ?? "").includes("skipped")`, 10000);
+    const skippedShown = `(${RV_MODAL}?.querySelector("[data-dag-progress]")?.textContent ?? "").includes("skipped")`;
+    for (let i = 0; i < 5 && !(await polishWaitFor(h, skippedShown, 2000)); i++) {
+        if (nudge) await nudge().catch(() => {});
+    }
     const ended = await h.ev(`(() => {
         const flat = (el) => (el?.textContent ?? "").replace(/\\s+/g, " ").trim();
         return {
@@ -7166,14 +7174,14 @@ export const taskDetail = {
             const scroller = ${LOOK_BAND}.querySelector('[class*="max-h-[420px]"]');
             if (scroller) scroller.scrollTop = 0;
             button(${LOOK_BAND}, /^→ archived$/)?.click();
-            const ok = await until(() => /Mark this task archived\\?/.test(flat(dialog())), 2000);
+            const ok = await until(() => /Mark this record archived\\?/.test(flat(dialog())), 2000);
             await nap(400);
             return { ok, confirm: button(dialog(), /^Yes, archived/) != null, floor: floorWalk([dialog()]) };
         `);
         await h.shot(lookShot("task-detail-archive-confirm"));
         const cancelled = await lookEval(h, `
             button(dialog(), /^Cancel/)?.click();
-            return until(() => !/Mark this task archived\\?/.test(flat(dialog())), 2000);
+            return until(() => !/Mark this record archived\\?/.test(flat(dialog())), 2000);
         `);
         const status = (await h.rpc("getdossier", { dossierid: LOOK_RECORD }))?.status ?? null;
         rec(

@@ -14,6 +14,7 @@ import {
     LOOK_TOOLTIP_STYLE,
     MIN_FONT_PX,
     MODELS_VIEWPORT,
+    NOTES_CLIP_RESTORE,
     OBS_WIDE,
     PALETTE,
     PALETTE_INPUT,
@@ -37,6 +38,7 @@ import {
     lookHover,
     lookOpen,
     lookShot,
+    notesClipStub,
     openCanvasTerminal,
     openPalette,
     paintEval,
@@ -56,29 +58,43 @@ import {
     waitForProjectInConfig,
     waveService,
 } from "./scenarios-shared.mjs";
+import { closeTabs, makeTab } from "./agent-page-fixtures.mjs";
 import { arrangeLiveRuns, injectLiveAsks, LIVE_IDS, LIVE_TASKS_A, liveRoster, publishLiveEvents, setLiveRoster, teardownLiveRuns } from "./live-run-fixture.mjs";
 
 // --- terminal palette follows the cockpit theme -------------------------------------------------
-// Asserts against window.term (term.tsx assigns it) + the resolved custom properties, NOT pixels:
+// Asserts against the shown terminal's xterm options + the resolved custom properties, NOT pixels:
 // reading the applied xterm theme is exact, where a screenshot sample is not. The shots are for a
 // human to judge whether Claude Code's own diff colors read well, which no assertion can decide.
+// The TermWrap is reached through its view's React fiber, as agent-start-failed does: window.term is gone.
+const SHOWN_TERM_THEME = `(() => {
+    const view = [...document.querySelectorAll("[data-term-view]")].find((v) => v.checkVisibility());
+    const key = view && Object.keys(view).find((k) => k.startsWith("__reactFiber$"));
+    for (let f = key ? view[key] : null; f; f = f.return) {
+        const tw = f.memoizedProps?.model?.termRef?.current;
+        if (tw?.terminal) return tw.terminal.options.theme ?? null;
+    }
+    return null;
+})()`;
 export const terminalTheme = {
     name: "terminal-theme",
     surface: "agent",
     async arrange(h) {
-        // step 4 reads window.term, which an HMR can leave pointing at a detached TermWrap — see freshBoot
-        return { booted: await freshBoot(h) };
+        const term = await openOwnTerminal(h, "verify terminal-theme").catch((e) => ({ error: String(e?.message ?? e) }));
+        // a fresh boot, so the shown terminal's theme updater is the mounted one — see freshBoot
+        const booted = await freshBoot(h);
+        const shown = term.error == null && (await showOwnTerminal(h, term));
+        return { term, booted, shown };
     },
     async assert(h, ctx) {
         const steps = [];
         steps.push({
-            step: "0. fresh boot, so window.term is the mounted terminal",
-            ok: ctx.booted === true,
-            detail: `reloaded=${ctx.booted}`,
+            step: "0. fresh boot, and a terminal of its own is shown",
+            ok: ctx.booted === true && ctx.shown === true,
+            detail: `reloaded=${ctx.booted} terminal shown=${ctx.shown}${ctx.term.error ? ` (${ctx.term.error})` : ""}`,
         });
         const readVar = (name) =>
             h.ev(`getComputedStyle(document.documentElement).getPropertyValue(${JSON.stringify(name)}).trim()`);
-        const readTheme = (field) => h.ev(`window.term?.terminal?.options?.theme?.${field} ?? null`);
+        const readTheme = (field) => h.ev(`${SHOWN_TERM_THEME}?.${field} ?? null`);
         // Scoped to the theme grid: a document-wide button query picks the app bar's global search
         // button instead of the preset the name belongs to (see cdp-scenario-unscoped-button-query).
         const pickPreset = (name) =>
@@ -127,7 +143,8 @@ export const terminalTheme = {
         await h.shot("cdp-shots/terminal-theme-monokai.png");
         return steps;
     },
-    async teardown(h) {
+    async teardown(h, ctx) {
+        await closeOwnTerminal(h, ctx.term, "terminal-theme");
         // restore the default preset so a later scenario is not judged against Monokai
         await h.goto("settings");
         await h.ev(`(() => {
@@ -181,9 +198,8 @@ const focusTui = async (h) => {
 //     consumption probe below is valid only when the dispatcher registered first. Boot registers it;
 //     an HMR of a keybinding file re-registers it at the BACK of the queue, after the probe, and every
 //     "consumed" step then reports a leak that is not real.
-//  2. window.term freshness. term.tsx assigns window.term on mount. After an HMR the global can point
-//     at a DETACHED TermWrap whose TermThemeUpdater is gone, so its options.theme never changes again
-//     and "switching preset re-skins the TUI" fails against a terminal that is no longer on screen.
+//  2. Theme freshness. After an HMR a TermWrap can outlive its TermThemeUpdater, so its options.theme
+//     never changes again and "switching preset re-skins the TUI" fails against a stale terminal.
 //
 // Both failure modes are safe in direction (no false PASS) but waste a run, so pay the reload.
 const freshBoot = async (h) => {
@@ -198,6 +214,39 @@ const freshBoot = async (h) => {
     }
     return false;
 };
+
+// A shell terminal of the page's own workspace, so a scenario that drives a TUI has one even in a fresh store
+// (final-verify's), where no agent is running. The tab survives a reload; showOwnTerminal puts it in the focus pane.
+const OWN_TERM_WAIT_MS = 15_000;
+const VISIBLE_XTERM = `[...document.querySelectorAll(".xterm-screen")].find((x) => x.checkVisibility())`;
+async function openOwnTerminal(h, label) {
+    const bootTab = String(await h.ev("window.TabRpcClient.routeId")).replace(/^tab:/, "");
+    const wslist = await h.rpc("workspacelist", null);
+    const ws = wslist.find((w) => (w.workspacedata?.tabids ?? []).includes(bootTab)) ?? wslist[0];
+    const term = { workspaceId: ws.workspacedata.oid };
+    term.tabId = await waveService(h, "workspace", "CreateTab", [term.workspaceId, label, false]);
+    const tab = await waveService(h, "object", "GetObject", [`tab:${term.tabId}`]);
+    term.blockId = tab?.blockids?.[0];
+    if (!term.blockId) throw new Error("the new tab has no block");
+    await h.rpc("setmeta", { oref: `block:${term.blockId}`, meta: { view: "term", controller: "shell", "cmd:cwd": "~" } });
+    return term;
+}
+async function showOwnTerminal(h, term) {
+    if (term == null) return false;
+    await h.goto("agent");
+    const row = `document.querySelector('[data-tree-terminal="${term.tabId}"]')`;
+    await polishWaitFor(h, `!!${row}`, OWN_TERM_WAIT_MS);
+    await h.ev(`${row}?.click()`);
+    return polishWaitFor(h, `!!${VISIBLE_XTERM}`, OWN_TERM_WAIT_MS);
+}
+async function closeOwnTerminal(h, term, scenario) {
+    if (term?.tabId == null) return;
+    try {
+        await waveService(h, "workspace", "CloseTab", [term.workspaceId, term.tabId, false]);
+    } catch (e) {
+        console.error(`${scenario} teardown: closing ${term.tabId} failed: ${e?.message ?? e}`);
+    }
+}
 
 const installProbe = (h) =>
     h.ev(`(() => {
@@ -223,10 +272,12 @@ export const tuiLeader = {
     name: "tui-leader",
     surface: "agent",
     async arrange(h) {
+        const term = await openOwnTerminal(h, "verify tui-leader").catch(() => null);
         const booted = await freshBoot(h);
+        await showOwnTerminal(h, term);
         const focused = await focusTui(h);
         await installProbe(h);
-        return { booted, focused };
+        return { term, booted, focused };
     },
     async assert(h, ctx) {
         const steps = [];
@@ -299,7 +350,8 @@ export const tuiLeader = {
         await h.shot("cdp-shots/tui-leader.png");
         return steps;
     },
-    async teardown(h) {
+    async teardown(h, ctx) {
+        await closeOwnTerminal(h, ctx.term, "tui-leader");
         await h.goto("cockpit");
     },
 };
@@ -308,10 +360,12 @@ export const tuiFullscreen = {
     name: "tui-fullscreen",
     surface: "agent",
     async arrange(h) {
+        const term = await openOwnTerminal(h, "verify tui-fullscreen").catch(() => null);
         await freshBoot(h);
+        await showOwnTerminal(h, term);
         const focused = await focusTui(h);
         await installProbe(h);
-        return { focused };
+        return { term, focused };
     },
     async assert(h, ctx) {
         const steps = [];
@@ -347,7 +401,8 @@ export const tuiFullscreen = {
         });
         return steps;
     },
-    async teardown(h) {
+    async teardown(h, ctx) {
+        await closeOwnTerminal(h, ctx.term, "tui-fullscreen");
         await h.goto("cockpit");
     },
 };
@@ -522,10 +577,13 @@ async function primitiveSteps(h, ctx, rec, styles, take) {
     // the actions strip shows on the block's hover; force it so the shot shows the button
     await primitiveForceHover(h, CODEBLOCK, true);
     await h.shot("cdp-shots/element-primitives-copy.png");
+    await h.ev(notesClipStub(false));
     await h.ev(`${COPY}?.click()`);
     const copied = await polishWaitFor(h, `!!${COPY}?.querySelector('i.fa-check')`, 1500);
+    await h.ev(NOTES_CLIP_RESTORE);
+    // the cross-fade holds the outgoing icon beside the check for a moment, so read the check itself
     await take("copy.button.copied", COPY);
-    await take("copy.icon.copied", `${COPY}?.querySelector('i')`);
+    await take("copy.icon.copied", `${COPY}?.querySelector('i.fa-check')`);
     const success = await h.ev(`(() => {
         const probe = document.createElement('i');
         probe.style.color = 'var(--color-success)';
@@ -3404,21 +3462,11 @@ export const termLinkTooltip = {
     name: "term-link-tooltip",
     surface: "agent",
     async arrange(h) {
-        const ctx = {};
         try {
-            const bootTab = String(await h.ev("window.TabRpcClient.routeId")).replace(/^tab:/, "");
-            const wslist = await h.rpc("workspacelist", null);
-            const ws = wslist.find((w) => (w.workspacedata?.tabids ?? []).includes(bootTab)) ?? wslist[0];
-            ctx.workspaceId = ws.workspacedata.oid;
-            ctx.tabId = await waveService(h, "workspace", "CreateTab", [ctx.workspaceId, LOOK_TERM_LABEL, false]);
-            const tab = await waveService(h, "object", "GetObject", [`tab:${ctx.tabId}`]);
-            ctx.blockId = tab?.blockids?.[0];
-            if (!ctx.blockId) throw new Error("the new tab has no block");
-            await h.rpc("setmeta", { oref: `block:${ctx.blockId}`, meta: { view: "term", controller: "shell", "cmd:cwd": "~" } });
+            return await openOwnTerminal(h, LOOK_TERM_LABEL);
         } catch (e) {
-            ctx.launchError = String(e?.message ?? e);
+            return { launchError: String(e?.message ?? e) };
         }
-        return ctx;
     },
     async assert(h, ctx) {
         const step = "hovering a URL the terminal printed shows the open-link tooltip";
@@ -3461,13 +3509,7 @@ export const termLinkTooltip = {
     },
     async teardown(h, ctx) {
         await lookHover(h, 1, 1);
-        if (ctx.tabId) {
-            try {
-                await waveService(h, "workspace", "CloseTab", [ctx.workspaceId, ctx.tabId, false]);
-            } catch (e) {
-                console.error(`term-link-tooltip teardown: closing ${ctx.tabId} failed: ${e?.message ?? e}`);
-            }
-        }
+        await closeOwnTerminal(h, ctx, "term-link-tooltip");
         await h.goto("cockpit");
     },
 };
@@ -3589,6 +3631,12 @@ export const quickRunDone = {
             // the worker has completed the run: what `wsh jarvis complete` leaves on it
             const stored = await fstWriteRun(h, ctx.runId, (run) => ({ ...run, status: "done", completedts: Date.now() }));
             ctx.runStatus = stored?.status;
+            // the Agent surface mounts the focused agent's terminal, whose controller resync fails on a made-up block
+            // and reads failed to start; a real block with no controller resyncs without starting anything
+            const blockIds = {};
+            for (const id of [QUICK_DONE_ID, QUICK_IDLE_ID]) {
+                blockIds[id] = (await makeTab(h, ctx, { label: `verify-${id}`, blockMeta: { view: "term", controller: null } })).blockId;
+            }
             const now = Date.now();
             const idle = (id, name, extra) => ({
                 id,
@@ -3599,7 +3647,7 @@ export const quickRunDone = {
                 agent: "claude",
                 model: "opus",
                 idleSince: now - 60_000,
-                blockId: `${id}-blk`,
+                blockId: blockIds[id],
                 ...extra,
             });
             mkdirSync(new URL(".", TREE_RAIL_FIXTURE), { recursive: true });
@@ -3691,6 +3739,7 @@ export const quickRunDone = {
         return steps;
     },
     async teardown(h, ctx) {
+        await closeTabs(h, ctx);
         // a done run cannot be cancelled, so teardown skips the cancel and only deletes the channel
         await teardownFixtureRun(h, { ...ctx, runId: undefined }, "quick-run-done");
     },
@@ -3702,7 +3751,8 @@ export const quickRunDone = {
 // real RemoteHandCommand, which refuses: the dev store has no remote setup, and the fixture tab is no live agent.
 const REMOTE_HAND_ID = "fx-remote-hand";
 // long enough to truncate, so the pills beside it are under pressure and must keep their own width
-const REMOTE_HAND_NAME = "phone candidate reviewing the council multi-agent expert panel design and every report it attaches";
+const REMOTE_HAND_NAME =
+    "phone candidate reviewing the council multi-agent expert panel design and every report it attaches, then each reviewer's follow-up notes on the panel";
 const REMOTE_HAND_BTN = `document.querySelector('[data-agent-header] [data-hand-to-phone]')`;
 const REMOTE_HAND_TOAST = `document.querySelector('[data-notification-toast="error"]')`;
 // the hand-over waits up to the switch's 15 s timeout before it fails
@@ -3754,6 +3804,8 @@ export const remoteHand = {
     async arrange(h) {
         const ctx = {};
         try {
+            // a real block with no controller, so the focused agent's terminal resyncs instead of reading failed to start
+            const { blockId } = await makeTab(h, ctx, { label: `verify-${REMOTE_HAND_ID}`, blockMeta: { view: "term", controller: null } });
             mkdirSync(new URL(".", TREE_RAIL_FIXTURE), { recursive: true });
             writeFileSync(
                 TREE_RAIL_FIXTURE,
@@ -3768,7 +3820,7 @@ export const remoteHand = {
                             agent: "claude",
                             model: "opus",
                             idleSince: Date.now() - 60_000,
-                            blockId: `${REMOTE_HAND_ID}-blk`,
+                            blockId,
                         },
                     ],
                     null,
@@ -3844,6 +3896,7 @@ export const remoteHand = {
     },
     async teardown(h, ctx) {
         await remoteHandReload(h).catch(() => {});
+        await closeTabs(h, ctx);
         if (ctx.wroteFixture) rmSync(TREE_RAIL_FIXTURE, { force: true });
         await h.reload();
         await h.goto("cockpit");

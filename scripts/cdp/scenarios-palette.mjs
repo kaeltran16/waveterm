@@ -1397,6 +1397,15 @@ const LEAD_PICKER_LIST = `(() => {
     return { rows, empty };
 })()`;
 
+// a fresh store (final-verify's) has no harness preference, so New run has no lead and Start run refuses. Left set:
+// the server takes runtime and model only as a non-empty pair, so it cannot be cleared again, and a store that already
+// had one is never touched
+const FALLBACK_ROUTE = { "harness:preferredruntime": "claude", "harness:preferredmodel": "" };
+async function ensurePreferredRoute(h) {
+    const settings = (await h.rpc("getfullconfig", null))?.settings ?? {};
+    if (!settings["harness:preferredruntime"]) await h.rpc("setconfig", FALLBACK_ROUTE);
+}
+
 async function openNewRunFace(h) {
     await h.ev(`document.querySelector('[data-new-run]')?.click()`);
     if (!(await polishWaitFor(h, `!!${NEW_RUN}`, 5000))) return null;
@@ -1423,6 +1432,7 @@ export const newRunDefaults = {
             const ch = await h.rpc("createchannel", { name: NEW_RUN_DEFAULTS_PROJECT, projectpath: cwd });
             ctx.channelId = ch.oid;
             await h.rpc("setchannelprofile", { channelid: ctx.channelId, override: NEW_RUN_DEFAULTS_PROFILE });
+            await ensurePreferredRoute(h);
             const settings = (await h.rpc("getfullconfig", null))?.settings ?? {};
             ctx.preferredModel = settings["harness:preferredmodel"] || "default";
             // + Run opens on the most recent project
@@ -1668,6 +1678,7 @@ export const newRunDesign = {
             // the project's own channel, so a launch resolves it rather than minting one
             const ch = await h.rpc("createchannel", { name: NEW_RUN_DESIGN_PROJECT, projectpath: cwd });
             ctx.channelId = ch.oid;
+            await ensurePreferredRoute(h);
             // a launch writes the recent-projects list; put the developer's own back in teardown
             ctx.prevRecent = await h.ev(`localStorage.getItem(${JSON.stringify(RECENT_PROJECTS_KEY)})`);
             await polishReload(h);

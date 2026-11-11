@@ -29,10 +29,15 @@ export function removeCodeRepo(dir) {
     rmSync(dir, { recursive: true, force: true });
 }
 
-// opens `dir` through the picker's path input, as code-stale-bar does; true once the tree shows a row
+// opens `dir` through the picker's path input, as code-stale-bar does; true once it is the Code project and the tree
+// shows a row. A row alone is not enough: the previous folder's rows stay up until the new tree loads
 export async function openFolderInCode(h, dir) {
     await lookOpen(h, "code");
     return lookEval(h, `
+        const { globalStore } = await mod("app/store/jotaiStore.ts");
+        const { codeProjectAtom } = await mod("app/view/code/codestore.ts");
+        const norm = (p) => (p ?? "").replace(/\\\\/g, "/").replace(/\\/+$/, "").toLowerCase();
+        const isDir = () => norm(globalStore.get(codeProjectAtom)?.path) === norm(${JSON.stringify(dir)});
         document.querySelector("[data-code-project-picker]")?.click();
         await until(() => document.querySelector("[data-code-picker-path] input") != null, 4000);
         const input = document.querySelector("[data-code-picker-path] input");
@@ -41,7 +46,7 @@ export async function openFolderInCode(h, dir) {
         input.dispatchEvent(new Event("input", { bubbles: true }));
         await nap(100); // let React commit the typed value before the submit reads it
         document.querySelector("[data-code-picker-path]")?.requestSubmit();
-        return until(() => document.querySelector('[data-code-tree] [role="treeitem"]') != null, 8000);
+        return until(() => isDir() && document.querySelector('[data-code-tree] [role="treeitem"]') != null, 8000);
     `);
 }
 
