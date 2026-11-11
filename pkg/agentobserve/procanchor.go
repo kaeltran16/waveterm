@@ -59,6 +59,30 @@ func isClaudeProc(name string) bool {
 	return name == "claude" || name == "claude.exe"
 }
 
+// claude sets CLAUDE_PID to its own pid for every process it starts, hooks and Bash commands alike, so a
+// claude process carries it in its own environment only when another claude session started it
+const claudePidEnvVar = "CLAUDE_PID="
+
+// NestedClaude reports whether the claude process pid was started from inside another claude session (a
+// headless `claude -p` run from an agent's Bash tool). Its own environment is read, not the caller's: claude
+// rewrites CLAUDE_PID for each child. A process that cannot be read counts as not nested.
+func NestedClaude(pid int32) bool {
+	p, err := process.NewProcess(pid)
+	if err != nil {
+		return false
+	}
+	environ, err := p.Environ()
+	if err != nil {
+		return false
+	}
+	for _, kv := range environ {
+		if strings.HasPrefix(kv, claudePidEnvVar) && len(kv) > len(claudePidEnvVar) {
+			return true
+		}
+	}
+	return false
+}
+
 // EnumerateAgents returns every live claude agent process (helpers excluded). Per-process introspection
 // errors are skipped rather than failing the sweep — a process may exit mid-enumeration, and a pilot
 // sweep must be resilient. Reading Environ/Cwd may fail for some processes on Windows; such a process

@@ -183,7 +183,26 @@ func grabAndRemoveEnvVars() error {
 	os.Unsetenv("WAVETERM_JWT")
 	os.Unsetenv("WAVETERM_VERSION")
 
+	// a dev app started from a claude session's Bash inherits that session's vars; a block's agent is a top-level
+	// session, and an inherited CLAUDE_PID would mark it nested so its hooks skip (wsh agent-hook)
+	for _, name := range claudeSessionEnvVars {
+		os.Unsetenv(name)
+	}
+
 	return nil
+}
+
+// the vars claude sets for the processes it starts
+var claudeSessionEnvVars = []string{
+	"CLAUDECODE",
+	"CLAUDE_PID",
+	"CLAUDE_CODE_CHILD_SESSION",
+	"CLAUDE_CODE_SESSION_ID",
+	"CLAUDE_CODE_ENTRYPOINT",
+	"CLAUDE_CODE_EXECPATH",
+	"CLAUDE_CODE_MESSAGING_SOCKET",
+	"CLAUDE_CODE_MESSAGING_TOKEN",
+	"CLAUDE_CODE_SESSION_ATTENDED",
 }
 
 func clearTempFiles() error {
