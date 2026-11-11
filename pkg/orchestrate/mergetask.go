@@ -56,13 +56,36 @@ const mergeFailureLimit = 3
 // tree collide on git's index lock. Nothing inside re-enters the lock (it is not reentrant). The tree is
 // removed after the lock is released.
 func MergeTask(ctx context.Context, channelID, ownerRunID, taskID string) error {
-	return mergeTaskEntry(ctx, channelID, ownerRunID, taskID, false)
+	return landForCaller(ctx, channelID, ownerRunID, taskID, "dag merge", func(ctx context.Context) error {
+		return mergeTaskEntry(ctx, channelID, ownerRunID, taskID, false)
+	})
+}
+
+// landForCaller runs a lead's merge or --continue on a context of its own. Both wait on the dag lock, which a tick
+// can hold for minutes (65ce3ef3: 2m37s behind slow git worktree calls), past the caller's RPC deadline; on the
+// caller's context, a call that had already claimed the project then failed the moment it got the lock, leaving the
+// task as it was, every retry refused as busy meanwhile, and nobody told. Bounded like a tick, so a hung git cannot
+// hold the claim forever. A failure after the caller stopped waiting has no reader but the lead, so it wakes it.
+func landForCaller(ctx context.Context, channelID, ownerRunID, taskID, command string, land func(context.Context) error) error {
+	lctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), scheduleTickTimeout)
+	defer cancel()
+	err := land(lctx)
+	if err != nil && ctx.Err() != nil {
+		PostWake(lctx, channelID, ownerRunID, landFailedWake(command, taskID, err))
+	}
+	return err
 }
 
 // ContinueMerge is `dag merge <task> --continue`, the lead's way out of the two landing failures it is
 // woken for: it commits a squash merge the caller resolved after a conflict, or re-runs Verify at the
 // project's HEAD after the caller committed a fix. Either way the next merge waits for that Verify.
 func ContinueMerge(ctx context.Context, channelID, ownerRunID, taskID string) error {
+	return landForCaller(ctx, channelID, ownerRunID, taskID, "dag merge --continue", func(ctx context.Context) error {
+		return continueTask(ctx, channelID, ownerRunID, taskID)
+	})
+}
+
+func continueTask(ctx context.Context, channelID, ownerRunID, taskID string) error {
 	if channelID == "" || ownerRunID == "" || taskID == "" {
 		return fmt.Errorf("channelid, runid and taskid are required")
 	}

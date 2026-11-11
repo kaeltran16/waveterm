@@ -1090,3 +1090,46 @@ func TestReportLineShowsRestartsOnlyWhenThereAreSome(t *testing.T) {
 		t.Fatalf("the report line names the restarts, got %q", line)
 	}
 }
+
+// 65ce3ef3: a --continue that timed out left the lead unable to tell whether it registered, so it re-ran it
+func TestDagMergeTimedOutSaysWhetherItTookEffect(t *testing.T) {
+	task := func(state string, merged bool) *waveobj.TaskGroup {
+		return &waveobj.TaskGroup{Tasks: []waveobj.TaskNode{{ID: "t-20", State: state, Merged: merged}}}
+	}
+	for _, tc := range []struct {
+		name    string
+		cont    bool
+		dag     *waveobj.TaskGroup
+		readErr error
+		wantErr bool
+		want    []string
+	}{
+		{name: "a continue that took effect", cont: true, dag: task(orchestrate.TaskState_Verifying, true),
+			want: []string{"took effect: task t-20 is verifying", "do not re-run"}},
+		{name: "a continue still waiting", cont: true, dag: task(orchestrate.TaskState_VerifyFailed, true), wantErr: true,
+			want: []string{"still verify-failed", "finishes the request then", "waking you if it fails", "wsh jarvis dag status t-20"}},
+		{name: "a merge that took effect", dag: task(orchestrate.TaskState_Verifying, true),
+			want: []string{"dag merge t-20 got no reply", "took effect"}},
+		{name: "a merge still waiting", dag: task(orchestrate.TaskState_Done, false), wantErr: true,
+			want: []string{"still done", "rather than re-running it"}},
+		{name: "a re-read that failed", cont: true, readErr: errors.New(rpcTimeoutText), wantErr: true,
+			want: []string{"reading task t-20 again failed", "wakes you if it fails", "wsh jarvis dag status t-20"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stubWavesrv(t)
+			readRunDag = func(string, string) (*waveobj.TaskGroup, error) { return tc.dag, tc.readErr }
+			out, err := dagMergeTimedOut(wshrpc.CommandDagMergeData{ChannelId: "ch", RunId: "r", TaskId: "t-20"}, tc.cont, errors.New(rpcTimeoutText))
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("want error %v, got out %q err %v", tc.wantErr, out, err)
+			}
+			if err != nil {
+				out = err.Error()
+			}
+			for _, w := range tc.want {
+				if !strings.Contains(out, w) {
+					t.Fatalf("want %q in:\n%s", w, out)
+				}
+			}
+		})
+	}
+}

@@ -53,6 +53,10 @@ func claimProject(projectPath, dagID, taskID string) (*landing, error) {
 	landings.Lock()
 	defer landings.Unlock()
 	if cur := landings.byProject[key]; cur != nil {
+		// the same task: often an earlier merge or --continue of it whose caller timed out while it waits on the dag lock
+		if cur.dagID == dagID && cur.taskID == taskID {
+			return nil, fmt.Errorf("%w: a merge, --continue or Verify of task %s is already in progress; do not re-run it, %s shows when it moves on", errProjectBusy, taskID, taskStatusCmd(taskID))
+		}
 		if cur.dagID == dagID {
 			return nil, fmt.Errorf("%w: task %s is merging or verifying", errProjectBusy, cur.taskID)
 		}
