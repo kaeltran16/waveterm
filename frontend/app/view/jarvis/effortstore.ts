@@ -262,6 +262,45 @@ export async function addChunkAt(oref: string, label: string, stage: string, at?
 export async function editNote(oref: string, chunk: string, at: number, ts: number, text: string): Promise<void> {
     await mutateEffort(oref, [{ op: "editNote", chunk, at, notets: ts, note: text.trim() }]);
 }
-export async function removeNote(oref: string, chunk: string, at: number, ts: number): Promise<void> {
-    await mutateEffort(oref, [{ op: "removeNote", chunk, at, notets: ts }]);
+
+// A note's 1-based place in its chunk's trail, as the trail is now. Only a removal moves a note (an append
+// lands after it, an edit keeps it), so it sits at or before where it was read: the nearest note there with
+// its stamp and text is it. Falls back to `at` when none matches, which the server then refuses as stale.
+export function currentNoteAt(notes: EffortNote[], at: number, ts: number, text: string): number {
+    for (let i = Math.min(at, notes.length) - 1; i >= 0; i--) {
+        if (notes[i].ts === ts && notes[i].text === text) {
+            return i + 1;
+        }
+    }
+    return at;
+}
+
+// Note removals on one initiative go out one at a time. Each is an undoable delete that commits seconds after
+// it was read, and leaving the Brief flushes the pending ones together; in order, each resolves its note
+// against the effort the removal before it returned, not the trail it captured.
+const noteRemovals = new Map<string, Promise<unknown>>();
+
+export function removeNote(
+    oref: string,
+    chunks: EditChunk[],
+    label: string,
+    note: { at: number; ts: number; text: string }
+): Promise<void> {
+    const write = async () => {
+        const fresh = globalStore.get(effortDetailAtom).get(oref)?.chunks;
+        const now = fresh ?? chunks;
+        const trail = fresh?.find((c) => c.label === label)?.notes;
+        const at = trail != null ? currentNoteAt(trail, note.at, note.ts, note.text) : note.at;
+        const ref = chunkRef(
+            now.map((c) => ({ label: c.label, stage: c.stage ?? "" })),
+            label
+        );
+        await mutateEffort(oref, [{ op: "removeNote", chunk: ref, at, notets: note.ts }]);
+    };
+    const run = (noteRemovals.get(oref) ?? Promise.resolve()).then(write);
+    noteRemovals.set(
+        oref,
+        run.catch(() => {})
+    );
+    return run;
 }

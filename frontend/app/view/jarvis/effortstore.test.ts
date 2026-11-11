@@ -3,7 +3,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("@/app/store/wshclientapi", () => ({ RpcApi: { EffortGetCommand: vi.fn() } }));
+vi.mock("@/app/store/wshclientapi", () => ({ RpcApi: { EffortGetCommand: vi.fn(), EffortMutateCommand: vi.fn() } }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 
 import { globalStore } from "@/app/store/jotaiStore";
@@ -15,6 +15,7 @@ import {
     effortDetailIsFresh,
     effortLoadErrorAtom,
     loadEffortDetail,
+    removeNote,
 } from "./effortstore";
 
 const effort = {
@@ -146,5 +147,45 @@ describe("detailOps", () => {
             { op: "setProject", project: "" },
             { op: "link", parentoid: "abc" },
         ]);
+    });
+});
+
+describe("removeNote", () => {
+    // a mirror of the server's resolveNote: the place must still hold the stamp the caller read there
+    const server = (e: Effort) =>
+        vi.mocked(RpcApi.EffortMutateCommand).mockImplementation(async (_c, data) => {
+            const op = data.ops[0];
+            const chunk = e.chunks.find((c) => c.label === op.chunk)!;
+            if (chunk.notes[op.at - 1]?.ts !== op.notets) {
+                throw new Error("EC-STALE-NOTE");
+            }
+            chunk.notes.splice(op.at - 1, 1);
+            return { effort: structuredClone(e) };
+        });
+
+    it("resolves a queued removal against the trail the removal before it left", async () => {
+        const e = {
+            oid: "q",
+            chunks: [
+                {
+                    label: "P1",
+                    status: "active",
+                    notes: [
+                        { ts: 1, text: "one" },
+                        { ts: 2, text: "two" },
+                        { ts: 3, text: "three" },
+                    ],
+                },
+            ],
+        } as unknown as Effort;
+        server(e);
+        globalStore.set(effortDetailAtom, new Map([["effort:q", structuredClone(e)]]));
+        const chunks = [{ label: "P1", stage: "" }];
+        // both read while the trail was one, two, three; leaving the Brief flushes them together
+        await Promise.all([
+            removeNote("effort:q", chunks, "P1", { at: 1, ts: 1, text: "one" }),
+            removeNote("effort:q", chunks, "P1", { at: 3, ts: 3, text: "three" }),
+        ]);
+        expect(e.chunks[0].notes.map((n) => n.text)).toEqual(["two"]);
     });
 });

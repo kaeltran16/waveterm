@@ -379,10 +379,10 @@ export function BriefChunkPane({
                         if (entry.noteAt == null) {
                             return;
                         }
-                        const at = entry.noteAt;
+                        const note = { at: entry.noteAt, ts: entry.ts, text: entry.text };
                         setReadingNote(new Set());
                         briefUndo.schedule([noteKey(selectedChunk.oref, entry.chunk, entry.ts)], "Note deleted", () =>
-                            removeNote(selectedChunk.oref, chunkRef(planChunks, entry.chunk), at, entry.ts)
+                            removeNote(selectedChunk.oref, planChunks, entry.chunk, note)
                         );
                     }}
                     onOpenSession={(c, e) =>
