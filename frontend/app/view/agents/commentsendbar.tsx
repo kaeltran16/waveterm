@@ -74,11 +74,15 @@ export function CommentSendBar({ model }: { model: AgentsViewModel }) {
     const agents = useAtomValue(model.agentsAtom);
     const projects = useAtomValue(projectListAtom);
     const io = useMemo(() => tauriCommentSendIO(model), [model]);
-    const [sending, setSending] = useState(false);
-    const [error, setError] = useState<string | null>(null);
+    // keyed by the source they belong to: the bar switches sources while a send (an agent launch, seconds) is out,
+    // and its outcome must not settle into the batch shown when it lands
+    const [sendingFor, setSendingFor] = useState<string | null>(null);
+    const [failure, setFailure] = useState<{ key: string; text: string } | null>(null);
     const [checked, setChecked] = useState<{ cwd: string; ok: boolean } | null>(null);
 
     const key = source?.key;
+    const sending = key != null && sendingFor === key;
+    const error = key != null && failure?.key === key ? failure.text : null;
     const batch = key != null ? store[key] : undefined;
     const stored = batch?.source;
     const agent = stored?.kind === "agent" ? agents.find((a) => a.id === stored.agentId) : undefined;
@@ -96,7 +100,6 @@ export function CommentSendBar({ model }: { model: AgentsViewModel }) {
             live = false;
         };
     }, [cwd, io]);
-    useEffect(() => setError(null), [key]);
 
     const recipient =
         batch == null
@@ -109,14 +112,14 @@ export function CommentSendBar({ model }: { model: AgentsViewModel }) {
               });
 
     const send = (): boolean => {
-        if (batch == null || recipient == null || recipient.kind === "wait" || sending) {
+        if (batch == null || recipient == null || recipient.kind === "wait" || sending || key == null) {
             return false;
         }
-        setSending(true);
-        setError(null);
+        setSendingFor(key);
+        setFailure(null);
         sendBatch(batch, recipient, io)
-            .catch((e) => setError(errText(e)))
-            .finally(() => setSending(false));
+            .catch((e) => setFailure({ key, text: errText(e) }))
+            .finally(() => setSendingFor((cur) => (cur === key ? null : cur)));
         return true;
     };
     // Shift+Enter on the surface reaches the latest render's send
