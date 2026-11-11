@@ -46,7 +46,7 @@ import {
     type SessionStatusFilter,
 } from "./sessionsarchivestore";
 import { eventColor, RunDetail, runSessionPrimary, SEG_COLOR, SoloDetail, StatusMark } from "./sessionsdetail";
-import { openSessionHit } from "./sessionsfind";
+import { foundSession, openSessionHit } from "./sessionsfind";
 import { isRowPinned, togglePinnedRow } from "./sessionspins";
 import {
     defaultMember,
@@ -148,6 +148,7 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
     const digests = useAtomValue(runDigestsAtom);
     const incomplete = useAtomValue(sessionsIncompleteAtom);
     const [query, setQuery] = useAtom(model.sessionsQueryAtom);
+    const find = useAtomValue(model.sessionsFindAtom);
     const pins = useAtomValue(sessionsPinnedAtom);
     // off on every visit: run agents are a deliberate widening, not a mode the list remembers
     const [runAgents, setRunAgents] = useState(false);
@@ -299,7 +300,11 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
     const selMember = selRun
         ? (selRun.view.members.find((m) => m.key === member) ?? selRun.view.members[0])
         : undefined;
-    const selMemberSession = selRun && selMember ? memberLiveSession(selMember, selRun.view.runId, roster) : undefined;
+    const selMemberSession =
+        selRun && selMember
+            ? (foundSession(find, sel, member, selRun.group.sessions) ??
+              memberLiveSession(selMember, selRun.view.runId, roster))
+            : undefined;
     const primary = selRun ? selMemberSession : selSession;
 
     const select = (key: string) => {

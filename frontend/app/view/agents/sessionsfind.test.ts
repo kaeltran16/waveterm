@@ -6,10 +6,12 @@ import { forgetOrigin } from "@/app/view/jarvis/returnsurface";
 import { atom, type PrimitiveAtom } from "jotai";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AgentsViewModel, SurfaceKey } from "./agents";
+import type { LiveSession } from "./sessionsarchivestore";
 import {
     findEnded,
     findRanges,
     findTerms,
+    foundSession,
     needsCentre,
     openSessionHit,
     stepFind,
@@ -91,6 +93,19 @@ describe("openSessionHit", () => {
         expect(globalStore.get(m.sessionsSelAtom)).toBe("run:r9");
         expect(globalStore.get(m.sessionsMemberAtom)).toBe("t-2");
         expect(globalStore.get(m.sessionsFindAtom)?.sessionKey).toBe("claude:s1");
+    });
+
+    it("shows the run member's session the hit is in, not its default one", () => {
+        const m = fakeModel();
+        const worker = session({ id: "w2", runid: "r9", role: "worker", taskid: "t-2" });
+        const reviewer = session({ id: "rv", runid: "r9", role: "review", taskid: "t-2" });
+        openSessionHit(m, result(reviewer, [hit("turn", 0)]), "fix", ["fix"]);
+        const find = globalStore.get(m.sessionsFindAtom);
+        const sel = globalStore.get(m.sessionsSelAtom);
+        const member = globalStore.get(m.sessionsMemberAtom);
+        expect(foundSession(find, sel, member, [worker, reviewer] as LiveSession[])).toBe(reviewer);
+        // another member selected: the find no longer applies
+        expect(foundSession(find, sel, "t-3", [worker, reviewer] as LiveSession[])).toBeUndefined();
     });
 
     it("openSessionHit with no hits targets turn 0", () => {

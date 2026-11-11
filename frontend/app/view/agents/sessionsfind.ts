@@ -7,6 +7,7 @@
 import { globalStore } from "@/app/store/jotaiStore";
 import { landOn } from "@/app/view/jarvis/returnsurface";
 import type { AgentsViewModel } from "./agents";
+import type { LiveSession } from "./sessionsarchivestore";
 import { sessionKey, sessionSelection } from "./sessionsruns";
 
 export interface SessionsFind {
@@ -38,6 +39,21 @@ export function openSessionHit(
     globalStore.set(model.sessionsViewAtom, target.kind === "event" ? "activity" : "transcript");
     globalStore.set(model.sessionsFindAtom, { sessionKey: sessionKey(r.session), query, terms, target, at: to });
     landOn(model.surfaceAtom, "sessions");
+}
+
+// The session a find was opened on, while the selection still shows its run member. A member's detail otherwise
+// shows its default session (live, else newest non-review), and a hit can sit in another one: the task's reviewer,
+// an older attempt, an earlier lead session. Undefined when no find applies or the run does not hold that session.
+export function foundSession(
+    find: SessionsFind | null,
+    sel: string,
+    member: string,
+    sessions: LiveSession[]
+): LiveSession | undefined {
+    if (find == null || find.at.member == null || findEnded(find, sel, member)) {
+        return undefined;
+    }
+    return sessions.find((s) => sessionKey(s) === find.sessionKey);
 }
 
 // Selecting another session ends a find. Read from the selection, never from the session a detail pane
