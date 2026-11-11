@@ -82,6 +82,7 @@ import {
     saveCurrent,
     selectProject,
     showDiffTarget,
+    startCreate,
     type CodeIndex,
 } from "./codestore";
 
@@ -495,6 +496,17 @@ describe("saveCurrent", () => {
 
         expect(globalStore.get(codeStaleAtom)).toBeNull();
         expect(globalStore.get(codeSaveAtom).kind).toBe("idle");
+    });
+});
+
+describe("startCreate", () => {
+    it("shows the Files tree, which draws the name input", () => {
+        seedSession(["src/a.ts"]);
+        globalStore.set(codeSearchModeAtom, "search");
+        startCreate(false);
+        expect(globalStore.get(codeSearchModeAtom)).toBe("files");
+        expect(globalStore.get(codeEditAtom)).toMatchObject({ kind: "create", isDir: false });
+        globalStore.set(codeEditAtom, null);
     });
 });
 

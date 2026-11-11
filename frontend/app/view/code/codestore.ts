@@ -748,6 +748,9 @@ export function startCreate(isDir: boolean): void {
         globalStore.set(codeExpandedAtom, expanded);
     }
     globalStore.set(codeEditAtom, { kind: "create", dir, isDir });
+    // the name input is drawn by the Files tree: from Search, Changed or Symbols the toolbar's New file would
+    // otherwise do nothing visible, and the input would pop up on the next switch to Files
+    globalStore.set(codeSearchModeAtom, "files");
 }
 
 export function startRename(path: string): void {
