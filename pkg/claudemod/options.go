@@ -7,6 +7,7 @@
 package claudemod
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -70,6 +71,8 @@ func ReadSettings(path string) (map[string]any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading %s: %w", path, err)
 	}
+	// Windows PowerShell 5 writes UTF-8 with a BOM, which json.Unmarshal refuses
+	b = bytes.TrimPrefix(b, []byte("\xEF\xBB\xBF"))
 	if len(strings.TrimSpace(string(b))) == 0 {
 		return settings, nil
 	}

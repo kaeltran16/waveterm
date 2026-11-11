@@ -113,3 +113,15 @@ func TestSetOptionRefusesWhatNoModDeclares(t *testing.T) {
 		t.Fatal("wrote a field arc-skim does not declare")
 	}
 }
+
+// Windows PowerShell 5's Set-Content -Encoding UTF8 starts the file with a BOM
+func TestReadSettingsSkipsAUTF8BOM(t *testing.T) {
+	path := writeFile(t, "\xEF\xBB\xBF"+`{"model":"opus"}`)
+	got, err := ReadSettings(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["model"] != "opus" {
+		t.Fatalf("got %v", got)
+	}
+}

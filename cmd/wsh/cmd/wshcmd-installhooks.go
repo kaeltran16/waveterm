@@ -1015,37 +1015,11 @@ func installAgentHooksRun(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// probe first: claude --version can take seconds, and settings read before it would be written back
-	// over anything saved meanwhile
-	modsSupported := claudeSupportsMods()
-	existing, err := claudemod.ReadSettings(path)
-	if err != nil {
-		return err
-	}
-
-	if configIsHealthy(existing, wsh, modDirs, modsSupported) {
-		fmt.Printf("Arc agent hooks already installed in %s (skipping)\n", path)
-	} else {
-		merged := mergeAgentHooks(existing, wsh)
-		if modsSupported {
-			merged = unwrapStatusLine(merged)
-		} else {
-			merged = mergeStatusLine(merged, wsh)
-		}
-		merged = mergeClaudePluginDirs(merged, modDirs...)
-		out, err := json.MarshalIndent(merged, "", "  ")
-		if err != nil {
-			return fmt.Errorf("encoding settings: %w", err)
-		}
-
-		tmp := path + ".tmp"
-		if err := os.WriteFile(tmp, append(out, '\n'), 0o644); err != nil {
-			return fmt.Errorf("writing %s: %w", tmp, err)
-		}
-		if err := os.Rename(tmp, path); err != nil {
-			return fmt.Errorf("replacing %s: %w", path, err)
-		}
-		fmt.Printf("installed Arc agent hooks into %s\n", path)
+	// a settings.json that cannot be read or parsed fails the install, but only once the other agents'
+	// integrations, which do not depend on it, have landed
+	claudeErr := installClaudeSettings(path, wsh, modDirs)
+	if claudeErr != nil {
+		fmt.Fprintf(os.Stderr, "skipping Claude settings: %v\n", claudeErr)
 	}
 	if err := installOpencodePlugin(home, wsh); err != nil {
 		return err
@@ -1086,5 +1060,41 @@ func installAgentHooksRun(cmd *cobra.Command, args []string) error {
 			fmt.Println("pi keybindings: skipped (user file present)")
 		}
 	}
+	return claudeErr
+}
+
+// installClaudeSettings merges Arc's hooks, status line and mod folders into Claude's settings.json at path,
+// leaving a healthy one alone.
+func installClaudeSettings(path, wsh string, modDirs []string) error {
+	// probe first: claude --version can take seconds, and settings read before it would be written back
+	// over anything saved meanwhile
+	modsSupported := claudeSupportsMods()
+	existing, err := claudemod.ReadSettings(path)
+	if err != nil {
+		return err
+	}
+	if configIsHealthy(existing, wsh, modDirs, modsSupported) {
+		fmt.Printf("Arc agent hooks already installed in %s (skipping)\n", path)
+		return nil
+	}
+	merged := mergeAgentHooks(existing, wsh)
+	if modsSupported {
+		merged = unwrapStatusLine(merged)
+	} else {
+		merged = mergeStatusLine(merged, wsh)
+	}
+	merged = mergeClaudePluginDirs(merged, modDirs...)
+	out, err := json.MarshalIndent(merged, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encoding settings: %w", err)
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, append(out, '\n'), 0o644); err != nil {
+		return fmt.Errorf("writing %s: %w", tmp, err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return fmt.Errorf("replacing %s: %w", path, err)
+	}
+	fmt.Printf("installed Arc agent hooks into %s\n", path)
 	return nil
 }

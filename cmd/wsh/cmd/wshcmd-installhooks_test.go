@@ -1358,3 +1358,26 @@ func TestInstallAgentHooks_keepsAWriteMadeDuringTheVersionProbe(t *testing.T) {
 		t.Fatalf("the write made during the probe was lost: %s", b)
 	}
 }
+
+// a Claude settings.json the install cannot parse fails the install, but the pi and opencode integrations
+// beside it still land
+func TestInstallAgentHooks_unparseableClaudeSettingsStillInstallPi(t *testing.T) {
+	home := stubInstallHome(t)
+	piLookPath = func(string) (string, error) { return "pi", nil }
+	path := filepath.Join(home, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"model":`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := installAgentHooksRun(nil, nil); err == nil || !strings.Contains(err.Error(), "parsing") {
+		t.Fatalf("install err = %v, want the parse error", err)
+	}
+	if b, _ := os.ReadFile(path); string(b) != `{"model":` {
+		t.Fatalf("unparseable settings were rewritten: %s", b)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".pi", "agent", "settings.json")); err != nil {
+		t.Fatalf("pi settings not installed: %v", err)
+	}
+}
