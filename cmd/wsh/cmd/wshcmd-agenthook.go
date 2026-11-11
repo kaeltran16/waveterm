@@ -10,10 +10,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/wavetermdev/waveterm/pkg/agentobserve"
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -556,6 +558,14 @@ func hookDebugLine(msg string) {
 	_, _ = f.WriteString(time.Now().Format(time.RFC3339) + " " + msg + "\n")
 }
 
+// nestedClaudeSession reports whether this hook's claude was started from inside another claude session. It
+// inherits the outer agent's WAVETERM_BLOCKID, so its reports would take over that block's row: transcript
+// path, state and title flip between the two sessions. claude sets CLAUDE_PID to its own pid for its hooks.
+func nestedClaudeSession() bool {
+	pid, err := strconv.ParseInt(os.Getenv("CLAUDE_PID"), 10, 32)
+	return err == nil && agentobserve.NestedClaude(int32(pid))
+}
+
 // agentHookRun always returns nil: a hook must never break the agent's turn.
 func agentHookRun(cmd *cobra.Command, args []string) error {
 	if os.Getenv("WAVETERM_BLOCKID") == "" {
@@ -590,6 +600,10 @@ func agentHookRun(cmd *cobra.Command, args []string) error {
 	}
 	if em.State == "" {
 		hookDebugLine("skip: no emission for event=" + ev.HookEventName)
+		return nil
+	}
+	if agentHookShadow == "" && nestedClaudeSession() {
+		hookDebugLine("skip: nested claude session event=" + ev.HookEventName)
 		return nil
 	}
 	jwt := os.Getenv(wshutil.WaveJwtTokenVarName)

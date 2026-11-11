@@ -3,7 +3,61 @@
 
 package agentobserve
 
-import "testing"
+import (
+	"io"
+	"os"
+	"os/exec"
+	"testing"
+)
+
+// a test binary started with this set blocks on stdin instead of running tests, so a test can read the
+// environment of a live process it started
+const helperEnvVar = "AGENTOBSERVE_TEST_HELPER"
+
+func TestMain(m *testing.M) {
+	if os.Getenv(helperEnvVar) == "1" {
+		_, _ = io.Copy(io.Discard, os.Stdin)
+		os.Exit(0)
+	}
+	os.Exit(m.Run())
+}
+
+// startHelper starts a live process with the test's environment plus extra, stopped at cleanup.
+func startHelper(t *testing.T, extra ...string) int32 {
+	t.Helper()
+	cmd := exec.Command(os.Args[0])
+	cmd.Env = append(append(os.Environ(), helperEnvVar+"=1"), extra...)
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = stdin.Close()
+		_ = cmd.Wait()
+	})
+	return int32(cmd.Process.Pid)
+}
+
+func TestNestedClaude(t *testing.T) {
+	// the test itself may run inside a claude session, which sets CLAUDE_PID for it
+	t.Setenv("CLAUDE_PID", "")
+	os.Unsetenv("CLAUDE_PID")
+	if !NestedClaude(startHelper(t, "CLAUDE_PID=4242")) {
+		t.Fatal("a process started by another claude (CLAUDE_PID inherited) should be nested")
+	}
+	if NestedClaude(startHelper(t)) {
+		t.Fatal("a process with no CLAUDE_PID should not be nested")
+	}
+	if NestedClaude(startHelper(t, "CLAUDE_PID=")) {
+		t.Fatal("an empty CLAUDE_PID names no outer claude")
+	}
+	if NestedClaude(-1) {
+		t.Fatal("a pid that cannot be read should not be nested")
+	}
+}
 
 func TestBlockIDFromEnv(t *testing.T) {
 	env := []string{"PATH=/bin", "WAVETERM_BLOCKID=df9292f9-1234", "HOME=/root"}
