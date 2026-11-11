@@ -10,10 +10,9 @@ import { sentAskIdsAtom } from "./agentaskstore";
 import { getStartErrorAtom } from "./agentcontrollerstore";
 import {
     cycleId,
-    groupAgents,
     liveWindowAgents,
     mergePendingLaunches,
-    nextAskId,
+    nextAskAfterAnswer,
     providerPlanUsage,
     toggleSelection,
     withRunDone,
@@ -241,10 +240,13 @@ export class AgentsViewModel implements ViewModel {
             return;
         }
         // advance triage to the next asking agent so answering keeps moving without a separate `n` press
-        // (T2). The just-answered agent is still in `asking` (state flips later), so nextAskId cycles past
+        // (T2). The just-answered agent is still in `asking` (state flips later), so the next ask cycles past
         // it; a lone remaining ask wraps to itself and the cursor stays put.
-        const askingIds = groupAgents(globalStore.get(this.agentsAtom)).asking.map((a) => a.id);
-        const next = nextAskId(askingIds, agentId);
+        const next = nextAskAfterAnswer(
+            globalStore.get(this.agentsAtom),
+            globalStore.get(this.projectFilterAtom),
+            agentId
+        );
         if (next != null) {
             globalStore.set(this.cursorIdAtom, next);
         }

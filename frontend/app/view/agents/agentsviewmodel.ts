@@ -731,6 +731,19 @@ export function nextAskId(ids: string[], current?: string): string | undefined {
     return ids[(idx + 1) % ids.length];
 }
 
+/** Pure: where the cursor goes after answering `answered`: the next ask in blocked-time order within the project
+ *  scope the grid shows. An ask in another project has no stop on the grid, so landing there would throw the
+ *  cursor back to the first card. */
+export function nextAskAfterAnswer(agents: AgentVM[], projectFilter: string, answered: string): string | undefined {
+    const asking = groupAgents(agents).asking.filter(
+        (a) => a.id === answered || matchesProjectFilter(a, projectFilter)
+    );
+    return nextAskId(
+        asking.map((a) => a.id),
+        answered
+    );
+}
+
 /** Pure: the id `delta` steps from `current` in `ids`, clamped at both ends (no wrap). Falls back to
  *  the first id when `current` is absent/unknown. Undefined for an empty list. Drives j/k cursor moves. */
 export function moveCursor(ids: string[], current: string | undefined, delta: number): string | undefined {

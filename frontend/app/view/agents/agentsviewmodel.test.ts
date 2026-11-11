@@ -37,6 +37,7 @@ import {
     mergeOrder,
     mergePendingLaunches,
     moveCursor,
+    nextAskAfterAnswer,
     nextAskId,
     nextUnansweredQuestion,
     partitionBackgrounded,
@@ -632,6 +633,17 @@ describe("nextAskId", () => {
     });
     it("wraps to itself for a single ask (last one stays put on submit — T2)", () => {
         expect(nextAskId(["only"], "only")).toBe("only");
+    });
+});
+
+describe("nextAskAfterAnswer", () => {
+    const ask = (id: string, project: string, since: number) =>
+        ({ id, name: id, task: "", state: "asking", project, blockedSince: since }) as unknown as AgentVM;
+
+    it("moves to the next ask in the project the grid is scoped to, skipping one elsewhere", () => {
+        const agents = [ask("a", "P", 1), ask("b", "Q", 2), ask("c", "P", 3)];
+        expect(nextAskAfterAnswer(agents, "P", "a")).toBe("c");
+        expect(nextAskAfterAnswer(agents, "all", "a")).toBe("b");
     });
 });
 
