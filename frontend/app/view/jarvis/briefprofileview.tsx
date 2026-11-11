@@ -86,11 +86,6 @@ const SHAPES = [
     ["quick", "Quick"],
     ["orchestrator", "Orchestrator"],
 ] as const;
-// values mirror jarvis.Landing_Checkout / Landing_Branch
-const LANDINGS = [
-    ["checkout", "Project checkout"],
-    ["branch", "Own branch"],
-] as const;
 const APPROVALS = [
     [false, "Ask me"],
     [true, "Autonomous"],
@@ -237,8 +232,6 @@ function DefaultsFields({
 }) {
     const shape = draft.defaultmode ?? base.defaultmode ?? "quick";
     const width = draft.parallelism ?? base.parallelism ?? null;
-    // "" is a stored global meaning branch; an empty project override is refused on save
-    const landing = draft.landing || base.landing || "branch";
     const workers = workersRow(draft, base, inheritable);
     const reviewers = reviewerRow(draft, base, inheritable);
     const lightReviewers = lightReviewerRow(draft, base, inheritable);
@@ -342,30 +335,6 @@ function DefaultsFields({
                         route == null ? drop("lightreviewerroute") : set({ lightreviewerroute: route })
                     }
                 />
-            </DefaultRow>
-            <DefaultRow
-                label="Runs land on"
-                hint="Where orchestrator runs commit"
-                aside={aside("landing", "Runs land on")}
-            >
-                <div role="group" aria-label="Runs land on" className={cn(SEGMENTS, "bg-surface-raised")}>
-                    {LANDINGS.map(([name, label]) => (
-                        <button
-                            key={name}
-                            type="button"
-                            aria-pressed={landing === name}
-                            disabled={saving}
-                            onClick={() => set({ landing: name })}
-                            className={cn(
-                                SEGMENT,
-                                "h-6 px-[11px] text-[12.5px] font-medium",
-                                segmentTone(landing === name)
-                            )}
-                        >
-                            {label}
-                        </button>
-                    ))}
-                </div>
             </DefaultRow>
             <DefaultRow
                 label="Approvals"

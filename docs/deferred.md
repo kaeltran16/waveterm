@@ -271,17 +271,6 @@ kind, so a Usage session page gets an open button the way a run page does. A new
 member in `frontend/app/view/jarvis/address.ts`, a landing in `openref.ts`, and a row in `openref.test.ts`.
 Revive when opening a session from Usage is wanted.
 
-## Merge-point Verify: a failed Verify holds only its own run's merges (2026-09-15)
-
-The timeout half is resolved: a plan command runs in a Windows job object and a timeout kills its whole tree
-(`plancmd_windows.go`, `jobobject.KillTree`). Still open, and only under `--landing checkout` (a branch-landed
-run, the default, merges in its own landing tree): the landing claim (`pkg/orchestrate/verify.go`) serializes
-a merge and its Verify across every dag in one checkout, but a persisted `verify-failed` task holds only its
-own dag's later merges, so a second orchestrator run in the same checkout lands on top of the failure.
-
-- **Where to pick it up:** have `AutoMergeReady` scan the non-terminal dags whose owner run has the same
-  `ProjectPath`.
-
 ## Codex and opencode run workers (2026-09-14)
 
 The orchestrator redesign (`docs/superpowers/specs/2026-09-14-orchestrator-redesign-design.md` §8) scopes

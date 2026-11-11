@@ -658,7 +658,7 @@ var objectID = regexp.MustCompile(`^[0-9a-f]{40}([0-9a-f]{24})?$`)
 func mergeRefusal(ctx context.Context, project, base string, merr error) string {
 	if conflicted, err := conflictedFiles(ctx, project); err == nil && len(conflicted) > 0 {
 		files := strings.Join(conflicted, ", ")
-		if err := undoMerge(ctx, project, nil); err != nil {
+		if err := undoMerge(ctx, project); err != nil {
 			return fmt.Sprintf("the merge conflicts with %s in %s, and aborting it failed: %v", base, files, err)
 		}
 		return fmt.Sprintf("the merge conflicts with %s in %s; it was aborted", base, files)
@@ -670,7 +670,7 @@ func mergeRefusal(ctx context.Context, project, base string, merr error) string 
 		return fmt.Sprintf("git refused the merge: %v; reading whether it left the checkout mid-merge failed: %v", merr, err)
 	}
 	if inMerge {
-		if err := undoMerge(ctx, project, nil); err != nil {
+		if err := undoMerge(ctx, project); err != nil {
 			return fmt.Sprintf("git refused the merge: %v; aborting it failed: %v", merr, err)
 		}
 		return fmt.Sprintf("git refused the merge, which was aborted: %v", merr)

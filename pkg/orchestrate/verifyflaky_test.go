@@ -17,14 +17,16 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
 
-// stubFlakyVerify is a Verify that passes, writing report to its flaky file when it runs in dir.
+// stubFlakyVerify is a Verify that passes, writing report to its flaky file the first time it runs in dir.
 func stubFlakyVerify(t *testing.T, dir, report string) {
 	t.Helper()
 	orig := runPlanCommand
+	reported := false
 	runPlanCommand = func(_ context.Context, cmdDir, _ string, env []string, _ time.Duration, _ planProgress) (string, error) {
-		if filepath.Clean(cmdDir) != filepath.Clean(dir) || report == "" {
+		if filepath.Clean(cmdDir) != filepath.Clean(dir) || report == "" || reported {
 			return "ok", nil
 		}
+		reported = true
 		for _, kv := range env {
 			if path, ok := strings.CutPrefix(kv, verifyFlakyEnv+"="); ok {
 				return "ok", os.WriteFile(path, []byte(report), 0o644)
@@ -49,11 +51,12 @@ func TestAMergeVerifysFlakyTestsReachTheUnverifiedItemsAndTheLead(t *testing.T) 
 		t.Run(c.name, func(t *testing.T) {
 			lead := newFakeLead(t)
 			f := newMergeFixture(t, []waveobj.TaskNode{{ID: "t-0", Label: "first"}, stillOpen})
+			tree := f.land(t)
 			f.setPlanCommands(t, verifyCmd, "")
 			f.finish(t, "t-0")
 			stubMerge(t, landedSha)
-			// only the merge Verify runs in the checkout; the final stage's runs in its own tree
-			stubFlakyVerify(t, f.projectPath(t), c.report)
+			// only the first Verify, the merge's, reports flaky tests; the final stage's runs in the same tree
+			stubFlakyVerify(t, tree, c.report)
 			await := awaitVerify(t)
 			finalDone := awaitFinal(t)
 

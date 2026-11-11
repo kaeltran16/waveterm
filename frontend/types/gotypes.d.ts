@@ -731,7 +731,6 @@ declare global {
         parallelism?: number;
         playbookid?: string;
         mode?: string;
-        landing?: string;
         effortoid?: string;
         chunklabel?: string;
         deferstart?: boolean;
@@ -2055,7 +2054,6 @@ declare global {
         unverifiednotes?: DagUnverifiedNote[];
         answered: number;
         forwarded: number;
-        restarted?: number;
         usage?: UsageRow[];
     };
 
@@ -2105,7 +2103,6 @@ declare global {
         verifylastline?: string;
         mergegatets?: number;
         recoveredretry?: boolean;
-        earlybase?: string;
         mergestate: string;
         cleanupstate: string;
         reportsections?: string[];
@@ -2570,7 +2567,6 @@ declare global {
         reviewerpicks?: boolean;
         reviewerroute?: RoutePin;
         lightreviewerroute?: RoutePin;
-        landing?: string;
         autonomous?: boolean;
     };
 
@@ -2975,7 +2971,6 @@ declare global {
         reviewerpicks?: boolean;
         reviewerroute?: RoutePin;
         lightreviewerroute?: RoutePin;
-        landing?: string;
         autonomous?: boolean;
     };
 
@@ -3581,7 +3576,6 @@ declare global {
         progresscheckts?: number;
         suspectts?: number;
         suspectreason?: string;
-        flaggedfailures?: string[];
         stallretries?: number;
         firstactivity?: number;
         toldts?: number;
@@ -3611,11 +3605,6 @@ declare global {
         leadguidance?: string;
         leadnotes?: string[];
         leadtold?: string[];
-        earlybasetask?: string;
-        earlybasecommit?: string;
-        earlyrestarts?: number;
-        discardtree?: boolean;
-        restartts?: number;
     };
 
     // waveobj.TermSize

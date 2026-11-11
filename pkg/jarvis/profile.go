@@ -23,14 +23,6 @@ const MetaKey_JarvisProfile = "jarvis:profile"
 
 const globalProfileFileName = "jarvis-profile.json"
 
-// Landing values: an engine run lands its lanes in the project checkout, or on a wave/<runId> branch
-// in a worktree of its own. A landing no one chose is a branch, so a run never commits into the checkout
-// the human is working in unless asked to.
-const (
-	Landing_Checkout = "checkout"
-	Landing_Branch   = "branch"
-)
-
 const (
 	DiagnosticMissingReplacement = "missing-replacement"
 	DiagnosticMissingDisabled    = "missing-disabled"
@@ -78,9 +70,6 @@ func LoadGlobalProfile() waveobj.JarvisProfile {
 func SaveGlobalProfile(profile waveobj.JarvisProfile) error {
 	if err := ValidateGlobalPrinciples(profile.Principles); err != nil {
 		return fmt.Errorf("invalid principles: %w", err)
-	}
-	if err := ValidateLanding(profile.Landing); err != nil {
-		return err
 	}
 	data, err := json.MarshalIndent(profile, "", "  ")
 	if err != nil {
@@ -133,26 +122,6 @@ func MigrateGlobalProfile() error {
 	}
 	wavevault.Poke()
 	return nil
-}
-
-// ValidateLanding accepts the landing values and empty, which means branch.
-func ValidateLanding(landing string) error {
-	switch landing {
-	case "", Landing_Checkout, Landing_Branch:
-		return nil
-	}
-	return fmt.Errorf("unknown landing %q: want %q or %q", landing, Landing_Checkout, Landing_Branch)
-}
-
-// EffectiveLanding is where a run lands: its own request, else the profile's, else a branch.
-func EffectiveLanding(requested, profile string) string {
-	if requested != "" {
-		return requested
-	}
-	if profile != "" {
-		return profile
-	}
-	return Landing_Branch
 }
 
 // LandPath is the tree a run's lanes land in and its lead works in: its own wave/<runId> tree when it has
@@ -354,9 +323,6 @@ func ResolveProfileWithDiagnostics(global waveobj.JarvisProfile, override *waveo
 		if override.LightReviewerRoute != nil {
 			out.LightReviewerRoute = override.LightReviewerRoute
 		}
-		if override.Landing != nil {
-			out.Landing = *override.Landing
-		}
 		if override.Autonomous != nil {
 			out.Autonomous = *override.Autonomous
 		}
@@ -384,7 +350,7 @@ func ProfileOverrideIsEmpty(o *waveobj.ProfileOverride) bool {
 	}
 	return patch == nil && o.Route == nil && o.DefaultMode == nil &&
 		o.Parallelism == nil && o.WorkerRoute == nil && o.ReviewerPicks == nil && o.ReviewerRoute == nil &&
-		o.LightReviewerRoute == nil && o.Landing == nil && o.Autonomous == nil
+		o.LightReviewerRoute == nil && o.Autonomous == nil
 }
 
 func RenderPrinciples(items waveobj.PrincipleList) string {

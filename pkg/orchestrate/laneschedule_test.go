@@ -23,7 +23,6 @@ func oneLane() []waveobj.TaskNode {
 
 type mergeCall struct {
 	runID, goal string
-	fold        []string
 }
 
 // recordMerges stubs the squash merge with a fixed outcome and records every call.
@@ -31,8 +30,8 @@ func recordMerges(t *testing.T, sha string, err error) *[]mergeCall {
 	t.Helper()
 	var calls []mergeCall
 	old := mergeWorktree
-	mergeWorktree = func(_ context.Context, _, runID string, lane MergeLane, fold []string) (string, error) {
-		calls = append(calls, mergeCall{runID, lane.Title, fold})
+	mergeWorktree = func(_ context.Context, _, runID string, lane MergeLane) (string, error) {
+		calls = append(calls, mergeCall{runID, lane.Title})
 		return sha, err
 	}
 	restoreAfterStages(t, func() { mergeWorktree = old })
@@ -144,7 +143,7 @@ func TestLaneConflictBlocksItsLastTaskAndContinueLandsTheLane(t *testing.T) {
 
 	var continued []string
 	orig := continueMerge
-	continueMerge = func(_ context.Context, _, runID string, _ MergeLane, _ []string) (string, error) {
+	continueMerge = func(_ context.Context, _, runID string, _ MergeLane) (string, error) {
 		continued = append(continued, runID)
 		return "sha-resolved", nil
 	}
@@ -207,32 +206,5 @@ func TestSetupFailureInALaneKeepsItsCommitsForTheRetry(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(wt, "schema.txt")); err != nil {
 		t.Fatalf("the retried tree holds t-1's work: %v", err)
-	}
-}
-
-func TestOnlyTheFirstMergeCarriesTheSpecAndPlan(t *testing.T) {
-	f := newMergeFixture(t, []waveobj.TaskNode{{ID: "t-1", Label: "schema"}, {ID: "t-2", Label: "docs"}})
-	spec, plan := filepath.Join(f.project, "spec.md"), filepath.Join(f.project, "plan.md")
-	if err := wstore.UpdateDag(f.ctx, f.dagID, func(cur *waveobj.TaskGroup) error {
-		cur.PlanPath, cur.SpecPath = plan, spec
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-	f.finish(t, "t-1")
-	f.finish(t, "t-2")
-	merges := recordMerges(t, "sha-1", nil)
-
-	if err := Schedule(f.ctx, f.dagID); err != nil {
-		t.Fatal(err)
-	}
-	if len(*merges) != 2 {
-		t.Fatalf("want both lanes merged, got %+v", *merges)
-	}
-	if got := (*merges)[0].fold; !reflect.DeepEqual(got, []string{spec, plan}) {
-		t.Fatalf("the first merge stages the spec and plan, got %v", got)
-	}
-	if got := (*merges)[1].fold; got != nil {
-		t.Fatalf("a later merge stages nothing extra, got %v", got)
 	}
 }

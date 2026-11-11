@@ -493,7 +493,6 @@ const dagDigestChildRunLimit = 64
 // what the human told workers and the run's timing from. The UI's 200-row window is not consulted.
 var dagDigestRetainedKinds = []string{
 	waveobj.RunEventKindTaskRetried,
-	waveobj.RunEventKindTaskRestarted,
 	waveobj.RunEventKindTaskSpawned,
 	waveobj.RunEventKindTaskDone,
 	waveobj.RunEventKindTaskFailed,

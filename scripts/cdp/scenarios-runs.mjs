@@ -1354,10 +1354,11 @@ export const leadCardMergeGate = {
         const ctx = { cwd };
         try {
             fstGitInit(cwd);
-            // a staged file: the engine will not squash a lane over it, so it holds the merge
-            writeFileSync(join(cwd, "held.txt"), "staged by the merge-gate fixture\n");
-            execFileSync("git", ["add", "held.txt"], { cwd, stdio: "pipe" });
-            await arrangeFixtureRun(h, ctx, "merge-gate", MERGE_GATE_LEAD, undefined, { landing: "checkout" });
+            await arrangeFixtureRun(h, ctx, "merge-gate", MERGE_GATE_LEAD);
+            // a staged file in the landing tree, where lanes merge: the engine will not squash a lane over it, so it
+            // holds the merge
+            writeFileSync(join(ctx.landPath, "held.txt"), "staged by the merge-gate fixture\n");
+            execFileSync("git", ["add", "held.txt"], { cwd: ctx.landPath, stdio: "pipe" });
             ctx.gateRun = await mergeGateStandIn(h, ctx, "t-1");
             ctx.liveRun = await mergeGateStandIn(h, ctx, "t-2");
             await h.rpc("dagsubmit", {

@@ -695,13 +695,5 @@ func cancelLocked(ctx context.Context, dagID string, runEnded bool) (*cancelledD
 			errs = append(errs, fmt.Errorf("run %s: %w", runID, err))
 		}
 	}
-	// a verifying stage's detached tree outlived its commands; the verifier stopped above was its last user
-	if gCopy.Final != nil && gCopy.Final.State == FinalState_Verifying {
-		var release []func()
-		releaseFinalTree(gCopy, landOwner, &release)
-		for _, fn := range release {
-			fn()
-		}
-	}
 	return &cancelledDag{g: gCopy, runIDs: runIDs, projectPath: projectPath, landOwner: landOwner, errs: errs}, nil
 }

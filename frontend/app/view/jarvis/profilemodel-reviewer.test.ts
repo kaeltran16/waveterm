@@ -72,8 +72,8 @@ describe("applyWorkersChoice", () => {
     });
 
     it("unsets both halves for Same as lead in global scope", () => {
-        expect(applyWorkersChoice({ reviewerpicks: true, landing: "branch" }, { kind: "lead" }, false)).toEqual({
-            landing: "branch",
+        expect(applyWorkersChoice({ reviewerpicks: true, parallelism: 3 }, { kind: "lead" }, false)).toEqual({
+            parallelism: 3,
         });
         expect(applyWorkersChoice({ workerroute: ROUTE }, { kind: "lead" }, false)).toEqual({});
     });

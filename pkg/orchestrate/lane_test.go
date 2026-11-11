@@ -4,7 +4,6 @@
 package orchestrate
 
 import (
-	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -99,14 +98,9 @@ func TestReadyTasksStartsTheNextTaskInALaneBeforeAnyMerge(t *testing.T) {
 	if got := ReadyTasks(g); !reflect.DeepEqual(got, []string{"t-2"}) {
 		t.Fatalf("want [t-2], got %v", got)
 	}
-	g = laneGroup(t, true, map[string]string{"t-1": TaskState_Done, "t-2": TaskState_Done, "t-3": TaskState_ReviewFailed})
-	taskByID(g, "t-3").RunID = "run-t-3"
+	g = laneGroup(t, true, map[string]string{"t-1": TaskState_Done, "t-2": TaskState_Done, "t-3": TaskState_Done})
 	if got := ReadyTasks(g); len(got) != 0 {
-		t.Fatalf("tasks in another lane wait while its tip is the lead's to judge, got %v", got)
-	}
-	taskByID(g, "t-3").State = TaskState_Done
-	if got := ReadyTasks(g); !reflect.DeepEqual(got, []string{"t-4", "t-5"}) {
-		t.Fatalf("want [t-4 t-5] early, on the worker-done lane's tip, got %v", got)
+		t.Fatalf("tasks in another lane wait for the lane to merge, got %v", got)
 	}
 	markMerged(g, "t-1", "t-2", "t-3")
 	if got := ReadyTasks(g); !reflect.DeepEqual(got, []string{"t-4", "t-5"}) {
@@ -157,31 +151,5 @@ func TestLaneMergeMessageNamesEveryLandedTask(t *testing.T) {
 	}
 	if got := laneMergeMessage(g, []string{"t-4"}); got != "docs" {
 		t.Fatalf("a one-task lane is its label, got %q", got)
-	}
-}
-
-func TestLaneFoldIsTheSpecAndPlanUntilSomethingMerges(t *testing.T) {
-	g := laneGroup(t, true, nil)
-	if got := laneFold(g); got != nil {
-		t.Fatalf("a dag submitted without docs folds nothing, got %v", got)
-	}
-	dir := t.TempDir()
-	plan, spec := filepath.Join(dir, "plan.md"), filepath.Join(dir, "spec.md")
-	g.PlanPath, g.SpecPath = plan, spec
-	if got := laneFold(g); !reflect.DeepEqual(got, []string{spec, plan}) {
-		t.Fatalf("fold = %v", got)
-	}
-	markMerged(g, "t-4")
-	if got := laneFold(g); got != nil {
-		t.Fatalf("after the first merge nothing is folded, got %v", got)
-	}
-}
-
-// a branch-landed dag committed its docs on the run's branch at submit, and says so with repo-relative paths
-func TestLaneFoldIsNothingForABranchLandedDag(t *testing.T) {
-	g := laneGroup(t, true, nil)
-	g.PlanPath, g.SpecPath = "docs/superpowers/plans/p.md", "docs/superpowers/specs/s.md"
-	if got := laneFold(g); got != nil {
-		t.Fatalf("the docs are already on the branch, got fold %v", got)
 	}
 }

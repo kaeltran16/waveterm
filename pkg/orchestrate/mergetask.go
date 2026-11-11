@@ -26,7 +26,7 @@ var mergeWorktree = MergeRunWorktree
 var continueMerge = MergeContinue
 
 // mergeLane is what the squash commit of lane names, less its skipped tasks, as laneMergeMessage leaves them
-// out of the title, and where its own commits start when its head started early.
+// out of the title.
 func mergeLane(g *waveobj.TaskGroup, lane []string) MergeLane {
 	var ids []string
 	for _, id := range lane {
@@ -34,13 +34,7 @@ func mergeLane(g *waveobj.TaskGroup, lane []string) MergeLane {
 			ids = append(ids, id)
 		}
 	}
-	ml := MergeLane{Title: laneMergeMessage(g, lane), TaskIDs: ids}
-	if len(lane) > 0 {
-		if head := taskByID(g, lane[0]); head != nil {
-			ml.Base = head.EarlyBaseCommit
-		}
-	}
-	return ml
+	return MergeLane{Title: laneMergeMessage(g, lane), TaskIDs: ids}
 }
 
 // mergeFailureLimit is how many consecutive refusals the automatic path absorbs before the task blocks
@@ -167,7 +161,7 @@ func continueBlockedMerge(ctx context.Context, channelID string, owner *waveobj.
 		return err
 	}
 	appendRunEvent(ctx, channelID, owner.ID, waveobj.RunEventKindTaskMergeContinued, nil, map[string]any{"taskid": task.ID})
-	sha, err := continueMerge(ctx, jarvis.LandPath(owner), LaneWorktreeKey(g, task.ID), mergeLane(g, laneOf(g, task.ID)), laneFold(g))
+	sha, err := continueMerge(ctx, jarvis.LandPath(owner), LaneWorktreeKey(g, task.ID), mergeLane(g, laneOf(g, task.ID)))
 	if err != nil {
 		releaseProject(jarvis.LandPath(owner), l)
 		return err
@@ -292,9 +286,6 @@ func mergeTaskLocked(ctx context.Context, channelID string, owner *waveobj.Run, 
 	if task.RunID == "" {
 		return "", fmt.Errorf("task %s has no child run", task.ID)
 	}
-	if base := earlyBaseUnmerged(g, lane); base != nil {
-		return "", fmt.Errorf("%w: task %s started on task %s's lane, which has not merged", errProjectBusy, lane[0], base.ID)
-	}
 	if held := conflictAwaitingContinue(g, task.ID); held != "" {
 		return "", fmt.Errorf("%w: task %s's merge conflict is waiting for `wsh jarvis dag merge %s --continue`", errProjectBusy, held, held)
 	}
@@ -336,7 +327,7 @@ func mergeTaskLocked(ctx context.Context, channelID string, owner *waveobj.Run, 
 	// finished task spent waiting to be landed. Emitted only once the attempt is going ahead, so a
 	// refused automatic attempt never opens a window it did not start.
 	appendRunEvent(ctx, channelID, owner.ID, waveobj.RunEventKindTaskMergeStarted, nil, map[string]any{"taskid": task.ID})
-	sha, err := mergeWorktree(ctx, jarvis.LandPath(owner), LaneWorktreeKey(g, task.ID), mergeLane(g, lane), laneFold(g))
+	sha, err := mergeWorktree(ctx, jarvis.LandPath(owner), LaneWorktreeKey(g, task.ID), mergeLane(g, lane))
 	if err != nil {
 		if errors.Is(err, ErrMergeConflict) {
 			appendRunEvent(ctx, channelID, owner.ID, waveobj.RunEventKindTaskMergeBlocked, nil, map[string]any{"taskid": task.ID})

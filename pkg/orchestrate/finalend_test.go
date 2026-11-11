@@ -58,8 +58,8 @@ func TestAHumanEndsAVerifyingStage(t *testing.T) {
 			if got := f.dag(t).Final.State; got != c.outcome {
 				t.Fatalf("the refused verdict changes nothing, got %s", got)
 			}
-			if _, err := os.Stat(tree); !os.IsNotExist(err) {
-				t.Fatalf("the detached final tree is removed, stat err %v", err)
+			if _, err := os.Stat(tree); err != nil {
+				t.Fatalf("the run keeps its landing tree, stat err %v", err)
 			}
 		})
 	}

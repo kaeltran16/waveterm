@@ -8,7 +8,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
 
-// ReadyTasks returns the pending tasks startBase lets start, ordered by id.
+// ReadyTasks returns pending tasks whose deps are all done/skipped, ordered by id.
 func ReadyTasks(g *waveobj.TaskGroup) []string {
 	var out []string
 	for i := range g.Tasks {
@@ -16,65 +16,24 @@ func ReadyTasks(g *waveobj.TaskGroup) []string {
 		if t.State != TaskState_Pending {
 			continue
 		}
-		if _, ok := startBase(g, t.ID); ok {
+		ok := true
+		for _, d := range t.Deps {
+			if !depSatisfied(g, t.ID, d) {
+				ok = false
+				break
+			}
+		}
+		if ok {
 			out = append(out, t.ID)
 		}
 	}
 	return out
 }
 
-// startBase reports whether taskID may start, and the predecessor lane tip it starts on when that lane has not
-// merged yet (an early start, spec 2026-11-06-start-at-done-design). Without merges every dependency must be done
-// or skipped. With them a same-lane dependency must be done or skipped, and the cross-lane ones are grouped by
-// lane: all merged starts on the landing head (nil base). An early start on an unmerged lane's tip is allowed
-// only when every cross-lane dependency lies in that one lane and it is worker-done: its work is finished and
-// only its review and merge remain. A lane tip's branch was cut when the lane started, so it holds nothing merged
-// since; a cross-lane dependency already merged, or a second unmerged lane, would be missing from that base, so
-// the task waits until every cross-lane lane has merged (spec 2026-11-10-surface-review-followups-4 D4).
-func startBase(g *waveobj.TaskGroup, taskID string) (*waveobj.TaskNode, bool) {
-	t := taskByID(g, taskID)
-	if t == nil {
-		return nil, false
-	}
-	if !g.MergeRequired {
-		for _, d := range t.Deps {
-			if !depSatisfied(g, taskID, d) {
-				return nil, false
-			}
-		}
-		return nil, true
-	}
-	var unmerged []string
-	crossMerged := false
-	for _, d := range t.Deps {
-		lane := laneOf(g, d)
-		sameLane := slices.Contains(lane, taskID)
-		if depSatisfied(g, taskID, d) {
-			crossMerged = crossMerged || !sameLane
-			continue
-		}
-		if taskByID(g, d) == nil || sameLane {
-			return nil, false
-		}
-		if len(unmerged) > 0 && !slices.Equal(unmerged, lane) {
-			return nil, false
-		}
-		unmerged = lane
-	}
-	if unmerged == nil {
-		return nil, true
-	}
-	if crossMerged {
-		return nil, false
-	}
-	tip := laneWorkerDone(g, unmerged)
-	return tip, tip != nil
-}
-
-// depSatisfied reports whether dependency depID is met on the landing head. Without merges, finishing is enough.
+// depSatisfied reports whether dependency depID lets taskID start. Without merges, finishing is enough.
 // With them, a dependency in the same lane only has to be done, because its commits are already in the tree
 // the lane shares; one in another lane is satisfied once its whole lane has merged onto the project branch,
-// before its Verify passes. A task can start before an unmerged cross-lane dependency is met (startBase).
+// before its Verify passes.
 func depSatisfied(g *waveobj.TaskGroup, taskID, depID string) bool {
 	dep := taskByID(g, depID)
 	if dep == nil {
@@ -174,7 +133,7 @@ func MarkRunning(g *waveobj.TaskGroup, taskID, runID string) error {
 			// an earlier attempt's readings must never describe the new worker
 			g.Tasks[i].CPUSample, g.Tasks[i].CPUSampleTs, g.Tasks[i].BusyTs, g.Tasks[i].AskTs, g.Tasks[i].LatestTool = 0, 0, 0, 0, ""
 			g.Tasks[i].ProgressHash, g.Tasks[i].ProgressCheckTs = "", 0
-			g.Tasks[i].SuspectTs, g.Tasks[i].SuspectReason, g.Tasks[i].FlaggedFailures = 0, "", nil
+			g.Tasks[i].SuspectTs, g.Tasks[i].SuspectReason = 0, ""
 			g.Tasks[i].ProgressTs = now
 			return nil
 		}

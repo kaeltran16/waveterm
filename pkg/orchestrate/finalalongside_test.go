@@ -88,8 +88,8 @@ func TestTheVerifierStartsWhileCheckAndVerifyRun(t *testing.T) {
 
 	g := awaitVerifierAlongside(t, f)
 
-	if len(*calls) != 1 || (*calls)[0].cwd != g.Final.Tree || g.Final.Tree != worktreeDir(f.project, f.ownerID+"-final") {
-		t.Fatalf("one verifier works in the stage's detached tree, got %d spawns, tree %q", len(*calls), g.Final.Tree)
+	if len(*calls) != 1 || (*calls)[0].cwd != g.Final.Tree || g.Final.Tree != f.landPath(t) {
+		t.Fatalf("one verifier works in the landing tree, got %d spawns, tree %q", len(*calls), g.Final.Tree)
 	}
 	prompt := (*calls)[0].prompt
 	if want := "While you work, the engine runs Check `true` and Verify `" + wait + "` on `" + shortSha(g.Final.Commit) + "`; if one fails, the stage fails whatever your verdict. Do not run them yourself."; !strings.Contains(prompt, want) {
@@ -113,8 +113,8 @@ func TestTheVerifierStartsWhileCheckAndVerifyRun(t *testing.T) {
 	if g := f.dag(t); g.Final.State != FinalState_Passed || g.Status != DagStatus_Done {
 		t.Fatalf("the verdict ends the stage, got %s / %s", g.Final.State, g.Status)
 	}
-	if _, err := os.Stat(tree); !os.IsNotExist(err) {
-		t.Fatalf("the tree is released once both are done, stat err %v", err)
+	if _, err := os.Stat(tree); err != nil {
+		t.Fatalf("the run keeps its landing tree, stat err %v", err)
 	}
 }
 
@@ -166,8 +166,8 @@ func TestACommandFailureFailsTheStageWhateverTheVerifierSaid(t *testing.T) {
 					t.Fatalf("a verifier still working is stopped, its run is %s", got)
 				}
 			}
-			if _, err := os.Stat(tree); !os.IsNotExist(err) {
-				t.Fatalf("the tree is released, stat err %v", err)
+			if _, err := os.Stat(tree); err != nil {
+				t.Fatalf("the run keeps its landing tree, stat err %v", err)
 			}
 			if err := RecordFinalVerdict(f.ctx, f.dagID, verifierID, ReviewVerdict_Pass, "late", ""); err == nil {
 				t.Fatal("a verdict after the stage failed must be refused")
@@ -216,8 +216,8 @@ func TestAVerdictBeforeTheCommandsFinishWaitsForThem(t *testing.T) {
 	if len(lead.sends) != 1 || !strings.Contains(lead.sends[0], "The final stage passed") {
 		t.Fatalf("the lead hears the run finished, got %q", lead.sends)
 	}
-	if _, err := os.Stat(tree); !os.IsNotExist(err) {
-		t.Fatalf("the tree is released, stat err %v", err)
+	if _, err := os.Stat(tree); err != nil {
+		t.Fatalf("the run keeps its landing tree, stat err %v", err)
 	}
 }
 
@@ -314,8 +314,8 @@ func TestStoppingAStageMidwayStopsTheCommandsAndTheVerifier(t *testing.T) {
 			if got := runStatus(t, f, verifierID); got != jarvis.RunStatus_Cancelled {
 				t.Fatalf("the verifier is stopped, its run is %s", got)
 			}
-			if _, err := os.Stat(tree); !os.IsNotExist(err) {
-				t.Fatalf("the tree is released, stat err %v", err)
+			if _, err := os.Stat(tree); err != nil {
+				t.Fatalf("the run keeps its landing tree, stat err %v", err)
 			}
 		})
 	}
@@ -332,7 +332,7 @@ func TestARestartedStageRunsItsCommandsInTheVerifiersTree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tree, _, err := finalTree(f.ctx, g, owner)
+	tree, err := finalTree(f.ctx, owner)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -358,7 +358,7 @@ func TestARestartedStageRunsItsCommandsInTheVerifiersTree(t *testing.T) {
 	if g := f.dag(t); g.Final.State != FinalState_Passed {
 		t.Fatalf("the verdict ends the stage, got %s", g.Final.State)
 	}
-	if _, err := os.Stat(tree); !os.IsNotExist(err) {
-		t.Fatalf("the tree is released once, at the end, stat err %v", err)
+	if _, err := os.Stat(tree); err != nil {
+		t.Fatalf("the run keeps its landing tree, stat err %v", err)
 	}
 }

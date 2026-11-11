@@ -1080,17 +1080,6 @@ func TestDagTaskStatusLinesShowOnlyThatTask(t *testing.T) {
 	}
 }
 
-func TestReportLineShowsRestartsOnlyWhenThereAreSome(t *testing.T) {
-	d := wshrpc.DagStatusDigest{}
-	if line := reportLine(d); strings.Contains(line, "restarted") {
-		t.Fatalf("no restarts, nothing to say, got %q", line)
-	}
-	d.Report.Restarted = 2
-	if line := reportLine(d); !strings.Contains(line, "restarted (predecessor review failed) 2") {
-		t.Fatalf("the report line names the restarts, got %q", line)
-	}
-}
-
 // 65ce3ef3: a --continue that timed out left the lead unable to tell whether it registered, so it re-ran it
 func TestDagMergeTimedOutSaysWhetherItTookEffect(t *testing.T) {
 	task := func(state string, merged bool) *waveobj.TaskGroup {
