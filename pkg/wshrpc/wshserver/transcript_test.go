@@ -213,6 +213,47 @@ func TestTranscriptTailer(t *testing.T) {
 	}
 }
 
+// bytes appended between the size check and the read must be counted once: offsetting by the stat size
+// re-read them on the next call, duplicating lines, and a re-read that ended mid-line glued the saved
+// partial onto repeated bytes, a malformed line in place of the real one
+func TestTranscriptTailerConcurrentAppends(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "t.jsonl")
+	writeFile(t, path, "")
+	const total = 3000
+	go func() {
+		f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
+		if err != nil {
+			return
+		}
+		defer f.Close()
+		for i := 0; i < total; i++ {
+			line := fmt.Sprintf("{\"n\":%d}\n", i)
+			// two writes, so a read can end mid-line
+			f.WriteString(line[:4])
+			f.WriteString(line[4:])
+		}
+	}()
+
+	tl := &transcriptTailer{}
+	var got []string
+	deadline := time.Now().Add(10 * time.Second)
+	for len(got) < total && time.Now().Before(deadline) {
+		lines, err := tl.readNew(path)
+		if err != nil {
+			t.Fatalf("readNew: %v", err)
+		}
+		got = append(got, lines...)
+	}
+	if len(got) != total {
+		t.Fatalf("read %d lines, want %d", len(got), total)
+	}
+	for i, line := range got {
+		if want := fmt.Sprintf("{\"n\":%d}", i); line != want {
+			t.Fatalf("line %d = %q, want %q", i, line, want)
+		}
+	}
+}
+
 func TestStreamTranscript(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "s.jsonl")
