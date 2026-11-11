@@ -470,3 +470,23 @@ func TestScanRootsBillsForkedPiEntriesOnce(t *testing.T) {
 		t.Errorf("input = %d, msgs = %d; want %d, 10 (the fork's copies billed once)", input, msgs, want)
 	}
 }
+
+// pi's cache warmer bills a request outside the conversation as a type:"usage" entry naming its own
+// model; it is billed under that model and switches the current one for nothing after it
+func TestExtractPi_BillsUsageEntries(t *testing.T) {
+	content := `{"type":"session","version":3,"id":"s1","timestamp":"2026-08-11T03:00:00Z","cwd":"C:\repo"}` + "\n" +
+		`{"type":"model_change","id":"mc1","parentId":null,"timestamp":"2026-08-11T03:00:01Z","provider":"openai-codex","modelId":"gpt-5.5"}` + "\n" +
+		`{"type":"usage","id":"w1","parentId":"mc1","timestamp":"2026-08-11T03:05:00Z","kind":"cache_warm","provider":"anthropic","model":"claude-opus-5-5","usage":{"input":3,"output":1,"cacheRead":900,"cacheWrite":0,"totalTokens":904,"cost":{"total":0.02}}}` + "\n" +
+		`{"type":"compaction","id":"c1","parentId":"w1","timestamp":"2026-08-11T03:06:00Z","usage":{"input":7,"output":1,"cacheRead":0,"cacheWrite":0,"totalTokens":8,"cost":{"total":0.001}}}`
+	records := extractPi(parsePiFixture(t, content), time.Time{})
+	if len(records) != 2 {
+		t.Fatalf("want the usage entry and the compaction billed, got %d: %+v", len(records), records)
+	}
+	warm, after := records[0], records[1]
+	if warm.Provider != "anthropic" || warm.Model != "claude-opus-5-5" || warm.CacheRead != 900 || *warm.ReportedCostUsd != 0.02 {
+		t.Errorf("usage record = %+v", warm)
+	}
+	if after.Provider != "openai-codex" || after.Model != "gpt-5.5" {
+		t.Errorf("the record after a usage entry = %s/%s, want the current openai-codex/gpt-5.5", after.Provider, after.Model)
+	}
+}
