@@ -32,6 +32,8 @@ Prefer it over ad-hoc `cdp-shot.mjs` when a repeatable check exists; shared atta
   `SCENARIOS`, never back into `scenarios.mjs` itself.
 - A scenario that needs a run with a DAG follows `docs/reference/cdp-run-fixtures.md`: the arrange, seed and
   teardown helpers already exist in `scenarios-shared.mjs`.
+- **A fixture agent or tab needs a real block:** create it with `makeTab` (`scripts/cdp/agent-page-fixtures.mjs`).
+  A made-up `fx-blk-*` id fails its controller resync and the agent reads "failed to start".
 - For a populated cockpit, inject test data first: `node scripts/inject-live-agents.mjs <scenario>` (see
   that script's header).
 - **Scope element queries to a `data-*` container.** A document-wide `querySelectorAll('button')` filtered

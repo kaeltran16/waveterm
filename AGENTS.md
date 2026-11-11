@@ -103,8 +103,8 @@ Full map: `docs/reference/architecture.md`. Read it before working in an area yo
     (`openAddress` for a string, `openTarget` for an id), which loads, selects, then switches surface.
   - **Keybindings** are defined in `frontend/app/store/keybindings/bindings.ts` and activated per surface
     with `useKeybindings(...)` in its component; `docs/keyboard-shortcuts.md` mirrors them.
-  - **Logic is extracted, not rendered:** a pure `foo.ts` with `foo.test.ts` beside it, consumed by a thin
-    `foo.tsx`. When wiring is risky, extract it to a model and unit-test that.
+  - **Logic is extracted, not rendered:** a pure `foomodel.ts` with `foomodel.test.ts` beside it, consumed by
+    a thin `foo.tsx` (never `foo.ts` beside `foo.tsx`: `./foo` resolves to the `.ts`). When wiring is risky, extract it to a model and unit-test that.
   - **UI design follows `DESIGN.md`**; read it before planning or styling new UI. Colors come from the
     `@theme` tokens in `frontend/tailwindsetup.css` (runtime themes override those properties, so a raw
     color opts out of every theme). Prefer Tailwind to new SCSS.
@@ -129,6 +129,8 @@ Full map: `docs/reference/architecture.md`. Read it before working in an area yo
   and landing are in `docs/orchestrator-guide.md` ("The plan format", "The final stage"). For this repo:
   - **Verify:** `node scripts/verify.mjs <go package patterns>`. **Final:**
     `node scripts/cdp/final-verify.mjs [scenario...]`. The checked-in `.arc/setup` does the junctions.
+  - **A worker checks UI with `ARC_FINAL_OUT=<tmp dir> node scripts/cdp/final-verify.mjs <scenario>`**, never
+    `task verify:ui`: a run tree has no dev app, and the one on :9222 serves the main checkout.
   - **Name a scenario for each UI the plan changes**, and have each task that builds a view, visual state or
     interaction name the step that shows it, adding one if none does (opening its surface does not count;
     with a Prototype, every board needs one). Final runs only the named scenarios, so a UI no scenario opens

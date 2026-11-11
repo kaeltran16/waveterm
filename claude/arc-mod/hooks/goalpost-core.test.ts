@@ -446,6 +446,9 @@ describe("shell commands", () => {
         expect(commandRules("npm test -- --updateSnapshot")).toEqual(["tests.snapshots"]);
         expect(commandRules("pytest -q tests/")).toEqual([]);
         expect(commandRules("npm test")).toEqual([]);
+        // disabling a plugin can drop checks, but the cache plugin only stores last-failed state
+        expect(commandRules("pytest -p no:randomly tests/")).toEqual(["tests.narrowed"]);
+        expect(commandRules("pytest -q -p no:cacheprovider tests/")).toEqual([]);
     });
 
     test("editing a guarded file from the shell is caught under that file’s category", async () => {

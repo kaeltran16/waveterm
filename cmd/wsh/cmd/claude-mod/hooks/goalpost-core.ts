@@ -907,7 +907,7 @@ const NARROWING: ReadonlyArray<readonly [string, RegExp]> = [
     ["--ignore", /\s--ignore(?:-glob)?[= ]/],
     ["--exclude", /\s--exclude[= ]/],
     ["--skip", /\s--skip\b/],
-    ["-p no:", /\s-p\s+no:/],
+    ["-p no:", /\s-p\s+no:(?!cacheprovider\b)/],
 ];
 
 const SNAPSHOT_UPDATE =
