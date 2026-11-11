@@ -816,19 +816,56 @@ var dagMergeCmd = &cobra.Command{
 			return err
 		}
 		data := wshrpc.CommandDagMergeData{ChannelId: channelId, RunId: runId, TaskId: args[0]}
+		send, done := wshclient.DagMergeCommand, dagDoneLine("merge", args[0])
 		if cont {
-			if err := wshclient.DagMergeContinueCommand(RpcClient, data, &wshrpc.RpcOpts{Timeout: dagMergeTimeoutMs}); err != nil {
+			send = wshclient.DagMergeContinueCommand
+			done = fmt.Sprintf("task %s continued; the plan's Verify, if it has one, runs next and a failure wakes you", args[0])
+		}
+		if err := send(RpcClient, data, &wshrpc.RpcOpts{Timeout: dagMergeTimeoutMs}); err != nil {
+			if !submitOutcomeUnknown(err) {
 				return err
 			}
-			fmt.Printf("task %s continued; the plan's Verify, if it has one, runs next and a failure wakes you\n", args[0])
-			return nil
+			out, terr := dagMergeTimedOut(data, cont, err)
+			if terr != nil {
+				return terr
+			}
+			done = out
 		}
-		if err := wshclient.DagMergeCommand(RpcClient, data, &wshrpc.RpcOpts{Timeout: dagMergeTimeoutMs}); err != nil {
-			return err
-		}
-		fmt.Println(dagDoneLine("merge", args[0]))
+		fmt.Println(done)
 		return nil
 	},
+}
+
+// dagMergeTimedOut says what became of a merge or --continue whose reply never came. wavesrv finishes a request it
+// received after its caller stops waiting (it waits on the dag lock, which a tick can hold for minutes) and wakes the
+// lead if it then fails, so the answer is to check the task, never to re-run the command.
+func dagMergeTimedOut(data wshrpc.CommandDagMergeData, cont bool, err error) (string, error) {
+	command := "dag merge"
+	if cont {
+		command += " --continue"
+	}
+	waited := fmt.Sprintf("%s %s got no reply within %s (%v)", command, data.TaskId, compactDur(dagMergeTimeoutMs), err)
+	check := fmt.Sprintf("check with `wsh jarvis dag status %s` rather than re-running it", data.TaskId)
+	g, rerr := readRunDag(data.ChannelId, data.RunId)
+	var task *waveobj.TaskNode
+	if g != nil {
+		for i := range g.Tasks {
+			if g.Tasks[i].ID == data.TaskId {
+				task = &g.Tasks[i]
+			}
+		}
+	}
+	if rerr != nil || task == nil {
+		return "", fmt.Errorf("%s, and reading task %s again failed (%v). A request wavesrv received still finishes, and wakes you if it fails: %s", waited, data.TaskId, rerr, check)
+	}
+	tookEffect := task.Merged
+	if cont {
+		tookEffect = task.State != orchestrate.TaskState_VerifyFailed && task.State != orchestrate.TaskState_BlockedMerge
+	}
+	if tookEffect {
+		return fmt.Sprintf("%s, but it took effect: task %s is %s; do not re-run it", waited, data.TaskId, task.State), nil
+	}
+	return "", fmt.Errorf("%s, and task %s is still %s: wavesrv is waiting for the engine to release the dag and finishes the request then (a continued Verify shows verifying), waking you if it fails; %s", waited, data.TaskId, task.State, check)
 }
 
 var dagAsksCmd = &cobra.Command{

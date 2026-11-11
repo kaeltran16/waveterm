@@ -39,6 +39,11 @@ Status legend:
   that loaded the dag before the seed writes its snapshot back over it after `seedDag`'s check; the final row then
   vanishes and `agentsurface.tsx` moves the focus to the lead for good. The window is a tick's length, which load
   stretches. Next time it fails, read the stored dag's `updatedts` against the seed times before fixing.
+- **A tick holds the dag lock through slow worktree creation** (2026-11-11, run `65ce3ef3`). `runTick` held it
+  1m6s-2m39s while `git worktree add` failed and `git worktree remove --force` hit its deadline, and every merge,
+  `--continue`, review verdict and child outcome queued behind it (one `--continue` waited 2m37s). Those callers
+  now finish on their own context, so nothing is lost, but they still wait. Evidence: `dag 45b2e6ea... lock:` lines
+  in the packaged app's `waveapp.log` (`dev.arc.app`), 11:22-12:10. Measure where the tick spends the time before moving git out of the lock.
 
 Tracked in their own initiatives, not here:
 
