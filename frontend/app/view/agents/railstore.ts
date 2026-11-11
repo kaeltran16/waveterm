@@ -42,25 +42,25 @@ export const usageBreakdownAtom = atom(false);
 
 export const railStateAtom = atom<RailGitState | null>(null) as PrimitiveAtom<RailGitState | null>;
 
-// guards against a stale focus's load overwriting a newer one (same pattern as filesstore.ts)
-const current = { id: "" };
+// guards against an older load overwriting a newer one: another agent's after a focus change, or the same agent's
+// when two edits start overlapping loads, so a sequence rather than the id
+let loadSeq = 0;
 
 const EMPTY: RailGitState = { cwd: null, branch: "", isRepo: false, changes: null };
 
 // silent keeps the shown state until the new read lands, so a reload for the same agent never blanks the list
 export async function loadRailForAgent(
-    id: string,
     transcriptPath: string | undefined,
     blockId?: string,
     opts?: { silent?: boolean }
 ): Promise<void> {
-    current.id = id;
+    const seq = ++loadSeq;
     if (!opts?.silent) {
         globalStore.set(railStateAtom, null);
     }
 
     const [cwd, startTs] = await Promise.all([resolveCwd(transcriptPath, blockId), ensureSessionStart(transcriptPath)]);
-    if (current.id !== id) {
+    if (seq !== loadSeq) {
         return;
     }
     if (!cwd) {
@@ -75,14 +75,14 @@ export async function loadRailForAgent(
             RpcApi.GitChangesCommand(TabRpcClient, { cwd, sessionstartts: startTs ?? undefined }),
             RpcApi.GitListWorktreesCommand(TabRpcClient, { cwd }).catch(() => null),
         ]);
-        if (current.id !== id) {
+        if (seq !== loadSeq) {
             return;
         }
         const changes = ch.isrepo ? parseGitChanges(ch.statusz, ch.numstat, ch.numstaterror) : null;
         const worktree = ch.isrepo ? linkedWorktree(cwd, wts?.worktrees ?? []) : undefined;
         globalStore.set(railStateAtom, { cwd, branch: ch.branch, isRepo: ch.isrepo, changes, worktree });
     } catch {
-        if (current.id === id) {
+        if (seq === loadSeq) {
             globalStore.set(railStateAtom, { ...EMPTY, cwd });
         }
     }

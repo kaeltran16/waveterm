@@ -339,7 +339,7 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
     useEffect(() => {
         const silent = loadedFor.current === agent.id;
         loadedFor.current = agent.id;
-        fireAndForget(() => loadRailForAgent(agent.id, agent.transcriptPath, agent.blockId, { silent }));
+        fireAndForget(() => loadRailForAgent(agent.transcriptPath, agent.blockId, { silent }));
     }, [reloadKey]);
 
     // re-read while focused: every turn writes the cache again, so a status read once at focus
