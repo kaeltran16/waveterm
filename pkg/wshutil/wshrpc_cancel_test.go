@@ -82,3 +82,19 @@ func TestCancelRequestsForLink(t *testing.T) {
 		t.Fatal("expected L1 handler done")
 	}
 }
+
+// a handler that ran past its timeout still owes the router its final response: that is what drops the
+// rpc's routing entry. With room in OutputCh it must always go out, not lose a race to the done ctx.
+func TestFinalResponseAfterTimeoutIsSent(t *testing.T) {
+	for i := 0; i < 32; i++ {
+		w := &WshRpc{Lock: &sync.Mutex{}, ResponseHandlerMap: map[string]*RpcResponseHandler{}, OutputCh: make(chan []byte, 1)}
+		h, _ := mkHandler(w, "r1", baseds.LinkId(1))
+		(*h.contextCancelFn.Load())() // the timeout fires
+
+		h.SendResponse(nil, true)
+
+		if len(w.OutputCh) != 1 {
+			t.Fatalf("run %d: the final response was dropped", i)
+		}
+	}
+}

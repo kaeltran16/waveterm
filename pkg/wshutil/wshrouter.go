@@ -348,6 +348,10 @@ func (router *WshRouter) runServer() {
 			}
 			// no need to check the return value here (noop if failed)
 			router.sendRoutedMessage(msgBytes, routeInfo.destRouteId, "", input.IngressLinkId)
+			if msg.Cancel {
+				// a cancelled handler sends no final response, so this is the last message of the rpc
+				router.unregisterRouteInfo(msg.ReqId)
+			}
 			continue
 		} else if msg.ResId != "" {
 			routeInfo := router.getRouteInfo(msg.ResId)

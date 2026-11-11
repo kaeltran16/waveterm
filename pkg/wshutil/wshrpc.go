@@ -719,11 +719,25 @@ func (handler *RpcResponseHandler) SendResponse(data any, done bool) error {
 	if err != nil {
 		return err
 	}
+	if !handler.sendToOutput(barr) {
+		return fmt.Errorf("timeout sending response")
+	}
+	return nil
+}
+
+// tries a free OutputCh first: once ctx is done, a select over both would pick at random and could drop
+// the final response, which is what clears the rpc's routing entry in the router
+func (handler *RpcResponseHandler) sendToOutput(barr []byte) bool {
 	select {
 	case handler.w.OutputCh <- barr:
-		return nil
+		return true
+	default:
+	}
+	select {
+	case handler.w.OutputCh <- barr:
+		return true
 	case <-handler.ctx.Done():
-		return fmt.Errorf("timeout sending response")
+		return false
 	}
 }
 
@@ -743,10 +757,7 @@ func (handler *RpcResponseHandler) SendResponseError(err error) {
 		Error: err.Error(),
 	}
 	barr, _ := json.Marshal(msg) // will never fail
-	select {
-	case handler.w.OutputCh <- barr:
-	case <-handler.ctx.Done():
-	}
+	handler.sendToOutput(barr)
 }
 
 func (handler *RpcResponseHandler) IsCanceled() bool {

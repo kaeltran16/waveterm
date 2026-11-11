@@ -54,3 +54,15 @@ func TestUnregisterLinkCancelsItsInFlightRequests(t *testing.T) {
 		t.Fatal("the gone link's request kept its routing entry")
 	}
 }
+
+// a cancelled request never sends a final response, so forwarding the cancel is the router's last sight
+// of it: the routing entry must go then, or every cancelled stream leaks one for the server's lifetime
+func TestCancelDropsTheRoutingEntry(t *testing.T) {
+	router, leaf, callerLink := routeRequest(t, "r1")
+
+	cancel, _ := json.Marshal(RpcMessage{Cancel: true, ReqId: "r1"})
+	router.inputCh <- baseds.RpcInputChType{MsgBytes: cancel, IngressLinkId: callerLink}
+
+	waitUntil(t, "the cancel to reach the handler", func() bool { return leafGotCancel(leaf, "r1") })
+	waitUntil(t, "r1's routing entry to go", func() bool { return !hasRouteInfo(router, "r1") })
+}
