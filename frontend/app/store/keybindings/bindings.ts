@@ -232,10 +232,11 @@ const escapeNavigates = (ctx: KeyContext): boolean =>
     // the DAG modal takes Escape itself too, and the Brief mounts it as well as Channels
     globalStore.get(dagModalStateAtom) == null &&
     // and the Brief's Chunk sidebar: while a note is open, Escape means "back out of the
-    // note", and going home too would do both at once
-    globalStore.get(noteChunkAtom) == null &&
+    // note", and going home too would do both at once. Both atoms outlive the Brief, so they
+    // only count on Jarvis: elsewhere nothing draws them and Escape would do nothing at all
+    !(ctx.surface === "jarvis" && globalStore.get(noteChunkAtom) != null) &&
     // and the plan-editing menu above it, the innermost rung of all
-    globalStore.get(trackerMenuAtom) == null &&
+    !(ctx.surface === "jarvis" && globalStore.get(trackerMenuAtom) != null) &&
     // and any hand-rolled dropdown (useEscapeClose): it closes on Escape and returns focus itself
     noEscapeMenuOpen();
 
@@ -695,6 +696,9 @@ export function buildJarvisBindings(): Binding[] {
             onJarvis(ctx) &&
             globalStore.get(noteChunkAtom) != null &&
             globalStore.get(trackerMenuAtom) == null &&
+            // a sheet, record peek or graph peek above the sidebar closes first, on its own listener
+            !anyModalOpen() &&
+            !globalStore.get(graphPeekOpenAtom) &&
             noEscapeMenuOpen(),
         run: () => {
             if (globalStore.get(readingNoteAtom).size > 0) {

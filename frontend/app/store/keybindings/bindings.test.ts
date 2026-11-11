@@ -6,6 +6,7 @@ import { RESMON_UI_INITIAL } from "@/app/cockpit/resmon";
 import { resmonOpenAtom, resmonSnapshotAtom, resmonUiAtom } from "@/app/cockpit/resmonstore";
 import { cheatsheetOpenAtom } from "@/app/cockpit/shortcuts-cheatsheet";
 import { escapeMenusOpenAtom } from "@/app/hook/useEscapeClose";
+import { registerModal } from "@/app/modals/modalstack";
 import { globalStore } from "@/app/store/jotaiStore";
 import { confirmCloseSession } from "@/app/view/agents/agentactions";
 import { AgentsViewModel, SURFACE_ORDER, type SurfaceKey } from "@/app/view/agents/agents";
@@ -1856,6 +1857,17 @@ describe("global bindings", () => {
             expect(b.when!(jarvis)).toBe(true);
         });
 
+        it("a Chunk sidebar or plan menu left set on Jarvis does not hold Escape on other surfaces", () => {
+            const b = build().find("surface:back-home");
+            globalStore.set(noteChunkAtom, "chunk-1");
+            globalStore.set(trackerMenuAtom, "menu-1");
+            for (const s of ["sessions", "files", "usage", "code"] as const) {
+                expect(b.when!(at(s))).toBe(true);
+            }
+            globalStore.set(noteChunkAtom, null);
+            globalStore.set(trackerMenuAtom, null);
+        });
+
         it("goes home when no jump brought the user here", () => {
             const { model, find } = build("jarvis");
             find("surface:back-home").run(ctx("jarvis"));
@@ -1986,6 +1998,18 @@ describe("Jarvis keys, the surface's own controls", () => {
         globalStore.set(trackerMenuAtom, null);
         globalStore.set(noteChunkAtom, null);
         expect(b.when!(jarvis)).toBe(false);
+    });
+
+    it("closing the Chunk sidebar stands down under a modal or the graph peek", () => {
+        const b = find("jarvis:close-notes");
+        globalStore.set(noteChunkAtom, "chunk-1");
+        const unregister = registerModal("sheet");
+        expect(b.when!(jarvis)).toBe(false);
+        unregister();
+        globalStore.set(graphPeekOpenAtom, true);
+        expect(b.when!(jarvis)).toBe(false);
+        globalStore.set(graphPeekOpenAtom, false);
+        expect(b.when!(jarvis)).toBe(true);
     });
 
     it("the plan menu's Escape is live only on the Jarvis surface, and closes the menu", () => {
