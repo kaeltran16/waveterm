@@ -596,6 +596,20 @@ describe("the slow-read clock", () => {
     });
 });
 
+describe("a first-page reload while the change list reloads", () => {
+    it("keeps the filter just typed, the scroll and the selection", () => {
+        globalStore.set(filesStateAtom, null);
+        globalStore.set(historyFiltersAtom, { author: "dana", path: "", text: "" });
+        globalStore.set(historyScrollAtom, 300);
+        globalStore.set(selectedCommitAtom, "bbb");
+        retryHistory();
+        expect(globalStore.get(historyFiltersAtom)).toEqual({ author: "dana", path: "", text: "" });
+        expect(globalStore.get(historyScrollAtom)).toBe(300);
+        expect(globalStore.get(selectedCommitAtom)).toBe("bbb");
+        expect(gitHistory).not.toHaveBeenCalled();
+    });
+});
+
 describe("startFromTop", () => {
     it("clears filters, scroll and selection, and dismisses the notice", async () => {
         // a clean tree has no uncommitted row, so the tip is what the default selection lands on
