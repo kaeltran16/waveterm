@@ -5,16 +5,13 @@ package wshserver
 
 import (
 	"context"
-	"encoding/json"
 	"os"
-	"path/filepath"
 	"sync"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/boardscribe"
-	"github.com/wavetermdev/waveterm/pkg/boardstore"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wps"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -206,73 +203,7 @@ func TestBoardScribeTurnEndWakesOnlyFollowedTabs(t *testing.T) {
 	}
 }
 
-// writeDrawnBoard writes a board named name whose one source was drawn at drawnTs.
-func writeDrawnBoard(t *testing.T, dir, id, name string, drawnTs int64) {
-	t.Helper()
-	arc, err := json.Marshal(wshrpc.BoardArcRecord{Name: name, CreatedTs: drawnTs, Sources: []wshrpc.BoardArcSource{{Key: "run:x", DrawnTs: drawnTs}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	body := `{"arc":` + string(arc) + `,"type":"excalidraw","version":2,"source":"arc","elements":[],"appState":{},"files":{}}`
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, id+".excalidraw"), []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestBoardScribeAgentDrawCreatesByName(t *testing.T) {
-	ctx := context.Background()
-	ws := &WshServer{}
-	fake := stubBoardScribe(t)
-	ch, project := boardScribeChannel(t, ctx)
-	old := boardAgentCwd
-	boardAgentCwd = func(context.Context, string, string) string { return project }
-	t.Cleanup(func() { boardAgentCwd = old })
-	tabId, blockId := seedAgentTab(t, ctx, waveobj.MetaMapType{waveobj.MetaKey_SessionAgent: "claude"})
-
-	if _, err := ws.BoardAgentDrawCommand(ctx, wshrpc.CommandBoardAgentDrawData{BlockId: blockId}); err == nil {
-		t.Error("an agent draw with no board name was accepted")
-	}
-
-	rtn, err := ws.BoardAgentDrawCommand(ctx, wshrpc.CommandBoardAgentDrawData{BlockId: blockId, Board: " Auth Flow ", Ask: "the steps"})
-	if err != nil {
-		t.Fatalf("agent draw: %v", err)
-	}
-	if !rtn.Created || rtn.BoardName != "Auth Flow" || rtn.Project != ch.Name || !boardstore.ValidID(rtn.BoardId) {
-		t.Fatalf("agent draw of an unknown name: %+v", rtn)
-	}
-	wakes := fake.woken()
-	if len(wakes) != 1 {
-		t.Fatalf("wakes = %d, want 1", len(wakes))
-	}
-	w := wakes[0]
-	if w.BoardId != rtn.BoardId || w.ChannelId != ch.OID || w.ProjectPath != project || w.Ask != "the steps" || w.Follow ||
-		w.Source != (wshrpc.BoardSource{Kind: "agent", Ref: tabId, Title: "claude · " + ch.Name}) {
-		t.Errorf("wake = %+v", w)
-	}
-
-	// two more boards whose names differ only in case: the most recently drawn wins
-	dir := boardstore.ProjectDir(ch.Name)
-	// List orders by activity (here the created time), so these stand later than the board made above
-	const later = int64(1) << 60
-	writeDrawnBoard(t, dir, "aaaa0001", "auth flow", later+200)
-	writeDrawnBoard(t, dir, "aaaa0002", "AUTH FLOW", later+100)
-	again, err := ws.BoardAgentDrawCommand(ctx, wshrpc.CommandBoardAgentDrawData{BlockId: blockId, Board: "auth FLOW"})
-	if err != nil {
-		t.Fatalf("second agent draw: %v", err)
-	}
-	if again.Created || again.BoardId != "aaaa0001" || again.BoardName != "auth flow" {
-		t.Errorf("agent draw of an existing name: %+v", again)
-	}
-	list, err := ws.BoardListCommand(ctx, wshrpc.CommandBoardListData{ChannelId: ch.OID})
-	if err != nil || len(list.Boards) != 3 {
-		t.Errorf("an existing name created a board: %+v %v", list, err)
-	}
-}
-
-func TestBoardScribeListShowsDrawingState(t *testing.T) {
+func TestBoardScribeStatusShowsDrawingState(t *testing.T) {
 	ctx := context.Background()
 	ws := &WshServer{}
 	fake := stubBoardScribe(t)
@@ -281,23 +212,8 @@ func TestBoardScribeListShowsDrawingState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	idle, err := ws.BoardCreateCommand(ctx, wshrpc.CommandBoardCreateData{ChannelId: ch.OID, Name: "Idle"})
-	if err != nil {
-		t.Fatal(err)
-	}
 	fake.states[drawing.ID] = boardscribe.StateDrawing
 
-	list, err := ws.BoardListCommand(ctx, wshrpc.CommandBoardListData{ChannelId: ch.OID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	states := map[string]string{}
-	for _, b := range list.Boards {
-		states[b.ID] = b.State
-	}
-	if states[drawing.ID] != boardscribe.StateDrawing || states[idle.ID] != "" {
-		t.Errorf("list states = %v", states)
-	}
 	status, err := ws.BoardStatusCommand(ctx, wshrpc.CommandBoardRefData{ChannelId: ch.OID, BoardId: drawing.ID})
 	if err != nil || len(status.Sources) != 1 || status.Sources[0].State != boardscribe.StateDrawing {
 		t.Errorf("status = %+v %v", status, err)

@@ -26,5 +26,7 @@ Rules:
 
 ## Boards
 
-When the user asks you to put something on a board, run `wsh board draw --board "<name>" --ask "<what>"`. A
-separate scribe draws your latest turn on that board; you draw nothing yourself. Never draw unasked.
+When the user asks you to put something on a board, run
+`wsh board draw --board "<name>" --context "<briefing>" --ask "<question>"`. Write the briefing yourself: what the
+user asked, the facts, and the files involved. A separate drawer answers on that board and the user carries on the
+talk on Boards; you draw nothing yourself. Never draw unasked.

@@ -20,8 +20,14 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
-// boardState is the scribe's state for a board ("drawing", "failed" or "").
-var boardState = func(channelId, boardId string) string { return boardScribe.BoardState(channelId, boardId) }
+// boardState is the list row's live state: "answering" while the drawer runs a turn on the board, else "" and the
+// talk's last turn decides.
+func boardState(channelId, boardId string) string {
+	if boardDrawer.Busy(channelId, boardId) {
+		return boardAnsweringMark
+	}
+	return ""
+}
 
 // boardDir resolves a channel to its project's board folder.
 func boardDir(ctx context.Context, channelId string) (*waveobj.Channel, string, error) {

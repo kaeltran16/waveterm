@@ -243,8 +243,16 @@ func (d *Drawer) Answered(b Board, turnId string, shapeIds []string) error {
 }
 
 // Talk reads the board's talk. A turn left answering or waiting that nothing runs (wavesrv restarted) is failed
-// with RestartedReason, and that is saved.
+// with RestartedReason, and that is saved and published.
 func (d *Drawer) Talk(b Board) (wshrpc.BoardTalk, error) {
+	talk, failed, err := d.failStale(b)
+	for _, t := range failed {
+		d.publishTurn(b, t)
+	}
+	return talk, err
+}
+
+func (d *Drawer) failStale(b Board) (wshrpc.BoardTalk, []wshrpc.BoardTurn, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	var live []string
@@ -256,16 +264,23 @@ func (d *Drawer) Talk(b Board) (wshrpc.BoardTalk, error) {
 	}
 	talk, err := d.d.LoadTalk(b)
 	if err != nil || !slices.ContainsFunc(talk.Turns, stale) {
-		return talk, err
+		return talk, nil, err
 	}
-	return d.d.UpdateTalk(b, func(talk *wshrpc.BoardTalk) error {
+	var failed []wshrpc.BoardTurn
+	talk, err = d.d.UpdateTalk(b, func(talk *wshrpc.BoardTalk) error {
+		failed = nil
 		for i := range talk.Turns {
 			if stale(talk.Turns[i]) {
 				talk.Turns[i].State, talk.Turns[i].Reason = StateFailed, RestartedReason
+				failed = append(failed, talk.Turns[i])
 			}
 		}
 		return nil
 	})
+	if err != nil {
+		return talk, nil, err
+	}
+	return talk, failed, nil
 }
 
 // loop runs turnId, then each briefing that queued behind it.
@@ -313,7 +328,8 @@ func (d *Drawer) runTurn(b Board, turnId string) {
 
 	answer, delivered, err := d.answer(ctx, b, talk, turn)
 	switch {
-	case ctx.Err() != nil:
+	// a nil err means the answer is in the inbox: a Stop that lands after that is too late to keep it off the board
+	case err != nil && ctx.Err() != nil:
 		d.finish(b, turnId, func(t *wshrpc.BoardTurn) { t.State = StateStopped })
 	case err != nil:
 		d.finish(b, turnId, func(t *wshrpc.BoardTurn) { t.State, t.Reason = StateFailed, err.Error() })

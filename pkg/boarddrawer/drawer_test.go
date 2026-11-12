@@ -329,6 +329,34 @@ func TestDrawerStopLeavesBoardUnchanged(t *testing.T) {
 	}
 }
 
+func TestDrawerStopAfterDeliverStaysAnswered(t *testing.T) {
+	f := newFake(reply(drawAnswer))
+	deps := f.deps()
+	var d *Drawer
+	deliver := deps.Deliver
+	deps.Deliver = func(a wshrpc.BoardAnswer) error {
+		if err := deliver(a); err != nil {
+			return err
+		}
+		// Stop lands once the answer is already in the inbox
+		return d.Stop(board)
+	}
+	d = New(deps)
+	turn, err := d.Ask(board, question("q"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	talk := settled(t, f, d)
+	if talk.Turns[0].State != StateAnswered || f.deliveredCount() != 1 {
+		t.Fatalf("a delivered answer must end answered: %+v, delivered %d", talk.Turns[0], f.deliveredCount())
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !slices.ContainsFunc(f.published, func(u wshrpc.BoardUpdateData) bool { return u.What == updateAnswer && u.TurnId == turn.ID }) {
+		t.Errorf("the delivered answer must be published: %+v", f.published)
+	}
+}
+
 func TestDrawerRetryReasks(t *testing.T) {
 	fail := true
 	f := newFake(nil)
@@ -585,6 +613,13 @@ func TestDrawerTalkFailsStaleTurns(t *testing.T) {
 	}
 	if saved := f.talk("b1"); saved.Turns[1].State != StateFailed || saved.Turns[2].Reason != RestartedReason {
 		t.Errorf("stale turns must be saved failed: %+v", saved.Turns)
+	}
+	f.mu.Lock()
+	failedPubs := slices.Clone(f.published)
+	f.mu.Unlock()
+	if len(failedPubs) != 2 || failedPubs[0].TurnId != "t1" || failedPubs[1].TurnId != "t2" || failedPubs[1].From != "x" ||
+		failedPubs[1].State != StateFailed || failedPubs[1].Reason != RestartedReason {
+		t.Errorf("stale turns must be published failed: %+v", failedPubs)
 	}
 	if err := d.Retry(board, "t1"); err != nil {
 		t.Fatal(err)
