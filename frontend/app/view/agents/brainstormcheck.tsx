@@ -8,7 +8,7 @@ import { composerReveal } from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
 import { TickNumber } from "@/app/element/ticknumber";
 import { cn } from "@/util/util";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { AgentsViewModel } from "./agents";
 import { projectOf, type AgentVM } from "./agentsviewmodel";
 import {
@@ -54,6 +54,7 @@ import {
     WorkingMain,
 } from "./brainstormui";
 import { CANVAS_BTN, CANVAS_PRIMARY_BTN } from "./canvaspane";
+import { changeShown } from "./designroute";
 
 type QueueState = AskModel["queue"][number]["state"];
 
@@ -341,6 +342,15 @@ function ApproveBar({
     const act = useAction();
     const working = f.working != null;
     const blocker = approveBlocker(f);
+    // hidden until the lookup answers, so a click cannot beat it
+    const [showChange, setShowChange] = useState(false);
+    useEffect(() => {
+        let live = true;
+        void changeShown(agent.blockId).then((shown) => live && setShowChange(shown));
+        return () => {
+            live = false;
+        };
+    }, [agent.blockId]);
     // the buttons own row one and never wrap; the blocker, which can be long, takes a row of its own below them
     return (
         <div
@@ -353,16 +363,22 @@ function ApproveBar({
                         Approve and start an orchestrator run
                     </span>
                     <span className="truncate font-mono text-[11px] text-muted">
-                        {runLine(projectOf(agent))} ·{" "}
-                        <button
-                            type="button"
-                            disabled={blocker != null || act.busy}
-                            title={blocker ?? undefined}
-                            onClick={() => openRunLauncher(model, agent, s)}
-                            className={cn(LINK, "disabled:cursor-default disabled:opacity-50")}
-                        >
-                            Change
-                        </button>
+                        {runLine(projectOf(agent))}
+                        {showChange ? (
+                            <>
+                                {" "}
+                                ·{" "}
+                                <button
+                                    type="button"
+                                    disabled={blocker != null || act.busy}
+                                    title={blocker ?? undefined}
+                                    onClick={() => openRunLauncher(model, agent, s)}
+                                    className={cn(LINK, "disabled:cursor-default disabled:opacity-50")}
+                                >
+                                    Change
+                                </button>
+                            </>
+                        ) : null}
                     </span>
                     <ErrorLine error={act.error} />
                 </div>

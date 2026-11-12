@@ -1116,6 +1116,12 @@ export class RpcApiType {
         return client.wshRpcCall("rundesignattach", data, opts);
     }
 
+    // command "rundesignwaiting" [call]
+    RunDesignWaitingCommand(client: WshClient, data: CommandRunDesignWaitingData, opts?: RpcOpts): Promise<CommandRunDesignAttachRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "rundesignwaiting", data, opts);
+        return client.wshRpcCall("rundesignwaiting", data, opts);
+    }
+
     // command "runtranscriptpath" [call]
     RunTranscriptPathCommand(client: WshClient, data: CommandRunTranscriptPathData, opts?: RpcOpts): Promise<string> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "runtranscriptpath", data, opts);

@@ -21,6 +21,27 @@ export type DesignRouteIO = {
 export const tauriDesignAttach: DesignAttach = (data) =>
     RpcApi.RunDesignAttachCommand(TabRpcClient, data, { timeout: CREATE_RUN_TIMEOUT_MS });
 
+export type DesignWaiting = (data: CommandRunDesignWaitingData) => Promise<CommandRunDesignAttachRtnData>;
+
+export const tauriDesignWaiting: DesignWaiting = (data) => RpcApi.RunDesignWaitingCommand(TabRpcClient, data);
+
+// the approve bar's Change opens the launcher, which in a session a run waits on would start a second run;
+// Approve hands that run the design. A failed lookup keeps Change, the designed flow everywhere else
+export async function changeShown(
+    blockId: string | undefined,
+    waiting: DesignWaiting = tauriDesignWaiting
+): Promise<boolean> {
+    if (!blockId) {
+        return true;
+    }
+    try {
+        return !(await waiting({ blockid: blockId }))?.runid;
+    } catch (e) {
+        console.warn("brainstorm: looking up the run waiting on the session failed", blockId, e);
+        return true;
+    }
+}
+
 // an attach the server refuses (a run already took this session's design) throws, and nothing opens
 export async function routeDesign(
     io: DesignRouteIO,
