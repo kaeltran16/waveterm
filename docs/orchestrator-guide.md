@@ -1356,11 +1356,12 @@ Inside a lead's or worker's terminal, the run is inferred. Elsewhere pass `--cha
 | `dag planreview accept "<the human's reason>"` | as the lead, proceed past a failed plan review on the human's word |
 | `dag planreview findings` | print a failed plan review's findings whole, one block per reviewer; the lead's wake carries the first 2,500 characters |
 | `dag final pass "<summary>" [--unverified "<what, why>"]` / `dag final fail "<defects>"` | the final verifier's verdict; ends its session |
-| `dag retry <task>` / `dag skip <task>` | retry or skip a failed or stalled task |
+| `dag retry <task>` | retry a failed or stalled task |
+| `dag skip <task>` | drop one task that has not landed (pending, running, stalled, under review, failed): its worker or reviewer stops, its commits come off its lane, and the run goes on |
 | `dag escalate <task> --model <id> [--runtime <rt>]` | re-queue on another model, once per task |
 | `dag merge <task> [--continue]` | squash-merge a lane end, or finish a resolved conflict / re-run a failed Verify |
 | `dag retry-cleanup <task>` | retry removing a task's worktree after its automatic attempts gave up (close whatever held it first) |
-| `dag cancel <task>` | cancel the whole DAG (the task argument is required and ignored) |
+| `dag cancel` | cancel the whole run: every worker, reviewer and the lead stop, and the final stage never runs. It takes no task id; to drop one task use `dag skip` |
 | `wsh jarvis complete [--commit <sha>] [--report <file>]` | finish the run or task; `--commit` scopes its evidence, `--report` seals the file as the summary (required of a task worker) |
 
 Run-level commands, from any terminal in the project:

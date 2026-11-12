@@ -98,6 +98,111 @@ func TestSkippingAFailedTaskLandsItsLaneWithoutItsCommits(t *testing.T) {
 	}
 }
 
+// recordStops stubs the worker stop and records the run of each one stopped, in order.
+func recordStops(t *testing.T) *[]string {
+	t.Helper()
+	var stopped []string
+	old := stopRunWorkers
+	stopRunWorkers = func(_ context.Context, run *waveobj.Run) error {
+		stopped = append(stopped, run.ID)
+		return nil
+	}
+	restoreAfterStages(t, func() { stopRunWorkers = old })
+	return &stopped
+}
+
+// putUnderReview finishes t-2's worker at its tree's head and starts a reviewer on that commit; it returns the
+// reviewer's run.
+func (f *mergeFixture) putUnderReview(t *testing.T, wt, base string) string {
+	t.Helper()
+	head := gitCmd(t, wt, "rev-parse", "HEAD")
+	if err := wstore.UpdateRun(f.ctx, f.channel, f.taskRun(t, "t-2").ID, func(r *waveobj.Run) error {
+		r.Status = jarvis.RunStatus_Done
+		r.EndCommit = head
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	reviewer := jarvis.NewRun("review t-2", "ws-1", wt, nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), 1)
+	reviewer.Review = true
+	reviewer.DagORef = f.dagID
+	reviewer.Phases[0].WorkerOrefs = []string{"tab:reviewer"}
+	if err := wstore.AppendRun(f.ctx, f.channel, reviewer); err != nil {
+		t.Fatal(err)
+	}
+	if err := wstore.UpdateDag(f.ctx, f.dagID, func(cur *waveobj.TaskGroup) error {
+		task := taskByID(cur, "t-2")
+		task.State = TaskState_Reviewing
+		task.ReviewRunID = reviewer.ID
+		task.ReviewBase = base
+		RecomputeDagStatus(cur)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return reviewer.ID
+}
+
+// assertLandedWithoutT2 checks the lane landed t-1's work and none of the skipped t-2's, and the dag reached the end
+// any run reaches: nothing is left running and nothing was cancelled.
+func (f *mergeFixture) assertLandedWithoutT2(t *testing.T) {
+	t.Helper()
+	g := f.dag(t)
+	if g.Tasks[1].State != TaskState_Skipped || g.Tasks[1].Merged || g.Tasks[1].RunID != "" || g.Tasks[1].ReviewRunID != "" {
+		t.Fatalf("t-2 = %+v, want skipped, unmerged and owning no run", g.Tasks[1])
+	}
+	if !g.Tasks[0].Merged || g.Status != DagStatus_Done {
+		t.Fatalf("the skip lets the lane land and the dag end, got t-1 merged=%v, dag %s", g.Tasks[0].Merged, g.Status)
+	}
+	if got := committedFiles(t, f.project, "HEAD"); !reflect.DeepEqual(got, []string{"schema.txt"}) {
+		t.Fatalf("the squash carries t-1's work and none of the skipped t-2's, got %v", got)
+	}
+}
+
+// run e5c81d8f: the lead had no way to drop t-6 while it worked, and the cancel it tried ended the whole run
+func TestSkippingARunningTaskStopsItsWorkerAndLandsTheLaneWithoutIt(t *testing.T) {
+	f := newMergeFixture(t, oneLane())
+	wt, _ := f.startSecondTask(t)
+	commitInTree(t, wt, "bad.txt")
+	worker := f.taskRun(t, "t-2").ID
+	stopped := recordStops(t)
+
+	if err := ApplyAction(f.ctx, f.dagID, "t-2", "skip", ActionByLead, waveobj.RoutePin{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(*stopped) == 0 || (*stopped)[0] != worker {
+		t.Fatalf("the skip stops t-2's worker %s first, stopped %v", worker, *stopped)
+	}
+	if run, err := wstore.GetRun(f.ctx, f.channel, worker); err != nil || run.Status != jarvis.RunStatus_Cancelled {
+		t.Fatalf("t-2's worker run is cancelled, got %+v err %v", run, err)
+	}
+	f.assertLandedWithoutT2(t)
+}
+
+// run e5c81d8f: t-6 was under review when the human changed their mind about it
+func TestSkippingATaskUnderReviewStopsItsReviewerAndLandsTheLaneWithoutIt(t *testing.T) {
+	f := newMergeFixture(t, oneLane())
+	wt, schema := f.startSecondTask(t)
+	commitInTree(t, wt, "bad.txt")
+	worker := f.taskRun(t, "t-2").ID
+	reviewer := f.putUnderReview(t, wt, schema)
+	stopped := recordStops(t)
+
+	if err := ApplyAction(f.ctx, f.dagID, "t-2", "skip", ActionByLead, waveobj.RoutePin{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(*stopped) == 0 || (*stopped)[0] != reviewer {
+		t.Fatalf("the skip stops t-2's reviewer %s first, stopped %v", reviewer, *stopped)
+	}
+	if run, err := wstore.GetRun(f.ctx, f.channel, reviewer); err != nil || run.Status != jarvis.RunStatus_Cancelled {
+		t.Fatalf("t-2's reviewer run is cancelled, got %+v err %v", run, err)
+	}
+	if run, err := wstore.GetRun(f.ctx, f.channel, worker); err != nil || run.Status != jarvis.RunStatus_Done {
+		t.Fatalf("t-2's finished worker keeps its done run, got %+v err %v", run, err)
+	}
+	f.assertLandedWithoutT2(t)
+}
+
 // a task skipped again writes its patch beside the earlier one's: the log named the earlier file
 func TestSkippingLogsThePatchItWrote(t *testing.T) {
 	f := newMergeFixture(t, oneLane())

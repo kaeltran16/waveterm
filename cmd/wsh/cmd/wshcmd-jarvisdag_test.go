@@ -106,7 +106,7 @@ func TestDagActionPayloadsByLead(t *testing.T) {
 	defer func() { dagActionRpc = prev }()
 
 	flags := map[string]string{"channel": "ch", "runid": "run", "model": "sonnet", "runtime": "claude"}
-	for _, c := range []*cobra.Command{dagAction("retry"), dagAction("skip"), dagEscalateCmd} {
+	for _, c := range []*cobra.Command{dagAction("retry"), dagSkipCmd(), dagEscalateCmd} {
 		cmd := newDagEscalateTestCmd(t, flags)
 		if err := c.RunE(cmd, []string{"t-1"}); err != nil {
 			t.Fatalf("%s: %v", c.Use, err)
@@ -123,6 +123,34 @@ func TestDagActionPayloadsByLead(t *testing.T) {
 	raw, err := json.Marshal(sent[0])
 	if err != nil || !strings.Contains(string(raw), `"by":"lead"`) {
 		t.Fatalf("wire form = %s (%v), want by:lead", raw, err)
+	}
+}
+
+// run e5c81d8f: `dag cancel t-6` read as cancelling one task and cancelled the whole run
+func TestDagCancelTakesNoTaskID(t *testing.T) {
+	var sent []wshrpc.CommandDagActionData
+	prev := dagActionRpc
+	dagActionRpc = func(data wshrpc.CommandDagActionData, _ int64) error {
+		sent = append(sent, data)
+		return nil
+	}
+	defer func() { dagActionRpc = prev }()
+
+	err := dagCancelCmd.Args(dagCancelCmd, []string{"t-6"})
+	if err == nil || !strings.Contains(err.Error(), "wsh jarvis dag skip t-6") {
+		t.Fatalf("cancel with a task id: err = %v, want a refusal that points at skip", err)
+	}
+	if err := dagCancelCmd.Args(dagCancelCmd, nil); err != nil {
+		t.Fatalf("cancel with no args: %v", err)
+	}
+	if err := dagCancelCmd.RunE(newDagEscalateTestCmd(t, map[string]string{"channel": "ch", "runid": "run"}), nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(sent) != 1 || sent[0].Action != "cancel" || sent[0].TaskId != "" {
+		t.Fatalf("sent %+v, want one cancel with no task", sent)
+	}
+	if !strings.Contains(dagCancelCmd.Short, "whole run") || strings.Contains(dagCancelCmd.Use, "<") {
+		t.Fatalf("cancel's help must say it ends the whole run and take no argument, got %q / %q", dagCancelCmd.Use, dagCancelCmd.Short)
 	}
 }
 
