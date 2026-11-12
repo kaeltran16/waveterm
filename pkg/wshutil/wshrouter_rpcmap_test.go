@@ -82,7 +82,7 @@ func TestUnregisterLinkCancelsTheHandlerContext(t *testing.T) {
 	server.Lock.Lock()
 	server.ResponseHandlerMap["r1"] = h
 	server.Lock.Unlock()
-	router.registerRouteInfo("r1", callerLink, DefaultRoute)
+	router.registerRouteInfo("r1", callerLink, DefaultRoute, baseds.NoLinkId)
 
 	router.UnregisterLink(callerLink)
 
@@ -91,4 +91,38 @@ func TestUnregisterLinkCancelsTheHandlerContext(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("the gone link's handler context was not cancelled")
 	}
+}
+
+// backend F2: a request whose destination link goes away before it answers can never get a reply: its routing
+// entry must go, and the caller must be told now rather than wait out its timeout
+func TestUnregisterLinkAnswersRequestsItWasHandling(t *testing.T) {
+	router := NewWshRouter()
+	leaf := newGatedClient(t)
+	leaf.setBudget(-1)
+	leafLink, err := router.RegisterTrustedLeaf(leaf, DefaultRoute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	caller := newGatedClient(t)
+	caller.setBudget(-1)
+	callerLink := router.RegisterTrustedRouter(caller)
+	cmd, _ := json.Marshal(RpcMessage{Command: "test", ReqId: "r1", Route: DefaultRoute})
+	router.inputCh <- baseds.RpcInputChType{MsgBytes: cmd, IngressLinkId: callerLink}
+	waitUntil(t, "the leaf to receive the request", func() bool { return len(leaf.received()) == 1 })
+	waitUntil(t, "r1's routing entry", func() bool { return hasRouteInfo(router, "r1") })
+
+	router.UnregisterLink(leafLink)
+
+	if hasRouteInfo(router, "r1") {
+		t.Fatal("the request kept its routing entry after its destination went away")
+	}
+	waitUntil(t, "an error reply for r1 at the caller", func() bool {
+		for _, raw := range caller.received() {
+			var msg RpcMessage
+			if json.Unmarshal([]byte(raw), &msg) == nil && msg.ResId == "r1" && msg.Error != "" {
+				return true
+			}
+		}
+		return false
+	})
 }
