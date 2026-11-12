@@ -61,6 +61,8 @@ export type BrainstormState = {
     sentCheckAt: number | null;
     // when the agent's current turn started (agent:turnstartts on its block), as the poller last read it
     turnStartMs?: number;
+    // the answered builder check record's ts once the agent took its questions in (nextCheckTakenTs)
+    checkTakenTs?: number | null;
     // the check review's cursor row and the rows opened to their was/now; here because the keybindings and the
     // asking rail's links act on them from outside the review
     review: { cursor: string | null; open: Record<string, boolean> };
@@ -84,7 +86,7 @@ export function brainstormWaitOf(s: BrainstormState | null | undefined, agent: A
     }
     return brainstormWait(
         f,
-        builderCheckView(agent.builderCheck, s.sentCheckAt, s.file, s.modifiedMs, agent, s.turnStartMs)
+        builderCheckView(agent.builderCheck, s.sentCheckAt, s.file, s.modifiedMs, agent, s.turnStartMs, s.checkTakenTs)
     );
 }
 
