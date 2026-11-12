@@ -4,6 +4,8 @@
 import { getSettingsKeyAtom } from "@/app/store/global";
 import { atoms } from "@/app/store/global-atoms";
 import { globalStore } from "@/app/store/jotaiStore";
+import { startBoardApplier } from "@/app/view/boards/boardapplier";
+import { subscribeBoardUpdates } from "@/app/view/boards/boardstore";
 import { CodeSurface } from "@/app/view/code/codesurface";
 import { JarvisSurface } from "@/app/view/jarvis/jarvissurface";
 import { cn, fireAndForget } from "@/util/util";
@@ -141,6 +143,15 @@ export function CockpitShell({ model, tabId }: { model: AgentsViewModel; tabId: 
     }, []);
     // the roster's first-load gate; here rather than at boot, because boot subscribes before the workspace loads
     useEffect(() => setupRosterSeededLatch(), []);
+    // here, not on the Boards surface: a draw lands (and toasts) whichever surface is showing
+    useEffect(() => {
+        const unsubscribe = subscribeBoardUpdates();
+        const stopApplier = startBoardApplier(model);
+        return () => {
+            stopApplier();
+            unsubscribe();
+        };
+    }, [model]);
     const surface = useAtomValue(model.surfaceAtom);
     return (
         <div className="flex h-full w-full">

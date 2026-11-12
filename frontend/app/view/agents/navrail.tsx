@@ -11,6 +11,7 @@ import {
     GitCompare,
     LayoutDashboard,
     Settings,
+    Shapes,
     SquareStack,
     Waypoints,
 } from "lucide-react";
@@ -32,6 +33,7 @@ export const ICON: Record<SurfaceKey, ReactNode> = {
     code: <FileCode2 {...iconProps} />,
     setup: <FileCog {...iconProps} />,
     settings: <Settings {...iconProps} />,
+    boards: <Shapes {...iconProps} />,
 };
 
 export const ITEMS: { key: SurfaceKey; label: string }[] = [

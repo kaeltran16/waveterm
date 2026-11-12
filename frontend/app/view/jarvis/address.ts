@@ -19,7 +19,9 @@ export type OpenTarget =
     | { kind: "workflowscan"; runId: string }
     | { kind: "dag"; dagId: string; taskId?: string }
     // built in code only (a terminal path peek's Open in Code); parseAddress never produces it
-    | { kind: "code"; projectPath: string; rel: string; line?: number };
+    | { kind: "code"; projectPath: string; rel: string; line?: number }
+    // built in code only (a draw toast's Open, a follow chip); parseAddress never produces it
+    | { kind: "board"; channelId: string; boardId: string };
 
 export type Unsupported = { kind: "unsupported"; message: string };
 

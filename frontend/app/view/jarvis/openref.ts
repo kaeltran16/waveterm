@@ -30,6 +30,7 @@ import { runRoleOf } from "../agents/runlineage";
 import { setupTabAtom } from "../agents/setupstore";
 import { usageLensAtom } from "../agents/usagestore";
 import { workflowScanRunAtom } from "../agents/workflowscanstart";
+import { loadBoardList, selectBoard } from "../boards/boardstore";
 import { openInCode } from "../code/codestore";
 import { openDagLive, openDagTask } from "../orchestrate/dagmodalstate";
 import { isCanvasSegment, parseAddress, type AddressHint, type OpenTarget } from "./address";
@@ -68,6 +69,7 @@ type NoteTarget = Extract<OpenTarget, { kind: "note" }>;
 type MemHygieneTarget = Extract<OpenTarget, { kind: "memhygiene" }>;
 type WorkflowScanTarget = Extract<OpenTarget, { kind: "workflowscan" }>;
 type CodeTarget = Extract<OpenTarget, { kind: "code" }>;
+type BoardTarget = Extract<OpenTarget, { kind: "board" }>;
 type Caller = AddressHint["caller"];
 
 const OK: OpenResult = { ok: true };
@@ -111,6 +113,8 @@ function targetName(target: OpenTarget): string {
             return `DAG ${target.dagId}`;
         case "code":
             return `file ${target.rel}`;
+        case "board":
+            return `board ${target.boardId}`;
     }
 }
 
@@ -169,7 +173,8 @@ export function isPeekable(target: OpenTarget): boolean {
         target.kind !== "brainstorm" &&
         target.kind !== "memhygiene" &&
         target.kind !== "workflowscan" &&
-        target.kind !== "code"
+        target.kind !== "code" &&
+        target.kind !== "board"
     );
 }
 
@@ -191,7 +196,8 @@ export async function peekTarget(
         target.kind === "brainstorm" ||
         target.kind === "memhygiene" ||
         target.kind === "workflowscan" ||
-        target.kind === "code"
+        target.kind === "code" ||
+        target.kind === "board"
     ) {
         return openTarget(model, target, report);
     }
@@ -305,6 +311,8 @@ async function land(
             return selectWorkflowScan(model, target.runId);
         case "code":
             return landCode(model, target, current);
+        case "board":
+            return select(await loadBoard(target, current), () => selectBoardTarget(model, target));
     }
 }
 
@@ -323,6 +331,21 @@ async function landCode(model: AgentsViewModel, target: CodeTarget, current: () 
     return OK;
 }
 
+// the list proves the board is there, and is what the surface renders on its first frame
+async function loadBoard(target: BoardTarget, current: () => boolean): Promise<Loaded> {
+    const list = await loadBoardList(target.channelId);
+    if (!current()) {
+        return SUPERSEDED;
+    }
+    return list.boards.some((b) => b.id === target.boardId) ? loaded() : unavailable("This board is gone");
+}
+
+function selectBoardTarget(model: AgentsViewModel, target: BoardTarget): OpenResult {
+    selectBoard(target.channelId, target.boardId);
+    landOn(model.surfaceAtom, "boards");
+    return OK;
+}
+
 async function select<T>(load: Loaded<T>, write: (facts: T) => OpenResult | Promise<OpenResult>): Promise<OpenResult> {
     if ("reason" in load) {
         return load;
@@ -333,7 +356,10 @@ async function select<T>(load: Loaded<T>, write: (facts: T) => OpenResult | Prom
 
 async function peek(
     model: AgentsViewModel,
-    target: Exclude<OpenTarget, CanvasTarget | BrainstormTarget | MemHygieneTarget | WorkflowScanTarget | CodeTarget>,
+    target: Exclude<
+        OpenTarget,
+        CanvasTarget | BrainstormTarget | MemHygieneTarget | WorkflowScanTarget | CodeTarget | BoardTarget
+    >,
     current: () => boolean
 ): Promise<OpenResult> {
     const resolved =
