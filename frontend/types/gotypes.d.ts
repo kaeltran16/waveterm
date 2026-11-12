@@ -2222,6 +2222,15 @@ declare global {
         commit: string;
     };
 
+    // wshrpc.DagMemoryState
+    type DagMemoryState = {
+        state: string;
+        role: string;
+        free: number;
+        need: number;
+        ts: number;
+    };
+
     // wshrpc.DagModelPick
     type DagModelPick = {
         taskid: string;
@@ -2321,6 +2330,7 @@ declare global {
         forwardedts?: number;
         mergeheldby?: string;
         verifyfailline?: string;
+        memory?: DagMemoryState;
     };
 
     // wshrpc.DagTaskDuration
