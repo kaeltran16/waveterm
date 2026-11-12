@@ -307,6 +307,18 @@ declare global {
         created?: boolean;
     };
 
+    // wshrpc.BoardAnswer
+    type BoardAnswer = {
+        id: string;
+        channelid: string;
+        boardid: string;
+        turnid: string;
+        add?: string;
+        update?: string;
+        remove?: string[];
+        ts: number;
+    };
+
     // wshrpc.BoardArcPending
     type BoardArcPending = {
         drawid: string;
@@ -349,6 +361,13 @@ declare global {
         h: number;
     };
 
+    // wshrpc.BoardBriefing
+    type BoardBriefing = {
+        from: string;
+        text: string;
+        ask: string;
+    };
+
     // wshrpc.BoardDraw
     type BoardDraw = {
         id: string;
@@ -364,6 +383,14 @@ declare global {
         ts: number;
     };
 
+    // wshrpc.BoardHandoff
+    type BoardHandoff = {
+        fromboardid: string;
+        fromname: string;
+        summary: string;
+        shapes: number;
+    };
+
     // wshrpc.BoardInfo
     type BoardInfo = {
         id: string;
@@ -376,6 +403,10 @@ declare global {
         newcount?: number;
         state?: string;
         loaderror?: string;
+        questions?: number;
+        about?: string;
+        answeredts?: number;
+        activets?: number;
     };
 
     // wshrpc.BoardListRtnData
@@ -406,6 +437,7 @@ declare global {
         path?: string;
         runtime?: string;
         title: string;
+        text?: string;
     };
 
     // wshrpc.BoardSourceStatus
@@ -427,6 +459,37 @@ declare global {
         sources: BoardSourceStatus[];
     };
 
+    // wshrpc.BoardTalk
+    type BoardTalk = {
+        channelid: string;
+        boardid: string;
+        about: BoardSource;
+        sessionid?: string;
+        handoff?: BoardHandoff;
+        turns: BoardTurn[];
+    };
+
+    // wshrpc.BoardTurn
+    type BoardTurn = {
+        id: string;
+        ts: number;
+        question?: string;
+        on?: string;
+        selectedids?: string[];
+        briefing?: BoardBriefing;
+        kept?: boolean;
+        state: string;
+        reply?: string;
+        title?: string;
+        added?: number;
+        changed?: number;
+        removed?: number;
+        shapeids?: string[];
+        answeredts?: number;
+        reason?: string;
+        choice?: string;
+    };
+
     // wshrpc.BoardUpdateData
     type BoardUpdateData = {
         channelid: string;
@@ -434,6 +497,9 @@ declare global {
         what: string;
         sourcekey?: string;
         reason?: string;
+        turnid?: string;
+        state?: string;
+        from?: string;
     };
 
     // wshrpc.BrainstormCheckTimes
@@ -743,6 +809,33 @@ declare global {
         blockid: string;
         board: string;
         ask?: string;
+        context?: string;
+    };
+
+    // wshrpc.CommandBoardAnswerAckData
+    type CommandBoardAnswerAckData = {
+        channelid: string;
+        boardid: string;
+        answerid: string;
+        turnid: string;
+        shapeids?: string[];
+    };
+
+    // wshrpc.CommandBoardAskData
+    type CommandBoardAskData = {
+        channelid: string;
+        boardid: string;
+        question: string;
+        on?: string;
+        selectedids?: string[];
+    };
+
+    // wshrpc.CommandBoardChoiceData
+    type CommandBoardChoiceData = {
+        channelid: string;
+        boardid: string;
+        turnid: string;
+        choice: string;
     };
 
     // wshrpc.CommandBoardCreateData
@@ -802,6 +895,23 @@ declare global {
         channelid: string;
         boardid: string;
         sourcekey: string;
+    };
+
+    // wshrpc.CommandBoardStartData
+    type CommandBoardStartData = {
+        channelid: string;
+        name: string;
+        question?: string;
+        about: BoardSource;
+        fromboardid?: string;
+        elements?: string;
+    };
+
+    // wshrpc.CommandBoardTurnData
+    type CommandBoardTurnData = {
+        channelid: string;
+        boardid: string;
+        turnid: string;
     };
 
     // wshrpc.CommandBrainstormCheckData

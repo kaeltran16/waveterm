@@ -19,6 +19,14 @@ type BoardCommands interface {
 	BoardStatusCommand(ctx context.Context, data CommandBoardRefData) (*BoardStatusData, error)
 	BoardInboxCommand(ctx context.Context, data CommandBoardInboxData) ([]BoardDraw, error)
 	BoardInboxAckCommand(ctx context.Context, data CommandBoardInboxAckData) error
+	BoardStartCommand(ctx context.Context, data CommandBoardStartData) (*BoardInfo, error)
+	BoardTalkCommand(ctx context.Context, data CommandBoardRefData) (*BoardTalk, error)
+	BoardAskCommand(ctx context.Context, data CommandBoardAskData) error
+	BoardAskStopCommand(ctx context.Context, data CommandBoardRefData) error
+	BoardAskRetryCommand(ctx context.Context, data CommandBoardTurnData) error
+	BoardAskChoiceCommand(ctx context.Context, data CommandBoardChoiceData) error
+	BoardAnswerInboxCommand(ctx context.Context, data CommandBoardInboxData) ([]BoardAnswer, error)
+	BoardAnswerAckCommand(ctx context.Context, data CommandBoardAnswerAckData) error
 }
 
 type CommandBoardListData struct {
@@ -39,8 +47,12 @@ type BoardInfo struct {
 	LastDrawnTs int64  `json:"lastdrawnts,omitempty"`
 	CreatedTs   int64  `json:"createdts"`
 	NewCount    int    `json:"newcount,omitempty"` // sources drawn after the record's seents
-	State       string `json:"state,omitempty"`    // "drawing" | "failed" while the scribe works on it
+	State       string `json:"state,omitempty"`    // "answering" | "asks" | "failed"
 	LoadError   string `json:"loaderror,omitempty"`
+	Questions   int    `json:"questions,omitempty"`
+	About       string `json:"about,omitempty"` // the talk's about title; empty = the project's code
+	AnsweredTs  int64  `json:"answeredts,omitempty"`
+	ActiveTs    int64  `json:"activets,omitempty"` // last turn or answer, else created
 }
 
 type CommandBoardCreateData struct {
@@ -72,7 +84,7 @@ type BoardSaveRtnData struct {
 	Conflict bool   `json:"conflict,omitempty"` // the file changed since BaseRev; nothing was written
 }
 
-// BoardSource is the thing a draw reads. Kind: agent | session | run | effort | record.
+// BoardSource is the thing a draw reads. Kind: agent | session | run | effort | record | project | briefing.
 type BoardSource struct {
 	Kind      string `json:"kind"`
 	Ref       string `json:"ref"`
@@ -80,6 +92,7 @@ type BoardSource struct {
 	Path      string `json:"path,omitempty"`      // a session's transcript
 	Runtime   string `json:"runtime,omitempty"`   // a session's runtime
 	Title     string `json:"title"`               // as rows and toasts name it: "claude · waveterm", "run 690cc20a"
+	Text      string `json:"text,omitempty"`      // a briefing's text
 }
 
 type CommandBoardDrawData struct {
@@ -94,6 +107,7 @@ type CommandBoardAgentDrawData struct {
 	BlockId string `json:"blockid"`
 	Board   string `json:"board"`
 	Ask     string `json:"ask,omitempty"`
+	Context string `json:"context,omitempty"`
 }
 
 type BoardAgentDrawRtnData struct {
@@ -195,11 +209,109 @@ type BoardArcPending struct {
 	CursorTs int64  `json:"cursorts,omitempty"`
 }
 
-// BoardUpdateData is board:update's payload. What: list | status | draw | failed.
+// BoardUpdateData is board:update's payload. What: list | status | draw | failed | talk | answer.
 type BoardUpdateData struct {
 	ChannelId string `json:"channelid"`
 	BoardId   string `json:"boardid,omitempty"`
 	What      string `json:"what"`
 	SourceKey string `json:"sourcekey,omitempty"`
 	Reason    string `json:"reason,omitempty"`
+	TurnId    string `json:"turnid,omitempty"`
+	State     string `json:"state,omitempty"`
+	From      string `json:"from,omitempty"` // a briefing's sender
+}
+
+// BoardTalk is a board's conversation with its drawer, kept in the <id>.talk.json sidecar that only wavesrv writes.
+type BoardTalk struct {
+	ChannelId string        `json:"channelid"`
+	BoardId   string        `json:"boardid"`
+	About     BoardSource   `json:"about"`
+	SessionId string        `json:"sessionid,omitempty"`
+	Handoff   *BoardHandoff `json:"handoff,omitempty"`
+	Turns     []BoardTurn   `json:"turns"`
+}
+
+type BoardHandoff struct {
+	FromBoardId string `json:"fromboardid"`
+	FromName    string `json:"fromname"`
+	Summary     string `json:"summary"`
+	Shapes      int    `json:"shapes"`
+}
+
+type BoardBriefing struct {
+	From string `json:"from"`
+	Text string `json:"text"`
+	Ask  string `json:"ask"`
+}
+
+// BoardTurn is one question and its answer. State: waiting | answering | answered | asks | failed | stopped.
+// Choice, on an asks turn: keep | new.
+type BoardTurn struct {
+	ID          string         `json:"id"`
+	Ts          int64          `json:"ts"`
+	Question    string         `json:"question,omitempty"`
+	On          string         `json:"on,omitempty"`
+	SelectedIds []string       `json:"selectedids,omitempty"`
+	Briefing    *BoardBriefing `json:"briefing,omitempty"`
+	Kept        bool           `json:"kept,omitempty"`
+	State       string         `json:"state"`
+	Reply       string         `json:"reply,omitempty"`
+	Title       string         `json:"title,omitempty"`
+	Added       int            `json:"added,omitempty"`
+	Changed     int            `json:"changed,omitempty"`
+	Removed     int            `json:"removed,omitempty"`
+	ShapeIds    []string       `json:"shapeids,omitempty"`
+	AnsweredTs  int64          `json:"answeredts,omitempty"`
+	Reason      string         `json:"reason,omitempty"`
+	Choice      string         `json:"choice,omitempty"`
+}
+
+type CommandBoardStartData struct {
+	ChannelId   string      `json:"channelid"`
+	Name        string      `json:"name"`
+	Question    string      `json:"question,omitempty"`
+	About       BoardSource `json:"about"`
+	FromBoardId string      `json:"fromboardid,omitempty"`
+	Elements    string      `json:"elements,omitempty"` // a JSON array of Excalidraw elements: the copied drawing
+}
+
+type CommandBoardAskData struct {
+	ChannelId   string   `json:"channelid"`
+	BoardId     string   `json:"boardid"`
+	Question    string   `json:"question"`
+	On          string   `json:"on,omitempty"`
+	SelectedIds []string `json:"selectedids,omitempty"`
+}
+
+type CommandBoardTurnData struct {
+	ChannelId string `json:"channelid"`
+	BoardId   string `json:"boardid"`
+	TurnId    string `json:"turnid"`
+}
+
+type CommandBoardChoiceData struct {
+	ChannelId string `json:"channelid"`
+	BoardId   string `json:"boardid"`
+	TurnId    string `json:"turnid"`
+	Choice    string `json:"choice"`
+}
+
+// BoardAnswer is one drawer answer waiting in a board's answers inbox until the frontend applies it.
+type BoardAnswer struct {
+	ID        string   `json:"id"`
+	ChannelId string   `json:"channelid"`
+	BoardId   string   `json:"boardid"`
+	TurnId    string   `json:"turnid"`
+	Add       string   `json:"add,omitempty"`    // JSON array text of Excalidraw element skeletons
+	Update    string   `json:"update,omitempty"` // JSON array text of element patches
+	Remove    []string `json:"remove,omitempty"`
+	Ts        int64    `json:"ts"`
+}
+
+type CommandBoardAnswerAckData struct {
+	ChannelId string   `json:"channelid"`
+	BoardId   string   `json:"boardid"`
+	AnswerId  string   `json:"answerid"`
+	TurnId    string   `json:"turnid"`
+	ShapeIds  []string `json:"shapeids,omitempty"`
 }
