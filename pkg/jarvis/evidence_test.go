@@ -1212,3 +1212,25 @@ func TestSealEvidenceAfterLandWithoutItsBranchStaysUnsealed(t *testing.T) {
 		t.Errorf("sealed %v from a missing landing tree, want an error", run.Evidence)
 	}
 }
+
+// the land deletes wave/<runId> with its tree, so the tip it recorded is what proves the merge is the run's
+func TestSealEvidenceAfterLandReadsTheMergeOfItsRecordedTip(t *testing.T) {
+	run := landedRunWithoutTree(t, false)
+	tip, err := gitinfo.ResolveCommit(context.Background(), run.ProjectPath, run.Land.Commit+"^2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	run.Land.Tip = tip
+	if got := sealedPaths(t, run); !got["run.txt"] || got["human.txt"] || len(got) != 1 {
+		t.Errorf("sealed files = %v, want only the merge's run.txt", got)
+	}
+}
+
+// a recorded tip the merge did not merge is not the run's land, even while the branch ref still matches
+func TestSealEvidenceAfterLandWithAnotherRecordedTipStaysUnsealed(t *testing.T) {
+	run := landedRunWithoutTree(t, true)
+	run.Land.Tip = run.BaseCommit
+	if err := SealEvidence(context.Background(), run); err == nil {
+		t.Errorf("sealed %v from a merge of another tip, want an error", run.Evidence)
+	}
+}
