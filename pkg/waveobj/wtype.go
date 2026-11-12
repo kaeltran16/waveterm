@@ -436,10 +436,13 @@ type WorkflowScanPick struct {
 
 // RunLand is where a run's branch stands on its way back into the branch it started from.
 type RunLand struct {
-	State  string   `json:"state"`            // pending | landed | held
-	Reason string   `json:"reason,omitempty"` // why it is held
-	Commit string   `json:"commit,omitempty"` // the merge commit
-	Notes  []string `json:"notes,omitempty"`  // what the landed result was not verified against, e.g. a moved base
+	State  string `json:"state"`            // pending | landed | held
+	Reason string `json:"reason,omitempty"` // why it is held
+	Commit string `json:"commit,omitempty"` // the merge commit
+	// Tip is the wave/<runId> commit the land merged, kept because the land deletes the branch: the evidence seal
+	// proves Commit is the run's merge by it.
+	Tip   string   `json:"tip,omitempty"`
+	Notes []string `json:"notes,omitempty"` // what the landed result was not verified against, e.g. a moved base
 	// Dismissed is the human dropping a held land's attention item. A retry writes a fresh RunLand, so a new
 	// hold shows again.
 	Dismissed bool `json:"dismissed,omitempty"`

@@ -593,7 +593,11 @@ func treeChanges(ctx context.Context, run *waveobj.Run) (*gitinfo.Changes, error
 	if err != nil {
 		return nil, fmt.Errorf("the landing tree %s is gone and the land commit %s is not a merge", run.LandPath, run.Land.Commit)
 	}
-	tip, err := gitinfo.ResolveCommit(ctx, run.ProjectPath, "refs/heads/wave/"+run.ID)
+	// the land records the tip it merged since it deletes the branch; a run landed before that has only the ref
+	tip := run.Land.Tip
+	if tip == "" {
+		tip, err = gitinfo.ResolveCommit(ctx, run.ProjectPath, "refs/heads/wave/"+run.ID)
+	}
 	if err != nil || tip != second {
 		return nil, fmt.Errorf("the landing tree %s is gone and the land commit %s is not provably a merge of wave/%s's tip", run.LandPath, run.Land.Commit, run.ID)
 	}

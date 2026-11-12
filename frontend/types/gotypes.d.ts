@@ -3213,6 +3213,7 @@ declare global {
         state: string;
         reason?: string;
         commit?: string;
+        tip?: string;
         notes?: string[];
         dismissed?: boolean;
         dirty?: boolean;
