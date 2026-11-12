@@ -5,7 +5,7 @@ import { controlMsg, deliver, endTurn, steerNotice, takeLines } from "./control-
 const idle = (): Turn => ({ isOpen: false, unread: [] });
 const running = (): Turn => ({ isOpen: true, unread: [] });
 
-function recorder(compactError?: Error, steerError?: Error) {
+function recorder(compactError?: Error, steerError?: Error, commandError?: Error) {
     const calls: string[][] = [];
     return {
         calls,
@@ -17,7 +17,12 @@ function recorder(compactError?: Error, steerError?: Error) {
                     throw steerError;
                 }
             },
-            command: async (name: string, args: string) => void calls.push(["command", name, args]),
+            command: async (name: string, args: string) => {
+                calls.push(["command", name, args]);
+                if (commandError) {
+                    throw commandError;
+                }
+            },
             compact: async (instructions: string) => {
                 calls.push(["compact", instructions]);
                 if (compactError) {
@@ -103,6 +108,15 @@ describe("deliver", () => {
         expect(calls).toEqual([
             ["submit", "/tmp/build.log has the failing test, read it"],
             ["submit", "/README.md is out of date"],
+        ]);
+    });
+
+    it("submits a slash text the session refuses to run as a command", async () => {
+        const { calls, session } = recorder(undefined, undefined, new Error("Unknown command: src"));
+        await deliver(session, { text: "/src needs a cleanup, start with the store" }, idle());
+        expect(calls).toEqual([
+            ["command", "src", "needs a cleanup, start with the store"],
+            ["submit", "/src needs a cleanup, start with the store"],
         ]);
     });
 
