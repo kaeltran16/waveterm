@@ -21,7 +21,10 @@ func TestDigestClaudeKeepsPromptsAndReplies(t *testing.T) {
 		`{"type":"assistant","timestamp":"2026-09-17T06:02:11.000Z","message":{"content":[{"type":"text","text":"the timeout was the dial"}]}}`,
 	}
 	_, _, turns, _ := claudeProvider("").fused("", "s1", lines)
-	want := []Turn{{Speaker: "user", Text: "fix the hook timeout"}, {Speaker: "agent", Text: "the timeout was the dial"}}
+	want := []Turn{
+		{Speaker: "user", Text: "fix the hook timeout", Ts: 1789624925000},
+		{Speaker: "agent", Text: "the timeout was the dial", Ts: 1789624931000},
+	}
 	if !reflect.DeepEqual(turns, want) {
 		t.Fatalf("turns = %+v\nwant %+v", turns, want)
 	}
@@ -39,9 +42,9 @@ func TestDigestPiKeepsPromptsAndReplies(t *testing.T) {
 	})
 	_, _, turns, _ := piProvider("").fused(path, "", nil)
 	want := []Turn{
-		{Speaker: "user", Text: "review the diff"},
-		{Speaker: "agent", Text: "the diff is fine"},
-		{Speaker: "user", Text: "ship it"},
+		{Speaker: "user", Text: "review the diff", Ts: 1789624801000},
+		{Speaker: "agent", Text: "the diff is fine", Ts: 1789624803000},
+		{Speaker: "user", Text: "ship it", Ts: 1789624806000},
 	}
 	if !reflect.DeepEqual(turns, want) {
 		t.Fatalf("turns = %+v\nwant %+v", turns, want)

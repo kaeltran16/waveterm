@@ -32,6 +32,15 @@ describe("notificationstore", () => {
         expect(globalStore.get(toastsAtom)).toHaveLength(0);
     });
 
+    it("keeps a toast's action", () => {
+        const run = vi.fn();
+        pushToast({ title: "drew", message: "", level: "info", action: { label: "Open", run } });
+        const toast = globalStore.get(toastsAtom)[0];
+        expect(toast.action?.label).toBe("Open");
+        toast.action?.run();
+        expect(run).toHaveBeenCalledOnce();
+    });
+
     it("dismisses a specific toast", () => {
         pushToast({ title: "a", message: "", level: "info" });
         pushToast({ title: "b", message: "", level: "info" });

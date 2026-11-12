@@ -4,11 +4,13 @@
 // The palette's actions: a thing's action list (→ on a row), how one action's row reads, the rule for when a
 // verb row ("Cancel run · <run>") counts as matching what was typed, and the rows built from them.
 
-import { ArrowUpRight, CircleX, SlidersHorizontal, Square, type LucideIcon } from "lucide-react";
+import { ArrowUpRight, CircleX, Plus, Shapes, SlidersHorizontal, Square, type LucideIcon } from "lucide-react";
+import { boardDrawEcho, boardPickList, boardSub, createBoard } from "./actions/boarddraw";
 import {
     ACTION_GROUPS,
     actionsFor,
     type ActionGroup,
+    type BoardDrawTarget,
     type ThingAction,
     type ThingEntry,
     type ThingKindDef,
@@ -19,7 +21,7 @@ import { meetsNameFloor, type PaletteGroup } from "./palette-groups";
 import type { PaletteDeps } from "./palette-items";
 import { rankPaletteItems } from "./palette-match";
 import type { PaletteItem, StatusTone } from "./palette-rows";
-import type { NavState } from "./palette-scope";
+import { boardNew, boardPick, boardTried, type NavState } from "./palette-scope";
 
 const GROUP_LABELS: Record<ActionGroup, string> = { open: "Open", steer: "Steer", stop: "Stop" };
 
@@ -100,6 +102,7 @@ export interface ActionTarget {
 export type StartAction = (t: ActionTarget, action: ThingAction<any>) => void;
 
 type ActionDeps = Pick<PaletteDeps, "model" | "close" | "setPaletteError">;
+type DrillDeps = ActionDeps & Pick<PaletteDeps, "setNav">;
 
 const ACTION_ICONS: Record<ActionGroup, LucideIcon> = { open: ArrowUpRight, steer: SlidersHorizontal, stop: Square };
 
@@ -168,18 +171,135 @@ export function verbItems(
     };
 }
 
+// the project's boards for the board drill's first step; null boards while they load
+export interface BoardDrillData {
+    project: string;
+    boards: BoardInfo[] | null;
+}
+
+export interface BoardDrillAt {
+    t: ActionTarget;
+    action: ThingAction<any>;
+    target: BoardDrawTarget;
+}
+
+// the thing and action a board drill is on, and what it draws: null outside one
+export function boardDrillAt(nav: NavState, targetByKey: Map<string, ActionTarget>): BoardDrillAt | null {
+    const input = nav.actions?.input;
+    if (input?.board == null) {
+        return null;
+    }
+    const t = targetByKey.get(nav.actions!.thing.key);
+    const action = t?.def.actions.find((a) => a.id === input.actionId);
+    if (t == null || action?.input?.kind !== "board" || !action.applies(t.entry.thing)) {
+        return null;
+    }
+    return { t, action, target: action.input.target(t.entry.thing) };
+}
+
+const boardRow = (over: Pick<PaletteItem, "key" | "title" | "verb" | "echo" | "run"> & Partial<PaletteItem>) =>
+    ({ kind: "action", search: "", ...over }) as PaletteItem;
+
+async function makeBoard(channelId: string, name: string, { setNav, setPaletteError }: DrillDeps) {
+    setPaletteError(undefined);
+    try {
+        const b = await createBoard(channelId, name);
+        setNav((s) => boardPick(s, b));
+    } catch (e) {
+        setPaletteError(`Couldn’t make the board: ${errorText(String(e))}`);
+    }
+}
+
+// Draw on a board…'s three steps: pick a board (or New board…), name a new one, then the optional ask
+function boardDrillGroups(
+    nav: NavState,
+    at: BoardDrillAt,
+    data: BoardDrillData | undefined,
+    deps: DrillDeps
+): PaletteGroup<PaletteItem>[] {
+    const board = nav.actions!.input!.board!;
+    const { setNav } = deps;
+    const project = data?.project ?? "";
+    const typed = nav.query.trim();
+    if (board.step === "name") {
+        const make = boardRow({
+            key: "board:name",
+            icon: Plus,
+            title: typed || "Name the new board",
+            hl: "",
+            verb: "Make",
+            echo: typed ? `Make ${typed}, then choose what to draw` : "Type a name for the new board",
+            run: typed === "" ? () => setNav(boardTried) : () => void makeBoard(at.target.channelId, typed, deps),
+        });
+        return [{ key: "board-name", label: project ? `New board in ${project}` : "New board", items: [make] }];
+    }
+    if (board.step === "ask") {
+        const follow = board.follow && at.target.followable;
+        const boardName = board.boardName ?? "";
+        const draw = boardRow({
+            key: "board:ask",
+            icon: Shapes,
+            title: typed || "Draw it as the scribe reads it",
+            hl: "",
+            verb: "Draw",
+            echo: boardDrawEcho({ title: at.target.source.title, ask: typed, board: boardName, follow }),
+            run: () =>
+                runThingAction(at.t, at.action, deps, JSON.stringify({ boardId: board.boardId, ask: typed, follow })),
+        });
+        return [{ key: "board-ask", label: `On ${boardName}`, items: [draw] }];
+    }
+    const list = boardPickList(data?.boards ?? [], nav.query);
+    const rows = list.boards.map((b) =>
+        boardRow({
+            key: `board:${b.id}`,
+            icon: Shapes,
+            title: b.name,
+            sub: boardSub(b),
+            verb: "Pick",
+            echo: `Pick ${b.name}`,
+            run: () => setNav((s) => boardPick(s, b)),
+        })
+    );
+    const { newName } = list;
+    rows.push(
+        boardRow({
+            key: "board:new",
+            icon: Plus,
+            title: newName ? `New board “${newName}”…` : "New board…",
+            hl: "",
+            sub: "Name it next, then choose what to draw",
+            verb: "Pick",
+            echo: newName ? `Name a new board “${newName}”` : "Name a new board",
+            run: () => setNav((s) => boardNew(s, newName)),
+        })
+    );
+    return [
+        {
+            key: "boards",
+            label: project ? `Boards in ${project}` : "Boards",
+            items: rows,
+            ...(data?.boards == null ? { note: "Loading boards…" } : {}),
+        },
+    ];
+}
+
 // → on a thing's row: its action list, or the input level of the action picked there
 export function actionDrillGroups(
     nav: NavState,
     targetByKey: Map<string, ActionTarget>,
     start: StartAction,
-    deps: ActionDeps
+    deps: DrillDeps,
+    boards?: BoardDrillData
 ): PaletteGroup<PaletteItem>[] {
     const q = nav.query.trim();
     const { thing, input } = nav.actions!;
     const t = targetByKey.get(thing.key);
     if (t == null) {
         return [{ key: "empty", label: thing.noun, items: [], emptyText: "It is no longer listed." }];
+    }
+    const boardAt = boardDrillAt(nav, targetByKey);
+    if (boardAt != null) {
+        return boardDrillGroups(nav, boardAt, boards, deps);
     }
     const action = input != null ? t.def.actions.find((a) => a.id === input.actionId) : undefined;
     if (action?.input?.kind === "pick") {

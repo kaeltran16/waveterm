@@ -1,10 +1,12 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { RpcApi } from "@/app/store/wshclientapi";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { CircleX, Square } from "lucide-react";
 import { describe, expect, it, vi } from "vitest";
-import { verbRows, type ThingAction, type ThingEntry, type ThingKindDef } from "./actions/types";
+import { drawOnBoardAction } from "./actions/boarddraw";
+import { verbRows, type BoardDrawTarget, type ThingAction, type ThingEntry, type ThingKindDef } from "./actions/types";
 import {
     actionDrillGroups,
     actionItem,
@@ -15,7 +17,12 @@ import {
     verbItems,
     verbLeads,
 } from "./palette-actionrows";
-import { initialNav, type NavState } from "./palette-scope";
+import { boardNew, boardPick, initialNav, openActions, openBoardInput, type NavState } from "./palette-scope";
+
+vi.mock("@/app/store/wshclientapi", () => ({
+    RpcApi: { BoardCreateCommand: vi.fn(), BoardDrawCommand: vi.fn() },
+}));
+vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 
 interface Job {
     live: boolean;
@@ -170,7 +177,7 @@ describe("verbGroupLabel", () => {
 describe("action rows", () => {
     const cancel = JOB_KIND.actions[0];
     const t = { def: JOB_KIND, entry: entry(true) };
-    const deps = () => ({ model: {} as AgentsViewModel, close: vi.fn(), setPaletteError: vi.fn() });
+    const deps = () => ({ model: {} as AgentsViewModel, close: vi.fn(), setPaletteError: vi.fn(), setNav: vi.fn() });
     const drilled = (over: Partial<NavState["actions"]> = {}, query = ""): NavState => ({
         ...initialNav("agent"),
         query,
@@ -317,5 +324,136 @@ describe("action rows", () => {
         typed.items[0].run();
         await vi.waitFor(() => expect(d.close).toHaveBeenCalled());
         expect(run.mock.calls[0][2]).toBe("hello");
+    });
+});
+
+describe("board drill rows", () => {
+    interface Pal {
+        name: string;
+        follows: boolean;
+    }
+    const target = (p: Pal): BoardDrawTarget => ({
+        channelId: "ch1",
+        source: { kind: p.follows ? "agent" : "run", ref: "tab1", title: p.name },
+        followable: p.follows,
+    });
+    const draw = drawOnBoardAction<Pal>("agent", target);
+    const def: ThingKindDef<Pal> = { kind: "agent", noun: "Agent", actions: [draw], entries: () => [] };
+    const pal = { name: "claude · waveterm", follows: true };
+    const targets = new Map([["agent:tab1", { def, entry: { key: "agent:tab1", title: pal.name, thing: pal } }]]);
+    const thing = { key: "agent:tab1", title: pal.name, noun: "Agent" };
+    const atBoard = openBoardInput(openActions(initialNav("agent"), thing, 0), draw.id, "Draw on a board");
+    const now = Date.now();
+    const boards: BoardInfo[] = [
+        { id: "0a1b2c3d", name: "Brainstorm internals", channelid: "ch1", path: "", groups: 4, createdts: now },
+        { id: "11111111", name: "dag-lock bug", channelid: "ch1", path: "", groups: 1, createdts: now },
+    ];
+    const deps = () => ({ model: {} as AgentsViewModel, close: vi.fn(), setPaletteError: vi.fn(), setNav: vi.fn() });
+    const groupsAt = (nav: NavState, d = deps(), list: BoardInfo[] | null = boards) =>
+        actionDrillGroups(nav, targets, vi.fn(), d, { project: "waveterm", boards: list });
+    // what a row's run handed setNav, applied to the nav it ran from
+    const next = (d: ReturnType<typeof deps>, from: NavState): NavState => d.setNav.mock.calls.at(-1)![0](from);
+
+    it("lists the project's boards with their counts, then New board…", () => {
+        const [g] = groupsAt(atBoard);
+        expect(g.label).toBe("Boards in waveterm");
+        expect(g.items.map((it) => [it.title, it.sub])).toEqual([
+            ["Brainstorm internals", expect.stringMatching(/^4 groups · \d\d:\d\d$/)],
+            ["dag-lock bug", expect.stringMatching(/^1 group · /)],
+            ["New board…", "Name it next, then choose what to draw"],
+        ]);
+        expect(g.items[0]).toMatchObject({ verb: "Pick", echo: "Pick Brainstorm internals" });
+    });
+
+    it("says it is loading before the list arrives, New board… still there", () => {
+        const [g] = groupsAt(atBoard, deps(), null);
+        expect(g.items.map((it) => it.title)).toEqual(["New board…"]);
+        expect(g.note).toBe("Loading boards…");
+    });
+
+    it("picking a board moves to the ask step on it", () => {
+        const d = deps();
+        groupsAt(atBoard, d)[0].items[0].run();
+        expect(next(d, atBoard).actions?.input?.board).toMatchObject({ step: "ask", boardId: "0a1b2c3d" });
+    });
+
+    it("a typed name that matches no board becomes the New board row, carried into the name step", () => {
+        const d = deps();
+        const typed = { ...atBoard, query: "Escalation flow" };
+        const [g] = groupsAt(typed, d);
+        expect(g.items.map((it) => it.title)).toEqual(["New board “Escalation flow”…"]);
+        g.items[0].run();
+        const name = next(d, typed);
+        expect(name.actions?.input?.board?.step).toBe("name");
+        expect(name.query).toBe("Escalation flow");
+    });
+
+    it("the name step's Enter on an empty field nudges, and on a name makes the board and moves to ask", async () => {
+        const d = deps();
+        const blank = boardNew(atBoard, "");
+        const [g] = groupsAt(blank, d);
+        expect(g.items[0]).toMatchObject({ verb: "Make", echo: "Type a name for the new board" });
+        g.items[0].run();
+        expect(next(d, blank).actions?.input?.board?.tried).toBe(1);
+        expect(RpcApi.BoardCreateCommand).not.toHaveBeenCalled();
+
+        vi.mocked(RpcApi.BoardCreateCommand).mockResolvedValueOnce({ ...boards[0], id: "22222222", name: "Flow" });
+        const named = { ...blank, query: "Flow" };
+        const [h] = groupsAt(named, d);
+        expect(h.items[0]).toMatchObject({ title: "Flow", echo: "Make Flow, then choose what to draw" });
+        h.items[0].run();
+        await vi.waitFor(() => expect(d.setNav).toHaveBeenCalledTimes(2));
+        expect(RpcApi.BoardCreateCommand).toHaveBeenCalledWith({}, { channelid: "ch1", name: "Flow" });
+        expect(next(d, named).actions?.input?.board).toMatchObject({ step: "ask", boardId: "22222222" });
+    });
+
+    it("a board that cannot be made stays on the name step with the error", async () => {
+        const d = deps();
+        vi.mocked(RpcApi.BoardCreateCommand).mockRejectedValueOnce(new Error("disk full"));
+        groupsAt({ ...boardNew(atBoard, ""), query: "Flow" }, d)[0].items[0].run();
+        await vi.waitFor(() =>
+            expect(d.setPaletteError).toHaveBeenLastCalledWith("Couldn’t make the board: disk full")
+        );
+        expect(d.setNav).not.toHaveBeenCalled();
+    });
+
+    it("the ask step's echo says the ask and the follow, and Enter draws and closes", async () => {
+        const d = deps();
+        const ask = boardPick(atBoard, { id: "0a1b2c3d", name: "Brainstorm internals" });
+        expect(groupsAt(ask, d)[0].items[0].echo).toBe("Draw claude · waveterm on Brainstorm internals");
+        const board = { ...ask.actions!.input!.board!, follow: true };
+        const asked: NavState = {
+            ...ask,
+            query: "the escalation flow",
+            actions: { ...ask.actions!, input: { ...ask.actions!.input!, board } },
+        };
+        const [g] = groupsAt(asked, d);
+        expect(g.items[0]).toMatchObject({
+            verb: "Draw",
+            echo: "Draw claude · waveterm: the escalation flow on Brainstorm internals, and keep following",
+        });
+        vi.mocked(RpcApi.BoardDrawCommand).mockResolvedValueOnce(undefined);
+        g.items[0].run();
+        await vi.waitFor(() => expect(d.close).toHaveBeenCalled());
+        expect(RpcApi.BoardDrawCommand).toHaveBeenCalledWith(
+            {},
+            {
+                channelid: "ch1",
+                boardid: "0a1b2c3d",
+                source: { kind: "agent", ref: "tab1", title: "claude · waveterm" },
+                ask: "the escalation flow",
+                follow: true,
+            }
+        );
+    });
+
+    it("a draw the server refuses keeps the palette open on its error", async () => {
+        const d = deps();
+        vi.mocked(RpcApi.BoardDrawCommand).mockRejectedValueOnce(new Error("board won't open"));
+        groupsAt(boardPick(atBoard, { id: "0a1b2c3d", name: "B" }), d)[0].items[0].run();
+        await vi.waitFor(() =>
+            expect(d.setPaletteError).toHaveBeenLastCalledWith("Draw on a board failed: board won't open")
+        );
+        expect(d.close).not.toHaveBeenCalled();
     });
 });

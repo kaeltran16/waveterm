@@ -192,7 +192,7 @@ describe("parseStreamPrompt", () => {
             fixture("builder-questions"),
             fixture("judged"),
             fixture("judge-failed"),
-            brainstormLine({ kind: "confirm", part: "storage" })!,
+            brainstormLine({ kind: "confirm-all" })!,
         ]) {
             const c = parseStreamPrompt(text);
             expect(c?.role).toBe("brainstorm");

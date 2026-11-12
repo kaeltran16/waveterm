@@ -1,5 +1,7 @@
+import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
+import { channelsAtom } from "@/app/view/agents/channelsstore";
 import { sessionsArchiveAtom, type LiveSession } from "@/app/view/agents/sessionsarchivestore";
 import { atom, createStore } from "jotai";
 import { describe, expect, it } from "vitest";
@@ -71,5 +73,26 @@ describe("session entries", () => {
     it("lists nothing before the archive loads", () => {
         const model = { agentsAtom: atom([]) } as unknown as AgentsViewModel;
         expect(SESSION_KIND.entries(createStore().get, model)).toEqual([]);
+    });
+});
+
+describe("session Draw on a board…", () => {
+    const draw = action("session:draw-board");
+    const target = (t: SessionThing) => (draw.input?.kind === "board" ? draw.input.target(t) : null);
+    it("draws the session's transcript in the project at its path, never followed", () => {
+        globalStore.set(channelsAtom, [
+            { oid: "ch-p", otype: "channel", version: 1, name: "proj", projectpath: "/p", createdts: 0 },
+        ] as Channel[]);
+        try {
+            expect(target(thing(mk()))).toEqual({
+                channelId: "ch-p",
+                source: { kind: "session", ref: "claude:s1", path: "/t/s1.jsonl", runtime: "claude", title: "fix it" },
+                followable: false,
+            });
+            // no transcript: nothing for the scribe to read
+            expect(draw.applies(thing(mk({ transcriptpath: "" })))).toBe(false);
+        } finally {
+            globalStore.set(channelsAtom, null);
+        }
     });
 });

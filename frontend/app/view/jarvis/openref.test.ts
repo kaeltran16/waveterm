@@ -16,6 +16,7 @@ const rpc = vi.hoisted(() => ({
     SetMetaCommand: vi.fn(),
     ReadVaultNoteCommand: vi.fn(),
     ListMemoryHygieneCommand: vi.fn(),
+    BoardListCommand: vi.fn(),
 }));
 const loadAndPin = vi.hoisted(() => vi.fn());
 const pushToast = vi.hoisted(() => vi.fn());
@@ -45,6 +46,7 @@ import { attachCanvas, detachCanvas, getCanvas, setCanvasMode, setMark } from ".
 import { activeChannelIdAtom } from "../agents/channelsstore";
 import { memorySelectedChangeAtom, memorySelectedProjectAtom } from "../agents/memorystore";
 import { setupTabAtom } from "../agents/setupstore";
+import { boardsChannelAtom, openBoardByChannelAtom } from "../boards/boardstore";
 import { dagModalStateAtom, dismissDagModal } from "../orchestrate/dagmodalstate";
 import { selectedTaskIdAtom } from "../orchestrate/dagstore";
 import type { OpenTarget } from "./address";
@@ -1225,5 +1227,44 @@ describe("openOrPeek", () => {
         expect(await openOrPeekAddress(model, "tab:t1", plain)).toEqual({ ok: true });
         expect(globalStore.get(model.surfaceAtom)).toBe("agent");
         expect(plain.stopPropagation).not.toHaveBeenCalled();
+    });
+});
+
+describe("board landings", () => {
+    const target: OpenTarget = { kind: "board", channelId: "c1", boardId: "0a1b2c3d" };
+
+    beforeEach(() => {
+        globalStore.set(boardsChannelAtom, null);
+        globalStore.set(openBoardByChannelAtom, {});
+    });
+
+    it("lands a listed board on the Boards surface, selected in its project", async () => {
+        const model = makeModel();
+        rpc.BoardListCommand.mockResolvedValue({
+            project: "waveterm",
+            boards: [{ id: "0a1b2c3d", name: "Escalation", channelid: "c1", path: "", groups: 1, createdts: 1 }],
+        });
+        expect(await openTarget(model, target)).toEqual({ ok: true });
+        expect(rpc.BoardListCommand).toHaveBeenCalledWith({}, { channelid: "c1" });
+        expect(globalStore.get(boardsChannelAtom)).toBe("c1");
+        expect(globalStore.get(openBoardByChannelAtom)).toEqual({ c1: "0a1b2c3d" });
+        expect(globalStore.get(model.surfaceAtom)).toBe("boards");
+    });
+
+    it("says a missing board is gone and stays put", async () => {
+        const model = makeModel();
+        rpc.BoardListCommand.mockResolvedValue({ project: "waveterm", boards: [] });
+        expect(await openTarget(model, target)).toEqual({
+            ok: false,
+            reason: "unavailable",
+            message: "This board is gone",
+        });
+        expect(pushToast).toHaveBeenCalledWith({ title: "This board is gone", message: "", level: "warn" });
+        expect(globalStore.get(model.surfaceAtom)).toBe("cockpit");
+        expect(globalStore.get(openBoardByChannelAtom)).toEqual({});
+    });
+
+    it("is not peekable", () => {
+        expect(isPeekable(target)).toBe(false);
     });
 });

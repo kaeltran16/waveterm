@@ -11,6 +11,7 @@ import {
     GitCompare,
     LayoutDashboard,
     Settings,
+    Shapes,
     SquareStack,
     Waypoints,
 } from "lucide-react";
@@ -32,6 +33,7 @@ export const ICON: Record<SurfaceKey, ReactNode> = {
     code: <FileCode2 {...iconProps} />,
     setup: <FileCog {...iconProps} />,
     settings: <Settings {...iconProps} />,
+    boards: <Shapes {...iconProps} />,
 };
 
 export const ITEMS: { key: SurfaceKey; label: string }[] = [
@@ -103,6 +105,7 @@ export function NavRail({ model }: { model: AgentsViewModel }) {
         >
             {ITEMS.map(({ key, label }) => renderItem(key, label, badges[key] ?? 0))}
             <div className="flex-1" />
+            {renderItem("boards", "Boards")}
             {renderItem("setup", "Setup")}
             {renderItem("settings", "Settings")}
         </nav>

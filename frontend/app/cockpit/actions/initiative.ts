@@ -3,6 +3,7 @@ import { workOnInitiative } from "@/app/view/jarvis/initiativeworkaction";
 import { openAddress } from "@/app/view/jarvis/openref";
 import { fireAndForget } from "@/util/util";
 import { paletteEffortsAtom } from "../palette-entities";
+import { boardChannelFor, drawOnBoardAction } from "./boarddraw";
 import type { ThingKindDef } from "./types";
 
 export type InitiativeThing = EffortSummary;
@@ -27,6 +28,19 @@ export const INITIATIVE_KIND: ThingKindDef<InitiativeThing> = {
             applies: (e) => !isArchivedStatus(e.status),
             run: (e, { model }) => workOnInitiative(model, e),
         },
+        // drawn in the current project, read whole
+        drawOnBoardAction<InitiativeThing>("effort", (e) => {
+            const channelId = boardChannelFor();
+            if (channelId == null) {
+                return null;
+            }
+            const source = {
+                kind: "effort",
+                ref: e.oref.replace(/^effort:/, ""),
+                title: e.title || "(untitled initiative)",
+            };
+            return { channelId, source, followable: false };
+        }),
     ],
     entries: (get) =>
         (get(paletteEffortsAtom) ?? []).map((e) => ({

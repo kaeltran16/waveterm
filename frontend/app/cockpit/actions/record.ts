@@ -3,6 +3,7 @@ import { openAddress } from "@/app/view/jarvis/openref";
 import { confirmDossierStatus } from "@/app/view/jarvis/recordactions";
 import { taskListAtom } from "@/app/view/jarvis/tasksstore";
 import { fireAndForget } from "@/util/util";
+import { boardChannelFor, drawOnBoardAction } from "./boarddraw";
 import type { ThingKindDef } from "./types";
 
 export type RecordThing = SpaceSummary;
@@ -41,6 +42,18 @@ export const RECORD_KIND: ThingKindDef<RecordThing> = {
                 }
             },
         },
+        // drawn in the current project, read whole
+        drawOnBoardAction<RecordThing>("record", (r) => {
+            const channelId = boardChannelFor();
+            if (channelId == null) {
+                return null;
+            }
+            return {
+                channelId,
+                source: { kind: "record", ref: r.id, title: r.objective || "(untitled record)" },
+                followable: false,
+            };
+        }),
     ],
     entries: (get) =>
         (get(taskListAtom) ?? []).map((r) => ({

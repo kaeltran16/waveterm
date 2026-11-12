@@ -55,7 +55,8 @@ export type SurfaceKey =
     | "usage"
     | "code"
     | "setup"
-    | "settings";
+    | "settings"
+    | "boards";
 
 // Ordered to match the NavRail (navrail.tsx ITEMS) so Ctrl+1..7 line up with what the user sees. All 7
 // entries are chorded — there is no unchorded remainder.

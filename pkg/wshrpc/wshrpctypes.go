@@ -46,6 +46,7 @@ type WshRpcInterface interface {
 	EffortCommands
 	JiraCommands
 	NoteCommands
+	BoardCommands
 	SecretCommands
 	AskCommands
 	NotifyCommands

@@ -30,8 +30,8 @@ Design spec: [`docs/superpowers/specs/2026-07-03-keyboard-operability-design.md`
 | `Ctrl`+`Tab` / `Ctrl`+`Shift`+`Tab` | Next / previous agent in the tree's order (terminals included) |
 | `Ctrl`+`C` `Ctrl`+`C` (double, within 500ms) | Close the focused agent (on a plain terminal both presses go to the shell) |
 
-Setup and Settings have no `Ctrl`+number slot — the nine positions are bound to `SURFACE_ORDER`
-(`frontend/app/view/agents/agents.tsx`), which excludes them. Reach Setup with `g` `.` and Settings with `g` `,`.
+Setup, Settings and Boards have no `Ctrl`+number slot — the nine positions are bound to `SURFACE_ORDER`
+(`frontend/app/view/agents/agents.tsx`), which excludes them. Reach Setup with `g` `.`, Settings with `g` `,` and Boards with `g` `w`.
 
 ## Go-to surface — leader `g` (Navigate posture)
 
@@ -46,6 +46,7 @@ Setup and Settings have no `Ctrl`+number slot — the nine positions are bound t
 | `g` `b` | Code — browse source |
 | `g` `.` | Setup (instructions, skills, memory) |
 | `g` `,` | Settings |
+| `g` `w` | Boards |
 | `g` `p` | Search |
 | `g` `m` | Resource Manager (the popover over the footer's `Arc … CPU` readout) |
 
@@ -273,6 +274,14 @@ A session opened from a search hit shows a find bar over its transcript, with th
 | `j` / `k` (or `↓` / `↑`) | By provider: next / previous provider card. By work: next / previous scope card (All usage, the projects, the initiatives), then on into the rows the list shows. Moving onto a card selects it; moving onto a row only marks it |
 | `Enter` | By work: on a row, open it; on a card, move the cursor to its first row |
 | `Esc` | By work: from an item, Back to its scope; from a project or initiative, to All usage; on All usage, leave the surface |
+
+### Boards
+
+The canvas keeps Excalidraw's own tool keys while it has focus.
+
+| Keys | Action |
+|---|---|
+| `Esc` | Clear the board's selection or drop its tool, else back to the Cockpit |
 
 ### Setup: Instructions tab
 

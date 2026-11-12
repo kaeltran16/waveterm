@@ -1,10 +1,18 @@
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
+import { channelsAtom } from "@/app/view/agents/channelsstore";
 import { liveEntriesByIdAtom } from "@/app/view/agents/livetranscriptatoms";
+import type { ProjectRow } from "@/app/view/agents/projectsstore";
 import { shellTasksByIdAtom } from "@/app/view/agents/shelltasksstore";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { AGENT_KIND, type AgentThing } from "./agent";
 import { actionsFor } from "./types";
+
+// the current project comes from the registered projects, which read config atoms tests never initialize
+vi.mock("@/app/view/agents/projectsstore", async (orig) => {
+    const { atom } = await import("jotai");
+    return { ...(await orig<object>()), projectListAtom: atom<ProjectRow[]>([]) };
+});
 
 const vm = (over: Partial<AgentVM> = {}): AgentVM => ({
     id: "tab1",
@@ -110,5 +118,50 @@ describe("agent actions", () => {
         ]);
         expect(entries[0].thing.contextLevel).toBeNull();
         expect(entries[1].thing.contextLevel).toBe("hot");
+    });
+});
+
+describe("agent Draw on a board…", () => {
+    const draw = AGENT_KIND.actions.find((a) => a.id === "agent:draw-board")!;
+    const target = (t: AgentThing) => (draw.input?.kind === "board" ? draw.input.target(t) : null);
+    const withChannels = (fn: () => void) => {
+        globalStore.set(channelsAtom, [
+            {
+                oid: "ch-wt",
+                otype: "channel",
+                version: 1,
+                name: "waveterm",
+                projectpath: "C:\\work\\waveterm",
+                createdts: 0,
+            },
+            { oid: "ch-siem", otype: "channel", version: 1, name: "siem", projectpath: "C:/work/siem", createdts: 0 },
+        ] as Channel[]);
+        try {
+            fn();
+        } finally {
+            globalStore.set(channelsAtom, null);
+        }
+    };
+    it("is listed under Open, and draws the agent's own tab, followable", () => {
+        withChannels(() => {
+            expect(actionsFor(AGENT_KIND.actions, thing({ cwd: "C:/work/waveterm" })).available.open).toContain(draw);
+            expect(target(thing({ cwd: "C:/work/waveterm", name: "claude · waveterm" }))).toEqual({
+                channelId: "ch-wt",
+                source: { kind: "agent", ref: "tab1", title: "claude · waveterm" },
+                followable: true,
+            });
+        });
+    });
+    it("finds the project by name when the cwd matches none", () => {
+        withChannels(() => {
+            expect(target(thing({ project: "siem" }))?.channelId).toBe("ch-siem");
+        });
+    });
+    it("does not apply to a plain shell, a tabless agent, or with no project to draw in", () => {
+        withChannels(() => {
+            expect(draw.applies(thing({ cwd: "C:/work/waveterm", kind: "terminal" }))).toBe(false);
+            expect(draw.applies(thing({ cwd: "C:/work/waveterm", blockId: undefined }))).toBe(false);
+        });
+        expect(draw.applies(thing({ cwd: "C:/work/waveterm" }))).toBe(false);
     });
 });

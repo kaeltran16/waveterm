@@ -16,6 +16,7 @@ const (
 type Turn struct {
 	Speaker string // "user" | "agent"
 	Text    string
+	Ts      int64 // the transcript's own time (UnixMilli)
 }
 
 // claudeTurns is a claude transcript's digest, by HumanPrompts' rules for prompts and LastAnswer's for replies.
@@ -23,9 +24,9 @@ func claudeTurns(recs []claudeLine) []Turn {
 	var out []Turn
 	for _, rec := range recs {
 		if text := claudeTypedText(rec); text != "" {
-			out = append(out, Turn{Speaker: speakerUser, Text: text})
+			out = append(out, Turn{Speaker: speakerUser, Text: text, Ts: parseTs(rec.Timestamp)})
 		} else if text := claudeReplyText(rec); text != "" {
-			out = append(out, Turn{Speaker: speakerAgent, Text: text})
+			out = append(out, Turn{Speaker: speakerAgent, Text: text, Ts: parseTs(rec.Timestamp)})
 		}
 	}
 	return out
@@ -40,9 +41,9 @@ func piTurns(file *pisession.File) []Turn {
 	var out []Turn
 	for _, e := range branch {
 		if text := piTypedText(e); text != "" {
-			out = append(out, Turn{Speaker: speakerUser, Text: text})
+			out = append(out, Turn{Speaker: speakerUser, Text: text, Ts: parseTs(e.Timestamp)})
 		} else if text := piReplyText(e); text != "" {
-			out = append(out, Turn{Speaker: speakerAgent, Text: text})
+			out = append(out, Turn{Speaker: speakerAgent, Text: text, Ts: parseTs(e.Timestamp)})
 		}
 	}
 	return out

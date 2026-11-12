@@ -52,6 +52,7 @@ import { shellTaskPeekAtom } from "@/app/view/agents/shelltasksstore";
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
 import { LIST_COLLAPSED_ROWS } from "@/app/view/agents/usageattribution";
 import { usageLensAtom, usageListShownAtom, usageWorkItemAtom, usageWorkScopeAtom } from "@/app/view/agents/usagestore";
+import { boardOwnsEscapeAtom, setBoardEscape } from "@/app/view/boards/boardstore";
 import { codePeekFocusedAtom, openPeekInCode } from "@/app/view/code/codepeekstore";
 import { codeSearchModeAtom } from "@/app/view/code/codesearchstore";
 import {
@@ -325,6 +326,52 @@ describe("Escape back to the Cockpit", () => {
         expect(b.when!(ctx("jarvis"))).toBe(false);
         globalStore.set(dagModalStateAtom, null);
         expect(b.when!(ctx("jarvis"))).toBe(true);
+    });
+});
+
+// the open board owns Escape while Excalidraw has something to clear, the way compare does on Diff: one press
+// clears it and stays, the next goes home
+describe("Escape on the Boards surface", () => {
+    const model = { surfaceAtom: atom<SurfaceKey>("boards") } as any;
+    const liveEscapes = (c: KeyContext) =>
+        buildGlobalBindings(model)
+            .filter((b) => b.keys === "Escape" && (b.when ? b.when(c) : true))
+            .map((b) => b.id);
+
+    afterEach(() => {
+        globalStore.set(boardOwnsEscapeAtom, false);
+        setBoardEscape(null);
+    });
+
+    it("g w goes to Boards", () => {
+        const b = buildGlobalBindings(model).find((x) => x.keys === "g w")!;
+        expect(b.id).toBe("go:boards");
+    });
+
+    it("clears the canvas while it owns Escape, and goes home once it does not", () => {
+        const boards = ctx("boards");
+        expect(liveEscapes(boards)).toEqual(["surface:back-home"]);
+        globalStore.set(boardOwnsEscapeAtom, true);
+        expect(liveEscapes(boards)).toEqual(["boards:clear"]);
+        const clear = vi.fn();
+        setBoardEscape(clear);
+        buildGlobalBindings(model)
+            .find((b) => b.id === "boards:clear")!
+            .run(boards);
+        expect(clear).toHaveBeenCalledTimes(1);
+    });
+
+    it("lets the key through when no canvas registered what clearing means", () => {
+        globalStore.set(boardOwnsEscapeAtom, true);
+        const run = buildGlobalBindings(model).find((b) => b.id === "boards:clear")!.run;
+        expect(run(ctx("boards"))).toBe(false);
+    });
+
+    it("an owned Escape left set on Boards holds no other surface's Escape", () => {
+        globalStore.set(boardOwnsEscapeAtom, true);
+        globalStore.set(graphPeekOpenAtom, false);
+        globalStore.set(autonomyPanelOpenAtom, false);
+        expect(liveEscapes(ctx("jarvis"))).toEqual(["surface:back-home"]);
     });
 });
 

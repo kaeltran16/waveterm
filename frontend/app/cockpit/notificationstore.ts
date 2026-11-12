@@ -11,6 +11,8 @@ export interface ToastNotification {
     title: string;
     message: string;
     level: "info" | "warn" | "error";
+    // one button on the toast; pressing it runs this and dismisses the toast
+    action?: { label: string; run: () => void };
 }
 
 export const toastsAtom = atom<ToastNotification[]>([]);

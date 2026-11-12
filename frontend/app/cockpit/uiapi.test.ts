@@ -101,10 +101,11 @@ describe("parseSurfaceAddress", () => {
         expect(parseSurfaceAddress("run:r1")).toBeNull();
     });
 
-    it("accepts rail surfaces, setup and settings", () => {
+    it("accepts rail surfaces, setup, settings and boards", () => {
         expect(parseSurfaceAddress("surface:usage")).toEqual({ surface: "usage" });
         expect(parseSurfaceAddress("surface:setup")).toEqual({ surface: "setup" });
         expect(parseSurfaceAddress("surface:settings")).toEqual({ surface: "settings" });
+        expect(parseSurfaceAddress("surface:boards")).toEqual({ surface: "boards" });
     });
 
     it("rejects an unknown surface and lists the valid ones", () => {
