@@ -244,13 +244,13 @@ func boardByName(dir, channelId, name string) (wshrpc.BoardInfo, bool, error) {
 	if err != nil {
 		return wshrpc.BoardInfo{}, false, err
 	}
-	// List orders most recently drawn first, so the first match is the newest-drawn
+	// List orders most recently active first, so the first match is the newest
 	for _, b := range boards {
 		if strings.EqualFold(strings.TrimSpace(b.Name), name) {
 			return b, false, nil
 		}
 	}
-	info, err := boardstore.Create(dir, channelId, name, time.Now().UnixMilli())
+	info, err := boardstore.Create(dir, channelId, name, "", time.Now().UnixMilli())
 	if err != nil {
 		return wshrpc.BoardInfo{}, false, err
 	}

@@ -59,7 +59,7 @@ func (ws *WshServer) BoardCreateCommand(ctx context.Context, data wshrpc.Command
 	if err != nil {
 		return nil, err
 	}
-	info, err := boardstore.Create(dir, ch.OID, data.Name, time.Now().UnixMilli())
+	info, err := boardstore.Create(dir, ch.OID, data.Name, "", time.Now().UnixMilli())
 	if err != nil {
 		return nil, err
 	}

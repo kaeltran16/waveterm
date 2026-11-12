@@ -5,9 +5,13 @@ package boardstore
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/google/uuid"
@@ -18,7 +22,7 @@ const testChannel = "chan-1"
 
 func mustCreate(t *testing.T, dir, name string, now int64) wshrpc.BoardInfo {
 	t.Helper()
-	info, err := Create(dir, testChannel, name, now)
+	info, err := Create(dir, testChannel, name, "", now)
 	if err != nil {
 		t.Fatalf("create %q: %v", name, err)
 	}
@@ -58,13 +62,13 @@ func TestBoardStoreCreateListRead(t *testing.T) {
 		t.Fatalf("not an excalidraw file: %v %v", err, file)
 	}
 
-	// never drawn: newest created first
+	// no talk: newest created first
 	list, err := List(dir, testChannel, nil)
 	if err != nil || len(list) != 2 || list[0].ID != b.ID || list[1].ID != a.ID {
-		t.Fatalf("never-drawn order: %v %+v", err, list)
+		t.Fatalf("created order: %v %+v", err, list)
 	}
 
-	// a draw time moves a board ahead of never-drawn ones, and NewCount counts sources past seents
+	// the old source facts still read, until the scribe's records go
 	writeRecord(t, dir, a.ID, wshrpc.BoardArcRecord{Name: "Auth flow", CreatedTs: 1000, SeenTs: 5000, Sources: []wshrpc.BoardArcSource{
 		{Key: "agent:t1", DrawnTs: 4000}, {Key: "agent:t2", DrawnTs: 6000}, {Key: "agent:t3", DrawnTs: 7000},
 	}})
@@ -75,11 +79,14 @@ func TestBoardStoreCreateListRead(t *testing.T) {
 		return ""
 	}
 	list, err = List(dir, testChannel, state)
-	if err != nil || len(list) != 2 || list[0].ID != a.ID {
-		t.Fatalf("drawn order: %v %+v", err, list)
+	if err != nil || len(list) != 2 {
+		t.Fatalf("list: %v %+v", err, list)
 	}
-	got := list[0]
-	if got.Groups != 3 || got.LastDrawnTs != 7000 || got.NewCount != 2 || got.State != "drawing" || list[1].State != "" {
+	got, other := list[1], list[0]
+	if got.ID != a.ID {
+		got, other = other, got
+	}
+	if got.Groups != 3 || got.LastDrawnTs != 7000 || got.NewCount != 2 || got.State != "drawing" || other.State != "" {
 		t.Fatalf("list row: %+v", got)
 	}
 	if !filepath.IsAbs(got.Path) || filepath.Base(got.Path) != a.ID+".excalidraw" {
@@ -107,7 +114,7 @@ func TestBoardStoreMissingDirListsEmpty(t *testing.T) {
 
 func TestBoardStoreCreateRefusesEmptyName(t *testing.T) {
 	dir := t.TempDir()
-	_, err := Create(dir, testChannel, "   ", 1)
+	_, err := Create(dir, testChannel, "   ", "", 1)
 	if err == nil || err.Error() != "Type a name first" {
 		t.Fatalf("err: %v", err)
 	}
@@ -340,5 +347,318 @@ func TestBoardStoreInbox(t *testing.T) {
 	}
 	if none, err := Draws(dir, "7c1e0b4f"); err != nil || len(none) != 0 {
 		t.Fatalf("no inbox: %v %v", none, err)
+	}
+}
+
+const unknownBoard = "7c1e0b4f"
+
+func TestTalkMissingIsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	talk, err := ReadTalk(dir, unknownBoard)
+	if err != nil || talk.Turns == nil || len(talk.Turns) != 0 || talk.BoardId != unknownBoard {
+		t.Fatalf("missing talk: %v %+v", err, talk)
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Fatalf("reading wrote %d entries", len(entries))
+	}
+}
+
+func TestUpdateTalkRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	want := wshrpc.BoardTalk{
+		ChannelId: testChannel,
+		BoardId:   unknownBoard,
+		About:     wshrpc.BoardSource{Kind: "agent", Ref: "t1", Title: "wavesrv"},
+		SessionId: uuid.NewString(),
+		Handoff:   &wshrpc.BoardHandoff{FromBoardId: "aaaa0001", FromName: "Auth", Summary: "s", Shapes: 3},
+		Turns: []wshrpc.BoardTurn{
+			{ID: "t1", Ts: 5, Question: "q", On: "wavesrv", SelectedIds: []string{"a"}, State: "answered", ShapeIds: []string{"a", "b"}, Added: 2},
+			{ID: "t2", Ts: 6, Briefing: &wshrpc.BoardBriefing{From: "claude", Text: "x", Ask: "y"}, State: "asks"},
+		},
+	}
+	got, err := UpdateTalk(dir, unknownBoard, func(tk *wshrpc.BoardTalk) error {
+		*tk = want
+		return nil
+	})
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("update returned: %v %+v", err, got)
+	}
+	read, err := ReadTalk(dir, unknownBoard)
+	if err != nil || !reflect.DeepEqual(read, want) {
+		t.Fatalf("read back: %v %+v", err, read)
+	}
+	if _, err := os.Stat(filepath.Join(dir, unknownBoard+".talk.json")); err != nil {
+		t.Fatalf("talk file: %v", err)
+	}
+}
+
+func TestUpdateTalkSerializesConcurrentUpdates(t *testing.T) {
+	dir := t.TempDir()
+	const n = 20
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := UpdateTalk(dir, unknownBoard, func(tk *wshrpc.BoardTalk) error {
+				tk.Turns = append(tk.Turns, wshrpc.BoardTurn{ID: uuid.NewString(), State: "answered"})
+				return nil
+			})
+			if err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
+	if talk, err := ReadTalk(dir, unknownBoard); err != nil || len(talk.Turns) != n {
+		t.Fatalf("turns after %d updates: %v %d", n, err, len(talk.Turns))
+	}
+}
+
+func TestUpdateTalkErrorWritesNothing(t *testing.T) {
+	dir := t.TempDir()
+	boom := errors.New("boom")
+	if _, err := UpdateTalk(dir, unknownBoard, func(tk *wshrpc.BoardTalk) error {
+		tk.Turns = append(tk.Turns, wshrpc.BoardTurn{ID: "x"})
+		return boom
+	}); !errors.Is(err, boom) {
+		t.Fatalf("err: %v", err)
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Fatalf("a failed update created %d entries", len(entries))
+	}
+
+	if _, err := UpdateTalk(dir, unknownBoard, func(tk *wshrpc.BoardTalk) error {
+		tk.Turns = append(tk.Turns, wshrpc.BoardTurn{ID: "one", State: "answered"})
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, unknownBoard+".talk.json")
+	before, _ := os.ReadFile(path)
+	if _, err := UpdateTalk(dir, unknownBoard, func(tk *wshrpc.BoardTalk) error {
+		tk.Turns = append(tk.Turns, wshrpc.BoardTurn{ID: "two"})
+		return boom
+	}); !errors.Is(err, boom) {
+		t.Fatalf("err: %v", err)
+	}
+	if after, _ := os.ReadFile(path); string(after) != string(before) {
+		t.Fatal("a failed update changed the talk file")
+	}
+}
+
+func TestTalkRefusesBadId(t *testing.T) {
+	dir := t.TempDir()
+	for _, id := range []string{"../x", "ABCDEF12", "7c1e0b4", "", `..\x`} {
+		if _, err := ReadTalk(dir, id); err == nil {
+			t.Errorf("ReadTalk(%q) should refuse", id)
+		}
+		called := false
+		if _, err := UpdateTalk(dir, id, func(*wshrpc.BoardTalk) error { called = true; return nil }); err == nil || called {
+			t.Errorf("UpdateTalk(%q) should refuse before calling fn", id)
+		}
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Fatalf("a refused call wrote into the dir: %v", entries)
+	}
+}
+
+func TestCreateWritesElements(t *testing.T) {
+	dir := t.TempDir()
+	info, err := Create(dir, testChannel, "Copy", `[{"id":"a","type":"rectangle"}]`, 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(boardPath(dir, info.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var file struct {
+		Elements []map[string]any `json:"elements"`
+	}
+	if err := json.Unmarshal(raw, &file); err != nil || len(file.Elements) != 1 || file.Elements[0]["id"] != "a" {
+		t.Fatalf("elements: %v %+v", err, file)
+	}
+	if !strings.HasPrefix(string(raw), `{"arc":`) {
+		t.Fatalf("arc must stay the first key, got %.40s", raw)
+	}
+	if read, err := Read(dir, testChannel, info.ID); err != nil || read.Arc.Name != "Copy" {
+		t.Fatalf("read: %v %+v", err, read.Arc)
+	}
+
+	other := t.TempDir()
+	for _, bad := range []string{"{}", "nope", "null", `[1,`, `"x"`} {
+		if _, err := Create(other, testChannel, "Bad", bad, 1); err == nil {
+			t.Errorf("elements %q should be refused", bad)
+		}
+	}
+	if entries, _ := os.ReadDir(other); len(entries) != 0 {
+		t.Fatalf("a refused create wrote %d entries", len(entries))
+	}
+}
+
+func newAnswer(board string, ts int64) wshrpc.BoardAnswer {
+	return wshrpc.BoardAnswer{ID: uuid.NewString(), ChannelId: testChannel, BoardId: board, TurnId: "t", Add: `[{"id":"n"}]`, Remove: []string{"r"}, Ts: ts}
+}
+
+func TestAnswersPutListAck(t *testing.T) {
+	dir := t.TempDir()
+	a := mustCreate(t, dir, "A", 1)
+	b := mustCreate(t, dir, "B", 2)
+	older, newer, other := newAnswer(a.ID, 100), newAnswer(a.ID, 200), newAnswer(b.ID, 150)
+	for _, ans := range []wshrpc.BoardAnswer{newer, older, other} { // written out of order
+		if err := PutAnswer(dir, ans); err != nil {
+			t.Fatal(err)
+		}
+	}
+	junk := filepath.Join(dir, a.ID+".answers", uuid.NewString()+".json")
+	if err := os.WriteFile(junk, []byte("{nope"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := Answers(dir, a.ID)
+	if err != nil || len(got) != 2 || got[0].ID != older.ID || got[1].ID != newer.ID {
+		t.Fatalf("oldest first, unreadable skipped: %v %+v", err, got)
+	}
+	if !reflect.DeepEqual(got[1], newer) {
+		t.Fatalf("round trip: %+v", got[1])
+	}
+	all, err := Answers(dir, "")
+	if err != nil || len(all) != 3 || all[0].ID != older.ID || all[1].ID != other.ID || all[2].ID != newer.ID {
+		t.Fatalf("every board, oldest first: %v %+v", err, all)
+	}
+
+	if err := AckAnswer(dir, a.ID, newer.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := AckAnswer(dir, a.ID, newer.ID); err != nil {
+		t.Fatalf("acking twice: %v", err)
+	}
+	if err := AckAnswer(dir, unknownBoard, uuid.NewString()); err != nil {
+		t.Fatalf("acking on a board with no inbox: %v", err)
+	}
+	if left, _ := Answers(dir, a.ID); len(left) != 1 || left[0].ID != older.ID {
+		t.Fatalf("left: %+v", left)
+	}
+	if none, err := Answers(dir, unknownBoard); err != nil || len(none) != 0 {
+		t.Fatalf("no inbox: %v %v", none, err)
+	}
+	if none, err := Answers(filepath.Join(dir, "nope"), ""); err != nil || len(none) != 0 {
+		t.Fatalf("missing dir: %v %v", none, err)
+	}
+
+	bad := newAnswer(a.ID, 1)
+	bad.ID = "../x"
+	if err := PutAnswer(dir, bad); err == nil {
+		t.Error("PutAnswer should refuse an answer id that is not a uuid")
+	}
+	if err := AckAnswer(dir, a.ID, "../../x"); err == nil {
+		t.Error("AckAnswer should refuse an answer id that is not a uuid")
+	}
+	for _, id := range []string{"../x", "ABCDEF12", ""} {
+		if err := PutAnswer(dir, newAnswer(id, 1)); err == nil {
+			t.Errorf("PutAnswer(%q) should refuse", id)
+		}
+		if err := AckAnswer(dir, id, uuid.NewString()); err == nil {
+			t.Errorf("AckAnswer(%q) should refuse", id)
+		}
+		if id != "" { // an empty board id means every board
+			if _, err := Answers(dir, id); err == nil {
+				t.Errorf("Answers(%q) should refuse", id)
+			}
+		}
+	}
+}
+
+func putTalk(t *testing.T, dir, id, about string, turns ...wshrpc.BoardTurn) {
+	t.Helper()
+	if _, err := UpdateTalk(dir, id, func(tk *wshrpc.BoardTalk) error {
+		tk.About = wshrpc.BoardSource{Kind: "agent", Title: about}
+		tk.Turns = turns
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestListTalkFacts(t *testing.T) {
+	dir := t.TempDir()
+	asks := mustCreate(t, dir, "asks", 1)
+	kept := mustCreate(t, dir, "kept", 2)
+	failed := mustCreate(t, dir, "failed", 3)
+	stale := mustCreate(t, dir, "stale", 4)
+	chosen := mustCreate(t, dir, "chosen", 5)
+	bare1 := mustCreate(t, dir, "bare1", 6)
+	bare2 := mustCreate(t, dir, "bare2", 6)
+
+	putTalk(t, dir, asks.ID, "wavesrv",
+		wshrpc.BoardTurn{ID: "t1", Ts: 100, Question: "q", State: "answered", AnsweredTs: 150},
+		wshrpc.BoardTurn{ID: "t2", Ts: 200, Briefing: &wshrpc.BoardBriefing{From: "claude", Text: "x", Ask: "y"}, State: "asks"})
+	putTalk(t, dir, kept.ID, "",
+		wshrpc.BoardTurn{ID: "t1", Ts: 400, Question: "q", State: "answered", AnsweredTs: 450},
+		wshrpc.BoardTurn{ID: "t2", Ts: 500, Question: "y", Kept: true, State: "answered", AnsweredTs: 550})
+	putTalk(t, dir, failed.ID, "", wshrpc.BoardTurn{ID: "t1", Ts: 300, Question: "q", State: "failed", Reason: "r"})
+	putTalk(t, dir, stale.ID, "", wshrpc.BoardTurn{ID: "t1", Ts: 50, Question: "q", State: "answering"})
+	putTalk(t, dir, chosen.ID, "", wshrpc.BoardTurn{ID: "t1", Ts: 10, Question: "q", State: "asks", Choice: "new"})
+
+	state := func(id string) string {
+		if id == stale.ID {
+			return "answering"
+		}
+		return ""
+	}
+	list, err := List(dir, testChannel, state)
+	if err != nil || len(list) != 7 {
+		t.Fatalf("list: %v %d", err, len(list))
+	}
+	byID := map[string]wshrpc.BoardInfo{}
+	for _, b := range list {
+		byID[b.ID] = b
+	}
+
+	check := func(name string, got wshrpc.BoardInfo, questions int, about, st string, answered, active int64) {
+		t.Helper()
+		if got.Questions != questions || got.About != about || got.State != st || got.AnsweredTs != answered || got.ActiveTs != active {
+			t.Errorf("%s: questions=%d about=%q state=%q answered=%d active=%d", name, got.Questions, got.About, got.State, got.AnsweredTs, got.ActiveTs)
+		}
+	}
+	check("asks", byID[asks.ID], 2, "wavesrv", "asks", 150, 200)
+	check("kept", byID[kept.ID], 1, "", "", 550, 550)
+	check("failed", byID[failed.ID], 1, "", "failed", 0, 300)
+	check("stale", byID[stale.ID], 1, "", "answering", 0, 50) // state() wins over the stale turn
+	check("chosen", byID[chosen.ID], 1, "", "", 0, 10)
+	check("bare1", byID[bare1.ID], 0, "", "", 0, 6)
+
+	// a project or empty-kind about leaves About empty, whatever title the talk carries
+	for _, kind := range []string{"project", ""} {
+		if _, err := UpdateTalk(dir, bare1.ID, func(tk *wshrpc.BoardTalk) error {
+			tk.About = wshrpc.BoardSource{Kind: kind, Title: "waveterm"}
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		again, _ := List(dir, testChannel, state)
+		for _, b := range again {
+			if b.ID == bare1.ID && b.About != "" {
+				t.Errorf("kind %q: About = %q, want empty", kind, b.About)
+			}
+		}
+	}
+
+	tied := []string{bare1.ID, bare2.ID}
+	sort.Strings(tied)
+	want := append([]string{kept.ID, failed.ID, asks.ID, stale.ID, chosen.ID}, tied...)
+	for i, id := range want {
+		if list[i].ID != id {
+			t.Fatalf("order[%d] = %s, want %s (ActiveTs newest first, then id)", i, list[i].ID, id)
+		}
+	}
+
+	// without state(), an answering turn nothing runs reads failed
+	plain, _ := List(dir, testChannel, nil)
+	for _, b := range plain {
+		if b.ID == stale.ID && b.State != "failed" {
+			t.Errorf("stale answering turn state = %q, want failed", b.State)
+		}
 	}
 }

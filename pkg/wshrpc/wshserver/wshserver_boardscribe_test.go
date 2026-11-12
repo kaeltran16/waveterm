@@ -209,7 +209,7 @@ func TestBoardScribeTurnEndWakesOnlyFollowedTabs(t *testing.T) {
 // writeDrawnBoard writes a board named name whose one source was drawn at drawnTs.
 func writeDrawnBoard(t *testing.T, dir, id, name string, drawnTs int64) {
 	t.Helper()
-	arc, err := json.Marshal(wshrpc.BoardArcRecord{Name: name, CreatedTs: 1, Sources: []wshrpc.BoardArcSource{{Key: "run:x", DrawnTs: drawnTs}}})
+	arc, err := json.Marshal(wshrpc.BoardArcRecord{Name: name, CreatedTs: drawnTs, Sources: []wshrpc.BoardArcSource{{Key: "run:x", DrawnTs: drawnTs}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,8 +255,10 @@ func TestBoardScribeAgentDrawCreatesByName(t *testing.T) {
 
 	// two more boards whose names differ only in case: the most recently drawn wins
 	dir := boardstore.ProjectDir(ch.Name)
-	writeDrawnBoard(t, dir, "aaaa0001", "auth flow", 200)
-	writeDrawnBoard(t, dir, "aaaa0002", "AUTH FLOW", 100)
+	// List orders by activity (here the created time), so these stand later than the board made above
+	const later = int64(1) << 60
+	writeDrawnBoard(t, dir, "aaaa0001", "auth flow", later+200)
+	writeDrawnBoard(t, dir, "aaaa0002", "AUTH FLOW", later+100)
 	again, err := ws.BoardAgentDrawCommand(ctx, wshrpc.CommandBoardAgentDrawData{BlockId: blockId, Board: "auth FLOW"})
 	if err != nil {
 		t.Fatalf("second agent draw: %v", err)
