@@ -6,7 +6,7 @@
 // which useCanvasPoller keeps current.
 
 import { pushToast } from "@/app/cockpit/notificationstore";
-import { composerReveal, errorNudge } from "@/app/element/motiontokens";
+import { composerReveal, errorNudge, viewFade } from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import { Segmented } from "@/app/element/segmented";
@@ -27,6 +27,7 @@ import {
     useLayoutEffect,
     useRef,
     useState,
+    type CSSProperties,
     type ReactNode,
     type PointerEvent as ReactPointerEvent,
     type RefObject,
@@ -297,6 +298,24 @@ function useStepDir(tab: string, order: string[]): number {
     return step.dir;
 }
 
+// a fresh iframe paints only once its page loads, long after a view fade ends: fading on load is what shows
+function BoardIframe({ src, title, style }: { src: string; title: string; style: CSSProperties }) {
+    const [loaded, setLoaded] = useState(false);
+    return (
+        <motion.iframe
+            src={src}
+            title={title}
+            sandbox="allow-scripts allow-same-origin"
+            className="absolute left-0 top-0 border-0"
+            style={style}
+            variants={viewFade}
+            initial="initial"
+            animate={loaded ? "animate" : "initial"}
+            onLoad={() => setLoaded(true)}
+        />
+    );
+}
+
 // A board the user hasn't picked wears a transparent cover: its iframe would swallow the click, and the first
 // click on a board should pick it (the one a mark and Open in browser act on), not operate it
 function BoardFrameView({
@@ -345,12 +364,10 @@ function BoardFrameView({
                 style={{ left: frame.left, top: frame.top, width: frame.width, height: frame.height }}
             >
                 {src != null ? (
-                    <iframe
+                    <BoardIframe
                         key={`${reloadKey}:${board.name}`}
                         src={src}
                         title={board.name}
-                        sandbox="allow-scripts allow-same-origin"
-                        className="absolute left-0 top-0 border-0"
                         style={{
                             width: board.w,
                             height: board.h,

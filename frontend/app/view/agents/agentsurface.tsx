@@ -12,6 +12,7 @@
 // cycle broken.
 
 import { CockpitFocusPane } from "@/app/cockpit/focus-pane";
+import { viewFade } from "@/app/element/motiontokens";
 import { Skeleton, SkeletonLine } from "@/app/element/skeleton";
 import { globalStore } from "@/app/store/jotaiStore";
 import { buildAgentBindings } from "@/app/store/keybindings/bindings";
@@ -19,7 +20,7 @@ import { focusClaimed, isEditableTarget } from "@/app/store/keybindings/dispatch
 import { useKeybindings } from "@/app/store/keybindings/store";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { MotionConfig } from "motion/react";
+import { MotionConfig, motion } from "motion/react";
 import { useEffect, useMemo, useRef } from "react";
 import { CodePeekContext } from "../code/codepeekhost";
 import type { AgentsViewModel } from "./agents";
@@ -249,7 +250,16 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
                         ) : brainstormMode ? (
                             <BrainstormPane model={model} agent={agent} />
                         ) : canvasMode ? (
-                            <CanvasPane model={model} agent={agent} />
+                            // keyed like the brainstorm pane, so opening the canvas or another agent's fades in
+                            <motion.div
+                                key={agent.id}
+                                variants={viewFade}
+                                initial="initial"
+                                animate="animate"
+                                className="flex min-h-0 flex-1 flex-col"
+                            >
+                                <CanvasPane model={model} agent={agent} />
+                            </motion.div>
                         ) : agent.blockId == null ? (
                             <div className="flex flex-1 items-center justify-center text-[13px] text-muted">
                                 No live terminal for this agent.
