@@ -63,6 +63,8 @@ var managedHooks = []managedHook{
 	{Event: "SessionStart", Matcher: "compact", Args: "jarvis dag rules --inject", Timeout: 15},
 	// /clear opens a new transcript: report it now so the cockpit follows the new file before the next prompt
 	{Event: "SessionStart", Matcher: "clear", Args: "agent-hook", Timeout: 10},
+	// the Arc primer, on every source, compact included: the summary drops what the session started with
+	{Event: "SessionStart", Args: "agent-hook --skill-context", Timeout: 10},
 	// the shell outlives claude, so only this report tells the roster the session is gone
 	{Event: "SessionEnd", Args: "agent-hook", Timeout: 10},
 }

@@ -39,6 +39,20 @@ var brainstormFilePathRe = regexp.MustCompile(`(?i)^(.+?)[\\/]\.superpowers[\\/]
 
 const brainstormContextText = "You are inside Arc. Also follow the arc:brainstorm skill for this brainstorm: keep its state in .superpowers/brainstorm/<topic>/brainstorm.json, where Arc shows it, instead of long playbacks in the terminal; use arc:design boards instead of the visual companion's server."
 
+// sessionContextText is what an Arc agent knows of wsh in every project, memory or not: the skill descriptions
+// alone left it unused. capabilities, not rules: a nudge to coordinate or check first only costs turns.
+const sessionContextText = "You are running inside Arc, the user's agent cockpit; `wsh` is its CLI.\n" +
+	"- Mention a run, agent tab or initiative: show it with `wsh ui reveal run:<id>|agent:<tabId>|effort:<id>`.\n" +
+	"- Wrote a file the user should read (spec, plan, report): `wsh view <path>`.\n" +
+	"- Numbers that read better as a chart: a ```chart block (arc:charts).\n" +
+	"- What the user is looking at and has selected: `wsh ui state`.\n" +
+	"- Work too big for this session, or the user says \"run it\": `wsh runs start` (arc:runs).\n" +
+	"- Multi-part work across sessions: `wsh effort list|show|create` (arc:initiatives).\n" +
+	"- Other live agents: `wsh agents list`; message one with `wsh agents send <tab> \"<msg>\"`, read its answer with `wsh agents wait <tab>`.\n" +
+	"- What is waiting on the user: `wsh runs attention`.\n" +
+	"- A Jira key: `wsh jira show <KEY>`.\n" +
+	"- When the user asks: notes (arc:notes), boards and cockpit actions (arc:cockpit). `wsh <cmd> --help` for flags."
+
 // `git [global options] commit`, anywhere in a compound command; `commit-tree` and words ending in git miss
 var gitCommitRe = regexp.MustCompile(`(?:^|[\s;&|(])git(?:\s+(?:-[cC]\s+\S+|--?[\w.-]+(?:=\S+)?))*\s+commit(?:\s|$)`)
 
@@ -202,16 +216,29 @@ func brainstormContextFor(ev ccHookEvent) bool {
 	return false
 }
 
-// skillContextOutput is the hook output that adds the brainstorm context to the turn, "" when the event
-// is not a brainstorming skill start, or the agent is a run's: its prompt routes every question through the
-// cockpit's ask tool, and arc:brainstorm would ask in the terminal instead.
-func skillContextOutput(ev ccHookEvent, runAgent bool) string {
-	if runAgent || !brainstormContextFor(ev) {
+// contextText is the context an event adds to the turn: the Arc primer when a session starts (startup,
+// resume, clear, or compact, which drops it), the brainstorm one when the brainstorming skill starts.
+func contextText(ev ccHookEvent) string {
+	if ev.HookEventName == "SessionStart" {
+		return sessionContextText
+	}
+	if brainstormContextFor(ev) {
+		return brainstormContextText
+	}
+	return ""
+}
+
+// contextOutput is the hook output that adds contextText to the turn, "" when the event adds none or the agent
+// is a run's or nested in another claude: its prompt already says what to do, routes every question through
+// the cockpit's ask tool, and arc:brainstorm would ask in the terminal instead.
+func contextOutput(ev ccHookEvent, runAgent bool) string {
+	text := contextText(ev)
+	if runAgent || text == "" {
 		return ""
 	}
 	out, err := json.Marshal(map[string]any{"hookSpecificOutput": map[string]string{
-		"hookEventName":     "PostToolUse",
-		"additionalContext": brainstormContextText,
+		"hookEventName":     ev.HookEventName,
+		"additionalContext": text,
 	}})
 	if err != nil {
 		return ""
@@ -532,7 +559,7 @@ func init() {
 	agentHookCmd.Flags().StringVar(&agentHookAgent, "agent", "claude", "agent identity to stamp (claude | opencode)")
 	agentHookCmd.Flags().StringVar(&agentHookShadow, "shadow", "", "opencode shadow transcript path to report as the transcript")
 	agentHookCmd.Flags().StringVar(&agentHookState, "state", "", "explicit agent state (opencode path; claude derives it from the hook payload)")
-	agentHookCmd.Flags().BoolVar(&agentHookSkillContext, "skill-context", false, "print the context a started skill adds to the turn, and report nothing")
+	agentHookCmd.Flags().BoolVar(&agentHookSkillContext, "skill-context", false, "print the context a session start or a started skill adds to the turn, and report nothing")
 }
 
 // hookDebugLine appends one diagnostic line to ~/.claude/arc-hook-debug.log when WAVETERM_HOOK_DEBUG
@@ -590,7 +617,7 @@ func agentHookRun(cmd *cobra.Command, args []string) error {
 		}
 	}
 	if agentHookSkillContext {
-		if out := skillContextOutput(ev, os.Getenv(jarvis.RunAgentEnv) != ""); out != "" {
+		if out := contextOutput(ev, os.Getenv(jarvis.RunAgentEnv) != "" || nestedClaudeSession()); out != "" {
 			_, _ = os.Stdout.WriteString(out + "\n")
 		}
 		return nil

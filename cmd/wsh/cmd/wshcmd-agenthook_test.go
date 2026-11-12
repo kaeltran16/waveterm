@@ -225,7 +225,7 @@ func TestBrainstormContextFor(t *testing.T) {
 		}
 	}
 
-	out := skillContextOutput(skill("superpowers:brainstorming"), false)
+	out := contextOutput(skill("superpowers:brainstorming"), false)
 	var parsed struct {
 		HookSpecificOutput struct {
 			HookEventName     string `json:"hookEventName"`
@@ -238,11 +238,35 @@ func TestBrainstormContextFor(t *testing.T) {
 	if parsed.HookSpecificOutput.HookEventName != "PostToolUse" || !strings.Contains(parsed.HookSpecificOutput.AdditionalContext, "arc:brainstorm") {
 		t.Errorf("output = %q", out)
 	}
-	if skillContextOutput(skill("superpowers:writing-plans"), false) != "" {
+	if contextOutput(skill("superpowers:writing-plans"), false) != "" {
 		t.Error("another skill produced output")
 	}
-	if skillContextOutput(skill("superpowers:brainstorming"), true) != "" {
+	if contextOutput(skill("superpowers:brainstorming"), true) != "" {
 		t.Error("a run's agent was sent to arc:brainstorm")
+	}
+}
+
+func TestSessionStartContext(t *testing.T) {
+	for _, source := range []string{"startup", "resume", "clear", "compact"} {
+		out := contextOutput(ccHookEvent{HookEventName: "SessionStart", Source: source}, false)
+		var parsed struct {
+			HookSpecificOutput struct {
+				HookEventName     string `json:"hookEventName"`
+				AdditionalContext string `json:"additionalContext"`
+			} `json:"hookSpecificOutput"`
+		}
+		if err := json.Unmarshal([]byte(out), &parsed); err != nil {
+			t.Fatalf("%s: output is not json: %v", source, err)
+		}
+		if parsed.HookSpecificOutput.HookEventName != "SessionStart" || !strings.Contains(parsed.HookSpecificOutput.AdditionalContext, "wsh ui reveal") {
+			t.Errorf("%s: output = %q", source, out)
+		}
+	}
+	if contextOutput(ccHookEvent{HookEventName: "SessionStart", Source: "startup"}, true) != "" {
+		t.Error("a run's agent got the Arc primer")
+	}
+	if contextOutput(ccHookEvent{HookEventName: "UserPromptSubmit"}, false) != "" {
+		t.Error("a prompt submit added context")
 	}
 }
 

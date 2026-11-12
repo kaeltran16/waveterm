@@ -198,8 +198,8 @@ func configureAndStartWorker(ctx context.Context, tabID, blockID string, meta wa
 // environment, never from a project's .npmrc.
 var EngineToolEnv = map[string]string{"pnpm_config_verify_deps_before_run": "false"}
 
-// RunAgentEnv marks an agent a run started. Its questions go through the cockpit's ask tool, so the brainstorm
-// hook leaves it out of arc:brainstorm, which asks in the terminal instead.
+// RunAgentEnv marks an agent a run started. Its questions go through the cockpit's ask tool and its prompt says
+// what to do, so the context hook leaves it out of arc:brainstorm, which asks in the terminal, and the Arc primer.
 const RunAgentEnv = "ARC_RUN_AGENT"
 
 // makeWorkerBlockMeta builds the block meta for a run worker. keepOnExit is true for
