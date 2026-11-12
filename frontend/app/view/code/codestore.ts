@@ -1064,7 +1064,7 @@ export function editDraft(text: string): void {
     }
     const key = draftKey(project, file.path);
     const base: FileBase = { text: file.text, size: file.size, modtime: file.modtime };
-    globalStore.set(codeDraftsAtom, (d) => nextDrafts(d, key, base, text));
+    globalStore.set(codeDraftsAtom, (d) => nextDrafts(d, key, base, text, savesOut.has(key)));
     // a fresh keystroke invalidates whatever the last save attempt said
     const save = globalStore.get(codeSaveAtom);
     if (save.kind !== "idle" && save.path === file.path) {
@@ -1116,6 +1116,12 @@ async function saveFile(project: CodeProject, rel: string): Promise<void> {
         savesOut.delete(abs);
         if (again) {
             await saveFile(project, rel);
+        } else {
+            // a draft kept equal to the old disk text during a save that then wrote nothing is no edit
+            globalStore.set(codeDraftsAtom, (d) => {
+                const draft = d.get(abs);
+                return draft != null && draft.text === draft.base.text ? withoutDraft(d, abs) : d;
+            });
         }
     }
 }

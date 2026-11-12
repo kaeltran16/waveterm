@@ -55,10 +55,18 @@ export function conflictMessage(c: Conflict): string {
 }
 
 // Setting the text back to what is on disk clears the draft rather than storing a no-op one, so
-// "dirty" always means "differs from disk" and undoing your way back marks the file clean.
-export function nextDrafts(drafts: Drafts, key: string, base: FileBase, text: string): Map<string, Draft> {
+// "dirty" always means "differs from disk" and undoing your way back marks the file clean. While a save
+// of the file is out the disk is about to become the saved text, so text equal to the old disk is kept:
+// afterSave re-pins it onto the write, where it differs.
+export function nextDrafts(
+    drafts: Drafts,
+    key: string,
+    base: FileBase,
+    text: string,
+    saving = false
+): Map<string, Draft> {
     const out = new Map(drafts);
-    if (text === base.text) {
+    if (text === base.text && !saving) {
         out.delete(key);
     } else {
         out.set(key, { text, base });

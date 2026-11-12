@@ -439,6 +439,44 @@ describe("saveCurrent", () => {
         expect(globalStore.get(codeSaveAtom).kind).toBe("idle");
     });
 
+    it("an edit during the save back to the old disk text stays a draft over what was written", async () => {
+        const project = seedSession(["src/a.ts"]);
+        const before = (globalStore.get(codeFileAtom) as { text: string }).text;
+        const saved = before + "B";
+        editDraft(saved);
+        const write = deferred<void>();
+        fileWrite.mockReturnValue(write.promise);
+        fileInfo.mockResolvedValueOnce({ size: 4, modtime: 1 }).mockResolvedValueOnce({ size: 5, modtime: 2 });
+
+        const saving = saveCurrent();
+        await vi.waitFor(() => expect(fileWrite).toHaveBeenCalled());
+        editDraft(before);
+        write.resolve();
+        await saving;
+
+        expect(globalStore.get(codeFileAtom)).toMatchObject({ text: saved, size: 5, modtime: 2 });
+        expect(globalStore.get(codeDraftsAtom).get(draftKey(project, "src/a.ts"))).toEqual({
+            text: before,
+            base: { text: saved, size: 5, modtime: 2 },
+        });
+        expect(globalStore.get(codeSaveAtom).kind).not.toBe("saved");
+    });
+
+    it("a refused save leaves no draft that only matches the disk", async () => {
+        const project = seedSession(["src/a.ts"]);
+        const before = (globalStore.get(codeFileAtom) as { text: string }).text;
+        editDraft(before + "B");
+        const stat = deferred<{ size: number; modtime: number }>();
+        fileInfo.mockReturnValueOnce(stat.promise);
+
+        const saving = saveCurrent();
+        editDraft(before);
+        stat.resolve({ size: 99, modtime: 2 });
+        await saving;
+
+        expect(globalStore.get(codeDraftsAtom).has(draftKey(project, "src/a.ts"))).toBe(false);
+    });
+
     it("a second save asked for during one waits for it, and does not refuse the app's own write", async () => {
         seedSession(["src/a.ts"]);
         editDraft("one\nmine\n");
