@@ -5,6 +5,7 @@ package wshutil
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -113,9 +114,6 @@ func TestUnregisterLinkAnswersRequestsItWasHandling(t *testing.T) {
 
 	router.UnregisterLink(leafLink)
 
-	if hasRouteInfo(router, "r1") {
-		t.Fatal("the request kept its routing entry after its destination went away")
-	}
 	waitUntil(t, "an error reply for r1 at the caller", func() bool {
 		for _, raw := range caller.received() {
 			var msg RpcMessage
@@ -125,6 +123,52 @@ func TestUnregisterLinkAnswersRequestsItWasHandling(t *testing.T) {
 		}
 		return false
 	})
+	// the error is runServer's last message for r1, so the entry is gone once the caller has it
+	if hasRouteInfo(router, "r1") {
+		t.Fatal("the request kept its routing entry after its destination went away")
+	}
+}
+
+// review F1: a destination that answers and then closes queues its response on inputCh, and its recv loop
+// calls UnregisterLink at once; the response is already queued, so it must reach the caller, not the
+// "went away" error. Many rounds, since without ordering the outcome depends on whether runServer wakes first.
+func TestUnregisterLinkLetsAQueuedResponseWin(t *testing.T) {
+	router := NewWshRouter()
+	caller := newGatedClient(t)
+	caller.setBudget(-1)
+	callerLink := router.RegisterTrustedRouter(caller)
+	for i := range 200 {
+		reqId, routeId := fmt.Sprintf("r%d", i), fmt.Sprintf("leaf%d", i)
+		leaf := newGatedClient(t)
+		leaf.setBudget(-1)
+		leafLink, err := router.RegisterTrustedLeaf(leaf, routeId)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cmd, _ := json.Marshal(RpcMessage{Command: "test", ReqId: reqId, Route: routeId})
+		router.inputCh <- baseds.RpcInputChType{MsgBytes: cmd, IngressLinkId: callerLink}
+		waitUntil(t, reqId+"'s routing entry", func() bool { return hasRouteInfo(router, reqId) })
+
+		// what runLinkClientRecvLoop does when the leaf answers and closes back to back
+		resp, _ := json.Marshal(RpcMessage{ResId: reqId, Data: "answer"})
+		router.inputCh <- baseds.RpcInputChType{MsgBytes: resp, IngressLinkId: leafLink}
+		router.UnregisterLink(leafLink)
+
+		var got *RpcMessage
+		waitUntil(t, "a reply for "+reqId+" at the caller", func() bool {
+			for _, raw := range caller.received() {
+				var msg RpcMessage
+				if json.Unmarshal([]byte(raw), &msg) == nil && msg.ResId == reqId {
+					got = &msg
+					return true
+				}
+			}
+			return false
+		})
+		if got.Error != "" {
+			t.Fatalf("round %d: the caller got %q though the leaf's answer was queued first", i, got.Error)
+		}
+	}
 }
 
 // a destination that stays connected but never answers: once the request's own timeout passes, its caller
