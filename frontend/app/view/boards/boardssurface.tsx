@@ -3,7 +3,8 @@
 
 // The Boards surface (boards F8, N1, N2, D2, E1): a project's boards in a list, the open one unfolded into its
 // sources, and the board itself as plain Excalidraw. The project is the one a router landing named, else the
-// cockpit's current one. What must outlive a surface switch lives in boardstore.ts.
+// cockpit's current one; a switcher change made while Boards shows replaces a landing's. What must outlive a
+// surface switch lives in boardstore.ts.
 
 import { pushToast } from "@/app/cockpit/notificationstore";
 import { palettePickChannel } from "@/app/cockpit/palette-data";
@@ -51,6 +52,16 @@ function useBoardsChannel(model: AgentsViewModel): Channel | null {
     const filter = useAtomValue(model.projectFilterAtom);
     const rows = useAtomValue(projectListAtom);
     const active = useAtomValue(activeChannelAtom);
+    // starts at the value Boards arrives with, so only a change made while Boards shows unpins a landing's project;
+    // "All projects" names nothing to follow
+    const prevFilterRef = useRef(filter);
+    useEffect(() => {
+        const prev = prevFilterRef.current;
+        prevFilterRef.current = filter;
+        if (filter !== prev && filter !== "all") {
+            globalStore.set(boardsChannelAtom, null);
+        }
+    }, [filter]);
     if (explicit != null) {
         return rows.find((r) => r.channel?.oid === explicit)?.channel ?? ({ oid: explicit, name: "" } as Channel);
     }

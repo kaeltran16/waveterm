@@ -30,9 +30,10 @@ export function projectControlCopy(surface: SurfaceKey, projectLabel: string): {
     if (support === "filter") {
         return { label: projectLabel, title: "Filter this surface by project" };
     }
-    // Code follows a switcher change made while it shows (codefollow.ts), so its subject is not kept
-    if (surface === "code") {
-        return { label: `Default · ${projectLabel}`, title: "Set the project default; Code opens it" };
+    // Code (codefollow.ts) and Boards follow a switcher change made while they show, so their subject is not kept
+    if (surface === "code" || surface === "boards") {
+        const name = surface === "code" ? "Code" : "Boards";
+        return { label: `Default · ${projectLabel}`, title: `Set the project default; ${name} opens it` };
     }
     if (support === "subject") {
         return {

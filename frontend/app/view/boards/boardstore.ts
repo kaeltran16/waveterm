@@ -29,7 +29,7 @@ export interface BoardFollower {
     ask: string;
 }
 
-// the surface's explicit project; null = the cockpit's current one
+// the surface's explicit project, until a switcher change made while Boards shows; null = the cockpit's current one
 export const boardsChannelAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 export const openBoardByChannelAtom = atom<Record<string, string>>({}) as PrimitiveAtom<Record<string, string>>;
 

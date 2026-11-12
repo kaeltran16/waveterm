@@ -18,6 +18,7 @@ import {
 
 const NAME = "boards-surface";
 const PROJECT = "boards-surface-fx";
+const OTHER_PROJECT = "boards-surface-fx-other";
 const WIDE = { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false };
 const AGENT_ID = "f0a0b0c0-0000-4000-8000-00000000b0a4";
 const AGENT_NAME = "claude · waveterm";
@@ -79,6 +80,15 @@ const PAGE = `
     const { TabRpcClient } = await mod("app/store/wshrpcutil.ts");
     const { globalStore } = await mod("app/store/jotaiStore.ts");
     const fx = (window.__boardsFx ??= { inbox: [], acks: [], status: null });
+    // the cockpit's model, on the nav rail's props
+    const model = (() => {
+        const nav = document.querySelector("nav");
+        const key = nav && Object.keys(nav).find((k) => k.startsWith("__reactFiber$"));
+        for (let f = key ? nav[key] : null; f != null; f = f.return) {
+            if (f.memoizedProps?.model?.surfaceAtom != null) return f.memoizedProps.model;
+        }
+        return null;
+    })();
     const selection = () => {
         const el = document.querySelector(".excalidraw");
         const key = el && Object.keys(el).find((k) => k.startsWith("__reactFiber$"));
@@ -242,6 +252,18 @@ async function openBoard(h, boardId) {
     await polishNap(1200);
 }
 
+// makes a throwaway project and waits for the channel wavesrv gives it
+async function createProject(h, name, path) {
+    await h.rpc("createproject", { name, path });
+    await waitForProjectInConfig(h, name);
+    for (let waited = 0; waited < 10000; waited += 250) {
+        const channel = ((await h.rpc("getchannels", null))?.channels ?? []).find((c) => c.name === name);
+        if (channel != null) return channel;
+        await polishNap(250);
+    }
+    throw new Error(`project ${name} never got a channel`);
+}
+
 const toastText = (h, needle) =>
     h.ev(`[...document.querySelectorAll("[data-notification-toast]")].map((t) => t.textContent).find((t) => t.includes(${q(needle)})) ?? null`);
 
@@ -252,16 +274,8 @@ export const boardsSurface = {
         const ctx = {};
         try {
             ctx.cwd = mkdtempSync(join(tmpdir(), "arc-boards-fx-"));
-            await h.rpc("createproject", { name: PROJECT, path: ctx.cwd });
             ctx.project = PROJECT;
-            await waitForProjectInConfig(h, PROJECT);
-            let channel;
-            for (let waited = 0; waited < 10000 && channel == null; waited += 250) {
-                channel = ((await h.rpc("getchannels", null))?.channels ?? []).find((c) => c.name === PROJECT);
-                if (channel == null) await polishNap(250);
-            }
-            if (channel == null) throw new Error(`project ${PROJECT} never got a channel`);
-            ctx.channelId = channel.oid;
+            ctx.channelId = (await createProject(h, PROJECT, ctx.cwd)).oid;
             await h.cdp("Emulation.setDeviceMetricsOverride", WIDE);
             await polishReload(h);
             await installStubs(h, ctx);
@@ -638,24 +652,64 @@ export const boardsSurface = {
             return { ok, detail: q({ first, after1, after2 }) };
         });
 
+        await run("9. switcher follow: picking another project in the app-bar switcher while on Boards opens its boards, over the landing's", async () => {
+            ctx.otherCwd = mkdtempSync(join(tmpdir(), "arc-boards-fx-"));
+            ctx.otherProject = OTHER_PROJECT;
+            await createProject(h, OTHER_PROJECT, ctx.otherCwd);
+            // registering in the app refreshes the channel snapshot; over the bare rpc, the page must
+            await page(
+                h,
+                `const Ch = await mod("app/view/agents/channelsstore.ts");
+                await Ch.primeChannels();
+                return true;`
+            );
+            await h.goto("boards");
+            await polishWaitFor(h, `!!${SURFACE}`, 10000);
+            const before = await page(
+                h,
+                `window.__boardsPrevScope ??= globalStore.get(model.projectFilterAtom);
+                return { pinned: globalStore.get(B.boardsChannelAtom), header: ${text(HEADER)} };`
+            );
+            await h.ev(`document.querySelector('[data-project-switcher="bar"]')?.click()`);
+            await polishWaitFor(h, `!!document.querySelector('[data-project-option="${OTHER_PROJECT}"]')`, 5000);
+            const title = await h.ev(`document.querySelector('[data-project-switcher="bar"]')?.getAttribute("title")`);
+            await h.ev(`document.querySelector('[data-project-option="${OTHER_PROJECT}"]')?.click()`);
+            await polishWaitFor(h, `${text(HEADER)} === "Boards${OTHER_PROJECT}"`, 8000).catch(() => {});
+            const after = await page(
+                h,
+                `return { pinned: globalStore.get(B.boardsChannelAtom), header: ${text(HEADER)}, empty: ${text(`${SURFACE}?.querySelector("[data-boards-empty]")`)} };`
+            );
+            await h.shot(`cdp-shots/${NAME}-9-switcher-follow.png`);
+            const ok =
+                before.pinned === ctx.channelId &&
+                before.header.startsWith("Boards") &&
+                !before.header.includes(OTHER_PROJECT) &&
+                title === "Set the project default; Boards opens it" &&
+                after.pinned == null &&
+                after.header === `Boards${OTHER_PROJECT}` &&
+                after.empty.includes(`No boards in ${OTHER_PROJECT} yet`);
+            return { ok, detail: q({ before, title, after }) };
+        });
+
         return steps;
     },
     async teardown(h, ctx) {
-        await lookEval(
+        await page(
             h,
-            `const { RpcApi } = await mod("app/store/wshclientapi.ts");
-            const { globalStore } = await mod("app/store/jotaiStore.ts");
-            const D = await mod("app/view/agents/devmock.ts");
-            const B = await mod("app/view/boards/boardstore.ts");
+            `const D = await mod("app/view/agents/devmock.ts");
             for (const k of ${q(STUBBED)}) delete RpcApi[k];
             delete window.__boardsFx;
             globalStore.set(D.devMockAgentsAtom, null);
             globalStore.set(B.boardsChannelAtom, null);
+            if (window.__boardsPrevScope != null) globalStore.set(model.projectFilterAtom, window.__boardsPrevScope);
+            delete window.__boardsPrevScope;
             return true;`
         ).catch(() => {});
         if (ctx.boardDir) rmSync(ctx.boardDir, { recursive: true, force: true });
         if (ctx.project) await h.rpc("deleteproject", { name: ctx.project });
         if (ctx.cwd) rmSync(ctx.cwd, { recursive: true, force: true });
+        if (ctx.otherProject) await h.rpc("deleteproject", { name: ctx.otherProject });
+        if (ctx.otherCwd) rmSync(ctx.otherCwd, { recursive: true, force: true });
     },
 };
 

@@ -59,4 +59,11 @@ describe("surface context capabilities", () => {
             title: "Set the project default; Code opens it",
         });
     });
+
+    it("Boards' switcher title says it opens the project", () => {
+        expect(projectControlCopy("boards", "waveterm")).toEqual({
+            label: "Default · waveterm",
+            title: "Set the project default; Boards opens it",
+        });
+    });
 });
