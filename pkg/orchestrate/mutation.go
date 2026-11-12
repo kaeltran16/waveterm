@@ -234,9 +234,13 @@ func prepareActionLocked(ctx context.Context, dagID, taskID, action string, targ
 		if !skippable(task.State) {
 			return nil, fmt.Errorf("task %q cannot be skipped from state %q", taskID, task.State)
 		}
-		// a failed review's worker already finished: cancelling its run would rewrite a done run. Its rejected
-		// commit is still on the lane branch, which lands by squashing, so the branch goes back to before the task.
-		if task.State == TaskState_ReviewFailed {
+		// a reviewed task's worker already finished: cancelling its run would rewrite a done run. Its commit is still
+		// on the lane branch, which lands by squashing, so the branch goes back to before the task. A reviewer still
+		// at work in the lane is stopped before that reset.
+		if reviewState(task.State) {
+			if prep.stop, err = cancelReviewRun(ctx, g, task); err != nil {
+				return nil, err
+			}
 			prep.rewind = func(ctx context.Context) error { return dropRejectedCommit(ctx, g, task) }
 			return prep, nil
 		}
@@ -282,6 +286,25 @@ func cancelTaskRun(ctx context.Context, g *waveobj.TaskGroup, task *waveobj.Task
 	run, err := wstore.GetRun(ctx, g.ChannelId, task.RunID)
 	if err != nil {
 		return nil, fmt.Errorf("loading old run %s after cancellation: %w", task.RunID, err)
+	}
+	return run, nil
+}
+
+// cancelReviewRun is cancelTaskRun for a task's reviewer: nil when it has none. A reviewer that already finished
+// keeps the status it finished with (cancelOpenRun).
+func cancelReviewRun(ctx context.Context, g *waveobj.TaskGroup, task *waveobj.TaskNode) (*waveobj.Run, error) {
+	if task.ReviewRunID == "" {
+		return nil, nil
+	}
+	if err := wstore.UpdateRun(ctx, g.ChannelId, task.ReviewRunID, func(r *waveobj.Run) error {
+		cancelOpenRun(r)
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("cancelling reviewer run %s: %w", task.ReviewRunID, err)
+	}
+	run, err := wstore.GetRun(ctx, g.ChannelId, task.ReviewRunID)
+	if err != nil {
+		return nil, fmt.Errorf("loading reviewer run %s after cancellation: %w", task.ReviewRunID, err)
 	}
 	return run, nil
 }

@@ -202,46 +202,63 @@ func TestRetryRefusesStatesItWouldLoseWorkFrom(t *testing.T) {
 	}
 }
 
-func TestSkipRejectsRunningTaskWithoutClearingOwnership(t *testing.T) {
-	ctx, dag, _, child := seedRunningDag(t)
-	if err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "skip", ActionByHuman, waveobj.RoutePin{}); err == nil {
-		t.Fatal("running task accepted skip")
-	}
-	got, err := wstore.GetDag(ctx, dag.OID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Tasks[0].State != TaskState_Running || got.Tasks[0].RunID != child.ID {
-		t.Fatalf("running task ownership changed: state=%q run=%q", got.Tasks[0].State, got.Tasks[0].RunID)
+// a skip drops only a task nothing of has landed: done, blocked-merge and the Verify states have landed or are landing
+func TestSkipRefusesALandedOrLandingTask(t *testing.T) {
+	for _, state := range []string{TaskState_Done, TaskState_BlockedMerge, TaskState_Verifying, TaskState_VerifyFailed} {
+		t.Run(state, func(t *testing.T) {
+			ctx, dag, child := seedFailedDag(t)
+			if err := wstore.UpdateDag(ctx, dag.OID, func(g *waveobj.TaskGroup) error {
+				g.Tasks[0].State = state
+				g.Tasks[0].Merged = state != TaskState_BlockedMerge
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "skip", ActionByHuman, waveobj.RoutePin{})
+			if err == nil || !strings.Contains(err.Error(), "cannot be skipped") {
+				t.Fatalf("skip from %s: err = %v, want a refusal", state, err)
+			}
+			if got := mustLoadDag(t, ctx, dag.OID).Tasks[0]; got.State != state || got.RunID != child.ID {
+				t.Fatalf("refused skip moved the task: state %s run %s", got.State, got.RunID)
+			}
+			if run, err := wstore.GetRun(ctx, dag.ChannelId, child.ID); err != nil || run.Status == jarvis.RunStatus_Cancelled {
+				t.Fatalf("refused skip cancelled the task's run: %v", err)
+			}
+		})
 	}
 }
 
-func TestSkipStopsStalledChildBeforeClearingOwnership(t *testing.T) {
-	ctx, dag, _, child := seedRunningDag(t)
-	if err := wstore.UpdateDag(ctx, dag.OID, func(g *waveobj.TaskGroup) error {
-		g.Tasks[0].State = TaskState_Stalled
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-	oldStop := stopRunWorkers
-	stopped := false
-	stopRunWorkers = func(_ context.Context, run *waveobj.Run) error {
-		stopped = run.ID == child.ID
-		return nil
-	}
-	restoreAfterStages(t, func() { stopRunWorkers = oldStop })
+// run e5c81d8f: no command stopped one working task, and the one that stopped anything ended the whole run
+func TestSkipStopsAWorkingChildBeforeClearingOwnership(t *testing.T) {
+	for _, state := range []string{TaskState_Running, TaskState_Stalled} {
+		t.Run(state, func(t *testing.T) {
+			ctx, dag, _, child := seedRunningDag(t)
+			if err := wstore.UpdateDag(ctx, dag.OID, func(g *waveobj.TaskGroup) error {
+				g.Tasks[0].State = state
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			oldStop := stopRunWorkers
+			stopped := false
+			stopRunWorkers = func(_ context.Context, run *waveobj.Run) error {
+				stopped = run.ID == child.ID
+				return nil
+			}
+			restoreAfterStages(t, func() { stopRunWorkers = oldStop })
 
-	if err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "skip", ActionByHuman, waveobj.RoutePin{}); err != nil {
-		t.Fatal(err)
-	}
-	gotDag, _ := wstore.GetDag(ctx, dag.OID)
-	gotChild, _ := wstore.GetRun(ctx, dag.ChannelId, child.ID)
-	if !stopped || gotChild.Status != jarvis.RunStatus_Cancelled {
-		t.Fatalf("stalled child stop=%v status=%q, want stopped/cancelled", stopped, gotChild.Status)
-	}
-	if gotDag.Tasks[0].State != TaskState_Skipped || gotDag.Tasks[0].RunID != "" {
-		t.Fatalf("skipped task = state %q run %q", gotDag.Tasks[0].State, gotDag.Tasks[0].RunID)
+			if err := ApplyAction(ctx, dag.OID, dag.Tasks[0].ID, "skip", ActionByHuman, waveobj.RoutePin{}); err != nil {
+				t.Fatal(err)
+			}
+			gotDag, _ := wstore.GetDag(ctx, dag.OID)
+			gotChild, _ := wstore.GetRun(ctx, dag.ChannelId, child.ID)
+			if !stopped || gotChild.Status != jarvis.RunStatus_Cancelled {
+				t.Fatalf("%s child stop=%v status=%q, want stopped/cancelled", state, stopped, gotChild.Status)
+			}
+			if gotDag.Tasks[0].State != TaskState_Skipped || gotDag.Tasks[0].RunID != "" {
+				t.Fatalf("skipped task = state %q run %q", gotDag.Tasks[0].State, gotDag.Tasks[0].RunID)
+			}
+		})
 	}
 }
 
