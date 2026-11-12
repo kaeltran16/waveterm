@@ -111,6 +111,23 @@ describe("rowAction", () => {
             expect.objectContaining({ runid: "R3", taskid: "t7", action: "sendback", notes: "check the retry path" })
         );
     });
+    it("a landed Send back empties the box, so the next round's keyed Send back sends no stale guidance", async () => {
+        globalStore.set(reviewGuideAtom, { [reviewGuideKey("R3", "t8")]: "round one notes" });
+        await rowAction(run, { key: "row:L:t8", taskId: "t8" }, "sendback");
+        expect(globalStore.get(reviewGuideAtom)[reviewGuideKey("R3", "t8")]).toBeUndefined();
+        vi.mocked(RpcApi.DagActionCommand).mockClear();
+        await rowAction(run, { key: "row:L:t8", taskId: "t8" }, "sendback");
+        expect(RpcApi.DagActionCommand).toHaveBeenCalledWith(
+            {},
+            { channelid: "C", runid: "R3", taskid: "t8", action: "sendback" }
+        );
+    });
+    it("a refused Send back keeps the guidance to retry with", async () => {
+        globalStore.set(reviewGuideAtom, { [reviewGuideKey("R3", "t6")]: "keep me" });
+        vi.mocked(RpcApi.DagActionCommand).mockRejectedValueOnce(new Error("not failed"));
+        await rowAction(run, { key: "row:L:t6", taskId: "t6" }, "sendback");
+        expect(globalStore.get(reviewGuideAtom)[reviewGuideKey("R3", "t6")]).toBe("keep me");
+    });
     it("anything else is an engine action", async () => {
         await rowAction(run, { key: "row:L:t9", taskId: "t9" }, "retry");
         expect(RpcApi.DagActionCommand).toHaveBeenCalledWith(

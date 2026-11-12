@@ -20,7 +20,7 @@ func TestDigestClaudeKeepsPromptsAndReplies(t *testing.T) {
 		`{"type":"user","timestamp":"2026-09-17T06:02:10.000Z","isSidechain":true,"message":{"role":"user","content":"a subagent prompt"}}`,
 		`{"type":"assistant","timestamp":"2026-09-17T06:02:11.000Z","message":{"content":[{"type":"text","text":"the timeout was the dial"}]}}`,
 	}
-	_, _, turns := claudeProvider("").fused("", "s1", lines)
+	_, _, turns, _ := claudeProvider("").fused("", "s1", lines)
 	want := []Turn{
 		{Speaker: "user", Text: "fix the hook timeout", Ts: 1789624925000},
 		{Speaker: "agent", Text: "the timeout was the dial", Ts: 1789624931000},
@@ -40,7 +40,7 @@ func TestDigestPiKeepsPromptsAndReplies(t *testing.T) {
 		`{"type":"message","id":"r1","parentId":"a3","timestamp":"2026-09-17T06:00:05Z","message":{"role":"toolResult","content":[{"type":"text","text":"a.go"}]}}`,
 		`{"type":"message","id":"u2","parentId":"r1","timestamp":"2026-09-17T06:00:06Z","message":{"role":"user","content":[{"type":"text","text":"ship it"}]}}`,
 	})
-	_, _, turns := piProvider("").fused(path, "", nil)
+	_, _, turns, _ := piProvider("").fused(path, "", nil)
 	want := []Turn{
 		{Speaker: "user", Text: "review the diff", Ts: 1789624801000},
 		{Speaker: "agent", Text: "the diff is fine", Ts: 1789624803000},
@@ -57,7 +57,7 @@ func TestDigestCodexHasNoTurns(t *testing.T) {
 		`{"type":"event_msg","payload":{"type":"user_message","message":"check the handoff"}}`,
 		`{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"done"}]}}`,
 	}
-	s, _, turns := codexProvider("").fused("", "", lines)
+	s, _, turns, _ := codexProvider("").fused("", "", lines)
 	if s == nil {
 		t.Fatal("want a codex session")
 	}

@@ -38,28 +38,32 @@ export function openSessionHit(
     }
     globalStore.set(model.sessionsViewAtom, target.kind === "event" ? "activity" : "transcript");
     globalStore.set(model.sessionsFindAtom, { sessionKey: sessionKey(r.session), query, terms, target, at: to });
+    globalStore.set(model.sessionsFoundAtom, { sessionKey: sessionKey(r.session), at: to });
     landOn(model.surfaceAtom, "sessions");
 }
 
 // The session a find was opened on, while the selection still shows its run member. A member's detail otherwise
 // shows its default session (live, else newest non-review), and a hit can sit in another one: the task's reviewer,
 // an older attempt, an earlier lead session. Undefined when no find applies or the run does not hold that session.
+// It reads the found mark, not the find, so closing the bar keeps the session it was reading.
+export type SessionsFound = Pick<SessionsFind, "sessionKey" | "at">;
+
 export function foundSession(
-    find: SessionsFind | null,
+    found: SessionsFound | null,
     sel: string,
     member: string,
     sessions: LiveSession[]
 ): LiveSession | undefined {
-    if (find == null || find.at.member == null || findEnded(find, sel, member)) {
+    if (found == null || found.at.member == null || findEnded(found, sel, member)) {
         return undefined;
     }
-    return sessions.find((s) => sessionKey(s) === find.sessionKey);
+    return sessions.find((s) => sessionKey(s) === found.sessionKey);
 }
 
 // Selecting another session ends a find. Read from the selection, never from the session a detail pane
 // renders: while the pane animates from one detail to another, the outgoing one still renders the old session.
 // The merged feed ("all") selects no session, so it leaves the find set.
-export function findEnded(find: SessionsFind | null, sel: string, member: string): boolean {
+export function findEnded(find: Pick<SessionsFind, "at"> | null, sel: string, member: string): boolean {
     if (find == null || sel === "all") {
         return false;
     }
@@ -69,11 +73,19 @@ export function findEnded(find: SessionsFind | null, sel: string, member: string
 // the find bar's next position, wrapping; 0 when there is nothing to step through
 // The match the transcript was last centred on. A live session is reread every few seconds, which redraws every
 // range; re-centring on each reread would snap the reader back to the match while they scroll away to read. Only
-// a different match (another find, refined terms, a step) moves the view.
-export type FindMark = { find: SessionsFind | null; terms: string; pos: number };
+// a different match (another find, refined terms, a step) moves the view. limit is the line limit the transcript
+// was read under: a longer read (the whole file replacing the tail) renumbers the matches, so the same pos is another
+// match.
+export type FindMark = { find: SessionsFind | null; terms: string; pos: number; limit: number };
 
 export function needsCentre(last: FindMark | null, next: FindMark): boolean {
-    return last == null || last.find !== next.find || last.terms !== next.terms || last.pos !== next.pos;
+    return (
+        last == null ||
+        last.find !== next.find ||
+        last.terms !== next.terms ||
+        last.pos !== next.pos ||
+        last.limit !== next.limit
+    );
 }
 
 export function stepFind(pos: number, total: number, dir: 1 | -1): number {

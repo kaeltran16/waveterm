@@ -19,6 +19,7 @@ import {
     brainstormsDir,
     dismissedMarkerPath,
     isDismissed,
+    nextCheckTakenTs,
     nextSentCheckAt,
     parseBrainstorm,
     parseBrainstormPath,
@@ -320,10 +321,22 @@ async function pollAndMerge(agentId: string, agent: AgentVM | undefined, io: Bra
             console.warn("brainstorm: stopping the judge after a terminal answer failed", blockid, e)
         );
     }
+    const checkTakenTs = nextCheckTakenTs(
+        cur.checkTakenTs ?? null,
+        agent?.builderCheck,
+        patch.modifiedMs !== undefined ? patch.modifiedMs : cur.modifiedMs,
+        agent,
+        turnStartMs
+    );
     const moved =
-        settled.sent !== cur.sent || settled.sentCheckAt !== cur.sentCheckAt || turnStartMs !== cur.turnStartMs;
+        settled.sent !== cur.sent ||
+        settled.sentCheckAt !== cur.sentCheckAt ||
+        turnStartMs !== cur.turnStartMs ||
+        checkTakenTs !== (cur.checkTakenTs ?? null);
     if (Object.keys(patch).length > 0 || moved) {
-        updateBrainstorm(agentId, (c) => (c.path === s.path ? { ...c, ...patch, ...settled, turnStartMs } : c));
+        updateBrainstorm(agentId, (c) =>
+            c.path === s.path ? { ...c, ...patch, ...settled, turnStartMs, checkTakenTs } : c
+        );
     }
     if (patch.file != null) {
         baselineBrainstormSeen(s.path, patch.file);

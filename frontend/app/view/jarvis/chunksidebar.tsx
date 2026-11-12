@@ -21,9 +21,10 @@ import { REGION_LABEL } from "./briefstyle";
 import { type FeedEntry } from "./effortfeed";
 import { chunkTone } from "./effortmodel";
 import { STATUSES, TONE_FG, ToneIcon } from "./inlinetrackerview";
+import { lastRowRenameAtom } from "./jarvisstore";
 import { runRecordRows } from "./runrecord";
 import { RunReportView } from "./runreportview";
-import { sidebarNotes, type NoteCard } from "./sidebarnotes";
+import { sidebarKeepsDraft, sidebarNotes, type NoteCard } from "./sidebarnotes";
 import { JiraCommentLink, TicketKeyLink } from "./ticketbarview";
 
 const FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
@@ -143,12 +144,15 @@ export function ChunkSidebar({
     const [draft, setDraft] = useState("");
     const [editing, setEditing] = useState<{ key: string; text: string } | null>(null);
     // one instance across chunks, so it slides in once rather than per step: what was typed for one chunk is
-    // dropped on the next, or Add note and Save would write it there
+    // dropped on the next, or Add note and Save would write it there; a rename of this chunk keeps it
+    const rename = useAtomValue(lastRowRenameAtom);
     const [shownFor, setShownFor] = useState(chunkId);
     if (shownFor !== chunkId) {
         setShownFor(chunkId);
-        setDraft("");
-        setEditing(null);
+        if (!sidebarKeepsDraft(shownFor, chunkId, rename)) {
+            setDraft("");
+            setEditing(null);
+        }
     }
     const submit = () => {
         const text = draft.trim();

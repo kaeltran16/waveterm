@@ -68,8 +68,10 @@ func removeLockLeftByKill(ctx context.Context, dir string, start time.Time) {
 }
 
 // runGitSync runs one sync git command. Stdout comes back untrimmed (a conflict stage must be
-// written byte-exact), and an error names the command and its stderr.
-func runGitSync(ctx context.Context, dir string, timeout time.Duration, args ...string) ([]byte, error) {
+// written byte-exact), and an error names the command and its stderr. indexLock is a command that can take
+// index.lock: only its kill can have left one, so a fetch or push, which never takes it and runs outside the
+// vault lock, leaves any it finds to the git that made it.
+func runGitSync(ctx context.Context, dir string, timeout time.Duration, indexLock bool, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := gitCommand(ctx, dir, args...)
@@ -78,7 +80,9 @@ func runGitSync(ctx context.Context, dir string, timeout time.Duration, args ...
 	cmd.Stderr = &stderr
 	start := time.Now()
 	out, err := cmd.Output()
-	removeLockLeftByKill(ctx, dir, start)
+	if indexLock {
+		removeLockLeftByKill(ctx, dir, start)
+	}
 	if err := gitRunErr(err); err != nil {
 		return out, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
 	}

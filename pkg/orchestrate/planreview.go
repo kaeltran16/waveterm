@@ -772,6 +772,19 @@ func PlanReviewReplaceable(g *waveobj.TaskGroup) bool {
 	return true
 }
 
+// PlanReviewRoundsSpent is ReplacePlanReviewProposal's refusal of a replaceable dag whose review has run its last
+// round, asked on its own so a submit can refuse before it touches the landing tree.
+func PlanReviewRoundsSpent(g *waveobj.TaskGroup) error {
+	pr := g.PlanReview
+	if pr == nil || pr.Round < MaxPlanReviewRounds {
+		return nil
+	}
+	if g.Autonomous {
+		return fmt.Errorf("the plan review failed %d rounds, the most it gets. %s", pr.Round, autonomousPastPlanReview)
+	}
+	return fmt.Errorf("the plan review failed %d rounds, the most it gets; put it to the human, and %s", pr.Round, proceedPastPlanReview)
+}
+
 // ReplacePlanReviewProposal puts a revised plan in place of one whose review failed, and opens the next
 // review round on it. The run keeps its one dag; only the proposal changes.
 func ReplacePlanReviewProposal(ctx context.Context, dagID string, proposed *waveobj.TaskGroup) (*waveobj.TaskGroup, error) {
@@ -783,11 +796,8 @@ func ReplacePlanReviewProposal(ctx context.Context, dagID string, proposed *wave
 		if !PlanReviewReplaceable(g) {
 			return fmt.Errorf("dag conflict: run %s's plan review is %s, so its dag can no longer be replaced", g.RunID, pr.State)
 		}
-		if pr.Round >= MaxPlanReviewRounds && g.Autonomous {
-			return fmt.Errorf("the plan review failed %d rounds, the most it gets. %s", pr.Round, autonomousPastPlanReview)
-		}
-		if pr.Round >= MaxPlanReviewRounds {
-			return fmt.Errorf("the plan review failed %d rounds, the most it gets; put it to the human, and %s", pr.Round, proceedPastPlanReview)
+		if err := PlanReviewRoundsSpent(g); err != nil {
+			return err
 		}
 		// round 2's reviewer confirms round 1's findings against the lead's changes, and sees its picks
 		prior := &waveobj.PlanReviewPrior{Findings: pr.Findings, PlanText: pr.PlanText, SpecText: pr.SpecText}

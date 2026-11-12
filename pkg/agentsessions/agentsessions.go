@@ -8,6 +8,7 @@ package agentsessions
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log"
@@ -698,12 +699,14 @@ var readLines = func(path string) []string {
 	return lines
 }
 
+// provider's fused derives a candidate from its lines. Its error is a read of its own that failed (a lock, a
+// handle limit), which must not be cached: a malformed file is a nil session, not an error.
 type provider struct {
 	runtime   string
 	root      string
 	matches   func(name string) bool
 	skipDir   func(root, path string) bool // nil walks every dir
-	fused     func(path, stem string, lines []string) (*SessionInfo, sessionEvents, []Turn)
+	fused     func(path, stem string, lines []string) (*SessionInfo, sessionEvents, []Turn, error)
 	resumeCmd func(s *SessionInfo) string
 }
 
@@ -715,13 +718,13 @@ func claudeProvider(root string) provider {
 		// Task subagents write <session>/subagents/agent-*.jsonl: sidechains, never a session of their own
 		skipDir: func(_, path string) bool { return filepath.Base(path) == claudeSubagentsDir },
 		// one shared unmarshal pass for every derivation — claude transcripts dominate the scan cost
-		fused: func(_ string, id string, lines []string) (*SessionInfo, sessionEvents, []Turn) {
+		fused: func(_ string, id string, lines []string) (*SessionInfo, sessionEvents, []Turn, error) {
 			recs := parseClaudeLines(lines)
 			s := claudeSessionFrom(id, recs)
 			if s == nil {
-				return nil, sessionEvents{}, nil
+				return nil, sessionEvents{}, nil, nil
 			}
-			return s, claudeEventsFrom(recs), claudeTurns(recs)
+			return s, claudeEventsFrom(recs), claudeTurns(recs), nil
 		},
 		resumeCmd: func(s *SessionInfo) string { return "claude --resume " + s.ID },
 	}
@@ -736,12 +739,12 @@ func codexProvider(root string) provider {
 		},
 		// codex's session/event passes parse different payload shapes, so fusing would cost the same
 		// two unmarshals per line; its files are small, sequential is fine
-		fused: func(_ string, _ string, lines []string) (*SessionInfo, sessionEvents, []Turn) {
+		fused: func(_ string, _ string, lines []string) (*SessionInfo, sessionEvents, []Turn, error) {
 			s := extractCodexSession("", lines)
 			if s == nil {
-				return nil, sessionEvents{}, nil
+				return nil, sessionEvents{}, nil, nil
 			}
-			return s, extractCodexEvents(lines), nil
+			return s, extractCodexEvents(lines), nil, nil
 		},
 		resumeCmd: func(s *SessionInfo) string { return "codex resume " + s.ID },
 	}
@@ -757,13 +760,20 @@ func opencodeProvider(storageRoot string) provider {
 		matches: func(name string) bool {
 			return strings.HasPrefix(name, "ses_") && strings.HasSuffix(name, ".json")
 		},
-		fused: func(path, stem string, lines []string) (*SessionInfo, sessionEvents, []Turn) {
+		fused: func(path, stem string, lines []string) (*SessionInfo, sessionEvents, []Turn, error) {
 			data := loadOpencodeSession(path)
 			s := extractOpencodeSession(stem, lines, data)
-			if s == nil {
-				return nil, sessionEvents{}, nil
+			if data.err != nil {
+				return nil, sessionEvents{}, nil, data.err
 			}
-			return s, extractOpencodeEvents(data), nil
+			if s == nil {
+				return nil, sessionEvents{}, nil, nil
+			}
+			ev := extractOpencodeEvents(data)
+			if data.err != nil {
+				return nil, sessionEvents{}, nil, data.err
+			}
+			return s, ev, nil, nil
 		},
 		resumeCmd: func(s *SessionInfo) string { return "opencode -s " + s.ID },
 	}
@@ -783,6 +793,8 @@ type opencodeSessionData struct {
 	sessionID string
 	messages  []opencodeMsg
 	parts     map[string][]opencodePart
+	// err is the first message or part read that failed: the session is partial and must not be cached
+	err error
 }
 
 // loadOpencodeSession resolves a session-info path's message files; parts load lazily via partsFor
@@ -790,11 +802,13 @@ type opencodeSessionData struct {
 func loadOpencodeSession(path string) *opencodeSessionData {
 	root := storageRootOf(path)
 	sessionID := strings.TrimSuffix(filepath.Base(path), ".json")
+	messages, err := opencodeMessages(filepath.Join(root, "message", sessionID))
 	return &opencodeSessionData{
 		root:      root,
 		sessionID: sessionID,
-		messages:  opencodeMessages(filepath.Join(root, "message", sessionID)),
+		messages:  messages,
 		parts:     map[string][]opencodePart{},
+		err:       err,
 	}
 }
 
@@ -803,7 +817,10 @@ func (d *opencodeSessionData) partsFor(id string) []opencodePart {
 	if ps, ok := d.parts[id]; ok {
 		return ps
 	}
-	ps := opencodeParts(d.root, id)
+	ps, err := opencodeParts(d.root, id)
+	if err != nil && d.err == nil {
+		d.err = err
+	}
 	d.parts[id] = ps
 	return ps
 }
@@ -828,19 +845,34 @@ type opencodeMsg struct {
 	} `json:"time"`
 }
 
-// opencodeMessages returns a session's message files, oldest-first by creation time.
-func opencodeMessages(dir string) []opencodeMsg {
-	entries, err := os.ReadDir(dir)
+// readOpencodeDir and readOpencodeFile read opencode's message and part storage; vars so a test can fail them.
+var (
+	readOpencodeDir  = os.ReadDir
+	readOpencodeFile = os.ReadFile
+)
+
+// opencodeMessages returns a session's message files, oldest-first by creation time. A missing dir is no
+// messages; any other read failure is returned with what was read.
+func opencodeMessages(dir string) ([]opencodeMsg, error) {
+	entries, err := readOpencodeDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	var out []opencodeMsg
+	var readErr error
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
 			continue
 		}
-		b, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		b, err := readOpencodeFile(filepath.Join(dir, e.Name()))
+		// a file removed since the listing is just gone; any other failure leaves the session partial
 		if err != nil {
+			if !errors.Is(err, fs.ErrNotExist) && readErr == nil {
+				readErr = err
+			}
 			continue
 		}
 		var m opencodeMsg
@@ -850,7 +882,7 @@ func opencodeMessages(dir string) []opencodeMsg {
 		out = append(out, m)
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Time.Created < out[j].Time.Created })
-	return out
+	return out, readErr
 }
 
 type opencodePart struct {
@@ -879,20 +911,29 @@ type opencodePart struct {
 	} `json:"tokens"`
 }
 
-// opencodeParts returns a message's part files, in filename order.
-func opencodeParts(root, messageID string) []opencodePart {
+// opencodeParts returns a message's part files, in filename order. A missing dir is no parts; any other read
+// failure is returned with what was read.
+func opencodeParts(root, messageID string) ([]opencodePart, error) {
 	dir := filepath.Join(root, "part", messageID)
-	entries, err := os.ReadDir(dir)
+	entries, err := readOpencodeDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	var out []opencodePart
+	var readErr error
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
 			continue
 		}
-		b, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		b, err := readOpencodeFile(filepath.Join(dir, e.Name()))
+		// a file removed since the listing is just gone; any other failure leaves the session partial
 		if err != nil {
+			if !errors.Is(err, fs.ErrNotExist) && readErr == nil {
+				readErr = err
+			}
 			continue
 		}
 		var p opencodePart
@@ -901,7 +942,7 @@ func opencodeParts(root, messageID string) []opencodePart {
 		}
 		out = append(out, p)
 	}
-	return out
+	return out, readErr
 }
 
 // extractOpencodeSession folds one session info file + its message/part siblings into a
@@ -1003,6 +1044,8 @@ func extractOpencodeEvents(data *opencodeSessionData) sessionEvents {
 	return assembleEvents(raw, firstTs, lastTs, false, startedText, finishedText)
 }
 
+var readPiSession = pisession.Read
+
 // piProvider scans Pi's native session storage. root is …/pi/agent/sessions; walkCandidates walks its
 // encoded-cwd subdirs (lossy, never decoded — the v3 session header's cwd is authoritative). fused
 // parses the v3 file once (pisession) and threads it through both derivations, so a pi candidate
@@ -1019,17 +1062,21 @@ func piProvider(root string) provider {
 			rel, err := filepath.Rel(root, path)
 			return err == nil && strings.ContainsRune(rel, filepath.Separator)
 		},
-		fused: func(path, _ string, _ []string) (*SessionInfo, sessionEvents, []Turn) {
-			file, err := pisession.Read(path)
+		fused: func(path, _ string, _ []string) (*SessionInfo, sessionEvents, []Turn, error) {
+			file, err := readPiSession(path)
+			var pathErr *fs.PathError
+			if errors.As(err, &pathErr) {
+				return nil, sessionEvents{}, nil, err
+			}
 			if err != nil {
 				log.Printf("agentsessions: skipping malformed pi session %q: %v", path, err)
-				return nil, sessionEvents{}, nil
+				return nil, sessionEvents{}, nil, nil
 			}
 			s := extractPiSession(file, path)
 			if s == nil {
-				return nil, sessionEvents{}, nil
+				return nil, sessionEvents{}, nil, nil
 			}
-			return s, extractPiEvents(file), piTurns(file)
+			return s, extractPiEvents(file), piTurns(file), nil
 		},
 		resumeCmd: func(s *SessionInfo) string { return "pi --session " + s.TranscriptPath },
 	}
@@ -1184,11 +1231,12 @@ func cachedEntry(c candidate) (scanCacheEntry, bool) {
 // parseCandidate reads and derives one candidate, and caches the result unless the read failed.
 func parseCandidate(c candidate) scanCacheEntry {
 	lines := readLines(c.path)
-	s, se, turns := c.p.fused(c.path, c.stem, lines)
+	s, se, turns, err := c.p.fused(c.path, c.stem, lines)
 	e := scanCacheEntry{mtime: c.mtime, size: c.size, info: s, se: se, turns: turns}
-	// a non-empty file that gave no line was not read (a lock, a handle limit); caching that would hide a
-	// finished session until restart, since its mtime and size never change again
-	if len(lines) == 0 && c.size > 0 {
+	// a non-empty file that gave no line was not read (a lock, a handle limit), nor one whose provider's own
+	// read failed; caching that would hide a finished session until restart, since its mtime and size never
+	// change again
+	if (len(lines) == 0 && c.size > 0) || err != nil {
 		return e
 	}
 	scanCacheMu.Lock()
@@ -1264,7 +1312,10 @@ func ExtractSession(path, runtime string) (*SessionInfo, error) {
 	// strip .jsonl then .json so a claude/codex path (foo.jsonl) keeps its stem and an opencode
 	// session-info path (ses_x.json) is trimmed too.
 	stem := strings.TrimSuffix(strings.TrimSuffix(filepath.Base(path), ".jsonl"), ".json")
-	s, se, _ := p.fused(path, stem, lines)
+	s, se, _, err := p.fused(path, stem, lines)
+	if err != nil {
+		return nil, fmt.Errorf("agentsessions: reading %s: %w", path, err)
+	}
 	if s == nil {
 		return nil, nil
 	}

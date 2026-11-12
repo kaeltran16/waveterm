@@ -461,6 +461,17 @@ describe("shell commands", () => {
         expect(commandRules("cat src/add.test.ts")).toEqual([]);
     });
 
+    test("Windows paths with backslashes are caught as their slash forms are", async () => {
+        expect(commandRules(String.raw`rm C:\repo\tests\add.test.ts`)).toEqual(["tests.removed"]);
+        expect(commandRules(String.raw`git rm tests\test_api.py`)).toEqual(["tests.removed"]);
+        expect(commandRules(String.raw`echo x > .github\workflows\ci.yml`)).toEqual(["shell-edit"]);
+        expect(commandRules(String.raw`echo x > C:\repo\tsconfig.json`)).toEqual(["shell-edit"]);
+        expect(commandRules(String.raw`sed -i 's/a/b/' C:\repo\.eslintrc.json`)).toEqual(["shell-edit"]);
+        // the finding names the path as typed
+        const path = String.raw`C:\repo\tests\add.test.ts`;
+        expect(inspectCommand(`rm ${path}`, ALL)[0]?.file).toBe(path);
+    });
+
     test("appending to a test file adds tests, so only an overwrite or a config append is caught", async () => {
         expect(commandRules("cat >> src/add.test.ts <<'EOF'\nit('adds', () => {});\nEOF")).toEqual([]);
         expect(commandRules("cat > src/add.test.ts <<'EOF'\nit('adds', () => {});\nEOF")).toEqual(["shell-edit"]);

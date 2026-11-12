@@ -62,3 +62,11 @@ export function sidebarNotes(
         };
     });
 }
+
+export type RowRename = { from: string; to: string };
+
+// whether the sidebar keeps its note draft and open edit as its chunk id moves from shownFor to chunkId: only
+// when it did not move, or moved because that chunk was renamed (its row id carries the label)
+export function sidebarKeepsDraft(shownFor: string, chunkId: string, rename: RowRename | null): boolean {
+    return shownFor === chunkId || (rename?.from === shownFor && rename?.to === chunkId);
+}

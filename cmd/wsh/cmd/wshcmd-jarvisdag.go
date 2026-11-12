@@ -695,8 +695,8 @@ var dagDoneLines = map[string]string{
 	"approve":           "task {task} approved; the engine lands or dispatches it on its next tick",
 	"retry":             "task {task} re-queued; a fresh worker starts when a slot is free",
 	"escalate":          "task {task} re-queued on the chosen model; a fresh worker starts when a slot is free",
-	"skip":              "task {task} skipped; it will not run",
-	"cancel":            "dag cancelled; its workers stop and their worktrees are cleaned up",
+	"skip":              "task {task} skipped; its worker or reviewer stops, its work never lands, and the rest of the run goes on",
+	"cancel":            "run cancelled; every worker and reviewer stops, the lead's tab closes and their worktrees are cleaned up",
 	"retry-cleanup":     "task {task}'s worktree cleanup retried; `wsh jarvis dag status` shows whether it cleared",
 	"forward":           "task {task} forwarded; it waits on the human in the cockpit",
 	"amend":             "note added to task {task}; its worker's prompt carries it",
@@ -753,6 +753,45 @@ func dagActionWithin(action string, timeoutMs int64) *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// dagSkipCmd is how a lead drops one task and lets the run go on; cancel ends the whole run.
+func dagSkipCmd() *cobra.Command {
+	c := dagAction("skip")
+	c.Short = "drop one task and let the run go on: a running worker or reviewer stops and its work never lands"
+	c.Long = "Drop one task that has not landed: pending, ready, running, stalled, under review, review-failed or\n" +
+		"failed. Its worker or reviewer stops, its commits come off its lane (saved to a recovery patch), and the\n" +
+		"rest of the run goes on as for any skipped task; the final stage still runs. A task that is done, merging\n" +
+		"or blocked on a merge cannot be skipped. To stop the whole run, use `wsh jarvis dag cancel`."
+	return c
+}
+
+// dagCancelCmd cancels the whole run, so it takes no task id: one it accepted read as cancelling only that task
+// (run e5c81d8f cancelled every worker, the reviewer and its own lead that way).
+var dagCancelCmd = &cobra.Command{
+	Use:   "cancel",
+	Short: "cancel the whole run: every worker, reviewer and the lead stop (to drop one task, use skip)",
+	Long: "Cancel the whole run: every worker and reviewer stops, their worktrees are cleaned up, the lead's tab\n" +
+		"closes and the final stage never runs. It takes no task id. To drop one task and let the run go on, use\n" +
+		"`wsh jarvis dag skip <task-id>`.",
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) > 0 {
+			return fmt.Errorf("cancel takes no task id: it cancels the whole run. To drop task %s and let the run go on, use `wsh jarvis dag skip %s`", args[0], args[0])
+		}
+		return nil
+	},
+	PreRunE: preRunSetupRpcClient,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		channelId, runId, err := dagIds(cmd, dagRpcTimeoutMs)
+		if err != nil {
+			return err
+		}
+		if err := sendLeadAction(wshrpc.CommandDagActionData{ChannelId: channelId, RunId: runId, Action: "cancel"}, dagRpcTimeoutMs); err != nil {
+			return err
+		}
+		fmt.Println(dagDoneLine("cancel", ""))
+		return nil
+	},
 }
 
 func dagEscalateData(cmd *cobra.Command, args []string) (wshrpc.CommandDagActionData, error) {
@@ -1485,7 +1524,7 @@ func leadTree() string {
 func init() {
 	dagPlanReviewCmd.AddCommand(dagPlanReviewFindingsCmd)
 	jarvisDagCmd.AddCommand(dagSubmitCmd, dagStatusCmd, dagMergeCmd, dagAsksCmd, dagAnswerCmd, dagForwardCmd, dagRulesCmd, dagReportCmd, dagReviewCmd, dagPlanReviewCmd, dagFinalCmd, dagAmendCmd, dagTellCmd, dagGoalpostCmd)
-	jarvisDagCmd.AddCommand(dagAction("approve"), dagSendbackCmd, dagAction("retry"), dagAction("skip"), dagEscalateCmd, dagAction("cancel"), dagActionWithin("retry-cleanup", 60_000))
+	jarvisDagCmd.AddCommand(dagAction("approve"), dagSendbackCmd, dagAction("retry"), dagSkipCmd(), dagEscalateCmd, dagCancelCmd, dagActionWithin("retry-cleanup", 60_000))
 	for _, c := range append(jarvisDagCmd.Commands(), dagPlanReviewFindingsCmd) {
 		c.Flags().String("runid", "", "run id")
 		c.Flags().String("channel", "", "channel id")

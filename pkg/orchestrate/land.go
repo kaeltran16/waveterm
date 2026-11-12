@@ -177,8 +177,10 @@ func landRun(ctx context.Context, run *waveobj.Run, g *waveobj.TaskGroup, force 
 		return heldLand(reason)
 	}
 	if commit := mergedCommit(ctx, run); commit != "" {
+		// no branch means mergedCommit read EndCommit, which the evidence seal uses instead of the tip
+		tip, _ := WorktreeHeadCommit(ctx, run.ProjectPath, run.ID)
 		removeLandedTree(ctx, run.ProjectPath, run.ID)
-		return &waveobj.RunLand{State: LandState_Landed, Commit: commit}
+		return &waveobj.RunLand{State: LandState_Landed, Commit: commit, Tip: tip}
 	}
 	if reason := finalHold(g); reason != "" && !force {
 		return heldLand(reason)
@@ -213,6 +215,9 @@ func landRun(ctx context.Context, run *waveobj.Run, g *waveobj.TaskGroup, force 
 	land := &waveobj.RunLand{State: LandState_Landed}
 	if land.Commit, err = ProjectHeadCommit(ctx, project); err != nil {
 		log.Printf("run %s: reading the land's merge commit: %v", run.ID, err)
+	}
+	if land.Tip, err = WorktreeHeadCommit(ctx, project, run.ID); err != nil {
+		log.Printf("run %s: reading the branch tip the land merged: %v", run.ID, err)
 	}
 	if checkNote != "" {
 		land.Notes = append(land.Notes, checkNote)
@@ -656,6 +661,9 @@ var objectID = regexp.MustCompile(`^[0-9a-f]{40}([0-9a-f]{24})?$`)
 // mergeRefusal says why git would not make the merge. A conflict is aborted, so the checkout is left with no
 // merge state; a refusal to overwrite uncommitted edits never started one, and the edits are untouched.
 func mergeRefusal(ctx context.Context, project, base string, merr error) string {
+	// the context may be what killed the merge, and the undo must still run
+	ctx, cancel := cleanupContext(ctx)
+	defer cancel()
 	if conflicted, err := conflictedFiles(ctx, project); err == nil && len(conflicted) > 0 {
 		files := strings.Join(conflicted, ", ")
 		if err := undoMerge(ctx, project); err != nil {

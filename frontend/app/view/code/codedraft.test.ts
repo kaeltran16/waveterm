@@ -58,6 +58,12 @@ describe("nextDrafts", () => {
         expect(out.has("/repo/a.go")).toBe(false);
     });
 
+    it("keeps a draft equal to disk while a save is out, since the disk is about to change", () => {
+        const start = new Map<string, Draft>([["/repo/a.go", { text: "typo", base }]]);
+        const out = nextDrafts(start, "/repo/a.go", base, "hello", true);
+        expect(out.get("/repo/a.go")).toEqual({ text: "hello", base });
+    });
+
     it("does not mutate the map it was given", () => {
         const start = new Map<string, Draft>();
         nextDrafts(start, "/repo/a.go", base, "changed");

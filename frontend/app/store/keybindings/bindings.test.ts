@@ -1932,6 +1932,18 @@ describe("global bindings", () => {
             globalStore.set(trackerMenuAtom, null);
         });
 
+        it("a record or graph peek left open on Jarvis does not hold Escape on other surfaces", () => {
+            const b = build().find("surface:back-home");
+            globalStore.set(briefPeekRecordAtom, "rec-1");
+            globalStore.set(graphPeekOpenAtom, true);
+            for (const s of ["sessions", "files", "usage", "code"] as const) {
+                expect(b.when!(at(s))).toBe(true);
+            }
+            expect(b.when!(at("jarvis"))).toBe(false);
+            globalStore.set(briefPeekRecordAtom, null);
+            globalStore.set(graphPeekOpenAtom, false);
+        });
+
         it("goes home when no jump brought the user here", () => {
             const { model, find } = build("jarvis");
             find("surface:back-home").run(ctx("jarvis"));

@@ -218,7 +218,8 @@ const escapeNavigates = (ctx: KeyContext): boolean =>
     // any open ModalShell (the Brief's Profile window, its sheet) closes on Escape itself; going
     // home instead unmounts it with its state still set, so it reopens on the way back
     !anyModalOpen() &&
-    !globalStore.get(graphPeekOpenAtom) &&
+    // only the Brief draws the graph peek, and a surface chord leaves its atom set: elsewhere it owns nothing
+    !(ctx.surface === "jarvis" && globalStore.get(graphPeekOpenAtom)) &&
     !globalStore.get(autonomyPanelOpenAtom) &&
     // and the pet's peek, for the same reason again — it is global chrome, so it can be open
     // on ANY of these surfaces, not just Jarvis
@@ -232,8 +233,9 @@ const escapeNavigates = (ctx: KeyContext): boolean =>
     !(ctx.surface === "boards" && globalStore.get(boardOwnsEscapeAtom)) &&
     // the Brief's record peek is a ModalShell and the Brief is where every record destination
     // now lands: without this, one press closed the peek AND left the surface — and the peek's
-    // own state was never cleared, so coming back showed it open again
-    globalStore.get(briefPeekRecordAtom) == null &&
+    // own state was never cleared, so coming back showed it open again. Only the Brief draws it, and a surface
+    // chord leaves it set, so it counts on Jarvis only
+    !(ctx.surface === "jarvis" && globalStore.get(briefPeekRecordAtom) != null) &&
     // the DAG modal takes Escape itself too, and the Brief mounts it as well as Channels
     globalStore.get(dagModalStateAtom) == null &&
     // and the Brief's Chunk sidebar: while a note is open, Escape means "back out of the

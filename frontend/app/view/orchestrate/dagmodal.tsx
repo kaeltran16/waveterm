@@ -45,7 +45,7 @@ export function DagModal() {
     useEffect(() => {
         if (!open) return;
         const onKey = (event: KeyboardEvent) => {
-            const key = dagModalKey(event.key);
+            const key = dagModalKey(event.key, document.activeElement);
             if (key === "escape") {
                 event.preventDefault();
                 event.stopPropagation();

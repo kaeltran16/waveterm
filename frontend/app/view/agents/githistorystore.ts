@@ -436,6 +436,11 @@ export function refreshHistoryIfMoved(head: string): void {
 
 function reloadFirstPage(): void {
     const cwd = globalStore.get(filesStateAtom)?.cwd ?? null;
+    // as reloadInPlace: with the change list in flight a null cwd would reset the column, and the surface
+    // re-reads the history with the current filters once that list lands
+    if (cwd == null) {
+        return;
+    }
     globalStore.set(historyScrollAtom, 0);
     void loadHistory(cwd, globalStore.get(historyOptsAtom));
 }

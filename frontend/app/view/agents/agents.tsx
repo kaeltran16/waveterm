@@ -30,7 +30,7 @@ import { CockpitSurface } from "./cockpitsurface";
 import { devRosterAtom, loadDevMockRoster } from "./devmock";
 import { diffScopeAtom } from "./diffscopeatom";
 import type { SessionStatusFilter } from "./sessionsarchivestore";
-import type { SessionsFind } from "./sessionsfind";
+import type { SessionsFind, SessionsFound } from "./sessionsfind";
 import { liveAgentsAtom, liveTerminalsAtom } from "./liveagents";
 import { mergeRateLimitWindows, savedRateLimitsAtom } from "./ratelimitstore";
 import type { Lineage } from "./runlineage";
@@ -134,6 +134,8 @@ export class AgentsViewModel implements ViewModel {
     sessionsQueryAtom = atom<string>("");
     // Sessions surface: the find bar of the session opened from a hit; null = none
     sessionsFindAtom = atom<SessionsFind | null>(null) as PrimitiveAtom<SessionsFind | null>;
+    // Sessions surface: the session a hit opened in a run member, kept after its find bar closes; null = none
+    sessionsFoundAtom = atom<SessionsFound | null>(null) as PrimitiveAtom<SessionsFound | null>;
     // Usage surface: harness filter chip (All / Claude Code / Codex / OpenCode). Lives here rather
     // than surface-local state so it survives the surface unmounting on nav-rail switch.
     usageHarnessFilterAtom = atom<HarnessFilter>("all");

@@ -1175,6 +1175,12 @@ func RunDesignAttachCommand(w *wshutil.WshRpc, data wshrpc.CommandRunDesignAttac
 	return resp, err
 }
 
+// command "rundesignwaiting", wshserver.RunDesignWaitingCommand
+func RunDesignWaitingCommand(w *wshutil.WshRpc, data wshrpc.CommandRunDesignWaitingData, opts *wshrpc.RpcOpts) (*wshrpc.CommandRunDesignAttachRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandRunDesignAttachRtnData](w, "rundesignwaiting", data, opts)
+	return resp, err
+}
+
 // command "runtranscriptpath", wshserver.RunTranscriptPathCommand
 func RunTranscriptPathCommand(w *wshutil.WshRpc, data wshrpc.CommandRunTranscriptPathData, opts *wshrpc.RpcOpts) (string, error) {
 	resp, err := sendRpcRequestCallHelper[string](w, "runtranscriptpath", data, opts)

@@ -164,11 +164,19 @@ func retryable(state string) bool {
 	return taskActive(state) || state == TaskState_Failed || state == TaskState_ReviewFailed
 }
 
+// skippable is the states a skip may drop a task from: nothing of it has landed or is landing. A live worker or
+// reviewer is stopped first (prepareActionLocked). Done, blocked-merge and the Verify states have landed or are
+// landing.
 func skippable(state string) bool {
-	return state == TaskState_Failed || state == TaskState_Stalled || state == TaskState_Ready || state == TaskState_ReviewFailed
+	switch state {
+	case TaskState_Pending, TaskState_Ready, TaskState_Running, TaskState_Stalled, TaskState_Reviewing,
+		TaskState_ReviewFailed, TaskState_Failed:
+		return true
+	}
+	return false
 }
 
-// SkipTask marks a failed/ready task skipped (no spawn).
+// SkipTask marks a task skipped: it never runs again and never lands.
 func SkipTask(g *waveobj.TaskGroup, taskID string) error {
 	for i := range g.Tasks {
 		if g.Tasks[i].ID != taskID {
@@ -179,6 +187,8 @@ func SkipTask(g *waveobj.TaskGroup, taskID string) error {
 		}
 		g.Tasks[i].State = TaskState_Skipped
 		g.Tasks[i].RunID = ""
+		// a reviewer the skip stopped: its exit is no longer this task's
+		g.Tasks[i].ReviewRunID = ""
 		RecomputeDagStatus(g)
 		return nil
 	}

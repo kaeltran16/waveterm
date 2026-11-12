@@ -173,6 +173,7 @@ import {
     chunkMoveAtom,
     closeGraphPeek,
     graphPeekOpenAtom,
+    lastRowRenameAtom,
     noteChunkAtom,
     readingNoteAtom,
 } from "./jarvisstore";
@@ -571,6 +572,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
     const [stageOverrides, setStageOverrides] = useAtom(stageOverridesAtom);
     const [noteChunk, setNoteChunk] = useAtom(noteChunkAtom);
     const [readingNote, setReadingNote] = useAtom(readingNoteAtom);
+    const setLastRowRename = useSetAtom(lastRowRenameAtom);
     const effortCache = useAtomValue(effortDetailAtom);
     const expandedLine = view.visible.find((l) => l.id === openInitiative) ?? null;
     const openEffortORef = expandedLine != null ? expandableORef(expandedLine) : null;
@@ -661,12 +663,21 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
             run: runMutation,
             setError: setMutateError,
             closeInitiative: (lineId) => setOpenInitiative((cur) => (cur === lineId ? null : cur)),
-            chunkRenamed: (from, to) => {
+            rowRenamed: (from, to) => {
+                // before the note chunk moves, so the sidebar never sees the new id without the rename
+                setLastRowRename({ from, to });
                 setStoredCursor((cur) => (cur === from ? to : cur));
                 setNoteChunk((cur) => (cur === from ? to : cur));
+                setStageOverrides((cur) => {
+                    if (!(from in cur)) {
+                        return cur;
+                    }
+                    const { [from]: open, ...rest } = cur;
+                    return { ...rest, [to]: open };
+                });
             },
         }),
-        [runMutation, setOpenInitiative, setStoredCursor, setNoteChunk]
+        [runMutation, setOpenInitiative, setStoredCursor, setNoteChunk, setStageOverrides, setLastRowRename]
     );
     const edits = useMemo<TrackerEdits | null>(() => {
         const oref = openEffortORef;

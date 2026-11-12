@@ -8,7 +8,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type PrimitiveAtom } from "jotai";
-import { blameEntries, blameIsCurrent, type BlameState } from "./codeblame";
+import { blameEntries, blameIsCurrent, stampBlameHead, type BlameState } from "./codeblame";
 import { codeFileAtom, codeHeadShaAtom, codeProjectAtom, codeViewModeAtom, draftKey } from "./codestore";
 import { showsSourceEditor } from "./codeviewmode";
 
@@ -31,7 +31,15 @@ export async function loadBlame(rel: string, modtime: number, lineCount: number)
     const project = globalStore.get(codeProjectAtom);
     const key = blameKey(rel);
     const head = globalStore.get(codeHeadShaAtom);
-    if (project == null || key == null || blameIsCurrent(globalStore.get(codeBlameAtom), key, modtime, head)) {
+    if (project == null || key == null) {
+        return;
+    }
+    const state = globalStore.get(codeBlameAtom);
+    if (blameIsCurrent(state, key, modtime, head)) {
+        const stamped = stampBlameHead(state, head);
+        if (stamped != null) {
+            globalStore.set(codeBlameAtom, stamped);
+        }
         return;
     }
     const token = `${key}:${modtime}:${head}`;

@@ -121,6 +121,8 @@ func TestLandMergesTheBranchIntoACleanCheckout(t *testing.T) {
 	}
 	if parents := strings.Fields(gitCmd(t, f.project, "log", "-1", "--format=%P")); len(parents) != 2 {
 		t.Fatalf("head has parents %v, want a --no-ff merge", parents)
+	} else if land.Tip != parents[1] {
+		t.Fatalf("land tip %s, want the merged branch tip %s", land.Tip, parents[1])
 	}
 	msg := gitCmd(t, f.project, "log", "-1", "--format=%B")
 	if msg != "feat(coupons): Coupon codes" {

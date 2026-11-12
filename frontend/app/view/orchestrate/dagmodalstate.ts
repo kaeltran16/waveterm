@@ -93,9 +93,12 @@ export function closeDagModal(): void {
 
 // Which of its keys the modal takes: Escape and Tab, and only while it is the top modal. A confirm, the Final shots
 // viewer or another shell opened above it owns them, or one Escape would close two layers and Tab would be pulled
-// into the panel behind.
-export function dagModalKey(key: string): "escape" | "tab" | null {
-    if (!isTopModal(DAG_MODAL_ID)) {
+// into the panel behind. A floating popover (a route picker in Escalate or Adjust) portals outside the panel and
+// registers on no stack, so focus inside one leaves it its own Tab and Escape too.
+const FLOATING_PORTAL = "[data-floating-ui-portal]";
+
+export function dagModalKey(key: string, focused?: Element | null): "escape" | "tab" | null {
+    if (!isTopModal(DAG_MODAL_ID) || focused?.closest(FLOATING_PORTAL) != null) {
         return null;
     }
     return key === "Escape" ? "escape" : key === "Tab" ? "tab" : null;

@@ -130,7 +130,9 @@ Full map: `docs/reference/architecture.md`. Read it before working in an area yo
 - **Plans the engine runs** follow `jarvis.PlanFormat` (`pkg/jarvis/plan.go`); the format, Setup, exit codes
   and landing are in `docs/orchestrator-guide.md` ("The plan format", "The final stage"). For this repo:
   - **Verify:** `node scripts/verify.mjs <go package patterns>`. **Final:**
-    `node scripts/cdp/final-verify.mjs [scenario...]`. The checked-in `.arc/setup` does the junctions.
+    `node scripts/cdp/final-verify.mjs [scenario...]`. The checked-in `.arc/setup` does the junctions, and
+    links a tree whose `package-lock.json` differs from main's to one shared install of that lock, so a plan that
+    adds a dependency needs no npm step in its Setup (one per tree cost ~100 s each).
   - **A worker checks UI with `ARC_FINAL_OUT=<tmp dir> node scripts/cdp/final-verify.mjs <scenario>`**, never
     `task verify:ui`: a run tree has no dev app, and the one on :9222 serves the main checkout.
   - **Name a scenario for each UI the plan changes**, and have each task that builds a view, visual state or
