@@ -484,6 +484,53 @@ func TestSyncRecoversInterruptedMerge(t *testing.T) {
 	assertPublished(t, b, remote)
 }
 
+// RT-R5: an edit to a file the interrupted merge staged cleanly made `merge --abort` fail on every sync.
+func TestSyncRecoversInterruptedMergeKeepsEditToCleanFile(t *testing.T) {
+	ctx := context.Background()
+	remote := newBareRemote(t)
+	a, b := newSyncVault(t, remote), newSyncVault(t, remote)
+	writeVaultFile(t, a, "memory/n.md", []byte("base\n"))
+	writeVaultFile(t, a, "memory/clean.md", []byte("base clean\n"))
+	mustSync(t, a)
+	mustSync(t, b)
+
+	writeVaultFile(t, a, "memory/n.md", []byte("edited on a\n"))
+	writeVaultFile(t, a, "memory/clean.md", []byte("clean edited on a\n"))
+	mustSync(t, a)
+	writeVaultFile(t, b, "memory/n.md", []byte("edited on b\n"))
+	mustCommit(t, b)
+	if _, err := runGitErr(ctx, b.Root, "fetch", "origin"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runGitErr(ctx, b.Root, "merge", "origin/main"); err == nil {
+		t.Fatal("precondition: the manual merge must conflict")
+	}
+	writeVaultFile(t, b, "memory/clean.md", []byte("edited on b after the merge\n"))
+
+	res := mustSync(t, b)
+	if _, err := runGit(ctx, b.Root, "rev-parse", "--verify", "-q", "MERGE_HEAD"); err == nil {
+		t.Fatal("MERGE_HEAD still present after sync")
+	}
+	if got := string(readVaultFile(t, b, "memory/clean.md")); got != "edited on b after the merge\n" {
+		t.Fatalf("edit to the cleanly merged file lost: %q", got)
+	}
+	if got := string(readVaultFile(t, b, "memory/n.md")); got != "edited on b\n" {
+		t.Fatalf("local side not kept: %q", got)
+	}
+	if got := string(readVaultFile(t, b, "conflicts/memory/n.md")); got != "edited on a\n" {
+		t.Fatalf("conflict copy = %q", got)
+	}
+	// the kept edit now conflicts with a's side, which is saved rather than lost
+	if got := string(readVaultFile(t, b, "conflicts/memory/clean.md")); got != "clean edited on a\n" {
+		t.Fatalf("clean conflict copy = %q", got)
+	}
+	want := []string{"conflicts/memory/clean.md", "conflicts/memory/n.md"}
+	if !reflect.DeepEqual(res.NewConflicts, want) {
+		t.Fatalf("NewConflicts = %v, want %v", res.NewConflicts, want)
+	}
+	assertPublished(t, b, remote)
+}
+
 func TestSetRemoteAddSetRemove(t *testing.T) {
 	ctx := context.Background()
 	v := newSyncVault(t, "")

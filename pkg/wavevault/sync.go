@@ -113,7 +113,7 @@ func (v *Vault) commitAndMerge(ctx context.Context, res *SyncResult) error {
 	unlock := LockRoot(v.Root)
 	defer unlock()
 	if _, ok := v.revParse(ctx, "MERGE_HEAD"); ok {
-		if _, err := v.syncGit(ctx, "merge", "--abort"); err != nil {
+		if err := v.resetInterruptedMerge(ctx); err != nil {
 			return err
 		}
 	}
@@ -145,6 +145,59 @@ func (v *Vault) commitAndMerge(ctx context.Context, res *SyncResult) error {
 	}
 	_, err = v.syncGit(ctx, "commit", "--no-edit")
 	return err
+}
+
+// resetInterruptedMerge resets a merge left half done to HEAD, keeping every edit (deletions included) made
+// since to a path the merge had resolved: `merge --abort` refuses once such a path is edited, failing every
+// later sync. Unmerged paths are not kept: they hold conflict markers, and the re-run merge conflicts on them
+// again, so they return to HEAD's version.
+func (v *Vault) resetInterruptedMerge(ctx context.Context) error {
+	unmerged, err := v.unmergedPaths(ctx)
+	if err != nil {
+		return err
+	}
+	skip := map[string]bool{}
+	for _, u := range unmerged {
+		skip[u.rel] = true
+	}
+	out, err := v.syncGit(ctx, "diff", "--name-only", "-z")
+	if err != nil {
+		return err
+	}
+	saved := map[string][]byte{}
+	var deleted []string
+	for _, rel := range strings.Split(string(out), "\x00") {
+		if rel == "" || skip[rel] {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(v.Root, filepath.FromSlash(rel)))
+		if errors.Is(err, fs.ErrNotExist) {
+			deleted = append(deleted, rel)
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("saving %s before resetting the interrupted merge: %w", rel, err)
+		}
+		saved[rel] = b
+	}
+	if _, err := v.syncGit(ctx, "reset", "-q", "--hard"); err != nil {
+		return err
+	}
+	for rel, b := range saved {
+		p := filepath.Join(v.Root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(p, b, 0o644); err != nil {
+			return err
+		}
+	}
+	for _, rel := range deleted {
+		if err := os.Remove(filepath.Join(v.Root, filepath.FromSlash(rel))); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
 }
 
 // push publishes HEAD to origin/main; it reports false when there is nothing to publish (HEAD
