@@ -11,7 +11,7 @@ import { SkeletonLine, SkeletonRows } from "@/app/element/skeleton";
 import { ViewSwap } from "@/app/element/viewswap";
 import { cn } from "@/util/util";
 import { PanelLeftClose } from "lucide-react";
-import { SubLabel } from "./sectionlabel";
+import { useRef } from "react";
 import {
     AGGREGATE,
     SIDE_DOT,
@@ -21,6 +21,8 @@ import {
     type CompareHeaderRow,
     type CompareRow,
 } from "./comparerows";
+import { SubLabel } from "./sectionlabel";
+import { useSelectedInView } from "./selectedinview";
 
 const ROW_H = 32;
 const AGGREGATE_ROW_H = 36;
@@ -52,6 +54,7 @@ function AggregateRowView({
     return (
         <button
             onClick={onSelect}
+            aria-current={selected ? "true" : undefined}
             style={{ height: AGGREGATE_ROW_H, paddingLeft: PAD }}
             className={cn(
                 "relative flex w-full items-center gap-[9px] pr-[12px] text-left transition-colors duration-[140ms] hover:bg-surface",
@@ -98,6 +101,7 @@ function CommitRowView({
     return (
         <button
             onClick={onSelect}
+            aria-current={selected ? "true" : undefined}
             style={{ height: ROW_H }}
             className={cn(
                 "relative flex w-full items-center gap-[9px] pl-[20px] pr-[12px] text-left transition-colors duration-[140ms] hover:bg-surface",
@@ -142,8 +146,10 @@ export function CompareColumn({
     const diverges = rows.some((r) => r.kind === "commit");
     // the read landing (rows or the error) fades in over the skeleton; what is there at mount shows at once
     const bodyKey = error != null ? "error" : loading ? "loading" : "rows";
+    const rootRef = useRef<HTMLDivElement>(null);
+    useSelectedInView(rootRef, selected);
     return (
-        <div data-compare-column className="flex min-h-0 flex-1 flex-col">
+        <div ref={rootRef} data-compare-column className="flex min-h-0 flex-1 flex-col">
             <div className="flex h-[40px] flex-none items-center gap-[9px] border-b border-edge-faint pl-[14px] pr-[8px]">
                 <SubLabel>Compare</SubLabel>
                 <span className="min-w-0 truncate font-mono text-[10.5px] text-muted">

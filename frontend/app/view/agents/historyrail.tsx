@@ -7,10 +7,11 @@
 
 import { cn } from "@/util/util";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
-import type { UIEvent } from "react";
+import { useRef, type UIEvent } from "react";
 import { AGGREGATE } from "./comparerows";
 import { NEAR_BOTTOM_PX } from "./historyquery";
 import { WORKING_TREE, type HistoryRow } from "./historyrows";
+import { useSelectedInView } from "./selectedinview";
 
 const ROW_H = 34;
 
@@ -66,6 +67,8 @@ export function HistoryRail({
     onLoadMore?: () => void;
 }) {
     const label = expanded ? "Collapse history" : "Expand history";
+    const scrollRef = useRef<HTMLDivElement>(null);
+    useSelectedInView(scrollRef, selected);
     const onScroll = (e: UIEvent<HTMLDivElement>) => {
         const el = e.currentTarget;
         if (hasMore && onLoadMore && el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX) {
@@ -83,7 +86,12 @@ export function HistoryRail({
             >
                 {expanded ? <PanelLeftClose size={15} /> : <PanelLeftOpen size={15} />}
             </button>
-            <div data-history-rail-scroll onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto py-[4px]">
+            <div
+                ref={scrollRef}
+                data-history-rail-scroll
+                onScroll={onScroll}
+                className="min-h-0 flex-1 overflow-y-auto py-[4px]"
+            >
                 <div className="relative">
                     <div className="absolute bottom-0 left-1/2 top-0 w-[2px] -translate-x-1/2 bg-graphlane-1/40" />
                     {allChanges ? (
