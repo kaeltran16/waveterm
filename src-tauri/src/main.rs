@@ -5,6 +5,7 @@ mod canvas;
 mod estart;
 mod init;
 mod commands;
+mod instancelock;
 mod paths;
 
 use init::InitState;
@@ -203,6 +204,31 @@ fn hook_install_failure(status: std::process::ExitStatus, stderr: &[u8]) -> Opti
 fn main() {
     #[allow(unused_mut)]
     let mut context = tauri::generate_context!();
+    let is_dev = cfg!(debug_assertions);
+    // what app_local_data_dir() resolves to on Windows, derived here because the single-instance check
+    // must run before the builder creates the config windows
+    let app_local_data = std::env::var_os("LOCALAPPDATA")
+        .map(|local| PathBuf::from(local).join(&context.config().identifier));
+    let data_base = app_local_data.as_deref().map(|dir| paths::resolve_data_base(dir, is_dev));
+    if let Some(data_base) = &data_base {
+        let data_home = paths::data_home_dirs(data_base).0;
+        applog::init(&data_home);
+        match instancelock::held_elsewhere(&data_home) {
+            Ok(false) => {}
+            Ok(true) => {
+                applog::log_line(&format!(
+                    "[tauri] another Arc holds the wave.lock in {:?}; exiting",
+                    data_home
+                ));
+                std::process::exit(1);
+            }
+            // fail open: wavesrv's own lock still guards the store
+            Err(e) => applog::log_line(&format!(
+                "[tauri] single-instance check in {:?} failed, starting anyway: {}",
+                data_home, e
+            )),
+        }
+    }
     // WebView2 reads these env vars before the webview is created, so they must be set here in
     // main (before the Tauri builder), not in the setup hook. Dev-only: compiled out of packaged.
     #[cfg(debug_assertions)]
@@ -224,9 +250,8 @@ fn main() {
         // same default EBWebView profile). Sharing it lets a dev launch kill the running packaged
         // app's window+wavesrv. See paths::dev_webview_data_dir.
         if std::env::var_os("WEBVIEW2_USER_DATA_FOLDER").is_none() {
-            if let Some(local) = std::env::var_os("LOCALAPPDATA") {
-                let app_local_data = PathBuf::from(local).join(&context.config().identifier);
-                std::env::set_var("WEBVIEW2_USER_DATA_FOLDER", paths::dev_webview_data_dir(&app_local_data));
+            if let Some(app_local_data) = &app_local_data {
+                std::env::set_var("WEBVIEW2_USER_DATA_FOLDER", paths::dev_webview_data_dir(app_local_data));
             }
         }
     }
@@ -255,17 +280,19 @@ fn main() {
                 d.user_name = std::env::var("USERNAME").unwrap_or_default();
                 d.host_name = std::env::var("COMPUTERNAME").unwrap_or_default();
             }
-            let is_dev = cfg!(debug_assertions);
             let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
             // resource_dir() only matters when packaged; avoid calling it in dev.
             let resource_dir = if is_dev { PathBuf::new() } else { app.path().resource_dir()? };
             let app_path = paths::resolve_app_path(is_dev, manifest_dir, &resource_dir);
-            let data_base = paths::dev_data_base(
-                paths::data_base_for(&app.path().app_local_data_dir()?, is_dev),
-                is_dev,
-                std::env::var_os(paths::DEV_DATA_DIR_ENV),
-            );
-            applog::init(&paths::data_home_dirs(&data_base).0);
+            // main() derived it unless LOCALAPPDATA is unset; then fall back to tauri's resolver
+            let data_base = match data_base {
+                Some(dir) => dir,
+                None => {
+                    let dir = paths::resolve_data_base(&app.path().app_local_data_dir()?, is_dev);
+                    applog::init(&paths::data_home_dirs(&dir).0);
+                    dir
+                }
+            };
             #[cfg(all(debug_assertions, windows))]
             if let Some(win) = app.get_webview_window(MAIN_WINDOW_LABEL) {
                 show_behind_foreground(&win);

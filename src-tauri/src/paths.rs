@@ -40,6 +40,15 @@ pub fn dev_data_base(default: PathBuf, is_dev: bool, override_dir: Option<OsStri
     }
 }
 
+// the base wavesrv's data and config homes live under, for this build and its ARC_DEV_DATA_DIR
+pub fn resolve_data_base(app_local_data_dir: &Path, is_dev: bool) -> PathBuf {
+    dev_data_base(
+        data_base_for(app_local_data_dir, is_dev),
+        is_dev,
+        std::env::var_os(DEV_DATA_DIR_ENV),
+    )
+}
+
 // wavesrv hard-requires both WAVETERM_DATA_HOME and WAVETERM_CONFIG_HOME; split the
 // per-user base dir into those two homes.
 pub fn data_home_dirs(base: &Path) -> (PathBuf, PathBuf) {
