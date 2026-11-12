@@ -141,6 +141,13 @@ export function defaultComparePair(i: {
     return { base, head: other?.name ?? head };
 }
 
+// the enterCompare in flight; leaving the surface bumps it so that one stands down
+const entering = { attempt: 0 };
+
+export function abandonEnterCompare(): void {
+    entering.attempt++;
+}
+
 // Enter compare on the checked-out branch against the repo's default branch — the review question,
 // and the pair that needs no typing. currentBranch comes from filesStateAtom.branch, which the
 // change-list read already resolved, so learning where you are costs no extra git call. The range
@@ -151,13 +158,15 @@ export async function enterCompare(cwd: string, currentBranch: string): Promise<
     if (scope == null) {
         return;
     }
+    const attempt = ++entering.attempt;
     const from: DiffRange = scope.range.kind === "compare" ? scope.range.from : scope.range;
     globalStore.set(compareErrorAtom, null);
     globalStore.set(compareSidesAtom, null);
     globalStore.set(compareAggregateAtom, null);
     const def = await loadCompareRefsMeta(cwd);
-    // the branch list takes a moment: a source or range picked, or Escape pressed, meanwhile is the newer word
-    if (globalStore.get(diffScopeAtom) !== scope) {
+    // the branch list takes a moment: a source or range picked, or the surface left (Escape goes home and
+    // leaves the scope as it was), meanwhile is the newer word
+    if (globalStore.get(diffScopeAtom) !== scope || entering.attempt !== attempt) {
         return;
     }
     const prev = remembered.cwd === cwd ? globalStore.get(compareRefsAtom) : null;

@@ -22,6 +22,7 @@ vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 
 import { AGGREGATE } from "./comparerows";
 import {
+    abandonEnterCompare,
     compareAggregateAtom,
     compareCommitFailureAtom,
     compareCwd,
@@ -471,6 +472,20 @@ describe("a slow read the surface moved on from", () => {
         await entering;
 
         expect(globalStore.get(diffScopeAtom)).toBe(picked);
+        expect(divergence).not.toHaveBeenCalled();
+    });
+
+    it("entering compare stands down when the surface was left while the branch list loaded", async () => {
+        globalStore.set(diffScopeAtom, base);
+        let listed!: (v: unknown) => void;
+        listBranches.mockImplementation(() => new Promise((r) => (listed = r)));
+        const entering = enterCompare("/repo", "feat");
+        abandonEnterCompare();
+
+        listed({ branches: [], default: "main" });
+        await entering;
+
+        expect(globalStore.get(diffScopeAtom)).toBe(base);
         expect(divergence).not.toHaveBeenCalled();
     });
 });

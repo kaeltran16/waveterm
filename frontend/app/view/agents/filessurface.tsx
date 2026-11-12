@@ -55,6 +55,7 @@ import { AggregatePane } from "./aggregatepane";
 import { CompareColumn } from "./comparecolumn";
 import { AGGREGATE, buildCompareRows, compareNavIds, type CompareCommitRow } from "./comparerows";
 import {
+    abandonEnterCompare,
     compareActiveChangesAtom,
     compareAggregateAtom,
     compareBranchesAtom,
@@ -225,7 +226,13 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
 
     // The surface unmounts on every nav switch; stamping the time on the way out is all it has to do.
     // The next history load decides whether anything is worth announcing (historyquery.restoreNotice).
-    useEffect(() => () => noteSurfaceLeft(), []);
+    useEffect(
+        () => () => {
+            noteSurfaceLeft();
+            abandonEnterCompare();
+        },
+        []
+    );
 
     // Keeps the change list from going stale while this surface is on screen; stops the moment it isn't.
     useEffect(() => startChangesPoll(), []);
