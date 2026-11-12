@@ -3,9 +3,11 @@ import { describe, expect, it } from "vitest";
 import {
     ARC_SOURCE,
     BoardFileError,
+    applyAnswer,
     applyDraw,
     boardTime,
     contentHash,
+    copyElements,
     dropPending,
     followOf,
     groupElementIds,
@@ -14,7 +16,9 @@ import {
     markEdits,
     newestSinceSeen,
     parseBoardFile,
+    selectionLabel,
     serializeBoard,
+    shapeCount,
     sourceRows,
     yourShapesLabel,
     type BoardScene,
@@ -534,5 +538,197 @@ describe("followOf", () => {
             boardName: "",
             ask: "",
         });
+    });
+});
+
+// a box with a bound label, as Excalidraw links them both ways
+function labelled(id: string, x: number, y: number, label: string): ExcalidrawElement[] {
+    return [
+        rect(id, x, y, 200, 80, { boundElements: [{ type: "text", id: `${id}-label` }] }),
+        text(`${id}-label`, x + 60, y + 30, label, {
+            containerId: id,
+            textAlign: "center",
+            verticalAlign: "middle",
+        }),
+    ];
+}
+
+function answer(extra: Partial<BoardAnswer> = {}): BoardAnswer {
+    return { id: "ans1", channelid: "ch1", boardid: "0a1b2c3d", turnid: "turn1", ts: NOW, ...extra };
+}
+
+function byId(scene: BoardScene, id: string): any {
+    return scene.elements.find((el) => el.id === id);
+}
+
+describe("applyAnswer", () => {
+    it("applyAnswer adds the converted shapes", () => {
+        const scene = emptyScene(labelled("wavesrv", 0, 0, "wavesrv"));
+        const added = labelled("db", 0, 200, "SQLite");
+        const { scene: next, shapeIds, textIds } = applyAnswer(scene, answer({ add: "[]" }), added, NOW);
+        expect(next.elements.map((el) => el.id)).toEqual(["wavesrv", "wavesrv-label", "db", "db-label"]);
+        // the bound label is part of its box: Show selects the box
+        expect(shapeIds).toEqual(["db"]);
+        expect(textIds).toEqual([]);
+        expect(scene.elements).toHaveLength(2);
+    });
+
+    it("applyAnswer patches an update and bumps its version", () => {
+        const scene = emptyScene([rect("a", 0, 0, 100, 40), text("note", 0, 100, "old")]);
+        const update = JSON.stringify([
+            { id: "a", x: 10, width: 150, strokeColor: "#e03131", backgroundColor: "#ffc9c9" },
+            { id: "note", text: "new words" },
+        ]);
+        const { scene: next, shapeIds, textIds } = applyAnswer(scene, answer({ update }), [], NOW);
+        const a = byId(next, "a");
+        expect(a).toMatchObject({
+            x: 10,
+            y: 0,
+            width: 150,
+            height: 40,
+            strokeColor: "#e03131",
+            backgroundColor: "#ffc9c9",
+            version: 2,
+            updated: NOW,
+        });
+        expect(byId(next, "note")).toMatchObject({ text: "new words", originalText: "new words", version: 2 });
+        expect(shapeIds).toEqual(["a", "note"]);
+        expect(textIds).toEqual(["note"]);
+    });
+
+    it("applyAnswer moves a container's bound text with it", () => {
+        const scene = emptyScene(labelled("wavesrv", 0, 0, "wavesrv"));
+        const update = JSON.stringify([{ id: "wavesrv", x: 100, y: 50 }]);
+        const { scene: next, shapeIds } = applyAnswer(scene, answer({ update }), [], NOW);
+        expect(byId(next, "wavesrv")).toMatchObject({ x: 100, y: 50 });
+        expect(byId(next, "wavesrv-label")).toMatchObject({ x: 160, y: 80, version: 2 });
+        expect(shapeIds).toEqual(["wavesrv"]);
+    });
+
+    it("applyAnswer sets a label on the container's bound text", () => {
+        const scene = emptyScene([...labelled("wavesrv", 0, 0, "wavesrv"), rect("bare", 300, 0, 100, 40)]);
+        const update = JSON.stringify([
+            { id: "wavesrv", label: "wavesrv (Go)" },
+            { id: "bare", label: "store" },
+        ]);
+        const { scene: next, shapeIds, textIds } = applyAnswer(scene, answer({ update }), [], NOW);
+        expect(byId(next, "wavesrv-label")).toMatchObject({
+            text: "wavesrv (Go)",
+            originalText: "wavesrv (Go)",
+            version: 2,
+        });
+        // a box with no label gets one, bound both ways
+        const made = next.elements.find((el) => el.type === "text" && (el as any).containerId === "bare") as any;
+        expect(made).toMatchObject({ text: "store", originalText: "store", isDeleted: false });
+        expect(byId(next, "bare").boundElements).toEqual([{ type: "text", id: made.id }]);
+        expect(shapeIds).toEqual(["wavesrv", "bare"]);
+        expect(textIds).toEqual(["wavesrv-label", made.id]);
+    });
+
+    it("applyAnswer removes a shape with its bound text", () => {
+        const scene = emptyScene([...labelled("wavesrv", 0, 0, "wavesrv"), rect("keep", 300, 0, 100, 40)]);
+        const { scene: next, shapeIds } = applyAnswer(scene, answer({ remove: ["wavesrv"] }), [], NOW);
+        expect(byId(next, "wavesrv")).toMatchObject({ isDeleted: true, version: 2 });
+        expect(byId(next, "wavesrv-label")).toMatchObject({ isDeleted: true, version: 2 });
+        expect(byId(next, "keep").isDeleted).toBe(false);
+        expect(shapeIds).toEqual([]);
+    });
+
+    it("applyAnswer skips ids the board no longer has", () => {
+        const gone = rect("gone", 0, 0, 100, 40, { isDeleted: true });
+        const mine = rect("mine", 0, 200, 100, 40);
+        const scene = emptyScene([gone, mine]);
+        const update = JSON.stringify([
+            { id: "gone", x: 50 },
+            { id: "missing", label: "x" },
+        ]);
+        const { scene: next, shapeIds } = applyAnswer(
+            scene,
+            answer({ update, remove: ["missing", "gone"] }),
+            [rect("added", 0, 400, 100, 40)],
+            NOW
+        );
+        expect(byId(next, "gone")).toBe(gone);
+        expect(byId(next, "mine")).toBe(mine);
+        expect(next.elements.map((el) => el.id)).toEqual(["gone", "mine", "added"]);
+        expect(shapeIds).toEqual(["added"]);
+    });
+});
+
+describe("copyElements", () => {
+    it("copyElements gives every element a new id and remaps containers, bindings, groups and frames", () => {
+        const source = [
+            base("f", "frame", -20, -20, 600, 300, { name: "Flow" }),
+            ...labelled("a", 0, 0, "wavesrv").map((el) => ({ ...el, groupIds: ["g1"], frameId: "f" }) as any),
+            rect("b", 300, 0, 100, 40, { boundElements: [{ type: "arrow", id: "arr" }], frameId: "f" }),
+            base("arr", "arrow", 200, 40, 100, 0, {
+                points: [
+                    [0, 0],
+                    [100, 0],
+                ],
+                startBinding: { elementId: "a", focus: 0, gap: 1 },
+                endBinding: { elementId: "b", focus: 0, gap: 1 },
+                frameId: "f",
+            }),
+            rect("old", 0, 500, 10, 10, { isDeleted: true }),
+        ] as ExcalidrawElement[];
+        (source[1] as any).boundElements = [
+            { type: "text", id: "a-label" },
+            { type: "arrow", id: "arr" },
+        ];
+        let n = 0;
+        const copy = copyElements(source, () => `n${++n}`) as any[];
+        const sourceIds = new Set(source.map((el) => el.id));
+        expect(copy).toHaveLength(5);
+        expect(copy.some((el) => sourceIds.has(el.id))).toBe(false);
+        const [f, a, label, b, arr] = copy;
+        expect(a.frameId).toBe(f.id);
+        expect(a.groupIds).toHaveLength(1);
+        expect(a.groupIds[0]).not.toBe("g1");
+        expect(label.groupIds).toEqual(a.groupIds);
+        expect(label.containerId).toBe(a.id);
+        expect(a.boundElements).toEqual([
+            { type: "text", id: label.id },
+            { type: "arrow", id: arr.id },
+        ]);
+        expect(b.boundElements).toEqual([{ type: "arrow", id: arr.id }]);
+        expect(arr.startBinding.elementId).toBe(a.id);
+        expect(arr.endBinding.elementId).toBe(b.id);
+        expect(arr.frameId).toBe(f.id);
+        expect(source[1].id).toBe("a");
+    });
+});
+
+describe("selectionLabel", () => {
+    it("selectionLabel names the first selected shape", () => {
+        const els = [
+            ...labelled("wavesrv", 0, 0, "wavesrv"),
+            text("note", 0, 200, "a note"),
+            rect("r1", 0, 300, 10, 10),
+            rect("r2", 0, 400, 10, 10),
+            rect("r3", 0, 500, 10, 10),
+        ];
+        expect(selectionLabel(els, ["wavesrv"])).toBe("wavesrv");
+        // a selected container's own bound text is not counted again
+        expect(selectionLabel(els, ["wavesrv", "wavesrv-label"])).toBe("wavesrv");
+        expect(selectionLabel(els, ["note"])).toBe("a note");
+        expect(selectionLabel(els, ["wavesrv", "r1", "r2"])).toBe("wavesrv and 2 more");
+        expect(selectionLabel(els, ["r1", "wavesrv", "r2"])).toBe("wavesrv and 2 more");
+        expect(selectionLabel(els, ["r1", "r2", "r3"])).toBe("3 shapes");
+        expect(selectionLabel(els, ["r1"])).toBe("1 shape");
+        expect(selectionLabel(els, [])).toBeNull();
+        expect(selectionLabel(els, ["missing"])).toBeNull();
+    });
+});
+
+describe("shapeCount", () => {
+    it("shapeCount skips bound text and deleted elements", () => {
+        const els = [
+            ...labelled("wavesrv", 0, 0, "wavesrv"),
+            text("note", 0, 200, "a note"),
+            rect("gone", 0, 300, 10, 10, { isDeleted: true }),
+        ];
+        expect(shapeCount(els)).toBe(2);
+        expect(shapeCount([])).toBe(0);
     });
 });
