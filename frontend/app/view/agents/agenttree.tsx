@@ -8,9 +8,6 @@ import { useSettle } from "@/app/element/motionhooks";
 import { cardVariants, composerReveal, computeEntrances, initialEntranceState } from "@/app/element/motiontokens";
 import { globalStore } from "@/app/store/jotaiStore";
 import { ContextMenuModel } from "@/app/store/contextmenu";
-import { RpcApi } from "@/app/store/wshclientapi";
-import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { useAgentFollow } from "@/app/view/boards/boardstore";
 import { openTarget, peekTarget } from "@/app/view/jarvis/openref";
 import { petCornerAtom } from "@/app/view/jarvis/petstore";
 import { AVATAR_SURFACE_REACH_PX } from "@/app/view/jarvis/petview";
@@ -30,7 +27,6 @@ import {
     PinOff,
     Plus,
     Radio,
-    Shapes,
     SquareTerminal,
     Terminal,
     Workflow,
@@ -284,75 +280,17 @@ function PaneTag({ model, id }: { model: AgentsViewModel; id: string }) {
     );
 }
 
-// A followed agent's board and its Stop (the Boards surface and the board's header show the same follow). Both chips
-// enter with moment 1; a row that mounts already followed does not animate them in.
-function FollowChips({ model, id }: { model: AgentsViewModel; id: string }) {
-    const follow = useAgentFollow(id);
-    return (
-        <AnimatePresence initial={false}>
-            {follow != null ? (
-                <motion.span
-                    key="board"
-                    variants={cardVariants}
-                    initial="initial"
-                    animate="animate"
-                    exit="exit"
-                    className="flex min-w-0 flex-none"
-                >
-                    <PaneChip
-                        label={follow.boardName || "board"}
-                        showing={false}
-                        title={`Open the board ${follow.boardName}`}
-                        className="max-w-[84px]"
-                        leading={<Shapes size={11} strokeWidth={1.8} className="flex-none text-success" aria-hidden />}
-                        onClick={() =>
-                            fireAndForget(() =>
-                                openTarget(model, {
-                                    kind: "board",
-                                    channelId: follow.channelId,
-                                    boardId: follow.boardId,
-                                })
-                            )
-                        }
-                    />
-                </motion.span>
-            ) : null}
-            {follow != null ? (
-                <motion.span
-                    key="stop"
-                    variants={cardVariants}
-                    initial="initial"
-                    animate="animate"
-                    exit="exit"
-                    className="flex flex-none"
-                >
-                    <PaneChip
-                        label="Stop"
-                        showing={false}
-                        title={`Stop following ${follow.boardName}`}
-                        onClick={() => fireAndForget(() => RpcApi.BoardFollowStopCommand(TabRpcClient, { tabid: id }))}
-                    />
-                </motion.span>
-            ) : null}
-        </AnimatePresence>
-    );
-}
-
 function PaneChip({
     label,
     showing,
     title,
     onClick,
-    className,
-    leading,
     children,
 }: {
     label: string;
     showing: boolean;
     title: string;
     onClick: () => void;
-    className?: string;
-    leading?: React.ReactNode;
     children?: React.ReactNode;
 }) {
     return (
@@ -366,11 +304,9 @@ function PaneChip({
             title={title}
             className={cn(
                 "flex flex-none cursor-pointer items-center gap-[4px] rounded-[5px] border px-[6px] py-[1px] font-mono text-[10.5px] font-semibold text-accent-soft",
-                showing ? "border-accent bg-accentbg" : "border-edge-mid hover:border-edge-strong",
-                className
+                showing ? "border-accent bg-accentbg" : "border-edge-mid hover:border-edge-strong"
             )}
         >
-            {leading}
             <span className="truncate">{label}</span>
             {children}
         </button>
@@ -813,7 +749,6 @@ function ParentRow({
                             </>
                         )}
                         <PaneTag model={model} id={agent.id} />
-                        <FollowChips model={model} id={agent.id} />
                         {/* a row names its state only when it wants something; the dot already says working or idle */}
                         {review ? (
                             // opens the dialog over whatever agent is focused, so the click must not reach the row

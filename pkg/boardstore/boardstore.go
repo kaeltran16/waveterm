@@ -26,8 +26,9 @@ import (
 
 const (
 	boardExt         = ".excalidraw"
-	inboxExt         = ".inbox"
-	drawExt          = ".json"
+	answerExt        = ".json"
+	talkExt          = ".talk.json"
+	answersExt       = ".answers"
 	idLen            = 8
 	namePrefixBytes  = 4096
 	fileMode         = 0o644
@@ -85,15 +86,20 @@ func checkID(id string) error {
 	return nil
 }
 
-func checkDrawID(id string) error {
+func checkUUID(kind, id string) error {
 	if _, err := uuid.Parse(id); err != nil {
-		return fmt.Errorf("invalid draw id %q", id)
+		return fmt.Errorf("invalid %s id %q", kind, id)
 	}
 	return nil
 }
 
+func checkAnswerID(id string) error { return checkUUID("answer", id) }
+
 func boardPath(dir, id string) string { return filepath.Join(dir, id+boardExt) }
-func inboxDir(dir, id string) string  { return filepath.Join(dir, id+inboxExt) }
+func talkPath(dir, id string) string  { return filepath.Join(dir, id+talkExt) }
+func answersDir(dir, id string) string {
+	return filepath.Join(dir, id+answersExt)
+}
 
 func dirLock(dir string) *sync.Mutex {
 	dirLocksMu.Lock()
@@ -162,22 +168,42 @@ func infoFromFile(dir, channelId, id string, data []byte, modTs int64, state fun
 	} else {
 		info.Name = rec.Name
 		info.CreatedTs = rec.CreatedTs
-		info.Groups = len(rec.Sources)
-		for _, s := range rec.Sources {
-			info.LastDrawnTs = max(info.LastDrawnTs, s.DrawnTs)
-			if s.DrawnTs > rec.SeenTs {
-				info.NewCount++
-			}
-		}
 	}
+	info.ActiveTs = info.CreatedTs
 	if state != nil {
 		info.State = state(id)
 	}
 	return info
 }
 
-// List returns a project's boards: drawn ones most recently drawn first, then never-drawn ones by created time.
-// A missing project dir is no boards.
+// applyTalkFacts fills the list row's facts from the board's talk. A state the caller already set (the drawer is
+// busy on it) wins; otherwise the last turn says: an asks turn with no choice yet asks, a failed one failed, and an
+// answering or waiting one that nothing runs failed too.
+func applyTalkFacts(info *wshrpc.BoardInfo, talk wshrpc.BoardTalk) {
+	// the switcher says "the <project> code" itself when About is empty, so a project about stays empty here
+	if talk.About.Kind != "" && talk.About.Kind != "project" {
+		info.About = talk.About.Title
+	}
+	for _, t := range talk.Turns {
+		if !t.Kept && (t.Question != "" || t.Briefing != nil) {
+			info.Questions++
+		}
+		info.AnsweredTs = max(info.AnsweredTs, t.AnsweredTs)
+		info.ActiveTs = max(info.ActiveTs, t.Ts, t.AnsweredTs)
+	}
+	if info.State != "" || len(talk.Turns) == 0 {
+		return
+	}
+	switch last := talk.Turns[len(talk.Turns)-1]; {
+	case last.State == "asks" && last.Choice == "":
+		info.State = "asks"
+	case last.State == "failed", last.State == "answering", last.State == "waiting":
+		info.State = "failed"
+	}
+}
+
+// List returns a project's boards, the most recently active first (a turn, an answer, else created), then by id.
+// A missing project dir is no boards. A talk that will not read leaves its board listed without talk facts.
 func List(dir, channelId string, state func(boardId string) string) ([]wshrpc.BoardInfo, error) {
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, os.ErrNotExist) {
@@ -200,29 +226,44 @@ func List(dir, channelId string, state func(boardId string) string) ([]wshrpc.Bo
 		if st, err := e.Info(); err == nil {
 			modTs = st.ModTime().UnixMilli()
 		}
-		boards = append(boards, infoFromFile(dir, channelId, id, data, modTs, state))
+		info := infoFromFile(dir, channelId, id, data, modTs, state)
+		if talk, err := ReadTalk(dir, id); err != nil {
+			log.Printf("boardstore: listing board %s without its talk: %v\n", id, err)
+		} else {
+			applyTalkFacts(&info, talk)
+		}
+		boards = append(boards, info)
 	}
 	sort.SliceStable(boards, func(i, j int) bool {
 		a, b := boards[i], boards[j]
-		if (a.LastDrawnTs > 0) != (b.LastDrawnTs > 0) {
-			return a.LastDrawnTs > 0
-		}
-		if a.LastDrawnTs != b.LastDrawnTs {
-			return a.LastDrawnTs > b.LastDrawnTs
-		}
-		if a.CreatedTs != b.CreatedTs {
-			return a.CreatedTs > b.CreatedTs
+		if a.ActiveTs != b.ActiveTs {
+			return a.ActiveTs > b.ActiveTs
 		}
 		return a.ID < b.ID
 	})
 	return boards, nil
 }
 
-// Create writes a new empty board named name. The arc record is the file's first key.
-func Create(dir, channelId, name string, now int64) (wshrpc.BoardInfo, error) {
+// checkElements refuses anything but a JSON array, so a copied drawing cannot corrupt the board file.
+func checkElements(elements string) error {
+	var arr []json.RawMessage
+	if err := json.Unmarshal([]byte(elements), &arr); err != nil || arr == nil {
+		return errors.New("elements must be a JSON array")
+	}
+	return nil
+}
+
+// Create writes a new board named name, with elements (a JSON array; empty means none) as its drawing. The arc
+// record is the file's first key.
+func Create(dir, channelId, name, elements string, now int64) (wshrpc.BoardInfo, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return wshrpc.BoardInfo{}, errors.New(errNameRequired)
+	}
+	if elements == "" {
+		elements = "[]"
+	} else if err := checkElements(elements); err != nil {
+		return wshrpc.BoardInfo{}, err
 	}
 	if err := os.MkdirAll(dir, dirMode); err != nil {
 		return wshrpc.BoardInfo{}, err
@@ -231,7 +272,7 @@ func Create(dir, channelId, name string, now int64) (wshrpc.BoardInfo, error) {
 	if err != nil {
 		return wshrpc.BoardInfo{}, err
 	}
-	body := `{"arc":` + string(arc) + `,"type":"excalidraw","version":2,"source":"arc","elements":[],"appState":{},"files":{}}`
+	body := `{"arc":` + string(arc) + `,"type":"excalidraw","version":2,"source":"arc","elements":` + elements + `,"appState":{},"files":{}}`
 
 	l := dirLock(dir)
 	l.Lock()
@@ -308,27 +349,88 @@ func Save(dir, id, data, baseRev string) (wshrpc.BoardSaveRtnData, error) {
 	return wshrpc.BoardSaveRtnData{Rev: revOf([]byte(data))}, nil
 }
 
-// PutDraw files a scribe result in the board's inbox, where it waits until the frontend applies and acks it.
-func PutDraw(dir string, d wshrpc.BoardDraw) error {
-	if err := checkID(d.BoardId); err != nil {
+func readTalkFile(dir, boardId string) (wshrpc.BoardTalk, error) {
+	talk := wshrpc.BoardTalk{BoardId: boardId}
+	data, err := os.ReadFile(talkPath(dir, boardId))
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+	case err != nil:
+		return wshrpc.BoardTalk{}, err
+	default:
+		if err := json.Unmarshal(data, &talk); err != nil {
+			return wshrpc.BoardTalk{}, fmt.Errorf("the talk of board %s is damaged: %w", boardId, err)
+		}
+	}
+	if talk.Turns == nil {
+		talk.Turns = []wshrpc.BoardTurn{}
+	}
+	return talk, nil
+}
+
+// ReadTalk returns a board's talk; a board with no talk file has an empty one.
+func ReadTalk(dir, boardId string) (wshrpc.BoardTalk, error) {
+	if err := checkID(boardId); err != nil {
+		return wshrpc.BoardTalk{}, err
+	}
+	l := dirLock(dir)
+	l.Lock()
+	defer l.Unlock()
+	return readTalkFile(dir, boardId)
+}
+
+// UpdateTalk reads the board's talk, lets fn change it and writes it back, all under the dir lock, so concurrent
+// updates serialize. An error from fn writes nothing. Only wavesrv writes the talk: the frontend owns the board file.
+func UpdateTalk(dir, boardId string, fn func(*wshrpc.BoardTalk) error) (wshrpc.BoardTalk, error) {
+	if err := checkID(boardId); err != nil {
+		return wshrpc.BoardTalk{}, err
+	}
+	l := dirLock(dir)
+	l.Lock()
+	defer l.Unlock()
+	talk, err := readTalkFile(dir, boardId)
+	if err != nil {
+		return wshrpc.BoardTalk{}, err
+	}
+	if err := fn(&talk); err != nil {
+		return wshrpc.BoardTalk{}, err
+	}
+	if talk.Turns == nil {
+		talk.Turns = []wshrpc.BoardTurn{}
+	}
+	data, err := json.Marshal(talk)
+	if err != nil {
+		return wshrpc.BoardTalk{}, err
+	}
+	if err := os.MkdirAll(dir, dirMode); err != nil {
+		return wshrpc.BoardTalk{}, err
+	}
+	if err := fileutil.AtomicWriteFile(talkPath(dir, boardId), data, fileMode); err != nil {
+		return wshrpc.BoardTalk{}, err
+	}
+	return talk, nil
+}
+
+// PutAnswer files a drawer answer in the board's inbox, where it waits until the frontend applies and acks it.
+func PutAnswer(dir string, a wshrpc.BoardAnswer) error {
+	if err := checkID(a.BoardId); err != nil {
 		return err
 	}
-	if err := checkDrawID(d.ID); err != nil {
+	if err := checkAnswerID(a.ID); err != nil {
 		return err
 	}
-	data, err := json.Marshal(d)
+	data, err := json.Marshal(a)
 	if err != nil {
 		return err
 	}
-	inbox := inboxDir(dir, d.BoardId)
+	inbox := answersDir(dir, a.BoardId)
 	if err := os.MkdirAll(inbox, dirMode); err != nil {
 		return err
 	}
-	return fileutil.AtomicWriteFile(filepath.Join(inbox, d.ID+drawExt), data, fileMode)
+	return fileutil.AtomicWriteFile(filepath.Join(inbox, a.ID+answerExt), data, fileMode)
 }
 
-// Draws returns a board's waiting draws, oldest first. An empty boardId returns every board's in dir.
-func Draws(dir, boardId string) ([]wshrpc.BoardDraw, error) {
+// Answers returns a board's waiting answers, oldest first. An empty boardId returns every board's in dir.
+func Answers(dir, boardId string) ([]wshrpc.BoardAnswer, error) {
 	var ids []string
 	if boardId != "" {
 		if err := checkID(boardId); err != nil {
@@ -338,20 +440,20 @@ func Draws(dir, boardId string) ([]wshrpc.BoardDraw, error) {
 	} else {
 		entries, err := os.ReadDir(dir)
 		if errors.Is(err, os.ErrNotExist) {
-			return []wshrpc.BoardDraw{}, nil
+			return []wshrpc.BoardAnswer{}, nil
 		}
 		if err != nil {
 			return nil, err
 		}
 		for _, e := range entries {
-			if id, ok := strings.CutSuffix(e.Name(), inboxExt); ok && e.IsDir() && ValidID(id) {
+			if id, ok := strings.CutSuffix(e.Name(), answersExt); ok && e.IsDir() && ValidID(id) {
 				ids = append(ids, id)
 			}
 		}
 	}
-	draws := []wshrpc.BoardDraw{}
+	answers := []wshrpc.BoardAnswer{}
 	for _, id := range ids {
-		files, err := os.ReadDir(inboxDir(dir, id))
+		files, err := os.ReadDir(answersDir(dir, id))
 		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}
@@ -359,75 +461,43 @@ func Draws(dir, boardId string) ([]wshrpc.BoardDraw, error) {
 			return nil, err
 		}
 		for _, f := range files {
-			if f.IsDir() || !strings.HasSuffix(f.Name(), drawExt) {
+			if f.IsDir() || !strings.HasSuffix(f.Name(), answerExt) {
 				continue
 			}
-			path := filepath.Join(inboxDir(dir, id), f.Name())
+			path := filepath.Join(answersDir(dir, id), f.Name())
 			data, err := os.ReadFile(path)
-			var d wshrpc.BoardDraw
+			var a wshrpc.BoardAnswer
 			if err == nil {
-				err = json.Unmarshal(data, &d)
+				err = json.Unmarshal(data, &a)
 			}
 			if err != nil {
-				// one unreadable draw must not hide the rest of the inbox
-				log.Printf("boardstore: skipping unreadable draw %s: %v\n", path, err)
+				// one unreadable answer must not hide the rest of the inbox
+				log.Printf("boardstore: skipping unreadable answer %s: %v\n", path, err)
 				continue
 			}
-			draws = append(draws, d)
+			answers = append(answers, a)
 		}
 	}
-	sort.SliceStable(draws, func(i, j int) bool {
-		if draws[i].Ts != draws[j].Ts {
-			return draws[i].Ts < draws[j].Ts
+	sort.SliceStable(answers, func(i, j int) bool {
+		if answers[i].Ts != answers[j].Ts {
+			return answers[i].Ts < answers[j].Ts
 		}
-		return draws[i].ID < draws[j].ID
+		return answers[i].ID < answers[j].ID
 	})
-	return draws, nil
+	return answers, nil
 }
 
-// AckDraw removes an applied draw from the inbox. A draw that is already gone is not an error.
-func AckDraw(dir, boardId, drawId string) error {
+// AckAnswer removes an applied answer from the inbox. An answer that is already gone is not an error.
+func AckAnswer(dir, boardId, answerId string) error {
 	if err := checkID(boardId); err != nil {
 		return err
 	}
-	if err := checkDrawID(drawId); err != nil {
+	if err := checkAnswerID(answerId); err != nil {
 		return err
 	}
-	err := os.Remove(filepath.Join(inboxDir(dir, boardId), drawId+drawExt))
+	err := os.Remove(filepath.Join(answersDir(dir, boardId), answerId+answerExt))
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	return nil
-}
-
-// Previous returns the source's last skeleton and cursor: the newest unacked inbox draw for key, else the
-// board file's entry for it, else nothing.
-func Previous(dir, boardId, key string) (skeleton string, cursorTs int64, err error) {
-	// Draws reads every board's inbox for an empty id, which would hand back another board's skeleton
-	if err := checkID(boardId); err != nil {
-		return "", 0, err
-	}
-	draws, err := Draws(dir, boardId)
-	if err != nil {
-		return "", 0, err
-	}
-	for i := len(draws) - 1; i >= 0; i-- {
-		if draws[i].SourceKey == key {
-			return draws[i].Skeleton, draws[i].CursorTs, nil
-		}
-	}
-	data, err := os.ReadFile(boardPath(dir, boardId))
-	if err != nil {
-		return "", 0, err
-	}
-	rec, loadErr := parseArc(data)
-	if loadErr != "" {
-		return "", 0, errors.New(loadErr)
-	}
-	for _, s := range rec.Sources {
-		if s.Key == key {
-			return s.Skeleton, s.CursorTs, nil
-		}
-	}
-	return "", 0, nil
 }

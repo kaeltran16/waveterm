@@ -94,12 +94,6 @@ type MetaTSType struct {
 	BrainstormJudgeChannel string `json:"brainstorm:judgechannel,omitempty"` // tab (id of the judge's channel)
 	BrainstormJudgeReason  string `json:"brainstorm:judgereason,omitempty"`  // tab (why the judge failed)
 
-	// a board the scribe redraws from this agent's turn ends until Stop (Arc owns these on the agent's tab)
-	BoardFollowId      string `json:"board:followid,omitempty"`      // tab (id of the board followed)
-	BoardFollowChannel string `json:"board:followchannel,omitempty"` // tab (id of the followed board's channel)
-	BoardFollowName    string `json:"board:followname,omitempty"`    // tab (the board's name, for the chip)
-	BoardFollowAsk     string `json:"board:followask,omitempty"`     // tab (what the follow asks the scribe to draw)
-
 	// for loom git client (Wave Agent Sessions fork)
 	AppLoom bool `json:"app:loom,omitempty"` // block (marks the live loom block for toggle)
 

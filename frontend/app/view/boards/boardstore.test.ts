@@ -5,42 +5,22 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const rpc = vi.hoisted(() => ({
     BoardListCommand: vi.fn(),
-    BoardStatusCommand: vi.fn(),
+    BoardTalkCommand: vi.fn(),
 }));
-const tabs = vi.hoisted(() => new Map<string, unknown>());
 
 vi.mock("@/app/store/wshclientapi", () => ({ RpcApi: rpc }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 vi.mock("@/app/store/wps", () => ({ waveEventSubscribeSingle: () => () => {} }));
-vi.mock("@/app/store/wos", async () => {
-    const { atom } = await import("jotai");
-    const atoms = new Map<string, unknown>();
-    return {
-        makeORef: (otype: string, oid: string) => `${otype}:${oid}`,
-        getWaveObjectAtom: (oref: string) => {
-            if (!atoms.has(oref)) {
-                atoms.set(
-                    oref,
-                    atom(() => tabs.get(oref) ?? null)
-                );
-            }
-            return atoms.get(oref);
-        },
-    };
-});
 
 import { globalStore } from "@/app/store/jotaiStore";
-import { atom, type PrimitiveAtom } from "jotai";
-import type { AgentsViewModel } from "../agents/agents";
-import type { AgentVM } from "../agents/agentsviewmodel";
 import {
-    boardFollowsAtom,
     boardListAtom,
+    boardOwnsEscapeAtom,
     boardsChannelAtom,
-    boardStatusAtom,
+    boardTalkAtom,
     liveBoardApply,
     loadBoardList,
-    loadBoardStatus,
+    loadBoardTalk,
     onBoardUpdate,
     onLiveBoardRegistered,
     openBoardByChannelAtom,
@@ -48,22 +28,24 @@ import {
     runBoardEscape,
     selectBoard,
     setBoardEscape,
+    setBoardFormEscape,
+    setCanvasOwnsEscape,
 } from "./boardstore";
 
-function followMeta(boardId: string, ask = ""): MetaType {
-    return {
-        "board:followid": boardId,
-        "board:followchannel": "c1",
-        "board:followname": "Escalation",
-        "board:followask": ask,
-    };
+const ABOUT: BoardSource = { kind: "project", ref: "", title: "" };
+
+function talk(boardId: string, turns: BoardTurn[] = []): BoardTalk {
+    return { channelid: "c1", boardid: boardId, about: ABOUT, turns };
+}
+
+function turn(id: string): BoardTurn {
+    return { id, ts: 1, state: "answered", question: "How does it fit?" };
 }
 
 beforeEach(() => {
     vi.resetAllMocks();
-    tabs.clear();
     rpc.BoardListCommand.mockResolvedValue({ project: "waveterm", boards: [] });
-    rpc.BoardStatusCommand.mockResolvedValue({ channelid: "c1", boardid: "b1", sources: [] });
+    rpc.BoardTalkCommand.mockImplementation(async (_c, data: CommandBoardRefData) => talk(data.boardid));
 });
 
 describe("board selection", () => {
@@ -76,30 +58,38 @@ describe("board selection", () => {
 });
 
 describe("board:update reloads", () => {
-    it("reloads a loaded list on list, draw and failed, and a loaded status on status, draw and failed", async () => {
+    it("reloads a loaded list on list, talk and answer", async () => {
         await loadBoardList("c1");
-        await loadBoardStatus("c1", "b1");
         rpc.BoardListCommand.mockClear();
-        rpc.BoardStatusCommand.mockClear();
-        for (const what of ["list", "status", "draw", "failed"]) {
+        for (const what of ["list", "talk", "answer", "draw", "status"]) {
             onBoardUpdate({ channelid: "c1", boardid: "b1", what });
         }
         await vi.waitFor(() => expect(rpc.BoardListCommand).toHaveBeenCalledTimes(3));
-        expect(rpc.BoardStatusCommand).toHaveBeenCalledTimes(3);
-        expect(rpc.BoardStatusCommand).toHaveBeenLastCalledWith({}, { channelid: "c1", boardid: "b1" });
+    });
+
+    it("reloads a loaded board's talk on talk and answer events, and ignores others", async () => {
+        await loadBoardTalk("c1", "b1");
+        rpc.BoardTalkCommand.mockClear();
+        rpc.BoardTalkCommand.mockResolvedValue(talk("b1", [turn("t1")]));
+        for (const what of ["talk", "answer", "draw", "status", "failed"]) {
+            onBoardUpdate({ channelid: "c1", boardid: "b1", what });
+        }
+        await vi.waitFor(() => expect(rpc.BoardTalkCommand).toHaveBeenCalledTimes(2));
+        expect(rpc.BoardTalkCommand).toHaveBeenLastCalledWith({}, { channelid: "c1", boardid: "b1" });
+        await vi.waitFor(() => expect(globalStore.get(boardTalkAtom("b1"))?.turns.map((t) => t.id)).toEqual(["t1"]));
     });
 
     it("leaves an unread project and board alone", () => {
-        onBoardUpdate({ channelid: "c-unread", boardid: "b-unread", what: "draw" });
+        onBoardUpdate({ channelid: "c-unread", boardid: "b-unread", what: "talk" });
         expect(rpc.BoardListCommand).not.toHaveBeenCalled();
-        expect(rpc.BoardStatusCommand).not.toHaveBeenCalled();
+        expect(rpc.BoardTalkCommand).not.toHaveBeenCalled();
     });
 
     it("lands only the latest of two overlapping list reads", async () => {
         let first!: (v: BoardListRtnData) => void;
         rpc.BoardListCommand.mockImplementationOnce(() => new Promise((r) => (first = r))).mockResolvedValueOnce({
             project: "waveterm",
-            boards: [{ id: "b2", name: "new", channelid: "c3", path: "", groups: 0, createdts: 2 }],
+            boards: [{ id: "b2", name: "new", channelid: "c3", path: "", createdts: 2 }],
         });
         const older = loadBoardList("c3");
         await loadBoardList("c3");
@@ -108,45 +98,22 @@ describe("board:update reloads", () => {
         expect(globalStore.get(boardListAtom("c3"))?.boards.map((b) => b.id)).toEqual(["b2"]);
     });
 
-    it("stores a board's status", async () => {
-        rpc.BoardStatusCommand.mockResolvedValue({
-            channelid: "c1",
-            boardid: "b5",
-            sources: [
-                { sourcekey: "run:r1", source: { kind: "run", ref: "r1", title: "run r1" }, state: "drawing", ts: 1 },
-            ],
-        });
-        await loadBoardStatus("c1", "b5");
-        expect(globalStore.get(boardStatusAtom("b5"))?.sources.map((s) => s.state)).toEqual(["drawing"]);
-    });
-});
-
-describe("useBoardFollows", () => {
-    function makeModel(ids: string[]): AgentsViewModel & { agentsAtom: PrimitiveAtom<AgentVM[]> } {
-        const vm = (id: string) => ({ id, name: `claude · ${id}`, task: "", state: "idle" }) as AgentVM;
-        return { agentsAtom: atom(ids.map(vm)) } as unknown as AgentsViewModel & {
-            agentsAtom: PrimitiveAtom<AgentVM[]>;
-        };
-    }
-
-    it("lists the roster agents whose follow names the board, and drops one that left the roster", () => {
-        tabs.set("tab:a1", { meta: followMeta("b1", "the escalation flow") });
-        tabs.set("tab:a2", { meta: followMeta("b-other") });
-        tabs.set("tab:a3", { meta: followMeta("b1") });
-        const model = makeModel(["a1", "a2", "a3"]);
-        const follows = boardFollowsAtom(model, "b1");
-        expect(globalStore.get(follows)).toEqual([
-            { tabId: "a1", agentName: "claude · a1", ask: "the escalation flow" },
-            { tabId: "a3", agentName: "claude · a3", ask: "" },
-        ]);
-        globalStore.set(model.agentsAtom, (prev) => prev.filter((a) => a.id !== "a1"));
-        expect(globalStore.get(follows).map((f) => f.tabId)).toEqual(["a3"]);
+    it("lands only the latest of two overlapping talk reads", async () => {
+        let first!: (v: BoardTalk) => void;
+        rpc.BoardTalkCommand.mockImplementationOnce(() => new Promise((r) => (first = r))).mockResolvedValueOnce(
+            talk("b7", [turn("t2")])
+        );
+        const older = loadBoardTalk("c1", "b7");
+        await loadBoardTalk("c1", "b7");
+        first(talk("b7"));
+        await older;
+        expect(globalStore.get(boardTalkAtom("b7"))?.turns.map((t) => t.id)).toEqual(["t2"]);
     });
 });
 
 describe("the open canvas's hooks", () => {
-    it("routes draws to a registered board until it unregisters", async () => {
-        const apply = vi.fn(async () => "new" as const);
+    it("routes answers to a registered board until it unregisters", async () => {
+        const apply = vi.fn(async () => ["s1"]);
         const unregister = registerLiveBoard("c1", "b1", apply);
         expect(liveBoardApply("b1")).toBe(apply);
         unregister();
@@ -180,5 +147,23 @@ describe("the open canvas's hooks", () => {
         expect(clear).toHaveBeenCalledOnce();
         setBoardEscape(null);
         expect(runBoardEscape()).toBe(false);
+    });
+
+    it("an open form owns Escape before the canvas, and gives it back when it closes", () => {
+        const clear = vi.fn();
+        const cancel = vi.fn();
+        setBoardEscape(clear);
+        setCanvasOwnsEscape(false);
+        setBoardFormEscape(cancel);
+        expect(globalStore.get(boardOwnsEscapeAtom)).toBe(true);
+        runBoardEscape();
+        expect(cancel).toHaveBeenCalledOnce();
+        expect(clear).not.toHaveBeenCalled();
+        setBoardFormEscape(null);
+        expect(globalStore.get(boardOwnsEscapeAtom)).toBe(false);
+        setCanvasOwnsEscape(true);
+        expect(globalStore.get(boardOwnsEscapeAtom)).toBe(true);
+        setBoardEscape(null);
+        expect(globalStore.get(boardOwnsEscapeAtom)).toBe(false);
     });
 });

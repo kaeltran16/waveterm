@@ -3,9 +3,13 @@ import type { AgentsViewModel } from "@/app/view/agents/agents";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { channelsAtom } from "@/app/view/agents/channelsstore";
 import { sessionsArchiveAtom, type LiveSession } from "@/app/view/agents/sessionsarchivestore";
+import { openBoardAsk } from "@/app/view/jarvis/openref";
 import { atom, createStore } from "jotai";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { SESSION_KIND, type SessionThing } from "./session";
+
+// the action's target is what it hands the router
+vi.mock("@/app/view/jarvis/openref", async (orig) => ({ ...(await orig<object>()), openBoardAsk: vi.fn() }));
 
 const mk = (over: Partial<LiveSession> = {}): LiveSession => ({
     id: "s1",
@@ -76,21 +80,26 @@ describe("session entries", () => {
     });
 });
 
-describe("session Draw on a board…", () => {
-    const draw = action("session:draw-board");
-    const target = (t: SessionThing) => (draw.input?.kind === "board" ? draw.input.target(t) : null);
-    it("draws the session's transcript in the project at its path, never followed", () => {
+describe("session Ask a board about this…", () => {
+    const ask = action("session:ask-board");
+    const target = (t: SessionThing) => {
+        vi.mocked(openBoardAsk).mockClear();
+        void ask.run(t, { model: {} as AgentsViewModel });
+        const [, channelId, about] = vi.mocked(openBoardAsk).mock.calls[0] ?? [];
+        return channelId == null ? null : { channelId, about };
+    };
+    it("asks about the session's transcript in the project at its path", () => {
         globalStore.set(channelsAtom, [
             { oid: "ch-p", otype: "channel", version: 1, name: "proj", projectpath: "/p", createdts: 0 },
         ] as Channel[]);
         try {
+            expect(ask.label).toBe("Ask a board about this…");
             expect(target(thing(mk()))).toEqual({
                 channelId: "ch-p",
-                source: { kind: "session", ref: "claude:s1", path: "/t/s1.jsonl", runtime: "claude", title: "fix it" },
-                followable: false,
+                about: { kind: "session", ref: "claude:s1", path: "/t/s1.jsonl", runtime: "claude", title: "fix it" },
             });
-            // no transcript: nothing for the scribe to read
-            expect(draw.applies(thing(mk({ transcriptpath: "" })))).toBe(false);
+            // no transcript: nothing for the drawer to read
+            expect(ask.applies(thing(mk({ transcriptpath: "" })))).toBe(false);
         } finally {
             globalStore.set(channelsAtom, null);
         }

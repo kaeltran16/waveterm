@@ -43,7 +43,7 @@ import {
     sheetLead,
 } from "@/app/view/jarvis/runsheetmodel";
 import { allRunsAtom, type ProjectRun } from "../palette-data";
-import { drawOnBoardAction } from "./boarddraw";
+import { askBoardAction } from "./boardask";
 import type { ThingAction, ThingKindDef } from "./types";
 
 export interface RunThing {
@@ -257,17 +257,16 @@ const RUN_ACTIONS: ThingAction<RunThing>[] = [
     endFinal("failed", "End final stage: fail"),
 ];
 
-// a run draws on a board in its own project, read whole
-const drawOnBoard = drawOnBoardAction<RunThing>("run", (t) => ({
+// a run is asked about in its own project
+const askBoard = askBoardAction<RunThing>("run", (t) => ({
     channelId: t.channelId,
-    source: { kind: "run", ref: t.run.id, channelid: t.channelId, title: `run ${t.run.id.slice(0, 8)}` },
-    followable: false,
+    about: { kind: "run", ref: t.run.id, channelid: t.channelId, title: `run ${t.run.id.slice(0, 8)}` },
 }));
 
 export const RUN_KIND: ThingKindDef<RunThing> = {
     kind: "run",
     noun: "Run",
-    actions: [...RUN_ACTIONS, drawOnBoard],
+    actions: [...RUN_ACTIONS, askBoard],
     entries: (get, model) => {
         const agents = get(model.agentsAtom);
         const lineage = get(model.lineageAtom);

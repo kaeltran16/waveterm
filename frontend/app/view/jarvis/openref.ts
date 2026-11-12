@@ -30,7 +30,8 @@ import { runRoleOf } from "../agents/runlineage";
 import { setupTabAtom } from "../agents/setupstore";
 import { usageLensAtom } from "../agents/usagestore";
 import { workflowScanRunAtom } from "../agents/workflowscanstart";
-import { loadBoardList, selectBoard } from "../boards/boardstore";
+import { boardFormAtom } from "../boards/boardformrequest";
+import { boardsChannelAtom, loadBoardList, selectBoard } from "../boards/boardstore";
 import { openInCode } from "../code/codestore";
 import { openDagLive, openDagTask } from "../orchestrate/dagmodalstate";
 import { isCanvasSegment, parseAddress, type AddressHint, type OpenTarget } from "./address";
@@ -344,6 +345,14 @@ function selectBoardTarget(model: AgentsViewModel, target: BoardTarget): OpenRes
     selectBoard(target.channelId, target.boardId);
     landOn(model.surfaceAtom, "boards");
     return OK;
+}
+
+// Ask a board about this…: pins the project, asks the Boards surface for its form on the thing, and lands there.
+// Nothing to load: the form makes the board.
+export function openBoardAsk(model: AgentsViewModel, channelId: string, about: BoardSource): void {
+    globalStore.set(boardsChannelAtom, channelId);
+    globalStore.set(boardFormAtom, { kind: "about", channelId, about });
+    landOn(model.surfaceAtom, "boards");
 }
 
 async function select<T>(load: Loaded<T>, write: (facts: T) => OpenResult | Promise<OpenResult>): Promise<OpenResult> {

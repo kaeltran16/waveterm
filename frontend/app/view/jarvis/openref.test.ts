@@ -46,6 +46,7 @@ import { attachCanvas, detachCanvas, getCanvas, setCanvasMode, setMark } from ".
 import { activeChannelIdAtom } from "../agents/channelsstore";
 import { memorySelectedChangeAtom, memorySelectedProjectAtom } from "../agents/memorystore";
 import { setupTabAtom } from "../agents/setupstore";
+import { boardFormAtom } from "../boards/boardformrequest";
 import { boardsChannelAtom, openBoardByChannelAtom } from "../boards/boardstore";
 import { dagModalStateAtom, dismissDagModal } from "../orchestrate/dagmodalstate";
 import { selectedTaskIdAtom } from "../orchestrate/dagstore";
@@ -53,7 +54,16 @@ import type { OpenTarget } from "./address";
 import { effortDetailAtom } from "./effortstore";
 import { briefPeekRecordAtom, briefSheetOpenAtom } from "./jarvisstore";
 import { activeRunIdAtom, activeSubjectAtom, recordDetailAtom } from "./jarvissubjectstore";
-import { isPeekable, openAddress, openOrPeek, openOrPeekAddress, openTarget, peekAddress, peekTarget } from "./openref";
+import {
+    isPeekable,
+    openAddress,
+    openBoardAsk,
+    openOrPeek,
+    openOrPeekAddress,
+    openTarget,
+    peekAddress,
+    peekTarget,
+} from "./openref";
 import { peekItemAtom, type PeekItem } from "./peekstore";
 import { pendingDecisionAnchorAtom, petPeekOpenAtom } from "./petstore";
 import { taskListAtom, tasksErrorAtom } from "./tasksstore";
@@ -1242,7 +1252,7 @@ describe("board landings", () => {
         const model = makeModel();
         rpc.BoardListCommand.mockResolvedValue({
             project: "waveterm",
-            boards: [{ id: "0a1b2c3d", name: "Escalation", channelid: "c1", path: "", groups: 1, createdts: 1 }],
+            boards: [{ id: "0a1b2c3d", name: "Escalation", channelid: "c1", path: "", createdts: 1 }],
         });
         expect(await openTarget(model, target)).toEqual({ ok: true });
         expect(rpc.BoardListCommand).toHaveBeenCalledWith({}, { channelid: "c1" });
@@ -1266,5 +1276,18 @@ describe("board landings", () => {
 
     it("is not peekable", () => {
         expect(isPeekable(target)).toBe(false);
+    });
+});
+
+describe("openBoardAsk", () => {
+    it("pins the project, asks for the form on the thing, and lands on Boards", () => {
+        globalStore.set(boardsChannelAtom, null);
+        globalStore.set(boardFormAtom, null);
+        const model = makeModel();
+        const about: BoardSource = { kind: "agent", ref: "t1", title: "claude", runtime: "claude" };
+        openBoardAsk(model, "c1", about);
+        expect(globalStore.get(boardsChannelAtom)).toBe("c1");
+        expect(globalStore.get(boardFormAtom)).toEqual({ kind: "about", channelId: "c1", about });
+        expect(globalStore.get(model.surfaceAtom)).toBe("boards");
     });
 });

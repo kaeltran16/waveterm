@@ -4,6 +4,7 @@ import { channelsAtom } from "@/app/view/agents/channelsstore";
 import { liveEntriesByIdAtom } from "@/app/view/agents/livetranscriptatoms";
 import type { ProjectRow } from "@/app/view/agents/projectsstore";
 import { shellTasksByIdAtom } from "@/app/view/agents/shelltasksstore";
+import { openBoardAsk } from "@/app/view/jarvis/openref";
 import { describe, expect, it, vi } from "vitest";
 import { AGENT_KIND, type AgentThing } from "./agent";
 import { actionsFor } from "./types";
@@ -13,6 +14,9 @@ vi.mock("@/app/view/agents/projectsstore", async (orig) => {
     const { atom } = await import("jotai");
     return { ...(await orig<object>()), projectListAtom: atom<ProjectRow[]>([]) };
 });
+
+// the action's target is what it hands the router
+vi.mock("@/app/view/jarvis/openref", async (orig) => ({ ...(await orig<object>()), openBoardAsk: vi.fn() }));
 
 const vm = (over: Partial<AgentVM> = {}): AgentVM => ({
     id: "tab1",
@@ -121,9 +125,14 @@ describe("agent actions", () => {
     });
 });
 
-describe("agent Draw on a board…", () => {
-    const draw = AGENT_KIND.actions.find((a) => a.id === "agent:draw-board")!;
-    const target = (t: AgentThing) => (draw.input?.kind === "board" ? draw.input.target(t) : null);
+describe("agent Ask a board about this…", () => {
+    const ask = AGENT_KIND.actions.find((a) => a.id === "agent:ask-board")!;
+    const target = (t: AgentThing) => {
+        vi.mocked(openBoardAsk).mockClear();
+        void ask.run(t, { model: {} as any });
+        const [, channelId, about] = vi.mocked(openBoardAsk).mock.calls[0] ?? [];
+        return channelId == null ? null : { channelId, about };
+    };
     const withChannels = (fn: () => void) => {
         globalStore.set(channelsAtom, [
             {
@@ -142,14 +151,20 @@ describe("agent Draw on a board…", () => {
             globalStore.set(channelsAtom, null);
         }
     };
-    it("is listed under Open, and draws the agent's own tab, followable", () => {
+    it("is listed under Open, labelled Ask a board about this…", () => {
         withChannels(() => {
-            expect(actionsFor(AGENT_KIND.actions, thing({ cwd: "C:/work/waveterm" })).available.open).toContain(draw);
-            expect(target(thing({ cwd: "C:/work/waveterm", name: "claude · waveterm" }))).toEqual({
+            expect(ask.label).toBe("Ask a board about this…");
+            expect(actionsFor(AGENT_KIND.actions, thing({ cwd: "C:/work/waveterm" })).available.open).toContain(ask);
+        });
+    });
+    it("asks about the agent's own tab, carrying its runtime", () => {
+        withChannels(() => {
+            const t = (agent?: string) => thing({ cwd: "C:/work/waveterm", name: "claude · waveterm", agent });
+            expect(target(t("codex"))).toEqual({
                 channelId: "ch-wt",
-                source: { kind: "agent", ref: "tab1", title: "claude · waveterm" },
-                followable: true,
+                about: { kind: "agent", ref: "tab1", title: "claude · waveterm", runtime: "codex" },
             });
+            expect(target(t())?.about.runtime).toBe("claude");
         });
     });
     it("finds the project by name when the cwd matches none", () => {
@@ -157,11 +172,11 @@ describe("agent Draw on a board…", () => {
             expect(target(thing({ project: "siem" }))?.channelId).toBe("ch-siem");
         });
     });
-    it("does not apply to a plain shell, a tabless agent, or with no project to draw in", () => {
+    it("does not apply to a plain shell, a tabless agent, or with no project to ask in", () => {
         withChannels(() => {
-            expect(draw.applies(thing({ cwd: "C:/work/waveterm", kind: "terminal" }))).toBe(false);
-            expect(draw.applies(thing({ cwd: "C:/work/waveterm", blockId: undefined }))).toBe(false);
+            expect(ask.applies(thing({ cwd: "C:/work/waveterm", kind: "terminal" }))).toBe(false);
+            expect(ask.applies(thing({ cwd: "C:/work/waveterm", blockId: undefined }))).toBe(false);
         });
-        expect(draw.applies(thing({ cwd: "C:/work/waveterm" }))).toBe(false);
+        expect(ask.applies(thing({ cwd: "C:/work/waveterm" }))).toBe(false);
     });
 });
