@@ -107,6 +107,19 @@ function StepText({ step }: { step: FinalStep }) {
     );
 }
 
+// A running command's hold at the memory gate, shown where the step's command reads otherwise.
+function StepMemory({ memory, className }: { memory: string; className?: string }) {
+    return (
+        <span
+            data-final-step-memory
+            title={memory}
+            className={cn("truncate font-mono text-[10.5px] text-warning", className)}
+        >
+            {memory}
+        </span>
+    );
+}
+
 export type KeptOutput = { status: LocalImageStatus; text: string };
 
 // useKeptOutput reads the output a step that ended kept on disk, through wavesrv as the screenshots are.
@@ -180,7 +193,9 @@ export function FinalStepList({ steps, showCommand }: { steps: FinalStep[]; show
                         >
                             <StepMark tone={step.tone} />
                             <StepLabel step={step} className={showCommand ? "w-14 flex-none" : undefined} />
-                            {showCommand ? (
+                            {step.memory ? (
+                                <StepMemory memory={step.memory} className="min-w-0 flex-1" />
+                            ) : showCommand ? (
                                 <span
                                     title={step.command}
                                     className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-muted"
@@ -253,9 +268,13 @@ export function FinalStepCells({
                                     <span className="flex-1" />
                                     <StepText step={step} />
                                 </span>
-                                <span title={step.command} className="truncate font-mono text-[10.5px] text-muted">
-                                    {step.command}
-                                </span>
+                                {step.memory ? (
+                                    <StepMemory memory={step.memory} />
+                                ) : (
+                                    <span title={step.command} className="truncate font-mono text-[10.5px] text-muted">
+                                        {step.command}
+                                    </span>
+                                )}
                             </>
                         ) : (
                             <>
@@ -264,6 +283,7 @@ export function FinalStepCells({
                                     <StepLabel step={step} />
                                 </span>
                                 <StepText step={step} />
+                                {step.memory ? <StepMemory memory={step.memory} /> : null}
                             </>
                         )}
                     </div>

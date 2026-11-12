@@ -11,6 +11,7 @@
 // digest's figures are dated rather than presented as current.
 
 import type { AgentVM } from "../agents/agentsviewmodel";
+import { memoryFigures } from "../agents/runcompletion";
 import { mergeGateLine, verifyFailLine, type RunInfo } from "../agents/runlineage";
 import { isTerminal, leadWorker } from "../agents/runmodel";
 import {
@@ -518,13 +519,42 @@ export function taskRow(input: SheetRowInput): SheetRow {
     };
 }
 
+const WORKER_ROLE = "worker";
+
+// what a memory hold or pause reads as: a worker's is the task's own, any other role is named
+function memoryText(memory: DagMemoryState): string {
+    const role = memory.role && memory.role !== WORKER_ROLE ? ` (${memory.role})` : "";
+    const head = memory.state === "paused" ? `paused: memory${role}` : `waiting for memory${role}`;
+    return `${head} · ${memoryFigures(memory.free, memory.need)}`;
+}
+
+function isAsk(td: DagTaskDigest | undefined): boolean {
+    return td?.waitreason === "ask" || td?.waitreason === "lead-ask";
+}
+
+// memory is shown over the state's own row, but an ask is the human's to act on, so it keeps the row
 function liveTaskRow(input: SheetRowInput): SheetRow {
+    const row = stateRow(input);
+    const memory = input.td?.memory;
+    if (memory == null || isAsk(input.td)) {
+        return row;
+    }
+    return {
+        ...row,
+        meta: memoryText(memory),
+        metaTone: "warning",
+        state: memory.state === "paused" ? "paused" : "waiting",
+        stateTone: "warning",
+    };
+}
+
+function stateRow(input: SheetRowInput): SheetRow {
     const { task, td, worker } = input;
     const base = { taskId: task.id, label: task.label || task.id };
     const dispatched = worker.state === "dispatched";
     const workerAction: SheetRowAction = dispatched ? "open-agent" : task.runid ? "open-child-run" : null;
 
-    if (td?.waitreason === "ask" || td?.waitreason === "lead-ask") {
+    if (isAsk(td)) {
         const age = td.askts ? ` · idle ${since(input.nowMs, td.askts)}` : "";
         // the digest says lead-ask for a question the lead holds; askOwner comes from the asks list, which can lag it
         const lead = td.waitreason === "lead-ask" || input.askOwner === "lead";

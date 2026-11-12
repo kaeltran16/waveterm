@@ -2,9 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { fmtBytes, fmtDuration, needsEvidenceSeal, verifCounts } from "./runcompletion";
+import { fmtBytes, fmtDuration, fmtGB, needsEvidenceSeal, verifCounts } from "./runcompletion";
 
 describe("runcompletion derivations", () => {
+    it("fmtGB one decimal", () => {
+        expect(fmtGB(3.5 * 1024 ** 3)).toBe("3.5 GB");
+        expect(fmtGB(2.14 * 1024 ** 3)).toBe("2.1 GB");
+        expect(fmtGB(512 * 1024 ** 2)).toBe("0.5 GB");
+        expect(fmtGB(0)).toBe("0.0 GB");
+    });
     it("formats duration and bytes", () => {
         expect(fmtDuration(848000)).toBe("14m 08s");
         expect(fmtDuration(9000)).toBe("9s");

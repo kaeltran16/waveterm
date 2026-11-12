@@ -7,7 +7,7 @@
 
 import { stageHasShots } from "@/app/view/jarvis/finalshotsmodel";
 import type { AgentVM } from "./agentsviewmodel";
-import { fmtDuration } from "./runcompletion";
+import { fmtDuration, memoryFigures } from "./runcompletion";
 import { detailOf } from "./runtimeline";
 
 export type FinalStepKey = "tree" | "check" | "verify" | "final" | "verifier";
@@ -27,6 +27,8 @@ export interface FinalStep {
     command: string;
     // where a command step that ended kept its output; ts is its end, so a rerun's output is not read from cache
     kept?: { path: string; ts: number };
+    // a running command waiting at the memory gate: "waiting for memory · 2.1 GB free, 3.5 GB needed"
+    memory?: string;
 }
 
 export interface FinalRoundLine {
@@ -74,6 +76,11 @@ export interface FinalStageView {
 }
 
 const FINAL_STEP_EVENT = "final-step";
+const FINAL_ENDED_EVENT = "final-ended";
+const MEMORY_HELD_EVENT = "memory-held";
+const MEMORY_ADMITTED_EVENT = "memory-admitted";
+// the memory gate's role for each command step; the stage runs no Setup of its own (finalTree reuses the landing tree)
+const MEMORY_ROLES: Partial<Record<FinalStepKey, string>> = { check: "Check", verify: "Verify", final: "Final" };
 // the engine's finalEndedByHuman, trimmed: what opens the reason of a stage a human ended
 const ENDED_BY_HUMAN = "ended by the human:";
 const RUNNING_STATES = new Set(["checking", "final", "verifying"]);
@@ -130,6 +137,42 @@ export function finalStepOutputPath(outDir: string, key: FinalStepKey): string {
 type StepEvent = { ts: number; ms: number; ok: boolean };
 type StepEventDetail = { round?: number; step?: string; ms?: number; ok?: boolean };
 type Commands = Pick<TaskGroup, "check" | "verify" | "finalcmd">;
+
+type MemoryEventDetail = { taskid?: string; role?: string; free?: number; need?: number };
+
+// the stage's commands held at the memory gate, by role: a task-less memory-held with no later memory-admitted,
+// after the run's latest final-ended (the previous round's end), so a hold an earlier round left is not shown
+function memoryHolds(events: RunEvent[]): Map<string, string> {
+    let roundStart = 0;
+    for (const e of events) {
+        if (e.kind === FINAL_ENDED_EVENT && e.ts > roundStart) {
+            roundStart = e.ts;
+        }
+    }
+    const held = new Map<string, { ts: number; text: string }>();
+    const admitted = new Map<string, number>();
+    for (const e of events) {
+        if (e.ts <= roundStart || (e.kind !== MEMORY_HELD_EVENT && e.kind !== MEMORY_ADMITTED_EVENT)) {
+            continue;
+        }
+        const d = detailOf<MemoryEventDetail>(e);
+        if (!d?.role || d.taskid) {
+            continue;
+        }
+        if (e.kind === MEMORY_ADMITTED_EVENT) {
+            admitted.set(d.role, Math.max(admitted.get(d.role) ?? 0, e.ts));
+        } else if ((held.get(d.role)?.ts ?? 0) < e.ts) {
+            held.set(d.role, { ts: e.ts, text: `waiting for memory · ${memoryFigures(d.free ?? 0, d.need ?? 0)}` });
+        }
+    }
+    const holds = new Map<string, string>();
+    for (const [role, h] of held) {
+        if ((admitted.get(role) ?? 0) < h.ts) {
+            holds.set(role, h.text);
+        }
+    }
+    return holds;
+}
 
 function stepKeys(group: Commands): FinalStepKey[] {
     const commands = (["check", "verify", "final"] as const).filter((k) => commandOf(group, k) !== "");
@@ -235,7 +278,8 @@ function buildSteps(
     group: Commands,
     evs: Map<string, StepEvent>,
     now: number,
-    verifierRun: Pick<Run, "completedts"> | undefined
+    verifierRun: Pick<Run, "completedts"> | undefined,
+    holds: Map<string, string> = new Map()
 ): FinalStep[] {
     const keys = stepKeys(group);
     const states = stepStates(stage, group, keys, evs);
@@ -270,6 +314,7 @@ function buildSteps(
             text: withTime(STEP_WORDS[state], ms),
             command: WHAT_IT_DOES[key] ?? commandOf(group, key),
             kept,
+            memory: state === "running" && MEMORY_ROLES[key] ? holds.get(MEMORY_ROLES[key]) : undefined,
         };
     });
 }
@@ -343,7 +388,7 @@ export function finalStageView(
     const round = stage?.round || 1;
     const state = stage?.state ?? "";
     const evs = roundEvents(events, round);
-    const steps = buildSteps(stage, group, evs, now, verifierRun);
+    const steps = buildSteps(stage, group, evs, now, verifierRun, memoryHolds(events));
     const isRunning = RUNNING_STATES.has(state);
     const ended = state !== "" && !isRunning;
 

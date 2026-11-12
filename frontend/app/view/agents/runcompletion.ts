@@ -28,6 +28,16 @@ export function fmtBytes(n: number): string {
     return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// memory figures: fmtBytes stops at MB, and a free/needed pair reads best in one unit
+export function fmtGB(bytes: number): string {
+    return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+}
+
+// the figures a memory hold or pause shows, the run sheet's row and the final stage's step alike
+export function memoryFigures(free: number, need: number): string {
+    return `${fmtGB(free)} free, ${fmtGB(need)} needed`;
+}
+
 export function fmtClock(tsMs: number): string {
     if (!tsMs) {
         return "—";

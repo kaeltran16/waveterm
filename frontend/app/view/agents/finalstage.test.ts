@@ -649,6 +649,59 @@ describe("outputTail", () => {
     });
 });
 
+describe("finalStageView, memory holds", () => {
+    const GB = 1024 ** 3;
+    const memory = (kind: string, ts: number, detail: object): RunEvent => ({
+        id: `m-${ts}-${kind}`,
+        runid: "lead-run",
+        channelid: "ch",
+        ts,
+        kind,
+        detail: JSON.stringify(detail),
+    });
+    const held = (role: string, ts: number, taskid = "") =>
+        memory("memory-held", ts, { taskid, role, free: 2.1 * GB, need: 3.5 * GB });
+    const running = (step: string, round = 1) => ({
+        state: "checking",
+        round,
+        step,
+        stepts: NOW - 5 * S,
+        startedts: 1,
+    });
+    const detailOfStep = (v: FinalStageView, key: string) => v.steps.find((s) => s.key === key)?.memory;
+
+    it("final step waiting for memory", () => {
+        const v = finalStageView(dag(running("check")), [held("Check", NOW - 4 * S)], NOW);
+        expect(detailOfStep(v, "check")).toBe("waiting for memory · 2.1 GB free, 3.5 GB needed");
+        // only the running step's own command shows it
+        expect(v.steps.filter((s) => s.memory != null).map((s) => s.key)).toEqual(["check"]);
+
+        const admitted = [
+            held("Check", NOW - 4 * S),
+            memory("memory-admitted", NOW - 2 * S, { taskid: "", role: "Check" }),
+        ];
+        expect(detailOfStep(finalStageView(dag(running("check")), admitted, NOW), "check")).toBeUndefined();
+
+        // a task's hold and another command's hold are not this step's
+        const others = [held("Check", NOW - 4 * S, "t-3"), held("Verify", NOW - 4 * S)];
+        expect(detailOfStep(finalStageView(dag(running("check")), others, NOW), "check")).toBeUndefined();
+    });
+
+    it("previous round's hold is not shown", () => {
+        const events = [
+            held("Verify", NOW - 60 * S),
+            memory("final-ended", NOW - 30 * S, { round: 1, outcome: "failed" }),
+        ];
+        const v = finalStageView(dag(running("verify", 2)), events, NOW);
+        expect(detailOfStep(v, "verify")).toBeUndefined();
+
+        const again = [...events, held("Verify", NOW - 10 * S)];
+        expect(detailOfStep(finalStageView(dag(running("verify", 2)), again, NOW), "verify")).toBe(
+            "waiting for memory · 2.1 GB free, 3.5 GB needed"
+        );
+    });
+});
+
 describe("finalFailedNote", () => {
     it("says the lead is asking about the failure, and that a rerun is the human's call", () => {
         expect(finalFailedNote({ asking: true })).toBe(
