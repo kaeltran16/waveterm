@@ -6,12 +6,15 @@
 // rows come from boardmodel.ts and every action is the surface's.
 
 import { KIND_ICONS } from "@/app/cockpit/palette-rows";
+import { DrawCheck } from "@/app/element/drawcheck";
 import { useChangeFlash } from "@/app/element/motionhooks";
-import { changeFlashClass, composerReveal, errorNudge, paneReveal } from "@/app/element/motiontokens";
+import { cardVariants, changeFlashClass, composerReveal, errorNudge, paneReveal } from "@/app/element/motiontokens";
+import { atoms } from "@/app/store/global";
 import { cn } from "@/util/util";
+import { useAtomValue } from "jotai";
 import { ChevronRight, Pencil, Play } from "lucide-react";
-import { AnimatePresence, motion } from "motion/react";
-import { useState, type KeyboardEvent } from "react";
+import { AnimatePresence, motion, type Transition } from "motion/react";
+import { useRef, useState, type KeyboardEvent } from "react";
 import { boardTime, type BoardSourceRow } from "./boardmodel";
 import type { BoardFollower } from "./boardstore";
 
@@ -21,6 +24,18 @@ const PRIMARY_BTN =
     "cursor-pointer rounded-md border-0 bg-accent px-[11px] py-1 text-[12px] font-semibold text-background hover:bg-accenthover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
 const ERROR_BTN =
     "cursor-pointer rounded-md border border-error/40 bg-transparent px-2.5 py-[3px] text-[12px] font-semibold text-error-soft hover:bg-error/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
+
+// reducedMotion="user" leaves layout animations running, so reduced motion snaps them itself
+const SNAP: Transition = { duration: 0 };
+
+// an entering or leaving row (moments 1 and 2); the caller adds `layout` so the rows around it reflow
+const CARD = { variants: cardVariants, initial: "initial", animate: "animate", exit: "exit" } as const;
+// a block revealing under its row (moment 6)
+const REVEAL = { variants: composerReveal, initial: "initial", animate: "animate", exit: "exit" } as const;
+
+function useLayoutTransition(): Transition | undefined {
+    return useAtomValue(atoms.prefersReducedMotionAtom) ? SNAP : undefined;
+}
 
 function plural(n: number, word: string): string {
     return `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -217,6 +232,15 @@ function SourceRow({
     const st = row.status;
     const drawing = row.state === "drawing";
     const subline = drawing && st?.reading ? `Reading ${st.reading}` : row.subline;
+    // a pass seen drawing while mounted, then ending not failed, landed (moment 16); a row mounted drawn never did
+    const wasDrawing = useRef(drawing);
+    const landed = useRef(false);
+    if (drawing) {
+        landed.current = false;
+    } else if (wasDrawing.current && row.state !== "failed") {
+        landed.current = true;
+    }
+    wasDrawing.current = drawing;
     return (
         <div
             role="treeitem"
@@ -238,96 +262,139 @@ function SourceRow({
                 <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <span className="flex items-center gap-1.5">
                         <span className="truncate text-[12.5px] font-semibold">{row.title}</span>
-                        {row.isNew && !drawing ? (
-                            <span className="shrink-0 rounded-full bg-accentbg px-[7px] py-px text-[10.5px] font-semibold text-accent-soft">
-                                New
-                            </span>
-                        ) : null}
+                        <AnimatePresence initial={false}>
+                            {row.isNew && !drawing ? (
+                                <motion.span
+                                    key="new"
+                                    {...CARD}
+                                    className="shrink-0 rounded-full bg-accentbg px-[7px] py-px text-[10.5px] font-semibold text-accent-soft"
+                                >
+                                    New
+                                </motion.span>
+                            ) : null}
+                        </AnimatePresence>
                         {drawing ? <Mark tone="working" label="drawing" pulse /> : null}
+                        {/* mounted with the row and driven by done, so it draws when the draw lands */}
+                        <DrawCheck done={landed.current && row.isNew && !drawing} className="shrink-0 text-success" />
                         {row.state === "failed" ? <Mark tone="error" label="failed" /> : null}
                     </span>
                     <span className="text-[11.5px] text-muted">{subline}</span>
                 </span>
             </button>
-            {drawing ? (
-                <div className="mx-1.5 mb-2 ml-7 text-[11.5px] leading-[1.45] text-ink-mid">
-                    {drawnTs != null ? "The group stays as drawn until the redraw lands." : null}
-                    {st?.queued ? `${drawnTs != null ? " " : ""}${queuedLine(st.queued)}` : null}
-                </div>
-            ) : null}
-            {row.state === "failed" && st != null ? (
-                <div className="mx-1.5 mb-2 ml-7 flex flex-col gap-2 rounded-md border border-error/40 bg-error/10 px-[9px] py-2">
-                    <span className="text-[12px] leading-[1.4] text-error-soft">
-                        {drawnTs != null
-                            ? `The ${boardTime(st.ts, now)} redraw failed: ${st.reason || "no reason given"}. The group keeps its ${boardTime(drawnTs, now)} version.`
-                            : `The ${boardTime(st.ts, now)} draw failed: ${st.reason || "no reason given"}.`}
-                    </span>
-                    <span className="flex justify-end">
-                        <button type="button" onClick={onRetry} className={ERROR_BTN}>
-                            Retry
-                        </button>
-                    </span>
-                </div>
-            ) : null}
-            {row.state === "pending" && row.pending != null ? (
-                <div className="mx-1.5 mb-2 ml-7 flex flex-col gap-2 rounded-md border border-edge-strong bg-surface-raised px-[9px] py-2">
-                    <span className="text-[12px] leading-[1.4] text-secondary">
-                        You edited it at {boardTime(row.pending.editedTs, now)}, so the{" "}
-                        {boardTime(row.pending.drawnTs, now)} redraw waits beside it.
-                    </span>
-                    <span className="flex justify-end gap-1.5">
-                        <button type="button" onClick={onDrop} className={SMALL_BTN}>
-                            Drop
-                        </button>
-                        <button type="button" onClick={onKeep} className={PRIMARY_BTN}>
-                            Keep
-                        </button>
-                    </span>
-                </div>
-            ) : null}
+            {/* each block reveals under its row (moment 6); the margins sit inside so the height tween includes them */}
+            <AnimatePresence initial={false}>
+                {drawing ? (
+                    <motion.div key="drawing" {...REVEAL} className="overflow-hidden">
+                        <div className="mx-1.5 mb-2 ml-7 text-[11.5px] leading-[1.45] text-ink-mid">
+                            {drawnTs != null ? "The group stays as drawn until the redraw lands." : null}
+                            {st?.queued ? `${drawnTs != null ? " " : ""}${queuedLine(st.queued)}` : null}
+                        </div>
+                    </motion.div>
+                ) : null}
+                {row.state === "failed" && st != null ? (
+                    <motion.div key="failed" {...REVEAL} className="overflow-hidden">
+                        <div className="mx-1.5 mb-2 ml-7 flex flex-col gap-2 rounded-md border border-error/40 bg-error/10 px-[9px] py-2">
+                            <span className="text-[12px] leading-[1.4] text-error-soft">
+                                {drawnTs != null
+                                    ? `The ${boardTime(st.ts, now)} redraw failed: ${st.reason || "no reason given"}. The group keeps its ${boardTime(drawnTs, now)} version.`
+                                    : `The ${boardTime(st.ts, now)} draw failed: ${st.reason || "no reason given"}.`}
+                            </span>
+                            <span className="flex justify-end">
+                                <button type="button" onClick={onRetry} className={ERROR_BTN}>
+                                    Retry
+                                </button>
+                            </span>
+                        </div>
+                    </motion.div>
+                ) : null}
+                {row.state === "pending" && row.pending != null ? (
+                    <motion.div key="pending" {...REVEAL} className="overflow-hidden">
+                        <div className="mx-1.5 mb-2 ml-7 flex flex-col gap-2 rounded-md border border-edge-strong bg-surface-raised px-[9px] py-2">
+                            <span className="text-[12px] leading-[1.4] text-secondary">
+                                You edited it at {boardTime(row.pending.editedTs, now)}, so the{" "}
+                                {boardTime(row.pending.drawnTs, now)} redraw waits beside it.
+                            </span>
+                            <span className="flex justify-end gap-1.5">
+                                <button type="button" onClick={onDrop} className={SMALL_BTN}>
+                                    Drop
+                                </button>
+                                <button type="button" onClick={onKeep} className={PRIMARY_BTN}>
+                                    Keep
+                                </button>
+                            </span>
+                        </div>
+                    </motion.div>
+                ) : null}
+            </AnimatePresence>
         </div>
     );
 }
 
 function BoardTree(props: BoardTreeProps) {
     const { rows, follows, yourShapes, empty, selectedKey, now } = props;
+    const reflow = useLayoutTransition();
+    // the rows come with the canvas's scene, after the tree mounts: their presence mounts with them, so the rows
+    // there on open land settled and only a source drawn later enters
+    const loaded = yourShapes != null;
     return (
-        <div role="group" className="mb-2 ml-[13px] mt-1.5 flex flex-col gap-0.5 border-l border-edge-mid pl-2">
-            {follows.map((f) => (
-                <div
-                    key={f.tabId}
-                    data-board-follow={f.tabId}
-                    className="flex items-center gap-2 py-1.5 pl-1.5 pr-1 pb-2"
-                >
-                    <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-working" />
-                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                        <span className="truncate text-[12px] font-semibold text-primary">Following {f.agentName}</span>
-                        <span className="text-[11.5px] text-muted">redraws at each turn end</span>
-                    </span>
-                    <button type="button" onClick={() => props.onStop(f.tabId)} className={SMALL_BTN}>
-                        Stop
-                    </button>
-                </div>
-            ))}
-            {empty ? (
-                <span className="py-1.5 pl-1.5 text-[12px] text-muted">Nothing drawn yet</span>
-            ) : (
-                <>
-                    {rows.map((row) => (
-                        <SourceRow
-                            key={row.key}
-                            row={row}
-                            drawnTs={props.drawnTs[row.key]}
-                            selected={selectedKey === row.key}
-                            now={now}
-                            onPick={() => props.onPick(row.key)}
-                            onKeep={() => props.onKeep(row.key)}
-                            onDrop={() => props.onDrop(row.key)}
-                            onRetry={() => props.onRetry(row.key)}
-                        />
-                    ))}
-                    {yourShapes != null ? (
-                        <div
+        // relative: a leaving row pops out (popLayout) against this box
+        <div
+            role="group"
+            className="relative mb-2 ml-[13px] mt-1.5 flex flex-col gap-0.5 border-l border-edge-mid pl-2"
+        >
+            <AnimatePresence initial={false} mode="popLayout">
+                {follows.map((f) => (
+                    <motion.div
+                        key={f.tabId}
+                        layout
+                        transition={reflow}
+                        {...CARD}
+                        data-board-follow={f.tabId}
+                        className="flex items-center gap-2 py-1.5 pl-1.5 pr-1 pb-2"
+                    >
+                        <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-working" />
+                        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                            <span className="truncate text-[12px] font-semibold text-primary">
+                                Following {f.agentName}
+                            </span>
+                            <span className="text-[11.5px] text-muted">redraws at each turn end</span>
+                        </span>
+                        <button type="button" onClick={() => props.onStop(f.tabId)} className={SMALL_BTN}>
+                            Stop
+                        </button>
+                    </motion.div>
+                ))}
+            </AnimatePresence>
+            {loaded ? (
+                <AnimatePresence initial={false} mode="popLayout">
+                    {empty ? (
+                        <motion.span key="empty" {...CARD} className="py-1.5 pl-1.5 text-[12px] text-muted">
+                            Nothing drawn yet
+                        </motion.span>
+                    ) : null}
+                    {/* position only: a row's own height changes as its blocks reveal, and a scaled row smears */}
+                    {empty
+                        ? null
+                        : rows.map((row) => (
+                              <motion.div key={row.key} layout="position" transition={reflow} {...CARD}>
+                                  <SourceRow
+                                      row={row}
+                                      drawnTs={props.drawnTs[row.key]}
+                                      selected={selectedKey === row.key}
+                                      now={now}
+                                      onPick={() => props.onPick(row.key)}
+                                      onKeep={() => props.onKeep(row.key)}
+                                      onDrop={() => props.onDrop(row.key)}
+                                      onRetry={() => props.onRetry(row.key)}
+                                  />
+                              </motion.div>
+                          ))}
+                    {empty ? null : (
+                        <motion.div
+                            key="yours"
+                            layout="position"
+                            transition={reflow}
+                            {...CARD}
                             role="treeitem"
                             aria-selected={false}
                             data-board-yours
@@ -340,10 +407,10 @@ function BoardTree(props: BoardTreeProps) {
                                     {yourShapes} · the scribe never changes them
                                 </span>
                             </span>
-                        </div>
-                    ) : null}
-                </>
-            )}
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+            ) : null}
         </div>
     );
 }
@@ -364,6 +431,7 @@ export interface BoardsListProps {
 
 export function BoardsList(props: BoardsListProps) {
     const { project, boards, openId, folded, naming, now } = props;
+    const reflow = useLayoutTransition();
     return (
         <aside
             aria-label={`Boards in ${project}`}
@@ -391,7 +459,7 @@ export function BoardsList(props: BoardsListProps) {
                         />
                     ) : null}
                 </AnimatePresence>
-                {/* the list reorders as boards are drawn on (moment 2) */}
+                {/* the list reorders as boards are drawn on, and a board made or gone enters or leaves (moments 1, 2) */}
                 <AnimatePresence mode="popLayout" initial={false}>
                     {boards.map((b) => {
                         const isOpen = b.id === openId;
@@ -399,6 +467,8 @@ export function BoardsList(props: BoardsListProps) {
                             <motion.div
                                 key={b.id}
                                 layout
+                                transition={reflow}
+                                {...CARD}
                                 role="treeitem"
                                 aria-expanded={isOpen ? !folded : false}
                                 aria-selected={isOpen}

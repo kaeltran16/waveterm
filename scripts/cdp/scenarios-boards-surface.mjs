@@ -131,12 +131,15 @@ const pressEscape = (h) =>
         window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true }));
     })()`);
 
-// stubs the inbox, its ack and the status read, so the real applier lands the draws handed to deliver()
+// stubs the inbox, its ack and the status read, so the real applier lands the draws handed to deliver(); the list
+// reads the stubbed status into each board's state as wavesrv does (drawing if any source draws, else failed); Stop
+// clears the fixture tab's follow keys as BoardFollowStop does
+const STUBBED = ["BoardInboxCommand", "BoardInboxAckCommand", "BoardStatusCommand", "BoardListCommand", "BoardFollowStopCommand"];
 async function installStubs(h, ctx) {
     await page(
         h,
         `fx.channelId = ${q(ctx.channelId)};
-        fx.orig ??= { inbox: RpcApi.BoardInboxCommand, ack: RpcApi.BoardInboxAckCommand, status: RpcApi.BoardStatusCommand };
+        fx.orig ??= { inbox: RpcApi.BoardInboxCommand, ack: RpcApi.BoardInboxAckCommand, status: RpcApi.BoardStatusCommand, list: RpcApi.BoardListCommand };
         RpcApi.BoardInboxCommand = async (_c, d) => fx.inbox.filter((x) => !d?.boardid || x.boardid === d.boardid);
         RpcApi.BoardInboxAckCommand = async (_c, d) => {
             fx.acks.push(d.drawid);
@@ -144,9 +147,22 @@ async function installStubs(h, ctx) {
         };
         RpcApi.BoardStatusCommand = async (c, d) =>
             fx.status != null && d.boardid === fx.status.boardid ? fx.status : fx.orig.status.call(RpcApi, c, d);
+        RpcApi.BoardListCommand = async (c, d) => {
+            const rtn = await fx.orig.list.call(RpcApi, c, d);
+            const srcs = fx.status?.sources ?? [];
+            const state = srcs.some((s) => s.state === "drawing") ? "drawing" : srcs.length > 0 ? "failed" : undefined;
+            return { ...rtn, boards: (rtn?.boards ?? []).map((b) => (state && b.id === fx.status.boardid ? { ...b, state } : b)) };
+        };
+        RpcApi.BoardFollowStopCommand = async (_c, d) => {
+            const WOS = await mod("app/store/wos.ts");
+            WOS.setObjectValue({ otype: "tab", oid: d.tabid, version: 2, name: "fx", blockids: [], meta: {} });
+        };
         return true;`
     );
 }
+
+// the check DrawCheck draws (its 12x12 path), so a row's kind icon never reads as one
+const CHECK = `path[d="M2.5 6.5l2.5 2.5 4.5-6"]`;
 
 const event = (h, data) =>
     page(
@@ -216,9 +232,11 @@ async function seedFollow(h, ctx) {
     );
 }
 
+// opens the board unless it already is: clicking an open board's row folds it
 async function openBoard(h, boardId) {
-    await h.ev(`${rowExpr(boardId)}?.querySelector("button")?.click()`);
-    if (!(await polishWaitFor(h, `!!${SURFACE}?.querySelector('[data-board-canvas="${boardId}"] .excalidraw')`, 20000))) {
+    const canvas = `!!${SURFACE}?.querySelector('[data-board-canvas="${boardId}"] .excalidraw')`;
+    if (!(await h.ev(canvas))) await h.ev(`${rowExpr(boardId)}?.querySelector("button")?.click()`);
+    if (!(await polishWaitFor(h, canvas, 20000))) {
         throw new Error(`board ${boardId} never opened its canvas`);
     }
     await polishNap(1200);
@@ -434,18 +452,78 @@ export const boardsSurface = {
             await event(h, { channelid: ctx.channelId, boardid: ctx.mainId, what: "failed", sourcekey: SRC.run.key, reason: FAIL_REASON });
             await polishWaitFor(h, `!!${sourceExpr(SRC.run.key)}?.textContent.includes("Retry")`, 10000);
             await polishWaitFor(h, `[...document.querySelectorAll('[data-notification-toast="error"]')].some((t) => t.textContent.includes("couldn't draw"))`, 10000);
+            await polishWaitFor(h, `!!${rowExpr(ctx.mainId)}?.querySelector('button [data-board-mark="drawing"]')`, 10000);
+            // the drawing row's New chip leaves as the drawing mark comes (moment 1 exit): read the row once it has
+            await polishWaitFor(h, `${text(sourceExpr(SRC.rerun.key))}.startsWith(${q(`${SRC.rerun.ask}drawing`)})`, 5000);
             const drawing = await h.ev(text(sourceExpr(SRC.rerun.key)));
             const failed = await h.ev(text(sourceExpr(SRC.run.key)));
             const header = await h.ev(text(HEADER));
             const toast = await toastText(h, "couldn't draw");
+            // the board's own row says the scribe draws on it (D2), not what is new
+            const boardRow = await h.ev(text(`${rowExpr(ctx.mainId)}?.querySelector("button")`));
             await h.shot(`cdp-shots/${NAME}-5-drawing-and-failed.png`);
             const ok =
+                boardRow === `${MAIN}drawing` &&
                 drawing ===
                     `${SRC.rerun.ask}drawingReading the 16:09 turn endThe group stays as drawn until the redraw lands. 1 more turn end came in; it joins the next pass.` &&
                 /^run 4842b792failedno ask, read whole · 3 shapes · \d\d:\d\dThe \d\d:\d\d redraw failed: the scribe session ended without returning a drawing\. The group keeps its \d\d:\d\d version\.Retry$/.test(failed) &&
                 header.endsWith(`Scribe drawing · following ${AGENT_NAME}`) &&
                 toast === `Scribe couldn't draw on ${MAIN}run 4842b792: ${FAIL_REASON}Open`;
-            return { ok, detail: q({ drawing, failed, header, toast }) };
+            return { ok, detail: q({ boardRow, drawing, failed, header, toast }) };
+        });
+
+        await run("5b. a draw lands: the source that was drawing gets its draw, and its row trades the drawing mark for the drawn check beside New", async () => {
+            const before = await h.ev(`!!${sourceExpr(SRC.rerun.key)}?.querySelector(${q(CHECK)})`);
+            const status = await page(h, `return fx.status;`);
+            await page(h, `fx.status = ${q({ ...status, sources: status.sources.filter((s) => s.sourcekey !== SRC.rerun.key) })}; return true;`);
+            const draw = drawOf(ctx, SRC.rerun, SKELETON.rerun, Date.now());
+            await page(h, `fx.inbox.push(${q(draw)}); return true;`);
+            await event(h, { channelid: ctx.channelId, boardid: ctx.mainId, what: "draw" });
+            const landed = await polishWaitFor(h, `!!${sourceExpr(SRC.rerun.key)}?.querySelector(${q(CHECK)})`, 15000);
+            // the drawing note has left (moment 6 exit) once the row's text no longer holds it
+            await polishWaitFor(h, `!${sourceExpr(SRC.rerun.key)}?.textContent.includes("stays as drawn")`, 5000);
+            await polishNap(500);
+            const row = await h.ev(text(sourceExpr(SRC.rerun.key)));
+            const mark = await h.ev(`!!${sourceExpr(SRC.rerun.key)}?.querySelector("[data-board-mark]")`);
+            const acked = await page(h, `return fx.acks.includes(${q(draw.id)});`);
+            await h.shot(`cdp-shots/${NAME}-5b-draw-lands.png`);
+            const ok =
+                !before &&
+                landed &&
+                !mark &&
+                acked &&
+                new RegExp(`^${SRC.rerun.ask}New${AGENT_NAME} · ${SKELETON.rerun.length} shapes · \\d\\d:\\d\\d$`).test(row);
+            return { ok, detail: q({ before, landed, mark, acked, row }) };
+        });
+
+        await run("5c. stop a follow: Stop's row leaves, and the first source row closes up to where it was, no gap left", async () => {
+            const FOLLOW = `${LIST}?.querySelector("[data-board-follow]")`;
+            const r = await page(
+                h,
+                `const list = ${LIST};
+                const follow = list?.querySelector("[data-board-follow]");
+                if (!follow) return { error: "no follow row" };
+                const followTop = follow.getBoundingClientRect().top;
+                button(follow, /^Stop$/).click();
+                await nap(60);
+                const mid = list.querySelector("[data-board-follow]");
+                return { followTop, exiting: mid != null ? parseFloat(getComputedStyle(mid).opacity) : null };`
+            );
+            const gone = await polishWaitFor(h, `!${FOLLOW}`, 5000);
+            // the rows below slide up (layout); let that end before measuring
+            await polishNap(900);
+            const top = await h.ev(`${LIST}?.querySelector("[data-board-source]")?.getBoundingClientRect().top ?? null`);
+            const header = await h.ev(text(HEADER));
+            await h.shot(`cdp-shots/${NAME}-5c-stop-follow.png`);
+            const ok =
+                r?.error == null &&
+                r.exiting != null &&
+                r.exiting < 1 &&
+                gone &&
+                top != null &&
+                Math.abs(top - r.followTop) < 1 &&
+                !header.includes("ollowing");
+            return { ok, detail: q({ ...r, gone, top, header }) };
         });
 
         await run("6. won't open (E1): a truncated file's row says won't open, and the board shows the error, its path and Retry; fixed, Retry opens it and its waiting draw lands", async () => {
@@ -495,6 +573,40 @@ export const boardsSurface = {
             return { ok, detail: q({ row, err, header, hasRetry, opened, landed }) };
         });
 
+        await run("6b. nothing animates on open: from opening a board until its rows have come, nothing in its tree is below full opacity", async () => {
+            // sampled every frame in page: the rows arrive with the canvas's scene, after the tree itself mounts
+            const r = await page(
+                h,
+                `const row = ${rowExpr(ctx.mainId)};
+                if (!row) return { error: "no main board row" };
+                button(row, /./).click();
+                const t0 = performance.now();
+                let min = 1, minAt = null, frames = 0, loadedAt = null, rows = 0;
+                while (performance.now() - t0 < 15000) {
+                    await new Promise((res) => { requestAnimationFrame(res); setTimeout(res, 50); });
+                    frames++;
+                    const group = row.querySelector('[role="group"]');
+                    if (group == null) continue;
+                    for (const el of [group, ...group.querySelectorAll("*")]) {
+                        const o = parseFloat(getComputedStyle(el).opacity);
+                        if (o < min) {
+                            min = o;
+                            minAt = el.tagName + " " + [...el.attributes].map((a) => a.name + "=" + a.value.slice(0, 40)).join(" ");
+                        }
+                    }
+                    if (loadedAt == null && group.querySelector("[data-board-yours]")) {
+                        loadedAt = performance.now();
+                        rows = group.querySelectorAll("[data-board-source]").length;
+                    }
+                    if (loadedAt != null && performance.now() - loadedAt > 800) break;
+                }
+                return { min, minAt, frames, loaded: loadedAt != null, rows };`
+            );
+            await h.shot(`cdp-shots/${NAME}-6b-open-settled.png`);
+            const ok = r?.error == null && r.loaded && r.rows === 3 && r.min === 1;
+            return { ok, detail: q(r) };
+        });
+
         await run("7. source row selects group: clicking a source row selects exactly its group's elements on the canvas", async () => {
             await openBoard(h, ctx.mainId);
             await h.ev(`${sourceExpr(SRC.run.key)}?.querySelector("button")?.click()`);
@@ -535,7 +647,7 @@ export const boardsSurface = {
             const { globalStore } = await mod("app/store/jotaiStore.ts");
             const D = await mod("app/view/agents/devmock.ts");
             const B = await mod("app/view/boards/boardstore.ts");
-            for (const k of ["BoardInboxCommand", "BoardInboxAckCommand", "BoardStatusCommand"]) delete RpcApi[k];
+            for (const k of ${q(STUBBED)}) delete RpcApi[k];
             delete window.__boardsFx;
             globalStore.set(D.devMockAgentsAtom, null);
             globalStore.set(B.boardsChannelAtom, null);
