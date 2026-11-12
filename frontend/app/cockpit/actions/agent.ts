@@ -17,6 +17,7 @@ import { isEndedWorkerId } from "@/app/view/agents/runlineage";
 import { isStandingBy } from "@/app/view/agents/shelltasks";
 import { shellTasksByIdAtom } from "@/app/view/agents/shelltasksstore";
 import { subagentsByIdAtom } from "@/app/view/agents/subagentsstore";
+import { boardChannelFor, drawOnBoardAction } from "./boarddraw";
 import type { ThingAction, ThingKindDef } from "./types";
 
 export type ContextLevel = ReturnType<typeof contextLevel>;
@@ -60,6 +61,17 @@ const actions: ThingAction<AgentThing>[] = [
             openDiff(model, agentDiffScope(agent.id, agent.name));
         },
     },
+    // the scribe reads the agent's tab transcript, so a plain shell or a tabless record has nothing to draw
+    drawOnBoardAction<AgentThing>("agent", ({ agent: a }) => {
+        if (a.blockId == null || a.kind === "terminal") {
+            return null;
+        }
+        const channelId = boardChannelFor(a.cwd, a.project);
+        if (channelId == null) {
+            return null;
+        }
+        return { channelId, source: { kind: "agent", ref: a.id, title: a.name }, followable: true };
+    }),
     {
         id: "agent:nudge",
         label: "Nudge (continue)",

@@ -4,14 +4,24 @@
 // The universal search's frame around its rows: the search bar, the scope tabs, the error band and the footer.
 // Presentational only: command-palette.tsx owns the state and hands each piece what it shows.
 
-import { indicatorSlide } from "@/app/element/motiontokens";
+import { errorNudge, indicatorSlide } from "@/app/element/motiontokens";
 import { cn } from "@/util/util";
-import { Search } from "lucide-react";
-import { LayoutGroup, motion } from "motion/react";
+import { Check, Search } from "lucide-react";
+import { AnimatePresence, LayoutGroup, motion } from "motion/react";
 import type { RefObject } from "react";
+import { boardAskHint, followLine } from "./actions/boarddraw";
+import type { BoardDrawTarget } from "./actions/types";
 import type { FooterLine } from "./palette-items";
 import { FooterKeyLine } from "./palette-rows";
-import { DRILL_LABELS, ghostHint, scopeDef, SCOPES, type NavState, type ScopeId } from "./palette-scope";
+import {
+    DRILL_LABELS,
+    ghostHint,
+    scopeDef,
+    SCOPES,
+    type BoardDrill,
+    type NavState,
+    type ScopeId,
+} from "./palette-scope";
 
 interface SearchBarProps {
     nav: NavState;
@@ -79,7 +89,16 @@ export function PaletteSearchBar({
                     {nav.actions.input != null ? (
                         <>
                             <span className="shrink-0 text-muted">›</span>
-                            <span className="shrink-0">{nav.actions.input.label}</span>
+                            <span className="shrink-0">
+                                {nav.actions.input.label}
+                                {nav.actions.input.board != null ? "…" : null}
+                            </span>
+                        </>
+                    ) : null}
+                    {nav.actions.input?.board?.step === "ask" ? (
+                        <>
+                            <span className="shrink-0 text-muted">›</span>
+                            <span className="truncate">{nav.actions.input.board.boardName}</span>
                         </>
                     ) : null}
                 </button>
@@ -168,6 +187,87 @@ export function PaletteScopeTabs({
                     );
                 })}
             </LayoutGroup>
+        </div>
+    );
+}
+
+// Under the board drill's rows: at the name step where the board is made and the empty-name nudge (moment 13, again
+// on each empty Enter); at the ask step what the ask changes and, for an agent, the Keep following tick.
+export function PaletteBoardStep({
+    board,
+    project,
+    target,
+    onToggleFollow,
+}: {
+    board: BoardDrill;
+    project: string;
+    target: BoardDrawTarget;
+    onToggleFollow: () => void;
+}) {
+    if (board.step === "name") {
+        return (
+            <div data-palette-board-step="name" className="flex flex-col gap-2 px-3.5 py-4">
+                <span className="text-[13px] text-secondary">
+                    Type the new board's name above. It is made in {project || "this project"} when you press Enter,
+                    then you choose what to draw.
+                </span>
+                <AnimatePresence initial={false}>
+                    {board.tried ? (
+                        <motion.span
+                            key={`tried-${board.tried}`}
+                            data-palette-board-error
+                            variants={errorNudge}
+                            initial="initial"
+                            animate="animate"
+                            className="text-[12px] text-error"
+                        >
+                            Type a name first
+                        </motion.span>
+                    ) : (
+                        <span key="hint" className="text-[12px] text-muted">
+                            Enter makes it · ← back to the boards
+                        </span>
+                    )}
+                </AnimatePresence>
+            </div>
+        );
+    }
+    if (board.step !== "ask") {
+        return null;
+    }
+    return (
+        <div data-palette-board-step="ask" className="flex flex-col gap-3 px-2.5 pb-1.5 pt-3.5">
+            <span className="text-[13px] leading-normal text-secondary">{boardAskHint(target.source.kind)}</span>
+            {target.followable ? (
+                <button
+                    type="button"
+                    role="checkbox"
+                    aria-checked={board.follow}
+                    data-palette-follow
+                    tabIndex={-1}
+                    onClick={onToggleFollow}
+                    className={cn(
+                        "flex cursor-pointer items-start gap-2.5 rounded-lg border px-3 py-2.5 text-left",
+                        board.follow ? "border-accent/50 bg-accentbg" : "border-border bg-surface"
+                    )}
+                >
+                    <span
+                        className={cn(
+                            "mt-px flex size-4 shrink-0 items-center justify-center rounded border-[1.5px]",
+                            board.follow ? "border-accent bg-accent" : "border-edge-strong"
+                        )}
+                    >
+                        {board.follow ? <Check size={11} strokeWidth={3.2} className="text-background" /> : null}
+                    </span>
+                    <span className="flex flex-1 flex-col gap-[3px]">
+                        <span className="text-[13px] font-semibold text-primary">Keep following</span>
+                        <span className="text-[12px] text-ink-mid">{followLine(target.source.title)}</span>
+                    </span>
+                    <span className="shrink-0 rounded-[5px] border border-border px-1.5 py-px font-mono text-[10.5px] text-muted">
+                        Tab
+                    </span>
+                </button>
+            ) : null}
         </div>
     );
 }

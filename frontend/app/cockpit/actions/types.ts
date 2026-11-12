@@ -11,9 +11,17 @@ export interface ActionDeps {
     model: AgentsViewModel;
 }
 
+// what Draw on a board… hands the scribe: the project the board is in, and the thing it reads
+export interface BoardDrawTarget {
+    channelId: string;
+    source: BoardSource;
+    followable: boolean; // agents only: Keep following redraws at each turn end
+}
+
 export type ActionInput<T> =
     | { kind: "text"; placeholder: string }
-    | { kind: "pick"; placeholder: string; options: (thing: T) => { value: string; label: string }[] };
+    | { kind: "pick"; placeholder: string; options: (thing: T) => { value: string; label: string }[] }
+    | { kind: "board"; target: (thing: T) => BoardDrawTarget };
 
 export interface ThingAction<T> {
     id: string; // "run:cancel"

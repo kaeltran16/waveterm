@@ -317,3 +317,20 @@ describe("run actions", () => {
         await expect(action.run(thing(orchestrator()), { model: null }, "  ")).rejects.toThrow(/reason/);
     });
 });
+
+describe("run Draw on a board…", () => {
+    const draw = RUN_KIND.actions.find((a) => a.id === "run:draw-board")!;
+    it("is listed under Open for any run", () => {
+        expect(draw.label).toBe("Draw on a board…");
+        expect(draw.group).toBe("open");
+        expect(applies("run:draw-board", thing(run({ status: "done" }), []))).toBe(true);
+    });
+    it("draws in the run's own project, titled by its id's first 8, never followed", () => {
+        const t = thing(run({ id: "690cc20a-1234-5678" }));
+        expect(draw.input?.kind === "board" ? draw.input.target(t) : null).toEqual({
+            channelId: "c1",
+            source: { kind: "run", ref: "690cc20a-1234-5678", channelid: "c1", title: "run 690cc20a" },
+            followable: false,
+        });
+    });
+});

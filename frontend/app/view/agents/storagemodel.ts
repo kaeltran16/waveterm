@@ -87,7 +87,7 @@ function pad2(n: number): string {
 }
 
 // a time today as HH:MM, an earlier one as MM-DD
-function when(ts: number, now: number): string {
+export function when(ts: number, now: number): string {
     const d = new Date(ts);
     if (d.toDateString() === new Date(now).toDateString()) {
         return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
