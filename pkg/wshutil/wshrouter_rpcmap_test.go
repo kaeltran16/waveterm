@@ -82,7 +82,7 @@ func TestUnregisterLinkCancelsTheHandlerContext(t *testing.T) {
 	server.Lock.Lock()
 	server.ResponseHandlerMap["r1"] = h
 	server.Lock.Unlock()
-	router.registerRouteInfo("r1", callerLink, DefaultRoute, baseds.NoLinkId)
+	router.registerRouteInfo("r1", callerLink, DefaultRoute, baseds.NoLinkId, 0)
 
 	router.UnregisterLink(callerLink)
 
@@ -125,4 +125,28 @@ func TestUnregisterLinkAnswersRequestsItWasHandling(t *testing.T) {
 		}
 		return false
 	})
+}
+
+// a destination that stays connected but never answers: once the request's own timeout passes, its caller
+// has given up, so the router drops the entry; a request with no timeout (a frontend stream) keeps it
+func TestRoutingEntryEndsWithItsRequestTimeout(t *testing.T) {
+	router := NewWshRouter()
+	leaf := newGatedClient(t)
+	leaf.setBudget(-1)
+	if _, err := router.RegisterTrustedLeaf(leaf, DefaultRoute); err != nil {
+		t.Fatal(err)
+	}
+	callerLink := router.RegisterTrustedRouter(newGatedClient(t))
+	for _, req := range []RpcMessage{
+		{Command: "test", ReqId: "bounded", Route: DefaultRoute, Timeout: 50},
+		{Command: "test", ReqId: "unbounded", Route: DefaultRoute},
+	} {
+		cmd, _ := json.Marshal(req)
+		router.inputCh <- baseds.RpcInputChType{MsgBytes: cmd, IngressLinkId: callerLink}
+	}
+	waitUntil(t, "the leaf to receive both requests", func() bool { return len(leaf.received()) == 2 })
+	waitUntil(t, "the timed-out request's entry to go", func() bool { return !hasRouteInfo(router, "bounded") })
+	if !hasRouteInfo(router, "unbounded") {
+		t.Fatal("a request with no timeout lost its routing entry")
+	}
 }
