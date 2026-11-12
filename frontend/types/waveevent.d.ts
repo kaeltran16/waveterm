@@ -30,6 +30,7 @@ declare global {
         | "memhygiene:update"
         | "remote:status"
         | "effort:update"
+        | "board:update"
     ;
 
     type WaveEvent = {
@@ -61,7 +62,8 @@ declare global {
         { event: "run:event"; data?: RunEventData; } | 
         { event: "memhygiene:update"; data?: null; } | 
         { event: "remote:status"; data?: RemoteStatusData; } | 
-        { event: "effort:update"; data?: null; }
+        { event: "effort:update"; data?: null; } | 
+        { event: "board:update"; data?: BoardUpdateData; }
     );
 
 }

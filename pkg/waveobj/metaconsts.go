@@ -88,6 +88,11 @@ const (
 	MetaKey_BrainstormJudgeChannel           = "brainstorm:judgechannel"
 	MetaKey_BrainstormJudgeReason            = "brainstorm:judgereason"
 
+	MetaKey_BoardFollowId                    = "board:followid"
+	MetaKey_BoardFollowChannel               = "board:followchannel"
+	MetaKey_BoardFollowName                  = "board:followname"
+	MetaKey_BoardFollowAsk                   = "board:followask"
+
 	MetaKey_AppLoom                          = "app:loom"
 
 	MetaKey_AgentTranscriptPath              = "agent:transcriptpath"

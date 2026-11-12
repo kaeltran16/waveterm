@@ -299,6 +299,143 @@ declare global {
         workspaceid?: string;
     };
 
+    // wshrpc.BoardAgentDrawRtnData
+    type BoardAgentDrawRtnData = {
+        boardid: string;
+        boardname: string;
+        project: string;
+        created?: boolean;
+    };
+
+    // wshrpc.BoardArcPending
+    type BoardArcPending = {
+        drawid: string;
+        drawnts: number;
+        frameid: string;
+        shapes: number;
+        skeleton: string;
+        cursorts?: number;
+    };
+
+    // wshrpc.BoardArcRecord
+    type BoardArcRecord = {
+        name: string;
+        createdts: number;
+        seents?: number;
+        sources?: BoardArcSource[];
+    };
+
+    // wshrpc.BoardArcSource
+    type BoardArcSource = {
+        key: string;
+        source: BoardSource;
+        ask?: string;
+        groupid: string;
+        drawnts: number;
+        shapes: number;
+        contenthash: string;
+        editedts?: number;
+        box?: BoardBox;
+        skeleton: string;
+        cursorts?: number;
+        pending?: BoardArcPending;
+    };
+
+    // wshrpc.BoardBox
+    type BoardBox = {
+        x: number;
+        y: number;
+        w: number;
+        h: number;
+    };
+
+    // wshrpc.BoardDraw
+    type BoardDraw = {
+        id: string;
+        channelid: string;
+        boardid: string;
+        sourcekey: string;
+        source: BoardSource;
+        ask?: string;
+        skeleton: string;
+        shapes: number;
+        cursorts?: number;
+        follow?: boolean;
+        ts: number;
+    };
+
+    // wshrpc.BoardInfo
+    type BoardInfo = {
+        id: string;
+        name: string;
+        channelid: string;
+        path: string;
+        groups: number;
+        lastdrawnts?: number;
+        createdts: number;
+        newcount?: number;
+        state?: string;
+        loaderror?: string;
+    };
+
+    // wshrpc.BoardListRtnData
+    type BoardListRtnData = {
+        project: string;
+        boards: BoardInfo[];
+    };
+
+    // wshrpc.BoardReadRtnData
+    type BoardReadRtnData = {
+        info: BoardInfo;
+        data: string;
+        rev: string;
+        arc: BoardArcRecord;
+    };
+
+    // wshrpc.BoardSaveRtnData
+    type BoardSaveRtnData = {
+        rev?: string;
+        conflict?: boolean;
+    };
+
+    // wshrpc.BoardSource
+    type BoardSource = {
+        kind: string;
+        ref: string;
+        channelid?: string;
+        path?: string;
+        runtime?: string;
+        title: string;
+    };
+
+    // wshrpc.BoardSourceStatus
+    type BoardSourceStatus = {
+        sourcekey: string;
+        source: BoardSource;
+        ask?: string;
+        state: string;
+        reading?: string;
+        queued?: number;
+        reason?: string;
+        ts: number;
+    };
+
+    // wshrpc.BoardStatusData
+    type BoardStatusData = {
+        channelid: string;
+        boardid: string;
+        sources: BoardSourceStatus[];
+    };
+
+    // wshrpc.BoardUpdateData
+    type BoardUpdateData = {
+        channelid: string;
+        boardid?: string;
+        what: string;
+        sourcekey?: string;
+        reason?: string;
+    };
+
     // wshrpc.BrainstormCheckTimes
     type BrainstormCheckTimes = {
         usualms: number;
@@ -599,6 +736,72 @@ declare global {
         inputdata64?: string;
         signame?: string;
         termsize?: TermSize;
+    };
+
+    // wshrpc.CommandBoardAgentDrawData
+    type CommandBoardAgentDrawData = {
+        blockid: string;
+        board: string;
+        ask?: string;
+    };
+
+    // wshrpc.CommandBoardCreateData
+    type CommandBoardCreateData = {
+        channelid: string;
+        name: string;
+    };
+
+    // wshrpc.CommandBoardDrawData
+    type CommandBoardDrawData = {
+        channelid: string;
+        boardid: string;
+        source: BoardSource;
+        ask?: string;
+        follow?: boolean;
+    };
+
+    // wshrpc.CommandBoardFollowStopData
+    type CommandBoardFollowStopData = {
+        tabid: string;
+    };
+
+    // wshrpc.CommandBoardInboxAckData
+    type CommandBoardInboxAckData = {
+        channelid: string;
+        boardid: string;
+        drawid: string;
+    };
+
+    // wshrpc.CommandBoardInboxData
+    type CommandBoardInboxData = {
+        channelid?: string;
+        boardid?: string;
+    };
+
+    // wshrpc.CommandBoardListData
+    type CommandBoardListData = {
+        channelid: string;
+    };
+
+    // wshrpc.CommandBoardRefData
+    type CommandBoardRefData = {
+        channelid: string;
+        boardid: string;
+    };
+
+    // wshrpc.CommandBoardSaveData
+    type CommandBoardSaveData = {
+        channelid: string;
+        boardid: string;
+        data: string;
+        baserev: string;
+    };
+
+    // wshrpc.CommandBoardSourceData
+    type CommandBoardSourceData = {
+        channelid: string;
+        boardid: string;
+        sourcekey: string;
     };
 
     // wshrpc.CommandBrainstormCheckData
@@ -2811,6 +3014,10 @@ declare global {
         "brainstorm:judgerun"?: string;
         "brainstorm:judgechannel"?: string;
         "brainstorm:judgereason"?: string;
+        "board:followid"?: string;
+        "board:followchannel"?: string;
+        "board:followname"?: string;
+        "board:followask"?: string;
         "app:loom"?: boolean;
         "agent:transcriptpath"?: string;
         "agent:lastcommitts"?: number;
