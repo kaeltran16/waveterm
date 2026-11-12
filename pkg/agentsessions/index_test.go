@@ -5,11 +5,14 @@ package agentsessions
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/wavetermdev/waveterm/pkg/pisession"
 )
 
 // indexHome points the home dir at a temp dir with an empty scan cache, and returns its claude projects dir.
@@ -386,5 +389,32 @@ func TestIndexedRetriesATranscriptWhoseReadFailed(t *testing.T) {
 	Indexed(IndexWindowDays)
 	if got, _ := Indexed(IndexWindowDays); len(got) != 1 || got[0].Info.ID != "locked" {
 		t.Fatalf("want the session once the read succeeds, got %+v", got)
+	}
+}
+
+// r4-backend F3: the pi provider reads its file a second time, and a failure of that read must not cache the
+// finished transcript as "not a session" either
+func TestPiSessionWhoseOwnReadFailedIsNotCached(t *testing.T) {
+	path := writeTranscript(t, []string{
+		`{"type":"session","version":3,"id":"s1","timestamp":"2026-09-17T06:00:00Z","cwd":"C:\repo"}`,
+		`{"type":"message","id":"u1","parentId":null,"timestamp":"2026-09-17T06:00:01Z","message":{"role":"user","content":"review the diff"}}`,
+	})
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := readPiSession
+	readPiSession = func(p string) (*pisession.File, error) {
+		return nil, &fs.PathError{Op: "open", Path: p, Err: fs.ErrPermission}
+	}
+	t.Cleanup(func() { readPiSession = orig })
+	c := candidate{path: path, stem: "session", mtime: info.ModTime(), size: info.Size(), p: piProvider("")}
+	parseCandidate(c)
+	if _, ok := cachedEntry(c); ok {
+		t.Fatal("a pi transcript whose read failed was cached")
+	}
+	readPiSession = orig
+	if e := parseCandidate(c); e.info == nil {
+		t.Fatal("want the session once the read succeeds")
 	}
 }

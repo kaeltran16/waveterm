@@ -72,6 +72,7 @@ type rpcRoutingInfo struct {
 	rpcId        string
 	sourceLinkId baseds.LinkId
 	destRouteId  string
+	destLinkId   baseds.LinkId
 }
 
 type messageWrap struct {
@@ -219,7 +220,7 @@ func (router *WshRouter) handleNoRoute(msg RpcMessage, ingressLinkId baseds.Link
 	router.sendRoutedMessage(respBytes, msg.Source, msg.Command, baseds.NoLinkId)
 }
 
-func (router *WshRouter) registerRouteInfo(rpcId string, sourceLinkId baseds.LinkId, destRouteId string) {
+func (router *WshRouter) registerRouteInfo(rpcId string, sourceLinkId baseds.LinkId, destRouteId string, destLinkId baseds.LinkId) {
 	if rpcId == "" {
 		return
 	}
@@ -229,6 +230,7 @@ func (router *WshRouter) registerRouteInfo(rpcId string, sourceLinkId baseds.Lin
 		rpcId:        rpcId,
 		sourceLinkId: sourceLinkId,
 		destRouteId:  destRouteId,
+		destLinkId:   destLinkId,
 	}
 }
 
@@ -273,6 +275,20 @@ func (router *WshRouter) sendRoutedMessage(msgBytes []byte, routeId string, comm
 		log.Printf("[router] no rpc for route id %q\n", routeId)
 	}
 	return false
+}
+
+// routeLink is the link sendRoutedMessage sends routeId's messages to, NoLinkId when there is none.
+func (router *WshRouter) routeLink(routeId string) baseds.LinkId {
+	if linkIdStr, ok := strings.CutPrefix(routeId, RoutePrefix_Link); ok {
+		if linkIdInt, err := strconv.ParseInt(linkIdStr, 10, 32); err == nil {
+			return baseds.LinkId(linkIdInt)
+		}
+	}
+	if lm := router.getLinkForRoute(routeId); lm != nil {
+		return lm.linkId
+	}
+	upstreamLinkId, _ := router.getUpstreamClient()
+	return upstreamLinkId
 }
 
 func (router *WshRouter) sendMessageToLink(msgBytes []byte, linkId baseds.LinkId, ingressLinkId baseds.LinkId) bool {
@@ -336,7 +352,7 @@ func (router *WshRouter) runServer() {
 				router.handleNoRoute(msg, input.IngressLinkId)
 				continue
 			}
-			router.registerRouteInfo(msg.ReqId, input.IngressLinkId, routeId)
+			router.registerRouteInfo(msg.ReqId, input.IngressLinkId, routeId, router.routeLink(routeId))
 			continue
 		}
 		// look at reqid or resid to route correctly
@@ -688,14 +704,23 @@ func (router *WshRouter) UnregisterLink(linkId baseds.LinkId) {
 	if router.upstreamLinkId == linkId {
 		router.upstreamLinkId = baseds.NoLinkId
 	}
-	var orphaned []rpcRoutingInfo
+	var orphaned, unanswered []rpcRoutingInfo
 	for rpcId, ri := range router.rpcMap {
-		if ri.sourceLinkId == linkId {
+		switch {
+		case ri.sourceLinkId == linkId:
 			orphaned = append(orphaned, ri)
+			delete(router.rpcMap, rpcId)
+		case ri.destLinkId == linkId && linkId != baseds.NoLinkId:
+			unanswered = append(unanswered, ri)
 			delete(router.rpcMap, rpcId)
 		}
 	}
 	router.lock.Unlock()
+	// nothing can answer these now: fail them at the caller rather than leave it waiting out its timeout
+	for _, ri := range unanswered {
+		errBytes, _ := json.Marshal(RpcMessage{ResId: ri.rpcId, Error: fmt.Sprintf("route %q went away before it answered", ri.destRouteId)})
+		router.sendMessageToLink(errBytes, ri.sourceLinkId, baseds.NoLinkId)
+	}
 	// nobody can receive these replies now: cancel the handlers, or a stream runs to its timeout (an
 	// agentctl stream's is 30 days) and keeps looking like a live caller
 	for _, ri := range orphaned {

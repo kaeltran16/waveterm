@@ -656,6 +656,9 @@ var objectID = regexp.MustCompile(`^[0-9a-f]{40}([0-9a-f]{24})?$`)
 // mergeRefusal says why git would not make the merge. A conflict is aborted, so the checkout is left with no
 // merge state; a refusal to overwrite uncommitted edits never started one, and the edits are untouched.
 func mergeRefusal(ctx context.Context, project, base string, merr error) string {
+	// the context may be what killed the merge, and the undo must still run
+	ctx, cancel := cleanupContext(ctx)
+	defer cancel()
 	if conflicted, err := conflictedFiles(ctx, project); err == nil && len(conflicted) > 0 {
 		files := strings.Join(conflicted, ", ")
 		if err := undoMerge(ctx, project); err != nil {

@@ -377,6 +377,69 @@ func TestMergeCommitRefusedPutsTheSquashBack(t *testing.T) {
 	}
 }
 
+// the lead's merge does not require a clean index: a refused squash commit on top of the lead's staged work must
+// not take that work with it, from the index or from disk (engine F6)
+func TestMergeCommitRefusedKeepsWorkStagedBeforeTheSquash(t *testing.T) {
+	dir := newGitRepo(t)
+	writeFile(t, filepath.Join(dir, "lead.txt"), "base\n")
+	gitCmd(t, dir, "add", ".")
+	gitCmd(t, dir, "commit", "-m", "lead file")
+	base := gitCmd(t, dir, "rev-parse", "HEAD")
+	wt, _ := CreateRunWorktree(context.Background(), dir, "run-1", base)
+	writeFile(t, filepath.Join(wt, "feature.txt"), "feat\n")
+	gitCmd(t, wt, "add", ".")
+	gitCmd(t, wt, "commit", "-m", "feature")
+	writeFile(t, filepath.Join(dir, "lead.txt"), "edited\n")
+	writeFile(t, filepath.Join(dir, "leadnew.txt"), "new\n")
+	gitCmd(t, dir, "add", "lead.txt", "leadnew.txt")
+	refuseCommits(t, dir)
+
+	if _, err := MergeRunWorktree(context.Background(), dir, "run-1", MergeLane{Title: "lane"}); err == nil || !strings.Contains(err.Error(), "merge commit") {
+		t.Fatalf("want the refused commit's error, got %v", err)
+	}
+	if got := readFile(t, filepath.Join(dir, "lead.txt")); got != "edited\n" {
+		t.Fatalf("the lead's staged edit must stay on disk, got %q", got)
+	}
+	if got := readFile(t, filepath.Join(dir, "leadnew.txt")); got != "new\n" {
+		t.Fatalf("the lead's staged new file must stay on disk, got %q", got)
+	}
+	staged := gitCmd(t, dir, "diff", "--cached", "--name-only")
+	for _, f := range []string{"lead.txt", "leadnew.txt"} {
+		if !strings.Contains(staged, f) {
+			t.Fatalf("the lead's %s must stay staged, staged: %q", f, staged)
+		}
+	}
+	if got := gitCmd(t, dir, "rev-parse", "HEAD"); got != base {
+		t.Fatalf("nothing may be committed, HEAD moved to %s", got)
+	}
+}
+
+// engine F7: the undo runs after the context that killed the commit has ended, and must still put the merge back
+func TestUndoMergeRunsOnAnEndedContext(t *testing.T) {
+	dir := newGitRepo(t)
+	base := gitCmd(t, dir, "rev-parse", "HEAD")
+	wt, _ := CreateRunWorktree(context.Background(), dir, "run-1", base)
+	writeFile(t, filepath.Join(wt, "feature.txt"), "feat\n")
+	gitCmd(t, wt, "add", ".")
+	gitCmd(t, wt, "commit", "-m", "feature")
+	gitCmd(t, dir, "merge", "--no-ff", "--no-commit", "wave/run-1")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if got := mergeRefusal(ctx, dir, "main", errors.New("killed")); !strings.Contains(got, "which was aborted") {
+		t.Fatalf("the refusal must abort the merge, got %q", got)
+	}
+	if inMerge, err := mergeHeadExists(context.Background(), dir); err != nil || inMerge {
+		t.Fatalf("MERGE_HEAD must be gone: inMerge=%v err=%v", inMerge, err)
+	}
+	gitCmd(t, dir, "merge", "--squash", "wave/run-1")
+	if err := undoMerge(ctx, dir); err != nil {
+		t.Fatalf("undo on an ended context: %v", err)
+	}
+	if clean, err := IndexClean(context.Background(), dir); err != nil || !clean {
+		t.Fatalf("the squash must be put back: clean=%v err=%v", clean, err)
+	}
+}
+
 // a continue's staged tree is the resolver's work: a refused commit leaves it for the next --continue
 func TestMergeContinueCommitRefusedKeepsTheResolution(t *testing.T) {
 	dir := conflictedSquash(t)

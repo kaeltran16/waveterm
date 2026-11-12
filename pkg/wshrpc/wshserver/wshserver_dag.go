@@ -346,6 +346,11 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 			return nil, err
 		}
 		retryOnly = !orchestrate.PlanReviewReplaceable(stored)
+		if !retryOnly {
+			if err := orchestrate.PlanReviewRoundsSpent(stored); err != nil {
+				return nil, err
+			}
+		}
 	}
 	// the landing tree is where Verify runs, and the plan's Setup line is first known here. A run that
 	// already has a dag is a resubmit, whose merges may be running in that tree. Setup is bounded by its own

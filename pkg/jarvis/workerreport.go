@@ -191,6 +191,9 @@ func ParseWorkerReport(text string) (WorkerReport, error) {
 		problems = append(problems, "empty (write None): "+strings.Join(empty, ", "))
 	}
 	problems = append(problems, stray...)
+	if err := fence.unclosed(); err != nil {
+		problems = append(problems, err.Error())
+	}
 	if len(problems) > 0 {
 		return WorkerReport{}, fmt.Errorf("%s", strings.Join(problems, "; "))
 	}

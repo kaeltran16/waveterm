@@ -437,6 +437,44 @@ func TestDagSubmitRefusedLeavesTheLandingTreeAlone(t *testing.T) {
 		}
 	})
 
+	// backend F1: a replaceable dag whose review rounds are spent refuses the revision, and must refuse it before
+	// the revision is committed onto the run's branch
+	t.Run("a revision past the last review round commits nothing", func(t *testing.T) {
+		run, channelId, tree, execGit := newRun(t, jarvis.RunStatus_Planning)
+		plan := writePlanIn(t, tree, "### Task 1: input\n")
+		submit := func() error {
+			_, err := (&WshServer{}).DagSubmitCommand(ctx, wshrpc.CommandDagSubmitData{ChannelId: channelId, RunId: run.ID, PlanPath: plan})
+			return err
+		}
+		if err := submit(); err != nil {
+			t.Fatal(err)
+		}
+		stored, err := wstore.GetRun(ctx, channelId, run.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		g, err := wstore.GetDag(ctx, stored.DagORef)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := wstore.UpdateDag(ctx, g.OID, func(g *waveobj.TaskGroup) error {
+			g.PlanReview.State, g.PlanReview.Round = orchestrate.PlanReviewState_Failed, orchestrate.MaxPlanReviewRounds
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		branch := "wave/" + run.ID
+		tip := execGit("rev-parse", branch)
+
+		writePlanIn(t, tree, "### Task 1: input\n\n### Task 2: output\n")
+		if err := submit(); err == nil || !strings.Contains(err.Error(), "the most it gets") {
+			t.Fatalf("resubmit err = %v, want the round limit", err)
+		}
+		if got := execGit("rev-parse", branch); got != tip {
+			t.Fatalf("the refused revision committed on %s: %s -> %s", branch, tip, got)
+		}
+	})
+
 	t.Run("a run that cannot take a dag runs no setup", func(t *testing.T) {
 		run, channelId, tree, execGit := newRun(t, jarvis.RunStatus_Done)
 		plan := writePlanIn(t, tree, "**Setup:** `echo ok > prepared.txt`\n\n### Task 1: input\n")

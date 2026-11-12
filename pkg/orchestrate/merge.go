@@ -41,6 +41,12 @@ func MergeRunWorktree(ctx context.Context, projectPath, runID string, lane Merge
 	if !exists {
 		return "", nil
 	}
+	// the lead's merge runs on a dirty index: only a squash staged on a clean one can be put back without
+	// taking the lead's staged work with it
+	undoable, err := IndexClean(ctx, projectPath)
+	if err != nil {
+		return "", err
+	}
 	if _, err := git(ctx, projectPath, "merge", "--squash", branch); err != nil {
 		if strings.Contains(err.Error(), "CONFLICT") {
 			return "", ErrMergeConflict
@@ -53,7 +59,7 @@ func MergeRunWorktree(ctx context.Context, projectPath, runID string, lane Merge
 		}
 		return "", fmt.Errorf("squash merge: %w", err)
 	}
-	return finishMerge(ctx, projectPath, runID, lane, false)
+	return finishMerge(ctx, projectPath, runID, lane, false, undoable)
 }
 
 // MergeContinue completes a merge after the caller resolved conflicts in the project tree.
@@ -67,15 +73,16 @@ func MergeContinue(ctx context.Context, projectPath, runID string, lane MergeLan
 			return "", fmt.Errorf("unresolved conflict: %s", line)
 		}
 	}
-	return finishMerge(ctx, projectPath, runID, lane, true)
+	return finishMerge(ctx, projectPath, runID, lane, true, false)
 }
 
 // finishMerge commits the squash. resolved is a continue after a conflict: with
 // nothing staged it lands nothing, since HEAD is then the lane's squash from an earlier attempt or not the lane's
 // at all (the squash was thrown away, or its resolver committed it under a message of their own). A commit git
-// refuses (a hook, signing, a held index.lock) puts an automatic squash back (undoMerge): left staged, it would hold
-// every later merge at the clean-index check, uncounted. A continue's staged tree is its resolver's work and stays.
-func finishMerge(ctx context.Context, projectPath, runID string, lane MergeLane, resolved bool) (string, error) {
+// refuses (a hook, signing, a held index.lock) puts the squash back when undo is set (undoMerge): left staged, it
+// would hold every later merge at the clean-index check, uncounted. undo is unset for a continue, whose staged tree
+// is its resolver's work, and for a squash staged on top of other staged work, which a reset would also discard.
+func finishMerge(ctx context.Context, projectPath, runID string, lane MergeLane, resolved, undo bool) (string, error) {
 	if _, err := git(ctx, projectPath, "commit", "-m", mergeMessage(ctx, projectPath, runID, lane)); err != nil {
 		// "nothing to commit": a retry whose squash commit already landed on the prior attempt, a branch whose
 		// commits change nothing, or a resolved squash that is no longer staged
@@ -87,7 +94,7 @@ func finishMerge(ctx context.Context, projectPath, runID string, lane MergeLane,
 			return sha, lerr
 		}
 		err = fmt.Errorf("merge commit: %w", err)
-		if !resolved {
+		if undo {
 			if uerr := undoMerge(ctx, projectPath); uerr != nil {
 				err = errors.Join(err, fmt.Errorf("putting the squash back: %w", uerr))
 			}
@@ -99,7 +106,10 @@ func finishMerge(ctx context.Context, projectPath, runID string, lane MergeLane,
 
 // undoMerge puts tree back at HEAD after a merge git started and could not finish: the squash's or the merge's
 // staged result and MERGE_HEAD go, while uncommitted edits outside the merge stay, as git merge --abort keeps them.
+// It runs on a fresh context when ctx has ended, since that may be what killed the merge.
 func undoMerge(ctx context.Context, tree string) error {
+	ctx, cancel := cleanupContext(ctx)
+	defer cancel()
 	_, err := git(ctx, tree, "reset", "--merge")
 	return err
 }

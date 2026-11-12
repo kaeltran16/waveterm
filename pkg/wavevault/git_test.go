@@ -20,7 +20,7 @@ func TestGitTimeoutBoundsCallWhenChildHoldsPipe(t *testing.T) {
 	t.Cleanup(func() { gitWaitDelay = old })
 	dir := t.TempDir()
 	start := time.Now()
-	_, err := runGitSync(context.Background(), dir, 500*time.Millisecond, "-c", "alias.slow=!sleep 10", "slow")
+	_, err := runGitSync(context.Background(), dir, 500*time.Millisecond, true, "-c", "alias.slow=!sleep 10", "slow")
 	if err == nil {
 		t.Fatal("the timed-out command succeeded")
 	}
@@ -46,6 +46,25 @@ func TestKilledGitLeavesNoIndexLock(t *testing.T) {
 	}
 	writeVaultFile(t, v, "memory/n.md", []byte("n\n"))
 	mustCommit(t, v)
+}
+
+// r4-backend F6: a fetch or push never takes index.lock and runs outside the vault lock, so a lock made while it
+// ran is another git's (a commit beside it) and stays when the fetch is killed
+func TestKilledFetchKeepsALockMadeWhileItRan(t *testing.T) {
+	v := newSyncVault(t, "")
+	lock := filepath.Join(v.Root, ".git", "index.lock")
+	short, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		os.WriteFile(lock, nil, 0o644)
+	}()
+	if _, err := v.syncGitNet(short, "-c", "alias.slow=!sleep 3", "slow"); err == nil {
+		t.Fatal("the timed-out command succeeded")
+	}
+	if _, err := os.Stat(lock); err != nil {
+		t.Fatalf("another git's index.lock was removed: %v", err)
+	}
 }
 
 // a lock that predates the killed command belongs to someone else (another git in the vault) and stays
