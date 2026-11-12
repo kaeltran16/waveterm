@@ -325,13 +325,17 @@ const firstPos = (f: SessionsFind | null) => (f?.target.kind === "turn" ? f.targ
 // the old session while the pane animates, and must not clear the find just opened on the new one.
 function useEndFindElsewhere(model: AgentsViewModel) {
     const [find, setFind] = useAtom(model.sessionsFindAtom);
+    const [found, setFound] = useAtom(model.sessionsFoundAtom);
     const sel = useAtomValue(model.sessionsSelAtom);
     const member = useAtomValue(model.sessionsMemberAtom);
     useEffect(() => {
         if (findEnded(find, sel, member)) {
             setFind(null);
         }
-    }, [find, sel, member]);
+        if (findEnded(found, sel, member)) {
+            setFound(null);
+        }
+    }, [find, found, sel, member]);
 }
 
 function FindBar({

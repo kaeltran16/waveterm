@@ -16,6 +16,7 @@ import {
     openSessionHit,
     stepFind,
     type SessionsFind,
+    type SessionsFound,
 } from "./sessionsfind";
 import { LEAD_MEMBER, sessionKey, sessionSelection } from "./sessionsruns";
 
@@ -27,6 +28,7 @@ function fakeModel() {
         sessionsViewAtom: atom<"transcript" | "activity">("transcript"),
         sessionsQueryAtom: atom<string>(""),
         sessionsFindAtom: atom<SessionsFind | null>(null) as PrimitiveAtom<SessionsFind | null>,
+        sessionsFoundAtom: atom<SessionsFound | null>(null) as PrimitiveAtom<SessionsFound | null>,
     } as unknown as AgentsViewModel;
 }
 
@@ -100,12 +102,25 @@ describe("openSessionHit", () => {
         const worker = session({ id: "w2", runid: "r9", role: "worker", taskid: "t-2" });
         const reviewer = session({ id: "rv", runid: "r9", role: "review", taskid: "t-2" });
         openSessionHit(m, result(reviewer, [hit("turn", 0)]), "fix", ["fix"]);
-        const find = globalStore.get(m.sessionsFindAtom);
+        const found = globalStore.get(m.sessionsFoundAtom);
         const sel = globalStore.get(m.sessionsSelAtom);
         const member = globalStore.get(m.sessionsMemberAtom);
-        expect(foundSession(find, sel, member, [worker, reviewer] as LiveSession[])).toBe(reviewer);
+        expect(foundSession(found, sel, member, [worker, reviewer] as LiveSession[])).toBe(reviewer);
         // another member selected: the find no longer applies
-        expect(foundSession(find, sel, "t-3", [worker, reviewer] as LiveSession[])).toBeUndefined();
+        expect(foundSession(found, sel, "t-3", [worker, reviewer] as LiveSession[])).toBeUndefined();
+    });
+
+    it("keeps the hit's session in view once the find bar is closed", () => {
+        const m = fakeModel();
+        const worker = session({ id: "w2", runid: "r9", role: "worker", taskid: "t-2" });
+        const reviewer = session({ id: "rv", runid: "r9", role: "review", taskid: "t-2" });
+        openSessionHit(m, result(reviewer, [hit("turn", 0)]), "fix", ["fix"]);
+        globalStore.set(m.sessionsFindAtom, null);
+        const sel = globalStore.get(m.sessionsSelAtom);
+        const member = globalStore.get(m.sessionsMemberAtom);
+        expect(
+            foundSession(globalStore.get(m.sessionsFoundAtom), sel, member, [worker, reviewer] as LiveSession[])
+        ).toBe(reviewer);
     });
 
     it("openSessionHit with no hits targets turn 0", () => {

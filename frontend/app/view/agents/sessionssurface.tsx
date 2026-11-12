@@ -148,7 +148,7 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
     const digests = useAtomValue(runDigestsAtom);
     const incomplete = useAtomValue(sessionsIncompleteAtom);
     const [query, setQuery] = useAtom(model.sessionsQueryAtom);
-    const find = useAtomValue(model.sessionsFindAtom);
+    const found = useAtomValue(model.sessionsFoundAtom);
     const pins = useAtomValue(sessionsPinnedAtom);
     // off on every visit: run agents are a deliberate widening, not a mode the list remembers
     const [runAgents, setRunAgents] = useState(false);
@@ -304,7 +304,7 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
         : undefined;
     const selMemberSession =
         selRun && selMember
-            ? (foundSession(find, sel, member, selRun.group.sessions) ??
+            ? (foundSession(found, sel, member, selRun.group.sessions) ??
               memberLiveSession(selMember, selRun.view.runId, roster))
             : undefined;
     const primary = selRun ? selMemberSession : selSession;
