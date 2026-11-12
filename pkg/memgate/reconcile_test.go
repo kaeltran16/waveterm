@@ -5,6 +5,7 @@ package memgate
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -249,6 +250,33 @@ func TestPauseLimit(t *testing.T) {
 	tickN(m, 1)
 	if got := m.suspends(); len(got) != 2 {
 		t.Fatalf("not paused again after the cooldown: %v", got)
+	}
+}
+
+func TestPauseLimitWithoutFreeReading(t *testing.T) {
+	rec, m := newLoop(t, 8*gib)
+	_, w := m.liveTree(t, "r1", "w", RoleWorker)
+	verify := jobobject.Owner{Kind: jobobject.OwnerKind_RunCmd, Id: "r1", Cmd: "Verify"}
+	restore := UncapForTest()
+	vc, _ := TryAdmit(Request{Key: Key{"c:\\proj", "Verify"}, Need: gib, Owner: verify})
+	restore()
+	defer vc.Release()
+	m.setLive(verify, 100*mib, 100*mib)
+	m.free.Store(gib)
+
+	tickN(m, 1)
+	if got := m.suspends(); !slices.Equal(got, []jobobject.Owner{w}) {
+		t.Fatalf("paused %v, want the worker", got)
+	}
+	t.Cleanup(SetFreeForTest(func() (uint64, error) { return 0, errors.New("unreadable") }))
+	m.advance(pauseLimit)
+	tickN(m, 1)
+	resumed := rec.ofKind(EventResumed)
+	if len(resumed) != 1 || resumed[0].Reason != ReasonLimit {
+		t.Fatalf("resumed events %+v, want one with reason limit", resumed)
+	}
+	if got := m.resumes(); !slices.Equal(got, []jobobject.Owner{w}) {
+		t.Fatalf("resumed %v, want the worker", got)
 	}
 }
 

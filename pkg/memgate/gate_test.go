@@ -41,6 +41,8 @@ func newGate(t *testing.T, free uint64) *recorder {
 	book.waiters = nil
 	book.mu.Unlock()
 	t.Cleanup(SetFreeForTest(func() (uint64, error) { return free, nil }))
+	// events still queued by an earlier test would land in this test's recorder
+	flush()
 	rec := &recorder{}
 	SetEventSink(func(ev Event) {
 		rec.mu.Lock()
@@ -53,6 +55,7 @@ func newGate(t *testing.T, free uint64) *recorder {
 		rec.rooms = append(rec.rooms, runIds)
 	})
 	t.Cleanup(func() {
+		flush()
 		SetEventSink(nil)
 		SetRoomHook(nil)
 	})
