@@ -114,7 +114,7 @@ func TestBoardStartEmptyMakesNoTurn(t *testing.T) {
 	ctx := context.Background()
 	ws := &WshServer{}
 	r := stubBoardDrawer(t, wordsReply, nil)
-	ch, _ := boardScribeChannel(t, ctx)
+	ch, _ := boardProjectChannel(t, ctx)
 	if _, err := ws.BoardStartCommand(ctx, wshrpc.CommandBoardStartData{ChannelId: ch.OID, Name: "  "}); err == nil || err.Error() != "Type a name first" {
 		t.Errorf("an empty name: %v", err)
 	}
@@ -145,7 +145,7 @@ func TestBoardStartEmptyMakesNoTurn(t *testing.T) {
 func TestBoardStartWithQuestionStartsTurn(t *testing.T) {
 	ctx := context.Background()
 	r := stubBoardDrawer(t, wordsReply, nil)
-	ch, project := boardScribeChannel(t, ctx)
+	ch, project := boardProjectChannel(t, ctx)
 	info := startBoard(t, ctx, wshrpc.CommandBoardStartData{ChannelId: ch.OID, Name: "Auth flow", Question: " How does it start? "})
 	waitIdle(t, ch.OID, info.ID)
 	talk := readTalk(t, ctx, ch.OID, info.ID)
@@ -166,7 +166,7 @@ func TestBoardStartWithQuestionStartsTurn(t *testing.T) {
 func TestBoardStartCopiesElementsAndHandoff(t *testing.T) {
 	ctx := context.Background()
 	stubBoardDrawer(t, wordsReply, nil)
-	ch, _ := boardScribeChannel(t, ctx)
+	ch, _ := boardProjectChannel(t, ctx)
 	from := startBoard(t, ctx, wshrpc.CommandBoardStartData{ChannelId: ch.OID, Name: "Auth flow"})
 	// a labelled box and an arrow: the bound text is part of its box
 	elements := `[{"id":"n1","type":"rectangle","x":0,"y":0,"width":10,"height":10},` +
@@ -197,8 +197,8 @@ func TestBoardStartRefusesBadFromBoard(t *testing.T) {
 	ctx := context.Background()
 	ws := &WshServer{}
 	r := stubBoardDrawer(t, wordsReply, nil)
-	ch, _ := boardScribeChannel(t, ctx)
-	other, _ := boardScribeChannel(t, ctx)
+	ch, _ := boardProjectChannel(t, ctx)
+	other, _ := boardProjectChannel(t, ctx)
 	elsewhere := startBoard(t, ctx, wshrpc.CommandBoardStartData{ChannelId: other.OID, Name: "Theirs"})
 	for _, from := range []string{"../x", "ABCDEF12", "0000aaaa", elsewhere.ID} {
 		_, err := ws.BoardStartCommand(ctx, wshrpc.CommandBoardStartData{ChannelId: ch.OID, Name: "Next", FromBoardId: from, Question: "q"})
@@ -219,7 +219,7 @@ func TestBoardAskRefusesWontOpen(t *testing.T) {
 	ctx := context.Background()
 	ws := &WshServer{}
 	r := stubBoardDrawer(t, wordsReply, nil)
-	ch, _ := boardScribeChannel(t, ctx)
+	ch, _ := boardProjectChannel(t, ctx)
 	info := startBoard(t, ctx, wshrpc.CommandBoardStartData{ChannelId: ch.OID, Name: "Broken"})
 	if err := os.WriteFile(info.Path, []byte(`{"arc":{"name":"Broken"},"elements":[{"id":`), 0o644); err != nil {
 		t.Fatal(err)
@@ -245,7 +245,7 @@ func TestBoardAskRefusesWhileBusy(t *testing.T) {
 	ws := &WshServer{}
 	gate := make(chan struct{})
 	r := stubBoardDrawer(t, wordsReply, gate)
-	ch, _ := boardScribeChannel(t, ctx)
+	ch, _ := boardProjectChannel(t, ctx)
 	info := startBoard(t, ctx, wshrpc.CommandBoardStartData{ChannelId: ch.OID, Name: "Auth flow"})
 	ask := wshrpc.CommandBoardAskData{ChannelId: ch.OID, BoardId: info.ID, Question: "How?", On: "wavesrv", SelectedIds: []string{"n1"}}
 	if err := ws.BoardAskCommand(ctx, ask); err != nil {
@@ -281,7 +281,7 @@ func TestBoardAnswerAckRecordsShapeIds(t *testing.T) {
 	ctx := context.Background()
 	ws := &WshServer{}
 	stubBoardDrawer(t, drawReply, nil)
-	ch, _ := boardScribeChannel(t, ctx)
+	ch, _ := boardProjectChannel(t, ctx)
 	info := startBoard(t, ctx, wshrpc.CommandBoardStartData{ChannelId: ch.OID, Name: "Auth flow", Question: "How?"})
 	waitIdle(t, ch.OID, info.ID)
 	inbox := wshrpc.CommandBoardInboxData{ChannelId: ch.OID, BoardId: info.ID}
@@ -314,8 +314,8 @@ func TestBoardAnswerInboxAllProjects(t *testing.T) {
 	ctx := context.Background()
 	ws := &WshServer{}
 	stubBoardDrawer(t, drawReply, nil)
-	one, _ := boardScribeChannel(t, ctx)
-	two, _ := boardScribeChannel(t, ctx)
+	one, _ := boardProjectChannel(t, ctx)
+	two, _ := boardProjectChannel(t, ctx)
 	b1 := startBoard(t, ctx, wshrpc.CommandBoardStartData{ChannelId: one.OID, Name: "One", Question: "q"})
 	waitIdle(t, one.OID, b1.ID)
 	b2 := startBoard(t, ctx, wshrpc.CommandBoardStartData{ChannelId: two.OID, Name: "Two", Question: "q"})
@@ -350,7 +350,7 @@ func TestBoardAgentDrawNewBoardFromBriefing(t *testing.T) {
 	ctx := context.Background()
 	ws := &WshServer{}
 	r := stubBoardDrawer(t, wordsReply, nil)
-	ch, project := boardScribeChannel(t, ctx)
+	ch, project := boardProjectChannel(t, ctx)
 	stubAgentCwd(t, project)
 	tabId, blockId := seedAgentTab(t, ctx, waveobj.MetaMapType{waveobj.MetaKey_SessionAgent: "claude"})
 
@@ -404,7 +404,7 @@ func TestBoardAgentDrawQueuesOnExistingBoard(t *testing.T) {
 	ws := &WshServer{}
 	gate := make(chan struct{})
 	r := stubBoardDrawer(t, wordsReply, gate)
-	ch, project := boardScribeChannel(t, ctx)
+	ch, project := boardProjectChannel(t, ctx)
 	stubAgentCwd(t, project)
 	_, blockId := seedAgentTab(t, ctx, waveobj.MetaMapType{waveobj.MetaKey_SessionLabel: "auth agent"})
 	// two boards whose names differ only in case: the most recently active one wins
@@ -450,7 +450,7 @@ func TestBoardAgentDrawNeedsContext(t *testing.T) {
 	ctx := context.Background()
 	ws := &WshServer{}
 	r := stubBoardDrawer(t, wordsReply, nil)
-	ch, project := boardScribeChannel(t, ctx)
+	ch, project := boardProjectChannel(t, ctx)
 	stubAgentCwd(t, project)
 	_, blockId := seedAgentTab(t, ctx, nil)
 	for _, brief := range []string{"", "   "} {
@@ -476,7 +476,7 @@ func TestBoardListShowsAnswering(t *testing.T) {
 	ws := &WshServer{}
 	gate := make(chan struct{})
 	stubBoardDrawer(t, wordsReply, gate)
-	ch, _ := boardScribeChannel(t, ctx)
+	ch, _ := boardProjectChannel(t, ctx)
 	busy := startBoard(t, ctx, wshrpc.CommandBoardStartData{ChannelId: ch.OID, Name: "Busy", Question: "q"})
 	idle := startBoard(t, ctx, wshrpc.CommandBoardStartData{ChannelId: ch.OID, Name: "Idle"})
 	states := func() map[string]string {

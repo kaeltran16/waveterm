@@ -211,36 +211,6 @@ func BoardAskStopCommand(w *wshutil.WshRpc, data wshrpc.CommandBoardRefData, opt
 	return err
 }
 
-// command "boardcreate", wshserver.BoardCreateCommand
-func BoardCreateCommand(w *wshutil.WshRpc, data wshrpc.CommandBoardCreateData, opts *wshrpc.RpcOpts) (*wshrpc.BoardInfo, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.BoardInfo](w, "boardcreate", data, opts)
-	return resp, err
-}
-
-// command "boarddraw", wshserver.BoardDrawCommand
-func BoardDrawCommand(w *wshutil.WshRpc, data wshrpc.CommandBoardDrawData, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "boarddraw", data, opts)
-	return err
-}
-
-// command "boardfollowstop", wshserver.BoardFollowStopCommand
-func BoardFollowStopCommand(w *wshutil.WshRpc, data wshrpc.CommandBoardFollowStopData, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "boardfollowstop", data, opts)
-	return err
-}
-
-// command "boardinbox", wshserver.BoardInboxCommand
-func BoardInboxCommand(w *wshutil.WshRpc, data wshrpc.CommandBoardInboxData, opts *wshrpc.RpcOpts) ([]wshrpc.BoardDraw, error) {
-	resp, err := sendRpcRequestCallHelper[[]wshrpc.BoardDraw](w, "boardinbox", data, opts)
-	return resp, err
-}
-
-// command "boardinboxack", wshserver.BoardInboxAckCommand
-func BoardInboxAckCommand(w *wshutil.WshRpc, data wshrpc.CommandBoardInboxAckData, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "boardinboxack", data, opts)
-	return err
-}
-
 // command "boardlist", wshserver.BoardListCommand
 func BoardListCommand(w *wshutil.WshRpc, data wshrpc.CommandBoardListData, opts *wshrpc.RpcOpts) (*wshrpc.BoardListRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.BoardListRtnData](w, "boardlist", data, opts)
@@ -253,12 +223,6 @@ func BoardReadCommand(w *wshutil.WshRpc, data wshrpc.CommandBoardRefData, opts *
 	return resp, err
 }
 
-// command "boardretry", wshserver.BoardRetryCommand
-func BoardRetryCommand(w *wshutil.WshRpc, data wshrpc.CommandBoardSourceData, opts *wshrpc.RpcOpts) error {
-	_, err := sendRpcRequestCallHelper[any](w, "boardretry", data, opts)
-	return err
-}
-
 // command "boardsave", wshserver.BoardSaveCommand
 func BoardSaveCommand(w *wshutil.WshRpc, data wshrpc.CommandBoardSaveData, opts *wshrpc.RpcOpts) (*wshrpc.BoardSaveRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.BoardSaveRtnData](w, "boardsave", data, opts)
@@ -268,12 +232,6 @@ func BoardSaveCommand(w *wshutil.WshRpc, data wshrpc.CommandBoardSaveData, opts 
 // command "boardstart", wshserver.BoardStartCommand
 func BoardStartCommand(w *wshutil.WshRpc, data wshrpc.CommandBoardStartData, opts *wshrpc.RpcOpts) (*wshrpc.BoardInfo, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.BoardInfo](w, "boardstart", data, opts)
-	return resp, err
-}
-
-// command "boardstatus", wshserver.BoardStatusCommand
-func BoardStatusCommand(w *wshutil.WshRpc, data wshrpc.CommandBoardRefData, opts *wshrpc.RpcOpts) (*wshrpc.BoardStatusData, error) {
-	resp, err := sendRpcRequestCallHelper[*wshrpc.BoardStatusData](w, "boardstatus", data, opts)
 	return resp, err
 }
 

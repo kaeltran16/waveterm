@@ -1252,7 +1252,7 @@ describe("board landings", () => {
         const model = makeModel();
         rpc.BoardListCommand.mockResolvedValue({
             project: "waveterm",
-            boards: [{ id: "0a1b2c3d", name: "Escalation", channelid: "c1", path: "", groups: 1, createdts: 1 }],
+            boards: [{ id: "0a1b2c3d", name: "Escalation", channelid: "c1", path: "", createdts: 1 }],
         });
         expect(await openTarget(model, target)).toEqual({ ok: true });
         expect(rpc.BoardListCommand).toHaveBeenCalledWith({}, { channelid: "c1" });

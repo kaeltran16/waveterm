@@ -319,46 +319,10 @@ declare global {
         ts: number;
     };
 
-    // wshrpc.BoardArcPending
-    type BoardArcPending = {
-        drawid: string;
-        drawnts: number;
-        frameid: string;
-        shapes: number;
-        skeleton: string;
-        cursorts?: number;
-    };
-
     // wshrpc.BoardArcRecord
     type BoardArcRecord = {
         name: string;
         createdts: number;
-        seents?: number;
-        sources?: BoardArcSource[];
-    };
-
-    // wshrpc.BoardArcSource
-    type BoardArcSource = {
-        key: string;
-        source: BoardSource;
-        ask?: string;
-        groupid: string;
-        drawnts: number;
-        shapes: number;
-        contenthash: string;
-        editedts?: number;
-        box?: BoardBox;
-        skeleton: string;
-        cursorts?: number;
-        pending?: BoardArcPending;
-    };
-
-    // wshrpc.BoardBox
-    type BoardBox = {
-        x: number;
-        y: number;
-        w: number;
-        h: number;
     };
 
     // wshrpc.BoardBriefing
@@ -366,21 +330,6 @@ declare global {
         from: string;
         text: string;
         ask: string;
-    };
-
-    // wshrpc.BoardDraw
-    type BoardDraw = {
-        id: string;
-        channelid: string;
-        boardid: string;
-        sourcekey: string;
-        source: BoardSource;
-        ask?: string;
-        skeleton: string;
-        shapes: number;
-        cursorts?: number;
-        follow?: boolean;
-        ts: number;
     };
 
     // wshrpc.BoardHandoff
@@ -397,10 +346,7 @@ declare global {
         name: string;
         channelid: string;
         path: string;
-        groups: number;
-        lastdrawnts?: number;
         createdts: number;
-        newcount?: number;
         state?: string;
         loaderror?: string;
         questions?: number;
@@ -440,25 +386,6 @@ declare global {
         text?: string;
     };
 
-    // wshrpc.BoardSourceStatus
-    type BoardSourceStatus = {
-        sourcekey: string;
-        source: BoardSource;
-        ask?: string;
-        state: string;
-        reading?: string;
-        queued?: number;
-        reason?: string;
-        ts: number;
-    };
-
-    // wshrpc.BoardStatusData
-    type BoardStatusData = {
-        channelid: string;
-        boardid: string;
-        sources: BoardSourceStatus[];
-    };
-
     // wshrpc.BoardTalk
     type BoardTalk = {
         channelid: string;
@@ -495,7 +422,6 @@ declare global {
         channelid: string;
         boardid?: string;
         what: string;
-        sourcekey?: string;
         reason?: string;
         turnid?: string;
         state?: string;
@@ -838,33 +764,6 @@ declare global {
         choice: string;
     };
 
-    // wshrpc.CommandBoardCreateData
-    type CommandBoardCreateData = {
-        channelid: string;
-        name: string;
-    };
-
-    // wshrpc.CommandBoardDrawData
-    type CommandBoardDrawData = {
-        channelid: string;
-        boardid: string;
-        source: BoardSource;
-        ask?: string;
-        follow?: boolean;
-    };
-
-    // wshrpc.CommandBoardFollowStopData
-    type CommandBoardFollowStopData = {
-        tabid: string;
-    };
-
-    // wshrpc.CommandBoardInboxAckData
-    type CommandBoardInboxAckData = {
-        channelid: string;
-        boardid: string;
-        drawid: string;
-    };
-
     // wshrpc.CommandBoardInboxData
     type CommandBoardInboxData = {
         channelid?: string;
@@ -888,13 +787,6 @@ declare global {
         boardid: string;
         data: string;
         baserev: string;
-    };
-
-    // wshrpc.CommandBoardSourceData
-    type CommandBoardSourceData = {
-        channelid: string;
-        boardid: string;
-        sourcekey: string;
     };
 
     // wshrpc.CommandBoardStartData
@@ -3129,10 +3021,6 @@ declare global {
         "brainstorm:judgerun"?: string;
         "brainstorm:judgechannel"?: string;
         "brainstorm:judgereason"?: string;
-        "board:followid"?: string;
-        "board:followchannel"?: string;
-        "board:followname"?: string;
-        "board:followask"?: string;
         "app:loom"?: boolean;
         "agent:transcriptpath"?: string;
         "agent:lastcommitts"?: number;

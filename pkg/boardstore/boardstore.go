@@ -26,8 +26,7 @@ import (
 
 const (
 	boardExt         = ".excalidraw"
-	inboxExt         = ".inbox"
-	drawExt          = ".json"
+	answerExt        = ".json"
 	talkExt          = ".talk.json"
 	answersExt       = ".answers"
 	idLen            = 8
@@ -94,11 +93,9 @@ func checkUUID(kind, id string) error {
 	return nil
 }
 
-func checkDrawID(id string) error   { return checkUUID("draw", id) }
 func checkAnswerID(id string) error { return checkUUID("answer", id) }
 
 func boardPath(dir, id string) string { return filepath.Join(dir, id+boardExt) }
-func inboxDir(dir, id string) string  { return filepath.Join(dir, id+inboxExt) }
 func talkPath(dir, id string) string  { return filepath.Join(dir, id+talkExt) }
 func answersDir(dir, id string) string {
 	return filepath.Join(dir, id+answersExt)
@@ -171,13 +168,6 @@ func infoFromFile(dir, channelId, id string, data []byte, modTs int64, state fun
 	} else {
 		info.Name = rec.Name
 		info.CreatedTs = rec.CreatedTs
-		info.Groups = len(rec.Sources)
-		for _, s := range rec.Sources {
-			info.LastDrawnTs = max(info.LastDrawnTs, s.DrawnTs)
-			if s.DrawnTs > rec.SeenTs {
-				info.NewCount++
-			}
-		}
 	}
 	info.ActiveTs = info.CreatedTs
 	if state != nil {
@@ -359,130 +349,6 @@ func Save(dir, id, data, baseRev string) (wshrpc.BoardSaveRtnData, error) {
 	return wshrpc.BoardSaveRtnData{Rev: revOf([]byte(data))}, nil
 }
 
-// PutDraw files a scribe result in the board's inbox, where it waits until the frontend applies and acks it.
-func PutDraw(dir string, d wshrpc.BoardDraw) error {
-	if err := checkID(d.BoardId); err != nil {
-		return err
-	}
-	if err := checkDrawID(d.ID); err != nil {
-		return err
-	}
-	data, err := json.Marshal(d)
-	if err != nil {
-		return err
-	}
-	inbox := inboxDir(dir, d.BoardId)
-	if err := os.MkdirAll(inbox, dirMode); err != nil {
-		return err
-	}
-	return fileutil.AtomicWriteFile(filepath.Join(inbox, d.ID+drawExt), data, fileMode)
-}
-
-// Draws returns a board's waiting draws, oldest first. An empty boardId returns every board's in dir.
-func Draws(dir, boardId string) ([]wshrpc.BoardDraw, error) {
-	var ids []string
-	if boardId != "" {
-		if err := checkID(boardId); err != nil {
-			return nil, err
-		}
-		ids = []string{boardId}
-	} else {
-		entries, err := os.ReadDir(dir)
-		if errors.Is(err, os.ErrNotExist) {
-			return []wshrpc.BoardDraw{}, nil
-		}
-		if err != nil {
-			return nil, err
-		}
-		for _, e := range entries {
-			if id, ok := strings.CutSuffix(e.Name(), inboxExt); ok && e.IsDir() && ValidID(id) {
-				ids = append(ids, id)
-			}
-		}
-	}
-	draws := []wshrpc.BoardDraw{}
-	for _, id := range ids {
-		files, err := os.ReadDir(inboxDir(dir, id))
-		if errors.Is(err, os.ErrNotExist) {
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
-		for _, f := range files {
-			if f.IsDir() || !strings.HasSuffix(f.Name(), drawExt) {
-				continue
-			}
-			path := filepath.Join(inboxDir(dir, id), f.Name())
-			data, err := os.ReadFile(path)
-			var d wshrpc.BoardDraw
-			if err == nil {
-				err = json.Unmarshal(data, &d)
-			}
-			if err != nil {
-				// one unreadable draw must not hide the rest of the inbox
-				log.Printf("boardstore: skipping unreadable draw %s: %v\n", path, err)
-				continue
-			}
-			draws = append(draws, d)
-		}
-	}
-	sort.SliceStable(draws, func(i, j int) bool {
-		if draws[i].Ts != draws[j].Ts {
-			return draws[i].Ts < draws[j].Ts
-		}
-		return draws[i].ID < draws[j].ID
-	})
-	return draws, nil
-}
-
-// AckDraw removes an applied draw from the inbox. A draw that is already gone is not an error.
-func AckDraw(dir, boardId, drawId string) error {
-	if err := checkID(boardId); err != nil {
-		return err
-	}
-	if err := checkDrawID(drawId); err != nil {
-		return err
-	}
-	err := os.Remove(filepath.Join(inboxDir(dir, boardId), drawId+drawExt))
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	return nil
-}
-
-// Previous returns the source's last skeleton and cursor: the newest unacked inbox draw for key, else the
-// board file's entry for it, else nothing.
-func Previous(dir, boardId, key string) (skeleton string, cursorTs int64, err error) {
-	// Draws reads every board's inbox for an empty id, which would hand back another board's skeleton
-	if err := checkID(boardId); err != nil {
-		return "", 0, err
-	}
-	draws, err := Draws(dir, boardId)
-	if err != nil {
-		return "", 0, err
-	}
-	for i := len(draws) - 1; i >= 0; i-- {
-		if draws[i].SourceKey == key {
-			return draws[i].Skeleton, draws[i].CursorTs, nil
-		}
-	}
-	data, err := os.ReadFile(boardPath(dir, boardId))
-	if err != nil {
-		return "", 0, err
-	}
-	rec, loadErr := parseArc(data)
-	if loadErr != "" {
-		return "", 0, errors.New(loadErr)
-	}
-	for _, s := range rec.Sources {
-		if s.Key == key {
-			return s.Skeleton, s.CursorTs, nil
-		}
-	}
-	return "", 0, nil
-}
-
 func readTalkFile(dir, boardId string) (wshrpc.BoardTalk, error) {
 	talk := wshrpc.BoardTalk{BoardId: boardId}
 	data, err := os.ReadFile(talkPath(dir, boardId))
@@ -560,7 +426,7 @@ func PutAnswer(dir string, a wshrpc.BoardAnswer) error {
 	if err := os.MkdirAll(inbox, dirMode); err != nil {
 		return err
 	}
-	return fileutil.AtomicWriteFile(filepath.Join(inbox, a.ID+drawExt), data, fileMode)
+	return fileutil.AtomicWriteFile(filepath.Join(inbox, a.ID+answerExt), data, fileMode)
 }
 
 // Answers returns a board's waiting answers, oldest first. An empty boardId returns every board's in dir.
@@ -595,7 +461,7 @@ func Answers(dir, boardId string) ([]wshrpc.BoardAnswer, error) {
 			return nil, err
 		}
 		for _, f := range files {
-			if f.IsDir() || !strings.HasSuffix(f.Name(), drawExt) {
+			if f.IsDir() || !strings.HasSuffix(f.Name(), answerExt) {
 				continue
 			}
 			path := filepath.Join(answersDir(dir, id), f.Name())
@@ -629,7 +495,7 @@ func AckAnswer(dir, boardId, answerId string) error {
 	if err := checkAnswerID(answerId); err != nil {
 		return err
 	}
-	err := os.Remove(filepath.Join(answersDir(dir, boardId), answerId+drawExt))
+	err := os.Remove(filepath.Join(answersDir(dir, boardId), answerId+answerExt))
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}

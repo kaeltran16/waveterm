@@ -61,7 +61,7 @@ const emptyBoard = JSON.stringify({ arc: { name: "Escalation", createdts: 1 }, e
 
 function readRtn(rev: string): BoardReadRtnData {
     return {
-        info: { id: BOARD, name: "Escalation", channelid: "c1", path: "/b.excalidraw", groups: 0, createdts: 1 },
+        info: { id: BOARD, name: "Escalation", channelid: "c1", path: "/b.excalidraw", createdts: 1 },
         data: emptyBoard,
         rev,
         arc: { name: "Escalation", createdts: 1 },
@@ -84,7 +84,7 @@ beforeEach(() => {
     rpc.BoardAnswerAckCommand.mockResolvedValue(undefined);
     rpc.BoardListCommand.mockResolvedValue({
         project: "waveterm",
-        boards: [{ id: BOARD, name: "Escalation", channelid: "c1", path: "", groups: 0, createdts: 1 }],
+        boards: [{ id: BOARD, name: "Escalation", channelid: "c1", path: "", createdts: 1 }],
     });
     rpc.BoardReadCommand.mockResolvedValue(readRtn("rev-1"));
     rpc.BoardSaveCommand.mockResolvedValue({ rev: "rev-2" });

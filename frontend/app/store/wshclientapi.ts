@@ -216,36 +216,6 @@ export class RpcApiType {
         return client.wshRpcCall("boardaskstop", data, opts);
     }
 
-    // command "boardcreate" [call]
-    BoardCreateCommand(client: WshClient, data: CommandBoardCreateData, opts?: RpcOpts): Promise<BoardInfo> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "boardcreate", data, opts);
-        return client.wshRpcCall("boardcreate", data, opts);
-    }
-
-    // command "boarddraw" [call]
-    BoardDrawCommand(client: WshClient, data: CommandBoardDrawData, opts?: RpcOpts): Promise<void> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "boarddraw", data, opts);
-        return client.wshRpcCall("boarddraw", data, opts);
-    }
-
-    // command "boardfollowstop" [call]
-    BoardFollowStopCommand(client: WshClient, data: CommandBoardFollowStopData, opts?: RpcOpts): Promise<void> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "boardfollowstop", data, opts);
-        return client.wshRpcCall("boardfollowstop", data, opts);
-    }
-
-    // command "boardinbox" [call]
-    BoardInboxCommand(client: WshClient, data: CommandBoardInboxData, opts?: RpcOpts): Promise<BoardDraw[]> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "boardinbox", data, opts);
-        return client.wshRpcCall("boardinbox", data, opts);
-    }
-
-    // command "boardinboxack" [call]
-    BoardInboxAckCommand(client: WshClient, data: CommandBoardInboxAckData, opts?: RpcOpts): Promise<void> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "boardinboxack", data, opts);
-        return client.wshRpcCall("boardinboxack", data, opts);
-    }
-
     // command "boardlist" [call]
     BoardListCommand(client: WshClient, data: CommandBoardListData, opts?: RpcOpts): Promise<BoardListRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "boardlist", data, opts);
@@ -258,12 +228,6 @@ export class RpcApiType {
         return client.wshRpcCall("boardread", data, opts);
     }
 
-    // command "boardretry" [call]
-    BoardRetryCommand(client: WshClient, data: CommandBoardSourceData, opts?: RpcOpts): Promise<void> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "boardretry", data, opts);
-        return client.wshRpcCall("boardretry", data, opts);
-    }
-
     // command "boardsave" [call]
     BoardSaveCommand(client: WshClient, data: CommandBoardSaveData, opts?: RpcOpts): Promise<BoardSaveRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "boardsave", data, opts);
@@ -274,12 +238,6 @@ export class RpcApiType {
     BoardStartCommand(client: WshClient, data: CommandBoardStartData, opts?: RpcOpts): Promise<BoardInfo> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "boardstart", data, opts);
         return client.wshRpcCall("boardstart", data, opts);
-    }
-
-    // command "boardstatus" [call]
-    BoardStatusCommand(client: WshClient, data: CommandBoardRefData, opts?: RpcOpts): Promise<BoardStatusData> {
-        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "boardstatus", data, opts);
-        return client.wshRpcCall("boardstatus", data, opts);
     }
 
     // command "boardtalk" [call]

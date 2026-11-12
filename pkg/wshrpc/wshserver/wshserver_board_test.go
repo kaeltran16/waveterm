@@ -26,12 +26,23 @@ func boardTestChannel(t *testing.T, name string) *waveobj.Channel {
 	return ch
 }
 
+// boardProjectChannel makes a channel whose project path is a temp dir, so a drawer started on it runs there.
+func boardProjectChannel(t *testing.T, ctx context.Context) (*waveobj.Channel, string) {
+	t.Helper()
+	project := t.TempDir()
+	ch, err := wstore.CreateChannel(ctx, "board-"+uuid.NewString()[:8], project)
+	if err != nil {
+		t.Fatalf("create channel: %v", err)
+	}
+	return ch, project
+}
+
 func TestBoardFilesCreateListReadSave(t *testing.T) {
 	ctx := context.Background()
 	ws := &WshServer{}
 	ch := boardTestChannel(t, "board-rt-"+uuid.NewString()[:8])
 
-	info, err := ws.BoardCreateCommand(ctx, wshrpc.CommandBoardCreateData{ChannelId: ch.OID, Name: "Auth flow"})
+	info, err := ws.BoardStartCommand(ctx, wshrpc.CommandBoardStartData{ChannelId: ch.OID, Name: "Auth flow"})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -84,73 +95,19 @@ func TestBoardFilesRejectBadIds(t *testing.T) {
 			t.Errorf("save accepted board id %q", bad)
 		}
 		if bad != "" { // empty means every board on inbox
-			if _, err := ws.BoardInboxCommand(ctx, wshrpc.CommandBoardInboxData{ChannelId: ch.OID, BoardId: bad}); err == nil {
-				t.Errorf("inbox accepted board id %q", bad)
+			if _, err := ws.BoardAnswerInboxCommand(ctx, wshrpc.CommandBoardInboxData{ChannelId: ch.OID, BoardId: bad}); err == nil {
+				t.Errorf("answer inbox accepted board id %q", bad)
 			}
 		}
-		if err := ws.BoardInboxAckCommand(ctx, wshrpc.CommandBoardInboxAckData{ChannelId: ch.OID, BoardId: bad, DrawId: uuid.NewString()}); err == nil {
-			t.Errorf("ack accepted board id %q", bad)
+		if err := ws.BoardAnswerAckCommand(ctx, wshrpc.CommandBoardAnswerAckData{ChannelId: ch.OID, BoardId: bad, TurnId: "t", AnswerId: uuid.NewString()}); err == nil {
+			t.Errorf("answer ack accepted board id %q", bad)
 		}
-	}
-	if err := ws.BoardInboxAckCommand(ctx, wshrpc.CommandBoardInboxAckData{ChannelId: ch.OID, BoardId: "0123abcd", DrawId: "../../x"}); err == nil {
-		t.Error("ack accepted a path as a draw id")
 	}
 	if _, err := ws.BoardListCommand(ctx, wshrpc.CommandBoardListData{ChannelId: "no-such-channel"}); err == nil {
 		t.Error("list accepted an unknown channel")
 	}
-	if _, err := ws.BoardCreateCommand(ctx, wshrpc.CommandBoardCreateData{ChannelId: ch.OID, Name: "  "}); err == nil {
+	if _, err := ws.BoardStartCommand(ctx, wshrpc.CommandBoardStartData{ChannelId: ch.OID, Name: "  "}); err == nil {
 		t.Error("create accepted a blank name")
-	}
-}
-
-func TestBoardFilesInboxAllProjects(t *testing.T) {
-	ctx := context.Background()
-	ws := &WshServer{}
-	chA := boardTestChannel(t, "board-inbox-a-"+uuid.NewString()[:8])
-	chB := boardTestChannel(t, "board-inbox-b-"+uuid.NewString()[:8])
-	a, err := ws.BoardCreateCommand(ctx, wshrpc.CommandBoardCreateData{ChannelId: chA.OID, Name: "A"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	b, err := ws.BoardCreateCommand(ctx, wshrpc.CommandBoardCreateData{ChannelId: chB.OID, Name: "B"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	drawA := wshrpc.BoardDraw{ID: uuid.NewString(), ChannelId: chA.OID, BoardId: a.ID, SourceKey: "agent:t1", Skeleton: "[]", Ts: 1}
-	drawB := wshrpc.BoardDraw{ID: uuid.NewString(), ChannelId: chB.OID, BoardId: b.ID, SourceKey: "agent:t2", Skeleton: "[]", Ts: 2}
-	if err := boardstore.PutDraw(boardstore.ProjectDir(chA.Name), drawA); err != nil {
-		t.Fatal(err)
-	}
-	if err := boardstore.PutDraw(boardstore.ProjectDir(chB.Name), drawB); err != nil {
-		t.Fatal(err)
-	}
-
-	all, err := ws.BoardInboxCommand(ctx, wshrpc.CommandBoardInboxData{})
-	if err != nil {
-		t.Fatalf("inbox all: %v", err)
-	}
-	got := map[string]wshrpc.BoardDraw{}
-	for _, d := range all {
-		got[d.ID] = d
-	}
-	// other tests in the package share the data dir, so look only for ours
-	if got[drawA.ID].BoardId != a.ID || got[drawB.ID].BoardId != b.ID {
-		t.Fatalf("inbox over every project missed a draw: %+v", all)
-	}
-	if got[drawA.ID].ChannelId != chA.OID || got[drawB.ID].ChannelId != chB.OID {
-		t.Fatalf("a draw lost its channel: %+v", all)
-	}
-
-	one, err := ws.BoardInboxCommand(ctx, wshrpc.CommandBoardInboxData{ChannelId: chA.OID})
-	if err != nil || len(one) != 1 || one[0].ID != drawA.ID {
-		t.Fatalf("inbox for one channel: %+v %v", one, err)
-	}
-
-	if err := ws.BoardInboxAckCommand(ctx, wshrpc.CommandBoardInboxAckData{ChannelId: chA.OID, BoardId: a.ID, DrawId: drawA.ID}); err != nil {
-		t.Fatalf("ack: %v", err)
-	}
-	if left, _ := ws.BoardInboxCommand(ctx, wshrpc.CommandBoardInboxData{ChannelId: chA.OID, BoardId: a.ID}); len(left) != 0 {
-		t.Fatalf("ack left %+v", left)
 	}
 }
 
@@ -158,7 +115,7 @@ func TestBoardFilesDamagedBoardRefusesSave(t *testing.T) {
 	ctx := context.Background()
 	ws := &WshServer{}
 	ch := boardTestChannel(t, "board-bad-"+uuid.NewString()[:8])
-	info, err := ws.BoardCreateCommand(ctx, wshrpc.CommandBoardCreateData{ChannelId: ch.OID, Name: "Broken"})
+	info, err := ws.BoardStartCommand(ctx, wshrpc.CommandBoardStartData{ChannelId: ch.OID, Name: "Broken"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,42 +137,4 @@ func TestBoardFilesDamagedBoardRefusesSave(t *testing.T) {
 		t.Fatalf("list of a damaged board: %+v %v", list, err)
 	}
 	_ = filepath.Base(info.Path)
-}
-
-func TestBoardFollowStopClearsMeta(t *testing.T) {
-	ctx := context.Background()
-	ws := &WshServer{}
-	other := waveobj.MetaMapType{waveobj.MetaKey_SessionAgent: "claude"}
-	tab := &waveobj.Tab{OID: uuid.NewString(), Meta: waveobj.MetaMapType{
-		waveobj.MetaKey_BoardFollowId:      "0123abcd",
-		waveobj.MetaKey_BoardFollowChannel: "chan-1",
-		waveobj.MetaKey_BoardFollowName:    "Auth flow",
-		waveobj.MetaKey_BoardFollowAsk:     "the auth steps",
-		waveobj.MetaKey_SessionAgent:       other[waveobj.MetaKey_SessionAgent],
-	}}
-	if err := wstore.DBInsert(ctx, tab); err != nil {
-		t.Fatal(err)
-	}
-	if err := ws.BoardFollowStopCommand(ctx, wshrpc.CommandBoardFollowStopData{TabId: tab.OID}); err != nil {
-		t.Fatalf("follow stop: %v", err)
-	}
-	got, err := wstore.DBMustGet[*waveobj.Tab](ctx, tab.OID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, k := range []string{waveobj.MetaKey_BoardFollowId, waveobj.MetaKey_BoardFollowChannel, waveobj.MetaKey_BoardFollowName, waveobj.MetaKey_BoardFollowAsk} {
-		if _, ok := got.Meta[k]; ok {
-			t.Errorf("%s survived follow stop: %v", k, got.Meta)
-		}
-	}
-	if got.Meta[waveobj.MetaKey_SessionAgent] != "claude" {
-		t.Errorf("follow stop cleared an unrelated key: %v", got.Meta)
-	}
-	// stopping a tab that follows nothing, or one that is gone, is not an error for the first and is for the second
-	if err := ws.BoardFollowStopCommand(ctx, wshrpc.CommandBoardFollowStopData{TabId: tab.OID}); err != nil {
-		t.Errorf("second follow stop: %v", err)
-	}
-	if err := ws.BoardFollowStopCommand(ctx, wshrpc.CommandBoardFollowStopData{TabId: ""}); err == nil {
-		t.Error("follow stop accepted an empty tab id")
-	}
 }

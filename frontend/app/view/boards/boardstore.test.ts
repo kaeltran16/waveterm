@@ -89,7 +89,7 @@ describe("board:update reloads", () => {
         let first!: (v: BoardListRtnData) => void;
         rpc.BoardListCommand.mockImplementationOnce(() => new Promise((r) => (first = r))).mockResolvedValueOnce({
             project: "waveterm",
-            boards: [{ id: "b2", name: "new", channelid: "c3", path: "", groups: 0, createdts: 2 }],
+            boards: [{ id: "b2", name: "new", channelid: "c3", path: "", createdts: 2 }],
         });
         const older = loadBoardList("c3");
         await loadBoardList("c3");

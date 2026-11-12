@@ -29,6 +29,7 @@ const (
 	errNeedsContext    = "pass the briefing with --context"
 	boardUpdateTalk    = "talk"
 	boardAnsweringMark = "answering"
+	boardSourceAgent   = "agent"
 )
 
 // boardAboutKinds is what a talk can be about; empty is the project's code.

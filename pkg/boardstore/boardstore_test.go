@@ -29,19 +29,6 @@ func mustCreate(t *testing.T, dir, name string, now int64) wshrpc.BoardInfo {
 	return info
 }
 
-// writeRecord rewrites a board file with the given arc record, as the frontend's save would.
-func writeRecord(t *testing.T, dir, id string, rec wshrpc.BoardArcRecord) {
-	t.Helper()
-	arc, err := json.Marshal(rec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	body := `{"arc":` + string(arc) + `,"type":"excalidraw","version":2,"source":"arc","elements":[],"appState":{},"files":{}}`
-	if err := os.WriteFile(boardPath(dir, id), []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestBoardStoreCreateListRead(t *testing.T) {
 	dir := t.TempDir()
 	a := mustCreate(t, dir, "  Auth flow ", 1000)
@@ -68,10 +55,6 @@ func TestBoardStoreCreateListRead(t *testing.T) {
 		t.Fatalf("created order: %v %+v", err, list)
 	}
 
-	// the old source facts still read, until the scribe's records go
-	writeRecord(t, dir, a.ID, wshrpc.BoardArcRecord{Name: "Auth flow", CreatedTs: 1000, SeenTs: 5000, Sources: []wshrpc.BoardArcSource{
-		{Key: "agent:t1", DrawnTs: 4000}, {Key: "agent:t2", DrawnTs: 6000}, {Key: "agent:t3", DrawnTs: 7000},
-	}})
 	state := func(id string) string {
 		if id == a.ID {
 			return "drawing"
@@ -86,7 +69,7 @@ func TestBoardStoreCreateListRead(t *testing.T) {
 	if got.ID != a.ID {
 		got, other = other, got
 	}
-	if got.Groups != 3 || got.LastDrawnTs != 7000 || got.NewCount != 2 || got.State != "drawing" || other.State != "" {
+	if got.State != "drawing" || other.State != "" {
 		t.Fatalf("list row: %+v", got)
 	}
 	if !filepath.IsAbs(got.Path) || filepath.Base(got.Path) != a.ID+".excalidraw" {
@@ -97,7 +80,7 @@ func TestBoardStoreCreateListRead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if read.Arc.Name != "Auth flow" || len(read.Arc.Sources) != 3 || read.Rev == "" || read.Info.ID != a.ID {
+	if read.Arc.Name != "Auth flow" || read.Arc.CreatedTs != 1000 || read.Rev == "" || read.Info.ID != a.ID {
 		t.Fatalf("read: %+v", read)
 	}
 	if _, err := Read(dir, testChannel, "00000000"); err == nil {
@@ -221,7 +204,7 @@ func TestBoardStoreRejectsBadIDs(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "x.excalidraw"), []byte(`{"arc":{"name":"x"}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	draw := wshrpc.BoardDraw{ID: uuid.NewString(), BoardId: "", Ts: 1}
+	answer := wshrpc.BoardAnswer{ID: uuid.NewString(), BoardId: "", Ts: 1}
 	for _, id := range []string{"../x", "ABCDEF12", "7c1e0b4", "7c1e0b4ff", "", `..\x`} {
 		if ValidID(id) {
 			t.Errorf("ValidID(%q) = true", id)
@@ -232,27 +215,24 @@ func TestBoardStoreRejectsBadIDs(t *testing.T) {
 		if _, err := Save(dir, id, `{"arc":{"name":"x"}}`, ""); err == nil {
 			t.Errorf("Save(%q) should refuse", id)
 		}
-		draw.BoardId = id
-		if err := PutDraw(dir, draw); err == nil {
-			t.Errorf("PutDraw(%q) should refuse", id)
+		answer.BoardId = id
+		if err := PutAnswer(dir, answer); err == nil {
+			t.Errorf("PutAnswer(%q) should refuse", id)
 		}
 		if id != "" { // an empty board id means every board
-			if _, err := Draws(dir, id); err == nil {
-				t.Errorf("Draws(%q) should refuse", id)
+			if _, err := Answers(dir, id); err == nil {
+				t.Errorf("Answers(%q) should refuse", id)
 			}
 		}
-		if err := AckDraw(dir, id, uuid.NewString()); err == nil {
-			t.Errorf("AckDraw(%q) should refuse", id)
-		}
-		if _, _, err := Previous(dir, id, "k"); err == nil {
-			t.Errorf("Previous(%q) should refuse", id)
+		if err := AckAnswer(dir, id, uuid.NewString()); err == nil {
+			t.Errorf("AckAnswer(%q) should refuse", id)
 		}
 	}
-	if err := AckDraw(dir, "7c1e0b4f", "../../x"); err == nil {
-		t.Error("AckDraw should refuse a draw id that is not a uuid")
+	if err := AckAnswer(dir, "7c1e0b4f", "../../x"); err == nil {
+		t.Error("AckAnswer should refuse an answer id that is not a uuid")
 	}
-	if err := PutDraw(dir, wshrpc.BoardDraw{ID: "../x", BoardId: "7c1e0b4f"}); err == nil {
-		t.Error("PutDraw should refuse a draw id that is not a uuid")
+	if err := PutAnswer(dir, wshrpc.BoardAnswer{ID: "../x", BoardId: "7c1e0b4f"}); err == nil {
+		t.Error("PutAnswer should refuse an answer id that is not a uuid")
 	}
 	if entries, _ := os.ReadDir(dir); len(entries) != 1 {
 		t.Fatalf("a refused call wrote into the dir: %v", entries)
@@ -277,76 +257,6 @@ func TestBoardStoreProjectDirSanitizes(t *testing.T) {
 	}
 	if filepath.Base(Root()) != "boards" {
 		t.Errorf("Root() = %q", Root())
-	}
-}
-
-func newDraw(board, key string, ts int64, skeleton string, cursor int64) wshrpc.BoardDraw {
-	return wshrpc.BoardDraw{ID: uuid.NewString(), ChannelId: testChannel, BoardId: board, SourceKey: key, Skeleton: skeleton, CursorTs: cursor, Ts: ts}
-}
-
-func TestBoardStoreInbox(t *testing.T) {
-	dir := t.TempDir()
-	a := mustCreate(t, dir, "A", 1)
-	b := mustCreate(t, dir, "B", 2)
-	older := newDraw(a.ID, "agent:t1", 100, `[{"id":"old"}]`, 10)
-	newer := newDraw(a.ID, "agent:t1", 200, `[{"id":"new"}]`, 20)
-	other := newDraw(b.ID, "run:r1", 150, `[]`, 0)
-	for _, d := range []wshrpc.BoardDraw{newer, older, other} { // written out of order
-		if err := PutDraw(dir, d); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	got, err := Draws(dir, a.ID)
-	if err != nil || len(got) != 2 || got[0].ID != older.ID || got[1].ID != newer.ID {
-		t.Fatalf("oldest first: %v %+v", err, got)
-	}
-	if got[1].Skeleton != newer.Skeleton || got[1].CursorTs != 20 {
-		t.Fatalf("round trip: %+v", got[1])
-	}
-	all, err := Draws(dir, "")
-	if err != nil || len(all) != 3 || all[0].ID != older.ID || all[1].ID != other.ID || all[2].ID != newer.ID {
-		t.Fatalf("every board, oldest first: %v %+v", err, all)
-	}
-
-	// the inbox wins over the file's source entry
-	writeRecord(t, dir, a.ID, wshrpc.BoardArcRecord{Name: "A", CreatedTs: 1, Sources: []wshrpc.BoardArcSource{
-		{Key: "agent:t1", Skeleton: `[{"id":"file"}]`, CursorTs: 5},
-	}})
-	if sk, cur, err := Previous(dir, a.ID, "agent:t1"); err != nil || sk != newer.Skeleton || cur != 20 {
-		t.Fatalf("previous from inbox: %q %d %v", sk, cur, err)
-	}
-	if err := AckDraw(dir, a.ID, newer.ID); err != nil {
-		t.Fatal(err)
-	}
-	if sk, cur, _ := Previous(dir, a.ID, "agent:t1"); sk != older.Skeleton || cur != 10 {
-		t.Fatalf("previous after ack: %q %d", sk, cur)
-	}
-	if err := AckDraw(dir, a.ID, older.ID); err != nil {
-		t.Fatal(err)
-	}
-	if sk, cur, _ := Previous(dir, a.ID, "agent:t1"); sk != `[{"id":"file"}]` || cur != 5 {
-		t.Fatalf("previous from file: %q %d", sk, cur)
-	}
-	if sk, cur, err := Previous(dir, a.ID, "agent:other"); err != nil || sk != "" || cur != 0 {
-		t.Fatalf("unknown source: %q %d %v", sk, cur, err)
-	}
-	// an empty id must not fall through to another board's inbox draw for the same key
-	if sk, _, err := Previous(dir, "", "run:r1"); err == nil || sk != "" {
-		t.Fatalf("empty board id read another board's inbox: %q %v", sk, err)
-	}
-
-	if err := AckDraw(dir, a.ID, newer.ID); err != nil {
-		t.Fatalf("acking a missing draw: %v", err)
-	}
-	if err := AckDraw(dir, "7c1e0b4f", uuid.NewString()); err != nil {
-		t.Fatalf("acking on a board with no inbox: %v", err)
-	}
-	if left, _ := Draws(dir, a.ID); len(left) != 0 {
-		t.Fatalf("left: %+v", left)
-	}
-	if none, err := Draws(dir, "7c1e0b4f"); err != nil || len(none) != 0 {
-		t.Fatalf("no inbox: %v %v", none, err)
 	}
 }
 

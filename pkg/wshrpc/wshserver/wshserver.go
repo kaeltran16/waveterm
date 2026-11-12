@@ -199,7 +199,6 @@ func publishEvent(ctx context.Context, data wps.WaveEvent) {
 		// to hold this event already
 		orchestrate.NoteLeadStatus(ctx, &data)
 		noteAgentTurnEnded(ctx, &data)
-		noteBoardFollowTurnEnded(ctx, &data)
 	}
 }
 

@@ -28,7 +28,7 @@ function talk(turns: BoardTurn[]): BoardTalk {
 }
 
 function info(over: Partial<BoardInfo>): BoardInfo {
-    return { id: "b1", name: "Board", channelid: "ch1", path: "/b1", groups: 0, createdts: at(9, 0), ...over };
+    return { id: "b1", name: "Board", channelid: "ch1", path: "/b1", createdts: at(9, 0), ...over };
 }
 
 describe("talkItems", () => {
