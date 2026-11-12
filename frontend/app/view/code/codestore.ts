@@ -1091,38 +1091,36 @@ const savesOut = new Map<string, boolean>();
 
 // One save per file at a time. A second Ctrl+S during a save (a double tap, key repeat, or after typing more)
 // would stat the size and modtime the first one just wrote, read it as someone else's change and raise a
-// conflict over the app's own write; instead it runs once the first lands, against the base that one left.
+// conflict over the app's own write; instead it runs once the first lands, against the base that one left,
+// for the file it was asked for even if another is open by then.
 export async function saveCurrent(): Promise<void> {
     const project = globalStore.get(codeProjectAtom);
     const file = globalStore.get(codeFileAtom);
     if (project == null || file.kind !== "text") {
         return;
     }
-    const abs = draftKey(project, file.path);
+    await saveFile(project, file.path);
+}
+
+async function saveFile(project: CodeProject, rel: string): Promise<void> {
+    const abs = draftKey(project, rel);
     if (savesOut.has(abs)) {
         savesOut.set(abs, true);
         return;
     }
     savesOut.set(abs, false);
     try {
-        await saveOpenFile();
+        await writeDraft(project, rel);
     } finally {
         const again = savesOut.get(abs);
         savesOut.delete(abs);
-        const open = globalStore.get(codeFileAtom);
-        if (again && globalStore.get(codeProjectAtom) === project && open.kind === "text" && open.path === file.path) {
-            await saveCurrent();
+        if (again) {
+            await saveFile(project, rel);
         }
     }
 }
 
-async function saveOpenFile(): Promise<void> {
-    const project = globalStore.get(codeProjectAtom);
-    const file = globalStore.get(codeFileAtom);
-    if (project == null || file.kind !== "text") {
-        return;
-    }
-    const rel = file.path;
+async function writeDraft(project: CodeProject, rel: string): Promise<void> {
     const abs = draftKey(project, rel);
     const draft = globalStore.get(codeDraftsAtom).get(abs);
     if (draft == null) {
@@ -1134,7 +1132,9 @@ async function saveOpenFile(): Promise<void> {
         const open = globalStore.get(codeFileAtom);
         return globalStore.get(codeProjectAtom) === project && open.kind !== "none" && open.path === rel;
     };
-    globalStore.set(codeSaveAtom, { kind: "saving", path: rel });
+    if (stillOpen()) {
+        globalStore.set(codeSaveAtom, { kind: "saving", path: rel });
+    }
     try {
         const latest = await RpcApi.FileInfoCommand(TabRpcClient, { info: { path: abs } });
         const conflict = conflictOf(draft.base, latest);

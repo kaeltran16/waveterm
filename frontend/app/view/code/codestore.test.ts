@@ -482,6 +482,34 @@ describe("saveCurrent", () => {
         expect(globalStore.get(codeDraftsAtom).has(draftKey(project, "src/a.ts"))).toBe(false);
     });
 
+    it("a save queued behind one in flight still runs after another file opened", async () => {
+        const project = seedSession(["src/a.ts", "src/b.ts"]);
+        editDraft("one\nmine\n");
+        const write = deferred<void>();
+        fileWrite.mockReturnValueOnce(write.promise).mockResolvedValue(undefined);
+        fileInfo
+            .mockResolvedValueOnce({ size: 4, modtime: 1 })
+            .mockResolvedValueOnce({ size: 9, modtime: 2 })
+            .mockResolvedValueOnce({ size: 9, modtime: 2 })
+            .mockResolvedValueOnce({ size: 14, modtime: 3 });
+
+        const first = saveCurrent();
+        await vi.waitFor(() => expect(fileWrite).toHaveBeenCalledTimes(1));
+        editDraft("one\nmine\nmore\n");
+        const second = saveCurrent();
+        globalStore.set(codeFileAtom, text("src/b.ts", "b\n"));
+        write.resolve();
+        await Promise.all([first, second]);
+
+        expect(fileWrite).toHaveBeenCalledTimes(2);
+        expect(fileWrite).toHaveBeenLastCalledWith(
+            expect.anything(),
+            expect.objectContaining({ info: { path: draftKey(project, "src/a.ts") } })
+        );
+        expect(globalStore.get(codeDraftsAtom).has(draftKey(project, "src/a.ts"))).toBe(false);
+        expect(globalStore.get(codeFileAtom)).toMatchObject({ path: "src/b.ts", text: "b\n" });
+    });
+
     it("a refusal that lands after another file opened raises no stale bar over it", async () => {
         seedSession(["src/a.ts", "src/b.ts"]);
         editDraft("one\nmine\n");
