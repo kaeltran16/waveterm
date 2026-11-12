@@ -414,6 +414,32 @@ func TestMergeCommitRefusedKeepsWorkStagedBeforeTheSquash(t *testing.T) {
 	}
 }
 
+// engine F7: the undo runs after the context that killed the commit has ended, and must still put the merge back
+func TestUndoMergeRunsOnAnEndedContext(t *testing.T) {
+	dir := newGitRepo(t)
+	base := gitCmd(t, dir, "rev-parse", "HEAD")
+	wt, _ := CreateRunWorktree(context.Background(), dir, "run-1", base)
+	writeFile(t, filepath.Join(wt, "feature.txt"), "feat\n")
+	gitCmd(t, wt, "add", ".")
+	gitCmd(t, wt, "commit", "-m", "feature")
+	gitCmd(t, dir, "merge", "--no-ff", "--no-commit", "wave/run-1")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if got := mergeRefusal(ctx, dir, "main", errors.New("killed")); !strings.Contains(got, "which was aborted") {
+		t.Fatalf("the refusal must abort the merge, got %q", got)
+	}
+	if inMerge, err := mergeHeadExists(context.Background(), dir); err != nil || inMerge {
+		t.Fatalf("MERGE_HEAD must be gone: inMerge=%v err=%v", inMerge, err)
+	}
+	gitCmd(t, dir, "merge", "--squash", "wave/run-1")
+	if err := undoMerge(ctx, dir); err != nil {
+		t.Fatalf("undo on an ended context: %v", err)
+	}
+	if clean, err := IndexClean(context.Background(), dir); err != nil || !clean {
+		t.Fatalf("the squash must be put back: clean=%v err=%v", clean, err)
+	}
+}
+
 // a continue's staged tree is the resolver's work: a refused commit leaves it for the next --continue
 func TestMergeContinueCommitRefusedKeepsTheResolution(t *testing.T) {
 	dir := conflictedSquash(t)

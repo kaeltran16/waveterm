@@ -106,7 +106,10 @@ func finishMerge(ctx context.Context, projectPath, runID string, lane MergeLane,
 
 // undoMerge puts tree back at HEAD after a merge git started and could not finish: the squash's or the merge's
 // staged result and MERGE_HEAD go, while uncommitted edits outside the merge stay, as git merge --abort keeps them.
+// It runs on a fresh context when ctx has ended, since that may be what killed the merge.
 func undoMerge(ctx context.Context, tree string) error {
+	ctx, cancel := cleanupContext(ctx)
+	defer cancel()
 	_, err := git(ctx, tree, "reset", "--merge")
 	return err
 }
