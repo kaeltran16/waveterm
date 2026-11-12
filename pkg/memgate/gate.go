@@ -54,6 +54,12 @@ type Claim struct {
 	boundAt  time.Time
 	admitted time.Time
 	released bool
+
+	// the reconciliation loop's view of the tree
+	seen          bool // its job has appeared in a live usage read
+	paused        bool
+	pausedAt      time.Time
+	noPauseBefore time.Time // after a pause hits its limit
 }
 
 func (c *Claim) owed() uint64 {
@@ -68,6 +74,9 @@ type waiter struct{ need uint64 }
 // waitRecheck bounds how long a Wait sleeps without a Release: free memory can rise with nothing in the book
 // changing. A var so tests can make a release the only wake.
 var waitRecheck = 2 * time.Second
+
+// now is the clock; a var so tests can step it past the loop's limits.
+var now = time.Now
 
 // freeMem is the machine's available memory; a var so tests can stand in for the machine.
 var freeMem = func() (uint64, error) {
@@ -130,15 +139,15 @@ func fitsLocked(need uint64, self *waiter) (bool, uint64) {
 }
 
 func admitLocked(r Request, need uint64) *Claim {
-	now := time.Now()
-	c := &Claim{key: r.Key, tag: r.Tag, need: need, admitted: now}
+	ts := now()
+	c := &Claim{key: r.Key, tag: r.Tag, need: need, admitted: ts}
 	if r.Owner != (jobobject.Owner{}) {
-		c.owner, c.bound, c.boundAt = r.Owner, true, now
+		c.owner, c.bound, c.boundAt = r.Owner, true, ts
 	}
 	book.claims[c] = struct{}{}
 	if since, ok := book.held[r.Tag]; ok {
 		delete(book.held, r.Tag)
-		emitLocked(Event{Kind: EventAdmitted, Tag: r.Tag, Need: need, Ms: now.Sub(since).Milliseconds()})
+		emitLocked(Event{Kind: EventAdmitted, Tag: r.Tag, Need: need, Ms: ts.Sub(since).Milliseconds()})
 	}
 	return c
 }
@@ -151,7 +160,7 @@ func holdLocked(tag Tag, free, need uint64) {
 	if _, ok := book.held[tag]; ok {
 		return
 	}
-	book.held[tag] = time.Now()
+	book.held[tag] = now()
 	emitLocked(Event{Kind: EventHeld, Tag: tag, Free: free, Need: need})
 }
 
@@ -243,7 +252,7 @@ func (c *Claim) Bind(o jobobject.Owner) {
 	}
 	book.mu.Lock()
 	defer book.mu.Unlock()
-	c.owner, c.bound, c.boundAt = o, true, time.Now()
+	c.owner, c.bound, c.boundAt = o, true, now()
 }
 
 // Release returns the claim's room to the book. Idempotent and nil-safe.
