@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -416,5 +417,78 @@ func TestPiSessionWhoseOwnReadFailedIsNotCached(t *testing.T) {
 	readPiSession = orig
 	if e := parseCandidate(c); e.info == nil {
 		t.Fatal("want the session once the read succeeds")
+	}
+}
+
+// opencodeCandidate is ses_abc's info file in a fresh opencode tree, as a scan candidate.
+func opencodeCandidate(t *testing.T) (candidate, string) {
+	t.Helper()
+	clearScanCache()
+	storage := buildOpencodeTree(t, t.TempDir())
+	path := filepath.Join(storage, "session", "proj1", "ses_abc.json")
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return candidate{path: path, stem: "ses_abc", mtime: info.ModTime(), size: info.Size(), p: opencodeProvider("")}, storage
+}
+
+func TestOpencodeSessionWhoseMessageReadFailedIsNotCached(t *testing.T) {
+	c, _ := opencodeCandidate(t)
+	orig := readOpencodeFile
+	readOpencodeFile = func(p string) ([]byte, error) {
+		return nil, &fs.PathError{Op: "open", Path: p, Err: fs.ErrPermission}
+	}
+	t.Cleanup(func() { readOpencodeFile = orig })
+	parseCandidate(c)
+	if _, ok := cachedEntry(c); ok {
+		t.Fatal("an opencode session whose message files could not be read was cached")
+	}
+	readOpencodeFile = orig
+	if e := parseCandidate(c); e.info == nil {
+		t.Fatal("want the session once the read succeeds")
+	}
+}
+
+func TestOpencodeSessionWhoseMessageDirReadFailedIsNotCached(t *testing.T) {
+	c, _ := opencodeCandidate(t)
+	orig := readOpencodeDir
+	readOpencodeDir = func(p string) ([]os.DirEntry, error) {
+		return nil, &fs.PathError{Op: "open", Path: p, Err: fs.ErrPermission}
+	}
+	t.Cleanup(func() { readOpencodeDir = orig })
+	parseCandidate(c)
+	if _, ok := cachedEntry(c); ok {
+		t.Fatal("an opencode session whose message dir could not be read was cached")
+	}
+}
+
+func TestOpencodeSessionWithNoMessageDirIsCached(t *testing.T) {
+	c, storage := opencodeCandidate(t)
+	if err := os.RemoveAll(filepath.Join(storage, "message", "ses_abc")); err != nil {
+		t.Fatal(err)
+	}
+	if e := parseCandidate(c); e.info != nil {
+		t.Fatal("a session with no messages has no task, want no session")
+	}
+	if _, ok := cachedEntry(c); !ok {
+		t.Fatal("a missing message dir is an empty session, want it cached")
+	}
+}
+
+func TestOpencodeSessionWhosePartReadFailedIsNotCached(t *testing.T) {
+	c, storage := opencodeCandidate(t)
+	parts := filepath.Join(storage, "part")
+	orig := readOpencodeFile
+	readOpencodeFile = func(p string) ([]byte, error) {
+		if strings.HasPrefix(p, parts) {
+			return nil, &fs.PathError{Op: "open", Path: p, Err: fs.ErrPermission}
+		}
+		return orig(p)
+	}
+	t.Cleanup(func() { readOpencodeFile = orig })
+	parseCandidate(c)
+	if _, ok := cachedEntry(c); ok {
+		t.Fatal("an opencode session whose part files could not be read was cached")
 	}
 }

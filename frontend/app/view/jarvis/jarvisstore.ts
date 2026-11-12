@@ -7,6 +7,7 @@
 import { globalStore } from "@/app/store/jotaiStore";
 import { atom, type PrimitiveAtom } from "jotai";
 import type { EffortIndex } from "./briefrows";
+import type { RowRename } from "./sidebarnotes";
 
 // The record the Brief's peek is open on, or null. Module-level rather than surface state because the
 // Jarvis surface unmounts when you navigate away from it, and a peek opened from an oref must survive the
@@ -29,6 +30,9 @@ export const briefSheetOpenAtom = atom(false);
 // note you are reading, not the note AND the surface.
 export const noteChunkAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 export const readingNoteAtom = atom<Set<string>>(new Set<string>()) as PrimitiveAtom<Set<string>>;
+// The last tracker row rename that landed, so the Chunk sidebar can tell its chunk being renamed (keep the
+// draft) from a move to another chunk (drop it): a rename changes the row id the sidebar is keyed on.
+export const lastRowRenameAtom = atom<RowRename | null>(null) as PrimitiveAtom<RowRename | null>;
 
 // The one open plan-editing menu (a chunk's status menu or a stage's actions), by row id. Here for the
 // same reason: it is the innermost Escape layer, and the dispatcher runs on window capture ahead of any

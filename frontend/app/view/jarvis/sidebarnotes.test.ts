@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { FeedEntry } from "./effortfeed";
-import { NOTE_OPEN_CHARS, sidebarNotes } from "./sidebarnotes";
+import { NOTE_OPEN_CHARS, sidebarKeepsDraft, sidebarNotes } from "./sidebarnotes";
 
 const e = (seq: number, text: string, over: Partial<FeedEntry> = {}): FeedEntry => ({
     seq,
@@ -117,5 +117,19 @@ describe("sidebarNotes", () => {
     it("names Jira when the initiative no longer has a ticket", () => {
         const [card] = sidebarNotes([e(1, "x", { jirapost: "u" })], "N1", 5000, new Set(), "");
         expect(card.heading).toBe("In a post to Jira");
+    });
+});
+
+describe("sidebarKeepsDraft", () => {
+    it("keeps what was typed while the sidebar stays on its chunk", () => {
+        expect(sidebarKeepsDraft("l1:N1", "l1:N1", null)).toBe(true);
+    });
+    it("keeps it when the chunk id changed because that chunk was renamed", () => {
+        expect(sidebarKeepsDraft("l1:N1", "l1:N1b", { from: "l1:N1", to: "l1:N1b" })).toBe(true);
+    });
+    it("drops it on a move to another chunk, even after an earlier rename", () => {
+        expect(sidebarKeepsDraft("l1:N1", "l1:N2", null)).toBe(false);
+        expect(sidebarKeepsDraft("l1:N1b", "l1:N2", { from: "l1:N1", to: "l1:N1b" })).toBe(false);
+        expect(sidebarKeepsDraft("l1:N1", "l1:N2", { from: "l1:N3", to: "l1:N2" })).toBe(false);
     });
 });

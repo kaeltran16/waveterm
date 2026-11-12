@@ -220,7 +220,10 @@ func (router *WshRouter) handleNoRoute(msg RpcMessage, ingressLinkId baseds.Link
 	router.sendRoutedMessage(respBytes, msg.Source, msg.Command, baseds.NoLinkId)
 }
 
-func (router *WshRouter) registerRouteInfo(rpcId string, sourceLinkId baseds.LinkId, destRouteId string, destLinkId baseds.LinkId) {
+// timeoutMs is the request's own timeout: past it the caller has given up (a Go caller's context and a
+// frontend caller's timer both bound the whole rpc), so the entry goes even if the destination, still
+// connected, never answers. A request with no timeout (a frontend stream) has no such bound.
+func (router *WshRouter) registerRouteInfo(rpcId string, sourceLinkId baseds.LinkId, destRouteId string, destLinkId baseds.LinkId, timeoutMs int64) {
 	if rpcId == "" {
 		return
 	}
@@ -231,6 +234,9 @@ func (router *WshRouter) registerRouteInfo(rpcId string, sourceLinkId baseds.Lin
 		sourceLinkId: sourceLinkId,
 		destRouteId:  destRouteId,
 		destLinkId:   destLinkId,
+	}
+	if timeoutMs > 0 {
+		time.AfterFunc(time.Duration(timeoutMs)*time.Millisecond, func() { router.unregisterRouteInfo(rpcId) })
 	}
 }
 
@@ -352,7 +358,7 @@ func (router *WshRouter) runServer() {
 				router.handleNoRoute(msg, input.IngressLinkId)
 				continue
 			}
-			router.registerRouteInfo(msg.ReqId, input.IngressLinkId, routeId, router.routeLink(routeId))
+			router.registerRouteInfo(msg.ReqId, input.IngressLinkId, routeId, router.routeLink(routeId), msg.Timeout)
 			continue
 		}
 		// look at reqid or resid to route correctly
