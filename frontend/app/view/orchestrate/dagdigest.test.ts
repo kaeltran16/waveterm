@@ -74,6 +74,12 @@ describe("shouldRefreshDigest", () => {
         expect(shouldRefreshDigest("dag-done")).toBe(true);
     });
 
+    it("memory events refresh the digest", () => {
+        for (const kind of ["memory-held", "memory-admitted", "memory-paused", "memory-resumed"]) {
+            expect(shouldRefreshDigest(kind)).toBe(true);
+        }
+    });
+
     it("does not refresh on activity ticks or unrelated kinds", () => {
         expect(shouldRefreshDigest(undefined)).toBe(false);
         expect(shouldRefreshDigest("phase-started")).toBe(false);

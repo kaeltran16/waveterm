@@ -15,6 +15,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/agentask"
 	"github.com/wavetermdev/waveterm/pkg/harness"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
+	"github.com/wavetermdev/waveterm/pkg/memgate"
 	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/util/jobobject"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -85,11 +86,12 @@ const (
 
 // deprioritizeWorker lowers a started worker's or reviewer's priority so several runs in flight leave the app
 // responsive. It never fails the spawn: a worker it cannot lower runs at normal priority, and the failure is logged.
-func deprioritizeWorker(ctx context.Context, workerORef string) {
+// It returns the worker's block id, "" when it cannot be read.
+func deprioritizeWorker(ctx context.Context, workerORef string) string {
 	blockId, err := workerBlockId(ctx, workerORef)
 	if err != nil {
 		log.Printf("lowering priority of worker %s: %v", workerORef, err)
-		return
+		return ""
 	}
 	lower := lowerWorkerPriority // read now: the goroutine outlives a test's stub
 	go func() {
@@ -106,6 +108,7 @@ func deprioritizeWorker(ctx context.Context, workerORef string) {
 			time.Sleep(workerJobPoll)
 		}
 	}()
+	return blockId
 }
 
 func workerBlockId(ctx context.Context, workerORef string) (string, error) {
@@ -559,10 +562,16 @@ func scheduleLocked(ctx context.Context, dagID string) ([]stalledTask, error) {
 	stalled := recordTaskTransitions(ctx, g, runs, prevStates, now, &afterCommit)
 	countFailures(ctx, g, runs, prevStates, &afterCommit)
 	// what the cap holds back stays pending, and a later tick dispatches it once a worker or memory frees up
-	next := NextToSpawn(g)
-	next = next[:claimWorkers(ctx, g, len(next))]
+	next, claims := claimWorkers(ctx, g, owner, NextToSpawn(g))
 	defer releaseWorkerClaim(g.OID)
-	spawned, err := dispatchTasks(ctx, &budget, g, owner, spawnBase, runs, recorded, next, now, &afterCommit)
+	// a claim its dispatch never bound (a failed spawn, a tick that failed part-way, the tasks after it) is the
+	// tick's to release; a bound one belongs to its worker's job
+	defer func() {
+		for _, c := range claims {
+			c.ReleaseIfUnbound()
+		}
+	}()
+	spawned, err := dispatchTasks(ctx, &budget, g, owner, spawnBase, runs, recorded, next, claims, now, &afterCommit)
 	if err != nil {
 		return nil, err
 	}
@@ -841,8 +850,9 @@ func countFailures(ctx context.Context, g *waveobj.TaskGroup, runs map[string]*w
 }
 
 // dispatchTasks starts a worker for each task in next, in its lane's tree, and records its child run. A failure to
-// record a started worker unwinds the tick's spawns (cleanupScheduleFailure) and is returned.
-func dispatchTasks(ctx context.Context, budget *spawnBudget, g *waveobj.TaskGroup, owner *waveobj.Run, spawnBase string, runs map[string]*waveobj.Run, recorded []string, next []string, now int64, afterCommit *[]func()) ([]spawnedWorkerInfo, error) {
+// record a started worker unwinds the tick's spawns (cleanupScheduleFailure) and is returned. Each started worker's
+// gate claim is bound to its block's job; the caller releases the claims left unbound.
+func dispatchTasks(ctx context.Context, budget *spawnBudget, g *waveobj.TaskGroup, owner *waveobj.Run, spawnBase string, runs map[string]*waveobj.Run, recorded []string, next []string, claims map[string]*memgate.Claim, now int64, afterCommit *[]func()) ([]spawnedWorkerInfo, error) {
 	var spawned []spawnedWorkerInfo
 	for _, taskID := range next {
 		task := taskByID(g, taskID)
@@ -888,9 +898,11 @@ func dispatchTasks(ctx context.Context, budget *spawnBudget, g *waveobj.TaskGrou
 			if g.Setup == "" || !treeSetUp(spawnCtx, wt) {
 				setupStart := time.Now()
 				// no progress sink: Setup runs under the dag mutation lock, so nothing can read a
-				// partial tail while it holds the lock anyway
+				// partial tail while it holds the lock anyway. It runs on its worker's admission, whose need
+				// covers it: waiting here would hold the lock
 				var serr error
-				_, notLinked, serr = PrepareTree(withRunCmdOwner(context.WithoutCancel(ctx), owner.ID, PlanCmd_Setup, ""), wt, g.Setup)
+				setupCtx := WithGateAdmitted(withRunCmdOwner(context.WithoutCancel(ctx), owner.ID, PlanCmd_Setup, ""))
+				_, notLinked, serr = PrepareTree(setupCtx, wt, g.Setup)
 				setupMs = time.Since(setupStart).Milliseconds()
 				if serr != nil {
 					// only a new tree is set up, so a retry must not reuse this half-prepared one. The branch
@@ -971,7 +983,7 @@ func dispatchTasks(ctx context.Context, budget *spawnBudget, g *waveobj.TaskGrou
 			failDispatch(ctx, g, taskID, FailureKindSpawn, err, afterCommit)
 			continue
 		}
-		deprioritizeWorker(spawnCtx, oref)
+		bindToBlock(claims[taskID], deprioritizeWorker(spawnCtx, oref))
 		// now, not at tick end: the app already shows the tab, and until its run arrives the tab sits outside
 		// the run's tree for as long as the rest of the batch takes to spawn. The tab's stamped task id nests it
 		// before the dag commit names the run.

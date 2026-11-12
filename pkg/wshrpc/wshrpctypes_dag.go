@@ -292,6 +292,16 @@ type DagTaskDigest struct {
 	ForwardedTs      int64    `json:"forwardedts,omitempty"`      // UnixMilli the lead forwarded this task's open failure to the human; 0 while the lead still holds it
 	MergeHeldBy      string   `json:"mergeheldby,omitempty"`      // the task whose merge-point Verify holds this tip (mergestate "held")
 	VerifyFailLine   string   `json:"verifyfailline,omitempty"`   // the failing Verify check's first line, for a verify-failed task
+	// Memory is set while the task's tree is held at the memory gate or paused by it; shown beside waitreason.
+	Memory *DagMemoryState `json:"memory,omitempty"`
+}
+
+type DagMemoryState struct {
+	State string `json:"state"` // waiting | paused
+	Role  string `json:"role"`  // worker | reviewer | Setup | Verify | Check | Final
+	Free  int64  `json:"free"`  // bytes
+	Need  int64  `json:"need"`  // bytes
+	Ts    int64  `json:"ts"`    // UnixMilli the hold or pause began
 }
 
 type DagDurationDigest struct {

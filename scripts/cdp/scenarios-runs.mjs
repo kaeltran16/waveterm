@@ -1570,6 +1570,37 @@ async function runSheetPhase3(h, ctx, rec) {
     );
 }
 
+// The memory gate's hold and pause on the task rows: t-1 pending and t-3 running, each with a digest memory state
+// no RPC writes (the engine sets it from the gate's run events), so the rows read them from a page-only digest.
+const GIB = 1024 ** 3;
+async function runSheetMemory(h, ctx, rec) {
+    await h.cdp("Emulation.setDeviceMetricsOverride", OBS_WIDE);
+    await polishNap(500);
+    const row = (state, free, need) => ({ waitreason: "", mergestate: "", cleanupstate: "", memory: { state, role: "worker", free, need, ts: Date.now() } });
+    const injected = await injectPageDag(h, ctx.runId, {
+        tasks: { "t-1": { state: "pending" }, "t-3": { state: "running" } },
+        digest: { "t-1": row("waiting", Math.round(2.1 * GIB), Math.round(3.5 * GIB)), "t-3": row("paused", Math.round(1.2 * GIB), 3 * GIB) },
+    });
+    const read = await lookEval(h, `
+        const cell = (id, i) => document.querySelector('[data-run-sheet-row="' + id + '"]')?.children[i];
+        const meta = (id) => flat(cell(id, 1)?.children[1]);
+        const state = (id) => flat(cell(id, 2)?.firstElementChild);
+        await until(() => /^waiting for memory/.test(meta("t-1")) && /^paused: memory/.test(meta("t-3")), 8000);
+        return { waiting: meta("t-1"), waitingState: state("t-1"), paused: meta("t-3"), pausedState: state("t-3") };`);
+    await h.shot("cdp-shots/run-sheet-polish-memory.png");
+    await undoPageDag(h, ctx.runId);
+    rec(
+        "13. a pending task held at the memory gate reads waiting, meta waiting for memory · 2.1 GB free, 3.5 GB needed",
+        injected === "ok" && read.waitingState === "waiting" && read.waiting === "waiting for memory · 2.1 GB free, 3.5 GB needed",
+        JSON.stringify({ injected, ...read })
+    );
+    rec(
+        "14. a running task the gate paused reads paused, meta paused: memory · 1.2 GB free, 3.0 GB needed",
+        read.pausedState === "paused" && read.paused === "paused: memory · 1.2 GB free, 3.0 GB needed",
+        JSON.stringify(read)
+    );
+}
+
 export const runSheetPolish = {
     name: "run-sheet-polish",
     surface: "jarvis",
@@ -1754,6 +1785,7 @@ export const runSheetPolish = {
             JSON.stringify(short)
         );
         await runSheetPhase3(h, ctx, rec);
+        await runSheetMemory(h, ctx, rec);
         return steps;
     },
     async teardown(h, ctx) {
@@ -4737,6 +4769,24 @@ async function fstPublishStepMs(h, ctx, step, ms) {
         data: { channelid: ctx.channelId, runid: ctx.runId, event },
     });
 }
+// a task-less memory-held for one of the stage's commands, as the memory gate writes it on the dag owner's run
+const FST_MEMORY_TEXT = "waiting for memory · 2.1 GB free, 3.5 GB needed";
+async function fstPublishMemoryHeld(h, ctx, role) {
+    const GIB = 1024 ** 3;
+    const event = {
+        id: `fst-memory-held-${role}`,
+        runid: ctx.runId,
+        channelid: ctx.channelId,
+        ts: Date.now(),
+        kind: "memory-held",
+        detail: JSON.stringify({ taskid: "", role, free: Math.round(2.1 * GIB), need: Math.round(3.5 * GIB) }),
+    };
+    await h.rpc("eventpublish", {
+        event: "run:event",
+        scopes: [`run:${ctx.runId}`],
+        data: { channelid: ctx.channelId, runid: ctx.runId, event },
+    });
+}
 const fstStates = (steps) => (steps ?? []).map((s) => s.state);
 const fstRepeat = (state, n) => Array(n).fill(state);
 const fstSame = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -5124,6 +5174,27 @@ export const finalStageScenario = {
             { row: a?.rows, pane: a?.pane?.steps, node: d?.node }
         );
         await shot("b3-alongside-dag");
+
+        // the running Check waits at the memory gate: its step reads the hold where its command or state reads
+        const publishHold = () => fstPublishMemoryHeld(h, ctx, "Check");
+        const holdNudge = async () => {
+            await wait.nudge();
+            await publishHold();
+        };
+        await publishHold();
+        const memoryOf = (root) =>
+            `(${root})?.querySelector('[data-final-step="check"] [data-final-step-memory]')?.textContent.trim() ?? null`;
+        const heldPeek = await fstUntil(h, memoryOf(FST_DAG_PEEK), (t) => t === FST_MEMORY_TEXT, { nudge: holdNudge });
+        await shot("b3b-memory-dag");
+        if ((await h.activeSurfaceLabel()) !== SURFACE_LABEL.agent) await h.goto("agent");
+        const heldPane = await fstUntil(h, memoryOf(FST_PANE), (t) => t === FST_MEMORY_TEXT, { nudge: holdNudge });
+        const heldRail = await fstUntil(h, memoryOf(`${FST_RAIL}?.querySelector("[data-final-rail]")`), (t) => t === FST_MEMORY_TEXT);
+        await shot("b3b-memory-pane");
+        rec(
+            "B3b. a running Check held at the memory gate reads waiting for memory · 2.1 GB free, 3.5 GB needed on its step in the DAG peek card, the pane and the rail",
+            () => heldPeek === FST_MEMORY_TEXT && heldPane === FST_MEMORY_TEXT && heldRail === FST_MEMORY_TEXT,
+            { heldPeek, heldPane, heldRail }
+        );
 
         wait = await fstShow(h, ctx, "reviewing");
         a = await fstAgent(h, (s) => s.rows[0].sub.startsWith("verifier reviewing") && s.pane.steps[3].state === "passed", wait);

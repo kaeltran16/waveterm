@@ -165,6 +165,19 @@ const (
 	//   plan-reviewed          the plan review reached a verdict ("state", "round", "findings")
 	RunEventKindStageSessionStarted = "stage-session-started"
 	RunEventKindPlanReviewed        = "plan-reviewed"
+
+	// memory gate (pkg/memgate), written on the dag owner's run. "taskid" is "" for a task-less command (the
+	// final stage's Setup, Check, Verify, Final), "role" is worker | reviewer | Setup | Verify | Check | Final,
+	// "free" and "need" are bytes.
+	//   memory-held      a tree is waiting for memory ("taskid", "role", "free", "need"); once per transition
+	//   memory-admitted  the held tree was admitted ("taskid", "role", "ms": time waited)
+	//   memory-paused    the loop suspended a running tree for lack of memory ("taskid", "role", "free", "need")
+	//   memory-resumed   a paused tree continued ("taskid", "role", "reason": memory | limit | exited, "ms": time
+	//                    paused)
+	RunEventKindMemoryHeld     = "memory-held"
+	RunEventKindMemoryAdmitted = "memory-admitted"
+	RunEventKindMemoryPaused   = "memory-paused"
+	RunEventKindMemoryResumed  = "memory-resumed"
 )
 
 // Detail payload keys per kind (values are built as map[string]any by writers):

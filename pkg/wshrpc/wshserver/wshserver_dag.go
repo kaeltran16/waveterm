@@ -358,7 +358,8 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 	// stopped waiting, so the prepared tree gets its dag. With no Setup the tree gets the default links.
 	if run.LandPath != "" && run.DagORef == "" {
 		ctx = context.WithoutCancel(ctx)
-		setupCtx := jobobject.WithOwner(ctx, jobobject.Owner{Kind: jobobject.OwnerKind_RunCmd, Id: run.ID, Cmd: orchestrate.PlanCmd_Setup})
+		// admitted: the RPC must never wait at the memory gate, and nothing else of this run is live yet
+		setupCtx := orchestrate.WithGateAdmitted(jobobject.WithOwner(ctx, jobobject.Owner{Kind: jobobject.OwnerKind_RunCmd, Id: run.ID, Cmd: orchestrate.PlanCmd_Setup}))
 		if tail, _, err := orchestrate.PrepareTree(setupCtx, run.LandPath, plan.Setup); err != nil {
 			return nil, &setupFailedError{landPath: run.LandPath, command: plan.Setup, tail: tail, err: err}
 		}
@@ -511,6 +512,10 @@ var dagDigestRetainedKinds = []string{
 	waveobj.RunEventKindChildAnswered,
 	waveobj.RunEventKindTaskForwarded,
 	waveobj.RunEventKindTaskTold,
+	waveobj.RunEventKindMemoryHeld,
+	waveobj.RunEventKindMemoryAdmitted,
+	waveobj.RunEventKindMemoryPaused,
+	waveobj.RunEventKindMemoryResumed,
 }
 
 func (ws *WshServer) DagStatusCommand(ctx context.Context, data wshrpc.CommandDagStatusData) (*wshrpc.CommandDagStatusRtnData, error) {

@@ -28,6 +28,17 @@ type LiveJob struct {
 	Members []int // pids currently in the job
 }
 
+// JobUsage is a registered job's memory: Current is its committed memory now, Peak the most it has committed.
+type JobUsage struct {
+	Owner   Owner
+	RootPid int
+	Current uint64
+	Peak    uint64
+}
+
+// CloseHook is told the owner, root pid and peak memory of each registered job that Close closes.
+type CloseHook func(o Owner, rootPid int, peak uint64)
+
 var (
 	ErrNotMember = errors.New("not a member of the job") // includes: no live job for that owner
 	ErrGone      = errors.New("process has already exited")
@@ -45,16 +56,25 @@ func OwnerFrom(ctx context.Context) (Owner, bool) {
 }
 
 type regEntry struct {
-	owner   Owner
-	rootPid int
+	owner     Owner
+	rootPid   int
+	suspended map[int]uintptr // pid -> the process handle Suspend keeps open until Resume or Close
 }
 
 // the lock is held across every use of a registered handle, so Close (which unregisters first)
 // can never close a handle that LiveJobs or TerminateMember is querying.
 var registry = struct {
-	mu   sync.Mutex
-	jobs map[uintptr]regEntry
-}{jobs: make(map[uintptr]regEntry)}
+	mu        sync.Mutex
+	jobs      map[uintptr]*regEntry
+	closeHook CloseHook
+}{jobs: make(map[uintptr]*regEntry)}
+
+// SetCloseHook sets the function Close calls for each registered job it closes; nil clears it.
+func SetCloseHook(fn CloseHook) {
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	registry.closeHook = fn
+}
 
 // Register records job (already attached to the process rootPid) as owned by o.
 func Register(job uintptr, rootPid int, o Owner) {
@@ -63,13 +83,16 @@ func Register(job uintptr, rootPid int, o Owner) {
 	}
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
-	registry.jobs[job] = regEntry{owner: o, rootPid: rootPid}
+	registry.jobs[job] = &regEntry{owner: o, rootPid: rootPid}
 }
 
-func unregister(job uintptr) {
+// unregister removes job and returns its entry (nil when it was not registered) and the close hook.
+func unregister(job uintptr) (*regEntry, CloseHook) {
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
+	e := registry.jobs[job]
 	delete(registry.jobs, job)
+	return e, registry.closeHook
 }
 
 // LiveJobs queries every registered job's members under the registry lock. nil off Windows.

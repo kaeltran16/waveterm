@@ -1037,6 +1037,52 @@ describe("taskRow", () => {
         expect(taskRow(rowInput({}, { td, askOwner: "lead" })).meta).toBe("asked the lead · idle 40s");
     });
 
+    const GB = 1024 ** 3;
+    const memoryTd = (memory: Partial<DagMemoryState>, over: Partial<DagTaskDigest> = {}): DagTaskDigest => ({
+        taskid: "t-1",
+        waitreason: "",
+        mergestate: "",
+        cleanupstate: "",
+        memory: { state: "waiting", role: "worker", free: 2.1 * GB, need: 3.5 * GB, ts: NOW, ...memory },
+        ...over,
+    });
+
+    it("memory waiting row", () => {
+        const r = taskRow(rowInput({ state: "pending" }, { td: memoryTd({}) }));
+        expect(r).toMatchObject({
+            meta: "waiting for memory · 2.1 GB free, 3.5 GB needed",
+            metaTone: "warning",
+            state: "waiting",
+            stateTone: "warning",
+            action: null,
+        });
+        const verify = taskRow(rowInput({ state: "done" }, { td: memoryTd({ role: "Verify" }) }));
+        expect(verify.meta).toBe("waiting for memory (Verify) · 2.1 GB free, 3.5 GB needed");
+    });
+
+    it("memory paused row", () => {
+        const td = memoryTd({ state: "paused", free: 1.2 * GB, need: 3 * GB });
+        const r = taskRow(rowInput({ runid: "8a41ffff" }, { td, worker: dispatched("editing briefsheet.tsx") }));
+        expect(r).toMatchObject({
+            meta: "paused: memory · 1.2 GB free, 3.0 GB needed",
+            state: "paused",
+            stateTone: "warning",
+            action: "open-agent",
+        });
+        const reviewer = taskRow(
+            rowInput({ state: "reviewing" }, { td: memoryTd({ state: "paused", role: "reviewer" }) })
+        );
+        expect(reviewer.meta).toBe("paused: memory (reviewer) · 2.1 GB free, 3.5 GB needed");
+    });
+
+    it("ask beats memory", () => {
+        const td = memoryTd({}, { waitreason: "ask", askts: NOW - 40_000 });
+        expect(taskRow(rowInput({}, { td, askOwner: "user" }))).toMatchObject({
+            meta: "asked you · idle 40s",
+            state: "asking",
+        });
+    });
+
     it("gives a failure one meta line from its recovery history", () => {
         const r = taskRow(
             rowInput({ state: "stalled", runid: "8a42ffff" }, { recovery: "Retried twice · test · now stalled" })

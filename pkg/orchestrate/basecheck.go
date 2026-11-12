@@ -120,9 +120,10 @@ func withDetachedTree(ctx context.Context, project, name, label, commit, setup s
 	return fn(wt)
 }
 
-// runBaseCheck runs Check in a detached tree at commit.
+// runBaseCheck runs Check in a detached tree at commit. It and its tree's Setup never wait at the memory gate: it
+// runs once, before any worker, and no view shows it, so a hold would be invisible; it counts through real use.
 func runBaseCheck(ctx context.Context, runID, project, commit, setup, check string) (string, string) {
-	ctx = withRunCmdOwner(ctx, runID, PlanCmd_Check, "")
+	ctx = WithGateAdmitted(withRunCmdOwner(ctx, runID, PlanCmd_Check, ""))
 	err := withDetachedTree(ctx, project, runID+"-base", "base tree", commit, setup, func(wt string) error {
 		_, err := runPlanCommand(ctx, wt, check, nil, VerifyTimeout, nil)
 		return err

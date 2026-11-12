@@ -29,3 +29,16 @@ func TerminateMember(o Owner, pid int) error {
 func LowerPriority(blockId string) error {
 	return nil
 }
+
+func LiveUsage() []JobUsage {
+	return nil
+}
+
+// no-op outside windows: a pause is not available there
+func Suspend(o Owner) (int, error) {
+	return 0, nil
+}
+
+func Resume(o Owner) error {
+	return nil
+}

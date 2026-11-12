@@ -54,6 +54,10 @@ const REFRESH_EVENT_KINDS = new Set([
     "final-step",
     "final-ended",
     "dag-done",
+    "memory-held",
+    "memory-admitted",
+    "memory-paused",
+    "memory-resumed",
 ]);
 
 // acceptDigest decides whether candidate may replace the current digest: its DagVersion must equal the

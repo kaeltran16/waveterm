@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -29,6 +30,7 @@ const (
 	helperEnv      = "JOBOBJECT_TEST_HELPER"
 	helperLifetime = 60 * time.Second
 	exitTimeout    = 10 * time.Second
+	allocBytes     = 256 << 20
 )
 
 // TestHelperProcess is not a test: it is the child process the other tests start.
@@ -52,6 +54,25 @@ func TestHelperProcess(t *testing.T) {
 			os.Exit(1)
 		}
 		fmt.Println(child.Process.Pid)
+		os.Exit(0)
+	case "alloc":
+		// waits for the go-ahead so the parent attaches the job first, then commits and holds allocBytes
+		if _, err := bufio.NewReader(os.Stdin).ReadString('\n'); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		buf := make([]byte, allocBytes)
+		for i := 0; i < len(buf); i += 4096 {
+			buf[i] = 1
+		}
+		fmt.Println("ready")
+		time.Sleep(helperLifetime)
+		runtime.KeepAlive(buf)
+		os.Exit(0)
+	case "spin":
+		deadline := time.Now().Add(helperLifetime)
+		for time.Now().Before(deadline) {
+		}
 		os.Exit(0)
 	}
 }
@@ -412,5 +433,181 @@ func TestLowerPriorityKeepsKillOnClose(t *testing.T) {
 func TestLowerPriorityNoLiveJob(t *testing.T) {
 	if err := LowerPriority("no-such-block"); !errors.Is(err, ErrNotMember) {
 		t.Fatalf("LowerPriority(unregistered block) = %v, want ErrNotMember", err)
+	}
+}
+
+// startAllocator starts a child in a new (unregistered) job and returns once the child has committed
+// allocBytes. The caller closes the job.
+func startAllocator(t *testing.T) (*exec.Cmd, uintptr) {
+	t.Helper()
+	cmd, err := helperCmd("alloc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("starting allocator: %v", err)
+	}
+	t.Cleanup(func() {
+		cmd.Process.Kill()
+		cmd.Wait()
+	})
+	job, err := Attach(cmd.Process)
+	if err != nil {
+		t.Fatalf("Attach: %v", err)
+	}
+	if _, err := stdin.Write([]byte("\n")); err != nil {
+		t.Fatal(err)
+	}
+	sc := bufio.NewScanner(stdout)
+	if !sc.Scan() || sc.Text() != "ready" {
+		t.Fatalf("allocator did not report ready: %q %v", sc.Text(), sc.Err())
+	}
+	return cmd, job
+}
+
+func findUsage(o Owner) (JobUsage, bool) {
+	for _, u := range LiveUsage() {
+		if u.Owner == o {
+			return u, true
+		}
+	}
+	return JobUsage{}, false
+}
+
+func TestLiveUsageReportsChildMemory(t *testing.T) {
+	cmd, job := startAllocator(t)
+	o := Owner{Kind: OwnerKind_Block, Id: "test-liveusage"}
+	Register(job, cmd.Process.Pid, o)
+	defer Close(job)
+
+	u, ok := findUsage(o)
+	if !ok {
+		t.Fatal("registered job missing from LiveUsage")
+	}
+	if u.RootPid != cmd.Process.Pid || u.Current < allocBytes || u.Peak < allocBytes {
+		t.Fatalf("JobUsage = %+v, want root %d and Current, Peak >= %d", u, cmd.Process.Pid, allocBytes)
+	}
+}
+
+func TestCloseHookGetsPeak(t *testing.T) {
+	type call struct {
+		owner   Owner
+		rootPid int
+		peak    uint64
+	}
+	var calls []call
+	SetCloseHook(func(o Owner, rootPid int, peak uint64) {
+		calls = append(calls, call{o, rootPid, peak})
+	})
+	defer SetCloseHook(nil)
+
+	unregistered, unregJob := startAllocator(t)
+	Close(unregJob)
+	waitForExit(t, unregistered.Process.Pid)
+	if len(calls) != 0 {
+		t.Fatalf("hook fired for an unregistered job: %+v", calls)
+	}
+
+	cmd, job := startAllocator(t)
+	o := Owner{Kind: OwnerKind_RunCmd, Id: "test-closehook", Cmd: "Verify", Task: "2"}
+	Register(job, cmd.Process.Pid, o)
+	Close(job)
+	if len(calls) != 1 {
+		t.Fatalf("hook fired %d times, want 1: %+v", len(calls), calls)
+	}
+	if c := calls[0]; c.owner != o || c.rootPid != cmd.Process.Pid || c.peak < allocBytes {
+		t.Fatalf("hook got %+v, want owner %+v, root %d, peak >= %d", c, o, cmd.Process.Pid, allocBytes)
+	}
+}
+
+func cpuTime(t *testing.T, pid int) time.Duration {
+	t.Helper()
+	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+	if err != nil {
+		t.Fatalf("OpenProcess(%d): %v", pid, err)
+	}
+	defer windows.CloseHandle(h)
+	var created, exited, kernel, user windows.Filetime
+	if err := windows.GetProcessTimes(h, &created, &exited, &kernel, &user); err != nil {
+		t.Fatalf("GetProcessTimes(%d): %v", pid, err)
+	}
+	return time.Duration(kernel.Nanoseconds() + user.Nanoseconds())
+}
+
+const cpuSampleWindow = 500 * time.Millisecond
+
+func TestSuspendResume(t *testing.T) {
+	cmd, err := helperCmd("spin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("starting spinner: %v", err)
+	}
+	t.Cleanup(func() {
+		cmd.Process.Kill()
+		cmd.Wait()
+	})
+	pid := cmd.Process.Pid
+	o := Owner{Kind: OwnerKind_Block, Id: "test-suspend-resume"}
+	attachRegistered(t, cmd, o)
+
+	if n, err := Suspend(o); err != nil || n != 1 {
+		t.Fatalf("Suspend = %d, %v; want 1, nil", n, err)
+	}
+	before := cpuTime(t, pid)
+	time.Sleep(cpuSampleWindow)
+	if after := cpuTime(t, pid); after != before {
+		t.Fatalf("suspended child's CPU time advanced: %v -> %v", before, after)
+	}
+	if n, err := Suspend(o); err != nil || n != 0 {
+		t.Fatalf("second Suspend = %d, %v; want 0, nil", n, err)
+	}
+
+	if err := Resume(o); err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	before = cpuTime(t, pid)
+	time.Sleep(cpuSampleWindow)
+	if after := cpuTime(t, pid); after <= before {
+		t.Fatalf("resumed child's CPU time did not advance: %v -> %v (a second Suspend double-counted?)", before, after)
+	}
+
+	if _, err := Suspend(Owner{Kind: OwnerKind_Block, Id: "test-no-such-owner"}); !errors.Is(err, ErrNotMember) {
+		t.Fatalf("Suspend(unregistered owner) = %v, want ErrNotMember", err)
+	}
+}
+
+func TestKillSuspendedTree(t *testing.T) {
+	cmd := startSleeper(t)
+	pid := cmd.Process.Pid
+	job, err := Attach(cmd.Process)
+	if err != nil {
+		t.Fatalf("Attach: %v", err)
+	}
+	o := Owner{Kind: OwnerKind_Block, Id: "test-kill-suspended"}
+	Register(job, pid, o)
+	if n, err := Suspend(o); err != nil || n != 1 {
+		t.Fatalf("Suspend = %d, %v; want 1, nil", n, err)
+	}
+
+	KillTree(job)
+	Close(job)
+	waitForExit(t, pid)
+	// releases exec's handle; a suspend handle still open would keep the process object (and pid) alive
+	cmd.Wait()
+	if processExists(pid) {
+		t.Fatalf("pid %d still opens after Close: its suspend handle was not released", pid)
+	}
+	if n, err := Suspend(o); !errors.Is(err, ErrNotMember) || n != 0 {
+		t.Fatalf("Suspend after Close = %d, %v; want 0, ErrNotMember", n, err)
 	}
 }

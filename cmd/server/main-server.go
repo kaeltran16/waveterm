@@ -23,6 +23,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/filestore"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/jarvisvolunteer"
+	"github.com/wavetermdev/waveterm/pkg/memgate"
 	"github.com/wavetermdev/waveterm/pkg/memhygiene"
 	"github.com/wavetermdev/waveterm/pkg/orchestrate"
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
@@ -380,7 +381,12 @@ func main() {
 		orchestrate.MarkInterruptedRuns(context.Background())    // no worker survives a restart; the previous wavesrv's non-dag runs would otherwise read executing forever
 		orchestrate.ResumeInterruptedLeads(context.Background()) // nor does a dag run's lead, and unlike its workers nothing else restarts it
 		wshserver.ResumeBrainstormSessions(context.Background()) // a brainstorm's builder check and judge were watched by goroutines the restart ended
-		orchestrate.StartWatchdog(context.Background())          // dag advance + stall detection tick
+		// before the watchdog and the loop: their first tick can admit, and a hold or pause is a run event
+		memgate.SetEventSink(orchestrate.RecordMemoryEvent)
+		memgate.SetRoomHook(orchestrate.KickHeldRuns)
+		memgate.SetResolver(wshserver.ResolveMemOwner)
+		memgate.StartLoop(context.Background())
+		orchestrate.StartWatchdog(context.Background()) // dag advance + stall detection tick
 	}
 	agentask.AnswerHook = wshserver.RecordAskAnswered // one ask lifecycle row per delivered answer, whichever surface delivered it
 	blocklogger.InitBlockLogger()
