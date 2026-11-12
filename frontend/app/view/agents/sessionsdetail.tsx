@@ -205,9 +205,11 @@ interface TranscriptRead {
     error: string | null;
     // lines the last read returned
     fetched: number;
+    // the line limit the entries were read under
+    limit: number;
 }
 
-const UNREAD: TranscriptRead = { entries: null, error: null, fetched: 0 };
+const UNREAD: TranscriptRead = { entries: null, error: null, fetched: 0, limit: 0 };
 
 // useTranscript reads a session's transcript, and again every LIVE_REFRESH_MS while it is live; a reread keeps the
 // entries shown until it lands, and one that returns the same lines changes nothing.
@@ -218,7 +220,7 @@ function useTranscript(session: LiveSession | undefined, full: boolean): Transcr
     const [read, setRead] = useState<TranscriptRead & { of?: string }>(UNREAD);
     useEffect(() => {
         if (!path || !runtime) {
-            setRead({ of: path, entries: [], error: null, fetched: 0 });
+            setRead({ of: path, entries: [], error: null, fetched: 0, limit: 0 });
             return;
         }
         let cancelled = false;
@@ -238,7 +240,7 @@ function useTranscript(session: LiveSession | undefined, full: boolean): Transcr
                 }
                 lastKey = key;
                 const entries = projectorFor(runtime, path).project(lines);
-                setRead({ of: path, entries, error: null, fetched: lines.length });
+                setRead({ of: path, entries, error: null, fetched: lines.length, limit: maxlines });
             } catch (e) {
                 console.warn(`reading transcript ${path} failed`, e);
                 if (!cancelled) {
@@ -487,7 +489,7 @@ function SessionBody({
         registry.set(HIGHLIGHT_FIND, new Highlight(...ranges));
         registry.set(HIGHLIGHT_FIND_CURRENT, new Highlight(...ranges.slice(cur, cur + 1)));
         const r = ranges[cur]?.getBoundingClientRect();
-        const mark = { find, terms: termsKey, pos: cur };
+        const mark = { find, terms: termsKey, pos: cur, limit: read.limit };
         if (r != null && needsCentre(centredRef.current, mark)) {
             centredRef.current = mark;
             const box = scroller.getBoundingClientRect();

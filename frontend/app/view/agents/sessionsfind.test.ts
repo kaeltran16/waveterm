@@ -220,7 +220,7 @@ describe("findEnded", () => {
 
 describe("needsCentre", () => {
     const find = { sessionKey: "s", query: "auth", terms: ["auth"] } as unknown as SessionsFind;
-    const mark = { find, terms: '["auth"]', pos: 2 };
+    const mark = { find, terms: '["auth"]', pos: 2, limit: 2000 };
 
     it("centres the first time a match is drawn", () => {
         expect(needsCentre(null, mark)).toBe(true);
@@ -234,5 +234,9 @@ describe("needsCentre", () => {
         expect(needsCentre(mark, { ...mark, pos: 3 })).toBe(true);
         expect(needsCentre(mark, { ...mark, terms: '["auth","token"]' })).toBe(true);
         expect(needsCentre(mark, { ...mark, find: { ...find } })).toBe(true);
+    });
+
+    it("re-centres when a longer read replaces the transcript under the same match position", () => {
+        expect(needsCentre(mark, { ...mark, limit: -1 })).toBe(true);
     });
 });

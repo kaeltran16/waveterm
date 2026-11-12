@@ -69,11 +69,19 @@ export function findEnded(find: SessionsFind | null, sel: string, member: string
 // the find bar's next position, wrapping; 0 when there is nothing to step through
 // The match the transcript was last centred on. A live session is reread every few seconds, which redraws every
 // range; re-centring on each reread would snap the reader back to the match while they scroll away to read. Only
-// a different match (another find, refined terms, a step) moves the view.
-export type FindMark = { find: SessionsFind | null; terms: string; pos: number };
+// a different match (another find, refined terms, a step) moves the view. limit is the line limit the transcript
+// was read under: a longer read (the whole file replacing the tail) renumbers the matches, so the same pos is another
+// match.
+export type FindMark = { find: SessionsFind | null; terms: string; pos: number; limit: number };
 
 export function needsCentre(last: FindMark | null, next: FindMark): boolean {
-    return last == null || last.find !== next.find || last.terms !== next.terms || last.pos !== next.pos;
+    return (
+        last == null ||
+        last.find !== next.find ||
+        last.terms !== next.terms ||
+        last.pos !== next.pos ||
+        last.limit !== next.limit
+    );
 }
 
 export function stepFind(pos: number, total: number, dir: 1 | -1): number {
