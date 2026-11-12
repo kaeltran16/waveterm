@@ -88,6 +88,12 @@ export function blameIsCurrent(state: BlameState, path: string, modtime: number,
     );
 }
 
+// A blame read before the first status read was stored with an unknown HEAD, which blameIsCurrent takes as
+// unchanged for every HEAD; the first known HEAD is stamped onto it, so a later move does refetch. null: no change.
+export function stampBlameHead(state: BlameState, head: string): BlameState | null {
+    return state.kind === "ready" && state.head === "" && head !== "" ? { ...state, head } : null;
+}
+
 // past this many cells (changed saved lines times changed buffer lines) the middle is not diffed: the table
 // would cost too much per keystroke, so the changed region shows no blame instead
 const MAX_DIFF_CELLS = 2_000_000;
