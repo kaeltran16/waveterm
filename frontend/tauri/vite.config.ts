@@ -1,10 +1,39 @@
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react-swc";
-import { realpathSync } from "fs";
-import { resolve } from "path";
-import { defineConfig, searchForWorkspaceRoot } from "vite";
+import { cpSync, createReadStream, existsSync, realpathSync } from "fs";
+import { resolve, sep } from "path";
+import { defineConfig, searchForWorkspaceRoot, type Plugin } from "vite";
 
 const fe = resolve(__dirname, ".."); // frontend/
+const outDir = resolve(__dirname, "dist");
+
+// Excalidraw fetches its fonts at run time from window.EXCALIDRAW_ASSET_PATH, else from esm.sh. The CSP is
+// default-src 'self' and the app must work offline, so the app serves them itself at EXCALIDRAW_FONTS_URL
+// (boardssurface.tsx points Excalidraw there): from the package in dev, copied into the bundle on build.
+const EXCALIDRAW_FONTS_URL = "/excalidraw/fonts/";
+const excalidrawFontsDir = resolve(fe, "../node_modules/@excalidraw/excalidraw/dist/prod/fonts");
+
+function excalidrawFonts(): Plugin {
+    return {
+        name: "arc-excalidraw-fonts",
+        configureServer(server) {
+            server.middlewares.use(EXCALIDRAW_FONTS_URL, (req, res, next) => {
+                const rel = decodeURIComponent((req.url ?? "").split("?")[0]);
+                const file = resolve(excalidrawFontsDir, "." + rel);
+                if (!file.startsWith(excalidrawFontsDir + sep) || !existsSync(file)) {
+                    return next();
+                }
+                res.setHeader("Content-Type", "font/woff2");
+                createReadStream(file).pipe(res);
+            });
+        },
+        writeBundle() {
+            cpSync(excalidrawFontsDir, resolve(outDir, ...EXCALIDRAW_FONTS_URL.split("/").filter(Boolean)), {
+                recursive: true,
+            });
+        },
+    };
+}
 
 // Mirror tsconfig.json "paths" exactly (deterministic prefix aliases; @/store -> app/store, etc.).
 // A flat "@" -> frontend alias would mis-resolve @/store, @/view, @/element, @/shadcn.
@@ -17,7 +46,7 @@ export default defineConfig({
     // every dev app on the machine: one re-optimizing mid-boot swaps the deps under another and loads two reacts.
     // scripts/cdp/final-verify.mjs gives its dev app a cache of its own; unset keeps vite's default
     cacheDir: process.env.ARC_VITE_CACHE_DIR || undefined,
-    plugins: [react(), tailwindcss()],
+    plugins: [react(), tailwindcss(), excalidrawFonts()],
     resolve: {
         alias: {
             "@/app": resolve(fe, "app"),
@@ -37,7 +66,7 @@ export default defineConfig({
         fs: { allow: [searchForWorkspaceRoot(process.cwd()), realpathSync(resolve(fe, "../node_modules"))] },
     },
     build: {
-        outDir: resolve(__dirname, "dist"),
+        outDir,
         emptyOutDir: true,
         // the 500 kB default is a network-delivery budget; these chunks load from the app bundle on disk.
         // monaco alone is 3.8 MB and already lazy, so the limit sits just above it to still catch a jump.

@@ -105,6 +105,7 @@ export function NavRail({ model }: { model: AgentsViewModel }) {
         >
             {ITEMS.map(({ key, label }) => renderItem(key, label, badges[key] ?? 0))}
             <div className="flex-1" />
+            {renderItem("boards", "Boards")}
             {renderItem("setup", "Setup")}
             {renderItem("settings", "Settings")}
         </nav>

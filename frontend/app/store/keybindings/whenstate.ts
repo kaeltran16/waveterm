@@ -36,6 +36,7 @@ import { shellTaskPeekAtom } from "@/app/view/agents/shelltasksstore";
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
 import { usageLensAtom, usageWorkItemAtom, usageWorkScopeAtom } from "@/app/view/agents/usagestore";
 import { codePeekFocusedAtom } from "@/app/view/code/codepeekstore";
+import { boardOwnsEscapeAtom } from "@/app/view/boards/boardstore";
 import { codeTreeFocusedAtom } from "@/app/view/code/codestore";
 import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
 import {
@@ -77,6 +78,7 @@ export const PREDICATE_ATOMS: Atom<unknown>[] = [
     usageLensAtom, // usage:back, and surface:back-home stands down to it
     usageWorkScopeAtom, // usage:back, surface:back-home
     usageWorkItemAtom, // usage:back, surface:back-home
+    boardOwnsEscapeAtom, // boards:clear, and surface:back-home stands down to it
 ];
 
 function bumpWhenVersion() {

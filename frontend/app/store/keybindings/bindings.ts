@@ -96,6 +96,7 @@ import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
 import { LIST_COLLAPSED_ROWS } from "@/app/view/agents/usageattribution";
 import { usageBackStep } from "@/app/view/agents/usagenav";
 import { usageLensAtom, usageListShownAtom, usageWorkItemAtom, usageWorkScopeAtom } from "@/app/view/agents/usagestore";
+import { boardOwnsEscapeAtom, runBoardEscape } from "@/app/view/boards/boardstore";
 import { toggleBlame } from "@/app/view/code/codeblamestore";
 import { closePeek, codePeekFocusedAtom, openPeekInCode } from "@/app/view/code/codepeekstore";
 import { projectComments } from "@/app/view/code/codereview";
@@ -182,6 +183,7 @@ const GO_TARGETS: { letter: string; surface: SurfaceKey; label: string }[] = [
     { letter: "b", surface: "code", label: "Code (browse source)" },
     { letter: ".", surface: "setup", label: "Setup (instructions, skills, memory)" },
     { letter: ",", surface: "settings", label: "Settings" },
+    { letter: "w", surface: "boards", label: "Boards" },
 ];
 
 // Posture guard for keys that reach the cockpit rather than the focused agent. Leader-aware: once a
@@ -203,7 +205,7 @@ const noEscapeMenuOpen = () => globalStore.get(escapeMenusOpenAtom) === 0;
 
 // Deep (non-home) surfaces whose Escape returns to the Cockpit. Excludes cockpit (already home), agent
 // (owns Escape via buildAgentBindings: exit fullscreen / back), and settings.
-const ESC_HOME_SURFACES = new Set<SurfaceKey>(["jarvis", "sessions", "files", "usage", "code"]);
+const ESC_HOME_SURFACES = new Set<SurfaceKey>(["jarvis", "sessions", "files", "usage", "code", "boards"]);
 
 // Escape on a deep surface navigates (back, else home) only when nothing on screen owns it.
 // the Jarvis graph peek owns Escape while it is open: closing an overlay is what the user means
@@ -226,6 +228,8 @@ const escapeNavigates = (ctx: KeyContext): boolean =>
     !globalStore.get(compareOnAtom) &&
     // and with filters active, Escape clears them — the history header says so ("Clear filters", esc)
     !(ctx.surface === "files" && anyFilterActive(globalStore.get(historyFiltersAtom))) &&
+    // the open board owns Escape while Excalidraw has a selection or a tool to drop, as compare does on Diff
+    !(ctx.surface === "boards" && globalStore.get(boardOwnsEscapeAtom)) &&
     // the Brief's record peek is a ModalShell and the Brief is where every record destination
     // now lands: without this, one press closed the peek AND left the surface — and the peek's
     // own state was never cleared, so coming back showed it open again
@@ -485,6 +489,19 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
             // stands down while Usage's By work is drilled: usage:back takes the press there
             when: (ctx) => escapeNavigates(ctx) && usageBack(ctx) == null,
             run: () => backOrHome(model),
+        },
+        {
+            id: "boards:clear",
+            keys: "Escape",
+            group: "Boards",
+            label: "Clear the board's selection or tool",
+            when: (ctx) =>
+                navigateStrict(ctx) &&
+                ctx.surface === "boards" &&
+                globalStore.get(boardOwnsEscapeAtom) &&
+                !anyModalOpen() &&
+                noEscapeMenuOpen(),
+            run: () => runBoardEscape(),
         },
         {
             id: "usage:back",

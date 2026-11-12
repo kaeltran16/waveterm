@@ -88,6 +88,7 @@ const SURFACES: SurfaceKey[] = [
     "code",
     "settings",
     "setup",
+    "boards",
 ];
 function contexts(): KeyContext[] {
     const out: KeyContext[] = [];

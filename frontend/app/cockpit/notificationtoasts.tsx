@@ -40,22 +40,8 @@ export function NotificationToasts(): React.JSX.Element {
                 <AnimatePresence mode="popLayout">
                     {toasts.map((t) => {
                         const level = TOAST_LEVEL[t.level];
-                        return (
-                            <motion.button
-                                key={t.id}
-                                layout
-                                variants={cardVariants}
-                                initial="initial"
-                                animate="animate"
-                                exit="exit"
-                                type="button"
-                                data-notification-toast={t.level}
-                                onClick={() => dismissToast(t.id)}
-                                className={cn(
-                                    "pointer-events-auto flex items-start gap-2.5 rounded-lg border bg-surface-raised p-3 text-left text-primary shadow-popover-md",
-                                    level.edge
-                                )}
-                            >
+                        const body = (
+                            <>
                                 <level.Icon size={15} role="img" aria-label={level.label} className={cn("mt-px shrink-0", level.tone)} />
                                 <span className="min-w-0 flex-1">
                                     <span className="block text-[13px] font-medium">{t.title}</span>
@@ -63,7 +49,47 @@ export function NotificationToasts(): React.JSX.Element {
                                         <span className="mt-0.5 block text-[12px] text-secondary">{t.message}</span>
                                     ) : null}
                                 </span>
-                            </motion.button>
+                            </>
+                        );
+                        const shell = {
+                            layout: true,
+                            variants: cardVariants,
+                            initial: "initial",
+                            animate: "animate",
+                            exit: "exit",
+                            "data-notification-toast": t.level,
+                            onClick: () => dismissToast(t.id),
+                            className: cn(
+                                "pointer-events-auto flex items-start gap-2.5 rounded-lg border bg-surface-raised p-3 text-left text-primary shadow-popover-md",
+                                level.edge
+                            ),
+                        } as const;
+                        // a button can't hold the action's button, so a toast with an action is a box; a click
+                        // anywhere on it still dismisses it
+                        if (t.action == null) {
+                            return (
+                                <motion.button key={t.id} type="button" {...shell}>
+                                    {body}
+                                </motion.button>
+                            );
+                        }
+                        const action = t.action;
+                        return (
+                            <motion.div key={t.id} {...shell} className={cn(shell.className, "cursor-pointer")}>
+                                {body}
+                                <button
+                                    type="button"
+                                    data-notification-toast-action
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        dismissToast(t.id);
+                                        action.run();
+                                    }}
+                                    className="shrink-0 cursor-pointer rounded border-0 bg-transparent px-0.5 text-[12.5px] font-semibold text-accent hover:text-accenthover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                                >
+                                    {action.label}
+                                </button>
+                            </motion.div>
                         );
                     })}
                 </AnimatePresence>

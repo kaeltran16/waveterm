@@ -19,6 +19,7 @@ export const SURFACE_LABEL = {
     code: "Code",
     settings: "Settings",
     setup: "Setup",
+    boards: "Boards",
 };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
