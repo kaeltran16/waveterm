@@ -223,6 +223,17 @@ func TestParsePlanRefusesASingleHashTaskHeading(t *testing.T) {
 	}
 }
 
+func TestParsePlanTitleMayStartWithTask(t *testing.T) {
+	p := mustParsePlan(t, "# Task 3 follow-ups: sessions find\n\n### Task 1: a\ndo a\n")
+	if p.Title != "Task 3 follow-ups: sessions find" || len(p.Tasks) != 1 {
+		t.Fatalf("want the title read and one task, got title %q, %d tasks", p.Title, len(p.Tasks))
+	}
+	// only the title line is spared: a second one-# Task line before the tasks is still a near-miss
+	if _, err := ParsePlan("# Plan\n# Task 1: a\ndo a\n"); err == nil || !strings.Contains(err.Error(), "is not a task heading") {
+		t.Fatalf("want the near-miss heading error, got %v", err)
+	}
+}
+
 func TestParsePlanRefusesAnUnclosedFence(t *testing.T) {
 	src := "### Task 1: a\n```bash\ngo test\n\n### Task 2: b\n"
 	if _, err := ParsePlan(src); err == nil || !strings.Contains(err.Error(), "never closed") {
