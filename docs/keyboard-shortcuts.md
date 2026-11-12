@@ -281,7 +281,9 @@ The canvas keeps Excalidraw's own tool keys while it has focus.
 
 | Keys | Action |
 |---|---|
-| `Esc` | Clear the board's selection or drop its tool, else back to the Cockpit |
+| `Enter` | In the ask box: ask the drawer (`Shift`+`Enter` is a new line) |
+| `Ctrl`+`Enter` | In an ask form (Ask something new, New board from this): ask |
+| `Esc` | In an ask form: cancel it. Otherwise clear the board's selection or drop its tool, else back to the Cockpit |
 
 ### Setup: Instructions tab
 

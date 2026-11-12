@@ -3,30 +3,20 @@
 
 // The Boards surface's state, kept at module level because the surface unmounts on a switch (and the router
 // writes the selection before it switches here): which project and board are open, each project's board list,
-// each board's scribe status, its viewport, the agents following it, and the open canvas's live-apply and
-// Escape hooks. A board:update event reloads whatever is loaded.
+// each open board's talk and viewport, and the open canvas's live-apply and Escape hooks. A board:update event
+// reloads whatever is loaded.
 
 import { globalStore } from "@/app/store/jotaiStore";
-import * as WOS from "@/app/store/wos";
 import { waveEventSubscribeSingle } from "@/app/store/wps";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { atom, useAtomValue, type Atom, type PrimitiveAtom } from "jotai";
+import { atom, type PrimitiveAtom } from "jotai";
 import { atomFamily } from "jotai/utils";
-import { useMemo } from "react";
-import type { AgentsViewModel } from "../agents/agents";
-import { followOf, type ApplyOutcome, type BoardFollowMeta } from "./boardmodel";
 
 export interface BoardViewport {
     scrollX: number;
     scrollY: number;
     zoom: number;
-}
-
-export interface BoardFollower {
-    tabId: string;
-    agentName: string;
-    ask: string;
 }
 
 // the surface's explicit project, until a switcher change made while Boards shows; null = the cockpit's current one
@@ -37,14 +27,15 @@ export const openBoardByChannelAtom = atom<Record<string, string>>({}) as Primit
 export const boardListAtom = atomFamily(
     (_channelId: string) => atom<BoardListRtnData | null>(null) as PrimitiveAtom<BoardListRtnData | null>
 );
-export const boardStatusAtom = atomFamily(
-    (_boardId: string) => atom<BoardStatusData | null>(null) as PrimitiveAtom<BoardStatusData | null>
+export const boardTalkAtom = atomFamily(
+    (_boardId: string) => atom<BoardTalk | null>(null) as PrimitiveAtom<BoardTalk | null>
 );
 export const boardViewportAtom = atomFamily(
     (_boardId: string) => atom<BoardViewport | null>(null) as PrimitiveAtom<BoardViewport | null>
 );
 
-// the open canvas has a selection or an active tool, so Escape is the canvas's before it is the shell's
+// the open canvas has a selection or an active tool, or an ask form is open, so Escape is the board's before it
+// is the shell's
 export const boardOwnsEscapeAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
 
 export function selectBoard(channelId: string, boardId: string): void {
@@ -54,10 +45,10 @@ export function selectBoard(channelId: string, boardId: string): void {
 
 // an update event can start a read while an earlier one is in flight; only the latest may land
 const listSeq = new Map<string, number>();
-const statusSeq = new Map<string, number>();
-// what has been read, so an event reloads it; a status remembers its channel for the reload
+const talkSeq = new Map<string, number>();
+// what has been read, so an event reloads it; a talk remembers its channel for the reload
 const loadedChannels = new Set<string>();
-const loadedBoards = new Map<string, string>();
+const loadedTalks = new Map<string, string>();
 
 function nextSeq(seqs: Map<string, number>, key: string): () => boolean {
     const seq = (seqs.get(key) ?? 0) + 1;
@@ -76,19 +67,27 @@ export async function loadBoardList(channelId: string): Promise<BoardListRtnData
     return list;
 }
 
-export async function loadBoardStatus(channelId: string, boardId: string): Promise<BoardStatusData> {
-    loadedBoards.set(boardId, channelId);
-    const latest = nextSeq(statusSeq, boardId);
-    const rtn = await RpcApi.BoardStatusCommand(TabRpcClient, { channelid: channelId, boardid: boardId });
-    const status = { channelid: channelId, boardid: boardId, sources: rtn?.sources ?? [] };
+export async function loadBoardTalk(channelId: string, boardId: string): Promise<BoardTalk> {
+    loadedTalks.set(boardId, channelId);
+    const latest = nextSeq(talkSeq, boardId);
+    const rtn = await RpcApi.BoardTalkCommand(TabRpcClient, { channelid: channelId, boardid: boardId });
+    const talk: BoardTalk = {
+        channelid: channelId,
+        boardid: boardId,
+        about: rtn?.about ?? { kind: "", ref: "", title: "" },
+        sessionid: rtn?.sessionid,
+        handoff: rtn?.handoff,
+        turns: rtn?.turns ?? [],
+    };
     if (latest()) {
-        globalStore.set(boardStatusAtom(boardId), status);
+        globalStore.set(boardTalkAtom(boardId), talk);
     }
-    return status;
+    return talk;
 }
 
-const LIST_EVENTS = new Set(["list", "draw", "failed"]);
-const STATUS_EVENTS = new Set(["status", "draw", "failed"]);
+// a turn's state and an answer change the list's facts (questions, answered, the switcher's marks) as well
+const LIST_EVENTS = new Set(["list", "talk", "answer"]);
+const TALK_EVENTS = new Set(["list", "talk", "answer"]);
 
 function reload(what: string, load: () => Promise<unknown>): void {
     load().catch((e) => console.warn(`boards: reloading the ${what} after board:update failed`, e));
@@ -101,9 +100,9 @@ export function onBoardUpdate(data: BoardUpdateData | undefined): void {
     if (LIST_EVENTS.has(data.what) && loadedChannels.has(data.channelid)) {
         reload("list", () => loadBoardList(data.channelid));
     }
-    if (data.boardid && STATUS_EVENTS.has(data.what) && loadedBoards.has(data.boardid)) {
-        const channelId = loadedBoards.get(data.boardid);
-        reload("status", () => loadBoardStatus(channelId, data.boardid));
+    if (data.boardid && TALK_EVENTS.has(data.what) && loadedTalks.has(data.boardid)) {
+        const channelId = loadedTalks.get(data.boardid);
+        reload("talk", () => loadBoardTalk(channelId, data.boardid));
     }
 }
 
@@ -114,39 +113,16 @@ export function subscribeBoardUpdates(): () => void {
     });
 }
 
-// --- follows: live on the agent's tab meta (decision 12)
-
-export function useAgentFollow(tabId: string): BoardFollowMeta | null {
-    const [tab] = WOS.useWaveObjectValue<Tab>(WOS.makeORef("tab", tabId));
-    const meta = tab?.meta;
-    return useMemo(() => followOf(meta), [meta]);
-}
-
-// the live roster's agents whose follow names the board; an agent that leaves the roster leaves the list
-export function boardFollowsAtom(model: AgentsViewModel, boardId: string): Atom<BoardFollower[]> {
-    return atom((get) =>
-        get(model.agentsAtom).flatMap((a) => {
-            const tab = get(WOS.getWaveObjectAtom<Tab>(WOS.makeORef("tab", a.id)));
-            const follow = followOf(tab?.meta);
-            return follow?.boardId === boardId ? [{ tabId: a.id, agentName: a.name, ask: follow.ask }] : [];
-        })
-    );
-}
-
-export function useBoardFollows(model: AgentsViewModel, boardId: string): BoardFollower[] {
-    const followsAtom = useMemo(() => boardFollowsAtom(model, boardId), [model, boardId]);
-    return useAtomValue(followsAtom);
-}
-
 // --- the open canvas
 
-export type LiveBoardApply = (draw: BoardDraw) => Promise<ApplyOutcome>;
+// lands an answer on the open canvas and returns the shape ids it added or changed
+export type LiveBoardApply = (answer: BoardAnswer) => Promise<string[]>;
 
 const liveBoards = new Map<string, LiveBoardApply>();
 const registeredListeners = new Set<(channelId: string, boardId: string) => void>();
 
-// the open canvas takes draws itself (updateScene), so a hand edit is never overwritten by a stale-rev save.
-// listeners hear every open, so a board's waiting draws land when it opens (a first open, a re-open, a Retry).
+// the open canvas takes answers itself (updateScene), so a hand edit is never overwritten by a stale-rev save.
+// listeners hear every open, so a board's waiting answers land when it opens (a first open, a re-open, a Retry).
 export function registerLiveBoard(channelId: string, boardId: string, apply: LiveBoardApply): () => void {
     liveBoards.set(boardId, apply);
     registeredListeners.forEach((fn) => fn(channelId, boardId));
@@ -168,17 +144,40 @@ export function onLiveBoardRegistered(fn: (channelId: string, boardId: string) =
     };
 }
 
+// --- Escape: an open ask form's Cancel first, then the canvas's selection or tool
+
 let boardEscape: (() => void) | null = null;
+let formEscape: (() => void) | null = null;
+let canvasOwnsEscape = false;
+
+function syncOwnsEscape(): void {
+    globalStore.set(boardOwnsEscapeAtom, formEscape != null || canvasOwnsEscape);
+}
 
 // the canvas registers what clearing its selection or tool means; the keybindings never import Excalidraw
 export function setBoardEscape(fn: (() => void) | null): void {
     boardEscape = fn;
+    if (fn == null) {
+        setCanvasOwnsEscape(false);
+    }
+}
+
+export function setCanvasOwnsEscape(owns: boolean): void {
+    canvasOwnsEscape = owns;
+    syncOwnsEscape();
+}
+
+// an open ask form cancels on Escape even when focus is on its buttons, before the shell's Escape-home sees it
+export function setBoardFormEscape(fn: (() => void) | null): void {
+    formEscape = fn;
+    syncOwnsEscape();
 }
 
 export function runBoardEscape(): boolean {
-    if (boardEscape == null) {
+    const fn = formEscape ?? boardEscape;
+    if (fn == null) {
         return false;
     }
-    boardEscape();
+    fn();
     return true;
 }
