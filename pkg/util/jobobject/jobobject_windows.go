@@ -8,6 +8,7 @@ package jobobject
 import (
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"unsafe"
 
@@ -54,13 +55,199 @@ func KillTree(job uintptr) {
 }
 
 // Close unregisters the job, then closes its handle; with KILL_ON_JOB_CLOSE set this also reaps any
-// processes still in the job.
+// processes still in the job. For a registered job it reads the peak before closing, releases the handles
+// Suspend kept, then calls the close hook outside the registry lock (with peak 0 when the read failed, since
+// the hook also marks the tree's end).
 func Close(job uintptr) {
 	if job == 0 {
 		return
 	}
-	unregister(job)
+	e, hook := unregister(job)
+	var peak uint64
+	if e != nil && hook != nil {
+		var err error
+		if peak, err = jobPeak(windows.Handle(job)); err != nil {
+			log.Printf("jobobject: peak of job (root pid %d, owner %s %s): %v", e.rootPid, e.owner.Kind, e.owner.Id, err)
+		}
+	}
 	_ = windows.CloseHandle(windows.Handle(job))
+	if e == nil {
+		return
+	}
+	// after the job handle: the tree is already reaped, so resuming lets nothing run
+	for pid, h := range e.suspended {
+		releaseSuspended(pid, windows.Handle(h))
+	}
+	if hook != nil {
+		hook(e.owner, e.rootPid, peak)
+	}
+}
+
+// mirrors JOBOBJECT_MEMORY_USAGE_INFORMATION.
+type memoryUsageInformation struct {
+	jobMemory         uint64
+	peakJobMemoryUsed uint64
+}
+
+// JobObjectMemoryUsageInformation is missing from x/sys and winnt.h; 28 in the ntpsapi enum.
+const jobObjectMemoryUsageInformation = 28
+
+func jobPeak(job windows.Handle) (uint64, error) {
+	var info windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+	if err := windows.QueryInformationJobObject(job, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&info)), uint32(unsafe.Sizeof(info)), nil); err != nil {
+		return 0, fmt.Errorf("QueryInformationJobObject(extended limit): %w", err)
+	}
+	return uint64(info.PeakJobMemoryUsed), nil
+}
+
+func jobCurrent(job windows.Handle) (uint64, error) {
+	var info memoryUsageInformation
+	if err := windows.QueryInformationJobObject(job, jobObjectMemoryUsageInformation, uintptr(unsafe.Pointer(&info)), uint32(unsafe.Sizeof(info)), nil); err != nil {
+		return 0, fmt.Errorf("QueryInformationJobObject(memory usage): %w", err)
+	}
+	return info.jobMemory, nil
+}
+
+// LiveUsage reads every registered job's current and peak memory under the registry lock. A job whose query
+// fails is logged and skipped.
+func LiveUsage() []JobUsage {
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	var rtn []JobUsage
+	for job, e := range registry.jobs {
+		cur, err := jobCurrent(windows.Handle(job))
+		var peak uint64
+		if err == nil {
+			peak, err = jobPeak(windows.Handle(job))
+		}
+		if err != nil {
+			log.Printf("jobobject: memory of job (root pid %d, owner %s %s): %v", e.rootPid, e.owner.Kind, e.owner.Id, err)
+			continue
+		}
+		rtn = append(rtn, JobUsage{Owner: e.owner, RootPid: e.rootPid, Current: cur, Peak: peak})
+	}
+	return rtn
+}
+
+var (
+	ntdll                = windows.NewLazySystemDLL("ntdll.dll")
+	procNtSuspendProcess = ntdll.NewProc("NtSuspendProcess")
+	procNtResumeProcess  = ntdll.NewProc("NtResumeProcess")
+)
+
+func ntCall(proc *windows.LazyProc, h windows.Handle) error {
+	if r, _, _ := proc.Call(uintptr(h)); r != 0 {
+		return windows.NTStatus(r)
+	}
+	return nil
+}
+
+// Suspend suspends every member of each live job registered for o that this package has not already
+// suspended, keeping each one's handle open (it pins the pid, so Resume hits exactly these processes). It
+// returns how many it newly suspended; members that fail are skipped and their errors joined. ErrNotMember
+// when no job is registered for o.
+func Suspend(o Owner) (int, error) {
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	found := false
+	n := 0
+	var errs []error
+	for job, e := range registry.jobs {
+		if e.owner != o {
+			continue
+		}
+		found = true
+		members, err := Members(job)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		for _, pid := range members {
+			if h, ok := e.suspended[pid]; ok {
+				if !hasExited(windows.Handle(h)) {
+					continue
+				}
+				// exited, so the pid may now name a newcomer
+				releaseSuspended(pid, windows.Handle(h))
+				delete(e.suspended, pid)
+			}
+			h, err := suspendMember(job, pid)
+			if errors.Is(err, ErrGone) {
+				continue
+			}
+			if err != nil {
+				errs = append(errs, err)
+				continue
+			}
+			if e.suspended == nil {
+				e.suspended = make(map[int]uintptr)
+			}
+			e.suspended[pid] = uintptr(h)
+			n++
+		}
+	}
+	if !found {
+		return 0, ErrNotMember
+	}
+	return n, errors.Join(errs...)
+}
+
+// suspendMember opens pid, checks it is still in job on that same handle, then suspends through it. ErrGone
+// when pid has exited or no longer names a member.
+func suspendMember(job uintptr, pid int) (windows.Handle, error) {
+	h, err := windows.OpenProcess(windows.PROCESS_SUSPEND_RESUME|windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.SYNCHRONIZE, false, uint32(pid))
+	if err != nil {
+		if errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
+			return 0, ErrGone
+		}
+		return 0, fmt.Errorf("OpenProcess(%d): %w", pid, err)
+	}
+	if hasExited(h) {
+		windows.CloseHandle(h)
+		return 0, ErrGone
+	}
+	member, err := isProcessInJob(h, job)
+	if err != nil || !member {
+		windows.CloseHandle(h)
+		if err != nil {
+			return 0, fmt.Errorf("IsProcessInJob(%d): %w", pid, err)
+		}
+		return 0, ErrGone
+	}
+	if err := ntCall(procNtSuspendProcess, h); err != nil {
+		windows.CloseHandle(h)
+		return 0, fmt.Errorf("NtSuspendProcess(%d): %w", pid, err)
+	}
+	return h, nil
+}
+
+// Resume resumes and closes every handle Suspend kept for o's jobs. A process that has since exited is not
+// an error.
+func Resume(o Owner) error {
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	var errs []error
+	for _, e := range registry.jobs {
+		if e.owner != o {
+			continue
+		}
+		for pid, h := range e.suspended {
+			if err := releaseSuspended(pid, windows.Handle(h)); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		e.suspended = nil
+	}
+	return errors.Join(errs...)
+}
+
+// releaseSuspended resumes h and closes it.
+func releaseSuspended(pid int, h windows.Handle) error {
+	defer windows.CloseHandle(h)
+	if err := ntCall(procNtResumeProcess, h); err != nil && !hasExited(h) {
+		return fmt.Errorf("NtResumeProcess(%d): %w", pid, err)
+	}
+	return nil
 }
 
 // LowerPriority puts every process in the live job registered for block blockId at below-normal priority, so a
