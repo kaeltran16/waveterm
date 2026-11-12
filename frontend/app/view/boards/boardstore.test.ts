@@ -42,6 +42,7 @@ import {
     loadBoardList,
     loadBoardStatus,
     onBoardUpdate,
+    onLiveBoardRegistered,
     openBoardByChannelAtom,
     registerLiveBoard,
     runBoardEscape,
@@ -146,16 +147,27 @@ describe("useBoardFollows", () => {
 describe("the open canvas's hooks", () => {
     it("routes draws to a registered board until it unregisters", async () => {
         const apply = vi.fn(async () => "new" as const);
-        const unregister = registerLiveBoard("b1", apply);
+        const unregister = registerLiveBoard("c1", "b1", apply);
         expect(liveBoardApply("b1")).toBe(apply);
         unregister();
         expect(liveBoardApply("b1")).toBeUndefined();
     });
 
+    it("tells registration listeners which board opened, until they unsubscribe", () => {
+        const heard = vi.fn();
+        const unsubscribe = onLiveBoardRegistered(heard);
+        const unregister = registerLiveBoard("c1", "b1", vi.fn());
+        expect(heard).toHaveBeenCalledExactlyOnceWith("c1", "b1");
+        unregister();
+        unsubscribe();
+        registerLiveBoard("c1", "b2", vi.fn())();
+        expect(heard).toHaveBeenCalledOnce();
+    });
+
     it("keeps a newer canvas's handler when an older one unregisters", () => {
-        const older = registerLiveBoard("b1", vi.fn());
+        const older = registerLiveBoard("c1", "b1", vi.fn());
         const newer = vi.fn();
-        const unregisterNewer = registerLiveBoard("b1", newer);
+        const unregisterNewer = registerLiveBoard("c1", "b1", newer);
         older();
         expect(liveBoardApply("b1")).toBe(newer);
         unregisterNewer();

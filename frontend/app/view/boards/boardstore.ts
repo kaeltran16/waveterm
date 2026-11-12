@@ -143,10 +143,13 @@ export function useBoardFollows(model: AgentsViewModel, boardId: string): BoardF
 export type LiveBoardApply = (draw: BoardDraw) => Promise<ApplyOutcome>;
 
 const liveBoards = new Map<string, LiveBoardApply>();
+const registeredListeners = new Set<(channelId: string, boardId: string) => void>();
 
-// the open canvas takes draws itself (updateScene), so a hand edit is never overwritten by a stale-rev save
-export function registerLiveBoard(boardId: string, apply: LiveBoardApply): () => void {
+// the open canvas takes draws itself (updateScene), so a hand edit is never overwritten by a stale-rev save.
+// listeners hear every open, so a board's waiting draws land when it opens (a first open, a re-open, a Retry).
+export function registerLiveBoard(channelId: string, boardId: string, apply: LiveBoardApply): () => void {
     liveBoards.set(boardId, apply);
+    registeredListeners.forEach((fn) => fn(channelId, boardId));
     return () => {
         if (liveBoards.get(boardId) === apply) {
             liveBoards.delete(boardId);
@@ -156,6 +159,13 @@ export function registerLiveBoard(boardId: string, apply: LiveBoardApply): () =>
 
 export function liveBoardApply(boardId: string): LiveBoardApply | undefined {
     return liveBoards.get(boardId);
+}
+
+export function onLiveBoardRegistered(fn: (channelId: string, boardId: string) => void): () => void {
+    registeredListeners.add(fn);
+    return () => {
+        registeredListeners.delete(fn);
+    };
 }
 
 let boardEscape: (() => void) | null = null;

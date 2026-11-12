@@ -352,8 +352,34 @@ function applyReplace(
     );
 }
 
-// lands the redraw as a faded frame 80px right of the edited group; a later redraw replaces the frame's contents
-// where the frame now is.
+function overlaps(a: Bounds, b: Bounds): boolean {
+    return a.minX < b.maxX && b.minX < a.maxX && a.minY < b.maxY && b.minY < a.maxY;
+}
+
+// where a new pending frame's elements go: 80px right of the edited group, top-aligned, when the framed box
+// there overlaps nothing; else right of the board's content, the one spot sure to be clear, still top-aligned.
+function pendingSpot(
+    rest: readonly ExcalidrawElement[],
+    group: Bounds,
+    converted: readonly ExcalidrawElement[]
+): { x: number; y: number } {
+    const y = group.minY + FRAME_PAD;
+    const beside = { x: group.maxX + PENDING_GAP + FRAME_PAD, y };
+    const size = boundsOf(converted) ?? { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+    const box = {
+        minX: beside.x - FRAME_PAD,
+        minY: y - FRAME_PAD,
+        maxX: beside.x + size.maxX - size.minX + FRAME_PAD,
+        maxY: y + size.maxY - size.minY + FRAME_PAD,
+    };
+    if (!live(rest).some((el) => overlaps(box, elementBounds(el)))) {
+        return beside;
+    }
+    return { x: firstDrawSpot(rest).x + FRAME_PAD, y };
+}
+
+// lands the redraw as a faded frame beside the edited group (pendingSpot); a later redraw replaces the frame's
+// contents where the frame now is.
 function applyPending(
     scene: BoardScene,
     src: BoardArcSource,
@@ -369,10 +395,7 @@ function applyPending(
         spot = { x: oldFrame.x + FRAME_PAD, y: oldFrame.y + FRAME_PAD };
     } else {
         const group = boundsOf(rest.filter((el) => inGroup(el, src.groupid)));
-        spot =
-            group == null
-                ? firstDrawSpot(rest)
-                : { x: group.maxX + PENDING_GAP + FRAME_PAD, y: group.minY + FRAME_PAD };
+        spot = group == null ? firstDrawSpot(rest) : pendingSpot(rest, group, converted);
     }
     const frameId = prev?.frameid ?? frameIdFor(draw.id);
     const placed = tag(placeAt(converted, spot.x, spot.y, 1), src.key, groupIdFor(draw.id)).map((el) =>

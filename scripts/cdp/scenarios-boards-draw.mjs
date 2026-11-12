@@ -29,6 +29,8 @@ const STEP_WAIT_MS = 5000;
 const CALLS = "__boardDrawCalls";
 
 const rowsOf = (s) => s?.groups.flatMap((g) => g.rows) ?? [];
+// the drill's crumbs and separators are sibling spans, so its flat text has no spaces around ›
+const drillOf = (s) => (s?.drill ?? "").replace(/\s*›\s*/g, " › ");
 const echoOf = `(${PALETTE}?.querySelector('.border-t .truncate')?.textContent ?? '').trim()`;
 const FOLLOW = `${PALETTE}?.querySelector('[data-palette-follow]')?.getAttribute('aria-checked') ?? null`;
 const BOARD_STEP = `${PALETTE}?.querySelector('[data-palette-board-step]')?.getAttribute('data-palette-board-step') ?? null`;
@@ -98,13 +100,14 @@ export const BOARDS_DRAW_SCENARIOS = [
             const rows = rowsOf(picking);
             rec(
                 "1. pick a board: the project's boards with their counts, then New board…",
-                picking?.drill === `Agent › ${AGENT_NAME} › Draw on a board…` &&
+                drillOf(picking) === `Agent › ${AGENT_NAME} › Draw on a board…` &&
                     picking.placeholder === "Pick a board, or type to filter" &&
-                    // the step slide wraps the groups, so the label is read from the palette's text
-                    picking.text.includes(`Boards in ${ctx.project}`) &&
+                    // the step slide wraps the groups, so the first group's text starts with the label; read as
+                    // textContent, since innerText carries the label's CSS uppercase
+                    (picking.groups[0]?.label ?? "").startsWith(`Boards in ${ctx.project}`) &&
                     BOARDS.every((b) => rows.some((r) => r.startsWith(b) && /0 groups · \d\d:\d\d/.test(r))) &&
                     rows.at(-1)?.startsWith("New board…"),
-                { drill: picking?.drill, placeholder: picking?.placeholder, groups: picking?.groups }
+                { drill: drillOf(picking), placeholder: picking?.placeholder, groups: picking?.groups }
             );
 
             // 2. a typed name no board has becomes New board “…”…, carried into the name step, made on Enter
@@ -112,9 +115,11 @@ export const BOARDS_DRAW_SCENARIOS = [
             const typed = await paletteStateWhen(h, (s) => rowsOf(s).length === 1, STEP_WAIT_MS);
             await h.ev(paletteKey("Enter"));
             const naming = await paletteStateWhen(h, (s) => s.placeholder === "Name the new board", STEP_WAIT_MS);
+            // the steps swap in wait mode: the name step mounts once the board step's slide has left
+            await polishWaitFor(h, `${BOARD_STEP} === "name"`, STEP_WAIT_MS);
             const nameStep = await h.ev(BOARD_STEP);
             await h.ev(paletteKey("Enter"));
-            const asking = await paletteStateWhen(h, (s) => (s.drill ?? "").endsWith(`› ${NEW_BOARD}`), STEP_WAIT_MS);
+            const asking = await paletteStateWhen(h, (s) => drillOf(s).endsWith(`› ${NEW_BOARD}`), STEP_WAIT_MS);
             await polishNap(400); // the step's slide settles before the shot
             await h.shot("cdp-shots/boards-draw-2-new-board.png");
             const listed = await h.rpc("boardlist", { channelid: ctx.channelId });
@@ -126,9 +131,9 @@ export const BOARDS_DRAW_SCENARIOS = [
                     naming?.query === NEW_BOARD &&
                     nameStep === "name" &&
                     made != null &&
-                    asking?.drill === `Agent › ${AGENT_NAME} › Draw on a board… › ${NEW_BOARD}` &&
+                    drillOf(asking) === `Agent › ${AGENT_NAME} › Draw on a board… › ${NEW_BOARD}` &&
                     asking.placeholder.startsWith("What to draw (optional)"),
-                { typed: rowsOf(typed), naming: naming?.query, nameStep, made: made?.id, drill: asking?.drill }
+                { typed: rowsOf(typed), naming: naming?.query, nameStep, made: made?.id, drill: drillOf(asking) }
             );
 
             // 3. the ask, and Keep following toggled by Tab, said in the footer
@@ -147,9 +152,9 @@ export const BOARDS_DRAW_SCENARIOS = [
                 before === "false" &&
                     after === "true" &&
                     echo === wantEcho &&
-                    (still?.drill ?? "").endsWith(`› ${NEW_BOARD}`) &&
+                    drillOf(still).endsWith(`› ${NEW_BOARD}`) &&
                     /Redraw at each of .*'s turn ends until it closes or you press Stop\. Each redraw is a scribe session\./.test(still?.text ?? ""),
-                { before, after, echo, want: wantEcho, drill: still?.drill }
+                { before, after, echo, want: wantEcho, drill: drillOf(still) }
             );
 
             // 4. Enter hands it to the scribe and closes the palette

@@ -127,7 +127,7 @@ describe("the board applier", () => {
 
     it("hands a live board's draw to its canvas and saves nothing itself", async () => {
         const apply = vi.fn(async () => "new" as const);
-        const unregister = registerLiveBoard(BOARD, apply);
+        const unregister = registerLiveBoard("c1", BOARD, apply);
         try {
             stop = startBoardApplier(model);
             await vi.waitFor(() => expect(rpc.BoardInboxCommand).toHaveBeenCalled());
@@ -140,6 +140,22 @@ describe("the board applier", () => {
             expect(rpc.BoardSaveCommand).not.toHaveBeenCalled();
             expect(rpc.BoardInboxAckCommand).toHaveBeenCalledOnce();
             expect(pushToast.mock.calls[0][0].message).toBe("From run 690cc20a · following");
+        } finally {
+            unregister();
+        }
+    });
+
+    it("reads a board's inbox when it opens after start, and lands its waiting draw", async () => {
+        stop = startBoardApplier(model);
+        await vi.waitFor(() => expect(rpc.BoardInboxCommand).toHaveBeenCalledWith({}, {}));
+        rpc.BoardInboxCommand.mockResolvedValue([draw]);
+        const apply = vi.fn(async () => "new" as const);
+        const unregister = registerLiveBoard("c1", BOARD, apply);
+        try {
+            await vi.waitFor(() => expect(pushToast).toHaveBeenCalledOnce());
+            expect(rpc.BoardInboxCommand).toHaveBeenLastCalledWith({}, { channelid: "c1", boardid: BOARD });
+            expect(apply).toHaveBeenCalledWith(expect.objectContaining({ id: "d-1" }));
+            expect(rpc.BoardInboxAckCommand).toHaveBeenCalledOnce();
         } finally {
             unregister();
         }

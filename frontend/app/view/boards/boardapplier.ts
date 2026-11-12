@@ -4,7 +4,8 @@
 // Lands scribe draws (decision 4). wavesrv leaves each result in the board's inbox and publishes board:update;
 // this converts and applies it, to the open canvas when the board is open, else to the file under the rev it
 // read, then acks it and toasts. A draw that cannot land stays in the inbox for the next try, so a reload or a
-// restart loses nothing. One draw per board is in flight at a time, oldest first.
+// restart loses nothing; opening a board reads its inbox again, so a board fixed and opened takes its waiting
+// draws then. One draw per board is in flight at a time, oldest first.
 
 import { pushToast } from "@/app/cockpit/notificationstore";
 import { globalStore } from "@/app/store/jotaiStore";
@@ -15,7 +16,7 @@ import { fireAndForget } from "@/util/util";
 import type { AgentsViewModel } from "../agents/agents";
 import { openTarget } from "../jarvis/openref";
 import { applyDraw, BoardFileError, parseBoardFile, serializeBoard } from "./boardmodel";
-import { boardListAtom, liveBoardApply } from "./boardstore";
+import { boardListAtom, liveBoardApply, onLiveBoardRegistered } from "./boardstore";
 
 const SAVE_TRIES = 3;
 
@@ -170,9 +171,11 @@ export function startBoardApplier(model: AgentsViewModel): () => void {
             }
         },
     });
+    const unlisten = onLiveBoardRegistered((channelid, boardid) => readInbox({ channelid, boardid }));
     readInbox({});
     return () => {
         stopped = true;
         unsubscribe();
+        unlisten();
     };
 }

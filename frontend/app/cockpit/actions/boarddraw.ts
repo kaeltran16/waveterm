@@ -62,6 +62,17 @@ export function listBoards(channelId: string): Promise<BoardListRtnData> {
     return RpcApi.BoardListCommand(TabRpcClient, { channelid: channelId });
 }
 
+// a loaded list counts only for the channel it was read for: no list, no channel or another channel's list is none
+export function listedBoards(
+    list: { channelId: string; data: BoardListRtnData } | null,
+    channelId: string | null | undefined
+): BoardListRtnData | null {
+    if (list == null || !channelId || list.channelId !== channelId) {
+        return null;
+    }
+    return list.data;
+}
+
 export function createBoard(channelId: string, name: string): Promise<BoardInfo> {
     return RpcApi.BoardCreateCommand(TabRpcClient, { channelid: channelId, name });
 }

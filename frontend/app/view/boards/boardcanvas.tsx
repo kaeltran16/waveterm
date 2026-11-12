@@ -200,7 +200,7 @@ export default function BoardCanvas({
         const ready = deferred();
         readyRef.current = ready;
         // registered before the read, so no draw can reach the file between this read and the first save
-        const unregister = registerLiveBoard(boardId, async (draw) => {
+        const unregister = registerLiveBoard(channelId, boardId, async (draw) => {
             await ready.promise;
             const converted = convertSkeleton(draw.skeleton);
             const { scene, outcome } = applyDraw(current(), draw, converted, Date.now());

@@ -25,7 +25,7 @@ import { fireAndForget } from "@/util/util";
 import { atom, useAtomValue } from "jotai";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { THING_KINDS } from "./actions";
-import { listBoards } from "./actions/boarddraw";
+import { listBoards, listedBoards } from "./actions/boarddraw";
 import { SESSION_KIND } from "./actions/session";
 import { verbRows } from "./actions/types";
 import { errorText, runPaletteAction } from "./palette-action";
@@ -328,7 +328,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
             live = false;
         };
     }, [open, atBoardStep, boardChannelId]);
-    const listed = boardList?.channelId === boardChannelId ? boardList.data : null;
+    const listed = listedBoards(boardList, boardChannelId);
     const boardProject = channels?.find((c) => c.oid === boardChannelId)?.name ?? listed?.project ?? "";
     const boardData = { project: boardProject, boards: listed == null ? null : (listed.boards ?? []) };
     // which way a step change slides: noted on the render the step changes, so an exit keeps its direction

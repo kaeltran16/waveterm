@@ -4,6 +4,7 @@ import {
     boardPickList,
     boardSub,
     drawOnBoardAction,
+    listedBoards,
     parseBoardChoice,
     pickBoardChannel,
 } from "./boarddraw";
@@ -125,5 +126,25 @@ describe("pickBoardChannel", () => {
     it("has no channel with no match and no current project", () => {
         expect(pickBoardChannel(channels, () => null, "C:/elsewhere")).toBeNull();
         expect(pickBoardChannel(null, () => null)).toBeNull();
+    });
+});
+
+describe("listedBoards", () => {
+    const data: BoardListRtnData = { project: "waveterm", boards: [board()] };
+
+    it("is null at boot, with no list and no board drill", () => {
+        expect(listedBoards(null, undefined)).toBeNull();
+    });
+
+    it("is null before the list for the channel loads", () => {
+        expect(listedBoards(null, "ch1")).toBeNull();
+    });
+
+    it("is null for a stale list read for another channel", () => {
+        expect(listedBoards({ channelId: "ch1", data }, "ch2")).toBeNull();
+    });
+
+    it("is the list's data when it was read for the channel", () => {
+        expect(listedBoards({ channelId: "ch1", data }, "ch1")).toBe(data);
     });
 });

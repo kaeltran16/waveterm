@@ -301,6 +301,22 @@ describe("applyDraw", () => {
         expect(groupOf(scene)).toEqual(groupBefore);
     });
 
+    it("places a pending frame past the board's content when the spot beside the edited group is taken", () => {
+        const drawn = drawnOnce();
+        const a = bounds(groupOf(drawn));
+        const groupB = [rect("b-r", a.maxX + 40, a.minY, 100, 40, { groupIds: ["user-b"] })];
+        const edited = editText({ ...drawn, elements: [...drawn.elements, ...groupB] }, "d1-t", "my words");
+        const { scene, outcome } = applyDraw(edited, draw("d2"), converted("d2"), NOW + 2);
+        expect(outcome).toBe("pending");
+        const frame = scene.elements.find((el) => el.id === sourceAt(scene).pending!.frameid)!;
+        const f = bounds([frame]);
+        const b = bounds(groupB);
+        const overlaps = f.minX < b.maxX && b.minX < f.maxX && f.minY < b.maxY && b.minY < f.maxY;
+        expect(overlaps).toBe(false);
+        expect(f.minX).toBeGreaterThanOrEqual(b.maxX + 120);
+        expect(f.minY).toBe(a.minY);
+    });
+
     it("names the pending frame after the source when there is no ask", () => {
         const d = draw("d1", { sourcekey: "run:690cc20a", source: runSource, ask: undefined });
         const first = applyDraw(emptyScene(), d, converted("d1"), NOW).scene;

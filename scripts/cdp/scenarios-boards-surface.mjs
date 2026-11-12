@@ -88,6 +88,27 @@ const PAGE = `
         }
         return null;
     };
+    // the open canvas's live elements, off Excalidraw's App component
+    const canvasElements = () => {
+        const el = document.querySelector(".excalidraw");
+        const key = el && Object.keys(el).find((k) => k.startsWith("__reactFiber$"));
+        for (let f = key ? el[key] : null; f != null; f = f.return) {
+            const scene = f.stateNode?.scene;
+            if (typeof scene?.getNonDeletedElements === "function") return scene.getNonDeletedElements();
+        }
+        return null;
+    };
+    const boxOf = (els) => {
+        const xs = [], ys = [];
+        for (const e of els) {
+            for (const [px, py] of e.points ?? [[0, 0], [e.width, e.height]]) {
+                xs.push(e.x + px);
+                ys.push(e.y + py);
+            }
+        }
+        return { minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) };
+    };
+    const overlap = (a, b) => a.minX < b.maxX && b.minX < a.maxX && a.minY < b.maxY && b.minY < a.maxY;
     const readBoard = async (boardid) => {
         const r = await RpcApi.BoardReadCommand(TabRpcClient, { channelid: fx.channelId, boardid });
         return { rev: r.rev, scene: M.parseBoardFile(r.data) };
@@ -344,7 +365,26 @@ export const boardsSurface = {
             return { ok, detail: q({ follow, rows, pending, yours, header, file, toast, toastOpen, floor: floor.detail }) };
         });
 
-        await run("4. keep pending: Keep turns the frame into the source's group, and the row loses its pending line", async () => {
+        await run("4. keep pending: the pending frame clears the group right of the edited one; Keep turns the frame into the source's group, and the row loses its pending line", async () => {
+            // the rerun's group sits right of the edited judge input, so the frame goes past the board's content
+            const placement = await page(
+                h,
+                `const { scene } = await readBoard(${q(ctx.mainId)});
+                const live = scene.elements.filter((e) => !e.isDeleted);
+                const frame = live.find((e) => e.type === "frame");
+                const edited = boxOf(live.filter((e) => e.groupIds.includes(scene.arc.sources.find((s) => s.key === ${q(SRC.input.key)}).groupid)));
+                const others = scene.arc.sources
+                    .filter((s) => s.key !== ${q(SRC.input.key)})
+                    .map((s) => ({ key: s.key, box: boxOf(live.filter((e) => e.groupIds.includes(s.groupid))) }));
+                const yours = live.filter((e) => e.customData?.arcSource == null);
+                if (yours.length > 0) others.push({ key: "yours", box: boxOf(yours) });
+                const f = frame && boxOf([frame]);
+                return {
+                    frame: f ?? null,
+                    rightOfEdited: others.filter((o) => o.box.minX >= edited.maxX && o.box.minY < edited.maxY && edited.minY < o.box.maxY).map((o) => o.key),
+                    covered: f ? others.filter((o) => overlap(f, o.box)).map((o) => o.key) : null,
+                };`
+            );
             await clickIn(h, sourceExpr(SRC.input.key), "/^Keep$/");
             await polishWaitFor(h, `!${sourceExpr(SRC.input.key)}?.textContent.includes("waits beside it")`, 10000);
             await polishNap(600);
@@ -364,6 +404,9 @@ export const boardsSurface = {
             const yours = await h.ev(text(`${LIST}?.querySelector("[data-board-yours]")`));
             await h.shot(`cdp-shots/${NAME}-4-keep-pending.png`);
             const ok =
+                placement.frame != null &&
+                placement.rightOfEdited.includes(SRC.rerun.key) &&
+                q(placement.covered) === "[]" &&
                 file.frames === 0 &&
                 file.groupid === `arc-group-${ctx.redrawId}` &&
                 file.pending == null &&
@@ -374,7 +417,7 @@ export const boardsSurface = {
                 !row.includes("Keep") &&
                 // the edited group is yours now: its box (its label is part of it) and its text join your note
                 yours === "Your shapes2 notes, 1 shape · the scribe never changes them";
-            return { ok, detail: q({ file, row, yours }) };
+            return { ok, detail: q({ placement, file, row, yours }) };
         });
 
         await run("5. drawing and failed (D2): a drawing row with its queued line, a failed row with Retry, the error toast", async () => {
@@ -405,7 +448,7 @@ export const boardsSurface = {
             return { ok, detail: q({ drawing, failed, header, toast }) };
         });
 
-        await run("6. won't open (E1): a truncated file's row says won't open, and the board shows the error, its path and Retry", async () => {
+        await run("6. won't open (E1): a truncated file's row says won't open, and the board shows the error, its path and Retry; fixed, Retry opens it and its waiting draw lands", async () => {
             await page(h, `fx.status = null; await B.loadBoardStatus(${q(ctx.channelId)}, ${q(ctx.mainId)}); return true;`);
             const info = await h.rpc("boardcreate", { channelid: ctx.channelId, name: BROKEN });
             ctx.brokenId = info.id;
@@ -419,7 +462,29 @@ export const boardsSurface = {
             const header = await h.ev(text(HEADER));
             await h.shot(`cdp-shots/${NAME}-6-wont-open.png`);
             const hasRetry = await page(h, `return !!button(${SURFACE}?.querySelector("[data-board-load-error]"), /^Retry$/);`);
+            // a draw waits in the inbox, with no draw event: only opening the fixed board can land it
+            const waiting = { ...drawOf(ctx, SRC.run, SKELETON.run, Date.now()), boardid: info.id };
+            await page(h, `fx.inbox.push(${q(waiting)}); return true;`);
+            writeFileSync(info.path, whole);
+            await clickIn(h, `${SURFACE}?.querySelector("[data-board-load-error]")`, "/^Retry$/");
+            const opened = await polishWaitFor(h, `!!${SURFACE}?.querySelector('[data-board-canvas="${info.id}"] .excalidraw')`, 20000);
+            await polishWaitFor(h, `!!window.__boardsFx?.acks.includes(${q(waiting.id)})`, 15000);
+            await polishNap(600);
+            const landed = await page(
+                h,
+                `const els = canvasElements() ?? [];
+                return {
+                    shapes: els.filter((e) => e.customData?.arcSource === ${q(SRC.run.key)} && e.type !== "text").length,
+                    acked: fx.acks.includes(${q(waiting.id)}),
+                    inbox: fx.inbox.filter((x) => x.boardid === ${q(info.id)}).length,
+                };`
+            );
+            await h.shot(`cdp-shots/${NAME}-6b-retry-lands-waiting-draw.png`);
             const ok =
+                opened &&
+                landed.shapes === SKELETON.run.length &&
+                landed.acked &&
+                landed.inbox === 0 &&
                 row === `${BROKEN}won't open` &&
                 err.startsWith(`Couldn't open ${BROKEN}: its file is not valid Excalidraw JSON`) &&
                 err.includes("Arc has not changed the file.") &&
@@ -427,7 +492,7 @@ export const boardsSurface = {
                 err.endsWith("Fix or restore it, then Retry. Nothing draws on this board until it opens.") &&
                 header === `Boards/${BROKEN}won't open` &&
                 hasRetry;
-            return { ok, detail: q({ row, err, header, hasRetry }) };
+            return { ok, detail: q({ row, err, header, hasRetry, opened, landed }) };
         });
 
         await run("7. source row selects group: clicking a source row selects exactly its group's elements on the canvas", async () => {
