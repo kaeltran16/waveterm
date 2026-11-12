@@ -718,14 +718,15 @@ func (router *WshRouter) UnregisterLink(linkId baseds.LinkId) {
 			delete(router.rpcMap, rpcId)
 		case ri.destLinkId == linkId && linkId != baseds.NoLinkId:
 			unanswered = append(unanswered, ri)
-			delete(router.rpcMap, rpcId)
 		}
 	}
 	router.lock.Unlock()
-	// nothing can answer these now: fail them at the caller rather than leave it waiting out its timeout
+	// nothing can answer these now: fail them at the caller rather than leave it waiting out its timeout.
+	// the error goes through inputCh behind whatever the link already queued there, so a response it sent
+	// just before closing still wins, and runServer drops this error as having no route info
 	for _, ri := range unanswered {
 		errBytes, _ := json.Marshal(RpcMessage{ResId: ri.rpcId, Error: fmt.Sprintf("route %q went away before it answered", ri.destRouteId)})
-		router.sendMessageToLink(errBytes, ri.sourceLinkId, baseds.NoLinkId)
+		router.inputCh <- baseds.RpcInputChType{MsgBytes: errBytes, IngressLinkId: baseds.NoLinkId}
 	}
 	// nobody can receive these replies now: cancel the handlers, or a stream runs to its timeout (an
 	// agentctl stream's is 30 days) and keeps looking like a live caller

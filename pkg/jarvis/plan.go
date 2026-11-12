@@ -266,7 +266,9 @@ func ParsePlan(src string) (Plan, error) {
 			inTaskHead, dependsAllowed = true, true
 			continue
 		}
-		if planNearTaskHeadingRe.MatchString(line) {
+		// the plan's own "# <title>" may start with "Task <n>"; readPlanPreamble takes it as the title
+		isTitle := len(p.Tasks) == 0 && p.Title == "" && planTitleRe.MatchString(line)
+		if !isTitle && planNearTaskHeadingRe.MatchString(line) {
 			return Plan{}, fmt.Errorf("plan heading %q is not a task heading: write it as \"### Task %d: <title>\", at the start of the line under ## or ###", strings.TrimSpace(line), len(p.Tasks)+1)
 		}
 		if len(p.Tasks) == 0 {
