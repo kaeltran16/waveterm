@@ -26,6 +26,9 @@ type Key struct{ Project, Role string }
 const (
 	RoleWorker   = "worker"
 	RoleReviewer = "reviewer"
+	// blocks in no run: an agent tab and a plain terminal
+	RoleAgent    = "agent"
+	RoleTerminal = "terminal"
 )
 
 const (
