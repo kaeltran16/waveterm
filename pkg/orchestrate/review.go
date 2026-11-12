@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
+	"github.com/wavetermdev/waveterm/pkg/memgate"
 	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
@@ -123,6 +124,16 @@ func spawnReviewer(ctx, spawnCtx context.Context, g *waveobj.TaskGroup, t *waveo
 		failReview(ctx, g, t, "reviewer could not start: "+err.Error(), afterCommit)
 		return
 	}
+	// refused: the task stays reviewing with no reviewer, and a later tick retries once memory frees
+	claim, ok := memgate.TryAdmit(memgate.Request{
+		Key: memgate.Key{Project: MemProjectKey(owner.ProjectPath), Role: memgate.RoleReviewer},
+		Tag: memgate.Tag{RunId: g.RunID, TaskId: t.ID, Role: memgate.RoleReviewer},
+	})
+	if !ok {
+		return
+	}
+	// every failure below leaves it unbound; a started reviewer's belongs to its job
+	defer claim.ReleaseIfUnbound()
 	prompt := reviewPrompt(g, t, worker, toldToTask(ctx, g, t.ID), goalpostsForTask(ctx, g, t.ID))
 	if section := unlistedSection(unlistedFiles(spawnCtx, worker.ProjectPath, t.ReviewBase, worker.EndCommit, t.Description)); section != "" {
 		prompt += "\n\n" + section
@@ -161,7 +172,7 @@ func spawnReviewer(ctx, spawnCtx context.Context, g *waveobj.TaskGroup, t *waveo
 		spendReviewRespawn(ctx, g, t, "reviewer could not start: "+err.Error(), afterCommit)
 		return
 	}
-	deprioritizeWorker(spawnCtx, oref)
+	bindToBlock(claim, deprioritizeWorker(spawnCtx, oref))
 	t.ReviewRunID, t.ReviewSpawnedTs = runID, now
 	taskID := t.ID
 	*afterCommit = append(*afterCommit, func() {

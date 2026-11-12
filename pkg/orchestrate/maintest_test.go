@@ -9,10 +9,13 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/effortstore"
+	"github.com/wavetermdev/waveterm/pkg/memgate"
+	"github.com/wavetermdev/waveterm/pkg/util/jobobject"
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
@@ -44,7 +47,16 @@ func TestMain(m *testing.M) {
 	// the store is shared by every test, and the cap would count the workers earlier tests left live in it;
 	// only the cap's own tests see other dags and a machine's memory
 	liveDags = func(context.Context) ([]*waveobj.TaskGroup, error) { return nil, nil }
-	availableMemory = func() (uint64, error) { return ^uint64(0), nil }
+	memgate.UncapForTest()
+	memgate.SetStoreDirForTest(filepath.Join(dir, "memgate"))
+	// no job closes in a test, so a bound claim would stay in the book for good: keep each for releaseBoundClaims
+	bind := bindClaim
+	bindClaim = func(c *memgate.Claim, o jobobject.Owner) {
+		boundClaims.Lock()
+		boundClaims.list = append(boundClaims.list, c)
+		boundClaims.Unlock()
+		bind(c, o)
+	}
 	// a fixture's worker has no transcript, and the lookup then globs every dir under the root: against the
 	// real ~/.claude/projects that was 1.4M file checks a run, all logged as test inputs for go to re-check
 	sessionsRootFor = func(string) string { return filepath.Join(dir, "sessions") }
@@ -59,6 +71,22 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 	os.RemoveAll(dir)
 	os.Exit(code)
+}
+
+// boundClaims are the gate claims tests bound to a worker's block.
+var boundClaims struct {
+	sync.Mutex
+	list []*memgate.Claim
+}
+
+// releaseBoundClaims releases the claims earlier tests bound, so the book holds only what a test makes.
+func releaseBoundClaims() {
+	boundClaims.Lock()
+	defer boundClaims.Unlock()
+	for _, c := range boundClaims.list {
+		c.Release()
+	}
+	boundClaims.list = nil
 }
 
 // skipVerifier ends the final stage as though the verifier passed the moment it started. Alongside the

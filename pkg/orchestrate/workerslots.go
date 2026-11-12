@@ -7,9 +7,10 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"sync"
 
-	"github.com/shirou/gopsutil/v4/mem"
+	"github.com/wavetermdev/waveterm/pkg/memgate"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
@@ -17,19 +18,6 @@ import (
 // MaxLiveWorkers caps live workers across every run. Parallelism bounds one run, and two wide runs at once
 // otherwise put twice the processes and memory on one machine.
 const MaxLiveWorkers = MaxParallelism
-
-// WorkerMemoryReserve is the available memory a new worker needs: its claude (~0.7 GB) and the largest test
-// peak measured in this repo, the typecheck (2.8 GB, 10-20). Memory, not CPU, is what runs out when runs pile up.
-const WorkerMemoryReserve = 3584 << 20
-
-// availableMemory is a var so tests can stand in for the machine.
-var availableMemory = func() (uint64, error) {
-	vm, err := mem.VirtualMemory()
-	if err != nil {
-		return 0, err
-	}
-	return vm.Available, nil
-}
 
 // liveDags lists the dags whose workers count against the cap: every nonterminal one. A var so tests can
 // leave out the dags other tests left in the shared store.
@@ -45,13 +33,24 @@ var liveDags = func(ctx context.Context) ([]*waveobj.TaskGroup, error) {
 	return out, nil
 }
 
-// UncapWorkersForTest lifts the live-worker cap for another package's tests: their store is shared too, and the
-// cap would count the dags earlier tests left live in it and the machine's free memory.
+// UncapWorkersForTest lifts the live-worker cap and the memory gate for another package's tests: their store is
+// shared too, and the cap would count the dags earlier tests left live in it and the machine's free memory. It also
+// keeps the learned footprints in a temp dir, off the real data dir.
 func UncapWorkersForTest() (restore func()) {
-	oldLive, oldMem := liveDags, availableMemory
+	oldLive := liveDags
 	liveDags = func(context.Context) ([]*waveobj.TaskGroup, error) { return nil, nil }
-	availableMemory = func() (uint64, error) { return ^uint64(0), nil }
-	return func() { liveDags, availableMemory = oldLive, oldMem }
+	restoreFree := memgate.UncapForTest()
+	dir, err := os.MkdirTemp("", "memfootprints-*")
+	if err != nil {
+		panic(err)
+	}
+	restoreStore := memgate.SetStoreDirForTest(dir)
+	return func() {
+		liveDags = oldLive
+		restoreFree()
+		restoreStore()
+		os.RemoveAll(dir)
+	}
 }
 
 // workerClaims holds the workers each dag's dispatch has granted itself and not yet persisted: a tick spawns
@@ -64,7 +63,6 @@ var workerClaims = struct {
 // workerLoad is what the other dags hold of the cap.
 type workerLoad struct {
 	live    int // workers in flight or claimed by a dispatch under way
-	claimed int // the claimed part of live: spawned, or about to be, and not yet grown to their memory
 	waiting int // dags with ready work and no dispatch under way
 }
 
@@ -82,7 +80,6 @@ func workerLoadOf(dags []*waveobj.TaskGroup, selfID string, claims map[string]in
 	for id, n := range claims {
 		if id != selfID {
 			l.live += n
-			l.claimed += n
 		}
 	}
 	return l
@@ -90,45 +87,50 @@ func workerLoadOf(dags []*waveobj.TaskGroup, selfID string, claims map[string]in
 
 // workerGrant is how many of want new workers a dag with mine in flight may start. While other dags wait, it
 // refills only to its fair share: the dag whose worker just finished ticks first and would otherwise take every
-// freed slot. Memory admits one worker per WorkerMemoryReserve available, less the workers other dispatches
-// started that have not grown yet. With nothing live anywhere one worker always starts, so a machine short of
-// memory for reasons outside Arc slows runs down instead of stalling them with nothing to say why.
-func workerGrant(want, mine int, l workerLoad, avail uint64) int {
+// freed slot. Memory is the gate's (claimWorkers).
+func workerGrant(want, mine int, l workerLoad) int {
 	room := MaxLiveWorkers - l.live - mine
 	if l.waiting > 0 {
 		room = min(room, max(1, MaxLiveWorkers/(l.waiting+1))-mine)
 	}
-	byMemory := int(avail/WorkerMemoryReserve) - l.claimed
-	if l.live+mine == 0 {
-		byMemory = max(1, byMemory)
-	}
-	return max(0, min(want, room, byMemory))
+	return max(0, min(want, room))
 }
 
-// claimWorkers reserves up to want new workers for g's dispatch and returns how many it got. The caller
-// releases the claim with releaseWorkerClaim once the dispatch is persisted.
-func claimWorkers(ctx context.Context, g *waveobj.TaskGroup, want int) int {
-	if want == 0 {
-		return 0
+// claimWorkers reserves workers for the tasks of next that g's dispatch may start: the count grant first, then
+// each task's admission at the memory gate, in plan order. After the first refusal the rest of the grant is held
+// without being tried, so no task jumps ahead of one waiting for memory. It returns the admitted tasks and their
+// claims; the caller releases the count claim with releaseWorkerClaim once the dispatch is persisted, and every
+// claim its dispatch did not bind.
+func claimWorkers(ctx context.Context, g *waveobj.TaskGroup, owner *waveobj.Run, next []string) ([]string, map[string]*memgate.Claim) {
+	if len(next) == 0 {
+		return nil, nil
 	}
 	workerClaims.Lock()
 	defer workerClaims.Unlock()
-	dags, err := liveDags(ctx)
-	if err != nil {
+	granted := next
+	if dags, err := liveDags(ctx); err != nil {
 		// the cap is a guard for the machine, not a correctness rule: an unreadable store must not stop dispatch
 		log.Printf("dag %s: worker cap skipped: %v", g.OID, err)
-		return want
+	} else {
+		granted = next[:workerGrant(len(next), len(busyTaskIDs(g)), workerLoadOf(dags, g.OID, workerClaims.byDag))]
 	}
-	avail, err := availableMemory()
-	if err != nil {
-		log.Printf("dag %s: worker memory check skipped: %v", g.OID, err)
-		avail = ^uint64(0)
+	var admitted []string
+	claims := make(map[string]*memgate.Claim)
+	for i, taskID := range granted {
+		claim, ok := memgate.TryAdmit(workerRequest(g, owner, taskID))
+		if !ok {
+			for _, held := range granted[i+1:] {
+				memgate.Hold(workerRequest(g, owner, held))
+			}
+			break
+		}
+		admitted = append(admitted, taskID)
+		claims[taskID] = claim
 	}
-	n := workerGrant(want, len(busyTaskIDs(g)), workerLoadOf(dags, g.OID, workerClaims.byDag), avail)
-	if n > 0 {
-		workerClaims.byDag[g.OID] += n
+	if len(admitted) > 0 {
+		workerClaims.byDag[g.OID] += len(admitted)
 	}
-	return n
+	return admitted, claims
 }
 
 func releaseWorkerClaim(dagID string) {

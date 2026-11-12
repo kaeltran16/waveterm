@@ -473,7 +473,9 @@ func reverifyHold(ctx context.Context, run *waveobj.Run, g *waveobj.TaskGroup) (
 		if c.cmd == "" || (c.name == PlanCmd_Check && skipCheck) {
 			continue
 		}
-		if _, err := runPlanCommand(withRunCmdOwner(ctx, run.ID, c.name, ""), run.LandPath, c.cmd, c.env, VerifyTimeout, nil); err != nil {
+		// admitted: the land runs inside an RPC with the human or lead waiting on it, like a lead's own work
+		cmdCtx := WithGateAdmitted(withRunCmdOwner(ctx, run.ID, c.name, ""))
+		if _, err := runPlanCommand(cmdCtx, run.LandPath, c.cmd, c.env, VerifyTimeout, nil); err != nil {
 			// the final stage let this through as unverified; holding here would leave no way to land
 			if c.name == PlanCmd_Check && baseCheckFailed(g) {
 				note = sharedCheckFailure(g, "the run merged with "+run.BaseBranch, failureDetail(err))

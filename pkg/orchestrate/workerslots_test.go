@@ -14,30 +14,23 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
-const plentyOfMemory = 100 * WorkerMemoryReserve
-
 func TestWorkerGrant(t *testing.T) {
 	cases := []struct {
 		name       string
 		want, mine int
 		load       workerLoad
-		avail      uint64
 		grant      int
 	}{
-		{"an idle machine grants all it asks", 3, 0, workerLoad{}, plentyOfMemory, 3},
-		{"other runs' workers count against the cap", 4, 1, workerLoad{live: 6}, plentyOfMemory, 1},
-		{"a full cap grants nothing", 2, 0, workerLoad{live: MaxLiveWorkers}, plentyOfMemory, 0},
-		{"a waiting run holds this one to its share", 4, 3, workerLoad{live: 3, waiting: 1}, plentyOfMemory, 1},
-		{"at its share a run leaves the free slots to the waiting one", 2, 4, workerLoad{live: 2, waiting: 1}, plentyOfMemory, 0},
-		{"one worker per reserve of memory", 4, 1, workerLoad{}, 2*WorkerMemoryReserve + 1, 2},
-		{"workers other dispatches just started take their reserve", 4, 1, workerLoad{live: 1, claimed: 1}, 2 * WorkerMemoryReserve, 1},
-		{"short of memory with workers live, the task waits", 2, 1, workerLoad{}, WorkerMemoryReserve - 1, 0},
-		{"short of memory with nothing live, one worker still starts", 3, 0, workerLoad{}, WorkerMemoryReserve - 1, 1},
+		{"an idle machine grants all it asks", 3, 0, workerLoad{}, 3},
+		{"other runs' workers count against the cap", 4, 1, workerLoad{live: 6}, 1},
+		{"a full cap grants nothing", 2, 0, workerLoad{live: MaxLiveWorkers}, 0},
+		{"a waiting run holds this one to its share", 4, 3, workerLoad{live: 3, waiting: 1}, 1},
+		{"at its share a run leaves the free slots to the waiting one", 2, 4, workerLoad{live: 2, waiting: 1}, 0},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := workerGrant(c.want, c.mine, c.load, c.avail); got != c.grant {
-				t.Fatalf("workerGrant(%d, %d, %+v, %d) = %d, want %d", c.want, c.mine, c.load, c.avail, got, c.grant)
+			if got := workerGrant(c.want, c.mine, c.load); got != c.grant {
+				t.Fatalf("workerGrant(%d, %d, %+v) = %d, want %d", c.want, c.mine, c.load, got, c.grant)
 			}
 		})
 	}
@@ -69,7 +62,7 @@ func TestWorkerLoadOf(t *testing.T) {
 		slotDag(t, "dispatching", 3, 0), // ready, but its claim is already spawning it
 	}
 	got := workerLoadOf(dags, "self", map[string]int{"self": 2, "dispatching": 2})
-	want := workerLoad{live: 6, claimed: 2, waiting: 1}
+	want := workerLoad{live: 6, waiting: 1}
 	if got != want {
 		t.Fatalf("got %+v, want %+v: self is left out, a dispatching dag counts its claim and does not wait", got, want)
 	}
