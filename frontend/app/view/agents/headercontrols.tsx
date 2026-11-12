@@ -24,6 +24,7 @@ import {
 } from "./headercontrolsmodel";
 import { prettyModel } from "./modellabel";
 import {
+    autoPermissionSeenAtom,
     getAgentStatusAtom,
     getLastHookAtom,
     getOptimisticPermissionModeAtom,
@@ -57,7 +58,7 @@ export function HeaderControls({ agent }: { agent: AgentVM }) {
     const lastHook = useAtomValue(getLastHookAtom(oref));
     const optimisticAtom = getOptimisticPermissionModeAtom(oref);
     const optimistic = useAtomValue(optimisticAtom);
-    const cycle = permissionCycle(useAtomValue(getSeenPermissionModesAtom(oref)));
+    const cycle = permissionCycle(useAtomValue(getSeenPermissionModesAtom(oref)), useAtomValue(autoPermissionSeenAtom));
     const busy = useRef(false);
     const mode = shownPermissionMode(optimistic, lastHook?.ts, reportedMode);
     const modelLabel = (status?.model ? prettyModel(status.model) : (agent.model ?? "")).toLowerCase();

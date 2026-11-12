@@ -7,7 +7,7 @@
 export const MODEL_ALIASES = ["default", "opus", "sonnet", "haiku"];
 
 const BASE_CYCLE = ["default", "acceptEdits", "plan"];
-const AUTO = "auto";
+export const AUTO_PERMISSION_MODE = "auto";
 
 export const SHIFT_TAB = "\x1b[Z";
 
@@ -16,9 +16,10 @@ export function modelCommand(alias: string): string {
 }
 
 // The modes Shift+Tab walks in this session. Auto mode sits after plan only when the user has it enabled, which no
-// hook states outright; the hooks do report the mode itself, so a session that has ever reported auto has it.
-export function permissionCycle(seenModes: ReadonlySet<string>): string[] {
-    return seenModes.has(AUTO) ? [...BASE_CYCLE, AUTO] : BASE_CYCLE;
+// hook states outright; the hooks do report the mode itself. Auto is an account/model gate, not per session, so any
+// session ever reporting it (autoSeenAnywhere, persisted) puts it in every session's cycle.
+export function permissionCycle(seenModes: ReadonlySet<string>, autoSeenAnywhere: boolean): string[] {
+    return autoSeenAnywhere || seenModes.has(AUTO_PERMISSION_MODE) ? [...BASE_CYCLE, AUTO_PERMISSION_MODE] : BASE_CYCLE;
 }
 
 // the Shift+Tab writes that move the TUI from one mode to another; null when either mode is off the cycle
