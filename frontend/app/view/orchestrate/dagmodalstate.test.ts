@@ -182,4 +182,14 @@ describe("dagModalKey", () => {
         expect(dagModalKey("Escape")).toBe("escape");
         unregisterDag();
     });
+
+    it("leaves both to a popover (a route picker) focused above it, which is on no modal stack", () => {
+        const unregister = registerModal(DAG_MODAL_ID);
+        const inPopover = { closest: (sel: string) => (sel === "[data-floating-ui-portal]" ? {} : null) };
+        const inPanel = { closest: () => null };
+        expect(dagModalKey("Tab", inPopover as unknown as Element)).toBeNull();
+        expect(dagModalKey("Escape", inPopover as unknown as Element)).toBeNull();
+        expect(dagModalKey("Tab", inPanel as unknown as Element)).toBe("tab");
+        unregister();
+    });
 });
