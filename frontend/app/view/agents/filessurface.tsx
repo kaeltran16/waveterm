@@ -55,6 +55,7 @@ import { AggregatePane } from "./aggregatepane";
 import { CompareColumn } from "./comparecolumn";
 import { AGGREGATE, buildCompareRows, compareNavIds, type CompareCommitRow } from "./comparerows";
 import {
+    abandonEnterCompare,
     compareActiveChangesAtom,
     compareAggregateAtom,
     compareBranchesAtom,
@@ -225,7 +226,13 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
 
     // The surface unmounts on every nav switch; stamping the time on the way out is all it has to do.
     // The next history load decides whether anything is worth announcing (historyquery.restoreNotice).
-    useEffect(() => () => noteSurfaceLeft(), []);
+    useEffect(
+        () => () => {
+            noteSurfaceLeft();
+            abandonEnterCompare();
+        },
+        []
+    );
 
     // Keeps the change list from going stale while this surface is on screen; stops the moment it isn't.
     useEffect(() => startChangesPoll(), []);
@@ -364,36 +371,33 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
     const navIds = compareOn ? compareNavIds(compareRows) : (historyRows ?? []).map((r) => r.hash);
     const navCursor = compareOn ? compareSelection : (selectedCommit ?? undefined);
     const navFile = shownPath;
+    // compare's repository, not the change list's: each ref or form change reloads that list, leaving it no cwd
+    const navCwd = compareCwd() ?? state?.cwd;
     const listNav = useMemo<ListNavController | null>(
         () =>
-            state?.cwd && navIds.length > 0
+            navCwd && navIds.length > 0
                 ? {
                       surface: "files",
                       navigableIds: navIds,
                       cursorId: navCursor,
                       setCursor: (id) =>
-                          fireAndForget(() =>
-                              compareOn ? selectCompareRow(state.cwd!, id) : selectCommit(state.cwd!, id)
-                          ),
+                          fireAndForget(() => (compareOn ? selectCompareRow(navCwd, id) : selectCommit(navCwd, id))),
                       // the open file in Code at its first change, like the diff header's Open in Code
-                      activate:
-                          navFile && state.cwd
-                              ? () => {
-                                    const pair = globalStore.get(diffPairAtom);
-                                    const line =
-                                        pair?.path === navFile
-                                            ? firstDifferingLine(pair.original, pair.modified)
-                                            : undefined;
-                                    fireAndForget(() =>
-                                        openInCode(model, { projectPath: state.cwd!, rel: navFile, line })
-                                    );
-                                }
-                              : undefined,
+                      activate: navFile
+                          ? () => {
+                                const pair = globalStore.get(diffPairAtom);
+                                const line =
+                                    pair?.path === navFile
+                                        ? firstDifferingLine(pair.original, pair.modified)
+                                        : undefined;
+                                fireAndForget(() => openInCode(model, { projectPath: navCwd, rel: navFile, line }));
+                            }
+                          : undefined,
                       // Tab needs to know which side a row belongs to, which an id list cannot say.
                       rows: compareOn ? compareRows : undefined,
                   }
                 : null,
-        [state?.cwd, compareOn, navIds.join(" "), navCursor, navFile, compareRows]
+        [navCwd, compareOn, navIds.join(" "), navCursor, navFile, compareRows]
     );
     useSurfaceListNav(listNav);
 

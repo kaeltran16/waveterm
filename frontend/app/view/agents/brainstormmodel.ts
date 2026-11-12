@@ -467,16 +467,46 @@ export function nextSentCheckAt(
     return at != null && record != null && record.ts >= at ? null : at;
 }
 
+// whether the agent has taken in the answered check's questions: its turn ended after the delivery, or the file was
+// written since and the agent is not working, or a turn started after that write (a later turn, not the taking in)
+function checkTaken(
+    record: BuilderCheckRecord,
+    modifiedMs: number | null,
+    agent: Pick<AgentVM, "state" | "idleSince"> | undefined,
+    turnStartMs: number | undefined
+): boolean {
+    const written = modifiedMs != null && modifiedMs > record.ts;
+    const laterTurn = written && turnStartMs != null && turnStartMs > modifiedMs;
+    return laterTurn || lineTaken(record.ts, written, agent);
+}
+
+// the answered record's ts once its questions were taken in, kept: a later turn that writes the file itself moves the
+// last write past its own start, which would otherwise read as the taking in again
+export function nextCheckTakenTs(
+    prev: number | null,
+    record: BuilderCheckRecord | undefined,
+    modifiedMs: number | null,
+    agent: Pick<AgentVM, "state" | "idleSince"> | undefined,
+    turnStartMs: number | undefined
+): number | null {
+    if (record?.state !== "answered") {
+        return null;
+    }
+    return prev === record.ts || checkTaken(record, modifiedMs, agent, turnStartMs) ? record.ts : null;
+}
+
 // the builder check as the pane shows it. Once the agent takes the delivered questions the record is inert and the
 // file's check drives the view; a failure shows only while the file has no check. turnStartMs is when the agent's
-// current turn started: one that started after the agent wrote the questions in is a later turn, not the taking in
+// current turn started: one that started after the agent wrote the questions in is a later turn, not the taking in.
+// takenTs is nextCheckTakenTs as the poller keeps it
 export function builderCheckView(
     record: BuilderCheckRecord | undefined,
     sentCheckAt: number | null,
     f: BrainstormFile | null,
     modifiedMs: number | null,
     agent: Pick<AgentVM, "state" | "idleSince"> | undefined,
-    turnStartMs?: number
+    turnStartMs?: number,
+    takenTs: number | null = null
 ): BuilderCheckView {
     const unchecked = f?.check == null;
     if (sentCheckAt != null && (record == null || record.ts < sentCheckAt)) {
@@ -486,9 +516,7 @@ export function builderCheckView(
         return { kind: "pending", stage: "reading", text: PENDING_CHECK };
     }
     if (record?.state === "answered") {
-        const written = modifiedMs != null && modifiedMs > record.ts;
-        const laterTurn = written && turnStartMs != null && turnStartMs > modifiedMs;
-        const taken = laterTurn || lineTaken(record.ts, written, agent);
+        const taken = takenTs === record.ts || checkTaken(record, modifiedMs, agent, turnStartMs);
         return taken ? { kind: "none" } : { kind: "pending", stage: "taking-in", text: CHECK_TAKING_IN };
     }
     if (record?.state === "failed" && unchecked) {

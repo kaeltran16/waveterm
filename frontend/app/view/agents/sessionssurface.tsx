@@ -74,6 +74,7 @@ import {
     keepRow,
     mergeResultSessions,
     scopeRows,
+    searchReadingEmpty,
     searchSummary,
     snippetParts,
     type CardMatch,
@@ -148,7 +149,7 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
     const digests = useAtomValue(runDigestsAtom);
     const incomplete = useAtomValue(sessionsIncompleteAtom);
     const [query, setQuery] = useAtom(model.sessionsQueryAtom);
-    const find = useAtomValue(model.sessionsFindAtom);
+    const found = useAtomValue(model.sessionsFoundAtom);
     const pins = useAtomValue(sessionsPinnedAtom);
     // off on every visit: run agents are a deliberate widening, not a mode the list remembers
     const [runAgents, setRunAgents] = useState(false);
@@ -277,7 +278,9 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
         }
         ContextMenuModel.getInstance().showContextMenu(items, e);
     };
-    const summary = matches ? searchSummary(new Map(shown.map((r) => [r.key, matches.get(r.key)!]))) : "";
+    const readingEmpty = searchReadingEmpty(searching, search.loading, groups.length);
+    const summary =
+        matches && !readingEmpty ? searchSummary(new Map(shown.map((r) => [r.key, matches.get(r.key)!]))) : "";
     // the server's terms answer the shown results' query; for a newer query still pending, the bar's own parse
     const findTermsNow = search.query === query ? search.terms : findTerms(query);
     const openCard = (m: CardMatch) => openSessionHit(model, m.results[0], query, findTermsNow);
@@ -304,7 +307,7 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
         : undefined;
     const selMemberSession =
         selRun && selMember
-            ? (foundSession(find, sel, member, selRun.group.sessions) ??
+            ? (foundSession(found, sel, member, selRun.group.sessions) ??
               memberLiveSession(selMember, selRun.view.runId, roster))
             : undefined;
     const primary = selRun ? selMemberSession : selSession;
@@ -481,9 +484,7 @@ export function SessionsSurface({ model }: { model: AgentsViewModel }) {
                                     Retry
                                 </button>
                             </div>
-                        ) : base == null ||
-                          (searching && (results == null || (search.loading && groups.length === 0))) ? (
-                            // a pending search over an empty answer is still reading, not "No sessions match"
+                        ) : base == null || (searching && results == null) || readingEmpty ? (
                             <SkeletonRows className="mt-3 min-h-0 flex-1 space-y-[7px]">
                                 {(i) => <SkeletonLine key={i} className="h-[58px] rounded-[10px]" />}
                             </SkeletonRows>

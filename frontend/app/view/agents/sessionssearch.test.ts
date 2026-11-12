@@ -10,6 +10,7 @@ import {
     foldHits,
     keepRow,
     mergeResultSessions,
+    searchReadingEmpty,
     searchSummary,
     snippetParts,
     type CardMatch,
@@ -160,6 +161,15 @@ describe("searchSummary", () => {
         ]);
         expect(searchSummary(m)).toBe("3 sessions · 7 matches");
         expect(searchSummary(new Map([["claude:a", card(1)]]))).toBe("1 session · 1 match");
+    });
+});
+
+describe("searchReadingEmpty", () => {
+    it("a pending search over an empty answer is still reading, so neither list nor summary speaks for it", () => {
+        expect(searchReadingEmpty(true, true, 0)).toBe(true);
+        expect(searchReadingEmpty(true, true, 2)).toBe(false);
+        expect(searchReadingEmpty(true, false, 0)).toBe(false);
+        expect(searchReadingEmpty(false, true, 0)).toBe(false);
     });
 });
 

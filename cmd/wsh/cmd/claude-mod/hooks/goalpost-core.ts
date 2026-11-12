@@ -915,7 +915,10 @@ const NARROWING: ReadonlyArray<readonly [string, RegExp]> = [
 const SNAPSHOT_UPDATE =
     /\b(?:jest|vitest|playwright\s+test|(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?test)\b[^;&|]*\s(?:-u|--updateSnapshot|--update-snapshots|--update)\b|--snapshot-update\b|--snapshot-update\b|\binsta\s+accept\b|\bINSTA_UPDATE=always\b|UPDATE_SNAPSHOTS?=(?:1|true)/;
 
-const GUARDED_FOR_SHELL = (path: string, testPattern?: RegExp): GoalpostCategory | null => {
+// the path patterns are written with "/", and on Windows a shell (PowerShell above all) types "\"; the check reads
+// the slash form while the finding keeps the path as typed, as inspectChange does for a file change
+const GUARDED_FOR_SHELL = (typed: string, testPattern?: RegExp): GoalpostCategory | null => {
+    const path = typed.replaceAll("\\", "/");
     if (isTestFile(path, testPattern) || SNAPSHOT_FILE.test(path)) {
         return "tests";
     }
@@ -998,7 +1001,7 @@ export function inspectCommand(command: string, options: DetectOptions): Goalpos
         if (isDelete) {
             deleted.push(
                 ...(verb === "git" ? args.slice(1) : args).filter(
-                    (word) => isTestFile(word, options.testPattern) || SNAPSHOT_FILE.test(word)
+                    (word) => GUARDED_FOR_SHELL(word, options.testPattern) === "tests"
                 )
             );
         }

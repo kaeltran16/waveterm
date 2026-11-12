@@ -60,15 +60,20 @@ function taskAction(run: ActionRun, taskId: string, action: string, fn: () => Pr
 }
 
 export function dagAction(run: ActionRun, taskId: string, action: string, notes?: string): Promise<void> {
-    return taskAction(run, taskId, action, () =>
-        RpcApi.DagActionCommand(TabRpcClient, {
+    return taskAction(run, taskId, action, async () => {
+        await RpcApi.DagActionCommand(TabRpcClient, {
             channelid: run.channelId,
             runid: run.runId,
             taskid: taskId,
             action,
             ...(notes ? { notes } : {}),
-        })
-    );
+        });
+        // the guidance was this round's; left in the box, a later round's keyed Send back would send it again
+        if (action === "sendback") {
+            const key = reviewGuideKey(run.runId, taskId);
+            globalStore.set(reviewGuideAtom, ({ [key]: _, ...rest }) => rest);
+        }
+    });
 }
 
 // setRunParallelism is the Adjust panel's Save. SetRunSettings applies every dial it is sent, so the rest go as

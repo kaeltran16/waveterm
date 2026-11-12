@@ -661,12 +661,19 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
             run: runMutation,
             setError: setMutateError,
             closeInitiative: (lineId) => setOpenInitiative((cur) => (cur === lineId ? null : cur)),
-            chunkRenamed: (from, to) => {
+            rowRenamed: (from, to) => {
                 setStoredCursor((cur) => (cur === from ? to : cur));
                 setNoteChunk((cur) => (cur === from ? to : cur));
+                setStageOverrides((cur) => {
+                    if (!(from in cur)) {
+                        return cur;
+                    }
+                    const { [from]: open, ...rest } = cur;
+                    return { ...rest, [to]: open };
+                });
             },
         }),
-        [runMutation, setOpenInitiative, setStoredCursor, setNoteChunk]
+        [runMutation, setOpenInitiative, setStoredCursor, setNoteChunk, setStageOverrides]
     );
     const edits = useMemo<TrackerEdits | null>(() => {
         const oref = openEffortORef;

@@ -55,6 +55,7 @@ import {
     lineBox,
     livePicks,
     mainView,
+    nextCheckTakenTs,
     nextSentCheckAt,
     notAttached,
     noteParts,
@@ -568,6 +569,21 @@ describe("builderCheckView", () => {
         // the turn that takes them in started before its own write
         expect(builderCheckView(rec("answered"), null, ready, 1200, working, 1100)).toEqual(TAKING_IN);
         expect(builderCheckView(rec("answered"), null, ready, 900, working, 1500)).toEqual(TAKING_IN);
+    });
+
+    it("answered stays taken through a later turn that writes the file itself", () => {
+        // the taking-in turn wrote at 1200 and ended at 1300: the poller marks the record taken
+        const taken = nextCheckTakenTs(null, rec("answered"), 1200, { state: "idle", idleSince: 1300 }, 1100);
+        expect(taken).toBe(1000);
+        // a later turn started at 1500 and wrote at 1600
+        expect(nextCheckTakenTs(taken, rec("answered"), 1600, working, 1500)).toBe(1000);
+        expect(builderCheckView(rec("answered"), null, ready, 1600, working, 1500, taken)).toEqual({ kind: "none" });
+        // not yet taken, and a newer answered record is not covered by the old mark
+        expect(nextCheckTakenTs(null, rec("answered"), 1200, working, 1100)).toBeNull();
+        expect(nextCheckTakenTs(1000, rec("answered", { ts: 2000 }), 1200, working, 1100)).toBeNull();
+        expect(builderCheckView(rec("answered", { ts: 2000 }), null, ready, 2200, working, 2100, 1000)).toEqual(
+            TAKING_IN
+        );
     });
 
     it("failed shows its reason while the file has no check, and hides once it has one", () => {

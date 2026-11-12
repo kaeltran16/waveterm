@@ -9,6 +9,7 @@ import {
     blameIsCurrent,
     mapBlameLines,
     placeBlame,
+    stampBlameHead,
     type BlameEntry,
     type BlameState,
 } from "./codeblame";
@@ -116,6 +117,16 @@ describe("blameIsCurrent", () => {
         expect(blameIsCurrent(ready, "a.go", 10, "h2")).toBe(false);
         // HEAD not read yet: nothing to compare against
         expect(blameIsCurrent(ready, "a.go", 10, "")).toBe(true);
+    });
+
+    it("a blame stored before HEAD was known takes the first HEAD read, so a later move refetches", () => {
+        const early: BlameState = { ...ready, head: "" };
+        const stamped = stampBlameHead(early, "h1");
+        expect(stamped).toEqual({ ...ready, head: "h1" });
+        expect(blameIsCurrent(stamped!, "a.go", 10, "h2")).toBe(false);
+        expect(stampBlameHead(ready, "h2")).toBeNull();
+        expect(stampBlameHead(early, "")).toBeNull();
+        expect(stampBlameHead({ kind: "idle" }, "h1")).toBeNull();
     });
 
     it("fails while loading, after an error, or before any load", () => {

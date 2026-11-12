@@ -58,7 +58,7 @@ function fakeDeps() {
         run: vi.fn((fn: () => Promise<void>) => void fn()),
         setError: vi.fn(),
         closeInitiative: vi.fn(),
-        chunkRenamed: vi.fn(),
+        rowRenamed: vi.fn(),
     } satisfies MutationDeps;
     return deps;
 }
@@ -534,7 +534,15 @@ describe("renaming a chunk", () => {
         expect(deps.store.renameChunk).toHaveBeenCalledWith(OREF, plan, "b", " b2 ");
         await flush();
         const line = "initiatives:" + OREF;
-        expect(deps.chunkRenamed).toHaveBeenCalledWith(`${line}/chunk:b`, `${line}/chunk:b2`);
+        expect(deps.rowRenamed).toHaveBeenCalledWith(`${line}/chunk:b`, `${line}/chunk:b2`);
+    });
+
+    it("moves a stage row's cursor and fold to the renamed stage once the rename lands", async () => {
+        const deps = fakeDeps();
+        editsFor(deps).onRenameStage(1, " Beta ");
+        await flush();
+        const line = "initiatives:" + OREF;
+        expect(deps.rowRenamed).toHaveBeenCalledWith(`${line}/stage:1:B`, `${line}/stage:1:Beta`);
     });
 
     it("leaves the hold alone when the rename is refused", async () => {
@@ -543,6 +551,6 @@ describe("renaming a chunk", () => {
         deps.run = vi.fn((fn: () => Promise<void>) => void fn().catch(() => {}));
         editsFor(deps).onRenameChunk("b", "c");
         await flush();
-        expect(deps.chunkRenamed).not.toHaveBeenCalled();
+        expect(deps.rowRenamed).not.toHaveBeenCalled();
     });
 });

@@ -183,6 +183,12 @@ export function searchSummary(matches: Map<string, CardMatch>): string {
     return `${plural(matches.size, "session", "sessions")} · ${plural(hits, "match", "matches")}`;
 }
 
+// a pending search over an empty answer is still reading: the empty answer is the previous query's, so neither the
+// list ("No sessions match") nor the summary ("0 sessions") may speak for the new one
+export function searchReadingEmpty(searching: boolean, loading: boolean, shown: number): boolean {
+    return searching && loading && shown === 0;
+}
+
 // marks are sorted [start, end) UTF-16 offsets into text, as the RPC returns them
 export function snippetParts(text: string, marks: number[][]): { text: string; mark: boolean }[] {
     const out: { text: string; mark: boolean }[] = [];

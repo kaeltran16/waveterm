@@ -42,8 +42,9 @@ export type MutationDeps = {
     setError: (msg: string | null) => void;
     // collapses the Initiatives row with this line id if it is the open one
     closeInitiative: (lineId: string) => void;
-    // a chunk's row id is built from its label: a rename moves whatever the Brief held on the old id
-    chunkRenamed: (fromRowId: string, toRowId: string) => void;
+    // a chunk's or stage's row id is built from its name: a rename moves whatever the Brief held on the old id
+    // (the cursor, the open notes, a stage's fold)
+    rowRenamed: (fromRowId: string, toRowId: string) => void;
 };
 
 export const initiativeLineId = (oref: string) => "initiatives:" + oref;
@@ -167,7 +168,7 @@ export function trackerEdits(
             run(async () => {
                 await store.renameChunk(oref, chunks, label, next);
                 const line = initiativeLineId(oref);
-                deps.chunkRenamed(chunkRowId(line, label), chunkRowId(line, next.trim()));
+                deps.rowRenamed(chunkRowId(line, label), chunkRowId(line, next.trim()));
             }),
         canMove: (label, dir) => moveTarget(chunks, label, dir) != null,
         onMoveChunk: (label, dir) => {
@@ -192,7 +193,14 @@ export function trackerEdits(
             );
         },
         onDeleteChunk: (label) => scheduleRemove([label], `Deleted “${label}”`),
-        onRenameStage: (at, next) => run(() => store.setChunkStage(oref, stageRunLabels(chunks, at), next)),
+        onRenameStage: (at, next) =>
+            run(async () => {
+                const labels = stageRunLabels(chunks, at);
+                const prev = chunks.find((c) => c.label === labels[0])?.stage ?? "";
+                await store.setChunkStage(oref, labels, next);
+                const line = initiativeLineId(oref);
+                deps.rowRenamed(stageRowId(line, prev, at), stageRowId(line, next.trim(), at));
+            }),
         onDeleteStage: (at) => {
             const labels = stageRunLabels(chunks, at);
             const name = chunks.find((c) => c.label === labels[0])?.stage || "unstaged";
