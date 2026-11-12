@@ -225,14 +225,16 @@ func registerConn(wsConnId string, stableId string, wproxy *wshutil.WshRpcProxy)
 	GlobalLock.Lock()
 	defer GlobalLock.Unlock()
 	curConnInfo := RouteToConnMap[stableId]
+	// registered before the old link goes, so the requests the old link had not answered can move to it; nothing
+	// reaches the new link before its read loop starts, after this returns
+	linkId := wshutil.DefaultRouter.RegisterTrustedRouter(wproxy)
 	if curConnInfo != nil {
 		log.Printf("[websocket] warning: replacing existing connection for stableid %q\n", stableId)
 		if curConnInfo.LinkId != baseds.NoLinkId {
 			// cancels the old link's in-flight requests too, or its streaming RPCs leak until their timeout
-			wshutil.DefaultRouter.UnregisterLink(curConnInfo.LinkId)
+			wshutil.DefaultRouter.ReplaceLink(curConnInfo.LinkId, linkId)
 		}
 	}
-	linkId := wshutil.DefaultRouter.RegisterTrustedRouter(wproxy)
 	RouteToConnMap[stableId] = &StableConnInfo{
 		ConnId: wsConnId,
 		LinkId: linkId,

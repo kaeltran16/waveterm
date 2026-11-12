@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"os"
 	"path"
@@ -570,6 +571,35 @@ func laneMergeCommits(ctx context.Context, run *waveobj.Run) map[string]bool {
 	return shas
 }
 
+// treeChanges diffs the tree the run worked in against its base. Once the land has removed a landing tree, a
+// diff of the missing dir reads as an empty non-repo, so it reads the land's merge when that is provably the
+// run's work, and otherwise errors to leave the run unsealed.
+func treeChanges(ctx context.Context, run *waveobj.Run) (*gitinfo.Changes, error) {
+	if run.LandPath == "" {
+		return gitinfo.GetChanges(ctx, run.ProjectPath, run.BaseCommit)
+	}
+	if _, err := os.Stat(run.LandPath); !errors.Is(err, fs.ErrNotExist) {
+		return gitinfo.GetChanges(ctx, run.LandPath, run.BaseCommit)
+	}
+	if run.EndCommit != "" {
+		return nil, fmt.Errorf("the landing tree %s is gone and the reported commit %s does not resolve", run.LandPath, run.EndCommit)
+	}
+	if run.Land == nil || run.Land.Commit == "" {
+		return nil, fmt.Errorf("the landing tree %s is gone and the run has no land commit", run.LandPath)
+	}
+	// the engine's land merges wave/<runId> --no-ff, so its merge's second parent is the branch's tip; a
+	// fast-forward or a by-hand merge does not have that shape, and its first-parent diff is not the run's work
+	second, err := gitinfo.ResolveCommit(ctx, run.ProjectPath, run.Land.Commit+"^2")
+	if err != nil {
+		return nil, fmt.Errorf("the landing tree %s is gone and the land commit %s is not a merge", run.LandPath, run.Land.Commit)
+	}
+	tip, err := gitinfo.ResolveCommit(ctx, run.ProjectPath, "refs/heads/wave/"+run.ID)
+	if err != nil || tip != second {
+		return nil, fmt.Errorf("the landing tree %s is gone and the land commit %s is not provably a merge of wave/%s's tip", run.LandPath, run.Land.Commit, run.ID)
+	}
+	return gitinfo.GetRangeChanges(ctx, run.ProjectPath, run.Land.Commit+"^1", run.Land.Commit)
+}
+
 // SealEvidence derives and freezes a run's evidence snapshot. Idempotent: a run that already has
 // Evidence is left untouched (immutability). Locates transcripts from phase WorkerOrefs and git data
 // from ProjectPath and LandPath — everything it needs is on the run. A transcript I/O failure degrades that section
@@ -635,10 +665,10 @@ func SealEvidence(ctx context.Context, run *waveobj.Run) error {
 			}
 		}
 		if ch, gerr = rangeChanges(ctx, run.ProjectPath, run.BaseCommit, run.EndCommit); gerr != nil {
-			ch, gerr = gitinfo.GetChanges(ctx, LandPath(run), run.BaseCommit) // reported SHA unresolvable
+			ch, gerr = treeChanges(ctx, run) // reported SHA unresolvable
 		}
 	} else {
-		ch, gerr = gitinfo.GetChanges(ctx, LandPath(run), run.BaseCommit)
+		ch, gerr = treeChanges(ctx, run)
 	}
 	if gerr != nil {
 		return fmt.Errorf("evidence: computing git changes: %w", gerr)
