@@ -141,7 +141,7 @@ var (
 
 // planNearTaskHeadingRe matches a heading meant as a task that planTaskHeadingRe misses, which would
 // otherwise fold into the task before it.
-var planNearTaskHeadingRe = regexp.MustCompile(`(?i)^\s*#{2,}\s*Task\s*\d+`)
+var planNearTaskHeadingRe = regexp.MustCompile(`(?i)^\s*#+\s*Task\s*\d+`)
 
 func planTaskID(n int) string {
 	return "t-" + strconv.Itoa(n)
@@ -209,6 +209,10 @@ func fenceRun(s string) int {
 		n++
 	}
 	return n
+}
+
+func dependsPlacementError(task int) error {
+	return fmt.Errorf("task %d: **Depends on:** must be the first line under its heading, once, before its Chunk, Model and Files lines", task)
 }
 
 // ParsePlan reads a plan in PlanFormat. Lines inside code fences are task text only, so a plan that
@@ -282,7 +286,7 @@ func ParsePlan(src string) (Plan, error) {
 			task := &p.Tasks[len(p.Tasks)-1]
 			if m := planDependsRe.FindStringSubmatch(line); m != nil {
 				if !dependsAllowed {
-					return Plan{}, fmt.Errorf("task %d: **Depends on:** must be the first line under its heading, once, before its Chunk, Model and Files lines", len(p.Tasks))
+					return Plan{}, dependsPlacementError(len(p.Tasks))
 				}
 				deps, unexplained, err := parsePlanDepends(m[1], len(p.Tasks))
 				if err != nil {
@@ -325,6 +329,10 @@ func ParsePlan(src string) (Plan, error) {
 				continue
 			}
 			inTaskHead = false
+		}
+		// past the task's head a Depends line would be neither applied nor refused
+		if planDependsRe.MatchString(line) {
+			return Plan{}, dependsPlacementError(len(p.Tasks))
 		}
 		body = append(body, line)
 	}

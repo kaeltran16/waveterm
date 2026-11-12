@@ -207,6 +207,22 @@ func TestParsePlanFenceShapes(t *testing.T) {
 	}
 }
 
+// engine F4: a Depends line after prose is neither applied nor refused, so the task keeps its default edge
+func TestParsePlanRefusesDependsAfterProse(t *testing.T) {
+	src := "### Task 1: a\n**Depends on:** none\n\n### Task 2: b\n**Depends on:** none\n\n### Task 3: c\nUses the parser.\n**Depends on:** Task 1 (uses the parser it adds)\n"
+	if _, err := ParsePlan(src); err == nil || !strings.Contains(err.Error(), "must be the first line under its heading") {
+		t.Fatalf("want the Depends placement error, got %v", err)
+	}
+}
+
+// engine F5: a task heading written with one # folds into the task before it
+func TestParsePlanRefusesASingleHashTaskHeading(t *testing.T) {
+	src := "### Task 1: a\ndo a\n\n# Task 2: b\n**Depends on:** none\ndo b\n"
+	if _, err := ParsePlan(src); err == nil || !strings.Contains(err.Error(), "is not a task heading") {
+		t.Fatalf("want the near-miss heading error, got %v", err)
+	}
+}
+
 func TestParsePlanRefusesAnUnclosedFence(t *testing.T) {
 	src := "### Task 1: a\n```bash\ngo test\n\n### Task 2: b\n"
 	if _, err := ParsePlan(src); err == nil || !strings.Contains(err.Error(), "never closed") {
