@@ -194,3 +194,49 @@ func TestRoutingEntryEndsWithItsRequestTimeout(t *testing.T) {
 		t.Fatal("a request with no timeout lost its routing entry")
 	}
 }
+
+// f7 F1: a websocket reconnecting under the same stableId replaces its link. A request the old link had not
+// answered moves to the new link: an answer the frontend sends there reaches the caller instead of a "went
+// away" error, and the moved entry goes with the new link if that one goes away in turn.
+func TestReplaceLinkMovesUnansweredRequestsToTheNewLink(t *testing.T) {
+	router := NewWshRouter()
+	oldLeaf := newGatedClient(t)
+	oldLeaf.setBudget(-1)
+	oldLink, err := router.RegisterTrustedLeaf(oldLeaf, DefaultRoute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	caller := newGatedClient(t)
+	caller.setBudget(-1)
+	callerLink := router.RegisterTrustedRouter(caller)
+	for _, reqId := range []string{"r1", "r2"} {
+		cmd, _ := json.Marshal(RpcMessage{Command: "test", ReqId: reqId, Route: DefaultRoute})
+		router.inputCh <- baseds.RpcInputChType{MsgBytes: cmd, IngressLinkId: callerLink}
+		waitUntil(t, reqId+"'s routing entry", func() bool { return hasRouteInfo(router, reqId) })
+	}
+	newLeaf := newGatedClient(t)
+	newLeaf.setBudget(-1)
+	newLink := router.RegisterTrustedRouter(newLeaf)
+
+	router.ReplaceLink(oldLink, newLink)
+	resp, _ := json.Marshal(RpcMessage{ResId: "r1", Data: "answer"})
+	router.inputCh <- baseds.RpcInputChType{MsgBytes: resp, IngressLinkId: newLink}
+	router.UnregisterLink(newLink)
+
+	replies := map[string]RpcMessage{}
+	waitUntil(t, "replies for r1 and r2 at the caller", func() bool {
+		for _, raw := range caller.received() {
+			var msg RpcMessage
+			if json.Unmarshal([]byte(raw), &msg) == nil && msg.ResId != "" {
+				replies[msg.ResId] = msg
+			}
+		}
+		return len(replies) == 2
+	})
+	if replies["r1"].Error != "" {
+		t.Errorf("r1 got %q, want the answer the new link sent", replies["r1"].Error)
+	}
+	if replies["r2"].Error == "" {
+		t.Errorf("r2 got %+v, want an error once the link it moved to went away", replies["r2"])
+	}
+}

@@ -700,7 +700,19 @@ func (router *WshRouter) getRoutesForLink(linkId baseds.LinkId) []string {
 	return routes
 }
 
+// ReplaceLink unregisters oldLinkId for newLinkId, the same peer reconnected. The requests the old link had not
+// answered move to the new link instead of failing, since the peer can still answer them there; their own
+// timeout still drops them if it does not.
+func (router *WshRouter) ReplaceLink(oldLinkId, newLinkId baseds.LinkId) {
+	router.unregisterLink(oldLinkId, newLinkId)
+}
+
 func (router *WshRouter) UnregisterLink(linkId baseds.LinkId) {
+	router.unregisterLink(linkId, baseds.NoLinkId)
+}
+
+// unregisterLink moves the requests linkId was handling to successorLinkId, or fails them when it is NoLinkId.
+func (router *WshRouter) unregisterLink(linkId baseds.LinkId, successorLinkId baseds.LinkId) {
 	routes := router.getRoutesForLink(linkId)
 	for _, routeId := range routes {
 		router.unbindRoute(linkId, routeId)
@@ -716,6 +728,9 @@ func (router *WshRouter) UnregisterLink(linkId baseds.LinkId) {
 		case ri.sourceLinkId == linkId:
 			orphaned = append(orphaned, ri)
 			delete(router.rpcMap, rpcId)
+		case ri.destLinkId == linkId && linkId != baseds.NoLinkId && successorLinkId != baseds.NoLinkId:
+			ri.destLinkId = successorLinkId
+			router.rpcMap[rpcId] = ri
 		case ri.destLinkId == linkId && linkId != baseds.NoLinkId:
 			unanswered = append(unanswered, ri)
 		}
