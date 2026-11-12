@@ -1,6 +1,7 @@
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { projectListAtom, type ProjectRow } from "@/app/view/agents/projectsstore";
+import { openBoardAsk } from "@/app/view/jarvis/openref";
 import { createStore } from "jotai";
 import { describe, expect, it, vi } from "vitest";
 import { paletteEffortsAtom } from "../palette-entities";
@@ -11,6 +12,9 @@ vi.mock("@/app/view/agents/projectsstore", async (orig) => {
     const { atom } = await import("jotai");
     return { ...(await orig<object>()), projectListAtom: atom<ProjectRow[]>([]) };
 });
+
+// the action's target is what it hands the router
+vi.mock("@/app/view/jarvis/openref", async (orig) => ({ ...(await orig<object>()), openBoardAsk: vi.fn() }));
 
 const eff = (over: Partial<EffortSummary> = {}): EffortSummary => ({
     oref: "effort:e1",
@@ -59,20 +63,25 @@ function withCurrentProject(fn: () => void) {
     }
 }
 
-describe("initiative Draw on a board…", () => {
-    const draw = action("effort:draw-board");
-    it("draws the initiative by its oid in the current project, never followed", () => {
+describe("initiative Ask a board about this…", () => {
+    const ask = action("effort:ask-board");
+    const target = (t: any) => {
+        vi.mocked(openBoardAsk).mockClear();
+        void ask.run(t, { model });
+        const [, channelId, about] = vi.mocked(openBoardAsk).mock.calls[0] ?? [];
+        return channelId == null ? null : { channelId, about };
+    };
+    it("asks about the initiative by its oid in the current project", () => {
         withCurrentProject(() => {
-            expect(draw.applies(eff())).toBe(true);
-            const target = draw.input?.kind === "board" ? draw.input.target(eff()) : null;
-            expect(target).toEqual({
+            expect(ask.label).toBe("Ask a board about this…");
+            expect(ask.applies(eff())).toBe(true);
+            expect(target(eff())).toEqual({
                 channelId: "ch1",
-                source: { kind: "effort", ref: "e1", title: "the big one" },
-                followable: false,
+                about: { kind: "effort", ref: "e1", title: "the big one" },
             });
         });
     });
     it("does not apply with no current project", () => {
-        expect(draw.applies(eff())).toBe(false);
+        expect(ask.applies(eff())).toBe(false);
     });
 });

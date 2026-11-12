@@ -9,7 +9,6 @@
 // This is the ONE palette: a new findable kind is a new entry source here, never a second overlay or a
 // second shortcut. The rules live in the pure palette-*.ts modules; this file wires sources to them.
 
-import { StepSwap } from "@/app/element/stepswap";
 import { ModalShell } from "@/app/modals/modalshell";
 import { globalStore } from "@/app/store/jotaiStore";
 import { bindingsAtom } from "@/app/store/keybindings/store";
@@ -25,26 +24,18 @@ import { fireAndForget } from "@/util/util";
 import { atom, useAtomValue } from "jotai";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { THING_KINDS } from "./actions";
-import { listBoards, listedBoards } from "./actions/boarddraw";
 import { SESSION_KIND } from "./actions/session";
 import { verbRows } from "./actions/types";
 import { errorText, runPaletteAction } from "./palette-action";
 import {
     actionDrillGroups,
     bareLabel,
-    boardDrillAt,
     runThingAction,
     verbItems,
     type ActionTarget,
     type StartAction,
 } from "./palette-actionrows";
-import {
-    PaletteBoardStep,
-    PaletteErrorBand,
-    PaletteFooter,
-    PaletteScopeTabs,
-    PaletteSearchBar,
-} from "./palette-chrome";
+import { PaletteErrorBand, PaletteFooter, PaletteScopeTabs, PaletteSearchBar } from "./palette-chrome";
 import { allRunsAtom, loadAllRuns, palettePickChannel } from "./palette-data";
 import { loadPaletteEntities, paletteEffortsAtom } from "./palette-entities";
 import { fileScopeGroups } from "./palette-files";
@@ -86,12 +77,9 @@ import {
     leaveInput,
     openActionInput,
     openActions,
-    openBoardInput,
     pickScope,
     placeholderFor,
-    toggleBoardFollow,
     typeQuery,
-    type BoardStep,
     type NavState,
 } from "./palette-scope";
 import { scopeGroups } from "./palette-scopegroups";
@@ -102,8 +90,6 @@ import { usePaletteSessions } from "./use-palette-sessions";
 
 // how much of the preview's height PageUp/PageDown move it, so a line or two carries over
 const PREVIEW_PAGE = 0.85;
-// the board drill's steps in order, so a step change slides forward or back
-const BOARD_STEP_ORDER: Record<BoardStep, number> = { board: 0, name: 1, ask: 2 };
 
 export function CommandPalette({ model }: { model: AgentsViewModel }) {
     const open = useAtomValue(model.paletteOpenAtom);
@@ -292,54 +278,9 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
             return;
         }
         const inList = nav.actions?.thing.key === t.entry.key ? nav : openActions(nav, drillThing(t), selClamped);
-        setNav(
-            action.input.kind === "board"
-                ? openBoardInput(inList, action.id, bareLabel(action))
-                : openActionInput(inList, { actionId: action.id, label: bareLabel(action) })
-        );
+        setNav(openActionInput(inList, { actionId: action.id, label: bareLabel(action) }));
     };
     const verbs = verbItems(allVerbs, nav.query, thingMeta, startAction);
-
-    // --- Board drill ------------------------------------------------------------------------------
-    const boardAt = boardDrillAt(nav, targetByKey);
-    const board = boardAt != null ? nav.actions!.input!.board! : null;
-    const boardChannelId = boardAt?.target.channelId;
-    const atBoardStep = board?.step === "board";
-    const [boardList, setBoardList] = useState<{ channelId: string; data: BoardListRtnData } | null>(null);
-    // re-read each time the drill comes back to its first step, so a board made since is listed
-    useEffect(() => {
-        if (!open || !atBoardStep || boardChannelId == null) {
-            return;
-        }
-        let live = true;
-        listBoards(boardChannelId).then(
-            (data) => {
-                if (live) {
-                    setBoardList({ channelId: boardChannelId, data });
-                }
-            },
-            (e) => {
-                if (live) {
-                    setPaletteError(`Couldn’t list the boards: ${errorText(String(e))}`);
-                }
-            }
-        );
-        return () => {
-            live = false;
-        };
-    }, [open, atBoardStep, boardChannelId]);
-    const listed = listedBoards(boardList, boardChannelId);
-    const boardProject = channels?.find((c) => c.oid === boardChannelId)?.name ?? listed?.project ?? "";
-    const boardData = { project: boardProject, boards: listed == null ? null : (listed.boards ?? []) };
-    // which way a step change slides: noted on the render the step changes, so an exit keeps its direction
-    const boardStepRef = useRef<{ step: BoardStep | null; dir: number }>({ step: null, dir: 1 });
-    const boardStep = board?.step ?? null;
-    if (boardStep !== boardStepRef.current.step) {
-        const prev = boardStepRef.current.step;
-        const back = prev != null && boardStep != null && BOARD_STEP_ORDER[boardStep] < BOARD_STEP_ORDER[prev];
-        boardStepRef.current = { step: boardStep, dir: back ? -1 : 1 };
-    }
-    const toggleFollow = () => setNavState(toggleBoardFollow(nav));
 
     // --- Groups -----------------------------------------------------------------------------------
     const { groups, cap, fileHighlight } = scopeGroups(
@@ -368,7 +309,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
             needsGrouped,
             verbByKey: verbs.byKey,
             launch,
-            actionGroups: () => actionDrillGroups(nav, targetByKey, startAction, deps, boardData),
+            actionGroups: () => actionDrillGroups(nav, targetByKey, startAction, deps),
             fileGroups: () => fileScopeGroups({ query: nav.query, surface, ...files }, deps),
         },
         deps
@@ -511,12 +452,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
             }
         } else if (e.key === "Tab") {
             e.preventDefault();
-            // at the ask step of an agent's board drill Tab is the Keep following tick; everywhere else, scopes
-            if (board?.step === "ask" && boardAt?.target.followable) {
-                toggleFollow();
-            } else {
-                setNav(cycleScope(nav, e.shiftKey ? -1 : 1));
-            }
+            setNav(cycleScope(nav, e.shiftKey ? -1 : 1));
         } else if (e.key === "ArrowRight") {
             // mid-query, → moves the caret as it always has
             const caret = inputRef.current?.selectionStart ?? null;
@@ -623,21 +559,7 @@ export function CommandPalette({ model }: { model: AgentsViewModel }) {
                             aria-label="Results"
                             className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2 pt-1"
                         >
-                            {board != null && boardAt != null ? (
-                                // the board drill's steps slide forward and back (moment 10)
-                                <StepSwap stepKey={board.step} dir={boardStepRef.current.dir}>
-                                    {shown.map(groupView)}
-                                    <PaletteBoardStep
-                                        board={board}
-                                        project={boardProject}
-                                        target={boardAt.target}
-                                        onToggleFollow={() => {
-                                            toggleFollow();
-                                            inputRef.current?.focus();
-                                        }}
-                                    />
-                                </StepSwap>
-                            ) : capped.length === 0 ? (
+                            {capped.length === 0 ? (
                                 <div className="px-4 py-8 text-center text-[13px] text-muted">
                                     {q === ""
                                         ? "Nothing here yet."

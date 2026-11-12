@@ -85,21 +85,9 @@ export interface ActionDrillThing {
     noun: string; // "Run", "Agent", … — the drill chip reads `<noun> › <title>`
 }
 
-// Draw on a board…'s steps: pick a board (or New board…), name a new one, then the optional ask
-export type BoardStep = "board" | "name" | "ask";
-
-export interface BoardDrill {
-    step: BoardStep;
-    boardId?: string;
-    boardName?: string;
-    follow: boolean; // Keep following, ticked at the ask step
-    tried?: number; // empty Enters at the name step; each one nudges "Type a name first" again
-}
-
 export interface ActionInputLevel {
     actionId: string;
     label: string;
-    board?: BoardDrill; // a board action's drill
 }
 
 export interface ActionDrill {
@@ -159,9 +147,7 @@ export function typeQuery(s: NavState, value: string): NavState {
             }
         }
     }
-    // typing a name answers "Type a name first"
-    const typed = s.actions?.input?.board?.tried != null ? withBoard(s, { tried: undefined }) : s;
-    return { ...typed, query: value, asGoal: false };
+    return { ...s, query: value, asGoal: false };
 }
 
 // ": narrows to Runs" after a lone "r" in All; the caller decides when to render it
@@ -170,17 +156,7 @@ export function ghostHint(query: string): string | null {
     return def ? `: narrows to ${def.label}` : null;
 }
 
-const BOARD_PLACEHOLDERS: Record<BoardStep, string> = {
-    board: "Pick a board, or type to filter",
-    name: "Name the new board",
-    ask: "What to draw (optional): the escalation flow, the data model…",
-};
-
 export function placeholderFor(nav: NavState): string {
-    const board = nav.actions?.input?.board;
-    if (board != null) {
-        return BOARD_PLACEHOLDERS[board.step];
-    }
     if (nav.actions != null) {
         return nav.actions.input ? `${nav.actions.input.label}…` : `Filter ${nav.actions.thing.noun} actions…`;
     }
@@ -255,49 +231,13 @@ export function openActionInput(s: NavState, input: ActionInputLevel): NavState 
     return { ...s, query: "", actions: { ...s.actions, input } };
 }
 
-export function openBoardInput(s: NavState, actionId: string, label: string): NavState {
-    return openActionInput(s, { actionId, label, board: { step: "board", follow: false } });
-}
-
-// back one step inside an action's input: a board's ask or name step returns to its list (a board made at the
-// name step is in that list now, so back never makes a second one), any other input to the action list
+// back one step inside an action's input returns to the action list
 export function leaveInput(s: NavState): NavState {
     const input = s.actions?.input;
     if (input == null) {
         return s;
     }
-    if (input.board != null && input.board.step !== "board") {
-        const board: BoardDrill = { step: "board", follow: input.board.follow };
-        return { ...s, query: "", actions: { ...s.actions!, input: { ...input, board } } };
-    }
     return { ...s, query: "", actions: { ...s.actions!, input: null } };
-}
-
-function withBoard(s: NavState, change: Partial<BoardDrill>, query?: string): NavState {
-    const input = s.actions?.input;
-    if (input?.board == null) {
-        return s;
-    }
-    const board = { ...input.board, ...change };
-    return { ...s, query: query ?? s.query, actions: { ...s.actions!, input: { ...input, board } } };
-}
-
-export function boardPick(s: NavState, b: { id: string; name: string }): NavState {
-    return withBoard(s, { step: "ask", boardId: b.id, boardName: b.name, tried: undefined }, "");
-}
-
-// New board…: the name step, the field holding the name typed at the board step
-export function boardNew(s: NavState, name: string): NavState {
-    return withBoard(s, { step: "name", tried: undefined }, name);
-}
-
-export function boardTried(s: NavState): NavState {
-    return withBoard(s, { tried: (s.actions?.input?.board?.tried ?? 0) + 1 });
-}
-
-export function toggleBoardFollow(s: NavState): NavState {
-    const board = s.actions?.input?.board;
-    return board?.step === "ask" ? withBoard(s, { follow: !board.follow }) : s;
 }
 
 // null: not in an action drill

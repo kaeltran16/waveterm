@@ -8,9 +8,9 @@ import type { Lineage, RunInfo } from "@/app/view/agents/runlineage";
 import { atom, createStore } from "jotai";
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("@/app/view/jarvis/openref", () => ({ openTarget: vi.fn() }));
+vi.mock("@/app/view/jarvis/openref", () => ({ openTarget: vi.fn(), openBoardAsk: vi.fn() }));
 
-import { openTarget } from "@/app/view/jarvis/openref";
+import { openBoardAsk, openTarget } from "@/app/view/jarvis/openref";
 import { allRunsAtom } from "../palette-data";
 import { buildRunThing, RUN_KIND, type RunThing } from "./run";
 
@@ -318,19 +318,22 @@ describe("run actions", () => {
     });
 });
 
-describe("run Draw on a board…", () => {
-    const draw = RUN_KIND.actions.find((a) => a.id === "run:draw-board")!;
+describe("run Ask a board about this…", () => {
+    const ask = RUN_KIND.actions.find((a) => a.id === "run:ask-board")!;
     it("is listed under Open for any run", () => {
-        expect(draw.label).toBe("Draw on a board…");
-        expect(draw.group).toBe("open");
-        expect(applies("run:draw-board", thing(run({ status: "done" }), []))).toBe(true);
+        expect(ask.label).toBe("Ask a board about this…");
+        expect(ask.group).toBe("open");
+        expect(applies("run:ask-board", thing(run({ status: "done" }), []))).toBe(true);
     });
-    it("draws in the run's own project, titled by its id's first 8, never followed", () => {
+    it("asks in the run's own project, titled by its id's first 8", () => {
         const t = thing(run({ id: "690cc20a-1234-5678" }));
-        expect(draw.input?.kind === "board" ? draw.input.target(t) : null).toEqual({
-            channelId: "c1",
-            source: { kind: "run", ref: "690cc20a-1234-5678", channelid: "c1", title: "run 690cc20a" },
-            followable: false,
+        const model = {} as AgentsViewModel;
+        void ask.run(t, { model });
+        expect(openBoardAsk).toHaveBeenCalledWith(model, "c1", {
+            kind: "run",
+            ref: "690cc20a-1234-5678",
+            channelid: "c1",
+            title: "run 690cc20a",
         });
     });
 });

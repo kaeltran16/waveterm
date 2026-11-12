@@ -1,6 +1,7 @@
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { projectListAtom, type ProjectRow } from "@/app/view/agents/projectsstore";
+import { openBoardAsk } from "@/app/view/jarvis/openref";
 import { taskListAtom } from "@/app/view/jarvis/tasksstore";
 import { createStore } from "jotai";
 import { describe, expect, it, vi } from "vitest";
@@ -11,6 +12,9 @@ vi.mock("@/app/view/agents/projectsstore", async (orig) => {
     const { atom } = await import("jotai");
     return { ...(await orig<object>()), projectListAtom: atom<ProjectRow[]>([]) };
 });
+
+// the action's target is what it hands the router
+vi.mock("@/app/view/jarvis/openref", async (orig) => ({ ...(await orig<object>()), openBoardAsk: vi.fn() }));
 
 const rec = (over: Partial<SpaceSummary> = {}): SpaceSummary => ({
     id: "d1",
@@ -64,19 +68,24 @@ function withCurrentProject(fn: () => void) {
     }
 }
 
-describe("record Draw on a board…", () => {
-    const draw = action("record:draw-board");
-    it("draws the record by its dossier id in the current project, never followed", () => {
+describe("record Ask a board about this…", () => {
+    const ask = action("record:ask-board");
+    const target = (t: any) => {
+        vi.mocked(openBoardAsk).mockClear();
+        void ask.run(t, { model });
+        const [, channelId, about] = vi.mocked(openBoardAsk).mock.calls[0] ?? [];
+        return channelId == null ? null : { channelId, about };
+    };
+    it("asks about the record by its dossier id in the current project", () => {
         withCurrentProject(() => {
-            const target = draw.input?.kind === "board" ? draw.input.target(rec()) : null;
-            expect(target).toEqual({
+            expect(ask.label).toBe("Ask a board about this…");
+            expect(target(rec())).toEqual({
                 channelId: "ch1",
-                source: { kind: "record", ref: "d1", title: "ship it" },
-                followable: false,
+                about: { kind: "record", ref: "d1", title: "ship it" },
             });
         });
     });
     it("does not apply with no current project", () => {
-        expect(draw.applies(rec())).toBe(false);
+        expect(ask.applies(rec())).toBe(false);
     });
 });

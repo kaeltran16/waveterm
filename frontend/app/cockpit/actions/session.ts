@@ -6,7 +6,7 @@ import { runSessionPrimary } from "@/app/view/agents/sessionsdetail";
 import { openSessionHit } from "@/app/view/agents/sessionsfind";
 import { sessionPrimary, sessionSelection } from "@/app/view/agents/sessionsruns";
 import { landOn } from "@/app/view/jarvis/returnsurface";
-import { boardChannelFor, drawOnBoardAction } from "./boarddraw";
+import { askBoardAction, boardChannelFor } from "./boardask";
 import type { ThingKindDef } from "./types";
 
 // the session as the Sessions surface builds it, with the roster agent a live one is running in
@@ -47,21 +47,20 @@ export const SESSION_KIND: ThingKindDef<SessionThing> = {
                 landOn(model.surfaceAtom, "sessions");
             },
         },
-        drawOnBoardAction<SessionThing>("session", ({ session: s }) => {
+        askBoardAction<SessionThing>("session", ({ session: s }) => {
             const channelId = s.transcriptpath ? boardChannelFor(s.projectpath, s.projectname) : null;
             if (channelId == null) {
                 return null;
             }
             return {
                 channelId,
-                source: {
+                about: {
                     kind: "session",
                     ref: `${s.runtime}:${s.id}`,
                     path: s.transcriptpath,
                     runtime: s.runtime,
                     title: s.task || "(untitled session)",
                 },
-                followable: false,
             };
         }),
         {

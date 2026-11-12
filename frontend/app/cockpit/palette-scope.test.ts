@@ -4,9 +4,6 @@
 import { describe, expect, it } from "vitest";
 import {
     backspaceEmpty,
-    boardNew,
-    boardPick,
-    boardTried,
     caretAtEnd,
     cycleScope,
     ghostHint,
@@ -15,14 +12,12 @@ import {
     leaveInput,
     openActionInput,
     openActions,
-    openBoardInput,
     openDrill,
     parsePrefix,
     parseProjectLaunch,
     placeholderFor,
     resolveChannelToken,
     SCOPES,
-    toggleBoardFollow,
     typeQuery,
     type NavState,
 } from "./palette-scope";
@@ -241,64 +236,24 @@ describe("action drill", () => {
     });
 });
 
-describe("board drill", () => {
+describe("action input level", () => {
     const base = { ...initialNav("cockpit"), scope: "agents" as const, query: "claude" };
     const thing = { key: "agent:tab1", title: "claude · waveterm", noun: "Agent" };
-    const atBoard = openBoardInput(openActions(base, thing, 2), "agent:draw-board", "Draw on a board");
-    const board = (s: NavState) => s.actions?.input?.board;
+    const atInput = openActionInput(openActions(base, thing, 2), { actionId: "agent:nudge", label: "Nudge" });
 
-    it("opens at the board step, unfollowed, with an empty field", () => {
-        expect(board(atBoard)).toEqual({ step: "board", follow: false });
-        expect(atBoard.actions?.input?.actionId).toBe("agent:draw-board");
-        expect(atBoard.query).toBe("");
+    it("opens with an empty field and no board level", () => {
+        expect(atInput.actions?.input).toEqual({ actionId: "agent:nudge", label: "Nudge" });
+        expect(atInput.query).toBe("");
     });
-    it("picking a board goes to the ask step with that board, clearing the filter", () => {
-        const ask = boardPick({ ...atBoard, query: "brain" }, { id: "0a1b2c3d", name: "Brainstorm internals" });
-        expect(board(ask)).toEqual({
-            step: "ask",
-            boardId: "0a1b2c3d",
-            boardName: "Brainstorm internals",
-            follow: false,
-        });
-        expect(ask.query).toBe("");
+    it("backs out to the action list, on Backspace in an empty field or on leaving", () => {
+        expect(backspaceEmpty(atInput)!.actions).toMatchObject({ thing, input: null });
+        expect(leaveInput(atInput).actions?.input).toBeNull();
     });
-    it("New board… goes to the name step carrying the typed name, and a created board to ask", () => {
-        const name = boardNew({ ...atBoard, query: "Escalation" }, "Escalation");
-        expect(board(name)?.step).toBe("name");
-        expect(name.query).toBe("Escalation");
-        const ask = boardPick(name, { id: "11111111", name: "Escalation" });
-        expect(board(ask)).toMatchObject({ step: "ask", boardId: "11111111", boardName: "Escalation" });
-        expect(ask.query).toBe("");
+    it("text in the field does not step back", () => {
+        expect(backspaceEmpty({ ...atInput, query: "x" })).toBeNull();
     });
-    it("an empty name counts each try, and typing clears it", () => {
-        const name = boardNew(atBoard, "");
-        const tried = boardTried(boardTried(name));
-        expect(board(tried)?.tried).toBe(2);
-        expect(board(typeQuery(tried, "E"))?.tried).toBeUndefined();
-    });
-    it("the follow toggles only at the ask step", () => {
-        expect(board(toggleBoardFollow(atBoard))?.follow).toBe(false);
-        const ask = boardPick(atBoard, { id: "0a1b2c3d", name: "B" });
-        expect(board(toggleBoardFollow(ask))?.follow).toBe(true);
-        expect(board(toggleBoardFollow(toggleBoardFollow(ask)))?.follow).toBe(false);
-    });
-    it("back steps one at a time: ask and name to the board list, the list to the action list", () => {
-        const ask = boardPick(atBoard, { id: "0a1b2c3d", name: "B" });
-        expect(board(backspaceEmpty(ask)!)).toEqual({ step: "board", follow: false });
-        expect(board(leaveInput(ask))).toEqual({ step: "board", follow: false });
-        const name = boardNew(atBoard, "");
-        expect(board(backspaceEmpty(name)!)?.step).toBe("board");
-        expect(backspaceEmpty(atBoard)!.actions).toMatchObject({ thing, input: null });
-        expect(leaveInput(atBoard).actions?.input).toBeNull();
-    });
-    it("a step with text in the field does not step back", () => {
-        expect(backspaceEmpty({ ...boardPick(atBoard, { id: "0a1b2c3d", name: "B" }), query: "x" })).toBeNull();
-    });
-    it("each step says what the field takes", () => {
-        expect(placeholderFor(atBoard)).toBe("Pick a board, or type to filter");
-        expect(placeholderFor(boardNew(atBoard, ""))).toBe("Name the new board");
-        expect(placeholderFor(boardPick(atBoard, { id: "0a1b2c3d", name: "B" }))).toBe(
-            "What to draw (optional): the escalation flow, the data model…"
-        );
+    it("the field says what the action takes", () => {
+        expect(placeholderFor(atInput)).toBe("Nudge…");
+        expect(placeholderFor(openActions(base, thing, 2))).toBe("Filter Agent actions…");
     });
 });
