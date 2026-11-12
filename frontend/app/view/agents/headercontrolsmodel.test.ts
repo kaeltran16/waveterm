@@ -11,17 +11,20 @@ import {
 const SHIFT_TAB = "\x1b[Z";
 
 describe("permissionCycle", () => {
-    it("is default -> acceptEdits -> plan until the session reports auto", () => {
-        expect(permissionCycle(new Set(["default", "plan"]))).toEqual(["default", "acceptEdits", "plan"]);
+    it("is default -> acceptEdits -> plan until any session reports auto", () => {
+        expect(permissionCycle(new Set(["default", "plan"]), false)).toEqual(["default", "acceptEdits", "plan"]);
     });
     it("walks auto after plan once the session has reported it", () => {
-        expect(permissionCycle(new Set(["auto"]))).toEqual(["default", "acceptEdits", "plan", "auto"]);
+        expect(permissionCycle(new Set(["auto"]), false)).toEqual(["default", "acceptEdits", "plan", "auto"]);
+    });
+    it("walks auto in a session that has not reported it once another session has", () => {
+        expect(permissionCycle(new Set(["default"]), true)).toEqual(["default", "acceptEdits", "plan", "auto"]);
     });
 });
 
 describe("permissionModeKeys", () => {
-    const three = permissionCycle(new Set());
-    const four = permissionCycle(new Set(["auto"]));
+    const three = permissionCycle(new Set(), false);
+    const four = permissionCycle(new Set(["auto"]), false);
 
     it("types one shift+tab per step around the default -> acceptEdits -> plan cycle", () => {
         expect(permissionModeKeys(three, "default", "plan")).toEqual([SHIFT_TAB, SHIFT_TAB]);

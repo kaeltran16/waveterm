@@ -44,20 +44,23 @@ async function freePort() {
 
 const close = (srv) => new Promise((r) => srv.close(r));
 
-// spawn the real CLI: the engine only sees the exit code and the last stdout line
-function run(env, args = []) {
+// removing a dir a just-exited child used: windows can refuse the first delete of a file the child held, and
+// verify runs these while workers build, so the hook needs the same load allowance as the tests
+const CHILD_DIR_RM = { recursive: true, force: true, maxRetries: 3 };
+const CHILD_DIR_RM_TIMEOUT_MS = 30_000;
+
+// spawn the real CLI: the engine only sees the exit code and the last stdout line. Never in this process's cwd: the
+// CLI unlinks the build junctions in its cwd, which in a run tree are the ones Setup made for the merged result's build
+function run(env, args = [], cwd) {
+    const scratch = cwd ? undefined : mkdtempSync(join(tmpdir(), "final-verify-cwd-"));
     return new Promise((resolve) => {
-        execFile(process.execPath, [SCRIPT, ...args], { env, timeout: 30_000 }, (err, stdout) => {
+        execFile(process.execPath, [SCRIPT, ...args], { env, cwd: cwd ?? scratch, timeout: 30_000 }, (err, stdout) => {
+            if (scratch) rmSync(scratch, CHILD_DIR_RM);
             const lines = stdout.trim().split(/\r?\n/);
             resolve({ code: err ? err.code : 0, killed: Boolean(err?.killed), last: lines[lines.length - 1] });
         });
     });
 }
-
-// removing a dir a just-exited child used: windows can refuse the first delete of a file the child held, and
-// verify runs these while workers build, so the hook needs the same load allowance as the tests
-const CHILD_DIR_RM = { recursive: true, force: true, maxRetries: 3 };
-const CHILD_DIR_RM_TIMEOUT_MS = 30_000;
 
 function alive(pid) {
     try {
@@ -119,26 +122,39 @@ describe("final-verify.mjs", () => {
         expect(r.last).toBe("ARC_FINAL_OUT is not set");
     }, 30_000);
 
+    // the tree it runs in has a dist/bin junction: the CLI unlinks it there, and never touches the repo's own
     it("is unverified when the dev app never answers CDP, and stops the process it started", async () => {
         dir = mkdtempSync(join(tmpdir(), "final-verify-"));
         const pidFile = join(dir, "dev.pid");
         const fakeDev = join(dir, "fake-dev.cjs");
         writeFileSync(fakeDev, `require("fs").writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));\nsetInterval(() => {}, 1000);\n`);
+        const tree = join(dir, "tree");
+        const target = join(dir, "main-bin");
+        mkdirSync(target);
+        writeFileSync(join(target, "keep.txt"), "x");
+        mkdirSync(join(tree, "dist"), { recursive: true });
+        symlinkSync(target, join(tree, "dist", "bin"), "junction");
 
-        const r = await run({
-            ...process.env,
-            LOCALAPPDATA: join(dir, "localappdata"),
-            ARC_FINAL_OUT: join(dir, "out"),
-            ARC_FINAL_BOOT_MS: "3000",
-            ARC_FINAL_DEV_CMD: `node "${fakeDev}"`,
-            ARC_FINAL_VITE_PORT: String(await freePort()),
-        });
+        const r = await run(
+            {
+                ...process.env,
+                LOCALAPPDATA: join(dir, "localappdata"),
+                ARC_FINAL_OUT: join(dir, "out"),
+                ARC_FINAL_BOOT_MS: "3000",
+                ARC_FINAL_DEV_CMD: `node "${fakeDev}"`,
+                ARC_FINAL_VITE_PORT: String(await freePort()),
+            },
+            [],
+            tree
+        );
 
         expect(r.killed).toBe(false);
         expect(r.code).toBe(EXIT_UNVERIFIED);
         expect(r.last).toMatch(/^dev app did not answer on :\d+$/);
         expect(existsSync(pidFile)).toBe(true);
         expect(alive(Number(readFileSync(pidFile, "utf8")))).toBe(false);
+        expect(existsSync(join(tree, "dist", "bin"))).toBe(false);
+        expect(existsSync(join(target, "keep.txt"))).toBe(true);
     }, 30_000);
 
     // a dev app is running on the vite port most of the time here: the final one takes another port, and builds
@@ -161,14 +177,18 @@ fs.writeFileSync(path.join(data, "waveapp.log"), "boot log");
         const held = await listen(0, "::1");
         const heldPort = held.address().port;
         try {
-            const r = await run({
-                ...process.env,
-                LOCALAPPDATA: join(dir, "localappdata"),
-                ARC_FINAL_OUT: out,
-                ARC_FINAL_BOOT_MS: "3000",
-                ARC_FINAL_DEV_CMD: `node "${fakeDev}"`,
-                ARC_FINAL_VITE_PORT: String(heldPort),
-            });
+            const r = await run(
+                {
+                    ...process.env,
+                    LOCALAPPDATA: join(dir, "localappdata"),
+                    ARC_FINAL_OUT: out,
+                    ARC_FINAL_BOOT_MS: "3000",
+                    ARC_FINAL_DEV_CMD: `node "${fakeDev}"`,
+                    ARC_FINAL_VITE_PORT: String(heldPort),
+                },
+                [],
+                dir
+            );
             expect(r.code).toBe(EXIT_UNVERIFIED);
             expect(r.last).toMatch(/^dev app exited with code 0 before answering on :\d+$/);
         } finally {
@@ -216,7 +236,8 @@ fs.writeFileSync(${JSON.stringify(envFile)}, JSON.stringify({ dir: c ?? null, st
                 ARC_FINAL_DEV_CMD: `node "${fakeDev}"`,
                 ARC_FINAL_VITE_PORT: String(await freePort()),
             },
-            args
+            args,
+            dir
         );
         expect(r.code).toBe(EXIT_UNVERIFIED);
         return JSON.parse(readFileSync(envFile, "utf8"));
@@ -295,7 +316,7 @@ setTimeout(() => fs.appendFileSync(${JSON.stringify(logFile)}, "end\\n"), ${hold
     }
 
     async function runTwo(logFile) {
-        const stages = await Promise.all(["out-a", "out-b"].map((name) => run(fakeDevEnv(name, logFile, 1500))));
+        const stages = await Promise.all(["out-a", "out-b"].map((name) => run(fakeDevEnv(name, logFile, 1500), [], dir)));
         for (const r of stages) {
             expect(r.code).toBe(EXIT_UNVERIFIED);
             expect(r.last).toMatch(/^dev app exited with code 0 before answering on :\d+$/);
@@ -349,7 +370,7 @@ setTimeout(() => fs.appendFileSync(${JSON.stringify(logFile)}, "end\\n"), ${hold
         const held = await holdSlots(base, BUILD_SLOTS);
         try {
             expect(await acquireBuildSlot(base, 0)).toBeNull();
-            const r = await run({ ...fakeDevEnv("out", join(dir, "dev.log"), 0), ARC_FINAL_LOCK_WAIT_MS: "1500" });
+            const r = await run({ ...fakeDevEnv("out", join(dir, "dev.log"), 0), ARC_FINAL_LOCK_WAIT_MS: "1500" }, [], dir);
             expect(r.code).toBe(EXIT_UNVERIFIED);
             expect(r.last).toBe("other final stages held every build slot for 2s");
             expect(existsSync(join(dir, "dev.log"))).toBe(false);

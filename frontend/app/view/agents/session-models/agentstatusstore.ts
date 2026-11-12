@@ -7,7 +7,8 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { fireAndForget } from "@/util/util";
 import { atom, type PrimitiveAtom } from "jotai";
-import type { OptimisticMode } from "../headercontrolsmodel";
+import { atomWithStorage } from "jotai/utils";
+import { AUTO_PERMISSION_MODE, type OptimisticMode } from "../headercontrolsmodel";
 import { recordRateLimit } from "../ratelimitstore";
 import { persistResume } from "./agentresumestore";
 
@@ -153,6 +154,10 @@ export function getSeenPermissionModesAtom(oref: string): PrimitiveAtom<Readonly
     return seenAtom;
 }
 
+// app-wide and persisted: auto's availability is an account/model gate, so one session reporting it means a fresh
+// session's Shift+Tab cycle has it too, before that session reports it itself
+export const autoPermissionSeenAtom = atomWithStorage<boolean>("cockpit.permission.autoseen", false);
+
 // per-block mode the header just typed toward; an atom rather than component state because the header remounts per
 // agent, and a switch away and back while idle (no hook fires) would otherwise compute the next keys from a stale mode
 const optimisticPermissionModeAtoms = new Map<string, PrimitiveAtom<OptimisticMode | null>>();
@@ -220,6 +225,9 @@ export function setupAgentStatusSubscription() {
                 const seenAtom = getSeenPermissionModesAtom(data.oref);
                 if (!globalStore.get(seenAtom).has(permissionMode)) {
                     globalStore.set(seenAtom, (seen) => new Set(seen).add(permissionMode));
+                }
+                if (permissionMode === AUTO_PERMISSION_MODE && !globalStore.get(autoPermissionSeenAtom)) {
+                    globalStore.set(autoPermissionSeenAtom, true);
                 }
             }
             // a delta-only event carries an empty state; only a real state update should touch the parent atom

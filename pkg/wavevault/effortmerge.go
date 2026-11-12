@@ -46,33 +46,65 @@ func MarshalEffort(e *waveobj.Effort) ([]byte, error) {
 }
 
 // MergeEffort three-way merges two concurrent versions of one effort against their common ancestor
-// (base, nil when the file is new on both sides). Scalars come from the side with the newer
-// UpdatedTs (tie → ours); chunks merge by Label, an edit outliving a concurrent delete; notes, events
-// and workrefs merge as sets against the base (mergeByTs). It never mutates its inputs.
+// (base, nil when the file is new on both sides). Scalars merge per field against the base (pickField);
+// Jira, the last-seen copy of Ticket's issue, follows Ticket's side when the tickets differ. Chunks merge
+// by Label, an edit outliving a concurrent delete; notes, events and workrefs merge as sets against the
+// base (mergeByTs). It never mutates its inputs.
 func MergeEffort(base, ours, theirs *waveobj.Effort) *waveobj.Effort {
-	if base == nil {
+	// per field against an empty base would let a one-sided value beat a newer empty one
+	hasBase := base != nil
+	if !hasBase {
 		base = &waveobj.Effort{}
 	}
+	theirsNewer := theirs.UpdatedTs > ours.UpdatedTs
 	newer, other := ours, theirs
-	if theirs.UpdatedTs > ours.UpdatedTs {
+	if theirsNewer {
 		newer, other = theirs, ours
+	}
+	ticketFromTheirs := takeTheirs(hasBase, theirsNewer, base.Ticket, ours.Ticket, theirs.Ticket)
+	jira := pickField(hasBase, theirsNewer, base.Jira, ours.Jira, theirs.Jira)
+	if ours.Ticket != theirs.Ticket {
+		jira = ours.Jira
+		if ticketFromTheirs {
+			jira = theirs.Jira
+		}
 	}
 	return &waveobj.Effort{
 		OID:       ours.OID,
 		Version:   max(ours.Version, theirs.Version) + 1,
-		Title:     newer.Title,
-		Project:   newer.Project,
-		Ticket:    newer.Ticket,
-		Status:    newer.Status,
-		ParentOID: newer.ParentOID,
-		Jira:      newer.Jira.Clone(),
+		Title:     pickField(hasBase, theirsNewer, base.Title, ours.Title, theirs.Title),
+		Project:   pickField(hasBase, theirsNewer, base.Project, ours.Project, theirs.Project),
+		Ticket:    pickField(hasBase, theirsNewer, base.Ticket, ours.Ticket, theirs.Ticket),
+		Status:    pickField(hasBase, theirsNewer, base.Status, ours.Status, theirs.Status),
+		ParentOID: pickField(hasBase, theirsNewer, base.ParentOID, ours.ParentOID, theirs.ParentOID),
+		Jira:      jira.Clone(),
 		Chunks:    mergeChunks(base.Chunks, ours.Chunks, theirs.Chunks, newer.Chunks, other.Chunks),
 		Notes:     mergeByTs(base.Notes, ours.Notes, theirs.Notes, func(n waveobj.EffortNote) int64 { return n.Ts }),
 		Events:    mergeByTs(base.Events, ours.Events, theirs.Events, func(ev waveobj.EffortEvent) int64 { return ev.Ts }),
 		CreatedTs: minNonZero(ours.CreatedTs, theirs.CreatedTs),
 		UpdatedTs: max(ours.UpdatedTs, theirs.UpdatedTs),
-		Meta:      cloneMeta(newer.Meta),
+		Meta:      cloneMeta(pickField(hasBase, theirsNewer, base.Meta, ours.Meta, theirs.Meta)),
 	}
+}
+
+// takeTheirs reports whether a field merged against the base comes from theirs: changed on theirs only,
+// or changed on both (or no base) and theirs is the newer side. Values compare whole (reflect.DeepEqual).
+func takeTheirs[T any](hasBase, theirsNewer bool, base, ours, theirs T) bool {
+	if !hasBase {
+		return theirsNewer
+	}
+	oursChanged, theirsChanged := !reflect.DeepEqual(base, ours), !reflect.DeepEqual(base, theirs)
+	if oursChanged != theirsChanged {
+		return theirsChanged
+	}
+	return theirsNewer
+}
+
+func pickField[T any](hasBase, theirsNewer bool, base, ours, theirs T) T {
+	if takeTheirs(hasBase, theirsNewer, base, ours, theirs) {
+		return theirs
+	}
+	return ours
 }
 
 // mergeChunks walks the newer side's order, then the other side's extras; ours/theirs decide what
@@ -97,11 +129,15 @@ func mergeChunk(baseBy, oursBy, theirsBy map[string]waveobj.EffortChunk, label s
 	o, inOurs := oursBy[label]
 	t, inTheirs := theirsBy[label]
 	if inOurs && inTheirs {
+		theirsNewer := t.UpdatedTs > o.UpdatedTs
 		win := o
-		if t.UpdatedTs > o.UpdatedTs {
+		if theirsNewer {
 			win = t
 		}
-		b := baseBy[label] // the zero chunk when new on both sides: its lists merge as a plain union
+		b, inBase := baseBy[label] // the zero chunk when new on both sides: its lists merge as a plain union
+		win.Status = pickField(inBase, theirsNewer, b.Status, o.Status, t.Status)
+		win.Stage = pickField(inBase, theirsNewer, b.Stage, o.Stage, t.Stage)
+		win.Owner = pickField(inBase, theirsNewer, b.Owner, o.Owner, t.Owner)
 		win.Notes = mergeByTs(b.Notes, o.Notes, t.Notes, func(n waveobj.EffortNote) int64 { return n.Ts })
 		win.WorkRefs = mergeByTs(b.WorkRefs, o.WorkRefs, t.WorkRefs, func(w waveobj.ChunkWorkRef) int64 { return w.Ts })
 		return win, true

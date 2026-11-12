@@ -130,12 +130,17 @@ first sync unions them without conflict. The `effort` otype stays registered and
 
 Pure function, three-way against git's base (stage 1; empty when the file is new on both sides):
 
-- **Scalar fields** (`Title`, `Project`, `Ticket`, `Status`, `ParentOID`, `Meta`): from the side with the
-  newer `UpdatedTs`.
+- **Scalar fields** (`Title`, `Project`, `Ticket`, `Status`, `ParentOID`, `Jira`, `Meta`): per field
+  against the base. Changed on one side only → that side's value; changed on both → the side with the
+  newer `UpdatedTs` (tie → ours). `Jira` and `Meta` compare whole (`reflect.DeepEqual`), never field by
+  field inside them. `Jira` is the last-seen copy of `Ticket`'s issue, so when the two sides' tickets
+  differ it comes from the side the merged `Ticket` came from. No base → every field from the newer side.
 - **Chunks**, keyed by `Label`: on one side only and absent from base → added, keep. In base, missing on
   one side, unchanged on the other → removed. Missing on one side and changed on the other → keep the
   changed one (an edit outlives a concurrent delete). On both sides → the chunk with the newer
-  `UpdatedTs`, with `Notes` and `WorkRefs` merged as below.
+  `UpdatedTs`, with `Status`, `Stage` and `Owner` merged per field against the base chunk like the
+  scalars (a chunk absent from the base takes the newer chunk's), and `Notes` and `WorkRefs` merged as
+  below.
 - **Notes, Events, chunk Notes, WorkRefs:** a set merge against the base, by full value: kept on both
   sides → kept; added on either side → kept; in base and dropped by either side (removed, or edited into a
   new value) → dropped. With no base this is the union. De-duplicated, sorted by `Ts`.
@@ -195,7 +200,8 @@ says which.
   `conflicts/`, local kept); joining unrelated histories; push rejected by a race (retry succeeds);
   recovery from an interrupted merge; no remote is a no-op.
 - **`MergeEffort`:** table tests — chunk add/remove/edit on each side, edit-vs-delete, note/event union and
-  de-dup, scalar newer-wins, order.
+  de-dup, scalar per-field merge (one-side change, both-side newer-wins, no-base newer-wins, `Jira`
+  following `Ticket`), order.
 - **`MergeSettings`:** table tests — one-side change, both-side change (ours), deletion vs unchanged,
   no-base union.
 - **`effortstore`:** the existing `wshserver_effort*_test.go` suites pass unchanged against the new store;
