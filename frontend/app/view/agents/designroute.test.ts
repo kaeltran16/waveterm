@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { routeDesign } from "./designroute";
+import { changeShown, routeDesign } from "./designroute";
 
 function fakeIO(reply: () => Promise<CommandRunDesignAttachRtnData>) {
     const asked: CommandRunDesignAttachData[] = [];
@@ -52,5 +52,30 @@ describe("routeDesign", () => {
         await expect(routeDesign(io, "blk-1", { prototype: "/p/x.dc.html" })).rejects.toThrow("already took");
         expect(io.attached).toEqual([]);
         expect(io.launched()).toBe(0);
+    });
+});
+
+describe("changeShown", () => {
+    it("hides Change while a run waits on the session: a launcher there would start a second run", async () => {
+        const asked: string[] = [];
+        const shown = await changeShown("blk-1", async (data) => {
+            asked.push(data.blockid);
+            return { channelid: "c1", runid: "r1" };
+        });
+        expect(shown).toBe(false);
+        expect(asked).toEqual(["blk-1"]);
+    });
+
+    it("shows Change on a session no run waits on", async () => {
+        expect(await changeShown("blk-1", async () => ({}))).toBe(true);
+    });
+
+    it("shows Change when the lookup fails or the pane has no block, as before", async () => {
+        expect(
+            await changeShown("blk-1", async () => {
+                throw new Error("EC-TIME");
+            })
+        ).toBe(true);
+        expect(await changeShown(undefined, async () => ({ runid: "r1" }))).toBe(true);
     });
 });

@@ -1739,6 +1739,11 @@ declare global {
         runid?: string;
     };
 
+    // wshrpc.CommandRunDesignWaitingData
+    type CommandRunDesignWaitingData = {
+        blockid: string;
+    };
+
     // wshrpc.CommandRunTranscriptPathData
     type CommandRunTranscriptPathData = {
         channelid: string;

@@ -149,6 +149,40 @@ func tabBlockId(ctx context.Context, tabORef string) (string, error) {
 	return tab.BlockIds[0], nil
 }
 
+// designRuns finds the run waiting on a design session's block and the run that already took its design.
+func designRuns(ctx context.Context, blockId string) (waiting, took *waveobj.Run, err error) {
+	// the block id names the session in Design or DesignSession, so the rows that hold it are the candidates
+	runs, err := wstore.GetRunCandidatesByWorker(ctx, blockId)
+	if err != nil {
+		return nil, nil, fmt.Errorf("finding the run waiting on %s: %w", blockId, err)
+	}
+	for _, r := range runs {
+		switch {
+		case r.Mode == jarvis.RunMode_Orchestrator && r.Status == jarvis.RunStatus_Planning && r.Design != nil && r.Design.BlockId == blockId:
+			waiting = r
+		case r.DesignSession == blockId:
+			took = r
+		}
+	}
+	return waiting, took, nil
+}
+
+// RunDesignWaitingCommand names the run waiting on a design session, so its pane can leave the launcher out:
+// a run started there would be a second one. Empty when none waits.
+func (ws *WshServer) RunDesignWaitingCommand(ctx context.Context, data wshrpc.CommandRunDesignWaitingData) (*wshrpc.CommandRunDesignAttachRtnData, error) {
+	if data.BlockId == "" {
+		return nil, fmt.Errorf("blockid is required")
+	}
+	waiting, _, err := designRuns(ctx, data.BlockId)
+	if err != nil {
+		return nil, err
+	}
+	if waiting == nil {
+		return &wshrpc.CommandRunDesignAttachRtnData{}, nil
+	}
+	return &wshrpc.CommandRunDesignAttachRtnData{ChannelId: waiting.ChannelOID, RunId: waiting.ID}, nil
+}
+
 // RunDesignAttachCommand is a design session's Approve / Build this…: the run waiting on the session takes its
 // design and starts its lead. A block no run ever waited on is a normal session, answered with an empty reply.
 func (ws *WshServer) RunDesignAttachCommand(ctx context.Context, data wshrpc.CommandRunDesignAttachData) (*wshrpc.CommandRunDesignAttachRtnData, error) {
@@ -158,19 +192,9 @@ func (ws *WshServer) RunDesignAttachCommand(ctx context.Context, data wshrpc.Com
 	if data.Spec == "" && data.Prototype == "" {
 		return nil, fmt.Errorf("a design attaches a spec, a prototype or both")
 	}
-	// the block id names the session in Design or DesignSession, so the rows that hold it are the candidates
-	runs, err := wstore.GetRunCandidatesByWorker(ctx, data.BlockId)
+	waiting, took, err := designRuns(ctx, data.BlockId)
 	if err != nil {
-		return nil, fmt.Errorf("finding the run waiting on %s: %w", data.BlockId, err)
-	}
-	var waiting, took *waveobj.Run
-	for _, r := range runs {
-		switch {
-		case r.Mode == jarvis.RunMode_Orchestrator && r.Status == jarvis.RunStatus_Planning && r.Design != nil && r.Design.BlockId == data.BlockId:
-			waiting = r
-		case r.DesignSession == data.BlockId:
-			took = r
-		}
+		return nil, err
 	}
 	if waiting == nil {
 		if took != nil {

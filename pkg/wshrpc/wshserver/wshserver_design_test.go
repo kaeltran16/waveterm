@@ -77,6 +77,32 @@ func writeDesignFile(t *testing.T, name string) string {
 	return path
 }
 
+func TestRunDesignWaitingNamesTheRunUntilItTakesTheDesign(t *testing.T) {
+	ctx := context.Background()
+	spawns := stubDesignSpawn(t)
+	ch := designChannel(t, "design-waiting")
+	run := createDesignFirstRun(t, ch, waveobj.RunDesignKind_Brainstorm)
+	session := (*spawns)[0].blockId
+
+	got, err := (&WshServer{}).RunDesignWaitingCommand(ctx, wshrpc.CommandRunDesignWaitingData{BlockId: session})
+	if err != nil || got.ChannelId != ch.OID || got.RunId != run.ID {
+		t.Fatalf("waiting on the design session: %+v, %v; want run %s", got, err, run.ID)
+	}
+	other, err := (&WshServer{}).RunDesignWaitingCommand(ctx, wshrpc.CommandRunDesignWaitingData{BlockId: "not-a-design-session"})
+	if err != nil || other.RunId != "" {
+		t.Fatalf("a session no run waits on: %+v, %v", other, err)
+	}
+
+	spec := writeDesignFile(t, "spec.md")
+	if _, err := (&WshServer{}).RunDesignAttachCommand(ctx, wshrpc.CommandRunDesignAttachData{BlockId: session, Spec: spec}); err != nil {
+		t.Fatalf("attach: %v", err)
+	}
+	after, err := (&WshServer{}).RunDesignWaitingCommand(ctx, wshrpc.CommandRunDesignWaitingData{BlockId: session})
+	if err != nil || after.RunId != "" {
+		t.Fatalf("once the run took the design nothing waits: %+v, %v", after, err)
+	}
+}
+
 func TestRunDesignAttachStartsOneLead(t *testing.T) {
 	ctx := context.Background()
 	spawns := stubDesignSpawn(t)
