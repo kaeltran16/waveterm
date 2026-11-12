@@ -280,6 +280,35 @@ func TestUpdateRefusesStaleRev(t *testing.T) {
 	}
 }
 
+// r4-backend F2: a sync holds the vault lock while it merges the other machine's edit into the file; an Update
+// that arrives meanwhile must check its baseRev against the merged file, not write over it
+func TestUpdateWaitingOnSyncSeesItsMerge(t *testing.T) {
+	root := useTempRoot(t)
+	note, err := Add("Shared", "first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, NotesDir, note.ID+".md")
+	unlockSync := wavevault.LockRoot(root)
+	done := make(chan error, 1)
+	go func() {
+		_, err := Update(note.ID, "Shared", "mine", note.Rev)
+		done <- err
+	}()
+	time.Sleep(100 * time.Millisecond) // let Update reach the vault lock
+	merged := "# Shared\n\nmerged from the other machine\n"
+	if err := os.WriteFile(path, []byte(merged), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	unlockSync()
+	if err := <-done; !errors.Is(err, ErrNoteConflict) {
+		t.Fatalf("err = %v, want ErrNoteConflict", err)
+	}
+	if b, _ := os.ReadFile(path); string(b) != merged {
+		t.Fatalf("the update wrote over the merge: %q", b)
+	}
+}
+
 func TestUpdateEmptyBaseRevOverwrites(t *testing.T) {
 	root := useTempRoot(t)
 	note, err := Add("Shared", "first")
