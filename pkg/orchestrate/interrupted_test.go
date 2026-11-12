@@ -244,6 +244,15 @@ func TestResumeInNewTabStopsTheTabItSpawnedOnError(t *testing.T) {
 			if !slices.Equal(stopped, []string{spawned}) {
 				t.Fatalf("stopped %v, want the spawned tab %s", stopped, spawned)
 			}
+			// engine F1: the stopped tab must not stay the phase's worker, or the next resume runs in a tab
+			// with no controller, reports success and starts nothing
+			after, err := wstore.GetRun(ctx, channelId, stored.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if workers := after.Phases[0].WorkerOrefs; slices.Contains(workers, spawned) {
+				t.Fatalf("the phase still names the stopped tab: %v", workers)
+			}
 		})
 	}
 }
