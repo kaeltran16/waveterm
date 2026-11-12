@@ -451,6 +451,17 @@ func flatText(s string) string {
 // age and latest line, or how long a worker has been silent. Every value is the digest's, formatted here
 // and never re-derived from task state. holderState is the state of the task a held tip waits on, "" if unknown.
 func taskSignal(state string, td wshrpc.DagTaskDigest, holderState string, now int64) string {
+	signal := taskBaseSignal(state, td, holderState, now)
+	if td.Memory == nil {
+		return signal
+	}
+	if signal == "" {
+		return memorySignal(td.Memory)
+	}
+	return signal + " · " + memorySignal(td.Memory)
+}
+
+func taskBaseSignal(state string, td wshrpc.DagTaskDigest, holderState string, now int64) string {
 	switch {
 	case td.AskSummary != "":
 		return "ask: " + compactText(td.AskSummary, 60)
@@ -466,6 +477,25 @@ func taskSignal(state string, td wshrpc.DagTaskDigest, holderState string, now i
 		return mergeHeldSignal(td.MergeHeldBy, holderState)
 	}
 	return ""
+}
+
+// memorySignal words a task's hold at the memory gate or its pause by it, with the free and needed figures. The
+// role is named only when it is not the task's worker, so a Verify hold does not read as the worker's.
+func memorySignal(m *wshrpc.DagMemoryState) string {
+	text := "waiting for memory"
+	if m.State == "paused" {
+		text = "paused: memory"
+	}
+	if m.Role != "" && m.Role != "worker" {
+		text = m.Role + " " + text
+	}
+	return fmt.Sprintf("%s (%s free, %s needed)", text, fmtGB(m.Free), fmtGB(m.Need))
+}
+
+const bytesPerGB = 1 << 30
+
+func fmtGB(b int64) string {
+	return fmt.Sprintf("%.1f GB", float64(b)/bytesPerGB)
 }
 
 // mergeHoldReason words why a held tip waits, by the holder's state (the cockpit's MERGE_HOLD_REASON).

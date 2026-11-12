@@ -72,10 +72,84 @@ func BuildDigest(sn DagDigestSnapshot) wshrpc.DagStatusDigest {
 	for i := range g.Tasks {
 		td := buildTaskDigest(g, &g.Tasks[i], askByTask, retried, gateClock, sn.Now.UnixMilli())
 		td.ForwardedTs = forwardedFailureTs(&g.Tasks[i], sn.Retained)
+		td.Memory = taskMemoryState(&g.Tasks[i], sn.Retained)
 		withReview(&td, &g.Tasks[i], runByID[g.Tasks[i].RunID])
 		d.Tasks = append(d.Tasks, td)
 	}
 	return d
+}
+
+const (
+	memoryStateWaiting = "waiting"
+	memoryStatePaused  = "paused"
+)
+
+// taskMemoryState is the task's memory hold or pause, from its latest memory event. A hold only counts while the
+// task's state still fits the role that waits (a worker holds a pending task, a reviewer a reviewing one with no
+// reviewer yet, Verify and Setup a verifying one), so a hold whose end event was never written, like a Wait
+// cancelled with the run, cannot outlive the state it blocked. Retained arrives newest first, but ts decides:
+// on a tie the clearing kind wins, since an admit straight after a hold is the likelier order.
+func taskMemoryState(t *waveobj.TaskNode, retained []waveobj.RunEvent) *wshrpc.DagMemoryState {
+	var latest *waveobj.RunEvent
+	for i := range retained {
+		ev := &retained[i]
+		if !isMemoryKind(ev.Kind) || memoryEventTaskID(ev) != t.ID {
+			continue
+		}
+		if latest == nil || ev.Ts > latest.Ts || (ev.Ts == latest.Ts && isMemoryOpenKind(latest.Kind) && !isMemoryOpenKind(ev.Kind)) {
+			latest = ev
+		}
+	}
+	if latest == nil || !isMemoryOpenKind(latest.Kind) {
+		return nil
+	}
+	var detail struct {
+		Role string `json:"role"`
+		Free int64  `json:"free"`
+		Need int64  `json:"need"`
+	}
+	if json.Unmarshal(latest.Detail, &detail) != nil {
+		return nil
+	}
+	state := memoryStateWaiting
+	fits := false
+	if latest.Kind == waveobj.RunEventKindMemoryPaused {
+		state = memoryStatePaused
+		fits = t.State == TaskState_Running || t.State == TaskState_Stalled || t.State == TaskState_Reviewing
+	} else {
+		switch detail.Role {
+		case "worker":
+			fits = t.State == TaskState_Pending
+		case "reviewer":
+			fits = t.State == TaskState_Reviewing && t.ReviewRunID == ""
+		case "Verify", "Setup":
+			fits = t.State == TaskState_Verifying
+		}
+	}
+	if !fits {
+		return nil
+	}
+	return &wshrpc.DagMemoryState{State: state, Role: detail.Role, Free: detail.Free, Need: detail.Need, Ts: latest.Ts}
+}
+
+func isMemoryKind(kind string) bool {
+	switch kind {
+	case waveobj.RunEventKindMemoryHeld, waveobj.RunEventKindMemoryAdmitted, waveobj.RunEventKindMemoryPaused, waveobj.RunEventKindMemoryResumed:
+		return true
+	}
+	return false
+}
+
+func isMemoryOpenKind(kind string) bool {
+	return kind == waveobj.RunEventKindMemoryHeld || kind == waveobj.RunEventKindMemoryPaused
+}
+
+func memoryEventTaskID(ev *waveobj.RunEvent) string {
+	var detail struct {
+		TaskID string `json:"taskid"`
+	}
+	_ = json.Unmarshal(ev.Detail, &detail)
+	return detail.TaskID
 }
 
 // reportSectionKeys names the sections of a worker's report the lead can pull. Done is always there, so it is

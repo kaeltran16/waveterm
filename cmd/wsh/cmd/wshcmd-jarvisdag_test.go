@@ -1150,3 +1150,34 @@ func TestDagMergeTimedOutSaysWhetherItTookEffect(t *testing.T) {
 		})
 	}
 }
+
+func TestDagStatusMemoryLine(t *testing.T) {
+	const gb = int64(1 << 30)
+	now := int64(10_000_000)
+	free, need := gb*21/10, gb*7/2
+	cases := []struct {
+		name  string
+		state string
+		td    wshrpc.DagTaskDigest
+		want  string
+	}{
+		{"waiting worker", orchestrate.TaskState_Pending,
+			wshrpc.DagTaskDigest{Memory: &wshrpc.DagMemoryState{State: "waiting", Role: "worker", Free: free, Need: need}},
+			"waiting for memory (2.1 GB free, 3.5 GB needed)"},
+		{"paused worker keeps its activity column", orchestrate.TaskState_Running,
+			wshrpc.DagTaskDigest{FreshnessTs: now - 4*60_000, Memory: &wshrpc.DagMemoryState{State: "paused", Role: "worker", Free: free, Need: need}},
+			"idle 4m · paused: memory (2.1 GB free, 3.5 GB needed)"},
+		{"verify hold names its role", orchestrate.TaskState_Verifying,
+			wshrpc.DagTaskDigest{Memory: &wshrpc.DagMemoryState{State: "waiting", Role: "Verify", Free: free, Need: need}},
+			"Verify waiting for memory (2.1 GB free, 3.5 GB needed)"},
+		{"paused reviewer names its role", orchestrate.TaskState_Reviewing,
+			wshrpc.DagTaskDigest{Memory: &wshrpc.DagMemoryState{State: "paused", Role: "reviewer", Free: free, Need: need}},
+			"reviewer paused: memory (2.1 GB free, 3.5 GB needed)"},
+		{"no memory state adds nothing", orchestrate.TaskState_Pending, wshrpc.DagTaskDigest{}, ""},
+	}
+	for _, c := range cases {
+		if got := taskSignal(c.state, c.td, "", now); got != c.want {
+			t.Errorf("%s: taskSignal = %q, want %q", c.name, got, c.want)
+		}
+	}
+}

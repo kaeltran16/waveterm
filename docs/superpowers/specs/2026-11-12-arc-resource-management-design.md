@@ -85,8 +85,11 @@ A task held at the door or paused shows it on the run's task row, where its stat
 for memory" or "paused: memory", with the free and needed figures. The gate and the loop record held,
 paused and resumed as run events, which feed that row state.
 
-A held plan command (Setup, Verify, Check, Final) has no task row: it shows the hold on the run's step
-where that command shows today, and the time it waits does not count against the command's timeout.
+A held plan command shows the hold where it is attributed, and the time it waits does not count against the
+command's timeout. A merge-point Verify, its bisect steps and the bisect tree's Setup belong to a task: the hold
+shows on that task's row (the batch's first tip, or each bisect step's own tip) through the digest. Only the final
+stage's Check, Verify and Final have no task: they show the hold on the final stage's running step, where that
+command shows today.
 
 ### 5. CPU
 
@@ -98,7 +101,7 @@ as since 11-06. Revisit only if effort `1e6ed7ab`'s pending lag measurement show
 
 In: every job tree Arc starts (blocks via shellexec, plan commands via plancmd) is measured and counted, on any
 project. Only run workers, task reviewers and the plan commands the engine runs on its own (Verify at merge
-points and its bisect steps; Setup, Check, Verify and Final in the final stage; the Setup of a bisect tree) can
+points and its bisect steps; Check, Verify and Final in the final stage; the Setup of a bisect tree) can
 wait at the door, and only run workers and task reviewers can be paused: a paused plan command would spend its
 wall-clock timeout. A task's dispatch-time Setup waits as part of its worker's admission, since it runs under the
 dag lock. The base Check at submit, the landing tree's Setup at submit and the Check and Verify a land runs always

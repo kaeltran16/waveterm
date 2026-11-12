@@ -511,6 +511,10 @@ var dagDigestRetainedKinds = []string{
 	waveobj.RunEventKindChildAnswered,
 	waveobj.RunEventKindTaskForwarded,
 	waveobj.RunEventKindTaskTold,
+	waveobj.RunEventKindMemoryHeld,
+	waveobj.RunEventKindMemoryAdmitted,
+	waveobj.RunEventKindMemoryPaused,
+	waveobj.RunEventKindMemoryResumed,
 }
 
 func (ws *WshServer) DagStatusCommand(ctx context.Context, data wshrpc.CommandDagStatusData) (*wshrpc.CommandDagStatusRtnData, error) {
