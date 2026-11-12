@@ -20,10 +20,8 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
-var errBoardsNotImplemented = errors.New("boards: not implemented yet")
-
-// boardState is the scribe's state for a board ("drawing", "failed" or ""), set by the scheduler.
-var boardState = func(channelId, boardId string) string { return "" }
+// boardState is the scribe's state for a board ("drawing", "failed" or "").
+var boardState = func(channelId, boardId string) string { return boardScribe.BoardState(channelId, boardId) }
 
 // boardDir resolves a channel to its project's board folder.
 func boardDir(ctx context.Context, channelId string) (*waveobj.Channel, string, error) {
@@ -100,22 +98,6 @@ func (ws *WshServer) BoardSaveCommand(ctx context.Context, data wshrpc.CommandBo
 		publishBoardList(ch.OID, data.BoardId)
 	}
 	return &rtn, nil
-}
-
-func (ws *WshServer) BoardDrawCommand(ctx context.Context, data wshrpc.CommandBoardDrawData) error {
-	return errBoardsNotImplemented
-}
-
-func (ws *WshServer) BoardAgentDrawCommand(ctx context.Context, data wshrpc.CommandBoardAgentDrawData) (*wshrpc.BoardAgentDrawRtnData, error) {
-	return nil, errBoardsNotImplemented
-}
-
-func (ws *WshServer) BoardRetryCommand(ctx context.Context, data wshrpc.CommandBoardSourceData) error {
-	return errBoardsNotImplemented
-}
-
-func (ws *WshServer) BoardStatusCommand(ctx context.Context, data wshrpc.CommandBoardRefData) (*wshrpc.BoardStatusData, error) {
-	return nil, errBoardsNotImplemented
 }
 
 func (ws *WshServer) BoardFollowStopCommand(ctx context.Context, data wshrpc.CommandBoardFollowStopData) error {

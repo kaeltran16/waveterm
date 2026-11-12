@@ -23,3 +23,8 @@ Rules:
 - "waiting on the user's confirmation" means they must approve it; check `state` later, don't re-issue.
 - Closing sessions and answering asks are not available here (use `wsh ask` for your own questions).
 - Every successful call shows the user a toast naming you, so keep calls purposeful.
+
+## Boards
+
+When the user asks you to put something on a board, run `wsh board draw --board "<name>" --ask "<what>"`. A
+separate scribe draws your latest turn on that board; you draw nothing yourself. Never draw unasked.
