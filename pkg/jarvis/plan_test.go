@@ -191,6 +191,29 @@ func TestParsePlanFenceOpenedOnAListItem(t *testing.T) {
 	}
 }
 
+// engine F3: two shapes that parsed before the fence fix must still parse, and a fence left open to the end of
+// the plan is refused rather than folding every later task into the one it opened in
+func TestParsePlanFenceShapes(t *testing.T) {
+	for name, src := range map[string]string{
+		"nested same-length fences":  "### Task 1: a\n```markdown\n# Doc\n```bash\ngo test\n```\n```\n\n### Task 2: b\n\n### Task 3: c\n",
+		"inline span on a list item": "### Task 1: a\n- ```go test ./...``` must pass\n\n### Task 2: b\n\n### Task 3: c\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			p := mustParsePlan(t, src)
+			if want := []string{"t-1:", "t-2:t-1", "t-3:t-2"}; !reflect.DeepEqual(depLists(p.Tasks), want) {
+				t.Fatalf("got %v, want %v", depLists(p.Tasks), want)
+			}
+		})
+	}
+}
+
+func TestParsePlanRefusesAnUnclosedFence(t *testing.T) {
+	src := "### Task 1: a\n```bash\ngo test\n\n### Task 2: b\n"
+	if _, err := ParsePlan(src); err == nil || !strings.Contains(err.Error(), "never closed") {
+		t.Fatalf("want an unclosed-fence error, got %v", err)
+	}
+}
+
 func TestParsePlanFenceClosesOnlyOnALongEnoughRun(t *testing.T) {
 	src := "### Task 1: a\n````markdown\n```md\n### Task 9: sample\n```\n````\n\n### Task 2: b\n"
 	p := mustParsePlan(t, src)

@@ -132,6 +132,31 @@ func TestWorkerReportFenceOpenedOnAListItem(t *testing.T) {
 	}
 }
 
+// engine F3: the plan parser's fence shapes, read the same way in a report
+func TestWorkerReportFenceShapes(t *testing.T) {
+	for name, quote := range map[string]string{
+		"nested same-length fences":  "quoted:\n```markdown\n# Doc\n```bash\ngo test\n```\n```",
+		"inline span on a list item": "ran:\n- ```go test ./...``` passed",
+	} {
+		t.Run(name, func(t *testing.T) {
+			rep, err := ParseWorkerReport(strings.Replace(validReport, "landed it", quote, 1))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if rep.ForLater != "use X" {
+				t.Fatalf("got %+v", rep)
+			}
+		})
+	}
+}
+
+func TestWorkerReportRefusesAnUnclosedFence(t *testing.T) {
+	_, err := ParseWorkerReport(strings.Replace(validReport, "landed it", "ran:\n```bash\ngo test", 1))
+	if err == nil || !strings.Contains(err.Error(), "never closed") {
+		t.Fatalf("want an unclosed-fence error, got %v", err)
+	}
+}
+
 func TestWorkerReportSection(t *testing.T) {
 	rep, _ := ParseWorkerReport(validReport)
 	if got, ok := rep.Section("not-verified"); !ok || got != "" {

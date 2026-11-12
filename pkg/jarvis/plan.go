@@ -148,11 +148,16 @@ func planTaskID(n int) string {
 }
 
 // codeFence tracks whether markdown lines sit inside a fenced code block. As in CommonMark, an opener may
-// follow a list marker ("- ```bash"), and only a run of the opener's character at least as long, with
-// nothing after it, closes the block: an indented closer must not reopen it, nor an inner ``` close a ````.
+// follow a list marker ("- ```bash"), a backtick opener's info string holds no backtick (so "- ```go test```"
+// is an inline span), and only a run of the opener's character at least as long, with nothing after it, closes
+// the block: an indented closer must not reopen it, nor an inner ``` close a ````. Unlike CommonMark, a run as
+// long with an info string inside the block opens a nested one, so a quoted document's own ```bash block does
+// not close the ```markdown block around it.
 type codeFence struct {
-	char byte
-	n    int
+	char   byte
+	n      int
+	depth  int
+	opener string
 }
 
 var fenceListMarkerRe = regexp.MustCompile(`^(?:[-*+]|\d+[.)])[ \t]+`)
@@ -161,17 +166,37 @@ var fenceListMarkerRe = regexp.MustCompile(`^(?:[-*+]|\d+[.)])[ \t]+`)
 func (f *codeFence) step(line string) bool {
 	trimmed := strings.TrimLeft(line, " \t")
 	if f.n > 0 {
-		if n := fenceRun(trimmed); n >= f.n && trimmed[0] == f.char && strings.TrimSpace(trimmed[n:]) == "" {
-			f.n = 0
+		if n := fenceRun(trimmed); n >= f.n && trimmed[0] == f.char {
+			switch info := strings.TrimSpace(trimmed[n:]); {
+			case info == "" && f.depth > 0:
+				f.depth--
+			case info == "":
+				f.n = 0
+			case fenceInfoOK(f.char, info):
+				f.depth++
+			}
 		}
 		return true
 	}
 	trimmed = fenceListMarkerRe.ReplaceAllString(trimmed, "")
-	if n := fenceRun(trimmed); n >= 3 {
-		f.char, f.n = trimmed[0], n
+	if n := fenceRun(trimmed); n >= 3 && fenceInfoOK(trimmed[0], trimmed[n:]) {
+		f.char, f.n, f.depth, f.opener = trimmed[0], n, 0, strings.TrimSpace(line)
 		return true
 	}
 	return false
+}
+
+func fenceInfoOK(char byte, info string) bool {
+	return char != '`' || !strings.Contains(info, "`")
+}
+
+// unclosed is the error for a fence still open at the end of the text, which would otherwise fold everything
+// after its opener into it.
+func (f *codeFence) unclosed() error {
+	if f.n == 0 {
+		return nil
+	}
+	return fmt.Errorf("code fence %q is never closed, so everything after it reads as its text: close it with a line of %s", f.opener, strings.Repeat(string(f.char), f.n))
 }
 
 // fenceRun is the length of the run of backticks or tildes s starts with.
@@ -304,6 +329,9 @@ func ParsePlan(src string) (Plan, error) {
 		body = append(body, line)
 	}
 	flush()
+	if err := fence.unclosed(); err != nil {
+		return Plan{}, err
+	}
 	if len(p.Tasks) == 0 {
 		return Plan{}, fmt.Errorf("plan has no tasks: expected headings like \"### Task 1: <title>\"")
 	}
