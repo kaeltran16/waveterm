@@ -492,20 +492,19 @@ func TestLiveUsageReportsChildMemory(t *testing.T) {
 	if !ok {
 		t.Fatal("registered job missing from LiveUsage")
 	}
-	if u.RootPid != cmd.Process.Pid || u.Current < allocBytes || u.Peak < allocBytes {
-		t.Fatalf("JobUsage = %+v, want root %d and Current, Peak >= %d", u, cmd.Process.Pid, allocBytes)
+	if u.RootPid != cmd.Process.Pid || u.Current < allocBytes {
+		t.Fatalf("JobUsage = %+v, want root %d and Current >= %d", u, cmd.Process.Pid, allocBytes)
 	}
 }
 
-func TestCloseHookGetsPeak(t *testing.T) {
+func TestCloseHookGetsOwner(t *testing.T) {
 	type call struct {
 		owner   Owner
 		rootPid int
-		peak    uint64
 	}
 	var calls []call
-	SetCloseHook(func(o Owner, rootPid int, peak uint64) {
-		calls = append(calls, call{o, rootPid, peak})
+	SetCloseHook(func(o Owner, rootPid int) {
+		calls = append(calls, call{o, rootPid})
 	})
 	defer SetCloseHook(nil)
 
@@ -523,8 +522,8 @@ func TestCloseHookGetsPeak(t *testing.T) {
 	if len(calls) != 1 {
 		t.Fatalf("hook fired %d times, want 1: %+v", len(calls), calls)
 	}
-	if c := calls[0]; c.owner != o || c.rootPid != cmd.Process.Pid || c.peak < allocBytes {
-		t.Fatalf("hook got %+v, want owner %+v, root %d, peak >= %d", c, o, cmd.Process.Pid, allocBytes)
+	if c := calls[0]; c.owner != o || c.rootPid != cmd.Process.Pid {
+		t.Fatalf("hook got %+v, want owner %+v, root %d", c, o, cmd.Process.Pid)
 	}
 }
 

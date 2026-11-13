@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
 	"sync"
 
 	"github.com/wavetermdev/waveterm/pkg/memgate"
@@ -34,22 +33,14 @@ var liveDags = func(ctx context.Context) ([]*waveobj.TaskGroup, error) {
 }
 
 // UncapWorkersForTest lifts the live-worker cap and the memory gate for another package's tests: their store is
-// shared too, and the cap would count the dags earlier tests left live in it and the machine's free memory. It also
-// keeps the learned footprints in a temp dir, off the real data dir.
+// shared too, and the cap would count the dags earlier tests left live in it and the machine's free memory.
 func UncapWorkersForTest() (restore func()) {
 	oldLive := liveDags
 	liveDags = func(context.Context) ([]*waveobj.TaskGroup, error) { return nil, nil }
 	restoreFree := memgate.UncapForTest()
-	dir, err := os.MkdirTemp("", "memfootprints-*")
-	if err != nil {
-		panic(err)
-	}
-	restoreStore := memgate.SetStoreDirForTest(dir)
 	return func() {
 		liveDags = oldLive
 		restoreFree()
-		restoreStore()
-		os.RemoveAll(dir)
 	}
 }
 
@@ -101,7 +92,7 @@ func workerGrant(want, mine int, l workerLoad) int {
 // without being tried, so no task jumps ahead of one waiting for memory. It returns the admitted tasks and their
 // claims; the caller releases the count claim with releaseWorkerClaim once the dispatch is persisted, and every
 // claim its dispatch did not bind.
-func claimWorkers(ctx context.Context, g *waveobj.TaskGroup, owner *waveobj.Run, next []string) ([]string, map[string]*memgate.Claim) {
+func claimWorkers(ctx context.Context, g *waveobj.TaskGroup, next []string) ([]string, map[string]*memgate.Claim) {
 	if len(next) == 0 {
 		return nil, nil
 	}
@@ -117,10 +108,10 @@ func claimWorkers(ctx context.Context, g *waveobj.TaskGroup, owner *waveobj.Run,
 	var admitted []string
 	claims := make(map[string]*memgate.Claim)
 	for i, taskID := range granted {
-		claim, ok := memgate.TryAdmit(workerRequest(g, owner, taskID))
+		claim, ok := memgate.TryAdmit(workerRequest(g, taskID))
 		if !ok {
 			for _, held := range granted[i+1:] {
-				memgate.Hold(workerRequest(g, owner, held))
+				memgate.Hold(workerRequest(g, held))
 			}
 			break
 		}

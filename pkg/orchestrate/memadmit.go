@@ -6,13 +6,9 @@ package orchestrate
 import (
 	"context"
 	"log"
-	"path/filepath"
-	"runtime"
 	"slices"
-	"strings"
 	"time"
 
-	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/memgate"
 	"github.com/wavetermdev/waveterm/pkg/util/jobobject"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -21,19 +17,6 @@ import (
 
 // memEventTimeout bounds one memory event's store write: they are delivered in order on memgate's goroutine.
 const memEventTimeout = 10 * time.Second
-
-// MemProjectKey is the project a tree's learned peaks are kept under: its main checkout, so a run's worktrees key
-// to the project and nothing is lost when they are deleted.
-func MemProjectKey(path string) string {
-	if path == "" {
-		return ""
-	}
-	p := filepath.Clean(jarvis.MainCheckout(path))
-	if runtime.GOOS == "windows" {
-		p = strings.ToLower(p)
-	}
-	return p
-}
 
 type gateAdmittedKey struct{}
 
@@ -48,30 +31,22 @@ func gateAdmitted(ctx context.Context) bool {
 	return admitted
 }
 
-// admitPlanCommand waits at the memory gate for a run's plan command run in dir. A ctx with no run-command owner or
-// marked admitted is not gated (nil claim).
-func admitPlanCommand(ctx context.Context, dir string) (*memgate.Claim, error) {
+// admitPlanCommand waits at the memory gate for a run's plan command. A ctx with no run-command owner or marked
+// admitted is not gated (nil claim).
+func admitPlanCommand(ctx context.Context) (*memgate.Claim, error) {
 	owner, ok := jobobject.OwnerFrom(ctx)
 	if !ok || owner.Kind != jobobject.OwnerKind_RunCmd || gateAdmitted(ctx) {
 		return nil, nil
 	}
 	return memgate.Wait(ctx, memgate.Request{
-		Key:   memgate.Key{Project: MemProjectKey(dir), Role: owner.Cmd},
 		Tag:   memgate.Tag{RunId: owner.Id, TaskId: owner.Task, Role: owner.Cmd},
 		Owner: owner,
 	})
 }
 
-// workerRequest is the gate request for taskID's worker. A worker carries its tree's Setup, which runs on its
-// admission under the dag lock, so its need covers the larger of the two.
-func workerRequest(g *waveobj.TaskGroup, owner *waveobj.Run, taskID string) memgate.Request {
-	project := MemProjectKey(owner.ProjectPath)
-	key := memgate.Key{Project: project, Role: memgate.RoleWorker}
-	need := memgate.Estimate(key)
-	if g.Setup != "" {
-		need = max(need, memgate.Estimate(memgate.Key{Project: project, Role: PlanCmd_Setup}))
-	}
-	return memgate.Request{Key: key, Need: need, Tag: memgate.Tag{RunId: g.RunID, TaskId: taskID, Role: memgate.RoleWorker}}
+// workerRequest is the gate request for taskID's worker. Its tree's Setup runs on this admission, under the dag lock.
+func workerRequest(g *waveobj.TaskGroup, taskID string) memgate.Request {
+	return memgate.Request{Tag: memgate.Tag{RunId: g.RunID, TaskId: taskID, Role: memgate.RoleWorker}}
 }
 
 // bindClaim ties a started worker's or reviewer's claim to its block's job, released by the job's close or its run's
@@ -86,9 +61,9 @@ func bindToBlock(c *memgate.Claim, blockId string) {
 }
 
 // ReleaseRunClaims releases the gate claims of a run's sessions once the run is done. A worker or reviewer idles
-// alive at its prompt after it completes, until its lane is reaped: a claim bound to its job would keep reserving
-// its estimate all that time, and a finished worker's would starve the reviewer its task waits on, which must
-// pass before the lane lands and the worker exits. A fix round spawns a new worker, which is admitted afresh.
+// alive at its prompt after it completes, until its lane is reaped: a claim bound to its job would keep it in the
+// book all that time, a tree the loop may pause and one that keeps the book from being empty, whose first tree
+// always starts. A fix round spawns a new worker, which is admitted afresh.
 func ReleaseRunClaims(ctx context.Context, run *waveobj.Run) {
 	for _, s := range runBlockORefs(ctx, run) {
 		ref, err := waveobj.ParseORef(s)

@@ -8,16 +8,10 @@ import (
 	"context"
 	"log"
 	"slices"
-	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/util/jobobject"
 )
-
-// Resolver names the footprint key a live job's owner records its peak under; false when it cannot (block or
-// run gone).
-type Resolver func(ctx context.Context, o jobobject.Owner) (Key, bool)
 
 const (
 	loopTick = 2 * time.Second
@@ -30,8 +24,7 @@ const (
 	pauseLimit    = 3 * time.Minute
 	pauseCooldown = 10 * time.Minute
 	// a bound job registers within the engine's workerJobWait (30 s); one not seen by then never will be
-	bindStale      = 60 * time.Second
-	resolveTimeout = 5 * time.Second
+	bindStale = 60 * time.Second
 )
 
 const (
@@ -49,24 +42,6 @@ var (
 	setCloseHook = jobobject.SetCloseHook
 )
 
-var resolver atomic.Pointer[Resolver]
-
-// SetResolver sets how a live job's owner is classified for its footprint key (nil: never).
-func SetResolver(r Resolver) {
-	if r == nil {
-		resolver.Store(nil)
-		return
-	}
-	resolver.Store(&r)
-}
-
-// ownerKeys caches each live owner's resolved key, so a job resolves once and its close records under the key its
-// block or run had while alive.
-var ownerKeys = struct {
-	mu   sync.Mutex
-	keys map[jobobject.Owner]Key
-}{keys: make(map[jobobject.Owner]Key)}
-
 // loop holds the room-rise baseline; guarded by book.mu.
 var loop struct {
 	haveBase bool
@@ -75,10 +50,7 @@ var loop struct {
 
 // StartLoop installs the jobobject close hook and reconciles the book every 2 s until ctx ends.
 func StartLoop(ctx context.Context) {
-	setCloseHook(func(o jobobject.Owner, _ int, peak uint64) {
-		// Close runs on a block's exit path or plancmd's cleanup: never block it on the resolver or the store
-		go onJobClosed(o, peak)
-	})
+	setCloseHook(func(o jobobject.Owner, _ int) { onJobClosed(o) })
 	go func() {
 		ticker := time.NewTicker(loopTick)
 		defer ticker.Stop()
@@ -88,38 +60,23 @@ func StartLoop(ctx context.Context) {
 				setCloseHook(nil)
 				return
 			case <-ticker.C:
-				tick(ctx)
+				tick()
 			}
 		}
 	}()
 }
 
-func resolve(ctx context.Context, o jobobject.Owner) (Key, bool) {
-	r := resolver.Load()
-	if r == nil {
-		return Key{}, false
-	}
-	ctx, cancel := context.WithTimeout(ctx, resolveTimeout)
-	defer cancel()
-	return (*r)(ctx, o)
-}
-
-type ownerUsage struct{ cur, peak uint64 }
-
-func tick(ctx context.Context) {
-	usage := make(map[jobobject.Owner]ownerUsage)
+func tick() {
+	live := make(map[jobobject.Owner]bool)
 	for _, u := range liveUsage() {
-		ou := usage[u.Owner]
-		ou.cur += u.Current
-		ou.peak = max(ou.peak, u.Peak)
-		usage[u.Owner] = ou
+		live[u.Owner] = true
 	}
-	cacheKeys(ctx, usage)
 
 	book.mu.Lock()
 	defer book.mu.Unlock()
 	t := now()
-	correctClaimsLocked(usage, t)
+	correctClaimsLocked(live, t)
+	settleLocked(t)
 	// the pause limit needs no reading, so a failing read never lets a pause outlive it
 	resumeLimitedLocked(t)
 	avail, err := readFreeLocked()
@@ -135,41 +92,35 @@ func tick(ctx context.Context) {
 	}
 }
 
-// cacheKeys resolves each live owner not yet cached; a failure is retried next tick.
-func cacheKeys(ctx context.Context, usage map[jobobject.Owner]ownerUsage) {
-	for o := range usage {
-		ownerKeys.mu.Lock()
-		_, ok := ownerKeys.keys[o]
-		ownerKeys.mu.Unlock()
-		if ok {
-			continue
-		}
-		k, ok := resolve(ctx, o)
-		if !ok {
-			continue
-		}
-		ownerKeys.mu.Lock()
-		ownerKeys.keys[o] = k
-		ownerKeys.mu.Unlock()
-	}
-}
-
-// correctClaimsLocked sets each bound claim's use and raises its need to its tree's peak, and drops a bound claim
-// whose job was seen and is gone or never appeared. An unbound claim is its caller's: a serial batch of Setups can
-// hold one for many minutes.
-func correctClaimsLocked(usage map[jobobject.Owner]ownerUsage, t time.Time) {
+// correctClaimsLocked marks each bound claim whose job is live as seen, and drops a bound claim whose job was seen
+// and is gone or never appeared. An unbound claim is its caller's: a serial batch of Setups can hold one for many
+// minutes.
+func correctClaimsLocked(live map[jobobject.Owner]bool, t time.Time) {
 	for c := range book.claims {
 		if !c.bound {
 			continue
 		}
-		if u, ok := usage[c.owner]; ok {
-			c.seen, c.cur = true, u.cur
-			c.need = max(c.need, u.peak)
+		if live[c.owner] {
+			c.seen = true
 			continue
 		}
 		if c.seen || t.Sub(c.boundAt) >= bindStale {
 			dropLocked(c, t)
 		}
+	}
+}
+
+// settleLocked calls the room hook once claims have stopped counting their startup allowance: held trees may fit now,
+// and nothing else would tick their runs.
+func settleLocked(t time.Time) {
+	var settled bool
+	for c := range book.claims {
+		if !c.settled && !c.startingLocked(t) {
+			c.settled, settled = true, true
+		}
+	}
+	if settled {
+		roomFreedLocked()
 	}
 }
 
@@ -194,7 +145,7 @@ func checkRiseLocked(avail uint64) {
 }
 
 func pausable(c *Claim) bool {
-	return c.bound && c.seen && (c.key.Role == RoleWorker || c.key.Role == RoleReviewer)
+	return c.bound && c.seen && (c.tag.Role == RoleWorker || c.tag.Role == RoleReviewer)
 }
 
 // pauseOneLocked pauses one background tree: reviewers before workers, the most recently admitted first. It never
@@ -216,7 +167,7 @@ func pauseOneLocked(avail uint64, t time.Time) {
 	}
 	slices.SortFunc(cands, func(a, b *Claim) int {
 		return cmp.Or(
-			cmp.Compare(rolePauseOrder(a.key.Role), rolePauseOrder(b.key.Role)),
+			cmp.Compare(rolePauseOrder(a.tag.Role), rolePauseOrder(b.tag.Role)),
 			b.admitted.Compare(a.admitted),
 		)
 	})
@@ -274,22 +225,9 @@ func endPauseLocked(c *Claim, reason string, avail uint64, t time.Time) {
 	emitLocked(Event{Kind: EventResumed, Tag: c.tag, Free: avail, Reason: reason, Ms: t.Sub(c.pausedAt).Milliseconds()})
 }
 
-// onJobClosed records a closed job's peak under its owner's key, releases a block-owned claim and ends its pause.
-// Close has already released the suspended handles; a plan command's claim is its caller's to release.
-func onJobClosed(o jobobject.Owner, peak uint64) {
-	ownerKeys.mu.Lock()
-	k, ok := ownerKeys.keys[o]
-	delete(ownerKeys.keys, o)
-	ownerKeys.mu.Unlock()
-	if !ok {
-		k, ok = resolve(context.Background(), o)
-	}
-	if ok {
-		Record(k, peak)
-	} else {
-		log.Printf("memgate: no footprint key for closed %s %s %s, peak %d not recorded", o.Kind, o.Id, o.Cmd, peak)
-	}
-
+// onJobClosed releases a block-owned claim and ends its pause. Close has already released the suspended handles; a
+// plan command's claim is its caller's to release.
+func onJobClosed(o jobobject.Owner) {
 	book.mu.Lock()
 	defer book.mu.Unlock()
 	for c := range book.claims {

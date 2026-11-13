@@ -562,7 +562,7 @@ func scheduleLocked(ctx context.Context, dagID string) ([]stalledTask, error) {
 	stalled := recordTaskTransitions(ctx, g, runs, prevStates, now, &afterCommit)
 	countFailures(ctx, g, runs, prevStates, &afterCommit)
 	// what the cap holds back stays pending, and a later tick dispatches it once a worker or memory frees up
-	next, claims := claimWorkers(ctx, g, owner, NextToSpawn(g))
+	next, claims := claimWorkers(ctx, g, NextToSpawn(g))
 	defer releaseWorkerClaim(g.OID)
 	// a claim its dispatch never bound (a failed spawn, a tick that failed part-way, the tasks after it) is the
 	// tick's to release; a bound one belongs to its worker's job
