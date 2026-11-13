@@ -13,6 +13,9 @@ const WEEKS = 53;
 const BUSY_WEEKS = 40;
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+// the app opens the tip 6px beside its cell with its top 8px above the cell's; a tip still placed for another cell
+// misses by a column's width or more
+const TIP_NEAR_PX = 12;
 
 const dayDate = (n) => {
     const d = new Date();
@@ -128,9 +131,26 @@ async function hoverDay(h, day) {
     if (c == null) return null;
     await lookHover(h, 1, 1);
     await lookHover(h, c.x, c.y);
+    // under load the tip read can still be the one placed for the previous hover, or its exiting copy: read once a
+    // single tip has its top and one side edge at the hovered cell, whichever side it opens to, and its reveal has settled
     return regionEval(h, `
-        await until(() => tip() != null, 2000);
-        return { cell: box(cell(${JSON.stringify(day)})), tip: box(tip()), region: box(region()), text: flat(tip()) };
+        const want = ${JSON.stringify(day)};
+        const near = (a, b) => Math.abs(a - b) <= ${TIP_NEAR_PX};
+        const placed = () => {
+            const tips = region()?.querySelectorAll('[role="tooltip"]') ?? [];
+            const t = box(tips[0]);
+            const c = box(cell(want));
+            return tips.length === 1 && t != null && c != null && near(t.top, c.top) && (near(t.left, c.right) || near(t.right, c.left));
+        };
+        const isPlaced = await until(placed, 2000);
+        let last = null;
+        await until(() => {
+            const now = JSON.stringify(box(tip()));
+            const same = now === last;
+            last = now;
+            return same;
+        }, 1000);
+        return { isPlaced, cell: box(cell(want)), tip: box(tip()), region: box(region()), text: flat(tip()) };
     `);
 }
 
