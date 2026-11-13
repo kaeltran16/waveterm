@@ -27,8 +27,28 @@ export const projectOverview = {
 
         // 1. the All projects row has no overview button; the project's row has one
         const unscoped = await pageEval(h, `
-            await ps.registerProject(${JSON.stringify(ctx.project)}, ${JSON.stringify(ctx.dir)});
-            const listed = await until(() => S.globalStore.get(ps.projectsAtom)?.[${JSON.stringify(ctx.project)}] != null, 10000);
+            const want = ${JSON.stringify(ctx.project)};
+            const G = await mod("app/store/global.ts");
+            const { RpcApi } = await mod("app/store/wshclientapi.ts");
+            const { TabRpcClient } = await mod("app/store/wshrpcutil.ts");
+            // what the wait meets: each config the frontend receives, and each poll of the atom and of wavesrv's watcher
+            const t0 = performance.now();
+            const ms = () => Math.round(performance.now() - t0);
+            const inAtom = () => S.globalStore.get(ps.projectsAtom)?.[want] != null;
+            const capture = { configEvents: [], polls: [] };
+            const unsub = S.globalStore.sub(G.atoms.fullConfigAtom, () => capture.configEvents.push({ t: ms(), has: inAtom() }));
+            await ps.registerProject(want, ${JSON.stringify(ctx.dir)});
+            capture.registered = ms();
+            const serverHas = () => RpcApi.GetFullConfigCommand(TabRpcClient).then((c) => c?.projects?.[want] != null, (e) => String(e));
+            // a poll is kept when what it saw changed, so the detail stays short
+            for (const end = ms() + 10000; !inAtom() && ms() < end; await nap(250)) {
+                const p = { t: ms(), atom: inAtom(), server: await serverHas() };
+                const last = capture.polls.at(-1);
+                if (last?.atom !== p.atom || last?.server !== p.server) capture.polls.push(p);
+            }
+            const listed = inAtom();
+            capture.listedAt = listed ? ms() : null;
+            unsub();
             window.__overviewPrevScope = S.globalStore.get(model.projectFilterAtom);
             S.globalStore.set(model.projectFilterAtom, "all");
             await nap(200);
@@ -39,10 +59,10 @@ export const projectOverview = {
             // press on it starts a window drag and the click that closes the dropdown never fires
             const backdrop = switcher()?.parentElement.querySelector(":scope > .fixed.inset-0");
             const backdropDrag = backdrop?.closest("[data-tauri-drag-region]")?.getAttribute("data-tauri-drag-region");
-            const hasEntry = entry(${JSON.stringify(ctx.project)}) != null;
+            const hasEntry = entry(want) != null;
             switcher()?.click();
             await nap(200);
-            return { listed, opened, allHasEntry, hasEntry, backdropDrag };
+            return { listed, opened, allHasEntry, hasEntry, backdropDrag, capture };
         `);
         steps.push({
             step: "project-overview: the switcher's backdrop opts out of the app bar's window-drag region",

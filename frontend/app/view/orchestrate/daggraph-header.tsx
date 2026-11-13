@@ -1,4 +1,4 @@
-import { useChangeFlash } from "@/app/element/motionhooks";
+import { useChangeFlash, useLastShown } from "@/app/element/motionhooks";
 import { changeFlashClass, composerReveal, errorNudge } from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
 import { globalStore } from "@/app/store/jotaiStore";
@@ -73,6 +73,7 @@ export function DagGraphHeader({ group, owner }: { group: TaskGroup; owner: Run 
     const labelFlash = useChangeFlash(label);
     const ended = runFinished({ dag: group, status: group.status });
     const [cancelError, setCancelError] = useState("");
+    const shownCancelError = useLastShown(cancelError || null);
     const [adjusting, setAdjusting] = useState(false);
     // keys the Run settings modal, so every open starts from the stored settings
     const [opens, setOpens] = useState(0);
@@ -138,7 +139,7 @@ export function DagGraphHeader({ group, owner }: { group: TaskGroup; owner: Run 
                                 animate="animate"
                                 className="block text-[12px] text-warning"
                             >
-                                {cancelError}
+                                {shownCancelError}
                             </motion.span>
                         </PaneReveal>
                         <button

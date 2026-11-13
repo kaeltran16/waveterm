@@ -6,11 +6,11 @@
 // target is still there. The key hints and the panel's own keys stay with petpeek.tsx, which owns the dialog.
 
 import { AutoHeight } from "@/app/element/autoheight";
+import { ViewSwap } from "@/app/element/viewswap";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { cn, fireAndForget } from "@/util/util";
 import { ChevronLeft, X } from "lucide-react";
 import { openTarget } from "./openref";
-import { PeekFade } from "./peek/peekfade";
 import { PEEK_BODIES } from "./peek/peekregistry";
 import { goneLine, kindNoun, openButton, openLabel, type ItemKeyCommand } from "./peekitemmodel";
 import { closePeek, peekTargetKey, type PeekFacts, type PeekItem } from "./peekstore";
@@ -119,7 +119,7 @@ export function PeekItemView({
             <div data-pet-peek-body className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden border-t border-border">
                 {/* the peek grows to its content instead of jumping from the one-line loader */}
                 <AutoHeight>
-                    <PeekFade fadeKey={shown}>
+                    <ViewSwap swapKey={shown}>
                         {shown === "loading" ? (
                             <LoadingBody item={item} />
                         ) : shown === "gone" ? (
@@ -130,7 +130,7 @@ export function PeekItemView({
                             // keyed by target, so a peek at another item mounts a fresh body that reports for it
                             <Body key={peekTargetKey(item.target)} model={model} target={item.target} />
                         )}
-                    </PeekFade>
+                    </ViewSwap>
                 </AutoHeight>
             </div>
 

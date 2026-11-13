@@ -6,7 +6,7 @@
 // through the Code surface's atoms.
 
 import { Markdown } from "@/app/element/markdown";
-import { ViewFade } from "@/app/element/viewfade";
+import { ViewSwap } from "@/app/element/viewswap";
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { CodeEditor } from "@/app/view/codeeditor/codeeditor";
@@ -271,9 +271,9 @@ export function CodePeekCard({
             </div>
             <div className="min-h-0 flex-1 overflow-hidden">
                 {/* the file landing over its "Reading…" line, or another mode's view, fades in rather than cutting */}
-                <ViewFade fadeKey={`${peek.file.kind}|${peek.mode}`} className="h-full">
+                <ViewSwap swapKey={`${peek.file.kind}|${peek.mode}`} className="h-full">
                     <PeekBody peek={peek} blockId={blockId} />
-                </ViewFade>
+                </ViewSwap>
             </div>
             <div className="flex flex-none items-center gap-[12px] border-t border-border px-[14px] py-[10px]">
                 <button

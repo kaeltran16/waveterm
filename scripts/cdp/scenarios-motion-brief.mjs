@@ -157,6 +157,32 @@ async function behindSteps(h, rec) {
         reduced.text === "1" && reduced.children === 0 && reducedAdds.length === 0,
         { reduced, reducedAdds }
     );
+
+    // 3b. reduced motion: the list's view swap (orchestrator -> quick) lands opaque, with no frame of the fade
+    await h.cdp("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+    await polishNap(300);
+    await h.ev(watch("listReduced", `(n) => n.matches('[data-jarvis-brief-region="behind"] [data-view-swap="quick"]') ? n : null`));
+    const listFrames = await h.ev(`(async () => {
+        ${KIND("quick")}?.click();
+        const opacities = [];
+        const end = performance.now() + 500;
+        while (performance.now() < end) {
+            const list = ${BEHIND}?.querySelector('[data-view-swap="quick"]');
+            if (list) opacities.push(Number(getComputedStyle(list).opacity));
+            await new Promise((r) => requestAnimationFrame(r));
+        }
+        return opacities;
+    })()`);
+    const listReduced = await h.ev(seen("listReduced"));
+    await h.cdp("Emulation.setEmulatedMedia", { features: [] });
+    rec(
+        "3b. under reduced motion picking quick mounts the Shipped list at opacity 1, and no sampled frame drops below 1",
+        listReduced.length > 0 &&
+            listReduced.every((l) => l.opacity === "1") &&
+            listFrames.length > 0 &&
+            listFrames.every((o) => o === 1),
+        { listReduced, listFrames }
+    );
     await h.ev(`${KIND("all")}?.click()`);
     await polishNap(300);
 }

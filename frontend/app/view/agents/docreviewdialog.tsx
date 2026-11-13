@@ -10,7 +10,7 @@ import { CrossFade } from "@/app/element/crossfade";
 import { composerReveal } from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
 import { SkeletonLine } from "@/app/element/skeleton";
-import { ViewFade } from "@/app/element/viewfade";
+import { ViewSwap } from "@/app/element/viewswap";
 import { ModalShell } from "@/app/modals/modalshell";
 import { globalStore } from "@/app/store/jotaiStore";
 import { formatChordString } from "@/util/keysym";
@@ -322,7 +322,7 @@ function DocumentPane({ path, quoting, onOpen }: { path: string; quoting: Quotin
                 onMouseUp={onMouseUp}
                 className="sc relative min-h-0 flex-1 overflow-y-auto px-7 pb-7 pt-[18px]"
             >
-                <ViewFade fadeKey={load.status}>
+                <ViewSwap swapKey={load.status}>
                     {load.status === "loading" ? (
                         <div aria-hidden="true" className="flex flex-col gap-2.5 pt-1">
                             {["w-[45%]", "w-[85%]", "w-[75%]", "w-[60%]", "w-[80%]"].map((w, i) => (
@@ -339,7 +339,7 @@ function DocumentPane({ path, quoting, onOpen }: { path: string; quoting: Quotin
                             <MarkdownMessage text={load.text} className="text-[14px] leading-[1.65] text-secondary" />
                         </div>
                     )}
-                </ViewFade>
+                </ViewSwap>
                 {/* the card is absolute in the scroller, so the reveal's height clips nothing: it fades the card */}
                 <PaneReveal open={load.status === "ok" && quoting.pending != null} variants={composerReveal}>
                     {quoting.pending ? (

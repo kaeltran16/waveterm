@@ -27,12 +27,14 @@ const PULSE = "pulse-dot-slow";
 export function WaitingRow({
     line,
     focused,
+    fresh,
     acts,
     onOpen,
     onAct,
 }: {
     line: BriefLine;
     focused: boolean;
+    fresh: boolean;
     acts: QueueAct[];
     onOpen?: (e: React.MouseEvent) => void;
     onAct: (act: QueueAct) => void;
@@ -47,7 +49,8 @@ export function WaitingRow({
                 "flex items-center gap-[13px] py-1.5 hover:bg-surface-hover",
                 ROW_BORDER,
                 onOpen != null && "cursor-pointer",
-                focused && CURSOR_RING
+                focused && CURSOR_RING,
+                fresh && "fresh-mark"
             )}
         >
             <span

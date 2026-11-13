@@ -300,6 +300,32 @@ export const motionFinal = {
             { refusal, refusalText }
         );
 
+        // the human reruns, opens a kept output, and the stage fails behind it: the note's moment is not armed, so
+        // closing the output shows the note settled, with no late nudge
+        await polishWaitFor(h, `!!${rerun} && !!${PANE}?.querySelector("[data-final-note]")`, WAIT_MS);
+        await click(h, rerun);
+        const reset2 = await polishWaitFor(h, `!${rerun} && !!${PANE} && !${PANE}.querySelector("[data-final-note]")`, 15_000);
+        await polishNap(RERUN_TICK_MS);
+        // round 2 under review again: its steps ended, so check has its output to open
+        await seedFinalShots(h, ctx, { final: { ...round1, round: 2, state: "verifying", detail: "" }, pastfinals: [round1] });
+        const paneCheck = `${PANE}?.querySelector('[data-final-step="check"]')`;
+        const keptView = `!!${PANE}?.querySelector('[data-final-pane-view="kept"]')`;
+        await polishWaitFor(h, `!!${paneCheck}`, WAIT_MS);
+        await click(h, paneCheck);
+        const keptOpen = await polishWaitFor(h, keptView, WAIT_MS);
+        await seedFinalShots(h, ctx, round2Failed);
+        const failedBehind = await polishWaitFor(h, `!!${rerun} && ${keptView}`, WAIT_MS);
+        await polishNap(SETTLE_MS);
+        await arm(h, "late", `(n) => (n.matches("[data-final-note]") ? n : n.querySelector?.("[data-final-note]"))`, { frames: true });
+        await click(h, paneCheck);
+        await polishWaitFor(h, `!!${PANE}?.querySelector("[data-final-note]")`, WAIT_MS);
+        const late = await collect(h, "late", `${PANE}?.querySelector("[data-final-note]")`);
+        rec(
+            "6c. a failure after the human's rerun that lands behind a kept output does not nudge its note when the output closes",
+            reset2 && keptOpen && failedBehind && late.first != null && late.moved === 0,
+            { reset2, keptOpen, failedBehind, late }
+        );
+
         // --- the screenshot viewer, on round 1 ---
         await arm(h, "viewer", `(n) => (n.matches("[data-final-shots-viewer]") ? n : n.querySelector?.("[data-final-shots-viewer]"))`);
         await click(h, `${PANE}?.querySelector("[data-final-shots-link]")`);

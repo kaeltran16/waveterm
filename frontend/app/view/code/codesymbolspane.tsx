@@ -6,7 +6,7 @@
 // already open, so nothing is read. The outline is a per-language heuristic (codeoutline.ts), so each
 // empty state names its reason rather than a bare "nothing here".
 
-import { ViewFade } from "@/app/element/viewfade";
+import { ViewSwap } from "@/app/element/viewswap";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useMemo, useRef, useState, type KeyboardEvent } from "react";
@@ -68,7 +68,7 @@ export function CodeSymbolsPane() {
                 />
             </div>
             {/* the outline arriving (or a filter emptying it) trades the pane's content, so it fades in */}
-            <ViewFade fadeKey={empty != null ? "empty" : "outline"} className="flex min-h-0 flex-1 flex-col">
+            <ViewSwap swapKey={empty != null ? "empty" : "outline"} className="flex min-h-0 flex-1 flex-col">
                 {empty != null ? (
                     <div data-code-symbols-empty className="px-3 py-2 text-[11.5px] text-muted">
                         {empty}
@@ -103,7 +103,7 @@ export function CodeSymbolsPane() {
                         })}
                     </div>
                 )}
-            </ViewFade>
+            </ViewSwap>
         </div>
     );
 }

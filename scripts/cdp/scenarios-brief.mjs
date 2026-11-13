@@ -4543,9 +4543,35 @@ export const jarvisMotion = {
 
         // 2. freshness against a visit cursor older than the rows. The `normal` fixture's cursor is
         //    seven days back and every initiative and session row it carries is one to three days old,
-        //    so each of those regions must mark, and must mark no more rows than it has.
-        await h.ev(`document.querySelector('[data-briefing-fixture="normal"]')?.click()`);
+        //    so each of those regions must mark, and must mark no more rows than it has. The `normal`
+        //    fixture carries no wire attention, so this runs on a copy of it with the `attention` fixture's
+        //    three waiting items (all newer than the cursor) plus one that predates the cursor: the queue
+        //    must mark the three and not the old one. The old item's text is the handle the step finds it by.
+        const OLD_WAITING = "Stale gate that predates your last visit";
+        const WAITING_FIXTURE = "jarvisMotionWaiting";
+        await lookEval(
+            h,
+            `
+            const { BRIEFING_FIXTURES } = await mod("app/view/jarvis/briefingfixtures.ts");
+            const { briefingFixtureAtom } = await mod("app/view/jarvis/briefingstore.ts");
+            const normal = BRIEFING_FIXTURES.normal;
+            const old = {
+                ...BRIEFING_FIXTURES.attention.attention[0],
+                key: "run-land-held:r-stale",
+                text: ${JSON.stringify(OLD_WAITING)},
+                waitingsince: normal.load.snapshot.actualCursor - 24 * 60 * 60 * 1000,
+            };
+            BRIEFING_FIXTURES[${JSON.stringify(WAITING_FIXTURE)}] = {
+                ...normal,
+                attention: [...BRIEFING_FIXTURES.attention.attention, old],
+            };
+            (await mod("app/store/jotaiStore.ts")).globalStore.set(briefingFixtureAtom, ${JSON.stringify(WAITING_FIXTURE)});
+        `
+        );
         await settle(900);
+        // the queue's rows draw only while its summary is open, and the open state outlives a scenario
+        await h.ev(`document.querySelector('[data-jarvis-brief-attention-summary][aria-expanded="false"]')?.click()`);
+        await settle(600);
         const TALLY = `(() => {
             const per = {};
             document.querySelectorAll('[data-jarvis-brief-row]').forEach((r) => {
@@ -4558,10 +4584,29 @@ export const jarvisMotion = {
         })()`;
         const marked = await h.ev(TALLY);
         const region = (k) => marked[k] ?? { rows: 0, marked: 0 };
+        // a queue row's mark by the wire item it came from: every item newer than the cursor marked, the older
+        // one not. Blocked-chunk rows are not wire items, so they are left to the region tally.
+        const waitingMarks = await lookEval(
+            h,
+            `
+            const { BRIEFING_FIXTURES } = await mod("app/view/jarvis/briefingfixtures.ts");
+            const fx = BRIEFING_FIXTURES[${JSON.stringify(WAITING_FIXTURE)}];
+            const cursor = fx.load.snapshot.actualCursor;
+            const rows = [...document.querySelectorAll('[data-jarvis-brief-row="queue"]')];
+            return fx.attention.map((a) => {
+                const row = rows.find((r) => (r.innerText || "").includes(a.text));
+                return { newer: a.waitingsince >= cursor, found: row != null, marked: row?.classList.contains("fresh-mark") === true };
+            });
+        `
+        );
         rec(
-            "2. rows newer than the visit cursor carry the freshness mark",
-            region("initiative").marked > 0 && region("session").marked > 0,
-            JSON.stringify(marked)
+            "2. rows newer than the visit cursor carry the freshness mark, in the queue too, and the older queue row does not",
+            region("initiative").marked > 0 &&
+                region("session").marked > 0 &&
+                waitingMarks.some((w) => w.newer) &&
+                waitingMarks.some((w) => !w.newer) &&
+                waitingMarks.every((w) => w.found && w.marked === w.newer),
+            JSON.stringify({ ...marked, waitingMarks })
         );
         await h.shot("cdp-shots/jarvis-motion-fresh.png");
 
@@ -4570,9 +4615,10 @@ export const jarvisMotion = {
         //    Asserted per region, not in total: the three marked regions each call freshKeys with
         //    their own list, so the cap is three separate budgets and a summed check would be wrong.
         const FRESH_MARK_CAP = 6;
-        const capped = ["queue", "initiative", "session"].every((k) => region(k).marked <= FRESH_MARK_CAP);
+        const capped =
+            region("queue").rows > 0 && ["queue", "initiative", "session"].every((k) => region(k).marked <= FRESH_MARK_CAP);
         rec(
-            `3. no region marks more than ${FRESH_MARK_CAP} rows`,
+            `3. no region marks more than ${FRESH_MARK_CAP} rows, and the queue region has rows to cap`,
             capped,
             JSON.stringify({ cap: FRESH_MARK_CAP, ...marked })
         );
@@ -4595,6 +4641,10 @@ export const jarvisMotion = {
 
         await h.ev(`document.querySelector('[data-briefing-fixture="empty"]')?.click()`);
         await settle(700);
+        await lookEval(
+            h,
+            `delete (await mod("app/view/jarvis/briefingfixtures.ts")).BRIEFING_FIXTURES[${JSON.stringify(WAITING_FIXTURE)}];`
+        );
         const emptyMarks = await h.ev(`document.querySelectorAll('.fresh-mark').length`);
         const emptyTally = await h.ev(TALLY);
         const emptyRegions = Object.keys(emptyTally);

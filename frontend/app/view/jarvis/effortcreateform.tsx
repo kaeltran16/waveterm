@@ -5,6 +5,7 @@
 // ticked lines become status=done at save (two RPCs — the chunk seed carries no status field).
 
 import { CrossFade } from "@/app/element/crossfade";
+import { useLastShown } from "@/app/element/motionhooks";
 import { composerReveal, errorNudge, microFade } from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
 import { ModalShell } from "@/app/modals/modalshell";
@@ -91,6 +92,8 @@ function EffortCreateDialog({ model, onClose, edit, open }: EffortCreateFormProp
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [titleError, setTitleError] = useState<string | null>(null);
+    const shownError = useLastShown(error);
+    const shownTitleError = useLastShown(titleError);
     // keys the errors' nudge, so a second refusal with the same message still shakes
     const [failures, setFailures] = useState(0);
     const projects = useAtomValue(projectListAtom);
@@ -251,7 +254,7 @@ function EffortCreateDialog({ model, onClose, edit, open }: EffortCreateFormProp
                             animate="animate"
                             className="block text-[11px] text-error"
                         >
-                            {titleError}
+                            {shownTitleError}
                         </motion.span>
                     </PaneReveal>
                 </div>
@@ -437,7 +440,7 @@ function EffortCreateDialog({ model, onClose, edit, open }: EffortCreateFormProp
                         animate="animate"
                         className="block truncate text-[11px] text-error"
                     >
-                        {error}
+                        {shownError}
                     </motion.span>
                 </PaneReveal>
                 {error != null ? null : edit == null ? (

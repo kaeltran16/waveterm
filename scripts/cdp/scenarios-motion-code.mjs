@@ -4,10 +4,13 @@
 // registered as a project the way project-overview does. Each moment is sampled in-page: an observer reads a value a
 // node mounts with, and a frame sampler reads a value every animation frame, since a CDP round trip per sample is
 // slower than the motion.
+import { randomUUID } from "node:crypto";
 import { codeImageZoom } from "./scenarios-code-imagezoom.mjs";
 import { codeEval, makeCodeRepo, openFileInCode, openFolderInCode, removeCodeRepo } from "./scenarios-code-kit.mjs";
 import { closeOverview, openOverview, pageEval } from "./project-overview-kit.mjs";
+import { installRuns, restoreRuns } from "./project-overview-history.mjs";
 import { MODELS_VIEWPORT, lookHover } from "./scenarios-shared.mjs";
+import { fixtureSession, installSessions, restoreSessions } from "./sessions-page-fixtures.mjs";
 
 // a NUL byte makes the store read it as binary, and the bytes are no PNG, so the image fails to decode
 const BROKEN_PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01, 0x02, 0x03]);
@@ -199,7 +202,7 @@ export const motionCode = {
         const invalid = await codeEval(h, `return until(() => document.querySelector("[data-code-search-invalid]") != null, 8000);`);
         await nap(500);
         const invalidX = distinct(await ev(stopFrames("invalid")));
-        await ev(watchAdded(`[data-view-fade^="done:"]`));
+        await ev(watchAdded(`[data-view-swap^="done:"]`));
         await ev(setInput("[data-code-search-input]", "alpha", true));
         const results = await codeEval(h, `return until(() => document.querySelector("[data-code-search-row]") != null, 8000);`);
         await nap(500);
@@ -222,7 +225,7 @@ export const motionCode = {
         await ev(`document.querySelector('[data-code-column-tab="symbols"]')?.click()`);
         const outline = await codeEval(h, `return until(() => document.querySelector("[data-code-symbol-row]") != null, 6000);`);
         await nap(300);
-        await ev(watchAdded(`[data-view-fade="empty"]`));
+        await ev(watchAdded(`[data-code-symbols] [data-view-swap="empty"]`));
         await ev(setInput("[data-code-symbols-filter]", "zzq"));
         await nap(500);
         const emptyAdded = await ev(readAdded);
@@ -265,27 +268,29 @@ export const motionCode = {
                 { peek: { ...peek, file: { kind: "loading" } }, model: {}, blockId: "motion-code-peek", side: "below" },
                 { style: "width:560px;height:360px;" });
             await nap(300);
-            const loading = document.querySelector('[data-look-mount="CodePeekCard"] [data-view-fade]')?.getAttribute("data-view-fade");
+            const loading = document.querySelector('[data-look-mount="CodePeekCard"] [data-view-swap]')?.getAttribute("data-view-swap");
             const seen = [];
             const obs = new MutationObserver((muts) => {
                 for (const m of muts) for (const n of m.addedNodes) {
-                    if (n instanceof Element && n.matches("[data-view-fade]")) seen.push({ key: n.getAttribute("data-view-fade"), opacity: getComputedStyle(n).opacity });
+                    if (n instanceof Element && n.matches("[data-view-swap]")) seen.push({ key: n.getAttribute("data-view-swap"), opacity: getComputedStyle(n).opacity });
                 }
             });
             obs.observe(host, { childList: true, subtree: true });
             host.render({ peek: { ...peek, file: { kind: "text", text: "# Notes\\n\\nA peeked file.", git: { kind: "norepo" }, open: { projectPath: "C:/motion", rel: "notes.md" } } }, model: {}, blockId: "motion-code-peek", side: "below" });
             await nap(600);
             obs.disconnect();
-            const settled = getComputedStyle(host.querySelector("[data-view-fade]")).opacity;
+            const settled = getComputedStyle(host.querySelector("[data-view-swap]")).opacity;
             return { loading, seen, settled };
         `);
         await h.shot("cdp-shots/motion-code-peek.png");
         await codeEval(h, `
             unmountAll();
-            const P = await mod("app/view/code/codepeekstore.ts");
+            // the card took focus on mount and a removed node never blurs, so its focus flag would stay set and
+            // codepeek:open would take every later Enter on the Agent surface
+            const [S, P] = await Promise.all([mod("app/store/jotaiStore.ts"), mod("app/view/code/codepeekstore.ts")]);
             S.globalStore.set(P.codePeekFocusedAtom, false);
             return true;
-        `).catch(() => {});
+        `).catch((e) => console.error(`motion-code: the peek cleanup failed, so a later scenario's Enter may hit codepeek:open: ${e}`));
         rec(
             "9. a Code peek's file landing over its loading line mounts at opacity 0 and settles at 1",
             peek?.loading === "loading|preview" && peek.seen[0]?.key === "text|preview" && peek.seen[0].opacity === "0" && peek.settled === "1",
@@ -354,9 +359,9 @@ export const motionCode = {
         ctx.registered = registered === true;
 
         // 11. Branches and History trade their skeletons for rows with a fade
-        await ev(watchAdded(`[data-overview-region] [data-view-fade="rows"]`, `el.closest("[data-overview-region]").getAttribute("data-overview-region") + ":" + getComputedStyle(el).opacity`));
+        await ev(watchAdded(`[data-overview-region] [data-view-swap="rows"]`, `el.closest("[data-overview-region]").getAttribute("data-overview-region") + ":" + getComputedStyle(el).opacity`));
         const overview = await openOverview(h, ctx.project);
-        await pageEval(h, `return until(() => ["branches", "history"].every((r) => overview()?.querySelector('[data-overview-region="' + r + '"] [data-view-fade="rows"]') != null), 10000);`);
+        await pageEval(h, `return until(() => ["branches", "history"].every((r) => overview()?.querySelector('[data-overview-region="' + r + '"] [data-view-swap="rows"]') != null), 10000);`);
         await nap(600);
         const regionsAdded = (await ev(readAdded)).map((r) => r.value);
         await h.shot("cdp-shots/motion-code-overview.png");
@@ -436,6 +441,69 @@ export const motionCode = {
                 tops.every((v) => v >= Math.min(tops[0], tops.at(-1)) && v <= Math.max(tops[0], tops.at(-1))),
             { entered, enterAdded, moved, tops }
         );
+
+        // 14. History: a session's run opening under it while the list is up reveals through PaneReveal. A Retry would
+        // remount the list through its skeleton, so the match arrives the way a live list can change: the archive
+        // gives the session the transcript path the run names as its origin.
+        const MIN = 60_000;
+        const alt = "C:/motion-code-history/origin-now.jsonl";
+        const origin = fixtureSession({
+            projectpath: ctx.dir,
+            projectname: ctx.project,
+            task: "Motion origin session",
+            lastactivets: Date.now() - 5 * MIN,
+            startedts: Date.now() - 35 * MIN,
+        });
+        const historyRun = { id: randomUUID(), goal: "Motion nested run", createdts: Date.now() - 2 * MIN, origintranscript: alt };
+        const NESTED = `[data-overview-region="history"] [data-history-nested]`;
+        const NEST_BOX = `document.querySelector(${JSON.stringify(NESTED)})?.parentElement`;
+        const HISTORY_ROWS = `[...(overview()?.querySelectorAll('[data-overview-region="history"] [data-history-session], [data-overview-region="history"] [data-history-run]') ?? [])].map((b) => b.hasAttribute("data-history-session") ? "s" : b.hasAttribute("data-history-nested") ? "nested" : "run")`;
+        let nest = { ready: false };
+        try {
+            await installSessions(h, [origin]);
+            const channel = await installRuns(h, ctx, [historyRun]);
+            await closeOverview(h);
+            await openOverview(h, ctx.project);
+            const before = await pageEval(h, `
+                await until(() => overview()?.querySelector('[data-overview-region="history"] [data-history-run]') != null, 8000);
+                await nap(500);
+                return ${HISTORY_ROWS};
+            `);
+            await ev(watchAdded(NESTED, `getComputedStyle(el.parentElement).opacity`));
+            await ev(startFrames("nest-h", `return ${NEST_BOX}?.getBoundingClientRect().height ?? null;`));
+            await ev(startFrames("nest-o", `return Number(getComputedStyle(${NEST_BOX}).opacity);`));
+            await installSessions(h, [{ ...origin, transcriptpath: alt }]);
+            const nested = await pageEval(h, `return until(() => overview()?.querySelector(${JSON.stringify(NESTED)}) != null, 6000);`);
+            await nap(700);
+            const nestAdded = await ev(readAdded);
+            const heights = distinct(await ev(stopFrames("nest-h")));
+            const opacities = distinct(await ev(stopFrames("nest-o")));
+            const after = await pageEval(h, `return { rows: ${HISTORY_ROWS}, height: ${NEST_BOX}?.style.height ?? null };`);
+            await h.shot("cdp-shots/motion-code-history-nested.png");
+            nest = { channel, before, nested, nestAdded, heights, opacities, after };
+            rec(
+                "14. a run that starts nesting under its session in the Overview History mounts at opacity 0 and height 0, grows through intermediate heights and opacities, and settles at auto and 1 with the top-level row gone",
+                channel === true &&
+                    JSON.stringify(before) === JSON.stringify(["run", "s"]) &&
+                    nested === true &&
+                    nestAdded.some((r) => r.value === "0") &&
+                    heights[0] === 0 &&
+                    heights.at(-1) > 0 &&
+                    between(heights, 0, heights.at(-1)) &&
+                    opacities[0] === 0 &&
+                    opacities.at(-1) === 1 &&
+                    between(opacities, 0, 1) &&
+                    JSON.stringify(after.rows) === JSON.stringify(["s", "nested"]) &&
+                    after.height === "auto",
+                nest
+            );
+        } catch (e) {
+            rec("14. a run that starts nesting under its session in the Overview History reveals through PaneReveal", false, { error: String(e?.message ?? e), nest });
+        } finally {
+            await ev(readAdded).catch(() => {});
+            await restoreRuns(h).catch(() => {});
+            await restoreSessions(h).catch(() => {});
+        }
         await closeOverview(h);
         return steps;
     },

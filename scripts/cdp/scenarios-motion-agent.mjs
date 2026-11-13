@@ -4,7 +4,9 @@
 // ones no fixture produces on demand, and the arrange scenarios' own checks run unchanged in agent-composer,
 // shell-tasks, cockpit-polish, sessions-list and agent-rendered. Every moment is read in-page in one evaluation, since
 // a CDP round trip per sample is slower than the fade it measures: an observer reads the opacity a node is added with
-// (motion-gaps), a frame sampler what moves while it moves (dag-motion).
+// (motion-gaps), a frame sampler what moves while it moves (dag-motion). Steps 21-23 are the follow-ups' (spec
+// docs/superpowers/specs/2026-11-13-motion-sweep-follow-ups-design.md, section 6): a session detail's Show earlier
+// turns and find bar, and the plan preview's own pane.
 
 import { lookEval, OBS_WIDE, releaseRpc } from "./scenarios-shared.mjs";
 
@@ -19,6 +21,14 @@ const SETTLED = 0.99;
 const MOUNT_STYLE = "width:720px;max-height:80vh;overflow:auto;";
 const PLAN_PATH = "C:/motion-agent/plan.md";
 const PLAN_TEXT = "# Motion plan\n\n- the pane fades\n- the error nudges\n";
+// a fixed height, so the detail's body is the scroller its sticky find bar sits in
+const DETAIL_STYLE = "width:720px;height:70vh;";
+const SOLO_ID = "motion-agent-solo";
+const SOLO_PATH = "C:/motion-agent/solo.jsonl";
+// claude's tail read (sessionstranscript.ts TAIL_LINES): a reread returning this many lines may be cut off
+const TAIL_LINES = 2000;
+// a live session is reread every LIVE_REFRESH_MS (5s); wait past one
+const REREAD_MS = 8000;
 
 const LIB = `
     const opacity = (el) => (el ? Number(getComputedStyle(el).opacity) : null);
@@ -324,7 +334,7 @@ async function eventsRailSteps(h, rec) {
         const model = await cockpitModel();
         const { globalStore } = await mod("app/store/jotaiStore.ts");
         const rail = await mod("app/view/agents/cockpiteventsrail.tsx");
-        window.__motionAgentRail = { events: globalStore.get(rail.agentEventsAtom), seen: globalStore.get(rail.seenTsAtom), filter: globalStore.get(model.projectFilterAtom) };
+        window.__motionAgentRail = { events: globalStore.get(rail.agentEventsAtom), seen: globalStore.get(rail.railSeenAtom), filter: globalStore.get(model.projectFilterAtom) };
         const t0 = Date.now();
         const e = (key, ago, p = {}) => ({ key: "motion-" + key, who: "motion " + key, kind: "finished", text: "", ts: t0 - ago, ...p });
         const base = [
@@ -333,7 +343,8 @@ async function eventsRailSteps(h, rec) {
             e("g2", 7000, { kind: "landed", text: "Task landed · t-2", group: "motion-run" }),
         ];
         globalStore.set(model.projectFilterAtom, "all");
-        globalStore.set(rail.seenTsAtom, 0);
+        // nothing read, in All or any project
+        globalStore.set(rail.railSeenAtom, { all: 0, byProject: {} });
         globalStore.set(rail.agentEventsAtom, base);
         const host = await mount("app/view/agents/cockpiteventsrail.tsx", "CockpitEventsRail", { model, lineage: { roles: {}, runs: {} }, runEvents: {}, tags: {}, onSelect: () => {} }, { style: ${JSON.stringify(MOUNT_STYLE)} });
         const row = (k) => host.querySelector('[data-rail-event="motion-' + k + '"]');
@@ -382,7 +393,7 @@ const restoreRail = (h) =>
         const rail = await mod("app/view/agents/cockpiteventsrail.tsx");
         const model = (await mod("app/store/wshrpcutil.ts")).DefaultRouter.routeMap.get("cockpit")?.model;
         globalStore.set(rail.agentEventsAtom, saved.events);
-        globalStore.set(rail.seenTsAtom, saved.seen);
+        globalStore.set(rail.railSeenAtom, saved.seen);
         if (model) globalStore.set(model.projectFilterAtom, saved.filter);
         delete window.__motionAgentRail;
         return true;
@@ -507,6 +518,153 @@ const restoreLauncher = (h) =>
         return true;
     `);
 
+const userLine = (content) => JSON.stringify({ type: "user", message: { content } });
+const replyLine = (text) => JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text }] } });
+const toolLine = (i) =>
+    JSON.stringify({
+        type: "assistant",
+        message: { content: [{ type: "tool_use", id: `tu-${i}`, name: "Bash", input: { description: `step ${i}` } }] },
+    });
+const SHORT_LINES = [userLine("motion prompt"), replyLine("motion reply")];
+// longer than the tail, so the reread comes back full and the transcript may hold earlier turns
+const LONG_LINES = [
+    userLine("motion prompt"),
+    ...Array.from({ length: TAIL_LINES + 200 }, (_, i) => toolLine(i)),
+    replyLine("motion reply"),
+];
+
+// the session's transcript read serves window.__motionAgentTranscript (swapped by the step), tailed to maxlines
+const stubTranscriptRpc = (h) =>
+    lookEval(h, `
+        const { RpcApi } = await mod("app/store/wshclientapi.ts");
+        const held = (window.__heldRpc ??= {});
+        held.GetAgentTranscriptCommand ??= RpcApi.GetAgentTranscriptCommand;
+        window.__motionAgentTranscript = ${JSON.stringify(SHORT_LINES)};
+        RpcApi.GetAgentTranscriptCommand = async (client, data, opts) => {
+            if (data?.path !== ${JSON.stringify(SOLO_PATH)}) return held.GetAgentTranscriptCommand(client, data, opts);
+            const lines = window.__motionAgentTranscript;
+            return { lines: data.maxlines > 0 ? lines.slice(-data.maxlines) : lines };
+        };
+        return true;
+    `);
+
+async function sessionDetailSteps(h, rec) {
+    await stubTranscriptRpc(h);
+    const r = await motionEval(h, `
+        unmountAll();
+        const model = await cockpitModel();
+        const { globalStore } = await mod("app/store/jotaiStore.ts");
+        const names = ["sessionsViewAtom", "sessionsFindAtom", "sessionsFoundAtom"];
+        window.__motionAgentSessions ??= Object.fromEntries(names.map((n) => [n, globalStore.get(model[n])]));
+        globalStore.set(model.sessionsViewAtom, "transcript");
+        globalStore.set(model.sessionsFindAtom, null);
+        const t0 = Date.now();
+        const session = {
+            id: ${JSON.stringify(SOLO_ID)}, runtime: "claude", projectpath: "C:/motion-agent", projectname: "motion-agent", branch: "main",
+            task: "Motion session", tokenstotal: 0, lastactivets: t0, resumecommand: "", transcriptpath: ${JSON.stringify(SOLO_PATH)},
+            status: "working", startedts: t0 - 600000, durationms: 600000, events: [], live: true, needsAttention: false,
+        };
+        const host = await mount("app/view/agents/sessionsdetail.tsx", "SoloDetail", { model, session }, { style: ${JSON.stringify(DETAIL_STYLE)} });
+        if (!(await until(() => flat(host).includes("motion reply"), 4000))) return { error: "no transcript", text: flat(host) };
+        if (host.querySelector("[data-sessions-earlier]")) return { error: "Show earlier turns at mount" };
+
+        const ew = watchAdded((n) => (host.contains(n) && n.matches("[data-sessions-earlier]") ? n : null));
+        window.__motionAgentTranscript = ${JSON.stringify(LONG_LINES)};
+        await until(() => host.querySelector("[data-sessions-earlier]") != null, ${REREAD_MS});
+        await nap(${SETTLE_MS});
+        ew.stop();
+        const earlierBtn = () => host.querySelector("[data-sessions-earlier]");
+        const earlier = { seen: ew.seen, settled: await settle(earlierBtn), text: flat(earlierBtn()) };
+
+        const bar = () => host.querySelector("[data-sessions-find]")?.parentElement;
+        const fw = watchAdded((n) => (host.contains(n) && n.firstElementChild?.matches("[data-sessions-find]") ? n : null));
+        const heights = sampleFrames(() => (bar() ? Math.round(bar().getBoundingClientRect().height) : null));
+        const at = { sel: globalStore.get(model.sessionsSelAtom) };
+        globalStore.set(model.sessionsFindAtom, { sessionKey: "claude:" + ${JSON.stringify(SOLO_ID)}, query: "motion", terms: ["motion"], target: { kind: "turn", ord: 0 }, at });
+        await nap(${SETTLE_MS});
+        fw.stop();
+        heights.stop();
+        const find = { first: fw.seen[0] ?? null, settled: await settle(bar), heights: heights.values, query: host.querySelector('[aria-label="Find in transcript"]')?.value ?? null };
+        return { earlier, find };
+    `);
+    await h.shot(`cdp-shots/${NAME}-session.png`);
+    // unmounted first, so the live reread stops before the real read is back
+    await lookEval(h, `unmountAll(); return true;`);
+    await releaseRpc(h, "GetAgentTranscriptCommand");
+    await restoreSessions(h);
+    rec(
+        "21. session detail: a live reread coming back cut off fades Show earlier turns in from opacity 0, and only it",
+        r?.earlier != null &&
+            r.earlier.seen.length === 1 &&
+            r.earlier.seen[0] < MOUNTED_HIDDEN &&
+            r.earlier.settled >= SETTLED &&
+            r.earlier.text === "Show earlier turns",
+        JSON.stringify(r?.earlier ?? r)
+    );
+    rec(
+        "22. session detail: a find opening on the transcript grows its bar in from opacity 0 through intermediate heights",
+        revealed(r?.find) && r.find.heights.length >= 3 && r.find.heights.at(-1) > r.find.heights[0] && r.find.query === "motion",
+        JSON.stringify(r?.find ?? r)
+    );
+}
+
+const restoreSessions = (h) =>
+    lookEval(h, `
+        const saved = window.__motionAgentSessions;
+        if (!saved) return true;
+        const { globalStore } = await mod("app/store/jotaiStore.ts");
+        const model = (await mod("app/store/wshrpcutil.ts")).DefaultRouter.routeMap.get("cockpit")?.model;
+        if (model) for (const [n, v] of Object.entries(saved)) globalStore.set(model[n], v);
+        delete window.__motionAgentSessions;
+        delete window.__motionAgentTranscript;
+        return true;
+    `);
+
+async function planPaneSteps(h, rec) {
+    await stubPlanRpc(h);
+    const r = await motionEval(h, `
+        unmountAll();
+        const host = await mount("app/view/agents/planpreview.tsx", "PlanPreview", { path: ${JSON.stringify(PLAN_PATH)} }, { style: ${JSON.stringify(MOUNT_STYLE)} });
+        if (!(await until(() => host.querySelector('[data-plan-view="ok"]') != null, 4000))) return { error: "no plan", text: flat(host) };
+        await nap(${SETTLE_MS});
+        // the reveal around the scroller the view sits in
+        const pane = () => host.querySelector("[data-plan-view]")?.parentElement?.parentElement;
+        const height = () => (pane() ? Math.round(pane().getBoundingClientRect().height) : null);
+        // its label and filename spans flatten together: "Planplan.md · 5 lines"
+        const toggle = () => button(host, /^Plan/);
+
+        const shut = sampleFrames(height);
+        toggle()?.click();
+        await nap(${SETTLE_MS});
+        shut.stop();
+        const collapse = { heights: shut.values, gone: pane() == null };
+
+        const ow = watchAdded((n) => (host.contains(n) && n.querySelector?.("[data-plan-view]") && n.firstElementChild?.matches(".sc") ? n : null));
+        const grow = sampleFrames(height);
+        toggle()?.click();
+        await nap(${SETTLE_MS});
+        ow.stop();
+        grow.stop();
+        const open = { first: ow.seen[0] ?? null, settled: await settle(pane), heights: grow.values, text: flat(host.querySelector('[data-plan-view="ok"]')) };
+        return { collapse, open };
+    `);
+    await releaseRpc(h, "FileReadCommand");
+    await releaseRpc(h, "FileWriteCommand");
+    rec(
+        "23. plan preview: the Plan header shrinks the pane away, and opening it again grows it from opacity 0 through intermediate heights",
+        r?.collapse != null &&
+            r.collapse.gone &&
+            r.collapse.heights.length >= 3 &&
+            r.collapse.heights.at(-1) < r.collapse.heights[0] &&
+            revealed(r.open) &&
+            r.open.heights.length >= 3 &&
+            r.open.heights.at(-1) > r.open.heights[0] &&
+            r.open.text.includes("Motion plan"),
+        JSON.stringify(r)
+    );
+    await h.shot(`cdp-shots/${NAME}-plan-pane.png`);
+}
+
 export const motionAgent = {
     name: NAME,
     surface: "cockpit",
@@ -533,6 +691,8 @@ export const motionAgent = {
         await phase("the events rail's moments", () => eventsRailSteps(h, rec));
         await phase("the plan preview's moments", () => planPreviewSteps(h, rec));
         await phase("the run launcher's moments", () => launcherSteps(h, rec));
+        await phase("the session detail's moments", () => sessionDetailSteps(h, rec));
+        await phase("the plan pane's moments", () => planPaneSteps(h, rec));
         return steps;
     },
     async teardown(h) {
@@ -552,6 +712,8 @@ export const motionAgent = {
             await releaseRpc(h, "FileReadCommand");
             await releaseRpc(h, "FileWriteCommand");
         });
+        await step("restore the transcript reads", () => releaseRpc(h, "GetAgentTranscriptCommand"));
+        await step("restore the sessions' view and find", () => restoreSessions(h));
         await step("restore the rail's events", () => restoreRail(h));
         await step("restore the launcher's config", () => restoreLauncher(h));
     },

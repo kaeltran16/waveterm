@@ -5,7 +5,7 @@
 // the log itself rather than through githistorystore, whose atoms belong to the one Diff surface.
 
 import { Skeleton, SkeletonRows } from "@/app/element/skeleton";
-import { ViewFade } from "@/app/element/viewfade";
+import { ViewSwap } from "@/app/element/viewswap";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { BODY_LINK, MONO_FAINT, MONO_META } from "@/app/view/jarvis/briefstyle";
@@ -88,7 +88,7 @@ export function ProjectBranches({
                 aside={state.kind === "rows" || state.kind === "loading" ? link : undefined}
             />
             {/* the log landing trades the skeleton for rows (or a note, or the failure), so it fades in */}
-            <ViewFade fadeKey={state.kind} className="flex min-h-0 flex-1 flex-col">
+            <ViewSwap swapKey={state.kind} className="flex min-h-0 flex-1 flex-col">
                 {state.kind === "loading" ? <BranchesSkeleton /> : null}
                 {state.kind === "norepo" ? <RegionNote>{project} is not a git repository.</RegionNote> : null}
                 {state.kind === "empty" ? <RegionNote>No commits yet.</RegionNote> : null}
@@ -98,7 +98,7 @@ export function ProjectBranches({
                     </RegionAlert>
                 ) : null}
                 {state.kind === "rows" ? <CommitGraph rows={state.rows} onOpen={open} /> : null}
-            </ViewFade>
+            </ViewSwap>
         </section>
     );
 }

@@ -421,6 +421,14 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
             ),
         [effortWindow, cursorTs]
     );
+    const freshWaiting = useMemo(
+        () =>
+            freshKeys(
+                queue.map((q) => ({ key: q.key, ts: q.ts })),
+                cursorTs
+            ),
+        [queue, cursorTs]
+    );
     const freshSessions = useMemo(
         () =>
             freshKeys(
@@ -1202,6 +1210,7 @@ export function BriefSurface({ model }: { model: AgentsViewModel }) {
                                         ackable={ackable.length}
                                         onAckAll={() => fireAndForget(() => ackAll(queueDeps, ackable))}
                                         entering={entering}
+                                        fresh={freshWaiting}
                                         cursor={cursor}
                                         onOpenRow={openWaiting}
                                         onAct={(q, l, act) => fireAndForget(() => actOnQueue(queueDeps, q, l, act))}

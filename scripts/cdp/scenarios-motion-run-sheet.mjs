@@ -134,15 +134,16 @@ const setUsage = (h, runId, total) =>
         return true;
     `);
 
-// the profile write answers after `ms`, refused or not, so the dock's busy label is on screen long enough to read
-const stubProfileWrite = (h, ms, fail) =>
+// a write RPC answers after `ms`, refused or not, so a busy label or a leaving strip is on screen long enough to read
+const stubWrite = (h, command, ms, fail) =>
     lookEval(h, `
         const { RpcApi } = await mod("app/store/wshclientapi.ts");
-        (window.__heldRpc ??= {}).SetChannelProfileCommand ??= RpcApi.SetChannelProfileCommand;
-        RpcApi.SetChannelProfileCommand = () =>
+        (window.__heldRpc ??= {})[${JSON.stringify(command)}] ??= RpcApi[${JSON.stringify(command)}];
+        RpcApi[${JSON.stringify(command)}] = () =>
             new Promise((ok, no) => setTimeout(() => (${fail} ? no(new Error("motion-run-sheet: refused")) : ok(null)), ${ms}));
         return true;
     `);
+const stubProfileWrite = (h, ms, fail) => stubWrite(h, "SetChannelProfileCommand", ms, fail);
 
 // strip segment i's colors over the next change, and whether the next: line washed
 const stripSampler = (i) => `
@@ -359,6 +360,78 @@ async function sheetSteps(h, ctx, rec) {
         JSON.stringify({ injectedReduced, ...reduced })
     );
     await undoPageDag(h, ctx.runId);
+    await settingsErrorSteps(h, rec);
+}
+
+// 7b. the inline settings' refused save, then a save that lands: the error strip collapses still reading the refusal
+async function settingsErrorSteps(h, rec) {
+    const CONFIG = `sheet()?.querySelector('[data-jarvis-brief-sheet-config="editable"]')`;
+    const WIDTH = `sheet()?.querySelector('input[type="number"]')`;
+    const REFUSED = `[...(sheet()?.querySelectorAll('[data-jarvis-brief-sheet-state="error"]') ?? [])].find((e) => /refused/.test(flat(e)))`;
+    const SAVE = `button(sheet(), /^Save settings$/)`;
+    const setWidth = (value) => `
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(${WIDTH}, String(${value}));
+        ${WIDTH}.dispatchEvent(new Event("input", { bubbles: true }));
+    `;
+    try {
+        await stubWrite(h, "SetRunSettingsCommand", 100, true);
+        const refused = await motionEval(h, `
+            await until(() => button(${CONFIG}, /^adjust$/) != null, 10000);
+            button(${CONFIG}, /^adjust$/)?.click();
+            await until(() => ${WIDTH} != null, 3000);
+            if (${WIDTH} == null) return { error: "no worker width input" };
+            window.__motionWidth = ${WIDTH}.value;
+            // any other valid width makes the draft dirty, so Save settings is enabled
+            ${setWidth(`Number(window.__motionWidth) === 1 ? 2 : 1`)}
+            await nap(100);
+            ${SAVE}?.click();
+            await until(() => ${REFUSED} != null, 4000);
+            await nap(${SETTLE_MS});
+            return { width: window.__motionWidth, text: flat(${REFUSED}) };
+        `);
+        await stubWrite(h, "SetRunSettingsCommand", 400, false);
+        const cleared = await motionEval(h, `
+            const el = ${REFUSED};
+            if (!el) return { error: "no refused save strip" };
+            const frames = [];
+            let on = true;
+            const tick = () => {
+                frames.push({ attached: el.isConnected, text: flat(el), strip: opacity(el.parentElement) });
+                if (on) requestAnimationFrame(tick);
+            };
+            requestAnimationFrame(tick);
+            ${SAVE}?.click();
+            await until(() => !el.isConnected, 3000);
+            await nap(50);
+            on = false;
+            const held = frames.filter((f) => f.attached);
+            const result = {
+                texts: [...new Set(held.map((f) => f.text))],
+                collapsing: held.filter((f) => f.strip < 0.99).length,
+                frames: frames.length,
+                gone: !el.isConnected,
+            };
+            // put the width back the same way, through the passing stub, and close the dials
+            await until(() => sheet()?.querySelector('[data-jarvis-brief-sheet-state="saved"]') != null, 2000);
+            ${setWidth("window.__motionWidth")}
+            await nap(100);
+            if (${SAVE} != null && !${SAVE}.disabled) { ${SAVE}.click(); await nap(${SETTLE_MS}); }
+            button(${CONFIG}, /^done$/)?.click();
+            return result;
+        `);
+        rec(
+            "7b. a settings save that lands after a refused one collapses the error strip mid-fade with the refusal's text on every attached frame, then removes it",
+            refused?.text != null &&
+                /refused/.test(refused.text) &&
+                cleared?.gone === true &&
+                cleared.collapsing > 0 &&
+                cleared.texts.length === 1 &&
+                cleared.texts[0] === refused.text,
+            JSON.stringify({ refused, cleared })
+        );
+    } finally {
+        await releaseRpc(h, "SetRunSettingsCommand");
+    }
 }
 
 // the run finishing under the open sheet, then its dock's save: refused, then landed

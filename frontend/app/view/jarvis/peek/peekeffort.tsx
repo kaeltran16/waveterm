@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { barFillClass } from "@/app/element/motiontokens";
+import { ViewSwap } from "@/app/element/viewswap";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
@@ -12,7 +13,6 @@ import { effortDetailAtom, loadEffortDetail } from "../effortstore";
 import { TONE_FG } from "../inlinetrackerview";
 import { reportPeekFacts, type PeekTarget } from "../peekstore";
 import { effortPeekFacts, effortPeekModel } from "./peekeffortmodel";
-import { PeekFade } from "./peekfade";
 
 const SEGMENT_FILL: Record<ChunkTone, string> = {
     done: "bg-success",
@@ -96,7 +96,7 @@ export function PeekEffortBody({ target }: { model: AgentsViewModel; target: Pee
                             <span className="h-px flex-1 bg-border" />
                         </div>
                         {/* a chunk finishing moves it from the list into the done line, so the two swap together */}
-                        <PeekFade fadeKey={chunksKey}>
+                        <ViewSwap swapKey={chunksKey}>
                             {m.doneLine ? (
                                 <div className="flex items-center gap-2.5 px-3 py-[7px]">
                                     <Check
@@ -125,7 +125,7 @@ export function PeekEffortBody({ target }: { model: AgentsViewModel; target: Pee
                                     <span className={cn("font-mono text-[10.5px]", TONE_FG[c.tone])}>{c.status}</span>
                                 </div>
                             ))}
-                        </PeekFade>
+                        </ViewSwap>
                     </div>
                 ) : null}
             </div>

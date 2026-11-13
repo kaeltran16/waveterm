@@ -17,8 +17,9 @@ import { failureHeadline } from "./gitfailure";
 
 // A Retry unmounts its panel (the failure clears, the skeleton shows) and a failed read mounts a fresh one, so the
 // panel cannot tell "came back after my Retry" from "mounted with the surface". The Retry button leaves this
-// one-shot flag, and the next panel mount spends it to enter as a card and nudge: the failure followed the user's
-// action. A Retry that succeeds leaves it set, so a later failure nudges once.
+// one-shot flag, and the read's next outcome spends it: a failure panel's mount enters as a card and nudges (the
+// failure followed the user's action), a read that lands without a failure clears it (clearRetryPending), so a
+// failure much later mounts settled.
 let retryPending = false;
 
 function noteRetry(onRetry: () => void): () => void {
@@ -26,6 +27,10 @@ function noteRetry(onRetry: () => void): () => void {
         retryPending = true;
         onRetry();
     };
+}
+
+export function clearRetryPending(): void {
+    retryPending = false;
 }
 
 function useAfterRetry(): boolean {

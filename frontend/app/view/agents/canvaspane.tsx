@@ -11,7 +11,7 @@ import { PaneReveal } from "@/app/element/panereveal";
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import { Segmented } from "@/app/element/segmented";
 import { StepSwap } from "@/app/element/stepswap";
-import { ViewFade } from "@/app/element/viewfade";
+import { ViewSwap } from "@/app/element/viewswap";
 import { useDimensionsWithCallbackRef } from "@/app/hook/useDimensions";
 import { getApi } from "@/app/store/global";
 import { globalStore } from "@/app/store/jotaiStore";
@@ -244,7 +244,7 @@ export function CanvasPane({
             >
                 {boardActions?.(board.name)}
             </PaneReveal>
-            <ViewFade fadeKey={pane} className="flex min-h-0 flex-1 flex-col bg-surface-code">
+            <ViewSwap swapKey={pane} className="flex min-h-0 flex-1 flex-col bg-surface-code">
                 {pane === "server-down" ? (
                     <ServerDown />
                 ) : pane === "removed" ? (
@@ -296,7 +296,7 @@ export function CanvasPane({
                         </StepSwap>
                     </div>
                 )}
-            </ViewFade>
+            </ViewSwap>
         </div>
     );
 }

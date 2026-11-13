@@ -18,6 +18,7 @@
 
 import { useCopyFeedback } from "@/app/element/copyfeedback";
 import { CrossFade } from "@/app/element/crossfade";
+import { useLastShown } from "@/app/element/motionhooks";
 import { composerReveal, errorNudge, microFade } from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
 import * as WOS from "@/app/store/wos";
@@ -207,6 +208,8 @@ export type RunSettingsEditor = {
     defaultsInvalid: boolean;
     notSaved: boolean;
     error: string | null;
+    // the error kept while its strip collapses (useLastShown), so the strip never shrinks blank
+    shownError: string | null;
     failures: number;
     notice: string | null;
     approvalsNote: ApprovalsNoteKind;
@@ -227,6 +230,7 @@ export function useRunSettingsEditor(
     const [baseline, setBaseline] = useState<RunSettingsDraft | null>(null);
     const [saving, setSaving] = useState<"settings" | "defaults" | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const shownError = useLastShown(error);
     // keys the error's nudge, so a second refusal with the same message still shakes
     const [failures, setFailures] = useState(0);
     const [notice, setNotice] = useState<string | null>(null);
@@ -324,6 +328,7 @@ export function useRunSettingsEditor(
         defaultsInvalid,
         notSaved,
         error,
+        shownError,
         failures,
         notice,
         approvalsNote,
@@ -347,7 +352,7 @@ function LoadedConfig({
     const [open, setOpen] = useState(false);
     const editor = useRunSettingsEditor(run, group, groupRead, waiting);
     const { state, note, draft, baseline, setDraft, saving, busy, dirty, invalid, notSaved, error, failures } = editor;
-    const { notice, approvalsNote, resolvedHeader, save, saveDefaults } = editor;
+    const { shownError, notice, approvalsNote, resolvedHeader, save, saveDefaults } = editor;
 
     const lead = `${run.mode === "orchestrator" ? "lead " : ""}${run.runtime || "claude"}/${run.model || "default"}`;
     if (note != null) {
@@ -473,7 +478,7 @@ function LoadedConfig({
                     animate="animate"
                     className="text-[11.5px] text-error"
                 >
-                    {error}
+                    {shownError}
                 </motion.p>
             </PaneReveal>
             <AnimatePresence initial={false}>

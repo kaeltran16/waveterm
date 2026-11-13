@@ -5,6 +5,7 @@
 // run and its task graph through WOS. What it says is arranged in peekrunmodel.ts.
 
 import { TickNumber } from "@/app/element/ticknumber";
+import { ViewSwap } from "@/app/element/viewswap";
 import * as WOS from "@/app/store/wos";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { projectLabel } from "@/app/view/agents/projectlabel";
@@ -21,7 +22,6 @@ import { RUN_TONE } from "../briefpeekview";
 import { MONO_FAINT, REGION_LABEL } from "../briefstyle";
 import { reportPeekFacts, type PeekTarget } from "../peekstore";
 import { runGraphRef } from "../runsheetmodel";
-import { PeekFade } from "./peekfade";
 import {
     buildRunPeek,
     runPeekFacts,
@@ -150,15 +150,15 @@ function RunPeekView({ view }: { view: PeekRunView }) {
                     </div>
                 ) : null}
                 {/* the graph and the digest load after the run, so the list and its commit line arrive later */}
-                <PeekFade>
+                <ViewSwap swapKey="shown">
                     {view.tasks != null ? (
                         <div className="flex flex-col overflow-hidden rounded-[9px] border border-border bg-background">
                             <div className="flex items-center gap-2.5 border-b border-edge-faint px-3 py-2">
                                 <span className={cn(REGION_LABEL, "text-ink-mid")}>Tasks</span>
                                 <span className="h-px flex-1 bg-edge-faint" />
-                                <PeekFade className="flex-none">
+                                <ViewSwap swapKey="shown" className="flex-none">
                                     {view.commits != null ? <span className={MONO_FAINT}>{view.commits}</span> : null}
-                                </PeekFade>
+                                </ViewSwap>
                             </div>
                             {view.tasks.length === 0 ? (
                                 <div className="px-3 py-2.5 font-mono text-[11px] text-muted">
@@ -173,7 +173,7 @@ function RunPeekView({ view }: { view: PeekRunView }) {
                             )}
                         </div>
                     ) : null}
-                </PeekFade>
+                </ViewSwap>
             </div>
         </div>
     );

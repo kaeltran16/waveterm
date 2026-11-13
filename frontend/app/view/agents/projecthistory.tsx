@@ -6,7 +6,7 @@
 
 import { PaneReveal } from "@/app/element/panereveal";
 import { Skeleton, SkeletonRows } from "@/app/element/skeleton";
-import { ViewFade } from "@/app/element/viewfade";
+import { ViewSwap } from "@/app/element/viewswap";
 import { globalStore } from "@/app/store/jotaiStore";
 import { isEditableTarget } from "@/app/store/keybindings/dispatcher";
 import * as WOS from "@/app/store/wos";
@@ -206,7 +206,7 @@ export function ProjectHistory({ model, project, path, close }: OverviewRegionPr
                 </RegionAlert>
             ) : null}
             {/* the reads landing trade the skeleton for the rows, so they fade in */}
-            <ViewFade fadeKey={loading ? "loading" : "rows"} className="flex min-h-0 flex-1 flex-col gap-1.5">
+            <ViewSwap swapKey={loading ? "loading" : "rows"} className="flex min-h-0 flex-1 flex-col gap-1.5">
                 {loading ? (
                     <HistorySkeleton />
                 ) : (
@@ -236,7 +236,7 @@ export function ProjectHistory({ model, project, path, close }: OverviewRegionPr
                         </div>
                     </>
                 )}
-            </ViewFade>
+            </ViewSwap>
             <button type="button" onClick={openSessions} className={cn(LINK_BTN, "mt-2")}>
                 older sessions in Sessions ↗
             </button>
@@ -341,8 +341,9 @@ function HistoryRow({
                     {sessionLine(s)}
                 </span>
             </button>
-            {/* a session's runs showing up while the list is up (a run read retried, a run started) open under
-                it rather than shoving the rows below down in one frame */}
+            {/* a session's runs showing up while the list is up (the archive's session data changing under it) open
+                under it rather than shoving the rows below down in one frame; a retried runs read remounts the list
+                through its skeleton, and nothing re-reads runs when one starts */}
             <PaneReveal open={entry.runs.length > 0} className="flex-none">
                 {entry.runs.map((r) => (
                     <RunRow key={r.key} run={r} now={now} nested onOpen={() => openRun(r.runId)} />

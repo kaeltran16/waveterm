@@ -1,6 +1,7 @@
 // The project Overview's History region (frontend/app/view/agents/projecthistory.tsx), checked inside the scenario
 // scenarios-project-overview.mjs. It starts and ends with the modal open on ctx.project, restores in a finally
 // whatever it installed, and names its steps "project-overview: <Board> board, history: <state>".
+// The run and roster stubs are exported for scenarios-motion-code.mjs.
 import { randomUUID } from "node:crypto";
 import { closeOverview, openOverview, pageEval, shot } from "./project-overview-kit.mjs";
 import { failRpc, releaseRpc } from "./scenarios-shared.mjs";
@@ -38,7 +39,7 @@ const hEval = (h, body) => pageEval(h, `${HLIB} ${body}`);
 
 // the run fixtures, built in the page against the project's own channel so opening one finds a sheet. Each is held
 // in the object store as loaded, so openTarget's load resolves; GetChannelRunsCommand answers them.
-function installRuns(h, ctx, runs) {
+export function installRuns(h, ctx, runs) {
     return hEval(h, `
         const row = S.globalStore.get(ps.projectListAtom).find((r) => r.name === ${JSON.stringify(ctx.project)});
         const channel = row?.channel?.oid ?? "";
@@ -57,7 +58,7 @@ function installRuns(h, ctx, runs) {
     `);
 }
 
-async function restoreRuns(h) {
+export async function restoreRuns(h) {
     await releaseRpc(h, "GetChannelRunsCommand");
     await hEval(h, `
         delete RpcApi.GetChannelRunsCommand;
@@ -67,7 +68,7 @@ async function restoreRuns(h) {
 }
 
 // swaps the dev mock roster, keeping the one it replaced for restoreMockRoster
-function setMockRoster(h, roster) {
+export function setMockRoster(h, roster) {
     return hEval(h, `
         const D = await mod("app/view/agents/devmock.ts");
         if (!("__historyMock" in window)) window.__historyMock = S.globalStore.get(D.devMockAgentsAtom);
@@ -77,7 +78,7 @@ function setMockRoster(h, roster) {
     `);
 }
 
-function restoreMockRoster(h) {
+export function restoreMockRoster(h) {
     return hEval(h, `
         if (!("__historyMock" in window)) return true;
         const D = await mod("app/view/agents/devmock.ts");

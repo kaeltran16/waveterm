@@ -1,6 +1,6 @@
 // The builder check's review of what it changed (the Check-Review board). kit is scenarios-brainstorm.mjs's BS_KIT.
 
-import { bsPressedExpr } from "./scenarios-shared.mjs";
+import { APP_MOD, bsPressedExpr } from "./scenarios-shared.mjs";
 
 // the board's copy: detector-engine-models after its builder check, with question 16 still open
 const CR_TOPIC = "detector-engine-models";
@@ -261,6 +261,8 @@ export default function (kit) {
                 notes: links("notes"),
                 railHead: flat(rail?.querySelector("h2")),
                 railLine: flat(rail?.querySelector("[data-brainstorm-answered-line]")),
+                // the answered line's TickNumbers, by their tabular-nums box: what each one reads
+                railTicks: [...(rail?.querySelectorAll("[data-brainstorm-answered-line] .tabular-nums") ?? [])].map(flat),
                 answered: [...(rail?.querySelectorAll("[data-brainstorm-answered]") ?? [])].map((a) => ({
                     text: flat(a),
                     changed: flat(a.lastElementChild),
@@ -348,6 +350,37 @@ export default function (kit) {
 
     const cursorOn = (h, id) => polishWaitFor(h, `${ROW(id)}?.hasAttribute("data-cursor") === true`, 2000);
 
+    // what an Enter meets, so a step whose Enter does nothing names why: the focused element, the code peek's focus
+    // flag (codepeek:open takes Enter while it is set), and the review cursor. The app's dispatcher listens on window
+    // capture ahead of this probe and stops a key it claims, so `unclaimed` is whether no binding took the keydown,
+    // and `keyup` (the state when the key's up arrives) is whether the key reached the page at all
+    const ENTER_PROBE_START = `(async () => {
+        ${APP_MOD}
+        const [S, P] = await Promise.all([mod("app/store/jotaiStore.ts"), mod("app/view/code/codepeekstore.ts")]);
+        const state = () => {
+            const a = document.activeElement;
+            return {
+                active: a == null ? null : { tag: a.tagName, data: { ...a.dataset } },
+                codePeekFocused: S.globalStore.get(P.codePeekFocusedAtom),
+                codePeekOpen: S.globalStore.get(P.codePeekAtom) != null,
+                cursor: ${BS_PANE}?.querySelector("[data-brainstorm-review-row][data-cursor]")?.getAttribute("data-brainstorm-review-row") ?? null,
+            };
+        };
+        const probe = { before: state(), unclaimed: false, keyup: null };
+        const down = (e) => { if (e.key === "Enter") probe.unclaimed = true; };
+        const up = (e) => { if (e.key === "Enter" && probe.keyup == null) probe.keyup = state(); };
+        window.addEventListener("keydown", down, true);
+        window.addEventListener("keyup", up, true);
+        window.__crEnterProbe = { probe, stop: () => { window.removeEventListener("keydown", down, true); window.removeEventListener("keyup", up, true); } };
+        return true;
+    })()`;
+    const ENTER_PROBE_STOP = `(() => {
+        const p = window.__crEnterProbe;
+        p?.stop();
+        delete window.__crEnterProbe;
+        return p?.probe ?? null;
+    })()`;
+
     // a sent line is read in the terminal, and a line typed before the shell's first prompt can be lost
     async function atPrompt(h, ctx) {
         for (const start = Date.now(); Date.now() - start < CR_PROMPT_WAIT_MS; await polishNap(250)) {
@@ -411,6 +444,7 @@ export default function (kit) {
                     JSON.stringify(r.notes.links) === JSON.stringify(CR_NOTES.map((p) => p.title)) &&
                     r.railHead === "A builder read the design" &&
                     r.railLine === "It had 11 questions: 3 for you, all answered; the agent decided 8, shown under their decisions." &&
+                    r.railTicks.length === 0 &&
                     JSON.stringify(r.answered.map((a) => a.changed)) === JSON.stringify(CR_CHANGED_LINKS) &&
                     r.hints === CR_HINTS &&
                     r.blocker === CR_BLOCKER,
@@ -504,8 +538,10 @@ export default function (kit) {
             } else {
                 await key(h, "j");
                 const jCursor = await cursorOn(h, "grain");
+                const probing = await h.ev(ENTER_PROBE_START).catch((e) => String(e));
                 await key(h, "Enter");
                 const entered = await polishWaitFor(h, `${ROW("grain")}?.querySelector("[data-brainstorm-review-toggle]")?.getAttribute("aria-expanded") === "true"`, 2000);
+                const enter = probing === true ? await h.ev(ENTER_PROBE_STOP) : { probeFailed: probing };
                 const yPick = await picks(h, "grain", "Keep the change", () => key(h, "y"));
                 await key(h, "j");
                 const jCursor2 = await cursorOn(h, "role");
@@ -513,7 +549,7 @@ export default function (kit) {
                 rec(
                     "3. clicking a row moves the cursor to it; j moves it on, Enter opens it, y picks keep and u on the next row picks put mine back, sending nothing",
                     prompt && clickCursor && jCursor && entered && yPick.ok && jCursor2 && uPick.ok,
-                    { prompt, clickCursor, jCursor, entered, y: yPick.detail, jCursor2, u: uPick.detail }
+                    { prompt, clickCursor, jCursor, entered, enter, y: yPick.detail, jCursor2, u: uPick.detail }
                 );
             }
 
@@ -623,6 +659,27 @@ export default function (kit) {
                 bare.railLine.startsWith("It had 1 question:"),
                 { railLine: bare.railLine }
             );
+
+            // three builder questions for you, one answered: the line draws that one through a TickNumber
+            const partialCheck = {
+                yours: [CR_ANSWERED[0], ...CR_ANSWERED.slice(1).map(({ a, ...y }) => y)],
+                calls: [],
+                answered: [],
+                touched: allKept,
+            };
+            bsWrite(ctx, crFile(allKept, partialCheck));
+            const partialDrawn = await polishWaitFor(h, `${BS_PANE}?.querySelector('aside[aria-label="The builder check"] [data-brainstorm-answered-line]')?.innerText.replace(/\\s+/g, " ").includes("3 for you, 1 answered") === true`, BS_POLL_WAIT_MS);
+            const partial = await read(h);
+            rec(
+                "6d. with 3 builder questions for you and 1 answered, the rail line reads 3 for you, 1 answered and draws the 1 as a TickNumber",
+                partialDrawn &&
+                    partial.railLine === "It had 3 questions: 3 for you, 1 answered." &&
+                    JSON.stringify(partial.railTicks) === JSON.stringify(["1"]),
+                { partialDrawn, railLine: partial.railLine, railTicks: partial.railTicks }
+            );
+            // back to the one answered question, so question 16's link leads where it did
+            bsWrite(ctx, crFile(allKept, { yours: [CR_ANSWERED[0]], calls: [], answered: [], touched: allKept }));
+            await polishWaitFor(h, `${BS_PANE}?.querySelector('aside[aria-label="The builder check"] [data-brainstorm-answered-line]')?.innerText.startsWith("It had 1 question:") === true`, BS_POLL_WAIT_MS);
 
             const answerClicked = await bsClick(h, ROW("graph"), "Answer question 16");
             const back = await polishWaitFor(h, `!${REVIEW} && !!${BS_PANE}?.querySelector("[data-brainstorm-question]")`, 3000);
