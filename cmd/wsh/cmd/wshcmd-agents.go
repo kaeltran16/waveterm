@@ -91,6 +91,7 @@ var agentsReadCmd = &cobra.Command{
 func init() {
 	agentsListCmd.Flags().Bool("all", false, "every project, not just this one")
 	agentsListCmd.Flags().Bool("json", false, "JSON output")
+	agentsListCmd.Flags().Bool("others", false, "leave out this session's own tab")
 	agentsSendCmd.Flags().String("file", "", "read the text from this file instead of the argument")
 	agentsSendCmd.Flags().Bool("wait", false, "wait for the target's answer and print it")
 	agentsSendCmd.Flags().Duration("timeout", agentsWaitDefault, "how long --wait waits")
@@ -115,10 +116,14 @@ func agentsListRun(cmd *cobra.Command, args []string) error {
 		}
 	}
 	rows := agentsInProject(rtn.Agents, projectPath)
+	selfTab := getTabIdFromEnv()
+	if others, _ := cmd.Flags().GetBool("others"); others {
+		rows = agentsWithout(rows, selfTab)
+	}
 	if isJSON(cmd) {
 		return jsonOut(rows)
 	}
-	for _, line := range agentsListLines(rows, projectPath != "", getTabIdFromEnv()) {
+	for _, line := range agentsListLines(rows, projectPath != "", selfTab) {
 		fmt.Println(line)
 	}
 	return nil
@@ -146,6 +151,18 @@ func agentsInProject(rows []wshrpc.AgentInfo, projectPath string) []wshrpc.Agent
 	kept := []wshrpc.AgentInfo{}
 	for _, row := range rows {
 		if projectPath == "" || runsPathWithin(row.ProjectPath, projectPath) {
+			kept = append(kept, row)
+		}
+	}
+	return kept
+}
+
+// agentsWithout drops the row of tab, the caller's own; an empty tab (none known) drops nothing. Never nil,
+// so --json prints [] for no rows.
+func agentsWithout(rows []wshrpc.AgentInfo, tab string) []wshrpc.AgentInfo {
+	kept := []wshrpc.AgentInfo{}
+	for _, row := range rows {
+		if tab == "" || row.TabId != tab {
 			kept = append(kept, row)
 		}
 	}
