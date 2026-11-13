@@ -228,19 +228,27 @@ export const motionDagPeek = {
             { live, empty, rows: brief(rows), row: row && { first: row.first }, rowsSettled }
         );
 
-        // 6. the header's Adjust label cross-fades to Done
+        // 6. Adjust in the header opens the Run settings dialog, which fades in; Esc closes only it
         const ADJUST = `document.querySelector('${IN_MODAL} [data-dag-adjust]')`;
-        await start(h, "adjust", `${IN_MODAL} [data-dag-adjust] [data-crossfade="done"]`);
+        const RS_DIALOG = `[role="dialog"]:has([data-run-settings-modal])`;
+        const pressedNodes = `[...document.querySelectorAll('${IN_MODAL} [data-dag-node][aria-pressed="true"]')].map((n) => n.getAttribute("data-dag-node")).join(",")`;
+        const pressedBefore = await h.ev(pressedNodes);
+        await start(h, "adjust", RS_DIALOG);
         await h.ev(`${ADJUST}?.click()`);
+        const adjustOpen = await polishWaitFor(h, `!!document.querySelector('${RS_DIALOG}')`, 3000);
         await polishNap(SETTLE_MS);
         const adjust = await stop(h, "adjust");
-        const adjustText = await h.ev(`(${ADJUST}?.textContent ?? "").trim()`);
-        await h.ev(`${ADJUST}?.click()`);
+        await h.shot("cdp-shots/motion-dag-peek-adjust.png");
+        await h.ev(`window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`);
+        const adjustGone = await polishWaitFor(h, `!document.querySelector('${RS_DIALOG}')`, 3000);
         await polishNap(SETTLE_MS);
-        rec("6. Adjust in the DAG header fades its Done label in from 0 to 1", fadedIn(adjust) && adjustText === "Done", {
-            adjust: brief(adjust),
-            adjustText,
-        });
+        const dagStillOpen = await h.ev(`!!document.querySelector('${IN_MODAL}')`);
+        const pressedAfter = await h.ev(pressedNodes);
+        rec(
+            "6. Adjust in the DAG header fades the Run settings dialog in from 0 to 1, and Esc closes only it, leaving the DAG modal and its selection",
+            adjustOpen && fadedIn(adjust) && adjustGone && dagStillOpen === true && pressedAfter === pressedBefore,
+            { adjustOpen, adjust: brief(adjust), adjustGone, dagStillOpen, pressedBefore, pressedAfter }
+        );
 
         // 7. the dag moving to finalizing washes the status pill once (page-only, so the engine never sees it)
         await start(h, "flash", PILL);
