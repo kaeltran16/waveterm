@@ -7,6 +7,7 @@
 import { turnTransition, viewFade } from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
 import { TickNumber } from "@/app/element/ticknumber";
+import { ViewSwap } from "@/app/element/viewswap";
 import { cn } from "@/util/util";
 import { motion } from "motion/react";
 import { Fragment, useEffect, useRef, useState } from "react";
@@ -56,7 +57,6 @@ import {
     SaidLine,
     SECTION_HEAD,
     useAction,
-    ViewSwap,
     WORKING_TITLE,
 } from "./brainstormui";
 import { CANVAS_PRIMARY_BTN } from "./canvaspane";

@@ -6,8 +6,9 @@
 
 import { CrossFade } from "@/app/element/crossfade";
 import { DrawCheck } from "@/app/element/drawcheck";
-import { composerReveal, errorNudge, indicatorSlide, viewFade } from "@/app/element/motiontokens";
+import { composerReveal, errorNudge, indicatorSlide } from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
+import { ViewSwap } from "@/app/element/viewswap";
 import { getApi } from "@/app/store/global";
 import * as WOS from "@/app/store/wos";
 import { codeSegments } from "@/app/view/jarvis/effortfeed";
@@ -157,35 +158,6 @@ export function ErrorLine({
                 {error}
             </motion.span>
         </PaneReveal>
-    );
-}
-
-// a pane trading what it shows: a new swapKey fades the new content in (viewFade); the first content shows at once,
-// so mounting a populated view never fades
-export function ViewSwap({
-    swapKey,
-    className,
-    children,
-}: {
-    swapKey: string;
-    className?: string;
-    children: ReactNode;
-}) {
-    const [seen, setSeen] = useState({ key: swapKey, moved: false });
-    // derived during render, so the content that mounts with the new key already knows it moved
-    if (seen.key !== swapKey) {
-        setSeen({ key: swapKey, moved: true });
-    }
-    return (
-        <motion.div
-            key={swapKey}
-            variants={viewFade}
-            initial={seen.moved ? "initial" : false}
-            animate="animate"
-            className={className}
-        >
-            {children}
-        </motion.div>
     );
 }
 

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { DrawCheck } from "@/app/element/drawcheck";
+import { ViewSwap } from "@/app/element/viewswap";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { resolveCwd } from "@/app/view/agents/agentcwdresolve";
@@ -24,7 +25,6 @@ import { Terminal } from "lucide-react";
 import { useEffect, useState } from "react";
 import { reportPeekFacts, type PeekTarget } from "../peekstore";
 import { agentGridRows, agentPeekFacts, changedFilesSummary, sessionLabel } from "./peekagentmodel";
-import { PeekFade } from "./peekfade";
 
 const FILES_CAP = 8;
 // CommitTick's title for a finished quick run
@@ -123,7 +123,7 @@ export function PeekAgentBody({ model, target }: { model: AgentsViewModel; targe
             </div>
             <div className="flex flex-col gap-3.5 px-3.5 pb-3.5">
                 {/* the git read lands after the peek is up, so the files (and rows only git fills) arrive late */}
-                <PeekFade>
+                <ViewSwap swapKey="shown">
                     {rows.length > 0 ? (
                         <div className="grid grid-cols-[74px_minmax(0,1fr)] gap-x-3 gap-y-2 text-[12.5px]">
                             {rows.map((r) => (
@@ -131,8 +131,8 @@ export function PeekAgentBody({ model, target }: { model: AgentsViewModel; targe
                             ))}
                         </div>
                     ) : null}
-                </PeekFade>
-                <PeekFade>
+                </ViewSwap>
+                <ViewSwap swapKey="shown">
                     {files.length > 0 ? (
                         <div className="flex flex-col overflow-hidden rounded-[9px] border border-border bg-surface-code">
                             <div className="flex items-center gap-2.5 border-b border-border px-3 py-2">
@@ -168,7 +168,7 @@ export function PeekAgentBody({ model, target }: { model: AgentsViewModel; targe
                             ))}
                         </div>
                     ) : null}
-                </PeekFade>
+                </ViewSwap>
                 <div className="flex items-center gap-2.5 rounded-[9px] border border-dashed border-edge-mid px-3 py-[11px]">
                     <Terminal aria-hidden="true" size={15} strokeWidth={1.8} className="flex-none text-muted" />
                     <span className="text-[12.5px] text-ink-mid">

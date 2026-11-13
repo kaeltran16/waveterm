@@ -11,7 +11,7 @@ import { DrawCheck } from "@/app/element/drawcheck";
 import { composerReveal, errorNudge } from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
 import { TickNumber } from "@/app/element/ticknumber";
-import { ViewFade } from "@/app/element/viewfade";
+import { ViewSwap } from "@/app/element/viewswap";
 import * as WOS from "@/app/store/wos";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
@@ -1016,7 +1016,7 @@ export function WorkflowLens({ model, lensSwitch }: { model: AgentsViewModel; le
                         style={{ paddingBottom: footer != null ? 20 : AVATAR_SURFACE_REACH_PX + 20 }}
                     >
                         {loading ? null : (
-                            <ViewFade fadeKey={view.kind} className="flex flex-col gap-4">
+                            <ViewSwap swapKey={view.kind} className="flex flex-col gap-4">
                                 <Body
                                     model={model}
                                     run={run}
@@ -1033,7 +1033,7 @@ export function WorkflowLens({ model, lensSwitch }: { model: AgentsViewModel; le
                                         />
                                     }
                                 />
-                            </ViewFade>
+                            </ViewSwap>
                         )}
                     </div>
                 </div>

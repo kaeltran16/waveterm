@@ -199,7 +199,7 @@ export const motionCode = {
         const invalid = await codeEval(h, `return until(() => document.querySelector("[data-code-search-invalid]") != null, 8000);`);
         await nap(500);
         const invalidX = distinct(await ev(stopFrames("invalid")));
-        await ev(watchAdded(`[data-view-fade^="done:"]`));
+        await ev(watchAdded(`[data-view-swap^="done:"]`));
         await ev(setInput("[data-code-search-input]", "alpha", true));
         const results = await codeEval(h, `return until(() => document.querySelector("[data-code-search-row]") != null, 8000);`);
         await nap(500);
@@ -222,7 +222,7 @@ export const motionCode = {
         await ev(`document.querySelector('[data-code-column-tab="symbols"]')?.click()`);
         const outline = await codeEval(h, `return until(() => document.querySelector("[data-code-symbol-row]") != null, 6000);`);
         await nap(300);
-        await ev(watchAdded(`[data-view-fade="empty"]`));
+        await ev(watchAdded(`[data-code-symbols] [data-view-swap="empty"]`));
         await ev(setInput("[data-code-symbols-filter]", "zzq"));
         await nap(500);
         const emptyAdded = await ev(readAdded);
@@ -265,18 +265,18 @@ export const motionCode = {
                 { peek: { ...peek, file: { kind: "loading" } }, model: {}, blockId: "motion-code-peek", side: "below" },
                 { style: "width:560px;height:360px;" });
             await nap(300);
-            const loading = document.querySelector('[data-look-mount="CodePeekCard"] [data-view-fade]')?.getAttribute("data-view-fade");
+            const loading = document.querySelector('[data-look-mount="CodePeekCard"] [data-view-swap]')?.getAttribute("data-view-swap");
             const seen = [];
             const obs = new MutationObserver((muts) => {
                 for (const m of muts) for (const n of m.addedNodes) {
-                    if (n instanceof Element && n.matches("[data-view-fade]")) seen.push({ key: n.getAttribute("data-view-fade"), opacity: getComputedStyle(n).opacity });
+                    if (n instanceof Element && n.matches("[data-view-swap]")) seen.push({ key: n.getAttribute("data-view-swap"), opacity: getComputedStyle(n).opacity });
                 }
             });
             obs.observe(host, { childList: true, subtree: true });
             host.render({ peek: { ...peek, file: { kind: "text", text: "# Notes\\n\\nA peeked file.", git: { kind: "norepo" }, open: { projectPath: "C:/motion", rel: "notes.md" } } }, model: {}, blockId: "motion-code-peek", side: "below" });
             await nap(600);
             obs.disconnect();
-            const settled = getComputedStyle(host.querySelector("[data-view-fade]")).opacity;
+            const settled = getComputedStyle(host.querySelector("[data-view-swap]")).opacity;
             return { loading, seen, settled };
         `);
         await h.shot("cdp-shots/motion-code-peek.png");
@@ -354,9 +354,9 @@ export const motionCode = {
         ctx.registered = registered === true;
 
         // 11. Branches and History trade their skeletons for rows with a fade
-        await ev(watchAdded(`[data-overview-region] [data-view-fade="rows"]`, `el.closest("[data-overview-region]").getAttribute("data-overview-region") + ":" + getComputedStyle(el).opacity`));
+        await ev(watchAdded(`[data-overview-region] [data-view-swap="rows"]`, `el.closest("[data-overview-region]").getAttribute("data-overview-region") + ":" + getComputedStyle(el).opacity`));
         const overview = await openOverview(h, ctx.project);
-        await pageEval(h, `return until(() => ["branches", "history"].every((r) => overview()?.querySelector('[data-overview-region="' + r + '"] [data-view-fade="rows"]') != null), 10000);`);
+        await pageEval(h, `return until(() => ["branches", "history"].every((r) => overview()?.querySelector('[data-overview-region="' + r + '"] [data-view-swap="rows"]') != null), 10000);`);
         await nap(600);
         const regionsAdded = (await ev(readAdded)).map((r) => r.value);
         await h.shot("cdp-shots/motion-code-overview.png");

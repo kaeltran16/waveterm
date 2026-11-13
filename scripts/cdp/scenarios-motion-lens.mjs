@@ -76,11 +76,11 @@ export const motionLens = {
         if (ctx.arrangeError != null || !ctx.shown) return steps;
 
         // 2. idle -> scanning fades the new phase in; a stage finishing draws its check; the kept count rolls
-        await h.ev(watchAdded(`[data-view-fade="scanning"]`));
+        await h.ev(watchAdded(`[data-view-swap="scanning"]`));
         const scanning = await wfsSeed(h, ctx, "scanning", scanAt(ctx, { state: "scanning", stage: "patterns" }));
         await settle();
         const phaseAdded = await h.ev(readAdded);
-        const phaseSettled = await h.ev(`getComputedStyle(document.querySelector('[data-view-fade="scanning"]')).opacity`);
+        const phaseSettled = await h.ev(`getComputedStyle(document.querySelector('[data-view-swap="scanning"]')).opacity`);
         await h.ev(startFrames(checkDrawn("Sonnet patterns")));
         await wfsSeed(h, ctx, "scanning", scanAt(ctx, { state: "scanning", stage: "recount" }));
         const recounted = await polishWaitFor(h, `!!document.querySelector('[data-workflow-detail="recount"]')`, 5000);
@@ -111,7 +111,7 @@ export const motionLens = {
         );
 
         // 3. picking: the phase fades in, a card's more quotes grow open, and Drop reveals the reason field
-        await h.ev(watchAdded(`[data-view-fade="picking"]`));
+        await h.ev(watchAdded(`[data-view-swap="picking"]`));
         const picking = await wfsSeed(h, ctx, "picking", scanAt(ctx));
         await settle();
         const pickAdded = await h.ev(readAdded);
@@ -160,7 +160,7 @@ export const motionLens = {
         // 5. reduced motion: the phase swaps in at full opacity and a finishing stage's check is drawn at once
         await h.cdp("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
         await settle(300);
-        await h.ev(watchAdded(`[data-view-fade="scanning"]`));
+        await h.ev(watchAdded(`[data-view-swap="scanning"]`));
         const reducedScan = await wfsSeed(h, ctx, "scanning", scanAt(ctx, { state: "scanning", stage: "patterns" }));
         await settle(300);
         const reducedAdded = await h.ev(readAdded);
@@ -233,12 +233,12 @@ async function canvasSteps(h, ctx) {
     );
 
     // 8. the canvas folder going away fades the removed state in
-    await h.ev(watchAdded(`[data-view-fade="removed"]`));
+    await h.ev(watchAdded(`[data-view-swap="removed"]`));
     rmSync(join(c.cwd, ".superpowers", "design", CANVAS_TABS_TOPIC), { recursive: true, force: true });
-    const removed = await polishWaitFor(h, `!!document.querySelector('[data-view-fade="removed"]')`, CANVAS_REMOVED_WAIT_MS);
+    const removed = await polishWaitFor(h, `!!document.querySelector('[data-view-swap="removed"]')`, CANVAS_REMOVED_WAIT_MS);
     await polishNap(SETTLE_MS);
     const removedAdded = await h.ev(readAdded);
-    const removedSettled = await h.ev(`getComputedStyle(document.querySelector('[data-view-fade="removed"]')).opacity`);
+    const removedSettled = await h.ev(`getComputedStyle(document.querySelector('[data-view-swap="removed"]')).opacity`);
     await h.shot("cdp-shots/motion-lens-canvas-removed.png");
     rec(
         "8. the removed state fades in from opacity 0 in place of the board",
@@ -262,7 +262,7 @@ async function docReviewSteps(h, ctx) {
     await h.cdp("Emulation.setDeviceMetricsOverride", VIEWPORT);
 
     // 9. the plan is read over RPC once the dialog is up, and fades in when it lands
-    await h.ev(watchAdded(`[data-view-fade="ok"]`));
+    await h.ev(watchAdded(`[data-view-swap="ok"]`));
     await lookEval(h, `
         const { globalStore } = await mod("app/store/jotaiStore.ts");
         const { docReviewAtom } = await mod("app/view/agents/docreview.ts");
@@ -271,7 +271,7 @@ async function docReviewSteps(h, ctx) {
     const loaded = await polishWaitFor(h, `!!${DOC_REVIEW_PANEL}?.querySelector("[data-doc-review-doc] h1")`, 8000);
     await polishNap(SETTLE_MS);
     const docAdded = await h.ev(readAdded);
-    const docSettled = await h.ev(`getComputedStyle(document.querySelector('[data-view-fade="ok"]')).opacity`);
+    const docSettled = await h.ev(`getComputedStyle(document.querySelector('[data-view-swap="ok"]')).opacity`);
     rec(
         "9. the plan replaces the skeleton through a fade from opacity 0",
         loaded && docAdded[0]?.value === "0" && docSettled === "1",

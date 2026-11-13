@@ -31,7 +31,7 @@ const watchAdded = (sel) => `(() => {
             if (!(n instanceof Element)) continue;
             for (const el of [n, ...n.querySelectorAll(sel)]) {
                 if (el.matches(sel)) {
-                    window.__mpAdded.push({ key: el.dataset.peekFade ?? el.textContent, opacity: getComputedStyle(el).opacity });
+                    window.__mpAdded.push({ key: el.dataset.viewSwap ?? el.textContent, opacity: getComputedStyle(el).opacity });
                 }
             }
         }
@@ -115,12 +115,12 @@ export const motionPeeks = {
 
         // 2. loading -> the initiative's body: the body fades in and the peek's height follows it
         await closePopup();
-        await h.ev(watchAdded(`[data-peek-fade="body"]`));
+        await h.ev(watchAdded(`${ITEM} [data-view-swap="body"]`));
         await peek(`effort:${ctx.effortId}`);
         const effortReady = await ready("effort", `/Peek item views initiative/.test(el.innerText)`);
         await settle(700);
         const bodyAdded = await h.ev(readAdded);
-        const bodySettled = await h.ev(`getComputedStyle(document.querySelector('[data-peek-fade="body"]')).opacity`);
+        const bodySettled = await h.ev(`getComputedStyle(document.querySelector('${ITEM} [data-view-swap="body"]')).opacity`);
         await h.shot("cdp-shots/motion-peeks-effort.png");
         rec(
             "2. a peek's body fades in from 0 when its load lands, instead of cutting over the skeleton",
@@ -130,7 +130,7 @@ export const motionPeeks = {
 
         // 3. a chunk finishing while the peek is up: the chunk list swaps through a fade, the next segment fills, and
         // the peek shrinks by the row that left (its skeleton and body happen to be the same height, so step 2 can't)
-        await h.ev(watchAdded(`${ITEM} [data-peek-fade]:not([data-peek-fade="body"])`));
+        await h.ev(watchAdded(`${ITEM} [data-view-swap="body"] [data-view-swap]`));
         await h.ev(startFrames("scale", VERIFY_SCALE));
         await h.ev(startFrames("height", BODY_HEIGHT));
         await h.rpc("effortmutate", {
@@ -162,7 +162,7 @@ export const motionPeeks = {
         // 4. reduced motion: the same kind of change lands at once, the segment empties with no frame between
         await h.cdp("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
         await settle(300);
-        await h.ev(watchAdded(`${ITEM} [data-peek-fade]:not([data-peek-fade="body"])`));
+        await h.ev(watchAdded(`${ITEM} [data-view-swap="body"] [data-view-swap]`));
         await h.ev(startFrames("scale", VERIFY_SCALE));
         await h.ev(startFrames("height", BODY_HEIGHT));
         await h.rpc("effortmutate", {
@@ -170,7 +170,7 @@ export const motionPeeks = {
             author: "you",
             ops: [{ op: "setChunkStatus", chunk: "Verify", status: "skipped" }],
         });
-        const emptied = await polishWaitFor(h, `!/Verify/.test(document.querySelector('${ITEM} [data-peek-fade]:not([data-peek-fade="body"])')?.innerText ?? 'Verify')`, 5000);
+        const emptied = await polishWaitFor(h, `!/Verify/.test(document.querySelector('${ITEM} [data-view-swap="body"] [data-view-swap]')?.innerText ?? 'Verify')`, 5000);
         await settle(700);
         const reducedFill = distinct(await h.ev(stopFrames("scale")));
         const reducedHeights = distinct(await h.ev(stopFrames("height")));

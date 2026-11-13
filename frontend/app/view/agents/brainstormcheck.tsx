@@ -7,6 +7,7 @@
 import { composerReveal } from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
 import { TickNumber } from "@/app/element/ticknumber";
+import { ViewSwap } from "@/app/element/viewswap";
 import { cn } from "@/util/util";
 import { useEffect, useState, type ReactNode } from "react";
 import type { AgentsViewModel } from "./agents";
@@ -49,7 +50,6 @@ import {
     Track,
     useAction,
     useAnswer,
-    ViewSwap,
     WORKING_TITLE,
     WorkingMain,
 } from "./brainstormui";

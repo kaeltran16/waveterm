@@ -9,7 +9,7 @@
 
 import { composerReveal, errorNudge } from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
-import { ViewFade } from "@/app/element/viewfade";
+import { ViewSwap } from "@/app/element/viewswap";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";
@@ -194,12 +194,12 @@ export function CodeSearchPane({ model }: { model: AgentsViewModel }) {
             )}
             {/* keyed on the search's state and the query it ran, never the typed one: a new result set fades in,
                 typing does not */}
-            <ViewFade
-                fadeKey={`${state.kind}:${"query" in state ? state.query : ""}`}
+            <ViewSwap
+                swapKey={`${state.kind}:${"query" in state ? state.query : ""}`}
                 className="flex min-h-0 flex-1 flex-col"
             >
                 <SearchBody model={model} state={state} groups={groups} onRetry={submit} />
-            </ViewFade>
+            </ViewSwap>
         </div>
     );
 }
