@@ -45,7 +45,8 @@ func TestContentHashChangesWithContent(t *testing.T) {
 	if ContentHash([]byte("a")) == ContentHash([]byte("b")) {
 		t.Fatal("different content must hash differently")
 	}
-	if ContentHash([]byte("a")) != ContentHash([]byte("a")) {
+	first, second := ContentHash([]byte("a")), ContentHash([]byte("a"))
+	if first != second {
 		t.Fatal("hash must be stable")
 	}
 }
