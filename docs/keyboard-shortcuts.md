@@ -24,14 +24,14 @@ Design spec: [`docs/superpowers/specs/2026-07-03-keyboard-operability-design.md`
 
 | Keys | Action |
 |---|---|
-| `Ctrl`+`1`…`7` | Jump to surface by position — in order: Cockpit, Hub, Agent, Code, Diff, Sessions, Usage |
+| `Ctrl`+`1`…`8` | Jump to surface by position — in order: Cockpit, Hub, Agent, Code, Diff, Sessions, Boards, Usage |
 | `Ctrl`+`P` | Search — opens on the Files scope on Code (see below) |
 | `Ctrl`+`N` | New agent |
 | `Ctrl`+`Tab` / `Ctrl`+`Shift`+`Tab` | Next / previous agent in the tree's order (terminals included) |
 | `Ctrl`+`C` `Ctrl`+`C` (double, within 500ms) | Close the focused agent (on a plain terminal both presses go to the shell) |
 
-Setup, Settings and Boards have no `Ctrl`+number slot — the nine positions are bound to `SURFACE_ORDER`
-(`frontend/app/view/agents/agents.tsx`), which excludes them. Reach Setup with `g` `.`, Settings with `g` `,` and Boards with `g` `w`.
+Setup and Settings have no `Ctrl`+number slot — the nine positions are bound to `SURFACE_ORDER`
+(`frontend/app/view/agents/agents.tsx`), which excludes them. Reach Setup with `g` `.` and Settings with `g` `,`.
 
 ## Go-to surface — leader `g` (Navigate posture)
 

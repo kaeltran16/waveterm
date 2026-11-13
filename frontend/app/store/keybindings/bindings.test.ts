@@ -221,8 +221,8 @@ describe("surface switch [ / ]", () => {
         expect(globalStore.get(model.surfaceAtom)).toBe("jarvis");
 
         globalStore.set(model.surfaceAtom, "sessions");
-        next.run(ctx()); // sessions -> usage
-        expect(globalStore.get(model.surfaceAtom)).toBe("usage");
+        next.run(ctx()); // sessions -> boards
+        expect(globalStore.get(model.surfaceAtom)).toBe("boards");
 
         globalStore.set(model.surfaceAtom, SURFACE_ORDER[SURFACE_ORDER.length - 1]);
         next.run(ctx()); // wrap forward to first

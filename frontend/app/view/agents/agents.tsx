@@ -58,9 +58,9 @@ export type SurfaceKey =
     | "settings"
     | "boards";
 
-// Ordered to match the NavRail (navrail.tsx ITEMS) so Ctrl+1..7 line up with what the user sees. All 7
+// Ordered to match the NavRail (navrail.tsx ITEMS) so Ctrl+1..8 line up with what the user sees. All 8
 // entries are chorded — there is no unchorded remainder.
-export const SURFACE_ORDER: SurfaceKey[] = ["cockpit", "jarvis", "agent", "code", "files", "sessions", "usage"];
+export const SURFACE_ORDER: SurfaceKey[] = ["cockpit", "jarvis", "agent", "code", "files", "sessions", "boards", "usage"];
 
 export type ChipFilter = "all" | "asking" | "working" | "idle";
 
