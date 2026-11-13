@@ -14,6 +14,7 @@ import {
     toolResultImages,
     toolResultText,
 } from "./tooldetail";
+import { parseTranscriptLines, type TranscriptRecord } from "./transcriptrecords";
 
 const READ_MODAL_MAX_LINES = 400; // bound stored Read body (modal view); inline uses the per-kind budget
 
@@ -131,13 +132,16 @@ function mergeCompaction(entries: AgentEntry[], patch: Partial<Extract<AgentEntr
  *  action (fail on error; ok only for "ran", to avoid a checkmark on every read/edit).
  *  Unparseable lines and unknown record types are skipped. */
 export function projectTranscript(lines: string[]): AgentEntry[] {
+    return projectTranscriptRecords(parseTranscriptLines(lines));
+}
+
+/** Pure: projectTranscript over records parsed once (transcriptrecords.ts); reads them, never mutates one. */
+export function projectTranscriptRecords(records: readonly TranscriptRecord[]): AgentEntry[] {
     const entries: AgentEntry[] = [];
     const actionById = new Map<string, ActionEntry>();
-    for (const line of lines) {
-        let rec: any;
-        try {
-            rec = JSON.parse(line);
-        } catch {
+    for (const r of records) {
+        const rec: any = r;
+        if (rec == null) {
             continue;
         }
         if (rec.type === "assistant") {
@@ -336,12 +340,15 @@ export function projectTranscript(lines: string[]): AgentEntry[] {
  *  agent never wrote a todo list. `completed` -> done; every other status is not-done. Malformed
  *  todo entries (missing/non-string content) are skipped; an empty todo list yields []. */
 export function extractTasks(lines: string[]): CardTask[] | undefined {
+    return extractTasksRecords(parseTranscriptLines(lines));
+}
+
+/** Pure: extractTasks over records parsed once (transcriptrecords.ts); reads them, never mutates one. */
+export function extractTasksRecords(records: readonly TranscriptRecord[]): CardTask[] | undefined {
     let latest: unknown[] | undefined;
-    for (const line of lines) {
-        let rec: any;
-        try {
-            rec = JSON.parse(line);
-        } catch {
+    for (const r of records) {
+        const rec: any = r;
+        if (rec == null) {
             continue;
         }
         if (rec?.type !== "assistant" || !Array.isArray(rec?.message?.content)) {

@@ -9,7 +9,7 @@ import { ArrowUpRight, Ban, Check, ChevronDown, ChevronRight, ChevronUp, Copy, E
 import { AnimatePresence, motion } from "motion/react";
 import { MOTION, composerReveal, shouldFadeEntry } from "@/app/element/motiontokens";
 import useResizeObserver from "@react-hook/resize-observer";
-import { Fragment, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, memo, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
     burstRenderMode,
     conversationText,
@@ -669,7 +669,9 @@ function PermissionMarkRow({ text }: { text: string }) {
     );
 }
 
-export function NarrationTimeline({
+// memo: every agent:status rebuilds each AgentVM and re-renders every card, while a card's entries change only on its
+// own transcript chunk, so an unchanged timeline (up to TIMELINE_RENDER_CAP items) skips the re-render
+export const NarrationTimeline = memo(function NarrationTimeline({
     entries,
     accentLatest,
     active,
@@ -898,5 +900,5 @@ export function NarrationTimeline({
             </AnimatePresence>
         </div>
     );
-}
+});
 

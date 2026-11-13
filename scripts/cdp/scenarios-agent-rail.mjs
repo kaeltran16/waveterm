@@ -320,6 +320,33 @@ export default function (_kit) {
                     quiet?.hint === QUIET_HINT && quiet.hintWarning && quiet.stop,
                     JSON.stringify({ ...quiet, attempts: hintAttempts })
                 );
+
+                // the panel and its loaders (1 s clock, usage + cache status reads, git) mount only while the rail is
+                // open on the Agent surface; the collapsed strip stays
+                const setRail = (open) =>
+                    agentPage(
+                        h,
+                        `const { railVisibleAtom } = await mod("app/view/agents/railstore.ts");
+                        globalStore.set(railVisibleAtom, ${open});
+                        return true;`
+                    );
+                const panelState = `(() => { const r = ${RAIL}; return { rail: r != null, panel: r?.querySelector("[data-rail-state]") != null, strip: r?.querySelector('button[title^="Agent details"]') != null }; })()`;
+                await setRail(false);
+                const collapsedOk = await polishWaitFor(h, `(() => { const s = ${panelState}; return s.strip && !s.panel; })()`, WAIT_MS);
+                const collapsed = await h.ev(panelState);
+                await h.shot("cdp-shots/agent-rail-8-collapsed.png");
+                await setRail(true);
+                await h.goto("cockpit");
+                const offSurfaceOk = await polishWaitFor(h, `(() => { const s = ${panelState}; return s.rail && !s.panel; })()`, WAIT_MS);
+                const offSurface = await h.ev(panelState);
+                await h.goto("agent");
+                const backOk = await polishWaitFor(h, `${panelState}.panel`, WAIT_MS);
+                await h.shot("cdp-shots/agent-rail-8-reopened.png");
+                rec(
+                    "8. collapsed, the rail is its strip alone; open on another surface it mounts no panel; back on Agent the panel returns",
+                    collapsedOk && offSurfaceOk && backOk,
+                    JSON.stringify({ collapsed, offSurface, back: backOk })
+                );
                 return steps;
             },
             // best-effort, so one failed step does not strand the rest

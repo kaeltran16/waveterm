@@ -251,3 +251,53 @@ describe("shellTaskPeekAtom", () => {
         expect(globalStore.get(shellTaskPeekAtom)).toBeNull();
     });
 });
+
+describe("refreshShellTasks read stamp", () => {
+    const working = { state: "working" } as AgentVM;
+    const idleAt = (idleSince: number) => ({ state: "idle", idleSince }) as AgentVM;
+
+    it("records the first read of a working agent, then leaves the map alone while it works", async () => {
+        vi.useFakeTimers({ now: 2000 });
+        transcript.mockResolvedValue({ lines: [] });
+        await refreshShellTasks("g1", "C:/tmp/g1.jsonl", () => working);
+        const first = globalStore.get(shellReadAtByIdAtom);
+        expect(first.g1).toBe(2000);
+        vi.setSystemTime(3000);
+        await refreshShellTasks("g1", "C:/tmp/g1.jsonl", () => working);
+        // the same map object: no subscriber re-renders for a read that decides nothing
+        expect(globalStore.get(shellReadAtByIdAtom)).toBe(first);
+        dropShellTasks("g1");
+    });
+
+    it("records a read that releases an idle agent's held finish", async () => {
+        vi.useFakeTimers({ now: 2000 });
+        transcript.mockResolvedValue({ lines: [] });
+        await refreshShellTasks("g2", "C:/tmp/g2.jsonl", () => working);
+        // turned idle at 2500: the 2000 read is older, so the finish is held until a newer read lands
+        const agent = idleAt(2500);
+        expect(shellReadPending(agent, globalStore.get(shellReadAtByIdAtom).g2)).toBe(true);
+        vi.setSystemTime(2600);
+        await refreshShellTasks("g2", "C:/tmp/g2.jsonl", () => agent);
+        expect(globalStore.get(shellReadAtByIdAtom).g2).toBe(2600);
+        expect(shellReadPending(agent, 2600)).toBe(false);
+        // released: a later poll writes nothing
+        const released = globalStore.get(shellReadAtByIdAtom);
+        vi.setSystemTime(8000);
+        await refreshShellTasks("g2", "C:/tmp/g2.jsonl", () => agent);
+        expect(globalStore.get(shellReadAtByIdAtom)).toBe(released);
+        dropShellTasks("g2");
+    });
+
+    it("decides at write time: an agent that turned idle while its read was in flight is released", async () => {
+        vi.useFakeTimers({ now: 2000 });
+        transcript.mockResolvedValue({ lines: [] });
+        await refreshShellTasks("g3", "C:/tmp/g3.jsonl", () => working);
+        let agent: AgentVM = working;
+        vi.setSystemTime(3000);
+        const read = refreshShellTasks("g3", "C:/tmp/g3.jsonl", () => agent);
+        agent = idleAt(2900);
+        await read;
+        expect(globalStore.get(shellReadAtByIdAtom).g3).toBe(3000);
+        dropShellTasks("g3");
+    });
+});

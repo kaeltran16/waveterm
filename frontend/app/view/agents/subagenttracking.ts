@@ -33,6 +33,29 @@ export function enterRefreshes(tracked: Map<string, string | undefined>, agents:
     return agents.filter((a) => !tracked.has(a.id) || tracked.get(a.id) !== a.transcriptPath).map((a) => a.id);
 }
 
+// pure: the ids whose activity stamp moved since last seen (a first-seen stamp counts), and the stamps to remember
+// for the tracked ids. Only these re-arm their debounce: scheduling every stamped id let one agent's chunks
+// reset every other agent's 4 s debounce, so no other agent's chips refreshed while any agent kept chunking.
+export function advancedActivity(
+    seen: ReadonlyMap<string, number>,
+    activity: Record<string, number>,
+    ids: string[]
+): { advanced: string[]; seen: Map<string, number> } {
+    const advanced: string[] = [];
+    const next = new Map<string, number>();
+    for (const id of ids) {
+        const ts = activity[id];
+        if (ts == null) {
+            continue;
+        }
+        if (seen.get(id) !== ts) {
+            advanced.push(id);
+        }
+        next.set(id, ts);
+    }
+    return { advanced, seen: next };
+}
+
 export function useSubagentTracking(agents: Trackable[]): void {
     const lastActivity = useAtomValue(lastActivityByIdAtom);
     const shellTasks = useAtomValue(shellTasksByIdAtom);
@@ -40,6 +63,9 @@ export function useSubagentTracking(agents: Trackable[]): void {
     const agentsRef = useRef(agents);
     agentsRef.current = agents;
     const idleRef = useRef<Map<string, string>>(new Map());
+    const seenActivityRef = useRef<Map<string, number>>(new Map());
+    // read at write time, not at schedule time: a debounced read lands up to 4 s after it was armed
+    const currentAgent = (id: string) => agentsRef.current.find((a) => a.id === id);
     const enterKey = agents.map((a) => `${a.id}=${a.transcriptPath ?? ""}`).join(",");
     const idleKey = agents.map((a) => `${a.id}=${idleEpisode(a)}`).join(",");
     const pollKey = shellTaskPollIds(
@@ -51,7 +77,7 @@ export function useSubagentTracking(agents: Trackable[]): void {
         for (const id of enterRefreshes(trackedRef.current, agents)) {
             const a = byId.get(id)!;
             void refreshSubagents(a.id, a.transcriptPath);
-            void refreshShellTasks(a.id, a.transcriptPath);
+            void refreshShellTasks(a.id, a.transcriptPath, currentAgent);
         }
         for (const id of trackedRef.current.keys()) {
             if (!byId.has(id)) {
@@ -62,11 +88,17 @@ export function useSubagentTracking(agents: Trackable[]): void {
         trackedRef.current = new Map(agents.map((a) => [a.id, a.transcriptPath]));
     }, [enterKey]);
     useEffect(() => {
-        for (const a of agents) {
-            if (lastActivity[a.id]) {
-                scheduleSubagents(a.id, a.transcriptPath);
-                scheduleShellTasks(a.id, a.transcriptPath);
-            }
+        const { advanced, seen } = advancedActivity(
+            seenActivityRef.current,
+            lastActivity,
+            agents.map((a) => a.id)
+        );
+        seenActivityRef.current = seen;
+        const byId = new Map(agents.map((a) => [a.id, a]));
+        for (const id of advanced) {
+            const a = byId.get(id)!;
+            scheduleSubagents(a.id, a.transcriptPath);
+            scheduleShellTasks(a.id, a.transcriptPath, currentAgent);
         }
     }, [lastActivity]);
     useEffect(() => {
@@ -77,7 +109,7 @@ export function useSubagentTracking(agents: Trackable[]): void {
             const was = idleRef.current.get(a.id);
             // a newly tracked agent is read by the enter refresh
             if (was != null && episode !== "" && episode !== was) {
-                void refreshShellTasks(a.id, a.transcriptPath);
+                void refreshShellTasks(a.id, a.transcriptPath, currentAgent);
             }
         }
         idleRef.current = next;
@@ -91,7 +123,7 @@ export function useSubagentTracking(agents: Trackable[]): void {
         const timer = setInterval(() => {
             for (const a of agentsRef.current) {
                 if (ids.has(a.id)) {
-                    void refreshShellTasks(a.id, a.transcriptPath);
+                    void refreshShellTasks(a.id, a.transcriptPath, currentAgent);
                 }
             }
         }, SHELL_POLL_MS);

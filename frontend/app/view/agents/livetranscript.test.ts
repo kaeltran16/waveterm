@@ -117,7 +117,7 @@ vi.mock("./transcriptregistry", () => ({
     // project reflects the retained line count, so a test can observe capping
     projectorFor: () =>
         projectorOverride ?? {
-            project: (l: string[]) => [{ kind: "message", text: String(l.length) }],
+            projectRecords: (r: unknown[]) => [{ kind: "message", text: String(r.length) }],
             extractTasks: () => undefined,
         },
 }));
@@ -305,8 +305,8 @@ describe("stream chunks", () => {
         genFactory = () => feed.gen;
         const list = [{ text: "write tests", done: false }];
         projectorOverride = {
-            project: () => [],
-            extractTasks: (l: string[]) => (l.length > 1 ? list : undefined),
+            projectRecords: () => [],
+            extractTasks: (r: unknown[]) => (r.length > 1 ? list : undefined),
         };
         const { startTranscriptStream, stopTranscriptStream } = await import("./livetranscript");
         const s = await readStore();
@@ -318,6 +318,30 @@ describe("stream chunks", () => {
         await settle();
         expect(s.tasks()["chunk-tasks"]).toEqual(list);
         stopTranscriptStream("chunk-tasks");
+    });
+
+    it("parses each line once: a later chunk's projection gets the same record objects", async () => {
+        const feed = makeFeedGen();
+        genFactory = () => feed.gen;
+        const seen: unknown[][] = [];
+        const tasksSeen: unknown[][] = [];
+        projectorOverride = {
+            projectRecords: (r: unknown[]) => (seen.push([...r]), []),
+            extractTasks: (r: unknown[]) => (tasksSeen.push([...r]), undefined),
+        };
+        const { startTranscriptStream, stopTranscriptStream } = await import("./livetranscript");
+        startTranscriptStream("chunk-once", "/p/once.jsonl", "claude");
+        feed.push(['{"n":1}', "not json"]);
+        await settle();
+        feed.push(['{"n":2}']);
+        await settle();
+        expect(seen).toHaveLength(2);
+        expect(seen[0]).toEqual([{ n: 1 }, undefined]);
+        expect(seen[1]).toEqual([{ n: 1 }, undefined, { n: 2 }]);
+        expect(seen[1][0]).toBe(seen[0][0]);
+        // both passes of a chunk read the same records
+        expect(tasksSeen[1][2]).toBe(seen[1][2]);
+        stopTranscriptStream("chunk-once");
     });
 
     it("frees the id once its stream ends, so the id can be opened again", async () => {

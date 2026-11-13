@@ -1,6 +1,7 @@
 package usagestats
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -45,25 +46,7 @@ func TestExtractClaudeSkips(t *testing.T) {
 	}
 }
 
-func TestFilterUsageLines(t *testing.T) {
-	in := []string{
-		`{"type":"assistant","message":{"usage":{"input_tokens":1}}}`,   // kept
-		`{"type":"user","message":{}}`,                                  // dropped
-		`{"payload":{"info":{"total_token_usage":{"input_tokens":9}}}}`, // Codex: dropped (no "usage" match)
-	}
-	orig := append([]string(nil), in...) // snapshot to assert non-destructiveness
-	got := filterUsageLines(in)
-	if len(got) != 1 || got[0] != in[0] {
-		t.Fatalf("want only the assistant-usage line, got %+v", got)
-	}
-	for i := range orig {
-		if in[i] != orig[i] {
-			t.Fatalf("filterUsageLines mutated its input at %d: %q != %q", i, in[i], orig[i])
-		}
-	}
-}
-
-func TestReadClaudeLinesKeepsOnlyUsageLines(t *testing.T) {
+func TestScanLinesKeepsOnlyUsageLines(t *testing.T) {
 	usage := `{"type":"assistant","message":{"usage":{"input_tokens":1}}}`
 	long := `{"type":"assistant","message":{"usage":{}},"pad":"` + strings.Repeat("x", 200_000) + `"}` // past the scanner's default 64 KB line cap
 	path := filepath.Join(t.TempDir(), "t.jsonl")
@@ -77,7 +60,7 @@ func TestReadClaudeLinesKeepsOnlyUsageLines(t *testing.T) {
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := readClaudeLines(path); !slices.Equal(got, []string{usage, long}) {
+	if got, _ := scanLines(path, func(line []byte) bool { return bytes.Contains(line, usageMarker) }); !slices.Equal(got, []string{usage, long}) {
 		t.Fatalf("want the two usage lines, got %d lines", len(got))
 	}
 	if got := readLines(path); len(got) != 4 {
@@ -1089,5 +1072,112 @@ func TestSessionIdOf(t *testing.T) {
 		if got := SessionIdOf(c.harness, c.path); got != c.want {
 			t.Errorf("SessionIdOf(%q, %q) = %q, want %q", c.harness, c.path, got, c.want)
 		}
+	}
+}
+
+// The rail asks for the focused transcript's usage and cache status every 15 s: an unchanged file
+// (same size and modtime) must come from parseCache, not be read again. Rewriting a subagent's tokens
+// in place with the old size and modtime restored proves the second ask did not read it.
+func TestTranscriptUsageReadsOnlyChangedFiles(t *testing.T) {
+	dir := t.TempDir()
+	parent := filepath.Join(dir, "s.jsonl")
+	line := func(id string, input int) string {
+		return fmt.Sprintf(`{"type":"assistant","timestamp":"2026-06-26T10:00:00.000Z","requestId":"%s","message":{"id":"%s","model":"claude-opus-4-8","usage":{"input_tokens":%d,"output_tokens":1,"cache_creation_input_tokens":7}}}`+"\n", id, id, input)
+	}
+	if err := os.WriteFile(parent, []byte(line("p1", 100)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	subDir := filepath.Join(dir, "s", "subagents")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sub := filepath.Join(subDir, "agent-1.jsonl")
+	if err := os.WriteFile(sub, []byte(line("a1", 300)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	inputs := func() int {
+		got, err := TranscriptUsage(parent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		n := 0
+		for _, b := range got {
+			n += b.Input
+		}
+		return n
+	}
+	if n := inputs(); n != 400 {
+		t.Fatalf("first ask: input = %d, want 400", n)
+	}
+	info, err := os.Stat(sub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sub, []byte(line("a1", 900)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(sub, info.ModTime(), info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	if n := inputs(); n != 400 {
+		t.Fatalf("unchanged subagent was read again: input = %d, want the cached 400", n)
+	}
+	// the parent grows (a working agent): it is read again, the subagent still is not
+	f, err := os.OpenFile(parent, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = f.WriteString(line("p2", 20))
+	f.Close()
+	if n := inputs(); n != 420 {
+		t.Fatalf("grown parent: input = %d, want 420", n)
+	}
+	if cw, err := LastCacheWrite(parent); err != nil || cw == nil {
+		t.Fatalf("cache write = %+v, err = %v", cw, err)
+	}
+}
+
+// parseCache is keyed by path and shared by the Usage scan and the per-transcript reads, so a rail
+// read must leave the entry the scan expects: the scan still names a subagent's usage by its parent
+// session, and a codex rollout read through LastCacheWrite still scans as codex.
+func TestTranscriptReadsKeepTheScanCacheIntact(t *testing.T) {
+	dir := t.TempDir()
+	claude := filepath.Join(dir, "claude", "proj")
+	subDir := filepath.Join(claude, "sess", "subagents")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sub := filepath.Join(subDir, "agent-1.jsonl")
+	subLine := `{"type":"assistant","timestamp":"` + time.Now().UTC().Format(time.RFC3339) + `","requestId":"r1","message":{"id":"m1","model":"claude-opus-4-8","usage":{"input_tokens":30,"output_tokens":8}}}` + "\n"
+	if err := os.WriteFile(sub, []byte(subLine), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	codexRoot := filepath.Join(dir, "codex")
+	if err := os.MkdirAll(codexRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rollout := filepath.Join(codexRoot, "rollout-x.jsonl")
+	codexLines := `{"timestamp":"` + time.Now().UTC().Format(time.RFC3339) + `","type":"turn_context","payload":{"model":"gpt-5.5"}}` + "\n" +
+		`{"timestamp":"` + time.Now().UTC().Format(time.RFC3339) + `","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":50,"output_tokens":5,"total_tokens":55}}}}` + "\n"
+	if err := os.WriteFile(rollout, []byte(codexLines), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// the rail reads first, filling the cache
+	if _, err := TranscriptUsage(sub); err != nil {
+		t.Fatal(err)
+	}
+	if cw, _ := LastCacheWrite(rollout); cw != nil {
+		t.Fatalf("a codex rollout has no cache writes, got %+v", cw)
+	}
+	got, _ := scanRoots(filepath.Join(dir, "claude"), codexRoot, filepath.Join(dir, "opencode-missing"), filepath.Join(dir, "pi-missing"), 0)
+	byHarness := map[string]Bucket{}
+	for _, b := range got {
+		byHarness[b.Harness] = b
+	}
+	if b := byHarness["claude"]; b.Session != "sess" || b.Input != 30 {
+		t.Errorf("claude bucket = %+v, want the subagent's usage under its parent session sess", b)
+	}
+	if b := byHarness["codex"]; b.Input != 50 || b.Output != 5 {
+		t.Errorf("codex bucket = %+v, want the rollout's usage", b)
 	}
 }

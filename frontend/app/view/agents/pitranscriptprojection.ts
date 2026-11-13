@@ -20,6 +20,7 @@
 
 import type { AgentEntry, CardTask } from "./agentsviewmodel";
 import { buildEditDiff, parseGrep, sliceRead, toolResultText } from "./tooldetail";
+import { parseTranscriptLines, type TranscriptRecord } from "./transcriptrecords";
 
 const READ_MODAL_MAX_LINES = 400; // bound stored Read body (modal view); inline uses the per-kind budget
 
@@ -316,22 +317,11 @@ function mapRecord(rec: PiRecord, entries: AgentEntry[], actionById: Map<string,
     }
 }
 
-// Parse valid records, tolerating malformed lines (skipped). A v3 session starts with a header and
+// The records worth walking: a malformed line (undefined) or a null record is skipped. A v3 session starts with a header and
 // every later record carries id + parentId; the header itself and non-message entries (model_change,
 // compaction, branch_summary, session_info) simply produce no entry.
-function parseRecords(lines: string[]): PiRecord[] {
-    const records: PiRecord[] = [];
-    for (const line of lines) {
-        try {
-            const rec = JSON.parse(line) as PiRecord;
-            if (rec != null) {
-                records.push(rec);
-            }
-        } catch {
-            // malformed line: skip
-        }
-    }
-    return records;
+function validRecords(parsed: readonly TranscriptRecord[]): PiRecord[] {
+    return parsed.filter((rec) => rec != null) as PiRecord[];
 }
 
 // activeBranch follows parentId from the final record to a root, returning indices root-first.
@@ -376,7 +366,12 @@ function activeBranch(records: PiRecord[]): number[] {
  *  edit/write carry inline diffs), compaction -> compaction. branch_summary / model_change /
  *  session_info never render. */
 export function projectPiTranscript(lines: string[]): AgentEntry[] {
-    const records = parseRecords(lines);
+    return projectPiTranscriptRecords(parseTranscriptLines(lines));
+}
+
+/** Pure: projectPiTranscript over records parsed once (transcriptrecords.ts); reads them, never mutates one. */
+export function projectPiTranscriptRecords(parsed: readonly TranscriptRecord[]): AgentEntry[] {
+    const records = validRecords(parsed);
     const branch = activeBranch(records);
     const entries: AgentEntry[] = [];
     const actionById = new Map<string, ActionEntry>();
@@ -418,13 +413,16 @@ const TASK_LIST_RE = /^#(\d+) \[(\w+)\] (.+)$/;
  *  TaskUpdate {taskId, status} flips done flags, and a TaskList result ("#N [status] subject") is a
  *  full snapshot. `completed` -> done; every other status is not-done. Tasks keep creation order. */
 export function extractPiTasks(lines: string[]): CardTask[] | undefined {
+    return extractPiTasksRecords(parseTranscriptLines(lines));
+}
+
+/** Pure: extractPiTasks over records parsed once (transcriptrecords.ts); reads them, never mutates one. */
+export function extractPiTasksRecords(records: readonly TranscriptRecord[]): CardTask[] | undefined {
     const byId = new Map<string, { text: string; done: boolean }>();
     const order: string[] = [];
-    for (const line of lines) {
-        let rec: PiRecord;
-        try {
-            rec = JSON.parse(line) as PiRecord;
-        } catch {
+    for (const r of records) {
+        const rec = r as PiRecord;
+        if (rec == null) {
             continue;
         }
         if (rec?.type !== "message" || rec.message == null) {
@@ -490,7 +488,7 @@ export function extractPiTasks(lines: string[]): CardTask[] | undefined {
  *  first active user text. Mirrors the backend's piBranchMeta so the Sessions surface and history
  *  scan agree on what a Pi session is called. */
 export function extractPiTitle(lines: string[]): string | undefined {
-    const records = parseRecords(lines);
+    const records = validRecords(parseTranscriptLines(lines));
     let title: string | undefined;
     for (const idx of activeBranch(records)) {
         const rec = records[idx];
