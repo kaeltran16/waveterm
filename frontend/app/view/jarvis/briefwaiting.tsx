@@ -25,6 +25,7 @@ export function WaitingRegion({
     ackable,
     onAckAll,
     entering,
+    fresh,
     cursor,
     onOpenRow,
     onAct,
@@ -44,6 +45,7 @@ export function WaitingRegion({
     ackable: number;
     onAckAll: () => void;
     entering: Set<string>;
+    fresh: Set<string>;
     cursor: string | undefined;
     // a click hands its event over, so Ctrl can peek instead
     onOpenRow: (q: QueueRow, l: BriefLine, e: React.MouseEvent) => void;
@@ -111,6 +113,7 @@ export function WaitingRegion({
                                             <WaitingRow
                                                 line={l}
                                                 focused={cursor === l.id}
+                                                fresh={fresh.has(keyOf(l))}
                                                 acts={queueActions(queueOf(l))}
                                                 onOpen={
                                                     l.target != null ? (e) => onOpenRow(queueOf(l), l, e) : undefined
