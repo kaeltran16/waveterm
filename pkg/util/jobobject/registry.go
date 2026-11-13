@@ -35,8 +35,8 @@ type JobUsage struct {
 	Current uint64
 }
 
-// CloseHook is told the owner and root pid of each registered job that Close closes.
-type CloseHook func(o Owner, rootPid int)
+// CloseHook is told the owner, root pid and peak memory of each registered job that Close closes.
+type CloseHook func(o Owner, rootPid int, peak uint64)
 
 var (
 	ErrNotMember = errors.New("not a member of the job") // includes: no live job for that owner

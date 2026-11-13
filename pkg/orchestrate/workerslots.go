@@ -92,7 +92,7 @@ func workerGrant(want, mine int, l workerLoad) int {
 // without being tried, so no task jumps ahead of one waiting for memory. It returns the admitted tasks and their
 // claims; the caller releases the count claim with releaseWorkerClaim once the dispatch is persisted, and every
 // claim its dispatch did not bind.
-func claimWorkers(ctx context.Context, g *waveobj.TaskGroup, next []string) ([]string, map[string]*memgate.Claim) {
+func claimWorkers(ctx context.Context, g *waveobj.TaskGroup, owner *waveobj.Run, next []string) ([]string, map[string]*memgate.Claim) {
 	if len(next) == 0 {
 		return nil, nil
 	}
@@ -108,10 +108,10 @@ func claimWorkers(ctx context.Context, g *waveobj.TaskGroup, next []string) ([]s
 	var admitted []string
 	claims := make(map[string]*memgate.Claim)
 	for i, taskID := range granted {
-		claim, ok := memgate.TryAdmit(workerRequest(g, taskID))
+		claim, ok := memgate.TryAdmit(workerRequest(g, owner, taskID))
 		if !ok {
 			for _, held := range granted[i+1:] {
-				memgate.Hold(workerRequest(g, held))
+				memgate.Hold(workerRequest(g, owner, held))
 			}
 			break
 		}

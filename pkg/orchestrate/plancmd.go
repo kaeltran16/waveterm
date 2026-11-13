@@ -261,11 +261,7 @@ func markTreeSetUp(ctx context.Context, wt string) {
 }
 
 func execPlanCommandEnv(ctx context.Context, dir, command string, env []string, timeout time.Duration, progress planProgress) (string, error) {
-	// before the timeout starts, so time held at the memory gate never counts against it
-	claim, err := admitPlanCommand(ctx)
-	if err != nil {
-		return "", err
-	}
+	claim := admitPlanCommand(ctx, dir)
 	defer claim.Release()
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
