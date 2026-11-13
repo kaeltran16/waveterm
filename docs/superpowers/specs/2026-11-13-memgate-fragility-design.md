@@ -71,7 +71,8 @@ step), and never holding at the door while suspending the youngest (pauses would
 1. **Progress is counted, never held.** Task reviewers (`spawnReviewer`, `pkg/orchestrate/review.go`) and every
    plan command (`admitPlanCommand`, `pkg/orchestrate/memadmit.go`, called from `plancmd.go`: Verify, Check,
    Final, base check) always start: they take a claim through a never-blocking admit beside `TryAdmit`
-   (`Wait` is deleted: nothing calls it once plan commands take the admit. Changed at planning, 11-13.) The claim counts their learned median against available memory until their job is seen or 30 s pass,
+   (`Wait` is deleted: nothing calls it once plan commands take the admit. Changed at planning, 11-13.) The
+   claim counts their learned median against available memory until their job is seen or 30 s pass,
    like a worker's (Decision 3), so a worker is not admitted onto memory a starting Final is about to use, and it
    keeps the book non-empty, so the one-tree-always-starts rule cannot admit a worker beside a running Final. A
    worker's Setup keeps riding its worker's admission (`WithGateAdmitted`). Leads, plan reviewers and stage
