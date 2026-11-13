@@ -10,6 +10,7 @@
 // ignored wholesale. session_meta/turn_context/reasoning/ghost_snapshot are skipped too.
 
 import type { AgentEntry, CardTask } from "./agentsviewmodel";
+import { parseTranscriptLines, type TranscriptRecord } from "./transcriptrecords";
 
 const VERB_BY_TOOL: Record<string, string> = {
     shell_command: "ran",
@@ -101,13 +102,16 @@ type ActionEntry = AgentEntry & { kind: "action" };
  *  custom_tool_call -> action; *_output -> outcome on the matching action by call_id (fail on a
  *  non-zero exit; ok only for "ran", matching the Claude projection). */
 export function projectCodexTranscript(lines: string[]): AgentEntry[] {
+    return projectCodexTranscriptRecords(parseTranscriptLines(lines));
+}
+
+/** Pure: projectCodexTranscript over records parsed once (transcriptrecords.ts); reads them, never mutates one. */
+export function projectCodexTranscriptRecords(records: readonly TranscriptRecord[]): AgentEntry[] {
     const entries: AgentEntry[] = [];
     const actionById = new Map<string, ActionEntry>();
-    for (const line of lines) {
-        let rec: any;
-        try {
-            rec = JSON.parse(line);
-        } catch {
+    for (const r of records) {
+        const rec: any = r;
+        if (rec == null) {
             continue;
         }
         if (rec?.type !== "response_item") {
@@ -180,12 +184,15 @@ export function projectCodexTranscript(lines: string[]): AgentEntry[] {
  *  Steps with a non-string `step` are skipped; an empty plan yields []. Malformed arguments (JSON
  *  parse failure) or an absent `plan` array are ignored — they don't count as "a plan seen". */
 export function extractCodexTasks(lines: string[]): CardTask[] | undefined {
+    return extractCodexTasksRecords(parseTranscriptLines(lines));
+}
+
+/** Pure: extractCodexTasks over records parsed once (transcriptrecords.ts); reads them, never mutates one. */
+export function extractCodexTasksRecords(records: readonly TranscriptRecord[]): CardTask[] | undefined {
     let latest: unknown[] | undefined;
-    for (const line of lines) {
-        let rec: any;
-        try {
-            rec = JSON.parse(line);
-        } catch {
+    for (const r of records) {
+        const rec: any = r;
+        if (rec == null) {
             continue;
         }
         if (rec?.type !== "response_item") {

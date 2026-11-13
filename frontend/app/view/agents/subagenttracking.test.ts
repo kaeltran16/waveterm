@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { enterRefreshes } from "./subagenttracking";
+import { advancedActivity, enterRefreshes } from "./subagenttracking";
 
 describe("enterRefreshes", () => {
     it("enterRefreshes reads a new id", () => {
@@ -24,5 +24,29 @@ describe("enterRefreshes", () => {
             ["b", undefined],
         ]);
         expect(enterRefreshes(tracked, [{ id: "a", transcriptPath: "/a.jsonl" }, { id: "b" }])).toEqual([]);
+    });
+});
+
+describe("advancedActivity", () => {
+    it("schedules only the ids whose stamp advanced, not every stamped id", () => {
+        // a chunks again; b went quiet at 100 and must keep its pending debounce, not be re-armed
+        const seen = new Map([
+            ["a", 200],
+            ["b", 100],
+        ]);
+        const next = advancedActivity(seen, { a: 300, b: 100 }, ["a", "b"]);
+        expect(next.advanced).toEqual(["a"]);
+        expect([...next.seen]).toEqual([
+            ["a", 300],
+            ["b", 100],
+        ]);
+    });
+    it("schedules a first-seen stamp: activity after the enter read is not covered by it", () => {
+        expect(advancedActivity(new Map(), { a: 100 }, ["a", "b"]).advanced).toEqual(["a"]);
+    });
+    it("forgets ids no longer tracked, so a returning id schedules again", () => {
+        const next = advancedActivity(new Map([["gone", 100]]), { gone: 100 }, ["a"]);
+        expect([...next.seen]).toEqual([]);
+        expect(advancedActivity(next.seen, { gone: 100 }, ["gone"]).advanced).toEqual(["gone"]);
     });
 });

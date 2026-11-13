@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -348,30 +349,6 @@ func readLines(path string) []string {
 	return lines
 }
 
-// filterUsageLines returns the subset of lines that could carry Claude token usage — only assistant
-// messages hold a "usage" object, so a line lacking that substring can never produce a record
-// (extractClaude would skip it anyway). Dropping them avoids a full json.Unmarshal of every
-// user/tool/summary line, the dominant per-file cost. Non-destructive: the input is left intact for
-// callers that also try a Codex parse on the same lines. Output through extractClaude is identical
-// to parsing every line (Codex-shaped lines never match: "total_token_usage" has no leading quote
-// before "usage", and any stray match isn't type:"assistant" so it yields no record).
-func filterUsageLines(lines []string) []string {
-	var out []string
-	for _, ln := range lines {
-		if strings.Contains(ln, string(usageMarker)) {
-			out = append(out, ln)
-		}
-	}
-	return out
-}
-
-// readClaudeLines reads a Claude transcript, keeping only usage-bearing lines (see filterUsageLines)
-// as they stream past, so the rest of the file is never held.
-func readClaudeLines(path string) []string {
-	lines, _ := scanLines(path, func(line []byte) bool { return bytes.Contains(line, usageMarker) })
-	return lines
-}
-
 // inWindow reports whether the file at path was modified at/after cutoff. A zero cutoff
 // (windowDays <= 0) means all-time — always true. Unstatable files are excluded.
 func inWindow(path string, cutoff time.Time) bool {
@@ -560,6 +537,7 @@ func parseFiles(files []scanFile) []Record {
 		cutoff := files[i].cutoff
 		for _, r := range recs {
 			if cutoff.IsZero() || !r.TS.Before(cutoff) {
+				r.Session = files[i].session
 				records = append(records, r)
 			}
 		}
@@ -568,7 +546,9 @@ func parseFiles(files []scanFile) []Record {
 }
 
 // parseFile reads one transcript into its records, whatever their age: the window is applied by the
-// caller, so one parse serves every window. Records are deduped within the file, which a later
+// caller, so one parse serves every window. Records carry no Session: the cache is keyed by path and
+// shared with the per-transcript reads (transcriptRecords), so parseFiles stamps the scan's session
+// on its own copies. Records are deduped within the file, which a later
 // corpus-wide dedupe leaves unchanged (it keeps the largest output per ID either way) and which
 // keeps the streaming snapshots out of the cache. The same read takes the cwd and title the file
 // holds, so the session directory costs no second pass.
@@ -617,9 +597,6 @@ func parseFile(f scanFile) fileParse {
 		}
 	default:
 		p = parseClaudeFile(f.path)
-	}
-	for i := range p.records {
-		p.records[i].Session = f.session
 	}
 	p.title = clipTitle(p.title)
 	return p
@@ -709,6 +686,25 @@ type fileParse struct {
 // ponytail: unbounded, an all-time scan keeps every record of the corpus until wavesrv exits; evict
 // entries no recent scan read if its memory matters.
 var parseCache sync.Map
+
+// pathKind is the parser the usage scan gives the transcript at path (pi root, a codex rollout, else
+// claude), so a per-transcript read shares the scan's parseCache entry for that path rather than
+// caching a different parse under it.
+func pathKind(path string) scanKind {
+	switch {
+	case isPiTranscriptPath(path):
+		return scanPi
+	case strings.HasPrefix(filepath.Base(path), "rollout-"):
+		return scanCodex
+	default:
+		return scanClaude
+	}
+}
+
+// cachedRecords is path's records through parseCache. Shared with the cache: never modify them.
+func cachedRecords(path string) []Record {
+	return cachedParse(scanFile{path: path, kind: pathKind(path)}).records
+}
 
 // cachedParse returns f's parse, reading the file only when its modtime or size differs from the
 // cached one. The returned records are shared with the cache and must not be modified.
@@ -838,11 +834,8 @@ func piSubagentRecords(parentPath string) []Record {
 		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".jsonl") {
 			return nil
 		}
-		file, err := pisession.Read(path)
-		if err != nil {
-			return nil
-		}
-		recs = append(recs, extractPi(file, time.Time{})...)
+		// a file that does not parse as a Pi session caches as no records
+		recs = append(recs, cachedRecords(path)...)
 		return nil
 	})
 	return recs
@@ -858,45 +851,34 @@ func subagentRecords(parentPath string) []Record {
 		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".jsonl") {
 			return nil
 		}
-		recs = append(recs, extractClaude(readClaudeLines(path))...)
+		recs = append(recs, cachedRecords(path)...)
 		return nil
 	})
 	return recs
 }
 
-// transcriptRecords parses one transcript file — plus any subagent transcripts a Claude parent
-// spawned — into raw (un-deduped) records. Claude parser first; Codex fallback when the Claude
-// parse is empty. A subagent's tokens bill to the account exactly like the parent's, so a
-// per-session total that omitted them would under-report any session that fanned out to subagents.
-// Codex rollouts have no subagent dir, so the fallback path returns the parent's records unchanged.
+// transcriptRecords parses one transcript file — plus any subagent transcripts a Claude or Pi parent
+// spawned — into records deduped per file, not across them. A subagent's tokens bill to the account
+// exactly like the parent's, so a per-session total that omitted them would under-report any session
+// that fanned out to subagents. Every file goes through parseCache, as the Usage scan's do: the rail
+// asks every 15 s, and only the focused transcript changes between asks.
 func transcriptRecords(path string) []Record {
-	lines := readLines(path)
-	if len(lines) == 0 {
-		return nil
-	}
-	// opencode shadows are the plugin's usage records, none of which the claude/codex parsers
-	// understand — route them to the opencode parser before the claude/codex attempts run.
+	// opencode shadows are the plugin's usage records, which the scan never reads (it reads opencode's
+	// own storage); they stay an uncached read
 	if isOpencodeShadowPath(path) {
-		return extractOpencodeShadow(lines)
+		return extractOpencodeShadow(readLines(path))
 	}
-	// native Pi sessions are their own versioned JSONL shape that neither the claude nor codex
-	// heuristics can parse — route them to the Pi parser before those fallbacks run. Like Claude,
-	// the parent's total folds in its subagent sessions (pi-subagents writes them under the parent's
-	// own file stem) so a fan-out session does not under-report.
-	if isPiTranscriptPath(path) {
-		file, err := pisession.Read(path)
-		if err != nil {
-			return nil
-		}
-		return append(extractPi(file, time.Time{}), piSubagentRecords(path)...)
+	// a fresh slice: appending to the cached one could write into the cache's backing array
+	own := slices.Clone(cachedRecords(path))
+	switch pathKind(path) {
+	case scanPi:
+		// pi-subagents writes a parent's child sessions under the parent's own file stem
+		return append(own, piSubagentRecords(path)...)
+	case scanCodex:
+		return own
+	default:
+		return append(own, subagentRecords(path)...)
 	}
-	// Claude parse runs on the usage-filtered subset; the Codex fallback needs the full lines (its
-	// model + token counts live on non-usage lines), so filterUsageLines must not mutate `lines`.
-	recs := extractClaude(filterUsageLines(lines))
-	if len(recs) == 0 {
-		return extractCodex(lines)
-	}
-	return append(recs, subagentRecords(path)...)
 }
 
 // SumTranscript reads one transcript file — and the subagent transcripts it spawned — and returns
@@ -928,12 +910,11 @@ type CacheWrite struct {
 // concept (extractClaude yields nothing for a Codex-shaped file, so this returns nil for those).
 // Returns nil (no error) when the transcript has no cache-write activity, is empty, or is missing.
 func LastCacheWrite(path string) (*CacheWrite, error) {
-	lines := readLines(path)
-	if len(lines) == 0 {
+	if pathKind(path) != scanClaude || isOpencodeShadowPath(path) {
 		return nil, nil
 	}
 	var last *Record
-	for _, r := range extractClaude(filterUsageLines(lines)) {
+	for _, r := range cachedRecords(path) {
 		if r.CacheCreate <= 0 {
 			continue
 		}

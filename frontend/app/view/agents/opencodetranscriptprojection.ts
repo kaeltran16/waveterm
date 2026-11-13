@@ -5,6 +5,7 @@
 // installed from cmd/wsh/cmd/opencode-plugin.js) into AgentEntry[]. No React, no Wave runtime imports.
 
 import type { AgentEntry } from "./agentsviewmodel";
+import { parseTranscriptLines, type TranscriptRecord } from "./transcriptrecords";
 
 const VERB_BY_TOOL: Record<string, string> = {
     bash: "ran",
@@ -53,12 +54,15 @@ function targetFor(name: string, input: string): string {
  *  tool -> action (bash fails on an error state), state/session -> no entry. Unparseable lines and
  *  unknown record types are skipped. */
 export function projectOpencodeTranscript(lines: string[]): AgentEntry[] {
+    return projectOpencodeTranscriptRecords(parseTranscriptLines(lines));
+}
+
+/** Pure: projectOpencodeTranscript over records parsed once (transcriptrecords.ts); reads them, never mutates one. */
+export function projectOpencodeTranscriptRecords(records: readonly TranscriptRecord[]): AgentEntry[] {
     const entries: AgentEntry[] = [];
-    for (const line of lines) {
-        let rec: any;
-        try {
-            rec = JSON.parse(line);
-        } catch {
+    for (const r of records) {
+        const rec: any = r;
+        if (rec == null) {
             continue;
         }
         if (rec == null) {

@@ -6,24 +6,63 @@
 // new agent (e.g. opencode) is a new projector file + one entry here + its tests — nothing else.
 
 import type { AgentEntry, CardTask } from "./agentsviewmodel";
-import { extractCodexTasks, projectCodexTranscript } from "./codextranscriptprojection";
-import { extractOpencodeTitle, projectOpencodeTranscript } from "./opencodetranscriptprojection";
-import { extractPiTasks, extractPiTitle, projectPiTranscript } from "./pitranscriptprojection";
-import { extractAiTitle, extractTasks, projectTranscript } from "./transcriptprojection";
+import {
+    extractCodexTasksRecords,
+    projectCodexTranscript,
+    projectCodexTranscriptRecords,
+} from "./codextranscriptprojection";
+import {
+    extractOpencodeTitle,
+    projectOpencodeTranscript,
+    projectOpencodeTranscriptRecords,
+} from "./opencodetranscriptprojection";
+import {
+    extractPiTasksRecords,
+    extractPiTitle,
+    projectPiTranscript,
+    projectPiTranscriptRecords,
+} from "./pitranscriptprojection";
+import {
+    extractAiTitle,
+    extractTasksRecords,
+    projectTranscript,
+    projectTranscriptRecords,
+} from "./transcriptprojection";
+import type { TranscriptRecord } from "./transcriptrecords";
 
 export interface TranscriptProjector {
+    // one-shot callers hand lines; the live stream parses each line once and hands records (transcriptrecords.ts)
     project(lines: string[]): AgentEntry[];
+    projectRecords(records: readonly TranscriptRecord[]): AgentEntry[];
     // optional because title derivation is format-specific and not yet implemented for every agent
     extractTitle?(lines: string[]): string | undefined;
     // optional because a card task list needs a TodoWrite-equivalent; Codex maps its update_plan
-    extractTasks?(lines: string[]): CardTask[] | undefined;
+    extractTasks?(records: readonly TranscriptRecord[]): CardTask[] | undefined;
 }
 
 const PROJECTORS: Record<string, TranscriptProjector> = {
-    claude: { project: projectTranscript, extractTitle: extractAiTitle, extractTasks },
-    codex: { project: projectCodexTranscript, extractTasks: extractCodexTasks },
-    opencode: { project: projectOpencodeTranscript, extractTitle: extractOpencodeTitle },
-    pi: { project: projectPiTranscript, extractTitle: extractPiTitle, extractTasks: extractPiTasks },
+    claude: {
+        project: projectTranscript,
+        projectRecords: projectTranscriptRecords,
+        extractTitle: extractAiTitle,
+        extractTasks: extractTasksRecords,
+    },
+    codex: {
+        project: projectCodexTranscript,
+        projectRecords: projectCodexTranscriptRecords,
+        extractTasks: extractCodexTasksRecords,
+    },
+    opencode: {
+        project: projectOpencodeTranscript,
+        projectRecords: projectOpencodeTranscriptRecords,
+        extractTitle: extractOpencodeTitle,
+    },
+    pi: {
+        project: projectPiTranscript,
+        projectRecords: projectPiTranscriptRecords,
+        extractTitle: extractPiTitle,
+        extractTasks: extractPiTasksRecords,
+    },
 };
 
 const DEFAULT_AGENT = "claude";

@@ -1,5 +1,22 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { extractCodexTasks, projectCodexTranscript } from "./codextranscriptprojection";
+
+// every projection here runs over deep-frozen records: the live stream hands the same records to every chunk's
+// projection, so a projector that mutates one throws here (modules are strict)
+vi.mock("./transcriptrecords", async (importOriginal) => {
+    const orig = await importOriginal<typeof import("./transcriptrecords")>();
+    const freeze = (v: unknown): unknown => {
+        if (v != null && typeof v === "object" && !Object.isFrozen(v)) {
+            Object.freeze(v);
+            Object.values(v).forEach(freeze);
+        }
+        return v;
+    };
+    return {
+        ...orig,
+        parseTranscriptLines: (lines: readonly string[]) => orig.parseTranscriptLines(lines).map(freeze),
+    };
+});
 
 // codex rollout records are {timestamp, type, payload}; the meaningful conversation lives in
 // `response_item`. event_msg carries guardian/auto-review noise + a duplicate of each assistant turn.

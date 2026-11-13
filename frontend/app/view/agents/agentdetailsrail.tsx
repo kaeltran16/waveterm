@@ -1,7 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { CollapsibleRail, type RailSection } from "@/app/element/collapsiblerail";
+import { CollapsibleRail, RailPanelBody, type RailSection } from "@/app/element/collapsiblerail";
 import { Meter } from "@/app/element/meter";
 import { easeFluidCss, MOTION, popoverReveal } from "@/app/element/motiontokens";
 import { SkeletonLine } from "@/app/element/skeleton";
@@ -286,7 +286,55 @@ function SealedFiles({ files }: { files: EvidenceFile[] }) {
     );
 }
 
+// the agent's run role, its run's asks, and those waiting on the user: the lead's, or a worker's own task's
+function useRoleAsks(model: AgentsViewModel, agent: AgentVM) {
+    const lineage = useAtomValue(model.lineageAtom);
+    const role = lineage.roles[agent.id];
+    const roleRun = role ? lineage.runs[roleRunId(role)] : undefined;
+    const asks = useRunAsks(roleRun);
+    const yours = asks.filter(
+        (a) =>
+            a.owner === ASK_OWNER_USER &&
+            (role?.kind === "lead" || (role?.kind === "worker" && a.taskid === role.taskId))
+    );
+    return { lineage, role, roleRun, asks, yours };
+}
+
+// The collapsed strip reads only the context % and the ask count. The panel and its loaders (the 1 s clock, usage
+// and cache status every 15 s, the git read) mount only while the rail is open on the Agent surface, which stays
+// mounted off-screen under every other surface.
 export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
+    const open = useAtomValue(railVisibleAtom);
+    const onAgent = useAtomValue(model.surfaceAtom) === "agent";
+    const focusSub = useAtomValue(focusSubagentAtom);
+    const inSub = focusSub?.parentId === agent.id;
+    const { yours } = useRoleAsks(model, agent);
+    const usage = agent.usage;
+    const ctxPct = usage?.contextpct;
+    const stripTitle = [
+        "Agent details",
+        ctxPct != null ? `context ${Math.round(ctxPct)}%` : "",
+        yours.length > 0 ? `${yours.length} waiting on you` : "",
+    ]
+        .filter(Boolean)
+        .join(" · ");
+    return (
+        <CollapsibleRail
+            openAtom={railVisibleAtom}
+            ariaLabel="Agent details"
+            sections={[]}
+            panel={open && onAgent ? <AgentDetailsPanel model={model} agent={agent} /> : null}
+            strip={{
+                content: (
+                    <RailStrip needs={yours.length} ctxPct={inSub ? undefined : ctxPct} ctxMax={usage?.contextmax} />
+                ),
+                title: `${stripTitle} (${formatChordString("d")})`,
+            }}
+        />
+    );
+}
+
+function AgentDetailsPanel({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
     const liveEntries = useAtomValue(entriesAtomFor(agent.id));
     const subs = useAtomValue(subagentsByIdAtom)[agent.id] ?? [];
     const standingBy = isStandingBy(agent.state, useAtomValue(shellTasksByIdAtom)[agent.id] ?? [], subs);
@@ -296,7 +344,7 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
     const subEntries = useAtomValue(liveEntriesByIdAtom)[sub ? `sub:${sub.agentId}` : ""] ?? [];
     const ownEntries = liveEntries.length > 0 ? liveEntries : (agent.previousInfo ?? []);
     const entries = sub ? subEntries : ownEntries;
-    const lineage = useAtomValue(model.lineageAtom);
+    const { lineage, role, roleRun, asks, yours } = useRoleAsks(model, agent);
     const agents = useAtomValue(model.agentsAtom);
     const usage = agent.usage;
     const ctxPct = usage?.contextpct;
@@ -304,14 +352,6 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
     const railState = useAtomValue(railStateAtom);
     const cacheStatus = useAtomValue(agentCacheStatusAtom);
     const now = useAtomValue(model.nowAtom);
-    const role = lineage.roles[agent.id];
-    const roleRun = role ? lineage.runs[roleRunId(role)] : undefined;
-    const asks = useRunAsks(roleRun);
-    const yours = asks.filter(
-        (a) =>
-            a.owner === ASK_OWNER_USER &&
-            (role?.kind === "lead" || (role?.kind === "worker" && a.taskid === role.taskId))
-    );
     const endedWorker = useAtomValue(model.endedWorkerAtom);
     const ended = endedWorker?.agent.id === agent.id ? endedWorker : undefined;
     const silentMs = hungSilenceMs(
@@ -725,26 +765,10 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
             : []),
     ];
 
-    const stripTitle = [
-        "Agent details",
-        ctxPct != null ? `context ${Math.round(ctxPct)}%` : "",
-        yours.length > 0 ? `${yours.length} waiting on you` : "",
-    ]
-        .filter(Boolean)
-        .join(" · ");
-
     return (
-        <CollapsibleRail
-            openAtom={railVisibleAtom}
-            ariaLabel="Agent details"
+        <RailPanelBody
             // the stage's own id is no session, so its rail is the stage alone
             sections={isFinalStageId(agent.id) ? finalSection : sections}
-            strip={{
-                content: (
-                    <RailStrip needs={yours.length} ctxPct={sub ? undefined : ctxPct} ctxMax={usage?.contextmax} />
-                ),
-                title: `${stripTitle} (${formatChordString("d")})`,
-            }}
             footer={
                 action ? (
                     <div className="flex items-center gap-[10px]">

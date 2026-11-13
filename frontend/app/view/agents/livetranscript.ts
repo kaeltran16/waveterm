@@ -12,6 +12,7 @@ import { addWSReconnectHandler, removeWSReconnectHandler } from "@/app/store/ws"
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { dropLiveId, lastActivityByIdAtom, liveEntriesByIdAtom, tasksByIdAtom } from "./livetranscriptatoms";
+import { parseTranscriptLines, type TranscriptRecord } from "./transcriptrecords";
 import { projectorFor } from "./transcriptregistry";
 
 const STREAM_TAIL_LINES = 300;
@@ -20,7 +21,7 @@ const STREAM_TAIL_LINES = 300;
 // comfortably exceed what the timeline can render (TIMELINE_RENDER_CAP) so the view is always backed.
 const MAX_RETAINED_LINES = 4000;
 
-export function capLines(lines: string[], max: number): string[] {
+export function capLines<T>(lines: T[], max: number): T[] {
     return lines.length > max ? lines.slice(lines.length - max) : lines;
 }
 // The server applies a 5s default request timeout (DefaultTimeoutMs) to every RPC, streams
@@ -46,7 +47,6 @@ export function startTranscriptStream(id: string, path: string, agent?: string):
         return;
     }
     const projector = projectorFor(agent, path);
-    const project = projector.project;
     // Pi's parent-linked active branch cannot be reconstructed from a bounded tail, so it is the
     // only runtime that requests the complete file (taillines -1) and keeps every streamed line
     // while the session is open. Every other runtime tails STREAM_TAIL_LINES and caps retention.
@@ -67,7 +67,9 @@ export function startTranscriptStream(id: string, path: string, agent?: string):
         },
     };
     streams.set(id, handle);
-    let lines: string[] = [];
+    // each line is parsed once, on arrival: projecting from lines re-parsed the whole retained window twice per chunk
+    // on the UI thread
+    let records: TranscriptRecord[] = [];
     void (async () => {
         try {
             for await (const chunk of gen) {
@@ -77,12 +79,12 @@ export function startTranscriptStream(id: string, path: string, agent?: string):
                 if (!chunk?.lines?.length) {
                     continue;
                 }
-                lines.push(...chunk.lines);
-                lines = isPi ? lines : capLines(lines, MAX_RETAINED_LINES);
-                const entries = project(lines);
+                records.push(...parseTranscriptLines(chunk.lines));
+                records = isPi ? records : capLines(records, MAX_RETAINED_LINES);
+                const entries = projector.projectRecords(records);
                 globalStore.set(liveEntriesByIdAtom, { ...globalStore.get(liveEntriesByIdAtom), [id]: entries });
                 globalStore.set(lastActivityByIdAtom, { ...globalStore.get(lastActivityByIdAtom), [id]: Date.now() });
-                const tasks = projector.extractTasks?.(lines);
+                const tasks = projector.extractTasks?.(records);
                 if (tasks != null) {
                     globalStore.set(tasksByIdAtom, { ...globalStore.get(tasksByIdAtom), [id]: tasks });
                 }

@@ -51,16 +51,24 @@ function setList(id: string, list: ShellTask[] | null): void {
     globalStore.set(shellTasksByIdAtom, { ...cur, [id]: list });
 }
 
+type ReadGateAgent = Partial<Pick<AgentVM, "state" | "idleSince">>;
+/** The agent as it is now, so a completed read records its start only when that can release a held finish. */
+export type CurrentAgent = (id: string) => ReadGateAgent | undefined;
+
 /** Tail the agent's transcript, project its shell tasks, and store them. Guarded so a superseding
  *  load (or a drop) discards a slower older result. A failed read keeps the last known list, so an
  *  absent entry always means no running tasks and never reads as a task finishing. */
-export async function refreshShellTasks(id: string, transcriptPath: string | undefined): Promise<void> {
+export async function refreshShellTasks(
+    id: string,
+    transcriptPath: string | undefined,
+    currentAgent?: CurrentAgent
+): Promise<void> {
     const seq = (loadSeq.get(id) ?? 0) + 1;
     loadSeq.set(id, seq);
     const startedAt = Date.now();
     if (!transcriptPath) {
         setList(id, null);
-        setReadAt(id, startedAt);
+        setReadAt(id, startedAt, currentAgent);
         return;
     }
     try {
@@ -73,18 +81,27 @@ export async function refreshShellTasks(id: string, transcriptPath: string | und
         }
         // now on every read, so a monitor past its timeout leaves at the next poll while the agent sits idle
         setList(id, extractShellTasks(tr.lines ?? [], { now: Date.now(), transcriptPath }));
-        setReadAt(id, startedAt);
+        setReadAt(id, startedAt, currentAgent);
     } catch {
         // keep the last known list: the next poll or transcript activity retries. The read still
         // completed, so a held finish is released and decided on that list
         if (loadSeq.get(id) === seq) {
-            setReadAt(id, startedAt);
+            setReadAt(id, startedAt, currentAgent);
         }
     }
 }
 
-function setReadAt(id: string, startedAt: number | null): void {
+// every row reads this map, so a write re-renders them all: record a read only when the id has none yet (an
+// untracked agent waits on nothing) or its agent waits on a read now. Skipping the rest changes no decision: a
+// working agent's next idleSince is later than any read started before it.
+function setReadAt(id: string, startedAt: number | null, currentAgent?: CurrentAgent): void {
     const cur = globalStore.get(shellReadAtByIdAtom);
+    if (startedAt != null && currentAgent && id in cur) {
+        const agent = currentAgent(id);
+        if (agent && !shellReadPending(agent, cur[id])) {
+            return;
+        }
+    }
     if (startedAt == null) {
         if (id in cur) {
             const { [id]: _, ...rest } = cur;
@@ -98,12 +115,12 @@ function setReadAt(id: string, startedAt: number | null): void {
 /** Pure: whether an idle agent still waits on a shell-task read that started at or after it turned idle.
  *  An agent never read (none tracks it) or with no idleSince waits on nothing, so a finish is never held
  *  by a read that will not come. */
-export function shellReadPending(agent: Pick<AgentVM, "state" | "idleSince">, readAt: number | undefined): boolean {
+export function shellReadPending(agent: ReadGateAgent, readAt: number | undefined): boolean {
     return agent.state === "idle" && agent.idleSince != null && readAt != null && readAt < agent.idleSince;
 }
 
 /** Debounced refresh, coalescing a burst of transcript activity into one load. */
-export function scheduleShellTasks(id: string, transcriptPath: string | undefined): void {
+export function scheduleShellTasks(id: string, transcriptPath: string | undefined, currentAgent?: CurrentAgent): void {
     const existing = timers.get(id);
     if (existing) {
         clearTimeout(existing);
@@ -112,7 +129,7 @@ export function scheduleShellTasks(id: string, transcriptPath: string | undefine
         id,
         setTimeout(() => {
             timers.delete(id);
-            void refreshShellTasks(id, transcriptPath);
+            void refreshShellTasks(id, transcriptPath, currentAgent);
         }, DEBOUNCE_MS)
     );
 }

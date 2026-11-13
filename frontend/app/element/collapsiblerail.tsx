@@ -55,6 +55,21 @@ function ExtraIcon({ ei }: { ei: RailExtraIcon }) {
 const RAIL_EXPANDED_PX = 300; // matches the app-bar usage column (app-bar.tsx) → continuous divider
 const RAIL_COLLAPSED_PX = 44;
 
+/** The open panel's scrolling sections and pinned footer. A caller that passes CollapsibleRail a `panel` renders
+ *  this itself, from a component that mounts only while the panel is seen. */
+export function RailPanelBody({ sections, footer }: { sections: RailSection[]; footer?: ReactNode }) {
+    return (
+        <>
+            <div className="flex min-h-0 flex-1 flex-col gap-[24px] overflow-y-auto px-[18px] pb-[40px] pt-[8px]">
+                {sections.map((s) => (
+                    <div key={s.id}>{s.content}</div>
+                ))}
+            </div>
+            {footer ? <div className="shrink-0 border-t border-border px-[18px] py-3">{footer}</div> : null}
+        </>
+    );
+}
+
 export function CollapsibleRail({
     openAtom,
     sections,
@@ -65,6 +80,7 @@ export function CollapsibleRail({
     hideWhenCollapsed,
     forceCollapsed,
     strip,
+    panel,
 }: {
     openAtom: PrimitiveAtom<boolean>;
     sections: RailSection[];
@@ -85,6 +101,9 @@ export function CollapsibleRail({
     // what the collapsed strip's expand control shows instead of the first section's icon: a caller that
     // wants the rail's key figures readable while it is closed. The title is the control's tooltip.
     strip?: { content: ReactNode; title: string };
+    // replaces sections + footer in the open panel (a RailPanelBody): a caller whose sections cost renders, timers
+    // or reads passes a component it mounts only while the rail is seen, since sections are built on every render
+    panel?: ReactNode;
 }) {
     const [open, setOpen] = useAtom(openAtom);
     const collapsedWidth = hideWhenCollapsed ? 0 : RAIL_COLLAPSED_PX;
@@ -143,14 +162,7 @@ export function CollapsibleRail({
                                     </button>
                                 </div>
                             </div>
-                            <div className="flex min-h-0 flex-1 flex-col gap-[24px] overflow-y-auto px-[18px] pb-[40px] pt-[8px]">
-                                {sections.map((s) => (
-                                    <div key={s.id}>{s.content}</div>
-                                ))}
-                            </div>
-                            {footer ? (
-                                <div className="shrink-0 border-t border-border px-[18px] py-3">{footer}</div>
-                            ) : null}
+                            {panel !== undefined ? panel : <RailPanelBody sections={sections} footer={footer} />}
                         </motion.div>
                     ) : hideWhenCollapsed ? null : (
                         <motion.div

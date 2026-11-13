@@ -100,6 +100,17 @@ function answerAsk(questions, answers) {
   return given[0].length > ASK_SUMMARY_MAX ? given[0].slice(0, ASK_SUMMARY_MAX - 1) + "\u2026" : given[0];
 }
 
+// frontend/app/view/agents/transcriptrecords.ts
+function parseTranscriptLines(lines) {
+  return lines.map((line) => {
+    try {
+      return JSON.parse(line);
+    } catch {
+      return void 0;
+    }
+  });
+}
+
 // frontend/app/view/agents/pitranscriptprojection.ts
 var READ_MODAL_MAX_LINES = 400;
 var VERB_BY_TOOL = {
@@ -327,18 +338,8 @@ function mapRecord(rec, entries, actionById) {
     applyToolResult(rec, actionById);
   }
 }
-function parseRecords(lines) {
-  const records = [];
-  for (const line of lines) {
-    try {
-      const rec = JSON.parse(line);
-      if (rec != null) {
-        records.push(rec);
-      }
-    } catch {
-    }
-  }
-  return records;
+function validRecords(parsed) {
+  return parsed.filter((rec) => rec != null);
 }
 function activeBranch(records) {
   if (records.length === 0) {
@@ -373,7 +374,10 @@ function activeBranch(records) {
   return chain.reverse();
 }
 function projectPiTranscript(lines) {
-  const records = parseRecords(lines);
+  return projectPiTranscriptRecords(parseTranscriptLines(lines));
+}
+function projectPiTranscriptRecords(parsed) {
+  const records = validRecords(parsed);
   const branch = activeBranch(records);
   const entries = [];
   const actionById = /* @__PURE__ */ new Map();
@@ -497,13 +501,14 @@ function mergeCompaction(entries, patch) {
   entries.push({ kind: "compaction", ...patch });
 }
 function projectTranscript(lines) {
+  return projectTranscriptRecords(parseTranscriptLines(lines));
+}
+function projectTranscriptRecords(records) {
   const entries = [];
   const actionById = /* @__PURE__ */ new Map();
-  for (const line of lines) {
-    let rec;
-    try {
-      rec = JSON.parse(line);
-    } catch {
+  for (const r of records) {
+    const rec = r;
+    if (rec == null) {
       continue;
     }
     if (rec.type === "assistant") {
