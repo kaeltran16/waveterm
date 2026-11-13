@@ -62,11 +62,14 @@ export function FinalStagePane({ model, run }: { model: AgentsViewModel; run: Ru
     const body: BodyView = shown?.state === "running" ? "running" : shown?.kept ? "kept" : "outcome";
     // the failed note's moment, picked on the render the stage turns failed: a nudge when it answers the human's
     // own rerun ("your action failed, here"), else a fade. Cleared once played, so a remount never replays it.
+    // Armed only when the outcome view shows on that render: behind a kept output or running tail the note would
+    // play late, on closing it, so it shows settled inside the body's own fade instead.
     const [rerunAsked, setRerunAsked] = useState(false);
     const [stage, setStage] = useState<{ state: string; note: Variants | null }>({ state: view.state, note: null });
     if (stage.state !== view.state) {
         const failedNow = view.state === "failed";
-        setStage({ state: view.state, note: failedNow ? (rerunAsked ? errorNudge : viewFade) : null });
+        const armed = failedNow && body === "outcome";
+        setStage({ state: view.state, note: armed ? (rerunAsked ? errorNudge : viewFade) : null });
         if (failedNow || ENDED_CLEAN.has(view.state)) {
             setRerunAsked(false);
         }

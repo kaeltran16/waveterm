@@ -89,6 +89,7 @@ import {
     dismissRestoreNotice,
     graphOnAtom,
     historyAppendAtom,
+    historyCommitsAtom,
     historyFailureAtom,
     historyFilteredAtom,
     historyFiltersAtom,
@@ -110,7 +111,14 @@ import {
     setHistoryOpts,
     startFromTop,
 } from "./githistorystore";
-import { GitFailureColumn, GitFailureNotice, GitFailurePanel, NotARepoPanel, SurfaceBanner } from "./gitstatepanels";
+import {
+    GitFailureColumn,
+    GitFailureNotice,
+    GitFailurePanel,
+    NotARepoPanel,
+    SurfaceBanner,
+    clearRetryPending,
+} from "./gitstatepanels";
 import { HistoryPane } from "./historypane";
 import { RESTORE_DISMISS_MS, countLabel } from "./historyquery";
 import { WORKING_TREE, commitCount, worktreeCaption } from "./historyrows";
@@ -125,6 +133,8 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
     const loadError = useAtomValue(filesErrorAtom);
     const historyRows = useAtomValue(historyRowsAtom);
     const historyFailure = useAtomValue(historyFailureAtom);
+    // a fresh array per landed read, null while one is in flight; a failed read lands with its failure set
+    const historyCommits = useAtomValue(historyCommitsAtom);
     const fetchStates = useAtomValue(fetchStatesAtom);
     const fetchState = fetchStateOf(fetchStates, state?.cwd);
     const historyFiltered = useAtomValue(historyFilteredAtom);
@@ -291,6 +301,13 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
         // agent's file rail asked for, once that scope's change set is in.
         fireAndForget(() => loadHistory(state.cwd, historyOptsFor(scope.range, state.ref), loadScope));
     }, [state?.cwd, state?.isRepo, state?.ref, loadScope, loadError]);
+
+    // a read that lands without a failure spends a pending Retry, so a failure much later mounts its panel settled
+    useEffect(() => {
+        if (historyCommits != null && historyFailure == null) {
+            clearRetryPending();
+        }
+    }, [historyCommits, historyFailure]);
 
     useEffect(() => {
         if (scope == null || state == null) {

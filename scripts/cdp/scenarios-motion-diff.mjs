@@ -57,6 +57,54 @@ const MOTION_LIB = `
 `;
 const motionEval = (h, body) => lookEval(h, `${MOTION_LIB} ${body}`);
 
+// answers githistory in the page with a canned value after a beat, every other command as before. The beat: an
+// answer in the same tick as Retry's own clear would batch into one render, and the panel would never remount.
+const STUB_BEAT_MS = 150;
+const HISTORY_OK = { isrepo: true, head: "", commits: [] };
+const HISTORY_FAILED = {
+    ...HISTORY_OK,
+    failure: { command: "git log --stubbed", exitcode: 128, stderr: "fatal: stubbed history failure" },
+};
+// answerExpr: a page-side expression, for an answer built from what the page holds (the folded-lanes graph)
+const stubHistoryExpr = (answerExpr) => `(() => {
+    const c = window.TabRpcClient;
+    if (!c.__mdStubOrig) c.__mdStubOrig = c.wshRpcCall;
+    const call = c.__mdStubOrig.bind(c);
+    const answer = ${answerExpr};
+    c.wshRpcCall = (command, data, opts) =>
+        command === "githistory" ? new Promise((r) => setTimeout(() => r(answer), ${STUB_BEAT_MS})) : call(command, data, opts);
+})();`;
+const stubHistory = (answer) => stubHistoryExpr(JSON.stringify(answer));
+// holds every githistory call until window.__mdHistoryRelease(answer), so a step reads the in-flight state
+const HOLD_HISTORY = `(() => {
+    const c = window.TabRpcClient;
+    if (!c.__mdStubOrig) c.__mdStubOrig = c.wshRpcCall;
+    const call = c.__mdStubOrig.bind(c);
+    c.wshRpcCall = (command, data, opts) =>
+        command === "githistory" ? new Promise((r) => (window.__mdHistoryRelease = r)) : call(command, data, opts);
+})();`;
+// one merge whose parents each take a lane, so past historypane's drawable lanes the rest fold. Built in the page
+// (needs S and hs in scope) with the head the column already holds: the change-list poll re-reads the history when
+// HEAD moves, which would race the stub.
+const wideHistory = (lanes) => `(() => {
+    const ts = Date.now();
+    const commit = (hash, parents, subject) => ({ hash, parents, author: "verify", email: "verify@example.invalid", ts, subject });
+    const tips = Array.from({ length: ${lanes} }, (_, i) => "f01d" + String(i).padStart(36, "0"));
+    return {
+        isrepo: true,
+        head: S.globalStore.get(hs.historyHeadAtom),
+        commits: [commit("f01d" + "f".repeat(36), tips, "merge ${lanes} lanes"), ...tips.map((t, i) => commit(t, [], "lane " + i))],
+    };
+})()`;
+// historypane's MAX_LANES
+const DRAWABLE_LANES = 7;
+const FOLDED_FROM = 2;
+const FOLDED_TO = 3;
+const UNSTUB_HISTORY = `(() => {
+    const c = window.TabRpcClient;
+    if (c?.__mdStubOrig) { c.wshRpcCall = c.__mdStubOrig; delete c.__mdStubOrig; }
+})();`;
+
 const fadedIn = (r) => r != null && r.first != null && r.first < MOUNTED_HIDDEN && r.settled === 1;
 
 export const motionDiff = {
@@ -162,18 +210,99 @@ export const motionDiff = {
             await h.cdp("Emulation.setEmulatedMedia", NO_MEDIA);
             await polishNap(200);
 
-            // --- compare: the read landing fades the column's rows in over the skeleton ---------------------------
+            // --- a file's pending-comment count ticks; Clear rolls the reviewed count down and eases the bar ------
+            const commented = await motionEval(h, `
+                const S = await mod("app/store/jotaiStore.ts");
+                const dc = await mod("app/view/agents/diffcomments.ts");
+                const source = S.globalStore.get(dc.activeCommentSourceAtom);
+                if (source == null) return { source: null };
+                const had = S.globalStore.get(dc.commentStoreAtom)[source.key];
+                const before = new Set((had?.comments ?? []).map((c) => c.id));
+                const draft = (note) => ({
+                    path: "README.md", side: "modified", start: 1, end: 1, quote: ["# retry"],
+                    refs: { original: { kind: "ref", ref: "HEAD" }, modified: { kind: "worktree" } }, note,
+                });
+                const chip = () => q('[data-changed-file-row="README.md"] [data-changed-file-comments]');
+                try {
+                    dc.addComment(source, draft("first"));
+                    const one = await until(() => chip()?.dataset.changedFileComments === "1", 3000);
+                    await nap(${SETTLE_MS});
+                    const tick = watchAdded((n) => (n.closest?.("[data-changed-file-comments]") && n.classList?.contains("inline-block") ? n : null));
+                    dc.addComment(source, draft("second"));
+                    await until(() => chip()?.dataset.changedFileComments === "2", 3000);
+                    await nap(${SETTLE_MS});
+                    tick.stop();
+                    const num = chip()?.querySelector(".inline-block");
+                    return { source: source.key, one, tick: tick.seen, count: chip()?.dataset.changedFileComments, text: num?.textContent, settled: opacity(num) };
+                } finally {
+                    const added = (S.globalStore.get(dc.commentStoreAtom)[source.key]?.comments ?? []).map((c) => c.id).filter((id) => !before.has(id));
+                    if (had == null) dc.discardBatch(source.key);
+                    else dc.removeComments(source.key, added);
+                }
+            `);
+            rec(
+                "4b. a second pending comment on a file rolls its comment count 1 -> 2 (the new value rises in from opacity 0) and lands at 1",
+                commented.source != null && commented.one && commented.count === "2" && commented.tick.length >= 1 &&
+                    commented.tick[0] < 1 && commented.text === "2" && commented.settled === 1,
+                commented
+            );
+
+            const cleared = await motionEval(h, `
+                const fill = () => q("[data-files-reviewed] .bg-accent");
+                const tick = watchAdded((n) => (n.closest?.("[data-files-reviewed]") && n.classList?.contains("inline-block") ? n : null));
+                const width = sampleFrames(() => (fill() ? Math.round(fill().getBoundingClientRect().width) : null));
+                const from = q("[data-files-reviewed]")?.dataset.done;
+                q("[data-review-clear]")?.click();
+                await until(() => q("[data-files-reviewed]")?.dataset.done === "0", 3000);
+                await nap(${SETTLE_MS});
+                tick.stop();
+                width.stop();
+                return {
+                    from,
+                    done: q("[data-files-reviewed]")?.dataset.done,
+                    tick: tick.seen,
+                    widths: width.values,
+                    text: q("[data-files-reviewed] > span:not(:has(button))")?.textContent,
+                    clearShown: q("[data-review-clear]") != null,
+                };
+            `);
+            const [w0, wEnd] = [cleared.widths[0], cleared.widths.at(-1)];
+            rec(
+                "4c. Clear rolls the reviewed count down to 0 (the new value rises in from opacity 0), the bar eases to empty through in-between widths, and Clear leaves",
+                cleared.from === "3" && cleared.done === "0" && cleared.tick.length >= 1 && cleared.tick[0] < 1 &&
+                    cleared.text === "0/4 reviewed" && !cleared.clearShown && w0 > 0 && wEnd === 0 &&
+                    cleared.widths.some((w) => w > wEnd && w < w0),
+                cleared
+            );
+
+            // --- compare: the skeleton shows at once, then the read landing fades the column's rows in ------------
             const compared = await motionEval(h, `
+                const viewSel = '[data-compare-column] > [data-view-swap]';
                 const rowsSel = '[data-compare-column] > [data-view-swap="rows"]';
-                const w = watchAdded((n) => (n.matches?.(rowsSel) ? n : null));
+                // the column mounts whole, so its first view arrives inside an added subtree, not as the node
+                const views = [];
+                const obs = new MutationObserver((muts) => {
+                    for (const m of muts) for (const n of m.addedNodes) {
+                        if (!(n instanceof Element)) continue;
+                        for (const hit of n.matches(viewSel) ? [n] : n.querySelectorAll(viewSel)) {
+                            views.push({ key: hit.dataset.viewSwap, opacity: Number(getComputedStyle(hit).opacity) });
+                        }
+                    }
+                });
+                obs.observe(document.body, { childList: true, subtree: true });
                 document.activeElement?.blur?.();
                 window.dispatchEvent(new KeyboardEvent("keydown", { key: "c", code: "KeyC", bubbles: true }));
                 await until(() => q(rowsSel) != null, 10000);
                 await nap(${SETTLE_MS});
-                w.stop();
-                return { first: w.seen[0] ?? null, settled: opacity(q(rowsSel)) };
+                obs.disconnect();
+                const rows = views.find((v) => v.key === "rows");
+                return { views, first: rows?.opacity ?? null, settled: opacity(q(rowsSel)) };
             `);
-            rec("5. compare: the column's rows fade in when the read lands", fadedIn(compared), compared);
+            rec(
+                "5. compare: the skeleton shows at once (opacity 1, no fade on mount), then the column's rows fade in from 0 when the read lands and settle at 1",
+                compared.views[0]?.key === "loading" && compared.views[0]?.opacity === 1 && fadedIn(compared),
+                compared
+            );
             await h.shot("cdp-shots/motion-diff-compare.png");
             const esc = { key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 };
             await h.cdp("Input.dispatchKeyEvent", { type: "keyDown", ...esc });
@@ -223,6 +352,86 @@ export const motionDiff = {
                 graph
             );
 
+            // --- the list's foot: loading -> failed -> retried, each line cross-fading in place -------------------
+            const appended = await motionEval(h, `
+                const S = await mod("app/store/jotaiStore.ts");
+                const hs = await mod("app/view/agents/githistorystore.ts");
+                const line = (key) => q('[data-history-scroll] [data-crossfade="' + key + '"]');
+                const watchLine = (key) => watchAdded((n) => (n.matches?.('[data-history-scroll] [data-crossfade="' + key + '"]') ? n : null));
+                const settledLine = (key) => ({ attached: line(key) != null, opacity: opacity(line(key)) });
+                try {
+                    ${HOLD_HISTORY}
+                    // step 6 read the last page; a held read needs the store to think there is another
+                    S.globalStore.set(hs.historyHasMoreAtom, true);
+                    await nap(100);
+                    const el = q("[data-history-scroll]");
+                    el.scrollTop = 0;
+                    await nap(100);
+                    const wLoad = watchLine("loading");
+                    const fLoad = sampleFrames(() => opacity(line("loading")));
+                    el.scrollTop = el.scrollHeight;
+                    await until(() => line("loading") != null, 3000);
+                    await nap(${SETTLE_MS});
+                    wLoad.stop();
+                    fLoad.stop();
+                    const loading = { first: wLoad.seen[0] ?? null, frames: fLoad.values, ...settledLine("loading"), text: line("loading")?.textContent };
+
+                    const wFail = watchLine("failed");
+                    const fFail = sampleFrames(() => opacity(line("failed")));
+                    window.__mdHistoryRelease?.(${D(HISTORY_FAILED)});
+                    await until(() => line("failed") != null, 3000);
+                    await nap(${SETTLE_MS});
+                    wFail.stop();
+                    fFail.stop();
+                    const failed = { first: wFail.seen[0] ?? null, frames: fFail.values, ...settledLine("failed"), loadingGone: line("loading") == null };
+
+                    ${UNSTUB_HISTORY}
+                    line("failed")?.querySelector("button")?.click();
+                    await until(() => S.globalStore.get(hs.historyAppendAtom) === "idle", 8000);
+                    await nap(${SETTLE_MS});
+                    const retried = { state: S.globalStore.get(hs.historyAppendAtom), failedGone: line("failed") == null, loadingGone: line("loading") == null };
+                    return { loading, failed, retried };
+                } finally {
+                    ${UNSTUB_HISTORY}
+                }
+            `);
+            const crossedIn = (l) => l.first != null && l.first < MOUNTED_HIDDEN && l.frames.some((o) => o > 0 && o < 1) && l.attached && l.opacity === 1;
+            rec(
+                "7b. paging on: the 'loading commits' line cross-fades in (from 0, through in-between, settled at 1); a failed page swaps it for the retry line the same way; a retry that lands clears the foot",
+                crossedIn(appended.loading) && /loading commits/.test(appended.loading.text ?? "") &&
+                    crossedIn(appended.failed) && appended.failed.loadingGone &&
+                    appended.retried.state === "idle" && appended.retried.failedGone && appended.retried.loadingGone,
+                appended
+            );
+
+            const foldTick = await motionEval(h, `
+                const S = await mod("app/store/jotaiStore.ts");
+                const hs = await mod("app/view/agents/githistorystore.ts");
+                const badge = () => [...document.querySelectorAll("span.text-graphlane-fold")].find((s) => /folded/.test(s.textContent));
+                try {
+                    ${stubHistoryExpr(wideHistory(DRAWABLE_LANES + FOLDED_FROM))}
+                    hs.refreshHistory();
+                    const shown = await until(() => /\\b${FOLDED_FROM} folded/.test(badge()?.textContent ?? ""), 8000);
+                    await nap(${SETTLE_MS});
+                    const tick = watchAdded((n) => (n.closest?.("span.text-graphlane-fold") && n.classList?.contains("inline-block") ? n : null));
+                    ${stubHistoryExpr(wideHistory(DRAWABLE_LANES + FOLDED_TO))}
+                    hs.refreshHistory();
+                    await until(() => /\\b${FOLDED_TO} folded/.test(badge()?.textContent ?? ""), 8000);
+                    await nap(${SETTLE_MS});
+                    tick.stop();
+                    const num = badge()?.querySelector(".inline-block");
+                    return { shown, tick: tick.seen, text: badge()?.textContent, num: num?.textContent, settled: opacity(num) };
+                } finally {
+                    ${UNSTUB_HISTORY}
+                }
+            `);
+            rec(
+                "7c. one more folded lane rolls the header's folded count 2 -> 3 (the new value rises in from opacity 0) and lands at 1",
+                foldTick.shown && foldTick.tick.length >= 1 && foldTick.tick[0] < 1 && foldTick.num === String(FOLDED_TO) &&
+                    foldTick.settled === 1 && foldTick.text?.includes(`${FOLDED_TO} folded`),
+                foldTick
+            );
+
             // --- the failure panel: at once on a pick, as a card with a nudge after Retry, once --------------------
             const failure = await motionEval(h, `
                 const panel = () => q("[data-git-failure]");
@@ -255,6 +464,90 @@ export const motionDiff = {
                 failure
             );
             await h.shot("cdp-shots/motion-diff-failure.png");
+
+            // --- the Retry one-shot is spent by the read's next outcome: a success as well as a failure -----------
+            const spent = await motionEval(h, `
+                const panel = () => q("[data-git-failure]");
+                const title = () => panel()?.children[1] ?? null;
+                const hs = await mod("app/view/agents/githistorystore.ts");
+                try {
+                    ${stubHistory(HISTORY_OK)}
+                    q("[data-git-failure-retry]")?.click();
+                    const cleared = await until(() => panel() == null, 8000);
+                    await nap(${SETTLE_MS});
+                    ${stubHistory(HISTORY_FAILED)}
+                    const w1 = watchAdded((n) => (n.matches?.("[data-git-failure]") ? n : null));
+                    const shake1 = sampleFrames(() => (title() ? getComputedStyle(title()).transform : null));
+                    hs.refreshHistory();
+                    await until(() => panel() != null, 8000);
+                    await nap(${SETTLE_MS});
+                    w1.stop();
+                    shake1.stop();
+                    const later = { cleared, seen: w1.seen, shake: shake1.values };
+
+                    const w2 = watchAdded((n) => (n.matches?.("[data-git-failure]") ? n : null));
+                    const shake2 = sampleFrames(() => (title() ? getComputedStyle(title()).transform : null));
+                    q("[data-git-failure-retry]")?.click();
+                    await nap(${STUB_BEAT_MS});
+                    await until(() => panel() != null, 8000);
+                    await nap(${SETTLE_MS});
+                    w2.stop();
+                    shake2.stop();
+                    const retried = { first: w2.seen.at(-1) ?? null, settled: opacity(panel()), shake: shake2.values };
+                    return { later, retried };
+                } finally {
+                    ${UNSTUB_HISTORY}
+                }
+            `);
+            rec(
+                "8b. a Retry whose read succeeds spends the one-shot: a failure later mounts its panel at opacity 1 and its headline does not move",
+                spent.later.cleared && spent.later.seen.length >= 1 && spent.later.seen.every((o) => o === 1) && !spent.later.shake.some((v) => v !== "none" && v !== "matrix(1, 0, 0, 1, 0, 0)"),
+                spent.later
+            );
+            rec(
+                "8c. a Retry whose read fails still enters its panel as a card and nudges the headline",
+                fadedIn(spent.retried) && spent.retried.shake.some((v) => v !== "none" && v !== "matrix(1, 0, 0, 1, 0, 0)"),
+                spent.retried
+            );
+
+            // --- the panel's stderr block closes and opens through PaneReveal -------------------------------------
+            // No git path changes a shown failure's stderr in place (every re-read clears the failure first), so the
+            // step drives the store atom the panel reads, on the panel 8c left up.
+            const stderr = await motionEval(h, `
+                const S = await mod("app/store/jotaiStore.ts");
+                const hs = await mod("app/view/agents/githistorystore.ts");
+                const was = S.globalStore.get(hs.historyFailureAtom);
+                if (was == null) return { was: null };
+                const panel = q("[data-git-failure]");
+                const paneOf = () => q("[data-git-failure] pre")?.closest(".overflow-hidden") ?? null;
+                try {
+                    const leaving = paneOf();
+                    S.globalStore.set(hs.historyFailureAtom, { ...was, stderr: "" });
+                    await nap(${MID_EXIT_MS});
+                    const mid = { attached: leaving?.isConnected ?? false, opacity: opacity(leaving) };
+                    await nap(${SETTLE_MS});
+                    const goneAfter = leaving != null && !leaving.isConnected && paneOf() == null;
+                    const w = watchAdded((n) => (n.classList?.contains("overflow-hidden") && n.querySelector?.("pre") && n.closest("[data-git-failure]") ? n : null));
+                    const heights = sampleFrames(() => (paneOf() ? Math.round(paneOf().getBoundingClientRect().height) : null));
+                    S.globalStore.set(hs.historyFailureAtom, { ...was, stderr: "fatal: stubbed history failure\\nhint: the block opens again" });
+                    await nap(${SETTLE_MS});
+                    w.stop();
+                    heights.stop();
+                    return {
+                        mid, goneAfter, first: w.seen[0] ?? null, heights: heights.values, settled: opacity(paneOf()),
+                        text: q("[data-git-failure] pre")?.textContent, samePanel: q("[data-git-failure]") === panel,
+                    };
+                } finally {
+                    S.globalStore.set(hs.historyFailureAtom, was);
+                }
+            `);
+            rec(
+                "8d. the failure panel's stderr block closes through PaneReveal (still attached mid-fade, then gone) and opens again from height 0 and opacity 0 to settled at 1, in the same panel",
+                stderr.samePanel && stderr.mid?.attached && stderr.mid.opacity > 0 && stderr.mid.opacity < 1 && stderr.goneAfter &&
+                    fadedIn(stderr) && stderr.heights.length >= 3 && stderr.heights[0] < stderr.heights.at(-1) / 2 &&
+                    /block opens again/.test(stderr.text ?? ""),
+                stderr
+            );
         } catch (e) {
             rec("diff scenario aborted", false, String(e?.message ?? e));
         }
@@ -314,6 +607,32 @@ export const motionDiff = {
                 return { first: w.seen[0] ?? null, settled: opacity(report) };
             `);
             rec("10. a scan landing fades the report in over the skeleton", fadedIn(rescanned), rescanned);
+
+            const labelled = await motionEval(h, `
+                const sel = '[data-storage-clear] [data-crossfade^="Clearing"]';
+                const before = q("[data-storage-clear] [data-crossfade]")?.textContent;
+                const leaving = q("[data-storage-clear] [data-crossfade]");
+                const w = watchAdded((n) => (n.matches?.(sel) ? n : null));
+                const frames = sampleFrames(() => opacity(q(sel)));
+                const out = sampleFrames(() => (leaving?.isConnected ? opacity(leaving) : null));
+                window.__setStorageScenario("clearing");
+                await nap(${SETTLE_MS});
+                w.stop();
+                frames.stop();
+                out.stop();
+                return {
+                    before, first: w.seen[0] ?? null, frames: frames.values, settled: opacity(q(sel)), text: q(sel)?.textContent,
+                    leavingFrames: out.values, leftAfter: leaving != null && !leaving.isConnected,
+                    disabled: q("[data-storage-clear]")?.disabled ?? null,
+                };
+            `);
+            rec(
+                "11. Clear's label trades in place: 'Clear … left over' fades out while 'Clearing N of M…' fades in from 0 through in-between to settled at 1",
+                /^Clear .* left over$/.test(labelled.before ?? "") && fadedIn(labelled) && labelled.frames.some((o) => o > 0 && o < 1) &&
+                    labelled.leavingFrames.some((o) => o > 0 && o < 1) && labelled.leftAfter &&
+                    /^Clearing \d+ of \d+…$/.test(labelled.text ?? "") && labelled.disabled === true,
+                labelled
+            );
         } catch (e) {
             rec("storage scenario aborted", false, String(e?.message ?? e));
         }
@@ -321,6 +640,7 @@ export const motionDiff = {
     },
     async teardown(h, ctx) {
         await h.cdp("Emulation.setEmulatedMedia", NO_MEDIA).catch(() => {});
+        await h.ev(UNSTUB_HISTORY).catch(() => {});
         await h.ev(`window.__setStorageScenario?.("live")`).catch(() => {});
         await h.goto("files").catch(() => {});
         await diffReviewMarks.teardown(h, ctx.review);
