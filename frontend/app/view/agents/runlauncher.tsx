@@ -429,7 +429,7 @@ export function RunLauncher({ projectPath }: { projectPath: string }) {
         <div className="sc min-h-0 flex-1 overflow-y-auto px-4 pb-2 pt-4">
             <div className="flex w-full flex-col gap-5">
                 <div className="flex flex-col gap-1">
-                    <span className="font-mono text-[9.5px] font-bold uppercase tracking-[.13em] text-feed-label">
+                    <span className="font-mono text-[10.5px] font-bold uppercase tracking-[.13em] text-feed-label">
                         how it should run
                     </span>
                     <span className="text-[11.5px] leading-[1.5] text-muted">

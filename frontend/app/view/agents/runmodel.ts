@@ -333,16 +333,3 @@ export function runTree(run: Pick<Run, "projectpath" | "landpath" | "land">): st
     }
     return run.landpath || run.projectpath;
 }
-
-// Resolve a phase artifact (normally a project-relative path, occasionally absolute) to a full path
-// for FileReadCommand. Absolute paths pass through (POSIX /…, Windows X:\… / X:/…); a relative path
-// joins under projectPath with a single separator. A Windows projectPath joined to a POSIX-relative
-// artifact yields a mixed-separator path, which the file backend reads fine.
-export function resolveArtifactPath(projectPath: string, artifact: string): string {
-    if (/^([/\\]|[a-zA-Z]:[/\\])/.test(artifact)) {
-        return artifact;
-    }
-    const base = projectPath.replace(/[/\\]+$/, "");
-    const rel = artifact.replace(/^[/\\]+/, "");
-    return `${base}/${rel}`;
-}

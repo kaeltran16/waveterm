@@ -196,7 +196,7 @@ export function RoutePicker({
                     {face}
                 </span>
                 {refused ? (
-                    <span className="flex-none text-[10px] font-semibold text-warning" title={refused.text}>
+                    <span className="flex-none text-[10.5px] font-semibold text-warning" title={refused.text}>
                         refused
                     </span>
                 ) : null}

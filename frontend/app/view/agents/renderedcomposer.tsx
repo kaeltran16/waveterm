@@ -20,7 +20,7 @@ const PLACEHOLDER_WORKING = "Steer the agent; it reads this before its next step
 
 function KeyChip({ children }: { children: ReactNode }) {
     return (
-        <span className="rounded-[4px] border border-edge-mid px-[5px] font-mono text-[10px] leading-4 text-ink-mid">
+        <span className="rounded-[4px] border border-edge-mid px-[5px] font-mono text-[10.5px] leading-4 text-ink-mid">
             {children}
         </span>
     );

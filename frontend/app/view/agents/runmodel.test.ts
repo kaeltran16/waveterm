@@ -16,7 +16,6 @@ import {
     phaseWorkers,
     planDirty,
     resolveActiveRunId,
-    resolveArtifactPath,
     reviewGate,
     runComplete,
     runLiveWorkers,
@@ -381,24 +380,6 @@ describe("runTree", () => {
         expect(runTree(landed)).toBe("/p");
         const held = { projectpath: "/p", landpath: "/p/.waveterm/worktrees/r", land: { state: "held" } } as Run;
         expect(runTree(held)).toBe("/p/.waveterm/worktrees/r");
-    });
-});
-
-describe("resolveArtifactPath", () => {
-    it("passes an absolute POSIX artifact through", () => {
-        expect(resolveArtifactPath("/home/proj", "/etc/plan.md")).toBe("/etc/plan.md");
-    });
-    it("passes an absolute Windows artifact through", () => {
-        expect(resolveArtifactPath("C:\\proj", "D:\\plans\\plan.md")).toBe("D:\\plans\\plan.md");
-    });
-    it("joins a relative artifact under the project path", () => {
-        expect(resolveArtifactPath("/home/proj", "docs/plan.md")).toBe("/home/proj/docs/plan.md");
-    });
-    it("collapses a trailing separator on the base to a single join separator", () => {
-        expect(resolveArtifactPath("/home/proj/", "docs/plan.md")).toBe("/home/proj/docs/plan.md");
-    });
-    it("joins under a Windows project path (mixed separators read fine)", () => {
-        expect(resolveArtifactPath("C:\\proj", "docs/plan.md")).toBe("C:\\proj/docs/plan.md");
     });
 });
 

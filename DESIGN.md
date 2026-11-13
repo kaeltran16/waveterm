@@ -308,12 +308,7 @@ invent them.
 
 **Text floor: no visible text under 10.5px.** Use `text-[10.5px]` for the
 smallest tier, not `text-xxs`/`text-xxxs` or another sub-floor size; the CDP
-scenarios check it (`MIN_FONT_PX` in `scripts/cdp/scenarios.mjs`). The
-sub-floor sizes remain in the run views only runs stored before slice 5c
-reach (`runcompletionsurface.tsx`, `runworkercard.tsx`, `runtimelineview.tsx`,
-`runbody.tsx`, `orchestrate/dagoverview.tsx`, and `runcards.tsx`'s
-BlockedCard, TriageChip and ShipMarker, which only `runbody.tsx` renders), and
-are still pending in `routepicker.tsx` and `runlauncher.tsx`.
+scenarios check it (`MIN_FONT_PX` in `scripts/cdp/scenarios.mjs`).
 
 ## Layout
 
@@ -394,7 +389,7 @@ runtime logos stay image assets.
   a finish draws its check (`DrawCheck`), and a moved element morphs
   (`morphTransition`): moments 10-17 in `docs/reference/motion-system.md`.
 - **Empty states** — `SurfaceEmptyState` (`view/agents/surfacescaffold.tsx`) at surface and pane scope alike.
-- **Modals** — `modalshell.tsx` with `role="dialog"` + `aria-modal`, Escape
+- **Modals** — `modals/modalshell.tsx` with `role="dialog"` + `aria-modal`, Escape
   to close, focus trap; rendered centrally via `ModalsRenderer`.
 - **Tooltips** — a plain `title` attribute is the tooltip: `element/titletooltip.tsx` draws every one in the
   `TOOLTIP_SURFACE` look on hover and on keyboard focus, so no call site wraps a title in a component. The
@@ -475,7 +470,7 @@ engine):
 - **Pure logic + thin render.** Testable logic lives in pure `.ts` files
   (`agentsviewmodel.ts`, `cardgridlayout.ts`, `difflayout.ts`,
   `navrailwidth.ts`) with `.test.ts` beside them; `.tsx` components render.
-  169 test files, zero render/snapshot tests. Files carry a react-freedom
+  No render/snapshot tests. Files carry a react-freedom
   header comment ("Pure view-model logic … No React, no Wave runtime
   imports").
 - **State: jotai + WOS + event bus.** One global store

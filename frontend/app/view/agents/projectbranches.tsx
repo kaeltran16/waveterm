@@ -176,7 +176,7 @@ function CommitRow({ row, indent, onOpen }: { row: HistoryRow; indent: number; o
                     <span
                         aria-hidden="true"
                         title={row.author}
-                        className="flex h-[17px] w-[17px] flex-none items-center justify-center rounded-full border border-edge-mid bg-background text-[9px] font-semibold text-ink-mid"
+                        className="flex h-[17px] w-[17px] flex-none items-center justify-center rounded-full border border-edge-mid bg-background text-[10.5px] font-semibold text-ink-mid"
                     >
                         {authorInitial(row.author)}
                     </span>
