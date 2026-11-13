@@ -1,5 +1,5 @@
 // dag-run-settings: the DAG header's Run settings modal on each of its boards
-// (docs/superpowers/plans/2026-11-13-dag-run-settings-modal.md, Task 4; boards in the plan's Prototype folder).
+// (one step per board of the design prototype, .superpowers/design/run-settings-polish).
 // One orchestrator run held by deferstart in an unborn repo with a submitted 4-task dag at width 4, so no model ever
 // starts and a saved width lands on the dag. Its lead is autonomous-runs' seeded tab, asking Plan review, so the
 // Approvals hand-back and the resolved note can show. Saving and Refused patch SetRunSettingsCommand on the page.
