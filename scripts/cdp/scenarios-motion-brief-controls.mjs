@@ -243,7 +243,7 @@ async function newRunSteps(h, rec) {
     );
     await h.shot("cdp-shots/motion-brief-controls-5-plan.png");
     rec("11. a parsed plan cross-fades its table in from 0 to 1", mountedFadingIn(plan), JSON.stringify(plan && { ...plan, settled: { ...plan.settled, text: plan.settled.text.slice(0, 60) } }));
-    await h.ev(clickByText(`${NEW_RUN}?.querySelector('[data-new-run-footer]')`, "button", "Cancel"));
+    await h.ev(`${NEW_RUN}?.querySelector('[data-new-run-cancel]')?.click()`);
     await polishWaitFor(h, `!${NEW_RUN}`, 3000);
 }
 

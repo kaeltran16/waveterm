@@ -383,7 +383,7 @@ async function newRunWithLightReviewers(h, ctx) {
     }
     if (out.run == null) {
         out.why = await h.ev(flatText(NEW_RUN));
-        await h.ev(clickByText(NEW_RUN, "button", "Cancel"));
+        await h.ev(`${NEW_RUN}?.querySelector('[data-new-run-cancel]')?.click()`);
     }
     ctx.createdRunId = out.run?.id;
     ctx.createdLandPath = out.run?.landpath;
@@ -564,7 +564,7 @@ export const newRunWindow = {
         );
 
         const runsBefore = await channelRunCount(h, ctx.channelId);
-        await h.ev(`[...(${NEW_RUN}?.querySelectorAll('button') ?? [])].find((b) => b.textContent.trim() === 'Cancel')?.click()`);
+        await h.ev(`${NEW_RUN}?.querySelector('[data-new-run-cancel]')?.click()`);
         const closed = await polishWaitFor(h, `!${NEW_RUN}`, 3000);
         const runsAfter = await channelRunCount(h, ctx.channelId);
         rec(
@@ -651,7 +651,7 @@ export const newRunWindow = {
 const NEW_RUN_ATTACH_PROJECT = "verify-new-run-attachments";
 const NEW_RUN_ATTACH_GOAL = "verify new-run-attachments: do nothing, make no file changes, stop immediately";
 const NEW_RUN_CHIPS = `[...(${NEW_RUN}?.querySelectorAll('[data-attachment-chip]') ?? [])]`;
-const NEW_RUN_START = `[...(${NEW_RUN}?.querySelectorAll('button') ?? [])].find((b) => b.textContent.trim() === 'Start run')`;
+const NEW_RUN_START = `${NEW_RUN}?.querySelector('[data-new-run-start]')`;
 const ONE_PX_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
 const OVER_CAP_BYTES = 10 * 1024 * 1024 + 1;
 
@@ -1385,7 +1385,7 @@ const NEW_RUN_FACE = `(() => {
         goal: d.querySelector('textarea[aria-label="Goal"]')?.value ?? null,
     };
 })()`;
-const NEW_RUN_CANCEL = `[...(${NEW_RUN}?.querySelectorAll('[data-new-run-footer] button') ?? [])].find((b) => b.textContent.trim() === 'Cancel')?.click()`;
+const NEW_RUN_CANCEL = `${NEW_RUN}?.querySelector('[data-new-run-cancel]')?.click()`;
 // the Lead picker's open list: its model rows, and the empty-list line it shows instead of them
 const LEAD_PICKER_LIST = `(() => {
     const panel = document.querySelector('[role="group"][aria-label="Available routes"]');
@@ -1612,7 +1612,7 @@ const NEW_RUN_DESIGN_FACE = `(() => {
     };
     const design = d.querySelector('[data-new-run-design]');
     const goal = d.querySelector('textarea[aria-label="Goal"]');
-    const start = [...d.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Start run');
+    const start = d.querySelector('[data-new-run-start]');
     return {
         start: group('Start from'),
         designFirst: group('Design first'),

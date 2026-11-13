@@ -13,14 +13,17 @@
 // Which sections a given shape actually has is decided by runconfig.runLauncherFace; this file renders.
 
 import { CrossFade } from "@/app/element/crossfade";
-import { composerReveal } from "@/app/element/motiontokens";
+import { composerReveal, indicatorSlide } from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
+import { TickNumber } from "@/app/element/ticknumber";
+import { atoms } from "@/app/store/global";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { useEffect } from "react";
+import { motion, type Transition } from "motion/react";
+import { useEffect, useId } from "react";
 import { planShapeText, planWarnings } from "../orchestrate/dagdigest";
 import { RoutePicker } from "./routepicker";
 import {
@@ -58,7 +61,60 @@ import {
     workerRouteAtom,
 } from "./runconfigstore";
 
-export const EYEBROW = "font-mono text-[10.5px] font-bold uppercase tracking-[.09em] text-ink-mid";
+// the New agent window's section label, so the two launch windows label their fields alike
+export const EYEBROW = "font-mono text-[10.5px] font-semibold uppercase tracking-[.1em] text-muted";
+
+const INSTANT: Transition = { duration: 0 };
+
+// A small set of exclusive options whose selected fill slides to the picked one (moment 9), so a pick reads as
+// the selection moving rather than two buttons repainting. The launcher's own look: element/segmented.tsx is
+// the mono variant the Usage surface uses.
+export function LauncherSegmented<T extends string>({
+    label,
+    options,
+    labels,
+    value,
+    onPick,
+}: {
+    label: string;
+    options: T[];
+    labels: Record<T, string>;
+    value: T;
+    onPick: (next: T) => void;
+}) {
+    const id = useId();
+    // MotionConfig's reducedMotion drops transforms but not a layoutId's travel
+    const reduce = useAtomValue(atoms.prefersReducedMotionAtom);
+    return (
+        <div
+            role="group"
+            aria-label={label}
+            className="flex w-fit flex-none gap-0.5 rounded-[8px] border border-edge-mid bg-surface p-[3px]"
+        >
+            {options.map((option) => (
+                <button
+                    key={option}
+                    type="button"
+                    aria-pressed={value === option}
+                    onClick={() => onPick(option)}
+                    className={cn(
+                        "relative cursor-pointer rounded-[6px] px-3 py-[5px] text-[12px] font-semibold transition-colors",
+                        value === option ? "text-primary" : "text-ink-mid hover:text-secondary"
+                    )}
+                >
+                    {value === option ? (
+                        <motion.span
+                            layoutId={`launcher-segment:${id}`}
+                            transition={reduce ? INSTANT : indicatorSlide}
+                            className="absolute inset-0 rounded-[6px] bg-accentbg"
+                        />
+                    ) : null}
+                    <span className="relative">{labels[option]}</span>
+                </button>
+            ))}
+        </div>
+    );
+}
 
 // One selectable card treatment for both pickers, so the shape and the start read as the same kind of
 // choice. Tokens only — a literal colour here would opt the launcher out of every runtime theme.
@@ -70,7 +126,7 @@ function pickTone(active: boolean): string {
 
 function Section({ label, children }: { label: string; children: React.ReactNode }) {
     return (
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-2">
             <span className={EYEBROW}>{label}</span>
             {children}
         </div>
@@ -262,7 +318,7 @@ export function WorkerStepper({
                     value == null ? "text-ink-mid" : "text-primary"
                 )}
             >
-                {value ?? unsetLabel}
+                {value == null ? unsetLabel : <TickNumber value={value} />}
             </span>
             <button
                 type="button"
@@ -330,39 +386,22 @@ function RoutingSection({ showWorkerRoute }: { showWorkerRoute: boolean }) {
     );
 }
 
-const APPROVALS: { autonomous: boolean; label: string }[] = [
-    { autonomous: false, label: "Ask me" },
-    { autonomous: true, label: "Autonomous" },
-];
+type Approval = "ask" | "autonomous";
+const APPROVAL_LABEL: Record<Approval, string> = { ask: "Ask me", autonomous: "Autonomous" };
 
 // Approvals, shared with the New run window (NewRun.dc.html): who answers the run's questions.
 export function ApprovalsSection() {
     const autonomous = useAtomValue(autonomousAtom);
     return (
         <Section label="Approvals">
-            <div
-                role="group"
-                aria-label="Approvals"
-                className="flex w-fit gap-0.5 rounded-[8px] border border-border bg-surface p-0.5"
-            >
-                {APPROVALS.map((option) => (
-                    <button
-                        key={option.label}
-                        type="button"
-                        aria-pressed={autonomous === option.autonomous}
-                        onClick={() => setAutonomous(option.autonomous)}
-                        className={cn(
-                            "cursor-pointer rounded-[6px] px-3 py-1 text-[11.5px] font-semibold",
-                            autonomous === option.autonomous
-                                ? "bg-accentbg text-accent-soft"
-                                : "text-ink-mid hover:text-secondary"
-                        )}
-                    >
-                        {option.label}
-                    </button>
-                ))}
-            </div>
-            <span className="text-[11px] leading-[1.45] text-muted">{approvalsNote(autonomous)}</span>
+            <LauncherSegmented
+                label="Approvals"
+                options={["ask", "autonomous"]}
+                labels={APPROVAL_LABEL}
+                value={autonomous ? "autonomous" : "ask"}
+                onPick={(next) => setAutonomous(next === "autonomous")}
+            />
+            <span className="text-[11.5px] leading-[1.45] text-muted">{approvalsNote(autonomous)}</span>
         </Section>
     );
 }

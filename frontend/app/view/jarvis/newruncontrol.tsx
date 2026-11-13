@@ -19,17 +19,21 @@
 // attribute matters more than the label.
 
 import { CrossFade } from "@/app/element/crossfade";
-import { errorNudge, viewFade } from "@/app/element/motiontokens";
+import { errorNudge, microFade, morphTransition, viewFade } from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
+import { DialogButton } from "@/app/modals/dialogbutton";
 import { ModalShell } from "@/app/modals/modalshell";
+import { atoms } from "@/app/store/global";
 import { globalStore } from "@/app/store/jotaiStore";
 import { harnessPreferenceAtom } from "@/app/view/agents/harnessstore";
+import { formatChordString } from "@/util/keysym";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtomValue, type PrimitiveAtom } from "jotai";
-import { AnimatePresence, motion } from "motion/react";
+import { Bot, Check, Network, Paperclip, X, type LucideIcon } from "lucide-react";
+import { AnimatePresence, motion, type Transition } from "motion/react";
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { AgentsViewModel } from "../agents/agents";
-import { AttachButton, AttachmentTray } from "../agents/attachmenttray";
+import { AttachmentTray } from "../agents/attachmenttray";
 import { channelsAtom, createChannel, primeChannels } from "../agents/channelsstore";
 import { attachmentBlocker, pickFilePaths, useComposerAttachments } from "../agents/composerattachments";
 import { noteRecentProject, projectListAtom, recentProjectsAtom } from "../agents/projectsstore";
@@ -42,6 +46,7 @@ import {
     resolvedProfileAtom,
 } from "../agents/runactions";
 import {
+    SHAPE_CARDS,
     effectiveStart,
     launchBlocker,
     startNote,
@@ -70,13 +75,14 @@ import {
     setReviewerPicks,
     setReviewerRoute,
     setRunRoute,
+    setRunShape,
     setStart,
     setWorkerRoute,
     startAtom,
     stepParallelism,
     workerRouteAtom,
 } from "../agents/runconfigstore";
-import { ApprovalsSection, ShapeCards, WorkerStepper, usePlanPreview } from "../agents/runlauncher";
+import { ApprovalsSection, EYEBROW, LauncherSegmented, WorkerStepper, usePlanPreview } from "../agents/runlauncher";
 import { planShapeText, planWarnings } from "../orchestrate/dagdigest";
 import {
     initialPick,
@@ -99,12 +105,12 @@ import { ProjectPicker } from "./projectpickerview";
 // the window clears it once read.
 export const newRunPrefillAtom = atom<NewRunPrefill | null>(null) as PrimitiveAtom<NewRunPrefill | null>;
 
-const FIELD_LABEL = "font-mono text-[10.5px] font-bold uppercase tracking-[.09em] text-ink-mid";
-const CANCEL_BTN =
-    "cursor-pointer rounded-[7px] border border-border bg-surface-raised px-3.5 py-1.5 text-[11.5px] font-semibold text-secondary hover:text-primary";
-// RoutePicker caps its trigger for the inline rows it usually sits in; a Models row gives it the column
+// RoutePicker caps its trigger for the inline rows it usually sits in; a Models row gives it the column, at the
+// window's field height
 const FULL_WIDTH_PICKER =
-    "min-w-0 flex-1 [&>div]:w-full [&>div>button]:w-full [&>div>button]:max-w-none [&>div>button]:justify-between";
+    "min-w-0 flex-1 [&>div]:w-full [&>div>button]:h-8 [&>div>button]:w-full [&>div>button]:max-w-none [&>div>button]:justify-between [&>div>button]:rounded-[8px] [&>div>button]:text-[12px]";
+const INSTANT: Transition = { duration: 0 };
+const SHAPE_ICON: Record<RunShape, LucideIcon> = { orchestrator: Network, quick: Bot };
 const PLAN_GRID = "grid grid-cols-[40px_minmax(0,1fr)_96px_112px] gap-x-2.5 px-3";
 const START_LABEL: Record<StartFrom, string> = { design: "Approved design", goal: "Goal", plan: "Plan file" };
 const DESIGN_FIRST_OPTIONS: DesignFirst[] = ["", "brainstorm", "canvas"];
@@ -118,8 +124,8 @@ const MODEL_TONE: Record<PlanModelTone, string> = {
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
     return (
-        <div className="flex flex-col gap-1.5">
-            <span className={FIELD_LABEL}>{label}</span>
+        <div className="flex flex-col gap-2">
+            <span className={EYEBROW}>{label}</span>
             {children}
         </div>
     );
@@ -136,7 +142,7 @@ function ModelRow({
 }) {
     return (
         <div {...attrs} className="flex items-center gap-2">
-            <span className="w-[74px] flex-none text-[12px] text-ink-mid">{label}</span>
+            <span className="w-[104px] flex-none text-[12.5px] text-ink-mid">{label}</span>
             <div className={FULL_WIDTH_PICKER}>{children}</div>
         </div>
     );
@@ -150,7 +156,7 @@ function ModelsSection({ orchestrator }: { orchestrator: boolean }) {
     const lightReviewerRoute = useAtomValue(lightReviewerRouteAtom);
     return (
         <div className="flex flex-col gap-2">
-            <span className={FIELD_LABEL}>Models</span>
+            <span className={EYEBROW}>Models</span>
             <ModelRow label="Lead">
                 <RoutePicker value={route} onChange={setRunRoute} placement="bottom-start" title="Lead model" />
             </ModelRow>
@@ -197,39 +203,78 @@ function ModelsSection({ orchestrator }: { orchestrator: boolean }) {
     );
 }
 
-function Segmented<T extends string>({
-    label,
-    options,
-    labels,
-    value,
-    onPick,
-}: {
-    label: string;
-    options: T[];
-    labels: Record<T, string>;
-    value: T;
-    onPick: (next: T) => void;
-}) {
+// The shape as the New agent window lists runtimes: the picked row's fill moves to the new pick (moment 17), and
+// the width only an orchestrator has opens inside its row, so the stepper reads as the orchestrator's.
+function ShapeRows({ shape, parallelism }: { shape: RunShape; parallelism: number | null }) {
+    // MotionConfig's reducedMotion drops transforms but not a layoutId's travel
+    const reduce = useAtomValue(atoms.prefersReducedMotionAtom);
     return (
-        <div
-            role="group"
-            aria-label={label}
-            className="flex flex-none gap-0.5 rounded-[8px] border border-border bg-surface p-0.5"
-        >
-            {options.map((option) => (
-                <button
-                    key={option}
-                    type="button"
-                    aria-pressed={value === option}
-                    onClick={() => onPick(option)}
-                    className={cn(
-                        "cursor-pointer rounded-[6px] px-3 py-1 text-[11.5px] font-semibold",
-                        value === option ? "bg-accentbg text-accent-soft" : "text-ink-mid hover:text-secondary"
-                    )}
-                >
-                    {labels[option]}
-                </button>
-            ))}
+        <div className="flex flex-col gap-2">
+            <span className={EYEBROW}>Shape</span>
+            <div role="group" aria-label="Shape" className="flex flex-col gap-px">
+                {SHAPE_CARDS.map((card) => {
+                    const sel = shape === card.id;
+                    const Icon = SHAPE_ICON[card.id];
+                    return (
+                        <div key={card.id} className={cn("relative rounded-[7px]", !sel && "hover:bg-surface-hover")}>
+                            {sel ? (
+                                <motion.div
+                                    layoutId="new-run-shape"
+                                    transition={reduce ? INSTANT : morphTransition}
+                                    className="absolute inset-0 rounded-[7px] bg-surface-selected"
+                                />
+                            ) : null}
+                            <button
+                                type="button"
+                                aria-pressed={sel}
+                                onClick={() => setRunShape(card.id)}
+                                className="relative flex w-full cursor-pointer items-center gap-[9px] rounded-[7px] p-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                            >
+                                {/* the first child's text is the bare shape name: the CDP scenarios pick a shape by it */}
+                                <span className="flex flex-none items-center gap-[9px]">
+                                    <Icon
+                                        size={16}
+                                        strokeWidth={1.8}
+                                        aria-hidden
+                                        className={cn("transition-colors", sel ? "text-accent-soft" : "text-ink-mid")}
+                                    />
+                                    <span
+                                        className={cn(
+                                            "text-[12.5px] font-semibold",
+                                            sel ? "text-primary" : "text-muted-foreground"
+                                        )}
+                                    >
+                                        {card.id}
+                                    </span>
+                                </span>
+                                <span className="min-w-0 flex-1 truncate text-[11.5px] text-muted">{card.desc}</span>
+                                <AnimatePresence initial={false}>
+                                    {sel ? (
+                                        <motion.span
+                                            key="check"
+                                            variants={microFade}
+                                            initial="initial"
+                                            animate="animate"
+                                            exit="exit"
+                                            className="flex flex-none"
+                                        >
+                                            <Check size={14} strokeWidth={2.4} className="text-accent" />
+                                        </motion.span>
+                                    ) : null}
+                                </AnimatePresence>
+                            </button>
+                            {card.id === "orchestrator" ? (
+                                <PaneReveal open={sel} className="relative">
+                                    <div className="mx-2 flex items-center gap-1.5 border-t border-edge-strong pb-2 pl-[25px] pt-1.5">
+                                        <span className="flex-1 text-[12px] text-ink-mid">Workers at once</span>
+                                        <WorkerStepper value={parallelism} onStep={stepParallelism} />
+                                    </div>
+                                </PaneReveal>
+                            ) : null}
+                        </div>
+                    );
+                })}
+            </div>
         </div>
     );
 }
@@ -244,15 +289,15 @@ function StartToggle({
     onPick: (next: StartFrom) => void;
 }) {
     return (
-        <div className="flex items-center gap-2">
-            <Segmented
+        <div className="flex items-center gap-2.5">
+            <LauncherSegmented
                 label="Start from"
                 options={startOptions(hasDesign)}
                 labels={START_LABEL}
                 value={start}
                 onPick={onPick}
             />
-            <span className="min-w-0 flex-1 text-[11px] leading-[1.45] text-muted">{startNote(start)}</span>
+            <span className="min-w-0 flex-1 text-[11.5px] leading-[1.45] text-muted">{startNote(start)}</span>
         </div>
     );
 }
@@ -261,15 +306,18 @@ function StartToggle({
 // the session that made it.
 function DesignRow({ attrs, label, path }: { attrs: Record<`data-${string}`, string>; label: string; path: string }) {
     return (
-        <span {...attrs} title={path} className="min-w-0 truncate font-mono text-[11px] text-muted">
-            {label} · {path}
+        <span {...attrs} title={path} className="min-w-0 truncate font-mono text-[11.5px] text-muted">
+            <span className="text-ink-mid">{label}</span> · {path}
         </span>
     );
 }
 
 function DesignRows({ spec, prototype }: { spec: string; prototype: string }) {
     return (
-        <div data-new-run-design className="flex flex-col gap-1">
+        <div
+            data-new-run-design
+            className="flex flex-col gap-1 rounded-[8px] border border-border bg-surface px-3 py-2"
+        >
             {spec !== "" ? <DesignRow attrs={{ "data-new-run-design-spec": "" }} label="Spec" path={spec} /> : null}
             {prototype !== "" ? (
                 <DesignRow attrs={{ "data-new-run-design-prototype": "" }} label="Prototype" path={prototype} />
@@ -280,9 +328,9 @@ function DesignRows({ spec, prototype }: { spec: string; prototype: string }) {
 
 function DesignFirstToggle({ value, onPick }: { value: DesignFirst; onPick: (next: DesignFirst) => void }) {
     return (
-        <div className="flex items-center gap-2">
-            <span className="text-[12px] text-ink-mid">Design first</span>
-            <Segmented
+        <div className="flex items-center gap-2.5">
+            <span className="text-[12.5px] text-ink-mid">Design first</span>
+            <LauncherSegmented
                 label="Design first"
                 options={DESIGN_FIRST_OPTIONS}
                 labels={DESIGN_FIRST_LABEL}
@@ -321,7 +369,7 @@ function PlanTable({ result, workers }: { result: CommandDagPlanPreviewRtnData; 
                 <div
                     className={cn(
                         PLAN_GRID,
-                        "sticky top-0 border-b border-border bg-surface py-1.5 font-mono text-[10px] uppercase tracking-[.08em] text-muted"
+                        "sticky top-0 border-b border-border bg-surface py-1.5 font-mono text-[10.5px] uppercase tracking-[.08em] text-muted"
                     )}
                 >
                     <span>task</span>
@@ -335,7 +383,7 @@ function PlanTable({ result, workers }: { result: CommandDagPlanPreviewRtnData; 
                         className={cn(PLAN_GRID, "items-center py-1.5", i > 0 && "border-t border-edge-faint")}
                     >
                         <span className="font-mono text-[10.5px] text-muted">{row.id}</span>
-                        <span className="truncate text-[12px] text-ink-hi">{row.title}</span>
+                        <span className="truncate text-[12.5px] text-ink-hi">{row.title}</span>
                         <span className="truncate font-mono text-[10.5px] text-muted">{row.needs}</span>
                         <span
                             title={row.model}
@@ -373,14 +421,14 @@ function PlanPane({
                 aria-label="Plan file path"
                 onChange={(e) => setPlanPath(e.target.value)}
                 placeholder="Plan path, absolute or relative to the project"
-                className="w-full rounded-[7px] border border-edge-mid bg-background px-2.5 py-[7px] font-mono text-[11.5px] text-primary placeholder:text-muted outline-none focus:border-accent/60"
+                className="h-9 w-full rounded-[8px] border border-edge-mid bg-surface px-3 font-mono text-[12px] text-primary placeholder:text-muted outline-none focus:border-accent-700"
             />
             <CrossFade
                 swapKey={current?.error != null ? "error" : current?.result != null ? "result" : "none"}
                 className="flex min-h-0 flex-1 flex-col items-stretch"
             >
                 {current?.error != null ? (
-                    <span data-jarvis-plan-preview="error" className="text-[11px] leading-[1.45] text-error">
+                    <span data-jarvis-plan-preview="error" className="text-[11.5px] leading-[1.45] text-error">
                         {current.error}
                     </span>
                 ) : current?.result != null ? (
@@ -452,6 +500,7 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
         launchBlocker({ shape, start: startFrom, goal, planPath, preview, designFirst, autonomous }) ??
         (planStart ? null : attachmentBlocker(attachments));
     const projectPath = rows.find((r) => r.name === picked)?.path ?? "";
+    const footBlocker = picked == null ? "pick a project" : blocker;
 
     // The project's own channel is where its profile lives, and a project that has never run has no channel
     // yet — hydrating from `undefined` then leaves the launcher on its baselines, which is the right answer
@@ -594,37 +643,37 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
             open
             onClose={onClose}
             onSubmit={start}
+            // a stray click outside would throw away a written goal
+            dismissOnBackdrop={false}
             className={cn("flex w-[min(960px,94vw)] flex-col", rows.length > 0 && "h-[min(720px,88vh)]")}
         >
             <div
                 data-new-run-window
-                className="flex shrink-0 items-center gap-[11px] border-b border-border px-[18px] py-[15px]"
+                className="flex shrink-0 items-center gap-[10px] border-b border-border py-[13px] pl-[18px] pr-3"
             >
-                <div className="flex h-[18px] w-[18px] items-center justify-center rounded-full bg-accentbg font-mono text-[10.5px] font-bold text-accent-soft">
-                    ▸
-                </div>
-                <span className="flex-1 text-[15px] font-semibold text-primary">New run</span>
-                <span className="rounded-[5px] border border-edge-mid px-[7px] py-0.5 font-mono text-[10.5px] text-ink-mid">
-                    ctrl+⏎ to start
-                </span>
+                <h2 className="m-0 flex-1 text-[15px] font-semibold text-primary">New run</h2>
+                <button
+                    type="button"
+                    aria-label="Close"
+                    onClick={onClose}
+                    className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-[7px] text-muted hover:bg-surface-hover hover:text-primary"
+                >
+                    <X size={15} strokeWidth={2} />
+                </button>
             </div>
             {rows.length === 0 ? (
-                <div className="flex flex-col items-start gap-2.5 px-[18px] py-4">
-                    <span className="text-[12px] text-secondary">
+                <div className="flex flex-col items-start gap-3 px-[18px] pb-5 pt-[18px]">
+                    <span className="text-[12.5px] text-secondary">
                         A run needs a project, and none are registered yet.
                     </span>
-                    <button
-                        type="button"
-                        onClick={register}
-                        className="cursor-pointer rounded-[7px] border border-accent/30 bg-accentbg px-2.5 py-1.5 text-[11.5px] font-semibold text-accent-soft hover:bg-accent/20"
-                    >
+                    <DialogButton variant="primary" onClick={register}>
                         Register a project
-                    </button>
+                    </DialogButton>
                 </div>
             ) : (
                 <>
                     <div className="grid min-h-0 flex-1 grid-cols-[380px_minmax(0,1fr)]">
-                        <div className="flex min-h-0 flex-col gap-5 overflow-y-auto border-r border-border bg-surface px-[18px] py-4">
+                        <div className="flex min-h-0 flex-col gap-5 overflow-y-auto border-r border-border px-[18px] py-4">
                             <Field label="Project">
                                 <ProjectPicker
                                     projects={rows}
@@ -634,15 +683,7 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
                                     onRegister={register}
                                 />
                             </Field>
-                            <div className="flex flex-col gap-1.5">
-                                <ShapeCards showParallelism={false} />
-                                <PaneReveal open={orchestrator}>
-                                    <div className="flex items-center gap-1.5">
-                                        <span className="flex-1 text-[12px] text-ink-mid">Workers at once</span>
-                                        <WorkerStepper value={parallelism} onStep={stepParallelism} />
-                                    </div>
-                                </PaneReveal>
-                            </div>
+                            <ShapeRows shape={shape} parallelism={parallelism} />
                             <ModelsSection orchestrator={orchestrator} />
                             <PaneReveal open={orchestrator}>
                                 <ApprovalsSection />
@@ -684,10 +725,18 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
                                             onChange={(e) => setGoal(e.target.value)}
                                             onPaste={onPaste}
                                             placeholder="What should it do?"
-                                            className="min-h-0 w-full flex-1 resize-none rounded-[7px] border border-edge-mid bg-background px-3 py-2.5 text-[13px] leading-[1.5] text-primary placeholder:text-muted outline-none focus:border-accent/60"
+                                            className="min-h-0 w-full flex-1 resize-none rounded-[8px] border border-edge-mid bg-surface px-3 py-2.5 text-[13px] leading-[1.5] text-primary placeholder:text-muted outline-none focus:border-accent-700"
                                         />
-                                        <div data-goal-attachments className="flex items-start gap-1.5">
-                                            <AttachButton onClick={pickFiles} />
+                                        <div data-goal-attachments className="flex items-center gap-2.5">
+                                            <button
+                                                type="button"
+                                                data-attach-files
+                                                onClick={pickFiles}
+                                                className="flex flex-none cursor-pointer items-center gap-1.5 py-1 text-[12px] font-semibold text-ink-mid hover:text-primary"
+                                            >
+                                                <Paperclip size={13} aria-hidden />
+                                                Attach files
+                                            </button>
                                             <AttachmentTray items={attachments} onRemove={remove} onRetry={retry} />
                                         </div>
                                         {orchestrator && startFrom === "goal" ? (
@@ -700,9 +749,12 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
                     </div>
                     <div
                         data-new-run-footer
-                        className="flex shrink-0 items-center gap-2 border-t border-border px-[18px] py-3"
+                        className="flex shrink-0 items-center gap-3 border-t border-border px-[18px] py-[13px]"
                     >
-                        <AnimatePresence initial={false}>
+                        {/* the blocker first whenever there is one: a disabled Start run that named the shape
+                            instead of saying "Write the goal" read as a dead button, which is what a silent click on
+                            it looks like. Keyed by kind, not text, so typing never re-fades the summary. */}
+                        <AnimatePresence initial={false} mode="popLayout">
                             {error != null ? (
                                 <motion.span
                                     key="error"
@@ -710,36 +762,49 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
                                     variants={errorNudge}
                                     initial="initial"
                                     animate="animate"
-                                    className="min-w-0 flex-1 truncate text-[11px] text-error"
+                                    className="min-w-0 flex-1 truncate text-[12px] text-error"
                                 >
                                     {error}
                                 </motion.span>
-                            ) : null}
+                            ) : (
+                                <motion.span
+                                    key={footBlocker != null ? "blocker" : "summary"}
+                                    variants={microFade}
+                                    initial="initial"
+                                    animate="animate"
+                                    exit="exit"
+                                    className={cn(
+                                        "min-w-0 flex-1 truncate text-[12px]",
+                                        footBlocker != null ? "text-secondary" : "text-muted"
+                                    )}
+                                >
+                                    {footBlocker ?? (
+                                        <>
+                                            <span className="font-mono text-[11px] text-ink-hi">
+                                                {orchestrator ? `${shape} × ${parallelism}` : shape}
+                                            </span>
+                                            {" in "}
+                                            <span className="font-mono text-[11px] text-ink-hi">{picked}</span>
+                                            {orchestrator && autonomous ? " · autonomous" : ""}
+                                        </>
+                                    )}
+                                </motion.span>
+                            )}
                         </AnimatePresence>
-                        {error != null ? null : (
-                            <span className="flex-1 truncate font-mono text-[10.5px] text-ink-mid">
-                                {/* the blocker first whenever there is one: a disabled Start run that
-                                    named the shape instead of saying "Write the goal" read as a dead
-                                    button, which is what a silent click on it looks like */}
-                                {picked == null
-                                    ? "pick a project"
-                                    : (blocker ??
-                                      `${shape}${orchestrator ? " × " + parallelism : ""} in ${picked}${orchestrator && autonomous ? " · autonomous" : ""}`)}
-                            </span>
-                        )}
-                        <button type="button" onClick={onClose} className={CANCEL_BTN}>
+                        <DialogButton data-new-run-cancel variant="secondary" hint="esc" onClick={onClose}>
                             Cancel
-                        </button>
-                        <button
-                            type="button"
-                            disabled={picked == null || blocker != null || starting}
+                        </DialogButton>
+                        <DialogButton
+                            data-new-run-start
+                            variant="primary"
+                            hint={formatChordString("Cmd:Enter")}
+                            disabled={footBlocker != null || starting}
                             onClick={start}
-                            className="cursor-pointer rounded-[7px] bg-accent px-3.5 py-1.5 text-[11.5px] font-semibold text-background hover:bg-accenthover disabled:cursor-default disabled:bg-border disabled:text-muted"
                         >
                             <CrossFade swapKey={starting ? "starting" : "idle"}>
                                 {starting ? "Starting…" : "Start run"}
                             </CrossFade>
-                        </button>
+                        </DialogButton>
                     </div>
                 </>
             )}

@@ -6002,7 +6002,7 @@ export const autonomousRuns = {
             gone && quickFooter.startsWith("quick") && !quickFooter.endsWith(" · autonomous"),
             JSON.stringify({ gone, footer: quickFooter })
         );
-        await h.ev(clickByText(NEW_RUN, "button", "Cancel"));
+        await h.ev(`${NEW_RUN}?.querySelector('[data-new-run-cancel]')?.click()`);
         await polishWaitFor(h, `!${NEW_RUN}`, 3000);
 
         // --- run-sheet (RunSheet board)

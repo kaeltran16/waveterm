@@ -313,8 +313,7 @@ sub-floor sizes remain in the run views only runs stored before slice 5c
 reach (`runcompletionsurface.tsx`, `runworkercard.tsx`, `runtimelineview.tsx`,
 `runbody.tsx`, `orchestrate/dagoverview.tsx`, and `runcards.tsx`'s
 BlockedCard, TriageChip and ShipMarker, which only `runbody.tsx` renders), and
-are still pending in `routepicker.tsx`, `runlauncher.tsx` and
-`newruncontrol.tsx`.
+are still pending in `routepicker.tsx` and `runlauncher.tsx`.
 
 ## Layout
 
