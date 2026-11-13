@@ -5,6 +5,7 @@
 // output or how the stage ended, and the End final stage form.
 
 import { CrossFade } from "@/app/element/crossfade";
+import { useLastShown } from "@/app/element/motionhooks";
 import { composerReveal, errorNudge } from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
 import { globalStore } from "@/app/store/jotaiStore";
@@ -57,6 +58,7 @@ export function DagFinalPeek({
     const { route, custom } = reviewerRouteOf(group, owner);
     const [ending, setEnding] = useState(false);
     const [endError, setEndError] = useState<string | null>(null);
+    const shownEndError = useLastShown(endError);
     const endable = finalStageEndable(group);
     // a stage that stops being endable closes the form, or a later round's final stage would open on it
     if (ending && !endable) {
@@ -128,9 +130,9 @@ export function DagFinalPeek({
                                 initial="initial"
                                 animate="animate"
                                 className="block truncate text-[12px] text-error"
-                                title={endError ?? undefined}
+                                title={shownEndError ?? undefined}
                             >
-                                {endError}
+                                {shownEndError}
                             </motion.span>
                         </PaneReveal>
                     </>

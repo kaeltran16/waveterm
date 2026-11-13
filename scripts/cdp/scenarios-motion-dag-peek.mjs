@@ -136,10 +136,11 @@ const clickButton = (h, scope, label) =>
     })()`);
 
 // clicks `label` in the topmost modal dialog (a confirm opens over the DAG modal), once it shows. A prefix match:
-// the dialog's buttons end in their key hint (esc, the return glyph)
+// the dialog's buttons end in their key hint (esc, the return glyph). Not a word boundary: "Keep running" runs
+// straight into its "esc" hint with no space between
 const clickConfirm = (h, label) =>
     lookEval(h, `
-        const find = () => button(dialog(), new RegExp("^" + ${JSON.stringify(label)} + "\\\\b"));
+        const find = () => [...(dialog()?.querySelectorAll("button") ?? [])].find((b) => flat(b).startsWith(${JSON.stringify(label)}));
         if (!(await until(() => find() != null, 3000))) return false;
         find().click();
         return true;
@@ -452,8 +453,12 @@ export const motionDagPeek = {
         await releaseRpc(h, "DagActionCommand");
         await h.shot("cdp-shots/motion-dag-peek-end-error.png");
         const endShook = (endError?.frames ?? []).filter((f) => Math.abs(shiftX(f.transform)) > 0.5).length;
-        // End final stage again clears the error and closes the form
+        // End final stage again clears the error and closes the form: the strip collapses still reading the error
+        const endText = await h.ev(`((window.__mdpEndAlert = ${dagPeekCard(DAG_PEEK_FINAL_SEL)}?.querySelector('[role="alert"]'))?.textContent ?? "").trim()`);
+        await start(h, "endClear", `${DAG_PEEK_FINAL_SEL} [role="alert"]`, "window.__mdpEndAlert");
         await clickIn(h, dagPeekCard(DAG_PEEK_FINAL_SEL), "[data-final-end]");
+        const endCleared = await polishWaitFor(h, `window.__mdpEndAlert?.isConnected === false`, 3000);
+        const endClear = await stop(h, "endClear");
         await polishNap(SETTLE_MS);
         rec(
             "14. a refused Fail in End final stage reveals its error from opacity 0 and shakes it along x, ending at rest",
@@ -465,6 +470,18 @@ export const motionDagPeek = {
                 endShook > 0 &&
                 endError.settled?.transform === "none",
             { finalInjected, endable, formOpen, endAlerted, first: endError?.first.slice(0, 2), endShook, settled: endError?.settled }
+        );
+        const endHeld = (endClear?.frames ?? []).filter((f) => f.attached);
+        const endCollapsing = endHeld.filter((f) => num(f.parentOpacity) < 0.99).length;
+        rec(
+            "14b. End final stage again clears the refusal: its strip collapses mid-fade with the refusal's text on every attached frame, then detaches",
+            endAlerted &&
+                endText.includes(END_REFUSAL) &&
+                endCleared &&
+                endCollapsing > 0 &&
+                endHeld.every((f) => f.text === endText) &&
+                endClear.frames.at(-1)?.attached === false,
+            { endText, endCleared, endCollapsing, texts: [...new Set(endHeld.map((f) => f.text))], frames: endClear?.frames.length }
         );
 
         // 15. a refused Cancel in the DAG header reveals its error beside the button and nudges it once
@@ -487,6 +504,29 @@ export const motionDagPeek = {
                 cancelShook > 0 &&
                 cancelError.settled?.transform === "none",
             { confirmed, cancelAlerted, first: cancelError?.first.slice(0, 2), cancelShook, settled: cancelError?.settled }
+        );
+
+        // 15b. Cancel again clears the refusal before its confirm opens: the strip collapses still reading it, and
+        // Keep running closes the confirm without cancelling
+        await h.ev(`(window.__mdpCancelAlert = document.querySelector('${IN_MODAL} [data-dag-cancel-error]')) != null`);
+        await start(h, "cancelClear", `${IN_MODAL} [data-dag-cancel-error]`, "window.__mdpCancelAlert");
+        await h.ev(`document.querySelector('${IN_MODAL} [data-dag-cancel]')?.click()`);
+        const cancelCleared = await polishWaitFor(h, `window.__mdpCancelAlert?.isConnected === false`, 3000);
+        const cancelClear = await stop(h, "cancelClear");
+        const kept = await clickConfirm(h, "Keep running");
+        const confirmClosed = await polishWaitFor(h, `!(document.body.textContent ?? "").includes("cancel this run?")`, 3000);
+        const cancelHeld = (cancelClear?.frames ?? []).filter((f) => f.attached);
+        const cancelCollapsing = cancelHeld.filter((f) => num(f.parentOpacity) < 0.99).length;
+        rec(
+            "15b. Cancel again clears the refusal: its strip collapses mid-fade with the refusal's text on every attached frame, then detaches, and Keep running closes the confirm",
+            cancelAlerted &&
+                cancelCleared &&
+                cancelCollapsing > 0 &&
+                cancelHeld.every((f) => f.text === CANCEL_REFUSAL) &&
+                cancelClear.frames.at(-1)?.attached === false &&
+                kept &&
+                confirmClosed,
+            { cancelCleared, cancelCollapsing, texts: [...new Set(cancelHeld.map((f) => f.text))], frames: cancelClear?.frames.length, kept, confirmClosed }
         );
         return steps;
     },
