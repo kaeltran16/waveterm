@@ -149,6 +149,13 @@ export function CanvasPane({
             pane.scrollTop += top - CANVAS_TOP_PAD;
         }
     }, [selected]);
+    // the tabs scroll sideways once a brainstorm has more boards than the toolbar fits; keep the picked one in view
+    const tabsRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        tabsRef.current
+            ?.querySelector('[aria-selected="true"]')
+            ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }, [tab]);
     if (s == null) {
         return null;
     }
@@ -169,22 +176,28 @@ export function CanvasPane({
                         {backLabel}
                     </button>
                 ) : null}
-                <span className="font-mono text-[12px] font-semibold text-secondary">{s.topic}</span>
+                <span className="flex-none whitespace-nowrap font-mono text-[12px] font-semibold text-secondary">
+                    {s.topic}
+                </span>
                 {s.boards.length > 0 ? (
-                    <Segmented
-                        role="tablist"
-                        ariaLabel="Boards"
-                        title={`Previous and next board (${formatChordString("[")} and ${formatChordString("]")})`}
-                        value={currentTab(s)}
-                        options={canvasTabs(s.boards).map((t) => ({
-                            key: t,
-                            label: t === ALL_TAB ? "All" : (tabLabels?.[t] ?? boardLabel(t)),
-                        }))}
-                        onChange={(tab) => selectCanvasTab(agent.id, tab)}
-                    />
+                    <div ref={tabsRef} className="flex min-w-0 overflow-x-auto">
+                        <Segmented
+                            role="tablist"
+                            ariaLabel="Boards"
+                            title={`Previous and next board (${formatChordString("[")} and ${formatChordString("]")})`}
+                            value={currentTab(s)}
+                            options={canvasTabs(s.boards).map((t) => ({
+                                key: t,
+                                label: t === ALL_TAB ? "All" : (tabLabels?.[t] ?? boardLabel(t)),
+                            }))}
+                            onChange={(tab) => selectCanvasTab(agent.id, tab)}
+                        />
+                    </div>
                 ) : null}
                 <div className="flex-1" />
-                {pane === "board" ? <span className="font-mono text-[10.5px] text-muted">{meta}</span> : null}
+                {pane === "board" ? (
+                    <span className="flex-none whitespace-nowrap font-mono text-[10.5px] text-muted">{meta}</span>
+                ) : null}
                 <button
                     type="button"
                     title={`Mark part of the board (${formatChordString("m")})`}

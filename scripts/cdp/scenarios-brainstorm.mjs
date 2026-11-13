@@ -2087,6 +2087,29 @@ const BSAB_TABS = `(() => {
     };
 })()`;
 
+// too narrow for the board toolbar's back button, topic, five tabs and buttons, so its tabs scroll, yet wide enough
+// that the longest tab fits in the scroller
+const BSAB_NARROW_PX = 1100;
+// whether the board toolbar holds its row: every item inside the bar, the topic and meta on one line each, the tabs
+// scrolling, and the picked tab in view
+const BSAB_TOOLBAR_FIT = `(() => {
+    const box = (el) => el.getBoundingClientRect();
+    const lines = (el) => { const r = document.createRange(); r.selectNodeContents(el); return r.getClientRects().length; };
+    const bar = ${BS_PANE}?.querySelector("[data-canvas-pane]")?.firstElementChild;
+    const tabs = bar?.querySelector('[role="tablist"]');
+    const scroller = tabs?.parentElement;
+    const sel = tabs?.querySelector('[aria-selected="true"]');
+    if (bar == null || scroller == null || sel == null) return { found: false };
+    return {
+        found: true,
+        selected: (sel.textContent ?? "").trim(),
+        scrolls: scroller.scrollWidth > scroller.clientWidth,
+        inBar: [...bar.children].every((c) => box(c).right <= box(bar).right + 1),
+        oneLine: [...bar.querySelectorAll(":scope > span")].every((s) => lines(s) === 1),
+        selectedInView: box(sel).left >= box(scroller).left - 1 && box(sel).right <= box(scroller).right + 1,
+    };
+})()`;
+
 // ] as the user presses it; a keydown on the document when CDP keys do not reach the page
 async function bsabNextBoard(h) {
     if (await bsKeysArrive(h)) {
@@ -2272,6 +2295,17 @@ export const brainstormAnswerBoards = {
         await polishWaitFor(h, `${BS_PANE}?.querySelectorAll('[data-canvas-pane] [role="tab"]').length === ${BSAB_JUDGING_TABS_WANT.length}`, BS_POLL_WAIT_MS);
         const jOpened = await h.ev(BSAB_TABS);
         await h.shot("cdp-shots/brainstorm-answer-boards-6-judging-full-size.png");
+
+        // 7. a pane too narrow for the toolbar: from All, ] once per other tab lands on the last one
+        const setWidth = (px) => h.ev(`(() => { const p = ${BS_PANE}?.querySelector("[data-canvas-pane]"); if (p) p.style.maxWidth = "${px}"; })()`);
+        await setWidth(`${BSAB_NARROW_PX}px`);
+        await h.ev(`[...(${BS_PANE}?.querySelectorAll('[data-canvas-pane] [role="tab"]') ?? [])].find((t) => t.textContent.trim() === "All")?.click()`);
+        await polishNap(300);
+        for (let i = 1; i < BSAB_JUDGING_TABS_WANT.length; i++) await bsabNextBoard(h);
+        const fit = await h.ev(BSAB_TOOLBAR_FIT);
+        await h.shot("cdp-shots/brainstorm-answer-boards-7-narrow-toolbar.png");
+        await setWidth("");
+
         const jBacked = await bsClick(h, BS_PANE, "Back to the question");
         const jBack = await polishWaitFor(h, `!!${BS_PANE}?.querySelector("[data-brainstorm-judging] [data-brainstorm-row-boards]")`, 3000);
         rec(
@@ -2283,6 +2317,16 @@ export const brainstormAnswerBoards = {
                 jBacked === "clicked" &&
                 jBack,
             { opened: jOpened, backed: jBacked, back: jBack }
+        );
+        rec(
+            `7. (Narrow toolbar) at ${BSAB_NARROW_PX}px the board tabs scroll inside the toolbar while the back button, topic, meta and buttons stay in it on one line; ] to the last tab scrolls it into view`,
+            fit.found &&
+                fit.selected === BSAB_JUDGING_TABS_WANT.at(-1) &&
+                fit.scrolls &&
+                fit.inBar &&
+                fit.oneLine &&
+                fit.selectedInView,
+            fit
         );
         return steps;
     },
