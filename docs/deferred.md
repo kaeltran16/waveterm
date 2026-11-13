@@ -14,6 +14,17 @@ where it would plug in, and how to pick it back up. Append new entries at the to
 > with no trigger moved to "Declined 2026-10-16" below, and history paragraphs were cut to their recovery
 > lines. The full pre-prune text of every entry: `git show db067efe:docs/deferred.md`.
 
+## `@@` agent tags in pi's prompt (deferred 2026-11-13)
+
+pi agents are listed by `wsh agents list` and can be messaged with `wsh agents send/read/wait`, so a Claude
+Code session can tag one with `@@`. pi's own prompt has no `@@`: a pi session cannot tag another agent.
+
+- **Why held:** the spec scopes `@@` to Claude Code for now.
+- **Where it plugs in:** a pi extension under `pi/extensions/` that mirrors `claude/arc-mod/hooks/mention-core.ts`
+  (typeahead rows from `wsh agents list --json --others`, the submitted tags resolved into context).
+- **Revive when** a pi session needs to tag an agent.
+- **Recovery:** `docs/superpowers/specs/2026-11-13-agent-mentions-design.md`.
+
 ## Collision guard for chats sharing one checkout (deferred 2026-11-03)
 
 Collision guard (nateherkai/claude-code-mods, MIT) records the files each chat edits and asks before an

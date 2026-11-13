@@ -10,6 +10,16 @@ import type { Turn } from "./control-core";
 import { ALL_CATEGORIES, applyEdit, goalpostNote, goalpostRole, inspectChange, inspectCommand } from "./goalpost-core";
 import type { GoalpostFinding } from "./goalpost-core";
 import { denial } from "./guard-core";
+import {
+    isTaggable,
+    mentionContext,
+    mentionQuery,
+    needsFetch,
+    parseAgents,
+    submittedTags,
+    suggestions,
+} from "./mention-core";
+import type { AgentRow, Suggestion } from "./mention-core";
 import { idleArgs } from "./status-core";
 import { usageArgs } from "./usage-core";
 
@@ -189,10 +199,36 @@ async function reportCacheMiss($: EngineInterface) {
     }
 }
 
+// this project's other live agent tabs; throws with wsh's words when it fails or prints no roster
+async function liveAgents($: EngineInterface): Promise<AgentRow[]> {
+    const ran = await $.process.run([WSH, "agents", "list", "--json", "--others"]);
+    if (ran.exitCode !== 0) {
+        throw new Error(`wsh exited ${ran.exitCode}: ${ran.stderr.trim()}`);
+    }
+    return parseAgents(ran.stdout);
+}
+
+// the roster for the @@ tag being typed, fetched once per tag: a failed fetch is an empty roster until the
+// next tag, so a broken wsh costs one spawn per tag, not one per keystroke
+let mentionCache: { start: number; rows: Promise<AgentRow[]> } | null = null;
+
+function typeaheadAgents($: EngineInterface, token: string, start: number): Promise<AgentRow[]> {
+    if (mentionCache !== null && !needsFetch(mentionCache.start, token, start)) {
+        return mentionCache.rows;
+    }
+    const rows = liveAgents($).catch((err): AgentRow[] => {
+        $.ui.log(`arc: wsh agents list failed: ${String(err)}`, { to: "debug" });
+        return [];
+    });
+    mentionCache = { start, rows };
+    return rows;
+}
+
 export const register: Register = (on) => {
     on("session.start", async ($, e, next) => {
         active = Boolean((await $.env.get("WAVETERM_BLOCKID")) && (await $.env.get("WAVETERM_JWT")));
         isKnownNonWorker = false;
+        mentionCache = null;
         const started = await next(e);
         if (active) {
             void listenToCockpit($);
@@ -219,6 +255,38 @@ export const register: Register = (on) => {
     on("classic.UserPromptSubmit", ($, e, next) => {
         transcriptPath = e.transcript_path || null;
         return next(e);
+    });
+
+    // bare @ is claude code's file mention and stays untouched
+    on("prompt.autocomplete", { token: /^@@/ }, async ($, e, next) => {
+        if (!active) {
+            return next(e);
+        }
+        let mine: Suggestion[] = [];
+        try {
+            mine = suggestions(await typeaheadAgents($, e.token, e.start), mentionQuery(e.token) ?? "");
+        } catch (err) {
+            $.ui.log(`arc: @@ typeahead failed: ${String(err)}`, { to: "debug" });
+        }
+        return { suggestions: [...mine, ...(await next(e)).suggestions] };
+    });
+
+    // the roster is fetched fresh, not from the typeahead: a tagged agent may have closed since the pick.
+    // only context for this agent is attached; the user's text goes to no one else
+    on("prompt.submit", async ($, e, next) => {
+        let context = "";
+        try {
+            const tags = active && isTaggable(e) ? submittedTags(e.text) : [];
+            if (tags.length > 0) {
+                const roster = await liveAgents($).catch((err): { error: string } => ({
+                    error: err instanceof Error ? err.message : String(err),
+                }));
+                context = mentionContext(tags, roster);
+            }
+        } catch (err) {
+            $.ui.log(`arc: resolving @@ tags failed: ${String(err)}`, { to: "debug" });
+        }
+        return context ? next({ ...e, context: [...(e.context ?? []), context] }) : next(e);
     });
 
     on("turn.start", async ($, e, next) => {
