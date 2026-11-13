@@ -37,7 +37,7 @@ func cleanBook(t *testing.T) {
 func refuseAllMemory(t *testing.T) *memgate.Claim {
 	t.Helper()
 	cleanBook(t)
-	blocker, ok := memgate.TryAdmit(memgate.Request{Key: memgate.Key{Role: "test"}, Need: 1})
+	blocker, ok := memgate.TryAdmit(memgate.Request{Tag: memgate.Tag{Role: "test"}})
 	if !ok {
 		t.Fatal("an empty book must admit")
 	}
@@ -105,12 +105,8 @@ func TestClaimWorkersStopsAtMemory(t *testing.T) {
 	cleanBook(t)
 	collectMemoryEvents(t)
 	ctx, g, channelID, runID := seedReadyDag(t, 3)
-	owner, err := wstore.GetRun(ctx, channelID, runID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	need := workerRequest(g, owner, "t-0").Need
-	defer memgate.SetFreeForTest(func() (uint64, error) { return need + need/2, nil })()
+	// the first worker starts on an empty book; its startup allowance leaves less than a Headroom for the next
+	defer memgate.SetFreeForTest(func() (uint64, error) { return memgate.Headroom + memgate.Headroom/2, nil })()
 	spawns := 0
 	old := spawnWorker
 	spawnWorker = func(context.Context, runroute.Capability, string, string, string, string, jarvis.RunWorkerOptions) (string, error) {
@@ -195,26 +191,6 @@ func TestSpawnFailureReleasesClaim(t *testing.T) {
 	}
 }
 
-func TestWorkerNeedIncludesSetup(t *testing.T) {
-	owner := &waveobj.Run{ProjectPath: t.TempDir()}
-	project := MemProjectKey(owner.ProjectPath)
-	workerNeed := memgate.Estimate(memgate.Key{Project: project, Role: memgate.RoleWorker})
-	setupPeak := workerNeed + 1<<30
-	memgate.Record(memgate.Key{Project: project, Role: PlanCmd_Setup}, setupPeak)
-	g := &waveobj.TaskGroup{RunID: "run-1", Setup: "make deps"}
-	req := workerRequest(g, owner, "t-0")
-	if req.Need != setupPeak {
-		t.Fatalf("need %d, want the Setup's learned peak %d", req.Need, setupPeak)
-	}
-	if req.Key.Role != memgate.RoleWorker || req.Tag != (memgate.Tag{RunId: "run-1", TaskId: "t-0", Role: memgate.RoleWorker}) {
-		t.Fatalf("request %+v is not the worker's", req)
-	}
-	g.Setup = ""
-	if req := workerRequest(g, owner, "t-0"); req.Need != workerNeed {
-		t.Fatalf("with no Setup the need is %d, want the worker's %d", req.Need, workerNeed)
-	}
-}
-
 func TestReviewerHeldAtDoor(t *testing.T) {
 	ctx, dag, worker := seedReviewDag(t)
 	stubReviewTree(t, worker.EndCommit)
@@ -234,6 +210,44 @@ func TestReviewerHeldAtDoor(t *testing.T) {
 	schedule(t, ctx, dag.OID)
 	if task := firstTask(t, ctx, dag.OID); len(*calls) != 1 || task.ReviewRunID == "" {
 		t.Fatalf("once memory frees the next tick starts the reviewer: %d spawns, reviewer %q", len(*calls), task.ReviewRunID)
+	}
+}
+
+// a finished worker idles alive at its prompt until its lane lands, which waits on the review: its claim must leave
+// the book once its run is done, so it no longer counts against the reviewer its lane waits on
+func TestFinishedWorkerClaimDoesNotHoldItsReviewer(t *testing.T) {
+	cleanBook(t)
+	ctx, dag, worker := seedReviewDag(t)
+	stubReviewTree(t, worker.EndCommit)
+	calls := captureSpawns(t)
+	tab, blockID := newWorkerTabWithBlock(t)
+	if err := wstore.UpdateRun(ctx, dag.ChannelId, worker.ID, func(r *waveobj.Run) error {
+		r.Phases[0].WorkerOrefs = []string{tab}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	claim, ok := memgate.TryAdmit(workerRequest(dag, "t-0"))
+	if !ok {
+		t.Fatal("an empty book must admit the worker")
+	}
+	bindToBlock(claim, blockID)
+	// no loop runs in the test, so the worker's claim counts its startup allowance until released
+	defer memgate.SetFreeForTest(func() (uint64, error) { return 2*memgate.Headroom - 1, nil })()
+
+	schedule(t, ctx, dag.OID)
+	if len(*calls) != 0 {
+		t.Fatalf("precondition: a reviewer spawned while the worker's claim still counted against it: %+v", *calls)
+	}
+
+	done, err := wstore.GetRun(ctx, dag.ChannelId, worker.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ReleaseRunClaims(ctx, done)
+	schedule(t, ctx, dag.OID)
+	if task := firstTask(t, ctx, dag.OID); len(*calls) != 1 || task.ReviewRunID == "" {
+		t.Fatalf("a done worker's claim held its reviewer: %d spawns, reviewer %q", len(*calls), task.ReviewRunID)
 	}
 }
 
@@ -351,17 +365,6 @@ func TestKickHeldRunsTicksDag(t *testing.T) {
 	case <-spawned:
 	case <-time.After(10 * time.Second):
 		t.Fatal("kicking the held run never ticked its dag")
-	}
-}
-
-func TestMemProjectKeyFoldsWorktrees(t *testing.T) {
-	repo := newGitRepo(t)
-	wt, _, _, err := EnsureRunWorktree(context.Background(), repo, TaskWorktreeKey("owner-memkey", "t-0"), gitCmd(t, repo, "rev-parse", "HEAD"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, want := MemProjectKey(wt), MemProjectKey(repo); got != want || got == "" {
-		t.Fatalf("worktree keys to %q, want its main checkout's %q", got, want)
 	}
 }
 

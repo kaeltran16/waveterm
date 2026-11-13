@@ -552,8 +552,12 @@ tasks nothing depends on.
 Parallelism is one run's width, counted in live workers: a task whose commit is under review holds its lane, so no
 task of that lane starts beside the reviewer, but not its slot. Across every run on the machine the engine also
 starts at most 8 workers, counting reviewers, and
-a new one only while at least 3.5 GB of memory is available: a worker's claude and its typecheck peak at about
-that. While another run waits, a run refills only to its share of the 8. A task held back stays pending and starts
+a new one only while the machine has at least 3 GB of memory available, one worker's spike (its claude and a
+typecheck). Nothing is reserved for a running worker: what it uses is already out of the available figure. A
+just-started one counts its 3 GB only until its memory shows up (a few seconds, at most 30), so one tick cannot start
+a burst on the same free memory. When workers spike together and available memory drops under 1.5 GB, the engine
+pauses reviewers, then the newest workers, for up to 3 minutes, and resumes them as memory recovers. While another run waits, a run refills only
+to its share of the 8. A task held back stays pending and starts
 on a later tick, within 30 seconds of a worker finishing or memory freeing up; `dag status` still lists it as
 ready to dispatch. With no worker live anywhere, one always starts.
 
@@ -980,7 +984,7 @@ could not relaunch or has already relaunched 3 times; its questions then come to
 Gatekeeper still stays out of orchestrator runs, the engine plan reviewer still reviews the plan, and **Take over**
 on a worker question still works.
 
-The setting can change mid-run, from the Adjust panel (run sheet or Route DAG modal) or the palette's **Go
+The setting can change mid-run, from **Adjust** (the run sheet's settings line, or the **Run settings** dialog the Route DAG modal's header opens) or the palette's **Go
 autonomous** / **Ask me again**. Turning it on answers the lead's own waiting question (`Needs a design`, plan
 review, the land question) with one line telling it to decide, wakes it with the autonomous rules, and hands the
 worker questions you were holding back to the lead; a waiting question whose picker takes no typed answer stays with you, and the save says so.
@@ -994,7 +998,9 @@ lead yet gets no wake: its lead reads the setting when it starts.
 - **Talk to a worker.** Type into its terminal on the Agent surface. What you type is logged on the lead's run
   as a `you told t-2 · …` row and in `dag status`, so the lead sees it at its next wake. It wakes nobody.
 - **Change parallelism or the workers' route.** **Adjust** on the settings line, or in the Route DAG modal's
-  header → **Worker parallelism**, **Worker route** → **Save settings**. It applies to dispatches from then on.
+  header (which opens a **Run settings** dialog with the same controls, and **Save settings** / **Use for new
+  runs** in its footer) → **Worker parallelism**, **Worker route** → **Save settings**. It applies to dispatches
+  from then on.
   **Use for new runs** saves the run's settings to the project's Profile, so the next run starts this way (a finished run offers
   the same button in its dock, under **Ran with**). Shape, machine and the lead's route are fixed at launch, and nothing
   already running changes. The **Worker route** picker also offers **Reviewer picks**, and a **Reviewers**

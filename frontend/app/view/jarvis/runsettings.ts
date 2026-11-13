@@ -11,7 +11,7 @@
 //
 // A missing run renders as unavailable rather than as stale controls over a run that no longer exists.
 
-import { MAX_PARALLELISM } from "../agents/runconfig";
+import { clampParallelism, DEFAULT_PARALLELISM, MAX_PARALLELISM } from "../agents/runconfig";
 
 export type SheetFace = { kind: "missing" } | { kind: "readonly"; reason: string } | { kind: "editable" };
 
@@ -160,6 +160,74 @@ function sameRoute(a: RoutePin | null, b: RoutePin | null): boolean {
 // A submitted plan already holds a concrete width, so the sheet never offers "let the lead choose".
 export function parallelismInvalid(n: number): boolean {
     return !Number.isInteger(n) || n < 1 || n > MAX_PARALLELISM;
+}
+
+// A stored width of 0 means none yet (the engine picks at submit), so the stepper's first press lands on the
+// default, as the Profile modal's does.
+export function stepParallelism(width: number, delta: number): number {
+    return width <= 0 ? DEFAULT_PARALLELISM : clampParallelism(width + delta);
+}
+
+// The question the run is waiting on the human for; lead is true when the lead itself asked.
+export type WaitingQuestion = { header: string; lead: boolean };
+
+export type ApprovalsNoteKind = "on" | "off" | "none";
+
+// Which line sits under the Approvals panel. Turning approvals on warns only while a question waits, because
+// the lead's pending question is what the hand-back would leave unanswered.
+export function approvalsNoteKind(
+    draft: RunSettingsDraft,
+    baseline: RunSettingsDraft,
+    waiting: WaitingQuestion | null | undefined
+): ApprovalsNoteKind {
+    if (draft.autonomous && !baseline.autonomous && waiting != null) {
+        return "on";
+    }
+    if (!draft.autonomous && baseline.autonomous) {
+        return "off";
+    }
+    return "none";
+}
+
+export function savedNotice(draft: RunSettingsDraft, baseline: RunSettingsDraft): string {
+    if (draft.autonomous && !baseline.autonomous) {
+        return "Saved. The run is autonomous from now on.";
+    }
+    if (!draft.autonomous && baseline.autonomous) {
+        return "Saved. The lead asks you from its next decision.";
+    }
+    return "Saved. Applies to future dispatches.";
+}
+
+export const DEFAULTS_SAVED_NOTICE = "Saved to this project's Profile. New runs start with these settings.";
+
+export type RunSettingsStatus = { kind: "error" | "unsaved" | "saved" | "none"; text: string };
+
+// The footer's one line. An error outranks everything because a refused save leaves the draft dirty, and
+// "Unsaved changes" would then hide why; the saved notice shows only once the draft is clean again.
+export function runSettingsStatus(input: {
+    error: string | null;
+    invalid: boolean;
+    dirty: boolean;
+    notice: string | null;
+    baselineWidth: number;
+}): RunSettingsStatus {
+    if (input.error != null) {
+        return { kind: "error", text: input.error };
+    }
+    if (input.invalid) {
+        return {
+            kind: "error",
+            text: `Enter a whole number from 1 through ${MAX_PARALLELISM}. The scheduler is still running at ${input.baselineWidth}.`,
+        };
+    }
+    if (input.dirty) {
+        return { kind: "unsaved", text: "Unsaved changes" };
+    }
+    if (input.notice != null) {
+        return { kind: "saved", text: input.notice };
+    }
+    return { kind: "none", text: "No changes" };
 }
 
 // The width and Approvals are left out unless the save changes them: the server leaves an omitted value alone,

@@ -55,21 +55,13 @@ func KillTree(job uintptr) {
 }
 
 // Close unregisters the job, then closes its handle; with KILL_ON_JOB_CLOSE set this also reaps any
-// processes still in the job. For a registered job it reads the peak before closing, releases the handles
-// Suspend kept, then calls the close hook outside the registry lock (with peak 0 when the read failed, since
-// the hook also marks the tree's end).
+// processes still in the job. For a registered job it releases the handles Suspend kept, then calls the close
+// hook outside the registry lock.
 func Close(job uintptr) {
 	if job == 0 {
 		return
 	}
 	e, hook := unregister(job)
-	var peak uint64
-	if e != nil && hook != nil {
-		var err error
-		if peak, err = jobPeak(windows.Handle(job)); err != nil {
-			log.Printf("jobobject: peak of job (root pid %d, owner %s %s): %v", e.rootPid, e.owner.Kind, e.owner.Id, err)
-		}
-	}
 	_ = windows.CloseHandle(windows.Handle(job))
 	if e == nil {
 		return
@@ -79,7 +71,7 @@ func Close(job uintptr) {
 		releaseSuspended(pid, windows.Handle(h))
 	}
 	if hook != nil {
-		hook(e.owner, e.rootPid, peak)
+		hook(e.owner, e.rootPid)
 	}
 }
 
@@ -92,14 +84,6 @@ type memoryUsageInformation struct {
 // JobObjectMemoryUsageInformation is missing from x/sys and winnt.h; 28 in the ntpsapi enum.
 const jobObjectMemoryUsageInformation = 28
 
-func jobPeak(job windows.Handle) (uint64, error) {
-	var info windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION
-	if err := windows.QueryInformationJobObject(job, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&info)), uint32(unsafe.Sizeof(info)), nil); err != nil {
-		return 0, fmt.Errorf("QueryInformationJobObject(extended limit): %w", err)
-	}
-	return uint64(info.PeakJobMemoryUsed), nil
-}
-
 func jobCurrent(job windows.Handle) (uint64, error) {
 	var info memoryUsageInformation
 	if err := windows.QueryInformationJobObject(job, jobObjectMemoryUsageInformation, uintptr(unsafe.Pointer(&info)), uint32(unsafe.Sizeof(info)), nil); err != nil {
@@ -108,7 +92,7 @@ func jobCurrent(job windows.Handle) (uint64, error) {
 	return info.jobMemory, nil
 }
 
-// LiveUsage reads every registered job's current and peak memory under the registry lock. A job whose query
+// LiveUsage reads every registered job's current memory under the registry lock. A job whose query
 // fails is logged and skipped.
 func LiveUsage() []JobUsage {
 	registry.mu.Lock()
@@ -116,15 +100,11 @@ func LiveUsage() []JobUsage {
 	var rtn []JobUsage
 	for job, e := range registry.jobs {
 		cur, err := jobCurrent(windows.Handle(job))
-		var peak uint64
-		if err == nil {
-			peak, err = jobPeak(windows.Handle(job))
-		}
 		if err != nil {
 			log.Printf("jobobject: memory of job (root pid %d, owner %s %s): %v", e.rootPid, e.owner.Kind, e.owner.Id, err)
 			continue
 		}
-		rtn = append(rtn, JobUsage{Owner: e.owner, RootPid: e.rootPid, Current: cur, Peak: peak})
+		rtn = append(rtn, JobUsage{Owner: e.owner, RootPid: e.rootPid, Current: cur})
 	}
 	return rtn
 }

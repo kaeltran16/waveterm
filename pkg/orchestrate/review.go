@@ -125,10 +125,7 @@ func spawnReviewer(ctx, spawnCtx context.Context, g *waveobj.TaskGroup, t *waveo
 		return
 	}
 	// refused: the task stays reviewing with no reviewer, and a later tick retries once memory frees
-	claim, ok := memgate.TryAdmit(memgate.Request{
-		Key: memgate.Key{Project: MemProjectKey(owner.ProjectPath), Role: memgate.RoleReviewer},
-		Tag: memgate.Tag{RunId: g.RunID, TaskId: t.ID, Role: memgate.RoleReviewer},
-	})
+	claim, ok := memgate.TryAdmit(memgate.Request{Tag: memgate.Tag{RunId: g.RunID, TaskId: t.ID, Role: memgate.RoleReviewer}})
 	if !ok {
 		return
 	}
@@ -140,7 +137,7 @@ func spawnReviewer(ctx, spawnCtx context.Context, g *waveobj.TaskGroup, t *waveo
 	}
 	runID, sessionId := uuid.NewString(), uuid.NewString()
 	oref, err := spawnWorker(spawnCtx, capability, owner.WorkspaceId, channelProjectName(spawnCtx, g.ChannelId), worker.ProjectPath, prompt,
-		jarvis.RunWorkerOptions{SessionId: sessionId, RunId: runID, TaskId: t.ID, Label: "review " + t.ID, ShortCache: true, StrictMCP: true, NoSlashCommands: true})
+		jarvis.RunWorkerOptions{SessionId: sessionId, RunId: runID, TaskId: t.ID, Label: "review " + t.ID, ShortCache: true, StrictMCP: true, NoSlashCommands: true, Tools: judgeTools})
 	if err != nil {
 		spendReviewRespawn(ctx, g, t, "reviewer could not start: "+err.Error(), afterCommit)
 		return

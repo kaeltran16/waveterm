@@ -71,6 +71,10 @@ func stageSessionLost(ctx context.Context, g *waveobj.TaskGroup, runID string, s
 	return JudgingSessionLost(ctx, g.ChannelId, runID, startedTs, now)
 }
 
+// judgeTools is every tool a judge (task reviewer, plan reviewer, verifier) uses: over 471 judge sessions
+// (2026-10-30..11-13) all but two used only these, and the rest of the tool set is ~19k startup tokens.
+const judgeTools = "Bash,Read,Grep,Glob"
+
 // JudgingSession is one judging session outside any task: a fresh session that reads Tree and ends with a verdict
 // command its Prompt names. DagORef is empty for a session no dag owns. Route must be resolved by the caller.
 // Lead is "<harness>:<session id>" of the brainstorming agent a builder check or judge serves, else empty.
@@ -98,7 +102,7 @@ func LaunchJudgingSession(ctx context.Context, s JudgingSession) (string, error)
 	runID, sessionId := uuid.NewString(), uuid.NewString()
 	// a judge reads and gives its verdict: its prompt invokes no skill and no MCP tool, so both listings go
 	oref, err := spawnWorker(ctx, capability, s.WorkspaceId, channelProjectName(ctx, s.ChannelId), s.Tree, s.Prompt,
-		jarvis.RunWorkerOptions{SessionId: sessionId, RunId: runID, Label: s.Label, ShortCache: true, StrictMCP: true, NoSlashCommands: true})
+		jarvis.RunWorkerOptions{SessionId: sessionId, RunId: runID, Label: s.Label, ShortCache: true, StrictMCP: true, NoSlashCommands: true, Tools: judgeTools})
 	if err != nil {
 		return "", err
 	}

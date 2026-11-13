@@ -1,6 +1,6 @@
 ---
 name: cockpit
-description: Use when you want to show the user something in the Arc cockpit (a run, an agent terminal, a record, a memory note, a surface), read what they're looking at, or run a cockpit action for them — via `wsh ui`.
+description: Use when the user asks to be shown something in the Arc cockpit (a run, an agent terminal, a record, a memory note, a surface), read what they're looking at, or run a cockpit action for them — via `wsh ui`.
 ---
 
 # Driving the Arc cockpit
@@ -18,7 +18,8 @@ You run inside Arc. `wsh ui` lets you see and steer the cockpit the user is look
 
 Rules:
 - Read `state` before `do`: actions act on the current selection, so `reveal` the target first.
-- Prefer `reveal` to show the user something; only `do` what they asked for.
+- `reveal` only when the user asks to see something: it moves them off the surface they are working on.
+  Otherwise name the entity in your reply. Only `do` what they asked for.
 - "the user is busy" means they are typing or in a dialog — wait and retry; never loop tightly.
 - "waiting on the user's confirmation" means they must approve it; check `state` later, don't re-issue.
 - Closing sessions and answering asks are not available here (use `wsh ask` for your own questions).

@@ -11,9 +11,10 @@
 // digest's figures are dated rather than presented as current.
 
 import type { AgentVM } from "../agents/agentsviewmodel";
+import { userOwnedAsks } from "../agents/childaskmodel";
 import { memoryFigures } from "../agents/runcompletion";
 import { mergeGateLine, verifyFailLine, type RunInfo } from "../agents/runlineage";
-import { isTerminal, leadWorker } from "../agents/runmodel";
+import { isTerminal, leadAsker, leadWorker } from "../agents/runmodel";
 import {
     cleanupOnly,
     firstLine,
@@ -35,7 +36,18 @@ import {
     type LinkedGroupRead,
     type RunSettingsDraft,
     type RunSettingsPanelState,
+    type WaitingQuestion,
 } from "./runsettings";
+
+// What the run is waiting on the human for: the lead's own question (by its first header), else a child's
+// question the human owns.
+export function waitingQuestion(run: Run, agents: AgentVM[], asks: DagAskItem[]): WaitingQuestion | null {
+    const asker = leadAsker(run, agents);
+    if (asker != null) {
+        return { header: asker.ask?.questions?.[0]?.header || "question", lead: true };
+    }
+    return userOwnedAsks(asks).length > 0 ? { header: "question", lead: false } : null;
+}
 
 // status tones, mapped onto @theme utilities by the view
 export type SheetTone =

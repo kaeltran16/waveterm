@@ -28,16 +28,15 @@ type LiveJob struct {
 	Members []int // pids currently in the job
 }
 
-// JobUsage is a registered job's memory: Current is its committed memory now, Peak the most it has committed.
+// JobUsage is a registered job's memory: Current is its committed memory now.
 type JobUsage struct {
 	Owner   Owner
 	RootPid int
 	Current uint64
-	Peak    uint64
 }
 
-// CloseHook is told the owner, root pid and peak memory of each registered job that Close closes.
-type CloseHook func(o Owner, rootPid int, peak uint64)
+// CloseHook is told the owner and root pid of each registered job that Close closes.
+type CloseHook func(o Owner, rootPid int)
 
 var (
 	ErrNotMember = errors.New("not a member of the job") // includes: no live job for that owner

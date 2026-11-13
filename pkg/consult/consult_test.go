@@ -370,3 +370,22 @@ func TestHeadlessSpecForTier_defaultsToOpenRouter(t *testing.T) {
 		t.Errorf("cheap tier model = %q, want %q", spec.Model, OpenrouterCheapModel())
 	}
 }
+
+// a headless claude consult is a one-shot answer, so it starts with no tool, MCP server or skill listing; the
+// interactive spec and other runtimes keep their arguments
+func TestHeadlessSpecForTier_claudeStartsBare(t *testing.T) {
+	spec, ok := headlessSpecForTier("claude", TierCheap)
+	if !ok {
+		t.Fatal("claude did not resolve")
+	}
+	args := strings.Join(spec.BaseArgs, "|")
+	if !strings.Contains(args, "|--tools||--strict-mcp-config|--disable-slash-commands") {
+		t.Errorf("headless claude args %q are not trimmed", spec.BaseArgs)
+	}
+	if plain, _ := SpecForTier("claude", TierCheap); slices.Contains(plain.BaseArgs, "--tools") {
+		t.Errorf("SpecForTier trimmed the interactive claude spec: %q", plain.BaseArgs)
+	}
+	if pi, _ := headlessSpecForTier("pi", TierCheap); slices.Contains(pi.BaseArgs, "--tools") {
+		t.Errorf("pi got claude flags: %q", pi.BaseArgs)
+	}
+}

@@ -35,6 +35,8 @@ import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState, type ReactNode } from "react";
 import { REGION_LABEL } from "./briefstyle";
 import {
+    approvalsNoteKind,
+    DEFAULTS_SAVED_NOTICE,
     draftIsDirty,
     draftSeedKey,
     effectiveRunConfig,
@@ -43,13 +45,17 @@ import {
     routeLabel,
     runSettingsDraft,
     runSettingsPanelState,
+    savedNotice,
     settingsPayload,
     withWorkers,
     workersLabel,
+    type ApprovalsNoteKind,
     type LinkedGroupRead,
     type RunSettingsDraft,
+    type RunSettingsPanelState,
+    type WaitingQuestion,
 } from "./runsettings";
-import { approvalsWord, autonomousResolvedNote, configNote } from "./runsheetmodel";
+import { approvalsWord, autonomousResolvedNote, configNote, type ConfigNote } from "./runsheetmodel";
 
 const META_ROW = "flex flex-wrap items-center gap-x-3.5 gap-y-1 font-mono text-[10.5px]";
 const FIELD = "rounded-[7px] border border-border bg-background px-2 py-1 text-[11.5px] text-ink-hi";
@@ -164,20 +170,13 @@ export async function saveRunAsDefaults(run: Run, draft: RunSettingsDraft): Prom
 // as spans with an adjust toggle, and the dials as a block below that row rather than in a dock.
 type ConfigProps = {
     run: Run;
-    inline?: boolean;
-    // inline only: what the reading prints ahead of the configuration on the same row
+    // what the reading prints ahead of the configuration on the same row
     meta?: ReactNode;
     waiting?: WaitingQuestion | null;
-    // not inline: the host owns the Adjust toggle (the DAG modal's header), so only the dials render, while open
-    open?: boolean;
 };
 
-// The question the run's status says is waiting on the human, which saving Approvals on hands back to the
-// lead: the lead's own (`lead`), named by its header, else a worker's, named "question".
-export type WaitingQuestion = { header: string; lead: boolean };
-
 // A waiting lead question the human handed back by saving Approvals on (the RunSheet board's resolved note).
-function ResolvedNote({ header }: { header: string }) {
+export function ResolvedNote({ header }: { header: string }) {
     const note = autonomousResolvedNote(header);
     return (
         <div
@@ -194,19 +193,42 @@ function ResolvedNote({ header }: { header: string }) {
     );
 }
 
-function LoadedConfig({
-    run,
-    group,
-    groupRead,
-    inline,
-    meta,
-    waiting,
-    open: hostOpen = false,
-}: ConfigProps & { group: TaskGroup | null; groupRead: LinkedGroupRead }) {
-    const [open, setOpen] = useState(false);
+// Everything a run-settings face edits and saves. The run sheet's inline form and the DAG header's Run settings
+// modal both render this one state, so their save behavior cannot drift apart.
+export type RunSettingsEditor = {
+    state: RunSettingsPanelState;
+    note: ConfigNote | null;
+    draft: RunSettingsDraft | null;
+    baseline: RunSettingsDraft | null;
+    setDraft: (d: RunSettingsDraft) => void;
+    saving: "settings" | "defaults" | null;
+    busy: boolean;
+    dirty: boolean;
+    invalid: boolean;
+    defaultsInvalid: boolean;
+    notSaved: boolean;
+    error: string | null;
+    // the error kept while its strip collapses (useLastShown), so the strip never shrinks blank
+    shownError: string | null;
+    failures: number;
+    notice: string | null;
+    approvalsNote: ApprovalsNoteKind;
+    resolvedHeader: string | null;
+    canSave: boolean;
+    canSaveDefaults: boolean;
+    save: () => void;
+    saveDefaults: () => void;
+};
+
+export function useRunSettingsEditor(
+    run: Run,
+    group: TaskGroup | null,
+    groupRead: LinkedGroupRead,
+    waiting: WaitingQuestion | null | undefined
+): RunSettingsEditor {
     const [draft, setDraft] = useState<RunSettingsDraft | null>(null);
     const [baseline, setBaseline] = useState<RunSettingsDraft | null>(null);
-    const [saving, setSaving] = useState<string | null>(null);
+    const [saving, setSaving] = useState<"settings" | "defaults" | null>(null);
     const [error, setError] = useState<string | null>(null);
     const shownError = useLastShown(error);
     // keys the error's nudge, so a second refusal with the same message still shakes
@@ -232,60 +254,18 @@ function LoadedConfig({
         setBaseline(next);
     }, [run.oid, group?.oid, seed, state.kind]);
 
-    const note = configNote(run, state);
-    const lead = `${run.mode === "orchestrator" ? "lead " : ""}${run.runtime || "claude"}/${run.model || "default"}`;
-    if (note != null) {
-        const readState = state.kind === "loading" || state.kind === "unavailable" ? state.kind : undefined;
-        if (inline) {
-            // the note's reason rides on the span: the meta row has no room for a paragraph
-            return (
-                <div className={META_ROW}>
-                    {meta}
-                    <span data-jarvis-brief-sheet-state={readState} title={note.title} className="text-ink-mid">
-                        {lead}
-                    </span>
-                </div>
-            );
-        }
-        return (
-            <PaneReveal open={hostOpen}>
-                <div data-jarvis-brief-sheet-state={readState} className="flex items-start gap-[9px] px-4 py-[11px]">
-                    <span
-                        className={cn(
-                            "mt-1 h-1.5 w-1.5 flex-none rounded-full",
-                            note.tone === "error" ? "bg-error" : note.tone === "muted" ? "bg-muted" : "bg-edge-strong",
-                            note.pulse && "pulse-soft"
-                        )}
-                    />
-                    <div className="flex min-w-0 flex-col gap-[3px]">
-                        <span className="text-[11.5px] font-semibold text-secondary">{note.title}</span>
-                        {note.body ? <span className="text-[11px] leading-[1.5] text-muted">{note.body}</span> : null}
-                    </div>
-                </div>
-            </PaneReveal>
-        );
-    }
-    if (draft == null || baseline == null) {
-        return inline ? (
-            <div className={META_ROW}>
-                {meta}
-                <span className="text-ink-mid">{lead}</span>
-            </div>
-        ) : null;
-    }
-
+    const loaded = draft != null && baseline != null;
     const busy = saving != null;
-    const dirty = draftIsDirty(draft, baseline);
+    const dirty = loaded && draftIsDirty(draft, baseline);
     // an untouched stored 0 (no width yet; the engine picks one at submit) is never sent, so it blocks no save
-    const invalid = draft.parallelism !== baseline.parallelism && parallelismInvalid(draft.parallelism);
+    const invalid = loaded && draft.parallelism !== baseline.parallelism && parallelismInvalid(draft.parallelism);
     // "Use for new runs" copies the width into the profile, where a 0 is refused whether or not it was touched
-    const defaultsInvalid = parallelismInvalid(draft.parallelism);
+    const defaultsInvalid = !loaded || parallelismInvalid(draft.parallelism);
     // the scheduler runs at the baseline until a save lands, so a draft it refused (or never received) is
     // printed as not saved rather than as the configuration in force
     const notSaved = dirty && (invalid || error != null);
-    const shown = notSaved ? draft : baseline;
 
-    const submit = (label: string, work: () => Promise<void>, onDone: () => void) => {
+    const submit = (label: "settings" | "defaults", work: () => Promise<void>, onDone: () => void) => {
         setSaving(label);
         setError(null);
         setNotice(null);
@@ -301,18 +281,16 @@ function LoadedConfig({
             }
         });
     };
-    const turningOn = draft.autonomous && !baseline.autonomous;
-    const turningOff = !draft.autonomous && baseline.autonomous;
-    const approvalsNote = turningOn && waiting != null ? "on" : turningOff ? "off" : "none";
+    const approvalsNote = loaded ? approvalsNoteKind(draft, baseline, waiting) : "none";
     const resolvedHeader = resolved?.runId === run.id ? resolved.header : null;
     const save = () => {
+        if (!loaded) {
+            return;
+        }
         // read at save time: once the lead has its answer, the question leaves the status
+        const turningOn = draft.autonomous && !baseline.autonomous;
         const handedBack = turningOn && waiting?.lead ? waiting.header : null;
-        const saved = turningOn
-            ? "Saved. The run is autonomous from now on."
-            : turningOff
-              ? "Saved. The lead asks you from its next decision."
-              : "Saved. Applies to future dispatches.";
+        const saved = savedNotice(draft, baseline);
         submit(
             "settings",
             () => RpcApi.SetRunSettingsCommand(TabRpcClient, settingsPayload(channelId, run.id, draft, baseline)),
@@ -326,12 +304,78 @@ function LoadedConfig({
             }
         );
     };
-    const saveDefaults = () =>
+    const saveDefaults = () => {
+        if (!loaded) {
+            return;
+        }
         submit(
             "defaults",
             () => saveRunAsDefaults(run, draft),
-            () => setNotice("Saved to this project's Profile. New runs start with these settings.")
+            () => setNotice(DEFAULTS_SAVED_NOTICE)
         );
+    };
+
+    return {
+        state,
+        note: configNote(run, state),
+        draft,
+        baseline,
+        setDraft,
+        saving,
+        busy,
+        dirty,
+        invalid,
+        defaultsInvalid,
+        notSaved,
+        error,
+        shownError,
+        failures,
+        notice,
+        approvalsNote,
+        resolvedHeader,
+        canSave: !busy && dirty && !invalid && channelId !== "",
+        canSaveDefaults: !busy && !defaultsInvalid && channelId !== "",
+        save,
+        saveDefaults,
+    };
+}
+
+// The run sheet's inline form: the configuration as spans on the meta row with an adjust toggle, and the dials
+// as a block below that row.
+function LoadedConfig({
+    run,
+    group,
+    groupRead,
+    meta,
+    waiting,
+}: ConfigProps & { group: TaskGroup | null; groupRead: LinkedGroupRead }) {
+    const [open, setOpen] = useState(false);
+    const editor = useRunSettingsEditor(run, group, groupRead, waiting);
+    const { state, note, draft, baseline, setDraft, saving, busy, dirty, invalid, notSaved, error, failures } = editor;
+    const { shownError, notice, approvalsNote, resolvedHeader, save, saveDefaults } = editor;
+
+    const lead = `${run.mode === "orchestrator" ? "lead " : ""}${run.runtime || "claude"}/${run.model || "default"}`;
+    if (note != null) {
+        const readState = state.kind === "loading" || state.kind === "unavailable" ? state.kind : undefined;
+        // the note's reason rides on the span: the meta row has no room for a paragraph
+        return (
+            <div className={META_ROW}>
+                {meta}
+                <span data-jarvis-brief-sheet-state={readState} title={note.title} className="text-ink-mid">
+                    {lead}
+                </span>
+            </div>
+        );
+    }
+    if (draft == null || baseline == null) {
+        return (
+            <div className={META_ROW}>
+                {meta}
+                <span className="text-ink-mid">{lead}</span>
+            </div>
+        );
+    }
+    const shown = notSaved ? draft : baseline;
 
     const dials = (
         <>
@@ -456,7 +500,7 @@ function LoadedConfig({
                 <button
                     type="button"
                     onClick={save}
-                    disabled={busy || !dirty || invalid || channelId === ""}
+                    disabled={!editor.canSave}
                     className={cn(SHEET_BTN, "border-accent/40 px-[11px] py-[5px] text-accent-soft")}
                 >
                     {saving === "settings" ? "Saving…" : "Save settings"}
@@ -464,7 +508,7 @@ function LoadedConfig({
                 <button
                     type="button"
                     onClick={saveDefaults}
-                    disabled={busy || defaultsInvalid || channelId === ""}
+                    disabled={!editor.canSaveDefaults}
                     title={USE_FOR_NEW_RUNS_TITLE}
                     className={cn(SHEET_BTN, "px-[11px] py-[5px]")}
                 >
@@ -474,64 +518,49 @@ function LoadedConfig({
         </>
     );
 
-    if (inline) {
-        const tone = notSaved ? "text-error" : "text-ink-mid";
-        const workers = shown.reviewerPicks
-            ? `workers ${workersLabel(shown)}`
-            : (shown.workerRoute?.runtime ?? "") === ""
-              ? "workers inherit the lead"
-              : `workers on ${routeLabel(shown.workerRoute)}`;
-        return (
-            <>
-                <div data-jarvis-brief-sheet-config="editable" className={META_ROW}>
-                    {meta}
-                    <span className={tone}>{lead}</span>
-                    {/* a run launched before widths were resolved at launch stores 0: the engine picks at submit */}
-                    {shown.parallelism > 0 ? <span className={tone}>{shown.parallelism} workers</span> : null}
-                    <span className={tone}>{workers}</span>
-                    {shown.reviewerRoute != null ? (
-                        <span className={tone}>reviewers on {routeLabel(shown.reviewerRoute)}</span>
-                    ) : null}
-                    {shown.lightReviewerRoute != null ? (
-                        <span className={tone}>light reviewers on {routeLabel(shown.lightReviewerRoute)}</span>
-                    ) : null}
-                    <span
-                        data-jarvis-brief-sheet-approvals
-                        className={shown.autonomous && !notSaved ? "text-accent-soft" : tone}
-                    >
-                        {approvalsWord(shown.autonomous)}
-                    </span>
-                    {notSaved ? <span className="text-error">not saved</span> : null}
-                    <button
-                        type="button"
-                        aria-expanded={open}
-                        onClick={() => setOpen((o) => !o)}
-                        className="cursor-pointer font-mono text-[10.5px] text-accent-soft hover:text-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
-                    >
-                        {open ? "done" : "adjust"}
-                    </button>
-                </div>
-                {resolvedHeader != null ? <ResolvedNote header={resolvedHeader} /> : null}
-                <PaneReveal open={open}>
-                    <div className="flex flex-col gap-3 rounded-[9px] border border-border bg-surface px-[13px] pb-[13px] pt-[11px]">
-                        {dials}
-                    </div>
-                </PaneReveal>
-            </>
-        );
-    }
-
+    const tone = notSaved ? "text-error" : "text-ink-mid";
+    const workers = shown.reviewerPicks
+        ? `workers ${workersLabel(shown)}`
+        : (shown.workerRoute?.runtime ?? "") === ""
+          ? "workers inherit the lead"
+          : `workers on ${routeLabel(shown.workerRoute)}`;
     return (
-        <div data-jarvis-brief-sheet-config="editable">
-            {resolvedHeader != null ? (
-                <div className="px-4 pt-[11px]">
-                    <ResolvedNote header={resolvedHeader} />
+        <>
+            <div data-jarvis-brief-sheet-config="editable" className={META_ROW}>
+                {meta}
+                <span className={tone}>{lead}</span>
+                {/* a run launched before widths were resolved at launch stores 0: the engine picks at submit */}
+                {shown.parallelism > 0 ? <span className={tone}>{shown.parallelism} workers</span> : null}
+                <span className={tone}>{workers}</span>
+                {shown.reviewerRoute != null ? (
+                    <span className={tone}>reviewers on {routeLabel(shown.reviewerRoute)}</span>
+                ) : null}
+                {shown.lightReviewerRoute != null ? (
+                    <span className={tone}>light reviewers on {routeLabel(shown.lightReviewerRoute)}</span>
+                ) : null}
+                <span
+                    data-jarvis-brief-sheet-approvals
+                    className={shown.autonomous && !notSaved ? "text-accent-soft" : tone}
+                >
+                    {approvalsWord(shown.autonomous)}
+                </span>
+                {notSaved ? <span className="text-error">not saved</span> : null}
+                <button
+                    type="button"
+                    aria-expanded={open}
+                    onClick={() => setOpen((o) => !o)}
+                    className="cursor-pointer font-mono text-[10.5px] text-accent-soft hover:text-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+                >
+                    {open ? "done" : "adjust"}
+                </button>
+            </div>
+            {resolvedHeader != null ? <ResolvedNote header={resolvedHeader} /> : null}
+            <PaneReveal open={open}>
+                <div className="flex flex-col gap-3 rounded-[9px] border border-border bg-surface px-[13px] pb-[13px] pt-[11px]">
+                    {dials}
                 </div>
-            ) : null}
-            <PaneReveal open={hostOpen}>
-                <div className="flex flex-col gap-3 px-4 pb-3.5 pt-[11px]">{dials}</div>
             </PaneReveal>
-        </div>
+        </>
     );
 }
 
@@ -546,9 +575,9 @@ function LinkedRunConfig({ dagId, ...props }: ConfigProps & { dagId: string }) {
     return <LoadedConfig {...props} group={group ?? null} groupRead={groupRead} />;
 }
 
-// A run's configuration: inline, the tail of the run sheet's meta row with its own adjust toggle; otherwise
-// just the dials, opened by the host's toggle (the DAG modal's header). The linked/unlinked split is a
-// component boundary rather than a hook inside a branch: useDagGroup has to be called unconditionally.
+// A run's configuration as the tail of the run sheet's meta row, with its own adjust toggle (the DAG modal's
+// header opens RunSettingsModal instead). The linked/unlinked split is a component boundary rather than a
+// hook inside a branch: useDagGroup has to be called unconditionally.
 export function RunSettingsPanel(props: ConfigProps) {
     const dagId = props.run.dagoref ?? "";
     if (dagId !== "") {

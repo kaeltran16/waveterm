@@ -46,7 +46,8 @@ func TestDrawerArgs(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			spec, _ := drawerSpec(base, c.call, func() {})
 			args := strings.Join(spec.BaseArgs, " ")
-			for _, w := range append(c.want, "--model sonnet", "--tools Read,Grep,Glob", "--strict-mcp-config") {
+			for _, w := range append(c.want, "--model sonnet", "--tools Read,Grep,Glob", "--strict-mcp-config",
+				"--setting-sources= ", "--disable-slash-commands") {
 				if !strings.Contains(args, w) {
 					t.Errorf("args %q lack %q", args, w)
 				}
@@ -59,8 +60,10 @@ func TestDrawerArgs(t *testing.T) {
 			if !strings.HasPrefix(args, strings.Join(base.BaseArgs, " ")) {
 				t.Errorf("args %q dropped the runtime's base args", args)
 			}
-			if !slices.Contains(spec.Env, persistSessionsEnv) {
-				t.Errorf("env %v lacks %q", spec.Env, persistSessionsEnv)
+			for _, e := range append([]string{persistSessionsEnv}, leanEnv...) {
+				if !slices.Contains(spec.Env, e) {
+					t.Errorf("env %v lacks %q", spec.Env, e)
+				}
 			}
 			for _, e := range base.Env {
 				if !slices.Contains(spec.Env, e) {

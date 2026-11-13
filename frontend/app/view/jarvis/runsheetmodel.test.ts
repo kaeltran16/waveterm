@@ -24,6 +24,7 @@ import {
     sheetStatus,
     taskRow,
     taskSectionMeta,
+    waitingQuestion,
     type SheetRead,
     type SheetRowInput,
 } from "./runsheetmodel";
@@ -1438,5 +1439,27 @@ describe("doneBodyHasDiff", () => {
     });
     it("offers none before the run is done", () => {
         expect(doneBodyHasDiff(run({ evidence: {} as RunEvidence }))).toBe(false);
+    });
+});
+
+describe("waitingQuestion", () => {
+    const withLead = { phases: [{ kind: "orchestrate", state: "running", workerorefs: ["tab:lead"] }] };
+    const lead = (over: Partial<AgentVM> = {}) => ({ id: "lead", name: "lead", state: "asking", ...over }) as AgentVM;
+
+    it("is the asking lead's first question header", () => {
+        const asking = lead({ ask: { questions: [{ header: "Plan review" }] } } as Partial<AgentVM>);
+        expect(waitingQuestion(run(withLead), [asking], [])).toEqual({ header: "Plan review", lead: true });
+    });
+    it("falls back to question when the lead's ask has no header", () => {
+        expect(waitingQuestion(run(withLead), [lead()], [])).toEqual({ header: "question", lead: true });
+    });
+    it("is a child's question when no lead is asking but a user-owned ask waits", () => {
+        const working = lead({ state: "working" });
+        expect(waitingQuestion(run(withLead), [working], [ask()])).toEqual({ header: "question", lead: false });
+    });
+    it("is null when nothing is waiting, a lead-held ask included", () => {
+        const working = lead({ state: "working" });
+        expect(waitingQuestion(run(withLead), [working], [])).toBeNull();
+        expect(waitingQuestion(run(withLead), [working], [ask({ owner: "lead" })])).toBeNull();
     });
 });

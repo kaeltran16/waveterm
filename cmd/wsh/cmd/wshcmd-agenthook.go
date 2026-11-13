@@ -42,7 +42,7 @@ const brainstormContextText = "You are inside Arc. Also follow the arc:brainstor
 // sessionContextText is what an Arc agent knows of wsh in every project, memory or not: the skill descriptions
 // alone left it unused. capabilities, not rules: a nudge to coordinate or check first only costs turns.
 const sessionContextText = "You are running inside Arc, the user's agent cockpit; `wsh` is its CLI.\n" +
-	"- Mention a run, agent tab or initiative: show it with `wsh ui reveal run:<id>|agent:<tabId>|effort:<id>`.\n" +
+	"- The user asks to see a run, agent tab or initiative: `wsh ui reveal run:<id>|agent:<tabId>|effort:<id>`. Unasked, name it instead: a reveal moves the user off the surface they are working on.\n" +
 	"- Wrote a file the user should read (spec, plan, report): `wsh view <path>`.\n" +
 	"- Numbers that read better as a chart: a ```chart block (arc:charts).\n" +
 	"- What the user is looking at and has selected: `wsh ui state`.\n" +
