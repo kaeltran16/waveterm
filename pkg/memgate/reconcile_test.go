@@ -323,6 +323,66 @@ func TestCloseRecordsPeakAndReleases(t *testing.T) {
 	}
 }
 
+// the 2026-11-13 stall: finished workers idling at their prompts kept owing their estimate, so the reviewers
+// their tasks waited on were refused with most of the machine free, and the workers only exit after review
+func TestReleaseOwnerFreesAFinishedTreesHeadroom(t *testing.T) {
+	_, m := newLoop(t, 12*gib)
+	const workerNeed, idleUse, reviewerNeed = 3584 * mib, 350 * mib, 1536 * mib
+	restore := UncapForTest()
+	var workers []jobobject.Owner
+	for _, id := range []string{"w1", "w2", "w3", "w4", "w5"} {
+		o := block(id)
+		if _, ok := TryAdmit(Request{Key: Key{"c:\\proj", RoleWorker}, Need: workerNeed, Tag: Tag{"r1", id, RoleWorker}, Owner: o}); !ok {
+			t.Fatalf("admitting %s refused", id)
+		}
+		m.setLive(o, idleUse, idleUse)
+		workers = append(workers, o)
+	}
+	restore()
+	tickN(m, 1)
+	reviewer := Request{Key: Key{"c:\\proj", RoleReviewer}, Need: reviewerNeed, Tag: Tag{"r1", "w1", RoleReviewer}}
+	if c, ok := TryAdmit(reviewer); ok {
+		c.Release()
+		t.Fatal("precondition: five workers owing their estimate must leave no room for a reviewer")
+	}
+
+	for _, o := range workers {
+		ReleaseOwner(o)
+	}
+	c, ok := TryAdmit(reviewer)
+	if !ok {
+		t.Fatalf("a reviewer needing %d MiB was refused with 12 GiB free and every worker done", reviewerNeed/mib)
+	}
+	c.Release()
+	if got := LiveClaimsForTest(); got != 0 {
+		t.Fatalf("%d claims left after every finished worker was released", got)
+	}
+}
+
+func TestReleaseOwnerResumesAPausedTreeAndSparesOthers(t *testing.T) {
+	rec, m := newLoop(t, 8*gib)
+	_, a := m.liveTree(t, "r1", "a", RoleWorker)
+	_, b := m.liveTree(t, "r1", "b", RoleWorker)
+	m.free.Store(gib)
+	tickN(m, 1) // pauses b, the most recent
+
+	ReleaseOwner(b)
+	if got := m.resumes(); len(got) != 1 || got[0] != b {
+		t.Fatalf("resumed %v, want the released paused tree %v", got, b)
+	}
+	resumed := rec.ofKind(EventResumed)
+	if len(resumed) != 1 || resumed[0].Reason != ReasonDone || resumed[0].Tag.TaskId != "b" {
+		t.Fatalf("resumed events after releasing a paused tree: %+v", resumed)
+	}
+	if got := LiveClaimsForTest(); got != 1 {
+		t.Fatalf("%d live claims, want only %v's", got, a)
+	}
+	ReleaseOwner(b) // idempotent
+	if got := LiveClaimsForTest(); got != 1 {
+		t.Fatalf("a second release changed the book: %d claims", got)
+	}
+}
+
 func TestPausedTreeExit(t *testing.T) {
 	rec, m := newLoop(t, 8*gib)
 	m.liveTree(t, "r1", "a", RoleWorker)

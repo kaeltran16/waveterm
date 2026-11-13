@@ -293,6 +293,23 @@ func (c *Claim) ReleaseIfUnbound() {
 	}
 }
 
+// ReleaseOwner releases every claim bound to o, for a tree that finished its work but stays alive: a harness idles
+// at its prompt after reporting done, and its claim would keep owing need less use until the job closes. A paused
+// tree is resumed first, since nothing would resume it once its claim is gone.
+func ReleaseOwner(o jobobject.Owner) {
+	book.mu.Lock()
+	defer book.mu.Unlock()
+	for c := range book.claims {
+		if !c.bound || c.owner != o {
+			continue
+		}
+		if c.paused {
+			resumeLocked(c, ReasonDone, 0, now())
+		}
+		releaseLocked(c)
+	}
+}
+
 func releaseLocked(c *Claim) {
 	if c.released {
 		return

@@ -14,8 +14,10 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/consult"
 	"github.com/wavetermdev/waveterm/pkg/harness"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
+	"github.com/wavetermdev/waveterm/pkg/memgate"
 	"github.com/wavetermdev/waveterm/pkg/orchestrate"
 	"github.com/wavetermdev/waveterm/pkg/runroute"
+	"github.com/wavetermdev/waveterm/pkg/util/jobobject"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wps"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -928,6 +930,46 @@ func TestCompleteStopsOnlyAStageSession(t *testing.T) {
 	}
 	if !reflect.DeepEqual(stopped, []string{stage.ID}) {
 		t.Fatalf("stopped %v, want only the stage session %s", stopped, stage.ID)
+	}
+}
+
+// A worker or reviewer idles at its prompt after its complete, so its complete is what ends its claim at the memory
+// gate; another session's claim stays.
+func TestCompleteReleasesTheSessionsMemoryClaim(t *testing.T) {
+	ctx := context.Background()
+	ch, err := wstore.CreateChannel(ctx, "complete-claim", t.TempDir())
+	if err != nil {
+		t.Fatalf("CreateChannel: %v", err)
+	}
+	tabId, blockId := seedAgentTab(t, ctx, nil)
+	run := jarvis.NewRun("finish it", "ws-1", ch.ProjectPath, nil, jarvis.RunMode_Quick, jarvis.QuickPlaybook(), 1)
+	run.Phases[0].WorkerOrefs = []string{waveobj.MakeORef(waveobj.OType_Tab, tabId).String()}
+	if err := wstore.AppendRun(ctx, ch.OID, run); err != nil {
+		t.Fatalf("AppendRun: %v", err)
+	}
+	oldSeal := sealAsync
+	sealAsync = func(func()) {}
+	t.Cleanup(func() { sealAsync = oldSeal })
+
+	before := memgate.LiveClaimsForTest()
+	key := memgate.Key{Project: ch.ProjectPath, Role: memgate.RoleWorker}
+	finished, _ := memgate.TryAdmit(memgate.Request{Key: key, Need: 1, Owner: jobobject.Owner{Kind: jobobject.OwnerKind_Block, Id: blockId}})
+	working, _ := memgate.TryAdmit(memgate.Request{Key: key, Need: 1, Owner: jobobject.Owner{Kind: jobobject.OwnerKind_Block, Id: uuid.NewString()}})
+	t.Cleanup(func() {
+		finished.Release()
+		working.Release()
+	})
+	if finished == nil || working == nil {
+		t.Fatal("an uncapped gate must admit both sessions")
+	}
+
+	if err := (&WshServer{}).AdvanceRunCommand(ctx, wshrpc.CommandAdvanceRunData{
+		ChannelId: ch.OID, RunId: run.ID, PhaseIdx: 0, Action: jarvis.RunAction_Complete,
+	}); err != nil {
+		t.Fatalf("AdvanceRunCommand: %v", err)
+	}
+	if got := memgate.LiveClaimsForTest(); got != before+1 {
+		t.Fatalf("the book holds %d claims after the complete, want %d: the finished session's released, the working one's kept", got, before+1)
 	}
 }
 

@@ -821,6 +821,8 @@ func advanceRun(ctx context.Context, data wshrpc.CommandAdvanceRunData) (sealDue
 	// child run). The notify is keyed on Done, not on evidence, so an empty-diff run still wakes its parent.
 	// Reached once per run: applyRunAction errors on an already-done run.
 	if run, gerr := wstore.GetRun(ctx, data.ChannelId, data.RunId); gerr == nil && run.Status == jarvis.RunStatus_Done {
+		// before the dag tick below: the reviewer it starts must not be refused for room this finished session holds
+		orchestrate.ReleaseRunClaims(ctx, run)
 		// the seal runs a git diff + transcript reads that can outlast the caller's short client timeout;
 		// blocking the handler on it surfaced as EC-TIME even though the transition above had already
 		// persisted. It's best-effort and idempotent, with SealRunEvidenceCommand as the backfill — so the

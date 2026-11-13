@@ -553,7 +553,9 @@ Parallelism is one run's width, counted in live workers: a task whose commit is 
 task of that lane starts beside the reviewer, but not its slot. Across every run on the machine the engine also
 starts at most 8 workers, counting reviewers, and
 a new one only while at least 3.5 GB of memory is available: a worker's claude and its typecheck peak at about
-that. While another run waits, a run refills only to its share of the 8. A task held back stays pending and starts
+that. A worker or reviewer reserves that memory only while it works: once it completes, its session idles at its
+prompt until its lane lands, and counts only for what it actually uses. While another run waits, a run refills only
+to its share of the 8. A task held back stays pending and starts
 on a later tick, within 30 seconds of a worker finishing or memory freeing up; `dag status` still lists it as
 ready to dispatch. With no worker live anywhere, one always starts.
 

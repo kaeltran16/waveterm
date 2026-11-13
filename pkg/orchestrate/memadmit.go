@@ -74,8 +74,8 @@ func workerRequest(g *waveobj.TaskGroup, owner *waveobj.Run, taskID string) memg
 	return memgate.Request{Key: key, Need: need, Tag: memgate.Tag{RunId: g.RunID, TaskId: taskID, Role: memgate.RoleWorker}}
 }
 
-// bindClaim ties a started worker's or reviewer's claim to its block's job, whose close releases it. A var so
-// tests can release what they bound: no job closes in a test.
+// bindClaim ties a started worker's or reviewer's claim to its block's job, released by the job's close or its run's
+// done (ReleaseRunClaims), whichever comes first. A var so tests can release what they bound: no job closes in a test.
 var bindClaim = func(c *memgate.Claim, o jobobject.Owner) { c.Bind(o) }
 
 func bindToBlock(c *memgate.Claim, blockId string) {
@@ -83,6 +83,21 @@ func bindToBlock(c *memgate.Claim, blockId string) {
 		return
 	}
 	bindClaim(c, jobobject.Owner{Kind: jobobject.OwnerKind_Block, Id: blockId})
+}
+
+// ReleaseRunClaims releases the gate claims of a run's sessions once the run is done. A worker or reviewer idles
+// alive at its prompt after it completes, until its lane is reaped: a claim bound to its job would keep reserving
+// its estimate all that time, and a finished worker's would starve the reviewer its task waits on, which must
+// pass before the lane lands and the worker exits. A fix round spawns a new worker, which is admitted afresh.
+func ReleaseRunClaims(ctx context.Context, run *waveobj.Run) {
+	for _, s := range runBlockORefs(ctx, run) {
+		ref, err := waveobj.ParseORef(s)
+		if err != nil {
+			log.Printf("memgate: releasing run %s's claims: block %q: %v", run.ID, s, err)
+			continue
+		}
+		memgate.ReleaseOwner(jobobject.Owner{Kind: jobobject.OwnerKind_Block, Id: ref.OID})
+	}
 }
 
 var memEventKinds = map[memgate.EventKind]string{
