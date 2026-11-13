@@ -6,7 +6,7 @@
 
 import { CrossFade } from "@/app/element/crossfade";
 import { DrawCheck } from "@/app/element/drawcheck";
-import { composerReveal, errorNudge, indicatorSlide } from "@/app/element/motiontokens";
+import { composerReveal, errorNudge } from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
 import { ViewSwap } from "@/app/element/viewswap";
 import { getApi } from "@/app/store/global";
@@ -189,7 +189,7 @@ export function Toolbar({
             <div className="flex-1" />
             {f != null ? (
                 <>
-                    <Phases topic={topic} f={f} merged={merged} />
+                    <Phases f={f} merged={merged} />
                     {progress ? (
                         <>
                             <div className="h-[16px] w-px flex-none bg-border" />
@@ -202,7 +202,7 @@ export function Toolbar({
     );
 }
 
-function Phases({ topic, f, merged }: { topic: string; f: BrainstormFile; merged: boolean }) {
+function Phases({ f, merged }: { f: BrainstormFile; merged: boolean }) {
     return (
         <ol
             data-brainstorm-phase
@@ -234,14 +234,7 @@ function Phases({ topic, f, merged }: { topic: string; f: BrainstormFile; merged
                             s.status === "todo" && "text-muted"
                         )}
                     >
-                        {s.status === "current" ? (
-                            // one dot per topic, so the next phase's dot reads as this one moving on
-                            <motion.span
-                                layoutId={`brainstorm-phase:${topic}`}
-                                transition={indicatorSlide}
-                                className={cn(SMALL_DOT, "bg-accent")}
-                            />
-                        ) : null}
+                        {s.status === "current" ? <span className={cn(SMALL_DOT, "bg-accent")} /> : null}
                         <DrawCheck done={s.status === "done"} className="text-success" />
                         {s.label}
                     </li>

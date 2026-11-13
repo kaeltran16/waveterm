@@ -261,6 +261,8 @@ export default function (kit) {
                 notes: links("notes"),
                 railHead: flat(rail?.querySelector("h2")),
                 railLine: flat(rail?.querySelector("[data-brainstorm-answered-line]")),
+                // the answered line's TickNumbers, by their tabular-nums box: what each one reads
+                railTicks: [...(rail?.querySelectorAll("[data-brainstorm-answered-line] .tabular-nums") ?? [])].map(flat),
                 answered: [...(rail?.querySelectorAll("[data-brainstorm-answered]") ?? [])].map((a) => ({
                     text: flat(a),
                     changed: flat(a.lastElementChild),
@@ -411,6 +413,7 @@ export default function (kit) {
                     JSON.stringify(r.notes.links) === JSON.stringify(CR_NOTES.map((p) => p.title)) &&
                     r.railHead === "A builder read the design" &&
                     r.railLine === "It had 11 questions: 3 for you, all answered; the agent decided 8, shown under their decisions." &&
+                    r.railTicks.length === 0 &&
                     JSON.stringify(r.answered.map((a) => a.changed)) === JSON.stringify(CR_CHANGED_LINKS) &&
                     r.hints === CR_HINTS &&
                     r.blocker === CR_BLOCKER,
@@ -623,6 +626,27 @@ export default function (kit) {
                 bare.railLine.startsWith("It had 1 question:"),
                 { railLine: bare.railLine }
             );
+
+            // three builder questions for you, one answered: the line draws that one through a TickNumber
+            const partialCheck = {
+                yours: [CR_ANSWERED[0], ...CR_ANSWERED.slice(1).map(({ a, ...y }) => y)],
+                calls: [],
+                answered: [],
+                touched: allKept,
+            };
+            bsWrite(ctx, crFile(allKept, partialCheck));
+            const partialDrawn = await polishWaitFor(h, `${BS_PANE}?.querySelector('aside[aria-label="The builder check"] [data-brainstorm-answered-line]')?.innerText.replace(/\\s+/g, " ").includes("3 for you, 1 answered") === true`, BS_POLL_WAIT_MS);
+            const partial = await read(h);
+            rec(
+                "6d. with 3 builder questions for you and 1 answered, the rail line reads 3 for you, 1 answered and draws the 1 as a TickNumber",
+                partialDrawn &&
+                    partial.railLine === "It had 3 questions: 3 for you, 1 answered." &&
+                    JSON.stringify(partial.railTicks) === JSON.stringify(["1"]),
+                { partialDrawn, railLine: partial.railLine, railTicks: partial.railTicks }
+            );
+            // back to the one answered question, so question 16's link leads where it did
+            bsWrite(ctx, crFile(allKept, { yours: [CR_ANSWERED[0]], calls: [], answered: [], touched: allKept }));
+            await polishWaitFor(h, `${BS_PANE}?.querySelector('aside[aria-label="The builder check"] [data-brainstorm-answered-line]')?.innerText.startsWith("It had 1 question:") === true`, BS_POLL_WAIT_MS);
 
             const answerClicked = await bsClick(h, ROW("graph"), "Answer question 16");
             const back = await polishWaitFor(h, `!${REVIEW} && !!${BS_PANE}?.querySelector("[data-brainstorm-question]")`, 3000);

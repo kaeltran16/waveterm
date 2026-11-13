@@ -1905,11 +1905,40 @@ describe("check rail lines", () => {
         expect(checkRailLine(2)).toContain("2 questions");
     });
 
+    const lineText = (l: ReturnType<typeof answeredLine>) => `${l.lead}${l.answered ?? ""}${l.rest}`;
+
     it("review rail summary pluralizes", () => {
-        expect(answeredLine(1, 1, 1, 0)).toBe("It had 1 question: 1 for you, all answered.");
-        expect(answeredLine(11, 3, 3, 8)).toBe(
+        expect(lineText(answeredLine(1, 1, 1, 0))).toBe("It had 1 question: 1 for you, all answered.");
+        expect(lineText(answeredLine(11, 3, 3, 8))).toBe(
             "It had 11 questions: 3 for you, all answered; the agent decided 8, shown under their decisions."
         );
+    });
+
+    it("review rail summary with none for you holds no answered number", () => {
+        const plain = answeredLine(2, 0, 0, 0);
+        expect(lineText(plain)).toBe("It had 2 questions: none for you.");
+        expect(plain.answered).toBeNull();
+        const decided = answeredLine(2, 0, 0, 2);
+        expect(lineText(decided)).toBe(
+            "It had 2 questions: none for you; the agent decided 2, shown under their decisions."
+        );
+        expect(decided.answered).toBeNull();
+    });
+
+    it("review rail summary with every question answered holds no answered number", () => {
+        expect(answeredLine(3, 3, 3, 0).answered).toBeNull();
+        expect(answeredLine(11, 3, 3, 8).answered).toBeNull();
+    });
+
+    it("review rail summary with some answered exposes the answered number", () => {
+        const plain = answeredLine(3, 3, 1, 0);
+        expect(lineText(plain)).toBe("It had 3 questions: 3 for you, 1 answered.");
+        expect(plain.answered).toBe(1);
+        const decided = answeredLine(5, 3, 0, 2);
+        expect(lineText(decided)).toBe(
+            "It had 5 questions: 3 for you, 0 answered; the agent decided 2, shown under their decisions."
+        );
+        expect(decided.answered).toBe(0);
     });
 });
 

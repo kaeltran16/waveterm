@@ -1604,16 +1604,19 @@ export function checkRailLine(questions: number): string {
     return `A fresh agent checked whether it could plan from this without coming back to you. It had ${plural(questions, "question", "questions")}.`;
 }
 
+// the review rail's line, read as lead + answered + rest. answered is the count drawn between them, which only the
+// partial line holds; "none for you" and "all answered" carry no number, so lead holds the whole line
+export type AnsweredLine = { lead: string; answered: number | null; rest: string };
+
 // the review rail's line: how many questions the builder had, how many were yours, and what the agent decided
-export function answeredLine(questions: number, forYou: number, answered: number, calls: number): string {
-    const yours =
-        forYou === 0
-            ? "none for you"
-            : answered === forYou
-              ? `${forYou} for you, all answered`
-              : `${forYou} for you, ${answered} answered`;
+export function answeredLine(questions: number, forYou: number, answered: number, calls: number): AnsweredLine {
+    const had = `It had ${plural(questions, "question", "questions")}: `;
     const decided = calls > 0 ? `; the agent decided ${calls}, shown under their decisions` : "";
-    return `It had ${plural(questions, "question", "questions")}: ${yours}${decided}.`;
+    if (forYou > 0 && answered !== forYou) {
+        return { lead: `${had}${forYou} for you, `, answered, rest: ` answered${decided}.` };
+    }
+    const yours = forYou === 0 ? "none for you" : `${forYou} for you, all answered`;
+    return { lead: `${had}${yours}${decided}.`, answered: null, rest: "" };
 }
 
 function capitalize(s: string): string {

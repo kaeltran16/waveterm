@@ -520,6 +520,7 @@ function PartLinks({
 export function AnsweredRail({ f, agent }: { f: BrainstormFile; agent?: AgentVM }) {
     const r = checkReview(f);
     const hv = handoffView(f);
+    const line = answeredLine(hv.questions, hv.forYou, r.answered.length, hv.calls.length);
     return (
         <aside
             aria-label="The builder check"
@@ -531,7 +532,9 @@ export function AnsweredRail({ f, agent }: { f: BrainstormFile; agent?: AgentVM 
             <div className="flex flex-col gap-[8px]">
                 <h2 className="m-0 text-[15px] font-semibold text-primary">A builder read the design</h2>
                 <p data-brainstorm-answered-line className="m-0 text-[13px] leading-[1.5] text-ink-mid">
-                    {answeredLine(hv.questions, hv.forYou, r.answered.length, hv.calls.length)}
+                    {line.lead}
+                    {line.answered != null ? <TickNumber value={line.answered} /> : null}
+                    {line.rest}
                 </p>
             </div>
             {r.answered.length > 0 ? (
