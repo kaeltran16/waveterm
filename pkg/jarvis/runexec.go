@@ -52,6 +52,10 @@ func RunWorkerSpecFor(cap runroute.Capability, opts RunWorkerOptions, prompt str
 	switch cap.Runtime {
 	case "claude":
 		args = []string{"--dangerously-skip-permissions"}
+		// before the other flags: --tools is variadic, so a flag must follow it, never the prompt
+		if opts.Tools != "" {
+			args = append(args, "--tools", opts.Tools)
+		}
 		if opts.StrictMCP {
 			args = append(args, "--strict-mcp-config")
 		}
@@ -162,6 +166,10 @@ type RunWorkerOptions struct {
 	// listing (~4.6k tokens): only for a session whose prompt invokes no skill and that is never typed a slash
 	// command, so never a lead (writing-plans, /compact) or a worker (may use skills).
 	NoSlashCommands bool
+	// Tools, when set, launches a claude session with only these tools (--tools, comma-separated). Tool
+	// definitions are ~19k of a session's ~40k startup tokens (measured 2026-11-13): for a judge, which reads
+	// and runs commands, never for a worker or lead.
+	Tools string
 }
 
 // createWorkerTab is the tab-creation seam, so tests make a tab without a layout or a live workspace.

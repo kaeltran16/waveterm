@@ -80,10 +80,10 @@ func TestRunWorkerSpecFor_CapabilityArgs(t *testing.T) {
 	}
 }
 
-// engine sessions start at ~40k tokens: a judge drops the MCP and skills listings, a worker (which may use skills)
-// only the MCP one, and a lead neither; pi has neither listing, so it takes no flag
+// engine sessions start at ~40k tokens: a judge drops the MCP and skills listings and most tools, a worker (which
+// may use skills) only the MCP listing, and a lead nothing; pi has none of them, so it takes no flag
 func TestRunWorkerSpecForStartupTrim(t *testing.T) {
-	judge := RunWorkerOptions{StrictMCP: true, NoSlashCommands: true}
+	judge := RunWorkerOptions{StrictMCP: true, NoSlashCommands: true, Tools: "Bash,Read"}
 	worker := RunWorkerOptions{StrictMCP: true}
 	tests := []struct {
 		name     string
@@ -91,7 +91,7 @@ func TestRunWorkerSpecForStartupTrim(t *testing.T) {
 		opts     RunWorkerOptions
 		baseArgs []string
 	}{
-		{"claude judge", "claude", judge, []string{"--dangerously-skip-permissions", "--strict-mcp-config", "--disable-slash-commands"}},
+		{"claude judge", "claude", judge, []string{"--dangerously-skip-permissions", "--tools", "Bash,Read", "--strict-mcp-config", "--disable-slash-commands"}},
 		{"claude worker", "claude", worker, []string{"--dangerously-skip-permissions", "--strict-mcp-config"}},
 		{"claude lead", "claude", RunWorkerOptions{}, []string{"--dangerously-skip-permissions"}},
 		{"pi judge", "pi", judge, []string{}},
@@ -204,7 +204,7 @@ func TestEnsureWorkersPassesKeepOnExitOnlyForOrchestrator(t *testing.T) {
 	}
 	// a lead runs writing-plans and is typed /compact, so it keeps its MCP servers and slash commands
 	for _, opts := range got {
-		if opts.StrictMCP || opts.NoSlashCommands {
+		if opts.StrictMCP || opts.NoSlashCommands || opts.Tools != "" {
 			t.Fatalf("a lead launches with its startup context trimmed: %+v", opts)
 		}
 	}

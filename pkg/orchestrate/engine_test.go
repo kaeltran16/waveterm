@@ -440,8 +440,8 @@ func TestScheduleOnceLabelsAWorkerWithItsTask(t *testing.T) {
 	}
 	// a worker needs no MCP server but may use skills, so only the MCP listing is trimmed
 	for id, opts := range launch {
-		if !opts.StrictMCP || opts.NoSlashCommands {
-			t.Fatalf("worker %s: StrictMCP=%v NoSlashCommands=%v, want true false", id, opts.StrictMCP, opts.NoSlashCommands)
+		if !opts.StrictMCP || opts.NoSlashCommands || opts.Tools != "" {
+			t.Fatalf("worker %s: StrictMCP=%v NoSlashCommands=%v Tools=%q, want true false \"\"", id, opts.StrictMCP, opts.NoSlashCommands, opts.Tools)
 		}
 	}
 }

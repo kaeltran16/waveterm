@@ -278,7 +278,20 @@ func resolveHeadlessRuntime(configured string) string {
 // is honored uniformly. Tier→model mapping is SpecForTier's job: openrouter sets Model from the
 // configured tier IDs, claude appends a --model alias, pi/codex use the harness's own default.
 func HeadlessSpecForTier(tier Tier) (RuntimeSpec, bool) {
-	return SpecForTier(HeadlessRuntime(), tier)
+	return headlessSpecForTier(HeadlessRuntime(), tier)
+}
+
+// headlessClaudeArgs trims a headless claude consult to a bare one-shot answer: it calls no tool, MCP server or
+// skill, and their listings are ~24k of its ~39k startup tokens (measured 2026-11-13). --tools is variadic, so a
+// flag must follow it.
+var headlessClaudeArgs = []string{"--tools", "", "--strict-mcp-config", "--disable-slash-commands"}
+
+func headlessSpecForTier(runtime string, tier Tier) (RuntimeSpec, bool) {
+	spec, ok := SpecForTier(runtime, tier)
+	if ok && runtime == "claude" {
+		spec.BaseArgs = append(append([]string{}, spec.BaseArgs...), headlessClaudeArgs...)
+	}
+	return spec, ok
 }
 
 // OperatorPrinciples returns the operator's global ~/.claude/CLAUDE.md, or "" if there is none. A
