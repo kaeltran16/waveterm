@@ -19,17 +19,6 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/util/jobobject"
 )
 
-func TestMain(m *testing.M) {
-	dir, err := os.MkdirTemp("", "memgate-test")
-	if err != nil {
-		panic(err)
-	}
-	SetStoreDirForTest(dir)
-	code := m.Run()
-	os.RemoveAll(dir)
-	os.Exit(code)
-}
-
 type recorder struct {
 	mu     sync.Mutex
 	events []Event
@@ -96,15 +85,15 @@ func setFree(t *testing.T, free uint64) {
 	t.Cleanup(SetFreeForTest(func() (uint64, error) { return free, nil }))
 }
 
-func req(runId, taskId string, need uint64) Request {
-	return Request{Key: Key{"c:\\proj", RoleWorker}, Need: need, Tag: Tag{runId, taskId, RoleWorker}}
+func req(runId, taskId string) Request {
+	return Request{Tag: Tag{runId, taskId, RoleWorker}}
 }
 
 func mustAdmit(t *testing.T, r Request) *Claim {
 	t.Helper()
 	c, ok := TryAdmit(r)
 	if !ok {
-		t.Fatalf("TryAdmit(%v, need %d) refused", r.Tag, r.Need)
+		t.Fatalf("TryAdmit(%v) refused", r.Tag)
 	}
 	return c
 }
@@ -132,33 +121,43 @@ func noRecheck(t *testing.T) {
 	t.Cleanup(func() { waitRecheck = old })
 }
 
-func TestAdmitByFreeLessOwed(t *testing.T) {
-	newGate(t, 8*gib)
-	live := mustAdmit(t, req("", "a", 3*gib))
-	defer live.Release()
-	c := mustAdmit(t, req("", "b", 4*gib))
-	c.Release()
-	if _, ok := TryAdmit(req("", "c", 6*gib)); ok {
-		t.Fatal("6 GiB admitted with 8 GiB free and 3 GiB owed")
+// a burst of admissions in one tick must not all count on the same free memory: each starting tree holds a Headroom
+// until its memory shows in the reading
+func TestStartupAllowanceBoundsABurst(t *testing.T) {
+	newGate(t, 7*gib)
+	var admitted []*Claim
+	for _, id := range []string{"a", "b", "c", "d", "e"} {
+		if c, ok := TryAdmit(req("", id)); ok {
+			admitted = append(admitted, c)
+		}
+	}
+	defer func() {
+		for _, c := range admitted {
+			c.Release()
+		}
+	}()
+	// 7 GiB: the first starts (7 free), the second fits beside one allowance (4 free), the third would not (1 free)
+	if len(admitted) != 2 {
+		t.Fatalf("one tick admitted %d trees on 7 GiB free, want 2", len(admitted))
 	}
 }
 
 func TestOneTreeAlwaysStarts(t *testing.T) {
 	newGate(t, gib)
-	c := mustAdmit(t, req("", "a", 3584*mib))
+	c := mustAdmit(t, req("", "a"))
 	defer c.Release()
-	if _, ok := TryAdmit(req("", "b", 3584*mib)); ok {
+	if _, ok := TryAdmit(req("", "b")); ok {
 		t.Fatal("second tree admitted with 1 GiB free and one claim live")
 	}
 }
 
 func TestHeldOncePerTransition(t *testing.T) {
-	rec := newGate(t, 8*gib)
-	live := mustAdmit(t, req("", "a", 6*gib))
-	r := req("run1", "t1", 4*gib)
+	rec := newGate(t, 4*gib)
+	live := mustAdmit(t, req("", "a"))
+	r := req("run1", "t1")
 	for range 3 {
 		if _, ok := TryAdmit(r); ok {
-			t.Fatal("admitted behind a 6 GiB claim with 8 GiB free")
+			t.Fatal("admitted beside a starting tree with 4 GiB free")
 		}
 	}
 	live.Release()
@@ -168,8 +167,8 @@ func TestHeldOncePerTransition(t *testing.T) {
 		t.Fatalf("events = %v, want [held admitted]", got)
 	}
 	held := rec.events[0]
-	if held.Tag != r.Tag || held.Free != 2*gib || held.Need != 4*gib {
-		t.Fatalf("held event = %+v, want tag %v, free 2 GiB, need 4 GiB", held, r.Tag)
+	if held.Tag != r.Tag || held.Free != gib || held.Need != Headroom {
+		t.Fatalf("held event = %+v, want tag %v, free 1 GiB, need the Headroom", held, r.Tag)
 	}
 }
 
@@ -187,7 +186,7 @@ func TestUnreadableFreeLogsOncePerTransition(t *testing.T) {
 	}
 	t.Cleanup(SetFreeForTest(readFree))
 	check := func() {
-		c := mustAdmit(t, req("r1", "a", gib))
+		c := mustAdmit(t, req("r1", "a"))
 		c.Release()
 	}
 
@@ -208,12 +207,12 @@ func TestUnreadableFreeLogsOncePerTransition(t *testing.T) {
 }
 
 func TestWaitAdmitsOnRelease(t *testing.T) {
-	newGate(t, 8*gib)
+	newGate(t, 4*gib)
 	noRecheck(t)
-	live := mustAdmit(t, req("", "a", 6*gib))
+	live := mustAdmit(t, req("", "a"))
 	done := make(chan *Claim)
 	go func() {
-		c, err := Wait(context.Background(), req("run1", "", 4*gib))
+		c, err := Wait(context.Background(), req("run1", ""))
 		if err != nil {
 			t.Error(err)
 		}
@@ -238,9 +237,9 @@ func TestWaitAdmitsOnRelease(t *testing.T) {
 }
 
 func TestWaitCancel(t *testing.T) {
-	rec := newGate(t, 8*gib)
+	rec := newGate(t, 4*gib)
 	noRecheck(t)
-	live := mustAdmit(t, req("", "a", 6*gib))
+	live := mustAdmit(t, req("", "a"))
 	defer live.Release()
 	ctx, cancel := context.WithCancel(context.Background())
 	type result struct {
@@ -249,7 +248,7 @@ func TestWaitCancel(t *testing.T) {
 	}
 	done := make(chan result)
 	go func() {
-		c, err := Wait(ctx, req("run1", "", 4*gib))
+		c, err := Wait(ctx, req("run1", ""))
 		done <- result{c, err}
 	}()
 	waitQueued(t, 1)
@@ -272,7 +271,7 @@ func TestWaitCancel(t *testing.T) {
 
 func TestHoldMarksWithoutAdmitting(t *testing.T) {
 	rec := newGate(t, 64*gib)
-	r := req("run1", "t2", 4*gib)
+	r := req("run1", "t2")
 	Hold(r)
 	Hold(r)
 	if got := rec.kinds(); !slices.Equal(got, []EventKind{EventHeld}) {
@@ -284,11 +283,11 @@ func TestHoldMarksWithoutAdmitting(t *testing.T) {
 }
 
 func TestRoomHookOnRelease(t *testing.T) {
-	rec := newGate(t, 8*gib)
-	a := mustAdmit(t, req("", "a", 6*gib))
-	r := req("run1", "t1", 4*gib)
+	rec := newGate(t, 4*gib)
+	a := mustAdmit(t, req("", "a"))
+	r := req("run1", "t1")
 	if _, ok := TryAdmit(r); ok {
-		t.Fatal("admitted behind a 6 GiB claim with 8 GiB free")
+		t.Fatal("admitted beside a starting tree with 4 GiB free")
 	}
 	a.Release()
 	if got := rec.roomCalls(); len(got) != 1 || !slices.Equal(got[0], []string{"run1"}) {
@@ -304,8 +303,8 @@ func TestRoomHookOnRelease(t *testing.T) {
 
 func TestReleaseIfUnbound(t *testing.T) {
 	newGate(t, 64*gib)
-	unbound := mustAdmit(t, req("", "a", gib))
-	bound := mustAdmit(t, req("", "b", gib))
+	unbound := mustAdmit(t, req("", "a"))
+	bound := mustAdmit(t, req("", "b"))
 	bound.Bind(jobobject.Owner{Kind: jobobject.OwnerKind_Block, Id: "blk"})
 	unbound.ReleaseIfUnbound()
 	unbound.ReleaseIfUnbound()
@@ -324,14 +323,12 @@ func TestReleaseIfUnbound(t *testing.T) {
 }
 
 func TestTryAdmitYieldsToQueuedWait(t *testing.T) {
-	newGate(t, 8*gib)
+	newGate(t, 4*gib)
 	noRecheck(t)
-	big := mustAdmit(t, req("", "big", 6*gib))
-	defer big.Release()
-	small := mustAdmit(t, req("", "small", mib))
+	live := mustAdmit(t, req("", "a"))
 	done := make(chan *Claim)
 	go func() {
-		c, err := Wait(context.Background(), req("run1", "", 3*gib))
+		c, err := Wait(context.Background(), req("run1", ""))
 		if err != nil {
 			t.Error(err)
 		}
@@ -339,11 +336,12 @@ func TestTryAdmitYieldsToQueuedWait(t *testing.T) {
 	}()
 	waitQueued(t, 1)
 
-	setFree(t, 9*gib+mib) // room for exactly one 3 GiB tree, with nothing waking the Wait
-	if _, ok := TryAdmit(req("run2", "t1", 3*gib)); ok {
+	// room for one more tree beside the starting one, with nothing waking the Wait: it is the Wait's
+	setFree(t, 2*Headroom+gib)
+	if _, ok := TryAdmit(req("run2", "t1")); ok {
 		t.Fatal("TryAdmit took the room a queued Wait is waiting for")
 	}
-	small.Release()
+	live.Release()
 	select {
 	case c := <-done:
 		c.Release()

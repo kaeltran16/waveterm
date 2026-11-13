@@ -37,7 +37,7 @@ func cleanBook(t *testing.T) {
 func refuseAllMemory(t *testing.T) *memgate.Claim {
 	t.Helper()
 	cleanBook(t)
-	blocker, ok := memgate.TryAdmit(memgate.Request{Key: memgate.Key{Role: "test"}, Need: 1})
+	blocker, ok := memgate.TryAdmit(memgate.Request{Tag: memgate.Tag{Role: "test"}})
 	if !ok {
 		t.Fatal("an empty book must admit")
 	}
@@ -105,12 +105,8 @@ func TestClaimWorkersStopsAtMemory(t *testing.T) {
 	cleanBook(t)
 	collectMemoryEvents(t)
 	ctx, g, channelID, runID := seedReadyDag(t, 3)
-	owner, err := wstore.GetRun(ctx, channelID, runID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	need := workerRequest(g, owner, "t-0").Need
-	defer memgate.SetFreeForTest(func() (uint64, error) { return need + need/2, nil })()
+	// the first worker starts on an empty book; its startup allowance leaves less than a Headroom for the next
+	defer memgate.SetFreeForTest(func() (uint64, error) { return memgate.Headroom + memgate.Headroom/2, nil })()
 	spawns := 0
 	old := spawnWorker
 	spawnWorker = func(context.Context, runroute.Capability, string, string, string, string, jarvis.RunWorkerOptions) (string, error) {
@@ -195,26 +191,6 @@ func TestSpawnFailureReleasesClaim(t *testing.T) {
 	}
 }
 
-func TestWorkerNeedIncludesSetup(t *testing.T) {
-	owner := &waveobj.Run{ProjectPath: t.TempDir()}
-	project := MemProjectKey(owner.ProjectPath)
-	workerNeed := memgate.Estimate(memgate.Key{Project: project, Role: memgate.RoleWorker})
-	setupPeak := workerNeed + 1<<30
-	memgate.Record(memgate.Key{Project: project, Role: PlanCmd_Setup}, setupPeak)
-	g := &waveobj.TaskGroup{RunID: "run-1", Setup: "make deps"}
-	req := workerRequest(g, owner, "t-0")
-	if req.Need != setupPeak {
-		t.Fatalf("need %d, want the Setup's learned peak %d", req.Need, setupPeak)
-	}
-	if req.Key.Role != memgate.RoleWorker || req.Tag != (memgate.Tag{RunId: "run-1", TaskId: "t-0", Role: memgate.RoleWorker}) {
-		t.Fatalf("request %+v is not the worker's", req)
-	}
-	g.Setup = ""
-	if req := workerRequest(g, owner, "t-0"); req.Need != workerNeed {
-		t.Fatalf("with no Setup the need is %d, want the worker's %d", req.Need, workerNeed)
-	}
-}
-
 func TestReviewerHeldAtDoor(t *testing.T) {
 	ctx, dag, worker := seedReviewDag(t)
 	stubReviewTree(t, worker.EndCommit)
@@ -237,8 +213,8 @@ func TestReviewerHeldAtDoor(t *testing.T) {
 	}
 }
 
-// a finished worker idles alive at its prompt until its lane lands, which waits on the review: its claim must stop
-// owing its estimate once its run is done, or the reviewer is refused with the machine's memory free (2026-11-13)
+// a finished worker idles alive at its prompt until its lane lands, which waits on the review: its claim must leave
+// the book once its run is done, so it no longer counts against the reviewer its lane waits on
 func TestFinishedWorkerClaimDoesNotHoldItsReviewer(t *testing.T) {
 	cleanBook(t)
 	ctx, dag, worker := seedReviewDag(t)
@@ -251,23 +227,17 @@ func TestFinishedWorkerClaimDoesNotHoldItsReviewer(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	owner, err := wstore.GetRun(ctx, dag.ChannelId, dag.RunID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	workerNeed := workerRequest(dag, owner, "t-0").Need
-	claim, ok := memgate.TryAdmit(workerRequest(dag, owner, "t-0"))
+	claim, ok := memgate.TryAdmit(workerRequest(dag, "t-0"))
 	if !ok {
 		t.Fatal("an empty book must admit the worker")
 	}
 	bindToBlock(claim, blockID)
-	reviewerNeed := memgate.Estimate(memgate.Key{Project: MemProjectKey(owner.ProjectPath), Role: memgate.RoleReviewer})
-	// room for the reviewer once the worker owes nothing, and not while it owes its estimate
-	defer memgate.SetFreeForTest(func() (uint64, error) { return workerNeed + reviewerNeed - 1, nil })()
+	// no loop runs in the test, so the worker's claim counts its startup allowance until released
+	defer memgate.SetFreeForTest(func() (uint64, error) { return 2*memgate.Headroom - 1, nil })()
 
 	schedule(t, ctx, dag.OID)
 	if len(*calls) != 0 {
-		t.Fatalf("precondition: a reviewer spawned while the worker's claim still owed its estimate: %+v", *calls)
+		t.Fatalf("precondition: a reviewer spawned while the worker's claim still counted against it: %+v", *calls)
 	}
 
 	done, err := wstore.GetRun(ctx, dag.ChannelId, worker.ID)
@@ -395,17 +365,6 @@ func TestKickHeldRunsTicksDag(t *testing.T) {
 	case <-spawned:
 	case <-time.After(10 * time.Second):
 		t.Fatal("kicking the held run never ticked its dag")
-	}
-}
-
-func TestMemProjectKeyFoldsWorktrees(t *testing.T) {
-	repo := newGitRepo(t)
-	wt, _, _, err := EnsureRunWorktree(context.Background(), repo, TaskWorktreeKey("owner-memkey", "t-0"), gitCmd(t, repo, "rev-parse", "HEAD"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, want := MemProjectKey(wt), MemProjectKey(repo); got != want || got == "" {
-		t.Fatalf("worktree keys to %q, want its main checkout's %q", got, want)
 	}
 }
 

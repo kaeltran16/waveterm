@@ -384,7 +384,6 @@ func main() {
 		// before the watchdog and the loop: their first tick can admit, and a hold or pause is a run event
 		memgate.SetEventSink(orchestrate.RecordMemoryEvent)
 		memgate.SetRoomHook(orchestrate.KickHeldRuns)
-		memgate.SetResolver(wshserver.ResolveMemOwner)
 		memgate.StartLoop(context.Background())
 		orchestrate.StartWatchdog(context.Background()) // dag advance + stall detection tick
 	}

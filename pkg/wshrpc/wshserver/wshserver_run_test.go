@@ -952,9 +952,9 @@ func TestCompleteReleasesTheSessionsMemoryClaim(t *testing.T) {
 	t.Cleanup(func() { sealAsync = oldSeal })
 
 	before := memgate.LiveClaimsForTest()
-	key := memgate.Key{Project: ch.ProjectPath, Role: memgate.RoleWorker}
-	finished, _ := memgate.TryAdmit(memgate.Request{Key: key, Need: 1, Owner: jobobject.Owner{Kind: jobobject.OwnerKind_Block, Id: blockId}})
-	working, _ := memgate.TryAdmit(memgate.Request{Key: key, Need: 1, Owner: jobobject.Owner{Kind: jobobject.OwnerKind_Block, Id: uuid.NewString()}})
+	tag := memgate.Tag{Role: memgate.RoleWorker}
+	finished, _ := memgate.TryAdmit(memgate.Request{Tag: tag, Owner: jobobject.Owner{Kind: jobobject.OwnerKind_Block, Id: blockId}})
+	working, _ := memgate.TryAdmit(memgate.Request{Tag: tag, Owner: jobobject.Owner{Kind: jobobject.OwnerKind_Block, Id: uuid.NewString()}})
 	t.Cleanup(func() {
 		finished.Release()
 		working.Release()
