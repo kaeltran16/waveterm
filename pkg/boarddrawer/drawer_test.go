@@ -399,7 +399,7 @@ func TestDrawerResumeFailureFailsTurn(t *testing.T) {
 	f := newFake(nil)
 	f.run = func(ctx context.Context, c Call) (string, error) {
 		if c.Resume {
-			return "", errors.New("the drawer's session exited before it replied (No conversation found with session ID: s)")
+			return "", errors.New("the drawer's session exited before it replied (API Error: 529 overloaded)")
 		}
 		return wordsAnswer, nil
 	}
@@ -412,7 +412,7 @@ func TestDrawerResumeFailureFailsTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	talk := settled(t, f, d)
-	if talk.Turns[1].State != StateFailed || !strings.Contains(talk.Turns[1].Reason, "No conversation found") {
+	if talk.Turns[1].State != StateFailed || !strings.Contains(talk.Turns[1].Reason, "529 overloaded") {
 		t.Errorf("turn: %+v", talk.Turns[1])
 	}
 	if n := len(f.callList()); n != 2 {
@@ -420,6 +420,47 @@ func TestDrawerResumeFailureFailsTurn(t *testing.T) {
 	}
 	if talk.SessionId != session {
 		t.Errorf("a failed resume must keep the session, got %q want %q", talk.SessionId, session)
+	}
+}
+
+// claude cleans up old session transcripts, and a session it no longer has can never be resumed
+func TestDrawerLostSessionStartsNew(t *testing.T) {
+	f := newFake(nil)
+	f.talks["b1"] = wshrpc.BoardTalk{ChannelId: "c1", BoardId: "b1", About: wshrpc.BoardSource{Kind: "agent", Ref: "t1", Title: "claude · waveterm"}}
+	lost := ""
+	f.run = func(ctx context.Context, c Call) (string, error) {
+		if c.Resume && c.SessionId == lost {
+			return "", errors.New("the drawer's session exited before it replied (No conversation found with session ID: " + lost + ")")
+		}
+		return drawAnswer, nil
+	}
+	d := New(f.deps())
+	if _, err := d.Ask(board, question("first")); err != nil {
+		t.Fatal(err)
+	}
+	// the drawer is idle once settled, so the next run reads lost after this write
+	lost = settled(t, f, d).SessionId
+	if _, err := d.Ask(board, question("second")); err != nil {
+		t.Fatal(err)
+	}
+	talk := settled(t, f, d)
+	if talk.Turns[1].State != StateAnswered || talk.Turns[1].Reply != "Two processes." {
+		t.Errorf("the turn must be answered by a new session: %+v", talk.Turns[1])
+	}
+	calls := f.callList()
+	if len(calls) != 3 || !calls[1].Resume || calls[2].Resume || calls[2].SessionId == lost || calls[2].SessionId == "" {
+		t.Fatalf("want a first call, the failed resume, then a new session: %+v", calls)
+	}
+	if talk.SessionId != calls[2].SessionId {
+		t.Errorf("the talk must keep the new session, got %q want %q", talk.SessionId, calls[2].SessionId)
+	}
+	for _, want := range []string{"## Your reply", "the agent's turn text", "second"} {
+		if !strings.Contains(calls[2].Prompt, want) {
+			t.Errorf("the new session's prompt lacks %q", want)
+		}
+	}
+	if f.deliveredCount() != 2 {
+		t.Errorf("delivered %d answers, want 2", f.deliveredCount())
 	}
 }
 

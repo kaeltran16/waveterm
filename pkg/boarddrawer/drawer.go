@@ -35,6 +35,9 @@ const (
 	updateAnswer = "answer"
 
 	wontOpenHead = "the board's file won't open: "
+
+	// claude's error for a --resume of a session it no longer has (its transcript was cleaned up or deleted)
+	lostSessionText = "No conversation found with session ID"
 )
 
 // Board names one board and where its drawer runs.
@@ -387,6 +390,12 @@ func (d *Drawer) answer(ctx context.Context, b Board, talk wshrpc.BoardTalk, tur
 		}
 	}
 	reply, err := d.d.Run(ctx, b.ProjectPath, call)
+	if err != nil && first == nil && strings.Contains(err.Error(), lostSessionText) {
+		// nothing can ever resume it, so keeping it would fail every later turn: this one starts a new session
+		d.dropSession(b, call.SessionId)
+		talk.SessionId = ""
+		return d.answer(ctx, b, talk, turn)
+	}
 	if err != nil {
 		if first != nil {
 			// the session may never have started: the next turn starts it again rather than resume nothing
@@ -468,7 +477,7 @@ func (d *Drawer) dropSession(b Board, sessionId string) {
 		return nil
 	})
 	if err != nil {
-		log.Printf("boarddrawer: dropping the unstarted session of board %s: %v", b.BoardId, err)
+		log.Printf("boarddrawer: dropping session %s of board %s: %v", sessionId, b.BoardId, err)
 	}
 }
 
