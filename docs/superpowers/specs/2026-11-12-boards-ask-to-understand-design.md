@@ -106,8 +106,10 @@ the talk under the board list, a strip under the canvas, and replies pinned on t
 - **Toasts** (`B10-Toast`): after an agent's `wsh board draw`, the shipped toast says "The drawer
   answered on <board>" or "The drawer asks you on <board>", with **Open**.
 - **Empty** (`B11-EmptyBoard`): a board with nothing asked and nothing drawn says so in both halves, and
-  the ask box works as on any board. **No boards** (`B12-NoBoards`): the surface's empty state holds the
-  first ask itself (question, name, About, Ask), with the palette route as the hint.
+  the ask box works as on any board. **No boards** (`B12-NoBoards`): the shared surface empty state with a
+  **New board** button and the palette route as the hint; New board opens a dialog built like New agent
+  (Name, First question, "The drawer reads <project>", Cancel, Ask). A project board has no About to pick,
+  so the dialog shows none. Revised 2026-11-13: the first ask used to sit inline in the empty state.
 - Asking from anywhere else takes you to this surface.
 
 ### Boards and conversations

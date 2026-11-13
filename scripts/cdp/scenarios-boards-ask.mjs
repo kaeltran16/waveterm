@@ -64,7 +64,8 @@ const SURFACE = `document.querySelector("[data-boards-surface]")`;
 const HEADER = `${SURFACE}?.querySelector("[data-surface-toolbar]")`;
 const TALK = `${SURFACE}?.querySelector("[data-board-talk]")`;
 const FORM = `${SURFACE}?.querySelector('[data-board-ask-form="column"]')`;
-const EMPTY_FORM = `${SURFACE}?.querySelector('[data-board-ask-form="empty"]')`;
+const NEW_BOARD = `${SURFACE}?.querySelector("[data-boards-new]")`;
+const DIALOG = `document.querySelector("[data-new-board-dialog]")`;
 const ASK_BOX = `${TALK}?.querySelector("[data-board-ask-box]")`;
 const SWITCHER = `${SURFACE}?.querySelector("[data-board-switcher]")`;
 const POPOVER = `${SURFACE}?.querySelector("[data-board-switcher-popover]")`;
@@ -298,35 +299,54 @@ export const boardsAsk = {
             }
         };
 
-        await run("1. B12 no boards: the project's empty state, its lead line, the inline form and the palette hint", async () => {
+        await run("1. B12 no boards: the shared empty state, New board and the palette hint; New board opens the dialog with Name focused, an empty name says Type a name first, Cancel closes it", async () => {
             await h.goto("boards");
             await polishWaitFor(h, `!!${SURFACE}?.querySelector("[data-boards-empty]")`, WAIT_MS);
             const empty = await h.ev(text(`${SURFACE}?.querySelector("[data-boards-empty]")`));
             const hint = await h.ev(text(`${SURFACE}?.querySelector("[data-boards-empty-hint]")`));
-            // the form's order: First question, Name, About, Ask
-            const form = await h.ev(`(() => {
-                const f = ${EMPTY_FORM};
+            const button = await h.ev(text(NEW_BOARD));
+            await h.shot(SHOT("B12", "no-boards"));
+            await h.ev(`${NEW_BOARD}?.click()`);
+            await polishWaitFor(h, `!!${DIALOG}`, 5000);
+            await polishNap(400);
+            // the dialog's order: Name, First question, Cancel, Ask; a project board shows no About
+            const dialog = await h.ev(`(() => {
+                const f = ${DIALOG};
                 if (!f) return null;
-                const q = f.querySelector("textarea"), n = f.querySelector('input[type="text"]'), a = f.querySelector("[data-board-about]");
-                const ask = f.querySelector("[data-board-form-ask]");
+                const n = f.querySelector('input[type="text"]'), qn = f.querySelector("textarea");
+                const ask = f.querySelector("[data-board-form-ask]"), cancel = f.querySelector("[data-board-form-cancel]");
                 const before = (x, y) => !!(x && y && x.compareDocumentPosition(y) & Node.DOCUMENT_POSITION_FOLLOWING);
                 const label = (el) => (el ? f.querySelector('label[for="' + el.id + '"]')?.textContent.trim() : null);
                 return {
-                    question: label(q), name: label(n), about: (a?.textContent ?? "").replace(/\\s+/g, " ").trim(),
-                    ask: ask?.textContent.trim(), ordered: before(q, n) && before(n, a) && before(a, ask),
+                    name: label(n), question: label(qn), about: !!f.querySelector("[data-board-about]"),
+                    ask: ask?.textContent.trim(), cancel: cancel?.textContent.trim(),
+                    ordered: before(n, qn) && before(qn, cancel) && before(cancel, ask),
+                    nameFocused: document.activeElement === n,
                 };
             })()`);
-            await h.shot(SHOT("B12", "no-boards"));
+            const footer = await h.ev(text(DIALOG));
+            await h.shot(SHOT("B12", "new-board-dialog"));
+            await h.ev(`${DIALOG}?.querySelector("[data-board-form-ask]")?.click()`);
+            await polishWaitFor(h, `!!${DIALOG}?.querySelector("[data-board-form-error]")`, 5000);
+            const refused = await h.ev(text(`${DIALOG}?.querySelector("[data-board-form-error]")`));
+            await h.ev(`${DIALOG}?.querySelector("[data-board-form-cancel]")?.click()`);
+            const closed = await polishWaitFor(h, `!${DIALOG}`, 5000);
             const ok =
                 empty.includes(`No boards in ${PROJECT} yet`) &&
                 empty.includes("A board is a conversation with a drawer.") &&
-                form?.question === "First question" &&
-                form.name === "Name" &&
-                form.about === `Aboutthe ${PROJECT} code` &&
-                form.ask === "Ask" &&
-                form.ordered &&
-                hint.includes("Ask a board about this…");
-            return { ok, detail: q({ empty, hint, form }) };
+                button === "New board" &&
+                hint.includes("Ask a board about this…") &&
+                dialog?.name === "Name" &&
+                dialog.question === "First question" &&
+                !dialog.about &&
+                dialog.cancel?.startsWith("Cancel") &&
+                dialog.ask?.startsWith("Ask") &&
+                dialog.ordered &&
+                dialog.nameFocused &&
+                footer.includes(`The drawer reads ${PROJECT}`) &&
+                refused === "Type a name first" &&
+                closed;
+            return { ok, detail: q({ empty, hint, button, dialog, footer, refused, closed }) };
         });
 
         await run("2. B3 ask something new: the column form and the waiting canvas; an empty name says Type a name first; Esc on its buttons cancels and Boards stays", async () => {
@@ -363,8 +383,10 @@ export const boardsAsk = {
         });
 
         await run("3. B11 empty board: Ask with a name and no question makes the board, with nothing asked and nothing drawn", async () => {
-            await h.ev(setInputExpr(`${EMPTY_FORM}?.querySelector('input[type="text"]')`, EMPTY_BOARD));
-            await h.ev(`${EMPTY_FORM}?.querySelector("[data-board-form-ask]")?.click()`);
+            await h.ev(`${NEW_BOARD}?.click()`);
+            await polishWaitFor(h, `!!${DIALOG}`, 5000);
+            await h.ev(setInputExpr(`${DIALOG}?.querySelector('input[type="text"]')`, EMPTY_BOARD));
+            await h.ev(`${DIALOG}?.querySelector("[data-board-form-ask]")?.click()`);
             await polishWaitFor(h, `!!${SURFACE}?.querySelector("[data-board-empty]") && !!${TALK}`, 20_000);
             const started = (await calls(h, "start")).at(-1);
             ctx.boards.empty = (await h.rpc("boardlist", { channelid: ctx.channelId }))?.boards?.find((b) => b.name === EMPTY_BOARD);

@@ -22,7 +22,7 @@ import type { AgentsViewModel } from "../agents/agents";
 import { activeChannelAtom } from "../agents/channelsstore";
 import { projectListAtom } from "../agents/projectsstore";
 import { SurfaceEmptyState, SurfaceError, SurfaceToolbar } from "../agents/surfacescaffold";
-import { BoardAskForm, startsWithLines, type BoardAskFormProps } from "./boardaskform";
+import { BoardAskForm, NewBoardDialog, startsWithLines, type BoardAskFormProps } from "./boardaskform";
 import type { BoardCanvasControl } from "./boardcanvas";
 import { boardFormAtom, type BoardFormRequest } from "./boardformrequest";
 import { copyElements, selectionLabel, shapeCount, type BoardScene } from "./boardmodel";
@@ -376,7 +376,6 @@ export function BoardsSurface({ model }: { model: AgentsViewModel }) {
                 <BoardAskForm
                     key={form.key}
                     {...props.form}
-                    variant="column"
                     onAsk={(name, question) => startBoard(req, props.about, name, question)}
                     onCancel={closeForm}
                 />
@@ -522,27 +521,29 @@ function Facts({ text }: { text: string }) {
     );
 }
 
+// the shared empty state, as Cockpit's "No agents running"; New board opens the dialog
 function NoBoards({ project, onAsk }: { project: string; onAsk: (name: string, question: string) => Promise<void> }) {
+    const [open, setOpen] = useState(false);
     return (
-        <SurfaceEmptyState
-            data={{ "data-boards-empty": "" }}
-            glyph={<Shapes size={28} strokeWidth={1.8} aria-hidden className="mb-[18px] text-ink-faint" />}
-            title={`No boards in ${project} yet`}
-            body="A board is a conversation with a drawer. Ask about a choice, the code or the architecture, and it answers in a few words and a drawing you can keep asking about."
-        >
-            <div className="flex w-full flex-col items-center gap-3.5">
-                <BoardAskForm
-                    title="Ask something new"
-                    about={{ title: aboutTitle(PROJECT_ABOUT, project), line: aboutLine(PROJECT_ABOUT) }}
-                    variant="empty"
-                    onAsk={onAsk}
-                />
-                <span data-boards-empty-hint className="text-[12.5px] text-muted">
-                    Or open the palette on an agent, run or initiative (<Kbd>Ctrl K</Kbd>) and choose Ask a board about
-                    this…
-                </span>
-            </div>
-        </SurfaceEmptyState>
+        <>
+            <SurfaceEmptyState
+                data={{ "data-boards-empty": "" }}
+                glyph={<Shapes size={30} strokeWidth={1.8} aria-hidden className="mb-[18px] text-accent-soft" />}
+                title={`No boards in ${project} yet`}
+                body="A board is a conversation with a drawer. Ask about a choice, the code or the architecture, and it answers in a few words and a drawing you can keep asking about."
+                action={{
+                    label: "New board",
+                    onClick: () => setOpen(true),
+                    data: { "data-boards-new": "" },
+                    hint: (
+                        <span data-boards-empty-hint>
+                            or press <Kbd>Ctrl K</Kbd> on an agent, run or initiative and choose Ask a board about this…
+                        </span>
+                    ),
+                }}
+            />
+            <NewBoardDialog open={open} project={project} onAsk={onAsk} onClose={() => setOpen(false)} />
+        </>
     );
 }
 
