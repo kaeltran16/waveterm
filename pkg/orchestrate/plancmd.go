@@ -22,8 +22,9 @@ import (
 )
 
 const (
-	// SetupTimeout bounds a plan's Setup command. It runs under the dag mutation lock, so Setup is for
-	// preparing a worktree (junctions, a config file), not for an install.
+	// SetupTimeout bounds a plan's Setup command. It runs off the dag lock but inside a scheduler tick (and
+	// under the lock when a prepared tree vanished and is remade), so Setup is for preparing a worktree
+	// (junctions, a config file), not for an install.
 	SetupTimeout = 2 * time.Minute
 	// VerifyTimeout bounds a plan's Verify command at a merge point.
 	VerifyTimeout = 20 * time.Minute
