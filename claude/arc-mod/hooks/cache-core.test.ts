@@ -127,16 +127,16 @@ describe("cacheMissNotice", () => {
 
     it("keeps the hour window across a request that reports no cache write breakdown", () => {
         const hourWrite = request("a", 0, 0, 100_000);
-        hourWrite.message.usage.cache_creation = { ephemeral_1h_input_tokens: 100_000 };
+        hourWrite.message!.usage!.cache_creation = { ephemeral_1h_input_tokens: 100_000 };
         const entries = [hourWrite, request("b", 1, 100_000, 500), request("c", 13, 15_500, 85_000)];
         expect(cacheMissNotice(entries)).toEqual("Cache miss: 85k re-billed");
     });
 
     it("returns the window to five minutes when a 5-minute cache write follows an hour one", () => {
         const hourWrite = request("a", 0, 0, 100_000);
-        hourWrite.message.usage.cache_creation = { ephemeral_1h_input_tokens: 100_000 };
+        hourWrite.message!.usage!.cache_creation = { ephemeral_1h_input_tokens: 100_000 };
         const fiveMinuteWrite = request("b", 1, 100_000, 500);
-        fiveMinuteWrite.message.usage.cache_creation = { ephemeral_5m_input_tokens: 500 };
+        fiveMinuteWrite.message!.usage!.cache_creation = { ephemeral_5m_input_tokens: 500 };
         const entries = [hourWrite, fiveMinuteWrite, request("c", 13, 15_500, 85_000)];
         expect(cacheMissNotice(entries)).toEqual("Cache miss: 85k re-billed, 12m idle");
     });
@@ -176,7 +176,7 @@ describe("cacheMissNotice", () => {
 
     it("holds the cache window at an hour once a 1-hour cache write is seen", () => {
         const hourWrite = request("a", 0, 0, 100_000);
-        hourWrite.message.usage.cache_creation = { ephemeral_1h_input_tokens: 100_000 };
+        hourWrite.message!.usage!.cache_creation = { ephemeral_1h_input_tokens: 100_000 };
         const entries = [prompt(), hourWrite, prompt(), request("b", 12, 15_000, 85_000)];
         expect(cacheMissNotice(entries)).toEqual("Cache miss: 85k re-billed");
     });
