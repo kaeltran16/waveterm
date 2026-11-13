@@ -515,7 +515,7 @@ export const boardsAsk = {
             };
         });
 
-        await run("5. B4 answering: Answering N s under the question, and the ask box disabled until the answer lands", async () => {
+        await run("5. B4 answering: Answering N s under the question, and Stop in Ask's place until the answer lands", async () => {
             const made = await makeBoard(h, ctx, SLOW_BOARD, {
                 talk: () => ({ turns: [{ id: "s1", ts: Date.now() - 12 * SEC, question: "Why is the judge slow?", state: "answering" }] }),
             });
@@ -526,14 +526,24 @@ export const boardsAsk = {
             const box = await h.ev(`(() => {
                 const b = ${ASK_BOX};
                 const ask = [...(b?.querySelectorAll("button") ?? [])].find((x) => x.textContent.trim() === "Ask");
-                return { disabled: b?.getAttribute("aria-disabled"), button: !!ask?.disabled, hint: (b?.querySelector("[data-board-ask-hint]")?.textContent ?? "").trim() };
+                const stop = b?.querySelector("[data-board-ask-stop]");
+                const r = stop?.getBoundingClientRect();
+                return {
+                    disabled: b?.getAttribute("aria-disabled"),
+                    ask: !!ask,
+                    stop: (stop?.textContent ?? "").trim(),
+                    stopSize: r ? [Math.round(r.width), Math.round(r.height)] : null,
+                    hint: (b?.querySelector("[data-board-ask-hint]")?.textContent ?? "").trim(),
+                };
             })()`);
+            ctx.stopSize = box.stopSize;
             await h.shot(SHOT("B4", "answering"));
             const ok =
                 q(order) === q(["question", "working"]) &&
                 /^Answering\d+ s$/.test(working) &&
                 box.disabled === "true" &&
-                box.button &&
+                !box.ask &&
+                box.stop === "Stop" &&
                 box.hint === "You can ask once this answer lands";
             return { ok, detail: q({ order, working, box }) };
         });
@@ -556,6 +566,28 @@ export const boardsAsk = {
                 stop[0].boardid === id &&
                 stopped === "Stopped. Nothing on the board changed.";
             return { ok, detail: q({ working, stop, stopped }) };
+        });
+
+        await run("6b. Stop in the ask box stops a running answer; Ask comes back the same size", async () => {
+            const id = ctx.boards.slow?.id;
+            await patchTurn(h, id, "s1", { state: "answering", ts: Date.now() - 12 * SEC });
+            await polishWaitFor(h, `!!${ASK_BOX}?.querySelector("[data-board-ask-stop]")`, WAIT_MS);
+            await h.ev(`${ASK_BOX}?.querySelector("[data-board-ask-stop]")?.click()`);
+            await polishWaitFor(h, `${itemsOf("stopped")}.length === 1 && ${itemsOf("working")}.length === 0`, WAIT_MS);
+            const stop = await calls(h, "stop");
+            const ask = await h.ev(`(() => {
+                const b = [...(${ASK_BOX}?.querySelectorAll("button") ?? [])].find((x) => x.textContent.trim() === "Ask");
+                const r = b?.getBoundingClientRect();
+                return { found: !!b, size: r ? [Math.round(r.width), Math.round(r.height)] : null, stop: !!${ASK_BOX}?.querySelector("[data-board-ask-stop]") };
+            })()`);
+            await h.shot(SHOT("B5", "stopped-from-input"));
+            const ok =
+                stop.length === 2 &&
+                stop[1].boardid === id &&
+                ask.found &&
+                !ask.stop &&
+                q(ask.size) === q(ctx.stopSize);
+            return { ok, detail: q({ stop, ask, stopSize: ctx.stopSize }) };
         });
 
         await run("7. B6 failed: Couldn't answer with the reason and Nothing on the board changed; Retry asks again for that turn", async () => {

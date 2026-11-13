@@ -194,16 +194,23 @@ export function askBox(
     selection: string | null,
     busy: boolean,
     wontOpen: boolean
-): { disabled: boolean; hint: string; placeholder: string } {
+): { disabled: boolean; hint: string; placeholder: string; stoppable: boolean } {
     const placeholder = `Ask the drawer about ${boardName}`;
     if (wontOpen) {
-        return { disabled: true, hint: "This board won't open, so the drawer can't answer on it", placeholder };
+        return {
+            disabled: true,
+            hint: "This board won't open, so the drawer can't answer on it",
+            placeholder,
+            stoppable: false,
+        };
     }
+    // a waiting turn is not running yet, and Stop only ends the running one
+    const stoppable = (talk?.turns ?? []).some((t) => t.state === "answering");
     if (busy || turnInFlight(talk)) {
-        return { disabled: true, hint: "You can ask once this answer lands", placeholder };
+        return { disabled: true, hint: "You can ask once this answer lands", placeholder, stoppable };
     }
     const hint = selection ? `Selected ${selection}` : "Select shapes to ask about them";
-    return { disabled: false, hint, placeholder };
+    return { disabled: false, hint, placeholder, stoppable };
 }
 
 export function boardFacts(info: BoardInfo, shapes: number, now: number): string {

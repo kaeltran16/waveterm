@@ -61,6 +61,7 @@ func TestDrawerArgs(t *testing.T) {
 		{"first turn", Call{SessionId: "X"}, []string{"--session-id X"}, []string{"--resume", "--fork-session"}},
 		{"follow-up", Call{SessionId: "X", Resume: true}, []string{"--resume X"}, []string{"--session-id", "--fork-session"}},
 		{"summary", Call{SessionId: "X", Resume: true, Fork: true}, []string{"--resume X --fork-session"}, []string{"--session-id"}},
+		{"named fork", Call{SessionId: "X", Resume: true, Fork: true, ForkId: "F"}, []string{"--resume X --fork-session --session-id F"}, nil},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

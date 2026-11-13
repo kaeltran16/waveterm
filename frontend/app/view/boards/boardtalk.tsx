@@ -7,7 +7,7 @@
 import { cardVariants, settleClass } from "@/app/element/motiontokens";
 import { runtimeMeta } from "@/app/view/agents/runtimemeta";
 import { cn } from "@/util/util";
-import { CircleAlert, Shapes } from "lucide-react";
+import { CircleAlert, Shapes, Square } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import type { TalkItem } from "./boardtalkmodel";
@@ -20,6 +20,9 @@ const SECONDARY_BTN =
     "cursor-pointer rounded-lg border border-edge-mid bg-surface-raised px-3 py-1.5 text-[12.5px] font-semibold text-secondary hover:border-edge-strong hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
 const ERROR_BTN =
     "cursor-pointer rounded-md border border-error/40 bg-transparent px-2.5 py-[3px] text-[12px] font-semibold text-error-soft hover:bg-error/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
+// Ask and the Stop that takes its place while an answer runs share a size, so the box doesn't shift between them
+const SEND_BTN =
+    "inline-flex min-w-18 items-center justify-center gap-1.5 rounded-lg border-0 px-3.5 py-1.5 text-[12.5px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
 const SELECTED_PREFIX = "Selected ";
 // the briefing's sender is "<runtime> · <project>", so its first word names the runtime's dot
 const FROM_SEPARATOR = " · ";
@@ -27,7 +30,7 @@ const FROM_SEPARATOR = " · ";
 export interface BoardTalkProps {
     about: string; // the About chip's title: "the waveterm code", "claude · waveterm"
     items: TalkItem[];
-    ask: { disabled: boolean; hint: string; placeholder: string };
+    ask: { disabled: boolean; hint: string; placeholder: string; stoppable: boolean }; // stoppable: Stop takes Ask's place
     shownTurnId: string | null; // whose Show is on
     onAsk: (question: string) => void; // Enter asks, Shift Enter new line; empty does nothing
     onShow: (turnId: string, shapeIds: string[]) => void;
@@ -235,7 +238,15 @@ function itemKey(item: TalkItem): string {
     return `${item.kind}:${item.turnId}`;
 }
 
-function AskBox({ ask, onAsk }: { ask: BoardTalkProps["ask"]; onAsk: (question: string) => void }) {
+function AskBox({
+    ask,
+    onAsk,
+    onStop,
+}: {
+    ask: BoardTalkProps["ask"];
+    onAsk: (question: string) => void;
+    onStop: () => void;
+}) {
     const [text, setText] = useState("");
     const id = useId();
     const empty = text.trim() === "";
@@ -288,21 +299,33 @@ function AskBox({ ask, onAsk }: { ask: BoardTalkProps["ask"]; onAsk: (question: 
                         </span>
                     )}
                     <span className="flex-1" />
-                    <button
-                        type="button"
-                        disabled={ask.disabled}
-                        onClick={send}
-                        className={cn(
-                            "rounded-lg border-0 px-3.5 py-1.5 text-[12.5px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
-                            ask.disabled
-                                ? "cursor-default bg-edge-mid text-muted"
-                                : empty
-                                  ? "cursor-pointer bg-edge-mid text-secondary"
-                                  : "cursor-pointer bg-accent text-background hover:bg-accenthover"
-                        )}
-                    >
-                        Ask
-                    </button>
+                    {ask.stoppable ? (
+                        <button
+                            type="button"
+                            data-board-ask-stop
+                            onClick={onStop}
+                            className={cn(SEND_BTN, "cursor-pointer bg-edge-mid text-secondary hover:bg-edge-strong")}
+                        >
+                            <Square size={10} strokeWidth={0} fill="currentColor" aria-hidden />
+                            Stop
+                        </button>
+                    ) : (
+                        <button
+                            type="button"
+                            disabled={ask.disabled}
+                            onClick={send}
+                            className={cn(
+                                SEND_BTN,
+                                ask.disabled
+                                    ? "cursor-default bg-edge-mid text-muted"
+                                    : empty
+                                      ? "cursor-pointer bg-edge-mid text-secondary"
+                                      : "cursor-pointer bg-accent text-background hover:bg-accenthover"
+                            )}
+                        >
+                            Ask
+                        </button>
+                    )}
                 </div>
             </div>
         </div>
@@ -394,7 +417,7 @@ export function BoardTalk(props: BoardTalkProps) {
                     </AnimatePresence>
                 </div>
             )}
-            <AskBox ask={ask} onAsk={props.onAsk} />
+            <AskBox ask={ask} onAsk={props.onAsk} onStop={props.onStop} />
         </aside>
     );
 }

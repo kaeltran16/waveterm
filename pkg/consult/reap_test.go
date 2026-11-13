@@ -41,6 +41,16 @@ func main() {
 		}
 		fmt.Printf("GRANDCHILD %d\n", child.Process.Pid)
 		os.Exit(0)
+	case "quietparent":
+		// like a CLI that boots, then starts a helper that keeps none of its std handles, and replies
+		time.Sleep(500 * time.Millisecond)
+		child := exec.Command(os.Args[0], "hold", os.Args[2])
+		if err := child.Start(); err != nil {
+			fmt.Fprintf(os.Stderr, "spawn failed: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("GRANDCHILD %d\n", child.Process.Pid)
+		os.Exit(0)
 	case "hold":
 		hold, _ := strconv.Atoi(os.Args[2])
 		fmt.Fprintf(os.Stderr, "HOLDING %d for %dms\n", os.Getpid(), hold)

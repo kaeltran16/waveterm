@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/creack/pty"
+	"github.com/wavetermdev/waveterm/pkg/util/jobobject"
 )
 
 // stderrCapBytes bounds the owned stderr capture file: a hung child or a descendant
@@ -99,6 +100,13 @@ func runPipe(ctx context.Context, spec RuntimeSpec, cwd, prompt string, emit fun
 	if err := cmd.Start(); err != nil {
 		return "", fmt.Errorf("starting %s: %w", spec.Bin, err)
 	}
+	// a kill-on-close job takes the CLI's whole tree down when this run returns, cancelled or not, and when wavesrv
+	// dies mid-run. A child the CLI starts before Attach escapes it; the CLIs here boot well before they spawn.
+	job, jerr := jobobject.Attach(cmd.Process)
+	if jerr != nil {
+		log.Printf("consult: %s runs without a job object, its descendants may outlive it: %v", spec.Bin, jerr)
+	}
+	defer jobobject.Close(job)
 	// Grandchildren (e.g. codex hook subprocesses) can inherit and hold the stdout pipe open after the
 	// CLI itself exits, so an EOF-driven read loop would block forever; and a ctx-killed process's pipe
 	// may never EOF either. Closing stdout when ctx fires guarantees the read loop ends.

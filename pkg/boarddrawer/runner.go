@@ -43,8 +43,9 @@ type Reply struct {
 // Call is one run of a board's drawer session.
 type Call struct {
 	SessionId string
-	Resume    bool // --resume SessionId, else --session-id SessionId
-	Fork      bool // with Resume: --fork-session (the handoff summary leaves SessionId as it was)
+	Resume    bool   // --resume SessionId, else --session-id SessionId
+	Fork      bool   // with Resume: --fork-session (the handoff summary leaves SessionId as it was)
+	ForkId    string // with Fork: the fork's own session id, so it can be removed; "" lets claude pick one
 	Prompt    string
 }
 
@@ -87,6 +88,9 @@ func drawerSpec(spec consult.RuntimeSpec, c Call, cancel context.CancelFunc) (co
 		args = append(args, "--resume", c.SessionId)
 		if c.Fork {
 			args = append(args, "--fork-session")
+			if c.ForkId != "" {
+				args = append(args, "--session-id", c.ForkId)
+			}
 		}
 	} else {
 		args = append(args, "--session-id", c.SessionId)

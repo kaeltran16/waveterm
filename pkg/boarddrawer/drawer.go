@@ -59,6 +59,8 @@ type Deps struct {
 	Run        func(ctx context.Context, cwd string, c Call) (Reply, error) // nil: RunModel
 	Now        func() int64
 	NewId      func() string // nil: uuid.NewString
+	// RemoveSession deletes a session's transcript; only ever given sessions the drawer made. nil: RemoveSession
+	RemoveSession func(sessionId string) error
 }
 
 type boardKey struct{ channelId, boardId string }
@@ -84,6 +86,9 @@ func New(d Deps) *Drawer {
 	}
 	if d.Now == nil {
 		d.Now = func() int64 { return time.Now().UnixMilli() }
+	}
+	if d.RemoveSession == nil {
+		d.RemoveSession = RemoveSession
 	}
 	if d.NewId == nil {
 		d.NewId = uuid.NewString
@@ -359,7 +364,7 @@ func (d *Drawer) runTurn(b Board, turnId string) {
 // answer runs one turn's session and delivers its drawing; delivered says an answer went to the inbox.
 func (d *Drawer) answer(ctx context.Context, b Board, talk wshrpc.BoardTalk, turn wshrpc.BoardTurn) (Answer, bool, error) {
 	call := Call{SessionId: talk.SessionId, Resume: talk.SessionId != ""}
-	earlier := ""
+	earlier, retired := "", "" // retired: the large session a summary replaces, removed once the new one answers
 	if call.Resume && talk.ContextTokens > SummarizeAboveTokens {
 		s, err := d.summarize(ctx, b, talk.SessionId)
 		if ctx.Err() != nil {
@@ -369,7 +374,7 @@ func (d *Drawer) answer(ctx context.Context, b Board, talk wshrpc.BoardTalk, tur
 			// the large session still works: this turn resumes it, and the next tries the summary again
 			log.Printf("boarddrawer: summing up session %s of board %s: %v", talk.SessionId, b.BoardId, err)
 		} else {
-			earlier, call = s, Call{}
+			earlier, retired, call = s, talk.SessionId, Call{}
 		}
 	}
 	var first *firstInput
@@ -411,6 +416,9 @@ func (d *Drawer) answer(ctx context.Context, b Board, talk wshrpc.BoardTalk, tur
 	reply := out.Text
 	if err == nil {
 		d.recordContext(b, call.SessionId, out.ContextTokens)
+		if retired != "" {
+			d.removeSession(b, retired)
+		}
 	}
 	if err != nil && first == nil && strings.Contains(err.Error(), lostSessionText) {
 		// nothing can ever resume it, so keeping it would fail every later turn: this one starts a new session
@@ -419,7 +427,11 @@ func (d *Drawer) answer(ctx context.Context, b Board, talk wshrpc.BoardTalk, tur
 		return d.answer(ctx, b, talk, turn)
 	}
 	if err != nil {
-		if first != nil {
+		switch {
+		case retired != "":
+			// the summed-up session is still whole: the talk goes back to it, and the next turn sums it up again
+			d.restoreSession(b, call.SessionId, retired, talk.ContextTokens)
+		case first != nil:
 			// the session may never have started: the next turn starts it again rather than resume nothing
 			d.dropSession(b, call.SessionId)
 		}
@@ -494,7 +506,10 @@ func (d *Drawer) handoffSummary(ctx context.Context, b Board, fromBoardId string
 // summarize asks a fork of sessionId to sum up its talk for the session that takes over, so a failed summary
 // leaves the session as it was.
 func (d *Drawer) summarize(ctx context.Context, b Board, sessionId string) (string, error) {
-	out, err := d.d.Run(ctx, b.ProjectPath, Call{SessionId: sessionId, Resume: true, Fork: true, Prompt: compactPrompt})
+	fork := d.d.NewId()
+	// the fork only carries the summary out
+	defer d.removeSession(b, fork)
+	out, err := d.d.Run(ctx, b.ProjectPath, Call{SessionId: sessionId, Resume: true, Fork: true, ForkId: fork, Prompt: compactPrompt})
 	if err != nil {
 		return "", err
 	}
@@ -515,6 +530,27 @@ func (d *Drawer) recordContext(b Board, sessionId string, tokens int) {
 	})
 	if err != nil {
 		log.Printf("boarddrawer: recording the context of board %s: %v", b.BoardId, err)
+	}
+}
+
+// restoreSession puts the talk back on old, unless it moved past failed meanwhile, and removes failed.
+func (d *Drawer) restoreSession(b Board, failed, old string, tokens int) {
+	_, err := d.d.UpdateTalk(b, func(talk *wshrpc.BoardTalk) error {
+		if talk.SessionId == failed {
+			talk.SessionId, talk.ContextTokens = old, tokens
+		}
+		return nil
+	})
+	if err != nil {
+		log.Printf("boarddrawer: restoring session %s of board %s: %v", old, b.BoardId, err)
+		return
+	}
+	d.removeSession(b, failed)
+}
+
+func (d *Drawer) removeSession(b Board, sessionId string) {
+	if err := d.d.RemoveSession(sessionId); err != nil {
+		log.Printf("boarddrawer: removing session %s of board %s: %v", sessionId, b.BoardId, err)
 	}
 }
 

@@ -37,6 +37,7 @@ type fake struct {
 	maxActive int
 	ids       int
 	ctxTokens int // the context size every run reports
+	removed   []string
 	run       func(ctx context.Context, c Call) (string, error)
 }
 
@@ -119,6 +120,12 @@ func (f *fake) deps() Deps {
 			defer f.mu.Unlock()
 			return Reply{Text: text, ContextTokens: f.ctxTokens}, err
 		},
+		RemoveSession: func(sessionId string) error {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			f.removed = append(f.removed, sessionId)
+			return nil
+		},
 		Now: func() int64 { return 1000 },
 		NewId: func() string {
 			f.mu.Lock()
@@ -139,6 +146,12 @@ func (f *fake) callList() []Call {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return slices.Clone(f.calls)
+}
+
+func (f *fake) removedList() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.removed)
 }
 
 func (f *fake) deliveredCount() int {
@@ -669,8 +682,11 @@ func TestDrawerLargeTalkResumesFromSummary(t *testing.T) {
 	if len(calls) != 2 {
 		t.Fatalf("want the summary and the turn: %+v", calls)
 	}
-	if c := calls[0]; c.SessionId != "big" || !c.Resume || !c.Fork || c.Prompt != compactPrompt {
+	if c := calls[0]; c.SessionId != "big" || !c.Resume || !c.Fork || c.ForkId == "" || c.Prompt != compactPrompt {
 		t.Errorf("summary call: %+v", c)
+	}
+	if got, want := f.removedList(), []string{calls[0].ForkId, "big"}; !slices.Equal(got, want) {
+		t.Errorf("removed %v, want the fork then the summed-up session %v", got, want)
 	}
 	c := calls[1]
 	if c.Resume || c.SessionId == "big" || c.SessionId == "" {
@@ -721,6 +737,36 @@ func TestDrawerFailedSummaryResumes(t *testing.T) {
 	if talk.SessionId != "big" || talk.Turns[0].State != StateAnswered {
 		t.Errorf("talk: %+v", talk)
 	}
+	if got := f.removedList(); len(got) != 1 || got[0] != calls[0].ForkId {
+		t.Errorf("only the fork may go, removed %v", got)
+	}
+}
+
+// a new session that fails after the summary hands the talk back to the summed-up session, which stays on disk
+func TestDrawerFailedTurnAfterSummaryKeepsOldSession(t *testing.T) {
+	f := newFake(nil)
+	f.talks["b1"] = wshrpc.BoardTalk{ChannelId: "c1", BoardId: "b1", SessionId: "big", ContextTokens: SummarizeAboveTokens + 7}
+	f.run = func(ctx context.Context, c Call) (string, error) {
+		if c.Fork {
+			return "a summary", nil
+		}
+		return "", errors.New("the drawer's session exited before it replied (API Error: 529 overloaded)")
+	}
+	d := New(f.deps())
+	if _, err := d.Ask(board, question("q")); err != nil {
+		t.Fatal(err)
+	}
+	talk := settled(t, f, d)
+	calls := f.callList()
+	if len(calls) != 2 || calls[1].Resume {
+		t.Fatalf("want the summary, then the new session's turn: %+v", calls)
+	}
+	if talk.SessionId != "big" || talk.ContextTokens != SummarizeAboveTokens+7 || talk.Turns[0].State != StateFailed {
+		t.Errorf("the talk must go back to big: %+v", talk)
+	}
+	if got, want := f.removedList(), []string{calls[0].ForkId, calls[1].SessionId}; !slices.Equal(got, want) {
+		t.Errorf("removed %v, want the fork and the failed new session %v", got, want)
+	}
 }
 
 func TestDrawerStopDuringSummary(t *testing.T) {
@@ -737,8 +783,12 @@ func TestDrawerStopDuringSummary(t *testing.T) {
 		t.Fatal(err)
 	}
 	talk := settled(t, f, d)
-	if talk.Turns[0].State != StateStopped || talk.SessionId != "big" || len(f.callList()) != 1 {
-		t.Errorf("a Stop during the summary stops the turn and keeps the session: %+v, calls %+v", talk, f.callList())
+	calls := f.callList()
+	if talk.Turns[0].State != StateStopped || talk.SessionId != "big" || len(calls) != 1 {
+		t.Errorf("a Stop during the summary stops the turn and keeps the session: %+v, calls %+v", talk, calls)
+	}
+	if got := f.removedList(); len(got) != 1 || got[0] != calls[0].ForkId {
+		t.Errorf("a stopped summary removes only its fork, removed %v", got)
 	}
 }
 

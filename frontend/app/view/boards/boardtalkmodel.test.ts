@@ -245,14 +245,28 @@ describe("askBox", () => {
             disabled: true,
             hint: "This board won't open, so the drawer can't answer on it",
             placeholder,
+            stoppable: false,
         });
     });
 
     it("is disabled while busy, or while the talk has a turn in flight", () => {
         const hint = "You can ask once this answer lands";
-        expect(askBox(null, "Board", "wavesrv", true, false)).toEqual({ disabled: true, hint, placeholder });
+        expect(askBox(null, "Board", "wavesrv", true, false)).toEqual({
+            disabled: true,
+            hint,
+            placeholder,
+            stoppable: false,
+        });
         expect(askBox(talk([turn({ state: "answering" })]), "Board", null, false, false).hint).toBe(hint);
         expect(askBox(talk([turn({ state: "waiting" })]), "Board", null, false, false).disabled).toBe(true);
+    });
+
+    it("offers Stop only while a turn is answering", () => {
+        expect(askBox(talk([turn({ state: "answering" })]), "Board", null, false, false).stoppable).toBe(true);
+        expect(askBox(talk([turn({ state: "answering" })]), "Board", null, true, false).stoppable).toBe(true);
+        expect(askBox(talk([turn({ state: "waiting" })]), "Board", null, false, false).stoppable).toBe(false);
+        expect(askBox(talk([turn({ state: "stopped" })]), "Board", null, false, false).stoppable).toBe(false);
+        expect(askBox(talk([turn({ state: "answering" })]), "Board", null, false, true).stoppable).toBe(false);
     });
 
     it("names the selection, or asks for one", () => {
@@ -260,11 +274,13 @@ describe("askBox", () => {
             disabled: false,
             hint: "Selected wavesrv",
             placeholder,
+            stoppable: false,
         });
         expect(askBox(null, "Board", null, false, false)).toEqual({
             disabled: false,
             hint: "Select shapes to ask about them",
             placeholder,
+            stoppable: false,
         });
     });
 });
