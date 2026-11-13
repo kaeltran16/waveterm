@@ -121,9 +121,8 @@ func tick(ctx context.Context) {
 	correctClaimsLocked(usage, t)
 	// the pause limit needs no reading, so a failing read never lets a pause outlive it
 	resumeLimitedLocked(t)
-	avail, err := freeMem()
+	avail, err := readFreeLocked()
 	if err != nil {
-		log.Printf("memgate: reading free memory, not pausing or resuming: %v", err)
 		return
 	}
 	checkRiseLocked(avail)

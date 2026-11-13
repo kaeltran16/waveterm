@@ -93,6 +93,8 @@ var book = struct {
 	held    map[Tag]time.Time // tags refused or held, and since when
 	waiters []*waiter         // queued Waits, oldest first
 	room    chan struct{}     // closed (and replaced) whenever room may have freed
+	// freeFailing is whether the last free-memory read failed, so a failing read logs once, not per check
+	freeFailing bool
 }{
 	claims: make(map[*Claim]struct{}),
 	held:   make(map[Tag]time.Time),
@@ -106,13 +108,26 @@ func needOf(r Request) uint64 {
 	return Estimate(r.Key)
 }
 
+// readFreeLocked reads available memory, logging only when the read starts or stops failing: admission checks
+// and loop ticks read it far too often to log each failure.
+func readFreeLocked() (uint64, error) {
+	avail, err := freeMem()
+	switch {
+	case err != nil && !book.freeFailing:
+		log.Printf("memgate: reading free memory, admitting all and pausing nothing until it reads again: %v", err)
+	case err == nil && book.freeFailing:
+		log.Printf("memgate: reading free memory again")
+	}
+	book.freeFailing = err != nil
+	return avail, err
+}
+
 // freeLocked is available memory less what live claims owe, and less the oldest queued Wait's need unless self is
 // that Wait: without it, worker and reviewer TryAdmits racing each room kick could starve a blocked plan command.
 func freeLocked(self *waiter) uint64 {
-	avail, err := freeMem()
+	avail, err := readFreeLocked()
 	if err != nil {
 		// the gate guards the machine, it is not a correctness rule: an unreadable reading must not stop work
-		log.Printf("memgate: reading free memory, admitting: %v", err)
 		return ^uint64(0)
 	}
 	var owed uint64

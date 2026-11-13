@@ -4,11 +4,15 @@
 package memgate
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log"
 	"os"
 	"slices"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -39,6 +43,7 @@ func newGate(t *testing.T, free uint64) *recorder {
 	book.claims = make(map[*Claim]struct{})
 	book.held = make(map[Tag]time.Time)
 	book.waiters = nil
+	book.freeFailing = false
 	book.mu.Unlock()
 	t.Cleanup(SetFreeForTest(func() (uint64, error) { return free, nil }))
 	// events still queued by an earlier test would land in this test's recorder
@@ -165,6 +170,40 @@ func TestHeldOncePerTransition(t *testing.T) {
 	held := rec.events[0]
 	if held.Tag != r.Tag || held.Free != 2*gib || held.Need != 4*gib {
 		t.Fatalf("held event = %+v, want tag %v, free 2 GiB, need 4 GiB", held, r.Tag)
+	}
+}
+
+func TestUnreadableFreeLogsOncePerTransition(t *testing.T) {
+	newGate(t, 8*gib)
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	var failing atomic.Bool
+	readFree := func() (uint64, error) {
+		if failing.Load() {
+			return 0, errors.New("unreadable")
+		}
+		return 8 * gib, nil
+	}
+	t.Cleanup(SetFreeForTest(readFree))
+	check := func() {
+		c := mustAdmit(t, req("r1", "a", gib))
+		c.Release()
+	}
+
+	failing.Store(true)
+	check()
+	check()
+	check()
+	failing.Store(false)
+	check()
+	check()
+	failing.Store(true)
+	check()
+
+	got := strings.Count(buf.String(), "memgate: reading free memory")
+	if got != 3 {
+		t.Fatalf("logged %d free-memory lines, want 3 (fail, recover, fail):\n%s", got, buf.String())
 	}
 }
 
