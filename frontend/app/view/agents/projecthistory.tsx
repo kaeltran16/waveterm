@@ -341,8 +341,9 @@ function HistoryRow({
                     {sessionLine(s)}
                 </span>
             </button>
-            {/* a session's runs showing up while the list is up (a run read retried, a run started) open under
-                it rather than shoving the rows below down in one frame */}
+            {/* a session's runs showing up while the list is up (the archive's session data changing under it) open
+                under it rather than shoving the rows below down in one frame; a retried runs read remounts the list
+                through its skeleton, and nothing re-reads runs when one starts */}
             <PaneReveal open={entry.runs.length > 0} className="flex-none">
                 {entry.runs.map((r) => (
                     <RunRow key={r.key} run={r} now={now} nested onOpen={() => openRun(r.runId)} />
