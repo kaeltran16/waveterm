@@ -25,6 +25,11 @@ const persistSessionsEnv = "CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1"
 // drawerTools is everything the drawer may load: read and search, no edits and no shell.
 var drawerTools = []string{"Read", "Grep", "Glob"}
 
+// leanEnv drops CLAUDE.md files and auto-memory, which --bare would also skip; --bare itself can't be used
+// because it never reads the claude.ai login and would need an API key. The prompt points the drawer at the
+// project's AGENTS.md / CLAUDE.md for the turns that need them.
+var leanEnv = []string{"CLAUDE_CODE_DISABLE_CLAUDE_MDS=1", "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1"}
+
 // Call is one run of a board's drawer session.
 type Call struct {
 	SessionId string
@@ -62,9 +67,12 @@ var RunModel = func(ctx context.Context, cwd string, c Call) (string, error) {
 // drawerSpec makes spec read-only and points it at c's session.
 func drawerSpec(spec consult.RuntimeSpec, c Call, cancel context.CancelFunc) (consult.RuntimeSpec, *toolGuard) {
 	g := &toolGuard{cancel: cancel}
-	// --strict-mcp-config: without it the account's connector tools load despite --tools
+	// --strict-mcp-config: without it the account's connector tools load despite --tools.
+	// --setting-sources= (no sources) and --disable-slash-commands: the person's hooks, plugins and skills are
+	// for their own sessions, and would run on every turn here. "=" keeps the empty value one arg through cmd.
 	args := append(append([]string{}, spec.BaseArgs...),
-		"--model", "sonnet", "--tools", strings.Join(drawerTools, ","), "--strict-mcp-config")
+		"--model", "sonnet", "--tools", strings.Join(drawerTools, ","), "--strict-mcp-config",
+		"--setting-sources=", "--disable-slash-commands")
 	if c.Resume {
 		args = append(args, "--resume", c.SessionId)
 		if c.Fork {
@@ -74,7 +82,7 @@ func drawerSpec(spec consult.RuntimeSpec, c Call, cancel context.CancelFunc) (co
 		args = append(args, "--session-id", c.SessionId)
 	}
 	spec.BaseArgs = args
-	spec.Env = append(append([]string{}, spec.Env...), persistSessionsEnv)
+	spec.Env = append(append(append([]string{}, spec.Env...), persistSessionsEnv), leanEnv...)
 	parse := spec.ParseLine
 	spec.ParseLine = func(line []byte) consult.ParsedEvent {
 		if err := g.check(line); err != nil {
