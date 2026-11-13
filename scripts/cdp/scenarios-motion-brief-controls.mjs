@@ -17,6 +17,7 @@ import {
     closeProfile,
     failRpc,
     holdRpc,
+    lookEval,
     notesClipStub,
     openAddressExpr,
     openProfileOn,
@@ -75,6 +76,21 @@ const watchMount = (sel, act, ms = 700) => `(async () => {
     };
 })()`;
 
+// Arms watchMount on the page under `key`, for a moment that plays inside another step's action; readArmed awaits it.
+const armMount = (key, sel, ms = 700) => `(() => { window[${JSON.stringify(key)}] = ${watchMount(sel, "", ms)}; return true; })()`;
+const readArmed = (key) => `window[${JSON.stringify(key)}]`;
+
+// Replies to every call of an RPC after `ms`, refusing it with `message` or passing it with null, without reaching the
+// server, until releaseRpc puts the original back. The delay lets a busy label be seen before it swaps back.
+const replyAfter = (h, command, ms, message = null) =>
+    lookEval(h, `
+        const { RpcApi } = await mod("app/store/wshclientapi.ts");
+        (window.__heldRpc ??= {})[${JSON.stringify(command)}] ??= RpcApi[${JSON.stringify(command)}];
+        RpcApi[${JSON.stringify(command)}] = () =>
+            new Promise((ok, no) => setTimeout(() => (${message != null} ? no(new Error(${JSON.stringify(message)})) : ok(null)), ${ms}));
+        return true;
+    `);
+
 // Runs `act` on an element already showing: whether it is still attached and part-faded `midMs` in, and gone later.
 const watchExit = (elExpr, act, midMs = 120) => `(async () => {
     const el = ${elExpr};
@@ -118,6 +134,10 @@ const mountedFadingIn = (w) => w != null && w.first?.opacity === "0" && Number(w
 // a freshly booted app is still busy for a moment, which stretches the first animations past their windows
 const BOOT_SETTLE_MS = 1600;
 const exitedFading = (w) => w != null && w.mid.attached && w.mid.opacity > 0 && w.mid.opacity < 1 && w.goneAfter;
+// caught mid-transform at least once, then attached and still, reading `text`
+const nudged = (w, text) => w != null && w.moved && w.settled.attached && w.settled.transform === "none" && w.settled.text === text;
+// a CrossFade label that mounted at 0 and settled attached at 1, reading `text`
+const swappedIn = (w, text) => mountedFadingIn(w) && w.settled.attached && w.settled.text === text;
 
 async function openNewInitiative(h) {
     await h.ev(`document.querySelector('[data-jarvis-new-initiative]')?.click()`);
@@ -169,27 +189,42 @@ async function newInitiativeSteps(h, rec) {
     await closeNewInitiative(h);
 }
 
-// A title typed in and created clears the title error, and the refused create's save error is cleared by a retry: each
-// strip collapses still reading its error. The retry is held, so no initiative is made.
+// A title typed in and created clears the title error, and the refused create nudges its save error in, which a retry
+// clears: each strip collapses still reading its error. The retry is held, so no initiative is made, and its button
+// cross-fades to Creating….
 async function errorLeaveSteps(h, rec) {
     const TITLE_ERR = `${NEW_INIT}?.querySelector('[data-effort-error="title"]')`;
     const SAVE_ERR = `${NEW_INIT}?.querySelector('[data-effort-error="save"]')`;
     try {
         await failRpc(h, "EffortCreateCommand", CREATE_REFUSAL);
+        await h.ev(armMount("__mbcSaveErr", '[data-effort-error="save"]', 1500));
         const title = await h.ev(watchLeave(TITLE_ERR, CTRL_ENTER));
         rec(
             "1b. creating once a title is typed collapses the title error mid-fade, reading Title is required on every attached frame, then removes it",
             leftReading(title, "Title is required"),
             JSON.stringify(title)
         );
+        const saveErr = await h.ev(readArmed("__mbcSaveErr"));
+        rec(
+            "1c. the refused create reveals the save error from opacity 0 with one sideways nudge, settling still on the refusal",
+            mountedFadingIn(saveErr) && nudged(saveErr, CREATE_REFUSAL),
+            JSON.stringify(saveErr)
+        );
         const refused = await polishWaitFor(h, `(${SAVE_ERR}?.textContent ?? "").trim() === ${JSON.stringify(CREATE_REFUSAL)}`, 3000);
         await polishNap(400);
         await holdRpc(h, "EffortCreateCommand");
+        await h.ev(armMount("__mbcCreating", '[data-crossfade="busy"]', 1000));
         const save = refused ? await h.ev(watchLeave(SAVE_ERR, CTRL_ENTER)) : null;
         rec(
-            "1c. a retry after a refused create collapses the save error mid-fade, reading the refusal on every attached frame, then removes it",
+            "1d. a retry after a refused create collapses the save error mid-fade, reading the refusal on every attached frame, then removes it",
             refused && leftReading(save, CREATE_REFUSAL),
             JSON.stringify({ refused, save })
+        );
+        const creating = refused ? await h.ev(readArmed("__mbcCreating")) : null;
+        rec(
+            "1e. the held retry cross-fades Create initiative to Creating… from opacity 0, settling at 1",
+            swappedIn(creating, "Creating…"),
+            JSON.stringify(creating)
         );
     } finally {
         await releaseRpc(h, "EffortCreateCommand");
@@ -248,7 +283,7 @@ async function chipSteps(h, rec) {
     }
 }
 
-// the Profile modal: switching scope fades the new face in
+// the Profile modal: switching scope fades the new face in, and Save cross-fades to Saving…
 async function profileSteps(h, ctx, rec) {
     if (!(await openProfileOn(h, ctx.p.project))) {
         rec("6. switching the Profile to Global fades its face in", false, "the profile did not open on the project");
@@ -259,7 +294,33 @@ async function profileSteps(h, ctx, rec) {
     );
     rec("6. switching the Profile to Global fades its face in from 0 to 1", mountedFadingIn(fade), JSON.stringify(fade));
     await h.shot("cdp-shots/motion-brief-controls-4-profile-global.png");
+    await profileSaveStep(h, ctx, rec);
     await closeProfile(h);
+}
+
+// Save on an edited project profile, refused after a beat so nothing is written: its label cross-fades to Saving…
+async function profileSaveStep(h, ctx, rec) {
+    const APPROVALS_OFF = `${PROFILE_MODAL}?.querySelector('[role="group"][aria-label="Approvals"] button[aria-pressed="false"]')`;
+    const SAVE = `[...(${PROFILE_MODAL}?.querySelectorAll('footer button') ?? [])].find((b) => b.textContent.trim() === 'Save profile')`;
+    try {
+        const stubbed = await replyAfter(h, "SetChannelProfileCommand", 1500, "motion-brief-controls refused this save on the page");
+        // back on the project's face, an Approvals flip makes the draft dirty, so Save is enabled
+        const ready =
+            stubbed === true &&
+            (await openProfileOn(h, ctx.p.project)) &&
+            (await h.ev(`${APPROVALS_OFF}?.click() ?? true`)) &&
+            (await polishWaitFor(h, `${SAVE} != null && !${SAVE}.disabled`, 3000));
+        const saving = ready ? await h.ev(watchMount('[data-crossfade="saving"]', `${SAVE}?.click()`, 1000)) : null;
+        await h.shot("cdp-shots/motion-brief-controls-4b-profile-saving.png");
+        rec(
+            "6b. Save on an edited profile cross-fades its label to Saving… from opacity 0, settling at 1",
+            ready && swappedIn(saving, "Saving…"),
+            JSON.stringify({ stubbed, ready, saving })
+        );
+        await polishWaitFor(h, `!!${PROFILE_MODAL}?.querySelector('[data-jarvis-brief-modal-state="error"]')`, 3000);
+    } finally {
+        await releaseRpc(h, "SetChannelProfileCommand");
+    }
 }
 
 // New run: the project list pops in and out, orchestrator's rows reveal, a picked start fades its row in and the
@@ -308,23 +369,37 @@ async function newRunSteps(h, rec) {
     await polishWaitFor(h, `!${NEW_RUN}`, 3000);
 }
 
-// a refused start shows the footer error; a second start clears it, and it fades out under popLayout still reading
-// the refusal. The second start is held, so no run is made; Cancel closes the window over it.
+// a refused start nudges the footer error in; a second start clears it, and it fades out under popLayout still reading
+// the refusal. The second start is held, so no run is made, and its button cross-fades to Starting…; Cancel closes the
+// window over it.
 async function startErrorStep(h, rec) {
     const START = `${NEW_RUN}?.querySelector('[data-new-run-start]')`;
     const ERR = `${NEW_RUN}?.querySelector('[data-new-run-error]')`;
+    const REFUSED = `Error: ${START_REFUSAL}`;
     try {
         for (const c of START_RPCS) await failRpc(h, c, START_REFUSAL);
         await polishWaitFor(h, `${START} != null && !${START}.disabled`, 5000);
-        await h.ev(`${START}?.click()`);
-        const refused = await polishWaitFor(h, `(${ERR}?.textContent ?? "").trim() === ${JSON.stringify(`Error: ${START_REFUSAL}`)}`, 4000);
+        const nudge = await h.ev(watchMount("[data-new-run-error]", `${START}?.click()`, 1200));
+        rec(
+            "11a. a refused start nudges the footer error in sideways once, settling still on the refusal",
+            nudged(nudge, REFUSED),
+            JSON.stringify(nudge)
+        );
+        const refused = await polishWaitFor(h, `(${ERR}?.textContent ?? "").trim() === ${JSON.stringify(REFUSED)}`, 4000);
         await polishNap(400);
         for (const c of START_RPCS) await holdRpc(h, c);
+        await h.ev(armMount("__mbcStarting", '[data-crossfade="starting"]', 1000));
         const leave = refused ? await h.ev(watchLeave(ERR, `${START}?.click()`, "el")) : null;
         rec(
             "11b. a second start after a refused one fades the footer error out while attached, reading the refusal on every attached frame, then removes it",
-            refused && leftReading(leave, `Error: ${START_REFUSAL}`),
+            refused && leftReading(leave, REFUSED),
             JSON.stringify({ refused, error: await h.ev(`(${ERR}?.textContent ?? "").trim()`), leave })
+        );
+        const starting = refused ? await h.ev(readArmed("__mbcStarting")) : null;
+        rec(
+            "11c. the held start cross-fades Start run to Starting… from opacity 0, settling at 1",
+            swappedIn(starting, "Starting…"),
+            JSON.stringify(starting)
         );
     } finally {
         for (const c of START_RPCS) await releaseRpc(h, c);
@@ -363,8 +438,73 @@ async function runSheetSteps(h, ctx, rec) {
         JSON.stringify(invalid)
     );
     if (width != null) await h.ev(setInputExpr(SHEET_WIDTH, width));
+    if (width != null) {
+        await settingsSaveSteps(h, rec, width);
+        await approvalsNoteStep(h, rec);
+    }
     await h.ev(clickByText(SHEET_CONFIG, "button", "done"));
     await h.ev(PEEKS_ESC);
+}
+
+const SHEET_SAVE = `[...(${BRIEF_SHEET}?.querySelectorAll('button') ?? [])].find((b) => b.textContent.trim() === 'Save settings')`;
+const SAVE_REFUSAL = "motion-brief-controls refused this save on the page";
+const sheetSaveEnabled = (h) => polishWaitFor(h, `${SHEET_SAVE} != null && !${SHEET_SAVE}.disabled`, 3000);
+
+// a refused settings save nudges its error in, and a second refusal nudges again (keyed per failure); nothing is written
+async function settingsSaveSteps(h, rec, width) {
+    try {
+        await replyAfter(h, "SetRunSettingsCommand", 150, SAVE_REFUSAL);
+        // any other valid width makes the draft dirty, so Save settings is enabled
+        await h.ev(setInputExpr(SHEET_WIDTH, Number(width) === 1 ? "2" : "1"));
+        const first = (await sheetSaveEnabled(h))
+            ? await h.ev(watchMount('[data-jarvis-brief-sheet-state="error"]', `${SHEET_SAVE}?.click()`, 1200))
+            : null;
+        rec(
+            "14. a refused settings save reveals its error from opacity 0 with one sideways nudge, settling still on the refusal",
+            mountedFadingIn(first) && nudged(first, `Error: ${SAVE_REFUSAL}`),
+            JSON.stringify(first)
+        );
+        const again = (await sheetSaveEnabled(h))
+            ? await h.ev(watchMount('[data-jarvis-brief-sheet-state="error"]', `${SHEET_SAVE}?.click()`, 1200))
+            : null;
+        await h.shot("cdp-shots/motion-brief-controls-7-save-refused.png");
+        rec(
+            "15. a second refused save nudges its error sideways again, settling still on the refusal",
+            nudged(again, `Error: ${SAVE_REFUSAL}`),
+            JSON.stringify(again)
+        );
+    } finally {
+        await releaseRpc(h, "SetRunSettingsCommand");
+    }
+    await h.ev(setInputExpr(SHEET_WIDTH, width));
+}
+
+// Approvals turned off on an autonomous run cross-fades its note in. A run that asks is first made autonomous through a
+// save that passes on the page, so only the sheet's baseline changes and nothing is written.
+async function approvalsNoteStep(h, rec) {
+    const APPROVALS = (label) =>
+        `[...(${BRIEF_SHEET}?.querySelectorAll('[role="group"][aria-label="Approvals"] button') ?? [])].find((b) => b.textContent.trim() === ${JSON.stringify(label)})`;
+    const pressed = (label) => `${APPROVALS(label)}?.getAttribute('aria-pressed') === 'true'`;
+    try {
+        await replyAfter(h, "SetRunSettingsCommand", 150);
+        const wasAuto = await h.ev(pressed("Autonomous"));
+        if (!wasAuto) {
+            await h.ev(`${APPROVALS("Autonomous")}?.click()`);
+            if (await sheetSaveEnabled(h)) await h.ev(`${SHEET_SAVE}?.click()`);
+            await polishWaitFor(h, `!!${BRIEF_SHEET}?.querySelector('[data-jarvis-brief-sheet-state="saved"]')`, 3000);
+        }
+        const autonomous = await h.ev(pressed("Autonomous"));
+        const note = await h.ev(watchMount('[data-crossfade="off"]', `${APPROVALS("Ask me")}?.click()`));
+        await h.shot("cdp-shots/motion-brief-controls-8-approvals-note.png");
+        rec(
+            "16. turning Approvals off on an autonomous run cross-fades its note in from opacity 0 to 1",
+            autonomous && mountedFadingIn(note) && note.settled.attached && note.settled.text.startsWith("The lead asks you again"),
+            JSON.stringify({ wasAuto, autonomous, note })
+        );
+        await h.ev(`${APPROVALS("Autonomous")}?.click()`);
+    } finally {
+        await releaseRpc(h, "SetRunSettingsCommand");
+    }
 }
 
 export const motionBriefControls = {
@@ -394,7 +534,9 @@ export const motionBriefControls = {
         await h.cdp("Emulation.setEmulatedMedia", { features: [] }).catch(() => {});
         await h.ev(PEEKS_ESC).catch(() => {});
         await h.ev(clickByText(NEW_INIT, "button", "Cancel")).catch(() => {});
-        for (const c of ["EffortCreateCommand", ...START_RPCS]) await releaseRpc(h, c).catch(() => {});
+        for (const c of ["EffortCreateCommand", "SetChannelProfileCommand", "SetRunSettingsCommand", ...START_RPCS]) {
+            await releaseRpc(h, c).catch(() => {});
+        }
         if (ctx.n) await newRunWindow.teardown(h, ctx.n);
         if (ctx.p) await briefProfile.teardown(h, ctx.p);
     },
