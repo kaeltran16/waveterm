@@ -118,6 +118,21 @@ func TestAgentsListProjectFilter(t *testing.T) {
 	}
 }
 
+func TestAgentsWithout(t *testing.T) {
+	roster := agentsTestRoster()
+	if got, want := agentsTabIds(agentsWithout(roster, agentsTestTabB)), []string{agentsTestTabA, agentsTestTabC}; !reflect.DeepEqual(got, want) {
+		t.Errorf("without the caller's tab kept %q, want %q", got, want)
+	}
+	// no known self tab drops nothing
+	if got, want := agentsTabIds(agentsWithout(roster, "")), []string{agentsTestTabA, agentsTestTabB, agentsTestTabC}; !reflect.DeepEqual(got, want) {
+		t.Errorf("without no tab kept %q, want %q", got, want)
+	}
+	none := agentsWithout(nil, agentsTestTabA)
+	if none == nil || len(none) != 0 {
+		t.Errorf("no rows = %#v, want a non-nil empty slice so --json prints []", none)
+	}
+}
+
 func TestAgentsListJSON(t *testing.T) {
 	empty, err := json.Marshal(agentsInProject(nil, "C:/work/arc"))
 	if err != nil || string(empty) != "[]" {
