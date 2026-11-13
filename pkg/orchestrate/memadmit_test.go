@@ -237,6 +237,50 @@ func TestReviewerHeldAtDoor(t *testing.T) {
 	}
 }
 
+// a finished worker idles alive at its prompt until its lane lands, which waits on the review: its claim must stop
+// owing its estimate once its run is done, or the reviewer is refused with the machine's memory free (2026-11-13)
+func TestFinishedWorkerClaimDoesNotHoldItsReviewer(t *testing.T) {
+	cleanBook(t)
+	ctx, dag, worker := seedReviewDag(t)
+	stubReviewTree(t, worker.EndCommit)
+	calls := captureSpawns(t)
+	tab, blockID := newWorkerTabWithBlock(t)
+	if err := wstore.UpdateRun(ctx, dag.ChannelId, worker.ID, func(r *waveobj.Run) error {
+		r.Phases[0].WorkerOrefs = []string{tab}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	owner, err := wstore.GetRun(ctx, dag.ChannelId, dag.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workerNeed := workerRequest(dag, owner, "t-0").Need
+	claim, ok := memgate.TryAdmit(workerRequest(dag, owner, "t-0"))
+	if !ok {
+		t.Fatal("an empty book must admit the worker")
+	}
+	bindToBlock(claim, blockID)
+	reviewerNeed := memgate.Estimate(memgate.Key{Project: MemProjectKey(owner.ProjectPath), Role: memgate.RoleReviewer})
+	// room for the reviewer once the worker owes nothing, and not while it owes its estimate
+	defer memgate.SetFreeForTest(func() (uint64, error) { return workerNeed + reviewerNeed - 1, nil })()
+
+	schedule(t, ctx, dag.OID)
+	if len(*calls) != 0 {
+		t.Fatalf("precondition: a reviewer spawned while the worker's claim still owed its estimate: %+v", *calls)
+	}
+
+	done, err := wstore.GetRun(ctx, dag.ChannelId, worker.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ReleaseRunClaims(ctx, done)
+	schedule(t, ctx, dag.OID)
+	if task := firstTask(t, ctx, dag.OID); len(*calls) != 1 || task.ReviewRunID == "" {
+		t.Fatalf("a done worker's claim held its reviewer: %d spawns, reviewer %q", len(*calls), task.ReviewRunID)
+	}
+}
+
 func TestPlanCommandWaitsBeforeTimeout(t *testing.T) {
 	blocker := refuseAllMemory(t)
 	const held = 300 * time.Millisecond

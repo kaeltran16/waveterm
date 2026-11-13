@@ -38,6 +38,7 @@ const (
 	ReasonMemory = "memory"
 	ReasonLimit  = "limit"
 	ReasonExited = "exited"
+	ReasonDone   = "done" // the tree finished its work and its claim was released while it lives on
 )
 
 // the jobobject calls the loop makes; vars so tests run on any OS without real processes
