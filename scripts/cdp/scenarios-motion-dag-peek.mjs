@@ -29,10 +29,24 @@ const FLASH_MS = 1600;
 const RESIZE_PX = 8;
 
 const T1 = dagPeekTaskSel("t-1");
+const T2 = dagPeekTaskSel("t-2");
 const T3 = dagPeekTaskSel("t-3");
 const IN_MODAL = "[data-dag-modal-kind]";
 const PILL = `${IN_MODAL} [data-dag-status-pill]`;
 const ALERT_T3 = `${T3} [role="alert"]`;
+
+// t-2's review note: one line fits its three-line clamp, the long one is cut by it
+const SHORT_NOTE = "motion-dag-peek: the commit is fine";
+const LONG_NOTE = Array.from({ length: 8 }, (_, i) => `line ${i + 1}: motion-dag-peek's note outgrows the clamp`).join("\n");
+const NOTE = `${dagPeekCard(T2)}?.querySelector("[data-peek-review-note]")`;
+const TOGGLE = `${dagPeekCard(T2)}?.querySelector("[data-peek-review-toggle]")`;
+// a verify start stamp gives t-2's card its Verify heading before any output arrives
+const VERIFY_AGO_MS = 60_000;
+const VERIFY_TAIL = Array.from({ length: 4 }, (_, i) => `ok\tmotion-dag-peek/pkg${i + 1}\t0.${i + 1}s`).join("\n");
+const END_REASON = `${dagPeekCard(DAG_PEEK_FINAL_SEL)}?.querySelector("[data-run-sheet-end-final] textarea")`;
+const END_REASON_TEXT = "motion-dag-peek ends the final stage on the page";
+const END_REFUSAL = "motion-dag-peek refused the end on the page";
+const CANCEL_REFUSAL = "motion-dag-peek refused the cancel on the page";
 
 // window.__mdpStart(name, sel, pin): records the style each node matching `sel` mounts with, then every frame's for
 // the pinned element (an expression, evaluated once) or else the last match, until __mdpStop(name) returns them
@@ -49,6 +63,7 @@ const WATCH_LIB = `(() => {
             parentOpacity: el.parentElement ? getComputedStyle(el.parentElement).opacity : null,
             flash: typeof el.className === "string" && el.className.includes("changeFlash"),
             text: (el.textContent ?? "").trim().slice(0, 80),
+            t: Math.round(performance.now()),
         };
     };
     window.__mdpStart = (name, sel, pin) => {
@@ -119,6 +134,16 @@ const clickButton = (h, scope, label) =>
         b.click();
         return true;
     })()`);
+
+// clicks `label` in the topmost modal dialog (a confirm opens over the DAG modal), once it shows. A prefix match:
+// the dialog's buttons end in their key hint (esc, the return glyph)
+const clickConfirm = (h, label) =>
+    lookEval(h, `
+        const find = () => button(dialog(), new RegExp("^" + ${JSON.stringify(label)} + "\\\\b"));
+        if (!(await until(() => find() != null, 3000))) return false;
+        find().click();
+        return true;
+    `);
 
 export const motionDagPeek = {
     name: "motion-dag-peek",
@@ -341,15 +366,139 @@ export const motionDagPeek = {
             { undone, running, flashFrames: flashFrames.length, anims: [...new Set(flashFrames.map((f) => f.anim))], openedT3, rAlerted, rShook }
         );
         await h.cdp("Emulation.setEmulatedMedia", { features: [] });
+        await polishNap(300);
+
+        // 11. a review note that grows past its clamp while t-2's card is open fades its toggle in
+        const seededNote = await injectPageDag(h, ctx.runId, {
+            tasks: { "t-2": { reviewverdict: "pass", reviewnote: SHORT_NOTE, verifystartedts: Date.now() - VERIFY_AGO_MS } },
+        });
+        const openedT2 = await dagPeekOpen(h, T2, "t-2");
+        const shortShown = await polishWaitFor(h, `(${NOTE}?.textContent ?? "").includes(${JSON.stringify(SHORT_NOTE)})`, 4000);
+        await polishNap(SETTLE_MS);
+        const toggleBefore = await h.ev(`!!${TOGGLE}`);
+        await start(h, "more", `${T2} [data-peek-review-toggle]`);
+        const grewNote = await injectPageDag(h, ctx.runId, { tasks: { "t-2": { reviewnote: LONG_NOTE } } });
+        const toggled = await polishWaitFor(h, `!!${TOGGLE}`, 4000);
+        await polishNap(SETTLE_MS);
+        const more = await stop(h, "more");
+        await h.shot("cdp-shots/motion-dag-peek-more.png");
+        rec(
+            "11. t-2's short review note shows no toggle; the note growing past three lines fades Show the whole note in from 0 to 1",
+            seededNote === "ok" && openedT2 && shortShown && !toggleBefore && grewNote === "ok" && toggled && fadedIn(more),
+            { seededNote, openedT2, shortShown, toggleBefore, grewNote, toggled, more: brief(more) }
+        );
+
+        // 12. the toggle unclamps the note in place, and its AutoHeight moves through the heights between
+        await h.ev(`(window.__mdpNoteBox = ${NOTE}?.parentElement?.parentElement) != null`);
+        const n0 = await h.ev(`Math.round(window.__mdpNoteBox?.getBoundingClientRect().height ?? 0)`);
+        await start(h, "note", `${T2} [data-peek-review-note]`, "window.__mdpNoteBox");
+        await h.ev(`${TOGGLE}?.click()`);
+        const unclamped = await polishWaitFor(h, `(${TOGGLE}?.textContent ?? "").trim() === "Show less"`, 3000);
+        await polishNap(SETTLE_MS);
+        const note = await stop(h, "note");
+        const n1 = note?.settled?.h ?? null;
+        const noteBetween = (note?.frames ?? []).filter((f) => f.h > n0 + 1 && f.h < (n1 ?? n0) - 1).length;
+        await h.shot("cdp-shots/motion-dag-peek-note.png");
+        rec(
+            "12. Show the whole note grows the clamped note's box through the frames between its three-line and full heights",
+            unclamped && n1 != null && n1 - n0 > RESIZE_PX && noteBetween > 0,
+            { unclamped, n0, n1, noteBetween, frames: note?.frames.length }
+        );
+
+        // 13. Verify output arriving under t-2's Verify heading reveals the tail from height 0 and opacity 0
+        const TAIL_BOX = `${T2} [data-dag-peek-verify] > div:has(> [data-peek-verify-tail])`;
+        const headingOnly = await h.ev(`!!${dagPeekCard(T2)}?.querySelector("[data-dag-peek-verify]") && !${dagPeekCard(T2)}?.querySelector("[data-peek-verify-tail]")`);
+        await start(h, "tail", TAIL_BOX);
+        const tailInjected = await injectPageDag(h, ctx.runId, { tasks: { "t-2": { verifyoutput: VERIFY_TAIL } } });
+        const tailShown = await polishWaitFor(h, `(${dagPeekCard(T2)}?.querySelector("[data-peek-verify-tail]")?.textContent ?? "").includes("ok")`, 4000);
+        await polishNap(SETTLE_MS);
+        const tail = await stop(h, "tail");
+        const tailGrowing = (tail?.frames ?? []).filter((f) => f.h > 1 && f.h < (tail?.settled?.h ?? 0) - 1).length;
+        await h.shot("cdp-shots/motion-dag-peek-verify-tail.png");
+        rec(
+            "13. t-2's Verify output arriving reveals its tail at height 0 and opacity 0, through the heights between, settling opaque at full height",
+            headingOnly && tailInjected === "ok" && tailShown && fadedIn(tail) && tail.first[0].h === 0 && tail.settled.h > 0 && tailGrowing > 0,
+            {
+                headingOnly,
+                tailInjected,
+                tailShown,
+                tail: brief(tail),
+                tailGrowing,
+                hs: (tail?.frames ?? []).map((f) => [f.t, f.h, f.opacity]),
+            }
+        );
+
+        // 14. a refused End final stage reveals its error beside the button and nudges it once
+        const finalInjected = await injectPageDag(h, ctx.runId, {
+            fields: { status: "finalizing", final: { state: "verifying", round: 1, startedts: Date.now() } },
+        });
+        await h.ev(dagPeekClickNode("final"));
+        const endable = await polishWaitFor(h, `!!${dagPeekCard(DAG_PEEK_FINAL_SEL)}?.querySelector("[data-final-end]")`, 4000);
+        await clickIn(h, dagPeekCard(DAG_PEEK_FINAL_SEL), "[data-final-end]");
+        const formOpen = await polishWaitFor(h, `!!${END_REASON}`, 3000);
+        await h.ev(`(() => {
+            const ta = ${END_REASON};
+            Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(ta, ${JSON.stringify(END_REASON_TEXT)});
+            ta.dispatchEvent(new Event("input", { bubbles: true }));
+            return true;
+        })()`);
+        await polishNap(150);
+        await failRpc(h, "DagActionCommand", END_REFUSAL);
+        await start(h, "endError", `${DAG_PEEK_FINAL_SEL} [role="alert"]`);
+        await clickButton(h, dagPeekCard(DAG_PEEK_FINAL_SEL), "Fail");
+        const endAlerted = await polishWaitFor(h, `(${dagPeekCard(DAG_PEEK_FINAL_SEL)}?.querySelector('[role="alert"]')?.textContent ?? "").includes(${JSON.stringify(END_REFUSAL)})`, 3000);
+        await polishNap(SETTLE_MS);
+        const endError = await stop(h, "endError");
+        await releaseRpc(h, "DagActionCommand");
+        await h.shot("cdp-shots/motion-dag-peek-end-error.png");
+        const endShook = (endError?.frames ?? []).filter((f) => Math.abs(shiftX(f.transform)) > 0.5).length;
+        // End final stage again clears the error and closes the form
+        await clickIn(h, dagPeekCard(DAG_PEEK_FINAL_SEL), "[data-final-end]");
+        await polishNap(SETTLE_MS);
+        rec(
+            "14. a refused Fail in End final stage reveals its error from opacity 0 and shakes it along x, ending at rest",
+            finalInjected === "ok" &&
+                endable &&
+                formOpen &&
+                endAlerted &&
+                endError?.first[0]?.parentOpacity === "0" &&
+                endShook > 0 &&
+                endError.settled?.transform === "none",
+            { finalInjected, endable, formOpen, endAlerted, first: endError?.first.slice(0, 2), endShook, settled: endError?.settled }
+        );
+
+        // 15. a refused Cancel in the DAG header reveals its error beside the button and nudges it once
+        await failRpc(h, "CancelRunCommand", CANCEL_REFUSAL);
+        await start(h, "cancelError", `${IN_MODAL} [data-dag-cancel-error]`);
+        await h.ev(`document.querySelector('${IN_MODAL} [data-dag-cancel]')?.click()`);
+        // live sessions ask first; the confirm opens over the DAG modal
+        const confirmed = await clickConfirm(h, "Cancel run");
+        const cancelAlerted = await polishWaitFor(h, `(document.querySelector('${IN_MODAL} [data-dag-cancel-error]')?.textContent ?? "").trim() === ${JSON.stringify(CANCEL_REFUSAL)}`, 3000);
+        await polishNap(SETTLE_MS);
+        const cancelError = await stop(h, "cancelError");
+        await h.shot("cdp-shots/motion-dag-peek-cancel-error.png");
+        const cancelShook = (cancelError?.frames ?? []).filter((f) => Math.abs(shiftX(f.transform)) > 0.5).length;
+        await releaseRpc(h, "CancelRunCommand");
+        rec(
+            "15. a refused Cancel in the DAG header reveals its error from opacity 0 and shakes it along x, ending at rest",
+            confirmed &&
+                cancelAlerted &&
+                cancelError?.first[0]?.parentOpacity === "0" &&
+                cancelShook > 0 &&
+                cancelError.settled?.transform === "none",
+            { confirmed, cancelAlerted, first: cancelError?.first.slice(0, 2), cancelShook, settled: cancelError?.settled }
+        );
         return steps;
     },
     async teardown(h, ctx) {
         await h.cdp("Emulation.setEmulatedMedia", { features: [] }).catch((e) => {
             console.error(`motion-dag-peek teardown: reset the media emulation failed: ${e?.message ?? e}`);
         });
-        await releaseRpc(h, "DagActionCommand").catch((e) => {
-            console.error(`motion-dag-peek teardown: restore RpcApi.DagActionCommand failed: ${e?.message ?? e}`);
-        });
+        for (const command of ["DagActionCommand", "CancelRunCommand"]) {
+            await releaseRpc(h, command).catch((e) => {
+                console.error(`motion-dag-peek teardown: restore RpcApi.${command} failed: ${e?.message ?? e}`);
+            });
+        }
         await dagPeekScenario.teardown(h, ctx);
     },
 };
