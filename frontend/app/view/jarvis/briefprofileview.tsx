@@ -77,11 +77,11 @@ import {
 } from "./profilemodel";
 import { ProjectChips } from "./projectchips";
 
-const FOOTER_BTN = "h-8 cursor-pointer rounded-[7px] px-3.5 text-[12.5px] font-semibold disabled:cursor-default";
-const SEGMENTS = "flex w-fit rounded-[7px] border border-edge-mid p-0.5";
-const SEGMENT =
+export const FOOTER_BTN = "h-8 cursor-pointer rounded-[7px] px-3.5 text-[12.5px] font-semibold disabled:cursor-default";
+export const SEGMENTS = "flex w-fit rounded-[7px] border border-edge-mid p-0.5";
+export const SEGMENT =
     "cursor-pointer whitespace-nowrap rounded-[5px] font-semibold disabled:cursor-default disabled:opacity-40";
-const segmentTone = (on: boolean) => (on ? "bg-accentbg text-accent-soft" : "text-ink-mid hover:text-secondary");
+export const segmentTone = (on: boolean) => (on ? "bg-accentbg text-accent-soft" : "text-ink-mid hover:text-secondary");
 const SHAPES = [
     ["quick", "Quick"],
     ["orchestrator", "Orchestrator"],
@@ -108,8 +108,9 @@ function channelOptionsOf(rows: ProjectRow[]): Map<string, string> {
 
 // one row of the run-defaults panel: the label with its explanation, the control, and a right-hand cell
 // that says where the value comes from (project scope) or how far it reaches (global scope). alignTop keeps the
-// label and that cell level with the control when a line of text sits under it.
-function DefaultRow({
+// label and that cell level with the control when a line of text sits under it. With no aside (the Run settings
+// modal) the row is two columns.
+export function DefaultRow({
     label,
     hint,
     aside,
@@ -118,26 +119,28 @@ function DefaultRow({
     children,
 }: {
     label: string;
-    hint: string;
-    aside: ReactNode;
+    hint?: string;
+    aside?: ReactNode;
     alignTop?: boolean;
     attrs?: Record<`data-${string}`, string>;
     children: ReactNode;
 }) {
+    const hasAside = aside !== undefined;
     return (
         <div
             {...attrs}
             className={cn(
-                "grid grid-cols-[156px_minmax(0,1fr)_140px] gap-x-3.5 px-3.5 py-[11px]",
+                "grid gap-x-3.5 px-3.5 py-[11px]",
+                hasAside ? "grid-cols-[156px_minmax(0,1fr)_140px]" : "grid-cols-[156px_minmax(0,1fr)]",
                 alignTop ? "items-start" : "items-center"
             )}
         >
             <div className={cn("flex flex-col gap-0.5", alignTop && "pt-0.5")}>
                 <span className="text-[13px] font-medium text-ink-hi">{label}</span>
-                <span className="text-[11.5px] leading-[1.35] text-muted">{hint}</span>
+                {hint != null ? <span className="text-[11.5px] leading-[1.35] text-muted">{hint}</span> : null}
             </div>
             <div className="flex min-w-0 flex-wrap items-center gap-1.5">{children}</div>
-            {alignTop ? <div className="pt-1">{aside}</div> : aside}
+            {hasAside ? alignTop ? <div className="pt-1">{aside}</div> : aside : null}
         </div>
     );
 }

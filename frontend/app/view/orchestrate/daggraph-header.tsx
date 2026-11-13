@@ -1,13 +1,15 @@
-import { CrossFade } from "@/app/element/crossfade";
 import { useChangeFlash } from "@/app/element/motionhooks";
 import { changeFlashClass, composerReveal, errorNudge } from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
 import { globalStore } from "@/app/store/jotaiStore";
-import { RunSettingsPanel } from "@/app/view/jarvis/briefrunsheet";
+import { RunSettingsModal } from "@/app/view/jarvis/runsettingsmodal";
+import { waitingQuestion } from "@/app/view/jarvis/runsheetmodel";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { motion } from "motion/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { bindChildAsks, childAsksAtom } from "../agents/childaskstore";
+import { cockpitRosterAtom } from "../agents/devmock";
 import { confirmCancelRun } from "../agents/runactions";
 import { runFinished } from "../agents/runlineage";
 import { useRunUsage } from "../agents/runtokenstore";
@@ -60,7 +62,7 @@ const PILL_TONE: Record<DagStatusPill["tone"], string> = {
 };
 
 // graph header: the owning run's goal, the summary chips, the workers and reviewers routes, the derived status
-// pill, Adjust (the run sheet's settings dials, opened under the header), cancel. No back button: the modal
+// pill, Adjust (opens the Run settings modal over the graph), cancel. No back button: the modal
 // header above it already closes, and a second close one row down read as two different exits.
 // No dag id either: the modal subtitle names the run, and the dag's uuid identified it to nobody.
 export function DagGraphHeader({ group, owner }: { group: TaskGroup; owner: Run }) {
@@ -72,6 +74,17 @@ export function DagGraphHeader({ group, owner }: { group: TaskGroup; owner: Run 
     const ended = runFinished({ dag: group, status: group.status });
     const [cancelError, setCancelError] = useState("");
     const [adjusting, setAdjusting] = useState(false);
+    // keys the Run settings modal, so every open starts from the stored settings
+    const [opens, setOpens] = useState(0);
+    // the hand-back warning and the resolved note need the question the run is waiting on
+    const waiting = waitingQuestion(
+        owner,
+        useAtomValue(cockpitRosterAtom),
+        useAtomValue(childAsksAtom)[group.runid] ?? []
+    );
+    useEffect(() => {
+        bindChildAsks(group.channelid, group.runid);
+    }, [group.channelid, group.runid]);
     const usage = useRunUsage(group.channelid, group.runid);
     const spent = summarizeUsage(usage?.rows);
     return (
@@ -105,11 +118,14 @@ export function DagGraphHeader({ group, owner }: { group: TaskGroup; owner: Run 
                     <button
                         type="button"
                         data-dag-adjust
-                        aria-expanded={adjusting}
-                        onClick={() => setAdjusting((v) => !v)}
+                        aria-haspopup="dialog"
+                        onClick={() => {
+                            setOpens((n) => n + 1);
+                            setAdjusting(true);
+                        }}
                         className="rounded border border-edge-mid px-2.5 py-1 text-[12px] font-semibold text-secondary hover:border-edge-strong hover:text-primary"
                     >
-                        <CrossFade swapKey={adjusting ? "done" : "adjust"}>{adjusting ? "Done" : "Adjust"}</CrossFade>
+                        Adjust
                     </button>
                 ) : null}
                 {dagCancellable(group.status) ? (
@@ -139,7 +155,16 @@ export function DagGraphHeader({ group, owner }: { group: TaskGroup; owner: Run 
                     </>
                 ) : null}
             </div>
-            {!ended ? <RunSettingsPanel run={owner} open={adjusting} /> : null}
+            {!ended ? (
+                <RunSettingsModal
+                    key={opens}
+                    open={adjusting}
+                    run={owner}
+                    group={group}
+                    waiting={waiting}
+                    onClose={() => setAdjusting(false)}
+                />
+            ) : null}
         </div>
     );
 }

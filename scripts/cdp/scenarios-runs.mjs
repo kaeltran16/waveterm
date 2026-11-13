@@ -461,32 +461,38 @@ export const dagLifecycle = {
         })()`);
         rec("5e. Timeline rows render", timeline.rows > 0, JSON.stringify(timeline));
 
-        // the header's Adjust opens the run sheet's dials under it; a saved width reaches the dag and the header
+        // the header's Adjust opens the Run settings modal over the graph; a saved width reaches the dag and the
+        // header, and the modal's X closes only it
         const DAG_HEADER_ADJUST = `document.querySelector('[data-dag-modal-kind] [data-dag-adjust]')`;
-        const DAG_ADJUST_WIDTH = `document.querySelector('[data-dag-modal-kind] [data-jarvis-brief-sheet-config] input[type="number"]')`;
-        const DAG_ADJUST_SAVED = `document.querySelector('[data-dag-modal-kind] [data-jarvis-brief-sheet-state="saved"]')`;
+        const RUN_SETTINGS = `document.querySelector('[data-run-settings-modal]')`;
+        const RUN_SETTINGS_MORE = `${RUN_SETTINGS}?.querySelector('button[aria-label="More concurrent workers"]')`;
+        const RUN_SETTINGS_SAVED = `document.querySelector('[data-run-settings-modal] [data-run-settings-status="saved"]')`;
         await h.ev(`${DAG_HEADER_ADJUST}?.click()`);
-        const dialsShown = await polishWaitFor(h, `!!${DAG_ADJUST_WIDTH}`, 3000);
-        await h.ev(setInputExpr(DAG_ADJUST_WIDTH, String(dagParallelism + 1)));
-        await h.ev(clickByText(`document.querySelector('[data-dag-modal-kind]')`, "button", "Save settings"));
-        const savedShown = await polishWaitFor(h, `!!${DAG_ADJUST_SAVED}`, 8000);
+        const dialsShown = await polishWaitFor(h, `!!${RUN_SETTINGS_MORE}`, 3000);
+        await h.ev(`${RUN_SETTINGS_MORE}?.click()`);
+        await h.ev(clickByText(RUN_SETTINGS, "button", "Save settings"));
+        const savedShown = await polishWaitFor(h, `!!${RUN_SETTINGS_SAVED}`, 8000);
         await h.shot("cdp-shots/dag-modal-adjust.png");
         const adjusted = {
             dialsShown,
             savedShown,
-            saved: await h.ev(flatText(DAG_ADJUST_SAVED)),
+            saved: await h.ev(flatText(RUN_SETTINGS_SAVED)),
             header: await h.ev(flatText(`document.querySelector('[data-dag-modal-kind] [data-dag-progress]')?.parentElement`)),
             width: (await h.rpc("dagstatus", { channelid: ctx.channelId, runid: runId })).group.parallelism,
         };
+        await h.ev(`document.querySelector('[data-run-settings-close]')?.click()`);
+        adjusted.settingsClosed = await polishWaitFor(h, `!${RUN_SETTINGS}`, 3000);
+        adjusted.dagModalOpen = await h.ev(`!!document.querySelector('[data-dag-modal-kind]')`);
         rec(
-            "5g. Adjust in the DAG header saves a new worker parallelism to the dag and the header reads it",
+            "5g. Adjust in the DAG header opens the Run settings modal, saves a new worker parallelism to the dag and the header reads it; its X closes only the Run settings modal",
             dialsShown &&
                 adjusted.saved === "Saved. Applies to future dispatches." &&
                 adjusted.width === dagParallelism + 1 &&
-                adjusted.header.startsWith(`parallelism ${dagParallelism + 1}`),
+                adjusted.header.startsWith(`parallelism ${dagParallelism + 1}`) &&
+                adjusted.settingsClosed &&
+                adjusted.dagModalOpen,
             JSON.stringify(adjusted)
         );
-        await h.ev(`${DAG_HEADER_ADJUST}?.click()`);
 
         // escape dismisses the modal (the modal state machine refuses close while launching, which is
         // not in play here; the Close button and backdrop click share the same path)
