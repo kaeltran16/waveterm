@@ -285,10 +285,12 @@ export const motionCode = {
         await h.shot("cdp-shots/motion-code-peek.png");
         await codeEval(h, `
             unmountAll();
-            const P = await mod("app/view/code/codepeekstore.ts");
+            // the card took focus on mount and a removed node never blurs, so its focus flag would stay set and
+            // codepeek:open would take every later Enter on the Agent surface
+            const [S, P] = await Promise.all([mod("app/store/jotaiStore.ts"), mod("app/view/code/codepeekstore.ts")]);
             S.globalStore.set(P.codePeekFocusedAtom, false);
             return true;
-        `).catch(() => {});
+        `).catch((e) => console.error(`motion-code: the peek cleanup failed, so a later scenario's Enter may hit codepeek:open: ${e}`));
         rec(
             "9. a Code peek's file landing over its loading line mounts at opacity 0 and settles at 1",
             peek?.loading === "loading|preview" && peek.seen[0]?.key === "text|preview" && peek.seen[0].opacity === "0" && peek.settled === "1",
