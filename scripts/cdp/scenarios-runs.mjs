@@ -1503,12 +1503,14 @@ export const leadCardMergeGate = {
 };
 
 // Page-only: the run's dag in the page takes `fields` (its own top-level fields, such as status or final) and
-// `tasks` (fields per task id; an id it lacks is added) at one version past
-// the one it holds, and the dag status RPC answers that version with `digest` (fields per task row, added likewise):
+// `tasks` (fields per task id; an id it lacks is added) at `ahead` versions past
+// the one it holds (one by default), and the dag status RPC answers that version with `digest` (fields per task row, added likewise):
 // the merge gate's held state and a task's actions are digest fields no RPC writes; `next`, when given, replaces the
 // digest's next step (the sheet's next: line). undoPageDag puts the RPC back
-// and reloads the stored dag, whose own version brings the real digest back.
-export const injectPageDag = (h, runId, { tasks = {}, digest = {}, next, fields = {} }) =>
+// and reloads the stored dag, whose own version brings the real digest back. WOS drops a pushed update whose
+// version is not newer, so a large `ahead` keeps the page copy until undoPageDag for a scenario whose run is live
+// and still writing its dag.
+export const injectPageDag = (h, runId, { tasks = {}, digest = {}, next, fields = {}, ahead = 1 }) =>
     lookEval(h, `
         const { RpcApi } = await mod("app/store/wshclientapi.ts");
         const WOS = await mod("app/store/wos.ts");
@@ -1519,7 +1521,7 @@ export const injectPageDag = (h, runId, { tasks = {}, digest = {}, next, fields 
         const merge = (rows, key, patch) =>
             [...rows, ...Object.keys(patch).filter((id) => !rows.some((r) => r[key] === id)).map((id) => ({ [key]: id }))]
                 .map((r) => (patch[r[key]] ? { ...r, ...patch[r[key]] } : r));
-        const version = dag.version + 1;
+        const version = dag.version + ${JSON.stringify(ahead)};
         const saved = (window.__pageDag ??= { orig: RpcApi.DagStatusCommand });
         RpcApi.DagStatusCommand = async (client, data, opts) => {
             const rtn = await saved.orig.call(RpcApi, client, data, opts);

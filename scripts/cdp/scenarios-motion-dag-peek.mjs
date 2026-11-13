@@ -27,6 +27,8 @@ const SETTLE_MS = 700;
 const FLASH_MS = 1600;
 // a card height change smaller than this is not a resize to follow
 const RESIZE_PX = 8;
+// the run is live: without a lead this large, the engine's dag writes replace the finalizing copy before steps 8-10
+const PAGE_DAG_AHEAD = 1000000;
 
 const T1 = dagPeekTaskSel("t-1");
 const T3 = dagPeekTaskSel("t-3");
@@ -254,6 +256,7 @@ export const motionDagPeek = {
         await start(h, "flash", PILL);
         const injected = await injectPageDag(h, ctx.runId, {
             fields: { status: "finalizing", final: { state: "verifying", round: 1, startedts: Date.now() } },
+            ahead: PAGE_DAG_AHEAD,
         });
         const finalizing = await polishWaitFor(h, `(document.querySelector('${PILL}')?.textContent ?? "").trim() === "finalizing"`, 4000);
         await polishNap(FLASH_MS);
