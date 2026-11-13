@@ -5748,18 +5748,18 @@ const MODELS_RPC = { timeout: 30000 };
 // there deterministically, and the answer it types lands somewhere harmless. The fixture roster names that tab as the
 // lead asking Plan review, which is how the sheet and the palette learn of the question; no live agent runs.
 const AUTONOMOUS_PROJECT = "verify-autonomous-runs";
-const AUTONOMOUS_LEAD_ASK = {
+export const AUTONOMOUS_LEAD_ASK = {
     header: "Plan review",
     question: "The plan review failed twice. Proceed with the plan as it stands?",
     options: [{ label: "Accept all and proceed" }, { label: "Request changes" }],
 };
 const AUTONOMOUS_PROFILE_NOTE =
     "The lead takes the option it would recommend at each of those points and records why in its report. If the final stage still fails after the last round, the land stays held for you.";
-const AUTONOMOUS_RESOLVED =
+export const AUTONOMOUS_RESOLVED =
     "The lead is carrying the plan review's findings into the tasks and going on. It answers everything from here on; each call it makes goes in its report.";
-const AUTONOMOUS_BACK_TO_ASK = "The lead asks you again from its next decision. Calls it already made stand.";
+export const AUTONOMOUS_BACK_TO_ASK = "The lead asks you again from its next decision. Calls it already made stand.";
 // typing the ON answer takes 60ms a rune, so the question leaves the registry well inside this
-const AUTONOMOUS_ANSWER_WAIT_MS = 20_000;
+export const AUTONOMOUS_ANSWER_WAIT_MS = 20_000;
 const SHEET_APPROVALS = `${RUN_SHEET}?.querySelector('[role="group"][aria-label="Approvals"]')`;
 const flatOf = (elExpr) => `((${elExpr})?.textContent ?? '').replace(/\\s+/g, ' ').trim()`;
 
@@ -5794,17 +5794,17 @@ const SHEET_STATE = `(() => {
 })()`;
 
 // the lead's own pending question, as the server holds it
-async function autonomousLeadAsk(h, ctx) {
+export async function autonomousLeadAsk(h, ctx) {
     return (await h.rpc("runasks", { channelid: ctx.channelId, runid: ctx.runId }))?.asks?.[0] ?? null;
 }
 
-async function raiseLeadAsk(h, ctx) {
+export async function raiseLeadAsk(h, ctx) {
     await h.rpc("ask", { oref: `block:${ctx.leadBlockId}`, questions: [AUTONOMOUS_LEAD_ASK] });
     ctx.askRaised = true;
 }
 
 // the fixture lead's face: asking Plan review, or working once its question is answered
-const patchFixtureLead = (h, ctx, asking) =>
+export const patchFixtureLead = (h, ctx, asking) =>
     h.ev(
         `window.__cockpitRosterFixture?.patch(${JSON.stringify(ctx.leadTabId)}, ${
             asking
@@ -5815,7 +5815,7 @@ const patchFixtureLead = (h, ctx, asking) =>
 
 // The lead's tab, in the page's own workspace. Its block runs a node process that reads and drops stdin: a shell
 // would run the typed answer, and the picker's arrow keys would recall its history first.
-async function seedAutonomousLead(h, ctx) {
+export async function seedAutonomousLead(h, ctx) {
     const bootTab = String(await h.ev("window.TabRpcClient.routeId")).replace(/^tab:/, "");
     const wslist = await h.rpc("workspacelist", null);
     const ws = wslist.find((w) => (w.workspacedata?.tabids ?? []).includes(bootTab)) ?? wslist[0];

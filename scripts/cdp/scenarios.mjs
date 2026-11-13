@@ -220,6 +220,7 @@ import { cockpitRailHelp } from "./scenarios-cockpit-rail.mjs";
 import { cockpitRosterCounts } from "./scenarios-cockpit-roster.mjs";
 import { motionRunSheet } from "./scenarios-motion-run-sheet.mjs";
 import { motionDagPeek } from "./scenarios-motion-dag-peek.mjs";
+import { dagRunSettings } from "./scenarios-dag-run-settings.mjs";
 import { motionPeeks } from "./scenarios-motion-peeks.mjs";
 import { motionFinal } from "./scenarios-motion-final.mjs";
 import { motionBrief } from "./scenarios-motion-brief.mjs";
@@ -284,6 +285,7 @@ export const SCENARIOS = [
     attentionPopup,
     cockpitNeedsYouCrossChannel,
     dagLifecycle,
+    dagRunSettings,
     routePickerFlat,
     routePickerRefused,
     settingsHeadless,
