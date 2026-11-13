@@ -50,7 +50,7 @@ var loop struct {
 
 // StartLoop installs the jobobject close hook and reconciles the book every 2 s until ctx ends.
 func StartLoop(ctx context.Context) {
-	setCloseHook(func(o jobobject.Owner, _ int) { onJobClosed(o) })
+	setCloseHook(func(o jobobject.Owner, _ int, peak uint64) { onJobClosed(o, peak) })
 	go func() {
 		ticker := time.NewTicker(loopTick)
 		defer ticker.Stop()
@@ -93,8 +93,9 @@ func tick() {
 }
 
 // correctClaimsLocked marks each bound claim whose job is live as seen, and drops a bound claim whose job was seen
-// and is gone or never appeared. An unbound claim is its caller's: a serial batch of Setups can hold one for many
-// minutes.
+// and is gone or never appeared. A never-seen job gets no close, so its owner's key goes with its claim; a seen one's
+// close follows its unregister and still needs the key. An unbound claim is its caller's: a serial batch of Setups
+// can hold one for many minutes.
 func correctClaimsLocked(live map[jobobject.Owner]bool, t time.Time) {
 	for c := range book.claims {
 		if !c.bound {
@@ -104,7 +105,12 @@ func correctClaimsLocked(live map[jobobject.Owner]bool, t time.Time) {
 			c.seen = true
 			continue
 		}
-		if c.seen || t.Sub(c.boundAt) >= bindStale {
+		if c.seen {
+			dropLocked(c, t)
+		} else if t.Sub(c.boundAt) >= bindStale {
+			if c.key != (Key{}) {
+				takeKeyLocked(c.owner)
+			}
 			dropLocked(c, t)
 		}
 	}
@@ -225,11 +231,15 @@ func endPauseLocked(c *Claim, reason string, avail uint64, t time.Time) {
 	emitLocked(Event{Kind: EventResumed, Tag: c.tag, Free: avail, Reason: reason, Ms: t.Sub(c.pausedAt).Milliseconds()})
 }
 
-// onJobClosed releases a block-owned claim and ends its pause. Close has already released the suspended handles; a
-// plan command's claim is its caller's to release.
-func onJobClosed(o jobobject.Owner) {
+// onJobClosed records the closed job's peak under its owner's key, releases a block-owned claim and ends its pause.
+// Close has already released the suspended handles; a plan command's claim is its caller's to release.
+func onJobClosed(o jobobject.Owner, peak uint64) {
 	book.mu.Lock()
 	defer book.mu.Unlock()
+	if k, ok := takeKeyLocked(o); ok && peak > 0 {
+		// Close runs on a block's exit path or plancmd's cleanup: never hold it on the file write
+		enqueue(func() { Record(k, peak) })
+	}
 	for c := range book.claims {
 		if !c.bound || c.owner != o {
 			continue

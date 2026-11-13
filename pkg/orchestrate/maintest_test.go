@@ -48,6 +48,7 @@ func TestMain(m *testing.M) {
 	// only the cap's own tests see other dags and a machine's memory
 	liveDags = func(context.Context) ([]*waveobj.TaskGroup, error) { return nil, nil }
 	memgate.UncapForTest()
+	memgate.SetStoreDirForTest(filepath.Join(dir, "memgate"))
 	// no job closes in a test, so a bound claim would stay in the book for good: keep each for releaseBoundClaims
 	bind := bindClaim
 	bindClaim = func(c *memgate.Claim, o jobobject.Owner) {

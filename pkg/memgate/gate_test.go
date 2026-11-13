@@ -5,7 +5,6 @@ package memgate
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"log"
 	"os"
@@ -31,9 +30,10 @@ func newGate(t *testing.T, free uint64) *recorder {
 	book.mu.Lock()
 	book.claims = make(map[*Claim]struct{})
 	book.held = make(map[Tag]time.Time)
-	book.waiters = nil
+	book.ownerKeys = make(map[jobobject.Owner]*ownerKey)
 	book.freeFailing = false
 	book.mu.Unlock()
+	t.Cleanup(SetStoreDirForTest(t.TempDir()))
 	t.Cleanup(SetFreeForTest(func() (uint64, error) { return free, nil }))
 	// events still queued by an earlier test would land in this test's recorder
 	flush()
@@ -86,7 +86,7 @@ func setFree(t *testing.T, free uint64) {
 }
 
 func req(runId, taskId string) Request {
-	return Request{Tag: Tag{runId, taskId, RoleWorker}}
+	return Request{Key: Key{Role: RoleWorker}, Tag: Tag{runId, taskId, RoleWorker}}
 }
 
 func mustAdmit(t *testing.T, r Request) *Claim {
@@ -98,48 +98,44 @@ func mustAdmit(t *testing.T, r Request) *Claim {
 	return c
 }
 
-// waitQueued waits until n Waits are queued in the book.
-func waitQueued(t *testing.T, n int) {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		book.mu.Lock()
-		got := len(book.waiters)
-		book.mu.Unlock()
-		if got == n {
-			return
-		}
-		time.Sleep(time.Millisecond)
+// markSeen marks c as seen by the loop, so it no longer counts its estimate against available memory.
+func markSeen(c *Claim) {
+	book.mu.Lock()
+	defer book.mu.Unlock()
+	c.seen = true
+}
+
+// a burst of admissions in one tick must not all count on the same free memory: each starting tree owes its own
+// median until the loop sees its job
+func TestStartingClaimCountsItsMedian(t *testing.T) {
+	newGate(t, 5*gib)
+	k := Key{"c:\\proj", RoleWorker}
+	for range 3 {
+		Record(k, 2*gib)
 	}
-	t.Fatalf("%d Waits never queued", n)
-}
-
-// noRecheck makes a Release the only thing that wakes a Wait.
-func noRecheck(t *testing.T) {
-	old := waitRecheck
-	waitRecheck = time.Hour
-	t.Cleanup(func() { waitRecheck = old })
-}
-
-// a burst of admissions in one tick must not all count on the same free memory: each starting tree holds a Headroom
-// until its memory shows in the reading
-func TestStartupAllowanceBoundsABurst(t *testing.T) {
-	newGate(t, 7*gib)
 	var admitted []*Claim
-	for _, id := range []string{"a", "b", "c", "d", "e"} {
-		if c, ok := TryAdmit(req("", id)); ok {
-			admitted = append(admitted, c)
-		}
-	}
 	defer func() {
 		for _, c := range admitted {
 			c.Release()
 		}
 	}()
-	// 7 GiB: the first starts (7 free), the second fits beside one allowance (4 free), the third would not (1 free)
-	if len(admitted) != 2 {
-		t.Fatalf("one tick admitted %d trees on 7 GiB free, want 2", len(admitted))
+	for _, id := range []string{"a", "b", "c", "d"} {
+		if c, ok := TryAdmit(Request{Key: k, Tag: Tag{"", id, RoleWorker}}); ok {
+			admitted = append(admitted, c)
+		}
 	}
+	// 5 GiB: the first starts (5 free), the second fits beside one 2 GiB median (3 free), the third would not (1 free)
+	if len(admitted) != 2 {
+		t.Fatalf("one tick admitted %d trees on 5 GiB free with a 2 GiB median, want 2", len(admitted))
+	}
+	for _, c := range admitted {
+		markSeen(c)
+	}
+	c, ok := TryAdmit(Request{Key: k, Tag: Tag{"", "c", RoleWorker}})
+	if !ok {
+		t.Fatal("a seen tree still counted its median against the next admission")
+	}
+	admitted = append(admitted, c)
 }
 
 func TestOneTreeAlwaysStarts(t *testing.T) {
@@ -167,8 +163,9 @@ func TestHeldOncePerTransition(t *testing.T) {
 		t.Fatalf("events = %v, want [held admitted]", got)
 	}
 	held := rec.events[0]
-	if held.Tag != r.Tag || held.Free != gib || held.Need != Headroom {
-		t.Fatalf("held event = %+v, want tag %v, free 1 GiB, need the Headroom", held, r.Tag)
+	need := Estimate(r.Key)
+	if held.Tag != r.Tag || held.Free != 4*gib-need || held.Need != need {
+		t.Fatalf("held event = %+v, want tag %v, free 4 GiB less a starting worker, need the estimate %d", held, r.Tag, need)
 	}
 }
 
@@ -203,69 +200,6 @@ func TestUnreadableFreeLogsOncePerTransition(t *testing.T) {
 	got := strings.Count(buf.String(), "memgate: reading free memory")
 	if got != 3 {
 		t.Fatalf("logged %d free-memory lines, want 3 (fail, recover, fail):\n%s", got, buf.String())
-	}
-}
-
-func TestWaitAdmitsOnRelease(t *testing.T) {
-	newGate(t, 4*gib)
-	noRecheck(t)
-	live := mustAdmit(t, req("", "a"))
-	done := make(chan *Claim)
-	go func() {
-		c, err := Wait(context.Background(), req("run1", ""))
-		if err != nil {
-			t.Error(err)
-		}
-		done <- c
-	}()
-	waitQueued(t, 1)
-	select {
-	case <-done:
-		t.Fatal("Wait returned with the claim still live")
-	case <-time.After(50 * time.Millisecond):
-	}
-	live.Release()
-	select {
-	case c := <-done:
-		if c == nil {
-			t.Fatal("nil claim")
-		}
-		c.Release()
-	case <-time.After(5 * time.Second):
-		t.Fatal("Wait still blocked after the release")
-	}
-}
-
-func TestWaitCancel(t *testing.T) {
-	rec := newGate(t, 4*gib)
-	noRecheck(t)
-	live := mustAdmit(t, req("", "a"))
-	defer live.Release()
-	ctx, cancel := context.WithCancel(context.Background())
-	type result struct {
-		c   *Claim
-		err error
-	}
-	done := make(chan result)
-	go func() {
-		c, err := Wait(ctx, req("run1", ""))
-		done <- result{c, err}
-	}()
-	waitQueued(t, 1)
-	cancel()
-	select {
-	case res := <-done:
-		if res.c != nil || !errors.Is(res.err, context.Canceled) {
-			t.Fatalf("Wait = (%v, %v), want (nil, context.Canceled)", res.c, res.err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("Wait not returned after cancel")
-	}
-	if got := rec.kinds(); !slices.Equal(got, []EventKind{EventHeld}) {
-		t.Fatalf("events = %v, want [held]", got)
-	}
-	if n := LiveClaimsForTest(); n != 1 {
-		t.Fatalf("book holds %d claims, want 1", n)
 	}
 }
 
@@ -322,30 +256,132 @@ func TestReleaseIfUnbound(t *testing.T) {
 	}
 }
 
-func TestTryAdmitYieldsToQueuedWait(t *testing.T) {
-	newGate(t, 4*gib)
-	noRecheck(t)
-	live := mustAdmit(t, req("", "a"))
-	done := make(chan *Claim)
-	go func() {
-		c, err := Wait(context.Background(), req("run1", ""))
-		if err != nil {
-			t.Error(err)
-		}
-		done <- c
-	}()
-	waitQueued(t, 1)
+const gbDec = uint64(1_000_000_000)
 
-	// room for one more tree beside the starting one, with nothing waking the Wait: it is the Wait's
-	setFree(t, 2*Headroom+gib)
-	if _, ok := TryAdmit(req("run2", "t1")); ok {
-		t.Fatal("TryAdmit took the room a queued Wait is waiting for")
+func TestMedianAdmitsWithinFree(t *testing.T) {
+	rec := newGate(t, 5*gbDec)
+	k := Key{"c:\\waveterm", RoleWorker}
+	for _, p := range []uint64{4600, 4800, 4200, 4100, 5300} {
+		Record(k, p*gbDec/1000)
 	}
-	live.Release()
-	select {
-	case c := <-done:
-		c.Release()
-	case <-time.After(5 * time.Second):
-		t.Fatal("queued Wait not admitted")
+	running := mustAdmit(t, req("", "running"))
+	defer running.Release()
+	markSeen(running)
+
+	c, ok := TryAdmit(Request{Key: k, Tag: Tag{"run1", "t1", RoleWorker}})
+	if !ok {
+		t.Fatal("a 4.6 GB median was refused with 5.0 GB free")
+	}
+	c.Release()
+
+	setFree(t, 4500*gbDec/1000)
+	r := Request{Key: k, Tag: Tag{"run1", "t2", RoleWorker}}
+	if _, ok := TryAdmit(r); ok {
+		t.Fatal("a 4.6 GB median was admitted with 4.5 GB free")
+	}
+	held := rec.ofKind(EventHeld)
+	if len(held) != 1 || held[0].Tag != r.Tag || held[0].Need != 4600*gbDec/1000 {
+		t.Fatalf("held events %+v, want one for %v needing the 4.6 GB median", held, r.Tag)
+	}
+}
+
+func TestAdmitNeverHolds(t *testing.T) {
+	rec := newGate(t, 0)
+	blocker := mustAdmit(t, req("", "blocker"))
+	defer blocker.Release()
+	verify := Admit(Request{Key: Key{"c:\\proj", "Verify"}, Tag: Tag{"run1", "", "Verify"}})
+	if verify == nil {
+		t.Fatal("Admit returned no claim")
+	}
+	defer verify.Release()
+	if got := rec.kinds(); len(got) != 0 {
+		t.Fatalf("Admit emitted %v, want nothing", got)
+	}
+	if n := LiveClaimsForTest(); n != 2 {
+		t.Fatalf("book holds %d claims, want the blocker and the admitted command", n)
+	}
+
+	// room for one worker, but not beside the starting command's 3.5 GiB default
+	markSeen(blocker)
+	setFree(t, 5*gib)
+	if _, ok := TryAdmit(req("", "w")); ok {
+		t.Fatal("a worker was admitted onto memory a starting plan command is about to use")
+	}
+}
+
+func TestSetCacheExpiryIsNilSafe(t *testing.T) {
+	newGate(t, 64*gib)
+	fn := func() (time.Time, bool) { return time.Time{}, false }
+	var nilClaim *Claim
+	nilClaim.SetCacheExpiry(fn)
+	if HasCacheExpiryForTest(nilClaim) {
+		t.Fatal("a nil claim reports a cache expiry")
+	}
+	c := mustAdmit(t, req("", "a"))
+	defer c.Release()
+	if HasCacheExpiryForTest(c) {
+		t.Fatal("a fresh claim reports a cache expiry")
+	}
+	c.SetCacheExpiry(fn)
+	if !HasCacheExpiryForTest(c) {
+		t.Fatal("SetCacheExpiry did not store the function")
+	}
+}
+
+func TestPeakRecordedOnClose(t *testing.T) {
+	newGate(t, 64*gib)
+	k := Key{"c:\\proj", RoleWorker}
+	o := block("a")
+	c := mustAdmit(t, Request{Key: k, Tag: Tag{"r1", "a", RoleWorker}, Owner: o})
+	onJobClosed(o, 5*gib)
+	flush()
+	if got := Estimate(k); got != 5*gib {
+		t.Fatalf("estimate after close = %d, want the 5 GiB peak", got)
+	}
+	if !c.released {
+		t.Fatal("a block claim stayed in the book after its job closed")
+	}
+
+	// two live jobs under one owner both record
+	k2 := Key{"c:\\proj", RoleReviewer}
+	o2 := block("twice")
+	for range 2 {
+		mustAdmit(t, Request{Key: k2, Tag: Tag{"r1", "b", RoleReviewer}, Owner: o2})
+	}
+	onJobClosed(o2, 2*gib)
+	onJobClosed(o2, 4*gib)
+	onJobClosed(o2, 9*gib) // no bind left for it
+	flush()
+	if got := Estimate(k2); got != 3*gib {
+		t.Fatalf("estimate after two closes = %d, want the median of 2 and 4 GiB", got)
+	}
+
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	onJobClosed(block("never-bound"), 7*gib)
+	flush()
+	if buf.Len() != 0 {
+		t.Fatalf("a close for an owner no claim bound logged: %s", buf.String())
+	}
+	if got := Estimate(k); got != 5*gib {
+		t.Fatalf("a close for an unbound owner changed the estimate to %d", got)
+	}
+}
+
+func TestPeakRecordedAfterEarlyRelease(t *testing.T) {
+	newGate(t, 64*gib)
+	k := Key{"c:\\proj", RoleWorker}
+	o := block("done")
+	c := mustAdmit(t, Request{Key: k, Tag: Tag{"r1", "a", RoleWorker}})
+	c.Bind(o)
+	ReleaseOwner(o) // the run went done; its lane is reaped later
+	if n := LiveClaimsForTest(); n != 0 {
+		t.Fatalf("book holds %d claims after ReleaseOwner", n)
+	}
+	onJobClosed(o, 6*gib)
+	flush()
+	if got := Estimate(k); got != 6*gib {
+		t.Fatalf("estimate after a close past the release = %d, want the 6 GiB peak", got)
 	}
 }

@@ -105,8 +105,9 @@ func TestClaimWorkersStopsAtMemory(t *testing.T) {
 	cleanBook(t)
 	collectMemoryEvents(t)
 	ctx, g, channelID, runID := seedReadyDag(t, 3)
-	// the first worker starts on an empty book; its startup allowance leaves less than a Headroom for the next
-	defer memgate.SetFreeForTest(func() (uint64, error) { return memgate.Headroom + memgate.Headroom/2, nil })()
+	// the first worker starts on an empty book; its starting estimate leaves less than another for the next
+	need := memgate.Estimate(workerRequest(g, "t-0").Key)
+	defer memgate.SetFreeForTest(func() (uint64, error) { return need + need/2, nil })()
 	spawns := 0
 	old := spawnWorker
 	spawnWorker = func(context.Context, runroute.Capability, string, string, string, string, jarvis.RunWorkerOptions) (string, error) {
@@ -232,8 +233,9 @@ func TestFinishedWorkerClaimDoesNotHoldItsReviewer(t *testing.T) {
 		t.Fatal("an empty book must admit the worker")
 	}
 	bindToBlock(claim, blockID)
-	// no loop runs in the test, so the worker's claim counts its startup allowance until released
-	defer memgate.SetFreeForTest(func() (uint64, error) { return 2*memgate.Headroom - 1, nil })()
+	// no loop runs in the test, so the worker's claim counts its starting estimate until released, leaving nothing
+	need := memgate.Estimate(workerRequest(dag, "t-0").Key)
+	defer memgate.SetFreeForTest(func() (uint64, error) { return need - 1, nil })()
 
 	schedule(t, ctx, dag.OID)
 	if len(*calls) != 0 {
@@ -251,33 +253,6 @@ func TestFinishedWorkerClaimDoesNotHoldItsReviewer(t *testing.T) {
 	}
 }
 
-func TestPlanCommandWaitsBeforeTimeout(t *testing.T) {
-	blocker := refuseAllMemory(t)
-	const held = 300 * time.Millisecond
-	go func() {
-		time.Sleep(held)
-		blocker.Release()
-	}()
-	ctx := withRunCmdOwner(context.Background(), "run-"+uuid.NewString(), PlanCmd_Verify, "")
-	start := time.Now()
-	out, err := execPlanCommandEnv(ctx, t.TempDir(), "echo ok", nil, 200*time.Millisecond, nil)
-	if err != nil {
-		t.Fatalf("a command held at the gate failed on its timeout: %v (%s)", err, out)
-	}
-	if waited := time.Since(start); waited < held {
-		t.Fatalf("the command ran after %s, before the gate let it in", waited)
-	}
-}
-
-func TestPlanCommandWaitEndsWithItsContext(t *testing.T) {
-	refuseAllMemory(t)
-	ctx, cancel := context.WithCancel(withRunCmdOwner(context.Background(), "run-"+uuid.NewString(), PlanCmd_Verify, ""))
-	time.AfterFunc(100*time.Millisecond, cancel)
-	if _, err := execPlanCommandEnv(ctx, t.TempDir(), "echo ok", nil, time.Minute, nil); !errors.Is(err, context.Canceled) {
-		t.Fatalf("a cancelled wait returned %v, want the ctx error", err)
-	}
-}
-
 // within gateWait, or the test fails as held
 func within(t *testing.T, what string, fn func()) {
 	t.Helper()
@@ -290,6 +265,51 @@ func within(t *testing.T, what string, fn func()) {
 	case <-done:
 	case <-time.After(gateWait):
 		t.Fatalf("%s waited at a gate that refuses everything", what)
+	}
+}
+
+func TestPlanCommandNeverWaits(t *testing.T) {
+	refuseAllMemory(t)
+	ctx := withRunCmdOwner(context.Background(), "run-"+uuid.NewString(), PlanCmd_Verify, "")
+	var out string
+	var err error
+	within(t, "the Verify", func() { out, err = execPlanCommandEnv(ctx, t.TempDir(), "echo ok", nil, 200*time.Millisecond, nil) })
+	if err != nil {
+		t.Fatalf("a plan command at a gate that refuses everything failed: %v (%s)", err, out)
+	}
+	if n := memgate.LiveClaimsForTest(); n != 1 {
+		t.Fatalf("the book holds %d claims after the command, want only the blocker", n)
+	}
+}
+
+// the 11-13 deadlock: a finished worker idling at its prompt kept its claim, and nothing else could start
+func TestIdleFinishedWorkerNeverBlocksVerify(t *testing.T) {
+	cleanBook(t)
+	t.Cleanup(releaseBoundClaims)
+	g := &waveobj.TaskGroup{RunID: "run-" + uuid.NewString()}
+	worker, ok := memgate.TryAdmit(workerRequest(g, "t-0"))
+	if !ok {
+		t.Fatal("an empty book must admit the worker")
+	}
+	bindToBlock(worker, uuid.NewString())
+	defer memgate.SetFreeForTest(func() (uint64, error) { return 0, nil })()
+
+	ctx := withRunCmdOwner(context.Background(), g.RunID, PlanCmd_Verify, "t-0")
+	var out string
+	var err error
+	within(t, "the Verify", func() { out, err = execPlanCommandEnv(ctx, t.TempDir(), "echo ok", nil, time.Minute, nil) })
+	if err != nil {
+		t.Fatalf("Verify beside an idle worker's claim failed: %v (%s)", err, out)
+	}
+}
+
+func TestMemProjectKeyFoldsWorktrees(t *testing.T) {
+	repo := newGitRepo(t)
+	worktree := filepath.Join(t.TempDir(), "wt")
+	gitCmd(t, repo, "worktree", "add", "-b", "memgate-wt", worktree)
+	project := MemProjectKey(repo)
+	if project == "" || MemProjectKey(worktree) != project {
+		t.Fatalf("worktree key %q does not fold to the project key %q", MemProjectKey(worktree), project)
 	}
 }
 

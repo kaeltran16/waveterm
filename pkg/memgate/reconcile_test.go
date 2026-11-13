@@ -286,13 +286,13 @@ func TestCloseReleasesBlockClaims(t *testing.T) {
 	tickN(m, 1)
 
 	m.gone(w)
-	onJobClosed(w)
+	onJobClosed(w, 0)
 	if got := LiveClaimsForTest(); got != 1 {
 		t.Fatalf("%d live claims after the block closed, want only the plan command's", got)
 	}
 
 	// a plan command's claim is its caller's to release
-	onJobClosed(verify)
+	onJobClosed(verify, 0)
 	if got := LiveClaimsForTest(); got != 1 {
 		t.Fatalf("%d live claims after the plan command's job closed, want 1", got)
 	}
@@ -300,7 +300,7 @@ func TestCloseReleasesBlockClaims(t *testing.T) {
 
 // the 2026-11-13 06:00 stall: two running workers each reserved their learned peak (4.84 GB, a typecheck spike) for
 // their whole working life while using about 0.4 GB, so four tasks were held with 7.7 GB available. Running trees
-// owe nothing beyond what the reading already shows: available memory covering a Headroom admits the next.
+// owe nothing beyond what the reading already shows: available memory covering its estimate admits the next.
 func TestRunningTreesThatUseLittleDoNotBlock(t *testing.T) {
 	_, m := newLoop(t, 7700*mib)
 	m.liveTree(t, "r1", "w1", RoleWorker)
@@ -314,15 +314,16 @@ func TestRunningTreesThatUseLittleDoNotBlock(t *testing.T) {
 	c.Release()
 }
 
-// a just-admitted tree counts a Headroom only until the loop sees its job, or startupGrace passes when it never
+// a just-admitted tree counts its estimate only until the loop sees its job, or startupGrace passes when it never
 // will; then the room hook ticks the runs whose trees were held on it
 func TestStartupAllowanceEndsOnSeenOrGrace(t *testing.T) {
 	rec, m := newLoop(t, 4*gib)
+	wk := Key{Role: RoleWorker}
 	restore := UncapForTest()
-	seen := mustAdmit(t, Request{Tag: Tag{"r1", "a", RoleWorker}, Owner: block("a")})
+	seen := mustAdmit(t, Request{Key: wk, Tag: Tag{"r1", "a", RoleWorker}, Owner: block("a")})
 	restore()
 	defer seen.Release()
-	held := Request{Tag: Tag{"r1", "b", RoleWorker}}
+	held := Request{Key: wk, Tag: Tag{"r1", "b", RoleWorker}}
 	if _, ok := TryAdmit(held); ok {
 		t.Fatal("admitted beside a starting tree with 4 GiB free")
 	}
@@ -336,12 +337,12 @@ func TestStartupAllowanceEndsOnSeenOrGrace(t *testing.T) {
 	defer unseen.Release()
 
 	// an unbound claim is never seen: its allowance ends at startupGrace
-	if _, ok := TryAdmit(Request{Tag: Tag{"r2", "c", RoleWorker}}); ok {
+	if _, ok := TryAdmit(Request{Key: wk, Tag: Tag{"r2", "c", RoleWorker}}); ok {
 		t.Fatal("admitted beside a starting unbound tree with 4 GiB free")
 	}
 	m.clock = unseen.admitted.Add(startupGrace - time.Second)
 	tick()
-	if _, ok := TryAdmit(Request{Tag: Tag{"r2", "c", RoleWorker}}); ok {
+	if _, ok := TryAdmit(Request{Key: wk, Tag: Tag{"r2", "c", RoleWorker}}); ok {
 		t.Fatal("an unseen tree stopped counting its allowance before startupGrace")
 	}
 	m.clock = unseen.admitted.Add(startupGrace)
@@ -349,13 +350,13 @@ func TestStartupAllowanceEndsOnSeenOrGrace(t *testing.T) {
 	if got := rec.roomCalls(); len(got) != 2 || !slices.Equal(got[1], []string{"r2"}) {
 		t.Fatalf("room calls after startupGrace: %v, want a second with [r2]", got)
 	}
-	c := mustAdmit(t, Request{Tag: Tag{"r2", "c", RoleWorker}})
+	c := mustAdmit(t, Request{Key: wk, Tag: Tag{"r2", "c", RoleWorker}})
 	c.Release()
 }
 
 // admitting on available memory lets trees start that may spike together: the loop's pause on low water is the
 // guard, and it still pauses once their use takes available memory below it
-func TestLowWaterPausesTreesAdmittedOnHeadroom(t *testing.T) {
+func TestLowWaterPausesTreesAdmittedOnTheirEstimate(t *testing.T) {
 	rec, m := newLoop(t, 8*gib)
 	for _, id := range []string{"a", "b"} {
 		o := block(id)
@@ -403,7 +404,7 @@ func TestPausedTreeExit(t *testing.T) {
 	tickN(m, 2) // pauses c, then b
 
 	m.gone(c)
-	onJobClosed(c)
+	onJobClosed(c, 0)
 	resumed := rec.ofKind(EventResumed)
 	if len(resumed) != 1 || resumed[0].Reason != ReasonExited || resumed[0].Tag.TaskId != "c" {
 		t.Fatalf("resumed events after a paused tree closed: %+v", resumed)
@@ -492,5 +493,49 @@ func TestRoomHookOnRise(t *testing.T) {
 	tickN(m, 1)
 	if got := rec.roomCalls(); len(got) != before+1 {
 		t.Fatalf("room hook called again with no further rise: %v", got[before:])
+	}
+}
+
+// a key is remembered from bind to its job's close; a claim dropped because its job never registered gets no close,
+// so its key goes with it, while a seen claim dropped as gone keeps its key for the close that follows
+func TestNeverSeenClaimForgetsItsKey(t *testing.T) {
+	_, m := newLoop(t, 8*gib)
+	k := Key{"c:\\proj", RoleWorker}
+	restore := UncapForTest()
+	ghost := mustAdmit(t, Request{Key: k, Tag: Tag{"r1", "ghost", RoleWorker}, Owner: block("ghost")})
+	restore()
+	m.clock = ghost.boundAt.Add(bindStale)
+	tickN(m, 1)
+	if !ghost.released {
+		t.Fatal("a claim whose job never appeared was not dropped")
+	}
+	book.mu.Lock()
+	n := len(book.ownerKeys)
+	book.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("%d remembered keys after the never-seen claim was dropped, want 0", n)
+	}
+
+	o := block("seen")
+	restore = UncapForTest()
+	mustAdmit(t, Request{Key: k, Tag: Tag{"r1", "seen", RoleWorker}, Owner: o})
+	restore()
+	m.setLive(o)
+	tickN(m, 1)
+	m.gone(o)
+	tickN(m, 1)
+	book.mu.Lock()
+	_, kept := book.ownerKeys[o]
+	book.mu.Unlock()
+	if LiveClaimsForTest() != 0 || !kept {
+		t.Fatalf("after a seen job left live usage: %d claims, key kept %v; want 0 and true", LiveClaimsForTest(), kept)
+	}
+	onJobClosed(o, 5*gib)
+	flush()
+	book.mu.Lock()
+	n = len(book.ownerKeys)
+	book.mu.Unlock()
+	if n != 0 || Estimate(k) != 5*gib {
+		t.Fatalf("after the close: %d remembered keys, estimate %d; want 0 and the 5 GiB peak", n, Estimate(k))
 	}
 }
