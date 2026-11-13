@@ -4,10 +4,13 @@
 // registered as a project the way project-overview does. Each moment is sampled in-page: an observer reads a value a
 // node mounts with, and a frame sampler reads a value every animation frame, since a CDP round trip per sample is
 // slower than the motion.
+import { randomUUID } from "node:crypto";
 import { codeImageZoom } from "./scenarios-code-imagezoom.mjs";
 import { codeEval, makeCodeRepo, openFileInCode, openFolderInCode, removeCodeRepo } from "./scenarios-code-kit.mjs";
 import { closeOverview, openOverview, pageEval } from "./project-overview-kit.mjs";
+import { installRuns, restoreRuns } from "./project-overview-history.mjs";
 import { MODELS_VIEWPORT, lookHover } from "./scenarios-shared.mjs";
+import { fixtureSession, installSessions, restoreSessions } from "./sessions-page-fixtures.mjs";
 
 // a NUL byte makes the store read it as binary, and the bytes are no PNG, so the image fails to decode
 const BROKEN_PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01, 0x02, 0x03]);
@@ -436,6 +439,69 @@ export const motionCode = {
                 tops.every((v) => v >= Math.min(tops[0], tops.at(-1)) && v <= Math.max(tops[0], tops.at(-1))),
             { entered, enterAdded, moved, tops }
         );
+
+        // 14. History: a session's run opening under it while the list is up reveals through PaneReveal. A Retry would
+        // remount the list through its skeleton, so the match arrives the way a live list can change: the archive
+        // gives the session the transcript path the run names as its origin.
+        const MIN = 60_000;
+        const alt = "C:/motion-code-history/origin-now.jsonl";
+        const origin = fixtureSession({
+            projectpath: ctx.dir,
+            projectname: ctx.project,
+            task: "Motion origin session",
+            lastactivets: Date.now() - 5 * MIN,
+            startedts: Date.now() - 35 * MIN,
+        });
+        const historyRun = { id: randomUUID(), goal: "Motion nested run", createdts: Date.now() - 2 * MIN, origintranscript: alt };
+        const NESTED = `[data-overview-region="history"] [data-history-nested]`;
+        const NEST_BOX = `document.querySelector(${JSON.stringify(NESTED)})?.parentElement`;
+        const HISTORY_ROWS = `[...(overview()?.querySelectorAll('[data-overview-region="history"] [data-history-session], [data-overview-region="history"] [data-history-run]') ?? [])].map((b) => b.hasAttribute("data-history-session") ? "s" : b.hasAttribute("data-history-nested") ? "nested" : "run")`;
+        let nest = { ready: false };
+        try {
+            await installSessions(h, [origin]);
+            const channel = await installRuns(h, ctx, [historyRun]);
+            await closeOverview(h);
+            await openOverview(h, ctx.project);
+            const before = await pageEval(h, `
+                await until(() => overview()?.querySelector('[data-overview-region="history"] [data-history-run]') != null, 8000);
+                await nap(500);
+                return ${HISTORY_ROWS};
+            `);
+            await ev(watchAdded(NESTED, `getComputedStyle(el.parentElement).opacity`));
+            await ev(startFrames("nest-h", `return ${NEST_BOX}?.getBoundingClientRect().height ?? null;`));
+            await ev(startFrames("nest-o", `return Number(getComputedStyle(${NEST_BOX}).opacity);`));
+            await installSessions(h, [{ ...origin, transcriptpath: alt }]);
+            const nested = await pageEval(h, `return until(() => overview()?.querySelector(${JSON.stringify(NESTED)}) != null, 6000);`);
+            await nap(700);
+            const nestAdded = await ev(readAdded);
+            const heights = distinct(await ev(stopFrames("nest-h")));
+            const opacities = distinct(await ev(stopFrames("nest-o")));
+            const after = await pageEval(h, `return { rows: ${HISTORY_ROWS}, height: ${NEST_BOX}?.style.height ?? null };`);
+            await h.shot("cdp-shots/motion-code-history-nested.png");
+            nest = { channel, before, nested, nestAdded, heights, opacities, after };
+            rec(
+                "14. a run that starts nesting under its session in the Overview History mounts at opacity 0 and height 0, grows through intermediate heights and opacities, and settles at auto and 1 with the top-level row gone",
+                channel === true &&
+                    JSON.stringify(before) === JSON.stringify(["run", "s"]) &&
+                    nested === true &&
+                    nestAdded.some((r) => r.value === "0") &&
+                    heights[0] === 0 &&
+                    heights.at(-1) > 0 &&
+                    between(heights, 0, heights.at(-1)) &&
+                    opacities[0] === 0 &&
+                    opacities.at(-1) === 1 &&
+                    between(opacities, 0, 1) &&
+                    JSON.stringify(after.rows) === JSON.stringify(["s", "nested"]) &&
+                    after.height === "auto",
+                nest
+            );
+        } catch (e) {
+            rec("14. a run that starts nesting under its session in the Overview History reveals through PaneReveal", false, { error: String(e?.message ?? e), nest });
+        } finally {
+            await ev(readAdded).catch(() => {});
+            await restoreRuns(h).catch(() => {});
+            await restoreSessions(h).catch(() => {});
+        }
         await closeOverview(h);
         return steps;
     },
