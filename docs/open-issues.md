@@ -60,6 +60,9 @@ Tracked in their own initiatives, not here:
   `cursor-zoom-in` click that sets a `ZoomImage` state, and render `<ImageZoom image={...} onClose={...} />`
   (`frontend/app/element/imagezoom.tsx`) beside it, as `MarkdownPreview` in `codeviewer.tsx` does; add a step
   to `code-image-zoom` that opens the PNG fixture and zooms it.
+- **wave-tauri.exe heap-corruption crashes, mostly on reload** (2026-11-13). Blocked on upstream
+  tauri-apps/tauri#15408 (tao's non-atomic `Rc` cloned off the main thread); patching tao here was declined.
+  Bump `src-tauri` once a fix ships. Why and how to confirm: `docs/deferred.md`.
 
 ---
 

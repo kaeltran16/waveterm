@@ -14,6 +14,26 @@ where it would plug in, and how to pick it back up. Append new entries at the to
 > with no trigger moved to "Declined 2026-10-16" below, and history paragraphs were cut to their recovery
 > lines. The full pre-prune text of every entry: `git show db067efe:docs/deferred.md`.
 
+## Native heap-corruption crashes of wave-tauri.exe: waiting on upstream tao (deferred 2026-11-13)
+
+The dev app's native exits (0xc0000374, 0xc0000005, 0xc000001d, 0xc000041d), mostly within seconds of a page
+reload, are tauri-apps/tauri#15408. tao's Windows `EventLoopRunnerShared` is a non-atomic `Rc`, and Tauri
+clones it off the main thread (`AppHandle`/`Webview` clones in async commands and the IPC protocol handler).
+The refcount races, the runner is freed early and its memory reused. A reload fires a burst of
+`tauri-plugin-http` IPC (every `fetchutil.ts` call), which is why reloads trigger it. A dump caught 0xc0000374
+on a tokio worker in `tauri_plugin_http`'s fetch command. Release builds race the same way and only lack the
+debug precondition check, so the packaged app can hit it too.
+
+- **Why held:** the fix is upstream's. Patching tao in `src-tauri` (vendored or a fork) was declined.
+- **Fix, proven 2026-11-13:** in tao 0.35.3 make `EventLoopRunnerShared` an `Arc`
+  (`src/platform_impl/windows/event_loop/runner.rs`, and `Arc::new` in `event_loop.rs`), as tao PR #1290
+  did (closed unmerged). A scratch crate cloning `EventLoopWindowTarget` on 8 threads x 200k rounds crashed
+  5 of 5 runs on stock tao and passed 10 of 10 patched.
+- **Revive when** tauri#15411 (or a successor) ships in a tauri/tao release: bump `src-tauri`, then reload
+  a snapshot app 30+ times (`node scripts/cdp/snapshot-dev.mjs`, `Page.reload` over CDP) to confirm. Or
+  revisit the patch if the packaged app is seen to crash.
+- **Recovery:** the initiative note on chunk 37 of `effort:fdea6d43-219b-4cf2-b4ce-51758338103b`.
+
 ## `@@` agent tags in pi's prompt (deferred 2026-11-13)
 
 pi agents are listed by `wsh agents list` and can be messaged with `wsh agents send/read/wait`, so a Claude
