@@ -4,8 +4,9 @@
 // DEV-ONLY runtime roster source. When public/cockpit-fixtures/active.json exists
 // (written by scripts/gen-cockpit-fixtures.mjs, Vite's publicDir served at "/"), the cockpit uses it
 // instead of the live roster. Reload the
-// dev app to pick up a newly-written fixture. Never active in a production build: the only caller
-// gates on import.meta.env.DEV, so this module tree-shakes out.
+// dev app to pick up a newly-written fixture. The module ships (cockpitRosterAtom is imported unconditionally), but
+// the mock state is inert in a production build: import.meta.env.DEV picks liveAgentsAtom there, and nothing
+// loads a fixture.
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { atom, type Atom, type PrimitiveAtom } from "jotai";
@@ -24,6 +25,9 @@ export function chooseRoster(devMock: AgentVM[] | null, live: AgentVM[]): AgentV
 }
 
 export const devRosterAtom: Atom<AgentVM[]> = atom((get) => chooseRoster(get(devMockAgentsAtom), get(liveAgentsAtom)));
+
+// The cockpit's base roster, for views with no AgentsViewModel (the DAG modal) as well as the view model itself.
+export const cockpitRosterAtom: Atom<AgentVM[]> = import.meta.env.DEV ? devRosterAtom : liveAgentsAtom;
 
 // Fetch the active fixture once at boot. Absent file / parse error / SPA fallback -> leave the atom
 // null (live path). Safe to call unconditionally in dev; it no-ops when no fixture is present.

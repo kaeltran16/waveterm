@@ -461,32 +461,38 @@ export const dagLifecycle = {
         })()`);
         rec("5e. Timeline rows render", timeline.rows > 0, JSON.stringify(timeline));
 
-        // the header's Adjust opens the run sheet's dials under it; a saved width reaches the dag and the header
+        // the header's Adjust opens the Run settings modal over the graph; a saved width reaches the dag and the
+        // header, and the modal's X closes only it
         const DAG_HEADER_ADJUST = `document.querySelector('[data-dag-modal-kind] [data-dag-adjust]')`;
-        const DAG_ADJUST_WIDTH = `document.querySelector('[data-dag-modal-kind] [data-jarvis-brief-sheet-config] input[type="number"]')`;
-        const DAG_ADJUST_SAVED = `document.querySelector('[data-dag-modal-kind] [data-jarvis-brief-sheet-state="saved"]')`;
+        const RUN_SETTINGS = `document.querySelector('[data-run-settings-modal]')`;
+        const RUN_SETTINGS_MORE = `${RUN_SETTINGS}?.querySelector('button[aria-label="More concurrent workers"]')`;
+        const RUN_SETTINGS_SAVED = `document.querySelector('[data-run-settings-modal] [data-run-settings-status="saved"]')`;
         await h.ev(`${DAG_HEADER_ADJUST}?.click()`);
-        const dialsShown = await polishWaitFor(h, `!!${DAG_ADJUST_WIDTH}`, 3000);
-        await h.ev(setInputExpr(DAG_ADJUST_WIDTH, String(dagParallelism + 1)));
-        await h.ev(clickByText(`document.querySelector('[data-dag-modal-kind]')`, "button", "Save settings"));
-        const savedShown = await polishWaitFor(h, `!!${DAG_ADJUST_SAVED}`, 8000);
+        const dialsShown = await polishWaitFor(h, `!!${RUN_SETTINGS_MORE}`, 3000);
+        await h.ev(`${RUN_SETTINGS_MORE}?.click()`);
+        await h.ev(clickByText(RUN_SETTINGS, "button", "Save settings"));
+        const savedShown = await polishWaitFor(h, `!!${RUN_SETTINGS_SAVED}`, 8000);
         await h.shot("cdp-shots/dag-modal-adjust.png");
         const adjusted = {
             dialsShown,
             savedShown,
-            saved: await h.ev(flatText(DAG_ADJUST_SAVED)),
+            saved: await h.ev(flatText(RUN_SETTINGS_SAVED)),
             header: await h.ev(flatText(`document.querySelector('[data-dag-modal-kind] [data-dag-progress]')?.parentElement`)),
             width: (await h.rpc("dagstatus", { channelid: ctx.channelId, runid: runId })).group.parallelism,
         };
+        await h.ev(`document.querySelector('[data-run-settings-close]')?.click()`);
+        adjusted.settingsClosed = await polishWaitFor(h, `!${RUN_SETTINGS}`, 3000);
+        adjusted.dagModalOpen = await h.ev(`!!document.querySelector('[data-dag-modal-kind]')`);
         rec(
-            "5g. Adjust in the DAG header saves a new worker parallelism to the dag and the header reads it",
+            "5g. Adjust in the DAG header opens the Run settings modal, saves a new worker parallelism to the dag and the header reads it; its X closes only the Run settings modal",
             dialsShown &&
                 adjusted.saved === "Saved. Applies to future dispatches." &&
                 adjusted.width === dagParallelism + 1 &&
-                adjusted.header.startsWith(`parallelism ${dagParallelism + 1}`),
+                adjusted.header.startsWith(`parallelism ${dagParallelism + 1}`) &&
+                adjusted.settingsClosed &&
+                adjusted.dagModalOpen,
             JSON.stringify(adjusted)
         );
-        await h.ev(`${DAG_HEADER_ADJUST}?.click()`);
 
         // escape dismisses the modal (the modal state machine refuses close while launching, which is
         // not in play here; the Close button and backdrop click share the same path)
@@ -1497,12 +1503,14 @@ export const leadCardMergeGate = {
 };
 
 // Page-only: the run's dag in the page takes `fields` (its own top-level fields, such as status or final) and
-// `tasks` (fields per task id; an id it lacks is added) at one version past
-// the one it holds, and the dag status RPC answers that version with `digest` (fields per task row, added likewise):
+// `tasks` (fields per task id; an id it lacks is added) at `ahead` versions past
+// the one it holds (one by default), and the dag status RPC answers that version with `digest` (fields per task row, added likewise):
 // the merge gate's held state and a task's actions are digest fields no RPC writes; `next`, when given, replaces the
 // digest's next step (the sheet's next: line). undoPageDag puts the RPC back
-// and reloads the stored dag, whose own version brings the real digest back.
-export const injectPageDag = (h, runId, { tasks = {}, digest = {}, next, fields = {} }) =>
+// and reloads the stored dag, whose own version brings the real digest back. WOS drops a pushed update whose
+// version is not newer, so a large `ahead` keeps the page copy until undoPageDag for a scenario whose run is live
+// and still writing its dag.
+export const injectPageDag = (h, runId, { tasks = {}, digest = {}, next, fields = {}, ahead = 1 }) =>
     lookEval(h, `
         const { RpcApi } = await mod("app/store/wshclientapi.ts");
         const WOS = await mod("app/store/wos.ts");
@@ -1513,7 +1521,7 @@ export const injectPageDag = (h, runId, { tasks = {}, digest = {}, next, fields 
         const merge = (rows, key, patch) =>
             [...rows, ...Object.keys(patch).filter((id) => !rows.some((r) => r[key] === id)).map((id) => ({ [key]: id }))]
                 .map((r) => (patch[r[key]] ? { ...r, ...patch[r[key]] } : r));
-        const version = dag.version + 1;
+        const version = dag.version + ${JSON.stringify(ahead)};
         const saved = (window.__pageDag ??= { orig: RpcApi.DagStatusCommand });
         RpcApi.DagStatusCommand = async (client, data, opts) => {
             const rtn = await saved.orig.call(RpcApi, client, data, opts);
@@ -5742,18 +5750,18 @@ const MODELS_RPC = { timeout: 30000 };
 // there deterministically, and the answer it types lands somewhere harmless. The fixture roster names that tab as the
 // lead asking Plan review, which is how the sheet and the palette learn of the question; no live agent runs.
 const AUTONOMOUS_PROJECT = "verify-autonomous-runs";
-const AUTONOMOUS_LEAD_ASK = {
+export const AUTONOMOUS_LEAD_ASK = {
     header: "Plan review",
     question: "The plan review failed twice. Proceed with the plan as it stands?",
     options: [{ label: "Accept all and proceed" }, { label: "Request changes" }],
 };
 const AUTONOMOUS_PROFILE_NOTE =
     "The lead takes the option it would recommend at each of those points and records why in its report. If the final stage still fails after the last round, the land stays held for you.";
-const AUTONOMOUS_RESOLVED =
+export const AUTONOMOUS_RESOLVED =
     "The lead is carrying the plan review's findings into the tasks and going on. It answers everything from here on; each call it makes goes in its report.";
-const AUTONOMOUS_BACK_TO_ASK = "The lead asks you again from its next decision. Calls it already made stand.";
+export const AUTONOMOUS_BACK_TO_ASK = "The lead asks you again from its next decision. Calls it already made stand.";
 // typing the ON answer takes 60ms a rune, so the question leaves the registry well inside this
-const AUTONOMOUS_ANSWER_WAIT_MS = 20_000;
+export const AUTONOMOUS_ANSWER_WAIT_MS = 20_000;
 const SHEET_APPROVALS = `${RUN_SHEET}?.querySelector('[role="group"][aria-label="Approvals"]')`;
 const flatOf = (elExpr) => `((${elExpr})?.textContent ?? '').replace(/\\s+/g, ' ').trim()`;
 
@@ -5788,17 +5796,17 @@ const SHEET_STATE = `(() => {
 })()`;
 
 // the lead's own pending question, as the server holds it
-async function autonomousLeadAsk(h, ctx) {
+export async function autonomousLeadAsk(h, ctx) {
     return (await h.rpc("runasks", { channelid: ctx.channelId, runid: ctx.runId }))?.asks?.[0] ?? null;
 }
 
-async function raiseLeadAsk(h, ctx) {
+export async function raiseLeadAsk(h, ctx) {
     await h.rpc("ask", { oref: `block:${ctx.leadBlockId}`, questions: [AUTONOMOUS_LEAD_ASK] });
     ctx.askRaised = true;
 }
 
 // the fixture lead's face: asking Plan review, or working once its question is answered
-const patchFixtureLead = (h, ctx, asking) =>
+export const patchFixtureLead = (h, ctx, asking) =>
     h.ev(
         `window.__cockpitRosterFixture?.patch(${JSON.stringify(ctx.leadTabId)}, ${
             asking
@@ -5809,7 +5817,7 @@ const patchFixtureLead = (h, ctx, asking) =>
 
 // The lead's tab, in the page's own workspace. Its block runs a node process that reads and drops stdin: a shell
 // would run the typed answer, and the picker's arrow keys would recall its history first.
-async function seedAutonomousLead(h, ctx) {
+export async function seedAutonomousLead(h, ctx) {
     const bootTab = String(await h.ev("window.TabRpcClient.routeId")).replace(/^tab:/, "");
     const wslist = await h.rpc("workspacelist", null);
     const ws = wslist.find((w) => (w.workspacedata?.tabids ?? []).includes(bootTab)) ?? wslist[0];

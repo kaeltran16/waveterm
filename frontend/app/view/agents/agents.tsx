@@ -27,11 +27,11 @@ import { withBrainstorm } from "./brainstormmodel";
 import { brainstormsAtom, brainstormWaitOf } from "./brainstormstore";
 import { claudeApiKeyActiveAtom } from "./claudeapikeystore";
 import { CockpitSurface } from "./cockpitsurface";
-import { devRosterAtom, loadDevMockRoster } from "./devmock";
+import { cockpitRosterAtom, loadDevMockRoster } from "./devmock";
 import { diffScopeAtom } from "./diffscopeatom";
 import type { SessionStatusFilter } from "./sessionsarchivestore";
 import type { SessionsFind, SessionsFound } from "./sessionsfind";
-import { liveAgentsAtom, liveTerminalsAtom } from "./liveagents";
+import { liveTerminalsAtom } from "./liveagents";
 import { mergeRateLimitWindows, savedRateLimitsAtom } from "./ratelimitstore";
 import type { Lineage } from "./runlineage";
 import {
@@ -184,10 +184,8 @@ export class AgentsViewModel implements ViewModel {
         // devmock.ts + scripts/gen-cockpit-fixtures.mjs). import.meta.env.DEV is build-time -> prod uses live.
         if (import.meta.env.DEV) {
             void loadDevMockRoster();
-            this.baseRosterAtom = devRosterAtom;
-        } else {
-            this.baseRosterAtom = liveAgentsAtom;
         }
+        this.baseRosterAtom = cockpitRosterAtom;
         const base = this.baseRosterAtom;
         const pendingAtom = this.pendingLaunchesAtom;
         // Booting launches overlay the roster until the reporter registers them (supersede by tabId), an

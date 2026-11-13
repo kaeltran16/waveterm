@@ -65,13 +65,7 @@ import { ArrowUpRight, Check, ChevronRight, CornerDownRight } from "lucide-react
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { RunComposer } from "./briefcomposer";
-import {
-    RunSettingsPanel,
-    saveRunAsDefaults,
-    SHEET_BTN,
-    USE_FOR_NEW_RUNS_TITLE,
-    type WaitingQuestion,
-} from "./briefrunsheet";
+import { RunSettingsPanel, saveRunAsDefaults, SHEET_BTN, USE_FOR_NEW_RUNS_TITLE } from "./briefrunsheet";
 import { finalCheckEntry, shotPath, shotRounds, type FinalCheckEntry, type ShotRound } from "./finalshotsmodel";
 import { FinalShotsViewer, VERDICT_DOT } from "./finalshotsviewer";
 import { briefEffortIndexAtom, briefProfileAtom, briefRevealChunkAtom } from "./jarvisstore";
@@ -80,7 +74,7 @@ import { useLocalImage } from "./localimage";
 import { openTarget } from "./openref";
 import { runTitle } from "./runreport";
 import { RunReportView } from "./runreportview";
-import { runSettingsDraft, type LinkedGroupRead } from "./runsettings";
+import { runSettingsDraft, type LinkedGroupRead, type WaitingQuestion } from "./runsettings";
 import {
     configLine,
     designLink,
@@ -92,6 +86,7 @@ import {
     sheetStatus,
     taskRow,
     taskSectionMeta,
+    waitingQuestion,
     type SheetBar,
     type SheetDagRead,
     type SheetRowAction,
@@ -223,12 +218,7 @@ function RunSheetFrame({ ctx, dag }: { ctx: SheetCtx; dag: SheetDagRead | null }
         survivors,
         designOpen: design != null,
     });
-    const waiting: WaitingQuestion | null =
-        asker != null
-            ? { header: asker.ask?.questions?.[0]?.header || "question", lead: true }
-            : userAsks.length > 0
-              ? { header: "question", lead: false }
-              : null;
+    const waiting = waitingQuestion(run, agents, asks);
     const body = doneBody(run);
     const group = dag?.group ?? null;
     const finalEntry = finalCheckEntry(group);
@@ -456,7 +446,6 @@ function Reading({
             <SheetBarView bar={status.meter} dag={dag} />
             <RunSettingsPanel
                 run={run}
-                inline
                 waiting={waiting}
                 meta={
                     <>

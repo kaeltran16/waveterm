@@ -1,8 +1,10 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { DEFAULT_PARALLELISM, MAX_PARALLELISM } from "@/app/view/agents/runconfig";
 import { describe, expect, it } from "vitest";
 import {
+    approvalsNoteKind,
     draftIsDirty,
     draftSeedKey,
     effectiveRunConfig,
@@ -11,9 +13,12 @@ import {
     runAutonomous,
     runSettingsDraft,
     runSettingsPanelState,
+    runSettingsStatus,
+    savedNotice,
     settingsChangePayload,
     settingsPayload,
     sheetFace,
+    stepParallelism,
 } from "./runsettings";
 
 function engineRun(over: Partial<Run> = {}): Run {
@@ -451,5 +456,89 @@ describe("the Light reviewers route in the sheet's draft", () => {
         expect(engineDefaultsPatch({}, effectiveRunConfig(engineRun(), draft)).lightreviewerroute).toEqual(LIGHT);
         const cleared = engineDefaultsPatch({ lightreviewerroute: LIGHT }, effectiveRunConfig(engineRun(), DRAFT));
         expect(cleared.lightreviewerroute).toBeUndefined();
+    });
+});
+
+describe("approvalsNoteKind", () => {
+    const asking = { ...runSettingsDraft(engineRun(), null), autonomous: false };
+    const autonomous = { ...asking, autonomous: true };
+    const waiting = { header: "Plan review", lead: true };
+
+    it("is on when approvals turn on and a question waits", () => {
+        expect(approvalsNoteKind(autonomous, asking, waiting)).toBe("on");
+    });
+    it("is none when approvals turn on and nothing waits", () => {
+        expect(approvalsNoteKind(autonomous, asking, null)).toBe("none");
+        expect(approvalsNoteKind(autonomous, asking, undefined)).toBe("none");
+    });
+    it("is off when approvals turn off, waiting or not", () => {
+        expect(approvalsNoteKind(asking, autonomous, null)).toBe("off");
+        expect(approvalsNoteKind(asking, autonomous, waiting)).toBe("off");
+    });
+    it("is none when approvals are unchanged", () => {
+        expect(approvalsNoteKind(asking, asking, waiting)).toBe("none");
+        expect(approvalsNoteKind(autonomous, autonomous, waiting)).toBe("none");
+    });
+});
+
+describe("savedNotice", () => {
+    const asking = { ...runSettingsDraft(engineRun(), null), autonomous: false };
+    const autonomous = { ...asking, autonomous: true };
+
+    it("says the run is autonomous when approvals turn on", () => {
+        expect(savedNotice(autonomous, asking)).toBe("Saved. The run is autonomous from now on.");
+    });
+    it("says the lead asks when approvals turn off", () => {
+        expect(savedNotice(asking, autonomous)).toBe("Saved. The lead asks you from its next decision.");
+    });
+    it("says future dispatches when approvals are untouched", () => {
+        expect(savedNotice({ ...asking, parallelism: 5 }, asking)).toBe("Saved. Applies to future dispatches.");
+    });
+});
+
+describe("runSettingsStatus", () => {
+    const base = { error: null, invalid: false, dirty: false, notice: null, baselineWidth: 3 };
+
+    it("is none with nothing to say", () => {
+        expect(runSettingsStatus(base)).toEqual({ kind: "none", text: "No changes" });
+    });
+    it("is the saved notice once the draft is clean", () => {
+        expect(runSettingsStatus({ ...base, notice: "Saved. Applies to future dispatches." })).toEqual({
+            kind: "saved",
+            text: "Saved. Applies to future dispatches.",
+        });
+    });
+    it("is unsaved while dirty, even with a notice", () => {
+        expect(runSettingsStatus({ ...base, dirty: true, notice: "Saved." })).toEqual({
+            kind: "unsaved",
+            text: "Unsaved changes",
+        });
+    });
+    it("is the invalid width copy, naming the baseline width and the maximum", () => {
+        expect(runSettingsStatus({ ...base, dirty: true, invalid: true, baselineWidth: 2 })).toEqual({
+            kind: "error",
+            text: `Enter a whole number from 1 through ${MAX_PARALLELISM}. The scheduler is still running at 2.`,
+        });
+    });
+    it("is the save's error above everything", () => {
+        expect(runSettingsStatus({ ...base, error: "refused", dirty: true, invalid: true, notice: "Saved." })).toEqual({
+            kind: "error",
+            text: "refused",
+        });
+    });
+});
+
+describe("stepParallelism", () => {
+    it("lands an unset width on the default, whichever way it steps", () => {
+        expect(stepParallelism(0, 1)).toBe(DEFAULT_PARALLELISM);
+        expect(stepParallelism(0, -1)).toBe(DEFAULT_PARALLELISM);
+    });
+    it("clamps at both ends", () => {
+        expect(stepParallelism(1, -1)).toBe(1);
+        expect(stepParallelism(MAX_PARALLELISM, 1)).toBe(MAX_PARALLELISM);
+    });
+    it("steps by the delta inside the range", () => {
+        expect(stepParallelism(4, 1)).toBe(5);
+        expect(stepParallelism(4, -1)).toBe(3);
     });
 });
