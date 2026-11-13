@@ -34,6 +34,8 @@ What changes from plain brainstorming:
   decision, and the user came to decide the design.
 - Still end every turn on the question in the terminal: the file is what Arc shows, the terminal is
   what you wait on.
+- An open request opens on directions, not on an open question (**An open request opens on
+  directions**, below).
 
 ## The file
 
@@ -197,6 +199,25 @@ it locks the pane.
 would write the spec to, under `docs/superpowers/specs/`), question 1 in `question` with `n: 1`, its part created as `asked`, and
 `history: []`. In Claude Code a hook reveals the pane when your file-writing tool creates the file;
 in any other harness run `wsh ui reveal brainstorm:<topic>` from your terminal.
+
+**An open request opens on directions.** A request is open when it leaves the goal itself unsettled:
+the user says they are exploring, unsure or after ideas, asks to improve something in general, or
+gives an example ("something like X", "for example"). For an open request, question 1 asks which
+direction to take, as an approach question (**Approach questions go to the judge**), in place of the
+open question superpowers starts with:
+
+- Its approaches are directions: different kinds of answer to the request, not variants of one. An
+  example the user gave is one instance among them, and at least two directions reach wider than it.
+- Each direction's `facts` say what exists today that it builds on or replaces, and what it would
+  change for the user. A direction that would look different from the others carries a board.
+- Its `why` says what you read in the request, and that a line on why they want it can change the
+  pick.
+
+Their pick, and any pushback on it, tells you the why superpowers asks for; ask it as an open
+question only if it is still unclear once a direction is chosen. When an open question you asked
+gets "not sure", "what do you suggest", "just exploring" or "it's just an example" back, the request
+was open: drop the question (superseded, **When the line is not an answer**) and ask the directions
+question next.
 
 **On an answer**, in that one write: append the exchange to `history` (with `n`, `q`, the question's `why`, `a`
 and `into`; when the question offered `options`, copy them into the entry, with the question's `judge`
