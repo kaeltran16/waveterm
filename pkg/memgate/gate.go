@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package memgate holds new workers at the door until available memory covers the median of their learned peaks,
-// counts work that must progress without ever holding it, and (in the reconciliation loop) pauses background trees
+// counts work that must progress without ever holding it, and (in the reconciliation loop) pauses a spiking worker
 // when available memory still runs low.
 package memgate
 
@@ -70,10 +70,13 @@ type Claim struct {
 	released bool
 
 	// the reconciliation loop's view of the tree
-	seen          bool // its job has appeared in a live usage read
-	settled       bool // its startup allowance has ended and the loop has announced the room
+	seen          bool   // its job has appeared in a live usage read
+	settled       bool   // its startup allowance has ended and the loop has announced the room
+	use, prevUse  uint64 // its job's memory at this tick and the last
+	floor         uint64 // the lowest it has read since the loop first saw it
 	paused        bool
 	pausedAt      time.Time
+	pauseUntil    time.Time // pauseLimit, or before its prompt cache expires
 	noPauseBefore time.Time // after a pause hits its limit
 	// when the tree's prompt cache expires; nil or false = unknown
 	cacheExpiry func() (time.Time, bool)

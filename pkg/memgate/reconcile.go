@@ -4,7 +4,6 @@
 package memgate
 
 import (
-	"cmp"
 	"context"
 	"log"
 	"slices"
@@ -15,9 +14,16 @@ import (
 
 const (
 	loopTick = 2 * time.Second
-	// below lowWater the loop pauses a background tree per tick; above highWater it resumes one
+	// below lowWater the loop pauses a spiking worker per tick; above highWater it resumes one
 	lowWater  = 1536 * mib
 	highWater = 3 * gib
+	// an idle claude sits at 0.35-0.7 GB and a typecheck adds ~2.8 GB: a GiB over its own floor is a command's spike
+	spikeRise = 1 * gib
+	// covers the gap between the request that refreshed the cache and its transcript write, plus resume and the
+	// next request
+	pauseMargin = 30 * time.Second
+	// a shorter pause stops too little of a spike to be worth a suspend
+	minPause = 15 * time.Second
 	// a rise this large since the last room call may admit a held tree, so the room hook runs
 	roomRise = 512 * mib
 	// claude's API timeout is 10 min and the stall threshold 15: a 3 min pause risks neither
@@ -67,42 +73,54 @@ func StartLoop(ctx context.Context) {
 }
 
 func tick() {
-	live := make(map[jobobject.Owner]bool)
+	use := make(map[jobobject.Owner]uint64)
 	for _, u := range liveUsage() {
-		live[u.Owner] = true
+		use[u.Owner] += u.Current
 	}
+	t := now()
+	if cands, avail, low := reconcile(use, t); low {
+		pauseOne(cands, avail, t)
+	}
+}
 
+// reconcile brings the book up to date with the live jobs and free memory, resuming a pause that is due. When free
+// memory is under the low watermark it returns the pause candidates for pauseOne, which must run without the lock.
+func reconcile(use map[jobobject.Owner]uint64, t time.Time) ([]pauseCand, uint64, bool) {
 	book.mu.Lock()
 	defer book.mu.Unlock()
-	t := now()
-	correctClaimsLocked(live, t)
+	correctClaimsLocked(use, t)
 	settleLocked(t)
 	// the pause limit needs no reading, so a failing read never lets a pause outlive it
 	resumeLimitedLocked(t)
 	avail, err := readFreeLocked()
 	if err != nil {
-		return
+		return nil, 0, false
 	}
 	checkRiseLocked(avail)
 	switch {
 	case avail < lowWater:
-		pauseOneLocked(avail, t)
+		return pauseCandsLocked(t), avail, true
 	case avail > highWater:
 		resumeOldestLocked(avail, t)
 	}
+	return nil, 0, false
 }
 
-// correctClaimsLocked marks each bound claim whose job is live as seen, and drops a bound claim whose job was seen
-// and is gone or never appeared. A never-seen job gets no close, so its owner's key goes with its claim; a seen one's
-// close follows its unregister and still needs the key. An unbound claim is its caller's: a serial batch of Setups
-// can hold one for many minutes.
-func correctClaimsLocked(live map[jobobject.Owner]bool, t time.Time) {
+// correctClaimsLocked marks each bound claim whose job is live as seen and records its use, and drops a bound claim
+// whose job was seen and is gone or never appeared. A never-seen job gets no close, so its owner's key goes with its
+// claim; a seen one's close follows its unregister and still needs the key. An unbound claim is its caller's: a
+// serial batch of Setups can hold one for many minutes.
+func correctClaimsLocked(use map[jobobject.Owner]uint64, t time.Time) {
 	for c := range book.claims {
 		if !c.bound {
 			continue
 		}
-		if live[c.owner] {
-			c.seen = true
+		if u, ok := use[c.owner]; ok {
+			if !c.seen {
+				c.seen, c.use, c.floor = true, u, u
+			}
+			c.prevUse, c.use = c.use, u
+			c.floor = min(c.floor, u)
 			continue
 		}
 		if c.seen {
@@ -150,34 +168,83 @@ func checkRiseLocked(avail uint64) {
 	}
 }
 
-func pausable(c *Claim) bool {
-	return c.bound && c.seen && (c.tag.Role == RoleWorker || c.tag.Role == RoleReviewer)
+// spikingLocked is whether c's use is well above its own floor and still rising: an idle tree frees nothing by
+// pausing, and a pause stops a spike from growing but frees nothing already held.
+func (c *Claim) spikingLocked() bool {
+	return c.use >= c.floor+spikeRise && c.use > c.prevUse
 }
 
-// pauseOneLocked pauses one background tree: reviewers before workers, the most recently admitted first. It never
-// pauses the last unpaused claim: something must finish to free memory.
-func pauseOneLocked(avail uint64, t time.Time) {
-	var unpaused int
-	var cands []*Claim
+// pausable is whether the loop may pause c: only a worker, since a reviewer's verdict is what lands work.
+func pausable(c *Claim, t time.Time) bool {
+	return c.bound && c.seen && c.tag.Role == RoleWorker && !t.Before(c.noPauseBefore) && c.spikingLocked()
+}
+
+type pauseCand struct {
+	c           *Claim
+	cacheExpiry func() (time.Time, bool)
+}
+
+// pauseCandsLocked lists the pausable claims, youngest admitted first, the oldest being likely near its end. None
+// when pausing would leave no claim running: something must finish to free memory.
+func pauseCandsLocked(t time.Time) []pauseCand {
+	if unpausedLocked() <= 1 {
+		return nil
+	}
+	var cands []pauseCand
 	for c := range book.claims {
-		if c.paused {
-			continue
-		}
-		unpaused++
-		if pausable(c) && !t.Before(c.noPauseBefore) {
-			cands = append(cands, c)
+		if !c.paused && pausable(c, t) {
+			cands = append(cands, pauseCand{c, c.cacheExpiry})
 		}
 	}
-	if unpaused <= 1 || len(cands) == 0 {
+	slices.SortFunc(cands, func(a, b pauseCand) int { return b.c.admitted.Compare(a.c.admitted) })
+	return cands
+}
+
+func unpausedLocked() int {
+	var n int
+	for c := range book.claims {
+		if !c.paused {
+			n++
+		}
+	}
+	return n
+}
+
+// pauseOne pauses the first candidate whose pause can last minPause before its prompt cache would expire. It reads
+// each expiry without book.mu, since that stats the sessions dir.
+func pauseOne(cands []pauseCand, avail uint64, t time.Time) {
+	for _, cand := range cands {
+		if until, ok := pauseBound(cand.cacheExpiry, t); ok {
+			pause(cand.c, until, avail, t)
+			return
+		}
+	}
+}
+
+// pauseBound is when a pause from t must end: at pauseLimit, or pauseMargin before the prompt cache expires if that
+// is sooner. Not ok when the expiry is unknown or the pause could not last minPause.
+func pauseBound(cacheExpiry func() (time.Time, bool), t time.Time) (time.Time, bool) {
+	if cacheExpiry == nil {
+		return time.Time{}, false
+	}
+	exp, ok := cacheExpiry()
+	if !ok {
+		return time.Time{}, false
+	}
+	until := t.Add(pauseLimit)
+	if beforeExp := exp.Add(-pauseMargin); beforeExp.Before(until) {
+		until = beforeExp
+	}
+	return until, until.Sub(t) >= minPause
+}
+
+// pause suspends c's job until the bound, unless the book moved while its expiry was read.
+func pause(c *Claim, until time.Time, avail uint64, t time.Time) {
+	book.mu.Lock()
+	defer book.mu.Unlock()
+	if _, live := book.claims[c]; !live || c.paused || unpausedLocked() <= 1 {
 		return
 	}
-	slices.SortFunc(cands, func(a, b *Claim) int {
-		return cmp.Or(
-			cmp.Compare(rolePauseOrder(a.tag.Role), rolePauseOrder(b.tag.Role)),
-			b.admitted.Compare(a.admitted),
-		)
-	})
-	c := cands[0]
 	n, err := suspendJob(c.owner)
 	if err != nil {
 		log.Printf("memgate: pausing %s %s (%d suspended): %v", c.owner.Kind, c.owner.Id, n, err)
@@ -185,21 +252,14 @@ func pauseOneLocked(avail uint64, t time.Time) {
 			return
 		}
 	}
-	c.paused, c.pausedAt = true, t
+	c.paused, c.pausedAt, c.pauseUntil = true, t, until
 	emitLocked(Event{Kind: EventPaused, Tag: c.tag, Free: avail, Need: highWater})
 }
 
-func rolePauseOrder(role string) int {
-	if role == RoleReviewer {
-		return 0
-	}
-	return 1
-}
-
-// resumeLimitedLocked resumes every pause that has reached its limit and keeps it from pausing again for a while.
+// resumeLimitedLocked resumes every pause that has reached its bound and keeps it from pausing again for a while.
 func resumeLimitedLocked(t time.Time) {
 	for c := range book.claims {
-		if c.paused && t.Sub(c.pausedAt) >= pauseLimit {
+		if c.paused && !t.Before(c.pauseUntil) {
 			resumeLocked(c, ReasonLimit, 0, t)
 			c.noPauseBefore = t.Add(pauseCooldown)
 		}

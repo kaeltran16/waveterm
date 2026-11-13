@@ -20,16 +20,24 @@ type fakeMachine struct {
 
 	mu        sync.Mutex
 	live      map[jobobject.Owner]jobobject.JobUsage
+	rising    map[jobobject.Owner]bool // each read adds a GiB to these jobs' use
 	suspended []jobobject.Owner
 	resumed   []jobobject.Owner
 
 	clock time.Time
 }
 
+// idleUse is what a live tree uses until a test raises it.
+const idleUse = 100 * mib
+
 func newLoop(t *testing.T, free uint64) (*recorder, *fakeMachine) {
 	t.Helper()
 	rec := newGate(t, 0)
-	m := &fakeMachine{live: make(map[jobobject.Owner]jobobject.JobUsage), clock: time.Unix(1_000_000_000, 0)}
+	m := &fakeMachine{
+		live:   make(map[jobobject.Owner]jobobject.JobUsage),
+		rising: make(map[jobobject.Owner]bool),
+		clock:  time.Unix(1_000_000_000, 0),
+	}
 	m.free.Store(free)
 	t.Cleanup(SetFreeForTest(func() (uint64, error) { return m.free.Load(), nil }))
 
@@ -38,7 +46,11 @@ func newLoop(t *testing.T, free uint64) (*recorder, *fakeMachine) {
 		m.mu.Lock()
 		defer m.mu.Unlock()
 		var out []jobobject.JobUsage
-		for _, u := range m.live {
+		for o, u := range m.live {
+			if m.rising[o] {
+				u.Current += gib
+				m.live[o] = u
+			}
 			out = append(out, u)
 		}
 		return out
@@ -76,7 +88,33 @@ func (m *fakeMachine) advance(d time.Duration) { m.clock = m.clock.Add(d) }
 func (m *fakeMachine) setLive(o jobobject.Owner) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.live[o] = jobobject.JobUsage{Owner: o, Current: 100 * mib}
+	m.live[o] = jobobject.JobUsage{Owner: o, Current: idleUse}
+}
+
+// setUse sets o's job live at bytes of memory.
+func (m *fakeMachine) setUse(o jobobject.Owner, bytes uint64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.live[o] = jobobject.JobUsage{Owner: o, Current: bytes}
+}
+
+// freshCache is a prompt cache written just now at every read, so it never ends a pause before pauseLimit.
+func freshCache() (time.Time, bool) { return now().Add(10 * time.Minute), true }
+
+func expiresAt(exp time.Time) func() (time.Time, bool) {
+	return func() (time.Time, bool) { return exp, true }
+}
+
+// spikingWorker admits a live worker whose use rises a GiB at every read and whose cache stays fresh: the loop may
+// pause it from its second tick, once it has read the worker's floor.
+func (m *fakeMachine) spikingWorker(t *testing.T, runId, taskId string) (*Claim, jobobject.Owner) {
+	t.Helper()
+	c, o := m.liveTree(t, runId, taskId, RoleWorker)
+	m.mu.Lock()
+	m.rising[o] = true
+	m.mu.Unlock()
+	c.SetCacheExpiry(freshCache)
+	return c, o
 }
 
 func (m *fakeMachine) gone(o jobobject.Owner) {
@@ -136,37 +174,212 @@ func tickN(m *fakeMachine, n int) {
 	}
 }
 
-func TestPauseReviewersBeforeWorkers(t *testing.T) {
+// the youngest worker is likely the furthest from done, the oldest verifying near its end; an idle one frees nothing
+func TestPausesYoungestSpikingWorker(t *testing.T) {
 	rec, m := newLoop(t, 8*gib)
-	_, rev := m.liveTree(t, "r1", "rev", RoleReviewer)
-	_, w1 := m.liveTree(t, "r1", "w1", RoleWorker)
-	_, w2 := m.liveTree(t, "r1", "w2", RoleWorker)
-	m.free.Store(gib)
+	var ws []jobobject.Owner
+	for _, id := range []string{"t0", "t1", "t2"} {
+		c, o := m.liveTree(t, "r1", id, RoleWorker)
+		c.SetCacheExpiry(expiresAt(m.clock.Add(4 * time.Minute)))
+		ws = append(ws, o)
+	}
+	tickN(m, 1) // the loop reads each worker's floor
+	m.setUse(ws[0], idleUse+2*gib)
+	m.setUse(ws[1], idleUse+2*gib)
+	m.free.Store(lowWater - mib)
 
 	tickN(m, 1)
-	if got := m.suspends(); !slices.Equal(got, []jobobject.Owner{rev}) {
-		t.Fatalf("first pause hit %v, want the reviewer", got)
+	if got := m.suspends(); !slices.Equal(got, ws[1:2]) {
+		t.Fatalf("paused %v, want only the youngest spiking worker %v", got, ws[1])
 	}
+	m.setUse(ws[0], idleUse+3*gib)
 	tickN(m, 1)
-	if got := m.suspends(); !slices.Equal(got, []jobobject.Owner{rev, w2}) {
-		t.Fatalf("second pause hit %v, want the newest worker", got)
-	}
-	tickN(m, 1)
-	if got := m.suspends(); len(got) != 2 {
-		t.Fatalf("paused %v: %v is the last unpaused tree", got, w1)
+	if got := m.suspends(); !slices.Equal(got, []jobobject.Owner{ws[1], ws[0]}) {
+		t.Fatalf("paused %v, want %v then %v", got, ws[1], ws[0])
 	}
 	paused := rec.ofKind(EventPaused)
-	if len(paused) != 2 || paused[0].Tag.TaskId != "rev" || paused[1].Tag.TaskId != "w2" {
+	if len(paused) != 2 || paused[0].Tag.TaskId != "t1" || paused[1].Tag.TaskId != "t0" {
 		t.Fatalf("paused events %+v", paused)
 	}
-	if paused[0].Need != highWater || paused[0].Free != gib {
-		t.Fatalf("paused event free %d need %d, want %d and %d", paused[0].Free, paused[0].Need, gib, highWater)
+	if paused[0].Need != highWater || paused[0].Free != lowWater-mib {
+		t.Fatalf("paused event free %d need %d, want %d and %d", paused[0].Free, paused[0].Need, lowWater-mib, highWater)
+	}
+}
+
+func TestNeverPausesAReviewer(t *testing.T) {
+	_, m := newLoop(t, 8*gib)
+	m.liveTree(t, "r1", "w", RoleWorker) // idle, so the reviewer is not the last unpaused tree
+	rc, rev := m.liveTree(t, "r1", "rev", RoleReviewer)
+	rc.SetCacheExpiry(freshCache)
+	tickN(m, 1)
+	m.free.Store(lowWater - mib)
+	for i := range uint64(3) {
+		m.setUse(rev, idleUse+(2+i)*gib)
+		tickN(m, 1)
+	}
+	if got := m.suspends(); len(got) != 0 {
+		t.Fatalf("paused %v, a spiking reviewer", got)
+	}
+}
+
+// a pause stops a spike from growing; it frees nothing already held
+func TestPausesOnlyRisingSpikes(t *testing.T) {
+	_, m := newLoop(t, 8*gib)
+	m.liveTree(t, "r1", "idle", RoleWorker)
+	c, w := m.liveTree(t, "r1", "w", RoleWorker)
+	c.SetCacheExpiry(freshCache)
+	tickN(m, 1)
+
+	m.free.Store(lowWater - mib)
+	m.setUse(w, idleUse+spikeRise-mib)
+	tickN(m, 1)
+	if got := m.suspends(); len(got) != 0 {
+		t.Fatalf("paused %v, rising but under spikeRise above its floor", got)
+	}
+
+	m.free.Store(8 * gib)
+	m.setUse(w, idleUse+2*gib)
+	tickN(m, 1)
+	m.free.Store(lowWater - mib)
+	tickN(m, 1) // 2 GiB above its floor, no higher than last tick
+	if got := m.suspends(); len(got) != 0 {
+		t.Fatalf("paused %v, a plateaued spike", got)
+	}
+
+	m.setUse(w, idleUse+2*gib+mib)
+	tickN(m, 1)
+	if got := m.suspends(); !slices.Equal(got, []jobobject.Owner{w}) {
+		t.Fatalf("paused %v once the spike rose again, want %v", got, w)
+	}
+}
+
+// a pause without a known cache expiry could outlive the cache and cost the worker a full prompt rewrite
+func TestNoPauseWithoutKnownCacheExpiry(t *testing.T) {
+	for name, expiry := range map[string]func() (time.Time, bool){
+		"nil":     nil,
+		"unknown": func() (time.Time, bool) { return time.Time{}, false },
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, m := newLoop(t, 8*gib)
+			oc, old := m.liveTree(t, "r1", "old", RoleWorker)
+			oc.SetCacheExpiry(freshCache)
+			yc, young := m.liveTree(t, "r1", "young", RoleWorker)
+			yc.SetCacheExpiry(expiry)
+			tickN(m, 1)
+
+			m.setUse(young, idleUse+2*gib)
+			m.free.Store(lowWater - mib)
+			tickN(m, 1)
+			if got := m.suspends(); len(got) != 0 {
+				t.Fatalf("paused %v, the only spiking worker, with no known cache expiry", got)
+			}
+			m.setUse(young, idleUse+3*gib)
+			m.setUse(old, idleUse+2*gib)
+			tickN(m, 1)
+			if got := m.suspends(); !slices.Equal(got, []jobobject.Owner{old}) {
+				t.Fatalf("paused %v, want the older spiking worker %v with a known expiry", got, old)
+			}
+		})
+	}
+}
+
+func TestNoPauseNearCacheExpiry(t *testing.T) {
+	_, m := newLoop(t, 8*gib)
+	oc, old := m.liveTree(t, "r1", "old", RoleWorker)
+	yc, young := m.liveTree(t, "r1", "young", RoleWorker)
+	tickN(m, 1)
+	yc.SetCacheExpiry(expiresAt(m.clock.Add(40 * time.Second))) // its pause could last 10 s, under minPause
+	oc.SetCacheExpiry(expiresAt(m.clock.Add(2 * time.Minute)))
+
+	m.setUse(young, idleUse+2*gib)
+	m.free.Store(lowWater - mib)
+	tickN(m, 1)
+	if got := m.suspends(); len(got) != 0 {
+		t.Fatalf("paused %v, 40 s from its cache's expiry", got)
+	}
+	m.setUse(young, idleUse+3*gib)
+	m.setUse(old, idleUse+2*gib)
+	tickN(m, 1)
+	if got := m.suspends(); !slices.Equal(got, []jobobject.Owner{old}) {
+		t.Fatalf("paused %v, want the older worker %v with time left on its cache", got, old)
+	}
+}
+
+func TestPauseEndsBeforeCacheExpires(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		expiresIn time.Duration // from the pause
+		endsAfter time.Duration
+	}{
+		{"cache", 2 * time.Minute, 2*time.Minute - pauseMargin},
+		{"limit", 10 * time.Minute, pauseLimit},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec, m := newLoop(t, 8*gib)
+			m.liveTree(t, "r1", "idle", RoleWorker)
+			c, w := m.liveTree(t, "r1", "w", RoleWorker)
+			tickN(m, 1)
+			pausedAt := m.clock
+			c.SetCacheExpiry(expiresAt(pausedAt.Add(tc.expiresIn)))
+			m.setUse(w, idleUse+2*gib)
+			m.free.Store(lowWater - mib)
+			tickN(m, 1)
+			if got := m.suspends(); !slices.Equal(got, []jobobject.Owner{w}) {
+				t.Fatalf("paused %v, want %v", got, w)
+			}
+
+			m.clock = pausedAt.Add(tc.endsAfter - time.Second)
+			tick()
+			if got := m.resumes(); len(got) != 0 {
+				t.Fatalf("resumed %v a second before the pause's end", got)
+			}
+			m.clock = pausedAt.Add(tc.endsAfter)
+			tick()
+			if got := m.resumes(); !slices.Equal(got, []jobobject.Owner{w}) {
+				t.Fatalf("resumed %v at the pause's end, want %v", got, w)
+			}
+			resumed := rec.ofKind(EventResumed)
+			if len(resumed) != 1 || resumed[0].Reason != ReasonLimit || resumed[0].Ms != tc.endsAfter.Milliseconds() {
+				t.Fatalf("resumed events %+v, want one with reason limit after %v", resumed, tc.endsAfter)
+			}
+		})
+	}
+}
+
+// reading the expiry stats the sessions dir, so the loop must never hold the book locked across it
+func TestCacheExpiryReadWithoutTheBookLock(t *testing.T) {
+	_, m := newLoop(t, 8*gib)
+	m.liveTree(t, "r1", "idle", RoleWorker)
+	c, w := m.liveTree(t, "r1", "w", RoleWorker)
+	tickN(m, 1)
+	var read atomic.Bool
+	c.SetCacheExpiry(func() (time.Time, bool) {
+		LiveClaimsForTest()
+		read.Store(true)
+		return freshCache()
+	})
+	m.setUse(w, idleUse+2*gib)
+	m.free.Store(lowWater - mib)
+
+	done := make(chan struct{})
+	go func() {
+		tick()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the tick deadlocked: it read the cache expiry holding book.mu")
+	}
+	if got := m.suspends(); !read.Load() || !slices.Equal(got, []jobobject.Owner{w}) {
+		t.Fatalf("expiry read %v, paused %v; want true and %v", read.Load(), got, w)
 	}
 }
 
 func TestNeverPauseLastTree(t *testing.T) {
 	rec, m := newLoop(t, 8*gib)
-	m.liveTree(t, "r1", "w1", RoleWorker)
+	m.spikingWorker(t, "r1", "w1")
+	tickN(m, 1)
 	m.free.Store(512 * mib)
 	tickN(m, 5)
 	if got := m.suspends(); len(got) != 0 {
@@ -180,8 +393,9 @@ func TestNeverPauseLastTree(t *testing.T) {
 func TestResumeAboveHigh(t *testing.T) {
 	rec, m := newLoop(t, 8*gib)
 	m.liveTree(t, "r1", "a", RoleWorker)
-	_, b := m.liveTree(t, "r1", "b", RoleWorker)
-	_, c := m.liveTree(t, "r1", "c", RoleWorker)
+	_, b := m.spikingWorker(t, "r1", "b")
+	_, c := m.spikingWorker(t, "r1", "c")
+	tickN(m, 1)
 	m.free.Store(gib)
 	tickN(m, 2) // pauses c, then b
 	if got := m.suspends(); !slices.Equal(got, []jobobject.Owner{c, b}) {
@@ -211,7 +425,7 @@ func TestResumeAboveHigh(t *testing.T) {
 
 func TestPauseLimit(t *testing.T) {
 	rec, m := newLoop(t, 8*gib)
-	_, w := m.liveTree(t, "r1", "w", RoleWorker)
+	_, w := m.spikingWorker(t, "r1", "w")
 	// a plan command stays unpaused, so the worker is never the last tree and is the only pausable one
 	verify := jobobject.Owner{Kind: jobobject.OwnerKind_RunCmd, Id: "r1", Cmd: "Verify"}
 	restore := UncapForTest()
@@ -219,6 +433,7 @@ func TestPauseLimit(t *testing.T) {
 	restore()
 	defer vc.Release()
 	m.setLive(verify)
+	tickN(m, 1)
 	m.free.Store(gib)
 
 	tickN(m, 1)
@@ -250,13 +465,14 @@ func TestPauseLimit(t *testing.T) {
 
 func TestPauseLimitWithoutFreeReading(t *testing.T) {
 	rec, m := newLoop(t, 8*gib)
-	_, w := m.liveTree(t, "r1", "w", RoleWorker)
+	_, w := m.spikingWorker(t, "r1", "w")
 	verify := jobobject.Owner{Kind: jobobject.OwnerKind_RunCmd, Id: "r1", Cmd: "Verify"}
 	restore := UncapForTest()
 	vc, _ := TryAdmit(Request{Tag: Tag{Role: "Verify"}, Owner: verify})
 	restore()
 	defer vc.Release()
 	m.setLive(verify)
+	tickN(m, 1)
 	m.free.Store(gib)
 
 	tickN(m, 1)
@@ -360,10 +576,13 @@ func TestLowWaterPausesTreesAdmittedOnTheirEstimate(t *testing.T) {
 	rec, m := newLoop(t, 8*gib)
 	for _, id := range []string{"a", "b"} {
 		o := block(id)
-		mustAdmit(t, Request{Tag: Tag{"r1", id, RoleWorker}, Owner: o})
+		c := mustAdmit(t, Request{Tag: Tag{"r1", id, RoleWorker}, Owner: o})
+		c.SetCacheExpiry(freshCache)
 		m.setLive(o)
 		tickN(m, 1)
 	}
+	m.setUse(block("a"), idleUse+2*gib)
+	m.setUse(block("b"), idleUse+2*gib)
 	m.free.Store(lowWater - mib)
 	tickN(m, 1)
 	if got := rec.ofKind(EventPaused); len(got) != 1 || got[0].Tag.TaskId != "b" {
@@ -373,8 +592,9 @@ func TestLowWaterPausesTreesAdmittedOnTheirEstimate(t *testing.T) {
 
 func TestReleaseOwnerResumesAPausedTreeAndSparesOthers(t *testing.T) {
 	rec, m := newLoop(t, 8*gib)
-	_, a := m.liveTree(t, "r1", "a", RoleWorker)
-	_, b := m.liveTree(t, "r1", "b", RoleWorker)
+	_, a := m.spikingWorker(t, "r1", "a")
+	_, b := m.spikingWorker(t, "r1", "b")
+	tickN(m, 1)
 	m.free.Store(gib)
 	tickN(m, 1) // pauses b, the most recent
 
@@ -398,8 +618,9 @@ func TestReleaseOwnerResumesAPausedTreeAndSparesOthers(t *testing.T) {
 func TestPausedTreeExit(t *testing.T) {
 	rec, m := newLoop(t, 8*gib)
 	m.liveTree(t, "r1", "a", RoleWorker)
-	_, b := m.liveTree(t, "r1", "b", RoleWorker)
-	_, c := m.liveTree(t, "r1", "c", RoleWorker)
+	_, b := m.spikingWorker(t, "r1", "b")
+	_, c := m.spikingWorker(t, "r1", "c")
+	tickN(m, 1)
 	m.free.Store(gib)
 	tickN(m, 2) // pauses c, then b
 
