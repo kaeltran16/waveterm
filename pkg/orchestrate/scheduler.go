@@ -169,7 +169,7 @@ func retryable(state string) bool {
 // landing.
 func skippable(state string) bool {
 	switch state {
-	case TaskState_Pending, TaskState_Ready, TaskState_Running, TaskState_Stalled, TaskState_Reviewing,
+	case TaskState_Pending, TaskState_Ready, TaskState_Preparing, TaskState_Running, TaskState_Stalled, TaskState_Reviewing,
 		TaskState_ReviewFailed, TaskState_Failed:
 		return true
 	}

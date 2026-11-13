@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -168,10 +169,11 @@ const scheduleCleanupTimeout = 10 * time.Second
 
 // scheduleTickTimeout bounds one detached tick. It exists to stop a wedged tick living forever, not to pace a
 // healthy one, so it is the healthy worst case: a tick that reaches it mid-batch fails its commit, and that rolls
-// back every worker the batch started. A tick dispatches up to MaxParallelism tasks in sequence, and each spends up
-// to a spawn budget on its tree, SetupTimeout on a new tree's Setup and another spawn budget on the spawn; the rest
-// is the merge before the tick, the judging sessions, the final stage and the commit.
-const scheduleTickTimeout = MaxParallelism*(2*jarvis.RunWorkerSpawnTimeout+SetupTimeout) + 10*time.Minute
+// back every worker the batch started. A tick dispatches up to MaxParallelism tasks, and each spends up to
+// worktreePrepTimeout on its tree and SetupTimeout on its Setup off the lock, then a spawn budget in the spawn pass;
+// every pass after the first runs on this tick's context too. The rest is the merge before the tick, the judging
+// sessions, the final stage and the commits.
+const scheduleTickTimeout = MaxParallelism*(worktreePrepTimeout+SetupTimeout+jarvis.RunWorkerSpawnTimeout) + 10*time.Minute
 
 // spawnBudget hands each step of a tick its own jarvis.RunWorkerSpawnTimeout. One deadline for the whole tick
 // is spent by the first slow dispatch (a large checkout, a long Setup), and every task after it fails on arrival.
@@ -488,43 +490,53 @@ func closeLeadAfterSettle(ctx context.Context, g *waveobj.TaskGroup) {
 	}
 }
 
-// runTick runs one scheduling pass under the dag lock, then retries the tasks it found stalled with nobody to judge
-// them, outside the lock, and runs again to dispatch them. Each task is retried at most MaxAutoStallRetries times,
-// which is what ends the loop.
+// runTick runs one scheduling pass under the dag lock, then, outside the lock, prepares the trees of the tasks it
+// claimed and retries the tasks it found stalled with nobody to judge them, and runs again to spawn or dispatch them.
+// The prepares run in order, so one tick's checkouts do not multiply its memory and disk load. The loop ends because
+// a task whose dispatch failed in this call is not claimed again by it (retried), and each stalled task is retried at
+// most MaxAutoStallRetries times.
 func runTick(ctx context.Context, dagID string) error {
+	retried := map[string]bool{}
 	for {
 		var stalled []stalledTask
+		var jobs []treePrepJob
 		if err := withDagMutation(dagID, func() error {
 			var err error
-			stalled, err = scheduleLocked(ctx, dagID)
+			stalled, jobs, err = scheduleLocked(ctx, dagID, retried)
 			return err
 		}); err != nil {
 			return err
 		}
-		retried := false
-		for _, s := range stalled {
-			retried = autoRetryStalled(ctx, dagID, s) || retried
+		for _, job := range jobs {
+			prepareTaskTree(ctx, job)
 		}
-		if !retried {
+		again := len(jobs) > 0
+		for _, s := range stalled {
+			again = autoRetryStalled(ctx, dagID, s) || again
+		}
+		if !again {
 			return nil
 		}
 	}
 }
 
 // scheduleLocked is one scheduling pass; the caller holds the dag lock. It returns the tasks whose stall the engine
-// retries itself, left stalled: stopping a worker is not done under the lock.
-func scheduleLocked(ctx context.Context, dagID string) ([]stalledTask, error) {
+// retries itself, left stalled: stopping a worker is not done under the lock. It also returns the tree prepares of
+// the tasks it claimed, for the caller to run once the lock is released. retried holds the tasks whose dispatch
+// failed in an earlier pass of the same Schedule, which this pass does not claim: their retry waits for the next call.
+func scheduleLocked(ctx context.Context, dagID string, retried map[string]bool) ([]stalledTask, []treePrepJob, error) {
 	// an action is working on a task outside the dag lock (taskActions), and ticks when it is done
 	if !taskActions.TryLock(dagID) {
-		return nil, nil
+		return nil, nil, nil
 	}
 	defer taskActions.Unlock(dagID)
 	g, err := wstore.GetDag(ctx, dagID)
 	if err != nil {
-		return nil, fmt.Errorf("loading dag: %w", err)
+		return nil, nil, fmt.Errorf("loading dag: %w", err)
 	}
 	if g.Status == DagStatus_Cancelled {
-		return nil, nil
+		dropTreePreps(dagID, nil)
+		return nil, nil, nil
 	}
 	// the sessions the dag records before this tick starts any: a tick that cannot commit stops the rest
 	recorded := sessionRunIDs(g)
@@ -533,14 +545,14 @@ func scheduleLocked(ctx context.Context, dagID string) ([]stalledTask, error) {
 	defer budget.release()
 	owner, err := wstore.GetRun(ctx, g.ChannelId, g.RunID)
 	if err != nil {
-		return nil, fmt.Errorf("loading owning run: %w", err)
+		return nil, nil, fmt.Errorf("loading owning run: %w", err)
 	}
 	// before any session spawns, so a tick that cannot read the head returns having started nothing
 	spawnBase := owner.BaseCommit
 	if g.MergeRequired {
 		spawnBase, err = landingHead(budget.next(), owner)
 		if err != nil {
-			return nil, fmt.Errorf("resolving project head for dag %s: %w", g.ID, err)
+			return nil, nil, fmt.Errorf("resolving project head for dag %s: %w", g.ID, err)
 		}
 	}
 	spawnCtx := budget.next()
@@ -561,19 +573,40 @@ func scheduleLocked(ctx context.Context, dagID string) ([]stalledTask, error) {
 	advanceBaseCheck(ctx, g, owner, &afterCommit)
 	stalled := recordTaskTransitions(ctx, g, runs, prevStates, now, &afterCommit)
 	countFailures(ctx, g, runs, prevStates, &afterCommit)
-	// what the cap holds back stays pending, and a later tick dispatches it once a worker or memory frees up
-	next, claims := claimWorkers(ctx, g, owner, NextToSpawn(g))
-	defer releaseWorkerClaim(g.OID)
+	ready, preps := settlePreparing(ctx, g, retried, &afterCommit)
 	// a claim its dispatch never bound (a failed spawn, a tick that failed part-way, the tasks after it) is the
-	// tick's to release; a bound one belongs to its worker's job
+	// tick's to release; a bound one belongs to its worker's job. A claim handed to a prepare leaves the map: the
+	// registry holds it until the spawn pass.
+	claims := map[string]*memgate.Claim{}
+	for taskID, p := range preps {
+		claims[taskID] = p.claim
+	}
 	defer func() {
 		for _, c := range claims {
 			c.ReleaseIfUnbound()
 		}
 	}()
-	spawned, err := dispatchTasks(ctx, &budget, g, owner, spawnBase, runs, recorded, next, claims, now, &afterCommit)
+	spawned, err := dispatchTasks(ctx, &budget, g, owner, spawnBase, runs, recorded, ready, claims, preps, now, &afterCommit)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	markRetried(g, ready, retried)
+	// what the cap holds back stays pending, and a later tick dispatches it once a worker or memory frees up
+	next, newClaims := claimWorkers(ctx, g, owner, slices.DeleteFunc(NextToSpawn(g), func(id string) bool { return retried[id] }))
+	defer releaseWorkerClaim(g.OID)
+	maps.Copy(claims, newClaims)
+	var jobs []treePrepJob
+	if IsGitRepo(owner.ProjectPath) {
+		jobs = startPrepares(ctx, g, owner, spawnBase, next, claims, retried, &afterCommit)
+	} else {
+		// no tree to make, so the task spawns in this pass; a project without git prepares nothing, so the dispatch
+		// above spawned nothing either
+		direct, err := dispatchTasks(ctx, &budget, g, owner, spawnBase, runs, recorded, next, claims, nil, now, &afterCommit)
+		if err != nil {
+			return nil, nil, err
+		}
+		spawned = append(spawned, direct...)
+		markRetried(g, next, retried)
 	}
 	spawnCtx = budget.next()
 	RecomputeDagStatus(g)
@@ -590,7 +623,7 @@ func scheduleLocked(ctx context.Context, dagID string) ([]stalledTask, error) {
 		*cur = *g
 		return nil
 	}); err != nil {
-		return nil, cleanupScheduleFailure(ctx, spawnCtx, g, recorded, spawned, err)
+		return nil, nil, cleanupScheduleFailure(ctx, spawnCtx, g, recorded, spawned, err)
 	}
 	wcore.SendWaveObjUpdate(waveobj.MakeORef(waveobj.OType_Dag, g.OID))
 	publishSpawnedRunUpdates(g.ChannelId, spawned)
@@ -610,7 +643,107 @@ func scheduleLocked(ctx context.Context, dagID string) ([]stalledTask, error) {
 			}
 		}
 	}
-	return stalled, nil
+	return stalled, jobs, nil
+}
+
+// settlePreparing moves each preparing task on by its prepare: back to pending when none is under way (wavesrv
+// restarted during it), through failDispatch when it failed, and into ready, with its prepare, when its tree is made.
+// A prepare still running is left alone. A task that a skip or cancel moved off preparing loses its entry and claim.
+func settlePreparing(ctx context.Context, g *waveobj.TaskGroup, retried map[string]bool, afterCommit *[]func()) ([]string, map[string]*treePrep) {
+	var ready []string
+	preps := map[string]*treePrep{}
+	for i := range g.Tasks {
+		task := &g.Tasks[i]
+		if task.State != TaskState_Preparing {
+			continue
+		}
+		p, ok := treePrepFor(g.OID, task.ID)
+		switch {
+		case !ok:
+			log.Printf("schedule dag %s task %s: preparing with no prepare under way; back to pending", g.OID, task.ID)
+			task.State = TaskState_Pending
+		case !p.done:
+		case p.err != nil:
+			takeTreePrep(g.OID, task.ID).claim.Release()
+			failPrep(ctx, g, task, &p, afterCommit)
+			retried[task.ID] = true
+		default:
+			preps[task.ID] = takeTreePrep(g.OID, task.ID)
+			recordLeftovers(task, p.leftovers, p.wt)
+			ready = append(ready, task.ID)
+		}
+	}
+	dropTreePreps(g.OID, func(taskID string) bool {
+		task := taskByID(g, taskID)
+		return task != nil && task.State == TaskState_Preparing
+	})
+	return ready, preps
+}
+
+// failPrep fails the dispatch of a task whose tree could not be made. What holds a stale tree is reaped by the
+// cleanup path, outside the dag lock: each worker a reap stops exits into that lock. Debt on the task is what sends
+// the tree there, and what retry-cleanup acts on.
+func failPrep(ctx context.Context, g *waveobj.TaskGroup, task *waveobj.TaskNode, p *treePrep, afterCommit *[]func()) {
+	if p.failKind == FailureKindWorktree {
+		task.CleanupError, task.CleanupAttempts = boundedCleanupError(p.err), 0
+	}
+	failDispatch(ctx, g, task.ID, p.failKind, p.err, afterCommit)
+}
+
+// recordLeftovers records the stale lane dirs a process held while the task's tree was made as its cleanup debt.
+func recordLeftovers(task *waveobj.TaskNode, leftovers []string, wt string) {
+	if len(leftovers) == 0 {
+		return
+	}
+	task.CleanupError = boundedCleanupError(fmt.Errorf("left behind %s, held by a process; the task runs in %s", strings.Join(leftovers, ", "), wt))
+	task.CleanupAttempts = 0
+}
+
+// markRetried adds each task of batch whose dispatch failed in this pass to retried.
+func markRetried(g *waveobj.TaskGroup, batch []string, retried map[string]bool) {
+	for _, taskID := range batch {
+		if task := taskByID(g, taskID); task != nil && task.State != TaskState_Running {
+			retried[taskID] = true
+		}
+	}
+}
+
+// resolveWorker is the capability taskID's worker spawns on, or the failure kind and cause that stop its dispatch.
+func resolveWorker(g *waveobj.TaskGroup, owner *waveobj.Run, task *waveobj.TaskNode) (runroute.Capability, waveobj.RoutePin, string, error) {
+	pin := effectiveTaskRoute(task, owner, g)
+	capability, err := runroute.Resolve(pin)
+	if err != nil {
+		return capability, pin, FailureKindRoute, err
+	}
+	if err := validateWorkerHarness(pin.Runtime); err != nil {
+		return capability, pin, FailureKindHarness, err
+	}
+	return capability, pin, "", nil
+}
+
+func newTreePrepJob(g *waveobj.TaskGroup, owner *waveobj.Run, taskID, spawnBase string) treePrepJob {
+	return treePrepJob{dagID: g.OID, taskID: taskID, ownerID: owner.ID, projectPath: owner.ProjectPath,
+		key: LaneWorktreeKey(g, taskID), spawnBase: spawnBase, setup: g.Setup}
+}
+
+// startPrepares marks each claimed task preparing and returns its tree's prepare, which runs once the dag lock is
+// released. A task its route or harness refuses fails here, before any tree is made. Each prepare takes its task's
+// claim out of claims into the registry.
+func startPrepares(ctx context.Context, g *waveobj.TaskGroup, owner *waveobj.Run, spawnBase string, next []string, claims map[string]*memgate.Claim, retried map[string]bool, afterCommit *[]func()) []treePrepJob {
+	var jobs []treePrepJob
+	for _, taskID := range next {
+		task := taskByID(g, taskID)
+		if _, _, kind, err := resolveWorker(g, owner, task); err != nil {
+			failDispatch(ctx, g, taskID, kind, err, afterCommit)
+			retried[taskID] = true
+			continue
+		}
+		task.State = TaskState_Preparing
+		registerTreePrep(g.OID, taskID, claims[taskID])
+		delete(claims, taskID)
+		jobs = append(jobs, newTreePrepJob(g, owner, taskID, spawnBase))
+	}
+	return jobs
 }
 
 // loadTaskRuns reads the child run of every task that has one, and each task's state before this tick.
@@ -849,21 +982,18 @@ func countFailures(ctx context.Context, g *waveobj.TaskGroup, runs map[string]*w
 	}
 }
 
-// dispatchTasks starts a worker for each task in next, in its lane's tree, and records its child run. A failure to
-// record a started worker unwinds the tick's spawns (cleanupScheduleFailure) and is returned. Each started worker's
-// gate claim is bound to its block's job; the caller releases the claims left unbound.
-func dispatchTasks(ctx context.Context, budget *spawnBudget, g *waveobj.TaskGroup, owner *waveobj.Run, spawnBase string, runs map[string]*waveobj.Run, recorded []string, next []string, claims map[string]*memgate.Claim, now int64, afterCommit *[]func()) ([]spawnedWorkerInfo, error) {
+// dispatchTasks starts a worker for each task in next, in its lane's tree, and records its child run. A task with a
+// prep spawns into the tree the prepare made, which is never checked again: EnsureRunWorktree would take the files a
+// Setup left untracked for a dirty tree and rebuild it. A failure to record a started worker unwinds the tick's spawns
+// (cleanupScheduleFailure) and is returned. Each started worker's gate claim is bound to its block's job; the caller
+// releases the claims left unbound.
+func dispatchTasks(ctx context.Context, budget *spawnBudget, g *waveobj.TaskGroup, owner *waveobj.Run, spawnBase string, runs map[string]*waveobj.Run, recorded []string, next []string, claims map[string]*memgate.Claim, preps map[string]*treePrep, now int64, afterCommit *[]func()) ([]spawnedWorkerInfo, error) {
 	var spawned []spawnedWorkerInfo
 	for _, taskID := range next {
 		task := taskByID(g, taskID)
-		pin := effectiveTaskRoute(task, owner, g)
-		capability, routeErr := runroute.Resolve(pin)
-		if routeErr != nil {
-			failDispatch(ctx, g, taskID, FailureKindRoute, routeErr, afterCommit)
-			continue
-		}
-		if harnessErr := validateWorkerHarness(pin.Runtime); harnessErr != nil {
-			failDispatch(ctx, g, taskID, FailureKindHarness, harnessErr, afterCommit)
+		capability, pin, kind, err := resolveWorker(g, owner, task)
+		if err != nil {
+			failDispatch(ctx, g, taskID, kind, err, afterCommit)
 			continue
 		}
 		// dispatch timing: worktree creation and the spawn call are in-process and separately
@@ -876,50 +1006,29 @@ func dispatchTasks(ctx context.Context, budget *spawnBudget, g *waveobj.TaskGrou
 		var worktreeMs, setupMs int64
 		var notLinked []string
 		if IsGitRepo(owner.ProjectPath) {
-			// a lane's tasks share one tree, so each starts from the commits of the task before it
-			key := LaneWorktreeKey(g, taskID)
-			wtStart := time.Now()
-			wt, head, _, werr := EnsureRunWorktree(spawnCtx, owner.ProjectPath, key, spawnBase)
-			worktreeMs = time.Since(wtStart).Milliseconds()
-			// what holds a stale tree is reaped by the cleanup path, outside the dag lock this tick holds: each
-			// worker a reap stops exits into that lock. Debt on the task is what sends the tree there, and what
-			// retry-cleanup acts on.
-			if werr != nil {
-				task.CleanupError, task.CleanupAttempts = boundedCleanupError(werr), 0
-				failDispatch(ctx, g, taskID, FailureKindWorktree, werr, afterCommit)
-				continue
+			p := preps[taskID]
+			if p != nil {
+				if _, err := os.Stat(p.wt); err != nil {
+					p = nil
+				}
 			}
-			if left := laneLeftovers(spawnCtx, owner.ProjectPath, key); len(left) > 0 {
-				task.CleanupError = boundedCleanupError(fmt.Errorf("left behind %s, held by a process; the task runs in %s", strings.Join(left, ", "), wt))
-				task.CleanupAttempts = 0
-			}
-			// not "created by this call": a failed add or a server that died during Setup leaves a clean tree the retry reuses.
-			// With no Setup the default link step runs on a reused tree too: it is idempotent and takes milliseconds
-			if g.Setup == "" || !treeSetUp(spawnCtx, wt) {
-				setupStart := time.Now()
-				// no progress sink: Setup runs under the dag mutation lock, so nothing can read a
-				// partial tail while it holds the lock anyway. It runs on its worker's admission, whose need
-				// covers it: waiting here would hold the lock
-				var serr error
-				setupCtx := WithGateAdmitted(withRunCmdOwner(context.WithoutCancel(ctx), owner.ID, PlanCmd_Setup, ""))
-				_, notLinked, serr = PrepareTree(setupCtx, wt, g.Setup)
-				setupMs = time.Since(setupStart).Milliseconds()
-				if serr != nil {
-					// only a new tree is set up, so a retry must not reuse this half-prepared one. The branch
-					// stays: it holds the lane's earlier commits, and the retry checks it out again.
-					if rerr := removeWorktreeDir(context.WithoutCancel(ctx), owner.ProjectPath, wt); rerr != nil {
-						log.Printf("schedule dag %s task %s: removing worktree after setup failure: %v", g.OID, taskID, rerr)
-					}
-					failDispatch(ctx, g, taskID, FailureKindSetup, serr, afterCommit)
+			if p == nil {
+				// the prepared tree is gone (a removal reached it between the passes), so it is made again here, under
+				// the dag lock, as every tree was before prepares moved off it
+				made := prepareTree(ctx, spawnCtx, newTreePrepJob(g, owner, taskID, spawnBase))
+				if made.err != nil {
+					failPrep(ctx, g, task, &made, afterCommit)
 					continue
 				}
-				markTreeSetUp(context.WithoutCancel(ctx), wt)
-				// Setup ran on its own SetupTimeout, and its wall clock is not the spawn's to pay
+				recordLeftovers(task, made.leftovers, made.wt)
+				// the tree and its Setup had their own bounds, and their wall clock is not the spawn's to pay
 				spawnCtx = budget.next()
+				p = &made
 			}
-			cwd = wt
-			taskBase = attemptBase(spawnCtx, g, taskID, wt, head)
-			branch = "wave/" + key
+			worktreeMs, setupMs, notLinked = p.worktreeMs, p.setupMs, p.notLinked
+			cwd = p.wt
+			taskBase = attemptBase(spawnCtx, g, taskID, p.wt, p.head)
+			branch = "wave/" + LaneWorktreeKey(g, taskID)
 		}
 		reportPath := WorkerReportPath(g.OID, taskID)
 		if err := os.MkdirAll(filepath.Dir(reportPath), 0o755); err != nil {

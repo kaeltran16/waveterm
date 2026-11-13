@@ -953,10 +953,10 @@ A run after `dag submit` is the engine's: its watchdog picks the dag up again at
 
 ### The engine is stuck
 
-A scheduler tick that has not finished in 44 minutes, or a merge-point Verify that has held the project checkout
-for 62, is in a wait the engine cannot end. The tick threshold is the tick budget (`scheduleTickTimeout`: 8 tasks
-× (two 60s spawn budgets + the 2-minute `SetupTimeout`) + 10 minutes = 42) plus one Setup holding the dag lock;
-the Verify one is `VerifyTimeout` (20) plus one tick budget (`pkg/orchestrate/watchdog.go`). Each is the longest a
+A scheduler tick that has not finished in 76 minutes, or a merge-point Verify that has held the project checkout
+for 94, is in a wait the engine cannot end. The tick threshold is the tick budget (`scheduleTickTimeout`: 8 tasks
+× (the 5-minute tree checkout + the 2-minute `SetupTimeout` + a 60s spawn budget) + 10 minutes = 74) plus one
+Setup holding the dag lock (remaking a vanished tree); the Verify one is `VerifyTimeout` (20) plus one tick budget (`pkg/orchestrate/watchdog.go`). Each is the longest a
 healthy tick or Verify can take, so a report means a wait nothing will end rather than a slow one (a failed
 batch's bisect, which runs Verify again under the same claim, can still be reported while it works). The timeline
 gains an **Engine stuck** row, the lead is woken to put it to you, and the server log (`waveapp.log`) gets a dump
@@ -1367,7 +1367,7 @@ Inside a lead's or worker's terminal, the run is inferred. Elsewhere pass `--cha
 | `dag planreview findings` | print a failed plan review's findings whole, one block per reviewer; the lead's wake carries the first 2,500 characters |
 | `dag final pass "<summary>" [--unverified "<what, why>"]` / `dag final fail "<defects>"` | the final verifier's verdict; ends its session |
 | `dag retry <task>` | retry a failed or stalled task |
-| `dag skip <task>` | drop one task that has not landed (pending, running, stalled, under review, failed): its worker or reviewer stops, its commits come off its lane, and the run goes on |
+| `dag skip <task>` | drop one task that has not landed (pending, preparing, running, stalled, under review, failed): its worker or reviewer stops, its commits come off its lane, and the run goes on |
 | `dag escalate <task> --model <id> [--runtime <rt>]` | re-queue on another model, once per task |
 | `dag merge <task> [--continue]` | squash-merge a lane end, or finish a resolved conflict / re-run a failed Verify |
 | `dag retry-cleanup <task>` | retry removing a task's worktree after its automatic attempts gave up (close whatever held it first) |

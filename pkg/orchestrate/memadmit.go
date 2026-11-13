@@ -65,7 +65,7 @@ func admitPlanCommand(ctx context.Context, dir string) *memgate.Claim {
 }
 
 // workerRequest is the gate request for taskID's worker, sized on its project's learned peaks. Its tree's Setup runs
-// on this admission, under the dag lock.
+// on this admission, off the dag lock (prepareTaskTree), or under it when a prepared tree vanished before its spawn.
 func workerRequest(g *waveobj.TaskGroup, owner *waveobj.Run, taskID string) memgate.Request {
 	return memgate.Request{
 		Key: memgate.Key{Project: MemProjectKey(owner.ProjectPath), Role: memgate.RoleWorker},
