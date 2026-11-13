@@ -30,6 +30,16 @@ var drawerTools = []string{"Read", "Grep", "Glob"}
 // project's AGENTS.md / CLAUDE.md for the turns that need them.
 var leanEnv = []string{"CLAUDE_CODE_DISABLE_CLAUDE_MDS=1", "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1"}
 
+// drawerCacheTTL replaces consult's 5m: a person pauses between questions, and on the 11-13 long talk 4 of 12
+// pauses ran past 5 minutes, each re-writing the whole context (76k-116k tokens, 82% of the talk's cache writes).
+const drawerCacheTTL = "1h"
+
+// Reply is a run's answer and the session's context size after it.
+type Reply struct {
+	Text          string
+	ContextTokens int
+}
+
 // Call is one run of a board's drawer session.
 type Call struct {
 	SessionId string
@@ -39,29 +49,29 @@ type Call struct {
 }
 
 // RunModel runs one headless, read-only claude session in cwd and returns its reply; tests replace it.
-var RunModel = func(ctx context.Context, cwd string, c Call) (string, error) {
+var RunModel = func(ctx context.Context, cwd string, c Call) (Reply, error) {
 	spec, ok := consult.SpecFor("claude")
 	if !ok {
-		return "", errors.New("the drawer needs the claude runtime, which has no spec")
+		return Reply{}, errors.New("the drawer needs the claude runtime, which has no spec")
 	}
 	ctx, cancel := context.WithTimeout(ctx, TurnTimeout)
 	defer cancel()
 	spec, guard := drawerSpec(spec, c, cancel)
 	reply, runErr := consult.Run(ctx, spec, cwd, c.Prompt, func(string) {})
 	if guard.failure != nil {
-		return "", guard.failure
+		return Reply{}, guard.failure
 	}
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		return "", errors.New("the drawer ran past its 10 minutes")
+		return Reply{}, errors.New("the drawer ran past its 10 minutes")
 	}
 	if runErr != nil {
-		return "", fmt.Errorf("the drawer's session exited before it replied (%v)", runErr)
+		return Reply{}, fmt.Errorf("the drawer's session exited before it replied (%v)", runErr)
 	}
 	if !guard.sawInit {
 		// fail closed: with no init event the tool list was never checked
-		return "", errors.New("the drawer session sent no init event, so its tools could not be checked")
+		return Reply{}, errors.New("the drawer session sent no init event, so its tools could not be checked")
 	}
-	return reply, nil
+	return Reply{Text: reply, ContextTokens: guard.contextTokens}, nil
 }
 
 // drawerSpec makes spec read-only and points it at c's session.
@@ -82,7 +92,13 @@ func drawerSpec(spec consult.RuntimeSpec, c Call, cancel context.CancelFunc) (co
 		args = append(args, "--session-id", c.SessionId)
 	}
 	spec.BaseArgs = args
-	spec.Env = append(append(append([]string{}, spec.Env...), persistSessionsEnv), leanEnv...)
+	env := []string{persistSessionsEnv, consult.PromptCacheTTLEnv + "=" + drawerCacheTTL}
+	for _, e := range spec.Env {
+		if !strings.HasPrefix(e, consult.PromptCacheTTLEnv+"=") {
+			env = append(env, e)
+		}
+	}
+	spec.Env = append(env, leanEnv...)
 	parse := spec.ParseLine
 	spec.ParseLine = func(line []byte) consult.ParsedEvent {
 		if err := g.check(line); err != nil {
@@ -94,11 +110,12 @@ func drawerSpec(spec consult.RuntimeSpec, c Call, cancel context.CancelFunc) (co
 }
 
 // toolGuard watches the session's stream for the init event and stops the session when it loaded any tool
-// beyond drawerTools.
+// beyond drawerTools. It also keeps the context size of the last model call.
 type toolGuard struct {
-	cancel  context.CancelFunc
-	sawInit bool
-	failure error
+	cancel        context.CancelFunc
+	sawInit       bool
+	failure       error
+	contextTokens int
 }
 
 func (g *toolGuard) check(line []byte) error {
@@ -106,8 +123,23 @@ func (g *toolGuard) check(line []byte) error {
 		Type    string   `json:"type"`
 		Subtype string   `json:"subtype"`
 		Tools   []string `json:"tools"`
+		Message struct {
+			Usage *struct {
+				Input       int `json:"input_tokens"`
+				CacheRead   int `json:"cache_read_input_tokens"`
+				CacheCreate int `json:"cache_creation_input_tokens"`
+				Output      int `json:"output_tokens"`
+			} `json:"usage"`
+		} `json:"message"`
 	}
-	if json.Unmarshal(line, &ev) != nil || ev.Type != "system" || ev.Subtype != "init" {
+	if json.Unmarshal(line, &ev) != nil {
+		return g.failure
+	}
+	// the result event's usage sums every call of the turn; the last assistant call is what the next turn resumes
+	if u := ev.Message.Usage; ev.Type == "assistant" && u != nil {
+		g.contextTokens = u.Input + u.CacheRead + u.CacheCreate + u.Output
+	}
+	if ev.Type != "system" || ev.Subtype != "init" {
 		return g.failure
 	}
 	g.sawInit = true

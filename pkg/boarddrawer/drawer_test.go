@@ -36,6 +36,7 @@ type fake struct {
 	active    int
 	maxActive int
 	ids       int
+	ctxTokens int // the context size every run reports
 	run       func(ctx context.Context, c Call) (string, error)
 }
 
@@ -99,7 +100,7 @@ func (f *fake) deps() Deps {
 			defer f.mu.Unlock()
 			f.published = append(f.published, u)
 		},
-		Run: func(ctx context.Context, cwd string, c Call) (string, error) {
+		Run: func(ctx context.Context, cwd string, c Call) (Reply, error) {
 			f.mu.Lock()
 			f.calls = append(f.calls, c)
 			f.active++
@@ -111,9 +112,12 @@ func (f *fake) deps() Deps {
 				f.mu.Unlock()
 			}()
 			if cwd != board.ProjectPath {
-				return "", fmt.Errorf("cwd %q", cwd)
+				return Reply{}, fmt.Errorf("cwd %q", cwd)
 			}
-			return f.run(ctx, c)
+			text, err := f.run(ctx, c)
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			return Reply{Text: text, ContextTokens: f.ctxTokens}, err
 		},
 		Now: func() int64 { return 1000 },
 		NewId: func() string {
@@ -629,6 +633,112 @@ func TestDrawerHandoffSummaryForks(t *testing.T) {
 	waitFor(t, "b2", func() bool { return !d.Busy("c1", "b2") })
 	if calls := f.callList(); len(calls) != 3 || calls[2].Fork {
 		t.Errorf("an earlier board with no session gets no summary run: %+v", calls)
+	}
+}
+
+func TestDrawerRecordsContextTokens(t *testing.T) {
+	f := newFake(reply(wordsAnswer))
+	f.ctxTokens = 12_345
+	d := New(f.deps())
+	if _, err := d.Ask(board, question("first")); err != nil {
+		t.Fatal(err)
+	}
+	if talk := settled(t, f, d); talk.ContextTokens != 12_345 {
+		t.Errorf("context tokens %d, want 12345", talk.ContextTokens)
+	}
+}
+
+// a large talk is summed up by a fork of its session, and the turn runs in a new session that starts from the summary
+func TestDrawerLargeTalkResumesFromSummary(t *testing.T) {
+	f := newFake(nil)
+	f.talks["b1"] = wshrpc.BoardTalk{ChannelId: "c1", BoardId: "b1", About: wshrpc.BoardSource{Kind: "agent", Ref: "t1", Title: "claude · waveterm"},
+		SessionId: "big", ContextTokens: SummarizeAboveTokens + 1}
+	f.ctxTokens = 9_000
+	f.run = func(ctx context.Context, c Call) (string, error) {
+		if c.Fork {
+			return "  They traced Stop down to the process kill.  ", nil
+		}
+		return drawAnswer, nil
+	}
+	d := New(f.deps())
+	if _, err := d.Ask(board, question("And the cache?")); err != nil {
+		t.Fatal(err)
+	}
+	talk := settled(t, f, d)
+	calls := f.callList()
+	if len(calls) != 2 {
+		t.Fatalf("want the summary and the turn: %+v", calls)
+	}
+	if c := calls[0]; c.SessionId != "big" || !c.Resume || !c.Fork || c.Prompt != compactPrompt {
+		t.Errorf("summary call: %+v", c)
+	}
+	c := calls[1]
+	if c.Resume || c.SessionId == "big" || c.SessionId == "" {
+		t.Errorf("the turn must start a new session: %+v", c)
+	}
+	for _, want := range []string{"## Your reply", "They traced Stop down to the process kill.", "And the cache?", "the agent's turn text"} {
+		if !strings.Contains(c.Prompt, want) {
+			t.Errorf("the new session's prompt lacks %q", want)
+		}
+	}
+	if talk.SessionId != c.SessionId || talk.ContextTokens != 9_000 || talk.Turns[0].State != StateAnswered {
+		t.Errorf("talk: session %q tokens %d turn %+v", talk.SessionId, talk.ContextTokens, talk.Turns[0])
+	}
+}
+
+func TestDrawerSmallTalkResumes(t *testing.T) {
+	f := newFake(reply(wordsAnswer))
+	f.talks["b1"] = wshrpc.BoardTalk{ChannelId: "c1", BoardId: "b1", SessionId: "s", ContextTokens: SummarizeAboveTokens}
+	d := New(f.deps())
+	if _, err := d.Ask(board, question("q")); err != nil {
+		t.Fatal(err)
+	}
+	settled(t, f, d)
+	if calls := f.callList(); len(calls) != 1 || !calls[0].Resume || calls[0].Fork || calls[0].SessionId != "s" {
+		t.Errorf("a talk at the threshold resumes as it is: %+v", calls)
+	}
+}
+
+// a summary that fails costs the turn nothing: it resumes the large session as before
+func TestDrawerFailedSummaryResumes(t *testing.T) {
+	f := newFake(nil)
+	f.talks["b1"] = wshrpc.BoardTalk{ChannelId: "c1", BoardId: "b1", SessionId: "big", ContextTokens: SummarizeAboveTokens + 1}
+	f.run = func(ctx context.Context, c Call) (string, error) {
+		if c.Fork {
+			return "", errors.New("the drawer's session exited before it replied (API Error: 529 overloaded)")
+		}
+		return wordsAnswer, nil
+	}
+	d := New(f.deps())
+	if _, err := d.Ask(board, question("q")); err != nil {
+		t.Fatal(err)
+	}
+	talk := settled(t, f, d)
+	calls := f.callList()
+	if len(calls) != 2 || !calls[1].Resume || calls[1].Fork || calls[1].SessionId != "big" {
+		t.Fatalf("want the failed summary, then a resume of big: %+v", calls)
+	}
+	if talk.SessionId != "big" || talk.Turns[0].State != StateAnswered {
+		t.Errorf("talk: %+v", talk)
+	}
+}
+
+func TestDrawerStopDuringSummary(t *testing.T) {
+	release := make(chan struct{})
+	defer close(release)
+	f := newFake(gated(release, "summary"))
+	f.talks["b1"] = wshrpc.BoardTalk{ChannelId: "c1", BoardId: "b1", SessionId: "big", ContextTokens: SummarizeAboveTokens + 1}
+	d := New(f.deps())
+	if _, err := d.Ask(board, question("q")); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the summary to start", func() bool { return len(f.callList()) == 1 })
+	if err := d.Stop(board); err != nil {
+		t.Fatal(err)
+	}
+	talk := settled(t, f, d)
+	if talk.Turns[0].State != StateStopped || talk.SessionId != "big" || len(f.callList()) != 1 {
+		t.Errorf("a Stop during the summary stops the turn and keeps the session: %+v, calls %+v", talk, f.callList())
 	}
 }
 

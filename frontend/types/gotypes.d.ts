@@ -392,6 +392,7 @@ declare global {
         boardid: string;
         about: BoardSource;
         sessionid?: string;
+        contexttokens?: number;
         handoff?: BoardHandoff;
         turns: BoardTurn[];
     };

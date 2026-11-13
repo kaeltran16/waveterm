@@ -27,6 +27,26 @@ func TestToolGuardFailsClosedOnExtraTools(t *testing.T) {
 	}
 }
 
+// the context the next turn resumes is the last call's whole input plus what it wrote
+func TestToolGuardRecordsContextTokens(t *testing.T) {
+	g := &toolGuard{cancel: func() {}}
+	lines := []string{
+		`{"type":"system","subtype":"init","tools":["Read"]}`,
+		`{"type":"assistant","message":{"usage":{"input_tokens":2,"cache_read_input_tokens":40000,"cache_creation_input_tokens":5000,"output_tokens":300}}}`,
+		`{"type":"user","message":{"content":[{"type":"tool_result"}]}}`,
+		`{"type":"assistant","message":{"usage":{"input_tokens":3,"cache_read_input_tokens":45300,"cache_creation_input_tokens":2000,"output_tokens":900}}}`,
+		`{"type":"result","usage":{"input_tokens":5,"cache_read_input_tokens":85300,"cache_creation_input_tokens":7000,"output_tokens":1200}}`,
+	}
+	for _, l := range lines {
+		if err := g.check([]byte(l)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if want := 3 + 45300 + 2000 + 900; g.contextTokens != want {
+		t.Errorf("context tokens %d, want %d (the last assistant call, not the summed result)", g.contextTokens, want)
+	}
+}
+
 func TestDrawerArgs(t *testing.T) {
 	base, ok := consult.SpecFor("claude")
 	if !ok {
@@ -65,10 +85,20 @@ func TestDrawerArgs(t *testing.T) {
 					t.Errorf("env %v lacks %q", spec.Env, e)
 				}
 			}
+			ttlPrefix := consult.PromptCacheTTLEnv + "="
 			for _, e := range base.Env {
-				if !slices.Contains(spec.Env, e) {
+				if !strings.HasPrefix(e, ttlPrefix) && !slices.Contains(spec.Env, e) {
 					t.Errorf("env %v dropped the runtime's %q", spec.Env, e)
 				}
+			}
+			var ttls []string
+			for _, e := range spec.Env {
+				if strings.HasPrefix(e, ttlPrefix) {
+					ttls = append(ttls, e)
+				}
+			}
+			if want := []string{ttlPrefix + drawerCacheTTL}; !slices.Equal(ttls, want) {
+				t.Errorf("cache ttl env %v, want only %v", ttls, want)
 			}
 		})
 	}

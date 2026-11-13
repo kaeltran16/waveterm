@@ -28,6 +28,10 @@ const (
 	StateFailed    = "failed"
 	StateStopped   = "stopped"
 
+	// SummarizeAboveTokens: a talk whose session holds more context than this starts its next turn in a new session,
+	// from a summary. The 11-13 talks reached 33k-57k, and one 143k by turn 13.
+	SummarizeAboveTokens = 60_000
+
 	ChoiceKeep = "keep"
 	ChoiceNew  = "new"
 
@@ -52,7 +56,7 @@ type Deps struct {
 	ReadThing  func(ctx context.Context, src wshrpc.BoardSource, sinceTs int64) (text, reading string, cursorTs int64, err error)
 	Deliver    func(a wshrpc.BoardAnswer) error
 	Publish    func(u wshrpc.BoardUpdateData)
-	Run        func(ctx context.Context, cwd string, c Call) (string, error) // nil: RunModel
+	Run        func(ctx context.Context, cwd string, c Call) (Reply, error) // nil: RunModel
 	Now        func() int64
 	NewId      func() string // nil: uuid.NewString
 }
@@ -355,12 +359,26 @@ func (d *Drawer) runTurn(b Board, turnId string) {
 // answer runs one turn's session and delivers its drawing; delivered says an answer went to the inbox.
 func (d *Drawer) answer(ctx context.Context, b Board, talk wshrpc.BoardTalk, turn wshrpc.BoardTurn) (Answer, bool, error) {
 	call := Call{SessionId: talk.SessionId, Resume: talk.SessionId != ""}
+	earlier := ""
+	if call.Resume && talk.ContextTokens > SummarizeAboveTokens {
+		s, err := d.summarize(ctx, b, talk.SessionId)
+		if ctx.Err() != nil {
+			return Answer{}, false, ctx.Err()
+		}
+		if err != nil {
+			// the large session still works: this turn resumes it, and the next tries the summary again
+			log.Printf("boarddrawer: summing up session %s of board %s: %v", talk.SessionId, b.BoardId, err)
+		} else {
+			earlier, call = s, Call{}
+		}
+	}
 	var first *firstInput
 	if !call.Resume {
 		f, err := d.prepareFirst(ctx, b, talk)
 		if err != nil {
 			return Answer{}, false, err
 		}
+		f.Earlier = earlier
 		first = &f
 	}
 	file, err := d.d.ReadBoard(b)
@@ -382,14 +400,18 @@ func (d *Drawer) answer(ctx context.Context, b Board, talk wshrpc.BoardTalk, tur
 		// saved before the run, so a turn cut off by a restart still resumes
 		call.SessionId = d.d.NewId()
 		_, err := d.d.UpdateTalk(b, func(talk *wshrpc.BoardTalk) error {
-			talk.SessionId = call.SessionId
+			talk.SessionId, talk.ContextTokens = call.SessionId, 0
 			return nil
 		})
 		if err != nil {
 			return Answer{}, false, err
 		}
 	}
-	reply, err := d.d.Run(ctx, b.ProjectPath, call)
+	out, err := d.d.Run(ctx, b.ProjectPath, call)
+	reply := out.Text
+	if err == nil {
+		d.recordContext(b, call.SessionId, out.ContextTokens)
+	}
 	if err != nil && first == nil && strings.Contains(err.Error(), lostSessionText) {
 		// nothing can ever resume it, so keeping it would fail every later turn: this one starts a new session
 		d.dropSession(b, call.SessionId)
@@ -466,13 +488,40 @@ func (d *Drawer) handoffSummary(ctx context.Context, b Board, fromBoardId string
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(summary), nil
+	return strings.TrimSpace(summary.Text), nil
+}
+
+// summarize asks a fork of sessionId to sum up its talk for the session that takes over, so a failed summary
+// leaves the session as it was.
+func (d *Drawer) summarize(ctx context.Context, b Board, sessionId string) (string, error) {
+	out, err := d.d.Run(ctx, b.ProjectPath, Call{SessionId: sessionId, Resume: true, Fork: true, Prompt: compactPrompt})
+	if err != nil {
+		return "", err
+	}
+	s := strings.TrimSpace(out.Text)
+	if s == "" {
+		return "", errors.New("the summary came back empty")
+	}
+	return s, nil
+}
+
+// recordContext keeps sessionId's context size, unless the talk moved to another session meanwhile.
+func (d *Drawer) recordContext(b Board, sessionId string, tokens int) {
+	_, err := d.d.UpdateTalk(b, func(talk *wshrpc.BoardTalk) error {
+		if talk.SessionId == sessionId {
+			talk.ContextTokens = tokens
+		}
+		return nil
+	})
+	if err != nil {
+		log.Printf("boarddrawer: recording the context of board %s: %v", b.BoardId, err)
+	}
 }
 
 func (d *Drawer) dropSession(b Board, sessionId string) {
 	_, err := d.d.UpdateTalk(b, func(talk *wshrpc.BoardTalk) error {
 		if talk.SessionId == sessionId {
-			talk.SessionId = ""
+			talk.SessionId, talk.ContextTokens = "", 0
 		}
 		return nil
 	})

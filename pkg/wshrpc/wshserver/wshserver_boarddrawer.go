@@ -41,7 +41,7 @@ var boardAboutKinds = map[string]bool{
 // boardDrawer runs every board's turns. A var so tests swap in one whose Run is stubbed.
 var boardDrawer = newBoardDrawer(boarddrawer.RunModel)
 
-func newBoardDrawer(run func(ctx context.Context, cwd string, c boarddrawer.Call) (string, error)) *boarddrawer.Drawer {
+func newBoardDrawer(run func(ctx context.Context, cwd string, c boarddrawer.Call) (boarddrawer.Reply, error)) *boarddrawer.Drawer {
 	dirOf := func(b boarddrawer.Board) (string, error) {
 		_, dir, err := boardDir(context.Background(), b.ChannelId)
 		return dir, err

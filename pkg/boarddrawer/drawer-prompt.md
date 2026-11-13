@@ -11,6 +11,7 @@ its `AGENTS.md` or `CLAUDE.md` first if it has one: it maps the project.
 
 [ABOUT]
 [HANDOFF]
+[EARLIER]
 ## Your reply
 
 Reply to every turn with one JSON object and nothing else, no prose before or after it:

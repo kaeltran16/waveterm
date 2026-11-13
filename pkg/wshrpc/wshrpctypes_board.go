@@ -118,12 +118,15 @@ type BoardUpdateData struct {
 
 // BoardTalk is a board's conversation with its drawer, kept in the <id>.talk.json sidecar that only wavesrv writes.
 type BoardTalk struct {
-	ChannelId string        `json:"channelid"`
-	BoardId   string        `json:"boardid"`
-	About     BoardSource   `json:"about"`
-	SessionId string        `json:"sessionid,omitempty"`
-	Handoff   *BoardHandoff `json:"handoff,omitempty"`
-	Turns     []BoardTurn   `json:"turns"`
+	ChannelId string      `json:"channelid"`
+	BoardId   string      `json:"boardid"`
+	About     BoardSource `json:"about"`
+	SessionId string      `json:"sessionid,omitempty"`
+	// ContextTokens is SessionId's context after its last turn: past a threshold the next turn starts a new
+	// session from a summary
+	ContextTokens int           `json:"contexttokens,omitempty"`
+	Handoff       *BoardHandoff `json:"handoff,omitempty"`
+	Turns         []BoardTurn   `json:"turns"`
 }
 
 type BoardHandoff struct {

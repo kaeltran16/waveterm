@@ -24,6 +24,11 @@ const (
 	summaryPrompt = "This board's talk is being handed over to a new board, whose drawer starts fresh. For this one reply, " +
 		"answer in plain prose, not the JSON object: sum up this conversation for that drawer in at most 10 short " +
 		"sentences: what was asked, what the drawing shows, and what was concluded."
+	// compactPrompt goes to a forked copy of a large session, whose talk continues in a new session.
+	compactPrompt = "This talk has grown long and continues in a fresh session of you, which won't see this conversation " +
+		"but will see the board. For this one reply, answer in plain prose, not the JSON object: sum up this " +
+		"conversation for that session in at most 10 short sentences: what was asked, what the drawing shows and why, " +
+		"what was concluded, and anything the person asked you to keep doing."
 )
 
 //go:embed drawer-prompt.md
@@ -35,6 +40,7 @@ type firstInput struct {
 	About     wshrpc.BoardSource
 	ThingText string // the thing's text, read once, for agent, session, run, effort and record
 	Handoff   *wshrpc.BoardHandoff
+	Earlier   string // this talk's summary, when it continues from a session that grew too large
 }
 
 // turnInput is what every turn's prompt carries.
@@ -59,6 +65,7 @@ func firstPrompt(f firstInput, t turnInput) string {
 		"[BOARD]", f.BoardName,
 		"[ABOUT]", aboutSection(f, t),
 		"[HANDOFF]", handoffSection(f.Handoff),
+		"[EARLIER]", earlierSection(f.Earlier),
 		"[TURN]", turnPrompt(t),
 	).Replace(promptTemplate)
 }
@@ -76,6 +83,14 @@ func aboutSection(f firstInput, t turnInput) string {
 			f.About.Title, f.ThingText)
 	}
 	return "The project's code. Nothing else was handed to you.\n"
+}
+
+func earlierSection(summary string) string {
+	if strings.TrimSpace(summary) == "" {
+		return ""
+	}
+	return "\n## Earlier in this talk\n\nThis talk began in an earlier session of you, which summed it up:\n\n" +
+		strings.TrimSpace(summary) + "\n\nThe board below shows everything drawn so far.\n"
 }
 
 func handoffSection(h *wshrpc.BoardHandoff) string {

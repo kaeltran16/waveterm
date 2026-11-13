@@ -36,7 +36,7 @@ type drawerCalls struct {
 	reply  string
 }
 
-func (r *drawerCalls) run(ctx context.Context, cwd string, c boarddrawer.Call) (string, error) {
+func (r *drawerCalls) run(ctx context.Context, cwd string, c boarddrawer.Call) (boarddrawer.Reply, error) {
 	r.mu.Lock()
 	r.calls = append(r.calls, c)
 	r.cwds = append(r.cwds, cwd)
@@ -53,10 +53,10 @@ func (r *drawerCalls) run(ctx context.Context, cwd string, c boarddrawer.Call) (
 		select {
 		case <-gate:
 		case <-ctx.Done():
-			return "", ctx.Err()
+			return boarddrawer.Reply{}, ctx.Err()
 		}
 	}
-	return reply, nil
+	return boarddrawer.Reply{Text: reply}, nil
 }
 
 func (r *drawerCalls) mostAtOnce() int {
