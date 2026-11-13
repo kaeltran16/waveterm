@@ -438,10 +438,10 @@ func TestScheduleOnceLabelsAWorkerWithItsTask(t *testing.T) {
 	if !shortCache["t-0"] || !shortCache["t-1"] {
 		t.Fatalf("workers spawn without the short prompt cache: %v", shortCache)
 	}
-	// a worker needs no MCP server but may use skills, so only the MCP listing is trimmed
+	// a worker needs no MCP server and no skill listing, but keeps edit and wait tools a judge lacks
 	for id, opts := range launch {
-		if !opts.StrictMCP || opts.NoSlashCommands || opts.Tools != "" {
-			t.Fatalf("worker %s: StrictMCP=%v NoSlashCommands=%v Tools=%q, want true false \"\"", id, opts.StrictMCP, opts.NoSlashCommands, opts.Tools)
+		if !opts.StrictMCP || opts.NoSlashCommands || opts.Tools != workerTools {
+			t.Fatalf("worker %s: StrictMCP=%v NoSlashCommands=%v Tools=%q, want true false %q", id, opts.StrictMCP, opts.NoSlashCommands, opts.Tools, workerTools)
 		}
 	}
 }

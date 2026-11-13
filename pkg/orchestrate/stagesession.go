@@ -75,6 +75,11 @@ func stageSessionLost(ctx context.Context, g *waveobj.TaskGroup, runID string, s
 // (2026-10-30..11-13) all but two used only these, and the rest of the tool set is ~19k startup tokens.
 const judgeTools = "Bash,Read,Grep,Glob"
 
+// workerTools is every tool a worker uses, without Skill: the skill listing is ~15k startup tokens and workers
+// invoked a skill in 3 of 289 sessions (2026-11-07..13). ToolSearch keeps Monitor, TaskStop and WebFetch
+// deferred, which is ~3k smaller than loading their schemas up front.
+const workerTools = "Bash,Read,Edit,Write,Grep,Glob,PowerShell,Monitor,TaskStop,WebFetch,AskUserQuestion,ToolSearch"
+
 // JudgingSession is one judging session outside any task: a fresh session that reads Tree and ends with a verdict
 // command its Prompt names. DagORef is empty for a session no dag owns. Route must be resolved by the caller.
 // Lead is "<harness>:<session id>" of the brainstorming agent a builder check or judge serves, else empty.

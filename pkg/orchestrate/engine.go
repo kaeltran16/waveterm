@@ -937,9 +937,9 @@ func dispatchTasks(ctx context.Context, budget *spawnBudget, g *waveobj.TaskGrou
 		// the worker block is stamped with its run before the run row exists, so the id is minted here
 		runID := uuid.NewString()
 		// named after its task: a prompt too long for a command line moves to a file, and the ai-title of the
-		// pointer to it names every such worker the same. A worker may use skills, so only MCP is trimmed.
+		// pointer to it names every such worker the same.
 		oref, err := spawnWorker(spawnCtx, capability, owner.WorkspaceId, channelProjectName(spawnCtx, g.ChannelId), cwd, prompt,
-			jarvis.RunWorkerOptions{SessionId: sessionId, RunId: runID, TaskId: taskID, Label: task.Label, ShortCache: true, StrictMCP: true})
+			jarvis.RunWorkerOptions{SessionId: sessionId, RunId: runID, TaskId: taskID, Label: task.Label, ShortCache: true, StrictMCP: true, Tools: workerTools})
 		spawnMs := time.Since(spawnStart).Milliseconds()
 		spawnedAt := time.Now().UnixMilli()
 		if err != nil {

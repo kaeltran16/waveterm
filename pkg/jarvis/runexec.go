@@ -164,11 +164,11 @@ type RunWorkerOptions struct {
 	StrictMCP bool
 	// NoSlashCommands launches a claude session with --disable-slash-commands, which also drops the skills
 	// listing (~4.6k tokens): only for a session whose prompt invokes no skill and that is never typed a slash
-	// command, so never a lead (writing-plans, /compact) or a worker (may use skills).
+	// command, so never a lead (writing-plans, /compact). A worker drops the listing through Tools instead.
 	NoSlashCommands bool
 	// Tools, when set, launches a claude session with only these tools (--tools, comma-separated). Tool
-	// definitions are ~19k of a session's ~40k startup tokens (measured 2026-11-13): for a judge, which reads
-	// and runs commands, never for a worker or lead.
+	// definitions are ~19k of a session's ~40k startup tokens (measured 2026-11-13): for a judge or a worker,
+	// never a lead (it invokes skills).
 	Tools string
 }
 
