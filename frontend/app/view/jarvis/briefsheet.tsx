@@ -18,6 +18,7 @@
 // directly below it on the Stage.
 
 import { CrossFade } from "@/app/element/crossfade";
+import { useLastShown } from "@/app/element/motionhooks";
 import { composerReveal, errorNudge } from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
 import { Skeleton } from "@/app/element/skeleton";
@@ -115,10 +116,7 @@ function ChannelLaunch({ channel }: { channel: Channel }) {
     const [goal, setGoal] = useState("");
     const [error, setError] = useState<string | null>(null);
     const [launching, setLaunching] = useState(false);
-    // the strip's exit still draws the error it is collapsing, after a retry has cleared it
-    const lastError = useRef<string | null>(null);
-    if (error != null) lastError.current = error;
-    const shownError = error ?? lastError.current;
+    const shownError = useLastShown(error);
 
     const config = {
         shape,

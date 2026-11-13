@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { initialChangeFlashState, nextChangeFlash } from "./motionhooks";
+import { initialChangeFlashState, nextChangeFlash, nextLastShown } from "./motionhooks";
 
 describe("nextChangeFlash", () => {
     it("does not flash the first value it sees", () => {
@@ -28,5 +28,28 @@ describe("nextChangeFlash", () => {
         const first = nextChangeFlash<string | undefined>(initialChangeFlashState(), undefined);
         expect(first.flash).toBe(false);
         expect(nextChangeFlash(first.state, "done").flash).toBe(true);
+    });
+});
+
+describe("nextLastShown", () => {
+    it("is null before any value", () => {
+        expect(nextLastShown<string>(null, null)).toBeNull();
+        expect(nextLastShown<string>(null, undefined)).toBeNull();
+    });
+
+    it("returns the live value", () => {
+        expect(nextLastShown<string>(null, "refused")).toBe("refused");
+    });
+
+    it("holds the last value after null or undefined", () => {
+        const held = nextLastShown<string>(null, "refused");
+        expect(nextLastShown(held, null)).toBe("refused");
+        expect(nextLastShown(held, undefined)).toBe("refused");
+    });
+
+    it("replaces the held value with a second, different one", () => {
+        const first = nextLastShown<string>(null, "refused");
+        const cleared = nextLastShown(first, null);
+        expect(nextLastShown(cleared, "timed out")).toBe("timed out");
     });
 });

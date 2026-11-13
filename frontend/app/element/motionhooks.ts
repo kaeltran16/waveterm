@@ -53,6 +53,19 @@ export function nextChangeFlash<T>(
     return { flash, state: { seen: true, value } };
 }
 
+// Last shown value, pure so the hold is testable: the live value when there is one, else the one held.
+export function nextLastShown<T>(held: T | null, value: T | null | undefined): T | null {
+    return value ?? held;
+}
+
+// Keeps a collapsing strip's text: PaneReveal's exit runs after the value is already null, so the child draws
+// the last non-null value instead. A ref, not state, so it adds no render.
+export function useLastShown<T>(value: T | null | undefined): T | null {
+    const held = useRef<T | null>(null);
+    held.current = nextLastShown(held.current, value);
+    return held.current;
+}
+
 // Change flash (moment 14): true for CHANGE_FLASH_MS after `value` changes while mounted, so the caller can put
 // changeFlashClass on the element whose value moved under the user. A change mid-wash rides the wash already
 // playing: restarting it would need the class off for a frame, a flicker that says less than one wash.

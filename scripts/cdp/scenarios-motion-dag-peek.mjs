@@ -17,7 +17,7 @@ import {
     rvOpenDag,
     undoPageDag,
 } from "./scenarios-runs.mjs";
-import { failRpc, polishNap, polishWaitFor, releaseRpc } from "./scenarios-shared.mjs";
+import { failRpc, lookEval, polishNap, polishWaitFor, releaseRpc } from "./scenarios-shared.mjs";
 
 const REFUSAL = "motion-dag-peek refused this retry on the page";
 const REFUSED_TEXT = `retry t-3 failed: ${REFUSAL}`;
@@ -79,6 +79,14 @@ const WATCH_LIB = `(() => {
     };
     return true;
 })()`;
+
+// answers every call of an RPC as landed, without reaching the engine, until releaseRpc puts the original back
+const passRpc = (h, command) =>
+    lookEval(h, `
+        const { RpcApi } = await mod("app/store/wshclientapi.ts");
+        (window.__heldRpc ??= {})[${JSON.stringify(command)}] ??= RpcApi[${JSON.stringify(command)}];
+        RpcApi[${JSON.stringify(command)}] = () => Promise.resolve(null);
+    `);
 
 const start = (h, name, sel, pinExpr) =>
     h.ev(`window.__mdpStart(${JSON.stringify(name)}, ${JSON.stringify(sel)}, ${pinExpr ?? "null"})`);
@@ -195,6 +203,22 @@ export const motionDagPeek = {
             "4. a refused Retry on t-3 reveals its error strip from opacity 0 and shakes the error along x, ending at rest",
             alerted && nudge?.first[0]?.parentOpacity === "0" && shook > 0 && nudge.settled?.transform === "none",
             { alerted, first: nudge?.first.slice(0, 2), shook, settled: nudge?.settled }
+        );
+
+        // 4b. an action that lands clears the refusal: the strip collapses still reading it, until it detaches
+        await h.ev(`(window.__mdpAlert = ${dagPeekCard(T3)}?.querySelector('[role="alert"]')) != null`);
+        await passRpc(h, "DagActionCommand");
+        await start(h, "clear", ALERT_T3, "window.__mdpAlert");
+        await clickIn(h, dagPeekCard(T3), '[data-dag-peek-action="retry"]');
+        const cleared = await polishWaitFor(h, `window.__mdpAlert?.isConnected === false`, 3000);
+        const clear = await stop(h, "clear");
+        await releaseRpc(h, "DagActionCommand");
+        const held = (clear?.frames ?? []).filter((f) => f.attached);
+        const collapsing = held.filter((f) => num(f.parentOpacity) < 0.99).length;
+        rec(
+            "4b. a Retry that lands collapses t-3's error strip mid-fade with the refusal's text on every attached frame, then removes it",
+            alerted && cleared && collapsing > 0 && held.every((f) => f.text === REFUSED_TEXT) && clear.frames.at(-1)?.attached === false,
+            { cleared, collapsing, texts: [...new Set(held.map((f) => f.text))], frames: clear?.frames.length }
         );
 
         // 5. live lifecycle events: the first swaps the empty line for the rows with a fade, a later row enters alone

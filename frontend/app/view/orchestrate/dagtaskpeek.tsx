@@ -7,6 +7,7 @@
 import { AutoHeight } from "@/app/element/autoheight";
 import { CrossFade } from "@/app/element/crossfade";
 import { Markdown } from "@/app/element/markdown";
+import { useLastShown } from "@/app/element/motionhooks";
 import { composerReveal, errorNudge, microFade } from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
 import { globalStore } from "@/app/store/jotaiStore";
@@ -71,6 +72,7 @@ export function DagTaskPeek({
     const [escalating, setEscalating] = useState(false);
     const [escalateRoute, setEscalateRoute] = useState<RoutePin | null>(null);
     const [actionError, setActionError] = useState<string | null>(null);
+    const shownActionError = useLastShown(actionError);
     const agentsCtx = useAtomValue(dagModalAgentsContextAtom);
     const childRun = useAtomValue<Run | undefined>(
         (task.runid ? runAtom(task.runid) : NO_RUN_ATOM) as Atom<Run | undefined>
@@ -151,7 +153,7 @@ export function DagTaskPeek({
                                 className="flex items-center gap-1.5 border-t border-border px-[13px] py-[7px] text-[12px] text-error"
                             >
                                 <CircleAlert size={12} aria-hidden className="flex-none" />
-                                {actionError}
+                                {shownActionError}
                             </motion.div>
                         </PaneReveal>
                     )}

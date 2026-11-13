@@ -19,6 +19,7 @@
 // attribute matters more than the label.
 
 import { CrossFade } from "@/app/element/crossfade";
+import { useLastShown } from "@/app/element/motionhooks";
 import { errorNudge, microFade, morphTransition, viewFade } from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
 import { DialogButton } from "@/app/modals/dialogbutton";
@@ -30,7 +31,7 @@ import { formatChordString } from "@/util/keysym";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtomValue, type PrimitiveAtom } from "jotai";
 import { Bot, Check, Network, Paperclip, X, type LucideIcon } from "lucide-react";
-import { AnimatePresence, motion, type Transition } from "motion/react";
+import { AnimatePresence, motion, type Transition, type Variants } from "motion/react";
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { AgentsViewModel } from "../agents/agents";
 import { AttachmentTray } from "../agents/attachmenttray";
@@ -104,6 +105,10 @@ import { ProjectPicker } from "./projectpickerview";
 // What the next open of the window starts from, set by a canvas's Build this… or the palette's Quick and Orchestrate;
 // the window clears it once read.
 export const newRunPrefillAtom = atom<NewRunPrefill | null>(null) as PrimitiveAtom<NewRunPrefill | null>;
+
+// the footer error fades out like the summary beside it; errorNudge itself has no exit, since PaneReveal passes its
+// "exit" label to every nudged strip
+const footerErrorNudge: Variants = { ...errorNudge, exit: microFade.exit };
 
 // RoutePicker caps its trigger for the inline rows it usually sits in; a Models row gives it the column, at the
 // window's field height
@@ -472,6 +477,7 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
     const [openedStart, setOpenedStart] = useState<StartFrom | null>(null);
     const [starting, setStarting] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const shownError = useLastShown(error);
     const [startPicked, setStartPicked] = useState(false);
     const goalRef = useRef<HTMLTextAreaElement>(null);
     const planRef = useRef<HTMLInputElement>(null);
@@ -759,12 +765,13 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
                                 <motion.span
                                     key="error"
                                     data-new-run-error
-                                    variants={errorNudge}
+                                    variants={footerErrorNudge}
                                     initial="initial"
                                     animate="animate"
+                                    exit="exit"
                                     className="min-w-0 flex-1 truncate text-[12px] text-error"
                                 >
-                                    {error}
+                                    {shownError}
                                 </motion.span>
                             ) : (
                                 <motion.span

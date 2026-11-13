@@ -18,6 +18,7 @@
 
 import { useCopyFeedback } from "@/app/element/copyfeedback";
 import { CrossFade } from "@/app/element/crossfade";
+import { useLastShown } from "@/app/element/motionhooks";
 import { composerReveal, errorNudge, microFade } from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
 import * as WOS from "@/app/store/wos";
@@ -207,6 +208,7 @@ function LoadedConfig({
     const [baseline, setBaseline] = useState<RunSettingsDraft | null>(null);
     const [saving, setSaving] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const shownError = useLastShown(error);
     // keys the error's nudge, so a second refusal with the same message still shakes
     const [failures, setFailures] = useState(0);
     const [notice, setNotice] = useState<string | null>(null);
@@ -432,7 +434,7 @@ function LoadedConfig({
                     animate="animate"
                     className="text-[11.5px] text-error"
                 >
-                    {error}
+                    {shownError}
                 </motion.p>
             </PaneReveal>
             <AnimatePresence initial={false}>

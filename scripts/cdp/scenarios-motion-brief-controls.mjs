@@ -15,11 +15,14 @@ import {
     PROFILE_MODAL,
     clickByText,
     closeProfile,
+    failRpc,
+    holdRpc,
     notesClipStub,
     openAddressExpr,
     openProfileOn,
     polishNap,
     polishWaitFor,
+    releaseRpc,
     setInputExpr,
 } from "./scenarios-shared.mjs";
 
@@ -33,6 +36,10 @@ const BRIEF_SHEET = `document.querySelector('[data-jarvis-brief-sheet]')`;
 const SHEET_CONFIG = `${BRIEF_SHEET}?.querySelector('[data-jarvis-brief-sheet-config="editable"]')`;
 const SHEET_WIDTH = `${BRIEF_SHEET}?.querySelector('input[type="number"]')`;
 const REDUCE = { features: [{ name: "prefers-reduced-motion", value: "reduce" }] };
+const CREATE_REFUSAL = "motion-brief-controls refused this create on the page";
+const START_REFUSAL = "motion-brief-controls refused this start on the page";
+// the start resolves a route (GetJarvisProfileCommand) before it creates the run, so both are stubbed
+const START_RPCS = ["CreateRunCommand", "GetJarvisProfileCommand"];
 
 // Runs `act` and follows the first added node that is or holds `sel`: the opacity the node mounted with, whether any
 // sample caught it mid-fade or `sel` mid-transform, and both once `ms` has passed.
@@ -79,6 +86,31 @@ const watchExit = (elExpr, act, midMs = 120) => `(async () => {
     return { mid, goneAfter: !el.isConnected };
 })()`;
 
+// Runs `act` on an error strip already showing and samples it every frame until it detaches: the text on each frame it
+// was still attached, how many of those caught its strip (or itself, when it has no strip of its own) mid-fade, and
+// whether it was gone in time.
+const watchLeave = (elExpr, act, fadeOf = "el.parentElement") => `(async () => {
+    const el = ${elExpr};
+    if (!el) return null;
+    const fading = ${fadeOf};
+    const frames = [];
+    let on = true;
+    const tick = () => {
+        frames.push({ attached: el.isConnected, text: el.textContent.replace(/\\s+/g, ' ').trim(), opacity: Number(getComputedStyle(fading).opacity) });
+        if (on) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+    ${act};
+    const end = performance.now() + 2000;
+    while (el.isConnected && performance.now() < end) await new Promise((r) => setTimeout(r, ${SAMPLE_MS}));
+    await new Promise((r) => setTimeout(r, 50));
+    on = false;
+    const held = frames.filter((f) => f.attached);
+    return { texts: [...new Set(held.map((f) => f.text))], fading: held.filter((f) => f.opacity < 0.99).length, frames: frames.length, gone: !el.isConnected };
+})()`;
+// left mid-fade, read `text` on every frame it was attached, and detached
+const leftReading = (w, text) => w != null && w.gone && w.fading > 0 && w.texts.length === 1 && w.texts[0] === text;
+
 // a busy page samples slowly, so a micro fade can pass between two samples and its last frame land just short of 1:
 // a mount at 0 that settles at 1 is the check, as in dag-motion
 const SETTLED_OPACITY = 0.99;
@@ -116,6 +148,7 @@ async function newInitiativeSteps(h, rec) {
 
     await h.ev(setInputExpr(NEW_INIT_TITLE, "verify motion-brief-controls"));
     await polishNap(200);
+    await errorLeaveSteps(h, rec);
     const exit = await h.ev(watchExit(`${NEW_INIT}?.parentElement`, clickByText(NEW_INIT, "button", "Cancel")));
     rec("2. Cancel fades the form out while it is still attached, then removes it", exitedFading(exit), JSON.stringify(exit));
 
@@ -134,6 +167,33 @@ async function newInitiativeSteps(h, rec) {
     );
     await chipSteps(h, rec);
     await closeNewInitiative(h);
+}
+
+// A title typed in and created clears the title error, and the refused create's save error is cleared by a retry: each
+// strip collapses still reading its error. The retry is held, so no initiative is made.
+async function errorLeaveSteps(h, rec) {
+    const TITLE_ERR = `${NEW_INIT}?.querySelector('[data-effort-error="title"]')`;
+    const SAVE_ERR = `${NEW_INIT}?.querySelector('[data-effort-error="save"]')`;
+    try {
+        await failRpc(h, "EffortCreateCommand", CREATE_REFUSAL);
+        const title = await h.ev(watchLeave(TITLE_ERR, CTRL_ENTER));
+        rec(
+            "1b. creating once a title is typed collapses the title error mid-fade, reading Title is required on every attached frame, then removes it",
+            leftReading(title, "Title is required"),
+            JSON.stringify(title)
+        );
+        const refused = await polishWaitFor(h, `(${SAVE_ERR}?.textContent ?? "").trim() === ${JSON.stringify(CREATE_REFUSAL)}`, 3000);
+        await polishNap(400);
+        await holdRpc(h, "EffortCreateCommand");
+        const save = refused ? await h.ev(watchLeave(SAVE_ERR, CTRL_ENTER)) : null;
+        rec(
+            "1c. a retry after a refused create collapses the save error mid-fade, reading the refusal on every attached frame, then removes it",
+            refused && leftReading(save, CREATE_REFUSAL),
+            JSON.stringify({ refused, save })
+        );
+    } finally {
+        await releaseRpc(h, "EffortCreateCommand");
+    }
 }
 
 // Runs `act` and samples an element that stays mounted: whether any sample caught it mid-transform, and where it is
@@ -243,8 +303,32 @@ async function newRunSteps(h, rec) {
     );
     await h.shot("cdp-shots/motion-brief-controls-5-plan.png");
     rec("11. a parsed plan cross-fades its table in from 0 to 1", mountedFadingIn(plan), JSON.stringify(plan && { ...plan, settled: { ...plan.settled, text: plan.settled.text.slice(0, 60) } }));
+    await startErrorStep(h, rec);
     await h.ev(`${NEW_RUN}?.querySelector('[data-new-run-cancel]')?.click()`);
     await polishWaitFor(h, `!${NEW_RUN}`, 3000);
+}
+
+// a refused start shows the footer error; a second start clears it, and it fades out under popLayout still reading
+// the refusal. The second start is held, so no run is made; Cancel closes the window over it.
+async function startErrorStep(h, rec) {
+    const START = `${NEW_RUN}?.querySelector('[data-new-run-start]')`;
+    const ERR = `${NEW_RUN}?.querySelector('[data-new-run-error]')`;
+    try {
+        for (const c of START_RPCS) await failRpc(h, c, START_REFUSAL);
+        await polishWaitFor(h, `${START} != null && !${START}.disabled`, 5000);
+        await h.ev(`${START}?.click()`);
+        const refused = await polishWaitFor(h, `(${ERR}?.textContent ?? "").trim() === ${JSON.stringify(`Error: ${START_REFUSAL}`)}`, 4000);
+        await polishNap(400);
+        for (const c of START_RPCS) await holdRpc(h, c);
+        const leave = refused ? await h.ev(watchLeave(ERR, `${START}?.click()`, "el")) : null;
+        rec(
+            "11b. a second start after a refused one fades the footer error out while attached, reading the refusal on every attached frame, then removes it",
+            refused && leftReading(leave, `Error: ${START_REFUSAL}`),
+            JSON.stringify({ refused, error: await h.ev(`(${ERR}?.textContent ?? "").trim()`), leave })
+        );
+    } finally {
+        for (const c of START_RPCS) await releaseRpc(h, c);
+    }
 }
 
 // the run sheet: the run id's copy mark cross-fades, and a refused width reveals its error
@@ -310,6 +394,7 @@ export const motionBriefControls = {
         await h.cdp("Emulation.setEmulatedMedia", { features: [] }).catch(() => {});
         await h.ev(PEEKS_ESC).catch(() => {});
         await h.ev(clickByText(NEW_INIT, "button", "Cancel")).catch(() => {});
+        for (const c of ["EffortCreateCommand", ...START_RPCS]) await releaseRpc(h, c).catch(() => {});
         if (ctx.n) await newRunWindow.teardown(h, ctx.n);
         if (ctx.p) await briefProfile.teardown(h, ctx.p);
     },
