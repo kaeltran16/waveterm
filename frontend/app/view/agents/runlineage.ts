@@ -634,7 +634,7 @@ export function leadStandingBy(
 }
 
 // states in which the engine has a session or command at work: tasks.state, planreview.state, final.state
-const TASK_IN_FLIGHT = new Set(["running", "reviewing", "verifying"]);
+const TASK_IN_FLIGHT = new Set(["preparing", "running", "reviewing", "verifying"]);
 const PLAN_REVIEW_IN_FLIGHT = "reviewing";
 const FINAL_IN_FLIGHT = new Set(["checking", "final", "verifying"]);
 

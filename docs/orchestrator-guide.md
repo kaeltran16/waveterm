@@ -1367,7 +1367,7 @@ Inside a lead's or worker's terminal, the run is inferred. Elsewhere pass `--cha
 | `dag planreview findings` | print a failed plan review's findings whole, one block per reviewer; the lead's wake carries the first 2,500 characters |
 | `dag final pass "<summary>" [--unverified "<what, why>"]` / `dag final fail "<defects>"` | the final verifier's verdict; ends its session |
 | `dag retry <task>` | retry a failed or stalled task |
-| `dag skip <task>` | drop one task that has not landed (pending, running, stalled, under review, failed): its worker or reviewer stops, its commits come off its lane, and the run goes on |
+| `dag skip <task>` | drop one task that has not landed (pending, preparing, running, stalled, under review, failed): its worker or reviewer stops, its commits come off its lane, and the run goes on |
 | `dag escalate <task> --model <id> [--runtime <rt>]` | re-queue on another model, once per task |
 | `dag merge <task> [--continue]` | squash-merge a lane end, or finish a resolved conflict / re-run a failed Verify |
 | `dag retry-cleanup <task>` | retry removing a task's worktree after its automatic attempts gave up (close whatever held it first) |

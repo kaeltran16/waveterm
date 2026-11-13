@@ -29,8 +29,9 @@ var dagMutationLocks = keyedmutex.New()
 // whole-object replace of a snapshot loaded under this lock, so any writer that skips it has its
 // changes silently reverted by an overlapping tick. Exported because the merge handlers live in
 // wshserver (which imports this package) and are dag writers too. Not reentrant. Work on a tree or a process
-// (a Setup aside) runs outside it, and only its result is recorded under it: a hold of tens of seconds makes
-// every exit it causes wait.
+// runs outside it, and only its result is recorded under it: a hold of tens of seconds makes every exit it causes
+// wait. The one exception is a prepared tree that vanished before its spawn, which the spawn pass makes again,
+// Setup and all, under it.
 func WithDagMutation(dagID string, fn func() error) error {
 	if dagID == "" {
 		return fmt.Errorf("dag id is required")
@@ -73,8 +74,9 @@ func dagLockCaller() string {
 }
 
 // TryWithDagMutation runs fn only if the dag's lock is free, reporting whether it ran. For a write with
-// nothing to gain by waiting: the plan's Setup command holds this lock for up to SetupTimeout, and a
-// cosmetic write that queues behind it delays whatever its own caller does next.
+// nothing to gain by waiting: a tick's spawn pass holds this lock for a spawn budget per task, and up to
+// SetupTimeout more when it remakes a prepared tree that vanished, and a cosmetic write that queues behind it
+// delays whatever its own caller does next.
 func TryWithDagMutation(dagID string, fn func() error) (bool, error) {
 	if dagID == "" {
 		return false, fmt.Errorf("dag id is required")
@@ -588,7 +590,8 @@ func settleEndedRun(ctx context.Context, dagID string) (bool, error) {
 
 // cancelDag is Cancel, or settleEndedRun with runEnded, and reports whether it cancelled the dag.
 func cancelDag(ctx context.Context, dagID string, runEnded bool) (bool, error) {
-	// the lock can be held for minutes (Setup) and the wait spends the caller's rpc budget; a cancel must still
+	// the lock can be held for minutes (a tick's spawns, or a vanished prepared tree's Setup) and the wait spends
+	// the caller's rpc budget; a cancel must still
 	// land after its caller stops waiting, or the run keeps going
 	ctx = context.WithoutCancel(ctx)
 	var c *cancelledDag
