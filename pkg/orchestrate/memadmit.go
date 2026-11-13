@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wavetermdev/waveterm/pkg/consult"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/memgate"
 	"github.com/wavetermdev/waveterm/pkg/util/jobobject"
@@ -37,8 +38,8 @@ func MemProjectKey(path string) string {
 
 type gateAdmittedKey struct{}
 
-// WithGateAdmitted marks ctx's plan commands as already admitted, so they never wait at the memory gate: the
-// dispatch Setup runs on its worker's admission, and the commands an RPC runs inline must not hold the RPC.
+// WithGateAdmitted marks ctx's plan commands as taking no claim: a Setup runs on its worker's admission, or before
+// its detached tree's command takes its own, so counting it too would charge one tree twice.
 func WithGateAdmitted(ctx context.Context) context.Context {
 	return context.WithValue(ctx, gateAdmittedKey{}, true)
 }
@@ -63,10 +64,11 @@ func admitPlanCommand(ctx context.Context, dir string) *memgate.Claim {
 	})
 }
 
-// workerRequest is the gate request for taskID's worker. Its tree's Setup runs on this admission, under the dag lock.
-func workerRequest(g *waveobj.TaskGroup, taskID string) memgate.Request {
+// workerRequest is the gate request for taskID's worker, sized on its project's learned peaks. Its tree's Setup runs
+// on this admission, under the dag lock.
+func workerRequest(g *waveobj.TaskGroup, owner *waveobj.Run, taskID string) memgate.Request {
 	return memgate.Request{
-		Key: memgate.Key{Role: memgate.RoleWorker},
+		Key: memgate.Key{Project: MemProjectKey(owner.ProjectPath), Role: memgate.RoleWorker},
 		Tag: memgate.Tag{RunId: g.RunID, TaskId: taskID, Role: memgate.RoleWorker},
 	}
 }
@@ -75,9 +77,34 @@ func workerRequest(g *waveobj.TaskGroup, taskID string) memgate.Request {
 // done (ReleaseRunClaims), whichever comes first. A var so tests can release what they bound: no job closes in a test.
 var bindClaim = func(c *memgate.Claim, o jobobject.Owner) { c.Bind(o) }
 
-func bindToBlock(c *memgate.Claim, blockId string) {
+// workerCacheTTL is how long a worker's prompt cache lives after its last request: consult's short-session TTL, which
+// the worker is launched with.
+var workerCacheTTL = func() time.Duration {
+	d, err := time.ParseDuration(consult.ShortSessionCacheTTL)
+	if err != nil {
+		panic("consult.ShortSessionCacheTTL is not a duration: " + err.Error())
+	}
+	return d
+}()
+
+// workerCacheExpiry is when run's prompt cache expires: its last transcript write plus the cache TTL. False while the
+// run is untracked or has written no transcript, so the gate does not pause a worker whose cache it cannot place.
+func workerCacheExpiry(run *waveobj.Run) (time.Time, bool) {
+	last, _ := lastActivityForRun(run)
+	if last == 0 {
+		return time.Time{}, false
+	}
+	return time.UnixMilli(last).Add(workerCacheTTL), true
+}
+
+// bindToBlock binds c to blockId's job. A non-nil run is a worker the loop may pause: its claim learns when the
+// worker's prompt cache expires, so a pause ends before then. Reviewers pass nil and are never paused.
+func bindToBlock(c *memgate.Claim, blockId string, run *waveobj.Run) {
 	if c == nil || blockId == "" {
 		return
+	}
+	if run != nil {
+		c.SetCacheExpiry(func() (time.Time, bool) { return workerCacheExpiry(run) })
 	}
 	bindClaim(c, jobobject.Owner{Kind: jobobject.OwnerKind_Block, Id: blockId})
 }

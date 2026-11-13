@@ -562,7 +562,7 @@ func scheduleLocked(ctx context.Context, dagID string) ([]stalledTask, error) {
 	stalled := recordTaskTransitions(ctx, g, runs, prevStates, now, &afterCommit)
 	countFailures(ctx, g, runs, prevStates, &afterCommit)
 	// what the cap holds back stays pending, and a later tick dispatches it once a worker or memory frees up
-	next, claims := claimWorkers(ctx, g, NextToSpawn(g))
+	next, claims := claimWorkers(ctx, g, owner, NextToSpawn(g))
 	defer releaseWorkerClaim(g.OID)
 	// a claim its dispatch never bound (a failed spawn, a tick that failed part-way, the tasks after it) is the
 	// tick's to release; a bound one belongs to its worker's job
@@ -983,7 +983,7 @@ func dispatchTasks(ctx context.Context, budget *spawnBudget, g *waveobj.TaskGrou
 			failDispatch(ctx, g, taskID, FailureKindSpawn, err, afterCommit)
 			continue
 		}
-		bindToBlock(claims[taskID], deprioritizeWorker(spawnCtx, oref))
+		bindToBlock(claims[taskID], deprioritizeWorker(spawnCtx, oref), &childRun)
 		// now, not at tick end: the app already shows the tab, and until its run arrives the tab sits outside
 		// the run's tree for as long as the rest of the batch takes to spawn. The tab's stamped task id nests it
 		// before the dag commit names the run.

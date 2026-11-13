@@ -70,15 +70,17 @@ step), and never holding at the door while suspending the youngest (pauses would
 
 1. **Progress is counted, never held.** Task reviewers (`spawnReviewer`, `pkg/orchestrate/review.go`) and every
    plan command (`admitPlanCommand`, `pkg/orchestrate/memadmit.go`, called from `plancmd.go`: Verify, Check,
-   Final, base check) always start: they take a claim through a never-blocking admit beside `TryAdmit` and
-   `Wait`. The claim counts their learned median against available memory until their job is seen or 30 s pass,
+   Final, base check) always start: they take a claim through a never-blocking admit beside `TryAdmit`
+   (`Wait` is deleted: nothing calls it once plan commands take the admit. Changed at planning, 11-13.) The claim counts their learned median against available memory until their job is seen or 30 s pass,
    like a worker's (Decision 3), so a worker is not admitted onto memory a starting Final is about to use, and it
    keeps the book non-empty, so the one-tree-always-starts rule cannot admit a worker beside a running Final. A
    worker's Setup keeps riding its worker's admission (`WithGateAdmitted`). Leads, plan reviewers and stage
    sessions stay ungated; interactive agents and terminals unchanged. Only new workers (`claimWorkers`,
    `workerslots.go`) can be held. (Builder question 2.)
-2. **Typical peak at start.** Learned footprints come back: the store, recording a job's peak on close, the owner
-   resolver and jobobject's peak reads that 0c293eaae removed, keyed by project and role. A worker is admitted
+2. **Typical peak at start.** Learned footprints come back: the store, recording a job's peak on close, and
+   jobobject's peak reads that 0c293eaae removed, keyed by project and role. There is no store-walking owner
+   resolver: the gate remembers each bound owner's key from its claim and records the job's peak under it at close.
+   (Changed at planning, 11-13.) A worker is admitted
    when available memory covers the median of its key's kept peaks (waveterm workers ~4.6 GB, interview-coach
    ~1.4 GB), replacing the fixed 3 GiB `Headroom`: one number for every project was the wrong size for most.
    Defaults for an unseen key stay as before 0c293eaae. A worker is sized on its own median only: the old

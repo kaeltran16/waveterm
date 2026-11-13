@@ -124,11 +124,11 @@ func spawnReviewer(ctx, spawnCtx context.Context, g *waveobj.TaskGroup, t *waveo
 		failReview(ctx, g, t, "reviewer could not start: "+err.Error(), afterCommit)
 		return
 	}
-	// refused: the task stays reviewing with no reviewer, and a later tick retries once memory frees
-	claim, ok := memgate.TryAdmit(memgate.Request{Tag: memgate.Tag{RunId: g.RunID, TaskId: t.ID, Role: memgate.RoleReviewer}})
-	if !ok {
-		return
-	}
+	// a reviewer counts like a starting worker but is never held: its lane's land waits on it
+	claim := memgate.Admit(memgate.Request{
+		Key: memgate.Key{Project: MemProjectKey(worker.ProjectPath), Role: memgate.RoleReviewer},
+		Tag: memgate.Tag{RunId: g.RunID, TaskId: t.ID, Role: memgate.RoleReviewer},
+	})
 	// every failure below leaves it unbound; a started reviewer's belongs to its job
 	defer claim.ReleaseIfUnbound()
 	prompt := reviewPrompt(g, t, worker, toldToTask(ctx, g, t.ID), goalpostsForTask(ctx, g, t.ID))
@@ -169,7 +169,7 @@ func spawnReviewer(ctx, spawnCtx context.Context, g *waveobj.TaskGroup, t *waveo
 		spendReviewRespawn(ctx, g, t, "reviewer could not start: "+err.Error(), afterCommit)
 		return
 	}
-	bindToBlock(claim, deprioritizeWorker(spawnCtx, oref))
+	bindToBlock(claim, deprioritizeWorker(spawnCtx, oref), nil)
 	t.ReviewRunID, t.ReviewSpawnedTs = runID, now
 	taskID := t.ID
 	*afterCommit = append(*afterCommit, func() {

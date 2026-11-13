@@ -16,6 +16,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/memgate"
 	"github.com/wavetermdev/waveterm/pkg/runroute"
+	"github.com/wavetermdev/waveterm/pkg/util/jobobject"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
@@ -100,13 +101,23 @@ func heldTaskIDs(t *testing.T, channelID, runID string, n int) map[string]bool {
 	}
 }
 
+// ownerRun is the dag owner's run, which keys a worker's request to its project.
+func ownerRun(t *testing.T, ctx context.Context, channelID, runID string) *waveobj.Run {
+	t.Helper()
+	owner, err := wstore.GetRun(ctx, channelID, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return owner
+}
+
 func TestClaimWorkersStopsAtMemory(t *testing.T) {
 	allowWorkerHarnessForTest(t)
 	cleanBook(t)
 	collectMemoryEvents(t)
 	ctx, g, channelID, runID := seedReadyDag(t, 3)
 	// the first worker starts on an empty book; its starting estimate leaves less than another for the next
-	need := memgate.Estimate(workerRequest(g, "t-0").Key)
+	need := memgate.Estimate(workerRequest(g, ownerRun(t, ctx, channelID, runID), "t-0").Key)
 	defer memgate.SetFreeForTest(func() (uint64, error) { return need + need/2, nil })()
 	spawns := 0
 	old := spawnWorker
@@ -192,25 +203,71 @@ func TestSpawnFailureReleasesClaim(t *testing.T) {
 	}
 }
 
-func TestReviewerHeldAtDoor(t *testing.T) {
+// a reviewer is progress: a lane's land waits on it, so memory may delay it (it counts) but never hold it
+func TestIdleFinishedWorkerNeverBlocksItsReviewer(t *testing.T) {
 	ctx, dag, worker := seedReviewDag(t)
 	stubReviewTree(t, worker.EndCommit)
 	calls := captureSpawns(t)
-	blocker := refuseAllMemory(t)
+	_, blockID := newWorkerTabWithBlock(t)
+	refuseAllMemory(t)
+	// the worker's claim counts its estimate against free memory, which is already nothing
+	bindToBlock(memgate.Admit(workerRequest(dag, &worker, "t-0")), blockID, nil)
 
-	schedule(t, ctx, dag.OID)
-	if len(*calls) != 0 {
-		t.Fatalf("a refused reviewer spawned: %+v", *calls)
-	}
-	task := firstTask(t, ctx, dag.OID)
-	if task.State != TaskState_Reviewing || task.ReviewRunID != "" {
-		t.Fatalf("want reviewing with no reviewer, got %s reviewer %q", task.State, task.ReviewRunID)
-	}
-
-	blocker.Release()
 	schedule(t, ctx, dag.OID)
 	if task := firstTask(t, ctx, dag.OID); len(*calls) != 1 || task.ReviewRunID == "" {
-		t.Fatalf("once memory frees the next tick starts the reviewer: %d spawns, reviewer %q", len(*calls), task.ReviewRunID)
+		t.Fatalf("a worker's claim held its reviewer: %d spawns, reviewer %q", len(*calls), task.ReviewRunID)
+	}
+}
+
+func TestStartingPlanCommandHoldsAWorker(t *testing.T) {
+	allowWorkerHarnessForTest(t)
+	cleanBook(t)
+	ctx, g, channelID, runID := seedReadyDag(t, 1)
+	owner := ownerRun(t, ctx, channelID, runID)
+	verify := memgate.Key{Project: MemProjectKey(owner.ProjectPath), Role: PlanCmd_Verify}
+	defer memgate.SetFreeForTest(func() (uint64, error) { return memgate.Estimate(verify) + 1<<30, nil })()
+	cmd := admitPlanCommand(withRunCmdOwner(ctx, runID, PlanCmd_Verify, ""), owner.ProjectPath)
+	if cmd == nil {
+		t.Fatal("a Verify with a run owner takes a claim")
+	}
+
+	next, claims := claimWorkers(ctx, g, owner, []string{"t-0"})
+	if len(next) != 0 {
+		t.Fatalf("a starting Verify's estimate left room for a worker: %v", next)
+	}
+	cmd.Release()
+	next, claims = claimWorkers(ctx, g, owner, []string{"t-0"})
+	releaseWorkerClaim(g.OID)
+	if len(next) != 1 {
+		t.Fatalf("with the Verify's claim released the worker was not admitted: %v", next)
+	}
+	claims["t-0"].Release()
+}
+
+func TestWorkerRequestKeysItsProject(t *testing.T) {
+	owner := &waveobj.Run{ProjectPath: t.TempDir()}
+	g := &waveobj.TaskGroup{RunID: "run-" + uuid.NewString()}
+	want := memgate.Key{Project: MemProjectKey(owner.ProjectPath), Role: memgate.RoleWorker}
+	if got := workerRequest(g, owner, "t-0").Key; got != want {
+		t.Fatalf("worker key = %+v, want %+v", got, want)
+	}
+}
+
+// a detached tree's Setup runs before its command's claim is taken, so it takes none of its own
+func TestDetachedTreeSetupTakesNoClaim(t *testing.T) {
+	ctx := withRunCmdOwner(context.Background(), "run-"+uuid.NewString(), PlanCmd_Check, "")
+	cleanBook(t)
+	check := admitPlanCommand(ctx, t.TempDir())
+	if check == nil {
+		t.Fatal("precondition: a Check takes a claim")
+	}
+	check.Release()
+	setupCtx := detachedSetupCtx(ctx)
+	if claim := admitPlanCommand(setupCtx, t.TempDir()); claim != nil {
+		t.Fatalf("a detached tree's Setup took a claim: %+v", claim)
+	}
+	if owner, _ := jobobject.OwnerFrom(setupCtx); owner.Cmd != PlanCmd_Setup {
+		t.Fatalf("Setup's owner command = %q, want %q", owner.Cmd, PlanCmd_Setup)
 	}
 }
 
@@ -228,28 +285,90 @@ func TestFinishedWorkerClaimDoesNotHoldItsReviewer(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	claim, ok := memgate.TryAdmit(workerRequest(dag, "t-0"))
+	claim, ok := memgate.TryAdmit(workerRequest(dag, &worker, "t-0"))
 	if !ok {
 		t.Fatal("an empty book must admit the worker")
 	}
-	bindToBlock(claim, blockID)
-	// no loop runs in the test, so the worker's claim counts its starting estimate until released, leaving nothing
-	need := memgate.Estimate(workerRequest(dag, "t-0").Key)
-	defer memgate.SetFreeForTest(func() (uint64, error) { return need - 1, nil })()
-
-	schedule(t, ctx, dag.OID)
-	if len(*calls) != 0 {
-		t.Fatalf("precondition: a reviewer spawned while the worker's claim still counted against it: %+v", *calls)
-	}
+	bindToBlock(claim, blockID, nil)
 
 	done, err := wstore.GetRun(ctx, dag.ChannelId, worker.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ReleaseRunClaims(ctx, done)
+	if n := memgate.LiveClaimsForTest(); n != 0 {
+		t.Fatalf("a done worker's claim stayed in the book: %d claims", n)
+	}
 	schedule(t, ctx, dag.OID)
 	if task := firstTask(t, ctx, dag.OID); len(*calls) != 1 || task.ReviewRunID == "" {
-		t.Fatalf("a done worker's claim held its reviewer: %d spawns, reviewer %q", len(*calls), task.ReviewRunID)
+		t.Fatalf("a done worker's reviewer did not start: %d spawns, reviewer %q", len(*calls), task.ReviewRunID)
+	}
+}
+
+func TestWorkerCacheExpiry(t *testing.T) {
+	root := t.TempDir()
+	stubSessionsRoot(t, root)
+	worktree := filepath.Join(t.TempDir(), "wt-t-0")
+	wrote := time.Now().Add(-time.Minute).Truncate(time.Millisecond)
+	writeClaudeSession(t, root, worktree, liveSession, wrote)
+
+	run := &waveobj.Run{Runtime: "claude", ProjectPath: worktree, SessionId: liveSession}
+	got, ok := workerCacheExpiry(run)
+	if want := wrote.Add(5 * time.Minute); !ok || !got.Equal(want) {
+		t.Fatalf("expiry = %v, %v; want %v, true", got, ok, want)
+	}
+	noSession := &waveobj.Run{Runtime: "claude", ProjectPath: worktree}
+	if _, ok := workerCacheExpiry(noSession); ok {
+		t.Fatal("a run with no session id has a known expiry")
+	}
+	noTranscript := &waveobj.Run{Runtime: "claude", ProjectPath: worktree, SessionId: siblingSession}
+	if _, ok := workerCacheExpiry(noTranscript); ok {
+		t.Fatal("a tracked run with no transcript yet has a known expiry")
+	}
+}
+
+func TestDispatchBindsWorkerCacheExpiry(t *testing.T) {
+	allowWorkerHarnessForTest(t)
+	cleanBook(t)
+	ctx, g, _, _ := seedDispatchDag(t, "memgate-expiry-worker")
+	tab, _ := newWorkerTabWithBlock(t)
+	old := spawnWorker
+	spawnWorker = func(context.Context, runroute.Capability, string, string, string, string, jarvis.RunWorkerOptions) (string, error) {
+		return tab, nil
+	}
+	restoreAfterStages(t, func() { spawnWorker = old })
+
+	if err := ScheduleOnce(ctx, g); err != nil {
+		t.Fatal(err)
+	}
+	boundClaims.Lock()
+	defer boundClaims.Unlock()
+	if len(boundClaims.list) != 1 || !memgate.HasCacheExpiryForTest(boundClaims.list[0]) {
+		t.Fatalf("the dispatched worker's bound claim has no cache expiry: %d bound claims", len(boundClaims.list))
+	}
+}
+
+func TestReviewerBindsNoCacheExpiry(t *testing.T) {
+	cleanBook(t)
+	ctx, dag, worker := seedReviewDag(t)
+	stubReviewTree(t, worker.EndCommit)
+	calls := captureSpawns(t)
+	tab, _ := newWorkerTabWithBlock(t)
+	old := spawnWorker
+	spawnWorker = func(context.Context, runroute.Capability, string, string, string, string, jarvis.RunWorkerOptions) (string, error) {
+		*calls = append(*calls, spawnCall{})
+		return tab, nil
+	}
+	restoreAfterStages(t, func() { spawnWorker = old })
+
+	schedule(t, ctx, dag.OID)
+	boundClaims.Lock()
+	defer boundClaims.Unlock()
+	if len(*calls) != 1 || len(boundClaims.list) != 1 {
+		t.Fatalf("%d reviewers spawned, %d claims bound; want one of each", len(*calls), len(boundClaims.list))
+	}
+	if memgate.HasCacheExpiryForTest(boundClaims.list[0]) {
+		t.Fatal("a reviewer's claim carries a cache expiry, so the loop could pause it")
 	}
 }
 
@@ -287,11 +406,11 @@ func TestIdleFinishedWorkerNeverBlocksVerify(t *testing.T) {
 	cleanBook(t)
 	t.Cleanup(releaseBoundClaims)
 	g := &waveobj.TaskGroup{RunID: "run-" + uuid.NewString()}
-	worker, ok := memgate.TryAdmit(workerRequest(g, "t-0"))
+	worker, ok := memgate.TryAdmit(workerRequest(g, &waveobj.Run{}, "t-0"))
 	if !ok {
 		t.Fatal("an empty book must admit the worker")
 	}
-	bindToBlock(worker, uuid.NewString())
+	bindToBlock(worker, uuid.NewString(), nil)
 	defer memgate.SetFreeForTest(func() (uint64, error) { return 0, nil })()
 
 	ctx := withRunCmdOwner(context.Background(), g.RunID, PlanCmd_Verify, "t-0")

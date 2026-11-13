@@ -86,6 +86,16 @@ type treeStepError struct {
 func (e *treeStepError) Error() string { return e.step + ": " + e.err.Error() }
 func (e *treeStepError) Unwrap() error { return e.err }
 
+// detachedSetupCtx is the ctx a detached tree's Setup runs in: the run-command owner ctx carries, renamed Setup, and
+// taking no claim, since the Setup runs before fn and fn's command takes its own.
+func detachedSetupCtx(ctx context.Context) context.Context {
+	if o, ok := jobobject.OwnerFrom(ctx); ok {
+		o.Cmd = PlanCmd_Setup
+		ctx = jobobject.WithOwner(ctx, o)
+	}
+	return WithGateAdmitted(ctx)
+}
+
 // withDetachedTree runs fn in a tree detached at commit, never in a tree anyone works in, after the plan's Setup, and
 // removes the tree. The Setup keeps the run-command owner ctx carries, renamed Setup, so the Resource Manager never
 // shows it as the command the tree is for.
@@ -109,21 +119,15 @@ func withDetachedTree(ctx context.Context, project, name, label, commit, setup s
 			log.Printf("removing the %s %s: %v", label, wt, err)
 		}
 	}()
-	setupCtx := ctx
-	if o, ok := jobobject.OwnerFrom(ctx); ok {
-		o.Cmd = PlanCmd_Setup
-		setupCtx = jobobject.WithOwner(ctx, o)
-	}
-	if _, _, err := PrepareTree(setupCtx, wt, setup); err != nil {
+	if _, _, err := PrepareTree(detachedSetupCtx(ctx), wt, setup); err != nil {
 		return &treeStepError{"Setup failed in the " + label, errors.New(failureDetail(err))}
 	}
 	return fn(wt)
 }
 
-// runBaseCheck runs Check in a detached tree at commit. It and its tree's Setup never wait at the memory gate: it
-// runs once, before any worker, and no view shows it, so a hold would be invisible; it counts through real use.
+// runBaseCheck runs Check in a detached tree at commit.
 func runBaseCheck(ctx context.Context, runID, project, commit, setup, check string) (string, string) {
-	ctx = WithGateAdmitted(withRunCmdOwner(ctx, runID, PlanCmd_Check, ""))
+	ctx = withRunCmdOwner(ctx, runID, PlanCmd_Check, "")
 	err := withDetachedTree(ctx, project, runID+"-base", "base tree", commit, setup, func(wt string) error {
 		_, err := runPlanCommand(ctx, wt, check, nil, VerifyTimeout, nil)
 		return err
