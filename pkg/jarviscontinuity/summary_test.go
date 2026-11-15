@@ -20,7 +20,7 @@ func TestBuildSummaryPromptIncludesFactsAndGuardrails(t *testing.T) {
 	p := buildSummaryPrompt(f)
 	for _, want := range []string{
 		"ship the widget", "blocked", "token refresh test failing",
-		"middleware extraction", "Do not invent decisions",
+		"middleware extraction",
 	} {
 		if !strings.Contains(p, want) {
 			t.Errorf("prompt missing %q\n---\n%s", want, p)

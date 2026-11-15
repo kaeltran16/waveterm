@@ -119,6 +119,12 @@ Full map: `docs/reference/architecture.md`. Read it before working in an area yo
 - **Merge a feature branch with `--no-ff`**, and run the tests on the merged result before deleting it.
 - **A plan with several edits to one file:** anchor each edit on quoted surrounding content, and state
   "every line number below is pre-edit" when a task lands more than one edit in the same file.
+- **Prompt text gets no phrase tests.** A test of a prompt, brief, contract or wake builder asserts only
+  what code decides: inserted values, sections an input adds or drops, shared constants it embeds (through
+  the constant, never copied text), and text another program parses (command lines, reply formats, report
+  headings, the ask headers and labels `docreview.ts` reads). No assertions on fixed wording, no lists of
+  removed wording, and no whole-text equality. A prose-only prompt edit needs no new test, TDD included. The
+  one exception is a single pin whose comment names the observed model failure it guards.
 
 ## Docs
 

@@ -185,16 +185,13 @@ func TestFollowupPromptCarriesFindingsAndDiff(t *testing.T) {
 	writePlanDoc(t, r.ctx, r.dag, "# Plan\n\n### Task 1: a, with TestCoupons\n")
 	prompt := r.startFollowup(t)
 	for _, want := range []string{
-		"This is round 2. Round 1 failed with these findings, and the lead revised the plan to answer them:\n\n" + r.findings + "\n\n",
+		"round 2",
+		r.findings,
 		"The spec did not change.",
-		"confirm the revised plan fixes it, or explicitly and soundly declines it",
-		"Check only the changed lines",
 		planReviewSpecGap,
 		"- t-1: thread the field through (round 1 picked sonnet: a field threaded through)\n",
 		"- t-2: design the store (round 1 picked lead: the store shape is a design choice)\n",
-		"keep it unless the diff changed that task; a task round 1 did not pick needs a fresh pick",
 		`--pick "t-1=<sonnet|lead>: <one-line reason>"`,
-		"one line per round-1 finding",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("the follow-up brief must contain %q:\n%s", want, prompt)

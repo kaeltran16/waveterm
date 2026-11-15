@@ -55,8 +55,6 @@ func TestPlanReviewPromptAsksForPicks(t *testing.T) {
 	for _, want := range []string{
 		"t-1: thread the field through",
 		"t-2: design the store",
-		"`sonnet` only for a mechanical, tightly specified task",
-		"`lead` for anything with a design choice",
 		`--pick "t-1=<sonnet|lead>: <one-line reason>" --pick "t-2=<sonnet|lead>: <one-line reason>"`,
 	} {
 		if !strings.Contains(prompt, want) {

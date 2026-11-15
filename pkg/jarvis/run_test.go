@@ -168,14 +168,11 @@ func TestBuildQuickPrompt(t *testing.T) {
 		"add a spinner",
 		"be tidy",
 		"wsh jarvis complete --commit $(git rev-parse HEAD) --report <that file>",
-		"If this turns out to be more than one change or needs a design decision, stop and ask with AskUserQuestion instead of pushing on.",
+		"AskUserQuestion",
 	} {
 		if !strings.Contains(p, want) {
 			t.Errorf("prompt missing %q:\n%s", want, p)
 		}
-	}
-	if strings.Contains(p, "skill to work this goal") {
-		t.Errorf("quick prompt must not carry a skill directive:\n%s", p)
 	}
 }
 
@@ -199,7 +196,7 @@ func TestBuildQuickPromptGivesThePlanApprovalAsk(t *testing.T) {
 // a pi worker told to call Claude's tool asks in plain text, which never reaches the cockpit
 func TestBuildQuickPromptNamesTheRuntimeAskTool(t *testing.T) {
 	p := BuildQuickPrompt("add a spinner", nil, "pi")
-	if !strings.Contains(p, "stop and ask with ask_user_question instead of pushing on") {
+	if !strings.Contains(p, "ask_user_question") {
 		t.Fatalf("a pi quick worker asks with ask_user_question:\n%s", p)
 	}
 	if strings.Contains(p, "AskUserQuestion") {

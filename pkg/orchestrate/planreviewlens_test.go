@@ -158,7 +158,7 @@ func TestPlanReviewSecondPassPromptHasTheWholeChecklist(t *testing.T) {
 			t.Fatalf("the checklist must hold %q:\n%s", want, checks)
 		}
 	}
-	if !strings.Contains(second, "You are one of two plan reviewers working independently at the same time") || !strings.Contains(second, "`wsh jarvis dag planreview pass \"<summary>\"`") {
+	if !strings.Contains(second, "one of two plan reviewers") || !strings.Contains(second, "`wsh jarvis dag planreview pass \"<summary>\"`") {
 		t.Fatalf("the brief says it is one of two independent reviewers and names the verdict:\n%s", second)
 	}
 	if strings.Contains(second, "--pick") || strings.Contains(second, "- t-1: ") {
@@ -566,7 +566,6 @@ func TestPlanReviewPromptsListTheParsedDependsEdges(t *testing.T) {
 			"- t-1 waits for nothing\n",
 			"- t-2 waits for t-1 (implicit: no Depends line)\n",
 			"- t-3 waits for t-1\n",
-			"a task with no Depends line waits for the one before it",
 		} {
 			if !strings.Contains(p, want) {
 				t.Errorf("%s brief missing %q:\n%s", lens, want, p)

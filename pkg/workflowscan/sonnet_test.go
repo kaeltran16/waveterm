@@ -13,8 +13,6 @@ func TestSonnetPromptAsks(t *testing.T) {
 	c := corpusOf(t, fixtureRun{runId(1), 1, "p", failFirst})
 	p := SonnetPrompt(c)
 	for _, want := range []string{
-		"3 or more distinct runs",
-		"verbatim",
 		"<file> · <symbol or section>",
 		`"patterns"`,
 		`"fixtarget"`,
