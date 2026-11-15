@@ -34,7 +34,7 @@ type Changes struct {
 	// the open surface has to be noticeable, and comparing one sha is what lets the surface re-read the
 	// log only when the log has actually changed.
 	Head string
-	// Live mode only: why `diff --numstat` failed while status listed the files (one unreadable file
+	// Why `diff --numstat` failed while the files were still listed (one unreadable file
 	// fails the whole numstat). The list stays usable; Numstat's tracked rows then cannot be trusted.
 	NumstatError string
 }
@@ -140,13 +140,15 @@ func GetChanges(ctx context.Context, cwd, ref string) (*Changes, error) {
 	}
 	trackedZ := nameStatusToStatusZ(nameStatus)
 	untrackedZ := untrackedEntriesZ(statusZ)
+	// the ref resolved above, so a failure here is an unreadable file or blob: carried beside the list as in live mode.
 	numstatArgs := []string{"diff", "--numstat", "--relative", ref}
-	numstat, err := run(ctx, cwd, numstatArgs...)
-	if err != nil {
-		return nil, describeGitError(numstatArgs, err)
+	numstat, nerr := run(ctx, cwd, numstatArgs...)
+	numstatError := ""
+	if nerr != nil {
+		numstatError = describeGitError(numstatArgs, nerr).Error()
 	}
 	numstat += untrackedNumstat(cwd, untrackedZ)
-	return &Changes{Branch: strings.TrimSpace(branch), StatusZ: trackedZ + untrackedZ, Numstat: numstat, IsRepo: true, Head: head}, nil
+	return &Changes{Branch: strings.TrimSpace(branch), StatusZ: trackedZ + untrackedZ, Numstat: numstat, IsRepo: true, Head: head, NumstatError: numstatError}, nil
 }
 
 // GetRangeChanges computes the per-file changes introduced by the commit range base..end — the commits

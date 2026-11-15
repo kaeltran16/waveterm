@@ -252,6 +252,37 @@ func TestGetChangesLiveModeNumstatFailureKeepsList(t *testing.T) {
 	}
 }
 
+// the session-scoped readers (agent rail, hub peek, cockpit card) read in ref mode: an unreadable blob
+// must leave them the list too, not an error they show as "Not a git repository".
+// a.txt's change is committed, so name-status compares hashes only while numstat must read the base blob.
+func TestGetChangesRefModeNumstatFailureKeepsList(t *testing.T) {
+	dir, base := repoCommittedOnBase(t)
+	if err := os.WriteFile(filepath.Join(dir, "b.txt"), []byte("new\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	blob := gitRun(t, dir, "rev-parse", base+":a.txt")
+	obj := filepath.Join(dir, ".git", "objects", blob[:2], blob[2:])
+	if err := os.Chmod(obj, 0o666); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(obj); err != nil {
+		t.Fatalf("removing the loose blob: %v", err)
+	}
+	ch, err := GetChanges(context.Background(), dir, base)
+	if err != nil {
+		t.Fatalf("GetChanges: %v, want the list with the numstat error beside it", err)
+	}
+	if !strings.Contains(ch.StatusZ, "a.txt") {
+		t.Fatalf("modified file missing from statusz %q", ch.StatusZ)
+	}
+	if !strings.Contains(ch.NumstatError, "diff --numstat") {
+		t.Fatalf("NumstatError %q does not name the failing command", ch.NumstatError)
+	}
+	if !strings.Contains(ch.Numstat, "1\t0\tb.txt") {
+		t.Fatalf("untracked synthetic row missing from numstat %q", ch.Numstat)
+	}
+}
+
 // repoCommittedOnBase makes a repo with an initial commit, records that SHA as the base, then commits
 // a modification and a new file on top. Returns (dir, baseSHA). No uncommitted changes remain.
 func repoCommittedOnBase(t *testing.T) (string, string) {
