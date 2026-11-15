@@ -346,6 +346,33 @@ func TestDrawerStopLeavesBoardUnchanged(t *testing.T) {
 	}
 }
 
+func TestDrawerStopRightAfterAsk(t *testing.T) {
+	f := newFake(gated(make(chan struct{}), drawAnswer))
+	deps := f.deps()
+	var d *Drawer
+	var stopErr error
+	stopped := false
+	publish := deps.Publish
+	deps.Publish = func(u wshrpc.BoardUpdateData) {
+		// Ask publishes the new turn before it starts the turn's run: the earliest a Stop can land
+		if !stopped {
+			stopped = true
+			stopErr = d.Stop(board)
+		}
+		publish(u)
+	}
+	d = New(deps)
+	if _, err := d.Ask(board, question("q")); err != nil {
+		t.Fatal(err)
+	}
+	if stopErr != nil {
+		t.Fatalf("stop right after the ask: %v", stopErr)
+	}
+	if got := settled(t, f, d).Turns[0]; got.State != StateStopped {
+		t.Errorf("turn: %+v", got)
+	}
+}
+
 func TestDrawerStopAfterDeliverStaysAnswered(t *testing.T) {
 	f := newFake(reply(drawAnswer))
 	deps := f.deps()

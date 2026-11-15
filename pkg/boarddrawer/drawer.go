@@ -68,8 +68,22 @@ type boardKey struct{ channelId, boardId string }
 // boardRun is a board the drawer is busy on: the turn it runs and the briefings waiting behind it.
 type boardRun struct {
 	turnId string
+	ctx    context.Context
 	cancel context.CancelFunc
 	queue  []string // waiting turn ids, oldest first
+}
+
+// begin makes turnId the running turn, with the context Stop cancels. Called under d.mu as the turn is made current,
+// not from the goroutine that runs it, so a Stop right after the ask finds something to cancel.
+func (r *boardRun) begin(turnId string) {
+	r.turnId = turnId
+	r.ctx, r.cancel = context.WithCancel(context.Background())
+}
+
+func newRun(turnId string) *boardRun {
+	r := &boardRun{}
+	r.begin(turnId)
+	return r
 }
 
 // Drawer runs boards' turns, one at a time per board. What it runs lives in memory only: after a restart, Talk
@@ -128,7 +142,7 @@ func (d *Drawer) Ask(b Board, t wshrpc.BoardTurn) (wshrpc.BoardTurn, error) {
 	if run != nil {
 		run.queue = append(run.queue, t.ID)
 	} else {
-		d.boards[keyOf(b)] = &boardRun{turnId: t.ID}
+		d.boards[keyOf(b)] = newRun(t.ID)
 	}
 	d.mu.Unlock()
 	d.publishTurn(b, t)
@@ -143,7 +157,7 @@ func (d *Drawer) Stop(b Board) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	run := d.boards[keyOf(b)]
-	if run == nil || run.cancel == nil {
+	if run == nil {
 		return errors.New("the drawer is not answering on this board")
 	}
 	run.cancel()
@@ -234,7 +248,7 @@ func (d *Drawer) startOwn(b Board, fn func(*wshrpc.BoardTalk) (*wshrpc.BoardTurn
 		d.mu.Unlock()
 		return err
 	}
-	d.boards[keyOf(b)] = &boardRun{turnId: turn.ID}
+	d.boards[keyOf(b)] = newRun(turn.ID)
 	d.mu.Unlock()
 	d.publishTurn(b, turn)
 	go d.loop(b, turn.ID)
@@ -308,17 +322,17 @@ func (d *Drawer) loop(b Board, turnId string) {
 			return
 		}
 		turnId, run.queue = run.queue[0], run.queue[1:]
+		run.begin(turnId)
 		d.mu.Unlock()
 	}
 }
 
 func (d *Drawer) runTurn(b Board, turnId string) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	d.mu.Lock()
 	run := d.boards[keyOf(b)]
-	run.turnId, run.cancel = turnId, cancel
+	ctx, cancel := run.ctx, run.cancel
 	d.mu.Unlock()
+	defer cancel()
 
 	waited := false
 	talk, err := d.d.UpdateTalk(b, func(talk *wshrpc.BoardTalk) error {
