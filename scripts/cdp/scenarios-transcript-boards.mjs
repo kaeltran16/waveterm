@@ -31,6 +31,8 @@ const SECONDARY_RGB = "rgb(207, 213, 219)";
 const JIRA_IMAGES = ["image-20261109-030246.png", "image-20261109-030558.png", "image-20261109-030615.png"];
 const JIRA_DIR = "C:\\Users\\kael\\AppData\\Local\\Temp\\arc-jira-SIEM-1748-2318840571\\";
 const JIRA_SAVED = JIRA_IMAGES.map((n) => `${JIRA_DIR}${n}\n`).join("");
+// the image each of the Jira board's reads returned
+const PNG_1X1 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 
 const LEAD = dag.planSubmitted.ctx;
 const RUN = LEAD.role.runId;
@@ -283,7 +285,7 @@ const boardBrainstorm = () => {
 const boardJira = () =>
     chain([
         take(source(notes.jiraShow), (e) => e.kind !== "message"),
-        take(own([wsh("wsh jira attachments SIEM-1748", 1, { description: "Save the screenshots", output: JIRA_SAVED, durationMs: 1500 }), ...reads(...JIRA_IMAGES).map((e, i) => ({ ...e, ts: T0 + (i + 2) * S })), prose("The screenshots show the chatbot restating the search results. The ticket asks for analysis on top of them, but nobody has said yet what a good answer looks like.", T0 + 6 * S)])),
+        take(own([wsh("wsh jira attachments SIEM-1748", 1, { description: "Save the screenshots", output: JIRA_SAVED, durationMs: 1500 }), ...reads(...JIRA_IMAGES).map((e, i) => ({ ...e, ts: T0 + (i + 2) * S, images: [{ mediaType: "image/png", data: PNG_1X1 }] })), prose("The screenshots show the chatbot restating the search results. The ticket asks for analysis on top of them, but nobody has said yet what a good answer looks like.", T0 + 6 * S)])),
         take(source(initiative.created), calls(/effort create/)),
         take(own([wsh('wsh effort chunk note siem1748 1 --note "Made from SIEM-1748: chunks from the description; its comments ask for an example"', 1, { description: "Note chunk 1" })])),
         take(source(initiative["chunk-blocked"]), (e) => e.kind !== "user"),
@@ -330,7 +332,8 @@ const boardCompactInitiative = () =>
 
 // expect.cards: wsh card keys and how many; expect.views: [step command text, view key] each opened and read;
 // expect.summaries: [step command text, summary, its computed colour] read on the row while collapsed;
-// expect.arc: [message kind, count]; expect.folds: at least this many Worked-for folds
+// expect.arc: [message kind, count]; expect.folds: at least this many Worked-for folds;
+// expect.images: [the row before the group, the group's title, its image rows once opened]
 const BOARDS = [
     {
         name: "Initiative",
@@ -421,6 +424,7 @@ const BOARDS = [
             folds: 1,
             views: [["wsh jira show", "jira-show"]],
             summaries: [["wsh jira attachments", "3 saved", MUTED_RGB]],
+            images: ["Save the screenshots", "Read 3 images", 3],
             cards: { "effort-create": 1, "chunk-note": 1, "chunk-status": 1 },
         },
     },
@@ -488,6 +492,36 @@ const rowSummary = (text) =>
 
 const viewMounted = (key) => probe(`return !!root.querySelector('[data-wsh-view="${key}"]');`);
 
+// the image-reads group row: its title, the row before it, and whether it was closed; then clicks it open. Opens the
+// folds first when the group is not mounted.
+const openImageGroup = () =>
+    probe(`
+    const groups = root.querySelectorAll('[data-step-group="images"]');
+    if (!groups.length) {
+        root.querySelectorAll('[data-fold][aria-expanded="false"]').forEach((b) => b.click());
+        return 'folded';
+    }
+    const group = groups[0];
+    const btn = group.querySelector(':scope > button[aria-expanded]');
+    const closed = btn?.getAttribute('aria-expanded') === 'false';
+    const title = (btn?.innerText ?? '').replace(/\\s+/g, ' ').trim();
+    if (closed) btn.click();
+    return { groups: groups.length, closed, title, before: group.previousElementSibling?.textContent ?? null };
+`);
+
+// the opened group's member rows and the image card each draws
+const imageGroupMembers = () =>
+    probe(`
+    const group = root.querySelector('[data-step-group="images"]');
+    if (!group) return null;
+    const rows = [...group.querySelectorAll('[data-step]')];
+    return {
+        expanded: group.querySelector(':scope > button')?.getAttribute('aria-expanded'),
+        rows: rows.length,
+        withImage: rows.filter((r) => r.querySelector('[data-tool-card="image"] img')).length,
+    };
+`);
+
 const SNAPSHOT = probe(`
     const textOf = (el) => (el.innerText || '').replace(/\\s+/g, ' ').trim();
     const cards = {};
@@ -542,12 +576,35 @@ async function readBoard(h, board) {
         await sleep(MOTION_MS);
         opened.push({ text, key, row: r, mounted: await h.ev(viewMounted(key)) });
     }
+    let images = null;
+    if (expect.images) {
+        let group = await h.ev(openImageGroup());
+        if (group === "folded") {
+            await sleep(MOTION_MS);
+            group = await h.ev(openImageGroup());
+        }
+        await sleep(MOTION_MS);
+        images = { group, members: await h.ev(imageGroupMembers()) };
+    }
     const snap = await h.ev(SNAPSHOT);
     await h.shot(`${SHOT_DIR}/transcript-boards-${board.name}.png`);
-    return { snap, opened, summaries, width: fixture.width };
+    return { snap, opened, summaries, images, width: fixture.width };
 }
 
-function judgeBoard(board, { snap, opened, summaries, width }) {
+function judgeImages([before, title, n], { group, members }) {
+    if (typeof group !== "object" || group == null) return [`no image-reads group row (${JSON.stringify(group)})`];
+    const faults = [];
+    if (group.groups !== 1) faults.push(`${group.groups} image-reads groups, want 1`);
+    if (!group.closed) faults.push("the image-reads group did not start closed");
+    if (group.title !== title) faults.push(`image-reads group reads "${group.title}", want "${title}"`);
+    if (!group.before?.includes(before)) faults.push(`image-reads group follows "${group.before}", want "${before}"`);
+    if (members?.expanded !== "true" || members.rows !== n || members.withImage !== n) {
+        faults.push(`opened image-reads group: ${JSON.stringify(members)}, want ${n} image rows`);
+    }
+    return faults;
+}
+
+function judgeBoard(board, { snap, opened, summaries, images, width }) {
     const { expect } = board;
     const faults = [];
     if (snap == null) return { ok: false, detail: "the transcript did not mount" };
@@ -564,6 +621,7 @@ function judgeBoard(board, { snap, opened, summaries, width }) {
             faults.push(`${s.text} row summary: ${JSON.stringify(s.row)}, want ${s.want} in ${s.color}`);
         }
     }
+    if (expect.images) faults.push(...judgeImages(expect.images, images));
     for (const [kind, n] of Object.entries(expect.arc ?? {})) {
         if ((snap.arc[kind] ?? 0) < n) faults.push(`arc ${kind}: ${snap.arc[kind] ?? 0} of ${n}`);
     }

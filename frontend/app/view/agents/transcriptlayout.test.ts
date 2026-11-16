@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentActionEntry, AgentEntry } from "./agentsviewmodel";
-import { layoutTranscript, stepTitle, type LayoutItem } from "./transcriptlayout";
+import { layoutTranscript, stepRows, stepTitle, type LayoutItem, type Step } from "./transcriptlayout";
 
 const T0 = 1_000_000;
 const S = 1000;
@@ -270,5 +270,72 @@ describe("stepTitle", () => {
         expect(stepTitle(read("retry.js")).subject).toBe("retry.js");
         expect(stepTitle(edit("retry.js", 1, 1)).subject).toBe("retry.js");
         expect(stepTitle({ kind: "action", verb: "grep", target: "retry(" }).mono).toBe("retry(");
+    });
+});
+
+describe("stepRows", () => {
+    const PNG = { mediaType: "image/png", data: "iVBOR" };
+    let next = 0;
+    const step = (
+        action: AgentActionEntry,
+        status: Step["status"] = action.pending ? "running" : action.outcome === "fail" ? "fail" : "ok"
+    ): Step => ({
+        index: next++,
+        action,
+        wsh: null,
+        status,
+    });
+    const imageRead = (target: string, o: { pending?: boolean; fail?: boolean } = {}): Step =>
+        step(
+            o.pending
+                ? { kind: "action", verb: "read", target, pending: true }
+                : { ...read(target), outcome: o.fail ? "fail" : "ok", images: [PNG] }
+        );
+    const shape = (steps: Step[]) =>
+        stepRows(steps).map((r) => (r.kind === "images" ? `images:${r.steps.length}` : `step:${r.step.action.target}`));
+
+    it("groups three consecutive image reads into one row", () => {
+        const steps = [imageRead("a.png"), imageRead("b.png"), imageRead("c.png")];
+        const rows = stepRows(steps);
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).toEqual({ kind: "images", steps });
+    });
+
+    it("keeps a lone image read a plain step", () => {
+        expect(shape([step(bash("ls")), imageRead("a.png"), step(bash("pwd"))])).toEqual([
+            "step:ls",
+            "step:a.png",
+            "step:pwd",
+        ]);
+    });
+
+    it("splits around a pending image read and never groups one", () => {
+        expect(shape([imageRead("a.png"), imageRead("b.png", { pending: true }), imageRead("c.png")])).toEqual([
+            "step:a.png",
+            "step:b.png",
+            "step:c.png",
+        ]);
+    });
+
+    it("breaks a run at a non-image read or a failed read", () => {
+        expect(
+            shape([
+                imageRead("a.png"),
+                imageRead("b.png"),
+                step(read("notes.md")),
+                imageRead("c.png"),
+                imageRead("d.png", { fail: true }),
+                imageRead("e.png"),
+                imageRead("f.png"),
+            ])
+        ).toEqual(["images:2", "step:notes.md", "step:c.png", "step:d.png", "images:2"]);
+    });
+
+    it("never groups text-file reads", () => {
+        expect(shape([step(read("a.ts")), step(read("b.ts")), step(read("c.ts"))])).toEqual([
+            "step:a.ts",
+            "step:b.ts",
+            "step:c.ts",
+        ]);
     });
 });
