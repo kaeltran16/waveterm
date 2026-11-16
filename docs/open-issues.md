@@ -82,6 +82,8 @@ Each names its revive condition in `docs/deferred.md` unless a source is given.
 
 Cockpit and surfaces:
 
+- **Rendered view: plan checklist from TodoWrite** (2026-11-16) — revive when transcripts show TodoWrite calls
+  (Claude Code keeps its todo tools off here) or Arc turns them on for its agents.
 - **`@@` agent tags in pi's prompt** (2026-11-13) — revive when a pi session needs to tag an agent.
 - **Work on an initiative — "Save place and close"** (2026-09-29) — revive when losing a session's place
   recurs.

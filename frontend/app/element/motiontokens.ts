@@ -91,9 +91,9 @@ export const popoverReveal: Variants = {
     exit: { opacity: 0, scale: 0.96, transition: { duration: MOTION.durMicro, ease: MOTION.easeFluid } },
 };
 
-// Narration burst guard (moment 5): only prose/user turns fade in. Tool-action bursts
+// Narration burst guard (moment 5): only prose/user turns and a lone thought fade in. Tool-action bursts
 // never animate, so a fast stream of tool lines cannot strobe.
-const NARRATED_KINDS = new Set(["message", "user"]);
+const NARRATED_KINDS = new Set(["message", "user", "thought"]);
 export function shouldFadeEntry(kind: string): boolean {
     return NARRATED_KINDS.has(kind);
 }

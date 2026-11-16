@@ -4,14 +4,16 @@
 // (fixtures/keyprobe.mjs), so the keys typed into its pty are read back from a file; E with an empty transcript; N
 // with none. Statuses, permission requests and an ask are raised over rpc as the hooks would. Transcripts and the
 // probe's file live in a temp dir; teardown publishes a Stop for every fixture block, clears the ask, restores the
-// roster, closes the tabs and removes the dir.
+// roster, closes the tabs and removes the dir. The last turn appended to A has a thinking-only message and a reply naming
+// a real file under the temp dir, by a path long enough to ellipsize.
 
-import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
     agentPage,
+    assistantBlock,
     assistantText,
     closeTabs,
     focusAgent,
@@ -73,6 +75,17 @@ const SPINNER_VERB = "✻ Undulating…";
 const SPINNER_DETAIL = "(3m 10s · ↓ 4.5k tokens · thinking with high effort)";
 const SPINNER_TOKENS = "↓ 4.5k tokens";
 const iso = (ms) => new Date(ms).toISOString();
+
+// the turn the thought and file-link steps append to A: a thinking-only message before its Bash, then a message whose
+// thinking is hidden by its reply, which names a file under the temp dir in a code span
+const THINK_PROMPT = "Where does the fix go?";
+const THOUGHT = "Listing the package before I name the file.";
+const HIDDEN_THOUGHT = "This reasoning has a reply, so it stays hidden.";
+const THINK_STEP = "list the package";
+// folders long enough that the path overflows the column
+const PEEK_DIRS = ["a-rather-long-folder-name-so-the-path-overflows-the-column", "and-one-more-nested-segment-for-good-measure"];
+const PEEK_FILE = "peek-target.go";
+const PEEK_LINE = 2;
 
 const J = (o) => JSON.stringify(o);
 const GO_JSON = [
@@ -1409,6 +1422,59 @@ export default function (_kit) {
                     return [met && line.verb === SPINNER_VERB && line.facts.endsWith(" · 2 tools"), line];
                 });
 
+                const thinkSteps = () => {
+                    const dir = join(ctx.dir, ...PEEK_DIRS);
+                    mkdirSync(dir, { recursive: true });
+                    writeFileSync(join(dir, PEEK_FILE), "package a\n\nvar fixed = true\n");
+                    const peekPath = join(dir, PEEK_FILE).replace(/\\/g, "/");
+                    const reply = `The fix goes in \`${peekPath}:${PEEK_LINE}\`, beside its test.`;
+                    const t1 = Date.now();
+                    appendA([
+                        userText(THINK_PROMPT, { ts: iso(t1) }),
+                        assistantBlock("msg_think_1", { type: "thinking", thinking: THOUGHT, signature: "s" }, { ts: iso(t1 + 1000) }),
+                        assistantBlock(
+                            "msg_think_1",
+                            { type: "tool_use", id: "toolu_think_ls", name: "Bash", input: { command: "ls pkg", description: THINK_STEP } },
+                            { ts: iso(t1 + 1000) }
+                        ),
+                        toolResult("toolu_think_ls", "a.go", { ts: iso(t1 + 2000) }),
+                        assistantBlock("msg_think_2", { type: "thinking", thinking: HIDDEN_THOUGHT, signature: "s" }, { ts: iso(t1 + 3000) }),
+                        assistantBlock("msg_think_2", { type: "text", text: reply }, { ts: iso(t1 + 3000) }),
+                    ]);
+                    return { peekPath };
+                };
+                const findLink = (path) =>
+                    `[...(${RV}?.querySelectorAll("[data-file-link]") ?? [])].find((l) => l.getAttribute("data-file-link") === ${JSON.stringify(path)})`;
+                // the link to the reply's path, measured against the column it sits in, and what selecting its paragraph copies
+                const fileLink = (path) => `(() => {
+                    const link = ${findLink(path)};
+                    const col = ${RV}?.querySelector("[data-rendered-column]");
+                    if (!link || !col) return null;
+                    const range = document.createRange();
+                    range.selectNodeContents(link.closest("p"));
+                    const sel = getSelection();
+                    sel.removeAllRanges();
+                    sel.addRange(range);
+                    const copied = sel.toString();
+                    sel.removeAllRanges();
+                    return {
+                        ellipsized: link.scrollWidth > link.clientWidth && getComputedStyle(link).textOverflow === "ellipsis",
+                        inColumn: link.getBoundingClientRect().right <= col.getBoundingClientRect().right + 0.5,
+                        selectable: getComputedStyle(link).userSelect !== "none",
+                        copied,
+                    };
+                })()`;
+                const peekCard = `${RV}?.querySelector("[data-rendered-peek] [data-code-peek]")`;
+                const clickLink = (path) =>
+                    h.ev(`(() => {
+                        const link = ${findLink(path)};
+                        if (!link) return false;
+                        getSelection().removeAllRanges();
+                        link.scrollIntoView({ block: "center" });
+                        link.click();
+                        return true;
+                    })()`);
+
                 await step("rendered: working line done — the reply lands and A goes idle: the line leaves, though the spinner row is still on screen", async () => {
                     appendA([assistantText(NOW_REPLY, { ts: iso(t0 + NOW_END_MS) })]);
                     await setRoster(h, ctx.roster);
@@ -1421,6 +1487,87 @@ export default function (_kit) {
                     );
                     await h.shot(SHOT(24, "working-done"));
                     return [gone && seen.rowOnScreen, { gone, ...seen }];
+                });
+
+                let think = null;
+                await step("rendered: thought — a thinking-only message is a muted line in its stretch, before its step; a replied message's thinking stays hidden", async () => {
+                    think = thinkSteps();
+                    const landed = await wait(`(${RV}?.textContent ?? "").includes(${JSON.stringify(THINK_PROMPT)}) && ${findLink(think.peekPath)} != null`);
+                    const seen = await h.ev(`(() => {
+                        ${flatJs}
+                        const rv = ${RV};
+                        const thought = [...(rv?.querySelectorAll("[data-thought]") ?? [])].find((t) => flat(t) === ${JSON.stringify(THOUGHT)});
+                        if (!thought) return { thought: false };
+                        const next = thought.nextElementSibling;
+                        const md = thought.querySelector(".agent-md");
+                        const reply = [...rv.querySelectorAll("[data-find-turn]")].pop();
+                        return {
+                            thought: true,
+                            inStretch: thought.closest("[data-steps]") != null,
+                            beforeStep: next?.matches("[data-step]") === true && flat(next).includes(${JSON.stringify(THINK_STEP)}),
+                            muted: md?.classList.contains("text-muted") === true && getComputedStyle(md).color !== getComputedStyle(reply).color,
+                            hiddenShown: (rv.textContent ?? "").includes(${JSON.stringify(HIDDEN_THOUGHT)}),
+                        };
+                    })()`);
+                    await agentPage(h, `[...(${RV}?.querySelectorAll("[data-thought]") ?? [])].pop()?.scrollIntoView({ block: "center" }); await nap(200); return true;`);
+                    await h.shot(SHOT(25, "thought"));
+                    return [landed && seen.thought && seen.inStretch && seen.beforeStep && seen.muted && seen.hiddenShown === false, { landed, ...seen }];
+                });
+
+                await step("rendered: file link — the reply's path is a link that ellipsizes inside the column and copies whole with the text around it", async () => {
+                    if (think == null) return [false, "the thought step did not append the turn"];
+                    const seen = await h.ev(fileLink(think.peekPath));
+                    await h.shot(SHOT(26, "file-link"));
+                    const ok =
+                        seen != null &&
+                        seen.ellipsized &&
+                        seen.inColumn &&
+                        seen.selectable &&
+                        seen.copied.includes(`The fix goes in ${think.peekPath}:${PEEK_LINE}, beside its test.`);
+                    return [ok, seen];
+                });
+
+                await step("rendered: file peek — a click on the path docks the Code peek on that file under the transcript, its editor drawing the file; a second click closes it", async () => {
+                    if (think == null) return [false, "the thought step did not append the turn"];
+                    const clicked = await clickLink(think.peekPath);
+                    const opened = await wait(`${peekCard}?.getAttribute("data-peek-state") === "text"`);
+                    // the editor draws the file's own lines, not an empty box (Monaco draws a space as a no-break space)
+                    const viewLines = `[...(${peekCard}?.querySelectorAll(".monaco-editor .view-line") ?? [])].map((l) => l.textContent.replace(/\\u00a0/g, " "))`;
+                    const drawn = await wait(`${viewLines}.some((t) => t.includes("var fixed"))`);
+                    const lines = await h.ev(viewLines);
+                    const card = await h.ev(`(() => {
+                        const rv = ${RV};
+                        const dock = rv?.querySelector("[data-rendered-peek]");
+                        const scroll = rv?.querySelector("[data-rendered-scroll]");
+                        const comp = rv?.querySelector("[data-rendered-composer]");
+                        const box = dock?.querySelector("[data-code-peek]");
+                        const path = dock?.querySelector("[data-peek-path]");
+                        if (!dock || !scroll || !comp || !box || !path) return null;
+                        const d = dock.getBoundingClientRect();
+                        const b = box.getBoundingClientRect();
+                        return {
+                            path: path.getAttribute("title"),
+                            belowTranscript: d.top >= scroll.getBoundingClientRect().bottom - 0.5,
+                            aboveComposer: d.bottom <= comp.getBoundingClientRect().top + 0.5,
+                            cardInDock: b.top >= d.top - 0.5 && b.bottom <= d.bottom + 0.5,
+                        };
+                    })()`);
+                    await h.shot(SHOT(27, "file-peek"));
+                    const again = await clickLink(think.peekPath);
+                    const closed = await wait(`${RV}?.querySelector("[data-rendered-peek]") == null`);
+                    const samePath = (p) => (p ?? "").replace(/\\/g, "/").toLowerCase() === think.peekPath.toLowerCase();
+                    const ok =
+                        clicked &&
+                        opened &&
+                        drawn &&
+                        card != null &&
+                        samePath(card.path) &&
+                        card.belowTranscript &&
+                        card.aboveComposer &&
+                        card.cardInDock &&
+                        again &&
+                        closed;
+                    return [ok, { clicked, opened, drawn, lines, card, again, closed }];
                 });
                 return steps;
             },

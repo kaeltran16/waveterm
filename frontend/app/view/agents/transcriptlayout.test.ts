@@ -263,6 +263,53 @@ describe("layoutTranscript statuses and Arc messages", () => {
     });
 });
 
+describe("layoutTranscript thoughts", () => {
+    const thought = (text: string, ts?: number): AgentEntry => ({ kind: "thought", text, ts });
+    const turn: AgentEntry[] = [
+        user("fix it", T0),
+        thought("look first", T0 + 30 * S),
+        read("a.ts", T0 + 30 * S),
+        thought("then the test", T0 + 31 * S),
+        read("b.ts", T0 + 32 * S),
+        bash("npm test", { ts: T0 + 33 * S }),
+        thought("all green", T0 + 40 * S),
+        prose("done", T0 + 41 * S),
+    ];
+
+    it("skips thoughts unless the host asks for them, and they move neither the stretch nor its time", () => {
+        const items = layoutTranscript(turn, { active: false });
+        expect(kinds(items)).toEqual(["user", "steps", "message"]);
+        const [stretch] = stepsItems(items);
+        expect(stretch.thoughts).toBeUndefined();
+        expect(stretch.fold?.durationMs).toBe(41 * S);
+    });
+
+    it("draws a stretch's thoughts inside it, so the stretch still folds and counts only its steps", () => {
+        const items = layoutTranscript(turn, { active: false, thoughts: true });
+        expect(kinds(items)).toEqual(["user", "steps", "message"]);
+        const [stretch] = stepsItems(items);
+        expect(stretch.startIndex).toBe(1);
+        expect(stretch.thoughts).toEqual([
+            { index: 1, text: "look first" },
+            { index: 3, text: "then the test" },
+            { index: 6, text: "all green" },
+        ]);
+        expect(stretch.fold?.phrase).toBe("read 2 files, ran 1 command");
+        expect(stretch.fold?.durationMs).toBe(41 * S);
+    });
+
+    it("a thought with no step beside it stands alone", () => {
+        const items = layoutTranscript([user("hi"), thought("pondering"), prose("hello")], { active: false, thoughts: true });
+        expect(items[1]).toEqual({ kind: "thought", text: "pondering", index: 1 });
+    });
+
+    it("a thought before a wsh change card stands alone before it", () => {
+        const card = bash(CHUNK_DONE);
+        const items = layoutTranscript([user("go"), thought("marking it"), card], { active: false, thoughts: true });
+        expect(kinds(items)).toEqual(["user", "thought", "card"]);
+    });
+});
+
 describe("stepTitle", () => {
     it("titles a Bash call by its description with the command in mono", () => {
         expect(stepTitle(bash("node test.js", { description: "Run the test" }))).toMatchObject({
@@ -308,7 +355,21 @@ describe("stepRows", () => {
                 : { ...read(target), outcome: o.fail ? "fail" : "ok", images: [PNG] }
         );
     const shape = (steps: Step[]) =>
-        stepRows(steps).map((r) => (r.kind === "images" ? `images:${r.steps.length}` : `step:${r.step.action.target}`));
+        stepRows(steps).map((r) =>
+            r.kind === "images" ? `images:${r.steps.length}` : r.kind === "thought" ? `thought:${r.text}` : `step:${r.step.action.target}`
+        );
+
+    it("puts each thought between the steps around it, splitting an image group", () => {
+        const steps = [imageRead("a.png"), imageRead("b.png"), step(bash("ls"))];
+        const [a, b, ls] = steps.map((s) => s.index);
+        const thoughts = [
+            { index: a - 0.5, text: "first" },
+            { index: b - 0.5, text: "mid" },
+            { index: ls + 0.5, text: "last" },
+        ];
+        const rows = stepRows(steps, thoughts).map((r) => (r.kind === "thought" ? `thought:${r.text}` : r.kind === "images" ? "images" : `step:${r.step.action.target}`));
+        expect(rows).toEqual(["thought:first", "step:a.png", "thought:mid", "step:b.png", "step:ls", "thought:last"]);
+    });
 
     it("groups three consecutive image reads into one row", () => {
         const steps = [imageRead("a.png"), imageRead("b.png"), imageRead("c.png")];

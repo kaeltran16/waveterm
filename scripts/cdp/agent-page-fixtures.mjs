@@ -186,6 +186,9 @@ export const userText = (text, opts) => record("user", { role: "user", content: 
 export const assistantText = (text, opts) =>
     record("assistant", { role: "assistant", content: [{ type: "text", text }] }, opts);
 
+// one block of API message `id`: Claude Code writes each block of a message as its own record under the same id
+export const assistantBlock = (id, block, opts) => record("assistant", { id, role: "assistant", content: [block] }, opts);
+
 export const toolUse = (id, name, input, opts) =>
     record("assistant", { role: "assistant", content: [{ type: "tool_use", id, name, input }] }, opts);
 

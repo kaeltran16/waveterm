@@ -54,6 +54,9 @@ export interface AskQuestionDetail {
 export type AgentEntry =
     // ts: the transcript record's time (UnixMilli), Claude's projection only; absent when the record carried none
     | { kind: "message"; text: string; ts?: number }
+    // the thinking text of an assistant message that has no reply text (Claude's projection only); a message with a
+    // reply keeps its thinking hidden
+    | { kind: "thought"; text: string; ts?: number }
     | { kind: "user"; text: string; ts?: number }
     | { kind: "command"; name: string; args?: string; isSkill?: boolean; ts?: number }
     | { kind: "compaction"; trigger?: string; preTokens?: number; postTokens?: number; summary?: string }

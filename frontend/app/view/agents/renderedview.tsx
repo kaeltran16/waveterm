@@ -4,8 +4,9 @@
 // The Agent surface center's Rendered mode: the focused claude agent's live transcript as a readable timeline,
 // with a message box that drives the same pty the terminal shows. The terminal block stays mounted beside it.
 // The working line is the timeline's tail; once your last prompt has scrolled out of view, a bar pinned at the top
-// holds it.
+// holds it. A file path in a reply opens the Code peek docked under the transcript, beside the agent.
 
+import { microFade } from "@/app/element/motiontokens";
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
@@ -13,13 +14,19 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { ArrowUp } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { AnimatePresence, motion } from "motion/react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { CodePeekCard } from "../code/codepeekcard";
+import { PEEK_PREFERRED_PX } from "../code/codepeekmodel";
+import { closePeek, codePeekAtom, togglePeek } from "../code/codepeekstore";
 import { interruptAgent } from "./agentactions";
 import type { AgentComposerHandle } from "./agentcomposer";
+import { resolveCwd } from "./agentcwdresolve";
 import type { AgentsViewModel } from "./agents";
 import { askSentKey, type AgentEntry, type AgentVM } from "./agentsviewmodel";
 import { AnswerBar } from "./answerbar";
 import { entriesAtomFor } from "./livetranscriptatoms";
+import { FileLinkContext } from "./markdownmessage";
 import { NarrationTimeline } from "./narrationtimeline";
 import { useWorkingTail } from "./nowlineview";
 import { PermissionBand } from "./permissionband";
@@ -28,6 +35,7 @@ import { permissionLogAtom } from "./permissionstore";
 import { pinnedPrompt, type PinnedPrompt } from "./pinnedprompt";
 import { RenderedComposer } from "./renderedcomposer";
 import { askDocked, isPickerCommand, pickerFlipAtom, shouldUnflip } from "./renderedmode";
+import type { ReplyFileLink } from "./replyfilelinks";
 import { getLastHookAtom } from "./session-models/agentstatusstore";
 import { JumpToLatestPill, useStickToBottom } from "./sticktobottom";
 import { useTranscriptContext, type TranscriptContext } from "./transcriptcontext";
@@ -36,6 +44,60 @@ import { TranscriptSkeleton } from "./transcriptskeleton";
 // the transcript column's measure, and the pinned bar's (the Working board)
 const COLUMN = "mx-auto w-full max-w-[736px]";
 const BUBBLE = "[data-user-bubble]";
+// the docked peek's share of the view at most, so the transcript keeps the rest
+const PEEK_MAX_HEIGHT = "50%";
+
+// a reply's peek is keyed apart from the terminal's own, which shares the agent's block
+const replyPeekKey = (agent: AgentVM) => `rendered:${agent.blockId ?? agent.id}`;
+
+// the open file a reply's path asked for, docked under the transcript; a second click on the path closes it
+function useReplyPeek(model: AgentsViewModel, agent: AgentVM) {
+    const key = replyPeekKey(agent);
+    const peek = useAtomValue(codePeekAtom);
+    const open = useCallback(
+        (link: ReplyFileLink) =>
+            fireAndForget(async () => {
+                const cwd = await resolveCwd(agent.transcriptPath, agent.blockId);
+                await togglePeek({ blockId: key, bufferLine: 0, start: 0, raw: link.path, line: link.line, cwd });
+            }),
+        [key, agent.transcriptPath, agent.blockId]
+    );
+    // the card leaves with the view (another agent, or the terminal), or its Enter and Esc would still be armed
+    useEffect(
+        () => () => {
+            if (globalStore.get(codePeekAtom)?.blockId === key) {
+                closePeek();
+            }
+        },
+        [key]
+    );
+    const card = peek?.blockId === key ? peek : null;
+    return {
+        open,
+        dock: (
+            <AnimatePresence initial={false}>
+                {card != null ? (
+                    // a fade at its full height: the editor inside measures its box once, on mount, so a box growing
+                    // from 0 leaves it blank
+                    <motion.div
+                        key="peek"
+                        data-rendered-peek
+                        variants={microFade}
+                        initial="initial"
+                        animate="animate"
+                        exit="exit"
+                        className="shrink-0 px-6 pt-2"
+                        style={{ height: PEEK_PREFERRED_PX, maxHeight: PEEK_MAX_HEIGHT }}
+                    >
+                        <div className={`${COLUMN} h-full`}>
+                            <CodePeekCard peek={card} model={model} blockId={agent.blockId ?? agent.id} side="below" />
+                        </div>
+                    </motion.div>
+                ) : null}
+            </AnimatePresence>
+        ),
+    };
+}
 
 // A picker the composer flipped to the terminal has closed once the agent's next prompt-boundary hook lands. Called
 // by the surface, not the view, because the view is unmounted while the flip holds the terminal.
@@ -151,6 +213,7 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
     const pin = usePinnedPrompt(scrollRef, entries, ctx);
     const composerRef = useRef<AgentComposerHandle>(null);
     const askShown = askDocked(agent);
+    const replyPeek = useReplyPeek(model, agent);
     // the picker only exists in the TUI, so the flip lands before the command is typed
     const onSubmitText = (text: string) => {
         if (isPickerCommand(text)) {
@@ -177,15 +240,18 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
                         className={`${COLUMN} flex min-h-full flex-col [&_.agent-md>:is(p,ul,ol,h1,h2,h3,h4,h5,h6,blockquote)]:max-w-[75ch]`}
                     >
                         {entries.length > 0 ? (
-                            <NarrationTimeline
-                                entries={entries}
-                                renderers
-                                marks={anchorMarks(entries, marks)}
-                                accentLatest
-                                active={agent.state === "working"}
-                                ctx={ctx}
-                                tail={tail}
-                            />
+                            <FileLinkContext.Provider value={replyPeek.open}>
+                                <NarrationTimeline
+                                    entries={entries}
+                                    renderers
+                                    marks={anchorMarks(entries, marks)}
+                                    accentLatest
+                                    thoughts
+                                    active={agent.state === "working"}
+                                    ctx={ctx}
+                                    tail={tail}
+                                />
+                            </FileLinkContext.Provider>
                         ) : agent.transcriptPath ? (
                             <div data-rendered-empty="skeleton" className="flex-1">
                                 <TranscriptSkeleton />
@@ -205,6 +271,7 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
                 <PinnedPromptBar prompt={pin.prompt} onJump={pin.jump} />
                 <JumpToLatestPill show={!atBottom} onClick={jumpToBottom} />
             </div>
+            {replyPeek.dock}
             <PermissionBand
                 agentId={agent.id}
                 blockId={agent.blockId}

@@ -3,7 +3,8 @@
 //
 // Pure: how a transcript lays out. Tool actions become steps; a maximal run of steps is a stretch, broken by prose,
 // user entries, events and change cards; a finished turn's long stretch folds into "Worked for N"; a wsh change call
-// that succeeded leaves the stretch as a standalone card; Arc's own messages become arc items. No React.
+// that succeeded leaves the stretch as a standalone card; Arc's own messages become arc items. A thought (a thinking-only
+// message), when the host draws them, sits inside the stretch around it, or alone where no step is beside it. No React.
 
 import { CollapseRunThreshold, type AgentActionEntry, type AgentEntry } from "./agentsviewmodel";
 import { arcMessageOf, type ArcMessage } from "./arcmessage";
@@ -25,15 +26,23 @@ export interface FoldSummary {
     failed: number;
 }
 
+// a thought drawn inside a stretch, between the steps around it
+export interface Thought {
+    index: number;
+    text: string;
+}
+
 export type LayoutItem =
     | { kind: "message"; text: string; index: number; latest: boolean }
+    | { kind: "thought"; text: string; index: number }
     | { kind: "user"; text: string; index: number }
     | { kind: "command"; name: string; args?: string; isSkill?: boolean; index: number }
     | { kind: "compaction"; trigger?: string; preTokens?: number; postTokens?: number; summary?: string; index: number }
     | { kind: "notification"; summary: string; status?: string; result?: string; index: number }
     | { kind: "interrupted"; index: number }
     | { kind: "arc"; index: number; message: ArcMessage; ts?: number; idleMs?: number }
-    | { kind: "steps"; startIndex: number; steps: Step[]; fold: FoldSummary | null }
+    // thoughts: the stretch's own, set only when it has some
+    | { kind: "steps"; startIndex: number; steps: Step[]; thoughts?: Thought[]; fold: FoldSummary | null }
     | { kind: "card"; index: number; step: Step };
 
 // the entry's own time: a record's ts, or an action's tool_use time
@@ -113,14 +122,22 @@ function foldPhrase(steps: Step[]): string {
         .join(", ");
 }
 
+// the nearest entry from i on, stepping by dir, that is not a thought: a thought is part of the work, not its edge
+function edgeEntry(entries: AgentEntry[], i: number, dir: 1 | -1): AgentEntry | undefined {
+    while (entries[i]?.kind === "thought") {
+        i += dir;
+    }
+    return entries[i];
+}
+
 // N runs from the entry before the stretch to the entry after it, else to the last step's end
 function foldDuration(entries: AgentEntry[], steps: Step[]): number | undefined {
     const first = steps[0];
     const last = steps[steps.length - 1];
-    const start = entryTime(entries[first.index - 1]) ?? entryTime(first.action);
+    const start = entryTime(edgeEntry(entries, first.index - 1, -1)) ?? entryTime(first.action);
     const lastTs = entryTime(last.action);
     const lastEnd = lastTs != null ? lastTs + (last.action.durationMs ?? 0) : undefined;
-    const end = entryTime(entries[last.index + 1]) ?? lastEnd;
+    const end = entryTime(edgeEntry(entries, last.index + 1, 1)) ?? lastEnd;
     return start != null && end != null && end >= start ? end - start : undefined;
 }
 
@@ -144,9 +161,10 @@ export function foldSummary(entries: AgentEntry[], steps: Step[]): FoldSummary {
     };
 }
 
+// thoughts: draw thought entries (the rendered view); without it they are skipped and break nothing
 export function layoutTranscript(
     entries: AgentEntry[],
-    opts: { active: boolean; ctx?: TranscriptContext; threshold?: number }
+    opts: { active: boolean; ctx?: TranscriptContext; threshold?: number; thoughts?: boolean }
 ): LayoutItem[] {
     const threshold = opts.threshold ?? CollapseRunThreshold;
     let turnStart = -1;
@@ -162,18 +180,33 @@ export function layoutTranscript(
 
     const items: LayoutItem[] = [];
     let run: Step[] = [];
+    // thoughts since the last step: they join the stretch around them, else stand alone
+    let thoughts: Thought[] = [];
+    let runThoughts: Thought[] = [];
     const flush = () => {
         if (run.length === 0) {
+            items.push(...thoughts.map((t) => ({ kind: "thought" as const, ...t })));
+            thoughts = [];
             return;
         }
+        const own = [...runThoughts, ...thoughts];
         const live = opts.active && run[0].index > turnStart;
         const fold = !live && run.length >= threshold ? foldSummary(entries, run) : null;
-        items.push({ kind: "steps", startIndex: run[0].index, steps: run, fold });
+        const startIndex = Math.min(run[0].index, own[0]?.index ?? Infinity);
+        items.push({ kind: "steps", startIndex, steps: run, ...(own.length > 0 ? { thoughts: own } : {}), fold });
         run = [];
+        thoughts = [];
+        runThoughts = [];
     };
 
     let prevTime: number | undefined;
     entries.forEach((e, i) => {
+        if (e.kind === "thought") {
+            if (opts.thoughts) {
+                thoughts.push({ index: i, text: e.text });
+            }
+            return;
+        }
         const time = entryTime(e);
         const before = prevTime;
         if (time != null) prevTime = time;
@@ -184,6 +217,8 @@ export function layoutTranscript(
                 flush();
                 items.push({ kind: "card", index: i, step });
             } else {
+                runThoughts.push(...thoughts);
+                thoughts = [];
                 run.push(step);
             }
             return;
@@ -228,14 +263,15 @@ export function layoutTranscript(
     return items;
 }
 
-// a stretch's rows: two or more consecutive finished image reads draw as one "Read N images" row
-export type StepRowItem = { kind: "step"; step: Step } | { kind: "images"; steps: Step[] };
+// a stretch's rows: two or more consecutive finished image reads draw as one "Read N images" row; a thought sits between
+// the steps around it
+export type StepRowItem = { kind: "step"; step: Step } | { kind: "images"; steps: Step[] } | ({ kind: "thought" } & Thought);
 
 function isImageRead(s: Step): boolean {
     return s.action.verb === "read" && s.status === "ok" && (s.action.images?.length ?? 0) > 0;
 }
 
-export function stepRows(steps: Step[]): StepRowItem[] {
+export function stepRows(steps: Step[], thoughts: Thought[] = []): StepRowItem[] {
     const rows: StepRowItem[] = [];
     let group: Step[] = [];
     const flush = () => {
@@ -246,7 +282,16 @@ export function stepRows(steps: Step[]): StepRowItem[] {
         }
         group = [];
     };
+    let next = 0;
+    // the thoughts before entry index i, each closing the image group it interrupts
+    const thoughtsBefore = (i: number) => {
+        while (next < thoughts.length && thoughts[next].index < i) {
+            flush();
+            rows.push({ kind: "thought", ...thoughts[next++] });
+        }
+    };
     for (const step of steps) {
+        thoughtsBefore(step.index);
         if (isImageRead(step)) {
             group.push(step);
             continue;
@@ -254,6 +299,7 @@ export function stepRows(steps: Step[]): StepRowItem[] {
         flush();
         rows.push({ kind: "step", step });
     }
+    thoughtsBefore(Infinity);
     flush();
     return rows;
 }

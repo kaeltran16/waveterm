@@ -531,12 +531,32 @@ function mergeCompaction(entries, patch) {
   }
   entries.push({ kind: "compaction", ...patch });
 }
+function hasText(content) {
+  return Array.isArray(content) && content.some((b) => b?.type === "text" && typeof b.text === "string" && b.text.trim() !== "");
+}
+function messageKey(rec) {
+  const id = rec?.message?.id ?? rec?.uuid;
+  return typeof id === "string" ? id : void 0;
+}
+function repliedMessages(records) {
+  const replied = /* @__PURE__ */ new Set();
+  for (const r of records) {
+    const rec = r;
+    const key = messageKey(rec);
+    if (rec?.type === "assistant" && key != null && hasText(rec.message?.content)) {
+      replied.add(key);
+    }
+  }
+  return replied;
+}
 function projectTranscript(lines) {
   return projectTranscriptRecords(parseTranscriptLines(lines));
 }
 function projectTranscriptRecords(records) {
   const entries = [];
   const actionById = /* @__PURE__ */ new Map();
+  const replied = repliedMessages(records);
+  let thoughtFrom;
   for (const r of records) {
     const rec = r;
     if (rec == null) {
@@ -547,9 +567,25 @@ function projectTranscriptRecords(records) {
       if (!Array.isArray(content)) {
         continue;
       }
+      const key = messageKey(rec);
+      const silent = key != null ? !replied.has(key) : !hasText(content);
       for (const block of content) {
         if (block?.type === "text" && typeof block.text === "string" && block.text.trim() !== "") {
           entries.push({ kind: "message", text: block.text, ...recTs(rec) });
+          continue;
+        }
+        if (block?.type === "thinking" && typeof block.thinking === "string" && block.thinking.trim() !== "") {
+          if (!silent) {
+            continue;
+          }
+          const text = block.thinking.trim();
+          const last = entries[entries.length - 1];
+          if (last?.kind === "thought" && key != null && thoughtFrom === key) {
+            last.text += "\n\n" + text;
+          } else {
+            entries.push({ kind: "thought", text, ...recTs(rec) });
+            thoughtFrom = key;
+          }
           continue;
         }
         if (block?.type === "tool_use" && typeof block.name === "string") {
