@@ -66,7 +66,7 @@ describe("projectTranscript", () => {
             { kind: "user", text: "fix the race" },
             { kind: "message", text: "The clone re-reads the source block by id, so a stale id slips through." },
             { kind: "action", verb: "edited", target: "sessionmodel.go" },
-            { kind: "action", verb: "ran", target: "go test ./...", outcome: "fail" },
+            { kind: "action", verb: "ran", target: "go test ./...", command: "go test ./...", outcome: "fail" },
             { kind: "action", verb: "ran", target: "go build", outcome: "ok" },
         ]);
     });
@@ -531,6 +531,38 @@ describe("projectTranscript detail", () => {
         });
     });
 
+    it("numbers an edit's diff from its result's structuredPatch, and leaves it unnumbered without one", () => {
+        const use = (id: string) =>
+            L({
+                type: "assistant",
+                message: {
+                    content: [
+                        { type: "tool_use", id, name: "Edit", input: { file_path: "/p/a.ts", old_string: "a", new_string: "b" } },
+                    ],
+                },
+            });
+        const patch = [{ oldStart: 7, oldLines: 2, newStart: 7, newLines: 2, lines: [" ctx", "-a", "+b"] }];
+        const out = projectTranscript([
+            use("e1"),
+            L({
+                type: "user",
+                message: { content: [{ type: "tool_result", tool_use_id: "e1", is_error: false }] },
+                toolUseResult: { filePath: "/p/a.ts", structuredPatch: patch },
+            }),
+            use("e2"),
+            L({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "e2", is_error: false }] } }),
+        ]);
+        const numbered = (out[0] as any).detail.files[0];
+        expect(numbered.lines.map((l: any) => [l.sign, l.oldNo, l.newNo])).toEqual([
+            ["", 7, 7],
+            ["-", 8, undefined],
+            ["+", undefined, 8],
+        ]);
+        expect(numbered).toMatchObject({ path: "/p/a.ts", adds: 1, dels: 1 });
+        const bare = (out[1] as any).detail.files[0].lines;
+        expect(bare.every((l: any) => l.oldNo == null && l.newNo == null)).toBe(true);
+    });
+
     it("attaches the raw command (not the description) plus output + exit to a bash detail", () => {
         const out = projectTranscript([
             L({
@@ -633,6 +665,59 @@ describe("projectTranscript detail", () => {
         expect(Object.keys(out[0])).not.toContain("_useTs");
         expect(Object.keys(out[0])).not.toContain("_tool");
         expect(Object.keys(out[0])).not.toContain("_command");
+    });
+
+    it("records the tool_use time and the raw Bash command on the action", () => {
+        const out = projectTranscript([
+            L({
+                type: "assistant",
+                timestamp: "2026-07-08T00:00:00.000Z",
+                message: {
+                    content: [
+                        {
+                            type: "tool_use",
+                            id: "b4",
+                            name: "Bash",
+                            input: { command: 'wsh effort chunk status "$E" 3 done', description: "Mark chunk 3 done" },
+                        },
+                    ],
+                },
+            }),
+            L({
+                type: "user",
+                timestamp: "2026-07-08T00:00:01.000Z",
+                message: { content: [{ type: "tool_result", tool_use_id: "b4", is_error: false, content: "ok" }] },
+            }),
+        ]);
+        expect(out[0]).toMatchObject({
+            target: "Mark chunk 3 done",
+            command: 'wsh effort chunk status "$E" 3 done',
+            ts: Date.parse("2026-07-08T00:00:00.000Z"),
+        });
+    });
+
+    it("records the command on a pending Bash call, before any result", () => {
+        const out = projectTranscript([
+            L({
+                type: "assistant",
+                timestamp: "2026-07-08T00:00:05.000Z",
+                message: { content: [{ type: "tool_use", id: "b5", name: "Bash", input: { command: "wsh runs start plan.md" } }] },
+            }),
+        ]);
+        expect(out[0]).toMatchObject({
+            pending: true,
+            command: "wsh runs start plan.md",
+            ts: Date.parse("2026-07-08T00:00:05.000Z"),
+            startedTs: Date.parse("2026-07-08T00:00:05.000Z"),
+        });
+    });
+
+    it("leaves ts and command off an action whose record has neither", () => {
+        const out = projectTranscript([
+            L({ type: "assistant", message: { content: [{ type: "tool_use", id: "r1", name: "Read", input: { file_path: "/a/b.ts" } }] } }),
+        ]);
+        expect(Object.keys(out[0])).not.toContain("ts");
+        expect(Object.keys(out[0])).not.toContain("command");
     });
 });
 
@@ -1111,6 +1196,7 @@ describe("projectTranscript malformed and mistyped records", () => {
                 kind: "action",
                 verb: "ran",
                 target: "false",
+                command: "false",
                 outcome: "fail",
                 detail: { kind: "bash", command: "false", output: "boom", exit: 1 },
             },
@@ -1137,7 +1223,7 @@ describe("projectTranscript malformed and mistyped records", () => {
                 { type: "tool_result", tool_use_id: 7 },
             ]),
         ]);
-        expect(out).toEqual([{ kind: "action", verb: "ran", target: "ls", pending: true }]);
+        expect(out).toEqual([{ kind: "action", verb: "ran", target: "ls", command: "ls", pending: true }]);
     });
 
     it("keeps only real text blocks of a user turn", () => {
@@ -1201,7 +1287,7 @@ describe("projectTranscript malformed and mistyped records", () => {
                 asst([{ type: "tool_use", id: "b", name: "Bash", input: { command: "ls" } }]),
                 result("b", "", false, { toolUseResult: { answers: {} } }),
             ]);
-            expect(out).toEqual([{ kind: "action", verb: "ran", target: "ls", outcome: "ok" }]);
+            expect(out).toEqual([{ kind: "action", verb: "ran", target: "ls", command: "ls", outcome: "ok" }]);
         });
     });
 

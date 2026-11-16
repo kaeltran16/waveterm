@@ -21,10 +21,12 @@ import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AgentsViewModel } from "./agents";
 import type { AgentEntry } from "./agentsviewmodel";
-import { formatAge, formatAgeShort, formatTokens, groupTimeline } from "./agentsviewmodel";
+import { formatAge, formatAgeShort, formatTokens } from "./agentsviewmodel";
 import { docTextOf, rangeOf } from "./docreviewnotesview";
 import { NarrationTimeline } from "./narrationtimeline";
 import { runtimeMeta } from "./runtimemeta";
+import { transcriptContextFor } from "./transcriptcontext";
+import { layoutTranscript } from "./transcriptlayout";
 import type { LiveSession } from "./sessionsarchivestore";
 import {
     findEnded,
@@ -426,7 +428,9 @@ function SessionBody({
     const full = key != null && fullFor === key;
     const read = useTranscript(view === "transcript" ? session : undefined, full);
     const entries = read.entries;
-    const items = useMemo(() => (entries == null ? 0 : groupTimeline(entries).length), [entries]);
+    const items = useMemo(() => (entries == null ? 0 : layoutTranscript(entries, { active: false }).length), [entries]);
+    // a session has no run role here, so no prompt reads as a brief
+    const ctx = useMemo(() => transcriptContextFor({ model }), [model]);
     const earlier =
         session != null &&
         entries != null &&
@@ -549,7 +553,7 @@ function SessionBody({
                         </motion.button>
                     ) : null}
                 </AnimatePresence>
-                <NarrationTimeline entries={entries} active={session.live} renderAll={full} />
+                <NarrationTimeline entries={entries} active={session.live} renderAll={full} ctx={ctx} />
             </>
         );
     }

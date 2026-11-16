@@ -33,11 +33,11 @@ describe("parseUnifiedDiff", () => {
                 dels: 1,
                 lines: [
                     { sign: "", text: "@@ -1,3 +1,4 @@", hunk: true },
-                    { sign: "", text: "package a" },
-                    { sign: "-", text: "var x = 1" },
-                    { sign: "+", text: "var x = 2" },
-                    { sign: "+", text: "var y = 3" },
-                    { sign: "", text: "" },
+                    { sign: "", text: "package a", oldNo: 1, newNo: 1 },
+                    { sign: "-", text: "var x = 1", oldNo: 2 },
+                    { sign: "+", text: "var x = 2", newNo: 2 },
+                    { sign: "+", text: "var y = 3", newNo: 3 },
+                    { sign: "", text: "", oldNo: 3, newNo: 4 },
                 ],
             },
             {
@@ -47,10 +47,35 @@ describe("parseUnifiedDiff", () => {
                 dels: 0,
                 lines: [
                     { sign: "", text: "@@ -0,0 +1,2 @@", hunk: true },
-                    { sign: "+", text: "package a" },
-                    { sign: "+", text: "// new" },
+                    { sign: "+", text: "package a", newNo: 1 },
+                    { sign: "+", text: "// new", newNo: 2 },
                 ],
             },
+        ]);
+    });
+
+    it("numbers each hunk's lines from its own @@ header", () => {
+        const diff = [
+            "diff --git a/x b/x",
+            "--- a/x",
+            "+++ b/x",
+            "@@ -10,2 +10,2 @@",
+            " keep",
+            "-old",
+            "+new",
+            "@@ -40 +40,2 @@",
+            "-a",
+            "+b",
+            "+c",
+        ].join("\n");
+        const lines = parseUnifiedDiff(diff)?.[0].lines.filter((l) => !l.hunk);
+        expect(lines?.map((l) => [l.sign, l.oldNo, l.newNo])).toEqual([
+            ["", 10, 10],
+            ["-", 11, undefined],
+            ["+", undefined, 11],
+            ["-", 40, undefined],
+            ["+", undefined, 40],
+            ["+", undefined, 41],
         ]);
     });
 

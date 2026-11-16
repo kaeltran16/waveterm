@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Presentational pieces for the New run goal's attachments: the chip tray (image thumbnails / file icons with
-// per-chip remove + retry) and the paperclip that opens the native file dialog. State + behavior live in
+// per-chip remove + retry) and the plus that opens the native file dialog. State + behavior live in
 // useComposerAttachments (composerattachments.ts); these are pure props-in views.
 
-import { File as FileIcon, Loader2, Paperclip, RotateCw, X } from "lucide-react";
+import { File as FileIcon, Loader2, Plus, X } from "lucide-react";
 import { isOversize, type Attachment } from "./composerattachments";
 
 function fmtSize(bytes: number): string {
@@ -29,11 +29,13 @@ function Chip({
 }) {
     const isError = att.status === "error";
     const isUploading = att.status === "uploading";
+    const oversize = isOversize(att.size ?? 0);
     // an oversize file was never kept, so there is nothing to retry
-    const canRetry = isError && !isOversize(att.size ?? 0);
+    const canRetry = isError && !oversize;
     const shell =
-        "flex items-center gap-1.5 rounded-[6px] border px-2 py-1 text-[11px] " +
-        (isError ? "border-error/40 bg-error/10 text-error" : "border-edge-mid bg-background text-secondary") +
+        "flex h-[30px] items-center gap-1.5 rounded-[7px] border bg-surface px-2 text-[12px] text-secondary" +
+        (isError ? " border-error/40" : " border-edge-mid") +
+        (att.kind === "image" && att.previewUrl ? " pl-[3px]" : "") +
         (isUploading ? " opacity-70" : "");
     return (
         <span
@@ -43,12 +45,16 @@ function Chip({
             className={shell}
         >
             {att.kind === "image" && att.previewUrl ? (
-                <img src={att.previewUrl} alt="" className="h-7 w-7 rounded object-cover" />
+                <img src={att.previewUrl} alt="" className="h-6 w-6 rounded-[4px] bg-surface-selected object-cover" />
             ) : (
                 <FileIcon size={13} className="shrink-0 text-muted" />
             )}
-            <span className="max-w-[120px] truncate font-mono">{att.name}</span>
-            {att.kind !== "image" && att.size != null ? <span className="text-muted">{fmtSize(att.size)}</span> : null}
+            <span className="max-w-[160px] truncate font-mono">{att.name}</span>
+            {isError ? (
+                <span className="shrink-0 text-error">{oversize ? "too large" : "upload failed"}</span>
+            ) : att.kind !== "image" && att.size != null ? (
+                <span className="shrink-0 text-muted">{fmtSize(att.size)}</span>
+            ) : null}
             {isUploading ? (
                 <Loader2 size={12} className="shrink-0 animate-spin motion-reduce:animate-none text-muted" />
             ) : null}
@@ -57,18 +63,19 @@ function Chip({
                     type="button"
                     title="Retry"
                     onClick={() => onRetry(att.id)}
-                    className="shrink-0 cursor-pointer text-error hover:opacity-80"
+                    className="shrink-0 cursor-pointer text-[12px] text-error hover:opacity-80"
                 >
-                    <RotateCw size={12} />
+                    Retry
                 </button>
             ) : null}
             <button
                 type="button"
                 title="Remove"
+                aria-label={`Remove ${att.name}`}
                 onClick={() => onRemove(att.id)}
-                className="shrink-0 cursor-pointer text-muted hover:text-error"
+                className="inline-flex shrink-0 cursor-pointer text-muted hover:text-error"
             >
-                <X size={12} />
+                <X size={12} strokeWidth={2.4} />
             </button>
         </span>
     );
@@ -103,9 +110,9 @@ export function AttachButton({ onClick }: { onClick: () => void }) {
             aria-label="Attach files"
             data-attach-files
             onClick={onClick}
-            className="flex h-6 w-6 flex-none cursor-pointer items-center justify-center rounded-[6px] border border-edge-mid text-muted hover:border-edge-strong hover:text-secondary"
+            className="inline-flex h-7 w-7 flex-none cursor-pointer items-center justify-center rounded-[7px] text-ink-mid hover:bg-surface-hover hover:text-secondary"
         >
-            <Paperclip size={13} />
+            <Plus size={16} strokeWidth={2} />
         </button>
     );
 }

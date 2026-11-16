@@ -41,6 +41,37 @@ function buildEditDiff(path, oldStr, newStr) {
     lines
   };
 }
+function isPatchHunk(h) {
+  return typeof h?.oldStart === "number" && typeof h.newStart === "number" && Array.isArray(h.lines) && h.lines.every((l) => typeof l === "string");
+}
+function editFromPatch(path, patch) {
+  if (!Array.isArray(patch) || patch.length === 0 || !patch.every(isPatchHunk)) {
+    return null;
+  }
+  const lines = [];
+  let adds = 0;
+  let dels = 0;
+  patch.forEach((h, i) => {
+    if (i > 0) {
+      lines.push({ sign: "", text: `@@ -${h.oldStart},${h.oldLines} +${h.newStart},${h.newLines} @@`, hunk: true });
+    }
+    let oldNo = h.oldStart;
+    let newNo = h.newStart;
+    for (const raw of h.lines) {
+      const sign = raw[0];
+      if (sign === "+") {
+        adds++;
+        lines.push({ sign: "+", text: raw.slice(1), newNo: newNo++ });
+      } else if (sign === "-") {
+        dels++;
+        lines.push({ sign: "-", text: raw.slice(1), oldNo: oldNo++ });
+      } else if (sign !== "\\") {
+        lines.push({ sign: "", text: raw.slice(1), oldNo: oldNo++, newNo: newNo++ });
+      }
+    }
+  });
+  return { path, badge: patch.every((h) => h.oldLines === 0) ? "A" : "M", adds, dels, lines };
+}
 var GREP_PREFIX = /^(.*?:\d+):?(.*)$/;
 function parseGrep(output) {
   return output.split("\n").filter((l) => l.trim() !== "").map((l) => {
@@ -537,7 +568,15 @@ function projectTranscriptRecords(records) {
             });
             continue;
           }
-          const action = { kind: "action", verb: verbFor2(block.name), target: targetFor2(block.input) };
+          const action = {
+            kind: "action",
+            verb: verbFor2(block.name),
+            target: targetFor2(block.input),
+            ...recTs(rec)
+          };
+          if (block.name === "Bash" && typeof block.input?.command === "string") {
+            action.command = block.input.command;
+          }
           if (block.name === "Edit" && block.input && typeof block.input.old_string === "string") {
             action.detail = {
               kind: "edit",
@@ -556,9 +595,6 @@ function projectTranscriptRecords(records) {
           }
           action._useTs = typeof rec.timestamp === "string" ? Date.parse(rec.timestamp) : NaN;
           action._tool = block.name;
-          if (block.name === "Bash" && typeof block.input?.command === "string") {
-            action._command = block.input.command;
-          }
           entries.push(action);
           if (typeof block.id === "string") {
             actionById.set(block.id, action);
@@ -630,10 +666,15 @@ function projectTranscriptRecords(records) {
         } else if (tool === "Bash" && body) {
           action.detail = {
             kind: "bash",
-            command: action._command,
+            command: action.command,
             output: body,
             exit: block.is_error === true ? 1 : 0
           };
+        } else if (action.detail?.kind === "edit") {
+          const numbered = editFromPatch(action.detail.files[0].path, rec.toolUseResult?.structuredPatch);
+          if (numbered != null) {
+            action.detail = { kind: "edit", files: [numbered] };
+          }
         } else if (action.detail?.kind === "ask" && typeof rec.toolUseResult?.answers === "object") {
           action.summary = answerAsk(action.detail.questions, rec.toolUseResult.answers ?? {});
         }
@@ -678,7 +719,6 @@ function projectTranscriptRecords(records) {
       delete e._done;
       delete e._useTs;
       delete e._tool;
-      delete e._command;
     }
   }
   return entries;

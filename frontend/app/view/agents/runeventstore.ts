@@ -66,6 +66,13 @@ async function load(runId: string, channelId: string): Promise<void> {
     }
 }
 
+// seedRunEvents sets a run's events as loaded, so ensureRunEvents never replaces them: the dev fixture seam's way in
+export function seedRunEvents(runId: string, events: RunEvent[]): void {
+    loadedRuns.add(runId);
+    globalStore.set(eventsAtomFor(runId), events);
+    globalStore.set(statusAtomFor(runId), "live");
+}
+
 // retryRunEvents re-attempts a failed history load. The rail's explicit retry — a timeline that
 // failed to load stays failed until someone asks again, it never silently reappears as empty.
 export function retryRunEvents(runId: string, channelId: string): Promise<void> {

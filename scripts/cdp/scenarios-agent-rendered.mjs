@@ -34,20 +34,20 @@ const PROBE_SETTLE_MS = 1_000;
 const PROBE_WAIT_MS = 5_000;
 // a status that must not unflip the view is given this long to do it anyway
 const HOLD_MS = 800;
-// the scroll area's px-[22px] on each side, and the slack a rounded layout box gets
-const SCROLL_PAD_PX = 44;
+// the scroll area's px-6 on each side, the column's measure, and the slack a rounded layout box gets
+const SCROLL_PAD_PX = 48;
+const COLUMN_MAX_PX = 736;
 const FIT_PX = 2;
-// a tool card sits right of the timeline's status-square gutter and runs to the column's right edge
-const GUTTER_PX = 30;
+// a card in an opened step sits inside the step box's padding, so it starts and ends this close to the column's edges
+const STEP_INSET_PX = 32;
 // a center about 900px wide, and a wide one; the step then puts back the viewport it found
 const NARROW_VIEW = { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false };
 const WIDE_VIEW = { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false };
-// the now line's band, about 40px
-const NOW_BAND_MIN_PX = 36;
-const NOW_BAND_MAX_PX = 44;
-// the empty card: two lines of text over its footer, about 94px
-const COMPOSER_IDLE_MIN_PX = 85;
+// the empty box: the placeholder line over its control row, about 92px
+const COMPOSER_IDLE_MIN_PX = 80;
 const COMPOSER_IDLE_MAX_PX = 110;
+// what the fixture agents report: the box's context ring reads it
+const USAGE = { contextpct: 6, contextmax: 1_000_000 };
 const SHOT = (n, what) => `cdp-shots/${NAME}-${n}-${what}.png`;
 
 // keys as the probe logs them: one hex chunk per line
@@ -61,17 +61,17 @@ const TEST_REPLY = "One test fails in pkg/jarvis. Here is the diff and the scree
 const P_PROMPT ="Tidy pkg/a.go.";
 const P_REPLY = "Tidying pkg/a.go now.";
 
-// the turn the now-line steps append to A: a Read with its result, then a Bash still running. No description, so
-// the Bash's target is its command
+// the turn the working-line steps append to A: a Read with its result, then a Bash still running. No description, so
+// the Bash's row shows its command
 const NOW_PROMPT = "Now make the jarvis tests pass.";
 const NOW_CMD = "go test ./pkg/jarvis/...";
 const NOW_REPLY = "The jarvis tests pass now.";
 const NOW_TURN_MS = 3 * 60_000;
 const NOW_CALL_MS = 42_000;
 const NOW_END_MS = 5_000;
-const NOW_DONE = "done · 3m 05s · 2 tools";
 const SPINNER_VERB = "✻ Undulating…";
 const SPINNER_DETAIL = "(3m 10s · ↓ 4.5k tokens · thinking with high effort)";
+const SPINNER_TOKENS = "↓ 4.5k tokens";
 const iso = (ms) => new Date(ms).toISOString();
 
 const J = (o) => JSON.stringify(o);
@@ -180,9 +180,23 @@ const EDIT_CHOICES = ["Yes", "Yes, allow edits this session", "No, tell Claude w
 const PLAN_HEADING = "Ship the rendered view";
 const PLAN_INPUT = { plan: `## ${PLAN_HEADING}\n\n- write the scenario\n- run Final on it` };
 const PLAN_CHOICES = ["Yes, and use auto mode", "Yes, manually approve edits", "No, keep planning"];
-const MODEL_LABEL = "opus 5.5";
+const MODEL_LABEL = "Opus 5.5";
 const MODEL_ALIASES = ["default", "opus", "sonnet", "haiku"];
 const ASK_QUESTION = { header: "Scope", question: "Which scope should the fix cover?", options: [{ label: "this file" }, { label: "the package" }] };
+// the MultiQuestion board: a single-select question, then a multi-select one
+const MULTI_QUESTIONS = [
+    { header: "Backoff", question: "Which backoff should retry use?", options: [{ label: "Linear" }, { label: "Exponential" }] },
+    {
+        header: "Tests",
+        question: "Which cases should the new tests cover?",
+        multiSelect: true,
+        options: [
+            { label: "First retry waits", description: "The first retry waits delayMs, never 0 ms." },
+            { label: "Gives up after the last try", description: "retry() rethrows the last error once times is reached." },
+            { label: "Total time", description: "Three calls take at least 300 ms." },
+        ],
+    },
+];
 
 // every query is scoped to the Agent surface
 const SURF = `document.querySelector("[data-cockpit-surface-wrap]")`;
@@ -249,7 +263,10 @@ async function waitDecoded(ctx, from, want) {
 
 const STEER_PLACEHOLDER = "Steer the agent; it reads this before its next step";
 const STEER_TEXT = "Only touch pkg/a.go.";
+// the key-hint footer the box used to have
 const COMPOSER_HINTS = ["/ commands", "⇧ ↵ new line", "pickers open the terminal"];
+// a pasted file whose save the Composing step refuses
+const FAILED_ATTACH = "rendered-trace.png";
 const COMPOSER_CHIPS = `[...(${RV}?.querySelectorAll("[data-rendered-composer] [data-attachment-chip]") ?? [])]`;
 
 // sets the Rendered composer's text as typing would
@@ -299,7 +316,7 @@ const raisePermission = (h, blockId, toolname, input, toolkey, hassuggestions) =
         hassuggestions,
     });
 
-// the labels of the context menu a header control opens, and the menu's items for a click
+// the labels of the context menu a box control opens, and the menu's items for a click
 const headerMenu = (h, attr, pick) =>
     agentPage(
         h,
@@ -324,6 +341,7 @@ const rosterAgent = (id, blockId, name, transcriptPath) => ({
     state: "idle",
     agent: "claude",
     model: MODEL_ID,
+    usage: USAGE,
     blockId,
     ...(transcriptPath ? { transcriptPath } : {}),
 });
@@ -460,7 +478,7 @@ export default function (_kit) {
                     ];
                 });
 
-                await step("rendered: timeline fills — at narrow and wide widths the column spans the scroll area, prose keeps its reading measure, the diff card runs from the gutter to the column's right edge", async () => {
+                await step("rendered: timeline fills — at narrow and wide widths the column spans the scroll area up to its measure, prose keeps its reading measure, the diff card fills its opened step", async () => {
                     await wait(`(${RV}?.textContent ?? "").includes(${JSON.stringify(PROMPT)}) && ${RV}?.querySelector('[data-tool-card="git-diff"]') != null`);
                     const measure = `(() => {
                         ${flatJs}
@@ -475,8 +493,7 @@ export default function (_kit) {
                         if (!scroll || !col || !para || !diff) return { scroll: !!scroll, col: !!col, para: !!para, diff: !!diff };
                         return {
                             window: window.innerWidth,
-                            you: you != null && col.contains(you),
-                            youLabel: flat(you?.previousElementSibling),
+                            you: you != null && col.contains(you) && you.closest("[data-user-bubble]") != null,
                             // clientWidth holds the padding and not the scrollbar
                             inner: scroll.clientWidth - ${SCROLL_PAD_PX},
                             column: box(col).width,
@@ -489,12 +506,13 @@ export default function (_kit) {
                     })()`;
                     const fits = (m) =>
                         m.you &&
-                        m.youLabel === "You" &&
-                        Math.abs(m.column - m.inner) <= FIT_PX &&
+                        Math.abs(m.column - Math.min(m.inner, COLUMN_MAX_PX)) <= FIT_PX &&
                         m.paraMax !== "none" &&
                         m.para <= parseFloat(m.paraMax) + 0.5 &&
-                        m.diffLeftInset <= GUTTER_PX + FIT_PX &&
-                        Math.abs(m.diffRightInset) <= FIT_PX;
+                        m.diffLeftInset >= 0 &&
+                        m.diffLeftInset <= STEP_INSET_PX &&
+                        m.diffRightInset >= 0 &&
+                        m.diffRightInset <= STEP_INSET_PX;
                     const at = async (view, what) => {
                         await h.cdp("Emulation.setDeviceMetricsOverride", view);
                         await wait(`window.innerWidth === ${view.width}`);
@@ -515,36 +533,23 @@ export default function (_kit) {
                     return [fits(narrow) && fits(wide) && wide.diff > wide.para, { narrow, wide }];
                 });
 
-                await step("rendered: band above composer — A idle after its turn: the now band sits between the scroll area and the composer, below the last timeline item", async () => {
+                await step("rendered: idle tail — A idle after its turn: no working line, and the column's last item ends above the box, which sits under the scroll area", async () => {
                     await agentPage(h, `const s = ${RV}?.querySelector("[data-rendered-scroll]"); if (s) s.scrollTop = s.scrollHeight; await nap(300); return true;`);
                     const seen = await h.ev(`(() => {
-                        ${flatJs}
                         const rv = ${RV};
-                        const band = rv?.querySelector("[data-now-band]");
                         const scroll = rv?.querySelector("[data-rendered-scroll]");
                         const comp = rv?.querySelector("[data-rendered-composer]");
                         const last = rv?.querySelector("[data-rendered-column]")?.lastElementChild?.lastElementChild;
-                        if (!band || !scroll || !comp || !last) return { band: !!band, scroll: !!scroll, composer: !!comp, last: !!last };
-                        const b = band.getBoundingClientRect();
+                        if (!scroll || !comp || !last) return { scroll: !!scroll, composer: !!comp, last: !!last };
                         return {
-                            kind: band.querySelector("[data-now-line]")?.getAttribute("data-now-kind") ?? null,
-                            text: flat(band),
-                            height: b.height,
-                            top: b.top,
-                            bottom: b.bottom,
+                            working: rv.querySelector("[data-working-line]") != null,
                             scrollBottom: scroll.getBoundingClientRect().bottom,
                             composerTop: comp.getBoundingClientRect().top,
                             lastBottom: last.getBoundingClientRect().bottom,
                         };
                     })()`);
-                    await h.shot(SHOT(2, "band-above-composer"));
-                    const ok =
-                        seen.kind === "done" &&
-                        seen.height >= NOW_BAND_MIN_PX &&
-                        seen.height <= NOW_BAND_MAX_PX &&
-                        seen.top >= seen.scrollBottom - 0.5 &&
-                        seen.bottom <= seen.composerTop + 0.5 &&
-                        seen.lastBottom < seen.top;
+                    await h.shot(SHOT(2, "idle-tail"));
+                    const ok = seen.working === false && seen.scrollBottom <= seen.composerTop + 0.5 && seen.lastBottom <= seen.scrollBottom + 0.5;
                     return [ok, seen];
                 });
 
@@ -633,9 +638,9 @@ export default function (_kit) {
                     return [state.folds === 0 && state.test && state.diff && state.image, state];
                 });
 
-                // the open burst keeps its summary row as a header: a click folds it, a second click opens it again
-                await step("rendered: burst header — a click on the open card burst's header folds it, a second click opens it", async () => {
-                    const BURST = `[...(${RV}?.querySelectorAll('[data-fold]') ?? [])].find((b) => /\\d+ tools/.test(b.textContent ?? ""))`;
+                // the open burst keeps its Worked fold line as a header: a click folds it, a second click opens it again
+                await step("rendered: burst header — a click on the open card burst's Worked line folds it, a second click opens it", async () => {
+                    const BURST = `${RV}?.querySelector("[data-fold]")`;
                     const read = `(() => {
                         const b = ${BURST};
                         const card = ${RV}?.querySelector('[data-tool-card="git-diff"]');
@@ -643,7 +648,8 @@ export default function (_kit) {
                     })()`;
                     const before = await h.ev(read);
                     await h.ev(`${BURST}?.click()`);
-                    await wait(`${BURST}?.getAttribute("aria-expanded") === "false"`);
+                    // the fold collapses its body with an exit, so the card leaves after the line flips
+                    await wait(`${BURST}?.getAttribute("aria-expanded") === "false" && !${read}.card`);
                     const folded = await h.ev(read);
                     await h.shot(SHOT(6, "burst-folded"));
                     await h.ev(`${BURST}?.click()`);
@@ -709,45 +715,112 @@ export default function (_kit) {
                     return [ok, seen];
                 });
 
-                await step("rendered: ask dock — an ask raised on A docks the AnswerBar above the composer", async () => {
-                    const rtn = await h.rpc("ask", { oref: aOref, questions: [ASK_QUESTION] });
+                // raises an ask on A over rpc. The fixture roster stands in for the live one, so the ask the server
+                // published is put on A the way the live roster does it (withAsk)
+                const raiseAsk = async (questions) => {
+                    const rtn = await h.rpc("ask", { oref: aOref, questions });
                     ctx.askRaised = true;
-                    // the fixture roster stands in for the live one, so the ask the server published is put on A the
-                    // way the live roster does it (withAsk)
-                    const patched = await agentPage(
+                    const askid = rtn?.askid ?? null;
+                    return agentPage(
                         h,
                         `const { getAgentAskAtom } = await mod("app/view/agents/agentaskstore.ts");
                         const { withAsk } = await mod("app/view/agents/agentsviewmodel.ts");
                         const D = await mod("app/view/agents/devmock.ts");
                         const askAtom = getAgentAskAtom(${JSON.stringify(aOref)});
-                        if (!(await until(() => globalStore.get(askAtom) != null, 5000))) return false;
+                        const want = ${JSON.stringify(askid)};
+                        const raised = () => { const a = globalStore.get(askAtom); return a != null && !a.cleared && (want == null || a.askid === want); };
+                        if (!(await until(raised, 5000))) return false;
                         const ask = globalStore.get(askAtom);
                         globalStore.set(D.devMockAgentsAtom, globalStore.get(D.devMockAgentsAtom).map((a) =>
                             a.id === ${JSON.stringify(ctx.aId)} ? withAsk(a, ask, Date.now()) : a));
                         return true;`
                     );
-                    await wait(`${RV}?.querySelector("[data-rendered-ask]") != null`);
-                    const dock = await h.ev(`(() => {
+                };
+                const ASK = `${RV}?.querySelector("[data-rendered-ask]")`;
+                await step("rendered: Asking — the card sits in the column under Needs your input; 2 answers it; Send is disabled with the notice", async () => {
+                    const patched = await raiseAsk([ASK_QUESTION]);
+                    await wait(`${ASK} != null`);
+                    const card = await h.ev(`(() => {
+                        ${flatJs}
                         const rv = ${RV};
                         const ask = rv?.querySelector("[data-rendered-ask]");
-                        const comp = rv?.querySelector("[data-rendered-composer]");
-                        if (!ask || !comp) return { ask: !!ask, composer: !!comp };
+                        const col = rv?.querySelector("[data-rendered-column]");
+                        if (!ask || !col) return { ask: !!ask, col: !!col };
+                        const prev = ask.previousElementSibling;
                         return {
-                            ask: true,
-                            question: (ask.textContent ?? "").includes(${JSON.stringify(ASK_QUESTION.question)}),
-                            above: ask.getBoundingClientRect().bottom <= comp.getBoundingClientRect().top + 1,
-                            // the dock holds the now line's slot
-                            nowBand: rv.querySelector("[data-now-band]") != null,
+                            inColumn: ask.parentElement === col,
+                            label: flat(ask.firstElementChild),
+                            question: flat(ask).includes(${JSON.stringify(ASK_QUESTION.question)}),
+                            numbers: [...ask.querySelectorAll("[data-ask-option]")].map((o) => flat(o.firstElementChild)),
+                            // after the timeline's last item
+                            afterLast: prev != null && prev.getBoundingClientRect().bottom <= ask.getBoundingClientRect().top + 0.5,
+                            working: rv.querySelector("[data-working-line]") != null,
                         };
                     })()`);
-                    await h.shot(SHOT(9, "ask-dock"));
-                    return [patched && dock.ask && dock.question && dock.above && dock.nowBand === false, { askid: rtn?.askid ?? rtn, patched, dock }];
+                    await typeComposer(h, "hold on");
+                    await wait(`${RV}?.querySelector("[data-composer-send]") != null`);
+                    const box = await h.ev(`(() => {
+                        ${flatJs}
+                        const comp = ${RV}?.querySelector("[data-rendered-composer]");
+                        return { sendDisabled: comp?.querySelector("[data-composer-send]")?.disabled ?? null, notice: flat(comp?.querySelector("[data-composer-notice]")) };
+                    })()`);
+                    await showCard("[data-rendered-ask]");
+                    await h.shot(SHOT(9, "asking"));
+                    await typeComposer(h, "");
+                    // the answer goes to the agent's pty, which A has none of, so the call is caught here
+                    await agentPage(
+                        h,
+                        `const { RpcApi } = await mod("app/store/wshclientapi.ts");
+                        window.__renderedAnswer = { orig: RpcApi.AnswerAgentCommand, calls: [] };
+                        RpcApi.AnswerAgentCommand = async (_c, data) => { window.__renderedAnswer.calls.push(data); };
+                        return true;`
+                    );
+                    let answered;
+                    try {
+                        await pressOnSurface(h, "2");
+                        const picked = await wait(`${ASK}?.querySelector('[data-ask-option="1"][data-picked]') != null`, 2000);
+                        await pressOnSurface(h, "Enter");
+                        await wait(`(window.__renderedAnswer?.calls.length ?? 0) > 0`, 3000);
+                        answered = await h.ev(`(() => {
+                            ${flatJs}
+                            return { picked: ${picked}, calls: window.__renderedAnswer?.calls ?? [], text: flat(${ASK}) };
+                        })()`);
+                    } finally {
+                        await agentPage(
+                            h,
+                            `const { RpcApi } = await mod("app/store/wshclientapi.ts");
+                            if (window.__renderedAnswer) RpcApi.AnswerAgentCommand = window.__renderedAnswer.orig;
+                            delete window.__renderedAnswer;
+                            return true;`
+                        );
+                    }
+                    await h.shot(SHOT(9, "asking-answered"));
+                    // a picked option goes out as its index
+                    const sent = JSON.stringify(answered.calls[0]?.answers ?? null);
+                    const ok =
+                        patched &&
+                        card.inColumn &&
+                        card.label === "Needs your input" &&
+                        card.question &&
+                        JSON.stringify(card.numbers) === JSON.stringify(["1", "2"]) &&
+                        card.afterLast &&
+                        !card.working &&
+                        box.sendDisabled === true &&
+                        box.notice === "Answer Claude's question first" &&
+                        answered.picked &&
+                        answered.calls.length === 1 &&
+                        sent === JSON.stringify([{ selectedindexes: [1] }]) &&
+                        answered.text.includes("Answered");
+                    return [ok, { patched, card, box, answered }];
                 });
 
                 // Claude Code raises a permission request for the question dialog too; put one in the page's queue (a
                 // server-held one would outlive the step and turn the next Edit request into a queue of two)
-                await step("rendered: ask permission — the docked ask's own AskUserQuestion request draws no band, and the rail does not send you to the terminal", async () => {
-                    const injected = await agentPage(
+                await step("rendered: ask permission — the ask card's own AskUserQuestion request draws no band, and the rail does not send you to the terminal", async () => {
+                    // the last step answered its ask, so a fresh one is raised
+                    const raised = await raiseAsk([ASK_QUESTION]);
+                    await wait(`${ASK} != null && !(${ASK}.textContent ?? "").includes("Answered")`);
+                    const injected = raised && await agentPage(
                         h,
                         `const { getAgentPermissionsAtom } = await mod("app/view/agents/permissionstore.ts");
                         globalStore.set(getAgentPermissionsAtom(${JSON.stringify(aOref)}), [{
@@ -757,23 +830,68 @@ export default function (_kit) {
                         }]);
                         return true;`
                     );
-                    await wait(`document.querySelector("[data-rail-hint]") != null`, 2000);
+                    // the hint is on the rail's panel, which starts closed in a fresh profile; the old value goes back
+                    const railWas = await agentPage(
+                        h,
+                        `const { railVisibleAtom } = await mod("app/view/agents/railstore.ts");
+                        const was = globalStore.get(railVisibleAtom);
+                        globalStore.set(railVisibleAtom, true);
+                        return was;`
+                    );
+                    let seen;
+                    try {
+                        await wait(`document.querySelector("[data-rail-hint]") != null`, 2000);
+                        seen = await h.ev(`(() => {
+                            const rv = ${RV};
+                            return {
+                                ask: rv?.querySelector("[data-rendered-ask]") != null,
+                                band: rv?.querySelector("[data-permission-band], [data-permission-queue]") != null,
+                                hint: (document.querySelector("[data-rail-hint]")?.textContent ?? "").trim(),
+                            };
+                        })()`);
+                        await h.shot(SHOT(9, "ask-permission"));
+                    } finally {
+                        await agentPage(
+                            h,
+                            `const { removeAgentPermission } = await mod("app/view/agents/permissionstore.ts");
+                            const { railVisibleAtom } = await mod("app/view/agents/railstore.ts");
+                            removeAgentPermission(${JSON.stringify(aOref)}, "fx-rendered-ask-perm");
+                            globalStore.set(railVisibleAtom, ${JSON.stringify(railWas === true)});
+                            return true;`
+                        );
+                    }
+                    return [injected && seen.ask && !seen.band && seen.hint === "waiting on you", seen];
+                });
+
+                await step("rendered: MultiQuestion — two tabs, the second multi-select with two picked, 1/2 answered", async () => {
+                    const patched = await raiseAsk(MULTI_QUESTIONS);
+                    await wait(`(${ASK}?.querySelectorAll('[role="tab"]').length ?? 0) === 2`);
+                    await h.ev(`${ASK}?.querySelectorAll('[role="tab"]')[1]?.click()`);
+                    await wait(`${ASK}?.querySelectorAll('[role="tab"]')[1]?.getAttribute("aria-selected") === "true"`);
+                    for (const oi of [0, 1]) {
+                        await h.ev(`${ASK}?.querySelector('[data-ask-option="${oi}"]')?.click()`);
+                    }
+                    await wait(`(${ASK}?.querySelectorAll('[role="checkbox"][aria-checked="true"]').length ?? 0) === 2`);
                     const seen = await h.ev(`(() => {
-                        const rv = ${RV};
+                        ${flatJs}
+                        const ask = ${ASK};
                         return {
-                            ask: rv?.querySelector("[data-rendered-ask]") != null,
-                            band: rv?.querySelector("[data-permission-band], [data-permission-queue]") != null,
-                            hint: (document.querySelector("[data-rail-hint]")?.textContent ?? "").trim(),
+                            tabs: [...(ask?.querySelectorAll('[role="tab"]') ?? [])].map((t) => ({ label: flat(t), selected: t.getAttribute("aria-selected") })),
+                            boxes: ask?.querySelectorAll('[role="checkbox"]').length ?? 0,
+                            checked: ask?.querySelectorAll('[role="checkbox"][aria-checked="true"]').length ?? 0,
+                            hint: flat(ask?.querySelector("[data-ask-hint]")),
                         };
                     })()`);
-                    await h.shot(SHOT(9, "ask-permission"));
-                    await agentPage(
-                        h,
-                        `const { removeAgentPermission } = await mod("app/view/agents/permissionstore.ts");
-                        removeAgentPermission(${JSON.stringify(aOref)}, "fx-rendered-ask-perm");
-                        return true;`
-                    );
-                    return [injected && seen.ask && !seen.band && seen.hint === "waiting on you", seen];
+                    await showCard("[data-rendered-ask]");
+                    await h.shot(SHOT(9, "multi-question"));
+                    const ok =
+                        patched &&
+                        JSON.stringify(seen.tabs.map((t) => t.label)) === JSON.stringify(MULTI_QUESTIONS.map((q) => q.header)) &&
+                        seen.tabs[1]?.selected === "true" &&
+                        seen.boxes === MULTI_QUESTIONS[1].options.length &&
+                        seen.checked === 2 &&
+                        seen.hint.startsWith("1/2 answered");
+                    return [ok, { patched, ...seen }];
                 });
                 // the ask is not under test past its step
                 try {
@@ -799,13 +917,14 @@ export default function (_kit) {
                             text: flat(b).slice(0, 300),
                             above: b.getBoundingClientRect().bottom <= comp.getBoundingClientRect().top + 1,
                             choices: [...b.querySelectorAll("[data-permission-choice]")].map(flat),
-                            nowBand: rv.querySelector("[data-now-band]") != null,
+                            // the band holds the working line's slot
+                            working: rv.querySelector("[data-working-line]") != null,
                         };
                     })()`);
                     await h.shot(SHOT(10, "permission-band"));
                     const ok =
                         band.band &&
-                        band.nowBand === false &&
+                        band.working === false &&
                         band.above &&
                         band.text.includes("Allow an edit to pkg/a.go?") &&
                         band.text.includes("var x = 2") &&
@@ -934,26 +1053,47 @@ export default function (_kit) {
                     return [ok, { ...click, gone, keys: keys.lines, ...after }];
                 });
 
-                await step("rendered: header controls — the model reads opus 5.5 with default/opus/sonnet/haiku; a reported mode reads default permissions", async () => {
-                    await wait(`(${SURF}?.querySelector("[data-header-model]")?.textContent ?? "").trim() === ${JSON.stringify(MODEL_LABEL)}`);
-                    const model = await h.ev(`(${SURF}?.querySelector("[data-header-model]")?.textContent ?? "").trim()`);
-                    const menu = await headerMenu(h, "data-header-model");
+                const BOX_MODEL = `(${RV}?.querySelector("[data-composer-model]")?.textContent ?? "").trim()`;
+                const BOX_MODE = `(${RV}?.querySelector("[data-composer-permission-mode]")?.textContent ?? "").trim()`;
+                await step("rendered: box idle — model chip, mode chip and context ring in the box, none in the header; the model chip opens default/opus/sonnet/haiku", async () => {
+                    await wait(`${BOX_MODEL} === ${JSON.stringify(MODEL_LABEL)}`);
+                    const menu = await headerMenu(h, "data-composer-model");
                     // no hook: a mode report retires nothing and moves no hook stamp
                     await publishStatus(h, ctx, ctx.pBlock, { state: "idle", permissionmode: "default" });
-                    await wait(`(${SURF}?.querySelector("[data-header-permission-mode]")?.textContent ?? "").trim() === "default permissions"`);
-                    const mode = await h.ev(`(${SURF}?.querySelector("[data-header-permission-mode]")?.textContent ?? "").trim()`);
-                    await h.shot(SHOT(15, "header-controls"));
-                    return [
-                        model === MODEL_LABEL && JSON.stringify(menu.labels) === JSON.stringify(MODEL_ALIASES) && mode === "default permissions",
-                        { model, menu, mode },
-                    ];
+                    await wait(`${BOX_MODE} === "Default permissions"`);
+                    const seen = await h.ev(`(() => {
+                        ${flatJs}
+                        const header = ${SURF}?.querySelector("[data-agent-header]");
+                        const ring = ${RV}?.querySelector("[data-rendered-composer] [data-context-ring]");
+                        return {
+                            model: ${BOX_MODEL},
+                            mode: ${BOX_MODE},
+                            ring: ring ? { text: flat(ring), title: ring.getAttribute("title") } : null,
+                            header: {
+                                model: header?.querySelector("[data-header-model]") != null,
+                                mode: header?.querySelector("[data-header-permission-mode]") != null,
+                                context: header?.querySelector('[title^="context:"]') != null,
+                            },
+                        };
+                    })()`);
+                    await h.shot(SHOT(15, "box-controls"));
+                    const ok =
+                        seen.model === MODEL_LABEL &&
+                        JSON.stringify(menu.labels) === JSON.stringify(MODEL_ALIASES) &&
+                        seen.mode === "Default permissions" &&
+                        seen.ring?.text === `${USAGE.contextpct}%` &&
+                        seen.ring.title.includes("1M") &&
+                        !seen.header.model &&
+                        !seen.header.mode &&
+                        !seen.header.context;
+                    return [ok, { menu, ...seen }];
                 });
 
                 await step("rendered: permission mode change — choosing plan mode on P relabels at once and types Shift+Tab twice", async () => {
                     const from = probeLines(ctx).length;
-                    const menu = await headerMenu(h, "data-header-permission-mode", "plan mode");
-                    const relabeled = await wait(`(${SURF}?.querySelector("[data-header-permission-mode]")?.textContent ?? "").trim() === "plan mode"`, 1000);
-                    const label = await h.ev(`(${SURF}?.querySelector("[data-header-permission-mode]")?.textContent ?? "").trim()`);
+                    const menu = await headerMenu(h, "data-composer-permission-mode", "plan mode");
+                    const relabeled = await wait(`${BOX_MODE} === "Plan mode"`, 1000);
+                    const label = await h.ev(BOX_MODE);
                     const keys = await waitProbe(ctx, from, [SHIFT_TAB, SHIFT_TAB]);
                     await h.shot(SHOT(16, "permission-mode"));
                     const shiftTabs = keys.lines.filter((l) => l === SHIFT_TAB).length;
@@ -975,105 +1115,139 @@ export default function (_kit) {
                     return [sent && keys.ok, { sent, keys: keys.lines }];
                 });
 
-                await step("rendered: composer idle — A's composer is a 12px card at timeline text size, Send disabled, the hints in its footer", async () => {
+                await step("rendered: box shape — A's box is the rounded pill: the Reply placeholder on its first line, the control row under it, a round Send disabled, no key-hint footer", async () => {
                     await focus(ctx.aId);
                     const ready = await ensureRendered();
                     const seen = await h.ev(`(() => {
                         ${flatJs}
                         const rv = ${RV};
                         const comp = rv?.querySelector("[data-rendered-composer]");
-                        const ta = comp?.querySelector("textarea");
-                        const card = ta?.closest(".rounded-lg");
-                        const send = comp?.querySelector("[data-composer-send]");
-                        if (!card || !send) return { card: !!card, send: !!send };
+                        const box = comp?.querySelector("[data-composer-box]");
+                        const ta = box?.querySelector("textarea");
+                        const send = box?.querySelector("[data-composer-send]");
+                        if (!box || !ta || !send) return { box: !!box, ta: !!ta, send: !!send };
                         return {
-                            radius: getComputedStyle(card).borderTopLeftRadius,
+                            radius: getComputedStyle(box).borderTopLeftRadius,
                             font: getComputedStyle(ta).fontSize,
-                            height: card.getBoundingClientRect().height,
-                            width: card.getBoundingClientRect().width,
+                            height: box.getBoundingClientRect().height,
                             placeholder: ta.placeholder,
-                            send: flat(send),
+                            textAboveRow: ta.getBoundingClientRect().bottom <= send.getBoundingClientRect().top + 0.5,
+                            send: send.getAttribute("aria-label"),
+                            round: getComputedStyle(send).borderTopLeftRadius === "9999px" || send.getBoundingClientRect().width === send.getBoundingClientRect().height,
                             sendDisabled: send.disabled,
-                            interrupt: comp.querySelector("[data-composer-interrupt]") != null,
-                            footer: flat(card),
+                            interrupt: box.querySelector("[data-composer-interrupt]") != null,
+                            text: flat(box),
                             hint: rv.querySelector("[data-rendered-hint]") != null,
                         };
                     })()`);
-                    await h.shot(SHOT(20, "composer-idle"));
+                    await h.shot(SHOT(20, "box-shape"));
+                    const name = ctx.roster.find((a) => a.id === ctx.aId)?.name;
                     const ok =
                         ready &&
-                        seen.radius === "12px" &&
-                        seen.font === "13.5px" &&
+                        seen.radius === "14px" &&
+                        seen.font === "14px" &&
                         seen.height >= COMPOSER_IDLE_MIN_PX &&
                         seen.height <= COMPOSER_IDLE_MAX_PX &&
-                        seen.placeholder === "Message the agent" &&
+                        seen.placeholder.startsWith(`Reply to ${name}`) &&
+                        seen.textAboveRow &&
                         seen.send === "Send" &&
+                        seen.round &&
                         seen.sendDisabled &&
                         !seen.interrupt &&
-                        COMPOSER_HINTS.every((t) => seen.footer.includes(t)) &&
+                        COMPOSER_HINTS.every((t) => !seen.text.includes(t)) &&
                         !seen.hint;
                     return [ok, { ready, ...seen }];
                 });
 
-                await step("rendered: composer attach — two typed lines and a pasted PNG put a chip between the text and the footer, enable Send and draw the accent border", async () => {
+                await step("rendered: Composing — two attachments above the text, one failed with Retry; a ready one alone enables Send and draws the accent border", async () => {
                     const typed = await typeComposer(h, "First line of the reply.\nSecond line of the reply.");
                     const taken = await h.ev(pasteOnComposer("rendered-attach.png"));
                     const uploaded = await wait(`${COMPOSER_CHIPS}.some((c) => c.getAttribute("data-attachment-chip") === "ready")`);
-                    const seen = await h.ev(`(() => {
-                        ${flatJs}
-                        const comp = ${RV}?.querySelector("[data-rendered-composer]");
-                        const ta = comp?.querySelector("textarea");
-                        const card = ta?.closest(".rounded-lg");
-                        const chip = comp?.querySelector("[data-attachment-chip]");
-                        const send = comp?.querySelector("[data-composer-send]");
-                        if (!card || !chip || !send) return { card: !!card, chip: !!chip, send: !!send };
+                    const ready = await h.ev(`(() => {
+                        const box = ${RV}?.querySelector("[data-rendered-composer] [data-composer-box]");
+                        const send = box?.querySelector("[data-composer-send]");
+                        if (!box || !send) return { box: !!box, send: !!send };
                         // the accent border as the theme resolves it, read off a throwaway element
                         const probe = document.createElement("div");
                         probe.className = "border border-accent/60";
-                        card.appendChild(probe);
+                        box.appendChild(probe);
                         const accent = getComputedStyle(probe).borderTopColor;
                         probe.remove();
-                        return {
-                            chip: flat(chip),
-                            path: chip.getAttribute("data-attachment-path"),
-                            between: chip.getBoundingClientRect().top >= ta.getBoundingClientRect().bottom &&
-                                chip.getBoundingClientRect().bottom <= send.getBoundingClientRect().top,
-                            sendDisabled: send.disabled,
-                            border: getComputedStyle(card).borderTopColor,
-                            accent,
-                        };
+                        return { sendDisabled: send.disabled, border: getComputedStyle(box).borderTopColor, accent };
                     })()`);
+                    // the second file's save is refused, as a full disk would
+                    await agentPage(
+                        h,
+                        `const { RpcApi } = await mod("app/store/wshclientapi.ts");
+                        window.__renderedWrite = RpcApi.WriteTempFileCommand;
+                        RpcApi.WriteTempFileCommand = async (c, data, o) => {
+                            if (data?.filename === ${JSON.stringify(FAILED_ATTACH)}) throw new Error("disk full");
+                            return window.__renderedWrite(c, data, o);
+                        };
+                        return true;`
+                    );
+                    let seen;
+                    try {
+                        await h.ev(pasteOnComposer(FAILED_ATTACH));
+                        await wait(`${COMPOSER_CHIPS}.some((c) => c.getAttribute("data-attachment-chip") === "error")`);
+                        seen = await h.ev(`(() => {
+                            ${flatJs}
+                            const box = ${RV}?.querySelector("[data-rendered-composer] [data-composer-box]");
+                            const ta = box?.querySelector("textarea");
+                            const chips = [...(box?.querySelectorAll("[data-attachment-chip]") ?? [])];
+                            if (!ta || chips.length === 0) return { ta: !!ta, chips: chips.length };
+                            const failed = chips.find((c) => c.getAttribute("data-attachment-chip") === "error");
+                            return {
+                                chips: chips.map((c) => ({ state: c.getAttribute("data-attachment-chip"), text: flat(c) })),
+                                path: chips.find((c) => c.getAttribute("data-attachment-chip") === "ready")?.getAttribute("data-attachment-path") ?? null,
+                                above: chips.every((c) => c.getBoundingClientRect().bottom <= ta.getBoundingClientRect().top + 0.5),
+                                retry: failed?.querySelector('button[title="Retry"]') != null,
+                            };
+                        })()`);
+                    } finally {
+                        await agentPage(
+                            h,
+                            `const { RpcApi } = await mod("app/store/wshclientapi.ts");
+                            if (window.__renderedWrite) RpcApi.WriteTempFileCommand = window.__renderedWrite;
+                            delete window.__renderedWrite;
+                            return true;`
+                        );
+                    }
                     if (seen.path) ctx.tempFiles.push(seen.path);
-                    await h.shot(SHOT(21, "composer-attach"));
+                    await h.shot(SHOT(21, "composing"));
                     // A's draft is not under test past here
                     await h.ev(`${COMPOSER_CHIPS}.forEach((c) => c.querySelector('button[title="Remove"]')?.click())`);
                     await typeComposer(h, "");
+                    const failed = seen.chips?.find((c) => c.state === "error");
                     const ok =
                         typed &&
                         taken === true &&
                         uploaded &&
-                        seen.chip?.includes("rendered-attach.png") &&
-                        seen.between &&
-                        seen.sendDisabled === false &&
-                        seen.border === seen.accent;
-                    return [ok, { typed, taken, uploaded, ...seen }];
+                        ready.sendDisabled === false &&
+                        ready.border === ready.accent &&
+                        seen.chips?.length === 2 &&
+                        seen.chips.some((c) => c.state === "ready" && c.text.includes("rendered-attach.png")) &&
+                        failed?.text.includes(FAILED_ATTACH) &&
+                        failed.text.includes("upload failed") &&
+                        seen.retry &&
+                        seen.above;
+                    return [ok, { typed, taken, uploaded, ready, ...seen }];
                 });
 
                 await focus(ctx.pId);
                 await setRoster(h, ctx.roster.map((a) => (a.id === ctx.pId ? { ...a, state: "working" } : a)));
-                await step("rendered: composer working — P working reads the Steer placeholder, shows Interrupt with Esc and Steer; Interrupt types ESC", async () => {
+                await step("rendered: box working — P working reads the Steer placeholder; the empty box's round button is Stop, and the Stop button interrupts (ESC)", async () => {
                     const ready = await ensureRendered();
                     const working = await wait(`${RV}?.querySelector("[data-rendered-composer] textarea")?.placeholder === ${JSON.stringify(STEER_PLACEHOLDER)}`);
                     const seen = await h.ev(`(() => {
-                        ${flatJs}
                         const comp = ${RV}?.querySelector("[data-rendered-composer]");
                         return {
                             placeholder: comp?.querySelector("textarea")?.placeholder ?? null,
-                            interrupt: flat(comp?.querySelector("[data-composer-interrupt]")),
-                            send: flat(comp?.querySelector("[data-composer-send]")),
+                            stop: comp?.querySelector("[data-composer-interrupt]")?.getAttribute("aria-label") ?? null,
+                            send: comp?.querySelector("[data-composer-send]") != null,
                         };
                     })()`);
-                    await h.shot(SHOT(22, "composer-working"));
+                    await h.shot(SHOT(22, "box-working"));
                     const from = probeLines(ctx).length;
                     const clicked = await h.ev(`(() => {
                         const b = ${RV}?.querySelector("[data-composer-interrupt]");
@@ -1082,16 +1256,20 @@ export default function (_kit) {
                         return true;
                     })()`);
                     const keys = await waitProbe(ctx, from, [ESC]);
-                    const ok = ready && working && seen.interrupt.replace(/\s/g, "") === "InterruptEsc" && seen.send === "Steer" && clicked && keys.ok;
+                    const ok = ready && working && seen.stop === "Interrupt (Esc)" && !seen.send && clicked && keys.ok;
                     return [ok, { ready, working, ...seen, clicked, keys: keys.lines }];
                 });
 
-                await step("rendered: composer steer — Steer on P types the text and the pasted file's temp path into the pty, then empties the card", async () => {
+                await step("rendered: box steer — text in P's working box turns Stop into Send (steer), which types the text and the pasted file's temp path into the pty, then empties the box", async () => {
                     const typed = await typeComposer(h, STEER_TEXT);
                     const taken = await h.ev(pasteOnComposer("rendered-steer.png"));
                     const uploaded = await wait(`${COMPOSER_CHIPS}.some((c) => c.getAttribute("data-attachment-chip") === "ready")`);
                     const path = await h.ev(`${COMPOSER_CHIPS}[0]?.getAttribute("data-attachment-path") ?? null`);
                     if (path) ctx.tempFiles.push(path);
+                    const swapped = await h.ev(`(() => {
+                        const comp = ${RV}?.querySelector("[data-rendered-composer]");
+                        return comp?.querySelector("[data-composer-interrupt]") == null && comp?.querySelector("[data-composer-send]")?.getAttribute("aria-label") === "Steer";
+                    })()`);
                     await h.shot(SHOT(23, "composer-steer-ready"));
                     const from = probeLines(ctx).length;
                     const clicked = await h.ev(`(() => {
@@ -1103,8 +1281,8 @@ export default function (_kit) {
                     const decoded = await waitDecoded(ctx, from, [STEER_TEXT, path ?? "<no path>"]);
                     const emptied = await wait(`${RV}?.querySelector("[data-rendered-composer] textarea")?.value === "" && ${COMPOSER_CHIPS}.length === 0`);
                     await h.shot(SHOT(23, "composer-steer-sent"));
-                    const ok = typed && taken === true && uploaded && path != null && clicked && decoded.ok && emptied;
-                    return [ok, { typed, taken, uploaded, path, clicked, input: decoded.text.slice(-400), emptied }];
+                    const ok = typed && taken === true && uploaded && path != null && swapped && clicked && decoded.ok && emptied;
+                    return [ok, { typed, taken, uploaded, path, swapped, clicked, input: decoded.text.slice(-400), emptied }];
                 });
                 await setRoster(h, ctx.roster);
 
@@ -1158,23 +1336,25 @@ export default function (_kit) {
                     ];
                 });
 
-                // the now line on a turn appended to A. Every record is stamped from one t0, so the done line's time
-                // does not depend on how long the steps take
-                const NOW = `(() => {
+                // the working line on a turn appended to A, and the running Bash's step row. Every record is stamped
+                // from one t0, so the times do not depend on how long the steps take
+                const LINE = `(() => {
                     ${flatJs}
-                    const line = ${RV}?.querySelector("[data-now-line]");
+                    const rv = ${RV};
+                    const line = rv?.querySelector("[data-working-line]");
                     if (!line) return null;
+                    const verb = line.querySelector("[data-working-verb]");
+                    const running = rv.querySelector('[data-step][data-step-status="running"]');
                     return {
-                        kind: line.getAttribute("data-now-kind"),
-                        left: flat(line.querySelector("[data-now-left]")),
-                        target: line.querySelector("[data-now-target]") ? flat(line.querySelector("[data-now-target]")) : null,
-                        right: flat(line.querySelector("[data-now-right]")),
-                        text: flat(line),
+                        inColumn: rv.querySelector("[data-rendered-column]")?.contains(line) ?? false,
+                        verb: verb ? flat(verb) : null,
+                        facts: flat(line.querySelector("[data-working-facts]")),
+                        running: running ? { text: flat(running), elapsed: flat(running.querySelector("[data-step-elapsed]")) } : null,
                     };
                 })()`;
-                const waitNow = async (cond) => {
-                    const met = await wait(`(() => { const n = ${NOW}; return n != null && (${cond}); })()`);
-                    return { met, now: await h.ev(NOW) };
+                const waitLine = async (cond) => {
+                    const met = await wait(`(() => { const n = ${LINE}; return n != null && (${cond}); })()`);
+                    return { met, line: await h.ev(LINE) };
                 };
                 const appendA = (lines) => appendFileSync(ctx.aPath, lines.join("\n") + "\n");
                 const t0 = Date.now();
@@ -1193,14 +1373,21 @@ export default function (_kit) {
                     console.error(`${NAME}: appending A's turn failed: ${err?.message ?? err}`);
                 }
 
-                await step("rendered: now line starting — A working with no spinner on screen reads working · <elapsed>", async () => {
+                await step("rendered: working line starting — A working with no spinner on screen: Working · <turn time> · 2 tools in the column, and the running Bash's row shows its command and elapsed", async () => {
                     const ready = await ensureRendered();
-                    const { met, now } = await waitNow(`n.kind === "working" && n.target === ${JSON.stringify(NOW_CMD)}`);
-                    await h.shot(SHOT(24, "now-starting"));
-                    return [ready && met && /^working · (\d+m )?\d+s$/.test(now.left), now];
+                    const { met, line } = await waitLine(`n.running != null && n.running.text.includes(${JSON.stringify(NOW_CMD)})`);
+                    await h.shot(SHOT(24, "working-starting"));
+                    const ok =
+                        ready &&
+                        met &&
+                        line.inColumn &&
+                        line.verb == null &&
+                        /^Working · (\d+m )?\d+s · 2 tools$/.test(line.facts) &&
+                        /^(\d+m )?\d+s$/.test(line.running.elapsed);
+                    return [ok, line];
                 });
 
-                await step("rendered: now line call — the spinner row on A's screen shows as is, with the running Bash's target and the tool count", async () => {
+                await step("rendered: working line call — the spinner row on A's screen: its verb leads the line, its output tokens join the facts", async () => {
                     const wrote = await agentPage(
                         h,
                         `const { termForBlock } = await mod("app/view/term/termscreen.ts");
@@ -1209,49 +1396,31 @@ export default function (_kit) {
                         t.write(${JSON.stringify(`\r\n${SPINNER_VERB} ${SPINNER_DETAIL}`)});
                         return true;`
                     );
-                    const { met, now } = await waitNow(`n.left.includes(${JSON.stringify(SPINNER_VERB)})`);
-                    await h.shot(SHOT(24, "now-call"));
-                    const ok =
-                        wrote &&
-                        met &&
-                        now.left.includes(SPINNER_DETAIL) &&
-                        now.target === NOW_CMD &&
-                        now.right.endsWith(" · 2 tools");
-                    return [ok, { wrote, ...now }];
+                    const { met, line } = await waitLine(`n.verb === ${JSON.stringify(SPINNER_VERB)}`);
+                    await h.shot(SHOT(24, "working-call"));
+                    const ok = wrote && met && line.facts.includes(SPINNER_TOKENS) && line.facts.endsWith(" · 2 tools") && !line.facts.startsWith("Working");
+                    return [ok, { wrote, ...line }];
                 });
 
-                await step("rendered: now line between — the Bash's result lands: no target, the right side reads 2 tools", async () => {
+                await step("rendered: working line between — the Bash's result lands: no running row is left, the line keeps the verb and 2 tools", async () => {
                     appendA([toolResult("toolu_now_bash", "ok  pkg/jarvis  0.2s", { ts: iso(t0 - 1000) })]);
-                    const { met, now } = await waitNow(`n.target == null && n.right === "2 tools"`);
-                    await h.shot(SHOT(24, "now-between"));
-                    return [met && now.left.includes(SPINNER_VERB), now];
+                    const { met, line } = await waitLine(`n.running == null`);
+                    await h.shot(SHOT(24, "working-between"));
+                    return [met && line.verb === SPINNER_VERB && line.facts.endsWith(" · 2 tools"), line];
                 });
 
-                await step(`rendered: now line done — the reply lands and A goes idle: exactly "${NOW_DONE}" in the faint color, no spinner though its row is still on screen`, async () => {
+                await step("rendered: working line done — the reply lands and A goes idle: the line leaves, though the spinner row is still on screen", async () => {
                     appendA([assistantText(NOW_REPLY, { ts: iso(t0 + NOW_END_MS) })]);
                     await setRoster(h, ctx.roster);
                     await publishStatus(h, ctx, ctx.aBlock, { state: "idle", hook: "Stop" });
-                    const { met, now } = await waitNow(`n.kind === "done" && n.text === ${JSON.stringify(NOW_DONE)}`);
+                    const gone = await wait(`(${RV}?.textContent ?? "").includes(${JSON.stringify(NOW_REPLY)}) && ${RV}?.querySelector("[data-working-line]") == null`);
                     const seen = await agentPage(
                         h,
                         `const { screenRows } = await mod("app/view/term/termscreen.ts");
-                        const left = ${RV}?.querySelector("[data-now-line] [data-now-left]");
-                        if (!left) return { left: false };
-                        // the faint color as the theme resolves it, read off a throwaway element
-                        const probe = document.createElement("span");
-                        probe.className = "text-ink-faint";
-                        left.parentElement.appendChild(probe);
-                        const faint = getComputedStyle(probe).color;
-                        probe.remove();
-                        return {
-                            color: getComputedStyle(left).color,
-                            faint,
-                            rowOnScreen: (screenRows(${JSON.stringify(ctx.aBlock)}) ?? []).some((r) => r.includes(${JSON.stringify(SPINNER_VERB)})),
-                        };`
+                        return { rowOnScreen: (screenRows(${JSON.stringify(ctx.aBlock)}) ?? []).some((r) => r.includes(${JSON.stringify(SPINNER_VERB)})) };`
                     );
-                    await h.shot(SHOT(24, "now-done"));
-                    const ok = met && seen.color === seen.faint && seen.rowOnScreen && !now.text.includes(SPINNER_VERB);
-                    return [ok, { ...now, ...seen }];
+                    await h.shot(SHOT(24, "working-done"));
+                    return [gone && seen.rowOnScreen, { gone, ...seen }];
                 });
                 return steps;
             },

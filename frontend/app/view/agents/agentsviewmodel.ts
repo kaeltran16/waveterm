@@ -20,6 +20,9 @@ export interface DiffLine {
     text: string;
     // a git diff's @@ line, drawn as a separator rather than code
     hunk?: true;
+    // the line's number on each side, known from a structuredPatch or an @@ header; absent, the diff has no gutter
+    oldNo?: number;
+    newNo?: number;
 }
 export interface EditFile {
     path: string;
@@ -67,6 +70,8 @@ export type AgentEntry =
           summary?: string; // e.g. "14 matches", "80 lines", "24 passing"
           durationMs?: number; // tool_use → tool_result wall time, when timestamps present
           startedTs?: number; // tool_use time while the call has no outcome yet, so a live call can show its elapsed
+          ts?: number; // tool_use time, Claude's projection only
+          command?: string; // the raw Bash command at tool_use, so a running wsh call is recognised before its result
           // no tool_result yet: running, waiting on a permission prompt, or never finished. Claude's projection only;
           // absent reads as done.
           pending?: true;
@@ -244,113 +249,6 @@ export function detailExceedsInline(d: ActionDetail): boolean {
     return detailLineCount(d) > DETAIL_INLINE_MAX[d.kind];
 }
 
-// A timeline render item: prose/user pass through inline; a maximal run of >= threshold
-// consecutive actions folds into one `group` (keyed by the run's first entry index, which
-// is stable because entries are append-only). Shorter runs stay as inline `action` items.
-export type TimelineItem =
-    | { kind: "message"; text: string; index: number }
-    | { kind: "user"; text: string; index: number }
-    | { kind: "command"; name: string; args?: string; isSkill?: boolean; index: number }
-    | { kind: "compaction"; trigger?: string; preTokens?: number; postTokens?: number; summary?: string; index: number }
-    | { kind: "notification"; summary: string; status?: string; result?: string; index: number }
-    | { kind: "interrupted"; index: number }
-    | { kind: "action"; action: AgentActionEntry; index: number }
-    | { kind: "group"; startIndex: number; actions: AgentActionEntry[] }
-    | { kind: "edit-burst"; startIndex: number; files: EditFile[]; adds: number; dels: number };
-
-// Pure: fold a run of edit actions (verb "edited"/"wrote" carrying an edit detail) into one burst.
-export function aggregateEditBurst(
-    actions: AgentActionEntry[],
-    startIndex: number
-): Extract<TimelineItem, { kind: "edit-burst" }> {
-    const files: EditFile[] = [];
-    for (const a of actions) {
-        if (a.detail?.kind === "edit") {
-            files.push(...a.detail.files);
-        }
-    }
-    const adds = files.reduce((n, f) => n + f.adds, 0);
-    const dels = files.reduce((n, f) => n + f.dels, 0);
-    return { kind: "edit-burst", startIndex, files, adds, dels };
-}
-
-// Pure: does this action participate in an edit burst?
-export function isEditAction(e: AgentEntry): boolean {
-    return e.kind === "action" && (e.verb === "edited" || e.verb === "wrote") && e.detail?.kind === "edit";
-}
-
-/** Pure: collapse bursts of consecutive actions into groups while preserving chronology. */
-export function groupTimeline(entries: AgentEntry[], threshold = CollapseRunThreshold): TimelineItem[] {
-    const items: TimelineItem[] = [];
-    let runStart = -1;
-    let run: AgentActionEntry[] = [];
-    const flush = () => {
-        if (run.length === 0) {
-            return;
-        }
-        if (run.length >= threshold && run.every((a) => isEditAction(a))) {
-            items.push(aggregateEditBurst(run, runStart));
-        } else if (run.length >= threshold) {
-            items.push({ kind: "group", startIndex: runStart, actions: run });
-        } else {
-            run.forEach((action, k) => items.push({ kind: "action", action, index: runStart + k }));
-        }
-        run = [];
-        runStart = -1;
-    };
-    entries.forEach((e, i) => {
-        if (e.kind === "action") {
-            if (run.length === 0) {
-                runStart = i;
-            }
-            run.push(e);
-            return;
-        }
-        flush();
-        if (e.kind === "message") {
-            items.push({ kind: "message", text: e.text, index: i });
-        } else if (e.kind === "user") {
-            items.push({ kind: "user", text: e.text, index: i });
-        } else if (e.kind === "command") {
-            items.push({ kind: "command", name: e.name, args: e.args, isSkill: e.isSkill, index: i });
-        } else if (e.kind === "compaction") {
-            items.push({
-                kind: "compaction",
-                trigger: e.trigger,
-                preTokens: e.preTokens,
-                postTokens: e.postTokens,
-                summary: e.summary,
-                index: i,
-            });
-        } else if (e.kind === "notification") {
-            items.push({ kind: "notification", summary: e.summary, status: e.status, result: e.result, index: i });
-        } else if (e.kind === "interrupted") {
-            items.push({ kind: "interrupted", index: i });
-        }
-    });
-    flush();
-    return items;
-}
-
-// Pure: how a collapsed action group renders. toggled = the user flipped the group from its default.
-// "reveal" = the user expanded a historical burst, so it animates open. "open" = the auto-open trailing
-// burst during live streaming — plain, never animated (the burst guard: a streaming run must not strobe,
-// even if the user had also toggled it). "collapsed" = show the summary button. A burst holding a tool
-// output card (rendered view only) starts "open", since a folded group would hide the card; a toggle folds it.
-export function burstRenderMode(o: {
-    toggled: boolean;
-    autoOpen: boolean;
-    hasCard?: boolean;
-}): "reveal" | "open" | "collapsed" {
-    if (o.autoOpen) {
-        return "open";
-    }
-    if (o.hasCard) {
-        return o.toggled ? "collapsed" : "open";
-    }
-    return o.toggled ? "reveal" : "collapsed";
-}
-
 // Joins the prose (message + user) entries of a transcript into one copyable string. Tool actions
 // are omitted — they are not conversational content.
 export function conversationText(entries: AgentEntry[]): string {
@@ -374,7 +272,7 @@ export interface ActionsSummary {
 }
 
 /** Pure: per-verb counts (count desc, then first appearance), the number of failed actions, and the aggregate
- *  outcome (fail if any action failed). Drives a collapsed group's summary label. */
+ *  outcome (fail if any action failed). Drives the details rail's tool chips. */
 export function summarizeActions(actions: AgentActionEntry[]): ActionsSummary {
     const order: string[] = [];
     const counts = new Map<string, number>();
@@ -390,15 +288,6 @@ export function summarizeActions(actions: AgentActionEntry[]): ActionsSummary {
     }
     const byVerb = order.map((verb) => ({ verb, count: counts.get(verb)! })).sort((x, y) => y.count - x.count);
     return { total: actions.length, byVerb, outcome: failed > 0 ? "fail" : "ok", failed };
-}
-
-// Pure: a folded group's label. One verb says it all ("3 ran"); a mix keeps the total and its breakdown, so the
-// row never reads "3 tools 3 ran".
-export function foldLabel(s: ActionsSummary): { headline: string; breakdown?: string } {
-    if (s.byVerb.length === 1) {
-        return { headline: `${s.total} ${s.byVerb[0].verb}` };
-    }
-    return { headline: `${s.total} tools`, breakdown: s.byVerb.map((v) => `${v.count} ${v.verb}`).join(" · ") };
 }
 
 /**

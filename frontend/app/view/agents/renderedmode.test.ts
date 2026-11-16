@@ -2,7 +2,10 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { describe, expect, it } from "vitest";
 import type { AgentVM } from "./agentsviewmodel";
 import {
+    boxButton,
     canRender,
+    composerBox,
+    contextRing,
     effectiveViewMode,
     isPickerCommand,
     pickerFlipAtom,
@@ -82,6 +85,57 @@ describe("shouldUnflip", () => {
     it("is false with no flip or no hook yet", () => {
         expect(shouldUnflip(null, { hook: "Stop", ts: 101 })).toBe(false);
         expect(shouldUnflip(100, null)).toBe(false);
+    });
+});
+
+const ASK = {
+    questions: [{ header: "Scope", question: "Which scope?", multiSelect: false, options: [{ label: "a" }] }],
+} as AgentVM["ask"];
+
+describe("composerBox", () => {
+    it("is idle for an agent with a transcript, new for one without, and offers Send", () => {
+        const idle = composerBox(agent(), true);
+        expect(idle).toMatchObject({ kind: "idle", askBlocks: false, live: false });
+        expect(idle.placeholder).toContain("loom");
+        const fresh = composerBox(agent(), false);
+        expect(fresh.kind).toBe("new");
+        expect(fresh.placeholder).toContain("loom");
+        expect(fresh.placeholder).not.toBe(idle.placeholder);
+        expect(boxButton(idle, false)).toBe("send");
+        expect(boxButton(idle, true)).toBe("send");
+    });
+    it("while working, an empty box offers Stop and a filled one Send (steer)", () => {
+        const box = composerBox(agent({ state: "working" }), true);
+        expect(box).toMatchObject({ kind: "working", askBlocks: false, live: true });
+        expect(box.placeholder).not.toBe(composerBox(agent(), true).placeholder);
+        expect(boxButton(box, false)).toBe("stop");
+        expect(boxButton(box, true)).toBe("send");
+    });
+    it("while an answerable ask is shown, Send is blocked and the empty box offers Stop", () => {
+        const box = composerBox(agent({ state: "asking", ask: ASK }), true);
+        expect(box).toMatchObject({ askBlocks: true, live: true });
+        expect(boxButton(box, false)).toBe("stop");
+        expect(boxButton(box, true)).toBe("send");
+    });
+    it("an asking state with no answerable question does not block Send", () => {
+        expect(composerBox(agent({ state: "asking" }), true).askBlocks).toBe(false);
+    });
+});
+
+describe("contextRing", () => {
+    it("is absent with no reported context", () => {
+        expect(contextRing(undefined)).toBeNull();
+        expect(contextRing({})).toBeNull();
+    });
+    it("rounds the percent, clamps the arc and titles with tokens only when the window size is known", () => {
+        const known = contextRing({ contextpct: 6.4, contextmax: 1_000_000 });
+        expect(known?.pct).toBe(6);
+        expect(known?.title).toContain("6");
+        expect(known?.title).toContain("1M");
+        const unknown = contextRing({ contextpct: 140 });
+        expect(unknown?.pct).toBe(140);
+        expect(unknown?.arc).toBe(1);
+        expect(unknown?.title).not.toContain("tokens");
     });
 });
 

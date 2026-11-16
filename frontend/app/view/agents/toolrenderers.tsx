@@ -12,11 +12,12 @@ import { bashCard, toolRendererKey } from "./renderregistry";
 import { failureLabel, stripAnsi, type TestSummary } from "./testoutput";
 import { capDiffLines } from "./unifieddiff";
 
-// Tool output cards, drawn open under their tool row in the rendered view (Main.dc.html go-test card).
+// Tool output cards: a test or diff card is its step's opened body (StepsOpen.dc.html test card), open from the start in
+// the rendered view; an image card sits under its row there.
 // Each Bash card keeps its raw output one toggle away, since a parse can miss what the agent saw.
 
 const CARD = "overflow-hidden rounded-[8px] border border-edge-mid bg-surface-code";
-const CARD_HEADER = "flex items-center gap-2 border-b border-edge-faint px-[11px] py-[7px]";
+const CARD_HEADER = "flex items-center gap-2.5 border-b border-edge-faint px-3 py-[7px] text-[12.5px]";
 const MONO_LABEL = "font-mono text-[10.5px]";
 // a card never grows past this; its body scrolls
 const CARD_BODY = "max-h-[360px] overflow-auto";
@@ -55,12 +56,14 @@ function RawOutput({ output }: { output: string }) {
 function BashCardShell({
     kind,
     label,
+    runner,
     counts,
     output,
     children,
 }: {
     kind: "test" | "git-diff";
     label: string;
+    runner?: string;
     counts: ReactNode;
     output: string;
     children?: ReactNode;
@@ -70,7 +73,8 @@ function BashCardShell({
     return (
         <div data-tool-card={kind} className={CARD}>
             <div className={cn(CARD_HEADER, body == null && "border-b-0")}>
-                <span className={cn(MONO_LABEL, "text-accent-soft")}>{label}</span>
+                <span className="font-semibold text-secondary">{label}</span>
+                {runner ? <span className={cn(MONO_LABEL, "text-muted")}>{runner}</span> : null}
                 <span className="flex-1" />
                 {counts}
                 <RawToggle raw={raw} onToggle={() => setRaw((r) => !r)} />
@@ -96,7 +100,7 @@ function BashCardShell({
 }
 
 function Count({ n, word, tone }: { n: number; word: string; tone: string }) {
-    return <span className={cn(MONO_LABEL, n > 0 ? tone : "text-muted")}>{`${n} ${word}`}</span>;
+    return <span className={n > 0 ? tone : "text-muted"}>{`${n} ${word}`}</span>;
 }
 
 function TestCard({ summary, output }: { summary: TestSummary; output: string }) {
@@ -104,10 +108,10 @@ function TestCard({ summary, output }: { summary: TestSummary; output: string })
     const more = summary.failures.length - shown.length;
     const counts = (
         <span data-test-counts className="flex items-center gap-2">
-            {summary.unit === "package" ? <span className={cn(MONO_LABEL, "text-muted")}>packages</span> : null}
-            <Count n={summary.pass} word="pass" tone="text-success" />
-            <Count n={summary.fail} word="fail" tone="text-error" />
-            <Count n={summary.skip} word="skip" tone="text-muted" />
+            {summary.unit === "package" ? <span className="text-muted">packages</span> : null}
+            <Count n={summary.pass} word="passed" tone="text-success" />
+            <Count n={summary.fail} word="failed" tone="text-error" />
+            {summary.skip > 0 ? <Count n={summary.skip} word="skipped" tone="text-muted" /> : null}
         </span>
     );
     const rows = shown.map((f, i) => {
@@ -116,7 +120,7 @@ function TestCard({ summary, output }: { summary: TestSummary; output: string })
             <div
                 key={i}
                 data-test-failure
-                className="grid grid-cols-[auto_minmax(0,1fr)_auto] gap-x-2.5 gap-y-0.5 border-b border-edge-faint px-[11px] py-[7px] font-mono text-[11.5px] last:border-b-0"
+                className="grid grid-cols-[auto_minmax(0,1fr)_auto] gap-x-2.5 gap-y-[3px] px-3 py-1.5 font-mono text-[11.5px]"
             >
                 <span className="text-error">FAIL</span>
                 <span className="truncate text-ink-hi" title={label.name}>
@@ -136,7 +140,8 @@ function TestCard({ summary, output }: { summary: TestSummary; output: string })
     return (
         <BashCardShell
             kind="test"
-            label={summary.runner === "go" ? "go test" : "vitest"}
+            label="Tests"
+            runner={summary.runner === "go" ? "go test" : "vitest"}
             counts={counts}
             output={output}
         >

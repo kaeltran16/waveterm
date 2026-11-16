@@ -305,6 +305,172 @@ function QuestionGroup({
     );
 }
 
+// The Rendered view's ask card (Asking, MultiQuestion): the question on a warning tint, numbered option rows (a
+// multi-select's as checkboxes), the typed answer and the key hint. The cockpit's other hosts keep the bar.
+function CardQuestion({
+    question,
+    numbered,
+    summary,
+    note,
+    dismiss,
+    selections,
+    onClickOption,
+    text,
+    onText,
+    onTextSubmit,
+    hint,
+}: {
+    question: AgentAskQuestion;
+    numbered?: boolean;
+    summary?: ReactNode;
+    note?: string;
+    dismiss?: ReactNode;
+    selections: Set<number>;
+    onClickOption: (oi: number) => void;
+    text?: string;
+    onText?: (value: string) => void;
+    onTextSubmit?: () => void;
+    hint?: string;
+}) {
+    const options = question.options ?? [];
+    const multi = !!question.multiSelect;
+    const withPreview = previewMode(question);
+    const [focusIndex, setFocusIndex] = useState(0);
+    const preview = withPreview ? activePreview(question, focusIndex) : undefined;
+    const rows = options.map((opt, oi) => {
+        const isSelected = selections.has(oi);
+        return (
+            <button
+                key={oi}
+                type="button"
+                role={multi ? "checkbox" : undefined}
+                aria-checked={multi ? isSelected : undefined}
+                data-ask-option={oi}
+                data-picked={isSelected || undefined}
+                onClick={() => onClickOption(oi)}
+                onMouseEnter={() => setFocusIndex(oi)}
+                onFocus={() => setFocusIndex(oi)}
+                className="flex w-full cursor-pointer items-start gap-3 border-t border-edge-faint px-4 py-3 text-left hover:bg-surface-hover"
+            >
+                <span
+                    className={cn(
+                        "inline-flex h-5 w-5 flex-none items-center justify-center rounded-[5px] border font-mono text-[11px]",
+                        isSelected && multi
+                            ? "border-accent bg-accent/12 text-accent-soft"
+                            : isSelected
+                              ? "border-warning bg-warning text-background"
+                              : "border-edge-strong text-ink-mid"
+                    )}
+                >
+                    {isSelected && multi ? (
+                        <Check size={12} strokeWidth={3} aria-hidden />
+                    ) : numbered && oi < 9 ? (
+                        oi + 1
+                    ) : null}
+                </span>
+                <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-2">
+                        <span className="text-[13.5px] font-semibold text-foreground">{cleanLabel(opt.label)}</span>
+                        {isRec(opt.label) ? (
+                            <span className="shrink-0 rounded-[5px] border border-warning/40 bg-warning/10 px-1.5 font-mono text-[10.5px] font-semibold text-warning">
+                                recommended
+                            </span>
+                        ) : null}
+                    </span>
+                    {opt.description ? (
+                        <span className="mt-[3px] block text-[13px] leading-normal text-ink-mid">
+                            {opt.description}
+                        </span>
+                    ) : null}
+                </span>
+            </button>
+        );
+    });
+    return (
+        <>
+            <div className="flex items-start gap-3 bg-warning/[0.06] px-4 py-3.5">
+                <div className="min-w-0 flex-1">
+                    {summary ?? (
+                        <>
+                            {question.header ? (
+                                <div className="mb-1 text-[12px] font-semibold text-warning">
+                                    {question.header}
+                                    {multi ? " · pick any" : ""}
+                                </div>
+                            ) : null}
+                            <div className="whitespace-pre-line text-[14px] font-semibold leading-normal text-foreground">
+                                {question.question}
+                            </div>
+                        </>
+                    )}
+                    {note ? <div className="mt-1.5 text-[12px] text-warning">{note}</div> : null}
+                </div>
+                {dismiss}
+            </div>
+            {withPreview ? (
+                <div className="flex border-t border-edge-faint">
+                    <div className="min-w-0 flex-1 [&>button:first-child]:border-t-0">{rows}</div>
+                    <div className="hidden w-[min(46%,340px)] shrink-0 border-l border-edge-faint bg-surface-code p-3 md:block">
+                        <AnimatePresence initial={false} mode="wait">
+                            <motion.div
+                                key={preview ? focusIndex : "none"}
+                                data-answer-preview={preview ? focusIndex : "none"}
+                                variants={viewFade}
+                                initial="initial"
+                                animate="animate"
+                            >
+                                {preview ? (
+                                    <pre className="overflow-x-auto whitespace-pre font-mono text-[11.5px] leading-[1.5] text-primary">
+                                        {previewBody(preview)}
+                                    </pre>
+                                ) : (
+                                    <div className="text-[11px] text-muted">No preview</div>
+                                )}
+                            </motion.div>
+                        </AnimatePresence>
+                    </div>
+                </div>
+            ) : (
+                rows
+            )}
+            <div className="border-t border-edge-faint px-4 pb-3 pt-2.5">
+                {onText ? (
+                    <input
+                        type="text"
+                        value={text ?? ""}
+                        onChange={(e) => onText(e.target.value)}
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => {
+                            // the surface's Enter binding is off while this field has focus, so the field sends its own answer
+                            if (
+                                e.key !== "Enter" ||
+                                e.shiftKey ||
+                                e.nativeEvent.isComposing ||
+                                (text ?? "").trim() === ""
+                            ) {
+                                return;
+                            }
+                            e.preventDefault();
+                            e.stopPropagation();
+                            onTextSubmit?.();
+                        }}
+                        placeholder="or type your own answer…"
+                        className={cn(
+                            "w-full rounded-[8px] border bg-background px-3 py-2 text-[13px] text-foreground outline-none placeholder:text-muted",
+                            (text ?? "").trim() !== "" ? "border-warning" : "border-edge-mid focus:border-accent/60"
+                        )}
+                    />
+                ) : null}
+                {hint ? (
+                    <div data-ask-hint className="mt-2 text-[12px] text-muted">
+                        {hint}
+                    </div>
+                ) : null}
+            </div>
+        </>
+    );
+}
+
 // Answer surface for an asking agent. Selection state is owned by the parent (so the keyboard triage
 // keymap and mouse clicks write the same place). Mouse: single-select submits on click, multi-select
 // waits for the parent's submit (Enter). When `sent`, shows a confirmation in place.
@@ -322,6 +488,7 @@ export function AnswerBar({
     onSelectQuestion,
     onDismiss,
     showHint = true,
+    variant = "bar",
     className,
 }: {
     agent: AgentVM;
@@ -337,8 +504,11 @@ export function AnswerBar({
     onSelectQuestion?: (qi: number) => void;
     onDismiss?: () => void;
     showHint?: boolean;
+    // card: the Rendered view's ask card; bar: every other host
+    variant?: "bar" | "card";
     className?: string;
 }) {
+    const card = variant === "card";
     const questions = agent.ask?.questions ?? [];
     const accent = agent.state === "asking" ? ACCENT_ASKING : ACCENT_DEFAULT;
     if (questions.length === 0) {
@@ -368,7 +538,7 @@ export function AnswerBar({
     // the bar follows its content's height (a question with more options grows it), and sending trades the question
     // for its summary in place
     const frame = (content: ReactNode) => (
-        <div className={className}>
+        <div className={cn(card && "overflow-hidden rounded-[10px] border border-warning/35", className)}>
             <AutoHeight>
                 <AnimatePresence initial={false} mode="wait">
                     <motion.div key={sent ? "sent" : "ask"} variants={viewFade} initial="initial" animate="animate">
@@ -389,7 +559,7 @@ export function AnswerBar({
             })
             .filter(Boolean);
         return frame(
-            <div className="text-[12px] text-secondary">
+            <div className={cn("text-secondary", card ? "px-4 py-3 text-[13px]" : "text-[12px]")}>
                 <Check size={12} aria-hidden className={cn("inline align-[-1px]", accent.check)} /> Answered
                 {chosen.length ? `: ${chosen.join(", ")}` : ""}
             </div>
@@ -426,6 +596,82 @@ export function AnswerBar({
             }}
         />
     );
+
+    if (card) {
+        const idx = Math.max(0, Math.min(activeQuestion ?? 0, questions.length - 1));
+        const hint = answerHint(questions, selections, !!numbered, texts ?? {});
+        return frame(
+            <>
+                {questions.length > 1 ? (
+                    <div
+                        role="tablist"
+                        aria-label="Questions"
+                        className="flex gap-1 border-b border-edge-faint px-2.5 py-2"
+                    >
+                        {questions.map((q, qi) => {
+                            const answered = (selections[qi]?.size ?? 0) > 0 || (texts?.[qi] ?? "").trim() !== "";
+                            const active = qi === idx;
+                            return (
+                                <button
+                                    key={qi}
+                                    type="button"
+                                    role="tab"
+                                    aria-selected={active}
+                                    onClick={() => onSelectQuestion?.(qi)}
+                                    className={cn(
+                                        "inline-flex cursor-pointer items-center gap-[7px] rounded-[7px] px-2.5 py-[5px] text-[12.5px]",
+                                        active
+                                            ? "bg-surface-hover font-semibold text-foreground"
+                                            : "text-ink-mid hover:bg-surface-hover"
+                                    )}
+                                >
+                                    <span
+                                        aria-hidden
+                                        className={cn(
+                                            "h-1.5 w-1.5 rounded-full",
+                                            answered ? "bg-accent" : "bg-edge-strong"
+                                        )}
+                                    />
+                                    {q.header || `Q${qi + 1}`}
+                                </button>
+                            );
+                        })}
+                    </div>
+                ) : null}
+                <CardQuestion
+                    key={idx}
+                    question={questions[idx]}
+                    numbered={numbered}
+                    summary={review ? <DocReviewSummary agentId={agent.id} review={review} /> : undefined}
+                    note={agent.ask?.note}
+                    dismiss={
+                        onDismiss && canDismissAsk(agent) ? (
+                            <button
+                                type="button"
+                                aria-label="Dismiss the question"
+                                title="Dismiss this question (cancels the ask)"
+                                onClick={onDismiss}
+                                className="inline-flex h-6 w-6 flex-none cursor-pointer items-center justify-center rounded-[6px] text-muted hover:bg-surface-hover hover:text-secondary"
+                            >
+                                <X size={13} strokeWidth={2.2} aria-hidden />
+                            </button>
+                        ) : undefined
+                    }
+                    selections={selections[idx] ?? new Set()}
+                    text={texts?.[idx]}
+                    onText={onText ? (value: string) => onText(idx, value) : undefined}
+                    onTextSubmit={() => advance(idx)}
+                    onClickOption={(oi) => {
+                        onToggle(idx, oi);
+                        if (!questions[idx].multiSelect) {
+                            advance(idx);
+                        }
+                    }}
+                    hint={showHint ? hint : undefined}
+                />
+            </>
+        );
+    }
 
     // one ask renders inline; multiple asks become tabs so they don't stack into a tall wall
     if (questions.length === 1) {

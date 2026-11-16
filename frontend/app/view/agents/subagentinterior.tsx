@@ -9,14 +9,24 @@ import { MOTION } from "@/app/element/motiontokens";
 import { globalStore } from "@/app/store/jotaiStore";
 import { useAtomValue } from "jotai";
 import { motion } from "motion/react";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
+import type { AgentsViewModel } from "./agents";
 import { liveEntriesByIdAtom, startTranscriptStream, stopTranscriptStream } from "./livetranscript";
 import { NarrationTimeline } from "./narrationtimeline";
 import { JumpToLatestPill, useStickToBottom } from "./sticktobottom";
 import { focusSubagentAtom, type FocusSubagent } from "./subagentsstore";
+import { transcriptContextFor } from "./transcriptcontext";
 import { TranscriptSkeleton } from "./transcriptskeleton";
 
-export function SubagentInterior({ sub, parentName }: { sub: FocusSubagent; parentName: string }) {
+export function SubagentInterior({
+    model,
+    sub,
+    parentName,
+}: {
+    model: AgentsViewModel;
+    sub: FocusSubagent;
+    parentName: string;
+}) {
     const streamId = `sub:${sub.agentId}`;
     useEffect(() => {
         startTranscriptStream(streamId, sub.transcriptPath, "claude");
@@ -29,6 +39,8 @@ export function SubagentInterior({ sub, parentName }: { sub: FocusSubagent; pare
 
     const entries = useAtomValue(liveEntriesByIdAtom)[streamId] ?? [];
     const { scrollRef, onScroll, atBottom, jumpToBottom } = useStickToBottom(entries);
+    // a subagent holds no run role, so its first prompt (the parent's Task) is never read as an Arc brief
+    const ctx = useMemo(() => transcriptContextFor({ model }), [model]);
     return (
         <motion.div
             className="flex min-h-0 flex-1 flex-col"
@@ -46,7 +58,7 @@ export function SubagentInterior({ sub, parentName }: { sub: FocusSubagent; pare
             <div className="relative min-h-0 flex-1">
                 <div ref={scrollRef} onScroll={onScroll} className="h-full overflow-y-auto px-3 py-2">
                     {entries.length > 0 ? (
-                        <NarrationTimeline entries={entries} accentLatest active />
+                        <NarrationTimeline entries={entries} accentLatest active ctx={ctx} compact />
                     ) : (
                         <TranscriptSkeleton />
                     )}

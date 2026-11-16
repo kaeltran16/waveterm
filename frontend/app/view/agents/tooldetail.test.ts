@@ -3,6 +3,7 @@ import {
     answerAsk,
     askQuestions,
     buildEditDiff,
+    editFromPatch,
     formatDuration,
     parseGrep,
     sliceRead,
@@ -108,6 +109,49 @@ describe("buildEditDiff", () => {
         const f = buildEditDiff("/p/a.go", "a\nz", "a\nb\nc\nz");
         expect(f).toMatchObject({ adds: 2, dels: 0 });
         expect(f.lines.map((l) => l.sign + l.text)).toEqual(["a", "+b", "+c", "z"]);
+    });
+});
+
+describe("editFromPatch", () => {
+    it("numbers a hunk's lines from oldStart and newStart", () => {
+        const f = editFromPatch("/p/retry.js", [
+            { oldStart: 6, oldLines: 3, newStart: 6, newLines: 3, lines: ["     } catch (e) {", "-      a;", "+      b;", "     }"] },
+        ]);
+        expect(f).toEqual({
+            path: "/p/retry.js",
+            badge: "M",
+            adds: 1,
+            dels: 1,
+            lines: [
+                { sign: "", text: "    } catch (e) {", oldNo: 6, newNo: 6 },
+                { sign: "-", text: "      a;", oldNo: 7 },
+                { sign: "+", text: "      b;", newNo: 7 },
+                { sign: "", text: "    }", oldNo: 8, newNo: 8 },
+            ],
+        });
+    });
+    it("separates a later hunk with its header and skips no-newline markers", () => {
+        const f = editFromPatch("/p/a.ts", [
+            { oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ["-x", "+y"] },
+            { oldStart: 20, oldLines: 1, newStart: 20, newLines: 1, lines: ["-x", "+y", "\\ No newline at end of file"] },
+        ]);
+        expect(f?.lines.map((l) => [l.sign, l.text, l.oldNo, l.newNo, l.hunk])).toEqual([
+            ["-", "x", 1, undefined, undefined],
+            ["+", "y", undefined, 1, undefined],
+            ["", "@@ -20,1 +20,1 @@", undefined, undefined, true],
+            ["-", "x", 20, undefined, undefined],
+            ["+", "y", undefined, 20, undefined],
+        ]);
+        expect(f).toMatchObject({ adds: 2, dels: 2 });
+    });
+    it("marks a patch with no old lines as a new file", () => {
+        expect(editFromPatch("/p/n.ts", [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 1, lines: ["+a"] }])?.badge).toBe("A");
+    });
+    it("returns null without a usable patch", () => {
+        expect(editFromPatch("/p/a.ts", undefined)).toBeNull();
+        expect(editFromPatch("/p/a.ts", [])).toBeNull();
+        expect(editFromPatch("/p/a.ts", "error string")).toBeNull();
+        expect(editFromPatch("/p/a.ts", [{ oldStart: "1", lines: ["+a"] }])).toBeNull();
     });
 });
 

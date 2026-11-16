@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AgentEntry, TimelineItem } from "./agentsviewmodel";
+import type { AgentEntry } from "./agentsviewmodel";
 import {
     anchorMarks,
     bandRequests,
@@ -9,6 +9,7 @@ import {
     placeMarks,
     relativeToCwd,
 } from "./permissionmodel";
+import type { LayoutItem } from "./transcriptlayout";
 
 function perm(toolname: string, input: unknown, choices = ["Yes", "No, tell Claude what to do"]): AgentPermissionData {
     return {
@@ -152,11 +153,11 @@ describe("permissionLogText", () => {
 });
 
 describe("placeMarks", () => {
-    // entries: 0 user, 1-4 a folded group of actions, 5 message
-    const items: TimelineItem[] = [
+    // entries: 0 user, 1-4 a folded stretch of steps, 5 message
+    const items: LayoutItem[] = [
         { kind: "user", text: "go", index: 0 },
-        { kind: "group", startIndex: 1, actions: [] },
-        { kind: "message", text: "done", index: 5 },
+        { kind: "steps", startIndex: 1, steps: [], fold: null },
+        { kind: "message", text: "done", index: 5, latest: true },
     ];
 
     it("puts a mark after the item holding entry afterEntry - 1, a fold included", () => {
@@ -198,5 +199,29 @@ describe("anchorMarks", () => {
     it("is dropped once the window no longer holds it, as after /clear or a trim", () => {
         expect(anchorMarks([user("fresh", 3000), ran], [mark])).toEqual([]);
         expect(anchorMarks([ran], [mark])).toEqual([]);
+    });
+
+    const prose = (text: string, ts: number): AgentEntry => ({ kind: "message", text, ts });
+    const done = (target: string, ts: number): AgentEntry => ({
+        kind: "action",
+        verb: "ran",
+        target,
+        outcome: "ok",
+        ts,
+    });
+
+    it("goes right after the finished call it follows, not at the next prose", () => {
+        const entries = [user("go", 1000), done("npm test", 1100), done("npm run lint", 1600), prose("ok", 2000)];
+        expect(anchorMarks(entries, [mark])).toEqual([{ afterEntry: 2, text: "Yes: npm test" }]);
+    });
+
+    it("times a pending call by its start", () => {
+        const pending: AgentEntry = { kind: "action", verb: "ran", target: "npm test", startedTs: 1600 };
+        const entries = [user("go", 1000), done("ls", 1100), pending, prose("ok", 2000)];
+        expect(anchorMarks(entries, [mark])).toEqual([{ afterEntry: 2, text: "Yes: npm test" }]);
+    });
+
+    it("is dropped when older than every stamped call", () => {
+        expect(anchorMarks([done("npm test", 2000), prose("ok", 3000)], [mark])).toEqual([]);
     });
 });

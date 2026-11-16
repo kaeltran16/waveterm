@@ -3,14 +3,12 @@ import {
     agentRunDone,
     agentStateLabel,
     agentVMFromInput,
-    aggregateEditBurst,
     answerHint,
     applyAgentOrder,
     ASK_STALE_GRACE_MS,
     askingCount,
     askSentKey,
     buildAskAnswers,
-    burstRenderMode,
     canSubmitAsk,
     conversationText,
     cycleId,
@@ -18,17 +16,14 @@ import {
     detailExceedsInline,
     detailLineCount,
     displayAgeMs,
-    foldLabel,
     formatAge,
     formatAgeShort,
     formatAgo,
     formatReset,
     formatTokens,
     groupAgents,
-    groupTimeline,
     hasAnswerableAsk,
     isAskStale,
-    isEditAction,
     isNearBottom,
     isQuiet,
     isRecentlyIdle,
@@ -119,30 +114,6 @@ describe("isNearBottom", () => {
     });
 });
 
-describe("burstRenderMode", () => {
-    it("animates a burst the user explicitly expanded", () => {
-        expect(burstRenderMode({ toggled: true, autoOpen: false })).toBe("reveal");
-    });
-    it("renders the collapsed summary when neither open", () => {
-        expect(burstRenderMode({ toggled: false, autoOpen: false })).toBe("collapsed");
-    });
-    it("renders the auto-open trailing burst plain (no animation) during streaming", () => {
-        expect(burstRenderMode({ toggled: false, autoOpen: true })).toBe("open");
-    });
-    it("keeps the streaming path un-animated even if the burst was also user-toggled (anti-strobe)", () => {
-        expect(burstRenderMode({ toggled: true, autoOpen: true })).toBe("open");
-        expect(burstRenderMode({ toggled: true, autoOpen: true, hasCard: true })).toBe("open");
-    });
-    it("opens a burst that holds a tool card until the user collapses it", () => {
-        expect(burstRenderMode({ toggled: false, autoOpen: false, hasCard: true })).toBe("open");
-        expect(burstRenderMode({ toggled: true, autoOpen: false, hasCard: true })).toBe("collapsed");
-    });
-    it("collapses an expanded burst again on a second toggle", () => {
-        const flip = (t: boolean) => burstRenderMode({ toggled: !t, autoOpen: false });
-        expect(flip(false)).toBe("reveal");
-        expect(flip(true)).toBe("collapsed");
-    });
-});
 
 describe("askingCount", () => {
     it("counts only asking agents", () => {
@@ -827,147 +798,6 @@ describe("cycleId", () => {
     });
 });
 
-describe("groupTimeline", () => {
-    it("leaves a run of two actions inline (no group)", () => {
-        const entries: AgentEntry[] = [
-            { kind: "message", text: "m" },
-            { kind: "action", verb: "read", target: "a" },
-            { kind: "action", verb: "read", target: "b" },
-        ];
-        const items = groupTimeline(entries);
-        expect(items.map((i) => i.kind)).toEqual(["message", "action", "action"]);
-        expect(items.some((i) => i.kind === "group")).toBe(false);
-    });
-
-    it("keys each inline action by its own entry index", () => {
-        const entries: AgentEntry[] = [
-            { kind: "message", text: "m" },
-            { kind: "action", verb: "read", target: "a" },
-            { kind: "action", verb: "read", target: "b" },
-        ];
-        expect(groupTimeline(entries)).toEqual([
-            { kind: "message", text: "m", index: 0 },
-            { kind: "action", action: entries[1], index: 1 },
-            { kind: "action", action: entries[2], index: 2 },
-        ]);
-    });
-
-    it("passes a user entry through as a standalone item, flushing the run before it", () => {
-        const entries: AgentEntry[] = [
-            { kind: "action", verb: "read", target: "a" },
-            { kind: "user", text: "do more" },
-        ];
-        expect(groupTimeline(entries)).toEqual([
-            { kind: "action", action: entries[0], index: 0 },
-            { kind: "user", text: "do more", index: 1 },
-        ]);
-    });
-
-    it("adds nothing for a non-action entry when the threshold is 0 and no run is open", () => {
-        expect(groupTimeline([{ kind: "message", text: "m" }], 0)).toEqual([{ kind: "message", text: "m", index: 0 }]);
-    });
-
-    it("folds a run of three or more actions into one group keyed by first index", () => {
-        const entries: AgentEntry[] = [
-            { kind: "message", text: "m" },
-            { kind: "action", verb: "read", target: "a" },
-            { kind: "action", verb: "read", target: "b" },
-            { kind: "action", verb: "grep", target: "c" },
-        ];
-        const items = groupTimeline(entries);
-        expect(items).toHaveLength(2);
-        expect(items[0]).toEqual({ kind: "message", text: "m", index: 0 });
-        const group = items[1];
-        expect(group.kind).toBe("group");
-        if (group.kind === "group") {
-            expect(group.startIndex).toBe(1);
-            expect(group.actions).toHaveLength(3);
-        }
-    });
-
-    it("splits adjacent runs around a message into separate groups", () => {
-        const entries: AgentEntry[] = [
-            { kind: "action", verb: "read", target: "a" },
-            { kind: "action", verb: "read", target: "b" },
-            { kind: "action", verb: "read", target: "c" },
-            { kind: "message", text: "thinking" },
-            { kind: "action", verb: "edit", target: "d" },
-            { kind: "action", verb: "edit", target: "e" },
-            { kind: "action", verb: "edit", target: "f" },
-        ];
-        const items = groupTimeline(entries);
-        expect(items.map((i) => i.kind)).toEqual(["group", "message", "group"]);
-        const g1 = items[0];
-        const g2 = items[2];
-        if (g1.kind === "group" && g2.kind === "group") {
-            expect(g1.startIndex).toBe(0);
-            expect(g2.startIndex).toBe(4);
-        }
-    });
-
-    it("honors an explicit threshold", () => {
-        const entries: AgentEntry[] = [
-            { kind: "action", verb: "read", target: "a" },
-            { kind: "action", verb: "read", target: "b" },
-        ];
-        expect(groupTimeline(entries, 2).map((i) => i.kind)).toEqual(["group"]);
-    });
-});
-
-describe("groupTimeline command/compaction", () => {
-    it("passes command and compaction through as standalone items, keeping order and flushing runs", () => {
-        const entries: AgentEntry[] = [
-            { kind: "command", name: "/review", args: "PR #402" },
-            { kind: "action", verb: "ran", target: "gh pr diff" },
-            { kind: "compaction", trigger: "manual", preTokens: 415334, postTokens: 22859, summary: "kept" },
-            { kind: "command", name: "brainstorming", args: "x", isSkill: true },
-        ];
-        const items = groupTimeline(entries);
-        expect(items.map((i) => i.kind)).toEqual(["command", "action", "compaction", "command"]);
-        expect(items[0]).toEqual({ kind: "command", name: "/review", args: "PR #402", isSkill: undefined, index: 0 });
-        expect(items[2]).toEqual({
-            kind: "compaction",
-            trigger: "manual",
-            preTokens: 415334,
-            postTokens: 22859,
-            summary: "kept",
-            index: 2,
-        });
-        expect(items[3]).toMatchObject({ kind: "command", name: "brainstorming", isSkill: true, index: 3 });
-    });
-
-    it("passes notification and interrupted through as standalone items, flushing runs", () => {
-        const entries: AgentEntry[] = [
-            { kind: "action", verb: "spawned", target: "worker" },
-            { kind: "notification", summary: "worker finished", status: "completed", result: "report body" },
-            { kind: "interrupted" },
-        ];
-        const items = groupTimeline(entries);
-        expect(items.map((i) => i.kind)).toEqual(["action", "notification", "interrupted"]);
-        expect(items[1]).toEqual({
-            kind: "notification",
-            summary: "worker finished",
-            status: "completed",
-            result: "report body",
-            index: 1,
-        });
-        expect(items[2]).toEqual({ kind: "interrupted", index: 2 });
-    });
-});
-describe("foldLabel", () => {
-    it("says a one-verb group once", () => {
-        const ran: AgentActionEntry[] = [1, 2, 3].map((i) => ({ kind: "action", verb: "ran", target: `c${i}` }));
-        expect(foldLabel(summarizeActions(ran))).toEqual({ headline: "3 ran" });
-    });
-    it("keeps the total and the breakdown for a mix", () => {
-        const mix: AgentActionEntry[] = [
-            { kind: "action", verb: "edited", target: "a" },
-            { kind: "action", verb: "edited", target: "b" },
-            { kind: "action", verb: "ran", target: "c" },
-        ];
-        expect(foldLabel(summarizeActions(mix))).toEqual({ headline: "3 tools", breakdown: "2 edited · 1 ran" });
-    });
-});
 describe("summarizeActions", () => {
     const actions: AgentActionEntry[] = [
         { kind: "action", verb: "read", target: "a" },
@@ -1343,47 +1173,6 @@ describe("detail inline routing", () => {
             { question: "q2", options, picked: [], typed: "c" },
         ];
         expect(detailLineCount({ kind: "ask", questions })).toBe(7);
-    });
-});
-
-describe("edit-burst grouping", () => {
-    const edit = (path: string): AgentEntry => ({
-        kind: "action",
-        verb: "edited",
-        target: path,
-        detail: { kind: "edit", files: [{ path, badge: "M", adds: 2, dels: 1, lines: [{ sign: "+", text: "a" }] }] },
-    });
-    it("folds 3+ consecutive edits into one edit-burst with summed totals", () => {
-        const items = groupTimeline([edit("a.ts"), edit("b.ts"), edit("c.ts")]);
-        expect(items).toHaveLength(1);
-        expect(items[0]).toMatchObject({ kind: "edit-burst", adds: 6, dels: 3 });
-        expect((items[0] as any).files).toHaveLength(3);
-    });
-    it("leaves a 2-edit run as inline actions", () => {
-        const items = groupTimeline([edit("a.ts"), edit("b.ts")]);
-        expect(items.map((i) => i.kind)).toEqual(["action", "action"]);
-    });
-    it("folds a run into a plain group when only some of its actions are edits", () => {
-        const items = groupTimeline([edit("a.ts"), edit("b.ts"), { kind: "action", verb: "read", target: "c.ts" }]);
-        expect(items.map((i) => i.kind)).toEqual(["group"]);
-    });
-    it("isEditAction requires the edit detail", () => {
-        expect(isEditAction({ kind: "action", verb: "edited", target: "a.ts" })).toBe(false);
-        expect(isEditAction(edit("a.ts"))).toBe(true);
-    });
-    it("isEditAction accepts the edited and wrote verbs only", () => {
-        const withVerb = (verb: string): AgentEntry => ({ ...(edit("a.ts") as AgentActionEntry), verb });
-        expect(isEditAction(withVerb("edited"))).toBe(true);
-        expect(isEditAction(withVerb("wrote"))).toBe(true);
-        expect(isEditAction(withVerb("read"))).toBe(false);
-        expect(isEditAction({ kind: "action", verb: "read", target: "a.ts" })).toBe(false);
-        expect(isEditAction({ kind: "message", text: "edited" })).toBe(false);
-    });
-    it("aggregateEditBurst sums files across actions", () => {
-        const burst = aggregateEditBurst([edit("a.ts"), edit("b.ts")] as AgentActionEntry[], 0);
-        expect(burst.files).toHaveLength(2);
-        expect(burst.adds).toBe(4);
-        expect(burst.dels).toBe(2);
     });
 });
 

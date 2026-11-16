@@ -7,7 +7,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // one unbroken token, long enough to overflow a 360px panel if the line did not wrap
 const LONG = "C:/Users/dev/waveterm/pkg/retry/testdata/" + "segment/".repeat(12) + "retry_loop_output.log";
-const BASH_TARGET = "go test ./pkg/retry/ -run TestBackoff";
+// not a test command: a test run opens to its test card (transcript-base checks that), this one to the raw panel
+const BASH_TARGET = "go run ./cmd/retrycheck -case TestBackoff";
 const BASH_OUT = `--- FAIL: TestBackoff (0.21s)\n    retry_test.go:42: want 3 attempts, got 4 at ${LONG}\nFAIL`;
 
 const edit = (path, badge, text) => ({
@@ -21,7 +22,8 @@ const edit = (path, badge, text) => ({
     },
 });
 
-// every entry kind; runs of 3+ actions fold (groupTimeline), so the pairs and the separating messages are deliberate
+// every entry kind; in a finished turn a stretch of 3+ steps folds into "Worked" (no times here) and a shorter one is a
+// step box (transcriptlayout.ts), so the pairs and the separating messages are deliberate
 const ENTRIES = [
     { kind: "user", text: "tighten the retry loop and prove it with a test" },
     {
@@ -88,7 +90,7 @@ const GONE_GLYPHS = "✓✗▶▼▲▸↗⊘★";
 
 const ROOT = `document.querySelector('[data-narration-fixture]')`;
 
-// the feed's static checks: no text under 10.5px, nothing dimmed, no replaced glyph, the folds and the callout
+// the feed's static checks: no text under 10.5px, nothing dimmed, no replaced glyph, the folds, the boxes and the callout
 const STATIC_PROBE = `(() => {
     const root = ${ROOT};
     if (!root) return null;
@@ -99,13 +101,11 @@ const STATIC_PROBE = `(() => {
         .map((el) => el.textContent.trim().slice(0, 30) + ' @' + getComputedStyle(el).fontSize);
     const dim = all.filter((el) => parseFloat(getComputedStyle(el).opacity) < 1).map((el) => (el.textContent || '').trim().slice(0, 30));
     const glyphs = [...${JSON.stringify(GONE_GLYPHS)}].filter((g) => root.innerText.includes(g));
-    const folds = [...root.querySelectorAll('[data-fold]')].map((b) => {
-        const s = getComputedStyle(b);
-        return { text: b.textContent, widths: [s.borderTopWidth, s.borderRightWidth, s.borderBottomWidth, s.borderLeftWidth] };
-    });
+    const folds = [...root.querySelectorAll('[data-fold]')].map((b) => b.textContent);
+    const boxes = [...root.querySelectorAll('[data-steps]')].map((b) => b.querySelectorAll('[data-step]').length);
     const ins = root.querySelector('[data-insight]');
     const is = ins && getComputedStyle(ins);
-    return { small, dim, glyphs, folds, insight: is ? [is.borderTopWidth, is.borderRightWidth, is.borderBottomWidth, is.borderLeftWidth] : null };
+    return { small, dim, glyphs, folds, boxes, insight: is ? [is.borderTopWidth, is.borderRightWidth, is.borderBottomWidth, is.borderLeftWidth] : null };
 })()`;
 
 // click the row whose target span reads `text` (React delegates, so a bubbling click reaches the handler)
@@ -123,7 +123,7 @@ const PANEL_PROBE = `(() => [...${ROOT}.querySelectorAll('[data-tool-panel]')].m
     const footer = btn ? btn.parentElement : null;
     const body = p.firstElementChild;
     return {
-        text: (p.textContent || '').slice(0, 40),
+        text: (p.textContent || '').slice(0, 200),
         btnText: btn ? btn.textContent.trim() : null,
         btnTitle: btn ? btn.getAttribute('title') : null,
         footer: footer ? footer.textContent : null,
@@ -151,13 +151,18 @@ async function staticSteps(h, label) {
         { step: `[${label}] nothing dimmed`, ok: s.dim.length === 0, detail: s.dim.slice(0, 5).join(" | ") || "none" },
         { step: `[${label}] no replaced text glyphs`, ok: s.glyphs.length === 0, detail: s.glyphs.join(" ") || "none" },
         {
-            step: `[${label}] folded runs: 1px border all round, "N tools", one "1 failed", one "all ok"`,
+            step: `[${label}] three folded stretches read "Worked · <phrase>", one "1 failed", the edits "+3 −3"`,
             ok:
-                s.folds.length === 2 &&
-                s.folds.every((f) => allEqual1px(f.widths) && /\d+ tools/.test(f.text)) &&
-                s.folds.some((f) => f.text.includes("1 failed")) &&
-                s.folds.some((f) => f.text.includes("all ok")),
+                s.folds.length === 3 &&
+                s.folds.every((t) => t.startsWith("Worked")) &&
+                s.folds.filter((t) => t.includes("1 failed")).length === 1 &&
+                s.folds.some((t) => t.includes("edited 3 files") && t.includes("+3") && t.includes("−3")),
             detail: JSON.stringify(s.folds),
+        },
+        {
+            step: `[${label}] the two-step stretches draw as step boxes`,
+            ok: s.boxes.length === 2 && s.boxes.every((n) => n === 2),
+            detail: JSON.stringify(s.boxes),
         },
         { step: `[${label}] insight callout: 1px border all round`, ok: allEqual1px(s.insight), detail: JSON.stringify(s.insight) },
     ];
@@ -182,6 +187,15 @@ export const narrationFeed = {
         // wide: a card
         await show(h, 640);
         steps.push(...(await staticSteps(h, "640")));
+        const failRow = await h.ev(`(() => {
+            const row = ${ROOT}.querySelector('[data-step-status="fail"]');
+            return row ? row.textContent : null;
+        })()`);
+        steps.push({
+            step: "[640] a failed command's step row: the command in mono, an exit 1 chip and its time",
+            ok: failRow != null && failRow.includes(BASH_TARGET) && failRow.includes("exit 1") && failRow.includes("4.2s"),
+            detail: JSON.stringify(failRow),
+        });
         const opened = await h.ev(clickRow(BASH_TARGET));
         const openedOk = await h.ev(clickRow("task check:ts"));
         await sleep(600);
@@ -222,7 +236,10 @@ export const narrationFeed = {
         await show(h, 360);
         steps.push(...(await staticSteps(h, "360")));
         const openedBash = await h.ev(clickRow(BASH_TARGET));
-        const openedEdit = await h.ev(clickRow("3 files"));
+        // the edits are folded: open their fold, then the first edit's step
+        await h.ev(`[...${ROOT}.querySelectorAll('[data-fold]')].find((b) => (b.textContent || '').includes('edited'))?.click()`);
+        await sleep(600);
+        const openedEdit = await h.ev(clickRow("Edited pkg/retry/retry.go"));
         await sleep(600);
         const narrow = await h.ev(PANEL_PROBE);
         steps.push({
@@ -239,7 +256,7 @@ export const narrationFeed = {
         await h.shot("cdp-shots/narration-feed-narrow.png");
 
         // an expanded fold keeps its summary row as a header, so a second click folds it again
-        const FOLD = `[...${ROOT}.querySelectorAll('[data-fold]')].find((b) => (b.textContent || '').includes('all ok'))`;
+        const FOLD = `[...${ROOT}.querySelectorAll('[data-fold]')].find((b) => /read 2 files, searched/.test(b.textContent || '') && !/failed/.test(b.textContent || ''))`;
         const foldState = `(() => ({ expanded: ${FOLD}?.getAttribute('aria-expanded') ?? null, folds: ${ROOT}.querySelectorAll('[data-fold]').length }))()`;
         const closed = await h.ev(foldState);
         await h.ev(`${FOLD}?.click()`);

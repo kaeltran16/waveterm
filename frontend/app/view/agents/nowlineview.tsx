@@ -1,97 +1,109 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The Rendered view's now line, in a band between the timeline and the composer. Derived on each tick of the
-// surface's 1s clock (nowline.ts), so nothing here must survive an unmount.
+// The working line, drawn as the transcript's tail under its last item (nowline.ts derives it). WorkingLine is a pure
+// view of a NowLine; LiveWorkingLine reads the 1s clock, the block's last hook, its permission requests and the
+// spinner row on its terminal, so the host's memoised timeline does not re-render on each tick.
 
 import { CrossFade } from "@/app/element/crossfade";
-import { DrawCheck } from "@/app/element/drawcheck";
+import { microFade } from "@/app/element/motiontokens";
 import { screenRows } from "@/app/view/term/termscreen";
-import { useAtomValue } from "jotai";
-import type { AgentsViewModel } from "./agents";
-import { hasAnswerableAsk, type AgentEntry, type AgentVM } from "./agentsviewmodel";
-import { VERB } from "./narrationtimeline";
-import { nowLineState, nowLineText } from "./nowline";
+import { cn } from "@/util/util";
+import { useAtomValue, type Atom } from "jotai";
+import { motion } from "motion/react";
+import { useMemo } from "react";
+import type { AgentEntry, AgentState, AgentVM } from "./agentsviewmodel";
+import { nowLineState, nowLineText, type NowLine } from "./nowline";
 import { getAgentPermissionsAtom } from "./permissionstore";
 import { getLastHookAtom } from "./session-models/agentstatusstore";
 import { parseSpinner } from "./spinnerrow";
 
-const MONO = "font-mono text-[11px] text-muted";
+export function WorkingLine({ line, compact = false }: { line: NowLine; compact?: boolean }) {
+    if (line.kind === "hidden") {
+        return null;
+    }
+    const { lead, rest } = nowLineText(line, compact);
+    return (
+        <motion.div
+            data-working-line
+            data-compact={compact || undefined}
+            variants={microFade}
+            initial="initial"
+            animate="animate"
+            className={cn(
+                "flex min-w-0 items-center text-muted",
+                compact ? "mt-1 gap-[7px] text-[12px]" : "mt-2 gap-2 text-[13px]"
+            )}
+        >
+            {lead != null ? (
+                // claude cycles the verb while it works; each new one cross-fades in
+                <CrossFade swapKey={lead} className="shrink-0">
+                    <span
+                        data-working-verb
+                        className={cn("font-mono text-provider-claude", compact ? "text-[11.5px]" : "text-[12.5px]")}
+                    >
+                        {lead}
+                    </span>
+                </CrossFade>
+            ) : null}
+            <span data-working-facts className="min-w-0 truncate">
+                {rest}
+            </span>
+        </motion.div>
+    );
+}
 
-export function NowLine({ model, agent, entries }: { model: AgentsViewModel; agent: AgentVM; entries: AgentEntry[] }) {
-    const now = useAtomValue(model.nowAtom);
-    const oref = `block:${agent.blockId}`;
+export function LiveWorkingLine({
+    nowAtom,
+    blockId,
+    state,
+    entries,
+    compact,
+}: {
+    nowAtom: Atom<number>;
+    blockId: string;
+    state: AgentState;
+    entries: AgentEntry[];
+    compact?: boolean;
+}) {
+    const now = useAtomValue(nowAtom);
+    const oref = `block:${blockId}`;
     const lastHook = useAtomValue(getLastHookAtom(oref));
+    // a pending permission request docks under the column and holds the slot; an ask hides the line by state
     const permissions = useAtomValue(getAgentPermissionsAtom(oref));
-    // the dock holds the slot: an answerable ask or a pending permission request
-    const docked = permissions.length > 0 || (agent.state === "asking" && hasAnswerableAsk(agent));
     // the screen is only read while working; a terminal not yet mounted reads as no spinner
-    const rows = agent.state === "working" ? screenRows(agent.blockId) : null;
+    const rows = state === "working" ? screenRows(blockId) : null;
     const line = nowLineState({
-        state: agent.state,
-        docked,
+        state,
+        docked: permissions.length > 0,
         entries,
         spinner: rows == null ? null : parseSpinner(rows),
         lastHook,
         now,
     });
-    if (line.kind === "hidden") {
-        return null;
-    }
-    const { left, right } = nowLineText(line);
-    return (
-        <div data-now-band className="flex h-10 shrink-0 items-center px-[22px]">
-            <div data-now-line data-now-kind={line.kind} className="flex min-w-0 flex-1 items-center gap-2.5">
-                {/* unconditional, so the turn finishing while the line is on screen draws the check */}
-                <DrawCheck done={line.kind === "done"} className="shrink-0 text-ink-mid" />
-                {line.kind === "done" ? (
-                    <span data-now-left className="font-mono text-[11px] text-ink-faint">
-                        {left}
-                    </span>
-                ) : (
-                    <>
-                        {line.spinner != null ? (
-                            <span data-now-left className="flex shrink-0 items-center gap-2.5 whitespace-nowrap">
-                                <span className="font-mono text-[11.5px] text-provider-claude">
-                                    {line.spinner.glyph} {line.spinner.verb}
-                                </span>
-                                {line.spinner.detail != null ? (
-                                    <span className={MONO}>({line.spinner.detail})</span>
-                                ) : null}
-                            </span>
-                        ) : (
-                            <span
-                                data-now-left
-                                className="shrink-0 whitespace-nowrap font-mono text-[11.5px] text-muted"
-                            >
-                                {left}
-                            </span>
-                        )}
-                        <span className="flex-1" />
-                        <CrossFade
-                            swapKey={line.call == null ? "" : `${line.call.verb} ${line.call.target}`}
-                            className="min-w-0 gap-2.5"
-                        >
-                            {line.call != null ? (
-                                <>
-                                    <span className={VERB}>{line.call.verb}</span>
-                                    <span
-                                        data-now-target
-                                        className="min-w-0 truncate font-mono text-[11.5px] text-primary"
-                                    >
-                                        {line.call.target}
-                                    </span>
-                                </>
-                            ) : null}
-                        </CrossFade>
-                        {right !== "" ? (
-                            <span data-now-right className={`shrink-0 whitespace-nowrap ${MONO}`}>
-                                {right}
-                            </span>
-                        ) : null}
-                    </>
-                )}
-            </div>
-        </div>
+    return <WorkingLine line={line} compact={compact} />;
+}
+
+/** The working line as a host's timeline tail, memoised on what it reads so the timeline's memo holds between turns
+ *  (each agent:status rebuilds the AgentVM). Null for an agent with no terminal block. */
+export function useWorkingTail(
+    nowAtom: Atom<number>,
+    agent: Pick<AgentVM, "blockId" | "state">,
+    entries: AgentEntry[],
+    compact?: boolean
+): React.ReactNode {
+    const { blockId, state } = agent;
+    return useMemo(
+        () =>
+            blockId == null ? null : (
+                <LiveWorkingLine
+                    nowAtom={nowAtom}
+                    blockId={blockId}
+                    state={state}
+                    entries={entries}
+                    compact={compact}
+                />
+            ),
+        [nowAtom, blockId, state, entries, compact]
     );
 }
