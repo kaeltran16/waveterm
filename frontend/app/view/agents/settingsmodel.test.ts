@@ -188,6 +188,7 @@ describe("settingsSections", () => {
         const config = rows.filter((r) => r.config).flatMap(rowKeys);
         expect(config).toEqual([
             "term:fontfamily",
+            "run:planskill",
             "term:fontsize",
             "term:cursor",
             "term:cursorblink",
@@ -218,6 +219,15 @@ describe("settingsSections run route and groups", () => {
             .rows.find((r) => r.id === "run.route")!;
         expect(route.scope).toBe("synced");
         expect(route.config).toBeUndefined();
+    });
+
+    it("lists the plan skill beside the run route, on the config path", () => {
+        const run = sections().find((s) => s.id === "run")!;
+        expect(run.rows.map((r) => r.id)).toEqual(["run.route", "run.planskill"]);
+        const skill = run.rows.find((r) => r.id === "run.planskill")!;
+        expect(skill.key).toBe("run:planskill");
+        expect(skill.scope).toBe("synced");
+        expect(skill.config).toBe(true);
     });
 
     it("puts every section in a known group", () => {

@@ -286,6 +286,14 @@ export function settingsSections(): SettingSectionDef[] {
                     key: "harness.preference",
                     scope: "synced",
                 },
+                {
+                    id: "run.planskill",
+                    title: "Plan skill",
+                    desc: "How an orchestrator run's lead writes its plan. arc:plan writes vertical slices with acceptance criteria and leaves the tests to each worker; writing-plans lists the tests in every task. Applies to new runs.",
+                    key: "run:planskill",
+                    scope: "synced",
+                    config: true,
+                },
             ],
         },
         {
