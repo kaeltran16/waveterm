@@ -55,6 +55,9 @@ const SHOT = (n, what) => `cdp-shots/${NAME}-${n}-${what}.png`;
 // keys as the probe logs them: one hex chunk per line
 const SHIFT_TAB = "1b5b5a";
 const ESC = "1b";
+const CTRL_C = "03";
+// past bindings.ts DOUBLE_CTRL_C_MS (500), so two presses this far apart are two first presses
+const CTRL_C_PAIR_GAP_MS = 700;
 
 const PROMPT = "Run the jarvis tests, show me the diff, and chart the timings.";
 const PROSE_BOLD = "the plan";
@@ -246,6 +249,8 @@ const pressOnSurface = (h, key) =>
         await nap(150);
         return document.activeElement === wrap || wrap.contains(document.activeElement);`
     );
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const probeLines = (ctx) => (existsSync(ctx.probe) ? readFileSync(ctx.probe, "utf8").split("\n").filter(Boolean) : []);
 
@@ -1126,6 +1131,32 @@ export default function (_kit) {
                     const keys = await waitProbe(ctx, from, [ESC]);
                     await h.shot(SHOT(17, "esc"));
                     return [sent && keys.ok, { sent, keys: keys.lines }];
+                });
+
+                await step("rendered: ctrl+c — Ctrl+C in P's empty composer types ^C into the pty, and a second press within the double-press window asks to close P", async () => {
+                    // clear of the Esc step's press, so the first press here starts a new pair
+                    await sleep(CTRL_C_PAIR_GAP_MS);
+                    const press = `{ const ta = ${RV}?.querySelector("[data-rendered-composer] textarea");
+                        if (!ta) return false;
+                        ta.focus();
+                        window.getSelection()?.removeAllRanges();
+                        ta.dispatchEvent(new KeyboardEvent("keydown", { key: "c", code: "KeyC", ctrlKey: true, bubbles: true, cancelable: true })); }`;
+                    const from = probeLines(ctx).length;
+                    const once = await agentPage(h, `${press} return true;`);
+                    const keys = await waitProbe(ctx, from, [CTRL_C]);
+                    await sleep(CTRL_C_PAIR_GAP_MS);
+                    const twice = await agentPage(h, `${press} ${press} return true;`);
+                    const asked = await wait(`[...document.querySelectorAll('[role="dialog"]')].some((d) => /close/i.test(d.textContent ?? ""))`, WAIT_MS);
+                    await h.shot(SHOT(17, "ctrl-c-confirm"));
+                    const cancelled = await h.ev(`(() => {
+                        const d = [...document.querySelectorAll('[role="dialog"]')].pop();
+                        const b = [...(d?.querySelectorAll("button") ?? [])].find((x) => x.textContent?.trim().startsWith("Cancel"));
+                        b?.click();
+                        return b != null;
+                    })()`);
+                    const ctrlCs = probeLines(ctx).slice(from).filter((l) => l === CTRL_C).length;
+                    // the second pair's first press reaches the pty too; its second only opens the confirm
+                    return [once && keys.ok && twice && asked && cancelled && ctrlCs === 2, { keys: keys.lines, asked, cancelled, ctrlCs }];
                 });
 
                 await step("rendered: box shape — A's box is the rounded pill: the Reply placeholder on its first line, the control row under it, a round Send disabled, no key-hint footer", async () => {

@@ -206,6 +206,10 @@ describe("ctrlCReachesSession", () => {
     it("leaves focus outside the surface alone", () => {
         expect(ctrlCReachesSession(false, false, true)).toBe(false);
     });
+
+    it("counts in the Rendered view, which stands in for the terminal", () => {
+        expect(ctrlCReachesSession(false, true, false, true)).toBe(true);
+    });
 });
 
 describe("surface switch [ / ]", () => {

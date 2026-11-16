@@ -13,7 +13,7 @@ import { cheatsheetOpenAtom } from "@/app/cockpit/shortcuts-cheatsheet";
 import { escapeMenusOpenAtom } from "@/app/hook/useEscapeClose";
 import { anyModalOpen } from "@/app/modals/modalstack";
 import { globalStore } from "@/app/store/jotaiStore";
-import { confirmCloseSession } from "@/app/view/agents/agentactions";
+import { confirmCloseSession, driveAgent } from "@/app/view/agents/agentactions";
 import { AgentsViewModel, SURFACE_ORDER, type SurfaceKey } from "@/app/view/agents/agents";
 import { answerDigitTarget, canSubmitAsk, moveCursor, type AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { enterAction, pickAdvance } from "@/app/view/agents/askflow";
@@ -293,9 +293,23 @@ export function closeTargetForDoubleCtrlC(agents: AgentVM[], focusId: string | u
 }
 
 // a brainstorm or canvas pane hides the terminal and pulls focus to the surface, so the press counts anywhere on
-// the surface there; with the terminal showing it counts only inside it, so ^C elsewhere stays a plain key
-export function ctrlCReachesSession(inTerm: boolean, inSurface: boolean, paneShown: boolean): boolean {
-    return inTerm || (paneShown && inSurface);
+// the surface there; with the terminal showing it counts only inside it, so ^C elsewhere stays a plain key. The
+// Rendered view stands in for the terminal, so a press inside it counts as one in the terminal.
+export function ctrlCReachesSession(
+    inTerm: boolean,
+    inSurface: boolean,
+    paneShown: boolean,
+    inRendered = false
+): boolean {
+    return inTerm || inRendered || (paneShown && inSurface);
+}
+
+// selected text makes ^C a copy: in the message box (a textarea's selection is not the document's) or the page
+function hasTextSelection(el: HTMLElement | null): boolean {
+    if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) {
+        return el.selectionStart !== el.selectionEnd;
+    }
+    return !(window.getSelection()?.isCollapsed ?? true);
 }
 
 // same rule as the agent surface's paneMode: an agent with a brainstorm never shows its canvas
@@ -456,7 +470,11 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
                 const active = document.activeElement as HTMLElement | null;
                 const inTerm = active?.closest?.(".cockpit-focus-pane") != null;
                 const inSurface = active?.closest?.("[data-cockpit-surface-wrap]") != null;
-                if (!ctrlCReachesSession(inTerm, inSurface, focusedPaneShown(model))) {
+                const inRendered = active?.closest?.("[data-rendered-view]") != null;
+                if (!ctrlCReachesSession(inTerm, inSurface, focusedPaneShown(model), inRendered)) {
+                    return false;
+                }
+                if (inRendered && hasTextSelection(active)) {
                     return false;
                 }
                 const now = performance.now();
@@ -472,6 +490,12 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
                     return false;
                 }
                 lastCtrlC = now;
+                if (inRendered) {
+                    // the Rendered view's message box is not the PTY, so the first press goes to Claude as the
+                    // terminal's would: it stops a running turn
+                    const fid = globalStore.get(model.focusIdAtom);
+                    driveAgent(globalStore.get(model.agentsAtom).find((a) => a.id === fid)?.blockId, "\x03");
+                }
                 return false; // first press falls through so the PTY receives ^C
             },
         },
