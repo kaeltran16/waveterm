@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { AgentEntry, TimelineItem } from "./agentsviewmodel";
 import {
     anchorMarks,
+    bandRequests,
     permissionLogText,
     permissionPreview,
     permissionTitle,
@@ -19,6 +20,26 @@ function perm(toolname: string, input: unknown, choices = ["Yes", "No, tell Clau
         ts: 1,
     };
 }
+
+describe("bandRequests", () => {
+    const ask = perm("AskUserQuestion", {});
+    const bash = perm("Bash", { command: "ls" });
+
+    it("leaves an AskUserQuestion at the head to the ask dock", () => {
+        expect(bandRequests([ask], true)).toEqual([]);
+        expect(bandRequests([ask, bash], true)).toEqual([]);
+    });
+
+    it("draws an AskUserQuestion when no ask dock shows it", () => {
+        expect(bandRequests([ask], false)).toEqual([ask]);
+    });
+
+    it("draws any other head, dock or not", () => {
+        expect(bandRequests([bash, ask], true)).toEqual([bash, ask]);
+        expect(bandRequests([bash], false)).toEqual([bash]);
+        expect(bandRequests([], true)).toEqual([]);
+    });
+});
 
 describe("permissionTitle", () => {
     it("names the file for the edit tools", () => {

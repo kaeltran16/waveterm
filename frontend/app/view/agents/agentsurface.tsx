@@ -41,7 +41,7 @@ import { finalRowFocusId } from "./finalstage";
 import { FinalStagePane } from "./finalstagepane";
 import { rosterSeededAtom } from "./liveagents";
 import { terminalFullscreenAtom } from "./railstore";
-import { canRender, effectiveViewMode, pickerFlipAtom, viewModeAtom } from "./renderedmode";
+import { askDocked, canRender, effectiveViewMode, pickerFlipAtom, viewModeAtom } from "./renderedmode";
 import { RenderedView, useUnflipOnPrompt } from "./renderedview";
 import { isEndedWorkerId } from "./runlineage";
 import { SubagentInterior } from "./subagentinterior";
@@ -271,7 +271,7 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
                     {showSub ? <SubagentInterior sub={focusSub!} parentName={agent.name} /> : null}
                 </div>
                 {!fullscreen && !paneMode && agent.kind !== "terminal" ? (
-                    <AgentDetailsRail model={model} agent={agent} />
+                    <AgentDetailsRail model={model} agent={agent} askInView={showRendered && askDocked(agent)} />
                 ) : null}
             </div>
         </MotionConfig>

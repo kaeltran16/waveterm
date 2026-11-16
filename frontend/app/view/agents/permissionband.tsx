@@ -13,7 +13,13 @@ import { useAtomValue } from "jotai";
 import { useState } from "react";
 import { MarkdownMessage } from "./markdownmessage";
 import { ToolDetailBody } from "./narrationtimeline";
-import { permissionLogText, permissionPreview, permissionTitle, type PermissionPreview } from "./permissionmodel";
+import {
+    bandRequests,
+    permissionLogText,
+    permissionPreview,
+    permissionTitle,
+    type PermissionPreview,
+} from "./permissionmodel";
 import { getAgentPermissionsAtom, permissionLogAtom, removeAgentPermission } from "./permissionstore";
 import { pickerFlipAtom } from "./renderedmode";
 import { getAgentStatusAtom } from "./session-models/agentstatusstore";
@@ -131,13 +137,15 @@ function RequestBand({
 export function PermissionBand({
     agentId,
     blockId,
+    askShown,
     onLastChoice,
 }: {
     agentId: string;
     blockId: string;
+    askShown: boolean;
     onLastChoice: () => void;
 }) {
-    const pending = useAtomValue(getAgentPermissionsAtom(`block:${blockId}`));
+    const pending = bandRequests(useAtomValue(getAgentPermissionsAtom(`block:${blockId}`)), askShown);
     if (pending.length === 0) {
         return null;
     }

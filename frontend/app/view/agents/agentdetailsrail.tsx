@@ -303,7 +303,16 @@ function useRoleAsks(model: AgentsViewModel, agent: AgentVM) {
 // The collapsed strip reads only the context % and the ask count. The panel and its loaders (the 1 s clock, usage
 // and cache status every 15 s, the git read) mount only while the rail is open on the Agent surface, which stays
 // mounted off-screen under every other surface.
-export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
+// askInView: the agent's question is answerable in the center (the Rendered view's ask dock), not only in its terminal
+export function AgentDetailsRail({
+    model,
+    agent,
+    askInView,
+}: {
+    model: AgentsViewModel;
+    agent: AgentVM;
+    askInView: boolean;
+}) {
     const open = useAtomValue(railVisibleAtom);
     const onAgent = useAtomValue(model.surfaceAtom) === "agent";
     const focusSub = useAtomValue(focusSubagentAtom);
@@ -323,7 +332,7 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
             openAtom={railVisibleAtom}
             ariaLabel="Agent details"
             sections={[]}
-            panel={open && onAgent ? <AgentDetailsPanel model={model} agent={agent} /> : null}
+            panel={open && onAgent ? <AgentDetailsPanel model={model} agent={agent} askInView={askInView} /> : null}
             strip={{
                 content: (
                     <RailStrip needs={yours.length} ctxPct={inSub ? undefined : ctxPct} ctxMax={usage?.contextmax} />
@@ -334,7 +343,15 @@ export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; age
     );
 }
 
-function AgentDetailsPanel({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
+function AgentDetailsPanel({
+    model,
+    agent,
+    askInView,
+}: {
+    model: AgentsViewModel;
+    agent: AgentVM;
+    askInView: boolean;
+}) {
     const liveEntries = useAtomValue(entriesAtomFor(agent.id));
     const subs = useAtomValue(subagentsByIdAtom)[agent.id] ?? [];
     const standingBy = isStandingBy(agent.state, useAtomValue(shellTasksByIdAtom)[agent.id] ?? [], subs);
@@ -432,6 +449,7 @@ function AgentDetailsPanel({ model, agent }: { model: AgentsViewModel; agent: Ag
               standingBy,
               interrupted: lastTurnInterrupted(ownEntries),
               silentMs,
+              askInView,
           });
     const sharedBy = sharedCheckoutCount(agent.id, useAtomValue(cardCwdByIdAtom));
     const offerReset =

@@ -109,6 +109,7 @@ describe("railAction", () => {
             kind: "none",
             hint: "waiting on you · answer in the terminal",
         });
+        expect(railAction({ ...base, state: "asking", askInView: true })?.hint).not.toContain("terminal");
     });
 
     it("idle offers resume only after an interrupt", () => {

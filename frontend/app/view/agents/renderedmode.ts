@@ -7,7 +7,7 @@
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { atom, type PrimitiveAtom } from "jotai";
-import type { AgentVM } from "./agentsviewmodel";
+import { hasAnswerableAsk, type AgentVM } from "./agentsviewmodel";
 
 export type ViewMode = "terminal" | "rendered";
 
@@ -35,6 +35,11 @@ export function pickerFlipAtom(agentId: string): PrimitiveAtom<number | null> {
 
 export function effectiveViewMode(mode: ViewMode, flipTs: number | null): ViewMode {
     return flipTs != null ? "terminal" : mode;
+}
+
+// the rendered view docks an asking agent's choices above its composer, so the question is answered there
+export function askDocked(agent: AgentVM): boolean {
+    return agent.state === "asking" && hasAnswerableAsk(agent);
 }
 
 // only a live claude session has the control paths the rendered view drives

@@ -743,6 +743,38 @@ export default function (_kit) {
                     await h.shot(SHOT(9, "ask-dock"));
                     return [patched && dock.ask && dock.question && dock.above && dock.nowBand === false, { askid: rtn?.askid ?? rtn, patched, dock }];
                 });
+
+                // Claude Code raises a permission request for the question dialog too; put one in the page's queue (a
+                // server-held one would outlive the step and turn the next Edit request into a queue of two)
+                await step("rendered: ask permission — the docked ask's own AskUserQuestion request draws no band, and the rail does not send you to the terminal", async () => {
+                    const injected = await agentPage(
+                        h,
+                        `const { getAgentPermissionsAtom } = await mod("app/view/agents/permissionstore.ts");
+                        globalStore.set(getAgentPermissionsAtom(${JSON.stringify(aOref)}), [{
+                            oref: ${JSON.stringify(aOref)}, permid: "fx-rendered-ask-perm", toolname: "AskUserQuestion",
+                            toolinput: JSON.stringify({ questions: [${JSON.stringify(ASK_QUESTION)}] }),
+                            choices: ["Yes", "No"], ts: Date.now(),
+                        }]);
+                        return true;`
+                    );
+                    await wait(`document.querySelector("[data-rail-hint]") != null`, 2000);
+                    const seen = await h.ev(`(() => {
+                        const rv = ${RV};
+                        return {
+                            ask: rv?.querySelector("[data-rendered-ask]") != null,
+                            band: rv?.querySelector("[data-permission-band], [data-permission-queue]") != null,
+                            hint: (document.querySelector("[data-rail-hint]")?.textContent ?? "").trim(),
+                        };
+                    })()`);
+                    await h.shot(SHOT(9, "ask-permission"));
+                    await agentPage(
+                        h,
+                        `const { removeAgentPermission } = await mod("app/view/agents/permissionstore.ts");
+                        removeAgentPermission(${JSON.stringify(aOref)}, "fx-rendered-ask-perm");
+                        return true;`
+                    );
+                    return [injected && seen.ask && !seen.band && seen.hint === "waiting on you", seen];
+                });
                 // the ask is not under test past its step
                 try {
                     await h.rpc("agentaskclear", aOref);

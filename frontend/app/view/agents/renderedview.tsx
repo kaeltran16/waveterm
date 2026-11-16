@@ -13,7 +13,7 @@ import { useEffect, useRef } from "react";
 import { interruptAgent } from "./agentactions";
 import type { AgentComposerHandle } from "./agentcomposer";
 import type { AgentsViewModel } from "./agents";
-import { askSentKey, hasAnswerableAsk, type AgentVM } from "./agentsviewmodel";
+import { askSentKey, type AgentVM } from "./agentsviewmodel";
 import { AnswerBar } from "./answerbar";
 import { entriesAtomFor } from "./livetranscriptatoms";
 import { NarrationTimeline } from "./narrationtimeline";
@@ -22,7 +22,7 @@ import { PermissionBand } from "./permissionband";
 import { anchorMarks } from "./permissionmodel";
 import { permissionLogAtom } from "./permissionstore";
 import { RenderedComposer } from "./renderedcomposer";
-import { isPickerCommand, pickerFlipAtom, shouldUnflip } from "./renderedmode";
+import { askDocked, isPickerCommand, pickerFlipAtom, shouldUnflip } from "./renderedmode";
 import { getLastHookAtom } from "./session-models/agentstatusstore";
 import { JumpToLatestPill, useStickToBottom } from "./sticktobottom";
 import { TranscriptSkeleton } from "./transcriptskeleton";
@@ -45,9 +45,6 @@ function AskDock({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
     const texts = useAtomValue(model.answerTextAtom)[agent.id] ?? {};
     const activeQuestion = useAtomValue(model.answerTabAtom)[agent.id] ?? 0;
     const sent = useAtomValue(model.sentIdsAtom).has(askSentKey(agent) ?? "");
-    if (agent.state !== "asking" || !hasAnswerableAsk(agent)) {
-        return null;
-    }
     return (
         <div data-rendered-ask className="border-t border-edge-mid px-[14px] py-2">
             <AnswerBar
@@ -76,6 +73,7 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
     const marks = useAtomValue(permissionLogAtom(agent.id));
     const { scrollRef, onScroll, atBottom, jumpToBottom } = useStickToBottom(entries);
     const composerRef = useRef<AgentComposerHandle>(null);
+    const askShown = askDocked(agent);
     // the picker only exists in the TUI, so the flip lands before the command is typed
     const onSubmitText = (text: string) => {
         if (isPickerCommand(text)) {
@@ -123,10 +121,11 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
                 <JumpToLatestPill show={!atBottom} onClick={jumpToBottom} />
             </div>
             <NowLine model={model} agent={agent} entries={entries} />
-            <AskDock model={model} agent={agent} />
+            {askShown ? <AskDock model={model} agent={agent} /> : null}
             <PermissionBand
                 agentId={agent.id}
                 blockId={agent.blockId}
+                askShown={askShown}
                 onLastChoice={() => composerRef.current?.focus()}
             />
             <div data-rendered-composer className="shrink-0 px-[22px] pb-4">
