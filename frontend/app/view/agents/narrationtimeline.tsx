@@ -832,6 +832,8 @@ function CommandChip({ name, args, isSkill, compact }: { name: string; args?: st
 
 // a centred event on a rule: compaction, an interrupt
 const EVENT_RULE = "h-px flex-1 bg-edge-mid";
+// an event's opened markdown panel; set here, or it inherits the page's 16px foreground
+const EVENT_PANEL_TEXT = "text-[13px] leading-[1.55] text-secondary";
 
 function CompactionDivider({
     trigger,
@@ -879,7 +881,7 @@ function CompactionDivider({
             <PaneReveal open={open && !!summary}>
                 <div className="my-2 rounded-[8px] border border-edge-mid bg-surface-code px-3.5 py-3">
                     <div className="mb-1.5 text-[12px] text-muted">Summary, kept context</div>
-                    <MarkdownMessage text={summary ?? ""} />
+                    <MarkdownMessage text={summary ?? ""} className={EVENT_PANEL_TEXT} />
                 </div>
             </PaneReveal>
         </div>
@@ -942,7 +944,7 @@ function TaskNotificationRow({
             </button>
             <PaneReveal open={open && !!result}>
                 <div className="mt-1.5 rounded-[8px] border border-edge-mid bg-surface-code px-3.5 py-3">
-                    <MarkdownMessage text={result ?? ""} />
+                    <MarkdownMessage text={result ?? ""} className={EVENT_PANEL_TEXT} />
                 </div>
             </PaneReveal>
         </div>

@@ -636,8 +636,8 @@ function BriefRow({ message, ctx, compact }: ArcMessageRowProps & { message: Ext
                 <div
                     data-brief-text
                     className={cn(
-                        "mt-2 rounded-[8px] border border-edge-faint bg-surface",
-                        compact ? "px-2.5 py-2" : "px-3.5 py-3"
+                        "mt-2 rounded-[8px] border border-edge-faint bg-surface font-sans text-secondary",
+                        compact ? "px-2.5 py-2 text-[12px] leading-[1.5]" : "px-3.5 py-3 text-[13px] leading-[1.55]"
                     )}
                 >
                     <MarkdownMessage text={message.text} />
