@@ -4,7 +4,9 @@
 import { describe, expect, it } from "vitest";
 import {
     attentionModel,
+    attentionStepSummary,
     matchStartedRun,
+    NOTHING_WAITING,
     runAnsweredModel,
     runShowModel,
     runShowSourceFromJson,
@@ -198,6 +200,26 @@ describe("attentionModel", () => {
         expect(m.rows[0].waited).toBeTruthy();
         expect(m.rows[1].runId).toBeUndefined();
         expect(m.rows[1].waited).toBeUndefined();
+    });
+});
+
+describe("attentionStepSummary", () => {
+    const call = (flags: WshCall["flags"]): WshCall => ({ path: ["runs", "attention"], args: [], flags });
+
+    it("summarises an empty --json array", () => {
+        expect(attentionStepSummary(call({ json: true }), "[]\n")).toBe(NOTHING_WAITING);
+        expect(attentionStepSummary(call({ json: "true" }), "[]")).toBe(NOTHING_WAITING);
+    });
+
+    it("gives none for a non-empty array", () => {
+        expect(attentionStepSummary(call({ json: true }), JSON.stringify([{ key: "k" }]))).toBeUndefined();
+    });
+
+    it("gives none without --json, or for output that does not parse as an array", () => {
+        expect(attentionStepSummary(call({}), "[]")).toBeUndefined();
+        expect(attentionStepSummary(call({ json: true }), undefined)).toBeUndefined();
+        expect(attentionStepSummary(call({ json: true }), "nothing is waiting")).toBeUndefined();
+        expect(attentionStepSummary(call({ json: true }), "{}")).toBeUndefined();
     });
 });
 

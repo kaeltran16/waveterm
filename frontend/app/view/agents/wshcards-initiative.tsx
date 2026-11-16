@@ -4,11 +4,10 @@
 // wsh effort calls: initiative and chunk cards, and the effort show/list views. A card draws from the call's argv and
 // is enriched from the effort record through wshdata; a record that will not load leaves the argv card and its error.
 
-import { modalsModel } from "@/app/store/modalmodel";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { stateRpcTimeoutMs } from "@/app/view/jarvis/briefingstore";
-import type { ChunkTone } from "@/app/view/jarvis/effortmodel";
+import { chunkTone, type ChunkTone } from "@/app/view/jarvis/effortmodel";
 import { openTarget } from "@/app/view/jarvis/openref";
 import { cn } from "@/util/util";
 import { ArrowUpRight, Check, ChevronDown, Flag, Pencil, Plus } from "lucide-react";
@@ -25,10 +24,10 @@ import {
     type InitiativeCard,
     type Progress,
 } from "./initiativecards";
-import { formatDuration } from "./tooldetail";
 import type { TranscriptContext } from "./transcriptcontext";
 import { actionCommand } from "./transcriptlayout";
 import { wshJsonOutput } from "./wshcall";
+import { CallFacts } from "./wshchangerow";
 import { useWshData } from "./wshdata";
 import { AsOfNow, type WshRendererProps, type WshRenderers } from "./wshrenderers";
 
@@ -145,27 +144,6 @@ function OpenLink({ ctx, effortId, compact }: { ctx: TranscriptContext; effortId
             Open
             <ArrowUpRight size={11} strokeWidth={2.2} aria-hidden />
         </button>
-    );
-}
-
-// every card keeps the call's facts: how long it took, and its command and output one click away
-function CallFacts({ action, compact }: { action: AgentActionEntry; compact: boolean }) {
-    return (
-        <>
-            {action.durationMs ? (
-                <span className={cn("shrink-0 font-mono text-ink-faint", compact ? "text-[10.5px]" : "text-[11px]")}>
-                    {formatDuration(action.durationMs)}
-                </span>
-            ) : null}
-            <button
-                type="button"
-                aria-label="Show the command"
-                onClick={() => modalsModel.pushModal("AgentToolDetailModal", { action })}
-                className="flex shrink-0 cursor-pointer rounded-[5px] p-0.5 text-muted hover:bg-surface-hover hover:text-primary"
-            >
-                <ArrowUpRight size={13} strokeWidth={2.2} aria-hidden />
-            </button>
-        </>
     );
 }
 
@@ -363,7 +341,7 @@ function ChunkCard({ call, wshKey, action, ctx, compact }: WshRendererProps) {
         case "chunk-status":
             return (
                 <EventRow
-                    icon={<ChunkDot tone={statusTone(card.status)} size={size} />}
+                    icon={<ChunkDot tone={chunkTone(card.status)} size={size} />}
                     label={`Chunk ${card.chunk.number ?? card.chunk.label ?? ""} ${card.status}`}
                     subject={card.chunk.number != null ? card.chunk.label : undefined}
                     action={action}
@@ -396,10 +374,6 @@ function ChunkCard({ call, wshKey, action, ctx, compact }: WshRendererProps) {
             );
     }
     return null;
-}
-
-function statusTone(status: string): ChunkTone {
-    return status === "active" || status === "deferred" || status === "skipped" ? status : "pending";
 }
 
 function InitiativeCreated({ call, action, ctx, compact }: WshRendererProps) {

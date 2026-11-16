@@ -16,6 +16,27 @@ function flagWords(flags: WshCall["flags"]): string[] {
     return Object.entries(flags).map(([k, v]) => (v === true ? `--${k}` : `--${k} ${v}`));
 }
 
+// every wsh card keeps the call's facts: how long it took, and its raw command and output one click away
+export function CallFacts({ action, compact }: { action: AgentActionEntry; compact: boolean }) {
+    return (
+        <>
+            {action.durationMs ? (
+                <span className={cn("shrink-0 font-mono text-ink-faint", compact ? "text-[10.5px]" : "text-[11px]")}>
+                    {formatDuration(action.durationMs)}
+                </span>
+            ) : null}
+            <button
+                type="button"
+                aria-label="Show the command"
+                onClick={() => modalsModel.pushModal("AgentToolDetailModal", { action })}
+                className="flex shrink-0 cursor-pointer rounded-[5px] p-0.5 text-muted hover:bg-surface-hover hover:text-primary"
+            >
+                <ArrowUpRight size={13} strokeWidth={2.2} aria-hidden />
+            </button>
+        </>
+    );
+}
+
 export function WshChangeRow({ call, action, compact }: { call: WshCall; action: AgentActionEntry; compact: boolean }) {
     const args = [...call.args, ...flagWords(call.flags)].join(" ");
     return (
@@ -45,19 +66,7 @@ export function WshChangeRow({ call, action, compact }: { call: WshCall; action:
                 </span>
             ) : null}
             <span className="flex-1" />
-            {action.durationMs ? (
-                <span className={cn("shrink-0 font-mono text-ink-faint", compact ? "text-[10.5px]" : "text-[11px]")}>
-                    {formatDuration(action.durationMs)}
-                </span>
-            ) : null}
-            <button
-                type="button"
-                aria-label="Show the command"
-                onClick={() => modalsModel.pushModal("AgentToolDetailModal", { action })}
-                className="flex shrink-0 cursor-pointer rounded-[5px] p-0.5 text-muted hover:bg-surface-hover hover:text-primary"
-            >
-                <ArrowUpRight size={13} strokeWidth={2.2} aria-hidden />
-            </button>
+            <CallFacts action={action} compact={compact} />
         </div>
     );
 }

@@ -91,6 +91,17 @@ const SIEM_SUMMARY = {
     chunks: SIEM_CHUNKS.map((label) => ({ label, status: "pending" })),
 };
 
+// an effort only the call's own --json output carries: nothing seeds it, so the view can only draw from that output
+const JSON_EID = "j50n0001";
+const JSON_TITLE = "Effort drawn from its own output";
+const JSON_CHUNKS = ["First chunk", "Second chunk", "Third chunk"];
+const JSON_EFFORT = effort({
+    oid: JSON_EID,
+    title: JSON_TITLE,
+    project: "waveterm",
+    chunks: JSON_CHUNKS.map((l, i) => chunk(l, i === 0 ? "done" : "pending")),
+});
+
 const cmd = (rest) => `wsh effort ${rest}`;
 
 // the named inputs the boards scenario composes: { entries, seed?, runEvents?, ctx? }
@@ -102,6 +113,19 @@ export const fixtures = {
             prose("Nothing is mid-flight; chunk 1 is first.", T0 + 4 * S),
         ],
         seed: { [`effort:${EID}`]: renderParity(0, "pending") },
+    },
+    "effort-show-json": {
+        entries: [
+            user("show that initiative as JSON", T0),
+            bash({
+                description: "Show the initiative",
+                command: cmd(`show effort:${JSON_EID} --json`),
+                output: JSON.stringify({ effort: JSON_EFFORT }),
+                ts: T0 + 2 * S,
+                durationMs: 300,
+            }),
+            prose("One of three is done.", T0 + 4 * S),
+        ],
     },
     "effort-list": {
         entries: [
@@ -354,6 +378,61 @@ async function stepsCompact(h) {
     return out;
 }
 
+async function stepShowJson(h) {
+    await show(h, "effort-show-json", 736);
+    await openStep(h);
+    const view = await h.ev(VIEW("effort-show"));
+    await h.shot("cdp-shots/transcript-initiative-show-json.png");
+    return [
+        {
+            step: "effort show --json of an unseeded effort draws the view from its own output, with no as-of-now marker",
+            ok:
+                view != null &&
+                view.text.includes(JSON_TITLE) &&
+                view.text.includes(`1 of ${JSON_CHUNKS.length} done`) &&
+                view.rows.length === JSON_CHUNKS.length &&
+                view.rows[0].includes(JSON_CHUNKS[0]) &&
+                view.asOfNow === false,
+            detail: JSON.stringify(view),
+        },
+    ];
+}
+
+// the fixture host is a dialog too, so the tool detail modal is the dialog that does not hold the fixture root
+const TOOL_DIALOG = `[...document.querySelectorAll('[role="dialog"]')].filter((d) => !d.querySelector(${JSON.stringify(ROOT)})).pop()`;
+const DIALOG = `(${TOOL_DIALOG})?.textContent ?? null`;
+
+async function pollDialog(h, done) {
+    let text = null;
+    for (let i = 0; i < LOAD_POLLS; i++) {
+        text = await h.ev(DIALOG);
+        if (done(text)) break;
+        await sleep(LOAD_POLL_MS);
+    }
+    return text;
+}
+
+async function stepShowCommand(h) {
+    await show(h, "chunk-done", 736);
+    const command = fixtures["chunk-done"].entries.find((e) => e.command)?.command;
+    await h.ev(probe(`root.querySelector('[data-wsh-card="chunk-status"] button[aria-label="Show the command"]')?.click(); return true;`));
+    const opened = await pollDialog(h, (t) => t?.includes(command));
+    await h.shot("cdp-shots/transcript-initiative-show-command.png");
+    // Escape where focus is, so ModalShell's window listener sees it the way a keypress would reach it
+    await h.ev(`(document.activeElement || document.body).dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true, cancelable: true })
+    )`);
+    const after = await pollDialog(h, (t) => t == null);
+    const hostKept = await h.ev(probe(`return true;`));
+    return [
+        {
+            step: `a card's "Show the command" opens the tool detail modal with the call's command, and Escape closes it alone`,
+            ok: opened != null && opened.includes(command) && after == null && hostKept === true,
+            detail: JSON.stringify({ opened: opened?.slice(0, 200) ?? null, closed: after == null, hostKept }),
+        },
+    ];
+}
+
 async function stepUnknown(h) {
     await show(h, "unknown-effort", 736);
     let card = null;
@@ -389,10 +468,14 @@ export const transcriptInitiative = {
         if (!seam) return steps;
         steps.push(...(await steps736(h)));
         steps.push(...(await stepsCompact(h)));
+        steps.push(...(await stepShowJson(h)));
+        steps.push(...(await stepShowCommand(h)));
         steps.push(...(await stepUnknown(h)));
         return steps;
     },
     async teardown(h) {
+        // a failed Escape step must not leave the modal over the next scenario
+        await h.ev(`(${TOOL_DIALOG})?.querySelector('button[aria-label="Close"]')?.click()`);
         await clearTranscript(h);
     },
 };

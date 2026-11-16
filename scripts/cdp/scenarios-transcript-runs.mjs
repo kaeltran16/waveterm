@@ -195,6 +195,19 @@ const SHOW_STATE = probe(`
     };
 `);
 
+// the step row holding `text` before it is opened: whether it is collapsed, its summary and what follows it (the time)
+const ROW_SUMMARY = (text) =>
+    probe(`
+    const row = [...root.querySelectorAll('[data-step]')].find((s) => s.textContent.includes(${JSON.stringify(text)}));
+    if (!row) return null;
+    const summary = row.querySelector('[data-step-summary]');
+    return {
+        expanded: row.querySelector('button[aria-expanded]')?.getAttribute('aria-expanded') ?? null,
+        summary: summary ? summary.textContent : null,
+        next: summary?.nextElementSibling?.textContent ?? null,
+    };
+`);
+
 const ATTENTION_STATE = probe(`
     const view = root.querySelector('[data-wsh-view="runs-attention"]');
     return view ? { text: view.textContent } : null;
@@ -241,6 +254,13 @@ async function showSteps(h) {
             show.overflow === false &&
             !show.text.includes("as of now"),
         detail: JSON.stringify(show),
+    });
+
+    const row = await h.ev(ROW_SUMMARY("Check what's waiting"));
+    steps.push({
+        step: "runs attention's collapsed row says nothing waiting before its time",
+        ok: row != null && row.expanded === "false" && row.summary === "nothing waiting" && !!row.next,
+        detail: JSON.stringify(row),
     });
 
     const attOpened = await h.ev(openStep("Check what's waiting"));

@@ -4,7 +4,6 @@
 // wsh jarvis dag calls a lead makes on a run's tasks and asks: answer, tell, amend, retry, forward, escalate, merge,
 // skip and sendback cards. The model (dagactioncards.ts) decides what each shows; this draws it.
 
-import { modalsModel } from "@/app/store/modalmodel";
 import { openTarget } from "@/app/view/jarvis/openref";
 import { cn, fireAndForget } from "@/util/util";
 import {
@@ -29,8 +28,8 @@ import {
     type DagForwardCard,
 } from "./dagactioncards";
 import { useRunEventsState } from "./runeventstore";
-import { formatDuration } from "./tooldetail";
 import type { WshCardKey } from "./wshcall";
+import { CallFacts } from "./wshchangerow";
 import type { WshRendererProps, WshRenderers } from "./wshrenderers";
 
 const RETRY_TEXT = "a fresh worker starts when a slot is free";
@@ -71,27 +70,6 @@ function rowText(row: DagActionRow): string | undefined {
         default:
             return row.text;
     }
-}
-
-// the call's duration and a button to its raw command and output: every card keeps the call's facts
-function CallFacts({ action, compact }: { action: AgentActionEntry; compact: boolean }) {
-    return (
-        <>
-            {action.durationMs ? (
-                <span className={cn("shrink-0 font-mono text-ink-faint", compact ? "text-[10.5px]" : "text-[11px]")}>
-                    {formatDuration(action.durationMs)}
-                </span>
-            ) : null}
-            <button
-                type="button"
-                aria-label="Show the command"
-                onClick={() => modalsModel.pushModal("AgentToolDetailModal", { action })}
-                className="flex shrink-0 cursor-pointer rounded-[5px] p-0.5 text-muted hover:bg-surface-hover hover:text-primary"
-            >
-                <ArrowUpRight size={13} strokeWidth={2.2} aria-hidden />
-            </button>
-        </>
-    );
 }
 
 function TaskId({ id, compact }: { id: string; compact: boolean }) {

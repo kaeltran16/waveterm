@@ -322,6 +322,7 @@ const boardCompactInitiative = () =>
     );
 
 // expect.cards: wsh card keys and how many; expect.views: [step command text, view key] each opened and read;
+// expect.summaries: [step command text, summary] read on the row while collapsed;
 // expect.arc: [message kind, count]; expect.folds: at least this many Worked-for folds
 const BOARDS = [
     {
@@ -376,6 +377,7 @@ const BOARDS = [
                 ["wsh runs show", "runs-show"],
                 ["wsh runs attention", "runs-attention"],
             ],
+            summaries: [["wsh runs attention", "nothing waiting"]],
             cards: { "runs-answer": 1 },
         },
     },
@@ -459,6 +461,17 @@ const openView = (text, key) =>
     return { inBox: !!row.closest('[data-steps]') };
 `);
 
+// the summary on the step row holding `text`, and whether the row is still collapsed
+const rowSummary = (text) =>
+    probe(`
+    const row = [...root.querySelectorAll('[data-step]')].find((s) => s.textContent.includes(${JSON.stringify(text)}));
+    if (!row) return null;
+    return {
+        collapsed: row.querySelector('button[aria-expanded]')?.getAttribute('aria-expanded') === 'false',
+        summary: row.querySelector('[data-step-summary]')?.textContent ?? null,
+    };
+`);
+
 const viewMounted = (key) => probe(`return !!root.querySelector('[data-wsh-view="${key}"]');`);
 
 const SNAPSHOT = probe(`
@@ -496,6 +509,10 @@ async function readBoard(h, board) {
     const fixture = board.build();
     await showFixture(h, fixture, fixture.width);
     const { expect } = board;
+    const summaries = [];
+    for (const [text, want] of expect.summaries ?? []) {
+        summaries.push({ text, want, row: await h.ev(rowSummary(text)) });
+    }
     const opened = [];
     for (const [text, key] of expect.views ?? []) {
         let r = await h.ev(openView(text, key));
@@ -508,10 +525,10 @@ async function readBoard(h, board) {
     }
     const snap = await h.ev(SNAPSHOT);
     await h.shot(`${SHOT_DIR}/transcript-boards-${board.name}.png`);
-    return { snap, opened, width: fixture.width };
+    return { snap, opened, summaries, width: fixture.width };
 }
 
-function judgeBoard(board, { snap, opened, width }) {
+function judgeBoard(board, { snap, opened, summaries, width }) {
     const { expect } = board;
     const faults = [];
     if (snap == null) return { ok: false, detail: "the transcript did not mount" };
@@ -522,6 +539,9 @@ function judgeBoard(board, { snap, opened, width }) {
     for (const o of opened) {
         if (typeof o.row !== "object" || o.row == null || !o.row.inBox) faults.push(`${o.key} is not a step row in a box`);
         if (!o.mounted) faults.push(`${o.key} did not open to its view`);
+    }
+    for (const s of summaries) {
+        if (!s.row?.collapsed || s.row.summary !== s.want) faults.push(`${s.text} row summary: ${JSON.stringify(s.row)}`);
     }
     for (const [kind, n] of Object.entries(expect.arc ?? {})) {
         if ((snap.arc[kind] ?? 0) < n) faults.push(`arc ${kind}: ${snap.arc[kind] ?? 0} of ${n}`);

@@ -5,7 +5,6 @@
 // the live roster (wshdata key "agents"), so a card reads "Sent to Lead · ..." rather than a tab id; the models
 // are in agentscards.ts.
 
-import { modalsModel } from "@/app/store/modalmodel";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { cn, fireAndForget } from "@/util/util";
@@ -15,9 +14,9 @@ import { openTarget } from "../jarvis/openref";
 import { listRows, readModel, revealModel, sendModel, type CallResult } from "./agentscards";
 import type { AgentActionEntry } from "./agentsviewmodel";
 import { StatusDot } from "./statusdot";
-import { formatDuration } from "./tooldetail";
 import type { TranscriptContext } from "./transcriptcontext";
 import { wshJsonOutput } from "./wshcall";
+import { CallFacts } from "./wshchangerow";
 import { useWshData } from "./wshdata";
 import { AsOfNow, type WshRendererProps, type WshRenderers } from "./wshrenderers";
 
@@ -35,26 +34,6 @@ function resultOf(action: AgentActionEntry): CallResult {
     return d?.kind === "bash"
         ? { command: action.command ?? d.command, output: d.output, exit: d.exit }
         : { command: action.command };
-}
-
-function CallFacts({ action }: { action: AgentActionEntry }) {
-    return (
-        <>
-            {action.durationMs ? (
-                <span className="shrink-0 font-mono text-[10.5px] text-ink-faint">
-                    {formatDuration(action.durationMs)}
-                </span>
-            ) : null}
-            <button
-                type="button"
-                aria-label="Show the command"
-                onClick={() => modalsModel.pushModal("AgentToolDetailModal", { action })}
-                className="flex shrink-0 cursor-pointer rounded-[5px] p-0.5 text-muted hover:bg-surface-hover hover:text-primary"
-            >
-                <ArrowUpRight size={13} strokeWidth={2.2} aria-hidden />
-            </button>
-        </>
-    );
 }
 
 // a failed roster fetch leaves the card on argv alone, and says so
@@ -128,7 +107,7 @@ function AgentsSendCard({ call, action, compact }: WshRendererProps) {
                 <span className="min-w-0 truncate text-foreground">{m.name}</span>
                 <span className="flex-1" />
                 {m.midTurn ? <span className="shrink-0">joined its running turn</span> : null}
-                <CallFacts action={action} />
+                <CallFacts action={action} compact={compact} />
             </CardHeader>
             {m.text != null ? (
                 <CardBody compact={compact} className="text-secondary">
@@ -162,7 +141,7 @@ function AgentsReadCard({ call, action, ctx, compact }: WshRendererProps) {
                 <span className="min-w-0 truncate text-foreground">{m.name}</span>
                 <span className="flex-1" />
                 <OpenAgent tabid={m.tabid} ctx={ctx} />
-                <CallFacts action={action} />
+                <CallFacts action={action} compact={compact} />
             </CardHeader>
             {m.answer ? (
                 <CardBody compact={compact} className="text-foreground">
@@ -189,7 +168,7 @@ function UiRevealRow({ call, action, compact }: WshRendererProps) {
             <span className="shrink-0">{m.kind === "show" ? "Showed in Arc" : "Opened in Arc"}</span>
             <span className={cn("min-w-0 truncate text-foreground", m.mono && "font-mono text-[12px]")}>{m.label}</span>
             <span className="flex-1" />
-            <CallFacts action={action} />
+            <CallFacts action={action} compact={compact} />
         </div>
     );
 }

@@ -5,7 +5,6 @@
 // (notescards.ts) decides what each shows; this draws it.
 
 import { getApi } from "@/app/store/global";
-import { modalsModel } from "@/app/store/modalmodel";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { openTarget } from "@/app/view/jarvis/openref";
@@ -13,7 +12,6 @@ import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { ArrowUpRight, Check, File, FileText, Image, LoaderCircle, MessageSquare, Scale, Ticket } from "lucide-react";
 import { useEffect, useState } from "react";
-import type { AgentActionEntry } from "./agentsviewmodel";
 import { samePath } from "./brainstormmodel";
 import { brainstormAtom } from "./brainstormstore";
 import {
@@ -33,7 +31,7 @@ import {
     type NoteSpan,
 } from "./notescards";
 import { fmtDuration } from "./runcompletion";
-import { formatDuration } from "./tooldetail";
+import { CallFacts } from "./wshchangerow";
 import { useWshData } from "./wshdata";
 import { AsOfNow, type WshRendererProps, type WshRenderers } from "./wshrenderers";
 
@@ -41,27 +39,6 @@ import { AsOfNow, type WshRendererProps, type WshRenderers } from "./wshrenderer
 const JIRA_RPC_TIMEOUT_MS = 180_000;
 
 const LINK = "flex shrink-0 cursor-pointer items-center gap-1 text-[12px] text-accent hover:text-accenthover";
-
-// the call's duration and a button to its raw command and output: every card keeps the call's facts
-function CallFacts({ action, compact }: { action: AgentActionEntry; compact: boolean }) {
-    return (
-        <>
-            {action.durationMs ? (
-                <span className={cn("shrink-0 font-mono text-ink-faint", compact ? "text-[10.5px]" : "text-[11px]")}>
-                    {formatDuration(action.durationMs)}
-                </span>
-            ) : null}
-            <button
-                type="button"
-                aria-label="Show the command"
-                onClick={() => modalsModel.pushModal("AgentToolDetailModal", { action })}
-                className="flex shrink-0 cursor-pointer rounded-[5px] p-0.5 text-muted hover:bg-surface-hover hover:text-primary"
-            >
-                <ArrowUpRight size={13} strokeWidth={2.2} aria-hidden />
-            </button>
-        </>
-    );
-}
 
 function LoadNote({ compact, children }: { compact: boolean; children: string }) {
     return <div className={cn("text-muted", compact ? "mt-1 text-[11.5px]" : "mt-1 text-[12px]")}>{children}</div>;

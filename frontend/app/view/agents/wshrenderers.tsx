@@ -8,13 +8,13 @@
 import type { ComponentType } from "react";
 import type { AgentActionEntry } from "./agentsviewmodel";
 import type { TranscriptContext } from "./transcriptcontext";
-import type { WshCall, WshKey } from "./wshcall";
+import type { WshCall, WshKey, WshViewKey } from "./wshcall";
 import { AGENTS_RENDERERS } from "./wshcards-agents";
 import { DAG_RENDERERS } from "./wshcards-dag";
 import { DAG_ACTION_RENDERERS } from "./wshcards-dagactions";
 import { INITIATIVE_RENDERERS } from "./wshcards-initiative";
 import { NOTES_RENDERERS } from "./wshcards-notes";
-import { RUNS_RENDERERS } from "./wshcards-runs";
+import { RUNS_RENDERERS, RUNS_STEP_SUMMARIES } from "./wshcards-runs";
 
 export interface WshRendererProps {
     call: WshCall;
@@ -38,6 +38,14 @@ export const WSH_RENDERERS: WshRenderers = {
 export function wshRendererFor(key: WshKey): ComponentType<WshRendererProps> | undefined {
     return WSH_RENDERERS[key];
 }
+
+// a short word for a read call's collapsed step row, from the call and its own output only: a row never fetches
+export type WshStepSummary = (call: WshCall, output: string | undefined) => string | undefined;
+export type WshStepSummaries = Partial<Record<WshViewKey, WshStepSummary>>;
+
+export const WSH_STEP_SUMMARIES: WshStepSummaries = {
+    ...RUNS_STEP_SUMMARIES,
+};
 
 // marks a view whose data came from Arc's RPCs: current state, not the state when the call ran
 export function AsOfNow() {

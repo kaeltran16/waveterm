@@ -257,6 +257,23 @@ export function attentionModel(items: AttentionItem[] | null | undefined, now: n
     return { empty: rows.length === 0, rows };
 }
 
+export const NOTHING_WAITING = "nothing waiting";
+
+// the collapsed step row's summary, from the call's own --json output only: a row never fetches, and only an empty
+// list is worth a word there (a non-empty one needs the opened view)
+export function attentionStepSummary(call: WshCall, output: string | undefined): string | undefined {
+    const json = call.flags["json"];
+    if (!output || !(json === true || json === "true")) {
+        return undefined;
+    }
+    try {
+        const v = JSON.parse(output);
+        return Array.isArray(v) && v.length === 0 ? NOTHING_WAITING : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
 // ---- runs start
 
 export interface RunStartedModel {

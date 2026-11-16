@@ -4,7 +4,6 @@
 // wsh runs calls: start and answer cards, and the runs show/attention views. The data and the wording of each live in
 // runscards.ts; this draws them.
 
-import { modalsModel } from "@/app/store/modalmodel";
 import * as WOS from "@/app/store/wos";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
@@ -15,7 +14,9 @@ import { openTarget } from "../jarvis/openref";
 import type { AgentActionEntry } from "./agentsviewmodel";
 import {
     attentionModel,
+    attentionStepSummary,
     matchStartedRun,
+    NOTHING_WAITING,
     runAnsweredModel,
     runShowModel,
     runShowSourceFromJson,
@@ -24,11 +25,11 @@ import {
     type RunShowSource,
     type Tone,
 } from "./runscards";
-import { formatDuration } from "./tooldetail";
 import type { TranscriptContext } from "./transcriptcontext";
 import { wshJsonOutput } from "./wshcall";
+import { CallFacts } from "./wshchangerow";
 import { useWshData } from "./wshdata";
-import { AsOfNow, type WshRendererProps, type WshRenderers } from "./wshrenderers";
+import { AsOfNow, type WshRendererProps, type WshRenderers, type WshStepSummaries } from "./wshrenderers";
 
 const TONE_TEXT: Record<Tone, string> = {
     ok: "text-success",
@@ -108,27 +109,6 @@ function OpenRun({
             {label}
             <ArrowUpRight size={11} strokeWidth={2.2} aria-hidden />
         </button>
-    );
-}
-
-// every card keeps the call's facts: how long it took, and its command and output one click away
-function CardFacts({ action, compact }: { action: AgentActionEntry; compact: boolean }) {
-    return (
-        <>
-            {action.durationMs ? (
-                <span className={cn("shrink-0 font-mono text-ink-faint", compact ? "text-[10.5px]" : "text-[11px]")}>
-                    {formatDuration(action.durationMs)}
-                </span>
-            ) : null}
-            <button
-                type="button"
-                aria-label="Show the command"
-                onClick={() => modalsModel.pushModal("AgentToolDetailModal", { action })}
-                className="flex shrink-0 cursor-pointer rounded-[5px] p-0.5 text-muted hover:bg-surface-hover hover:text-primary"
-            >
-                <ArrowUpRight size={13} strokeWidth={2.2} aria-hidden />
-            </button>
-        </>
     );
 }
 
@@ -326,7 +306,7 @@ function RunsAttentionView({ action, ctx, compact }: WshRendererProps) {
         <div className="overflow-hidden rounded-[8px] border border-edge-mid bg-surface">
             {m.empty ? (
                 <div className={cn("flex items-center gap-2 px-3 py-2.5 text-secondary", text)}>
-                    <span>nothing waiting</span>
+                    <span>{NOTHING_WAITING}</span>
                     <span className="flex-1" />
                     {json ? null : <AsOfNow />}
                 </div>
@@ -416,7 +396,7 @@ function RunStartedCard({ call, action, ctx, compact }: WshRendererProps) {
                 <span className="flex-1" />
                 {m.status ? <StatusPill text={m.status.text} tone={m.status.tone} compact={compact} /> : null}
                 {compact ? null : <OpenRun runId={m.runId} ctx={ctx} label="Open run" compact={compact} />}
-                {compact ? null : <CardFacts action={action} compact={compact} />}
+                {compact ? null : <CallFacts action={action} compact={compact} />}
             </div>
             <div
                 className={cn(
@@ -444,7 +424,7 @@ function RunStartedCard({ call, action, ctx, compact }: WshRendererProps) {
                 {compact ? (
                     <span className="ml-auto flex items-center gap-2">
                         <OpenRun runId={m.runId} ctx={ctx} label="Open" compact={compact} />
-                        <CardFacts action={action} compact={compact} />
+                        <CallFacts action={action} compact={compact} />
                     </span>
                 ) : null}
             </div>
@@ -495,7 +475,7 @@ function RunAnsweredCard({ call, action, ctx, compact }: WshRendererProps) {
                 </span>
                 <span className="flex-1" />
                 <OpenRun runId={m.runId} ctx={ctx} label="Open run" compact={compact} />
-                <CardFacts action={action} compact={compact} />
+                <CallFacts action={action} compact={compact} />
             </div>
             {m.items.map((item, i) => (
                 <div
@@ -530,4 +510,8 @@ export const RUNS_RENDERERS: WshRenderers = {
     "runs-attention": RunsAttentionView,
     "runs-start": RunStartedCard,
     "runs-answer": RunAnsweredCard,
+};
+
+export const RUNS_STEP_SUMMARIES: WshStepSummaries = {
+    "runs-attention": attentionStepSummary,
 };

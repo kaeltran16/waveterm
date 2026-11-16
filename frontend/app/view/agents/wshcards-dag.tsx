@@ -4,27 +4,16 @@
 // wsh jarvis dag calls about the run itself: plan submit, review verdicts, Final, completion, and the dag status view.
 // Each card draws from argv first, then the run and dag status in wshdata, so a missing run still leaves the card.
 
-import { modalsModel } from "@/app/store/modalmodel";
 import * as WOS from "@/app/store/wos";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { cn, fireAndForget } from "@/util/util";
-import {
-    ArrowUpRight,
-    Check,
-    CircleDot,
-    GitCommitVertical,
-    LoaderCircle,
-    Share2,
-    SquareTerminal,
-    X,
-} from "lucide-react";
+import { ArrowUpRight, Check, CircleDot, GitCommitVertical, LoaderCircle, Share2, X } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import type { OpenTarget } from "../jarvis/address";
 import { shotRounds, stageHasShots } from "../jarvis/finalshotsmodel";
 import { FinalShotsViewer } from "../jarvis/finalshotsviewer";
 import { openTarget } from "../jarvis/openref";
-import type { AgentActionEntry } from "./agentsviewmodel";
 import { plural } from "./cockpitsurfacemodel";
 import {
     completeModel,
@@ -44,8 +33,8 @@ import {
     type RunStats,
     type TaskPill,
 } from "./dagcards";
-import { formatDuration } from "./tooldetail";
 import type { TranscriptContext } from "./transcriptcontext";
+import { CallFacts } from "./wshchangerow";
 import { useWshData, type WshDataState } from "./wshdata";
 import type { WshRendererProps, WshRenderers } from "./wshrenderers";
 
@@ -190,27 +179,6 @@ function CardLink({
             {label}
             {compact ? null : <ArrowUpRight size={11} strokeWidth={2.2} aria-hidden />}
         </button>
-    );
-}
-
-// the call's own facts on every card: how long it took, and its raw command and output one click away
-function CallFacts({ action, compact }: { action: AgentActionEntry; compact: boolean }) {
-    return (
-        <>
-            {action.durationMs ? (
-                <span className={cn("shrink-0 font-mono text-ink-faint", compact ? "text-[10.5px]" : "text-[11px]")}>
-                    {formatDuration(action.durationMs)}
-                </span>
-            ) : null}
-            <button
-                type="button"
-                aria-label="Show the command"
-                onClick={() => modalsModel.pushModal("AgentToolDetailModal", { action })}
-                className="flex shrink-0 cursor-pointer rounded-[5px] p-0.5 text-muted hover:bg-surface-hover hover:text-primary"
-            >
-                <SquareTerminal size={13} strokeWidth={2} aria-hidden />
-            </button>
-        </>
     );
 }
 

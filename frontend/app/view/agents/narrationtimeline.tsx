@@ -32,7 +32,7 @@ import { layoutTranscript, stepTitle, type FoldSummary, type Step } from "./tran
 import { ToolOutputRenderer } from "./toolrenderers";
 import { isCardKey } from "./wshcall";
 import { WshChangeRow } from "./wshchangerow";
-import { wshRendererFor, type WshRendererProps } from "./wshrenderers";
+import { WSH_STEP_SUMMARIES, wshRendererFor, type WshRendererProps } from "./wshrenderers";
 
 // The transcript feed. layoutTranscript (transcriptlayout.ts) decides the items: prose, user bubbles, events, Arc's own
 // messages, wsh change cards, and stretches of tool steps, a finished turn's long stretch folded into "Worked for N".
@@ -417,6 +417,15 @@ function hasBodyCard(action: AgentActionEntry): boolean {
     return key === "test" || key === "git-diff";
 }
 
+// a wsh read call's collapsed-row summary, from its own output when it exited 0
+function stepSummary(step: Step): string | undefined {
+    const { wsh, action, status } = step;
+    if (!wsh || isCardKey(wsh.key) || status !== "ok" || action.detail?.kind !== "bash" || action.detail.exit !== 0) {
+        return undefined;
+    }
+    return WSH_STEP_SUMMARIES[wsh.key]?.(wsh.call, action.detail.output);
+}
+
 function outputLines(action: AgentActionEntry): number {
     return action.detail?.kind === "bash" ? action.detail.output.replace(/\n+$/, "").split("\n").length : 0;
 }
@@ -504,6 +513,7 @@ function StepRow({
     const View = wsh && !isCardKey(wsh.key) ? wshRendererFor(wsh.key) : undefined;
     const detail = action.detail;
     const toModal = !View && !bodyCard && detail != null && detailExceedsInline(detail);
+    const summary = stepSummary(step);
     const clickable = View != null || detail != null;
     const onClick = () => {
         if (toModal) {
@@ -531,6 +541,14 @@ function StepRow({
             ) : null}
             <StepTitle step={step} compact={compact} />
             <span className="min-w-[6px] flex-1" />
+            {summary ? (
+                <span
+                    data-step-summary
+                    className={cn("shrink-0 text-muted", compact ? "text-[11.5px]" : "text-[12.5px]")}
+                >
+                    {summary}
+                </span>
+            ) : null}
             <StepFacts step={step} compact={compact} />
             {clickable && !compact ? <Affordance toModal={toModal} open={open} /> : null}
         </>
