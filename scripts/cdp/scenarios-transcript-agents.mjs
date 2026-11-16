@@ -1,7 +1,9 @@
-// Scenario `transcript-agents`: agent-to-agent calls in a transcript (wshcards-agents.tsx): the agents list view, the
-// Sent to and From cards, and the ui reveal rows. A seeded roster names the tabs, so the cards read as names, not ids.
+// Scenario `transcript-agents`: agent-to-agent calls in a transcript (wshcards-agents.tsx): the agents list view (and its
+// load error when the roster RPC refuses), the Sent to and From cards, and the ui reveal rows. A seeded roster names
+// the tabs, so the cards read as names, not ids.
 // Each check runs at the Rendered column's width; the cards also run at a card's (compact).
 
+import { APP_MOD } from "./scenarios-shared.mjs";
 import { bash, clearTranscript, prose, ROOT, showTranscript, user, waitSeam } from "./transcript-fixture.mjs";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -71,6 +73,14 @@ export const fixtures = {
         ],
         seed: SEED,
     },
+    // no seed and no --json output: the view reads the live roster, which the step refuses
+    agentsListNotLoaded: {
+        entries: [
+            user("Which agents are live?", T0),
+            bash({ description: "List live agents", command: LIST, output: "90d97f06  Lead  siem-detector  eb4d4b0e  claude  working", ts: T0 + S, durationMs: 200 }),
+            prose("I could not read the roster.", T0 + 2 * S),
+        ],
+    },
     agentsListJson: {
         entries: [
             user("Which agents are live?", T0),
@@ -136,6 +146,54 @@ const CARDS_STATE = probe(`
 `);
 
 const clickFirstStep = `document.querySelector(${JSON.stringify(ROOT)}).querySelector('[data-step] button')?.click()`;
+
+// the roster's wshdata key (wshcards-agents.tsx ROSTER_KEY)
+const ROSTER_KEY = "agents";
+const ROSTER_REFUSED = "refused on the page: AgentsListCommand";
+
+const refuseRosterExpr = (refuse) => `(async () => {
+    ${APP_MOD}
+    const { RpcApi } = await mod("app/store/wshclientapi.ts");
+    window.__agentsRpcOrig ??= RpcApi.AgentsListCommand;
+    RpcApi.AgentsListCommand = ${refuse} ? async () => { throw new Error(${JSON.stringify(ROSTER_REFUSED)}); } : window.__agentsRpcOrig;
+    return true;
+})()`;
+
+const ROSTER_STATUS = `(async () => {
+    ${APP_MOD}
+    const { globalStore } = await mod("app/store/jotaiStore.ts");
+    const { wshDataAtom } = await mod("app/view/agents/wshdata.ts");
+    return globalStore.get(wshDataAtom(${JSON.stringify(ROSTER_KEY)})).status;
+})()`;
+
+const LIST_VIEW_TEXT = probe(`
+    const view = root.querySelector('[data-wsh-view="agents-list"]');
+    return view ? view.textContent : null;
+`);
+
+// must run before anything seeds or loads the roster key: a seeded key never fetches, and a loaded one keeps its data
+// through a failed refetch, so the error would never show
+async function rosterErrorStep(h) {
+    const before = await h.ev(ROSTER_STATUS);
+    await h.ev(refuseRosterExpr(true));
+    try {
+        await showTranscript(h, { ...fixtures.agentsListNotLoaded, width: COLUMN, active: false });
+        await h.ev(clickFirstStep);
+        await sleep(MOTION_MS);
+        const text = await h.ev(LIST_VIEW_TEXT);
+        await h.shot("cdp-shots/transcript-agents-list-not-loaded.png");
+        return {
+            step: "agents list without --json, the roster RPC refused: the opened step shows its inline load error",
+            ok: before === "idle" && text != null && text.includes("Could not load the agent list") && text.includes(ROSTER_REFUSED),
+            detail:
+                before === "idle"
+                    ? JSON.stringify({ text })
+                    : `the roster key "${ROSTER_KEY}" was already ${before} before this step (an earlier scenario seeded or loaded it), so no fetch could fail: ${JSON.stringify({ text })}`,
+        };
+    } finally {
+        await h.ev(refuseRosterExpr(false));
+    }
+}
 
 async function listSteps(h) {
     const steps = [];
@@ -240,12 +298,14 @@ export const transcriptAgents = {
         const seam = await waitSeam(h);
         const steps = [{ step: "dev fixture seam present", ok: seam === true, detail: `seam=${seam}` }];
         if (!seam) return steps;
+        steps.push(await rosterErrorStep(h));
         steps.push(...(await listSteps(h)));
         steps.push(...(await cardSteps(h, COLUMN, false)));
         steps.push(...(await cardSteps(h, COMPACT_COLUMN, true)));
         return steps;
     },
     async teardown(h) {
+        await h.ev(refuseRosterExpr(false));
         await clearTranscript(h);
     },
 };

@@ -13,6 +13,12 @@ const NARROW = 380;
 // a step's body opens with the composer's reveal
 const MOTION_MS = 700;
 const JUDGE_AGENT = "agent-judge-fixture";
+// brainstormExpr attaches the agent's brainstorm from this cwd and topic, so the store's path is under it
+const JUDGE_CWD = "C:/judge-fixture";
+const JUDGE_TOPIC = "judge-fixture";
+// the store's path in the tab meta's form (backslashes, other case): the same file
+const JUDGE_FILE_SAME = `C:\\Judge-Fixture\\.superpowers\\brainstorm\\${JUDGE_TOPIC}\\brainstorm.json`;
+const JUDGE_FILE_OTHER = `C:/other-fixture/.superpowers/brainstorm/${JUDGE_TOPIC}/brainstorm.json`;
 // the judge was started this long before the scenario reads it
 const JUDGE_AGE_MS = 100 * S;
 // stands for the time the judge call started, filled in when the fixture is shown
@@ -143,6 +149,9 @@ export const fixtures = {
         ],
     },
 };
+// the tab's attached brainstorm file decides whether the store's brainstorm is this judge's record
+fixtures.judgePathSame = { ...fixtures.judgeDone, ctx: { agentId: JUDGE_AGENT, brainstormFile: JUDGE_FILE_SAME } };
+fixtures.judgePathOther = { ...fixtures.judgeDone, ctx: { agentId: JUDGE_AGENT, brainstormFile: JUDGE_FILE_OTHER } };
 
 const rpcFailsExpr = (names) => `(async () => {
     ${APP_MOD}
@@ -159,7 +168,7 @@ const brainstormExpr = (file) => `(async () => {
     ${APP_MOD}
     const m = await mod("app/view/agents/brainstormstore.ts");
     m.detachBrainstorm(${JSON.stringify(JUDGE_AGENT)});
-    ${file ? `m.attachBrainstorm(${JSON.stringify(JUDGE_AGENT)}, { topic: "judge-fixture", cwd: "C:/judge-fixture" }, Date.now());
+    ${file ? `m.attachBrainstorm(${JSON.stringify(JUDGE_AGENT)}, { topic: ${JSON.stringify(JUDGE_TOPIC)}, cwd: ${JSON.stringify(JUDGE_CWD)} }, Date.now());
     m.updateBrainstorm(${JSON.stringify(JUDGE_AGENT)}, (s) => ({ ...s, file: ${JSON.stringify(file)} }));` : ""}
     return true;
 })()`;
@@ -365,6 +374,23 @@ export const transcriptNotes = {
                 done.spinner === false &&
                 done.elapsed == null,
             detail: JSON.stringify(done),
+        });
+
+        await showFixture(h, "judgePathSame");
+        const same = await h.ev(JUDGE_CARD);
+        await showFixture(h, "judgePathOther");
+        await h.shot("cdp-shots/transcript-notes-judge-other-brainstorm.png");
+        const other = await h.ev(JUDGE_CARD);
+        steps.push({
+            step: "the tab's brainstorm file decides the judge's record: the same file (other separators and case) draws its state, another file draws the card without it",
+            ok:
+                same?.state === "done" &&
+                hasAll(same.text, ["question 3", QUESTION_TEXT]) &&
+                other?.state === "unknown" &&
+                !other.text.includes("question 3") &&
+                !other.text.includes(QUESTION_TEXT) &&
+                other.facts === true,
+            detail: JSON.stringify({ same, other }),
         });
 
         await showFixture(h, "compactNote");
