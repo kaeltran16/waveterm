@@ -45,21 +45,12 @@ function lineWrap(variant: "inline" | "modal"): string {
     return variant === "inline" ? "whitespace-pre-wrap [overflow-wrap:anywhere]" : "whitespace-pre";
 }
 
-// exit null: the command never ran, so there is no code to show
+// a failure's code only: exit 0 is the normal case, and null means the command never ran
 function ExitChip({ exit }: { exit: number | null }) {
-    if (exit == null) {
+    if (!exit) {
         return null;
     }
-    return (
-        <span
-            className={cn(
-                "rounded-[4px] px-1.5 py-px font-mono text-[11px]",
-                exit ? "bg-error/15 text-error" : "bg-success/15 text-success"
-            )}
-        >
-            exit {exit}
-        </span>
-    );
+    return <span className="rounded-[4px] bg-error/15 px-1.5 py-px font-mono text-[11px] text-error">exit {exit}</span>;
 }
 
 // pending: the call has no result yet (running, or waiting on a permission prompt), so it claims neither outcome
@@ -242,8 +233,8 @@ export function ToolDetailBody({ detail, variant }: { detail: ActionDetail; vari
                         {detail.output}
                     </pre>
                 ) : null}
-                {/* inline, the exit chip sits in the panel footer (StepBody) so it never scrolls away */}
-                {modal ? (
+                {/* inline, the step row's own exit chip already names a failure */}
+                {modal && detail.exit ? (
                     <div className="mt-2 flex items-center gap-2">
                         <ExitChip exit={detail.exit} />
                     </div>
@@ -504,9 +495,7 @@ function StepBody({
             <div className="max-h-[400px] overflow-auto">
                 <ToolDetailBody detail={detail} variant="inline" />
             </div>
-            <div className="flex items-center gap-2 border-t border-edge-faint px-2 py-1">
-                {detail.kind === "bash" ? <ExitChip exit={detail.exit} /> : null}
-                <div className="flex-1" />
+            <div className="flex items-center justify-end border-t border-edge-faint px-2 py-1">
                 {openFull}
             </div>
         </div>

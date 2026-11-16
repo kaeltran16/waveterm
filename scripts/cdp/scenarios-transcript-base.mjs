@@ -351,7 +351,7 @@ async function stepsOpenStep(h) {
     const s = await h.ev(STEPS_OPEN_STATE);
     await h.shot("cdp-shots/transcript-base-steps-open.png");
     return {
-        step: "StepsOpen: grep matches, test card with Raw output and Open full view, command output with exit 0, the fold line's 1 failed",
+        step: "StepsOpen: grep matches, test card with Raw output and Open full view, command output with no exit 0 chip, the fold line's 1 failed",
         ok:
             s != null &&
             grep === true &&
@@ -368,7 +368,7 @@ async function stepsOpenStep(h) {
             s.full === 1 &&
             (s.cmd ?? "").includes("$git log -1 --oneline") &&
             (s.cmd ?? "").includes("085ead4") &&
-            (s.cmd ?? "").includes("exit 0"),
+            !(s.cmd ?? "").includes("exit 0"),
         detail: JSON.stringify(s),
     };
 }

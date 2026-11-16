@@ -127,7 +127,7 @@ const PANEL_PROBE = `(() => [...${ROOT}.querySelectorAll('[data-tool-panel]')].m
         btnText: btn ? btn.textContent.trim() : null,
         btnTitle: btn ? btn.getAttribute('title') : null,
         footer: footer ? footer.textContent : null,
-        bodyHasExit: /exit \\d/i.test(footer ? body.textContent : ''),
+        hasExit: /exit \\d/i.test(p.textContent || ''),
         ws: pre ? getComputedStyle(pre).whiteSpace : null,
         overflow: Math.max(p.scrollWidth - p.clientWidth, body.scrollWidth - body.clientWidth),
     };
@@ -203,20 +203,20 @@ export const narrationFeed = {
         const fail = panels.find((p) => p.text.includes("TestBackoff"));
         const ok = panels.find((p) => p.text.includes("task check:ts"));
         steps.push({
-            step: '[640] bash panel footer: "Open full view" with aria-label and no title, exit chip in the footer only',
+            step: '[640] bash panel footer: only "Open full view", with aria-label and no title; the exit chip stays on the row',
             ok:
                 opened === true &&
                 fail != null &&
                 fail.btnText === "Open full view" &&
                 fail.btnTitle === null &&
-                /exit 1/i.test(fail.footer || "") &&
-                fail.bodyHasExit === false,
+                fail.footer === "Open full view" &&
+                fail.hasExit === false,
             detail: JSON.stringify(fail ?? null),
         });
         steps.push({ step: "[640] bash output wraps (pre-wrap)", ok: fail?.ws === "pre-wrap", detail: `ws=${fail?.ws}` });
         steps.push({
-            step: "[640] command-only bash with exit 0 shows exit 0 in the footer",
-            ok: openedOk === true && ok != null && /exit 0/i.test(ok.footer || ""),
+            step: "[640] command-only bash with exit 0 opens with no exit chip",
+            ok: openedOk === true && ok != null && ok.hasExit === false,
             detail: JSON.stringify(ok ?? null),
         });
         await h.shot("cdp-shots/narration-feed-wide.png");
