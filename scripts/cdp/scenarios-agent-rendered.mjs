@@ -632,7 +632,7 @@ export default function (_kit) {
                     return [loaded, { naturalWidth: width }];
                 });
 
-                await step("rendered: cards in a burst — A's three back-to-back tool calls render open, every card visible", async () => {
+                await step("rendered: cards in a turn — A's finished turn holds tool output cards, so its fold starts open, every card visible", async () => {
                     const state = await h.ev(`(() => {
                         const rv = ${RV};
                         const shown = (sel) => {
@@ -651,8 +651,8 @@ export default function (_kit) {
                     return [state.folds === 0 && state.test && state.diff && state.image, state];
                 });
 
-                // the open burst keeps its Worked fold line as a header: a click folds it, a second click opens it again
-                await step("rendered: burst header — a click on the open card burst's Worked line folds it, a second click opens it", async () => {
+                // the open turn keeps its Worked fold line as a header: a click folds it, a second click opens it again
+                await step("rendered: turn header — a click on the open card turn's Worked line folds it, a second click opens it", async () => {
                     const BURST = `${RV}?.querySelector("[data-fold]")`;
                     const read = `(() => {
                         const b = ${BURST};

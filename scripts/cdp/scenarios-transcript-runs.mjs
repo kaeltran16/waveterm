@@ -2,7 +2,13 @@
 // summary with the token bar, runs attention to "nothing waiting", runs answer is "Answered for you", runs start is
 // "Run started" with its chunks; each at the Rendered column's width, the start card also at a card's (380 px).
 
-import { bash, clearTranscript, prose, ROOT, showTranscript, user, waitSeam } from "./transcript-fixture.mjs";
+import { bash, clearTranscript, openFolds, prose, ROOT, showTranscript as showFixture, user, waitSeam } from "./transcript-fixture.mjs";
+
+// every fixture is a finished turn, so its steps and cards sit behind the turn's fold
+async function showTranscript(h, opts) {
+    await showFixture(h, opts);
+    await openFolds(h);
+}
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -223,7 +229,8 @@ const CARD_STATE = (key) =>
     if (!card) return null;
     return {
         text: card.textContent,
-        inFold: !!card.closest('[data-steps]'),
+        inBox: !!card.closest('[data-steps]'),
+        inFold: !!card.closest('[data-turn-fold]'),
         showCommand: !!card.querySelector('button[aria-label="Show the command"]'),
         checks: card.querySelectorAll('svg').length,
         overflow: card.scrollWidth > card.clientWidth + 1,
@@ -290,14 +297,15 @@ async function answerSteps(h) {
     const card = await h.ev(CARD_STATE("runs-answer"));
     await h.shot("cdp-shots/transcript-runs-answered.png");
     steps.push({
-        step: "Answered for you: the question, the run and the picked answer checked",
+        step: "Answered for you: the question, the run and the picked answer checked, inside the turn's fold but no step box",
         ok:
             card != null &&
             card.text.includes("Answered for you") &&
             card.text.includes("Approve the fixes?") &&
             card.text.includes("7c03196e") &&
             card.text.includes("Approve and land") &&
-            card.inFold === false &&
+            card.inFold === true &&
+            card.inBox === false &&
             card.showCommand === true &&
             card.text.includes("0.3s") &&
             card.overflow === false,
@@ -332,7 +340,7 @@ async function startSteps(h, width, compact) {
         {
             step: compact
                 ? "compact Run started at 380 px"
-                : "Run started with its chunks, its run id and its status",
+                : "Run started with its chunks, its run id and its status, inside the turn's fold but no step box",
             ok:
                 card != null &&
                 card.text.includes("Run started") &&
@@ -342,7 +350,8 @@ async function startSteps(h, width, compact) {
                 /chunks 2, 3/.test(card.text) &&
                 card.text.includes("Rendered view: chat-renderer parity") &&
                 card.text.includes("orchestrator") &&
-                card.inFold === false &&
+                card.inFold === true &&
+                card.inBox === false &&
                 card.showCommand === true &&
                 card.overflow === false,
             detail: `${tag} ${JSON.stringify(card)}`,

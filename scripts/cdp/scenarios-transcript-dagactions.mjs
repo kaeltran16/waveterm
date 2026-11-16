@@ -2,7 +2,7 @@
 // worker question the lead answered, the Told, Amended, Retried, Asked Arc to merge and Escalated rows, the
 // Forwarded card with its note, a compact row at 380 px, and a card whose run events never loaded.
 
-import { bash, clearTranscript, prose, ROOT, showTranscript, user, waitSeam } from "./transcript-fixture.mjs";
+import { bash, clearTranscript, openFolds, prose, ROOT, showTranscript, user, waitSeam } from "./transcript-fixture.mjs";
 
 const T0 = Date.UTC(2026, 10, 16, 9, 0, 0);
 const S = 1000;
@@ -108,7 +108,8 @@ const CARDS = probe(`
     return [...root.querySelectorAll('[data-dag-action]')].map((el) => ({
         kind: el.getAttribute('data-dag-action'),
         text: textOf(el),
-        inFold: !!el.closest('[data-steps]'),
+        inBox: !!el.closest('[data-steps]'),
+        inFold: !!el.closest('[data-turn-fold]'),
         facts: !!el.querySelector('button[aria-label="Show the command"]'),
         duration: !!el.querySelector('.font-mono.text-ink-faint'),
         overflows: el.scrollWidth > el.clientWidth + 1,
@@ -122,6 +123,8 @@ const CARDS = probe(`
 async function show(h, name, width = WIDE) {
     const { width: own, ...fixture } = fixtures[name];
     await showTranscript(h, { ...fixture, width: own ?? width, active: false, renderers: true });
+    // every fixture is a finished turn, so its cards sit behind the turn's fold
+    await openFolds(h);
     return (await h.ev(CARDS)) ?? [];
 }
 
@@ -150,7 +153,8 @@ export const transcriptDagActions = {
                 card.text.includes("The lead answered · delivered to t-4") &&
                 JSON.stringify(card.picked) === JSON.stringify(["picked", "open"]) &&
                 card.check === 1 &&
-                card.inFold === false &&
+                card.inFold === true &&
+                card.inBox === false &&
                 card.facts === true,
             detail: JSON.stringify(card),
         });
@@ -160,14 +164,14 @@ export const transcriptDagActions = {
         const amended = only(told, "amend");
         const tellRow = only(told, "tell")[0];
         steps.push({
-            step: "Told and Amended rows: verb, task id and text on one line each, outside the fold, with the call's facts",
+            step: "Told and Amended rows: verb, task id and text on one line each, inside the turn's fold but no step box, with the call's facts",
             ok:
                 amended.length === 2 &&
                 hasAll(amended[0].text, ["Amended", "t-3", "pkg/jarvis/run.go"]) &&
                 hasAll(amended[1].text, ["Amended", "t-4", "scripts/cdp-e2e-runs-piece4.mjs"]) &&
                 tellRow != null &&
                 hasAll(tellRow.text, ["Told", "t-3", `"multiply reuses add from t-1; import it, don't copy it"`]) &&
-                [...amended, tellRow].every((c) => !c.inFold && c.facts && c.duration),
+                [...amended, tellRow].every((c) => c.inFold && !c.inBox && c.facts && c.duration),
             detail: JSON.stringify({ amended, tellRow }),
         });
 
@@ -185,7 +189,7 @@ export const transcriptDagActions = {
                 hasAll(merged.text, ["Asked Arc to merge", "t-6"]) &&
                 escalated != null &&
                 hasAll(escalated.text, ["Escalated", "t-7", "re-queued on claude opus"]) &&
-                [retried, merged, escalated].every((c) => !c.inFold && c.facts),
+                [retried, merged, escalated].every((c) => c.inFold && !c.inBox && c.facts),
             detail: JSON.stringify({ retried, merged, escalated }),
         });
 
@@ -197,7 +201,8 @@ export const transcriptDagActions = {
                 forwarded != null &&
                 hasAll(forwarded.text, ["Forwarded to you", "t-4", "waits on you", "Answer in the run", FORWARD_NOTE]) &&
                 forwarded.link === true &&
-                !forwarded.inFold &&
+                forwarded.inFold &&
+                !forwarded.inBox &&
                 forwarded.facts === true,
             detail: JSON.stringify(forwarded),
         });

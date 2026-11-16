@@ -4,7 +4,13 @@
 // Each check runs at the Rendered column's width; the cards also run at a card's (compact).
 
 import { APP_MOD } from "./scenarios-shared.mjs";
-import { bash, clearTranscript, prose, ROOT, showTranscript, user, waitSeam } from "./transcript-fixture.mjs";
+import { bash, clearTranscript, openFolds, prose, ROOT, showTranscript as showFixture, user, waitSeam } from "./transcript-fixture.mjs";
+
+// every fixture is a finished turn, so its steps and cards sit behind the turn's fold
+async function showTranscript(h, opts) {
+    await showFixture(h, opts);
+    await openFolds(h);
+}
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -155,7 +161,7 @@ const CARDS_STATE = probe(`
     return {
         colWidth: col.width,
         overflow: root.scrollWidth > root.clientWidth,
-        send: send ? { text: send.textContent, rect: rect(send.firstElementChild), inFold: !!send.closest('[data-steps]'), button: !!send.querySelector('button[aria-label="Show the command"]'), duration: /\\d(ms|s)/.test(send.textContent) } : null,
+        send: send ? { text: send.textContent, rect: rect(send.firstElementChild), inBox: !!send.closest('[data-steps]'), inFold: !!send.closest('[data-turn-fold]'), button: !!send.querySelector('button[aria-label="Show the command"]'), duration: /\\d(ms|s)/.test(send.textContent) } : null,
         read: read ? { text: read.textContent, rect: rect(read.firstElementChild), openAgent: !![...read.querySelectorAll('button')].find((b) => b.textContent.includes('Open agent')), button: !!read.querySelector('button[aria-label="Show the command"]') } : null,
         reveals: reveals.map((r) => ({ text: r.textContent, button: !!r.querySelector('button[aria-label="Show the command"]') })),
     };
@@ -255,13 +261,14 @@ async function cardSteps(h, width, compact) {
     const ratio = (c) => (c ? c.rect.width / s.colWidth : 0);
 
     steps.push({
-        step: `${tag} Sent to with its text: the target's name, the text, outside the fold, with the call's duration and Show the command`,
+        step: `${tag} Sent to with its text: the target's name, the text, inside its turn's fold but no step box, with the call's duration and Show the command`,
         ok:
             s?.send != null &&
             s.send.text.includes("Sent to") &&
             s.send.text.includes(LEAD.name) &&
             s.send.text.includes(SENT_TEXT) &&
-            s.send.inFold === false &&
+            s.send.inFold === true &&
+            s.send.inBox === false &&
             !s.send.text.includes(JOINED) &&
             s.send.button === true &&
             s.send.duration === true &&

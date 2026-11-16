@@ -52,7 +52,8 @@ const READ_FIND = (key) => `
 `;
 
 export default function (kit) {
-    async function search(h, word) {
+    // enough: when the results are complete enough to use
+    async function search(h, word, enough = (results) => results.length >= 3) {
         const t0 = Date.now();
         for (;;) {
             const r = await h.rpc(
@@ -61,7 +62,7 @@ export default function (kit) {
                 { timeout: SEARCH_TIMEOUT_MS }
             );
             const results = r?.results ?? [];
-            if ((results.length >= 3 && !r.incomplete) || Date.now() - t0 > SEARCH_WAIT_MS) {
+            if ((enough(results) && !r.incomplete) || Date.now() - t0 > SEARCH_WAIT_MS) {
                 return { terms: r?.terms ?? [], results, incomplete: !!r?.incomplete };
             }
             await delay(1000);
@@ -254,6 +255,36 @@ export default function (kit) {
                     "6. Escape in the find bar closes it and clears its highlights, staying on Sessions",
                     s6.hadInput && !s6.bar && s6.find == null && s6.surface === "sessions" && !s6.highlights,
                     s6
+                );
+
+                // 7. a term only in the solo's interim prose, which sits in its finished turn's fold: the find draws
+                // the fold open, so the hit is painted and in view
+                const inFold = await search(h, fx.foldWord, (rs) => rs.some((r) => r.session.id === fx.solo.id));
+                const foldR = inFold.results.find((r) => r.session.id === fx.solo.id);
+                const s7 = foldR ? await openAt(h, foldR, fx.foldWord, inFold.terms, null, solo, `s.pos === "1 of 1"`) : null;
+                const fold = await pageEval(
+                    h,
+                    `
+                    const range = [...(CSS.highlights.get("sessions-find-current") ?? [])][0];
+                    const node = range?.startContainer;
+                    const turn = (node?.nodeType === 1 ? node : node?.parentElement)?.closest("[data-turn-fold]");
+                    return {
+                        inFold: turn != null,
+                        expanded: turn?.querySelector("[data-fold]")?.getAttribute("aria-expanded") ?? null,
+                    };
+                `
+                );
+                await h.shot(`cdp-shots/${NAME}-7-in-fold.png`);
+                rec(
+                    "7. a term only in a finished turn's interim prose: the hit is painted inside that turn's fold, drawn open, and in view",
+                    s7 != null &&
+                        s7.pos === "1 of 1" &&
+                        s7.all === 1 &&
+                        s7.currentText?.toLowerCase() === fx.foldWord &&
+                        s7.visible &&
+                        fold.inFold &&
+                        fold.expanded === "true",
+                    { search: { terms: inFold.terms, incomplete: inFold.incomplete }, find: s7, fold }
                 );
                 return steps;
             },

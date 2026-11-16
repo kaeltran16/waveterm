@@ -38,15 +38,23 @@ import { fmtDuration } from "./runcompletion";
 import { TIMELINE_RENDER_CAP } from "./sessionstranscript";
 import { formatDuration } from "./tooldetail";
 import type { TranscriptContext } from "./transcriptcontext";
-import { layoutTranscript, stepRows, stepTitle, type FoldSummary, type Step, type Thought } from "./transcriptlayout";
+import {
+    layoutTranscript,
+    stepRows,
+    stepTitle,
+    type FoldSummary,
+    type LayoutItem,
+    type Step,
+    type Thought,
+} from "./transcriptlayout";
 import { ToolOutputRenderer } from "./toolrenderers";
 import { isCardKey } from "./wshcall";
 import { WshChangeRow } from "./wshchangerow";
 import { WSH_STEP_SUMMARIES, wshRendererFor, type WshRendererProps, type WshStepSummary } from "./wshrenderers";
 
 // The transcript feed. layoutTranscript (transcriptlayout.ts) decides the items: prose, user bubbles, events, Arc's own
-// messages, wsh change cards, and stretches of tool steps, a finished turn's long stretch folded into "Worked for N".
-// While `active`, the live turn's stretches stay open.
+// messages, wsh change cards, stretches of tool steps, and a finished turn's work folded into one "Worked for N" line.
+// While `active`, the live turn stays unfolded.
 
 // a host that passes no ctx: cards still render, with no links
 const NO_CTX: TranscriptContext = {};
@@ -728,7 +736,7 @@ function StepBox({
     );
 }
 
-// "Worked for N · phrase +a −d ✗ k failed": a finished turn's folded stretch. Fades in when a turn folds after mount.
+// "Worked for N · phrase +a −d ✗ k failed": a finished turn's folded work. Fades in when a turn folds after mount.
 function FoldLine({ fold, open, onClick, compact }: { fold: FoldSummary; open: boolean; onClick: () => void; compact: boolean }) {
     return (
         <motion.button
@@ -763,37 +771,34 @@ function FoldLine({ fold, open, onClick, compact }: { fold: FoldSummary; open: b
     );
 }
 
-// A stretch: a box of steps, or, folded, its Worked-for line that opens to the box. A stretch holding a tool output
-// card (rendered view only) starts open, since a fold would hide the card.
-function StepsBlock({
-    steps,
-    thoughts,
+// A finished turn's work behind its Worked-for line, which opens to the items in order. startsOpen: it holds a tool
+// output card (rendered view), which a fold would hide. finishing: the turn just finished under a mounted feed, so it
+// mounts open and folds its work away under the new line. unfold: drawn open with no reveal, so a find over the
+// transcript sees every row where it will stay.
+function TurnFold({
     fold,
-    renderers,
-    ctx,
+    startsOpen,
+    finishing,
+    unfold,
     compact,
+    children,
 }: {
-    steps: Step[];
-    thoughts?: Thought[];
-    fold: FoldSummary | null;
-    renderers?: boolean;
-    ctx: TranscriptContext;
+    fold: FoldSummary;
+    startsOpen: boolean;
+    finishing: boolean;
+    unfold: boolean;
     compact: boolean;
+    children: React.ReactNode;
 }) {
     const [toggled, setToggled] = useState(false);
-    const hasCard = !!renderers && steps.some((s) => toolRendererKey(s.action) != null);
-    // one tree whether folded or not, so a turn that finishes folds its open box away under the new Worked line
-    const open = fold == null || (hasCard ? !toggled : toggled);
+    const [settled, setSettled] = useState(!finishing);
+    useEffect(() => setSettled(true), []);
+    const open = unfold || !settled || (startsOpen ? !toggled : toggled);
+    const body = <AnimatePresence initial={false}>{children}</AnimatePresence>;
     return (
-        <div>
-            <AnimatePresence initial={false}>
-                {fold != null ? (
-                    <FoldLine key="fold" fold={fold} open={open} onClick={() => setToggled((v) => !v)} compact={compact} />
-                ) : null}
-            </AnimatePresence>
-            <PaneReveal open={open}>
-                <StepBox steps={steps} thoughts={thoughts} renderers={renderers} ctx={ctx} compact={compact} />
-            </PaneReveal>
+        <div data-turn-fold>
+            <FoldLine fold={fold} open={open} onClick={() => setToggled((v) => !v)} compact={compact} />
+            {unfold ? <div>{body}</div> : <PaneReveal open={open}>{body}</PaneReveal>}
         </div>
     );
 }
@@ -1032,6 +1037,7 @@ export const NarrationTimeline = memo(function NarrationTimeline({
     tail,
     ctx,
     compact,
+    unfold,
 }: {
     entries: AgentEntry[];
     accentLatest?: boolean;
@@ -1053,17 +1059,27 @@ export const NarrationTimeline = memo(function NarrationTimeline({
     compact?: boolean;
     // drawn after the last item, inside the column
     tail?: React.ReactNode;
+    // draws every finished turn's fold open, so a find never has a match inside a closed one
+    unfold?: boolean;
 }) {
-    // ctx feeds the layout only through its role (a run brief), so a host's fresh ctx object does not relayout
+    // ctx feeds the layout only through its role (a run brief), so a host's fresh ctx object does not relayout; a host's
+    // fresh marks array relayouts only when a mark moves
     const role = ctx?.role;
+    const marksKey = (marks ?? []).map((m) => m.afterEntry).join(",");
     const items = useMemo(
-        () => layoutTranscript(entries, { active: !!active, ctx: { role }, thoughts }),
-        [entries, active, role, thoughts]
+        () => layoutTranscript(entries, { active: !!active, ctx: { role }, thoughts, renderers, marks }),
+        [entries, active, role, thoughts, renderers, marksKey]
     );
+    // a turn folding after the first render is one that just finished
+    const mounted = useRef(false);
+    useEffect(() => {
+        mounted.current = true;
+    }, []);
     const cardCtx = ctx ?? NO_CTX;
     const isCompact = !!compact;
     const visibleItems =
         !renderAll && items.length > TIMELINE_RENDER_CAP ? items.slice(items.length - TIMELINE_RENDER_CAP) : items;
+    const lastTurn = items.filter((i) => i.kind === "turn").pop();
     const copyMenu = (text: string) => (e: React.MouseEvent) =>
         ContextMenuModel.getInstance().showContextMenu(
             [
@@ -1081,148 +1097,155 @@ export const NarrationTimeline = memo(function NarrationTimeline({
         ...rows.flatMap((row, idx) => [row, ...markRows(placed.after.get(idx))]),
     ];
 
+    const renderItem = (item: LayoutItem): React.ReactNode => {
+        if (item.kind === "turn") {
+            return (
+                <TurnFold
+                    key={"f" + item.startIndex}
+                    fold={item.fold}
+                    startsOpen={item.open}
+                    finishing={mounted.current && item === lastTurn}
+                    unfold={!!unfold}
+                    compact={isCompact}
+                >
+                    {item.items.map(renderItem)}
+                </TurnFold>
+            );
+        }
+        if (item.kind === "message") {
+            return (
+                <motion.div
+                    key={item.index}
+                    data-find-turn
+                    className={cn(
+                        "min-w-0",
+                        isCompact ? "my-3 text-[13px] leading-[1.55]" : "my-[18px] text-[14px] leading-[1.6]",
+                        accentLatest && item.latest ? "text-foreground" : "text-secondary"
+                    )}
+                    onContextMenu={copyMenu(item.text)}
+                    variants={viewFade}
+                    initial={shouldFadeEntry("message") ? "initial" : false}
+                    animate="animate"
+                >
+                    <MarkdownMessage text={item.text} />
+                </motion.div>
+            );
+        }
+        if (item.kind === "thought") {
+            return (
+                <motion.div
+                    key={"t" + item.index}
+                    data-thought
+                    className={cn("min-w-0", isCompact ? "my-2" : "my-2.5")}
+                    variants={viewFade}
+                    initial={shouldFadeEntry("thought") ? "initial" : false}
+                    animate="animate"
+                >
+                    <ThoughtText text={item.text} compact={isCompact} />
+                </motion.div>
+            );
+        }
+        if (item.kind === "user") {
+            return (
+                <motion.div
+                    key={item.index}
+                    data-user-bubble
+                    className={cn("flex justify-end", isCompact ? "my-3.5 ml-7" : "my-6")}
+                    onContextMenu={copyMenu(item.text)}
+                    variants={viewFade}
+                    initial={shouldFadeEntry("user") ? "initial" : false}
+                    animate="animate"
+                >
+                    <div
+                        className={cn(
+                            "max-w-[82%] bg-surface-hover",
+                            isCompact ? "rounded-[10px] px-[11px] py-2" : "rounded-[12px] px-[15px] py-[11px]"
+                        )}
+                    >
+                        <UserBubbleText text={item.text} clamp={!renderAll} compact={isCompact} />
+                    </div>
+                </motion.div>
+            );
+        }
+        if (item.kind === "command") {
+            return (
+                <motion.div
+                    key={item.index}
+                    variants={viewFade}
+                    initial="initial"
+                    animate="animate"
+                >
+                    <CommandChip name={item.name} args={item.args} isSkill={item.isSkill} compact={isCompact} />
+                </motion.div>
+            );
+        }
+        if (item.kind === "compaction") {
+            return (
+                <motion.div
+                    key={item.index}
+                    variants={viewFade}
+                    initial="initial"
+                    animate="animate"
+                >
+                    <CompactionDivider trigger={item.trigger} preTokens={item.preTokens} postTokens={item.postTokens} summary={item.summary} compact={isCompact} />
+                </motion.div>
+            );
+        }
+        if (item.kind === "notification") {
+            return (
+                <motion.div
+                    key={item.index}
+                    variants={viewFade}
+                    initial="initial"
+                    animate="animate"
+                >
+                    <TaskNotificationRow summary={item.summary} status={item.status} result={item.result} compact={isCompact} />
+                </motion.div>
+            );
+        }
+        if (item.kind === "interrupted") {
+            return (
+                <motion.div
+                    key={item.index}
+                    variants={viewFade}
+                    initial="initial"
+                    animate="animate"
+                >
+                    <InterruptedDivider compact={isCompact} />
+                </motion.div>
+            );
+        }
+        if (item.kind === "arc") {
+            return (
+                <motion.div key={"a" + item.index} variants={cardVariants} initial="initial" animate="animate">
+                    <ArcMessageRow message={item.message} ts={item.ts} idleMs={item.idleMs} ctx={cardCtx} compact={isCompact} />
+                </motion.div>
+            );
+        }
+        if (item.kind === "card") {
+            return (
+                <motion.div
+                    key={"c" + item.index}
+                    className={isCompact ? "my-2" : "my-2.5"}
+                    variants={cardVariants}
+                    initial="initial"
+                    animate="animate"
+                >
+                    <WshCardItem step={item.step} ctx={cardCtx} compact={isCompact} />
+                </motion.div>
+            );
+        }
+        // a new stretch arrives as one box, so its fade is one entrance, never a burst of tool lines
+        return (
+            <motion.div key={"s" + item.startIndex} variants={viewFade} initial="initial" animate="animate">
+                <StepBox steps={item.steps} thoughts={item.thoughts} renderers={renderers} ctx={cardCtx} compact={isCompact} />
+            </motion.div>
+        );
+    };
+
     return (
         <div className={cn("leading-relaxed", className)}>
-            <AnimatePresence initial={false}>
-            {withMarks(visibleItems.map((item) => {
-                if (item.kind === "message") {
-                    return (
-                        <motion.div
-                            key={item.index}
-                            data-find-turn
-                            className={cn(
-                                "min-w-0",
-                                isCompact ? "my-3 text-[13px] leading-[1.55]" : "my-[18px] text-[14px] leading-[1.6]",
-                                accentLatest && item.latest ? "text-foreground" : "text-secondary"
-                            )}
-                            onContextMenu={copyMenu(item.text)}
-                            variants={viewFade}
-                            initial={shouldFadeEntry("message") ? "initial" : false}
-                            animate="animate"
-                        >
-                            <MarkdownMessage text={item.text} />
-                        </motion.div>
-                    );
-                }
-                if (item.kind === "thought") {
-                    return (
-                        <motion.div
-                            key={"t" + item.index}
-                            data-thought
-                            className={cn("min-w-0", isCompact ? "my-2" : "my-2.5")}
-                            variants={viewFade}
-                            initial={shouldFadeEntry("thought") ? "initial" : false}
-                            animate="animate"
-                        >
-                            <ThoughtText text={item.text} compact={isCompact} />
-                        </motion.div>
-                    );
-                }
-                if (item.kind === "user") {
-                    return (
-                        <motion.div
-                            key={item.index}
-                            data-user-bubble
-                            className={cn("flex justify-end", isCompact ? "my-3.5 ml-7" : "my-6")}
-                            onContextMenu={copyMenu(item.text)}
-                            variants={viewFade}
-                            initial={shouldFadeEntry("user") ? "initial" : false}
-                            animate="animate"
-                        >
-                            <div
-                                className={cn(
-                                    "max-w-[82%] bg-surface-hover",
-                                    isCompact ? "rounded-[10px] px-[11px] py-2" : "rounded-[12px] px-[15px] py-[11px]"
-                                )}
-                            >
-                                <UserBubbleText text={item.text} clamp={!renderAll} compact={isCompact} />
-                            </div>
-                        </motion.div>
-                    );
-                }
-                if (item.kind === "command") {
-                    return (
-                        <motion.div
-                            key={item.index}
-                            variants={viewFade}
-                            initial="initial"
-                            animate="animate"
-                        >
-                            <CommandChip name={item.name} args={item.args} isSkill={item.isSkill} compact={isCompact} />
-                        </motion.div>
-                    );
-                }
-                if (item.kind === "compaction") {
-                    return (
-                        <motion.div
-                            key={item.index}
-                            variants={viewFade}
-                            initial="initial"
-                            animate="animate"
-                        >
-                            <CompactionDivider trigger={item.trigger} preTokens={item.preTokens} postTokens={item.postTokens} summary={item.summary} compact={isCompact} />
-                        </motion.div>
-                    );
-                }
-                if (item.kind === "notification") {
-                    return (
-                        <motion.div
-                            key={item.index}
-                            variants={viewFade}
-                            initial="initial"
-                            animate="animate"
-                        >
-                            <TaskNotificationRow summary={item.summary} status={item.status} result={item.result} compact={isCompact} />
-                        </motion.div>
-                    );
-                }
-                if (item.kind === "interrupted") {
-                    return (
-                        <motion.div
-                            key={item.index}
-                            variants={viewFade}
-                            initial="initial"
-                            animate="animate"
-                        >
-                            <InterruptedDivider compact={isCompact} />
-                        </motion.div>
-                    );
-                }
-                if (item.kind === "arc") {
-                    return (
-                        <motion.div key={"a" + item.index} variants={cardVariants} initial="initial" animate="animate">
-                            <ArcMessageRow message={item.message} ts={item.ts} idleMs={item.idleMs} ctx={cardCtx} compact={isCompact} />
-                        </motion.div>
-                    );
-                }
-                if (item.kind === "card") {
-                    return (
-                        <motion.div
-                            key={"c" + item.index}
-                            className={isCompact ? "my-2" : "my-2.5"}
-                            variants={cardVariants}
-                            initial="initial"
-                            animate="animate"
-                        >
-                            <WshCardItem step={item.step} ctx={cardCtx} compact={isCompact} />
-                        </motion.div>
-                    );
-                }
-                // a new stretch arrives as one box, so its fade is one entrance, never a burst of tool lines
-                return (
-                    <motion.div key={"s" + item.startIndex} variants={viewFade} initial="initial" animate="animate">
-                        <StepsBlock
-                            steps={item.steps}
-                            thoughts={item.thoughts}
-                            fold={item.fold}
-                            renderers={renderers}
-                            ctx={cardCtx}
-                            compact={isCompact}
-                        />
-                    </motion.div>
-                );
-            }))}
-            </AnimatePresence>
+            <AnimatePresence initial={false}>{withMarks(visibleItems.map(renderItem))}</AnimatePresence>
             {tail}
         </div>
     );

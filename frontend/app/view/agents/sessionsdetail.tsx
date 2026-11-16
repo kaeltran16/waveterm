@@ -553,7 +553,7 @@ function SessionBody({
                         </motion.button>
                     ) : null}
                 </AnimatePresence>
-                <NarrationTimeline entries={entries} active={session.live} renderAll={full} ctx={ctx} />
+                <NarrationTimeline entries={entries} active={session.live} renderAll={full} unfold={find != null} ctx={ctx} />
             </>
         );
     }

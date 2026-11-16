@@ -36,6 +36,19 @@ export async function showTranscript(h, { entries, width, ...opts }) {
     await sleep(SETTLE_MS);
 }
 
+// a finished turn's work sits behind its "Worked for" line: open every closed one, and let the reveal settle. Returns
+// how many it opened.
+const FOLD_MOTION_MS = 600;
+export async function openFolds(h) {
+    const opened = await h.ev(`(() => {
+        const folds = [...(${rootExpr}?.querySelectorAll('[data-fold][aria-expanded="false"]') ?? [])];
+        folds.forEach((f) => f.click());
+        return folds.length;
+    })()`);
+    await sleep(FOLD_MOTION_MS);
+    return opened;
+}
+
 export const user = (text, ts) => ({ kind: "user", text, ts });
 
 export const prose = (text, ts) => ({ kind: "message", text, ts });

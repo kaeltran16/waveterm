@@ -220,8 +220,6 @@ export function recentActions(entries: AgentEntry[], max: number): AgentActionEn
     return max > 0 ? actions.slice(-max) : actions;
 }
 
-export const CollapseRunThreshold = 3;
-
 // Joins the prose (message + user) entries of a transcript into one copyable string. Tool actions
 // are omitted — they are not conversational content.
 export function conversationText(entries: AgentEntry[]): string {

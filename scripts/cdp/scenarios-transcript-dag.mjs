@@ -3,7 +3,7 @@
 // opened `wsh jarvis dag status` step shows, each drawn from argv and the seeded dag and run (wshcards-dag.tsx).
 // The compact checks run at a card's width; the last step's run was never seeded, so its card stands on argv.
 
-import { bash, clearTranscript, prose, ROOT, showTranscript, user, waitSeam } from "./transcript-fixture.mjs";
+import { bash, clearTranscript, openFolds, prose, ROOT, showTranscript, user, waitSeam } from "./transcript-fixture.mjs";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -341,7 +341,8 @@ const cardState = (key) =>
     const cards = [...root.querySelectorAll('[data-wsh-card=${JSON.stringify(key)}]')];
     return cards.map((c) => ({
         text: c.textContent,
-        inFold: !!c.closest('[data-steps]'),
+        inBox: !!c.closest('[data-steps]'),
+        inFold: !!c.closest('[data-turn-fold]'),
         showCommand: !!c.querySelector('button[aria-label="Show the command"]'),
         buttons: [...c.querySelectorAll('button')].map((b) => b.textContent.trim()).filter(Boolean),
         planTasks: c.querySelectorAll('[data-plan-task]').length,
@@ -374,6 +375,8 @@ const OPEN_STATUS_STEP = probe(`
 async function show(h, name, width = WIDTH, compact = false) {
     const f = fixtures[name];
     await showTranscript(h, { entries: f.entries, width, compact, active: false, renderers: true, ctx: f.ctx, seed: f.seed });
+    // every fixture is a finished turn, so its steps and cards sit behind the turn's fold
+    await openFolds(h);
 }
 
 const includesAll = (text, parts) => text != null && parts.every((p) => text.includes(p));
@@ -391,12 +394,13 @@ async function fullSteps(h) {
     const [plan] = (await h.ev(cardState("dag-submit"))) ?? [];
     await h.shot("cdp-shots/transcript-dag-plan.png");
     steps.push({
-        step: "Plan submitted with the lane grid and review status",
+        step: "Plan submitted with the lane grid and review status, inside its turn's fold but no step box",
         ok:
             plan != null &&
             includesAll(plan.text, ["Plan submitted", "4 tasks · 3 lanes · longest chain 2", "after t-1", "multiply module", "Plan review, round 1", "Full review and Second pass are reading it", "as of now"]) &&
             plan.planTasks === 4 &&
-            plan.inFold === false &&
+            plan.inFold === true &&
+            plan.inBox === false &&
             plan.showCommand === true &&
             plan.buttons.includes("Plan"),
         detail: JSON.stringify(plan),

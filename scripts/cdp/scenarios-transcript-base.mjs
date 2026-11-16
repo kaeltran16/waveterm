@@ -1,7 +1,7 @@
-// Scenario `transcript-base`: the transcript's anatomy over plain entries (transcriptlayout.ts): a finished stretch
-// folded into "Worked for N", a short stretch as a step box, a running step's live elapsed, and a wsh change call as
-// a standalone row outside the fold while a failed one stays a step. Each check runs at the Rendered column's width
-// and at a card's (compact).
+// Scenario `transcript-base`: the transcript's anatomy over plain entries (transcriptlayout.ts): each finished turn's
+// work folded into one "Worked for N" line that opens to its step boxes and cards, a running step's live elapsed, a
+// wsh change call as a standalone row inside its turn's fold while a failed one stays a step, and a queued message
+// splitting a turn's fold in two. Each check runs at the Rendered column's width and at a card's (compact).
 
 import { bash, clearTranscript, prose, ROOT, showTranscript, tool, user, waitSeam } from "./transcript-fixture.mjs";
 
@@ -26,7 +26,7 @@ const edit = (path, ts) =>
     });
 
 // a finished turn of four steps (41 s from the prompt to the reply), then a turn with a successful wsh change call
-// and a two-step box holding the failed one
+// and a two-step box holding the failed one: one fold each
 const FINISHED = [
     user("Run node test.js, find why it fails, fix src/retry.js and run the test again.", T0),
     bash({ description: "Run the test", command: "node test.js", output: "not ok 1 waited 121ms", exit: 1, ts: T0 + 2 * S, durationMs: 400 }),
@@ -39,6 +39,17 @@ const FINISHED = [
     bash({ description: "Rename the other one", command: RENAME_FAILED, output: "no effort e-missing", exit: 1, ts: T0 + 62 * S, durationMs: 150 }),
     tool("read", "notes.md", { ts: T0 + 63 * S }),
     prose("Renamed; the second id does not exist.", T0 + 64 * S),
+];
+
+// a finished turn the human steered mid-way: the queued message stays out, a fold on each side of it
+const QUEUED_TEXT = "Also check the second caller.";
+const QUEUED = [
+    user("Fix the retry delay.", T0),
+    tool("read", "retry.js", { ts: T0 + S }),
+    bash({ description: "Run the test", command: "node test.js", output: "ok", ts: T0 + 2 * S, durationMs: 300 }),
+    { kind: "user", text: QUEUED_TEXT, ts: T0 + 3 * S, queued: true },
+    tool("read", "queue.js", { ts: T0 + 4 * S }),
+    prose("Both callers are fixed.", T0 + 9 * S),
 ];
 
 // the live turn: a Bash call with no result yet, started three seconds ago
@@ -171,14 +182,24 @@ const HARNESS = {
 const probe = (body) => `(() => { const root = document.querySelector(${JSON.stringify(ROOT)}); if (!root) return null; ${body} })()`;
 
 const FOLD_STATE = probe(`
-    const fold = root.querySelector('[data-fold]');
+    const folds = [...root.querySelectorAll('[data-fold]')];
+    const fold = folds[0];
     if (!fold) return { fold: null };
     const box = fold.parentElement.querySelector('[data-steps]');
-    return { fold: fold.textContent, expanded: fold.getAttribute('aria-expanded'), steps: box ? box.querySelectorAll('[data-step]').length : 0 };
+    return {
+        fold: fold.textContent,
+        expanded: fold.getAttribute('aria-expanded'),
+        steps: box ? box.querySelectorAll('[data-step]').length : 0,
+        folds: folds.map((f) => f.textContent),
+    };
 `);
 
+// opens the nth fold line, unless it is open already
+const openNthFold = (n) =>
+    probe(`const f = root.querySelectorAll('[data-fold]')[${n}]; if (f && f.getAttribute('aria-expanded') !== 'true') f.click(); return !!f;`);
+
 const BOX_STATE = probe(`
-    // run with the fold closed, so every box on screen is an unfolded stretch
+    // run with only the second turn's fold open, so every box on screen is one of its stretches
     return [...root.querySelectorAll('[data-steps]')].map((b) => {
         const s = getComputedStyle(b);
         return { steps: b.querySelectorAll('[data-step]').length, border: s.borderTopWidth, radius: s.borderTopLeftRadius, text: b.textContent };
@@ -190,7 +211,8 @@ const CHANGE_STATE = probe(`
     const failed = [...root.querySelectorAll('[data-step-status="fail"]')].find((s) => s.textContent.includes('e-missing'));
     return {
         row: row ? row.textContent : null,
-        inFold: row ? !!row.closest('[data-steps]') : null,
+        inBox: row ? !!row.closest('[data-steps]') : null,
+        inFold: row ? !!row.closest('[data-turn-fold]') : null,
         showCommand: row ? !!row.querySelector('button[aria-label="Show the command"]') : false,
         failed: failed ? failed.textContent : null,
     };
@@ -216,9 +238,11 @@ async function widthSteps(h, width, compact) {
     await sleep(MOTION_MS);
     const refolded = await h.ev(FOLD_STATE);
     steps.push({
-        step: `${tag} fold: a finished four-step stretch reads Worked for N with its phrase and +/−, opens on a click and folds again`,
+        step: `${tag} fold: one Worked for line per finished turn; the first reads its N, phrase and +/−, opens on a click and folds again`,
         ok:
             closed?.fold != null &&
+            closed.folds.length === 2 &&
+            closed.folds.every((f) => f.startsWith("Worked for")) &&
             /^Worked for 41s/.test(closed.fold) &&
             closed.fold.includes("retry.js") &&
             closed.fold.includes("+1") &&
@@ -233,26 +257,37 @@ async function widthSteps(h, width, compact) {
         detail: JSON.stringify({ closed, opened, refolded }),
     });
 
+    const shut = await h.ev(CHANGE_STATE);
+    const second = await h.ev(openNthFold(1));
+    await sleep(MOTION_MS);
     const boxes = await h.ev(BOX_STATE);
     await h.shot(`cdp-shots/transcript-base-box-${width}.png`);
     steps.push({
-        step: `${tag} box: a two-step stretch draws as a step box`,
-        ok: Array.isArray(boxes) && boxes.length === 1 && boxes[0].steps === 2 && boxes[0].border === "1px" && boxes[0].text.includes("notes.md"),
+        step: `${tag} box: the second turn's fold opens to its two-step stretch as a step box`,
+        ok:
+            second === true &&
+            Array.isArray(boxes) &&
+            boxes.length === 1 &&
+            boxes[0].steps === 2 &&
+            boxes[0].border === "1px" &&
+            boxes[0].text.includes("notes.md"),
         detail: JSON.stringify(boxes),
     });
 
     const change = await h.ev(CHANGE_STATE);
     steps.push({
-        step: `${tag} change call: a successful wsh effort rename draws a WshChangeRow outside the fold, the failed one a failed step`,
+        step: `${tag} change call: a successful wsh effort rename draws a WshChangeRow inside its turn's fold, the failed one a failed step`,
         ok:
+            shut?.row === null &&
             change?.row != null &&
             change.row.includes("wsh effort rename") &&
             change.row.includes("e-fixture") &&
-            change.inFold === false &&
+            change.inFold === true &&
+            change.inBox === false &&
             change.showCommand === true &&
             change.failed != null &&
             change.failed.includes("exit 1"),
-        detail: JSON.stringify(change),
+        detail: JSON.stringify({ shut, change }),
     });
     await h.shot(`cdp-shots/transcript-base-change-${width}.png`);
 
@@ -400,6 +435,8 @@ const EVENTS_STATE = probe(`
 
 async function eventsStep(h) {
     await showTranscript(h, { entries: EVENTS, width: 736, renderers: true, marks: EVENT_MARKS });
+    // the stopped and the blocked step sit in their turns' folds
+    await h.ev(`${R}.querySelectorAll('[data-fold][aria-expanded="false"]').forEach((f) => f.click())`);
     await h.ev(`${R}.querySelector('[data-compaction] button')?.click()`);
     await h.ev(`${R}.querySelector('[data-subagent-finished] button')?.click()`);
     await sleep(MOTION_MS);
@@ -463,6 +500,35 @@ async function compactStep(h) {
     };
 }
 
+const QUEUED_STATE = probe(`
+    const folds = [...root.querySelectorAll('[data-fold]')];
+    const bubble = [...root.querySelectorAll('[data-user-bubble]')].find((b) => b.textContent.includes(${JSON.stringify(QUEUED_TEXT)}));
+    const after = (a, b) => !!(a && b && a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    return {
+        folds: folds.map((f) => f.textContent),
+        bubbles: root.querySelectorAll('[data-user-bubble]').length,
+        between: folds.length === 2 && after(folds[0], bubble) && after(bubble, folds[1]),
+        bubbleInFold: bubble ? !!bubble.closest('[data-turn-fold]') : null,
+    };
+`);
+
+async function queuedStep(h) {
+    await showTranscript(h, { entries: QUEUED, width: 736 });
+    const s = await h.ev(QUEUED_STATE);
+    await h.shot("cdp-shots/transcript-base-queued.png");
+    return {
+        step: "Queued: a message typed mid-turn draws as a bubble between two Worked for lines, one per side",
+        ok:
+            s != null &&
+            s.folds.length === 2 &&
+            s.folds.every((f) => f.startsWith("Worked for")) &&
+            s.bubbles === 2 &&
+            s.between === true &&
+            s.bubbleInFold === false,
+        detail: JSON.stringify(s),
+    };
+}
+
 export const transcriptBase = {
     name: "transcript-base",
     surface: "cockpit",
@@ -486,6 +552,7 @@ export const transcriptBase = {
         steps.push(await stepsOpenStep(h));
         steps.push(await eventsStep(h));
         steps.push(await compactStep(h));
+        steps.push(await queuedStep(h));
         return steps;
     },
     async teardown(h) {
