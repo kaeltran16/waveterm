@@ -211,6 +211,34 @@ func TestAgentsSendTextLines(t *testing.T) {
 	}
 }
 
+func TestAgentsSendFlagsErr(t *testing.T) {
+	err := agentsSendFlagsErr(true, true)
+	if err == nil || !strings.Contains(err.Error(), "--json") || !strings.Contains(err.Error(), "--wait") {
+		t.Errorf("--json with --wait: err = %v, want one naming both flags", err)
+	}
+	for _, tc := range [][2]bool{{true, false}, {false, true}, {false, false}} {
+		if err := agentsSendFlagsErr(tc[0], tc[1]); err != nil {
+			t.Errorf("json=%v wait=%v: err = %v, want nil", tc[0], tc[1], err)
+		}
+	}
+}
+
+func TestAgentsSendOutput(t *testing.T) {
+	sent := &wshrpc.CommandAgentsSendRtnData{TabId: agentsTestTabA, SentTs: 1, MidTurn: true}
+	lines, err := agentsSendOutput(sent, true)
+	if err != nil || len(lines) != 1 {
+		t.Fatalf("--json: %q, %v; want one line", lines, err)
+	}
+	var got wshrpc.CommandAgentsSendRtnData
+	if err := json.Unmarshal([]byte(lines[0]), &got); err != nil || got != *sent {
+		t.Errorf("--json line %q decodes to %+v, %v; want %+v", lines[0], got, err, *sent)
+	}
+	plain, err := agentsSendOutput(sent, false)
+	if err != nil || !reflect.DeepEqual(plain, agentsSendLines(sent)) {
+		t.Errorf("plain: %q, %v; want agentsSendLines", plain, err)
+	}
+}
+
 const agentsTestSentTs = int64(1_000_000)
 
 // agentsWaitScript runs agentsWait over scripted reads (the last one repeats) with a clock that only

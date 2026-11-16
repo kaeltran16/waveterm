@@ -4,6 +4,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -93,6 +94,7 @@ func init() {
 	agentsListCmd.Flags().Bool("json", false, "JSON output")
 	agentsListCmd.Flags().Bool("others", false, "leave out this session's own tab")
 	agentsSendCmd.Flags().String("file", "", "read the text from this file instead of the argument")
+	agentsSendCmd.Flags().Bool("json", false, "print the send's result as JSON; not with --wait")
 	agentsSendCmd.Flags().Bool("wait", false, "wait for the target's answer and print it")
 	agentsSendCmd.Flags().Duration("timeout", agentsWaitDefault, "how long --wait waits")
 	agentsWaitCmd.Flags().String("until", "", "idle or asking; either by default")
@@ -222,6 +224,11 @@ func agentsShort(id string) string {
 }
 
 func agentsSendRun(cmd *cobra.Command, args []string) error {
+	wait, _ := cmd.Flags().GetBool("wait")
+	asJSON := isJSON(cmd)
+	if err := agentsSendFlagsErr(asJSON, wait); err != nil {
+		return err
+	}
 	file, _ := cmd.Flags().GetString("file")
 	text, err := agentsSendText(args[1:], file)
 	if err != nil {
@@ -236,10 +243,14 @@ func agentsSendRun(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	for _, line := range agentsSendLines(sent) {
+	lines, err := agentsSendOutput(sent, asJSON)
+	if err != nil {
+		return err
+	}
+	for _, line := range lines {
 		fmt.Println(line)
 	}
-	if wait, _ := cmd.Flags().GetBool("wait"); !wait {
+	if !wait {
 		return nil
 	}
 	timeout, _ := cmd.Flags().GetDuration("timeout")
@@ -275,6 +286,27 @@ func agentsSendText(textArgs []string, file string) (string, error) {
 		return "", fmt.Errorf("the message is empty")
 	}
 	return text, nil
+}
+
+// agentsSendFlagsErr refuses --json with --wait: --wait prints the answer as a second document, and two JSON
+// documents on stdout would break a --json reader
+func agentsSendFlagsErr(asJSON, wait bool) error {
+	if asJSON && wait {
+		return fmt.Errorf("EC-INVALID-ARGS: --json and --wait print two documents; drop one of them")
+	}
+	return nil
+}
+
+// agentsSendOutput is what the send prints: the RPC return as one JSON line under --json, else the text lines
+func agentsSendOutput(sent *wshrpc.CommandAgentsSendRtnData, asJSON bool) ([]string, error) {
+	if !asJSON {
+		return agentsSendLines(sent), nil
+	}
+	b, err := json.Marshal(sent)
+	if err != nil {
+		return nil, err
+	}
+	return []string{string(b)}, nil
 }
 
 func agentsSendLines(sent *wshrpc.CommandAgentsSendRtnData) []string {

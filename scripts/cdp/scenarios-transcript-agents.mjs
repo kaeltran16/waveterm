@@ -58,7 +58,8 @@ const SENT_TEXT =
     "New finding from the SIEM run that changes part C: the process holding the lock is the nightly compactor, not the detector.";
 const ANSWER = "I'm checking whether the off-hours rule reads hours in UTC or local time. If it's UTC, the remaining alarms may be a timezone bug.";
 const SCRATCH = "scratch/prod-inv/prod_inv.sh";
-const UNKNOWN_TAB = "ffff1111-0000-4000-8000-000000000099";
+const JOINED = "joined its running turn";
+const UNKNOWN_TAB ="ffff1111-0000-4000-8000-000000000099";
 
 const LIST = 'wsh agents list';
 const LIST_JSON = "wsh agents list --json";
@@ -104,6 +105,21 @@ export const fixtures = {
             bash({ description: "Show the agent", command: `wsh ui reveal agent:${FABLE.tabid}`, output: "", ts: T0 + 4 * S, durationMs: 120 }),
             bash({ description: "Open the script", command: `wsh ui reveal ${SCRATCH}`, output: "", ts: T0 + 5 * S, durationMs: 110 }),
             prose("The lead has the lock finding.", T0 + 6 * S),
+        ],
+        seed: SEED,
+    },
+    // --json prints the RPC return, the one output the card parses midturn from
+    agentsSendJson: {
+        entries: [
+            user("Tell the lead.", T0),
+            bash({
+                description: "Send to the lead",
+                command: `wsh agents send ${LEAD.tabid} "${SENT_TEXT}" --json`,
+                output: JSON.stringify({ tabid: LEAD.tabid, sentts: T0 + S, midturn: true }),
+                ts: T0 + S,
+                durationMs: 600,
+            }),
+            prose("Sent.", T0 + 2 * S),
         ],
         seed: SEED,
     },
@@ -246,6 +262,7 @@ async function cardSteps(h, width, compact) {
             s.send.text.includes(LEAD.name) &&
             s.send.text.includes(SENT_TEXT) &&
             s.send.inFold === false &&
+            !s.send.text.includes(JOINED) &&
             s.send.button === true &&
             s.send.duration === true &&
             ratio(s.send) > 0.7 &&
@@ -263,6 +280,14 @@ async function cardSteps(h, width, compact) {
             s.read.openAgent === true &&
             s.read.button === true,
         detail: JSON.stringify(s?.read),
+    });
+
+    await showTranscript(h, { ...fixtures.agentsSendJson, width, compact, active: false });
+    const json = await h.ev(CARDS_STATE);
+    steps.push({
+        step: `${tag} agents send --json with midturn: Sent to reads "${JOINED}" (plain output above does not)`,
+        ok: json?.send != null && json.send.text.includes("Sent to") && json.send.text.includes(LEAD.name) && json.send.text.includes(JOINED),
+        detail: JSON.stringify(json?.send),
     });
     if (compact) return steps;
 
