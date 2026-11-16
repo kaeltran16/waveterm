@@ -216,6 +216,16 @@ describe("togglePeek", () => {
         expect(globalStore.get(codePeekAtom)).toMatchObject({ bufferLine: 11, raw: "b.ts" });
     });
 
+    it("moves to another path or line at the same place, as a reply's links all sit at one", async () => {
+        await togglePeek({ ...anchor, raw: "a.ts", line: null });
+        await togglePeek({ ...anchor, raw: "b.ts", line: null });
+        expect(globalStore.get(codePeekAtom)).toMatchObject({ raw: "b.ts" });
+        await togglePeek({ ...anchor, raw: "b.ts", line: 4 });
+        expect(globalStore.get(codePeekAtom)).toMatchObject({ raw: "b.ts", line: 4 });
+        await togglePeek({ ...anchor, raw: "b.ts", line: 4 });
+        expect(globalStore.get(codePeekAtom)).toBeNull();
+    });
+
     it("never shows a superseded load's file in the newer card", async () => {
         const first = deferred<FileData>();
         rpc.FileReadCommand.mockReturnValueOnce(first.promise).mockResolvedValueOnce(read("second\n"));

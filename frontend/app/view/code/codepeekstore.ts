@@ -54,10 +54,17 @@ type PeekRequest = {
 // bumped by every open and close, so a load that a newer click superseded writes nothing
 let loadToken = 0;
 
-type Anchor = Pick<CodePeek, "blockId" | "bufferLine" | "start">;
+// the path is part of the anchor: a terminal link is known by its place, a reply's (the rendered view) by its path
+type Anchor = Pick<CodePeek, "blockId" | "bufferLine" | "start" | "raw" | "line">;
 
 function sameAnchor(p: Anchor, req: Anchor): boolean {
-    return p.blockId === req.blockId && p.bufferLine === req.bufferLine && p.start === req.start;
+    return (
+        p.blockId === req.blockId &&
+        p.bufferLine === req.bufferLine &&
+        p.start === req.start &&
+        p.raw === req.raw &&
+        p.line === req.line
+    );
 }
 
 // home is fixed for the app's life, so one stat serves every peek; a failed stat is retried next time

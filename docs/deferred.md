@@ -14,6 +14,23 @@ where it would plug in, and how to pick it back up. Append new entries at the to
 > with no trigger moved to "Declined 2026-10-16" below, and history paragraphs were cut to their recovery
 > lines. The full pre-prune text of every entry: `git show db067efe:docs/deferred.md`.
 
+## Rendered view: plan checklist from TodoWrite (deferred 2026-11-16)
+
+Chunk 16 of `effort:f283ad11-bcef-4053-b3f8-cda2e04998a2` asked to draw a Claude agent's TodoWrite plan as a checklist
+in the Rendered view. Nothing here writes one: no transcript under `~/.claude/projects` (all of them, scanned
+2026-11-16) holds a TodoWrite or TaskCreate call. Claude Code 2.1.325 turns its todo tools off for first-party models unless
+`CLAUDE_CODE_ENABLE_TODO_TOOLS` is set, so a checklist would never draw, and the agent row's done/total chip
+(`extractTasks` in `transcriptprojection.ts`, `agentrow.tsx`) is just as idle.
+
+- **Why held:** a view with no source here; turning the tools on for Arc's agents changes what the model does
+  and costs tool tokens, which is the user's call, not this run's.
+- **Plug-in point:** `extractTasksRecords` already reads the latest TodoWrite. It would carry each todo's
+  `status` (`pending`, `in_progress`, `completed`) instead of `done`, and the layout would draw a turn's first
+  TodoWrite step as one checklist holding that turn's latest list.
+- **Revive when:** a transcript shows TodoWrite or TaskCreate calls (count them with a scan of
+  `~/.claude/projects/*/*.jsonl` for `"name":"TodoWrite"`), or Arc decides to set `CLAUDE_CODE_ENABLE_TODO_TOOLS`
+  for the agents it starts.
+
 ## Native heap-corruption crashes of wave-tauri.exe: waiting on upstream tao (deferred 2026-11-13)
 
 The dev app's native exits (0xc0000374, 0xc0000005, 0xc000001d, 0xc000041d), mostly within seconds of a page

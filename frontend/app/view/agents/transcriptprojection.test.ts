@@ -507,16 +507,43 @@ describe("extractTasks", () => {
 });
 
 describe("projectTranscript thinking blocks", () => {
-    it("skips assistant thinking blocks (internal chain-of-thought is not narration)", () => {
-        const lines = [
-            JSON.stringify({
-                type: "assistant",
-                message: { content: [{ type: "thinking", thinking: "secret reasoning" }] },
-            }),
-            JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "visible narration" }] } }),
-        ];
-        const entries = projectTranscript(lines);
-        expect(entries).toEqual([{ kind: "message", text: "visible narration" }]);
+    const rec = (id: string | undefined, content: unknown[], ts?: string) =>
+        JSON.stringify({ type: "assistant", ...(ts ? { timestamp: ts } : {}), message: { ...(id ? { id } : {}), content } });
+    const think = (thinking: string) => ({ type: "thinking", thinking });
+    const text = (t: string) => ({ type: "text", text: t });
+    const use = (id: string) => ({ type: "tool_use", id, name: "Bash", input: { command: "ls" } });
+
+    it("a message with thinking and no reply text projects its thinking as a thought, in place", () => {
+        const out = projectTranscript([rec("m1", [think("  checking the caller first  ")], "2026-11-16T10:00:00Z"), rec("m1", [use("t1")])]);
+        expect(out[0]).toEqual({ kind: "thought", text: "checking the caller first", ts: Date.parse("2026-11-16T10:00:00Z") });
+        expect(out[1]).toMatchObject({ kind: "action", verb: "ran" });
+    });
+
+    it("a message with reply text keeps its thinking hidden, though the text arrives in a later record", () => {
+        const out = projectTranscript([rec("m1", [think("secret reasoning")]), rec("m1", [text("visible reply")])]);
+        expect(out).toEqual([{ kind: "message", text: "visible reply" }]);
+    });
+
+    it("a record with no message id is its own message", () => {
+        const out = projectTranscript([rec(undefined, [think("alone")]), rec(undefined, [think("hidden"), text("said")])]);
+        expect(out).toEqual([
+            { kind: "thought", text: "alone" },
+            { kind: "message", text: "said" },
+        ]);
+    });
+
+    it("one message's back-to-back thinking blocks are one thought; another message's starts a new one", () => {
+        const out = projectTranscript([rec("m1", [think("a")]), rec("m1", [think("b")]), rec("m2", [think("c")])]);
+        expect(out).toEqual([
+            { kind: "thought", text: "a\n\nb" },
+            { kind: "thought", text: "c" },
+        ]);
+    });
+
+    it("empty thinking (summaries off) projects nothing", () => {
+        expect(projectTranscript([rec("m1", [think("   "), { type: "thinking", signature: "x" }]), rec("m1", [use("t1")])])).toEqual([
+            expect.objectContaining({ kind: "action" }),
+        ]);
     });
 });
 

@@ -50,6 +50,7 @@ describe("motiontokens", () => {
     it("only narrates message/user entries — tool bursts do not fade (burst guard)", () => {
         expect(shouldFadeEntry("message")).toBe(true);
         expect(shouldFadeEntry("user")).toBe(true);
+        expect(shouldFadeEntry("thought")).toBe(true);
         expect(shouldFadeEntry("action")).toBe(false);
     });
 

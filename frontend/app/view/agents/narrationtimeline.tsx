@@ -27,7 +27,7 @@ import { fmtDuration } from "./runcompletion";
 import { TIMELINE_RENDER_CAP } from "./sessionstranscript";
 import { formatDuration } from "./tooldetail";
 import type { TranscriptContext } from "./transcriptcontext";
-import { layoutTranscript, stepRows, stepTitle, type FoldSummary, type Step } from "./transcriptlayout";
+import { layoutTranscript, stepRows, stepTitle, type FoldSummary, type Step, type Thought } from "./transcriptlayout";
 import { ToolOutputRenderer } from "./toolrenderers";
 import { isCardKey } from "./wshcall";
 import { WshChangeRow } from "./wshchangerow";
@@ -642,11 +642,36 @@ function ImageReadsRow({
     );
 }
 
-function StepBox({ steps, renderers, ctx, compact }: { steps: Step[]; renderers?: boolean; ctx: TranscriptContext; compact: boolean }) {
+// what the agent thought between steps (a thinking-only message): muted prose, never a step
+function ThoughtText({ text, compact }: { text: string; compact: boolean }) {
+    return <MarkdownMessage text={text} className={cn("text-muted", compact ? "text-[12.5px]" : "text-[13px] leading-[1.55]")} />;
+}
+
+function StepBox({
+    steps,
+    thoughts,
+    renderers,
+    ctx,
+    compact,
+}: {
+    steps: Step[];
+    thoughts?: Thought[];
+    renderers?: boolean;
+    ctx: TranscriptContext;
+    compact: boolean;
+}) {
     return (
         <div data-steps className={cn("overflow-hidden border border-edge-mid", compact ? "my-2 rounded-[8px]" : "my-2.5 rounded-[10px]")}>
-            {stepRows(steps).map((row) =>
-                row.kind === "images" ? (
+            {stepRows(steps, thoughts).map((row) =>
+                row.kind === "thought" ? (
+                    <div
+                        key={"t" + row.index}
+                        data-thought
+                        className={cn("border-t border-edge-faint first:border-t-0", compact ? "px-2.5 py-[7px]" : "px-3.5 py-2.5")}
+                    >
+                        <ThoughtText text={row.text} compact={compact} />
+                    </div>
+                ) : row.kind === "images" ? (
                     <ImageReadsRow key={row.steps[0].index} steps={row.steps} renderers={renderers} ctx={ctx} compact={compact} />
                 ) : (
                     <StepRow key={row.step.index} step={row.step} renderers={renderers} ctx={ctx} compact={compact} />
@@ -692,12 +717,14 @@ function FoldLine({ fold, open, onClick, compact }: { fold: FoldSummary; open: b
 // card (rendered view only) starts open, since a fold would hide the card.
 function StepsBlock({
     steps,
+    thoughts,
     fold,
     renderers,
     ctx,
     compact,
 }: {
     steps: Step[];
+    thoughts?: Thought[];
     fold: FoldSummary | null;
     renderers?: boolean;
     ctx: TranscriptContext;
@@ -705,7 +732,7 @@ function StepsBlock({
 }) {
     const [toggled, setToggled] = useState(false);
     if (fold == null) {
-        return <StepBox steps={steps} renderers={renderers} ctx={ctx} compact={compact} />;
+        return <StepBox steps={steps} thoughts={thoughts} renderers={renderers} ctx={ctx} compact={compact} />;
     }
     const hasCard = !!renderers && steps.some((s) => toolRendererKey(s.action) != null);
     const open = hasCard ? !toggled : toggled;
@@ -715,7 +742,7 @@ function StepsBlock({
             <AnimatePresence initial={false}>
                 {open ? (
                     <motion.div key="box" variants={composerReveal} initial="initial" animate="animate" exit="exit" className="overflow-hidden">
-                        <StepBox steps={steps} renderers={renderers} ctx={ctx} compact={compact} />
+                        <StepBox steps={steps} thoughts={thoughts} renderers={renderers} ctx={ctx} compact={compact} />
                     </motion.div>
                 ) : null}
             </AnimatePresence>
@@ -978,6 +1005,7 @@ export const NarrationTimeline = memo(function NarrationTimeline({
     renderAll,
     renderers,
     marks,
+    thoughts,
     className,
     tail,
     ctx,
@@ -994,6 +1022,8 @@ export const NarrationTimeline = memo(function NarrationTimeline({
     // session-local rows the rendered view records after answering a permission prompt, each drawn after the item
     // holding entry afterEntry - 1
     marks?: TimelineMark[];
+    // draws a thinking-only message as a muted line between steps; only the rendered view sets it
+    thoughts?: boolean;
     className?: string;
     // what the host knows about the agent, for wsh cards' links and Arc's messages
     ctx?: TranscriptContext;
@@ -1004,7 +1034,10 @@ export const NarrationTimeline = memo(function NarrationTimeline({
 }) {
     // ctx feeds the layout only through its role (a run brief), so a host's fresh ctx object does not relayout
     const role = ctx?.role;
-    const items = useMemo(() => layoutTranscript(entries, { active: !!active, ctx: { role } }), [entries, active, role]);
+    const items = useMemo(
+        () => layoutTranscript(entries, { active: !!active, ctx: { role }, thoughts }),
+        [entries, active, role, thoughts]
+    );
     const cardCtx = ctx ?? NO_CTX;
     const isCompact = !!compact;
     const visibleItems =
@@ -1046,6 +1079,20 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                             transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
                         >
                             <MarkdownMessage text={item.text} />
+                        </motion.div>
+                    );
+                }
+                if (item.kind === "thought") {
+                    return (
+                        <motion.div
+                            key={"t" + item.index}
+                            data-thought
+                            className={cn("min-w-0", isCompact ? "my-2" : "my-2.5")}
+                            initial={shouldFadeEntry("thought") ? { opacity: 0 } : false}
+                            animate={{ opacity: 1 }}
+                            transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
+                        >
+                            <ThoughtText text={item.text} compact={isCompact} />
                         </motion.div>
                     );
                 }
@@ -1137,6 +1184,7 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                     <StepsBlock
                         key={"s" + item.startIndex}
                         steps={item.steps}
+                        thoughts={item.thoughts}
                         fold={item.fold}
                         renderers={renderers}
                         ctx={cardCtx}

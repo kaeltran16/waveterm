@@ -201,7 +201,7 @@ export function CodePeekCard({
     // a new anchor is a new card: it takes focus so Enter and Esc reach it
     useEffect(() => {
         rootRef.current?.focus({ preventScroll: true });
-    }, [peek.blockId, peek.bufferLine, peek.start]);
+    }, [peek.blockId, peek.bufferLine, peek.start, peek.raw, peek.line]);
 
     return (
         <div

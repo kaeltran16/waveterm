@@ -131,8 +131,32 @@ function mergeCompaction(entries: AgentEntry[], patch: Partial<Extract<AgentEntr
     entries.push({ kind: "compaction", ...patch });
 }
 
+function hasText(content: unknown): boolean {
+    return Array.isArray(content) && content.some((b) => b?.type === "text" && typeof b.text === "string" && b.text.trim() !== "");
+}
+
+// Claude Code writes each block of one API message as its own record, sharing message.id; a record with neither id is a
+// message of its own
+function messageKey(rec: any): string | undefined {
+    const id = rec?.message?.id ?? rec?.uuid;
+    return typeof id === "string" ? id : undefined;
+}
+
+// the messages that have reply text somewhere among their records: their thinking stays hidden
+function repliedMessages(records: readonly TranscriptRecord[]): Set<string> {
+    const replied = new Set<string>();
+    for (const r of records) {
+        const rec: any = r;
+        const key = messageKey(rec);
+        if (rec?.type === "assistant" && key != null && hasText(rec.message?.content)) {
+            replied.add(key);
+        }
+    }
+    return replied;
+}
+
 /** Pure: project transcript JSONL lines into ordered previous-info entries.
- *  assistant text -> message; tool_use -> action; tool_result -> outcome on the matching
+ *  assistant text -> message; thinking of a message with no text -> thought; tool_use -> action; tool_result -> outcome on the matching
  *  action (fail on error; ok only for "ran", to avoid a checkmark on every read/edit).
  *  Unparseable lines and unknown record types are skipped. */
 export function projectTranscript(lines: string[]): AgentEntry[] {
@@ -143,6 +167,9 @@ export function projectTranscript(lines: string[]): AgentEntry[] {
 export function projectTranscriptRecords(records: readonly TranscriptRecord[]): AgentEntry[] {
     const entries: AgentEntry[] = [];
     const actionById = new Map<string, ActionEntry>();
+    const replied = repliedMessages(records);
+    // the message the last thought came from, so its next thinking block joins that thought
+    let thoughtFrom: string | undefined;
     for (const r of records) {
         const rec: any = r;
         if (rec == null) {
@@ -153,9 +180,25 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
             if (!Array.isArray(content)) {
                 continue;
             }
+            const key = messageKey(rec);
+            const silent = key != null ? !replied.has(key) : !hasText(content);
             for (const block of content) {
                 if (block?.type === "text" && typeof block.text === "string" && block.text.trim() !== "") {
                     entries.push({ kind: "message", text: block.text, ...recTs(rec) });
+                    continue;
+                }
+                if (block?.type === "thinking" && typeof block.thinking === "string" && block.thinking.trim() !== "") {
+                    if (!silent) {
+                        continue;
+                    }
+                    const text = block.thinking.trim();
+                    const last = entries[entries.length - 1];
+                    if (last?.kind === "thought" && key != null && thoughtFrom === key) {
+                        last.text += "\n\n" + text;
+                    } else {
+                        entries.push({ kind: "thought", text, ...recTs(rec) });
+                        thoughtFrom = key;
+                    }
                     continue;
                 }
                 if (block?.type === "tool_use" && typeof block.name === "string") {

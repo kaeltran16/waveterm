@@ -408,6 +408,9 @@ the tokens above.
   step rows (title, command in mono, exit chip, time, chevron) that open to a structured body. A finished stretch of
   three or more steps folds into one "Worked for N" line. Arc's own messages (wakes, briefs, brainstorm lines) are
   centred events, never user bubbles. The message box is a pill with the model and permission chips inside it.
+- **Rendered view only** — a thinking-only message is a muted line between the steps around it. A file path in a
+  reply is an accent link that ellipsizes inside the column and stays selectable; a click docks the Code peek on
+  it under the transcript.
 - **wsh calls** — a call that changes something is a standalone card outside the fold, so a change is never hidden
   in a stretch; a read-only call is a step row that opens to a structured view of what it read. A change that
   failed or is still running stays a step, and a card says only what happened.
