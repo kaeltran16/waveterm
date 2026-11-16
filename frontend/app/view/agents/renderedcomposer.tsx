@@ -3,8 +3,8 @@
 //
 // Rendered mode's message box (the boards' pill): the text, then attach, the model and permission-mode chips, the
 // context ring and one round button, Send or (while a turn is live and the box is empty) Stop. Attachments sit above
-// the text and reach the agent as paths appended to the prompt. While Claude's question is shown Send is held, since
-// typing into the pty would land in its picker.
+// the text and reach the agent as paths appended to the prompt, as an agent picked with @ (mentionpicker.tsx) does.
+// While Claude's question is shown Send is held, since typing into the pty would land in its picker.
 
 import { pushToast } from "@/app/cockpit/notificationstore";
 import { cn, fireAndForget } from "@/util/util";
@@ -15,6 +15,7 @@ import type { AgentVM } from "./agentsviewmodel";
 import { AttachButton, AttachmentTray } from "./attachmenttray";
 import { appendAttachments, pickFilePaths, useComposerAttachments } from "./composerattachments";
 import { BoxControls } from "./headercontrols";
+import { useMentions } from "./mentionpicker";
 import { boxButton, composerBox, contextRing } from "./renderedmode";
 
 const BoxMinH = 22; // one line of 14px text
@@ -65,10 +66,14 @@ export const RenderedComposer = forwardRef<
         maxH: Math.round(window.innerHeight * BoxMaxShare),
         onEscape: onInterrupt,
         onSubmitText,
-        compose: (t) => appendAttachments(t, attachments),
-        onSent: clear,
+        compose: (t) => appendAttachments(mentions.compose(t), attachments),
+        onSent: () => {
+            clear();
+            mentions.clear();
+        },
         attachments,
     });
+    const mentions = useMentions(agent, text, setText, taRef);
     useComposerHandle(ref, setText, taRef);
     const canSend = !box.askBlocks && canSendComposer(text, blockId, attachments);
     const pickFiles = () =>
@@ -83,6 +88,9 @@ export const RenderedComposer = forwardRef<
             }
         });
     const keyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+        if (mentions.onKeyDown(e)) {
+            return;
+        }
         if (box.askBlocks && e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
             return;
@@ -95,10 +103,11 @@ export const RenderedComposer = forwardRef<
         <div
             data-composer-box
             className={cn(
-                "rounded-[14px] border border-edge-strong bg-surface-raised pb-2.5 pl-3.5 pr-3 pt-3 focus-within:border-accent/60",
+                "relative rounded-[14px] border border-edge-strong bg-surface-raised pb-2.5 pl-3.5 pr-3 pt-3 focus-within:border-accent/60",
                 filled && "border-accent/60"
             )}
         >
+            {mentions.picker}
             {box.askBlocks ? (
                 <div data-composer-notice className="flex items-center gap-[7px] pb-2 text-[12px] text-muted">
                     <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-warning" />
@@ -114,7 +123,11 @@ export const RenderedComposer = forwardRef<
                 ref={taRef}
                 rows={1}
                 value={text}
-                onChange={(e) => setText(e.target.value)}
+                onChange={(e) => {
+                    setText(e.target.value);
+                    mentions.trackCaret(e.target);
+                }}
+                onSelect={(e) => mentions.trackCaret(e.currentTarget)}
                 onKeyDown={keyDown}
                 onPaste={onPaste}
                 placeholder={box.placeholder}
