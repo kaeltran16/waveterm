@@ -983,7 +983,7 @@ function TaskNotificationRow({
 const CLAMP_LINES = { bubble: "line-clamp-[8]", thought: "line-clamp-3" } as const;
 
 // Long text clamped behind Show more. The clamp is measured, not estimated, so the toggle only shows when text is
-// really hidden. A find over the transcript passes clamp=false, since a match must never sit in hidden text.
+// really hidden. A find over the transcript (unfold) passes clamp=false, since a match must never sit in hidden text.
 function ClampedText({
     lines,
     clamp,
@@ -1116,8 +1116,12 @@ function useLocalImages(paths: string[]): [LocalImages, (path: string) => void] 
                 try {
                     const resp = await fetch(localFileUrl(getWebServerEndpoint(), path));
                     if (resp.ok && !cancelled) {
-                        url = URL.createObjectURL(await resp.blob());
-                        urls.push(url);
+                        const blob = await resp.blob();
+                        // the blob can land after cleanup revoked the list; a url made then would never be revoked
+                        if (!cancelled) {
+                            url = URL.createObjectURL(blob);
+                            urls.push(url);
+                        }
                     }
                 } catch (e) {
                     console.warn("bubble attachment: cannot load", path, e);
@@ -1229,7 +1233,7 @@ export const NarrationTimeline = memo(function NarrationTimeline({
     entries: AgentEntry[];
     accentLatest?: boolean;
     active?: boolean;
-    // a find over the transcript must reach its earliest turns, so it lifts the cap
+    // lifts the item cap, for a whole session loaded or read in full; the clamp stays, since only a find needs it gone
     renderAll?: boolean;
     // draws the registered tool output cards open under their rows; only the rendered view sets it,
     // since always-open cards would bloat the cockpit's narrow cards
@@ -1246,7 +1250,8 @@ export const NarrationTimeline = memo(function NarrationTimeline({
     compact?: boolean;
     // drawn after the last item, inside the column
     tail?: React.ReactNode;
-    // draws every finished turn's fold open, so a find never has a match inside a closed one
+    // a find is active: every finished turn's fold draws open and no bubble or thought is clamped, so a match never
+    // sits in hidden text
     unfold?: boolean;
 }) {
     // ctx feeds the layout only through its role (a run brief), so a host's fresh ctx object does not relayout; a host's
@@ -1328,7 +1333,7 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                     initial={shouldFadeEntry("thought") ? "initial" : false}
                     animate="animate"
                 >
-                    <ThoughtText text={item.text} clamp={!renderAll} compact={isCompact} />
+                    <ThoughtText text={item.text} clamp={!unfold} compact={isCompact} />
                 </motion.div>
             );
         }
@@ -1349,7 +1354,7 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                             isCompact ? "rounded-[10px] px-[11px] py-2" : "rounded-[12px] px-[15px] py-[11px]"
                         )}
                     >
-                        {item.text ? <UserBubbleText text={item.text} clamp={!renderAll} compact={isCompact} /> : null}
+                        {item.text ? <UserBubbleText text={item.text} clamp={!unfold} compact={isCompact} /> : null}
                         {item.images || item.imagePaths || item.filePaths ? (
                             <BubbleAttachments item={item} compact={isCompact} />
                         ) : null}
@@ -1443,7 +1448,7 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                     steps={item.steps}
                     thoughts={item.thoughts}
                     renderers={renderers}
-                    clamp={!renderAll}
+                    clamp={!unfold}
                     ctx={cardCtx}
                     compact={isCompact}
                 />

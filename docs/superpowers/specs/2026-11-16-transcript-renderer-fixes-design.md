@@ -65,8 +65,8 @@ Decisions beyond the user's:
 - **The live turn** keeps today's drawing (open stretches, no fold); when it finishes it folds under the new line
   (existing FoldLine + `PaneReveal`, moment 6b).
 - **Find.** NarrationTimeline gets `unfold?: boolean`: every turn draws open, so a find hit is never inside a closed
-  fold. Sessions detail passes it while a find is active. `renderAll` keeps its meaning (lift the item cap, no bubble
-  clamp).
+  fold. Sessions detail passes it while a find is active. `renderAll` only lifts the item cap; `unfold` also drops the
+  bubble and thought clamp, since a find is the one thing that must never land in hidden text.
 - `permissionmodel.placeMarks` places a mark whose entry falls inside a folded turn after that turn's row.
 - **Skill in the phrase:** a Skill call reads "used a skill" / "used N skills", like the other counted families
   (chunk 15).

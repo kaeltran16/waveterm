@@ -1,7 +1,8 @@
 // Scenario `transcript-base`: the transcript's anatomy over plain entries (transcriptlayout.ts): each finished turn's
 // work folded into one "Worked for N" line that opens to its step boxes and cards, a running step's live elapsed, a
 // wsh change call as a standalone row inside its turn's fold while a failed one stays a step, a queued message
-// splitting a turn's fold in two, consecutive thoughts merged into one clamped thought, a heredoc step's derived title,
+// splitting a turn's fold in two, consecutive thoughts merged into one clamped thought that stays clamped under
+// renderAll and opens under unfold (as does a long bubble), a heredoc step's derived title,
 // and a background notice's muted row. The fold checks run at the Rendered column's width and at a card's (compact).
 
 import { bash, clearTranscript, prose, ROOT, showTranscript, tool, user, waitSeam } from "./transcript-fixture.mjs";
@@ -581,6 +582,39 @@ async function thoughtStep(h) {
     };
 }
 
+// a prompt of ten lines, past the bubble's eight-line clamp, before the two thoughts
+const LONG_PROMPT = Array.from({ length: 10 }, (_, i) => `Line ${i + 1} of the pasted spec.`).join("\n");
+const LONG_TURN = [{ kind: "user", text: LONG_PROMPT, ts: T0 - S }, ...THOUGHTS.slice(1)];
+
+const CLAMP_STATE = probe(`
+    const more = (sel) => root.querySelector(sel + ' [data-clamp-more]')?.textContent ?? null;
+    return { thought: more('[data-thought]'), bubble: more('[data-user-bubble]') };
+`);
+
+// renderAll (a whole session loaded) only lifts the item cap: the thought and the bubble stay clamped. unfold (a find
+// is active) drops both clamps, so a match never sits in hidden text.
+async function clampModeStep(h) {
+    await showTranscript(h, { entries: LONG_TURN, width: 736, thoughts: true, renderAll: true });
+    const all = await h.ev(CLAMP_STATE);
+    await h.ev(`${R}.querySelector('[data-thought] [data-clamp-more]')?.click()`);
+    await h.ev(`${R}.querySelector('[data-user-bubble] [data-clamp-more]')?.click()`);
+    await sleep(MOTION_MS);
+    const allOpened = await h.ev(CLAMP_STATE);
+    await showTranscript(h, { entries: LONG_TURN, width: 736, thoughts: true, renderAll: true, unfold: true });
+    const unfolded = await h.ev(CLAMP_STATE);
+    return {
+        step: "Clamp: with renderAll the thought and bubble keep a working Show more; with unfold neither has one",
+        ok:
+            all?.thought === "Show more" &&
+            all.bubble === "Show more" &&
+            allOpened?.thought === "Show less" &&
+            allOpened.bubble === "Show less" &&
+            unfolded?.thought === null &&
+            unfolded.bubble === null,
+        detail: JSON.stringify({ all, allOpened, unfolded }),
+    };
+}
+
 // a Bash call with no description whose command is a heredoc script: titled, its command beside the title in mono
 const HEREDOC = "python - <<'EOF'\nimport json\nprint(json.dumps({\"ok\": True}))\nEOF";
 const HEREDOC_TURN = [
@@ -688,6 +722,7 @@ export const transcriptBase = {
         steps.push(await compactStep(h));
         steps.push(await queuedStep(h));
         steps.push(await thoughtStep(h));
+        steps.push(await clampModeStep(h));
         steps.push(await heredocStep(h));
         steps.push(await noticeStep(h));
         return steps;

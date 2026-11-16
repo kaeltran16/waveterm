@@ -36,6 +36,9 @@ export interface NarrationFeedFixtureOpts {
     runEvents?: Record<string, RunEvent[]>;
     // drawn as the timeline's tail, as a working host draws it
     nowLine?: NowLine;
+    // as Sessions detail draws a whole session, and a find over it
+    renderAll?: boolean;
+    unfold?: boolean;
 }
 
 interface ModalProps {
@@ -48,6 +51,8 @@ interface ModalProps {
     renderers?: boolean;
     thoughts?: boolean;
     nowLine?: NowLine;
+    renderAll?: boolean;
+    unfold?: boolean;
 }
 
 export function NarrationFeedFixtureModal({
@@ -60,6 +65,8 @@ export function NarrationFeedFixtureModal({
     thoughts,
     marks,
     nowLine,
+    renderAll,
+    unfold,
 }: ModalProps) {
     return (
         <ModalShell open onClose={() => modalsModel.popModal()}>
@@ -72,6 +79,8 @@ export function NarrationFeedFixtureModal({
                     marks={marks}
                     ctx={ctx}
                     compact={compact}
+                    renderAll={renderAll}
+                    unfold={unfold}
                     tail={nowLine ? <WorkingLine line={nowLine} compact={compact} /> : undefined}
                 />
             </div>
