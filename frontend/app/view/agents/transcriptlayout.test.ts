@@ -135,6 +135,22 @@ describe("layoutTranscript folds", () => {
         expect(named).toBeGreaterThan(files);
         expect(fold.phrase).not.toContain("a.js");
     });
+
+    it("draws a call refused before it ran as blocked and leaves it out of the failed count", () => {
+        const refused: AgentActionEntry = {
+            ...bash("task build > log"),
+            outcome: "blocked",
+            detail: { kind: "bash", command: "task build > log", output: "Refused by Arc", exit: null },
+        };
+        const [item] = stepsItems(
+            layoutTranscript([user("go"), refused, bash("node test.js", { exit: 1 }), prose("ok")], {
+                active: false,
+                threshold: 2,
+            })
+        );
+        expect(item.steps.map((s) => s.status)).toEqual(["blocked", "fail"]);
+        expect(item.fold!.failed).toBe(1);
+    });
 });
 
 describe("layoutTranscript wsh calls", () => {

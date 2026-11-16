@@ -52,12 +52,6 @@ describe("summarizeTurn", () => {
         expect(summarizeTurn(entries)).toEqual({ startTs: T0, tools: 1 });
     });
 
-    it("a Skill the model calls mid-turn is one of the turn's tools, not a new turn", () => {
-        const skill: AgentEntry = { kind: "command", name: "verify", isSkill: true, byModel: true, ts: T0 + 3_000 };
-        const entries = [user(T0), done(), skill, done(), msg(T0 + 9_000)];
-        expect(summarizeTurn(entries)).toEqual({ startTs: T0, tools: 3 });
-    });
-
     it("is null with no user or command entry", () => {
         expect(summarizeTurn([msg(T0), done()])).toBeNull();
         expect(summarizeTurn([])).toBeNull();

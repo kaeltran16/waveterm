@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { extractAiTitle, extractSubagentSpawns, extractTasks, projectTranscript } from "./transcriptprojection";
+import { bashNeverRan, extractAiTitle, extractSubagentSpawns, extractTasks, projectTranscript } from "./transcriptprojection";
 
 // every projection here runs over deep-frozen records: the live stream hands the same records to every chunk's
 // projection, so a projector that mutates one throws here (modules are strict)
@@ -98,6 +98,43 @@ describe("projectTranscript", () => {
             }),
         ]);
         expect(out).toEqual([{ kind: "action", verb: "ran", target: "go test ./...", pending: true }]);
+    });
+
+    it("reads a Bash call refused before it ran as blocked with no exit code, and one that ran and failed as fail", () => {
+        const refusal = "<tool_use_error>Refused by Arc: Claude Code already saves a background command's output.</tool_use_error>";
+        const use = (id: string, command: string) =>
+            JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", id, name: "Bash", input: { command } }] } });
+        const result = (id: string, content: string) =>
+            JSON.stringify({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: id, is_error: true, content }] } });
+        const out = projectTranscript([use("b1", "task build > log"), result("b1", refusal), use("b2", "grep x f"), result("b2", "Exit code 1\n")]);
+        expect(out[0]).toMatchObject({ outcome: "blocked", detail: { kind: "bash", exit: null, output: refusal } });
+        expect(out[1]).toMatchObject({ outcome: "fail", detail: { kind: "bash", exit: 1 } });
+    });
+});
+
+// the errored Bash result shapes Claude Code writes, as seen in real transcripts
+describe("bashNeverRan", () => {
+    it("reads a refusal before the command started as never ran", () => {
+        for (const body of [
+            "<tool_use_error>Refused by Arc: Claude Code already saves a background command's output</tool_use_error>",
+            "<tool_use_error>Blocked: sleep 170 followed by: cat out.log</tool_use_error>",
+            "The user doesn't want to proceed with this tool use. The tool use was rejected",
+            "Permission for this action was denied by the Claude Code auto mode classifier.",
+        ]) {
+            expect(bashNeverRan(body), body).toBe(true);
+        }
+    });
+
+    it("reads a command that ran, or may have, as a failure", () => {
+        for (const body of [
+            "Exit code 1",
+            "Exit code 143\nCommand timed out after 2m 0s\n",
+            "Interrupted: the call was stopped while running; it may have partially completed.",
+            "[Tool call interrupted: the session ended before this call's result was recorded]",
+            "",
+        ]) {
+            expect(bashNeverRan(body), body).toBe(false);
+        }
     });
 });
 
@@ -211,8 +248,10 @@ describe("projectTranscript commands and isMeta", () => {
         ]);
         expect(out).toEqual([{ kind: "user", text: "real prompt" }]);
     });
-    it("renders a Skill call (caller.direct) as a model-made skill command chip with the leaf name", () => {
+    // caller.type "direct" is on every model tool call, so it never means the user typed the skill
+    it("draws a model's Skill call (caller.direct) as an action, and a typed /skill as a command", () => {
         const out = projectTranscript([
+            L({ type: "user", message: { content: "<command-name>/superpowers:brainstorming</command-name>" } }),
             L({
                 type: "assistant",
                 message: {
@@ -228,27 +267,16 @@ describe("projectTranscript commands and isMeta", () => {
                 },
             }),
         ]);
-        expect(out).toEqual([{ kind: "command", name: "brainstorming", isSkill: true, byModel: true, args: "design the cache" }]);
-    });
-
-    it("omits args for a skill chip with no args", () => {
-        const out = projectTranscript([
-            L({
-                type: "assistant",
-                message: {
-                    content: [
-                        {
-                            type: "tool_use",
-                            id: "s2",
-                            name: "Skill",
-                            input: { skill: "commit" },
-                            caller: { type: "direct" },
-                        },
-                    ],
-                },
-            }),
+        expect(out).toEqual([
+            { kind: "command", name: "/superpowers:brainstorming" },
+            {
+                kind: "action",
+                verb: "skill",
+                target: "superpowers:brainstorming",
+                pending: true,
+                detail: { kind: "skill", name: "superpowers:brainstorming", args: "design the cache" },
+            },
         ]);
-        expect(out).toEqual([{ kind: "command", name: "commit", isSkill: true, byModel: true }]);
     });
 });
 
@@ -1116,24 +1144,15 @@ describe("projectTranscript malformed and mistyped records", () => {
                 call("d", "   ", false),
             ]),
         ]);
-        expect(out).toEqual([
-            { kind: "command", name: "commit", isSkill: true, byModel: true, args: "design the cache" },
-            { kind: "command", name: "commit", isSkill: true, byModel: true },
-            {
-                kind: "action",
-                verb: "skill",
-                target: "commit",
-                pending: true,
-                detail: { kind: "skill", name: "commit", args: "design the cache" },
-            },
-            {
-                kind: "action",
-                verb: "skill",
-                target: "commit",
-                pending: true,
-                detail: { kind: "skill", name: "commit" },
-            },
-        ]);
+        const withArgs = {
+            kind: "action",
+            verb: "skill",
+            target: "commit",
+            pending: true,
+            detail: { kind: "skill", name: "commit", args: "design the cache" },
+        };
+        const noArgs = { kind: "action", verb: "skill", target: "commit", pending: true, detail: { kind: "skill", name: "commit" } };
+        expect(out).toEqual([withArgs, noArgs, withArgs, noArgs]);
     });
 
     it("summarizes Grep, Read and Glob results with detail", () => {
@@ -1189,7 +1208,7 @@ describe("projectTranscript malformed and mistyped records", () => {
     it("records exit 1 on a failed Bash result that has output", () => {
         const out = projectTranscript([
             asst([{ type: "tool_use", id: "b", name: "Bash", input: { command: "false" } }]),
-            result("b", "boom", true),
+            result("b", "Exit code 1\nboom", true),
         ]);
         expect(out).toEqual([
             {
@@ -1198,7 +1217,7 @@ describe("projectTranscript malformed and mistyped records", () => {
                 target: "false",
                 command: "false",
                 outcome: "fail",
-                detail: { kind: "bash", command: "false", output: "boom", exit: 1 },
+                detail: { kind: "bash", command: "false", output: "Exit code 1\nboom", exit: 1 },
             },
         ]);
     });

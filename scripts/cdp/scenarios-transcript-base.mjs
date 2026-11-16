@@ -124,18 +124,24 @@ const STEPS_OPEN = [
     prose("Two places call retry(). One test still fails.", T0 + 72 * S),
 ];
 
-// Events.dc.html: compaction, a typed command, a model-invoked skill, a finished subagent, an answered permission
-// (marked after the prose at entry 4), a stopped step and the interrupt that stopped it
+// Events.dc.html: compaction, a typed command, a typed skill (Pi's chip), a finished subagent, an answered permission
+// (marked after the prose at entry 4), a stopped step and the interrupt that stopped it, and a command a hook refused
 const EVENTS = [
     { kind: "compaction", trigger: "auto", preTokens: 182_000, postTokens: 41_000, summary: "Kept: the retry fix and its test." },
     { kind: "command", name: "/review", args: "src/retry.js", ts: T0 },
-    { kind: "command", name: "superpowers:brainstorming", isSkill: true, byModel: true, ts: T0 + S },
+    { kind: "command", name: "superpowers:brainstorming", isSkill: true, ts: T0 + S },
     { kind: "notification", summary: "Explore: find every caller of retry() and how it sets the delay", status: "completed", result: "Both callers pass a fixed delay." },
     prose("Both callers pass a fixed delay, so the fix covers them. I'll push the branch next.", T0 + 10 * S),
     bash({ description: "Run the release script", command: "npm run release", ts: T0 + 20 * S, pending: true }),
     { kind: "interrupted" },
     user("Don't release yet. Open a pull request instead.", T0 + 30 * S),
     prose("Understood. I'll leave the release alone and open a pull request.", T0 + 32 * S),
+    {
+        ...bash({ description: "Save the PR checks", command: "gh pr checks > checks.log", ts: T0 + 40 * S, durationMs: 50 }),
+        outcome: "blocked",
+        detail: { kind: "bash", command: "gh pr checks > checks.log", output: "<tool_use_error>Refused by Arc</tool_use_error>", exit: null },
+    },
+    prose("The hook refused the redirect; I'll read the output file instead.", T0 + 42 * S),
 ];
 const EVENT_MARKS = [{ afterEntry: 5, text: "Yes: git push origin master" }];
 
@@ -386,6 +392,8 @@ const EVENTS_STATE = probe(`
         result: root.querySelector('[data-subagent-finished]')?.textContent.includes('Both callers pass a fixed delay.') ?? false,
         mark: text('[data-permission-mark]'),
         stopped: text('[data-step-status="stopped"]'),
+        blocked: text('[data-step-status="blocked"]'),
+        blockedChip: root.querySelector('[data-step-status="blocked"] .text-error') != null,
         interrupted: text('[data-interrupted]'),
     };
 `);
@@ -398,7 +406,7 @@ async function eventsStep(h) {
     const s = await h.ev(EVENTS_STATE);
     await h.shot("cdp-shots/transcript-base-events.png");
     return {
-        step: "Events: compaction, slash command chip, skill chip, subagent finished, You allowed, stopped step, You interrupted",
+        step: "Events: compaction, slash command chip, skill chip, subagent finished, You allowed, stopped step, You interrupted, blocked step",
         ok:
             s != null &&
             /Context compacted.*182k → 41k tokens.*auto/.test(s.compaction ?? "") &&
@@ -416,6 +424,9 @@ async function eventsStep(h) {
             (s.mark ?? "").startsWith("You allowed") &&
             (s.mark ?? "").includes("git push origin master") &&
             (s.stopped ?? "").includes("stopped") &&
+            (s.blocked ?? "").includes("Save the PR checks") &&
+            (s.blocked ?? "").includes("blocked") &&
+            !s.blockedChip &&
             (s.interrupted ?? "") === "You interrupted",
         detail: JSON.stringify(s),
     };

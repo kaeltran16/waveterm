@@ -49,7 +49,7 @@ export function summarizeTurn(entries: AgentEntry[]): TurnSummary | null {
         summary.startTs = first.ts;
     }
     for (const e of entries.slice(start + 1)) {
-        if (e.kind === "action" || (e.kind === "command" && e.byModel)) {
+        if (e.kind === "action") {
             summary.tools++;
         }
     }
@@ -57,7 +57,7 @@ export function summarizeTurn(entries: AgentEntry[]): TurnSummary | null {
 }
 
 function startsTurn(e: AgentEntry): boolean {
-    return e.kind === "user" || (e.kind === "command" && !e.byModel);
+    return e.kind === "user" || e.kind === "command";
 }
 
 export function nowLineState(input: {

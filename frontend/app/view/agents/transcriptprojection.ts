@@ -82,9 +82,12 @@ function parseCommand(content: string): { name: string; args?: string } | null {
     return args !== "" ? { name, args } : { name };
 }
 
-function skillLeaf(skill: string): string {
-    const parts = skill.split(":");
-    return parts[parts.length - 1] || skill;
+// An errored Bash result that never ran: one that ran and failed opens with its exit code, and one stopped mid-run says
+// it was interrupted, so it may have run. Every other error is a refusal before it started (a hook's "Refused by Arc",
+// a permission rule, the user declining, a malformed call). An empty body stays a failure.
+export function bashNeverRan(body: string): boolean {
+    const t = body.trimStart();
+    return t !== "" && !/^Exit code \d+/.test(t) && !/^(Interrupted\b|\[Tool call interrupted)/.test(t);
 }
 
 // Claude interruption marker, both "[Request interrupted by user]" and the "...for tool use]" variant.
@@ -160,18 +163,8 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
                     if (block.name === HANDBACK_TOOL) {
                         continue;
                     }
-                    if (block.name === "Skill" && block?.caller?.type === "direct" && typeof block.input?.skill === "string") {
-                        const args = typeof block.input.args === "string" ? block.input.args.trim() : "";
-                        entries.push({
-                            kind: "command",
-                            name: skillLeaf(block.input.skill),
-                            isSkill: true,
-                            byModel: true,
-                            ...(args !== "" ? { args } : {}),
-                            ...recTs(rec),
-                        });
-                        continue;
-                    }
+                    // a Skill tool call is always the model's (caller.type "direct" is set on every model call); a typed
+                    // /skill arrives as a <command-name> user record instead
                     const action: ActionEntry = {
                         kind: "action",
                         verb: verbFor(block.name),
@@ -275,6 +268,7 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
                     action.images = images;
                 }
                 const tool = (action as any)._tool as string | undefined;
+                const blocked = tool === "Bash" && block.is_error === true && bashNeverRan(body);
                 if (tool === "Grep" && body) {
                     const matches = parseGrep(body);
                     action.detail = { kind: "grep", matches };
@@ -288,7 +282,7 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
                         kind: "bash",
                         command: action.command,
                         output: body,
-                        exit: block.is_error === true ? 1 : 0,
+                        exit: blocked ? null : block.is_error === true ? 1 : 0,
                     };
                 } else if (action.detail?.kind === "edit") {
                     // the file's own hunks, numbered; the tool_use's old/new strings stay when the result has none
@@ -305,7 +299,9 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
                 if (Number.isFinite(resTs) && Number.isFinite(useTs) && resTs >= useTs) {
                     action.durationMs = resTs - useTs;
                 }
-                if (block.is_error === true) {
+                if (blocked) {
+                    action.outcome = "blocked";
+                } else if (block.is_error === true) {
                     action.outcome = "fail";
                 } else if (action.verb === "ran") {
                     action.outcome = "ok";

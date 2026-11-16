@@ -14,7 +14,7 @@ export interface Step {
     index: number;
     action: AgentActionEntry;
     wsh: { call: WshCall; key: WshKey } | null;
-    status: "ok" | "fail" | "running" | "stopped";
+    status: "ok" | "fail" | "blocked" | "running" | "stopped";
 }
 
 export interface FoldSummary {
@@ -56,15 +56,18 @@ function stepStatus(a: AgentActionEntry, interruptedLater: boolean): Step["statu
     if (a.pending) {
         return interruptedLater ? "stopped" : "running";
     }
+    if (a.outcome === "blocked") {
+        return "blocked";
+    }
     if (a.outcome === "fail" || (a.detail?.kind === "bash" && a.detail.exit !== 0)) {
         return "fail";
     }
     return "ok";
 }
 
-// a typed prompt, an Arc message or a typed slash command starts a turn; a model's own Skill call does not
+// a typed prompt, an Arc message or a typed slash command starts a turn; a model's own Skill call is an action
 function startsTurn(e: AgentEntry): boolean {
-    return e.kind === "user" || (e.kind === "command" && !e.byModel);
+    return e.kind === "user" || e.kind === "command";
 }
 
 const COUNTED: Record<string, { one: string; many: string; verb: string }> = {

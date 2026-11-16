@@ -46,7 +46,11 @@ function lineWrap(variant: "inline" | "modal"): string {
     return variant === "inline" ? "whitespace-pre-wrap [overflow-wrap:anywhere]" : "whitespace-pre";
 }
 
-function ExitChip({ exit }: { exit: number }) {
+// exit null: the command never ran, so there is no code to show
+function ExitChip({ exit }: { exit: number | null }) {
+    if (exit == null) {
+        return null;
+    }
     return (
         <span
             className={cn(
@@ -60,7 +64,19 @@ function ExitChip({ exit }: { exit: number }) {
 }
 
 // pending: the call has no result yet (running, or waiting on a permission prompt), so it claims neither outcome
-export function StatusSquare({ ok, pending }: { ok: boolean; pending?: boolean }) {
+export function StatusSquare({ ok, blocked, pending }: { ok: boolean; blocked?: boolean; pending?: boolean }) {
+    // refused before it ran: grey, passed over rather than failed
+    if (blocked) {
+        return (
+            <span
+                role="img"
+                aria-label="Blocked"
+                className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] bg-surface-hover text-muted"
+            >
+                <Ban size={10} strokeWidth={2.6} aria-hidden />
+            </span>
+        );
+    }
     if (pending) {
         return (
             <span
@@ -402,8 +418,8 @@ function StepFacts({ step, compact }: { step: Step; compact: boolean }) {
                 <span className={time}>
                     <Elapsed since={action.startedTs ?? action.ts} />
                 </span>
-            ) : status === "stopped" ? (
-                <span className={cn("shrink-0 text-muted", compact ? "text-[11px]" : "text-[12px]")}>stopped</span>
+            ) : status === "stopped" || status === "blocked" ? (
+                <span className={cn("shrink-0 text-muted", compact ? "text-[11px]" : "text-[12px]")}>{status}</span>
             ) : action.durationMs ? (
                 <span className={time}>{formatDuration(action.durationMs)}</span>
             ) : null}

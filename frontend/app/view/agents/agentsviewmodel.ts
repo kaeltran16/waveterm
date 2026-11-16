@@ -35,7 +35,8 @@ export interface EditFile {
 export type ActionDetail =
     | { kind: "grep"; matches: GrepMatch[]; more?: string }
     | { kind: "read"; snippet: string; truncated?: boolean }
-    | { kind: "bash"; command?: string; output: string; exit: number }
+    // exit null: refused before it started, so there is no code
+    | { kind: "bash"; command?: string; output: string; exit: number | null }
     | { kind: "skill"; name: string; args?: string }
     | { kind: "edit"; files: EditFile[] }
     | { kind: "ask"; questions: AskQuestionDetail[] };
@@ -54,8 +55,7 @@ export type AgentEntry =
     // ts: the transcript record's time (UnixMilli), Claude's projection only; absent when the record carried none
     | { kind: "message"; text: string; ts?: number }
     | { kind: "user"; text: string; ts?: number }
-    // byModel: the assistant's own Skill tool call, not a command the user typed, so it never starts a turn
-    | { kind: "command"; name: string; args?: string; isSkill?: boolean; byModel?: boolean; ts?: number }
+    | { kind: "command"; name: string; args?: string; isSkill?: boolean; ts?: number }
     | { kind: "compaction"; trigger?: string; preTokens?: number; postTokens?: number; summary?: string }
     // a background Task/subagent finished (Claude's <task-notification>): summary + optional full result
     | { kind: "notification"; summary: string; status?: string; result?: string }
@@ -65,7 +65,8 @@ export type AgentEntry =
           kind: "action";
           verb: string;
           target: string;
-          outcome?: "ok" | "fail";
+          // blocked: refused before it ran (a hook, a permission rule, the user declining), which is no failure
+          outcome?: "ok" | "fail" | "blocked";
           note?: string;
           summary?: string; // e.g. "14 matches", "80 lines", "24 passing"
           durationMs?: number; // tool_use → tool_result wall time, when timestamps present

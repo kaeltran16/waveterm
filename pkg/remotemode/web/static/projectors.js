@@ -497,9 +497,9 @@ function parseCommand(content) {
   const args = argsMatch ? argsMatch[1].trim() : "";
   return args !== "" ? { name, args } : { name };
 }
-function skillLeaf2(skill) {
-  const parts = skill.split(":");
-  return parts[parts.length - 1] || skill;
+function bashNeverRan(body) {
+  const t = body.trimStart();
+  return t !== "" && !/^Exit code \d+/.test(t) && !/^(Interrupted\b|\[Tool call interrupted)/.test(t);
 }
 function isInterrupted(text) {
   return text.trimStart().startsWith("[Request interrupted by user");
@@ -554,18 +554,6 @@ function projectTranscriptRecords(records) {
         }
         if (block?.type === "tool_use" && typeof block.name === "string") {
           if (block.name === HANDBACK_TOOL) {
-            continue;
-          }
-          if (block.name === "Skill" && block?.caller?.type === "direct" && typeof block.input?.skill === "string") {
-            const args = typeof block.input.args === "string" ? block.input.args.trim() : "";
-            entries.push({
-              kind: "command",
-              name: skillLeaf2(block.input.skill),
-              isSkill: true,
-              byModel: true,
-              ...args !== "" ? { args } : {},
-              ...recTs(rec)
-            });
             continue;
           }
           const action = {
@@ -655,6 +643,7 @@ function projectTranscriptRecords(records) {
           action.images = images;
         }
         const tool = action._tool;
+        const blocked = tool === "Bash" && block.is_error === true && bashNeverRan(body);
         if (tool === "Grep" && body) {
           const matches = parseGrep(body);
           action.detail = { kind: "grep", matches };
@@ -668,7 +657,7 @@ function projectTranscriptRecords(records) {
             kind: "bash",
             command: action.command,
             output: body,
-            exit: block.is_error === true ? 1 : 0
+            exit: blocked ? null : block.is_error === true ? 1 : 0
           };
         } else if (action.detail?.kind === "edit") {
           const numbered = editFromPatch(action.detail.files[0].path, rec.toolUseResult?.structuredPatch);
@@ -683,7 +672,9 @@ function projectTranscriptRecords(records) {
         if (Number.isFinite(resTs) && Number.isFinite(useTs) && resTs >= useTs) {
           action.durationMs = resTs - useTs;
         }
-        if (block.is_error === true) {
+        if (blocked) {
+          action.outcome = "blocked";
+        } else if (block.is_error === true) {
           action.outcome = "fail";
         } else if (action.verb === "ran") {
           action.outcome = "ok";
