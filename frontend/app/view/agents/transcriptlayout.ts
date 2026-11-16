@@ -40,6 +40,7 @@ export type LayoutItem =
     | { kind: "compaction"; trigger?: string; preTokens?: number; postTokens?: number; summary?: string; index: number }
     | { kind: "notification"; summary: string; status?: string; result?: string; index: number }
     | { kind: "interrupted"; index: number }
+    | { kind: "shell"; command: string; stdout?: string; stderr?: string; ts?: number; index: number }
     | { kind: "arc"; index: number; message: ArcMessage; ts?: number; idleMs?: number }
     // thoughts: the stretch's own, set only when it has some
     | { kind: "steps"; startIndex: number; steps: Step[]; thoughts?: Thought[]; fold: FoldSummary | null }
@@ -256,6 +257,9 @@ export function layoutTranscript(
                 return;
             case "interrupted":
                 items.push({ kind: "interrupted", index: i });
+                return;
+            case "shell":
+                items.push({ ...e, index: i });
                 return;
         }
     });

@@ -14,6 +14,8 @@ import { fileURLToPath } from "node:url";
 import {
     agentPage,
     assistantBlock,
+    bashInput,
+    bashOutput,
     assistantText,
     closeTabs,
     focusAgent,
@@ -89,6 +91,11 @@ const THINK_STEP = "list the package";
 const PEEK_DIRS = ["a-rather-long-folder-name-so-the-path-overflows-the-column", "and-one-more-nested-segment-for-good-measure"];
 const PEEK_FILE = "peek-target.go";
 const PEEK_LINE = 2;
+// two `!` runs appended to A: one finished with both streams, one still running
+const SHELL_DONE = "git status --short";
+const SHELL_STDOUT = "M pkg/a.go";
+const SHELL_STDERR = "warning: CRLF will be replaced";
+const SHELL_RUNNING = "sleep 30";
 
 const J = (o) => JSON.stringify(o);
 const GO_JSON = [
@@ -1600,6 +1607,54 @@ export default function (_kit) {
                         again &&
                         closed;
                     return [ok, { clicked, opened, drawn, lines, card, again, closed }];
+                });
+
+                await step("rendered: bash card — A's two ! runs draw as cards: the finished one shows its command, stdout, and stderr in the error colour; the unfinished one reads running; no user bubble holds <bash-", async () => {
+                    // the input keeps a leading space, as real transcripts can
+                    appendA([bashInput(` ${SHELL_DONE}`), bashOutput(SHELL_STDOUT, SHELL_STDERR), bashInput(SHELL_RUNNING)]);
+                    const landed = await wait(`(${RV}?.querySelectorAll("[data-shell-run]").length ?? 0) >= 2`);
+                    const seen = await h.ev(`(() => {
+                        ${flatJs}
+                        const rv = ${RV};
+                        const cards = [...(rv?.querySelectorAll("[data-shell-run]") ?? [])];
+                        const card = (cmd) => cards.find((c) => flat(c.querySelector("[data-shell-command]")) === cmd);
+                        const done = card(${JSON.stringify(SHELL_DONE)});
+                        const running = card(${JSON.stringify(SHELL_RUNNING)});
+                        const out = done?.querySelector("[data-shell-stdout]");
+                        const err = done?.querySelector("[data-shell-stderr]");
+                        const probe = document.createElement("span");
+                        probe.className = "text-error";
+                        rv?.appendChild(probe);
+                        const errorColour = getComputedStyle(probe).color;
+                        probe.remove();
+                        return {
+                            cards: cards.length,
+                            done: done != null,
+                            stdout: flat(out),
+                            stderr: flat(err),
+                            stderrColour: err ? getComputedStyle(err).color : null,
+                            stdoutColour: out ? getComputedStyle(out).color : null,
+                            errorColour,
+                            doneRunning: done?.querySelector('[data-shell-status="running"]') != null,
+                            running: running != null && flat(running.querySelector('[data-shell-status="running"]')) === "running",
+                            runningOutput: running?.querySelector("[data-shell-stdout], [data-shell-stderr]") != null,
+                            rawBubble: [...(rv?.querySelectorAll("[data-user-bubble]") ?? [])].some((b) => (b.textContent ?? "").includes("<bash-")),
+                        };
+                    })()`);
+                    await agentPage(h, `[...(${RV}?.querySelectorAll("[data-shell-run]") ?? [])].pop()?.scrollIntoView({ block: "center" }); await nap(200); return true;`);
+                    await h.shot(SHOT(28, "bash-card"));
+                    const ok =
+                        landed &&
+                        seen.done &&
+                        seen.stdout === SHELL_STDOUT &&
+                        seen.stderr === SHELL_STDERR &&
+                        seen.stderrColour === seen.errorColour &&
+                        seen.stderrColour !== seen.stdoutColour &&
+                        !seen.doneRunning &&
+                        seen.running &&
+                        !seen.runningOutput &&
+                        !seen.rawBubble;
+                    return [ok, { landed, ...seen }];
                 });
                 return steps;
             },
