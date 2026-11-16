@@ -32,6 +32,44 @@ function WorkingTreeHeader({ row, caption }: { row: HistoryRow; caption?: string
     );
 }
 
+function CopyHashButton({ hash }: { hash: string }) {
+    return (
+        <button
+            onClick={() => fireAndForget(() => navigator.clipboard.writeText(hash))}
+            title="Copy hash"
+            aria-label="Copy hash"
+            className="flex h-[22px] w-[22px] flex-none items-center justify-center rounded-[5px] text-muted hover:bg-surface hover:text-foreground"
+        >
+            <Copy size={13} />
+        </button>
+    );
+}
+
+// the column header: the history row right above already shows the author, refs and age, so only what
+// names the commit stays, on one line
+function LineHeader({ row, caption }: { row: HistoryRow; caption?: string }) {
+    if (row.hash === WORKING_TREE) {
+        return (
+            <div className="flex min-w-0 items-center gap-[8px]">
+                <span className="h-[9px] w-[9px] flex-none rounded-full border border-dashed border-warning" />
+                <span className="flex-none text-[12.5px] font-semibold text-ink-hi">Working tree</span>
+                {caption ? <span className="min-w-0 truncate text-[12px] text-ink-mid">{caption}</span> : null}
+            </div>
+        );
+    }
+    return (
+        <div className="flex min-w-0 items-center gap-[8px]">
+            <span className="flex-none rounded-[5px] border border-accent/30 bg-accentbg px-[6px] py-[1px] font-mono text-[11px] font-semibold text-accent-soft">
+                {row.hash.slice(0, 7)}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-ink-hi" title={row.subject}>
+                {row.subject}
+            </span>
+            <CopyHashButton hash={row.hash} />
+        </div>
+    );
+}
+
 function CommitHeader({ row }: { row: HistoryRow }) {
     return (
         <>
@@ -39,14 +77,7 @@ function CommitHeader({ row }: { row: HistoryRow }) {
                 <span className="rounded-[5px] border border-accent/30 bg-accentbg px-[7px] py-[2px] font-mono text-[12px] font-semibold text-accent-soft">
                     {row.hash.slice(0, 7)}
                 </span>
-                <button
-                    onClick={() => fireAndForget(() => navigator.clipboard.writeText(row.hash))}
-                    title="Copy hash"
-                    aria-label="Copy hash"
-                    className="flex h-[22px] w-[22px] items-center justify-center rounded-[5px] text-muted hover:bg-surface hover:text-foreground"
-                >
-                    <Copy size={13} />
-                </button>
+                <CopyHashButton hash={row.hash} />
                 <div className="flex-1" />
                 <span className="font-mono text-[11px] text-muted">{formatAgo(Date.now() - row.ts)}</span>
             </div>
@@ -86,6 +117,7 @@ export function CommitPane({
     failure = null,
     onRetry,
     lineCounts = true,
+    header = "full",
 }: {
     row: HistoryRow;
     changes: GitChanges | null;
@@ -99,14 +131,22 @@ export function CommitPane({
     onRetry?: () => void;
     // false when git listed the files but could not count their lines
     lineCounts?: boolean;
+    // "line" under the history column, whose selected row already says the rest
+    header?: "full" | "line";
 }) {
     const isWorkingTree = row.hash === WORKING_TREE;
     const count = changes?.files.length ?? 0;
     return (
         <div className="flex min-h-0 flex-1 flex-col">
-            <div className="flex-none border-b border-edge-faint px-[15px] pb-[12px] pt-[14px]">
-                {isWorkingTree ? <WorkingTreeHeader row={row} caption={caption} /> : <CommitHeader row={row} />}
-            </div>
+            {header === "line" ? (
+                <div className="flex-none px-[15px] pb-[2px] pt-[10px]">
+                    <LineHeader row={row} caption={caption} />
+                </div>
+            ) : (
+                <div className="flex-none border-b border-edge-faint px-[15px] pb-[12px] pt-[14px]">
+                    {isWorkingTree ? <WorkingTreeHeader row={row} caption={caption} /> : <CommitHeader row={row} />}
+                </div>
+            )}
             <div className="flex-none px-[15px] pb-[8px] pt-[10px]">
                 <div className="flex items-center gap-[9px]">
                     <SubLabel>

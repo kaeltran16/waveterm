@@ -45,7 +45,16 @@ import {
 import { availableRanges, historyOptsFor, rangeKey, scopeKey, summaryLine } from "./diffscope";
 import { agentDiffScope, projectDiffScope } from "./agentdiffnav";
 import { setDiffRange } from "./diffscopeatom";
-import { diffBody, filesSurfaceWidthAtom, historyCollapsedAtom, historyLayout } from "./difflayout";
+import {
+    diffBody,
+    filesSurfaceWidthAtom,
+    historyCollapsedAtom,
+    historyLayout,
+    historyMaxWidth,
+    historyWidthAtom,
+    historyWidthFor,
+} from "./difflayout";
+import { HistoryGrip } from "./historygrip";
 import { HistoryRail } from "./historyrail";
 import { peekSessionStart } from "./agentsessionstore";
 import { RangeStrip } from "./rangestrip";
@@ -171,6 +180,10 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
     const [surfaceEl, setSurfaceEl] = useState<HTMLDivElement | null>(null);
     const surfaceWidth = useAtomValue(filesSurfaceWidthAtom);
     const layout = historyLayout(useAtomValue(historyCollapsedAtom), surfaceWidth);
+    const storedHistoryWidth = useAtomValue(historyWidthAtom);
+    const columnWidth = historyWidthFor(storedHistoryWidth, surfaceWidth);
+    // the overlay is drawn over the panes, so it squeezes nothing and only has to be a valid width
+    const overlayWidth = historyWidthFor(storedHistoryWidth, 0);
 
     // Rebuilt from the raw divergence on every render: buildCompareRows is pure and the input is at
     // most a few hundred commits, the same reasoning the history rows use.
@@ -587,6 +600,60 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
         />
     );
 
+    // under the history column the selected row already shows the commit, so its header is one line
+    const paneHeader = layout === "column" ? "line" : "full";
+    const commitPane = () =>
+        compareOn ? (
+            compareSelection === AGGREGATE ? (
+                <AggregatePane
+                    base={compareRefs?.base ?? ""}
+                    head={compareRefs?.head ?? ""}
+                    form={compareForm}
+                    mergeBase={compareSides?.mergeBase ?? ""}
+                    changes={compareChanges}
+                    selectedFile={compareFile}
+                    onSelectFile={(path) => selectCompareFile(path)}
+                    onSetForm={(f) => {
+                        const cwd = compareCwd() ?? state?.cwd;
+                        if (cwd) {
+                            fireAndForget(() => setCompareForm(cwd, f));
+                        }
+                    }}
+                    review={review}
+                />
+            ) : (
+                <CommitPane
+                    row={compareCommit}
+                    changes={compareChanges}
+                    selectedFile={compareFile}
+                    onSelectFile={(path) => selectCompareFile(path)}
+                    review={review}
+                    header={paneHeader}
+                    failure={compareCommitFailure}
+                    onRetry={() => {
+                        const cwd = compareCwd() ?? state?.cwd;
+                        if (cwd) {
+                            retryCompareRow(cwd);
+                        }
+                    }}
+                />
+            )
+        ) : (
+            <CommitPane
+                row={selectedRow}
+                caption={scope && state ? worktreeCaption(scope.range, state.branch, state.head, state.ref) : undefined}
+                changes={activeChanges}
+                selectedFile={selectedFile}
+                onSelectFile={(path) => selectedCommit != null && selectCommitFile(selectedCommit, path)}
+                review={review}
+                // the working-tree row's list is the change list, which fails as a whole
+                failure={selectedCommit === WORKING_TREE ? null : commitFailure}
+                onRetry={retrySelectedCommit}
+                lineCounts={lineCounts}
+                header={paneHeader}
+            />
+        );
+
     return (
         <MotionConfig reducedMotion="user">
             <div ref={setSurfaceEl} data-files-surface className="absolute inset-0 flex min-h-0 flex-col">
@@ -773,86 +840,53 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                             <NotARepoPanel path={state.cwd} onChooseSource={chooseSource} />
                         ) : (
                             <div className="relative flex min-h-0 flex-1 border-t border-edge-faint">
-                                <div
-                                    className={cn(
-                                        "flex flex-none flex-col border-r border-edge-faint",
-                                        layout === "column" ? "w-[460px]" : "w-[44px]"
-                                    )}
-                                >
-                                    {layout === "column" ? historyColumn() : historyRail()}
-                                </div>
-                                {/* below the collapse width an expanded history is drawn over the panes, so
-                                    asking for it does not squeeze the diff pane to nothing */}
-                                {layout === "overlay" ? (
+                                {layout === "column" ? (
                                     <div
-                                        data-history-overlay
-                                        className="absolute bottom-0 left-[44px] top-0 z-20 flex w-[460px] flex-col border-r border-edge-faint bg-background shadow-popover"
+                                        data-history-column
+                                        className="relative flex flex-none flex-col border-r border-edge-faint"
+                                        style={{ width: columnWidth }}
                                     >
-                                        {historyColumn()}
-                                    </div>
-                                ) : null}
-                                {noCommit ? null : (
-                                    <div className="flex w-[300px] flex-none flex-col border-r border-edge-faint bg-surface">
-                                        {compareOn ? (
-                                            compareSelection === AGGREGATE ? (
-                                                <AggregatePane
-                                                    base={compareRefs?.base ?? ""}
-                                                    head={compareRefs?.head ?? ""}
-                                                    form={compareForm}
-                                                    mergeBase={compareSides?.mergeBase ?? ""}
-                                                    changes={compareChanges}
-                                                    selectedFile={compareFile}
-                                                    onSelectFile={(path) => selectCompareFile(path)}
-                                                    onSetForm={(f) => {
-                                                        const cwd = compareCwd() ?? state?.cwd;
-                                                        if (cwd) {
-                                                            fireAndForget(() => setCompareForm(cwd, f));
-                                                        }
-                                                    }}
-                                                    review={review}
-                                                />
-                                            ) : (
-                                                <CommitPane
-                                                    row={compareCommit}
-                                                    changes={compareChanges}
-                                                    selectedFile={compareFile}
-                                                    onSelectFile={(path) => selectCompareFile(path)}
-                                                    review={review}
-                                                    failure={compareCommitFailure}
-                                                    onRetry={() => {
-                                                        const cwd = compareCwd() ?? state?.cwd;
-                                                        if (cwd) {
-                                                            retryCompareRow(cwd);
-                                                        }
-                                                    }}
-                                                />
-                                            )
-                                        ) : (
-                                            <CommitPane
-                                                row={selectedRow}
-                                                caption={
-                                                    scope && state
-                                                        ? worktreeCaption(
-                                                              scope.range,
-                                                              state.branch,
-                                                              state.head,
-                                                              state.ref
-                                                          )
-                                                        : undefined
-                                                }
-                                                changes={activeChanges}
-                                                selectedFile={selectedFile}
-                                                onSelectFile={(path) =>
-                                                    selectedCommit != null && selectCommitFile(selectedCommit, path)
-                                                }
-                                                review={review}
-                                                // the working-tree row's list is the change list, which fails as a whole
-                                                failure={selectedCommit === WORKING_TREE ? null : commitFailure}
-                                                onRetry={retrySelectedCommit}
-                                                lineCounts={lineCounts}
-                                            />
+                                        <div
+                                            className={cn(
+                                                "flex min-h-0 flex-col",
+                                                noCommit ? "flex-1" : "flex-[6_1_0%]"
+                                            )}
+                                        >
+                                            {historyColumn()}
+                                        </div>
+                                        {noCommit ? null : (
+                                            <div className="flex min-h-0 flex-[5_1_0%] flex-col border-t border-edge-mid bg-surface">
+                                                {commitPane()}
+                                            </div>
                                         )}
+                                        <HistoryGrip
+                                            width={columnWidth}
+                                            max={historyMaxWidth(surfaceWidth)}
+                                            onChange={(w) => globalStore.set(historyWidthAtom, w)}
+                                        />
                                     </div>
+                                ) : (
+                                    <>
+                                        <div className="flex w-[44px] flex-none flex-col border-r border-edge-faint">
+                                            {historyRail()}
+                                        </div>
+                                        {/* below the collapse width an expanded history is drawn over the panes, so
+                                            asking for it does not squeeze the diff pane to nothing */}
+                                        {layout === "overlay" ? (
+                                            <div
+                                                data-history-overlay
+                                                className="absolute bottom-0 left-[44px] top-0 z-20 flex flex-col border-r border-edge-faint bg-background shadow-popover"
+                                                style={{ width: overlayWidth }}
+                                            >
+                                                {historyColumn()}
+                                            </div>
+                                        ) : null}
+                                        {noCommit ? null : (
+                                            <div className="flex w-[300px] flex-none flex-col border-r border-edge-faint bg-surface">
+                                                {commitPane()}
+                                            </div>
+                                        )}
+                                    </>
                                 )}
                                 <div className="isolate flex min-h-0 min-w-0 flex-1 flex-col">
                                     {noCommit && !canPick ? null : (

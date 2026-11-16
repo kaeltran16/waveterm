@@ -370,7 +370,9 @@ them in dependency order, let agents share them), decided against before any imp
 
 ## Diff surface — narrow-window cascade (2026-08-03)
 
-The commit column folds to a 44px rail below 1280px (`19d324e5`). The rest of the mockup's cascade stays
+The list column (history over the selected commit's files, since 2026-11-16) folds to a 44px rail where its
+narrowest would push the diff under 640px (`HISTORY_COLLAPSE_PX` in `difflayout.ts`; first a fixed 1280px,
+`19d324e5`). The rest of the mockup's cascade stays
 declined (author-column drop, three-lane graph, history drawer, a second row density; `historypane.tsx`
 keeps `ROW_H = 34`). Revive only on a narrow-window user.
 

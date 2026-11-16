@@ -259,9 +259,9 @@ export const gitHistory = {
 
 // --- diff surface: a comparison at the shipped window size ---------------------------------------
 // The layout claim the parity plan was written for: at 1000x700 the history column has to fold to a
-// rail, or a fixed 460px of commits plus the file list leaves the diff pane about 240px and nothing
-// in it can be read. Pinned to that size on purpose - at the harness's roomy 1600x950 default there
-// is room for all three columns and the assertion proves nothing.
+// rail, or the commit column leaves the diff pane under its floor and nothing in it can be read.
+// Pinned to that size on purpose - at the harness's roomy 1600x950 default there is room for the
+// column and the assertion proves nothing.
 export const diffCompare = {
     name: "diff-compare",
     surface: "files",

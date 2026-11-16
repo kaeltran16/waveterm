@@ -2440,7 +2440,7 @@ describe("Diff keys, DOM and toggles", () => {
 
     it("⇧H flips the history that is drawn, not the raw override", () => {
         // narrow and following the width: the rail shows, so the first press opens the history
-        globalStore.set(filesSurfaceWidthAtom, 1000);
+        globalStore.set(filesSurfaceWidthAtom, 922);
         globalStore.set(historyCollapsedAtom, null);
         find("files:toggle-history").run(on);
         expect(globalStore.get(historyCollapsedAtom)).toBe(false);

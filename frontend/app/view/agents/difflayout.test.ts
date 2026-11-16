@@ -2,11 +2,29 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { HISTORY_COLLAPSE_PX, diffBody, historyLayout, resolveCollapsed } from "./difflayout";
+import {
+    DIFF_FLOOR_PX,
+    HISTORY_COLLAPSE_PX,
+    HISTORY_DEFAULT_PX,
+    HISTORY_MAX_PX,
+    HISTORY_MIN_PX,
+    diffBody,
+    historyLayout,
+    historyMaxWidth,
+    historyWidthFor,
+    nextHistoryWidth,
+    resolveCollapsed,
+} from "./difflayout";
 
 describe("resolveCollapsed", () => {
-    it("collapses by default below the threshold — the shipped window is 1000px wide", () => {
-        expect(resolveCollapsed(null, 1000)).toBe(true);
+    // the shipped 1000px window leaves the surface 922px beside the nav rail
+    it("collapses by default below the threshold, which the shipped window is", () => {
+        expect(resolveCollapsed(null, 922)).toBe(true);
+    });
+
+    it("folds exactly where the narrowest column would push the diff under its floor", () => {
+        expect(HISTORY_COLLAPSE_PX).toBe(HISTORY_MIN_PX + DIFF_FLOOR_PX);
+        expect(resolveCollapsed(null, HISTORY_COLLAPSE_PX - 1)).toBe(true);
     });
 
     it("expands by default above the threshold", () => {
@@ -36,7 +54,7 @@ describe("historyLayout", () => {
     // expanding below the threshold overlays instead of pushing two fixed columns into the window,
     // which is what left the diff pane 162px wide
     it("overlays an explicit expand below the threshold", () => {
-        expect(historyLayout(false, 1000)).toBe("overlay");
+        expect(historyLayout(false, 922)).toBe("overlay");
     });
 
     it("is a column when expanded at a wide width", () => {
@@ -47,7 +65,7 @@ describe("historyLayout", () => {
 
     it("is a rail when collapsed, explicitly or by width", () => {
         expect(historyLayout(true, 1600)).toBe("rail");
-        expect(historyLayout(null, 1000)).toBe("rail");
+        expect(historyLayout(null, 922)).toBe("rail");
     });
 
     it("is a column on an unmeasured width", () => {
@@ -79,5 +97,41 @@ describe("diffBody", () => {
         expect(diffBody(false, loaded)).toBe("body");
         expect(diffBody(false, null)).toBe("body");
         expect(diffBody(false, { cwd: null, isRepo: false, changes: null })).toBe("body");
+    });
+});
+
+describe("history column width", () => {
+    it("never takes the diff under its floor", () => {
+        expect(historyMaxWidth(1100)).toBe(1100 - DIFF_FLOOR_PX);
+        expect(historyWidthFor(HISTORY_MAX_PX, 1100)).toBe(1100 - DIFF_FLOOR_PX);
+    });
+
+    it("keeps the stored width where the surface has room for it", () => {
+        expect(historyWidthFor(HISTORY_DEFAULT_PX, 1600)).toBe(HISTORY_DEFAULT_PX);
+        expect(historyWidthFor(9999, 2400)).toBe(HISTORY_MAX_PX);
+    });
+
+    // below the fold threshold the column is a rail, so its width only has to stay valid
+    it("does not shrink under its minimum on a narrow surface", () => {
+        expect(historyMaxWidth(800)).toBe(HISTORY_MIN_PX);
+        expect(historyWidthFor(HISTORY_DEFAULT_PX, 800)).toBe(HISTORY_MIN_PX);
+    });
+
+    it("treats an unmeasured surface as roomy", () => {
+        expect(historyMaxWidth(0)).toBe(HISTORY_MAX_PX);
+    });
+
+    // a stored value is localStorage's, so it may be anything
+    it("falls back to the default for a stored value that is not a width", () => {
+        expect(historyWidthFor(Number.NaN, 1600)).toBe(HISTORY_DEFAULT_PX);
+        expect(historyWidthFor("wide" as unknown as number, 1600)).toBe(HISTORY_DEFAULT_PX);
+    });
+
+    it("steps with the arrow keys and jumps with Home and End", () => {
+        expect(nextHistoryWidth(400, "ArrowRight", false, 500)).toBe(416);
+        expect(nextHistoryWidth(400, "ArrowLeft", true, 500)).toBe(360);
+        expect(nextHistoryWidth(490, "ArrowRight", true, 500)).toBe(500);
+        expect(nextHistoryWidth(400, "Home", false, 500)).toBe(HISTORY_MIN_PX);
+        expect(nextHistoryWidth(400, "End", false, 500)).toBe(500);
     });
 });

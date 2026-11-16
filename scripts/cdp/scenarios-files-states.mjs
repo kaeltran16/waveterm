@@ -31,6 +31,8 @@ const PANE = "[data-diff-pane]";
 // the widths the visual revisit found the pane broken at (F1, F7)
 const NARROW = { width: 1000, height: 700 };
 const WIDE = { width: 1600, height: 950 };
+// wide enough to keep the history a column, too narrow to leave the diff pane split's width beside it
+const MID = { width: 1200, height: 800 };
 // over MonacoDiffViewer's 100ms layout debounce plus a ResizeObserver frame
 const LAYOUT_SETTLE_MS = 400;
 // rects round to subpixels
@@ -518,9 +520,11 @@ export const diffStates = {
             rec(s5, got.shown && got.pane.includes("Deleted empty file"), JSON.stringify(got));
         });
 
-        const s6 = "6. narrow-pane hint: with history expanded at 1600x950 the removed-lines hint names ⇧H, not ⇧D";
+        const s6 = "6. narrow-pane hint: with history expanded at 1200x800 the removed-lines hint names ⇧H, not ⇧D";
         await guard(s6, async () => {
             // the history column is what narrows the pane below split's width
+            await setViewport(h, MID);
+            await sleep(LAYOUT_SETTLE_MS);
             await h.ev(`document.querySelector('[aria-label="Expand history"]')?.click()`);
             const expanded = await until(h, `!document.querySelector('[aria-label="Expand history"]')`);
             const picked = await pickFile(h, STATES.deleted);
@@ -534,6 +538,7 @@ export const diffStates = {
                 JSON.stringify({ expanded, picked, diff, hint, width })
             );
             await h.shot("cdp-shots/diff-states-narrow-hint.png");
+            await setViewport(h, WIDE);
         });
 
         const s7 = "7. diff read failure: a modified file denied read-data says Couldn’t read this file with Retry, the Line counts notice leads with git's error line, and Retry reads it once readable";
@@ -648,7 +653,7 @@ export const diffStates = {
             await h.shot("cdp-shots/diff-states-step-files.png");
         });
 
-        const s10 = "10. ⇧D declined when narrow: with history expanded at 1600x950, ⇧D leaves the pane unified";
+        const s10 = "10. ⇧D declined when narrow: with history expanded at 1200x800, ⇧D leaves the pane unified";
         await guard(s10, async () => {
             const splitState = () =>
                 lookEval(h, `
@@ -656,6 +661,8 @@ export const diffStates = {
                     const o = await mod("app/view/agents/diffoptions.ts");
                     return { split: globalStore.get(o.splitViewAtom), available: globalStore.get(o.splitAvailableAtom) };
                 `);
+            await setViewport(h, MID);
+            await sleep(LAYOUT_SETTLE_MS);
             const expanded = await h.ev(`!document.querySelector('[aria-label="Expand history"]')`);
             const picked = await pickFile(h, STATES.deleted);
             const diff = picked && (await until(h, `!!document.querySelector(${JSON.stringify(DIFF_EDITOR)})`));
@@ -669,6 +676,7 @@ export const diffStates = {
                 expanded && diff && width < SPLIT_MIN_PX && !before.available && !before.split && !after.split,
                 JSON.stringify({ expanded, picked, diff, width, before, after })
             );
+            await setViewport(h, WIDE);
         });
 
         const s11 = "11. asking agent waits: a Claude Code agent asking a question gets no comments — the bar says answer it first and ⇧Enter sends nothing";
