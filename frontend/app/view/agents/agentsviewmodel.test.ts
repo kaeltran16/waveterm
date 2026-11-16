@@ -13,8 +13,6 @@ import {
     conversationText,
     cycleId,
     deriveTerminalVMs,
-    detailExceedsInline,
-    detailLineCount,
     displayAgeMs,
     formatAge,
     formatAgeShort,
@@ -1154,28 +1152,6 @@ describe("conversationText command/compaction", () => {
         expect(conversationText(entries)).toBe("hi\n\n/clear\n\n/brainstorming design x\n\ndone");
     });
 });
-describe("detail inline routing", () => {
-    it("counts grep matches", () => {
-        expect(detailLineCount({ kind: "grep", matches: [{ loc: "a", code: "b" }] })).toBe(1);
-    });
-    it("routes a 7-match grep to the modal (budget 6)", () => {
-        const matches = Array.from({ length: 7 }, () => ({ loc: "x", code: "y" }));
-        expect(detailExceedsInline({ kind: "grep", matches })).toBe(true);
-    });
-    it("keeps a 6-match grep inline", () => {
-        const matches = Array.from({ length: 6 }, () => ({ loc: "x", code: "y" }));
-        expect(detailExceedsInline({ kind: "grep", matches })).toBe(false);
-    });
-    it("counts an asked question as its text, its options and a typed answer", () => {
-        const options = [{ label: "a" }, { label: "b" }];
-        const questions = [
-            { question: "q1", options, picked: ["a"] },
-            { question: "q2", options, picked: [], typed: "c" },
-        ];
-        expect(detailLineCount({ kind: "ask", questions })).toBe(7);
-    });
-});
-
 describe("buildAskAnswers prose", () => {
     const q = (): AgentAskQuestion => ({ question: "q", options: [{ label: "a" }, { label: "b" }] });
 

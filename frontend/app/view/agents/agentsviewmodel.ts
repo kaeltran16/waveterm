@@ -216,40 +216,6 @@ export function recentActions(entries: AgentEntry[], max: number): AgentActionEn
 
 export const CollapseRunThreshold = 3;
 
-// Per-kind inline line budget (Wave-transcript-feed.dc.html DCLogic `capped`). At or under the
-// budget the detail expands inline; over it, the row opens the modal instead.
-export const DETAIL_INLINE_MAX: Record<ActionDetail["kind"], number> = {
-    grep: 6,
-    read: 9,
-    bash: 8,
-    skill: 6,
-    edit: 9,
-    ask: 12,
-};
-
-// Pure: number of lines a detail would render inline (drives inline-vs-modal routing).
-export function detailLineCount(d: ActionDetail): number {
-    switch (d.kind) {
-        case "grep":
-            return d.matches.length;
-        case "read":
-            return d.snippet.split("\n").length;
-        case "bash":
-            return d.output.split("\n").length + (d.command ? 1 : 0);
-        case "skill":
-            return d.args ? d.args.split("\n").length + 1 : 1;
-        case "edit":
-            return d.files.reduce((n, f) => n + f.lines.length + 1, 0);
-        case "ask":
-            return d.questions.reduce((n, q) => n + 1 + q.options.length + (q.typed ? 1 : 0), 0);
-    }
-}
-
-// Pure: true when detail exceeds its inline budget and a click should open the modal directly.
-export function detailExceedsInline(d: ActionDetail): boolean {
-    return detailLineCount(d) > DETAIL_INLINE_MAX[d.kind];
-}
-
 // Joins the prose (message + user) entries of a transcript into one copyable string. Tool actions
 // are omitted — they are not conversational content.
 export function conversationText(entries: AgentEntry[]): string {

@@ -12,7 +12,6 @@ import useResizeObserver from "@react-hook/resize-observer";
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import {
     conversationText,
-    detailExceedsInline,
     formatTokens,
     type ActionDetail,
     type AgentActionEntry,
@@ -103,8 +102,8 @@ export function StatusSquare({ ok, blocked, pending }: { ok: boolean; blocked?: 
     );
 }
 
-function Affordance({ toModal, open }: { toModal: boolean; open: boolean }) {
-    const Icon = toModal ? ArrowUpRight : open ? ChevronDown : ChevronRight;
+function Affordance({ open }: { open: boolean }) {
+    const Icon = open ? ChevronDown : ChevronRight;
     return (
         <span className="flex shrink-0 text-muted">
             <Icon size={12} strokeWidth={2.2} aria-hidden />
@@ -379,7 +378,10 @@ function StepTitle({ step, compact }: { step: Step; compact: boolean }) {
                     {subject != null && head !== title ? <span className="text-foreground">{subject}</span> : null}
                 </span>
             ) : null}
-            {mono ? <span className={cn("min-w-0 truncate font-mono text-ink-faint", monoSize)}>{mono}</span> : null}
+            {mono ? (
+                // a bare command is the row's text, so it takes the row's color; under a title it is subordinate
+                <span className={cn("min-w-0 truncate font-mono", title ? "text-muted" : undefined, monoSize)}>{mono}</span>
+            ) : null}
             {step.action.summary && (step.action.verb === "grep" || step.action.verb === "glob") ? (
                 <span className={cn("shrink-0 text-muted", compact ? "text-[11.5px]" : "text-[12.5px]")}>
                     {step.action.summary}
@@ -499,7 +501,7 @@ function StepBody({
     const detail = action.detail!;
     return (
         <div data-tool-panel className="mt-2.5 overflow-hidden rounded-[8px] border border-edge-mid bg-surface-code">
-            <div className="max-h-[200px] overflow-auto">
+            <div className="max-h-[400px] overflow-auto">
                 <ToolDetailBody detail={detail} variant="inline" />
             </div>
             <div className="flex items-center gap-2 border-t border-edge-faint px-2 py-1">
@@ -511,8 +513,8 @@ function StepBody({
     );
 }
 
-// One step: its title, command in mono, exit chip, time and chevron. Opens to its body inline, or to the modal when
-// the detail is past its inline budget; a step with neither a body nor a wsh view is a plain row.
+// One step: its title, command in mono, exit chip, time and chevron. Opens to its body inline, however long (the
+// panel scrolls, and "Open full view" holds the modal); a step with neither a body nor a wsh view is a plain row.
 function StepRow({
     step,
     renderers,
@@ -529,17 +531,8 @@ function StepRow({
     // the rendered view shows a test or diff card without a click, as it always has
     const [open, setOpen] = useState(!!renderers && bodyCard);
     const View = wsh && !isCardKey(wsh.key) ? wshRendererFor(wsh.key) : undefined;
-    const detail = action.detail;
-    const toModal = !View && !bodyCard && detail != null && detailExceedsInline(detail);
     const summary = stepSummary(step);
-    const clickable = View != null || detail != null;
-    const onClick = () => {
-        if (toModal) {
-            modalsModel.pushModal("AgentToolDetailModal", { action });
-        } else {
-            setOpen((v) => !v);
-        }
-    };
+    const clickable = View != null || action.detail != null;
     const head = cn(
         "flex w-full items-center text-left font-sans",
         compact ? "gap-2 text-[12.5px]" : "gap-2.5 text-[13.5px]",
@@ -572,7 +565,7 @@ function StepRow({
                 </span>
             ) : null}
             <StepFacts step={step} compact={compact} />
-            {clickable && !compact ? <Affordance toModal={toModal} open={open} /> : null}
+            {clickable && !compact ? <Affordance open={open} /> : null}
         </>
     );
     // an image card has no row body to live in, so the rendered view draws it under the row
@@ -584,14 +577,14 @@ function StepRow({
             className={cn("border-t border-edge-faint first:border-t-0", compact ? "px-2.5 py-[7px]" : "px-3.5 py-2.5")}
         >
             {clickable ? (
-                <button type="button" aria-expanded={toModal ? undefined : open} onClick={onClick} className={cn(head, "cursor-pointer")}>
+                <button type="button" aria-expanded={open} onClick={() => setOpen((v) => !v)} className={cn(head, "cursor-pointer")}>
                     {content}
                 </button>
             ) : (
                 <div className={head}>{content}</div>
             )}
             <AnimatePresence initial={false}>
-                {open && !toModal ? (
+                {open ? (
                     <motion.div key="body" variants={composerReveal} initial="initial" animate="animate" exit="exit" className="overflow-hidden">
                         <StepBody step={step} View={View} ctx={ctx} compact={compact} />
                     </motion.div>
@@ -632,7 +625,7 @@ function ImageReadsRow({
             >
                 <span className="min-w-0 truncate">Read {steps.length} images</span>
                 <span className="min-w-[6px] flex-1" />
-                {compact ? null : <Affordance toModal={false} open={open} />}
+                {compact ? null : <Affordance open={open} />}
             </button>
             <AnimatePresence initial={false}>
                 {open ? (
