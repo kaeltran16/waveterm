@@ -1,13 +1,16 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// the Rendered box's `@` file picker and its pills. An `@` word lists the agent's files (the Code surface's cached
-// index, ranked by its finder) in the suggestion panel, and a pick writes `@<path> ` into the text. The box stays a
-// textarea: a mirror behind it draws the same text with every mention token as a pill, and the textarea's own text
+// the Rendered box's `@` panel and its pills. An `@` word lists this project's other live agents while it reads as a
+// tag (mentionmodel.ts), then the agent's files (the Code surface's cached index, ranked by its finder). A picked
+// agent writes its tag and travels with the send as a trailing block; a picked file writes `@<path> `. The box stays
+// a textarea: a mirror behind it draws the same text with every file mention as a pill, and the textarea's own text
 // goes transparent while the mirror shows. filementionmodel.ts holds the rules.
 
 import { rankPaths } from "@/app/view/code/codefinder";
 import { loadFileIndex } from "@/app/view/code/codestore";
+import { cn } from "@/util/util";
+import { useAtomValue } from "jotai";
 import {
     useEffect,
     useLayoutEffect,
@@ -18,14 +21,43 @@ import {
     type RefObject,
 } from "react";
 import { resolveCwd } from "./agentcwdresolve";
+import type { AgentVM } from "./agentsviewmodel";
 import { ComposerSuggest } from "./composersuggest";
 import { stillDismissed, suggestKey } from "./composersuggestmodel";
-import { backspaceMention, insertMention, mentionQueryAt, mentionTokens } from "./filementionmodel";
+import { cockpitRosterAtom } from "./devmock";
+import {
+    atItems,
+    backspaceMention,
+    insertMention,
+    mentionQueryAt,
+    mentionTokens,
+    type AtItem,
+} from "./filementionmodel";
+import {
+    appendMentions,
+    insertMention as insertTag,
+    mentionTargets,
+    mentionToken,
+    type MentionRow,
+} from "./mentionmodel";
 
 const MENTION_LIMIT = 50;
 const NOTE_LOADING = "Loading files";
 const NOTE_NO_CWD = "No working folder known for this agent";
 const FOOTER_TRUNCATED = "Not every file is listed: the folder is too large";
+const GROUP_AGENTS = "Agents";
+const GROUP_FILES = "Files";
+
+const STATE_TEXT: Record<AgentVM["state"], string> = {
+    working: "text-working",
+    asking: "text-asking",
+    idle: "text-muted",
+};
+const STATE_DOT: Record<AgentVM["state"], string> = {
+    working: "bg-working",
+    asking: "bg-asking",
+    idle: "border-[1.5px] border-muted",
+};
 
 // the files of one folder while the picker reads them: nothing yet (loading), its paths, or the error
 type Listing = { cwd: string; paths?: string[]; truncated?: boolean; error?: string };
@@ -38,6 +70,9 @@ export interface FileMention {
     onCaret: () => void;
     // the pill mirror, for a `relative` wrapper that holds it and then the textarea; null while the text has no mention
     backdrop: ReactNode;
+    // the prompt with the block naming the agents picked whose tags are still in it; clear forgets the picks
+    compose: (text: string) => string;
+    clear: () => void;
 }
 
 // the mirror wraps where the textarea does only with the same padding and the textarea's scrollbar taken off its width
@@ -62,26 +97,47 @@ function FileRow({ path }: { path: string }) {
     );
 }
 
+function AgentRow({ row }: { row: MentionRow }) {
+    return (
+        <>
+            <span aria-hidden className={cn("h-[7px] w-[7px] shrink-0 rounded-full", STATE_DOT[row.state])} />
+            <span data-mention-row={row.tag} className="shrink-0 font-mono">
+                {row.tag}
+            </span>
+            <span className={cn("shrink-0 text-[12px]", STATE_TEXT[row.state])}>{row.state}</span>
+            <span className="min-w-0 flex-1 truncate text-ink-mid">{row.title}</span>
+            <span className="shrink-0 font-mono text-[10.5px] text-muted">
+                {row.harness} · {row.id8}
+            </span>
+        </>
+    );
+}
+
 // cwd: the agent's folder, null when none is known, undefined while it is still being resolved. off (bash mode)
 // turns the panel and the pills off.
 export function useFileMention({
+    agent,
     text,
     setText,
     taRef,
     cwd,
     off,
 }: {
+    agent: AgentVM;
     text: string;
     setText: (text: string) => void;
     taRef: RefObject<HTMLTextAreaElement>;
     cwd: string | null | undefined;
     off?: boolean;
 }): FileMention {
+    const roster = useAtomValue(cockpitRosterAtom);
     const [caret, setCaret] = useState(0);
     const [at, setAt] = useState(0);
     // the start of the `@` word whose panel Esc closed
     const [dismissedAt, setDismissedAt] = useState<number | null>(null);
     const [listing, setListing] = useState<Listing | null>(null);
+    // the agents picked from the panel; the send names those whose tag is still in the text
+    const [picks, setPicks] = useState<MentionRow[]>([]);
     // where a programmatic edit (a pick, a pill's Backspace) puts the caret once the new text is in the textarea
     const pendingCaret = useRef<number | null>(null);
     const mirrorRef = useRef<HTMLDivElement>(null);
@@ -133,8 +189,10 @@ export function useFileMention({
         );
     }, [active, cwd, listing]);
 
-    const items =
+    const files =
         active && listed?.paths ? rankPaths(mention.query, listed.paths, MENTION_LIMIT).map((m) => m.path) : [];
+    const items = active ? atItems(text, caret, mentionTargets(roster, agent), files) : [];
+    const agentCount = items.length - files.length;
     let note: string | undefined;
     if (cwd === null) {
         note = NOTE_NO_CWD;
@@ -152,10 +210,21 @@ export function useFileMention({
         setText(next.text);
     };
     const pick = (i: number) => {
-        if (mention == null || items[i] == null) {
+        const item = items[i];
+        if (mention == null || item == null) {
             return;
         }
-        edit(insertMention(text, mention.start, caret, items[i]));
+        if (item.kind === "file") {
+            edit(insertMention(text, mention.start, caret, item.path));
+            return;
+        }
+        // an agent row is listed only while the word is a tag, so the token is there
+        const token = mentionToken(text, caret);
+        if (token == null) {
+            return;
+        }
+        edit(insertTag(text, token, caret, item.row.tag));
+        setPicks((cur) => [...cur, item.row]);
     };
 
     const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): boolean => {
@@ -251,22 +320,43 @@ export function useFileMention({
         );
     }
 
+    const groups =
+        agentCount > 0
+            ? [
+                  { title: GROUP_AGENTS, start: 0 },
+                  ...(files.length > 0 ? [{ title: GROUP_FILES, start: agentCount }] : []),
+              ]
+            : undefined;
+    // a note concerns the files, so beside agent rows it moves to the footer rather than hide them
+    let footer: string | undefined;
+    if (items.length > 0) {
+        footer = note ?? (listed?.truncated && files.length > 0 ? FOOTER_TRUNCATED : undefined);
+    }
     const panel = (
-        <ComposerSuggest
+        <ComposerSuggest<AtItem>
             open={open}
             items={items}
             at={hi}
-            itemKey={(p) => p}
-            renderItem={(p) => <FileRow path={p} />}
+            groups={groups}
+            itemKey={(it) => (it.kind === "agent" ? `agent:${it.row.tabId}` : `file:${it.path}`)}
+            renderItem={(it) => (it.kind === "agent" ? <AgentRow row={it.row} /> : <FileRow path={it.path} />)}
             onPick={pick}
             onHover={setAt}
             note={note}
-            footer={listed?.truncated && items.length > 0 ? FOOTER_TRUNCATED : undefined}
-            label="Files"
+            footer={footer}
+            label="Mentions"
             dataAttr="data-mention-panel"
         />
     );
-    return { panel, open, onKeyDown, onCaret, backdrop };
+    return {
+        panel,
+        open,
+        onKeyDown,
+        onCaret,
+        backdrop,
+        compose: (t) => appendMentions(t, picks),
+        clear: () => setPicks([]),
+    };
 }
 
 // the textarea's look while the mirror draws its text: its own text hidden, its caret kept

@@ -5,6 +5,9 @@
 // draw as pills, and the Backspace that removes a pill whole. The text is the single source of truth: a pill is only
 // a way of drawing a token of it.
 
+import type { AgentVM } from "./agentsviewmodel";
+import { mentionRows, mentionToken, type MentionRow } from "./mentionmodel";
+
 // an `@` at the start or after whitespace, then a word with no whitespace and no second `@` up to the caret
 const MENTION_AT_CARET = /(^|\s)@([^\s@]*)$/;
 // a token's `@` follows the start, whitespace or an opening bracket
@@ -25,6 +28,19 @@ export function mentionQueryAt(text: string, caret: number): { start: number; qu
         return null;
     }
     return { start: caret - m[2].length - 1, query: m[2] };
+}
+
+export type AtItem = { kind: "agent"; row: MentionRow } | { kind: "file"; path: string };
+
+// the rows the `@` panel lists: the live agents a tag query names (mentionmodel.ts), then the files already ranked
+// for the query. A path query (a `/`, a `.`, a quote) is no tag, so it lists files only.
+export function atItems(text: string, caret: number, targets: readonly AgentVM[], files: readonly string[]): AtItem[] {
+    if (mentionQueryAt(text, caret) == null) {
+        return [];
+    }
+    const tag = mentionToken(text, caret);
+    const agents: AtItem[] = tag == null ? [] : mentionRows(targets, tag.query).map((row) => ({ kind: "agent", row }));
+    return [...agents, ...files.map((path): AtItem => ({ kind: "file", path }))];
 }
 
 // a path with whitespace is written quoted, the form Claude Code reads

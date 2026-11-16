@@ -3,7 +3,7 @@
 //
 // Rendered mode's message box (the boards' pill): the text, then attach, the model and permission-mode chips, the
 // context ring and one round button, Send or (while a turn is live and the box is empty) Stop. Attachments sit above
-// the text and reach the agent as paths appended to the prompt, as an agent picked with @ (mentionpicker.tsx) does.
+// the text and reach the agent as paths appended to the prompt, as an agent picked with @ (filemention.tsx) does.
 // While Claude's question is shown Send is held, since typing into the pty would land in its picker. In ! bash mode the text runs in the agent's shell instead, and the
 // tray's attachments wait for the next message.
 
@@ -19,7 +19,6 @@ import { bashOffKey, bashOnInput } from "./bashmodemodel";
 import { appendAttachments, pickFilePaths, useComposerAttachments } from "./composerattachments";
 import { MIRRORED_TEXTAREA, useAgentCwd, useFileMention } from "./filemention";
 import { BoxControls } from "./headercontrols";
-import { useMentions } from "./mentionpicker";
 import { boxButton, composerBox, contextRing } from "./renderedmode";
 import { useSlashPanel } from "./slashpanel";
 
@@ -76,22 +75,19 @@ export const RenderedComposer = forwardRef<
             ? { send: sendAgentBash, onSent: () => setBash(false) }
             : {
                   onSubmitText,
-                  compose: (t: string) => appendAttachments(mentions.compose(t), attachments),
+                  compose: (t: string) => appendAttachments(mention.compose(t), attachments),
                   onSent: () => {
                       clear();
-                      mentions.clear();
+                      mention.clear();
                   },
                   attachments,
               }),
     });
     useComposerHandle(ref, setText, taRef);
-    const mentions = useMentions(agent, text, setText, taRef);
-    const agentPicker = bash ? null : mentions.picker;
     // before the mention hook: its pick moves the caret in a layout effect the mention hook then reads
     const slash = useSlashPanel({ text, setText, taRef, blockId, off: bash });
     const cwd = useAgentCwd(agent.transcriptPath, blockId);
-    // one @ list at a time: the live-agent list wins while it has rows
-    const mention = useFileMention({ text, setText, taRef, cwd, off: bash || agentPicker != null });
+    const mention = useFileMention({ agent, text, setText, taRef, cwd, off: bash });
     const canSend = !box.askBlocks && canSendComposer(text, blockId, bash ? [] : attachments);
     const onChange = (next: string) => {
         const on = bash ? null : bashOnInput(text, next);
@@ -113,7 +109,7 @@ export const RenderedComposer = forwardRef<
         });
     const keyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
         // the panels' keys first: their Esc closes them and must not reach onKeyDown's interrupt
-        if ((agentPicker != null && mentions.onKeyDown(e)) || slash.onKeyDown(e) || mention.onKeyDown(e)) {
+        if (slash.onKeyDown(e) || mention.onKeyDown(e)) {
             return;
         }
         // in bash mode Esc leaves the mode instead of interrupting; the Stop button still interrupts
@@ -141,7 +137,6 @@ export const RenderedComposer = forwardRef<
             )}
         >
             {slash.panel}
-            {agentPicker}
             {mention.panel}
             {box.askBlocks ? (
                 <div data-composer-notice className="flex items-center gap-[7px] pb-2 text-[12px] text-muted">
@@ -166,13 +161,9 @@ export const RenderedComposer = forwardRef<
                     ref={taRef}
                     rows={1}
                     value={text}
-                    onChange={(e) => {
-                        onChange(e.target.value);
-                        mentions.trackCaret(e.target);
-                    }}
+                    onChange={(e) => onChange(e.target.value)}
                     onKeyDown={keyDown}
                     onSelect={(e) => {
-                        mentions.trackCaret(e.currentTarget);
                         slash.onCaret();
                         mention.onCaret();
                     }}

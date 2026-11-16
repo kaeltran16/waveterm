@@ -2,9 +2,49 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { backspaceMention, insertMention, mentionQueryAt, mentionTokens } from "./filementionmodel";
+import type { AgentVM } from "./agentsviewmodel";
+import { atItems, backspaceMention, insertMention, mentionQueryAt, mentionTokens } from "./filementionmodel";
 
 const end = (s: string) => s.length;
+
+const vm = (id: string, name: string, task = ""): AgentVM => ({
+    id,
+    name,
+    task,
+    state: "idle",
+    agent: "claude",
+    project: "waveterm",
+});
+const reviewer = vm("a1b2c3d4-0000", "reviewer", "Review the motion diff");
+const lead = vm("e5f6a7b8-0000", "lead", "Plan the release");
+const targets = [reviewer, lead];
+const files = ["src/review.ts", "README.md"];
+const shape = (items: ReturnType<typeof atItems>) =>
+    items.map((i) => (i.kind === "agent" ? `agent:${i.row.tag}` : `file:${i.path}`));
+
+describe("atItems", () => {
+    it("lists every target agent and then the files for a bare @", () => {
+        expect(shape(atItems("ask @", 5, targets, files))).toEqual([
+            "agent:reviewer",
+            "agent:lead",
+            "file:src/review.ts",
+            "file:README.md",
+        ]);
+    });
+    it("lists the agents a tag query matches, then the files", () => {
+        expect(shape(atItems("@rev", 4, targets, ["src/review.ts"]))).toEqual(["agent:reviewer", "file:src/review.ts"]);
+    });
+    it("lists no agent rows for a path query", () => {
+        expect(shape(atItems("@src/x", 6, targets, ["src/x.ts"]))).toEqual(["file:src/x.ts"]);
+        expect(shape(atItems("@a.ts", 5, targets, ["a.ts"]))).toEqual(["file:a.ts"]);
+        expect(shape(atItems('@"a', 3, targets, ["a b.md"]))).toEqual(["file:a b.md"]);
+        expect(atItems('@"a b', 5, targets, ["a b.md"])).toEqual([]);
+    });
+    it("lists nothing when the caret is in no @ word", () => {
+        expect(atItems("me@rev", 6, targets, files)).toEqual([]);
+        expect(atItems("ask @rev now", 12, targets, files)).toEqual([]);
+    });
+});
 
 describe("mentionQueryAt", () => {
     it("opens on an @ at the start of the text with the typed query", () => {

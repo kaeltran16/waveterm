@@ -1354,8 +1354,8 @@ export default function (_kit) {
                 });
                 await setRoster(h, ctx.roster);
 
-                await step("rendered: @ tag — @ in P's box lists the other fixture agents, Esc closes the list without interrupting, Tab tags A, and the send carries A's tab id", async () => {
-                    const PICKER = `${RV}?.querySelector("[data-mention-picker]")`;
+                await step("rendered: @ tag — @ in P's box lists the other fixture agents in the @ panel's Agents group, Esc closes the panel without interrupting, Tab tags A, and the send carries A's tab id", async () => {
+                    const PICKER = `${RV}?.querySelector("[data-rendered-composer] [data-mention-panel]")`;
                     const rowTags = `[...(${PICKER}?.querySelectorAll("[data-mention-row]") ?? [])].map((r) => r.getAttribute("data-mention-row"))`;
                     const key = (k) =>
                         h.ev(`(() => {
