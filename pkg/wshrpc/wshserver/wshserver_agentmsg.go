@@ -350,6 +350,51 @@ func (ws *WshServer) AgentPromptCommand(ctx context.Context, data wshrpc.Command
 	return nil
 }
 
+// typeIntoBlock writes keystrokes to a block's pty. A var so tests need no controller.
+var typeIntoBlock = func(blockId, s string) error {
+	return blockcontroller.SendInput(blockId, &blockcontroller.BlockInputUnion{InputData: []byte(s)})
+}
+
+// bracketed paste markers: the TUI takes the command as one paste, not as keys
+const (
+	pasteStart = "\x1b[200~"
+	pasteEnd   = "\x1b[201~"
+)
+
+// AgentBashCommand runs a shell command in a block's Claude session the way a person does: `!` switches its
+// prompt to bash mode, the command is pasted, Enter runs it. The mod's prompt path cannot do it (it sends text to
+// the model), so this needs a running shell, not a held mod stream. It returns after the writes, so a failure
+// reaches the caller; Claude Code's bash mode only starts on an empty prompt, which the Rendered view leaves.
+func (ws *WshServer) AgentBashCommand(ctx context.Context, data wshrpc.CommandAgentBashData) error {
+	command := strings.TrimSpace(data.Command)
+	if data.BlockId == "" || command == "" {
+		return fmt.Errorf("a block id and a command are required")
+	}
+	if err := snapshotRefusesPrompt(ctx, data.BlockId); err != nil {
+		return err
+	}
+	pb, err := readPromptBlock(ctx, data.BlockId)
+	if err != nil {
+		return fmt.Errorf("%w: nothing was run", err)
+	}
+	if !pb.Stored {
+		return fmt.Errorf("block %s no longer exists: nothing was run", data.BlockId)
+	}
+	if !pb.ShellRunning {
+		return fmt.Errorf("block %s has no running shell: nothing was run", data.BlockId)
+	}
+	steps := []string{"!", pasteStart + command + pasteEnd, "\r"}
+	for i, s := range steps {
+		if i > 0 {
+			time.Sleep(agentask.KeystrokeDelay)
+		}
+		if err := typeIntoBlock(data.BlockId, s); err != nil {
+			return fmt.Errorf("typing the command into block %s: %w", data.BlockId, err)
+		}
+	}
+	return nil
+}
+
 // unreachablePrompt refuses a block delivery cannot reach, which would otherwise fail later in a goroutine
 // that only logs: the caller would read the prompt as sent.
 func unreachablePrompt(ctx context.Context, blockId string) error {

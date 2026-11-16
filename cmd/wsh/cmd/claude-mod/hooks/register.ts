@@ -5,6 +5,7 @@ import { atom, read, update } from "claude-code";
 import type { EngineInterface, Register } from "claude-code";
 import { drawCacheMiss } from "./cache-band";
 import { cacheMissNotice, transcriptEntries } from "./cache-core";
+import { claudecmdsArgs, commandsPayload } from "./commands-core";
 import { controlMsg, deliver, endTurn, steerNotice, takeLines } from "./control-core";
 import type { Turn } from "./control-core";
 import { ALL_CATEGORIES, applyEdit, goalpostNote, goalpostRole, inspectChange, inspectCommand } from "./goalpost-core";
@@ -34,6 +35,50 @@ let transcriptPath: string | null = null;
 
 // the last turn's cache miss, shown above the prompt until the next turn starts; null when none is
 const cacheMiss = atom({ plugin: "arc", key: "cacheMiss" } as const, null);
+
+// the JSON of the slash-command list wavesrv last took, "" before the first. the Rendered box's `/` panel reads that
+// list, so a publish sends only when the list differs from this
+let lastCommands = "";
+
+// the pending second publish after session.start, so a /clear (session.start again) does not stack timers
+let commandsTimer: { cancel(): void } | null = null;
+
+// tells wavesrv the commands Claude Code's own typeahead shows now: the bundled skills, a mod's commands and MCP
+// prompts, which `~/.claude` does not hold. only inside Arc. a failed call is logged and not retried on its own:
+// lastCommands stays as it was, so the next publish sends the list again
+async function publishCommands($: EngineInterface): Promise<void> {
+    if (!active) {
+        return;
+    }
+    try {
+        const payload = commandsPayload(await $.command.list());
+        if (payload === lastCommands) {
+            return;
+        }
+        const ran = await $.process.run([WSH, ...claudecmdsArgs()], { stdin: payload, timeoutMs: 10_000 });
+        if (ran.exitCode === 0) {
+            lastCommands = payload;
+        } else {
+            $.ui.log(`arc: wsh claudecmds set exited ${ran.exitCode}: ${ran.stderr.trim()}`, { to: "debug" });
+        }
+    } catch (err) {
+        $.ui.log(`arc: publishing the slash commands failed: ${String(err)}`, { to: "debug" });
+    }
+}
+
+// the publishes session.start owes: one now, and one once the MCP servers have connected (they do after the session
+// starts). the second is a $.clock.after, not a detached sleep: a sleep's wait is the hook's own time and would bill
+// to its budget. a /clear or a reload runs session.start again, so the list is sent again even when it is the same
+function publishCommandsAtStart($: EngineInterface): void {
+    lastCommands = "";
+    void publishCommands($);
+    try {
+        commandsTimer?.cancel();
+        commandsTimer = $.clock.after(10_000, () => void publishCommands($));
+    } catch (err) {
+        $.ui.log(`arc: scheduling the slash commands' second publish failed: ${String(err)}`, { to: "debug" });
+    }
+}
 
 // ponytail: turn.start does not say whose turn it is, so a background subagent starting one while the
 // session is idle reads as open, and a mid-turn text sent then waits for the next turn. track turn ids
@@ -232,6 +277,7 @@ export const register: Register = (on) => {
         const started = await next(e);
         if (active) {
             void listenToCockpit($);
+            publishCommandsAtStart($);
         }
         return started;
     });
