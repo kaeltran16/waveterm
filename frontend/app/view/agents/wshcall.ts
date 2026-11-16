@@ -149,9 +149,27 @@ const GROUPS: ReadonlySet<string> = new Set(
     })
 );
 
+// a word that still holds a variable or a command substitution after expansion: the call's real id is unknown
+const UNRESOLVED = /[$`]/;
+
+function isUnresolved(call: WshCall): boolean {
+    return (
+        call.args.some((a) => UNRESOLVED.test(a)) ||
+        Object.values(call.flags).some((v) => typeof v === "string" && UNRESOLVED.test(v))
+    );
+}
+
+// an unresolved card call is the generic change row (argv, timing, output; no fetch); an unresolved view call has no key
 export function wshKey(call: WshCall): WshKey | null {
     const chain = call.path.join(" ");
-    return Object.prototype.hasOwnProperty.call(KEYS, chain) ? KEYS[chain] : null;
+    if (!Object.prototype.hasOwnProperty.call(KEYS, chain)) {
+        return null;
+    }
+    const key = KEYS[chain];
+    if (!isUnresolved(call)) {
+        return key;
+    }
+    return isCardKey(key) ? OTHER : null;
 }
 
 export function isCardKey(key: WshKey): key is WshCardKey {
@@ -333,8 +351,16 @@ function parseArgv(words: string[]): WshCall {
     return { path, args, flags };
 }
 
+const VAR_REF = /\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))/g;
+
+// $NAME and ${NAME} for every assigned NAME, in one pass so a value is never expanded again
+function expandVars(word: string, vars: ReadonlyMap<string, string>): string {
+    return word.replace(VAR_REF, (ref, braced, bare) => vars.get(braced ?? bare) ?? ref);
+}
+
 export function parseWshCalls(command: string): WshCall[] {
     const calls: WshCall[] = [];
+    const vars = new Map<string, string>();
     let commandWords: string[] | null = null; // the current simple command's words once its command word is wsh
     let atCommand = true;
     const end = () => {
@@ -346,9 +372,14 @@ export function parseWshCalls(command: string): WshCall[] {
         if (t.kind === "sep") {
             end();
         } else if (commandWords) {
-            commandWords.push(t.text);
+            commandWords.push(expandVars(t.text, vars));
         } else if (atCommand) {
-            if (ASSIGNMENT.test(t.text) || COMMAND_PREFIXES.has(t.text)) {
+            if (ASSIGNMENT.test(t.text)) {
+                const eq = t.text.indexOf("=");
+                vars.set(t.text.slice(0, eq), expandVars(t.text.slice(eq + 1), vars));
+                continue;
+            }
+            if (COMMAND_PREFIXES.has(t.text) || t.text === "export") {
                 continue;
             }
             atCommand = false;

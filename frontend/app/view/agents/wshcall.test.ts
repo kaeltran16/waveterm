@@ -85,10 +85,53 @@ describe("wshKey", () => {
     });
 });
 
+describe("shell variable ids", () => {
+    it.each([
+        ['E=2bd27b27 && wsh effort chunk add $E "x"'],
+        ['E=2bd27b27 && wsh effort chunk add ${E} "x"'],
+        ['E=2bd27b27; wsh effort chunk add "$E" x'],
+        ['export E=2bd27b27 && wsh effort chunk add $E "x"'],
+        ["E=2bd27b27\nwsh effort chunk add $E x"],
+        ["E=2bd27b27 wsh effort chunk add $E x"],
+        ["P=2bd27b27; E=$P; wsh effort chunk add $E x"],
+    ])("expands an earlier assignment: %s", (cmd) => {
+        const first = firstWshCall(cmd);
+        expect(first?.call.args).toEqual(["2bd27b27", "x"]);
+        expect(first?.key).toBe("chunk-add");
+    });
+
+    it("a later assignment does not reach back", () => {
+        const first = firstWshCall("wsh effort chunk add $E x; E=2bd27b27");
+        expect(first?.key).toBe("other-change");
+    });
+
+    it.each([
+        ['wsh effort chunk add $E "x"'],
+        ["wsh effort chunk add ${E} x"],
+        ["E=`wsh effort create T` && wsh effort chunk add $E x"],
+        ["E=$(wsh effort create T) && wsh effort chunk add $E x"],
+        ['E="$(wsh effort create T)" && wsh effort chunk add $E x'],
+        ["E='a`b' && wsh effort chunk add $E x"],
+    ])("an unresolved id is the generic change row: %s", (cmd) => {
+        // the last call: a command substitution's own wsh call is parsed as a call too
+        expect(wshKey(parseWshCalls(cmd).at(-1))).toBe("other-change");
+    });
+
+    it("an unresolved id on a view call yields no wsh key", () => {
+        expect(firstWshCall("wsh effort show $E")).toBeNull();
+        expect(firstWshCall("wsh runs show ${R}")).toBeNull();
+        expect(firstWshCall("E=ok && wsh effort show $E")?.key).toBe("effort-show");
+    });
+
+    it("an unresolved flag value is unresolved too", () => {
+        expect(firstWshCall("wsh effort chunk note e1 3 --note $N")?.key).toBe("other-change");
+    });
+});
+
 describe("parseWshCalls", () => {
     it("splits path, args and flags", () => {
-        expect(parseWshCalls(`wsh effort chunk status "$E" 3 done --note "a && b"`)).toEqual([
-            { path: ["effort", "chunk", "status"], args: ["$E", "3", "done"], flags: { note: "a && b" } },
+        expect(parseWshCalls(`wsh effort chunk status "e1" 3 done --note "a && b"`)).toEqual([
+            { path: ["effort", "chunk", "status"], args: ["e1", "3", "done"], flags: { note: "a && b" } },
         ]);
     });
 

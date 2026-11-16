@@ -191,6 +191,33 @@ export const fixtures = {
         ],
         seed: { "effort:siem1748": SIEM },
     },
+    "var-resolved": {
+        entries: [
+            user("tick chunk 1 through a variable", T0),
+            bash({
+                description: "Tick chunk 1",
+                command: `E=${EID} && ${cmd('chunk status $E 1 done --note "id came from a variable"')}`,
+                output: "ok",
+                ts: T0 + 2 * S,
+                durationMs: 250,
+            }),
+            prose("Chunk 1 is done.", T0 + 4 * S),
+        ],
+        seed: { [`effort:${EID}`]: renderParity() },
+    },
+    "var-unresolved": {
+        entries: [
+            user("tick chunk 1, the id is set elsewhere", T0),
+            bash({
+                description: "Tick chunk 1",
+                command: cmd('chunk status $E 1 done --note "id came from a variable"'),
+                output: "ok",
+                ts: T0 + 2 * S,
+                durationMs: 250,
+            }),
+            prose("Chunk 1 is done.", T0 + 4 * S),
+        ],
+    },
     "unknown-effort": {
         entries: [
             user("tick chunk 3 on the old initiative", T0),
@@ -456,6 +483,36 @@ async function stepUnknown(h) {
     ];
 }
 
+async function stepShellVariable(h) {
+    await show(h, "var-resolved", 736);
+    const resolved = await h.ev(CARD("chunk-status"));
+    await h.shot("cdp-shots/transcript-initiative-var-resolved.png");
+    await show(h, "var-unresolved", 736);
+    // an unresolved id never fetches; a wrongly keyed card would already be in the DOM
+    await sleep(MOTION_MS);
+    const card = await h.ev(CARD("chunk-status"));
+    const generic = await h.ev(probe(`
+        const rows = [...root.querySelectorAll('[data-wsh-change="effort chunk status"]')];
+        return { rows: rows.length, text: rows.map((r) => r.textContent), rootText: root.textContent };
+    `));
+    await h.shot("cdp-shots/transcript-initiative-var-unresolved.png");
+    return [
+        {
+            step: "a resolved $E call draws the initiative card for that id; an unresolved one draws the generic change row with no load error",
+            ok:
+                resolved?.length === 1 &&
+                resolved[0].text.includes("Chunk done") &&
+                resolved[0].text.includes(`1. ${LABELS[0]}`) &&
+                !resolved[0].text.includes("Couldn't load") &&
+                card?.length === 0 &&
+                generic?.rows === 1 &&
+                generic.text[0].includes("wsh effort chunk status") &&
+                !generic.rootText.includes("Couldn't load"),
+            detail: JSON.stringify({ resolved, card, generic: generic && { rows: generic.rows, text: generic.text } }),
+        },
+    ];
+}
+
 export const transcriptInitiative = {
     name: "transcript-initiative",
     surface: "cockpit",
@@ -471,6 +528,7 @@ export const transcriptInitiative = {
         steps.push(...(await stepShowJson(h)));
         steps.push(...(await stepShowCommand(h)));
         steps.push(...(await stepUnknown(h)));
+        steps.push(...(await stepShellVariable(h)));
         return steps;
     },
     async teardown(h) {

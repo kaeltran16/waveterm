@@ -43,7 +43,7 @@ const kinds = (items: LayoutItem[]) => items.map((i) => i.kind);
 const stepsItems = (items: LayoutItem[]) =>
     items.filter((i): i is Extract<LayoutItem, { kind: "steps" }> => i.kind === "steps");
 
-const CHUNK_DONE = 'wsh effort chunk status "$E" 3 done --note "retry fixed"';
+const CHUNK_DONE = 'E=2bd27b27 && wsh effort chunk status "$E" 3 done --note "retry fixed"';
 
 describe("layoutTranscript folds", () => {
     const turn: AgentEntry[] = [
@@ -161,7 +161,7 @@ describe("layoutTranscript wsh calls", () => {
         const card = items[2] as Extract<LayoutItem, { kind: "card" }>;
         expect(card.index).toBe(3);
         expect(card.step.wsh?.key).toBe("chunk-status");
-        expect(card.step.wsh?.call.args).toEqual(["$E", "3", "done"]);
+        expect(card.step.wsh?.call.args).toEqual(["2bd27b27", "3", "done"]);
         expect(card.step.wsh?.call.flags.note).toBe("retry fixed");
     });
 
