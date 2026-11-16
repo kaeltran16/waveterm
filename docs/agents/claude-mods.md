@@ -3,7 +3,7 @@
 How the Claude Code mods and Arc's own skills travel from this repo into every agent launch. In all cases
 the repo folder named below is the source; the build and launch overwrite every copy.
 
-## The three mods
+## The two mods
 
 `task sync:claudemod` (run by every dev and backend build) copies each mod, minus tests, into
 `cmd/wsh/cmd/`, where `wsh` embeds it. `wsh install-agent-hooks` writes it to `~/.arc/<name>` and lists
@@ -13,14 +13,11 @@ that folder in `env.CLAUDE_CODE_PLUGIN_DIRS` of `~/.claude/settings.json`, so ev
 | --- | --- | --- | --- |
 | `claude/arc-mod/` | `claude-mod` | `~/.arc/claude-mod` | The arc mod. Pure logic in `hooks/*-core.ts`, tested by vitest. Check with `claude plugin validate claude/arc-mod`. |
 | `claude/arc-view-mod/` | `claude-view-mod` | `~/.arc/claude-view-mod` | Draws the transcript rows of prompts the arc mod submits. |
-| `claude/arc-skim-mod/` | `claude-skim-mod` | `~/.arc/claude-skim-mod` | Highlights a reply's must-read sentences (based on ttqteo/claude-skim). |
 
 - **arc-view-mod must stay its own plugin:** Claude Code never runs a plugin's `ui.render` hook on a row
   that plugin raised. `claude plugin test` does not apply that rule, so judge a drawn row in a live session.
-- **arc-skim-mod's options:** two `/config` rows (`arc-skim.highlight`, `arc-skim.dim`), read from the
-  options the engine loads the mod with, since `$.config.list()` at a parallel session start can miss a
-  plugin's rows. Arc's Settings > Skim writes the same `pluginConfigs` entry in `~/.claude/settings.json`
-  (`pkg/claudemod`), and Claude Code reloads the mod with the new options in every running session.
+- **Removing a mod:** add its embed name to `retiredClaudeMods` (`cmd/wsh/cmd/wshcmd-installhooks.go`), or
+  its `CLAUDE_CODE_PLUGIN_DIRS` entry reads as the user's own and keeps loading the last installed copy.
 
 ## Arc's skills
 

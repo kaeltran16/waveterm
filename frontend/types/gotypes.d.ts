@@ -846,18 +846,6 @@ declare global {
         key: string;
     };
 
-    // wshrpc.CommandClaudeModOptionsData
-    type CommandClaudeModOptionsData = {
-        plugin: string;
-    };
-
-    // wshrpc.CommandClaudeModSetOptionData
-    type CommandClaudeModSetOptionData = {
-        plugin: string;
-        field: string;
-        value: boolean;
-    };
-
     // wshrpc.CommandCodeReviewWriteData
     type CommandCodeReviewWriteData = {
         project: string;

@@ -10,7 +10,6 @@ import {
     filterSections,
     flagRowId,
     groupSections,
-    isModOptionOn,
     JIRA_SECRET_NAME,
     jiraConnectionLine,
     jiraSiteError,
@@ -21,8 +20,6 @@ import {
     sectionMatches,
     settingsSections,
     shownFlagRuntime,
-    SKIM_FIELDS,
-    SKIM_PLUGIN,
     VAULT_STATUS_POLL_MS,
     vaultStatusLine,
     vaultStatusPollMs,
@@ -411,24 +408,6 @@ describe("countLabel", () => {
     it("singularizes one", () => {
         expect(countLabel(1)).toBe("1 setting");
         expect(countLabel(4)).toBe("4 settings");
-    });
-});
-
-describe("skim rows", () => {
-    it("lists one row per option the mod declares, kept on this machine", () => {
-        const skim = sections().find((s) => s.id === "skim");
-        expect(skim?.group).toBe("Agents");
-        expect(skim?.rows.map((r) => r.id)).toEqual(SKIM_FIELDS.map((f) => `skim.${f.field}`));
-        expect(skim?.rows.every((r) => r.scope === "local" && !r.config)).toBe(true);
-        expect(skim?.rows[0]?.key).toContain(`pluginConfigs.${SKIM_PLUGIN}.highlight`);
-    });
-
-    it("reads an option as on unless it is stored false", () => {
-        expect(isModOptionOn(null, "dim")).toBe(true);
-        expect(isModOptionOn({}, "dim")).toBe(true);
-        expect(isModOptionOn({ dim: true }, "dim")).toBe(true);
-        expect(isModOptionOn({ dim: false }, "dim")).toBe(false);
-        expect(isModOptionOn({ dim: false }, "highlight")).toBe(true);
     });
 });
 

@@ -953,6 +953,40 @@ func TestConfigIsHealthy_requiresEveryModsPluginDir(t *testing.T) {
 	}
 }
 
+func TestMergeClaudePluginDirs_dropsARetiredMod(t *testing.T) {
+	sep := string(os.PathListSeparator)
+	retired := `C:\Users\u\.arc\claude-skim-mod`
+	existing := map[string]any{"env": map[string]any{claudePluginDirsVar: `C:\mods\a` + sep + retired + sep + testModDir}}
+	base := mergeStatusLine(mergeAgentHooks(map[string]any{}, testWsh), testWsh)
+	base["env"] = existing["env"]
+	if configIsHealthy(base, testWsh, []string{testModDir}, false) {
+		t.Fatal("a config still listing a retired mod must not be healthy, or the install never drops it")
+	}
+	merged := mergeClaudePluginDirs(base, testModDir)
+	want := []string{`C:\mods\a`, testModDir}
+	if got := pluginDirsOf(t, merged); strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("plugin dirs = %v, want %v", got, want)
+	}
+	if !configIsHealthy(merged, testWsh, []string{testModDir}, false) {
+		t.Fatal("a config without the retired mod should be healthy")
+	}
+}
+
+func TestRemoveRetiredClaudeMods_deletesTheFolder(t *testing.T) {
+	home := t.TempDir()
+	dir := filepath.Join(home, ".arc", "claude-skim-mod")
+	if err := os.MkdirAll(filepath.Join(dir, "hooks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "hooks", "register.ts"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	removeRetiredClaudeMods(home)
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("retired mod folder still there: %v", err)
+	}
+}
+
 func TestInstallClaudeMod_equalBytesPreserveMtime(t *testing.T) {
 	home := t.TempDir()
 	if err := installClaudeMod(home, fakeWshPath(t)); err != nil {
@@ -1331,7 +1365,7 @@ func TestPostToolUseFailureHookIsManaged(t *testing.T) {
 	t.Fatalf("managed hooks missing %+v", want)
 }
 
-// claude --version can take seconds; a settings.json written meanwhile (a running claude, Settings > Skim)
+// claude --version can take seconds; a settings.json written meanwhile (a running claude, /config)
 // must be what the install merges into, not the copy read before the probe
 func TestInstallAgentHooks_keepsAWriteMadeDuringTheVersionProbe(t *testing.T) {
 	home := stubInstallHome(t)

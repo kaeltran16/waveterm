@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -147,25 +148,48 @@ func quotePath(p string) string {
 	return `"` + p + `"`
 }
 
-//go:embed all:claude-mod all:claude-view-mod all:claude-skim-mod
+//go:embed all:claude-mod all:claude-view-mod
 var claudeModFS embed.FS
 
-// claudeMods are the embedded mods' directories, written by `task sync:claudemod` from claude/arc-mod,
-// claude/arc-view-mod and claude/arc-skim-mod. The view mod is its own plugin because claude never runs a
-// plugin's render hook on a transcript row that plugin raised; skim is its own so its /config rows and
-// state stand apart from the arc mod's.
-var claudeMods = []string{"claude-mod", "claude-view-mod", "claude-skim-mod"}
+// claudeMods are the embedded mods' directories, written by `task sync:claudemod` from claude/arc-mod and
+// claude/arc-view-mod. The view mod is its own plugin because claude never runs a plugin's render hook on a
+// transcript row that plugin raised.
+var claudeMods = []string{"claude-mod", "claude-view-mod"}
+
+// retiredClaudeMods are mods an earlier build installed and this one no longer ships. Left alone, their
+// CLAUDE_CODE_PLUGIN_DIRS entries would read as the user's own and keep loading the last copy, so install
+// drops the entries and deletes the folders.
+var retiredClaudeMods = []string{"claude-skim-mod"}
 
 const claudePluginDirsVar = "CLAUDE_CODE_PLUGIN_DIRS"
 
 // claudeModDirs is where the Arc Claude mods are installed, in claudeMods' order: fixed and versionless
 // like wavebase.StableWshPath, so the CLAUDE_CODE_PLUGIN_DIRS entries naming them never go stale.
 func claudeModDirs(home string) []string {
-	dirs := make([]string, len(claudeMods))
-	for i, name := range claudeMods {
+	return arcModDirs(home, claudeMods)
+}
+
+func arcModDirs(home string, names []string) []string {
+	dirs := make([]string, len(names))
+	for i, name := range names {
 		dirs[i] = filepath.Join(home, ".arc", name)
 	}
 	return dirs
+}
+
+// isRetiredClaudeModDir reports whether dir is where an earlier build installed a mod in retiredClaudeMods.
+func isRetiredClaudeModDir(dir string) bool {
+	return filepath.Base(filepath.Dir(dir)) == ".arc" && slices.Contains(retiredClaudeMods, filepath.Base(dir))
+}
+
+// removeRetiredClaudeMods deletes the retired mods' folders. Called only once settings no longer name them,
+// so no claude launch looks for a folder that is gone.
+func removeRetiredClaudeMods(home string) {
+	for _, dir := range arcModDirs(home, retiredClaudeMods) {
+		if err := os.RemoveAll(dir); err != nil {
+			fmt.Fprintf(os.Stderr, "removing retired Claude mod %s: %v\n", dir, err)
+		}
+	}
 }
 
 // installClaudeMod writes the embedded mods into claudeModDirs with the wsh path substituted, and removes
@@ -287,7 +311,7 @@ func samePath(a, b string) bool {
 }
 
 // mergeClaudePluginDirs returns a copy of existing whose env.CLAUDE_CODE_PLUGIN_DIRS lists each of modDirs
-// once, last, after the user's own entries in their order. Claude reads that variable from the user
+// once, last, after the user's own entries in their order, and no retired mod. Claude reads that variable from the user
 // settings' env block and loads each folder as --plugin-dir, which covers every launch without touching any.
 func mergeClaudePluginDirs(existing map[string]any, modDirs ...string) map[string]any {
 	out := map[string]any{}
@@ -301,7 +325,7 @@ func mergeClaudePluginDirs(existing map[string]any, modDirs ...string) map[strin
 	cur, _ := env[claudePluginDirsVar].(string)
 	var entries []string
 	for _, e := range filepath.SplitList(cur) {
-		if e != "" && !listsPath(modDirs, e) {
+		if e != "" && !listsPath(modDirs, e) && !isRetiredClaudeModDir(e) {
 			entries = append(entries, e)
 		}
 	}
@@ -319,11 +343,15 @@ func listsPath(paths []string, want string) bool {
 	return false
 }
 
-// pluginDirsInclude reports whether env.CLAUDE_CODE_PLUGIN_DIRS already lists every one of modDirs.
+// pluginDirsInclude reports whether env.CLAUDE_CODE_PLUGIN_DIRS already lists every one of modDirs, and no
+// retired mod.
 func pluginDirsInclude(existing map[string]any, modDirs []string) bool {
 	env, _ := existing["env"].(map[string]any)
 	cur, _ := env[claudePluginDirsVar].(string)
 	listed := filepath.SplitList(cur)
+	if slices.ContainsFunc(listed, isRetiredClaudeModDir) {
+		return false
+	}
 	for _, dir := range modDirs {
 		if !listsPath(listed, dir) {
 			return false
@@ -1022,6 +1050,8 @@ func installAgentHooksRun(cmd *cobra.Command, args []string) error {
 	claudeErr := installClaudeSettings(path, wsh, modDirs)
 	if claudeErr != nil {
 		fmt.Fprintf(os.Stderr, "skipping Claude settings: %v\n", claudeErr)
+	} else {
+		removeRetiredClaudeMods(home)
 	}
 	if err := installOpencodePlugin(home, wsh); err != nil {
 		return err

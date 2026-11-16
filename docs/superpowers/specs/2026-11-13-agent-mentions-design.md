@@ -45,7 +45,7 @@ right in the Claude Code prompt, and the agent they are typing to does the talki
   tabs and move messages between them. `wsh agents list --json` returns `AgentInfo` rows
   (`pkg/wshrpc/wshrpctypes_agents.go`: `tabid`, `name`, `projectpath`, `project`, `runid`, `harness`,
   `state`, `cwd`, `title`), already filtered to the caller's project unless `--all`.
-- Claude Code's `prompt.autocomplete` (mod API types: `claude/arc-skim-mod/.claude-plugin/types/claude-code/index.d.ts`)
+- Claude Code's `prompt.autocomplete` (mod API types: `~/.arc/claude-mod/.claude-plugin/types/claude-code/index.d.ts`, written by Claude Code)
   fires per keystroke for the token at the cursor; a hook's rows draw beneath the engine's own rows. A mod
   cannot remove the engine's rows, which is why bare `@` does not work: Claude Code's file rows fill the
   visible list and bury the agent rows.

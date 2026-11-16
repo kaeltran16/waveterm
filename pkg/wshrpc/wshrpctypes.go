@@ -53,7 +53,6 @@ type WshRpcInterface interface {
 	VaultCommands
 	RemoteCommands
 	ClaudeAccountCommands
-	ClaudeModCommands
 	UiCommands
 	StreamCommands
 	ResMonCommands
