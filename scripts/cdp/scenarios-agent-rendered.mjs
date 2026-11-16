@@ -1354,6 +1354,55 @@ export default function (_kit) {
                 });
                 await setRoster(h, ctx.roster);
 
+                await step("rendered: @ tag — @ in P's box lists the other fixture agents, Esc closes the list without interrupting, Tab tags A, and the send carries A's tab id", async () => {
+                    const PICKER = `${RV}?.querySelector("[data-mention-picker]")`;
+                    const rowTags = `[...(${PICKER}?.querySelectorAll("[data-mention-row]") ?? [])].map((r) => r.getAttribute("data-mention-row"))`;
+                    const key = (k) =>
+                        h.ev(`(() => {
+                            const ta = ${RV}?.querySelector("[data-rendered-composer] textarea");
+                            if (!ta) return false;
+                            ta.focus();
+                            ta.dispatchEvent(new KeyboardEvent("keydown", { key: ${JSON.stringify(k)}, code: ${JSON.stringify(k)}, bubbles: true, cancelable: true }));
+                            return true;
+                        })()`);
+                    const aTag = ctx.roster.find((a) => a.id === ctx.aId).name.toLowerCase();
+                    const others = ctx.roster.filter((a) => a.id !== ctx.pId).map((a) => a.name.toLowerCase());
+                    await typeComposer(h, "ask @");
+                    const listed = (await wait(`${PICKER} != null`)) ? await h.ev(rowTags) : [];
+                    await h.shot(SHOT(23, "mention-list"));
+                    const from = probeLines(ctx).length;
+                    await key("Escape");
+                    const closed = await wait(`${PICKER} == null`);
+                    await sleep(PROBE_SETTLE_MS);
+                    const noInterrupt = !probeLines(ctx).slice(from).includes(ESC);
+                    // the token Esc closed stays closed while it is typed, so a new one starts from an empty box
+                    await typeComposer(h, "");
+                    await typeComposer(h, "ask @rendered-a");
+                    const reopened = await wait(`${PICKER} != null`);
+                    const filtered = await h.ev(rowTags);
+                    await key("Tab");
+                    const inserted = await wait(`${RV}?.querySelector("[data-rendered-composer] textarea")?.value === ${JSON.stringify(`ask @${aTag} `)}`);
+                    await typeComposer(h, `ask @${aTag} what changed`);
+                    const sendFrom = probeLines(ctx).length;
+                    const clicked = await h.ev(`(() => {
+                        const b = ${RV}?.querySelector("[data-composer-send]");
+                        if (!b || b.disabled) return false;
+                        b.click();
+                        return true;
+                    })()`);
+                    const decoded = await waitDecoded(ctx, sendFrom, [`ask @${aTag} what changed`, ctx.aId]);
+                    const ok =
+                        JSON.stringify([...listed].sort()) === JSON.stringify([...others].sort()) &&
+                        closed &&
+                        noInterrupt &&
+                        reopened &&
+                        JSON.stringify(filtered) === JSON.stringify([aTag]) &&
+                        inserted &&
+                        clicked &&
+                        decoded.ok;
+                    return [ok, { listed, others, closed, noInterrupt, reopened, filtered, inserted, clicked, input: decoded.text.slice(-400) }];
+                });
+
                 await focus(ctx.aId);
                 await step("rendered: picker flip — /config from A's composer flips to Terminal; Notification keeps it; UserPromptSubmit flips back", async () => {
                     const ready = await ensureRendered();
