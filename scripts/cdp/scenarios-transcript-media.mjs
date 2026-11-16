@@ -1,7 +1,12 @@
 // Scenario `transcript-media`: images in a transcript. An image Read's card draws thumbnails (imagethumbs.tsx) no
 // taller than the thumbnail bound instead of the image at full size, and a click on one opens the zoom view
-// (ImageZoom), which Escape closes.
+// (ImageZoom), which Escape closes. A user bubble draws its pasted image as a thumbnail in place of the "[Image #1]"
+// placeholder, and Arc's trailing attachments block as thumbnails (image paths, read through wavesrv) and file chips (any
+// other path, and an image that fails to load).
 
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { clearTranscript, prose, ROOT, showTranscript, tool, user, waitSeam } from "./transcript-fixture.mjs";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -30,6 +35,12 @@ const MAKE_PNG = `(() => {
     return c.toDataURL("image/png").split(",")[1];
 })()`;
 
+// a 24x24 PNG (a yellow square on blue) the attachment step writes to disk
+const ATTACHED_PNG_B64 =
+    "iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAIAAABvFaqvAAAAKUlEQVR4nGOwjr5NFcQwatCAGvT/ijVBNGrQqEGjBlFuEHlo1CA6GgQAVAGWvgpgH7IAAAAASUVORK5CYII=";
+const ATTACHED_PNG_W = 24;
+const ATTACHMENTS_HEADER = "Attachments (read these files):";
+
 const poll = async (h, expr) => {
     for (let i = 0; i < POLLS; i++) {
         if (await h.ev(expr)) return true;
@@ -56,9 +67,14 @@ export const transcriptMedia = {
     name: "transcript-media",
     surface: "cockpit",
     async arrange() {
-        return {};
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), "arc-transcript-media-"));
+        const png = path.join(dir, "attached.png");
+        const txt = path.join(dir, "notes.txt");
+        fs.writeFileSync(png, Buffer.from(ATTACHED_PNG_B64, "base64"));
+        fs.writeFileSync(txt, "notes\n");
+        return { dir, png, txt, missing: path.join(dir, "missing.png") };
     },
-    async assert(h) {
+    async assert(h, ctx) {
         const seam = await waitSeam(h);
         const steps = [{ step: "dev fixture seam present", ok: seam === true, detail: `seam=${seam}` }];
         if (!seam) return steps;
@@ -101,9 +117,73 @@ export const transcriptMedia = {
         await h.ev(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }))`);
         const closed = await poll(h, `!document.querySelector('[data-image-zoom]')`);
         steps.push({ step: "zoom: Escape closes the zoom view", ok: closed, detail: `closed=${closed}` });
+
+        const attachText = ["Review these.", "", ATTACHMENTS_HEADER, `- ${ctx.png}`, `- ${ctx.txt}`, `- ${ctx.missing}`].join("\n");
+        await showTranscript(h, {
+            entries: [
+                { kind: "user", text: "see [Image #1]", ts: T0, images: [image] },
+                prose("A blue field with a yellow square.", T0 + 2 * S),
+                user(attachText, T0 + 10 * S),
+                prose("Read them.", T0 + 12 * S),
+            ],
+            width: WIDE,
+        });
+        const bubblesUp = await poll(h, `(${R}?.querySelectorAll('[data-user-bubble]').length ?? 0) === 2`);
+        const pasted = await h.ev(`(() => {
+            const b = ${R}?.querySelectorAll('[data-user-bubble]')[0];
+            return b ? { text: b.innerText, thumbs: b.querySelectorAll('[data-image-thumb]').length } : null;
+        })()`);
+        steps.push({
+            step: "bubble: a pasted image draws as a thumbnail in place of its [Image #1] placeholder",
+            ok: bubblesUp && pasted != null && pasted.thumbs === 1 && !pasted.text.includes("[Image #1]") && pasted.text.includes("see"),
+            detail: JSON.stringify(pasted),
+        });
+
+        await h.ev(`${R}.querySelectorAll('[data-user-bubble]')[0].querySelector('[data-image-thumb]')?.click()`);
+        const bubbleZoom = await poll(h, `!!document.querySelector('[data-image-zoom]')`);
+        const bubbleZoomLoaded = bubbleZoom && (await poll(h, `(document.querySelector('[data-image-zoom-img]')?.naturalWidth ?? 0) === ${SOURCE_W}`));
+        await h.shot("cdp-shots/transcript-media-bubble-zoom.png");
+        await h.ev(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }))`);
+        const bubbleZoomClosed = await poll(h, `!document.querySelector('[data-image-zoom]')`);
+        steps.push({
+            step: "bubble zoom: the pasted image's thumbnail opens the zoom view",
+            ok: bubbleZoom && bubbleZoomLoaded && bubbleZoomClosed,
+            detail: `zoomed=${bubbleZoom} loaded=${bubbleZoomLoaded} closed=${bubbleZoomClosed}`,
+        });
+
+        // the image path loads and the missing one falls back, each after its own fetch
+        const ATTACH_STATE = `(() => {
+            const b = ${R}?.querySelectorAll('[data-user-bubble]')[1];
+            if (!b) return null;
+            const imgs = [...b.querySelectorAll('[data-image-thumb] img')];
+            return {
+                text: b.innerText,
+                loaded: imgs.map((i) => i.naturalWidth),
+                chips: [...b.querySelectorAll('[data-file-chip]')].map((c) => ({ title: c.title, name: c.innerText.trim() })),
+            };
+        })()`;
+        const settled = await poll(h, `(() => { const s = ${ATTACH_STATE}; return s != null && s.chips.length + s.loaded.length === 3 && s.loaded.every((w) => w > 0); })()`);
+        const attach = await h.ev(ATTACH_STATE);
+        await h.shot("cdp-shots/transcript-media-attachments.png");
+        const chipFor = (p) => attach?.chips.some((c) => c.title === p && c.name === path.basename(p));
+        steps.push({
+            step: "attachments: the block draws as one loaded image thumbnail and two file chips (the .txt, the missing PNG), not as text",
+            ok:
+                settled &&
+                attach != null &&
+                !attach.text.includes(ATTACHMENTS_HEADER) &&
+                attach.text.includes("Review these.") &&
+                attach.loaded.length === 1 &&
+                attach.loaded[0] === ATTACHED_PNG_W &&
+                attach.chips.length === 2 &&
+                chipFor(ctx.txt) &&
+                chipFor(ctx.missing),
+            detail: JSON.stringify(attach),
+        });
         return steps;
     },
-    async teardown(h) {
+    async teardown(h, ctx) {
         await clearTranscript(h);
+        if (ctx?.dir) fs.rmSync(ctx.dir, { recursive: true, force: true });
     },
 };

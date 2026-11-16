@@ -7,9 +7,10 @@
 // around it, or alone where no step is beside it; thoughts with nothing between them merge into one. A finished turn's work, everything between its prompt and its final
 // reply, folds into one "Worked for N" turn item; a human-originated row or a turn-boundary event splits it. No React.
 
-import type { AgentActionEntry, AgentEntry } from "./agentsviewmodel";
+import type { AgentActionEntry, AgentEntry, ToolImage } from "./agentsviewmodel";
 import { arcMessageOf, type ArcMessage } from "./arcmessage";
 import { commandTitle } from "./commandtitle";
+import { classifyKind, splitAttachments } from "./composerattachments";
 import { placeMarks, type TimelineMark } from "./permissionmodel";
 import { toolRendererKey } from "./renderregistry";
 import type { TranscriptContext } from "./transcriptcontext";
@@ -39,7 +40,8 @@ export interface Thought {
 export type LayoutItem =
     | { kind: "message"; text: string; index: number; latest: boolean }
     | { kind: "thought"; text: string; index: number }
-    | { kind: "user"; text: string; index: number }
+    // images: pasted; imagePaths/filePaths: the trailing attachments block's paths, split by kind
+    | { kind: "user"; text: string; index: number; images?: ToolImage[]; imagePaths?: string[]; filePaths?: string[] }
     | { kind: "command"; name: string; args?: string; isSkill?: boolean; index: number }
     | { kind: "compaction"; trigger?: string; preTokens?: number; postTokens?: number; summary?: string; index: number }
     | { kind: "notification"; summary: string; status?: string; result?: string; notice?: true; index: number }
@@ -294,6 +296,24 @@ function foldTurns(entries: AgentEntry[], flat: LayoutItem[], opts: LayoutOpts):
     return out;
 }
 
+// claude's stand-in for a pasted image in the prompt text; the thumbnail replaces it when the image came along. A
+// placeholder alone on its line takes the line with it
+const IMAGE_PLACEHOLDER = /^[ \t]*\[Image #\d+\][ \t]*(?:\r?\n|$)|[ \t]*\[Image #\d+\]/gm;
+
+// a prompt as drawn: pasted images under the text, and Arc's attachments block as thumbnails and file chips
+function userItem(e: Extract<AgentEntry, { kind: "user" }>, index: number): Extract<LayoutItem, { kind: "user" }> {
+    const hasImages = (e.images?.length ?? 0) > 0;
+    const { text, paths } = splitAttachments(hasImages ? e.text.replace(IMAGE_PLACEHOLDER, "") : e.text);
+    const item: Extract<LayoutItem, { kind: "user" }> = { kind: "user", text: text.trim(), index };
+    if (hasImages) item.images = e.images;
+    if (paths.length > 0) {
+        const isImage = (p: string) => classifyKind({ name: p, type: "" }) === "image";
+        item.imagePaths = paths.filter(isImage);
+        item.filePaths = paths.filter((p) => !isImage(p));
+    }
+    return item;
+}
+
 // the items as they come, unfolded
 function layoutItems(entries: AgentEntry[], opts: LayoutOpts): LayoutItem[] {
     let lastMessage = -1;
@@ -366,7 +386,7 @@ function layoutItems(entries: AgentEntry[], opts: LayoutOpts): LayoutItem[] {
                     const idleMs = e.ts != null && before != null ? e.ts - before : undefined;
                     items.push({ kind: "arc", index: i, message, ts: e.ts, idleMs, latest: false });
                 } else {
-                    items.push({ kind: "user", text: e.text, index: i });
+                    items.push(userItem(e, i));
                 }
                 return;
             }

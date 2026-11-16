@@ -579,3 +579,47 @@ describe("stepRows", () => {
         ]);
     });
 });
+
+describe("layoutTranscript user bubbles", () => {
+    const png = { mediaType: "image/png", data: "iVBORw0KGgo=" };
+    const bubble = (e: AgentEntry) => layoutTranscript([e], { active: false })[0];
+
+    it("a pasted image replaces its placeholder", () => {
+        expect(bubble({ kind: "user", text: "see [Image #1]", images: [png] })).toEqual({
+            kind: "user",
+            text: "see",
+            index: 0,
+            images: [png],
+        });
+        expect(bubble({ kind: "user", text: "first\n[Image #1]\nsecond", images: [png] })).toMatchObject({
+            text: "first\nsecond",
+        });
+    });
+
+    it("a placeholder with no image stays", () => {
+        expect(bubble(user("see [Image #1]"))).toEqual({ kind: "user", text: "see [Image #1]", index: 0 });
+    });
+
+    it("a trailing attachments block becomes image paths and file paths", () => {
+        const text = [
+            "check these",
+            "",
+            "Attachments (read these files):",
+            "- C:\\tmp\\shot.PNG",
+            "- C:\\tmp\\notes.txt",
+            "- /home/u/missing.png",
+        ].join("\n");
+        expect(bubble(user(text))).toEqual({
+            kind: "user",
+            text: "check these",
+            index: 0,
+            imagePaths: ["C:\\tmp\\shot.PNG", "/home/u/missing.png"],
+            filePaths: ["C:\\tmp\\notes.txt"],
+        });
+    });
+
+    it("an attachments header followed by prose is the user's own text", () => {
+        const text = "Attachments (read these files):\nplease list them";
+        expect(bubble(user(text))).toEqual({ kind: "user", text, index: 0 });
+    });
+});

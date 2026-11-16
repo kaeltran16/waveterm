@@ -4,7 +4,10 @@
 import { ContextMenuModel } from "@/app/store/contextmenu";
 import { modalsModel } from "@/app/store/modalmodel";
 import { MONO_FAINT } from "@/app/view/jarvis/briefstyle";
-import { cn } from "@/util/util";
+import { localFileUrl } from "@/app/view/jarvis/localimage";
+import { getWebServerEndpoint } from "@/util/endpoints";
+import { fetch } from "@/util/fetchutil";
+import { cn, fireAndForget } from "@/util/util";
 import {
     ArrowUpRight,
     Ban,
@@ -13,6 +16,7 @@ import {
     ChevronRight,
     Copy,
     Ellipsis,
+    File as FileIcon,
     GitBranch,
     Info,
     LoaderCircle,
@@ -45,6 +49,7 @@ import { ArcMessageRow } from "./arcmessagerow";
 import { MarkdownMessage } from "./markdownmessage";
 import { placeMarks, type TimelineMark } from "./permissionmodel";
 import { highlightLine } from "./highlight";
+import { ImageThumbs } from "./imagethumbs";
 import { toolRendererKey } from "./renderregistry";
 import { fmtDuration } from "./runcompletion";
 import { TIMELINE_RENDER_CAP } from "./sessionstranscript";
@@ -1090,6 +1095,96 @@ function UserBubbleText({ text, clamp, compact }: { text: string; clamp: boolean
     );
 }
 
+// path -> a blob url, or null once it failed; a path still loading is absent
+type LocalImages = Record<string, string | null>;
+
+// An <img src> cannot carry the auth header wavesrv needs under tauri (fetchutil.ts), so each attached image path is
+// fetched and drawn from a blob url. A failed fetch, or an image that fails to decode (fail), falls back to a file chip.
+function useLocalImages(paths: string[]): [LocalImages, (path: string) => void] {
+    const key = paths.join("\n");
+    const [loaded, setLoaded] = useState<LocalImages>({});
+    useEffect(() => {
+        setLoaded({});
+        if (key === "") {
+            return;
+        }
+        let cancelled = false;
+        const urls: string[] = [];
+        for (const path of key.split("\n")) {
+            fireAndForget(async () => {
+                let url: string | null = null;
+                try {
+                    const resp = await fetch(localFileUrl(getWebServerEndpoint(), path));
+                    if (resp.ok && !cancelled) {
+                        url = URL.createObjectURL(await resp.blob());
+                        urls.push(url);
+                    }
+                } catch (e) {
+                    console.warn("bubble attachment: cannot load", path, e);
+                }
+                if (!cancelled) {
+                    setLoaded((cur) => ({ ...cur, [path]: url }));
+                }
+            });
+        }
+        return () => {
+            cancelled = true;
+            urls.forEach((u) => URL.revokeObjectURL(u));
+        };
+    }, [key]);
+    const fail = (path: string) => setLoaded((cur) => ({ ...cur, [path]: null }));
+    return [loaded, fail];
+}
+
+function FileChip({ path }: { path: string }) {
+    return (
+        <span
+            data-file-chip
+            title={path}
+            className="flex h-[26px] min-w-0 items-center gap-1.5 rounded-[7px] border border-edge-mid bg-surface px-2 text-[12px] text-secondary"
+        >
+            <FileIcon size={13} className="shrink-0 text-muted" aria-hidden />
+            <span className="max-w-[200px] truncate font-mono">{path.split(/[\\/]/).pop() || path}</span>
+        </span>
+    );
+}
+
+// a bubble's pasted images and attached paths, under its text: thumbnails that open the zoom view, then file chips
+function BubbleAttachments({ item, compact }: { item: Extract<LayoutItem, { kind: "user" }>; compact: boolean }) {
+    const imagePaths = item.imagePaths ?? [];
+    const [loaded, fail] = useLocalImages(imagePaths);
+    const pasted = (item.images ?? []).map((img, i) => ({
+        src: `data:${img.mediaType};base64,${img.data}`,
+        alt: `Pasted image ${i + 1}`,
+    }));
+    const local = imagePaths.filter((p) => loaded[p] != null);
+    const thumbs = [...pasted, ...local.map((p) => ({ src: loaded[p], alt: p.split(/[\\/]/).pop() || p }))];
+    const chips = [...imagePaths.filter((p) => loaded[p] === null), ...(item.filePaths ?? [])];
+    if (thumbs.length === 0 && chips.length === 0) {
+        return null;
+    }
+    return (
+        <div data-bubble-attachments className="mt-2 flex flex-col gap-2 first:mt-0">
+            {thumbs.length > 0 ? (
+                <ImageThumbs
+                    images={thumbs}
+                    compact={compact}
+                    onError={(i) => {
+                        if (i >= pasted.length) fail(local[i - pasted.length]);
+                    }}
+                />
+            ) : null}
+            {chips.length > 0 ? (
+                <div className="flex min-w-0 flex-wrap gap-1.5">
+                    {chips.map((p, i) => (
+                        <FileChip key={i} path={p} />
+                    ))}
+                </div>
+            ) : null}
+        </div>
+    );
+}
+
 // A mark's text is "<choice>: <subject>" (permissionLogText). A yes reads "You allowed <subject>"; any other answer
 // reads "You answered <choice>", so a refusal never claims an allow. The whole text stays in the row.
 const MARK_SEP = ": ";
@@ -1254,7 +1349,10 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                             isCompact ? "rounded-[10px] px-[11px] py-2" : "rounded-[12px] px-[15px] py-[11px]"
                         )}
                     >
-                        <UserBubbleText text={item.text} clamp={!renderAll} compact={isCompact} />
+                        {item.text ? <UserBubbleText text={item.text} clamp={!renderAll} compact={isCompact} /> : null}
+                        {item.images || item.imagePaths || item.filePaths ? (
+                            <BubbleAttachments item={item} compact={isCompact} />
+                        ) : null}
                     </div>
                 </motion.div>
             );
