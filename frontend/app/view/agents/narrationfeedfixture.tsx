@@ -44,7 +44,16 @@ interface ModalProps {
     nowLine?: NowLine;
 }
 
-export function NarrationFeedFixtureModal({ entries, width, ctx, compact, active, renderers, marks, nowLine }: ModalProps) {
+export function NarrationFeedFixtureModal({
+    entries,
+    width,
+    ctx,
+    compact,
+    active,
+    renderers,
+    marks,
+    nowLine,
+}: ModalProps) {
     return (
         <ModalShell open onClose={() => modalsModel.popModal()}>
             <div data-narration-fixture style={{ width }} className="max-h-[80vh] overflow-y-auto bg-surface px-3 py-2">
