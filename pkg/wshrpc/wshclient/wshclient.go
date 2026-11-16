@@ -38,6 +38,12 @@ func AgentAskClearCommand(w *wshutil.WshRpc, data string, opts *wshrpc.RpcOpts) 
 	return err
 }
 
+// command "agentbash", wshserver.AgentBashCommand
+func AgentBashCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentBashData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "agentbash", data, opts)
+	return err
+}
+
 // command "agentcontrol", wshserver.AgentControlCommand
 func AgentControlCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentControlData, opts *wshrpc.RpcOpts) chan wshrpc.RespOrErrorUnion[wshrpc.AgentControlMsg] {
 	return sendRpcRequestResponseStreamHelper[wshrpc.AgentControlMsg](w, "agentcontrol", data, opts)
@@ -636,6 +642,12 @@ func GetChannelsCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.Comman
 	return resp, err
 }
 
+// command "getclaudelivecommands", wshserver.GetClaudeLiveCommandsCommand
+func GetClaudeLiveCommandsCommand(w *wshutil.WshRpc, data wshrpc.CommandGetClaudeLiveCommandsData, opts *wshrpc.RpcOpts) ([]wshrpc.ClaudeCommandInfo, error) {
+	resp, err := sendRpcRequestCallHelper[[]wshrpc.ClaudeCommandInfo](w, "getclaudelivecommands", data, opts)
+	return resp, err
+}
+
 // command "getdossier", wshserver.GetDossierCommand
 func GetDossierCommand(w *wshutil.WshRpc, data wshrpc.CommandGetDossierData, opts *wshrpc.RpcOpts) (*wshrpc.DossierDetail, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.DossierDetail](w, "getdossier", data, opts)
@@ -1214,6 +1226,12 @@ func SetChannelReadCommand(w *wshutil.WshRpc, data wshrpc.CommandSetChannelReadD
 // command "setchanneltier", wshserver.SetChannelTierCommand
 func SetChannelTierCommand(w *wshutil.WshRpc, data wshrpc.CommandSetChannelTierData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "setchanneltier", data, opts)
+	return err
+}
+
+// command "setclaudelivecommands", wshserver.SetClaudeLiveCommandsCommand
+func SetClaudeLiveCommandsCommand(w *wshutil.WshRpc, data wshrpc.CommandSetClaudeLiveCommandsData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "setclaudelivecommands", data, opts)
 	return err
 }
 

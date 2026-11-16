@@ -67,6 +67,9 @@ export type AgentEntry =
     | { kind: "notification"; summary: string; status?: string; result?: string; notice?: true }
     // the human interrupted the agent mid-turn ([Request interrupted by user])
     | { kind: "interrupted" }
+    // a `!` command the human ran in Claude Code's bash mode; streams undefined until its output record lands (running),
+    // empty strings when it ran with no output
+    | { kind: "shell"; command: string; stdout?: string; stderr?: string; ts?: number }
     | {
           kind: "action";
           verb: string;

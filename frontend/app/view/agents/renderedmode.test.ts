@@ -2,6 +2,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { describe, expect, it } from "vitest";
 import type { AgentVM } from "./agentsviewmodel";
 import {
+    BASH_PLACEHOLDER,
     boxButton,
     canRender,
     composerBox,
@@ -119,6 +120,31 @@ describe("composerBox", () => {
     });
     it("an asking state with no answerable question does not block Send", () => {
         expect(composerBox(agent({ state: "asking" }), true).askBlocks).toBe(false);
+    });
+    it("in bash mode shows the bash placeholder in every state and keeps the rest", () => {
+        const cases: [Partial<AgentVM>, boolean][] = [
+            [{}, true],
+            [{}, false],
+            [{ state: "working" }, true],
+            [{ state: "asking", ask: ASK }, true],
+        ];
+        for (const [over, hasTranscript] of cases) {
+            const prompt = composerBox(agent(over), hasTranscript);
+            const bash = composerBox(agent(over), hasTranscript, true);
+            expect(bash).toEqual({ ...prompt, placeholder: BASH_PLACEHOLDER, sendLabel: "Run" });
+        }
+    });
+    it("without bash mode, the placeholder is unchanged", () => {
+        expect(composerBox(agent(), true, false)).toEqual(composerBox(agent(), true));
+    });
+    it("labels Send Run in bash mode, idle or working", () => {
+        expect(composerBox(agent(), true, true).sendLabel).toBe("Run");
+        expect(composerBox(agent({ state: "working" }), true, true).sendLabel).toBe("Run");
+    });
+    it("labels Send Steer while working and Send otherwise outside bash mode", () => {
+        expect(composerBox(agent({ state: "working" }), true).sendLabel).toBe("Steer");
+        expect(composerBox(agent(), true).sendLabel).toBe("Send");
+        expect(composerBox(agent(), false).sendLabel).toBe("Send");
     });
 });
 

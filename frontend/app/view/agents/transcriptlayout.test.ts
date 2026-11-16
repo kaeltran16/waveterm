@@ -355,6 +355,21 @@ describe("layoutTranscript statuses and Arc messages", () => {
         expect(items[5]).toEqual({ kind: "interrupted", index: 5 });
     });
 
+    it("keeps a ! shell run between two steps of a turn as its own item, never folded into the Worked line", () => {
+        const entries: AgentEntry[] = [
+            user("go", T0),
+            read("a", T0 + S),
+            read("b", T0 + 2 * S),
+            { kind: "shell", command: "git status", stdout: "clean", stderr: "", ts: T0 + 3 * S },
+            read("c", T0 + 4 * S),
+            read("d", T0 + 5 * S),
+            prose("done", T0 + 6 * S),
+        ];
+        const items = layoutTranscript(entries, { active: false });
+        expect(kinds(items)).toEqual(["user", "turn", "shell", "turn", "message"]);
+        expect(items[2]).toEqual({ kind: "shell", command: "git status", stdout: "clean", stderr: "", ts: T0 + 3 * S, index: 3 });
+    });
+
     it("flags only the last wake as latest", () => {
         const entries = [
             user("wake: task t-1 landed", T0),

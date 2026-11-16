@@ -20,6 +20,20 @@ export async function sendAgentText(blockId: string, text: string): Promise<void
     }
 }
 
+// a ! bash-mode command goes through AgentBashCommand, which types it into the pty: the prompt path would hand it to
+// the model
+export async function sendAgentBash(blockId: string, command: string): Promise<void> {
+    const trimmed = command.trim();
+    if (trimmed === "") {
+        throw new Error(`run in block ${blockId}: empty command`);
+    }
+    try {
+        await RpcApi.AgentBashCommand(TabRpcClient, { blockid: blockId, command: trimmed });
+    } catch (e) {
+        throw new Error(`run in block ${blockId}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+}
+
 // a send whose caller has no error line of its own reports through the cockpit toast, in the refusal's own words:
 // a refused prompt reached no terminal, so the user must not read it as sent
 export function toastSendFailure(title: string, e: unknown): void {

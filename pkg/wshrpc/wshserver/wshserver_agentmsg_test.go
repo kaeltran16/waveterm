@@ -5,8 +5,10 @@ package wshserver
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -633,5 +635,69 @@ func TestPublishEventDropsAToolReportAfterItsTurnEnded(t *testing.T) {
 	publish(baseds.AgentState_Idle, "", now+8000)
 	if got := publish(baseds.AgentState_Working, baseds.AgentHook_PreToolUse, now+9000); got != baseds.AgentState_Idle {
 		t.Fatalf("a tool report after an unnamed idle: state = %q, want idle", got)
+	}
+}
+
+// captureBashInput scripts the pty write seam and returns what was typed, in order.
+func captureBashInput(t *testing.T) *[]string {
+	t.Helper()
+	typed := &[]string{}
+	old := typeIntoBlock
+	typeIntoBlock = func(_ string, s string) error {
+		*typed = append(*typed, s)
+		return nil
+	}
+	t.Cleanup(func() { typeIntoBlock = old })
+	return typed
+}
+
+func TestAgentBashTypesBangPasteAndEnterInOrder(t *testing.T) {
+	scriptAgents(t, threeAgents())
+	typed := captureBashInput(t)
+	err := (&WshServer{}).AgentBashCommand(context.Background(), wshrpc.CommandAgentBashData{BlockId: agentsBlockB, Command: "echo hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"!", "\x1b[200~echo hi\x1b[201~", "\r"}
+	if !slices.Equal(*typed, want) {
+		t.Fatalf("typed %q, want %q", *typed, want)
+	}
+}
+
+func TestAgentBashRefusesWhatCannotRunAShell(t *testing.T) {
+	const missing = "d0000000-0000-4000-8000-000000000004"
+	facts := threeAgents()
+	facts.Tabs[1].ShellRunning = false // design: stored, no controller
+	facts.Tabs[2].ShellRunning, facts.Tabs[2].HasStream = false, true
+	scriptAgents(t, facts)
+	typed := captureBashInput(t)
+	ws := &WshServer{}
+	for _, tc := range []struct {
+		name string
+		data wshrpc.CommandAgentBashData
+	}{
+		{"blank command", wshrpc.CommandAgentBashData{BlockId: agentsBlockA, Command: " \r\n"}},
+		{"no block id", wshrpc.CommandAgentBashData{Command: "ls"}},
+		{"block gone", wshrpc.CommandAgentBashData{BlockId: missing, Command: "ls"}},
+		{"no running shell", wshrpc.CommandAgentBashData{BlockId: agentsBlockB, Command: "ls"}},
+		{"a mod stream alone", wshrpc.CommandAgentBashData{BlockId: agentsBlockC, Command: "ls"}},
+	} {
+		if err := ws.AgentBashCommand(context.Background(), tc.data); err == nil {
+			t.Errorf("%s: want a refusal", tc.name)
+		}
+	}
+	if len(*typed) != 0 {
+		t.Fatalf("a refused command typed %q", *typed)
+	}
+}
+
+func TestAgentBashReturnsTheWriteFailure(t *testing.T) {
+	scriptAgents(t, threeAgents())
+	old := typeIntoBlock
+	t.Cleanup(func() { typeIntoBlock = old })
+	typeIntoBlock = func(string, string) error { return errors.New("pty closed") }
+	err := (&WshServer{}).AgentBashCommand(context.Background(), wshrpc.CommandAgentBashData{BlockId: agentsBlockB, Command: "ls"})
+	if err == nil || !strings.Contains(err.Error(), "pty closed") || !strings.Contains(err.Error(), agentsBlockB) {
+		t.Fatalf("err = %v, want one naming the block and the cause", err)
 	}
 }

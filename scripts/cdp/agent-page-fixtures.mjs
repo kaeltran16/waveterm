@@ -183,6 +183,11 @@ const record = (type, message, opts = {}, extra = {}) =>
 
 export const userText = (text, opts) => record("user", { role: "user", content: text }, opts);
 
+// a `!` command in Claude Code's bash mode: its input record, then its output record
+export const bashInput = (command, opts) => userText(`<bash-input>${command}</bash-input>`, opts);
+export const bashOutput = (stdout, stderr, opts) =>
+    userText(`<bash-stdout>${stdout}</bash-stdout><bash-stderr>${stderr}</bash-stderr>`, opts);
+
 export const assistantText = (text, opts) =>
     record("assistant", { role: "assistant", content: [{ type: "text", text }] }, opts);
 

@@ -42,6 +42,12 @@ export class RpcApiType {
         return client.wshRpcCall("agentaskclear", data, opts);
     }
 
+    // command "agentbash" [call]
+    AgentBashCommand(client: WshClient, data: CommandAgentBashData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "agentbash", data, opts);
+        return client.wshRpcCall("agentbash", data, opts);
+    }
+
     // command "agentcontrol" [responsestream]
 	AgentControlCommand(client: WshClient, data: CommandAgentControlData, opts?: RpcOpts): AsyncGenerator<AgentControlMsg, void, boolean> {
         if (this.mockClient) return this.mockClient.mockWshRpcStream(client, "agentcontrol", data, opts);
@@ -642,6 +648,12 @@ export class RpcApiType {
         return client.wshRpcCall("getchannels", null, opts);
     }
 
+    // command "getclaudelivecommands" [call]
+    GetClaudeLiveCommandsCommand(client: WshClient, data: CommandGetClaudeLiveCommandsData, opts?: RpcOpts): Promise<ClaudeCommandInfo[]> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getclaudelivecommands", data, opts);
+        return client.wshRpcCall("getclaudelivecommands", data, opts);
+    }
+
     // command "getdossier" [call]
     GetDossierCommand(client: WshClient, data: CommandGetDossierData, opts?: RpcOpts): Promise<DossierDetail> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "getdossier", data, opts);
@@ -1222,6 +1234,12 @@ export class RpcApiType {
     SetChannelTierCommand(client: WshClient, data: CommandSetChannelTierData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "setchanneltier", data, opts);
         return client.wshRpcCall("setchanneltier", data, opts);
+    }
+
+    // command "setclaudelivecommands" [call]
+    SetClaudeLiveCommandsCommand(client: WshClient, data: CommandSetClaudeLiveCommandsData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "setclaudelivecommands", data, opts);
+        return client.wshRpcCall("setclaudelivecommands", data, opts);
     }
 
     // command "setconfig" [call]

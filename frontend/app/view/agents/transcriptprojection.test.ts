@@ -377,6 +377,62 @@ describe("projectTranscript task-notification, stdout, and interrupts", () => {
     });
 });
 
+describe("projectTranscript ! bash records", () => {
+    const L = (o: unknown) => JSON.stringify(o);
+    const userStr = (content: string, timestamp?: string) =>
+        L({ type: "user", message: { content }, ...(timestamp ? { timestamp } : {}) });
+    const input = (cmd: string, timestamp?: string) => userStr(`<bash-input>${cmd}</bash-input>`, timestamp);
+    const output = (stdout: string, stderr: string) =>
+        userStr(`<bash-stdout>${stdout}</bash-stdout><bash-stderr>${stderr}</bash-stderr>`);
+
+    it("joins an input and its output into one shell entry with the trimmed command and both streams", () => {
+        expect(
+            projectTranscript([input("echo hi", "2026-11-16T10:00:00.000Z"), output("hi", "warn: x")])
+        ).toEqual([
+            { kind: "shell", command: "echo hi", stdout: "hi", stderr: "warn: x", ts: Date.UTC(2026, 10, 16, 10) },
+        ]);
+    });
+
+    it("leaves both streams off an input with no output yet", () => {
+        expect(projectTranscript([input("sleep 9")])).toEqual([{ kind: "shell", command: "sleep 9" }]);
+    });
+
+    it("gives each of two runs in a row its own output", () => {
+        expect(projectTranscript([input("a"), output("A", ""), input("b"), output("", "B")])).toEqual([
+            { kind: "shell", command: "a", stdout: "A", stderr: "" },
+            { kind: "shell", command: "b", stdout: "", stderr: "B" },
+        ]);
+    });
+
+    it("adds nothing for an output with no pending input", () => {
+        expect(projectTranscript([output("orphan", "")])).toEqual([]);
+        expect(projectTranscript([input("a"), output("A", ""), output("again", "")])).toEqual([
+            { kind: "shell", command: "a", stdout: "A", stderr: "" },
+        ]);
+    });
+
+    it("never draws either record as a user bubble", () => {
+        const entries = projectTranscript([input("ls"), output("x", "")]);
+        expect(entries.some((e) => e.kind === "user")).toBe(false);
+    });
+
+    it("trims a leading space in the input", () => {
+        expect(projectTranscript([input(" gh auth switch")])).toEqual([{ kind: "shell", command: "gh auth switch" }]);
+    });
+
+    it("strips ANSI escapes from both streams", () => {
+        expect(projectTranscript([input("ls"), output("\x1b[32mok\x1b[0m", "\x1b[31mbad\x1b[0m")])).toEqual([
+            { kind: "shell", command: "ls", stdout: "ok", stderr: "bad" },
+        ]);
+    });
+
+    it("keeps multi-line output whole", () => {
+        expect(projectTranscript([input("ls"), output("a\nb\n", "")])).toEqual([
+            { kind: "shell", command: "ls", stdout: "a\nb\n", stderr: "" },
+        ]);
+    });
+});
+
 describe("extractAiTitle", () => {
     it("returns the LAST ai-title's aiTitle", () => {
         const lines = [

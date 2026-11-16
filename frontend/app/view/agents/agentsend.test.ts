@@ -5,22 +5,26 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const agentPrompt = vi.fn();
 const controllerInput = vi.fn();
+const agentBash = vi.fn();
 vi.mock("@/app/store/wshclientapi", () => ({
     RpcApi: {
         AgentPromptCommand: (...a: any[]) => agentPrompt(...a),
         ControllerInputCommand: (...a: any[]) => controllerInput(...a),
+        AgentBashCommand: (...a: any[]) => agentBash(...a),
     },
 }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 
 import { toastsAtom } from "@/app/cockpit/notificationstore";
 import { globalStore } from "@/app/store/jotaiStore";
-import { sendAgentText, toastSendFailure } from "./agentsend";
+import { sendAgentBash, sendAgentText, toastSendFailure } from "./agentsend";
 
 beforeEach(() => {
     agentPrompt.mockReset();
     agentPrompt.mockResolvedValue(undefined);
     controllerInput.mockReset();
+    agentBash.mockReset();
+    agentBash.mockResolvedValue(undefined);
 });
 
 describe("sendAgentText", () => {
@@ -49,6 +53,26 @@ describe("sendAgentText", () => {
     it("rejects with the block id when the RPC fails", async () => {
         agentPrompt.mockRejectedValue(new Error("no route"));
         await expect(sendAgentText("blk-9", "hello")).rejects.toThrow(/blk-9.*no route/);
+    });
+});
+
+describe("sendAgentBash", () => {
+    it("sends the trimmed command as one AgentBashCommand, never as a prompt", async () => {
+        await sendAgentBash("blk-1", "  echo hi \n");
+        expect(agentBash).toHaveBeenCalledTimes(1);
+        expect(agentBash.mock.calls[0][1]).toEqual({ blockid: "blk-1", command: "echo hi" });
+        expect(agentPrompt).not.toHaveBeenCalled();
+        expect(controllerInput).not.toHaveBeenCalled();
+    });
+
+    it("rejects on a blank command", async () => {
+        await expect(sendAgentBash("blk-1", "  ")).rejects.toThrow(/blk-1/);
+        expect(agentBash).not.toHaveBeenCalled();
+    });
+
+    it("rejects with the block id and the refusal when the RPC fails", async () => {
+        agentBash.mockRejectedValue(new Error("block blk-9 has no running shell: nothing was run"));
+        await expect(sendAgentBash("blk-9", "ls")).rejects.toThrow(/blk-9.*nothing was run/);
     });
 });
 

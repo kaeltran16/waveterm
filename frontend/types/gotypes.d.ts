@@ -508,6 +508,14 @@ declare global {
         settingspath: string;
     };
 
+    // wshrpc.ClaudeCommandInfo
+    type ClaudeCommandInfo = {
+        name: string;
+        description?: string;
+        source: string;
+        plugin?: string;
+    };
+
     // waveobj.Client
     type Client = WaveObj & {
         windowids: string[];
@@ -542,6 +550,12 @@ declare global {
         report?: string;
         holdland?: boolean;
         forceland?: boolean;
+    };
+
+    // wshrpc.CommandAgentBashData
+    type CommandAgentBashData = {
+        blockid: string;
+        command: string;
     };
 
     // wshrpc.CommandAgentControlData
@@ -1226,6 +1240,11 @@ declare global {
     // wshrpc.CommandGetChannelsRtnData
     type CommandGetChannelsRtnData = {
         channels: Channel[];
+    };
+
+    // wshrpc.CommandGetClaudeLiveCommandsData
+    type CommandGetClaudeLiveCommandsData = {
+        blockid: string;
     };
 
     // wshrpc.CommandGetDossierData
@@ -1992,6 +2011,12 @@ declare global {
     type CommandSetChannelTierData = {
         channelid: string;
         tier: string;
+    };
+
+    // wshrpc.CommandSetClaudeLiveCommandsData
+    type CommandSetClaudeLiveCommandsData = {
+        blockid: string;
+        commands: ClaudeCommandInfo[];
     };
 
     // wshrpc.CommandSetDossierStatusData

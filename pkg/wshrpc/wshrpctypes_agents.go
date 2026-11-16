@@ -30,6 +30,9 @@ type AgentCommands interface {
 	AgentsReadCommand(ctx context.Context, data CommandAgentsReadData) (*CommandAgentsReadRtnData, error)                                 // a live agent's state and last answer
 	AgentsExplainCommand(ctx context.Context, data CommandAgentsExplainData) (*CommandAgentsExplainRtnData, error)                        // what the roster reads about a tab and why it does or does not list it as live
 	AgentPromptCommand(ctx context.Context, data CommandAgentPromptData) error                                                            // the cockpit's own prompt to a block's agent session: its mod runs it, or it is typed
+	AgentBashCommand(ctx context.Context, data CommandAgentBashData) error                                                                // type a `!` shell command into a block's Claude session, as a person would
+	SetClaudeLiveCommandsCommand(ctx context.Context, data CommandSetClaudeLiveCommandsData) error                                        // keep the slash command list a block's Claude session offers (the arc mod publishes it)
+	GetClaudeLiveCommandsCommand(ctx context.Context, data CommandGetClaudeLiveCommandsData) ([]ClaudeCommandInfo, error)                 // a block's newest published list, empty when it has none
 	BrainstormCheckCommand(ctx context.Context, data CommandBrainstormCheckData) error                                                    // run the builder check on a brainstorm.json as a one-shot judging session
 	BrainstormJudgeCommand(ctx context.Context, data CommandBrainstormJudgeData) error                                                    // weigh a brainstorm.json's approach question with a one-shot blind judge
 	BrainstormJudgeStopCommand(ctx context.Context, data CommandBrainstormJudgeStopData) error                                            // stop a reading judge: its run, and its record turns stopped
@@ -96,6 +99,29 @@ type BrainstormCheckTimes struct {
 type CommandAgentPromptData struct {
 	BlockId string `json:"blockid"`
 	Text    string `json:"text"`
+}
+
+type CommandAgentBashData struct {
+	BlockId string `json:"blockid"`
+	Command string `json:"command"`
+}
+
+// ClaudeCommandInfo is one entry of a session's slash command list. Name has no leading slash. Source is Claude
+// Code's own: "builtin", "user", "plugin" or "mcp"; Plugin names the plugin of a "plugin" entry.
+type ClaudeCommandInfo struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Source      string `json:"source"`
+	Plugin      string `json:"plugin,omitempty"`
+}
+
+type CommandSetClaudeLiveCommandsData struct {
+	BlockId  string              `json:"blockid"`
+	Commands []ClaudeCommandInfo `json:"commands"`
+}
+
+type CommandGetClaudeLiveCommandsData struct {
+	BlockId string `json:"blockid"`
 }
 
 type CommandAgentsSendRtnData struct {

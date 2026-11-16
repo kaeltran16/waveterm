@@ -1,10 +1,37 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const agentPrompt = vi.fn();
+vi.mock("@/app/store/wshclientapi", () => ({
+    RpcApi: { AgentPromptCommand: (...a: any[]) => agentPrompt(...a) },
+}));
+vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
+
 import { toastsAtom } from "@/app/cockpit/notificationstore";
 import { globalStore } from "@/app/store/jotaiStore";
-import { describe, expect, it, vi } from "vitest";
 import { canSendComposer, submitComposer } from "./agentcomposer";
 import type { Attachment } from "./composerattachments";
 
+beforeEach(() => {
+    agentPrompt.mockReset();
+    agentPrompt.mockResolvedValue(undefined);
+});
+
 describe("submitComposer", () => {
+    it("sends through the given send only", async () => {
+        const send = vi.fn(async () => {});
+        const clear = vi.fn();
+        await submitComposer("ls", "block:1", clear, send);
+        expect(send).toHaveBeenCalledWith("block:1", "ls");
+        expect(agentPrompt).not.toHaveBeenCalled();
+        expect(clear).toHaveBeenCalledWith("ls");
+    });
+    it("with no send given, sends the text as a prompt", async () => {
+        const clear = vi.fn();
+        await submitComposer("hello", "block:1", clear);
+        expect(agentPrompt).toHaveBeenCalledTimes(1);
+        expect(agentPrompt.mock.calls[0][1]).toEqual({ blockid: "block:1", text: "hello" });
+        expect(clear).toHaveBeenCalledWith("hello");
+    });
     it("clears with the sent text only after the send resolves", async () => {
         let resolve: () => void;
         const send = vi.fn(() => new Promise<void>((r) => (resolve = r)));

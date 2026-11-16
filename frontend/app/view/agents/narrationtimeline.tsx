@@ -53,6 +53,7 @@ import { ImageThumbs } from "./imagethumbs";
 import { toolRendererKey } from "./renderregistry";
 import { fmtDuration } from "./runcompletion";
 import { TIMELINE_RENDER_CAP } from "./sessionstranscript";
+import { ShellRunRow } from "./shellrunrow";
 import { formatDuration } from "./tooldetail";
 import type { TranscriptContext } from "./transcriptcontext";
 import {
@@ -1440,6 +1441,13 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                     animate="animate"
                 >
                     <WshCardItem step={item.step} ctx={cardCtx} compact={isCompact} />
+                </motion.div>
+            );
+        }
+        if (item.kind === "shell") {
+            return (
+                <motion.div key={"sh" + item.index} variants={cardVariants} initial="initial" animate="animate">
+                    <ShellRunRow command={item.command} stdout={item.stdout} stderr={item.stderr} compact={isCompact} />
                 </motion.div>
             );
         }

@@ -14,6 +14,8 @@ import { fileURLToPath } from "node:url";
 import {
     agentPage,
     assistantBlock,
+    bashInput,
+    bashOutput,
     assistantText,
     closeTabs,
     focusAgent,
@@ -89,6 +91,32 @@ const THINK_STEP = "list the package";
 const PEEK_DIRS = ["a-rather-long-folder-name-so-the-path-overflows-the-column", "and-one-more-nested-segment-for-good-measure"];
 const PEEK_FILE = "peek-target.go";
 const PEEK_LINE = 2;
+// two `!` runs appended to A: one finished with both streams, one still running
+const SHELL_DONE = "git status --short";
+const SHELL_STDOUT = "M pkg/a.go";
+const SHELL_STDERR = "warning: CRLF will be replaced";
+const SHELL_RUNNING = "sleep 30";
+// a third run, appended after those, whose output passes the card's 8-line clamp
+const SHELL_LONG = "seq 12";
+const SHELL_LONG_OUT = Array.from({ length: 12 }, (_, i) => String(i + 1));
+const SHELL_CLAMP = 8;
+// the folder the @ mention step points P's cwd at, under the temp dir, and the files in it
+const MENTION_DIR = "mention";
+const MENTION_FILES = ["src/widget-alpha.ts", "README.md", "notes.txt"];
+const MENTION_PICK = "src/widget-alpha.ts";
+// the live command list the slash step publishes for P's block, as the arc mod would: one per group, and the names
+// `/co` matches (prefix: compact, config, context; inside: recompile, superpowers:code-review)
+const SLASH_LIVE = [
+    { name: "clear", description: "Start a new session", source: "builtin" },
+    { name: "compact", description: "Free up context by summarizing the conversation so far", source: "builtin" },
+    { name: "config", description: "Open settings", source: "builtin" },
+    { name: "context", description: "Show current context usage", source: "builtin" },
+    { name: "recompile", description: "Rebuild the generated bindings", source: "user" },
+    { name: "superpowers:code-review", description: "Review the branch", source: "plugin", plugin: "superpowers" },
+    { name: "mcp__docs__search", description: "Search the docs", source: "mcp" },
+];
+const SLASH_GROUPS = ["Built-in", "Skills", "Plugins", "MCP"];
+const SLASH_CO = ["compact", "config", "context", "recompile", "superpowers:code-review"];
 
 // L's transcript: prose-only turns, two lines and two feed items each, so the 300-line tail leaves its first turns out
 // and the whole file holds more items than the feed's cap (TIMELINE_RENDER_CAP)
@@ -1347,8 +1375,8 @@ export default function (_kit) {
                 });
                 await setRoster(h, ctx.roster);
 
-                await step("rendered: @ tag — @ in P's box lists the other fixture agents, Esc closes the list without interrupting, Tab tags A, and the send carries A's tab id", async () => {
-                    const PICKER = `${RV}?.querySelector("[data-mention-picker]")`;
+                await step("rendered: @ tag — @ in P's box lists the other fixture agents in the @ panel's Agents group, Esc closes the panel without interrupting, Tab tags A, and the send carries A's tab id", async () => {
+                    const PICKER = `${RV}?.querySelector("[data-rendered-composer] [data-mention-panel]")`;
                     const rowTags = `[...(${PICKER}?.querySelectorAll("[data-mention-row]") ?? [])].map((r) => r.getAttribute("data-mention-row"))`;
                     const key = (k) =>
                         h.ev(`(() => {
@@ -1668,6 +1696,342 @@ export default function (_kit) {
                     return [ok, { clicked, opened, drawn, lines, card, again, closed }];
                 });
 
+                await step("rendered: bash card — A's two ! runs draw as cards: the finished one shows its command, stdout, and stderr in the error colour; the unfinished one reads running; no user bubble holds <bash-; a third run of 12 lines shows 8 and Show all, whose click shows every line", async () => {
+                    // the input keeps a leading space, as real transcripts can
+                    appendA([bashInput(` ${SHELL_DONE}`), bashOutput(SHELL_STDOUT, SHELL_STDERR), bashInput(SHELL_RUNNING)]);
+                    const landed = await wait(`(${RV}?.querySelectorAll("[data-shell-run]").length ?? 0) >= 2`);
+                    const seen = await h.ev(`(() => {
+                        ${flatJs}
+                        const rv = ${RV};
+                        const cards = [...(rv?.querySelectorAll("[data-shell-run]") ?? [])];
+                        const card = (cmd) => cards.find((c) => flat(c.querySelector("[data-shell-command]")) === cmd);
+                        const done = card(${JSON.stringify(SHELL_DONE)});
+                        const running = card(${JSON.stringify(SHELL_RUNNING)});
+                        const out = done?.querySelector("[data-shell-stdout]");
+                        const err = done?.querySelector("[data-shell-stderr]");
+                        const probe = document.createElement("span");
+                        probe.className = "text-error";
+                        rv?.appendChild(probe);
+                        const errorColour = getComputedStyle(probe).color;
+                        probe.remove();
+                        return {
+                            cards: cards.length,
+                            done: done != null,
+                            stdout: flat(out),
+                            stderr: flat(err),
+                            stderrColour: err ? getComputedStyle(err).color : null,
+                            stdoutColour: out ? getComputedStyle(out).color : null,
+                            errorColour,
+                            doneRunning: done?.querySelector('[data-shell-status="running"]') != null,
+                            running: running != null && flat(running.querySelector('[data-shell-status="running"]')) === "running",
+                            runningOutput: running?.querySelector("[data-shell-stdout], [data-shell-stderr]") != null,
+                            rawBubble: [...(rv?.querySelectorAll("[data-user-bubble]") ?? [])].some((b) => (b.textContent ?? "").includes("<bash-")),
+                        };
+                    })()`);
+                    await agentPage(h, `[...(${RV}?.querySelectorAll("[data-shell-run]") ?? [])].pop()?.scrollIntoView({ block: "center" }); await nap(200); return true;`);
+                    await h.shot(SHOT(28, "bash-card"));
+
+                    appendA([bashInput(SHELL_LONG), bashOutput(SHELL_LONG_OUT.join("\n") + "\n", "")]);
+                    const LONG = `[...(${RV}?.querySelectorAll("[data-shell-run]") ?? [])].find((c) => (c.querySelector("[data-shell-command]")?.textContent ?? "").trim() === ${JSON.stringify(SHELL_LONG)})`;
+                    const readLong = `(() => {
+                        ${flatJs}
+                        const c = ${LONG};
+                        if (!c) return null;
+                        const out = c.querySelector("[data-shell-stdout]")?.textContent ?? "";
+                        return { lines: out === "" ? 0 : out.split("\\n").length, more: flat(c.querySelector("[data-shell-more]")) };
+                    })()`;
+                    const longLanded = await wait(`(${LONG})?.querySelector("[data-shell-stdout]") != null`);
+                    await agentPage(h, `(${LONG})?.scrollIntoView({ block: "center" }); await nap(200); return true;`);
+                    const clamped = await h.ev(readLong);
+                    await h.shot(SHOT(28, "bash-card-clamped"));
+                    const clicked = await h.ev(`(() => { const b = (${LONG})?.querySelector("[data-shell-more]"); b?.click(); return b != null; })()`);
+                    const opened = await wait(`(${LONG})?.querySelector("[data-shell-stdout]")?.textContent?.split("\\n").length === ${SHELL_LONG_OUT.length}`);
+                    const all = await h.ev(readLong);
+                    await agentPage(h, `(${LONG})?.scrollIntoView({ block: "center" }); await nap(200); return true;`);
+                    await h.shot(SHOT(28, "bash-card-opened"));
+                    const longOk =
+                        longLanded &&
+                        clamped?.lines === SHELL_CLAMP &&
+                        clamped.more === `Show all ${SHELL_LONG_OUT.length} lines` &&
+                        clicked &&
+                        opened &&
+                        all?.lines === SHELL_LONG_OUT.length;
+                    const ok =
+                        longOk &&
+                        landed &&
+                        seen.done &&
+                        seen.stdout === SHELL_STDOUT &&
+                        seen.stderr === SHELL_STDERR &&
+                        seen.stderrColour === seen.errorColour &&
+                        seen.stderrColour !== seen.stdoutColour &&
+                        !seen.doneRunning &&
+                        seen.running &&
+                        !seen.runningOutput &&
+                        !seen.rawBubble;
+                    return [ok, { landed, ...seen, longLanded, clamped, clicked, opened, all }];
+                });
+
+                await step("rendered: @ mention — in P's box @ and part of a name lists the file, Enter writes @<path> and a pill draws over it, Backspace removes it whole; Esc closes the panel without typing ESC, it stays closed in that word, and a new @ opens it again", async () => {
+                    const PANEL = `${RV}?.querySelector("[data-rendered-composer] [data-mention-panel]")`;
+                    const TA = `${RV}?.querySelector("[data-rendered-composer] textarea")`;
+                    const press = (key) =>
+                        h.ev(`(() => {
+                            const ta = ${TA};
+                            if (!ta) return false;
+                            ta.focus();
+                            ta.dispatchEvent(new KeyboardEvent("keydown", { key: ${JSON.stringify(key)}, code: ${JSON.stringify(key)}, bubbles: true, cancelable: true }));
+                            return true;
+                        })()`);
+                    const value = () => h.ev(`${TA}?.value ?? null`);
+                    const dir = join(ctx.dir, MENTION_DIR);
+                    for (const f of MENTION_FILES) {
+                        mkdirSync(dirname(join(dir, f)), { recursive: true });
+                        writeFileSync(join(dir, f), "fixture\n");
+                    }
+                    // P's process keeps its own cwd: a meta change restarts nothing, and the picker reads the meta
+                    await h.rpc("setmeta", { oref: `block:${ctx.pBlock}`, meta: { "cmd:cwd": dir } });
+                    try {
+                        await agentPage(h, `await WOS.reloadWaveObject(WOS.makeORef("block", ${JSON.stringify(ctx.pBlock)})); return true;`);
+                        await focus(ctx.pId);
+                        const ready = await ensureRendered();
+
+                        await typeComposer(h, "@widg");
+                        const listed = await wait(`[...(${PANEL}?.querySelectorAll("[data-suggest-item]") ?? [])].some((r) => (r.textContent ?? "").includes("widget-alpha.ts"))`);
+                        await h.shot(SHOT(29, "mention-panel"));
+                        await press("Enter");
+                        const picked = await wait(`${TA}?.value === ${JSON.stringify(`@${MENTION_PICK} `)} && ${RV}?.querySelector("[data-rendered-composer] [data-mention-pill]") != null`);
+                        const pill = await h.ev(`(() => {
+                            const ta = ${TA};
+                            const p = ${RV}?.querySelector("[data-rendered-composer] [data-mention-pill]");
+                            if (!ta || !p) return null;
+                            const a = p.getBoundingClientRect();
+                            const b = ta.getBoundingClientRect();
+                            return {
+                                text: p.textContent,
+                                over: a.left >= b.left - 1 && a.top >= b.top - 1 && a.bottom <= b.bottom + 1,
+                                textHidden: getComputedStyle(ta).color === "rgba(0, 0, 0, 0)",
+                            };
+                        })()`);
+                        await h.shot(SHOT(29, "mention-pill"));
+                        await press("Backspace");
+                        const removed = await wait(`${TA}?.value === "" && ${RV}?.querySelector("[data-rendered-composer] [data-mention-pill]") == null`);
+                        const afterBackspace = await value();
+
+                        await typeComposer(h, "@w");
+                        const reopened = await wait(`${PANEL} != null`);
+                        const from = probeLines(ctx).length;
+                        await press("Escape");
+                        const closed = await wait(`${PANEL} == null`);
+                        await sleep(HOLD_MS);
+                        const escTyped = probeLines(ctx).slice(from).includes(ESC);
+                        await typeComposer(h, "@wi");
+                        await sleep(HOLD_MS);
+                        const stayedClosed = await h.ev(`${PANEL} == null`);
+                        await typeComposer(h, "@wi @");
+                        const openedAgain = await wait(`${PANEL} != null`);
+                        await h.shot(SHOT(29, "mention-reopen"));
+                        await typeComposer(h, "");
+                        const ok =
+                            ready &&
+                            listed &&
+                            picked &&
+                            pill?.text === `@${MENTION_PICK}` &&
+                            pill.over &&
+                            pill.textHidden &&
+                            removed &&
+                            reopened &&
+                            closed &&
+                            !escTyped &&
+                            stayedClosed &&
+                            openedAgain;
+                        return [ok, { ready, listed, picked, pill, removed, afterBackspace, reopened, closed, escTyped, stayedClosed, openedAgain }];
+                    } finally {
+                        await h.rpc("setmeta", { oref: `block:${ctx.pBlock}`, meta: { "cmd:cwd": "~" } });
+                    }
+                });
+
+                await step("rendered: slash panel — with a live list published for P's block, / lists it in its groups with the key line; /co filters to /compact and /config first, /config alone opens in Terminal; ArrowDown moves, Tab writes /config; Esc closes without typing ESC, it stays closed in that word, and a fresh / opens it again", async () => {
+                    const PANEL = `${RV}?.querySelector("[data-rendered-composer] [data-slash-panel]")`;
+                    const TA = `${RV}?.querySelector("[data-rendered-composer] textarea")`;
+                    const press = (key) =>
+                        h.ev(`(() => {
+                            const ta = ${TA};
+                            if (!ta) return false;
+                            ta.focus();
+                            ta.dispatchEvent(new KeyboardEvent("keydown", { key: ${JSON.stringify(key)}, code: ${JSON.stringify(key)}, bubbles: true, cancelable: true }));
+                            return true;
+                        })()`);
+                    const rows = () =>
+                        h.ev(`[...(${PANEL}?.querySelectorAll("[data-suggest-item]") ?? [])].map((r) => ({
+                            name: r.querySelector("[data-slash-name]")?.textContent ?? "",
+                            active: r.hasAttribute("data-active"),
+                            terminal: r.querySelector("[data-opens-terminal]") != null,
+                        }))`);
+                    const panelText = () => h.ev(`${PANEL}?.textContent ?? ""`);
+                    await h.rpc("setclaudelivecommands", { blockid: ctx.pBlock, commands: SLASH_LIVE });
+                    try {
+                        await focus(ctx.pId);
+                        const ready = await ensureRendered();
+
+                        await typeComposer(h, "/");
+                        const live = `${SLASH_LIVE.length} commands in this session`;
+                        const grouped = await wait(
+                            `(() => { const t = ${PANEL}?.textContent ?? ""; return ${JSON.stringify([...SLASH_GROUPS, live, "Esc close"])}.every((w) => t.includes(w)); })()`
+                        );
+                        const opened = await panelText();
+                        await h.shot(SHOT(30, "slash-panel"));
+
+                        await typeComposer(h, "/co");
+                        const filtered = await wait(
+                            `[...(${PANEL}?.querySelectorAll("[data-slash-name]") ?? [])].map((n) => n.textContent).join(" ") === ${JSON.stringify(SLASH_CO.map((n) => `/${n}`).join(" "))}`
+                        );
+                        const co = await rows();
+                        const config = co.find((r) => r.name === "/config");
+                        const compact = co.find((r) => r.name === "/compact");
+                        await h.shot(SHOT(30, "slash-filtered"));
+                        await press("ArrowDown");
+                        const moved = await wait(`${PANEL}?.querySelector("[data-active] [data-slash-name]")?.textContent === "/config"`);
+                        await press("Tab");
+                        const completed = await wait(`${TA}?.value === "/config " && ${PANEL} == null`);
+
+                        await typeComposer(h, "/co");
+                        const reopened = await wait(`${PANEL} != null`);
+                        const from = probeLines(ctx).length;
+                        await press("Escape");
+                        const closed = await wait(`${PANEL} == null`);
+                        await sleep(HOLD_MS);
+                        const escTyped = probeLines(ctx).slice(from).includes(ESC);
+                        await typeComposer(h, "/com");
+                        await sleep(HOLD_MS);
+                        const stayedClosed = await h.ev(`${PANEL} == null`);
+                        await typeComposer(h, "");
+                        await wait(`${TA}?.value === ""`);
+                        await typeComposer(h, "/");
+                        const openedAgain = await wait(`${PANEL} != null`);
+                        await typeComposer(h, "");
+                        const ok =
+                            ready &&
+                            grouped &&
+                            filtered &&
+                            co[0]?.name === "/compact" &&
+                            co[1]?.name === "/config" &&
+                            config?.terminal === true &&
+                            compact?.terminal === false &&
+                            moved &&
+                            completed &&
+                            reopened &&
+                            closed &&
+                            !escTyped &&
+                            stayedClosed &&
+                            openedAgain;
+                        return [ok, { ready, grouped, opened, filtered, co, moved, completed, reopened, closed, escTyped, stayedClosed, openedAgain }];
+                    } finally {
+                        await h.rpc("setclaudelivecommands", { blockid: ctx.pBlock, commands: [] });
+                    }
+                });
+
+                await step("rendered: bash mode — ! in P's empty box turns on the ! Bash cue (mono, accent border, no attach button) with an empty box and the tray kept; with echo hi typed Send reads Run; Enter types !, the bracketed paste and \\r into the pty with no attachment path, then empties the box and leaves the mode; ! then Backspace leaves it; Esc leaves it and types no ESC", async () => {
+                    const BOX = `${RV}?.querySelector("[data-rendered-composer] [data-composer-box]")`;
+                    const TA = `${BOX}?.querySelector("textarea")`;
+                    const BASH_ON = `${BOX}?.hasAttribute("data-bash-mode") === true`;
+                    const press = (key) =>
+                        h.ev(`(() => {
+                            const ta = ${TA};
+                            if (!ta) return false;
+                            ta.focus();
+                            ta.dispatchEvent(new KeyboardEvent("keydown", { key: ${JSON.stringify(key)}, code: ${JSON.stringify(key)}, bubbles: true, cancelable: true }));
+                            return true;
+                        })()`);
+                    await focus(ctx.pId);
+                    const ready = await ensureRendered();
+                    // a ready attachment in the tray must stay there and stay out of the command
+                    const taken = await h.ev(pasteOnComposer("rendered-bash.png"));
+                    const uploaded = await wait(`${COMPOSER_CHIPS}.some((c) => c.getAttribute("data-attachment-chip") === "ready")`);
+                    const path = await h.ev(`${COMPOSER_CHIPS}[0]?.getAttribute("data-attachment-path") ?? null`);
+                    if (path) ctx.tempFiles.push(path);
+                    try {
+                        await typeComposer(h, "!");
+                        const on = await wait(`${BASH_ON} && ${TA}?.value === ""`);
+                        const cue = await h.ev(`(() => {
+                            const box = ${BOX};
+                            const ta = ${TA};
+                            if (!box || !ta) return null;
+                            // the accent as the theme resolves it, read off a throwaway element
+                            const probe = document.createElement("div");
+                            probe.className = "border border-accent";
+                            box.appendChild(probe);
+                            const accent = getComputedStyle(probe).borderTopColor;
+                            probe.remove();
+                            return {
+                                label: box.querySelector("[data-bash-label]")?.textContent ?? null,
+                                mono: /mono/i.test(getComputedStyle(ta).fontFamily),
+                                border: getComputedStyle(box).borderTopColor === accent,
+                                attach: box.querySelector("[data-attach-files]") != null,
+                                placeholder: ta.placeholder,
+                                panels: box.querySelector("[data-slash-panel], [data-mention-panel]") != null,
+                            };
+                        })()`);
+                        await h.shot(SHOT(31, "bash-mode"));
+
+                        await typeComposer(h, "echo hi");
+                        const sendLabel = await h.ev(`(() => {
+                            const b = ${BOX}?.querySelector("[data-composer-send]");
+                            return b ? { aria: b.getAttribute("aria-label"), title: b.getAttribute("title") } : null;
+                        })()`);
+                        const from = probeLines(ctx).length;
+                        await press("Enter");
+                        const paste = "\x1b[200~echo hi\x1b[201~";
+                        const decoded = await waitDecoded(ctx, from, ["!", paste, "\r"]);
+                        const bang = decoded.text.indexOf("!");
+                        const at = decoded.text.indexOf(paste, bang);
+                        const ordered = bang >= 0 && at > bang && decoded.text.indexOf("\r", at) > at;
+                        const sent = await wait(`${TA}?.value === "" && !(${BASH_ON})`);
+                        const kept = await h.ev(`${COMPOSER_CHIPS}.some((c) => c.getAttribute("data-attachment-chip") === "ready")`);
+                        await h.shot(SHOT(31, "bash-sent"));
+
+                        await typeComposer(h, "!");
+                        const onAgain = await wait(BASH_ON);
+                        await press("Backspace");
+                        const backspaced = await wait(`!(${BASH_ON}) && ${TA}?.value === ""`);
+
+                        await typeComposer(h, "!");
+                        const onThird = await wait(BASH_ON);
+                        const escFrom = probeLines(ctx).length;
+                        await press("Escape");
+                        const escaped = await wait(`!(${BASH_ON})`);
+                        await sleep(HOLD_MS);
+                        const escTyped = probeLines(ctx).slice(escFrom).includes(ESC);
+                        const ok =
+                            ready &&
+                            taken === true &&
+                            uploaded &&
+                            path != null &&
+                            on &&
+                            cue?.label === "! Bash" &&
+                            cue.mono &&
+                            cue.border &&
+                            !cue.attach &&
+                            !cue.panels &&
+                            sendLabel?.aria === "Run" &&
+                            sendLabel.title === "Run" &&
+                            ordered &&
+                            !decoded.text.includes(path) &&
+                            sent &&
+                            kept &&
+                            onAgain &&
+                            backspaced &&
+                            onThird &&
+                            escaped &&
+                            !escTyped;
+                        return [ok, { ready, taken, uploaded, path, on, cue, sendLabel, input: JSON.stringify(decoded.text.slice(-200)), ordered, sent, kept, onAgain, backspaced, onThird, escaped, escTyped }];
+                    } finally {
+                        await h.ev(`${COMPOSER_CHIPS}.forEach((c) => c.querySelector('button[title="Remove"]')?.click())`);
+                        await typeComposer(h, "");
+                        // a failed check can leave the mode on; Backspace on the empty box turns it off
+                        if (await h.ev(BASH_ON)) await press("Backspace");
+                    }
+                });
+
                 await step(`rendered: show earlier — L's transcript runs past the stream's tail: the feed opens without its first prompt under "Show earlier turns"; the click brings the first prompt in, draws past ${RENDER_CAP} items, drops the control and keeps the row at the top of the viewport in place`, async () => {
                     await focus(ctx.lId);
                     await clickToggle(h, "Rendered");
@@ -1691,7 +2055,7 @@ export default function (_kit) {
                     // the control sits at the top of the feed, so the reader scrolls up to it
                     await agentPage(h, `const s = ${RV}?.querySelector("[data-rendered-scroll]"); if (s) s.scrollTop = 0; await nap(300); return true;`);
                     const before = await h.ev(read);
-                    await h.shot(SHOT(28, "earlier-before"));
+                    await h.shot(SHOT(32, "earlier-before"));
                     const clicked = await h.ev(`(() => { const b = ${RV}?.querySelector("[data-rendered-earlier]"); b?.click(); return b != null; })()`);
                     const landed = await wait(`(${RV}?.textContent ?? "").includes(${J(longPrompt(0))}) && ${RV}?.querySelector("[data-rendered-earlier]") == null`);
                     await new Promise((r) => setTimeout(r, HOLD_MS));
@@ -1707,7 +2071,7 @@ export default function (_kit) {
                                   const row = rows.find((r) => flat(r) === ${J(before.top.text)});
                                   return row && scroll ? row.getBoundingClientRect().top - scroll.getBoundingClientRect().top : null;
                               })()`);
-                    await h.shot(SHOT(28, "earlier-after"));
+                    await h.shot(SHOT(32, "earlier-after"));
                     const moved = held == null ? null : held - before.top.offset;
                     const ok =
                         before != null &&

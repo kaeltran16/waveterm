@@ -441,6 +441,12 @@ function projectPiTranscriptRecords(parsed) {
   return entries;
 }
 
+// frontend/app/view/agents/testoutput.ts
+var CSI_RE = /\x1b\[[0-9;?]*[ -/]*[@-~]/g;
+function stripAnsi(s) {
+  return s.replace(CSI_RE, "");
+}
+
 // frontend/app/view/agents/transcriptprojection.ts
 var READ_MODAL_MAX_LINES2 = 400;
 var VERB_BY_TOOL2 = {
@@ -514,6 +520,31 @@ function parseTaskNotification(content) {
   };
   const result = grab("result");
   return { kind: "notification", summary: grab("summary") ?? "", status: grab("status"), ...result ? { result } : {} };
+}
+var BASH_INPUT_RE = /^<bash-input>([^]*)<\/bash-input>$/;
+var BASH_OUTPUT_RE = /^<bash-stdout>([^]*?)<\/bash-stdout>\s*<bash-stderr>([^]*?)<\/bash-stderr>$/;
+function applyBashRecord(entries, content, rec) {
+  const text = content.trim();
+  const input = BASH_INPUT_RE.exec(text);
+  if (input != null) {
+    entries.push({ kind: "shell", command: input[1].trim(), ...recTs(rec) });
+    return true;
+  }
+  const output = BASH_OUTPUT_RE.exec(text);
+  if (output == null) {
+    return false;
+  }
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const e = entries[i];
+    if (e.kind === "shell") {
+      if (e.stdout === void 0) {
+        e.stdout = stripAnsi(output[1]);
+        e.stderr = stripAnsi(output[2]);
+      }
+      break;
+    }
+  }
+  return true;
 }
 function parseNotice(prompt) {
   const structured = prompt.includes("<summary>") ? parseTaskNotification(prompt) : null;
@@ -659,6 +690,9 @@ function projectTranscriptRecords(records) {
       }
       const content = rec?.message?.content;
       if (typeof content === "string") {
+        if (applyBashRecord(entries, content, rec)) {
+          continue;
+        }
         const note = parseTaskNotification(content);
         if (note != null) {
           entries.push(note);

@@ -15,6 +15,7 @@ import {
     toolResultImages,
     toolResultText,
 } from "./tooldetail";
+import { stripAnsi } from "./testoutput";
 import { parseTranscriptLines, type TranscriptRecord } from "./transcriptrecords";
 
 const READ_MODAL_MAX_LINES = 400; // bound stored Read body (modal view); inline uses the per-kind budget
@@ -107,6 +108,36 @@ function parseTaskNotification(content: string): Extract<AgentEntry, { kind: "no
     };
     const result = grab("result");
     return { kind: "notification", summary: grab("summary") ?? "", status: grab("status"), ...(result ? { result } : {}) };
+}
+
+// a `!` command's two user records in Claude Code's bash mode: the input, then its output
+const BASH_INPUT_RE = /^<bash-input>([^]*)<\/bash-input>$/;
+const BASH_OUTPUT_RE = /^<bash-stdout>([^]*?)<\/bash-stdout>\s*<bash-stderr>([^]*?)<\/bash-stderr>$/;
+
+// true when content is a bash-mode record: an input pushes a shell entry, an output fills the newest one still running.
+// An output with no running entry adds nothing.
+function applyBashRecord(entries: AgentEntry[], content: string, rec: any): boolean {
+    const text = content.trim();
+    const input = BASH_INPUT_RE.exec(text);
+    if (input != null) {
+        entries.push({ kind: "shell", command: input[1].trim(), ...recTs(rec) });
+        return true;
+    }
+    const output = BASH_OUTPUT_RE.exec(text);
+    if (output == null) {
+        return false;
+    }
+    for (let i = entries.length - 1; i >= 0; i--) {
+        const e = entries[i];
+        if (e.kind === "shell") {
+            if (e.stdout === undefined) {
+                e.stdout = stripAnsi(output[1]);
+                e.stderr = stripAnsi(output[2]);
+            }
+            break;
+        }
+    }
+    return true;
 }
 
 // A background-task notice delivered mid-turn. A structured prompt reads like a finished subagent's notification; a
@@ -293,6 +324,9 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
             }
             const content = rec?.message?.content;
             if (typeof content === "string") {
+                if (applyBashRecord(entries, content, rec)) {
+                    continue;
+                }
                 const note = parseTaskNotification(content);
                 if (note != null) {
                     entries.push(note);

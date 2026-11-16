@@ -46,6 +46,7 @@ export type LayoutItem =
     | { kind: "compaction"; trigger?: string; preTokens?: number; postTokens?: number; summary?: string; index: number }
     | { kind: "notification"; summary: string; status?: string; result?: string; notice?: true; index: number }
     | { kind: "interrupted"; index: number }
+    | { kind: "shell"; command: string; stdout?: string; stderr?: string; ts?: number; index: number }
     // latest: the feed's last wake, the only one that draws its sections open
     | { kind: "arc"; index: number; message: ArcMessage; ts?: number; idleMs?: number; latest: boolean }
     // thoughts: the stretch's own, set only when it has some
@@ -415,6 +416,9 @@ function layoutItems(entries: AgentEntry[], opts: LayoutOpts): LayoutItem[] {
                 return;
             case "interrupted":
                 items.push({ kind: "interrupted", index: i });
+                return;
+            case "shell":
+                items.push({ ...e, index: i });
                 return;
         }
     });
