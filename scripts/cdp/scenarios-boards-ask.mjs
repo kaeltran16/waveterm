@@ -685,8 +685,10 @@ export const boardsAsk = {
             await h.ev(`${SWITCHER}?.click()`);
             await polishWaitFor(h, `!!${POPOVER}`, 5000);
             await polishNap(400);
+            // the fixture project's group: under All projects the popover lists the other projects' boards too
             const pop = await page(h, `const p = ${POPOVER};
-                const rows = [...(p?.querySelectorAll("[data-board-switcher-row]") ?? [])].map((r) => ({
+                const g = p?.querySelector('[data-board-switcher-group="' + fx.channelId + '"]');
+                const rows = [...(g?.querySelectorAll("[data-board-switcher-row]") ?? [])].map((r) => ({
                     id: r.getAttribute("data-board-switcher-row"),
                     text: r.textContent.replace(/\\s+/g, " ").trim(),
                     mark: r.querySelector("[data-board-switcher-mark]")?.getAttribute("data-board-switcher-mark") ?? null,
@@ -695,7 +697,8 @@ export const boardsAsk = {
                 return {
                     first: p?.querySelector("button")?.hasAttribute("data-board-ask-new") ?? false,
                     askNew: (p?.querySelector("[data-board-ask-new]")?.textContent ?? "").trim(),
-                    heading: (p?.querySelector("[data-board-switcher-heading]")?.textContent ?? "").trim(),
+                    firstGroup: p?.querySelector("[data-board-switcher-group]") === g,
+                    heading: (g?.querySelector("[data-board-switcher-heading]")?.textContent ?? "").trim(),
                     rows,
                     newestFirst:
                         list.every((b, i) => i === 0 || list[i - 1].activets >= b.activets) &&
@@ -705,6 +708,7 @@ export const boardsAsk = {
             const row = (board) => pop.rows.find((r) => r.id === board?.id);
             const ok =
                 pop.first &&
+                pop.firstGroup &&
                 pop.askNew === "+Ask something new" &&
                 pop.heading === `6 boards in ${PROJECT}` &&
                 pop.rows.length === 6 &&

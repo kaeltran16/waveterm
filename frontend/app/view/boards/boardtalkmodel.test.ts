@@ -9,6 +9,7 @@ import {
     boardFacts,
     elapsedText,
     SLOW_AFTER_MS,
+    switcherGroups,
     switcherRows,
     talkItems,
     talkTime,
@@ -341,5 +342,29 @@ describe("switcherRows", () => {
 
     it("words one board in the heading", () => {
         expect(switcherRows([info({})], "waveterm", NOW).heading).toBe("1 board in waveterm");
+    });
+});
+
+describe("switcherGroups", () => {
+    it("puts the open board's project first, then projects by their latest board, and drops empty ones", () => {
+        const groups = switcherGroups(
+            [
+                { channelId: "old", project: "old", boards: [info({ id: "o", activets: at(10, 0) })] },
+                { channelId: "empty", project: "empty", boards: [] },
+                { channelId: "cur", project: "cur", boards: [info({ id: "c", activets: at(9, 0) })] },
+                { channelId: "new", project: "new", boards: [info({ id: "n", activets: at(15, 0) })] },
+            ],
+            "cur",
+            NOW
+        );
+        expect(groups.map((g) => g.channelId)).toEqual(["cur", "new", "old"]);
+        expect(groups[1]).toMatchObject({
+            heading: "1 board in new",
+            rows: [{ id: "n", sub: "0 questions · the new code" }],
+        });
+    });
+
+    it("keeps the open project even with no boards", () => {
+        expect(switcherGroups([{ channelId: "cur", project: "cur", boards: [] }], "cur", NOW)).toHaveLength(1);
     });
 });

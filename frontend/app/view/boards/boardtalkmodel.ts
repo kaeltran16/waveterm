@@ -254,3 +254,28 @@ export function switcherRows(
     }));
     return { heading: `${plural(boards.length, "board")} in ${project}`, rows };
 }
+
+export interface SwitcherList {
+    channelId: string;
+    project: string;
+    boards: BoardInfo[];
+}
+
+export interface SwitcherGroup {
+    channelId: string;
+    heading: string;
+    rows: SwitcherRow[];
+}
+
+function lastActive(boards: BoardInfo[]): number {
+    return Math.max(0, ...boards.map((b) => b.activets || b.createdts));
+}
+
+// one group per project: the open board's project first, then the others with boards, most recently active first
+export function switcherGroups(lists: SwitcherList[], currentId: string, now: number): SwitcherGroup[] {
+    const isCurrent = (l: SwitcherList) => Number(l.channelId === currentId);
+    return lists
+        .filter((l) => isCurrent(l) || l.boards.length > 0)
+        .sort((a, b) => isCurrent(b) - isCurrent(a) || lastActive(b.boards) - lastActive(a.boards))
+        .map((l) => ({ channelId: l.channelId, ...switcherRows(l.boards, l.project, now) }));
+}

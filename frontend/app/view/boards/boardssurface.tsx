@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // The Boards surface (boards B1-B12): a board is a conversation with a drawer. The talk column leads on the left,
-// the board (plain Excalidraw) fills the rest, and the header's board name switches between the project's boards.
+// the board (plain Excalidraw) fills the rest, and the header's board name switches between the project's boards
+// (every project's under "All projects").
 // An ask form (new, about a thing, a handoff, a briefing) takes the talk column's place until it asks. The project
 // is the one a router landing named, else the cockpit's current one; a switcher change made while Boards shows
 // replaces a landing's. What must outlive a surface switch lives in boardstore.ts.
@@ -14,13 +15,13 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { fireAndForget } from "@/util/util";
-import { useAtomValue } from "jotai";
+import { atom, useAtomValue } from "jotai";
 import { Shapes } from "lucide-react";
 import { MotionConfig } from "motion/react";
-import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AgentsViewModel } from "../agents/agents";
 import { activeChannelAtom } from "../agents/channelsstore";
-import { projectListAtom } from "../agents/projectsstore";
+import { projectListAtom, rowsWithChannel } from "../agents/projectsstore";
 import { SurfaceEmptyState, SurfaceError, SurfaceToolbar } from "../agents/surfacescaffold";
 import { BoardAskForm, NewBoardDialog, startsWithLines, type BoardAskFormProps } from "./boardaskform";
 import type { BoardCanvasControl } from "./boardcanvas";
@@ -33,11 +34,20 @@ import {
     loadBoardList,
     loadBoardTalk,
     openBoardByChannelAtom,
+    selectBoard,
     setBoardFormEscape,
 } from "./boardstore";
 import { BoardSwitcher } from "./boardswitcher";
 import { BoardTalk } from "./boardtalk";
-import { aboutLine, aboutTitle, askBox, boardFacts, switcherRows, talkItems } from "./boardtalkmodel";
+import {
+    aboutLine,
+    aboutTitle,
+    askBox,
+    boardFacts,
+    switcherGroups,
+    talkItems,
+    type SwitcherList,
+} from "./boardtalkmodel";
 
 // vite.config.ts (excalidrawFonts) serves Excalidraw's fonts from the app, under this path's fonts/
 const EXCALIDRAW_ASSET_PATH = "/excalidraw/";
@@ -74,6 +84,37 @@ function useBoardsChannel(model: AgentsViewModel): Channel | null {
         return rows.find((r) => r.channel?.oid === explicit)?.channel ?? ({ oid: explicit, name: "" } as Channel);
     }
     return rows.find((r) => r.name === filter)?.channel ?? palettePickChannel(active, rows, null);
+}
+
+// the switcher's lists: every project's under "All projects", else the open project's alone
+function useSwitcherLists(model: AgentsViewModel, channelId: string | null, project: string): SwitcherList[] {
+    const filter = useAtomValue(model.projectFilterAtom);
+    const rows = useAtomValue(projectListAtom);
+    const others = filter === "all" ? rowsWithChannel(rows).filter((r) => r.channel.oid !== channelId) : [];
+    const key = others.map((r) => r.channel.oid).join(",");
+    useEffect(() => {
+        for (const r of others) {
+            loadBoardList(r.channel.oid).catch((e) => console.warn("boards: listing failed", r.name, e));
+        }
+    }, [key]);
+    const listsAtom = useMemo(
+        () =>
+            atom((get) => {
+                const lists: SwitcherList[] = [];
+                if (channelId != null) {
+                    lists.push({ channelId, project, boards: get(boardListAtom(channelId))?.boards ?? [] });
+                }
+                for (const r of others) {
+                    const list = get(boardListAtom(r.channel.oid));
+                    if (list != null) {
+                        lists.push({ channelId: r.channel.oid, project: list.project || r.name, boards: list.boards });
+                    }
+                }
+                return lists;
+            }),
+        [channelId, project, key]
+    );
+    return useAtomValue(listsAtom);
 }
 
 // re-renders every second while active: the answering turn's elapsed time and its 90 s switch to slow
@@ -141,6 +182,7 @@ export function BoardsSurface({ model }: { model: AgentsViewModel }) {
     const project = list?.project || channel?.name || "this project";
     const openId = channelId != null ? (openMap[channelId] ?? null) : null;
     const board = boards.find((b) => b.id === openId) ?? null;
+    const switcherLists = useSwitcherLists(model, channelId, project);
     const talkValue = useAtomValue(boardTalkAtom(board?.id ?? ""));
     const talk = talkValue != null && talkValue.boardid === board?.id ? talkValue : null;
     useTick(inFlight(talk));
@@ -341,8 +383,8 @@ export function BoardsSurface({ model }: { model: AgentsViewModel }) {
                     <BoardSwitcher
                         name={board.name}
                         openId={board.id}
-                        {...switcherRows(boards, project, now)}
-                        onPick={(id) => setOpenBoard(channelId, id)}
+                        groups={switcherGroups(switcherLists, channelId, now)}
+                        onPick={(ch, id) => (ch === channelId ? setOpenBoard(ch, id) : selectBoard(ch, id))}
                         onAskNew={() => openForm({ kind: "new", channelId })}
                     />
                     <span data-board-facts className="text-[12px] text-muted">
