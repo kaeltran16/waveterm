@@ -12,11 +12,6 @@ import { planReviewLensTitle } from "./runtimeline";
 import type { TranscriptContext } from "./transcriptcontext";
 import type { WshCall } from "./wshcall";
 
-// mirror the engine's limits (pkg/orchestrate final.go MaxFinalRounds, review.go MaxReviewRounds), which reach
-// the frontend through no generated type
-export const MAX_FINAL_ROUNDS = 3;
-export const MAX_REVIEW_ROUNDS = 2;
-
 // how much of a commit hash a card shows, as git's short form does
 const SHA_CHARS = 7;
 const SHA_RE = /^[0-9a-f]{7,40}$/i;
@@ -123,7 +118,8 @@ export function submitModel(call: WshCall, group: TaskGroup | undefined): Submit
         return {
             kind: "round",
             round,
-            last: round != null && round >= MAX_FINAL_ROUNDS,
+            // a dag created before the engine stamped its limit has none, and no round reads as the last
+            last: round != null && !!group?.maxfinalrounds && round >= group.maxfinalrounds,
             tasks: mine.map((t) => ({ id: t.id, label: t.label ?? "" })),
         };
     }
@@ -155,7 +151,7 @@ export interface ReviewModel {
     passed: boolean;
     // the failed reviews so far, for a send-back; the engine counts only failures
     round?: number;
-    total: number;
+    total?: number;
     note: string;
 }
 
@@ -166,7 +162,7 @@ export function reviewModel(call: WshCall, ctx: TranscriptContext, group: TaskGr
     const passed = call.args[0] === "pass";
     const task = taskId ? group?.tasks?.find((t) => t.id === taskId) : undefined;
     const round = !passed && task?.reviewround ? task.reviewround : undefined;
-    return { taskId, passed, round, total: MAX_REVIEW_ROUNDS, note: call.args[1] ?? "" };
+    return { taskId, passed, round, total: group?.maxreviewrounds || undefined, note: call.args[1] ?? "" };
 }
 
 const PLAN_VERDICTS: Record<string, string> = { pass: "passed", fail: "failed", accept: "accepted" };
@@ -206,7 +202,9 @@ export function finalModel(
         (text ? stages.find((s) => s.detail?.trim() === text) : undefined) ??
         (props.round == null ? group?.final : undefined);
     const round = props.round ?? stage?.round;
-    const total = props.total ?? (round != null && round <= MAX_FINAL_ROUNDS ? MAX_FINAL_ROUNDS : undefined);
+    const max = group?.maxfinalrounds;
+    // a granted round past the limit has no total to draw
+    const total = props.total ?? (max && round != null && round <= max ? max : undefined);
     return {
         passed: props.passed,
         round,

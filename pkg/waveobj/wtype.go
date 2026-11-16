@@ -671,6 +671,11 @@ type TaskGroup struct {
 	// PastFinals are the finished earlier rounds of the final stage, oldest first: a fix round keeps the round it
 	// fixes here instead of overwriting it.
 	PastFinals []FinalStage `json:"pastfinals,omitempty"`
+
+	// MaxFinalRounds and MaxReviewRounds are the engine's round limits, stamped once when the dag is created so
+	// the cards draw "round N of M" from the engine instead of a copy. Zero on a dag created before they existed.
+	MaxFinalRounds  int `json:"maxfinalrounds,omitempty"`
+	MaxReviewRounds int `json:"maxreviewrounds,omitempty"`
 }
 
 // PlanReviewStage is one dag's plan review: its round, the reviewer sessions judging it, and the round's merged text.

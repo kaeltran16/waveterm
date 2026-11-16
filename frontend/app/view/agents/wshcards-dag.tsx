@@ -342,7 +342,8 @@ function TaskReviewCard({ call, action, ctx, compact }: WshRendererProps) {
                 <span className={cn("font-semibold", TONE_TEXT[tone])}>{m.passed ? "passed" : "sent back"}</span>
                 {m.round != null ? (
                     <span className="text-[12.5px] text-muted">
-                        round {m.round} of {m.total}
+                        round {m.round}
+                        {m.total ? ` of ${m.total}` : null}
                     </span>
                 ) : null}
                 <Spacer />

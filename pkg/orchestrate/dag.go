@@ -333,6 +333,9 @@ func NewTaskGroup(runID, channelId, title string, parallelism int, mergeRequired
 		Status:        DagStatus_Running,
 		CreatedTs:     ts,
 		UpdatedTs:     ts,
+
+		MaxFinalRounds:  MaxFinalRounds,
+		MaxReviewRounds: MaxReviewRounds,
 	}
 	g.OID = g.ID
 	RecomputeDagStatus(&g)

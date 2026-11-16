@@ -10,8 +10,6 @@ import {
     finalModel,
     fmtElapsed,
     longestChain,
-    MAX_FINAL_ROUNDS,
-    MAX_REVIEW_ROUNDS,
     planReviewModel,
     reviewModel,
     shortSha,
@@ -97,22 +95,35 @@ describe("submitModel", () => {
     it("with --round takes the newest fix round's tasks and says whether it is the last", () => {
         const fixes = [
             task("t-5", { description: "Fix round 2: this is task 1 of the fix plan at a.md" }),
-            task("t-6", { description: `Fix round ${MAX_FINAL_ROUNDS}: this is task 1 of the fix plan at b.md` }),
-            task("t-7", { description: `Fix round ${MAX_FINAL_ROUNDS}: this is task 2 of the fix plan at b.md` }),
+            task("t-6", { description: "Fix round 3: this is task 1 of the fix plan at b.md" }),
+            task("t-7", { description: "Fix round 3: this is task 2 of the fix plan at b.md" }),
         ];
-        const m = submitModel(callOf("wsh jarvis dag submit --round --plan fix.md"), group([...plan, ...fixes]));
+        const m = submitModel(
+            callOf("wsh jarvis dag submit --round --plan fix.md"),
+            group([...plan, ...fixes], { maxfinalrounds: 3 })
+        );
         expect(m).toEqual({
             kind: "round",
-            round: MAX_FINAL_ROUNDS,
+            round: 3,
             last: true,
             tasks: [
                 { id: "t-6", label: "t-6 label" },
                 { id: "t-7", label: "t-7 label" },
             ],
         });
-        const earlier = submitModel(callOf("wsh jarvis dag submit --round --plan fix.md"), group([...plan, fixes[0]]));
+        const earlier = submitModel(
+            callOf("wsh jarvis dag submit --round --plan fix.md"),
+            group([...plan, fixes[0]], { maxfinalrounds: 3 })
+        );
         expect(earlier.kind === "round" && earlier.round).toBe(2);
         expect(earlier.kind === "round" && earlier.last).toBe(false);
+    });
+
+    it("a fix round on a dag without the limit is never the last", () => {
+        const fix = task("t-6", { description: "Fix round 3: this is task 1 of the fix plan at b.md" });
+        const m = submitModel(callOf("wsh jarvis dag submit --round --plan fix.md"), group([...plan, fix]));
+        expect(m.kind === "round" && m.round).toBe(3);
+        expect(m.kind === "round" && m.last).toBe(false);
     });
 });
 
@@ -130,17 +141,23 @@ describe("reviewModel", () => {
             taskId: "t-2",
             passed: true,
             round: undefined,
-            total: MAX_REVIEW_ROUNDS,
+            total: undefined,
             note: "matches the plan",
         });
     });
 
-    it("a send-back reads its round from the task", () => {
-        const g = group([task("t-2", { reviewround: 1 })]);
+    it("a send-back reads its round from the task and its total from the dag", () => {
+        const g = group([task("t-2", { reviewround: 1 })], { maxreviewrounds: 2 });
         const m = reviewModel(callOf(`wsh jarvis dag review fail "fix the guard"`), WORKER, g);
         expect(m.passed).toBe(false);
-        expect(m.round).toBe(1);
+        expect([m.round, m.total]).toEqual([1, 2]);
         expect(m.note).toBe("fix the guard");
+    });
+
+    it("has no total on a dag without the limit", () => {
+        const g = group([task("t-2", { reviewround: 1 })]);
+        const m = reviewModel(callOf(`wsh jarvis dag review fail "fix the guard"`), WORKER, g);
+        expect([m.round, m.total]).toEqual([1, undefined]);
     });
 
     it("has no task without a role", () => {
@@ -177,10 +194,16 @@ describe("finalModel", () => {
         expect(finalArgs(callOf(`wsh jarvis dag final fail "two defects"`)).passed).toBe(false);
     });
 
-    it("finds the stage it judged by its text", () => {
-        const m = finalModel({ passed: false, text: "arrow lags" }, group([], stages), (_g, r) => r === 1);
-        expect([m.round, m.total, m.sha, m.hasShots]).toEqual([1, MAX_FINAL_ROUNDS, "3a7f1c2", true]);
+    it("finds the stage it judged by its text, its total from the dag", () => {
+        const g = group([], { ...stages, maxfinalrounds: 3 });
+        const m = finalModel({ passed: false, text: "arrow lags" }, g, (_g, r) => r === 1);
+        expect([m.round, m.total, m.sha, m.hasShots]).toEqual([1, 3, "3a7f1c2", true]);
         expect(m.unverified).toEqual([]);
+    });
+
+    it("has no total on a dag without the limit", () => {
+        const m = finalModel({ passed: false, text: "arrow lags" }, group([], stages));
+        expect([m.round, m.total]).toEqual([1, undefined]);
     });
 
     it("falls back to the current stage and carries its unverified lines", () => {

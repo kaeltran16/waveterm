@@ -11,7 +11,6 @@ import {
     finalRoundOf,
     judgeResultOf,
     LEAD_ASK_DEADLINE_MS,
-    MAX_FINAL_ROUNDS,
     planPassedInGap,
     WAIT_FOLD_MIN_MS,
     waitedSummary,
@@ -125,15 +124,36 @@ describe("wakeParts: each wake phrase", () => {
             "wake: the final stage failed on the merged result in round 1. Write a fix plan and run `wsh jarvis dag submit --round --plan <fix plan>`. Put it to the human if the fix is a product call:\nboards-draw · step 4: the arrow stays\n- boards-surface · step 2: text runs under the toolbar"
         );
         expect(p).toMatchObject({ kind: "final-failed", round: 1, last: false });
+        expect(p.of).toBeUndefined();
+        expect(p.sha).toBeUndefined();
         expect(p.items).toHaveLength(2);
         expect(p.items?.[1].startsWith("boards-surface")).toBe(true);
-        expect(finalRoundOf(p)).toEqual({ round: 1, of: MAX_FINAL_ROUNDS });
+        expect(finalRoundOf(p)).toEqual({ round: 1 });
 
         const last = one(
             "wake: the final stage failed on the merged result in round 2, the last. Put it to the human:\nonly one"
         );
         expect(finalRoundOf(last)).toEqual({ round: 2, of: 2 });
         expect(last.items).toHaveLength(1);
+    });
+
+    it("final stage failed: the engine's total and commit", () => {
+        const p = one(
+            "wake: the final stage failed on the merged result 3a7f1c2 in round 1 of 3. Write a fix plan:\nboards-draw · step 4: the arrow stays"
+        );
+        expect(p).toMatchObject({ kind: "final-failed", round: 1, of: 3, sha: "3a7f1c2", last: false });
+        expect(p.items).toHaveLength(1);
+        expect(finalRoundOf(p)).toEqual({ round: 1, of: 3 });
+
+        const last = one(
+            "wake: the final stage failed on the merged result 3a7f1c2 in round 3 of 3, the last. Put it to the human:\nonly one"
+        );
+        expect(last).toMatchObject({ kind: "final-failed", round: 3, of: 3, last: true });
+        expect(finalRoundOf(last)).toEqual({ round: 3, of: 3 });
+
+        const noSha = one("wake: the final stage failed on the merged result in round 1 of 3. Write a fix plan:\nx");
+        expect(noSha).toMatchObject({ kind: "final-failed", round: 1, of: 3 });
+        expect(noSha.sha).toBeUndefined();
     });
 
     it("final step killed, run finished, questions waiting", () => {

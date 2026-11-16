@@ -51,8 +51,14 @@ const group = (runId, tasks, extra = {}) => ({
     createdts: T0,
     updatedts: T0,
     finalcmd: "node scripts/cdp/final-verify.mjs",
+    // the engine stamps its round limits on every dag it creates; the cards draw "of N" from these
+    maxfinalrounds: 3,
+    maxreviewrounds: 2,
     ...extra,
 });
+
+// a dag created before the engine stamped its round limits
+const unstamped = ({ group: { maxfinalrounds, maxreviewrounds, ...g }, ...rest }) => ({ ...rest, group: g });
 
 const digest = (extra = {}) => ({
     dagversion: 1,
@@ -166,6 +172,7 @@ const HELD = {
 };
 
 const SEED_LIVE = { [`dag:${RUN}`]: LIVE, [`run:${RUN}`]: run(RUN, { status: "running" }) };
+const SEED_UNSTAMPED = { ...SEED_LIVE, [`dag:${RUN}`]: unstamped(LIVE) };
 
 const brief = (text) => [user(text, T0), prose("Reading the plan's files.", T0 + S)];
 
@@ -244,6 +251,19 @@ export const fixtures = {
             bash({
                 description: "Send the task back",
                 command: `wsh jarvis dag review fail "truncate returns the input unchanged when n is 0; the plan says it returns \\"\\". Add a test for n = 0."`,
+                output: "review recorded",
+                ts: T0,
+                durationMs: 300,
+            }),
+        ],
+    },
+    reviewSentBackUnstamped: {
+        ctx: worker("t-4"),
+        seed: SEED_UNSTAMPED,
+        entries: [
+            bash({
+                description: "Send the task back",
+                command: 'wsh jarvis dag review fail "Add a test for n = 0."',
                 output: "review recorded",
                 ts: T0,
                 durationMs: 300,
@@ -433,6 +453,15 @@ async function fullSteps(h) {
             includesAll(passed?.text, ["Task review", "t-3", "passed", "imports add from t-1"]) &&
             includesAll(sentBack?.text, ["Task review", "t-4", "sent back", "round 1 of 2", "Add a test for n = 0"]),
         detail: JSON.stringify({ passed, sentBack }),
+    });
+
+    await show(h, "reviewSentBackUnstamped");
+    const [unstampedBack] = (await h.ev(cardState("dag-review"))) ?? [];
+    await h.shot("cdp-shots/transcript-dag-review-unstamped.png");
+    steps.push({
+        step: "a send-back on a dag without round limits reads round 1 with no total",
+        ok: includesAll(unstampedBack?.text, ["Task review", "t-4", "sent back", "round 1"]) && !unstampedBack.text.includes("round 1 of"),
+        detail: JSON.stringify(unstampedBack),
     });
 
     await show(h, "finalPassed");
