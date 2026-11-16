@@ -381,7 +381,8 @@ setting existed reads as `arc:writing-plans`, the contract its plan was written 
 
 Both skills are Arc's: `arc:writing-plans` is a copy of the superpowers skill adapted to the engine's plan format.
 The plan format below is the same under both, except that `arc:plan` drops the sentence on a step naming only focused
-tests.
+tests, and its example task asks for what to build and the acceptance criteria a test can check, not what to do and
+the tests that prove it.
 
 ### Writing the goal
 
