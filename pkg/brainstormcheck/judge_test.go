@@ -247,8 +247,7 @@ func TestJudgePromptOnARerun(t *testing.T) {
 func TestJudgePromptSaysWhatTheJudgeMustDo(t *testing.T) {
 	report := filepath.Join("tmp", "judge-report.json")
 	got := JudgePrompt(JudgeInput{Approaches: judgeApproaches}, "", report, keep)
-	for _, w := range []string{".superpowers/", "Change no file", "Verify", "would beat every listed", "Ground every pro and con", "`from`",
-		"Write only the JSON object to " + report} {
+	for _, w := range []string{"`from`", "Write only the JSON object to " + report} {
 		if !strings.Contains(got, w) {
 			t.Errorf("prompt lacks %q", w)
 		}

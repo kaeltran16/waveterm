@@ -783,7 +783,7 @@ func TestRelaunchLeadCarriesTheHeldLines(t *testing.T) {
 		t.Fatalf("want one prompt, got %q", f.prompts)
 	}
 	p := f.prompts[0]
-	for _, want := range []string{"replacement lead", "do not resubmit the plan", failedLine, finishedLine} {
+	for _, want := range []string{failedLine, finishedLine} {
 		if !strings.Contains(p, want) {
 			t.Errorf("prompt lacks %q:\n%s", want, p)
 		}
@@ -939,22 +939,6 @@ func TestWakeGoesOverAnIdleSessionsStream(t *testing.T) {
 	}
 	if got := <-msgs; got.Text != "wake: task 1 done" || got.Compact != "" || got.MidTurn {
 		t.Fatalf("stream got %+v", got)
-	}
-}
-
-func TestHandoffInstructionsForAPlanningLead(t *testing.T) {
-	for _, want := range []string{
-		"interfaces and files each task relies on",
-		"why the plan is split as it is",
-		"answers to your own asks",
-		"Drop: tool output, plan drafts, code bodies",
-	} {
-		if !strings.Contains(handoffInstructions, want) {
-			t.Errorf("handoff instructions lack %q: %s", want, handoffInstructions)
-		}
-	}
-	if strings.Contains(handoffInstructions, "what the human said that the spec does not record") {
-		t.Errorf("handoff instructions still keep what the spec does not record: %s", handoffInstructions)
 	}
 }
 

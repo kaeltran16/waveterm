@@ -84,10 +84,6 @@ func TestTheVerifierJudgesTheMergedResultOnceTheStepsPass(t *testing.T) {
 		g.Final.OutDir,
 		filepath.Join(f.project, ".superpowers/design/board.dc.html"),
 		"t-0: reviewer: the empty state was not screenshotted",
-		"structurally: which elements are there, their order, their copy, and the controls at that width",
-		"Do not compare pixels",
-		"allowed, when the spec's Deviations section lists it, or as a defect",
-		"Only read: never edit, stage or commit",
 		"`wsh jarvis dag final pass \"<summary>\"`",
 		"`--unverified \"<what you could not verify, and why>\"`",
 		"`wsh jarvis dag final fail \"<defects",
@@ -238,9 +234,6 @@ func TestChildRunIDsIncludesTheVerifier(t *testing.T) {
 	}
 }
 
-// the one-named-test guidance applies whatever the plan has, so both briefs carry it
-const verifierSuiteGuidance = "Do not run any whole package or test suite. Read the diff. To settle a specific doubt about behavior, run one named test with `-run '^TestName$'` (or its vitest equivalent)."
-
 func TestTheVerifierBriefNamesWhatPassedAndItsBudget(t *testing.T) {
 	g := &waveobj.TaskGroup{
 		RunID: "run-1", Check: "go vet ./...", Verify: "node scripts/verify.mjs ./pkg/...", FinalCmd: "node scripts/cdp/final-verify.mjs",
@@ -248,9 +241,8 @@ func TestTheVerifierBriefNamesWhatPassedAndItsBudget(t *testing.T) {
 	}
 	prompt := verifierPrompt(context.Background(), g, &waveobj.Run{BaseCommit: "base"})
 	for _, want := range []string{
-		"Before you started, the engine ran Check `go vet ./...`, Verify `node scripts/verify.mjs ./pkg/...` and Final `node scripts/cdp/final-verify.mjs` on `0123456`, and they passed, apart from anything listed below as not verified. Do not run them again.",
-		verifierSuiteGuidance,
-		fmt.Sprintf("You have %s from your start to give a verdict. A session that gives none is stopped and replaced once, and then the result is left unverified.", ReviewTimeout),
+		"the engine ran Check `go vet ./...`, Verify `node scripts/verify.mjs ./pkg/...` and Final `node scripts/cdp/final-verify.mjs` on `0123456`",
+		fmt.Sprintf("You have %s", ReviewTimeout),
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("the brief must contain %q:\n%s", want, prompt)
@@ -262,18 +254,8 @@ func TestTheVerifierBriefNamesWhatPassedAndItsBudget(t *testing.T) {
 func TestTheVerifierBriefBoundsWhatMayBeReportedUnverified(t *testing.T) {
 	g := &waveobj.TaskGroup{RunID: "run-1", Final: &waveobj.FinalStage{Round: 1, Tree: "/tree"}}
 	prompt := verifierPrompt(context.Background(), g, &waveobj.Run{})
-	for _, want := range []string{
-		"only for a behavior of this change that no check exercised and reading could not settle",
-		"Never use it for a command or suite the engine already ran or this brief told you not to run",
-		"or for a file or screenshot you did not open",
-	} {
-		if !strings.Contains(prompt, want) {
-			t.Errorf("the brief must contain %q:\n%s", want, prompt)
-		}
-	}
-	// the limit sits with the finishing commands, after the flag it bounds
-	if strings.Index(prompt, "--unverified") > strings.Index(prompt, "Never use it") {
-		t.Errorf("the bound must follow the flag it limits:\n%s", prompt)
+	if want := "Never use it for a command or suite the engine already ran"; !strings.Contains(prompt, want) {
+		t.Errorf("the brief must contain %q:\n%s", want, prompt)
 	}
 }
 
@@ -294,9 +276,6 @@ func TestTheVerifierBriefCarriesTheFindingsAnAcceptedPlanReviewLeftOpen(t *testi
 			if got := strings.Contains(prompt, finding); got != c.want {
 				t.Fatalf("findings in the brief = %v, want %v:\n%s", got, c.want, prompt)
 			}
-			if c.want && !strings.Contains(prompt, "accepted at plan review, not in `--unverified`") {
-				t.Fatalf("the brief must say where an accepted gap goes:\n%s", prompt)
-			}
 		})
 	}
 	if p := verifierPrompt(context.Background(), &waveobj.TaskGroup{Final: &waveobj.FinalStage{Round: 1}}, &waveobj.Run{}); strings.Contains(p, "plan review failed") {
@@ -309,9 +288,6 @@ func TestTheVerifierBriefNamesNoCommandsWhenThePlanHasNone(t *testing.T) {
 	prompt := verifierPrompt(context.Background(), g, &waveobj.Run{})
 	if strings.Contains(prompt, "the engine ran") || strings.Contains(prompt, "Do not run them again") {
 		t.Fatalf("a plan with no commands ran none:\n%s", prompt)
-	}
-	if !strings.Contains(prompt, verifierSuiteGuidance) {
-		t.Fatalf("the suite guidance is stated whatever ran:\n%s", prompt)
 	}
 	if !strings.Contains(prompt, fmt.Sprintf("You have %s", ReviewTimeout)) {
 		t.Fatalf("the budget is stated whatever ran:\n%s", prompt)

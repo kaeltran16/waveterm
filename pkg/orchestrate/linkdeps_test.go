@@ -219,10 +219,8 @@ func TestTaskPromptNamesUnlinkedDirsOnlyWhenThereAreSome(t *testing.T) {
 
 func TestWorkerContractSaysALinkedNodeModulesIsShared(t *testing.T) {
 	c := workerContract(&waveobj.TaskGroup{}, &waveobj.TaskNode{ID: "t-1"}, "claude", "")
-	for _, want := range []string{"never install into it, delete it, or `rm -r` through it", unlinkDependencyDir} {
-		if !strings.Contains(c, want) {
-			t.Errorf("the contract must hold %q:\n%s", want, c)
-		}
+	if !strings.Contains(c, sharedDependencyRule) {
+		t.Errorf("the contract must hold the shared-dependency rule:\n%s", c)
 	}
 }
 

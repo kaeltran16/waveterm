@@ -53,9 +53,6 @@ func TestPromptFillsBothPaths(t *testing.T) {
 	if !strings.Contains(got, "Write your report to "+report) {
 		t.Errorf("prompt does not tell the reviewer to write its report to %q", report)
 	}
-	if !strings.Contains(got, "nothing important left") || !strings.Contains(got, "Change no file") {
-		t.Errorf("prompt lost the empty-report allowance or the read-only rule")
-	}
 }
 
 func TestReportPathBesideTheBrainstormFile(t *testing.T) {

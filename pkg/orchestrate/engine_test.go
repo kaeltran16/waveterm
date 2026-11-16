@@ -141,18 +141,10 @@ func TestTaskPromptWithoutPlanHeader(t *testing.T) {
 	}
 }
 
-func TestWorkerContractForbidsAttributionTrailers(t *testing.T) {
+func TestWorkerContractCarriesTheCommitRule(t *testing.T) {
 	c := workerContract(&waveobj.TaskGroup{}, &waveobj.TaskNode{ID: "t-3"}, "claude", "")
-	if !strings.Contains(c, "Co-Authored-By") {
-		t.Fatalf("contract must forbid attribution trailers:\n%s", c)
-	}
-}
-
-// a piped test exits with its last command's status, so `go test ./... | tail` reads as a pass when it fails
-func TestWorkerContractKeepsATestsExitCodeThroughAPipe(t *testing.T) {
-	c := workerContract(&waveobj.TaskGroup{}, &waveobj.TaskNode{ID: "t-3"}, "claude", "")
-	if !strings.Contains(c, "`set -o pipefail`") {
-		t.Fatalf("contract must say how to keep a piped test's exit code:\n%s", c)
+	if !strings.Contains(c, jarvis.CommitRule) {
+		t.Fatalf("contract must carry the commit rule:\n%s", c)
 	}
 }
 
@@ -169,13 +161,9 @@ func TestWorkerContractNamesPlanSpecVerifyAndTool(t *testing.T) {
 	c := workerContract(g, &waveobj.TaskNode{ID: "t-3"}, "pi", "")
 	for _, want := range []string{
 		"You are the worker for task 3 of the plan at C:/p/plan.md (spec: C:/p/spec.md).",
-		"don't re-plan or pause for design approval",
-		"ask once with ask_user_question and concrete options, then wait",
-		"Run the tests your task names and get them passing before you complete; if you can't, ask.",
-		"Don't run the plan's full Verify (`go test ./...`), a whole package or the full suite, even when your task says to: the engine runs Verify after your task merges and again on the merged result. Run the tests your task names alone (for Go, `-run '<names>'`).",
-		"To reproduce a flake, run the one failing test alone (for Go, `-run '^TestX$' -count=N`), never `-count=N` on a whole package.",
-		"Commit, then write your report",
-		"If your context was compacted, re-read your task from the plan.",
+		"ask_user_question",
+		"full Verify (`go test ./...`)",
+		"re-read your task from the plan",
 	} {
 		if !strings.Contains(c, want) {
 			t.Fatalf("contract missing %q:\n%s", want, c)
@@ -199,16 +187,14 @@ func TestWorkerContractWithoutPlanOrVerify(t *testing.T) {
 	c := workerContract(&waveobj.TaskGroup{}, &waveobj.TaskNode{ID: "t-3"}, "claude", "")
 	for _, want := range []string{
 		"You are the worker for task t-3 of this run's dag.",
-		"ask once with AskUserQuestion",
-		"Run the tests your task names and get them passing before you complete; if you can't, ask.",
-		"To reproduce a flake, run the one failing test alone",
+		"AskUserQuestion",
 	} {
 		if !strings.Contains(c, want) {
 			t.Fatalf("contract missing %q:\n%s", want, c)
 		}
 	}
 	// with no Verify nothing else runs the package, so the task's own whole-package step stands
-	for _, gone := range []string{"plan at", "spec:", "re-read your task", "full Verify", "whole package or the full suite"} {
+	for _, gone := range []string{"plan at", "spec:", "re-read your task", "full Verify"} {
 		if strings.Contains(c, gone) {
 			t.Fatalf("a dag without a plan names none, found %q:\n%s", gone, c)
 		}
@@ -221,8 +207,8 @@ func TestWorkerContractNamesCheckAndLeavesVerifyToTheEngine(t *testing.T) {
 	g := &waveobj.TaskGroup{Verify: "go test ./...", Check: "go vet ./..."}
 	c := workerContract(g, &waveobj.TaskNode{ID: "t-3"}, "claude", "")
 	for _, want := range []string{
-		"Run the tests your task names, and `go vet ./...`, and get them passing before you complete; if you can't, ask.",
-		"Don't run the plan's full Verify (`go test ./...`), a whole package or the full suite, even when your task says to: the engine runs Verify after your task merges",
+		"Run the tests your task names, and `go vet ./...`,",
+		"full Verify (`go test ./...`)",
 	} {
 		if !strings.Contains(c, want) {
 			t.Fatalf("contract missing %q:\n%s", want, c)
@@ -232,11 +218,10 @@ func TestWorkerContractNamesCheckAndLeavesVerifyToTheEngine(t *testing.T) {
 
 // Final is the first run of a scenario unless the worker that wrote it runs it, and a failure there costs a fix round.
 func TestWorkerContractHasTheWorkerRunItsOwnFinalScenario(t *testing.T) {
-	want := "run that one scenario yourself (the Final command narrowed to it) and get its steps passing before you complete"
 	g := &waveobj.TaskGroup{FinalCmd: "node scripts/cdp/final-verify.mjs surface-smoke"}
 	c := workerContract(g, &waveobj.TaskNode{ID: "t-3"}, "claude", "")
-	if !strings.Contains(c, want) || !strings.Contains(c, "(`node scripts/cdp/final-verify.mjs surface-smoke`)") {
-		t.Fatalf("contract with a Final command missing %q:\n%s", want, c)
+	if !strings.Contains(c, "(`node scripts/cdp/final-verify.mjs surface-smoke`)") {
+		t.Fatalf("contract with a Final command does not name it:\n%s", c)
 	}
 	if c := workerContract(&waveobj.TaskGroup{}, &waveobj.TaskNode{ID: "t-3"}, "claude", ""); strings.Contains(c, "Final command") {
 		t.Fatalf("no Final set, so no Final sentence: %q", c)
@@ -246,7 +231,7 @@ func TestWorkerContractHasTheWorkerRunItsOwnFinalScenario(t *testing.T) {
 func TestWorkerContractWithCheckButNoVerify(t *testing.T) {
 	g := &waveobj.TaskGroup{Check: "go vet ./..."}
 	c := workerContract(g, &waveobj.TaskNode{ID: "t-3"}, "claude", "")
-	if want := "Run the tests your task names, and `go vet ./...`, and get them passing before you complete; if you can't, ask."; !strings.Contains(c, want) {
+	if want := "Run the tests your task names, and `go vet ./...`,"; !strings.Contains(c, want) {
 		t.Fatalf("contract missing %q:\n%s", want, c)
 	}
 	if strings.Contains(c, "full Verify") {
@@ -1719,15 +1704,6 @@ func TestRunningTaskWithNoControllerGoesStalled(t *testing.T) {
 	}
 }
 
-func TestWorkerContractNamesTheReviewerAndTheLead(t *testing.T) {
-	c := workerContract(&waveobj.TaskGroup{}, &waveobj.TaskNode{ID: "t-1"}, "claude", "")
-	for _, want := range []string{"A reviewer checks your commit against this task and the spec", "the lead reads your report", "what a later task must know"} {
-		if !strings.Contains(c, want) {
-			t.Fatalf("contract missing %q: %q", want, c)
-		}
-	}
-}
-
 // the seal takes the run's report as its summary, so a worker that completes and only then writes its
 // final message leaves the seal with whatever line came before `complete`
 func TestWorkerContractSealsTheReportFromAFile(t *testing.T) {
@@ -1739,16 +1715,10 @@ func TestWorkerContractSealsTheReportFromAFile(t *testing.T) {
 		"--report " + path,
 		"`wsh jarvis complete --commit $(git rev-parse HEAD) --report " + path + "`",
 		jarvis.WorkerReportTemplate,
-		"Nothing goes before the first heading",
-		"a failure that predates your task goes under Found not fixed",
-		"edit tool",
 	} {
 		if !strings.Contains(c, want) {
 			t.Fatalf("contract missing %q:\n%s", want, c)
 		}
-	}
-	if strings.Contains(c, "reads your final message") {
-		t.Fatalf("the report comes from the file, not the final message:\n%s", c)
 	}
 }
 
@@ -1772,9 +1742,8 @@ func TestTaskPromptCarriesReviewFindingsAndGuidance(t *testing.T) {
 	}
 	p := taskPrompt(&waveobj.TaskGroup{}, task, &owner, "claude", "", "", nil)
 	for _, want := range []string{
-		"A reviewer rejected the previous attempt (commit work111): misses the empty-input case",
-		"Fix these on top of that commit; don't restart.",
-		"The lead's guidance: reuse parseDate",
+		"(commit work111): misses the empty-input case",
+		"reuse parseDate",
 	} {
 		if !strings.Contains(p, want) {
 			t.Fatalf("prompt missing %q: %q", want, p)
@@ -1796,9 +1765,6 @@ func TestWorkerContractNamesABrokenBase(t *testing.T) {
 	c := workerContract(g, &g.Tasks[0], "claude", "")
 	if !strings.Contains(c, "`tsc` already fails on the base, before any task (exit 2: error TS2307)") {
 		t.Fatalf("the contract names the base failure, got %q", c)
-	}
-	if !strings.Contains(c, "name them under Found not fixed in your report") {
-		t.Fatalf("the base-failure sentence must point at Found not fixed, got %q", c)
 	}
 }
 

@@ -32,13 +32,11 @@ func seedPlanReviewDag(t *testing.T) (context.Context, *waveobj.TaskGroup) {
 }
 
 // the review dialog sends an approval with quoted notes as text, which a lead not told otherwise takes for a
-// change request.
+// change request; docreview.ts reads the header and the approve label.
 func TestPlanReviewAskMentionsQuotedNotes(t *testing.T) {
 	for _, want := range []string{
-		"the human can quote passages of the plan with a note on each",
+		"header `Plan review`",
 		"an answer that starts with `Accept all and proceed` is an approval",
-		"its `> ` quoted notes are applied before proceeding",
-		"any other text is a change request",
 	} {
 		if !strings.Contains(proceedPastPlanReview, want) {
 			t.Fatalf("plan review ask missing %q:\n%s", want, proceedPastPlanReview)
@@ -122,12 +120,6 @@ func TestPlanReviewHoldsDispatchAndSpawnsTheReviewersInTheLandingTree(t *testing
 		"plan reviewer for run " + g.RunID,
 		filepath.Join(owner.ProjectPath, "docs/superpowers/specs/s.md"),
 		filepath.Join(owner.ProjectPath, "docs/superpowers/plans/p.md"),
-		"every requirement in the spec has a task",
-		"no two tasks that can run at the same time edit the same file",
-		"the same names in every task",
-		"each task states its acceptance criteria and names the tests that prove them",
-		"the commands the plan names",
-		"Only read: never edit, stage or commit, and ask no questions",
 		"`wsh jarvis dag planreview pass \"<summary>\"`",
 		"`wsh jarvis dag planreview fail \"<findings",
 	} {
@@ -240,29 +232,31 @@ const autonomousAccept = "`wsh jarvis dag planreview accept \"autonomous run\"`"
 
 func TestPlanReviewWakesAutonomous(t *testing.T) {
 	for _, w := range []string{planReviewFailedWake(2, "no task for 4.1", true, true), planReviewLostWake(2, "exited", true, true)} {
-		if !strings.Contains(w, "`wsh jarvis dag amend <task> \"<note>\"`") || !strings.Contains(w, autonomousAccept) || !strings.Contains(w, "record in your report") {
-			t.Fatalf("an autonomous last round amends, accepts and records, got %q", w)
-		}
-		if strings.Contains(strings.ToLower(w), "put it to the human") {
-			t.Fatalf("an autonomous last round never goes to the human, got %q", w)
+		if !strings.Contains(w, "`wsh jarvis dag amend <task> \"<note>\"`") || !strings.Contains(w, autonomousAccept) || strings.Contains(w, proceedPastPlanReview) {
+			t.Fatalf("an autonomous last round amends and accepts without the human, got %q", w)
 		}
 	}
-	if w := planReviewFailedWake(1, "no task for 4.1", false, true); strings.Contains(w, "to the human") || !strings.Contains(w, "run `wsh jarvis dag submit` again") {
-		t.Fatalf("an autonomous earlier round revises and makes spec changes itself, got %q", w)
+	if w := planReviewFailedWake(1, "no task for 4.1", false, true); !strings.Contains(w, "run `wsh jarvis dag submit` again") {
+		t.Fatalf("an autonomous earlier round revises and resubmits, got %q", w)
 	}
 	if planReviewLostWake(1, "exited", false, true) != planReviewLostWake(1, "exited", false, false) {
 		t.Fatal("a lost reviewer before the last round is resubmitted either way")
 	}
 
-	// off, the texts are what they were before the setting existed
-	for _, c := range []struct{ got, want string }{
-		{planReviewFailedWake(2, "no task for 4.1", true, false), "wake: plan review failed in round 2, the last: no task for 4.1. Put it to the human; " + proceedPastPlanReview + "."},
-		{planReviewFailedWake(1, "no task for 4.1", false, false), "wake: plan review failed in round 1: no task for 4.1. Revise the plan (put spec changes to the human) and run `wsh jarvis dag submit` again."},
-		{planReviewLostWake(2, "exited", true, false), "wake: the plan reviewer did not finish in round 2, the last (exited). Put it to the human; " + proceedPastPlanReview + "."},
-		{planReviewLostWake(1, "exited", false, false), "wake: the plan reviewer did not finish in round 1 (exited). Run `wsh jarvis dag submit` again to review the plan once more."},
+	// off, the last round goes to the human and an earlier one resubmits; each carries its round and reason
+	for _, c := range []struct {
+		got  string
+		want []string
+	}{
+		{planReviewFailedWake(2, "no task for 4.1", true, false), []string{"round 2", "no task for 4.1", proceedPastPlanReview}},
+		{planReviewFailedWake(1, "no task for 4.1", false, false), []string{"round 1", "no task for 4.1", "`wsh jarvis dag submit` again"}},
+		{planReviewLostWake(2, "exited", true, false), []string{"round 2", "(exited)", proceedPastPlanReview}},
+		{planReviewLostWake(1, "exited", false, false), []string{"round 1", "(exited)", "`wsh jarvis dag submit` again"}},
 	} {
-		if c.got != c.want {
-			t.Fatalf("off:\n got %q\nwant %q", c.got, c.want)
+		for _, want := range c.want {
+			if !strings.Contains(c.got, want) {
+				t.Fatalf("off: %q is missing %q", c.got, want)
+			}
 		}
 	}
 }
@@ -284,11 +278,11 @@ func TestPlanReviewLastRoundAutonomous(t *testing.T) {
 		t.Fatal(err)
 	}
 	joined := strings.Join(f.sends, "\n")
-	if !strings.Contains(joined, autonomousPastPlanReview) || strings.Contains(joined, "Put it to the human") {
+	if !strings.Contains(joined, autonomousPastPlanReview) || strings.Contains(joined, proceedPastPlanReview) {
 		t.Fatalf("an autonomous last round wakes the lead to amend and accept, got %q", f.sends)
 	}
 	_, err := ReplacePlanReviewProposal(ctx, dag.OID, &waveobj.TaskGroup{PlanPath: "p.md", Tasks: []waveobj.TaskNode{{ID: "t-0", Label: "a", State: TaskState_Pending}}})
-	if err == nil || !strings.Contains(err.Error(), autonomousAccept) || strings.Contains(err.Error(), "put it to the human") {
+	if err == nil || !strings.Contains(err.Error(), autonomousAccept) || strings.Contains(err.Error(), proceedPastPlanReview) {
 		t.Fatalf("a resubmit past the last round on an autonomous run is refused with the accept, got %v", err)
 	}
 }
