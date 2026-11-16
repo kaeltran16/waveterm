@@ -90,11 +90,15 @@ const PLAN = [
     task("t-4", "truncate"),
 ];
 
+// stamped when the seed is serialised for the page, not at module load: final-verify loads every scenario module
+// before the first runs, so a load-time stamp is minutes old by the time this scenario reads it
+const ago = (t, key, ms) => Object.defineProperty(t, key, { get: () => Date.now() - ms, enumerable: true });
+
 // the four tasks mid-run: two landed, one running, one in review, and t-4's worker asking
 const BUILD = [
     task("t-1", "add module", { state: "done", merged: true }),
-    task("t-2", "subtract module", { state: "running", firstactivity: Date.now() - 4 * M - 10 * S }),
-    task("t-3", "multiply module", { deps: ["t-1"], state: "reviewing", lastactivity: Date.now() - 2 * M - 11 * S, reviewround: 0 }),
+    ago(task("t-2", "subtract module", { state: "running" }), "firstactivity", 4 * M + 10 * S),
+    ago(task("t-3", "multiply module", { deps: ["t-1"], state: "reviewing", reviewround: 0 }), "lastactivity", 2 * M + 11 * S),
     task("t-4", "truncate", { state: "running", reviewround: 1, reviewcommit: SHA.t4 }),
 ];
 
