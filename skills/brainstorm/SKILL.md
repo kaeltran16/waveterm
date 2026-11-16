@@ -1,15 +1,18 @@
 ---
 name: brainstorm
-description: Use whenever superpowers:brainstorming (or brainstorming) runs inside Arc, i.e. `wsh` is on PATH, except in an agent an Arc run started — keeps the brainstorm's state in .superpowers/brainstorm/<topic>/brainstorm.json, which Arc shows beside your terminal, and defines the `brainstorm:` lines Arc sends you.
+description: Use for any brainstorm or design inside Arc, i.e. `wsh` is on PATH (the user asks to brainstorm, design or think something through before it is built, or a run started a design session for you), except in an agent an Arc run started. Arc's design skill, from the first message to an approved spec — keeps the brainstorm's state in .superpowers/brainstorm/<topic>/brainstorm.json, which Arc shows beside your terminal, and defines the `brainstorm:` lines Arc sends you.
 ---
 
-# Brainstorming inside Arc
+# Designing inside Arc
 
-Follow `superpowers:brainstorming` as usual, with this skill beside it. Arc shows the brainstorm on
-the Agent surface as a pane next to your terminal: the current question with why you ask it, the
-answers you offer and an answer box, what was decided so far, the design's parts as they form, mockups beside their parts, and at the end a builder check and the
-start of a run. It reads all of that from one file you write. You are its only writer; Arc only
-reads it, and every user action reaches you as one line, sent to you as a message.
+This skill takes a request from the first message to a design the user approves and a run builds:
+find out what they want and why, settle the decisions that change what gets built, write the spec,
+have a builder check it, and stop at approval. Arc shows the brainstorm on the Agent surface as a
+pane next to your terminal: the current question with why you ask it, the answers you offer and an
+answer box, what was decided so far, the design's parts as they form, mockups beside their parts,
+and at the end a builder check and the start of a run. It reads all of that from one file you write.
+You are its only writer; Arc only reads it, and every user action reaches you as one line, sent to
+you as a message.
 
 **Not in a run's agent.** When your instructions put every question through AskUserQuestion or
 `wsh ask` (an orchestrator run's lead, or any agent an Arc run started; Arc sets `ARC_RUN_AGENT` in its
@@ -17,21 +20,97 @@ environment), follow them and do not use this skill: the cockpit shows those que
 design session a run started for you to brainstorm in is not one of those: it has no `ARC_RUN_AGENT`,
 so this skill applies.
 
-What changes from plain brainstorming:
+**Nothing gets built before approval.** Until the user approves the design, write no product code,
+scaffold nothing, install nothing, and invoke no implementation or plan skill. Reading, recon,
+boards and throwaway spikes are fine. After approval the next step is a run: Arc starts it and its
+lead plans from the spec (**The run**, below). When the user asks instead for a plan to run later,
+write it with `arc:plan`, and no other plan skill.
 
-- A playback is a part written to the file, not 200-300 words in the terminal.
+## The flow
+
+1. **Look before you ask.** Before the first question, read what the request points at (a spec, a
+   handoff, files, the earlier conversation) and the code it connects to, until you can say how
+   those parts work today and what the change would touch.
+2. **The first message** creates the file with question 1 (**The first message**, under Rules).
+3. **The interview** (below): one question per turn, each answer written into the parts as it
+   arrives. Play back as you go: as soon as you can describe a part (what it is for, how one piece
+   behaves), write it as a `guess` part and go on to the next question.
+4. **The approaches.** Once you know what they want and before anything is written up, the way to
+   build each part that can be built more than one way goes to the judge as an approach question
+   (**Approach questions go to the judge**, below). Where there is genuinely one sensible way, write
+   it as a `guess` part whose body says why the others do not fit.
+5. **Size the work** (below), once the approach is picked.
+6. **Done.** The `builder` part as a `guess`, `done: true`; the user confirms the parts and presses
+   **Check with a builder**.
+7. **The spec and the builder check** (**The spec**, **The builder check**, below), then approval
+   and the run.
+
+## The interview
+
+- **Ask why first.** Until you know why they want it, ask open questions in their own terms, with no
+  options attached: their words carry intent your options cannot. The exception is an open request,
+  which opens on directions (**An open request opens on directions**, below); why-first is for a
+  request whose goal is settled. A request that already says why skips it.
+- **Look before asking.** Ask only what the request, the project and recon cannot answer, and only
+  when the answer changes what gets built. Never ask what their context already answers, or reopen
+  what they decided. Otherwise make the call, write it as a `guess` part with your reason, and move
+  on: a guess costs the user one correction, a question costs a turn.
+- **One question per turn.** The pane holds one open question.
+- **Pick the next question from the design tree.** Every decision branches into the decisions that
+  hang off it. The frontier is the decisions whose prerequisites are settled; ask from the frontier,
+  the one whose answer changes the most, and never a question whose answer depends on one still
+  open. The interview is done when the frontier is empty: every branch visited, nothing silently
+  assumed.
+- **Finding facts is your job.** Read the code, the user's files and the web for anything you can look
+  up; the user only decides. Process steps (writing things up, where files go, looking further, how
+  to show something) are your calls: do them.
+- **Make every question specific.** Build each on their last answer or on something you found, so it
+  helps them think through a consequence or a case they may have missed. Use their vocabulary, never
+  process jargon.
+- **How it gets made.** Someone who raises the how or asks about trade-offs wants the choices put to
+  them; someone who talks about outcomes hands you the how: make those calls as `guess` parts. Build
+  on what the existing work already uses.
+
+Ground to cover, as territory and never as a script: what kind of thing it is, why now and what
+success looks like, goals, non-goals and anti-goals (what would make it a failure even if it works),
+prior art, what exists today, and the details they care about.
+
+## Size the work
+
+Once the approach is picked, write the size as a note part (`"id": "size"`, title `Size`) whose gist
+says it in plain words: a small change gets a short spec, a point or two per section; a project gets
+the full spec. The user can push back on it like on any note. The size sets only the spec's length:
+every design still goes through the builder check. If the work grows, step up a size in place. If it
+is really several independent projects, say so in a question, agree on an order, and design them one
+at a time.
+
+## The spec
+
+Written at `spec` on `brainstorm: check`, from the parts: a plain document a capable builder could
+plan from without going back to the user. It covers intent and why; goals, non-goals and anti-goals;
+constraints; the approach picked; the decisions; and what is left to the builder.
+
+- Every decision is written in its final form, with one line of why.
+- No file paths, code snippets, commit refs or change history (no "was", no "after answer 4"), and
+  no markers for builder questions or Agent's calls: a call reads as a decision like any other, and
+  `check.calls` keeps the record.
+- Notes, recon findings and the approaches not taken stay in the brainstorm file.
+- Tests: name a test seam only where the design itself chose one. There is no testing section by
+  default: the run settles the test cases at build time.
+
+## The pane
+
+- A playback is a part written to the file, not a block of text in the terminal.
 - The user reads the pane, not the terminal. Your terminal reply is one short line on what you
   changed, then the question you are waiting on. Never repeat a part's text there.
-- Mockups are `arc:design` boards, listed on the part they illustrate. Never start the visual
-  companion's server inside Arc. A live spike is listed on its part too, never only in the terminal.
-  A board or spike that shows one answer also goes on that answer's option or approach, since a
-  question fills the pane while it is open (**Mockups**, below).
-- Recon and mockups need no permission. Where superpowers says to offer recon or the visual
-  companion, do the work instead: read the project you run in, or search the web, once looking would
-  help, and draw boards whenever seeing would help more than reading (**Mockups**, below). Record
-  what you found as a `recon` entry whose `q` says what you looked at, with the parts it fed in
-  `into`. Never spend a question on whether to look or to draw: the pane counts every question as a
-  decision, and the user came to decide the design.
+- Mockups are `arc:design` boards, listed on the part they illustrate. A live spike is listed on its
+  part too, never only in the terminal. A board or spike that shows one answer also goes on that
+  answer's option or approach, since a question fills the pane while it is open (**Mockups**, below).
+- Recon and mockups need no permission: do the work instead of offering it. Read the project you run
+  in, or search the web, once looking would help, and draw boards whenever seeing would help more
+  than reading (**Mockups**, below). Record what you found as a `recon` entry whose `q` says what you
+  looked at, with the parts it fed in `into`. Never spend a question on whether to look or to draw:
+  the pane counts every question as a decision, and the user came to decide the design.
 - Still end every turn on the question in the terminal: the file is what Arc shows, the terminal is
   what you wait on.
 - An open request opens on directions, not on an open question (**An open request opens on
@@ -129,9 +208,9 @@ Part states:
 
 **Decisions and notes.** A part is a decision unless it has `"kind": "note"`. A decision is what the
 run builds, and each one has to be `yours` before the builder check. A note is background the
-decisions stand on: what recon found, what research says, a trade-off write-up. It goes into the
-spec as context, the user has nothing to confirm on it, and Arc lists it apart, under "What the
-agent found"; it needs no `state`. Whatever the user needs in order to choose belongs on the
+decisions stand on: what recon found, what research says, a trade-off write-up. It stays in this
+file, out of the spec (a decision that needs it carries the fact in its line of why), the user has
+nothing to confirm on it, and Arc lists it apart, under "What the agent found"; it needs no `state`. Whatever the user needs in order to choose belongs on the
 question (`read`, and each option's `pros` and `cons`), never only in a part: while a question is
 open it fills the pane and the parts are out of sight.
 
@@ -167,7 +246,7 @@ Every other action is a `brainstorm:` line:
 | `brainstorm: check` | Write the spec, run `wsh brainstorm check <path>`, end the turn. Builder check, below. |
 | `brainstorm: builder questions <path>` | Sort the reviewer's questions into `check`. Builder check, below. |
 | `brainstorm: builder answer: <text>` | Builder check, below. |
-| `brainstorm: builder decide` | Move the first `check.yours` entry with no `a` into `check.calls` as `{ "text": <your decision>, "part": <its part> }`, fold it into that part and the spec (marked "Agent's call"), write the file. |
+| `brainstorm: builder decide` | Move the first `check.yours` entry with no `a` into `check.calls` as `{ "text": <your decision>, "part": <its part> }`, fold it into that part and the spec (unmarked: **The spec**), write the file. |
 | `brainstorm: keep talking` | Set `done: false` and `check: null`, and ask your next question. |
 | `brainstorm: approved` | Stop. Arc either attaches the design to the run waiting on this session and starts its lead, or opens the run launcher on its **Approved design** start with the spec attached (**The run**, below). Do not start a run yourself. |
 | `brainstorm: run <id>` | A run started from this brainstorm, or took its design: set `run` to the id. |
@@ -195,16 +274,20 @@ the result sets `working` back to `null`. Without it, Arc can take the end of th
 of the work and offer the same action again. Never leave `working` set while you wait on the user:
 it locks the pane.
 
-**The first message.** Pick `<topic>`. Create the file with `title`, `spec` (the path superpowers
-would write the spec to, under `docs/superpowers/specs/`), question 1 in `question` with `n: 1`, its part created as `asked`, and
-`history: []`. In Claude Code a hook reveals the pane when your file-writing tool creates the file;
+**The first message.** Pick `<topic>`. Create the file with `title`, `spec`
+(`docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md`), question 1 in `question` with `n: 1`, its part created as `asked`, and
+`history: []`. Question 1 is the why, or the directions question for an open request (below), or,
+when the request already says why, the biggest decision on the frontier. When the request already
+says what they want (a spec, a detailed request), the same write plays it back as an `intent` part
+(`guess`) and puts what you found as notes; something they may not have considered that would change
+the request (a constraint, a conflict, a cheaper path) leads question 1's `why`. In Claude Code a hook reveals the pane when your file-writing tool creates the file;
 in any other harness run `wsh ui reveal brainstorm:<topic>` from your terminal.
 
 **An open request opens on directions.** A request is open when it leaves the goal itself unsettled:
 the user says they are exploring, unsure or after ideas, asks to improve something in general, or
 gives an example ("something like X", "for example"). For an open request, question 1 asks which
 direction to take, as an approach question (**Approach questions go to the judge**), in place of the
-open question superpowers starts with:
+why question:
 
 - Its approaches are directions: different kinds of answer to the request, not variants of one. An
   example the user gave is one instance among them, and at least two directions reach wider than it.
@@ -213,7 +296,7 @@ open question superpowers starts with:
 - Its `why` says what you read in the request, and that a line on why they want it can change the
   pick.
 
-Their pick, and any pushback on it, tells you the why superpowers asks for; ask it as an open
+Their pick, and any pushback on it, tells you the why; ask it as an open
 question only if it is still unclear once a direction is chosen. When an open question you asked
 gets "not sure", "what do you suggest", "just exploring" or "it's just an example" back, the request
 was open: drop the question (superseded, **When the line is not an answer**) and ask the directions
@@ -292,7 +375,7 @@ question back. In that one write:
   you run the judge with `--line "<their line, verbatim>"`. Its `why` says what the line reopened,
   never a lean.
 
-**Asking.** One question per turn, as superpowers does. Every question about the design names its
+**Asking.** One question per turn. Every question about the design names its
 `part`. Every question carries `why`: one or two sentences on what you already know and what you
 cannot tell without the user, which Arc shows under the question. When the question has natural
 choices (a yes-or-no question included), it also carries 2-4 `options`, each `{ "label", "detail", "pros", "cons" }`: `label` is the
@@ -438,7 +521,7 @@ time in milliseconds, write it back. Carry on from the file, not from memory.
 to you. You write the spec, start the reviewer, and later sort what it asked.
 
 On `brainstorm: check`: the user pressed **Check with a builder**, which is their go-ahead: do not ask
-again. Write the spec at `spec` from the parts, then run `wsh brainstorm check <absolute path of
+again. Write the spec at `spec` from the parts (**The spec**, at the size the `size` note says), then run `wsh brainstorm check <absolute path of
 brainstorm.json>`. Write nothing else to the file: Arc tracks the check and shows the user that a builder
 is reading. End the turn with one line naming the spec's path. If the command fails, put its error in
 `question` with the next `n` (no `part`), so the pane shows it, and write the file.
@@ -472,7 +555,7 @@ important is left, write `check` with `"yours": []`. Then fill `check`:
   `pros`, `cons`, one `pick`), and left out when the answer is open. `a` and `into` stay out until the
   question is settled (below); `into` is the list of every part the answer changed.
 - `calls`: the decisions you made for them, each `{ "text", "part" }` naming the part it belongs
-  to. Mark each one inline in the spec as "Agent's call".
+  to. In the spec it reads as any other decision, unmarked (**The spec**).
 - `answered`: what the builder asked that the spec already answers.
 - `touched`: the ids of the parts the check changed or annotated. Refresh it whenever the check's
   parts change (rewritten, added or annotated), on every write that does that.
@@ -491,7 +574,7 @@ entry's `why`, and rework its `options` as **When the line is not an answer** sa
 
 On `brainstorm: builder decide`: the user leaves the first `check.yours` entry with no `a` to you.
 Move it out of `yours` into `calls` as `{ "text": <your decision>, "part": <its part> }`, fold it into
-that part and into the spec marked "Agent's call", and write the file. Arc keeps no state for it: the
+that part and into the spec (unmarked, as **The spec** says), and write the file. Arc keeps no state for it: the
 entry is gone from `yours`.
 
 **An answer settles builder questions too.** When any answer, a talk question's or a builder
@@ -514,7 +597,8 @@ answered or decided by you, and every decision is `yours`.
   design** start, with the spec and the first board attached, and sends `brainstorm: run <id>` once the run
   starts.
 
-Either way, a lead plans from the design: do not plan or start a run yourself.
+Either way, a lead plans from the design: do not plan or start a run yourself. Only when the user
+asks you for a plan to run later do you write one, with `arc:plan`.
 
 **Resuming.** Asked to resume a brainstorm from a `brainstorm.json` path (a new agent after the old
 one exited): read the file, carry on from its `question` or its next step, and keep writing the

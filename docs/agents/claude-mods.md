@@ -21,9 +21,9 @@ that folder in `env.CLAUDE_CODE_PLUGIN_DIRS` of `~/.claude/settings.json`, so ev
 
 ## Arc's skills
 
-Arc's own skills live in `skills/` (brainstorm, cockpit, design, initiatives, notes, runs), embedded into
-`wavesrv` by `skills/skills.go`. Every agent-sync apply (each agent launch) seeds them into the vault's
-skills root, which then projects them into each harness's skills dir, except Claude Code's:
+Arc's own skills live in `skills/` (brainstorm, cockpit, design, initiatives, notes, plan, runs,
+writing-plans), embedded into `wavesrv` by `skills/skills.go`. Every agent-sync apply (each agent launch)
+seeds them into the vault's skills root, which then projects them into each harness's skills dir, except Claude Code's:
 `task sync:claudemod` also copies them into the arc mod, so Claude Code lists them as `arc:<skill>` and
 agent-sync keeps them out of `~/.claude/skills`.
 

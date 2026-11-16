@@ -238,11 +238,19 @@ func TestBrainstormContextFor(t *testing.T) {
 	if parsed.HookSpecificOutput.HookEventName != "PostToolUse" || !strings.Contains(parsed.HookSpecificOutput.AdditionalContext, "arc:brainstorm") {
 		t.Errorf("output = %q", out)
 	}
-	if contextOutput(skill("superpowers:writing-plans"), false) != "" {
-		t.Error("another skill produced output")
+	if strings.Contains(parsed.HookSpecificOutput.AdditionalContext, ".superpowers/brainstorm") {
+		t.Errorf("the redirect repeats the skill's own instructions: %q", parsed.HookSpecificOutput.AdditionalContext)
+	}
+	if contextOutput(skill("brainstorming"), false) == "" {
+		t.Error("the bare upstream name got no redirect")
+	}
+	for _, name := range []string{"arc:brainstorm", "arc:plan", "superpowers:writing-plans"} {
+		if contextOutput(skill(name), false) != "" {
+			t.Errorf("%s produced output", name)
+		}
 	}
 	if contextOutput(skill("superpowers:brainstorming"), true) != "" {
-		t.Error("a run's agent was sent to arc:brainstorm")
+		t.Error("a run's agent was redirected to arc:brainstorm")
 	}
 }
 

@@ -83,6 +83,96 @@ export const settingsHeadless = {
     },
 };
 
+// --- settings-plan-skill: the Plan skill row on Settings > Run defaults --------------------------------------
+// The key is cleared in arrange so step 1 sees the shipped default whatever the dev app had, and put back in
+// teardown. The Segmented control has no state attribute, so the selected option is the one carrying the
+// accent background class.
+const PLAN_SKILL_KEY = "run:planskill";
+const PLAN_SKILL_DEFAULT = "plan";
+const PLAN_SKILL_PANE = `document.querySelector('[data-settings-section="run"]')`;
+const PLAN_SKILL_ROW = `${PLAN_SKILL_PANE}?.querySelector('[data-setting-row="run.planskill"]')`;
+const PLAN_SKILL_WAIT_MS = 5000;
+const planSkillOptions = (h) =>
+    h.ev(`(() => {
+        const row = ${PLAN_SKILL_ROW};
+        if (!row) return null;
+        return [...row.querySelectorAll("button")].map((b) => ({
+            label: (b.textContent || "").trim(),
+            selected: b.className.includes("bg-accentbg"),
+        }));
+    })()`);
+const planSkillClick = (h, label) =>
+    h.ev(`[...(${PLAN_SKILL_ROW}?.querySelectorAll("button") ?? [])].find((b) => (b.textContent || "").trim() === ${JSON.stringify(label)})?.click()`);
+const planSkillStored = async (h) => ((await h.rpc("getfullconfig", null))?.settings ?? {})[PLAN_SKILL_KEY];
+async function planSkillWaitStored(h, want) {
+    const deadline = Date.now() + PLAN_SKILL_WAIT_MS;
+    let value = await planSkillStored(h);
+    while (value !== want && Date.now() < deadline) {
+        await polishNap(150);
+        value = await planSkillStored(h);
+    }
+    return value;
+}
+
+export const settingsPlanSkill = {
+    name: "settings-plan-skill",
+    surface: "settings",
+    async arrange(h) {
+        const prior = await planSkillStored(h);
+        await h.rpc("setconfig", { [PLAN_SKILL_KEY]: null });
+        return { prior };
+    },
+    async assert(h) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+
+        await h.goto("cockpit");
+        await h.goto("settings");
+        await h.ev(`document.querySelector('[data-section="run"]')?.click()`);
+        await polishWaitFor(h, `${PLAN_SKILL_ROW} != null`, PLAN_SKILL_WAIT_MS);
+        const initial = await planSkillOptions(h);
+        rec(
+            "1. Settings > Run defaults shows the Plan skill row with both options and arc:plan selected",
+            JSON.stringify(initial) ===
+                JSON.stringify([
+                    { label: "arc:plan", selected: true },
+                    { label: "writing-plans", selected: false },
+                ]),
+            JSON.stringify(initial)
+        );
+
+        await planSkillClick(h, "writing-plans");
+        const stored = await planSkillWaitStored(h, "writing-plans");
+        await polishNap(200);
+        const chosen = await planSkillOptions(h);
+        rec(
+            "2. choosing writing-plans selects it and the config reads run:planskill = writing-plans",
+            stored === "writing-plans" && chosen?.find((o) => o.selected)?.label === "writing-plans",
+            JSON.stringify({ stored, chosen })
+        );
+
+        await planSkillClick(h, "arc:plan");
+        const back = await planSkillWaitStored(h, PLAN_SKILL_DEFAULT);
+        await polishNap(200);
+        const selected = await planSkillOptions(h);
+        rec(
+            "3. choosing arc:plan selects it back",
+            back === PLAN_SKILL_DEFAULT && selected?.find((o) => o.selected)?.label === "arc:plan",
+            JSON.stringify({ back, selected })
+        );
+        await h.ev(`${PLAN_SKILL_ROW}?.scrollIntoView({ block: "center" })`);
+        await polishNap(200);
+        await h.shot("cdp-shots/settings-plan-skill.png");
+        return steps;
+    },
+    async teardown(h, ctx) {
+        // null drops the override, so the shipped default takes over again
+        const restore = ctx.prior === PLAN_SKILL_DEFAULT ? null : (ctx.prior ?? null);
+        await h.rpc("setconfig", { [PLAN_SKILL_KEY]: restore });
+        await h.goto("cockpit");
+    },
+};
+
 // --- settings-vault-sync: the Sync now button on Settings > Vault's Sync remote row ---------------------
 // The dev app is pointed at a throwaway vault (wavevault opens the configured root on every call), first with
 // no remote, then with a bare temp remote, then with a remote that does not exist. The configured vault is

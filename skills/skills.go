@@ -8,5 +8,5 @@ package skills
 
 import "embed"
 
-//go:embed brainstorm charts cockpit design initiatives notes runs
+//go:embed brainstorm charts cockpit design initiatives notes plan runs writing-plans
 var FS embed.FS

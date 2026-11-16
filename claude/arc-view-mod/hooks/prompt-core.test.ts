@@ -90,6 +90,15 @@ describe("parseRunPrompt", () => {
         expect(c?.planTask).toEqual({ path: PLAN, n: "3" });
     });
 
+    it("reads the Check command from a worker brief under either plan skill", () => {
+        for (const name of ["worker", "worker-plan"]) {
+            const c = parseRunPrompt(rowText(name));
+            expect(cardHeader(c!)).toBe("task 3 worker");
+            expect(field(c, "check")).toBe("npm run lint");
+            expect(c?.planTask).toEqual({ path: PLAN, n: "3" });
+        }
+    });
+
     it("leaves a plan-less worker's title out when the plan header stands before it", () => {
         const c = parseRunPrompt(rowText("worker-dag"));
         expect(cardHeader(c!)).toBe("task t-2 worker");
@@ -105,13 +114,15 @@ describe("parseRunPrompt", () => {
         expect(field(parseRunPrompt(text), "task")).toBe("add fmtDate");
     });
 
-    it("reads a task reviewer", () => {
-        const c = parseRunPrompt(rowText("reviewer"));
-        expect(cardHeader(c!)).toBe("task t-3 reviewer");
-        expect(field(c, "task")).toBe("Question bank store");
-        expect(field(c, "change")).toBe("git diff abc1234..def5678");
-        expect(field(c, "plan")).toBe(PLAN);
-        expect(field(c, "spec")).toBe(SPEC);
+    it("reads a task reviewer under either plan skill", () => {
+        for (const name of ["reviewer", "reviewer-plan"]) {
+            const c = parseRunPrompt(rowText(name));
+            expect(cardHeader(c!)).toBe("task t-3 reviewer");
+            expect(field(c, "task")).toBe("Question bank store");
+            expect(field(c, "change")).toBe("git diff abc1234..def5678");
+            expect(field(c, "plan")).toBe(PLAN);
+            expect(field(c, "spec")).toBe(SPEC);
+        }
     });
 
     it("reads both plan reviewers", () => {

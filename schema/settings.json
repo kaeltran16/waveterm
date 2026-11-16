@@ -138,6 +138,13 @@
         "harness:preferredmodel": {
           "type": "string"
         },
+        "run:planskill": {
+          "type": "string",
+          "enum": [
+            "plan",
+            "writing-plans"
+          ]
+        },
         "jira:site": {
           "type": "string"
         },

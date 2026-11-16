@@ -1048,7 +1048,7 @@ func dispatchTasks(ctx context.Context, budget *spawnBudget, g *waveobj.TaskGrou
 		// named after its task: a prompt too long for a command line moves to a file, and the ai-title of the
 		// pointer to it names every such worker the same.
 		oref, err := spawnWorker(spawnCtx, capability, owner.WorkspaceId, channelProjectName(spawnCtx, g.ChannelId), cwd, prompt,
-			jarvis.RunWorkerOptions{SessionId: sessionId, RunId: runID, TaskId: taskID, Label: task.Label, ShortCache: true, StrictMCP: true, Tools: workerTools})
+			jarvis.RunWorkerOptions{SessionId: sessionId, RunId: runID, TaskId: taskID, Label: task.Label, ShortCache: true, StrictMCP: true, NoSuperpowers: true, Tools: workerTools})
 		spawnMs := time.Since(spawnStart).Milliseconds()
 		spawnedAt := time.Now().UnixMilli()
 		if err != nil {
@@ -1181,11 +1181,31 @@ func WorkerReportPath(dagOID, taskID string) string {
 	return filepath.ToSlash(filepath.Join(os.TempDir(), "arc-reports", dagOID, taskID+".md"))
 }
 
+// The worker brief's test sentences follow the group's plan skill. A writing-plans task names its tests; an
+// arc:plan task states acceptance criteria only, so its worker picks the tests. The opening of each keeps the
+// form the arc-view mod reads the Check command from (WORKER_CHECK in claude/arc-view-mod/hooks/prompt-core.ts).
+const (
+	workerTestsNamed    = "Run the tests your task names"
+	workerFailFirst     = " When your task says to watch a test fail first, run it before you write the code it tests: a compile error against today's code counts as that failure."
+	workerVerifyNamed   = " Run the tests your task names alone (for Go, `-run '<names>'`)."
+	workerTestsWritten  = "Run the tests you write"
+	workerSeamRule      = " Your task states acceptance criteria, not tests: pick the test cases yourself at the public seam the criteria imply, and work red-green, writing each test and watching it fail before you write the code that passes it (a compile error against today's code counts as that failure). Test behaviour through the public interface, mock only at system boundaries (the network, the clock, another process), and never compute a test's expected value with the code under test."
+	workerVerifyWritten = " Run the tests you wrote alone (for Go, `-run '<names>'`)."
+)
+
+// workerAskWhenSeamUnclear takes the runtime's ask tool.
+const workerAskWhenSeamUnclear = " Ask the lead with %s only when the seam is unclear, such as a criterion no test can check without a new public interface; otherwise the test cases are yours to choose."
+
 // workerContract opens every dag worker's prompt (spec §4). The plan is approved, so the worker neither
 // re-plans nor guesses a consequential decision: it asks, and the lead or the human answers. It owns its
 // task's tests, and it names the plan so a compacted worker can re-read its task. tree is the worker's own
 // tree, where a branch-landed dag's docs are the snapshot committed at submit.
 func workerContract(g *waveobj.TaskGroup, task *waveobj.TaskNode, runtime, tree string) string {
+	testsOpening, testRule, verifyTail := workerTestsNamed, workerFailFirst, workerVerifyNamed
+	if jarvis.EffectivePlanSkill(g.PlanSkill) == jarvis.PlanSkill_Plan {
+		testsOpening, verifyTail = workerTestsWritten, workerVerifyWritten
+		testRule = workerSeamRule + fmt.Sprintf(workerAskWhenSeamUnclear, jarvis.AskTool(runtime))
+	}
 	var b strings.Builder
 	if g.PlanPath != "" {
 		fmt.Fprintf(&b, "You are the worker for task %s of the plan at %s", strings.TrimPrefix(task.ID, "t-"), DocPath(g, tree, g.PlanPath))
@@ -1200,18 +1220,18 @@ func workerContract(g *waveobj.TaskGroup, task *waveobj.TaskNode, runtime, tree 
 	b.WriteString("A reviewer checks your commit against this task and the spec before it lands, and the lead reads your report.\n")
 	b.WriteString("Edit files with your edit tool; don't script multi-kilobyte replacements through the shell.\n")
 	b.WriteString(sharedDependencyRule + "\n")
-	b.WriteString("Run the tests your task names")
+	b.WriteString(testsOpening)
 	if g.Check != "" {
 		fmt.Fprintf(&b, ", and `%s`,", g.Check)
 	}
 	b.WriteString(" and get them passing before you complete; if you can't, ask.")
-	b.WriteString(" When your task says to watch a test fail first, run it before you write the code it tests: a compile error against today's code counts as that failure.")
+	b.WriteString(testRule)
 	if baseCheckFailed(g) {
 		fmt.Fprintf(&b, " `%s` already fails on the base, before any task (%s): don't fix those failures or count them as yours, and name them under Found not fixed in your report.", g.Check, g.BaseCheck.Detail)
 	}
 	if g.Verify != "" {
 		// the brief wins over a plan whose task steps name whole-package runs (run 6c7652be spent most worker time on them)
-		fmt.Fprintf(&b, " Don't run the plan's full Verify (`%s`), a whole package or the full suite, even when your task says to: the engine runs Verify after your task merges and again on the merged result. Run the tests your task names alone (for Go, `-run '<names>'`).", g.Verify)
+		fmt.Fprintf(&b, " Don't run the plan's full Verify (`%s`), a whole package or the full suite, even when your task says to: the engine runs Verify after your task merges and again on the merged result.%s", g.Verify, verifyTail)
 	}
 	if g.FinalCmd != "" {
 		// first-round workers wrote scenarios they never ran, so Final was their first run (5 of 13 runs failed it, 2026-10-07 review)

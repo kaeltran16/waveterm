@@ -15,7 +15,7 @@ func DesignSessionPrompt(goal, kind string) string {
 		return "Mock up this goal with arc:design: " + goal + "\n\n" +
 			"A run waits on this session: when the human approves the mockup (Build this… on the canvas), the run takes it and its lead plans from it."
 	}
-	return "Brainstorm this goal with the human with superpowers:brainstorming: " + goal + "\n\n" +
+	return "Brainstorm this goal with the human with arc:brainstorm: " + goal + "\n\n" +
 		"A run waits on this session: when the human approves the design (Approve in the brainstorm pane), the run takes it and its lead plans from it."
 }
 

@@ -1408,6 +1408,9 @@ function ClaudeApiKeyItem({
 
 function RunRouteSection() {
     const preference = useAtomValue(harnessPreferenceAtom);
+    const planSkillRaw = useAtomValue(getSettingsKeyAtom("run:planskill")) as string | undefined;
+    // the backend maps an empty or unknown value to the shipped default, plan
+    const planSkill = planSkillRaw === "writing-plans" ? "writing-plans" : "plan";
     return (
         <div>
             <SettingRow id="run.route">
@@ -1415,6 +1418,16 @@ function RunRouteSection() {
                     value={preference.route}
                     canInherit={false}
                     onChange={(route) => route && setPreferredRoute(route)}
+                />
+            </SettingRow>
+            <SettingRow id="run.planskill">
+                <Segmented
+                    options={[
+                        { id: "plan", label: "arc:plan" },
+                        { id: "writing-plans", label: "writing-plans" },
+                    ]}
+                    value={planSkill}
+                    onChange={(v) => writeConfig({ "run:planskill": v })}
                 />
             </SettingRow>
             {preference.error ? <Note tone="error">{preference.error}</Note> : null}

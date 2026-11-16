@@ -214,7 +214,7 @@ type RoutePin struct {
 
 type RunPhase struct {
 	Kind        string       `json:"kind"`               // brainstorm | plan | execute | orchestrate | custom
-	Skill       string       `json:"skill,omitempty"`    // e.g. "superpowers:writing-plans"
+	Skill       string       `json:"skill,omitempty"`    // e.g. "arc:plan"
 	State       string       `json:"state"`              // pending | running | blocked | done | failed | skipped
 	Gate        bool         `json:"gate,omitempty"`     // orchestrator: the lead was told to hold
 	FreshCtx    bool         `json:"freshctx,omitempty"` // this phase runs in its own fresh worker (clear-context boundary)
@@ -301,6 +301,10 @@ type Run struct {
 	// Autonomous is the Approvals setting: the lead answers what would otherwise reach the human. Pending
 	// here before a dag exists; a submit carries it onto the group, which owns it after.
 	Autonomous bool `json:"autonomous,omitempty"`
+	// PlanSkill is the contract the run's plan is written and worked by: "plan" or "writing-plans" (the
+	// run:planskill setting at CreateRun). Pending here before a dag exists; a submit carries it onto the
+	// group. Empty on a quick run and on every run from before the field, which read as writing-plans.
+	PlanSkill string `json:"planskill,omitempty"`
 	// Orchestration selects which machine an orchestrator lead drives: "engine" publishes a TaskGroup
 	// that pkg/orchestrate schedules; "adaptive" dispatches the lead's own subagents with no TaskGroup.
 	// Empty preserves the pre-2026-09 fork, where runtime alone decided (pi engine, others adaptive).
@@ -606,6 +610,7 @@ type TaskGroup struct {
 	// route for the plan review's second pass and follow-up reviewers (nil = claude/sonnet)
 	LightReviewerRoute *RoutePin   `json:"lightreviewerroute,omitempty"`
 	Autonomous         bool        `json:"autonomous,omitempty"` // the lead answers what would otherwise reach the human
+	PlanSkill          string      `json:"planskill,omitempty"`  // the contract the plan was written by (jarvis.EffectivePlanSkill reads empty as writing-plans)
 	MergeRequired      bool        `json:"mergerequired,omitempty"`
 	CreatedTs          int64       `json:"createdts"`
 	UpdatedTs          int64       `json:"updatedts"`

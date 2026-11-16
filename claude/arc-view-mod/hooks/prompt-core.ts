@@ -124,7 +124,8 @@ function planLead(rest: string): Card | null {
 }
 
 const WORKER = /^You are the worker for task (\S+) of (?:the plan at (.+?)(?: \(spec: (.+)\))?|this run's dag)\.$/m;
-const WORKER_CHECK = /Run the tests your task names, and `([^`]+)`,/;
+// a writing-plans task names its tests, an arc:plan worker writes its own (pkg/orchestrate workerContract)
+const WORKER_CHECK = /Run the tests (?:your task names|you write), and `([^`]+)`,/;
 const CONTRACT_END =
     /whatever your harness's own instructions say\.\n(?:If your context was compacted, re-read your task from the plan\.\n)?\n/;
 const NOT_LINKED = "These dirs of your tree have no `node_modules`";
@@ -254,7 +255,7 @@ function judge(rest: string): Card | null {
 }
 
 function designSession(rest: string): Card | null {
-    const brainstorm = match(rest, /^Brainstorm this goal with the human with superpowers:brainstorming: (.*)$/m);
+    const brainstorm = match(rest, /^Brainstorm this goal with the human with arc:brainstorm: (.*)$/m);
     const mockup = match(rest, /^Mock up this goal with arc:design: (.*)$/m);
     if (brainstorm == null && mockup == null) {
         return null;

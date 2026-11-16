@@ -5,6 +5,7 @@ package jarvis
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -118,6 +119,66 @@ func TestRunWorkerSpecForStartupTrim(t *testing.T) {
 	}
 }
 
+// the override travels in BaseArgs, so a resumed session stays without superpowers too
+func TestRunWorkerSpecForNoSuperpowers(t *testing.T) {
+	const plugin = "superpowers@claude-plugins-official"
+	settingsOf := func(t *testing.T, args []string) map[string]bool {
+		t.Helper()
+		for i, a := range args {
+			if a != "--settings" {
+				continue
+			}
+			if i+1 >= len(args) {
+				t.Fatalf("--settings has no value: %v", args)
+			}
+			var parsed struct {
+				EnabledPlugins map[string]bool `json:"enabledPlugins"`
+			}
+			if err := json.Unmarshal([]byte(args[i+1]), &parsed); err != nil {
+				t.Fatalf("--settings value %q is not JSON: %v", args[i+1], err)
+			}
+			return parsed.EnabledPlugins
+		}
+		return nil
+	}
+	const id = "0b6f7c1e-4d2a-4f3b-9c8d-1a2b3c4d5e6f"
+	claude, err := runroute.Resolve(waveobj.RoutePin{Runtime: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec, ok := RunWorkerSpecFor(claude, RunWorkerOptions{NoSuperpowers: true, SessionId: id, Tools: "Bash,Read"}, "do work")
+	if !ok {
+		t.Fatal("no spec")
+	}
+	resume, ok := ResumeWorkerArgs("claude", id, spec.BaseArgs, ResumeNudge)
+	if !ok {
+		t.Fatal("no resume args")
+	}
+	for name, args := range map[string][]string{"Args": spec.Args, "BaseArgs": spec.BaseArgs, "resume": resume} {
+		enabled, found := settingsOf(t, args)[plugin]
+		if !found || enabled {
+			t.Errorf("%s = %v: want %s disabled by --settings", name, args, plugin)
+		}
+	}
+	// the prompt stays last, after the variadic --tools and the settings pair
+	if spec.Args[len(spec.Args)-1] != "do work" {
+		t.Errorf("prompt is not last: %v", spec.Args)
+	}
+
+	off, _ := RunWorkerSpecFor(claude, RunWorkerOptions{}, "do work")
+	if settingsOf(t, off.Args) != nil {
+		t.Errorf("an unset option added --settings: %v", off.Args)
+	}
+	pi, err := runroute.Resolve(waveobj.RoutePin{Runtime: "pi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	piSpec, _ := RunWorkerSpecFor(pi, RunWorkerOptions{NoSuperpowers: true}, "do work")
+	if settingsOf(t, piSpec.Args) != nil || !reflect.DeepEqual(piSpec.Args, []string{"do work"}) {
+		t.Errorf("pi must add nothing, got %v", piSpec.Args)
+	}
+}
+
 func TestRunWorkerSpecForRejectsUnsupportedRuntimes(t *testing.T) {
 	for _, runtime := range []string{"codex", "opencode"} {
 		cap := runroute.Capability{Runtime: runtime, ResolvedModel: "operator default"}
@@ -204,7 +265,7 @@ func TestEnsureWorkersPassesKeepOnExitOnlyForOrchestrator(t *testing.T) {
 	}
 	// a lead runs writing-plans and is typed /compact, so it keeps its MCP servers and slash commands
 	for _, opts := range got {
-		if opts.StrictMCP || opts.NoSlashCommands || opts.Tools != "" {
+		if opts.StrictMCP || opts.NoSlashCommands || opts.NoSuperpowers || opts.Tools != "" {
 			t.Fatalf("a lead launches with its startup context trimmed: %+v", opts)
 		}
 	}

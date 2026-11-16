@@ -3352,6 +3352,7 @@ declare global {
         reviewerroute?: RoutePin;
         lightreviewerroute?: RoutePin;
         autonomous?: boolean;
+        planskill?: string;
         orchestration?: string;
         parallelism?: number;
         prototype?: string;
@@ -3570,6 +3571,7 @@ declare global {
         "debug:webglstatus"?: boolean;
         "harness:preferredruntime"?: string;
         "harness:preferredmodel"?: string;
+        "run:planskill"?: string;
         "jira:site"?: string;
         "jira:email"?: string;
     };
@@ -3740,6 +3742,7 @@ declare global {
         reviewerroute?: RoutePin;
         lightreviewerroute?: RoutePin;
         autonomous?: boolean;
+        planskill?: string;
         mergerequired?: boolean;
         createdts: number;
         updatedts: number;

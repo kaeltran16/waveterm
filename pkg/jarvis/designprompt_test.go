@@ -13,7 +13,7 @@ import (
 
 func TestDesignSessionPrompt(t *testing.T) {
 	for kind, want := range map[string][]string{
-		waveobj.RunDesignKind_Brainstorm: {"Brainstorm this goal with the human with superpowers:brainstorming: ship auth", "A run waits on this session", "Approve"},
+		waveobj.RunDesignKind_Brainstorm: {"Brainstorm this goal with the human with arc:brainstorm: ship auth", "A run waits on this session", "Approve"},
 		waveobj.RunDesignKind_Canvas:     {"Mock up this goal with arc:design: ship auth", "A run waits on this session", "Build this…"},
 	} {
 		p := DesignSessionPrompt("ship auth", kind)
@@ -23,8 +23,13 @@ func TestDesignSessionPrompt(t *testing.T) {
 			}
 		}
 	}
-	if strings.Contains(DesignSessionPrompt("ship auth", waveobj.RunDesignKind_Canvas), "brainstorming") {
+	if strings.Contains(DesignSessionPrompt("ship auth", waveobj.RunDesignKind_Canvas), "brainstorm") {
 		t.Error("a canvas session must not be told to brainstorm")
+	}
+	for _, kind := range []string{waveobj.RunDesignKind_Brainstorm, waveobj.RunDesignKind_Canvas} {
+		if strings.Contains(DesignSessionPrompt("ship auth", kind), "superpowers:") {
+			t.Errorf("%s prompt names a superpowers skill", kind)
+		}
 	}
 }
 

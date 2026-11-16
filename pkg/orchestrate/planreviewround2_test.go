@@ -210,6 +210,20 @@ func TestFollowupPromptCarriesFindingsAndDiff(t *testing.T) {
 	}
 }
 
+func TestPlanReviewFollowupChecklistByPlanSkill(t *testing.T) {
+	r := failRoundOne(t, false)
+	if err := wstore.UpdateDag(r.ctx, r.dag.OID, func(g *waveobj.TaskGroup) error {
+		g.PlanSkill = jarvis.PlanSkill_Plan
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	prompt := r.startFollowup(t)
+	if !strings.Contains(prompt, "- "+planReviewCriteriaPlan+"\n") || strings.Contains(prompt, planReviewCriteriaWritingPlans) {
+		t.Fatalf("an arc:plan follow-up checks for criteria a test can check, not named tests:\n%s", prompt)
+	}
+}
+
 func TestFollowupPromptIdenticalPlanSaysNoChange(t *testing.T) {
 	r := failRoundOne(t, false)
 	prompt := r.startFollowup(t)

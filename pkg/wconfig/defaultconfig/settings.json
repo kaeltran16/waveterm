@@ -11,5 +11,6 @@
     "term:fontsize": 16,
     "term:fontfamily": "Fira Code",
     "term:copyonselect": true,
-    "term:trimtrailingwhitespace": true
+    "term:trimtrailingwhitespace": true,
+    "run:planskill": "plan"
 }

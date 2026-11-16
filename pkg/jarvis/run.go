@@ -294,7 +294,7 @@ func BuildOrchestratePrompt(run *waveobj.Run) string {
 	if run.Spec != "" || run.Prototype != "" {
 		writeDesignPrompt(&b, run)
 	} else {
-		writeLaunchPrompt(&b, run.Goal, run.Runtime, run.Autonomous)
+		writeLaunchPrompt(&b, run.Goal, run.Runtime, run.Autonomous, run.PlanSkill)
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

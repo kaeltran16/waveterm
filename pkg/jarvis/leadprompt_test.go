@@ -377,6 +377,37 @@ func TestOrchestrationRulesAutonomous(t *testing.T) {
 	}
 }
 
+// the run's recorded plan skill picks the skill the lead writes with and the format it writes in; a run from
+// before the setting (empty) keeps writing-plans, and no prompt names the superpowers skills
+func TestLeadPromptFollowsTheRunsPlanSkill(t *testing.T) {
+	cases := []struct{ stored, skill, other, format string }{
+		{PlanSkill_Plan, "arc:plan ", "arc:writing-plans", PlanFormatFor(PlanSkill_Plan)},
+		{PlanSkill_WritingPlans, "arc:writing-plans ", "arc:plan ", PlanFormat},
+		{"", "arc:writing-plans ", "arc:plan ", PlanFormat},
+	}
+	for _, c := range cases {
+		for _, autonomous := range []bool{false, true} {
+			runs := map[string]waveobj.Run{
+				"goal":   {Goal: "ship auth", Runtime: "claude", Autonomous: autonomous, PlanSkill: c.stored},
+				"design": {Goal: "ship auth", Runtime: "pi", Autonomous: autonomous, PlanSkill: c.stored, Spec: "C:/p/docs/spec.md"},
+			}
+			for name, run := range runs {
+				p := BuildOrchestratePrompt(&run)
+				label := fmt.Sprintf("%s prompt, planskill %q, autonomous=%v", name, c.stored, autonomous)
+				if !strings.Contains(p, "write the plan with "+c.skill) || strings.Contains(p, c.other) {
+					t.Errorf("%s: want the plan step to name %q and never %q:\n%s", label, c.skill, c.other, p)
+				}
+				if !strings.Contains(p, strings.TrimRight(c.format, "\n")) {
+					t.Errorf("%s: missing its plan format:\n%s", label, p)
+				}
+				if strings.Contains(p, "superpowers:") {
+					t.Errorf("%s: names a superpowers skill:\n%s", label, p)
+				}
+			}
+		}
+	}
+}
+
 func TestPlanLeadPromptAutonomous(t *testing.T) {
 	wake := "wake: 1 question waiting. wsh jarvis dag asks"
 	if p := PlanLeadPrompt(nil, "run-1", "", "/repo/plan.md", "", true, wake); !strings.HasPrefix(p, OrchestrationRules("run-1", "", "/repo/plan.md", "", true)+"\n\n") {

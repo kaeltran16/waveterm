@@ -58,6 +58,8 @@ const (
 	ConfigKey_HarnessPreferredRuntime        = "harness:preferredruntime"
 	ConfigKey_HarnessPreferredModel          = "harness:preferredmodel"
 
+	ConfigKey_RunPlanSkill                   = "run:planskill"
+
 	ConfigKey_JiraSite                       = "jira:site"
 	ConfigKey_JiraEmail                      = "jira:email"
 )

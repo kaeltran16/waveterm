@@ -327,6 +327,7 @@ func (ws *WshServer) DagSubmitCommand(ctx context.Context, data wshrpc.CommandDa
 	proposed.ReviewerPicks, proposed.ReviewerRoute = run.ReviewerPicks, run.ReviewerRoute
 	proposed.LightReviewerRoute = run.LightReviewerRoute
 	proposed.Autonomous = run.Autonomous
+	proposed.PlanSkill = run.PlanSkill
 	// a plan file is reviewed before any worker starts; a JSON dag has no plan to review
 	if data.PlanPath != "" {
 		proposed.PlanReview = orchestrate.NewPlanReview()

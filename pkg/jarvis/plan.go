@@ -14,9 +14,33 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
 
-// PlanFormat states the plan shape ParsePlan accepts, for whoever writes the plan. Its example is
-// parsed by TestPlanFormatParses, so the prose and the parser cannot drift apart.
-const PlanFormat = "Plan format. Verify, Setup and Check are optional, go before the first task, and each hold one command in backticks. " +
+// PlanFormat states the plan shape ParsePlan accepts, for whoever writes the plan: the writing-plans contract,
+// which `dag submit --help` shows. Its example is parsed by TestPlanFormatParses, so the prose and the parser
+// cannot drift apart.
+const PlanFormat = planFormatIntro + planFocusedTestsRule + planFormatRules + planTaskBodyWritingPlans + planFormatExampleTail
+
+// planFormatPlan is the arc:plan contract's format: its worker picks the tests, so a task lists none.
+const planFormatPlan = planFormatIntro + planFormatRules + planTaskBodyPlan + planFormatExampleTail
+
+// PlanFormatFor is the plan format of a run's plan skill, as stored on the run or dag.
+func PlanFormatFor(planSkill string) string {
+	if EffectivePlanSkill(planSkill) == PlanSkill_Plan {
+		return planFormatPlan
+	}
+	return PlanFormat
+}
+
+// the writing-plans format's rule for the tests a task names; arc:plan drops it
+const planFocusedTestsRule = "A task step names only the focused tests that prove it (for Go, `go test ./pkg/x -run '<names>'`), never a whole " +
+	"package or the full suite: Verify runs those at each merge and in the final stage. "
+
+// the example's first task body, by plan skill
+const (
+	planTaskBodyWritingPlans = "<what to do, and the tests that prove it>"
+	planTaskBodyPlan         = "<what to build, and the acceptance criteria a test can check>"
+)
+
+const planFormatIntro = "Plan format. Verify, Setup and Check are optional, go before the first task, and each hold one command in backticks. " +
 	"Left out, Setup is the project's checked-in .arc/setup command, if it has one. With neither, each tree gets the main " +
 	"checkout's installed node_modules linked in wherever its manifests match main's, so the project's tools run in a task's " +
 	"tree as they are: no Setup, scratch worktree or install wrapper is needed for them. A task that changes a package.json " +
@@ -29,10 +53,9 @@ const PlanFormat = "Plan format. Verify, Setup and Check are optional, go before
 	"should exit 0 and append that test's name to the file, one per line, and the run then lists each as a flaky test " +
 	"among what it could not verify instead of reading as a clean pass. " +
 	"Check is a fast whole-project static check (for example typecheck plus go vet) that each worker runs " +
-	"itself, instead of Verify, before it completes. " +
-	"A task step names only the focused tests that prove it (for Go, `go test ./pkg/x -run '<names>'`), never a whole " +
-	"package or the full suite: Verify runs those at each merge and in the final stage. " +
-	"An optional Final line, also one command in backticks, runs once on the merged result after every task landed and Check " +
+	"itself, instead of Verify, before it completes. "
+
+const planFormatRules = "An optional Final line, also one command in backticks, runs once on the merged result after every task landed and Check " +
 	"passed, with ARC_FINAL_OUT set to a directory for its screenshots and reports: exit 0 passes, exit 3 means it could not " +
 	"verify and its last output line says why, and any other exit fails the run. In the final stage Check and Verify may exit 3 the same way, " +
 	"when a service or tool they need is missing; at a merge point exit 3 still fails. The Final command may write an optional ARC_FINAL_OUT/shots.json, " +
@@ -86,8 +109,9 @@ const PlanFormat = "Plan format. Verify, Setup and Check are optional, go before
 	"**Depends on:** none\n" +
 	"**Model:** <model-id>\n" +
 	"**Chunk:** <exact chunk label>\n" +
-	"**Files:** `<path>`, `<another path>`\n" +
-	"<what to do, and the tests that prove it>\n\n" +
+	"**Files:** `<path>`, `<another path>`\n"
+
+const planFormatExampleTail = "\n\n" +
 	"### Task 2: <title>\n" +
 	"**Files:** `<path>`\n" +
 	"<no Depends line: runs after Task 1, so it may list a path Task 1 lists>\n\n" +
