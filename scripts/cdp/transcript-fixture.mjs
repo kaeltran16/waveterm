@@ -1,0 +1,58 @@
+// The transcript-* scenarios' harness: one NarrationTimeline over fixture entries, mounted through the dev-only
+// window.__narrationFeedFixture seam (frontend/app/view/agents/narrationfeedfixture.tsx), which seeds the wsh data
+// cache and run events and hands the timeline a TranscriptContext holding the live cockpit model.
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const SEAM_POLLS = 25;
+const SEAM_POLL_MS = 200;
+const CLEAR_POLLS = 25;
+const CLEAR_POLL_MS = 100;
+// the modal's open motion and the rows' fade-in settle before a step reads styles
+const SETTLE_MS = 900;
+
+export const ROOT = "[data-narration-fixture]";
+const rootExpr = `document.querySelector(${JSON.stringify(ROOT)})`;
+
+// whether the seam is up, polling while the app finishes loading
+export async function waitSeam(h) {
+    for (let i = 0; i < SEAM_POLLS; i++) {
+        if (await h.ev(`typeof window.__narrationFeedFixture === 'object'`)) return true;
+        await sleep(SEAM_POLL_MS);
+    }
+    return false;
+}
+
+export async function clearTranscript(h) {
+    await h.ev(`window.__narrationFeedFixture?.clear()`);
+    // the modal's key is stable, so a show during the exit motion would revive the old feed
+    for (let i = 0; i < CLEAR_POLLS && (await h.ev(`${rootExpr} != null`)); i++) await sleep(CLEAR_POLL_MS);
+}
+
+// opts: ctx (without model), compact, active, renderers, seed (wshdata keys), runEvents (by run id)
+export async function showTranscript(h, { entries, width, ...opts }) {
+    await clearTranscript(h);
+    await h.ev(`window.__narrationFeedFixture.show(${JSON.stringify(entries)}, ${width}, ${JSON.stringify(opts)})`);
+    await sleep(SETTLE_MS);
+}
+
+export const user = (text, ts) => ({ kind: "user", text, ts });
+
+export const prose = (text, ts) => ({ kind: "message", text, ts });
+
+// a Bash call as Claude's projection records it: the description is the target when there is one, and a pending
+// call has no result yet. command and ts ride on the action for the layout that reads them.
+export function bash({ description, command, output = "", exit = 0, ts, durationMs, pending = false }) {
+    const action = { kind: "action", verb: "ran", target: description || command, command, ts };
+    if (pending) {
+        return { ...action, pending: true, startedTs: ts };
+    }
+    return {
+        ...action,
+        outcome: exit === 0 ? "ok" : "fail",
+        durationMs,
+        detail: { kind: "bash", command, output, exit },
+    };
+}
+
+export const tool = (verb, target, extra = {}) => ({ kind: "action", verb, target, outcome: "ok", ...extra });

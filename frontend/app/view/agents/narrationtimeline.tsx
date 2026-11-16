@@ -29,6 +29,7 @@ import { highlightLine } from "./highlight";
 import { toolRendererKey } from "./renderregistry";
 import { TIMELINE_RENDER_CAP } from "./sessionstranscript";
 import { formatDuration } from "./tooldetail";
+import type { TranscriptContext } from "./transcriptcontext";
 import { ToolOutputRenderer } from "./toolrenderers";
 
 // Handoff lane feed (Wave-cockpit-live.dc.html:211-247). message -> narration row
@@ -679,6 +680,7 @@ export const NarrationTimeline = memo(function NarrationTimeline({
     renderers,
     marks,
     className,
+    tail,
 }: {
     entries: AgentEntry[];
     accentLatest?: boolean;
@@ -692,6 +694,12 @@ export const NarrationTimeline = memo(function NarrationTimeline({
     // holding entry afterEntry - 1
     marks?: TimelineMark[];
     className?: string;
+    // what the host knows about the agent, for wsh cards' links and Arc's messages
+    ctx?: TranscriptContext;
+    // a card-width host (agent row, lead card, subagent interior)
+    compact?: boolean;
+    // drawn after the last item, inside the column
+    tail?: React.ReactNode;
 }) {
     const [toggled, setToggled] = useState<Set<number>>(new Set());
     const items = useMemo(() => groupTimeline(entries), [entries]);
@@ -763,6 +771,7 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                     return (
                         <motion.div
                             key={item.index}
+                            data-user-bubble
                             className="mt-2 flex justify-end pl-[30px]"
                             onContextMenu={copyMenu(item.text)}
                             initial={shouldFadeEntry("user") ? { opacity: 0 } : false}
@@ -898,6 +907,7 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                 );
             }))}
             </AnimatePresence>
+            {tail}
         </div>
     );
 });

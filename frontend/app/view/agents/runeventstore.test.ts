@@ -14,7 +14,7 @@ vi.mock("@/app/store/wps", () => ({
 }));
 
 import { globalStore } from "@/app/store/jotaiStore";
-import { ensureRunEvents, mergeRunEvents, RUN_EVENTS_RETRY_MS, runEventsAtom } from "./runeventstore";
+import { ensureRunEvents, mergeRunEvents, RUN_EVENTS_RETRY_MS, runEventsAtom, seedRunEvents } from "./runeventstore";
 
 const ev = (id: string, ts: number) => ({ id, runid: "r", channelid: "c", ts, kind: "k" }) as RunEvent;
 
@@ -52,5 +52,16 @@ describe("history load", () => {
         await vi.advanceTimersByTimeAsync(RUN_EVENTS_RETRY_MS[0]);
         expect(rpc.JarvisRunEventsCommand).toHaveBeenCalledTimes(2);
         expect(globalStore.get(runEventsAtom("r-fail")).map((e) => e.id)).toEqual(["x"]);
+    });
+});
+
+describe("seedRunEvents", () => {
+    it("keeps the seed when ensureRunEvents runs after it", async () => {
+        rpc.JarvisRunEventsCommand.mockResolvedValue({ events: [ev("fetched", 1)] });
+        seedRunEvents("r-seed", [ev("seeded", 2)]);
+        ensureRunEvents("r-seed", "c");
+        await new Promise((r) => setTimeout(r, 0));
+        expect(rpc.JarvisRunEventsCommand).not.toHaveBeenCalled();
+        expect(globalStore.get(runEventsAtom("r-seed")).map((e) => e.id)).toEqual(["seeded"]);
     });
 });

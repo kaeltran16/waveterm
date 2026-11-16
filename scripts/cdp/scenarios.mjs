@@ -6,6 +6,16 @@
 // scenarios-shared.mjs. A new scenario goes in its area's module and into SCENARIOS below, whose order is the run
 // order.
 import { narrationFeed } from "./narrationfeed.mjs";
+import { transcriptBase } from "./scenarios-transcript-base.mjs";
+import { transcriptInitiative } from "./scenarios-transcript-initiative.mjs";
+import { transcriptDag } from "./scenarios-transcript-dag.mjs";
+import { transcriptDagActions } from "./scenarios-transcript-dagactions.mjs";
+import { transcriptRuns } from "./scenarios-transcript-runs.mjs";
+import { transcriptAgents } from "./scenarios-transcript-agents.mjs";
+import { transcriptNotes } from "./scenarios-transcript-notes.mjs";
+import { transcriptArc } from "./scenarios-transcript-arc.mjs";
+import { transcriptBoards } from "./scenarios-transcript-boards.mjs";
+import { renderedShell } from "./scenarios-rendered-shell.mjs";
 import { codeImageZoom } from "./scenarios-code-imagezoom.mjs";
 import { codePeek } from "./scenarios-codepeek.mjs";
 import { jiraSettings } from "./scenarios-jira-settings.mjs";
@@ -319,6 +329,16 @@ export const SCENARIOS = [
     motionDiff,
     motionCode,
     narrationFeed,
+    transcriptBase,
+    transcriptInitiative,
+    transcriptDag,
+    transcriptDagActions,
+    transcriptRuns,
+    transcriptAgents,
+    transcriptNotes,
+    transcriptArc,
+    transcriptBoards,
+    renderedShell,
     notesWsh,
     agentTreeRail,
     quickRunDone,

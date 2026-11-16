@@ -1,28 +1,74 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// DEV-ONLY: one narration feed over fixture entries, so the narration-feed CDP scenario
-// (scripts/cdp/narrationfeed.mjs) can check the rendered feed. Every real host of the feed needs a live
-// session or run. Same seam shape as window.__waveDagModalFixture (view/orchestrate/dagmodalstate.ts).
+// DEV-ONLY: one narration feed over fixture entries, so the narration-feed and transcript-* CDP scenarios
+// (scripts/cdp/narrationfeed.mjs, scripts/cdp/transcript-fixture.mjs) can check the rendered feed. Every real host of
+// the feed needs a live session or run. Same seam shape as window.__waveDagModalFixture
+// (view/orchestrate/dagmodalstate.ts).
 
+import { COCKPIT_ROUTE_ID } from "@/app/cockpit/uiapi";
 import { ModalShell } from "@/app/modals/modalshell";
 import { modalsModel } from "@/app/store/modalmodel";
+import { DefaultRouter } from "@/app/store/wshrpcutil-base";
+import type { AgentsViewModel } from "./agents";
 import type { AgentEntry } from "./agentsviewmodel";
 import { NarrationTimeline } from "./narrationtimeline";
+import { seedRunEvents } from "./runeventstore";
+import type { TranscriptContext } from "./transcriptcontext";
+import { seedWshData } from "./wshdata";
 
-export function NarrationFeedFixtureModal({ entries, width }: { entries: AgentEntry[]; width: number }) {
+export interface NarrationFeedFixtureOpts {
+    ctx?: Omit<TranscriptContext, "model">;
+    compact?: boolean;
+    active?: boolean;
+    renderers?: boolean;
+    seed?: Record<string, unknown>;
+    runEvents?: Record<string, RunEvent[]>;
+}
+
+interface ModalProps {
+    entries: AgentEntry[];
+    width: number;
+    ctx?: TranscriptContext;
+    compact?: boolean;
+    active?: boolean;
+    renderers?: boolean;
+}
+
+export function NarrationFeedFixtureModal({ entries, width, ctx, compact, active, renderers }: ModalProps) {
     return (
         <ModalShell open onClose={() => modalsModel.popModal()}>
             <div data-narration-fixture style={{ width }} className="max-h-[80vh] overflow-y-auto bg-surface px-3 py-2">
-                <NarrationTimeline entries={entries} active={false} />
+                <NarrationTimeline
+                    entries={entries}
+                    active={!!active}
+                    renderers={renderers}
+                    ctx={ctx}
+                    compact={compact}
+                />
             </div>
         </ModalShell>
     );
 }
 
+// the live cockpit's model, so cards link through the router as they do in the app
+function cockpitModel(): AgentsViewModel | undefined {
+    return (DefaultRouter?.routeMap.get(COCKPIT_ROUTE_ID) as { model?: AgentsViewModel } | undefined)?.model;
+}
+
 if (import.meta.env.DEV && typeof window !== "undefined") {
     window.__narrationFeedFixture = {
-        show: (entries, width) => modalsModel.pushModal("NarrationFeedFixtureModal", { entries, width }),
+        show: (entries, width, opts = {}) => {
+            const { seed, runEvents, ctx, ...rest } = opts;
+            if (seed) seedWshData(seed);
+            for (const [runId, events] of Object.entries(runEvents ?? {})) seedRunEvents(runId, events);
+            modalsModel.pushModal("NarrationFeedFixtureModal", {
+                entries,
+                width,
+                ...rest,
+                ctx: { ...ctx, model: cockpitModel() },
+            });
+        },
         clear: () => {
             while (modalsModel.hasOpenModals()) {
                 modalsModel.popModal();
@@ -34,7 +80,7 @@ if (import.meta.env.DEV && typeof window !== "undefined") {
 declare global {
     interface Window {
         __narrationFeedFixture?: {
-            show: (entries: AgentEntry[], width: number) => void;
+            show: (entries: AgentEntry[], width: number, opts?: NarrationFeedFixtureOpts) => void;
             clear: () => void;
         };
     }

@@ -7,9 +7,10 @@ import { ChartCard } from "./chartcard";
 import { parseTestOutput, type TestSummary } from "./testoutput";
 import { parseUnifiedDiff } from "./unifieddiff";
 
-// The one place a renderer is registered. Fenced blocks are keyed by language and consulted by
+// The registry for fenced blocks and tool output. Fenced blocks are keyed by language and consulted by
 // MarkdownMessage, so a chart block draws wherever markdown renders. Tool output is keyed by tool
-// and consulted by NarrationTimeline only when its `renderers` prop is set.
+// and consulted by NarrationTimeline only when its `renderers` prop is set. wsh calls have their own
+// registry, wshrenderers.tsx, keyed by the call (wshcall.ts).
 
 export type BlockRenderer = ComponentType<{ raw: string }>;
 
