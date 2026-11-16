@@ -9,6 +9,7 @@ import {
     classifyKind,
     isOversize,
     MAX_ATTACHMENT_BYTES,
+    splitAttachments,
     type Attachment,
 } from "./composerattachments";
 
@@ -42,6 +43,25 @@ describe("appendAttachments", () => {
         expect(appendAttachments("   ", [att({ path: "C:\\a\\x.png" })])).toBe(
             "Attachments (read these files):\n- C:\\a\\x.png"
         );
+    });
+});
+
+describe("splitAttachments", () => {
+    const ready = [att({ path: "C:\\a\\shot.png" }), att({ id: "2", path: "C:\\a\\err.log" })];
+    const paths = ["C:\\a\\shot.png", "C:\\a\\err.log"];
+    it("round-trips appendAttachments for non-blank text", () => {
+        expect(splitAttachments(appendAttachments("fix it", ready))).toEqual({ text: "fix it", paths });
+    });
+    it("round-trips appendAttachments for blank text", () => {
+        expect(splitAttachments(appendAttachments("", ready))).toEqual({ text: "", paths });
+    });
+    it("returns text without the block unchanged", () => {
+        const text = "just a prompt\n\n- not a block";
+        expect(splitAttachments(text)).toEqual({ text, paths: [] });
+    });
+    it("leaves a header followed by prose in the text", () => {
+        const text = "Attachments (read these files):\n- /tmp/a.png\n\nthen do the thing";
+        expect(splitAttachments(text)).toEqual({ text, paths: [] });
     });
 });
 

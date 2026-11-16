@@ -13,6 +13,7 @@ import base64 from "base64-js";
 import { useCallback, useEffect, useRef, useState, type ClipboardEvent } from "react";
 
 export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024; // 10 MB; base64 inflates ~33%, bounding the RPC payload
+export const ATTACHMENTS_HEADER = "Attachments (read these files):";
 
 export type AttachmentKind = "image" | "file";
 export type AttachmentStatus = "uploading" | "ready" | "error";
@@ -51,8 +52,29 @@ export function appendAttachments(text: string, atts: Attachment[]): string {
     if (ready.length === 0) {
         return text;
     }
-    const block = "Attachments (read these files):\n" + ready.map((a) => `- ${a.path}`).join("\n");
+    const block = ATTACHMENTS_HEADER + "\n" + ready.map((a) => `- ${a.path}`).join("\n");
     return text.trim() ? `${text}\n\n${block}` : block;
+}
+
+// The block must end the text: a header followed by prose is the user's own words, not an attachment list.
+const ATTACHMENTS_BLOCK = new RegExp(`(?:^|\\n\\n)${escapeRegExp(ATTACHMENTS_HEADER)}\\n((?:- [^\\n]+\\n?)+)\\s*$`);
+
+function escapeRegExp(s: string): string {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// The reverse of appendAttachments, for drawing what Claude received: the text without its trailing block, and the
+// block's paths.
+export function splitAttachments(text: string): { text: string; paths: string[] } {
+    const m = ATTACHMENTS_BLOCK.exec(text);
+    if (m == null) {
+        return { text, paths: [] };
+    }
+    const paths = m[1]
+        .split("\n")
+        .filter((l) => l.startsWith("- "))
+        .map((l) => l.slice(2).trimEnd());
+    return { text: text.slice(0, m.index), paths };
 }
 
 // Picked files are referenced in place, so they are ready at once and carry no size cap. A path already
