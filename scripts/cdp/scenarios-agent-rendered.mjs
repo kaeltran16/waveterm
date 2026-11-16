@@ -2,7 +2,7 @@
 // claude agents backed by real tabs: A (no controller, so keys sent to it fail) with a transcript of a prompt, prose,
 // a go test run, a git diff, an image Read and five chart blocks; P, whose block runs the key probe
 // (fixtures/keyprobe.mjs), so the keys typed into its pty are read back from a file; E with an empty transcript; N
-// with none. Statuses, permission requests and an ask are raised over rpc as the hooks would. Transcripts and the
+// with none; L with a transcript longer than the live stream's tail. Statuses, permission requests and an ask are raised over rpc as the hooks would. Transcripts and the
 // probe's file live in a temp dir; teardown publishes a Stop for every fixture block, clears the ask, restores the
 // roster, closes the tabs and removes the dir. The last turn appended to A has a thinking-only message and a reply naming
 // a real file under the temp dir, by a path long enough to ellipsize.
@@ -89,6 +89,15 @@ const THINK_STEP = "list the package";
 const PEEK_DIRS = ["a-rather-long-folder-name-so-the-path-overflows-the-column", "and-one-more-nested-segment-for-good-measure"];
 const PEEK_FILE = "peek-target.go";
 const PEEK_LINE = 2;
+
+// L's transcript: prose-only turns, two lines and two feed items each, so the 300-line tail leaves its first turns out
+// and the whole file holds more items than the feed's cap (TIMELINE_RENDER_CAP)
+const LONG_TURNS = 200;
+const RENDER_CAP = 200;
+const longPrompt = (i) => `Earlier prompt ${String(i).padStart(3, "0")}`;
+const longReply = (i) => `Earlier reply ${String(i).padStart(3, "0")}`;
+// how far the row at the top of the viewport may move when the earlier turns come in
+const PLACE_PX = 4;
 
 const J = (o) => JSON.stringify(o);
 const GO_JSON = [
@@ -392,6 +401,11 @@ export default function (_kit) {
                     const pPath = writeTranscript(ctx.dir, `rendered-p-${tag}`, [userText(P_PROMPT), assistantText(P_REPLY)]);
                     const ePath = join(ctx.dir, `rendered-e-${tag}.jsonl`);
                     writeFileSync(ePath, "");
+                    const lPath = writeTranscript(
+                        ctx.dir,
+                        `rendered-l-${tag}`,
+                        Array.from({ length: LONG_TURNS }, (_, i) => [userText(longPrompt(i)), assistantText(longReply(i))]).flat()
+                    );
 
                     await h.goto("agent");
                     // a new tab's block comes with a shell controller and setmeta merges, so A drops it by name: with no
@@ -411,6 +425,7 @@ export default function (_kit) {
                     });
                     const e = await makeTab(h, ctx, { label: `rendered-e-${tag}` });
                     const n = await makeTab(h, ctx, { label: `rendered-n-${tag}` });
+                    const l = await makeTab(h, ctx, { label: `rendered-l-${tag}`, blockMeta: { view: "term", controller: null } });
                     Object.assign(ctx, {
                         aPath,
                         aId: a.tabId,
@@ -419,7 +434,8 @@ export default function (_kit) {
                         pBlock: p.blockId,
                         eId: e.tabId,
                         nId: n.tabId,
-                        blocks: [a.blockId, p.blockId, e.blockId, n.blockId],
+                        lId: l.tabId,
+                        blocks: [a.blockId, p.blockId, e.blockId, n.blockId, l.blockId],
                     });
                     // the meta change can start a probe that ends at once; the file the restarted one writes is the proof
                     // a live probe is reading
@@ -436,6 +452,7 @@ export default function (_kit) {
                         rosterAgent(p.tabId, p.blockId, `rendered-p-${tag}`, pPath),
                         rosterAgent(e.tabId, e.blockId, `rendered-e-${tag}`, ePath),
                         rosterAgent(n.tabId, n.blockId, `rendered-n-${tag}`, null),
+                        rosterAgent(l.tabId, l.blockId, `rendered-l-${tag}`, lPath),
                     ];
                     await setRoster(h, ctx.roster);
                     // the header reads the model off the status, as the hook reports it; no hook, so it retires nothing
@@ -557,7 +574,7 @@ export default function (_kit) {
                         const rv = ${RV};
                         const scroll = rv?.querySelector("[data-rendered-scroll]");
                         const comp = rv?.querySelector("[data-rendered-composer]");
-                        const last = rv?.querySelector("[data-rendered-column]")?.lastElementChild?.lastElementChild;
+                        const last = rv?.querySelector("[data-rendered-feed]")?.firstElementChild?.lastElementChild;
                         if (!scroll || !comp || !last) return { scroll: !!scroll, composer: !!comp, last: !!last };
                         return {
                             working: rv.querySelector("[data-working-line]") != null,
@@ -637,7 +654,7 @@ export default function (_kit) {
                     return [loaded, { naturalWidth: width }];
                 });
 
-                await step("rendered: cards in a burst — A's three back-to-back tool calls render open, every card visible", async () => {
+                await step("rendered: cards in a turn — A's finished turn holds tool output cards, so its fold starts open, every card visible", async () => {
                     const state = await h.ev(`(() => {
                         const rv = ${RV};
                         const shown = (sel) => {
@@ -656,8 +673,8 @@ export default function (_kit) {
                     return [state.folds === 0 && state.test && state.diff && state.image, state];
                 });
 
-                // the open burst keeps its Worked fold line as a header: a click folds it, a second click opens it again
-                await step("rendered: burst header — a click on the open card burst's Worked line folds it, a second click opens it", async () => {
+                // the open turn keeps its Worked fold line as a header: a click folds it, a second click opens it again
+                await step("rendered: turn header — a click on the open card turn's Worked line folds it, a second click opens it", async () => {
                     const BURST = `${RV}?.querySelector("[data-fold]")`;
                     const read = `(() => {
                         const b = ${BURST};
@@ -1649,6 +1666,63 @@ export default function (_kit) {
                         again &&
                         closed;
                     return [ok, { clicked, opened, drawn, lines, card, again, closed }];
+                });
+
+                await step(`rendered: show earlier — L's transcript runs past the stream's tail: the feed opens without its first prompt under "Show earlier turns"; the click brings the first prompt in, draws past ${RENDER_CAP} items, drops the control and keeps the row at the top of the viewport in place`, async () => {
+                    await focus(ctx.lId);
+                    await clickToggle(h, "Rendered");
+                    await wait(`(${RV}?.textContent ?? "").includes(${J(longReply(LONG_TURNS - 1))}) && ${RV}?.querySelector("[data-rendered-earlier]") != null`);
+                    // the feed's rows, and the first whose bottom is below the scroll area's top: its text and offset
+                    const read = `(() => {
+                        ${flatJs}
+                        const rv = ${RV};
+                        const scroll = rv?.querySelector("[data-rendered-scroll]");
+                        if (!scroll) return null;
+                        const rows = [...(rv.querySelector("[data-rendered-feed]")?.firstElementChild?.children ?? [])];
+                        const top = scroll.getBoundingClientRect().top;
+                        const row = rows.find((r) => r.getBoundingClientRect().bottom > top);
+                        return {
+                            control: flat(rv.querySelector("[data-rendered-earlier]")) || null,
+                            first: (rv.textContent ?? "").includes(${J(longPrompt(0))}),
+                            rows: rows.length,
+                            top: row ? { text: flat(row), offset: row.getBoundingClientRect().top - top } : null,
+                        };
+                    })()`;
+                    // the control sits at the top of the feed, so the reader scrolls up to it
+                    await agentPage(h, `const s = ${RV}?.querySelector("[data-rendered-scroll]"); if (s) s.scrollTop = 0; await nap(300); return true;`);
+                    const before = await h.ev(read);
+                    await h.shot(SHOT(28, "earlier-before"));
+                    const clicked = await h.ev(`(() => { const b = ${RV}?.querySelector("[data-rendered-earlier]"); b?.click(); return b != null; })()`);
+                    const landed = await wait(`(${RV}?.textContent ?? "").includes(${J(longPrompt(0))}) && ${RV}?.querySelector("[data-rendered-earlier]") == null`);
+                    await new Promise((r) => setTimeout(r, HOLD_MS));
+                    const after = await h.ev(read);
+                    // where the row that was at the top now sits, found by its text (each turn's text is unique)
+                    const held =
+                        before?.top == null
+                            ? null
+                            : await h.ev(`(() => {
+                                  ${flatJs}
+                                  const scroll = ${RV}?.querySelector("[data-rendered-scroll]");
+                                  const rows = [...(${RV}?.querySelector("[data-rendered-feed]")?.firstElementChild?.children ?? [])];
+                                  const row = rows.find((r) => flat(r) === ${J(before.top.text)});
+                                  return row && scroll ? row.getBoundingClientRect().top - scroll.getBoundingClientRect().top : null;
+                              })()`);
+                    await h.shot(SHOT(28, "earlier-after"));
+                    const moved = held == null ? null : held - before.top.offset;
+                    const ok =
+                        before != null &&
+                        before.control === "Show earlier turns" &&
+                        !before.first &&
+                        before.rows <= RENDER_CAP &&
+                        clicked &&
+                        landed &&
+                        after != null &&
+                        after.control == null &&
+                        after.first &&
+                        after.rows > RENDER_CAP &&
+                        moved != null &&
+                        Math.abs(moved) <= PLACE_PX;
+                    return [ok, { before, clicked, landed, after, moved }];
                 });
                 return steps;
             },

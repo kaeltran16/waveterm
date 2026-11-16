@@ -5,8 +5,9 @@
 // C--arc-verify-sessions-search. Every scenario that uses it removes that directory, the temp cwd and the run in
 // its teardown (removeSessionsSearchFixtures, then kit.teardownFixtureRun).
 //
-// word, checkWord and absent are nonces made per call, so a search for them finds only these fixtures; checkWord
-// is only in the check transcript, and absent is in none.
+// word, checkWord, foldWord and absent are nonces made per call, so a search for them finds only these fixtures;
+// checkWord is only in the check transcript, foldWord only in the solo's interim prose (inside its turn's fold), and
+// absent is in none.
 import { randomBytes, randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -60,6 +61,7 @@ export function writeSessionsSearchFixtures() {
     const word = nonce("arcfind");
     const absent = nonce("arcnone");
     const checkWord = nonce("arccheck");
+    const foldWord = nonce("arcfold");
     const cwd = mkdtempSync(join(tmpdir(), "verify-sessions-search-"));
     const dir = join(homedir(), ".claude", "projects", PROJECT_DIR);
     mkdirSync(dir, { recursive: true });
@@ -91,7 +93,7 @@ export function writeSessionsSearchFixtures() {
         solo: [
             { user: soloPrompt },
             { agent: `The ${word} stage times out on large batches, and the retry restarts ${word} from zero.` },
-            { agent: "I made the retry resume from the last finished batch, so the stage ends in one pass." },
+            { agent: `I made the retry resume from the last finished batch, so the stage ends in one pass (${foldWord}).` },
             { bash: `git commit -m "fix: resume ${word} from the last batch"`, id: commitId },
             { result: commitId },
             { agent: `Committed. The ${word} stage now resumes where it stopped.` },
@@ -114,6 +116,7 @@ export function writeSessionsSearchFixtures() {
         word,
         absent,
         checkWord,
+        foldWord,
         solo: { id: ids.solo.id, title: titleOf(soloPrompt), transcript: ids.solo.path },
         other: { id: ids.other.id, title: titleOf(sessions.other[0].user) },
         lead: { id: ids.lead.id },

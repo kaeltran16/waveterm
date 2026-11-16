@@ -38,6 +38,19 @@ describe("projectors bundle", () => {
         expect(pi[1].text).toBe("done");
     });
 
+    it("projects pasted images and queued messages for the phone page", () => {
+        const png = { type: "image", source: { type: "base64", media_type: "image/png", data: "iVBOR" } };
+        const out = projectFor("claude", [
+            L({ type: "user", message: { content: [{ type: "text", text: "look [Image #1]" }, png] } }),
+            L({
+                type: "attachment",
+                attachment: { type: "queued_command", commandMode: "prompt", prompt: "land them" },
+            }),
+        ]);
+        expect(out[0].images).toEqual([{ mediaType: "image/png", data: "iVBOR" }]);
+        expect(out[1]).toMatchObject({ kind: "user", text: "land them", queued: true });
+    });
+
     it("an unknown runtime gives no entries", () => {
         expect(projectFor("codex", [L({ type: "user", message: { content: "hi" } })])).toEqual([]);
         expect(projectFor("", [])).toEqual([]);

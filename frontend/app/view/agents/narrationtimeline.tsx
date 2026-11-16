@@ -4,8 +4,24 @@
 import { ContextMenuModel } from "@/app/store/contextmenu";
 import { modalsModel } from "@/app/store/modalmodel";
 import { MONO_FAINT } from "@/app/view/jarvis/briefstyle";
-import { cn } from "@/util/util";
-import { ArrowUpRight, Ban, Check, ChevronDown, ChevronRight, Copy, Ellipsis, GitBranch, LoaderCircle, X } from "lucide-react";
+import { localFileUrl } from "@/app/view/jarvis/localimage";
+import { getWebServerEndpoint } from "@/util/endpoints";
+import { fetch } from "@/util/fetchutil";
+import { cn, fireAndForget } from "@/util/util";
+import {
+    ArrowUpRight,
+    Ban,
+    Check,
+    ChevronDown,
+    ChevronRight,
+    Copy,
+    Ellipsis,
+    File as FileIcon,
+    GitBranch,
+    Info,
+    LoaderCircle,
+    X,
+} from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import {
     MOTION,
@@ -33,20 +49,29 @@ import { ArcMessageRow } from "./arcmessagerow";
 import { MarkdownMessage } from "./markdownmessage";
 import { placeMarks, type TimelineMark } from "./permissionmodel";
 import { highlightLine } from "./highlight";
+import { ImageThumbs } from "./imagethumbs";
 import { toolRendererKey } from "./renderregistry";
 import { fmtDuration } from "./runcompletion";
 import { TIMELINE_RENDER_CAP } from "./sessionstranscript";
 import { formatDuration } from "./tooldetail";
 import type { TranscriptContext } from "./transcriptcontext";
-import { layoutTranscript, stepRows, stepTitle, type FoldSummary, type Step, type Thought } from "./transcriptlayout";
+import {
+    layoutTranscript,
+    stepRows,
+    stepTitle,
+    type FoldSummary,
+    type LayoutItem,
+    type Step,
+    type Thought,
+} from "./transcriptlayout";
 import { ToolOutputRenderer } from "./toolrenderers";
 import { isCardKey } from "./wshcall";
 import { WshChangeRow } from "./wshchangerow";
 import { WSH_STEP_SUMMARIES, wshRendererFor, type WshRendererProps, type WshStepSummary } from "./wshrenderers";
 
 // The transcript feed. layoutTranscript (transcriptlayout.ts) decides the items: prose, user bubbles, events, Arc's own
-// messages, wsh change cards, and stretches of tool steps, a finished turn's long stretch folded into "Worked for N".
-// While `active`, the live turn's stretches stay open.
+// messages, wsh change cards, stretches of tool steps, and a finished turn's work folded into one "Worked for N" line.
+// While `active`, the live turn stays unfolded.
 
 // a host that passes no ctx: cards still render, with no links
 const NO_CTX: TranscriptContext = {};
@@ -675,21 +700,29 @@ function ImageReadsRow({
     );
 }
 
-// what the agent thought between steps (a thinking-only message): muted prose, never a step
-function ThoughtText({ text, compact }: { text: string; compact: boolean }) {
-    return <MarkdownMessage text={text} className={cn("text-muted", compact ? "text-[12.5px]" : "text-[13px] leading-[1.55]")} />;
+// what the agent thought between steps (a thinking-only message, consecutive ones merged): muted prose clamped to a few
+// lines, never a step
+function ThoughtText({ text, clamp, compact }: { text: string; clamp: boolean; compact: boolean }) {
+    return (
+        <ClampedText lines="thought" clamp={clamp}>
+            <MarkdownMessage text={text} className={cn("text-muted", compact ? "text-[12.5px]" : "text-[13px] leading-[1.55]")} />
+        </ClampedText>
+    );
 }
 
 function StepBox({
     steps,
     thoughts,
     renderers,
+    clamp,
     ctx,
     compact,
 }: {
     steps: Step[];
     thoughts?: Thought[];
     renderers?: boolean;
+    // clamps a long thought behind Show more
+    clamp: boolean;
     ctx: TranscriptContext;
     compact: boolean;
 }) {
@@ -714,7 +747,7 @@ function StepBox({
                     >
                         {row.kind === "thought" ? (
                             <div data-thought className={compact ? "px-2.5 py-[7px]" : "px-3.5 py-2.5"}>
-                                <ThoughtText text={row.text} compact={compact} />
+                                <ThoughtText text={row.text} clamp={clamp} compact={compact} />
                             </div>
                         ) : row.kind === "images" ? (
                             <ImageReadsRow steps={row.steps} renderers={renderers} ctx={ctx} compact={compact} />
@@ -728,7 +761,7 @@ function StepBox({
     );
 }
 
-// "Worked for N · phrase +a −d ✗ k failed": a finished turn's folded stretch. Fades in when a turn folds after mount.
+// "Worked for N · phrase +a −d ✗ k failed": a finished turn's folded work. Fades in when a turn folds after mount.
 function FoldLine({ fold, open, onClick, compact }: { fold: FoldSummary; open: boolean; onClick: () => void; compact: boolean }) {
     return (
         <motion.button
@@ -763,37 +796,34 @@ function FoldLine({ fold, open, onClick, compact }: { fold: FoldSummary; open: b
     );
 }
 
-// A stretch: a box of steps, or, folded, its Worked-for line that opens to the box. A stretch holding a tool output
-// card (rendered view only) starts open, since a fold would hide the card.
-function StepsBlock({
-    steps,
-    thoughts,
+// A finished turn's work behind its Worked-for line, which opens to the items in order. startsOpen: it holds a tool
+// output card (rendered view), which a fold would hide. finishing: the turn just finished under a mounted feed, so it
+// mounts open and folds its work away under the new line. unfold: drawn open with no reveal, so a find over the
+// transcript sees every row where it will stay.
+function TurnFold({
     fold,
-    renderers,
-    ctx,
+    startsOpen,
+    finishing,
+    unfold,
     compact,
+    children,
 }: {
-    steps: Step[];
-    thoughts?: Thought[];
-    fold: FoldSummary | null;
-    renderers?: boolean;
-    ctx: TranscriptContext;
+    fold: FoldSummary;
+    startsOpen: boolean;
+    finishing: boolean;
+    unfold: boolean;
     compact: boolean;
+    children: React.ReactNode;
 }) {
     const [toggled, setToggled] = useState(false);
-    const hasCard = !!renderers && steps.some((s) => toolRendererKey(s.action) != null);
-    // one tree whether folded or not, so a turn that finishes folds its open box away under the new Worked line
-    const open = fold == null || (hasCard ? !toggled : toggled);
+    const [settled, setSettled] = useState(!finishing);
+    useEffect(() => setSettled(true), []);
+    const open = unfold || !settled || (startsOpen ? !toggled : toggled);
+    const body = <AnimatePresence initial={false}>{children}</AnimatePresence>;
     return (
-        <div>
-            <AnimatePresence initial={false}>
-                {fold != null ? (
-                    <FoldLine key="fold" fold={fold} open={open} onClick={() => setToggled((v) => !v)} compact={compact} />
-                ) : null}
-            </AnimatePresence>
-            <PaneReveal open={open}>
-                <StepBox steps={steps} thoughts={thoughts} renderers={renderers} ctx={ctx} compact={compact} />
-            </PaneReveal>
+        <div data-turn-fold>
+            <FoldLine fold={fold} open={open} onClick={() => setToggled((v) => !v)} compact={compact} />
+            {unfold ? <div>{body}</div> : <PaneReveal open={open}>{body}</PaneReveal>}
         </div>
     );
 }
@@ -951,11 +981,25 @@ function TaskNotificationRow({
     );
 }
 
-// A You bubble keeps the prompt's line breaks; a long one (a run's goal, a pasted spec) is clamped behind Show more.
-// The clamp is measured, not estimated, so the toggle only shows when text is really hidden. A find over the
-// transcript passes clamp=false, since a match must never sit in hidden text.
-function UserBubbleText({ text, clamp, compact }: { text: string; clamp: boolean; compact: boolean }) {
-    const ref = useRef<HTMLParagraphElement>(null);
+// the line clamp per kind of clamped text, spelled out so tailwind sees each class
+const CLAMP_LINES = { bubble: "line-clamp-[8]", thought: "line-clamp-3" } as const;
+
+// Long text clamped behind Show more. The clamp is measured, not estimated, so the toggle only shows when text is
+// really hidden. A find over the transcript (unfold) passes clamp=false, since a match must never sit in hidden text.
+function ClampedText({
+    lines,
+    clamp,
+    findTurn,
+    className,
+    children,
+}: {
+    lines: keyof typeof CLAMP_LINES;
+    clamp: boolean;
+    findTurn?: boolean;
+    className?: string;
+    children: React.ReactNode;
+}) {
+    const ref = useRef<HTMLDivElement>(null);
     const [open, setOpen] = useState(false);
     const [overflows, setOverflows] = useState(false);
     const clamped = clamp && !open;
@@ -965,25 +1009,17 @@ function UserBubbleText({ text, clamp, compact }: { text: string; clamp: boolean
             setOverflows(el.scrollHeight > el.clientHeight + 1);
         }
     };
-    useLayoutEffect(measure, [text, clamped]);
+    useLayoutEffect(measure, [children, clamped]);
     useResizeObserver(ref, measure);
     return (
         <>
-            <p
-                ref={ref}
-                data-find-turn
-                className={cn(
-                    "whitespace-pre-wrap text-foreground [overflow-wrap:anywhere]",
-                    compact ? "text-[13px] leading-[1.5]" : "text-[14px] leading-[1.55]",
-                    clamped && "line-clamp-[8]"
-                )}
-            >
-                {text.trim()}
-            </p>
+            <div ref={ref} data-find-turn={findTurn || undefined} className={cn(className, clamped && CLAMP_LINES[lines])}>
+                {children}
+            </div>
             {clamp && (overflows || open) ? (
                 <button
                     type="button"
-                    data-bubble-more
+                    data-clamp-more
                     aria-expanded={open}
                     onClick={() => setOpen((v) => !v)}
                     className="mt-1 cursor-pointer text-[12px] text-accent-soft hover:text-primary"
@@ -992,6 +1028,166 @@ function UserBubbleText({ text, clamp, compact }: { text: string; clamp: boolean
                 </button>
             ) : null}
         </>
+    );
+}
+
+// A background-task notice (a shell finished, a hook skipped): one muted line, not the subagent box. A structured one
+// (with a status) reads "Background task", a free-text one "Notice"; it opens to the whole text when the line hides some.
+function NoticeRow({
+    summary,
+    status,
+    result,
+    compact,
+}: {
+    summary: string;
+    status?: string;
+    result?: string;
+    compact: boolean;
+}) {
+    const [open, setOpen] = useState(false);
+    const canExpand = summary.includes("\n") || !!result;
+    const size = compact ? "text-[12.5px]" : "text-[13.5px]";
+    return (
+        <div data-notice className={compact ? "my-2" : "my-3"}>
+            <button
+                type="button"
+                disabled={!canExpand}
+                aria-expanded={canExpand ? open : undefined}
+                onClick={() => setOpen((v) => !v)}
+                className={cn(
+                    "flex w-full min-w-0 items-center gap-2 text-left text-muted",
+                    size,
+                    canExpand ? "cursor-pointer hover:text-ink-mid" : "cursor-default"
+                )}
+            >
+                <Info size={13} strokeWidth={2.2} className="shrink-0" aria-hidden />
+                <span className="shrink-0 text-ink-mid">{status ? "Background task" : "Notice"}</span>
+                <span className="min-w-0 truncate">{summary.split("\n")[0]}</span>
+                {status ? <span className="shrink-0">· {status}</span> : null}
+                {canExpand ? (
+                    <span className="flex shrink-0">
+                        <TurnChevron open={open} size={12} strokeWidth={2.2} />
+                    </span>
+                ) : null}
+            </button>
+            <PaneReveal open={open && canExpand}>
+                <div data-notice-body className={cn("mt-1 ml-[21px] text-muted", size)}>
+                    <div className="whitespace-pre-wrap [overflow-wrap:anywhere]">{summary}</div>
+                    {result ? <MarkdownMessage text={result} className="mt-1.5" /> : null}
+                </div>
+            </PaneReveal>
+        </div>
+    );
+}
+
+// A You bubble keeps the prompt's line breaks; a long one (a run's goal, a pasted spec) is clamped behind Show more.
+function UserBubbleText({ text, clamp, compact }: { text: string; clamp: boolean; compact: boolean }) {
+    return (
+        <ClampedText
+            lines="bubble"
+            clamp={clamp}
+            findTurn
+            className={cn(
+                "whitespace-pre-wrap text-foreground [overflow-wrap:anywhere]",
+                compact ? "text-[13px] leading-[1.5]" : "text-[14px] leading-[1.55]"
+            )}
+        >
+            {text.trim()}
+        </ClampedText>
+    );
+}
+
+// path -> a blob url, or null once it failed; a path still loading is absent
+type LocalImages = Record<string, string | null>;
+
+// An <img src> cannot carry the auth header wavesrv needs under tauri (fetchutil.ts), so each attached image path is
+// fetched and drawn from a blob url. A failed fetch, or an image that fails to decode (fail), falls back to a file chip.
+function useLocalImages(paths: string[]): [LocalImages, (path: string) => void] {
+    const key = paths.join("\n");
+    const [loaded, setLoaded] = useState<LocalImages>({});
+    useEffect(() => {
+        setLoaded({});
+        if (key === "") {
+            return;
+        }
+        let cancelled = false;
+        const urls: string[] = [];
+        for (const path of key.split("\n")) {
+            fireAndForget(async () => {
+                let url: string | null = null;
+                try {
+                    const resp = await fetch(localFileUrl(getWebServerEndpoint(), path));
+                    if (resp.ok && !cancelled) {
+                        const blob = await resp.blob();
+                        // the blob can land after cleanup revoked the list; a url made then would never be revoked
+                        if (!cancelled) {
+                            url = URL.createObjectURL(blob);
+                            urls.push(url);
+                        }
+                    }
+                } catch (e) {
+                    console.warn("bubble attachment: cannot load", path, e);
+                }
+                if (!cancelled) {
+                    setLoaded((cur) => ({ ...cur, [path]: url }));
+                }
+            });
+        }
+        return () => {
+            cancelled = true;
+            urls.forEach((u) => URL.revokeObjectURL(u));
+        };
+    }, [key]);
+    const fail = (path: string) => setLoaded((cur) => ({ ...cur, [path]: null }));
+    return [loaded, fail];
+}
+
+function FileChip({ path }: { path: string }) {
+    return (
+        <span
+            data-file-chip
+            title={path}
+            className="flex h-[26px] min-w-0 items-center gap-1.5 rounded-[7px] border border-edge-mid bg-surface px-2 text-[12px] text-secondary"
+        >
+            <FileIcon size={13} className="shrink-0 text-muted" aria-hidden />
+            <span className="max-w-[200px] truncate font-mono">{path.split(/[\\/]/).pop() || path}</span>
+        </span>
+    );
+}
+
+// a bubble's pasted images and attached paths, under its text: thumbnails that open the zoom view, then file chips
+function BubbleAttachments({ item, compact }: { item: Extract<LayoutItem, { kind: "user" }>; compact: boolean }) {
+    const imagePaths = item.imagePaths ?? [];
+    const [loaded, fail] = useLocalImages(imagePaths);
+    const pasted = (item.images ?? []).map((img, i) => ({
+        src: `data:${img.mediaType};base64,${img.data}`,
+        alt: `Pasted image ${i + 1}`,
+    }));
+    const local = imagePaths.filter((p) => loaded[p] != null);
+    const thumbs = [...pasted, ...local.map((p) => ({ src: loaded[p], alt: p.split(/[\\/]/).pop() || p }))];
+    const chips = [...imagePaths.filter((p) => loaded[p] === null), ...(item.filePaths ?? [])];
+    if (thumbs.length === 0 && chips.length === 0) {
+        return null;
+    }
+    return (
+        <div data-bubble-attachments className="mt-2 flex flex-col gap-2 first:mt-0">
+            {thumbs.length > 0 ? (
+                <ImageThumbs
+                    images={thumbs}
+                    compact={compact}
+                    onError={(i) => {
+                        if (i >= pasted.length) fail(local[i - pasted.length]);
+                    }}
+                />
+            ) : null}
+            {chips.length > 0 ? (
+                <div className="flex min-w-0 flex-wrap gap-1.5">
+                    {chips.map((p, i) => (
+                        <FileChip key={i} path={p} />
+                    ))}
+                </div>
+            ) : null}
+        </div>
     );
 }
 
@@ -1034,11 +1230,12 @@ export const NarrationTimeline = memo(function NarrationTimeline({
     tail,
     ctx,
     compact,
+    unfold,
 }: {
     entries: AgentEntry[];
     accentLatest?: boolean;
     active?: boolean;
-    // a find over the transcript must reach its earliest turns, so it lifts the cap
+    // lifts the item cap, for a whole session loaded or read in full; the clamp stays, since only a find needs it gone
     renderAll?: boolean;
     // draws the registered tool output cards open under their rows; only the rendered view sets it,
     // since always-open cards would bloat the cockpit's narrow cards
@@ -1055,17 +1252,28 @@ export const NarrationTimeline = memo(function NarrationTimeline({
     compact?: boolean;
     // drawn after the last item, inside the column
     tail?: React.ReactNode;
+    // a find is active: every finished turn's fold draws open and no bubble or thought is clamped, so a match never
+    // sits in hidden text
+    unfold?: boolean;
 }) {
-    // ctx feeds the layout only through its role (a run brief), so a host's fresh ctx object does not relayout
+    // ctx feeds the layout only through its role (a run brief), so a host's fresh ctx object does not relayout; a host's
+    // fresh marks array relayouts only when a mark moves
     const role = ctx?.role;
+    const marksKey = (marks ?? []).map((m) => m.afterEntry).join(",");
     const items = useMemo(
-        () => layoutTranscript(entries, { active: !!active, ctx: { role }, thoughts }),
-        [entries, active, role, thoughts]
+        () => layoutTranscript(entries, { active: !!active, ctx: { role }, thoughts, renderers, marks }),
+        [entries, active, role, thoughts, renderers, marksKey]
     );
+    // a turn folding after the first render is one that just finished
+    const mounted = useRef(false);
+    useEffect(() => {
+        mounted.current = true;
+    }, []);
     const cardCtx = ctx ?? NO_CTX;
     const isCompact = !!compact;
     const visibleItems =
         !renderAll && items.length > TIMELINE_RENDER_CAP ? items.slice(items.length - TIMELINE_RENDER_CAP) : items;
+    const lastTurn = items.filter((i) => i.kind === "turn").pop();
     const copyMenu = (text: string) => (e: React.MouseEvent) =>
         ContextMenuModel.getInstance().showContextMenu(
             [
@@ -1083,148 +1291,176 @@ export const NarrationTimeline = memo(function NarrationTimeline({
         ...rows.flatMap((row, idx) => [row, ...markRows(placed.after.get(idx))]),
     ];
 
+    const renderItem = (item: LayoutItem): React.ReactNode => {
+        if (item.kind === "turn") {
+            return (
+                <TurnFold
+                    key={"f" + item.startIndex}
+                    fold={item.fold}
+                    startsOpen={item.open}
+                    finishing={mounted.current && item === lastTurn}
+                    unfold={!!unfold}
+                    compact={isCompact}
+                >
+                    {item.items.map(renderItem)}
+                </TurnFold>
+            );
+        }
+        if (item.kind === "message") {
+            return (
+                <motion.div
+                    key={item.index}
+                    data-find-turn
+                    className={cn(
+                        "min-w-0",
+                        isCompact ? "my-3 text-[13px] leading-[1.55]" : "my-[18px] text-[14px] leading-[1.6]",
+                        accentLatest && item.latest ? "text-foreground" : "text-secondary"
+                    )}
+                    onContextMenu={copyMenu(item.text)}
+                    variants={viewFade}
+                    initial={shouldFadeEntry("message") ? "initial" : false}
+                    animate="animate"
+                >
+                    <MarkdownMessage text={item.text} />
+                </motion.div>
+            );
+        }
+        if (item.kind === "thought") {
+            return (
+                <motion.div
+                    key={"t" + item.index}
+                    data-thought
+                    className={cn("min-w-0", isCompact ? "my-2" : "my-2.5")}
+                    variants={viewFade}
+                    initial={shouldFadeEntry("thought") ? "initial" : false}
+                    animate="animate"
+                >
+                    <ThoughtText text={item.text} clamp={!unfold} compact={isCompact} />
+                </motion.div>
+            );
+        }
+        if (item.kind === "user") {
+            return (
+                <motion.div
+                    key={item.index}
+                    data-user-bubble
+                    className={cn("flex justify-end", isCompact ? "my-3.5 ml-7" : "my-6")}
+                    onContextMenu={copyMenu(item.text)}
+                    variants={viewFade}
+                    initial={shouldFadeEntry("user") ? "initial" : false}
+                    animate="animate"
+                >
+                    <div
+                        className={cn(
+                            "max-w-[82%] bg-surface-hover",
+                            isCompact ? "rounded-[10px] px-[11px] py-2" : "rounded-[12px] px-[15px] py-[11px]"
+                        )}
+                    >
+                        {item.text ? <UserBubbleText text={item.text} clamp={!unfold} compact={isCompact} /> : null}
+                        {item.images || item.imagePaths || item.filePaths ? (
+                            <BubbleAttachments item={item} compact={isCompact} />
+                        ) : null}
+                    </div>
+                </motion.div>
+            );
+        }
+        if (item.kind === "command") {
+            return (
+                <motion.div
+                    key={item.index}
+                    variants={viewFade}
+                    initial="initial"
+                    animate="animate"
+                >
+                    <CommandChip name={item.name} args={item.args} isSkill={item.isSkill} compact={isCompact} />
+                </motion.div>
+            );
+        }
+        if (item.kind === "compaction") {
+            return (
+                <motion.div
+                    key={item.index}
+                    variants={viewFade}
+                    initial="initial"
+                    animate="animate"
+                >
+                    <CompactionDivider trigger={item.trigger} preTokens={item.preTokens} postTokens={item.postTokens} summary={item.summary} compact={isCompact} />
+                </motion.div>
+            );
+        }
+        if (item.kind === "notification") {
+            return (
+                <motion.div
+                    key={item.index}
+                    variants={viewFade}
+                    initial="initial"
+                    animate="animate"
+                >
+                    {item.notice ? (
+                        <NoticeRow summary={item.summary} status={item.status} result={item.result} compact={isCompact} />
+                    ) : (
+                        <TaskNotificationRow summary={item.summary} status={item.status} result={item.result} compact={isCompact} />
+                    )}
+                </motion.div>
+            );
+        }
+        if (item.kind === "interrupted") {
+            return (
+                <motion.div
+                    key={item.index}
+                    variants={viewFade}
+                    initial="initial"
+                    animate="animate"
+                >
+                    <InterruptedDivider compact={isCompact} />
+                </motion.div>
+            );
+        }
+        if (item.kind === "arc") {
+            return (
+                <motion.div key={"a" + item.index} variants={cardVariants} initial="initial" animate="animate">
+                    <ArcMessageRow
+                        message={item.message}
+                        ts={item.ts}
+                        idleMs={item.idleMs}
+                        latest={item.latest}
+                        ctx={cardCtx}
+                        compact={isCompact}
+                    />
+                </motion.div>
+            );
+        }
+        if (item.kind === "card") {
+            return (
+                <motion.div
+                    key={"c" + item.index}
+                    className={isCompact ? "my-2" : "my-2.5"}
+                    variants={cardVariants}
+                    initial="initial"
+                    animate="animate"
+                >
+                    <WshCardItem step={item.step} ctx={cardCtx} compact={isCompact} />
+                </motion.div>
+            );
+        }
+        // a new stretch arrives as one box, so its fade is one entrance, never a burst of tool lines
+        return (
+            <motion.div key={"s" + item.startIndex} variants={viewFade} initial="initial" animate="animate">
+                <StepBox
+                    steps={item.steps}
+                    thoughts={item.thoughts}
+                    renderers={renderers}
+                    clamp={!unfold}
+                    ctx={cardCtx}
+                    compact={isCompact}
+                />
+            </motion.div>
+        );
+    };
+
     return (
         <div className={cn("leading-relaxed", className)}>
-            <AnimatePresence initial={false}>
-            {withMarks(visibleItems.map((item) => {
-                if (item.kind === "message") {
-                    return (
-                        <motion.div
-                            key={item.index}
-                            data-find-turn
-                            className={cn(
-                                "min-w-0",
-                                isCompact ? "my-3 text-[13px] leading-[1.55]" : "my-[18px] text-[14px] leading-[1.6]",
-                                accentLatest && item.latest ? "text-foreground" : "text-secondary"
-                            )}
-                            onContextMenu={copyMenu(item.text)}
-                            variants={viewFade}
-                            initial={shouldFadeEntry("message") ? "initial" : false}
-                            animate="animate"
-                        >
-                            <MarkdownMessage text={item.text} />
-                        </motion.div>
-                    );
-                }
-                if (item.kind === "thought") {
-                    return (
-                        <motion.div
-                            key={"t" + item.index}
-                            data-thought
-                            className={cn("min-w-0", isCompact ? "my-2" : "my-2.5")}
-                            variants={viewFade}
-                            initial={shouldFadeEntry("thought") ? "initial" : false}
-                            animate="animate"
-                        >
-                            <ThoughtText text={item.text} compact={isCompact} />
-                        </motion.div>
-                    );
-                }
-                if (item.kind === "user") {
-                    return (
-                        <motion.div
-                            key={item.index}
-                            data-user-bubble
-                            className={cn("flex justify-end", isCompact ? "my-3.5 ml-7" : "my-6")}
-                            onContextMenu={copyMenu(item.text)}
-                            variants={viewFade}
-                            initial={shouldFadeEntry("user") ? "initial" : false}
-                            animate="animate"
-                        >
-                            <div
-                                className={cn(
-                                    "max-w-[82%] bg-surface-hover",
-                                    isCompact ? "rounded-[10px] px-[11px] py-2" : "rounded-[12px] px-[15px] py-[11px]"
-                                )}
-                            >
-                                <UserBubbleText text={item.text} clamp={!renderAll} compact={isCompact} />
-                            </div>
-                        </motion.div>
-                    );
-                }
-                if (item.kind === "command") {
-                    return (
-                        <motion.div
-                            key={item.index}
-                            variants={viewFade}
-                            initial="initial"
-                            animate="animate"
-                        >
-                            <CommandChip name={item.name} args={item.args} isSkill={item.isSkill} compact={isCompact} />
-                        </motion.div>
-                    );
-                }
-                if (item.kind === "compaction") {
-                    return (
-                        <motion.div
-                            key={item.index}
-                            variants={viewFade}
-                            initial="initial"
-                            animate="animate"
-                        >
-                            <CompactionDivider trigger={item.trigger} preTokens={item.preTokens} postTokens={item.postTokens} summary={item.summary} compact={isCompact} />
-                        </motion.div>
-                    );
-                }
-                if (item.kind === "notification") {
-                    return (
-                        <motion.div
-                            key={item.index}
-                            variants={viewFade}
-                            initial="initial"
-                            animate="animate"
-                        >
-                            <TaskNotificationRow summary={item.summary} status={item.status} result={item.result} compact={isCompact} />
-                        </motion.div>
-                    );
-                }
-                if (item.kind === "interrupted") {
-                    return (
-                        <motion.div
-                            key={item.index}
-                            variants={viewFade}
-                            initial="initial"
-                            animate="animate"
-                        >
-                            <InterruptedDivider compact={isCompact} />
-                        </motion.div>
-                    );
-                }
-                if (item.kind === "arc") {
-                    return (
-                        <motion.div key={"a" + item.index} variants={cardVariants} initial="initial" animate="animate">
-                            <ArcMessageRow message={item.message} ts={item.ts} idleMs={item.idleMs} ctx={cardCtx} compact={isCompact} />
-                        </motion.div>
-                    );
-                }
-                if (item.kind === "card") {
-                    return (
-                        <motion.div
-                            key={"c" + item.index}
-                            className={isCompact ? "my-2" : "my-2.5"}
-                            variants={cardVariants}
-                            initial="initial"
-                            animate="animate"
-                        >
-                            <WshCardItem step={item.step} ctx={cardCtx} compact={isCompact} />
-                        </motion.div>
-                    );
-                }
-                // a new stretch arrives as one box, so its fade is one entrance, never a burst of tool lines
-                return (
-                    <motion.div key={"s" + item.startIndex} variants={viewFade} initial="initial" animate="animate">
-                        <StepsBlock
-                            steps={item.steps}
-                            thoughts={item.thoughts}
-                            fold={item.fold}
-                            renderers={renderers}
-                            ctx={cardCtx}
-                            compact={isCompact}
-                        />
-                    </motion.div>
-                );
-            }))}
-            </AnimatePresence>
+            <AnimatePresence initial={false}>{withMarks(visibleItems.map(renderItem))}</AnimatePresence>
             {tail}
         </div>
     );

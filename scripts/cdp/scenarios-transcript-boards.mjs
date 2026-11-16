@@ -1,7 +1,8 @@
 // Scenario `transcript-boards`: the wsh boards end to end. Each step rebuilds one prototype board's whole transcript
 // from the families' exported `fixtures` plus the board's own prose and user entries, at the board's width (736 px
-// column, or 380 px with `compact` for the card boards), then checks placement: change cards stand outside any step
-// box, read-only calls are step rows that open to their view, wakes and briefs are Arc events (never a user bubble).
+// column, or 380 px with `compact` for the card boards), opens every finished turn's fold, then checks placement: change
+// cards sit in their turn's fold but outside any step box, read-only calls are step rows that open to their view, wakes
+// and briefs are Arc events (never a user bubble).
 
 import { fixtures as dagActions } from "./scenarios-transcript-dagactions.mjs";
 import { fixtures as agents } from "./scenarios-transcript-agents.mjs";
@@ -527,10 +528,12 @@ const SNAPSHOT = probe(`
     const textOf = (el) => (el.innerText || '').replace(/\\s+/g, ' ').trim();
     const cards = {};
     const cardsInBox = [];
+    const cardsOutsideFold = [];
     for (const c of root.querySelectorAll('[data-wsh-card]')) {
         const key = c.getAttribute('data-wsh-card');
         cards[key] = (cards[key] ?? 0) + 1;
         if (c.closest('[data-steps]')) cardsInBox.push(key);
+        if (!c.closest('[data-turn-fold]')) cardsOutsideFold.push(key);
     }
     const arc = {};
     const arcInBubble = [];
@@ -542,6 +545,7 @@ const SNAPSHOT = probe(`
     return {
         cards,
         cardsInBox,
+        cardsOutsideFold,
         arc,
         arcInBubble,
         bubbles: [...root.querySelectorAll('[data-user-bubble]')].map((b) => textOf(b).slice(0, 60)),
@@ -613,6 +617,7 @@ function judgeBoard(board, { snap, opened, summaries, images, width }) {
         if ((snap.cards[key] ?? 0) < n) faults.push(`card ${key}: ${snap.cards[key] ?? 0} of ${n}`);
     }
     if (snap.cardsInBox.length) faults.push(`cards inside a step box: ${snap.cardsInBox.join(",")}`);
+    if (snap.cardsOutsideFold.length) faults.push(`cards outside their turn's fold: ${snap.cardsOutsideFold.join(",")}`);
     for (const o of opened) {
         if (typeof o.row !== "object" || o.row == null || !o.row.inBox) faults.push(`${o.key} is not a step row in a box`);
         if (!o.mounted) faults.push(`${o.key} did not open to its view`);
@@ -649,7 +654,7 @@ export const transcriptBoards = {
         for (const board of BOARDS) {
             const read = await readBoard(h, board);
             const { ok, detail } = judgeBoard(board, read);
-            steps.push({ step: `${board.name} board: cards outside the fold, reads open to their view, Arc messages as events`, ok, detail });
+            steps.push({ step: `${board.name} board: cards in their turn's fold, outside any step box, reads open to their view, Arc messages as events`, ok, detail });
         }
         return steps;
     },

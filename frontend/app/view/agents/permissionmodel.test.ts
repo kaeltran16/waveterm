@@ -153,12 +153,28 @@ describe("permissionLogText", () => {
 });
 
 describe("placeMarks", () => {
-    // entries: 0 user, 1-4 a folded stretch of steps, 5 message
+    // entries: 0 user, 1-4 a stretch of steps, 5 message
     const items: LayoutItem[] = [
         { kind: "user", text: "go", index: 0 },
-        { kind: "steps", startIndex: 1, steps: [], fold: null },
+        { kind: "steps", startIndex: 1, steps: [] },
         { kind: "message", text: "done", index: 5, latest: true },
     ];
+
+    it("puts a mark whose entry falls inside a folded turn after the turn's row", () => {
+        const folded: LayoutItem[] = [
+            items[0],
+            {
+                kind: "turn",
+                startIndex: 1,
+                items: [items[1]],
+                fold: { phrase: "", adds: 0, dels: 0, failed: 0 },
+                open: false,
+            },
+            items[2],
+        ];
+        const { after } = placeMarks(folded, [{ afterEntry: 3, text: "a" }]);
+        expect(after.get(1)?.map((m) => m.text)).toEqual(["a"]);
+    });
 
     it("puts a mark after the item holding entry afterEntry - 1, a fold included", () => {
         const { lead, after } = placeMarks(items, [

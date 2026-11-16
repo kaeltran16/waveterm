@@ -6,7 +6,7 @@
 // The working line is the timeline's tail; once your last prompt has scrolled out of view, a bar pinned at the top
 // holds it. A file path in a reply opens the Code peek docked under the transcript, beside the agent.
 
-import { microFade } from "@/app/element/motiontokens";
+import { microFade, viewFade } from "@/app/element/motiontokens";
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
@@ -25,7 +25,8 @@ import { resolveCwd } from "./agentcwdresolve";
 import type { AgentsViewModel } from "./agents";
 import { askSentKey, type AgentEntry, type AgentVM } from "./agentsviewmodel";
 import { AnswerBar } from "./answerbar";
-import { entriesAtomFor } from "./livetranscriptatoms";
+import { showEarlierTranscript } from "./livetranscript";
+import { earlierAtomFor, entriesAtomFor } from "./livetranscriptatoms";
 import { FileLinkContext } from "./markdownmessage";
 import { NarrationTimeline } from "./narrationtimeline";
 import { useWorkingTail } from "./nowlineview";
@@ -207,7 +208,14 @@ function PinnedPromptBar({ prompt, onJump }: { prompt: PinnedPrompt | null; onJu
 export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
     const entries = useAtomValue(entriesAtomFor(agent.id));
     const marks = useAtomValue(permissionLogAtom(agent.id));
-    const { scrollRef, onScroll, atBottom, jumpToBottom } = useStickToBottom(entries);
+    const earlier = useAtomValue(earlierAtomFor(agent.id));
+    const whole = earlier === "shown";
+    const feedRef = useRef<HTMLDivElement>(null);
+    // the whole file remounts the feed, so its rows come in without an entrance fade; the reader keeps their place
+    const { scrollRef, onScroll, atBottom, jumpToBottom } = useStickToBottom(entries, {
+        rows: () => feedRef.current?.firstElementChild,
+        mount: whole,
+    });
     const ctx = useTranscriptContext(model, agent);
     const tail = useWorkingTail(model.nowAtom, agent, entries);
     const pin = usePinnedPrompt(scrollRef, entries, ctx);
@@ -240,18 +248,40 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
                         className={`${COLUMN} flex min-h-full flex-col [&_.agent-md>:is(p,ul,ol,h1,h2,h3,h4,h5,h6,blockquote)]:max-w-[75ch]`}
                     >
                         {entries.length > 0 ? (
-                            <FileLinkContext.Provider value={replyPeek.open}>
-                                <NarrationTimeline
-                                    entries={entries}
-                                    renderers
-                                    marks={anchorMarks(entries, marks)}
-                                    accentLatest
-                                    thoughts
-                                    active={agent.state === "working"}
-                                    ctx={ctx}
-                                    tail={tail}
-                                />
-                            </FileLinkContext.Provider>
+                            <>
+                                <AnimatePresence initial={false}>
+                                    {earlier === "hidden" || earlier === "loading" ? (
+                                        <motion.button
+                                            key="earlier"
+                                            type="button"
+                                            data-rendered-earlier=""
+                                            onClick={() => fireAndForget(() => showEarlierTranscript(agent.id))}
+                                            variants={viewFade}
+                                            initial="initial"
+                                            animate="animate"
+                                            className="w-full cursor-pointer rounded-[6px] py-2 text-center text-[12px] font-semibold text-muted hover:bg-surface-hover hover:text-primary"
+                                        >
+                                            Show earlier turns
+                                        </motion.button>
+                                    ) : null}
+                                </AnimatePresence>
+                                <div data-rendered-feed ref={feedRef}>
+                                    <FileLinkContext.Provider value={replyPeek.open}>
+                                        <NarrationTimeline
+                                            key={whole ? "whole" : "tail"}
+                                            entries={entries}
+                                            renderers
+                                            marks={anchorMarks(entries, marks)}
+                                            accentLatest
+                                            thoughts
+                                            renderAll={whole}
+                                            active={agent.state === "working"}
+                                            ctx={ctx}
+                                            tail={tail}
+                                        />
+                                    </FileLinkContext.Provider>
+                                </div>
+                            </>
                         ) : agent.transcriptPath ? (
                             <div data-rendered-empty="skeleton" className="flex-1">
                                 <TranscriptSkeleton />

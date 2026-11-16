@@ -55,6 +55,8 @@ export interface ArcMessageRowProps {
     message: ArcMessage;
     ts?: number;
     idleMs?: number; // the gap before it, for the Waited fold
+    // the feed's last wake: only it draws its sections open
+    latest?: boolean;
     ctx: TranscriptContext;
     compact: boolean;
 }
@@ -406,13 +408,15 @@ function PartBody({
     );
 }
 
-// one wake line: its head, and its body open by default (the boards draw findings, defects and failures open)
+// one wake line: its head, and its body open in the latest wake (the boards draw findings, defects and failures open);
+// an earlier wake's is closed, as it is history
 function WakePartRow({
     part,
     label,
     events,
     ts,
     run,
+    startsOpen,
     ctx,
     compact,
 }: {
@@ -421,10 +425,11 @@ function WakePartRow({
     events: RunEvent[];
     ts?: number;
     run: BriefRun | undefined;
+    startsOpen: boolean;
     ctx: TranscriptContext;
     compact: boolean;
 }) {
-    const [open, setOpen] = useState(true);
+    const [open, setOpen] = useState(startsOpen);
     const ev = wakeEvents(part, events, ts);
     const words = partWords(part, ev, run);
     const runId = ctx.role ? roleRunId(ctx.role) : undefined;
@@ -534,7 +539,7 @@ function WaitedFold({
     );
 }
 
-function WakeRow({ message, ts, idleMs, ctx, compact }: ArcMessageRowProps) {
+function WakeRow({ message, ts, idleMs, latest, ctx, compact }: ArcMessageRowProps) {
     const events = useRunEventsOf(ctx);
     const parts = wakeParts(message.text);
     const runFinished = parts.some((p) => p.kind === "run-finished");
@@ -575,6 +580,7 @@ function WakeRow({ message, ts, idleMs, ctx, compact }: ArcMessageRowProps) {
                         events={events}
                         ts={ts}
                         run={runState.data}
+                        startsOpen={!!latest}
                         ctx={ctx}
                         compact={compact}
                     />
