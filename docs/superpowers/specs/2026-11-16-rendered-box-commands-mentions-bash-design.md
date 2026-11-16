@@ -106,6 +106,13 @@ text and Tab completion, `!` history, sleeping-agent bash runs, the Lexical edit
     caret at a pill's end, or right after the single space that follows it, deletes the whole token (and that
     space).
 
+12a. **One `@` panel for agents and files** (added after the run, when main landed b18bca1e9's live-agent tag
+    picker in the same box). `@` opens a single suggestion panel: a group of this project's live agents (main's
+    `mentionmodel.ts` rows, tags and send block, unchanged) above a group of files (decisions 10-11). Agent rows
+    show only while the query is a tag query (main's `mentionToken` matches); a path query (`/`, `.`, quotes)
+    shows files only. A picked agent writes its tag and travels as main's trailing block; a picked file writes
+    `@<path> ` and draws as a pill. One Esc-dismiss rule (decision 2) covers both.
+
 ### Chunk 12: ! bash mode and its output card
 
 13. **Mode state, not text.** A `!` typed or pasted into an **empty** box turns bash mode on and the `!` itself
