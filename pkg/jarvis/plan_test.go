@@ -282,15 +282,31 @@ func TestParsePlanCRLF(t *testing.T) {
 }
 
 func TestPlanFormatParses(t *testing.T) {
-	p := mustParsePlan(t, PlanFormat)
-	if want := []string{"t-1:", "t-2:t-1", "t-3:t-1"}; !reflect.DeepEqual(depLists(p.Tasks), want) {
-		t.Fatalf("the format's own example must parse as documented, got %v", depLists(p.Tasks))
+	for _, skill := range []string{PlanSkill_WritingPlans, PlanSkill_Plan} {
+		p := mustParsePlan(t, PlanFormatFor(skill))
+		if want := []string{"t-1:", "t-2:t-1", "t-3:t-1"}; !reflect.DeepEqual(depLists(p.Tasks), want) {
+			t.Fatalf("%s: the format's own example must parse as documented, got %v", skill, depLists(p.Tasks))
+		}
+		if p.Verify == "" || p.Setup == "" || p.Check == "" || p.Final == "" || p.Prototype == "" {
+			t.Fatalf("%s: the example shows Verify, Setup, Check, Final and Prototype, got %q / %q / %q / %q / %q", skill, p.Verify, p.Setup, p.Check, p.Final, p.Prototype)
+		}
+		if p.EffortOID != "<oid>" || !reflect.DeepEqual(p.Tasks[0].Chunks, []string{"<exact chunk label>"}) {
+			t.Fatalf("%s: the example shows an Effort line and a Chunk line, got %q / %v", skill, p.EffortOID, p.Tasks[0].Chunks)
+		}
 	}
-	if p.Verify == "" || p.Setup == "" || p.Check == "" || p.Final == "" || p.Prototype == "" {
-		t.Fatalf("the example shows Verify, Setup, Check, Final and Prototype, got %q / %q / %q / %q / %q", p.Verify, p.Setup, p.Check, p.Final, p.Prototype)
+}
+
+// writing-plans names each task's tests in the plan; under arc:plan the worker picks them, so its format lists none
+func TestPlanFormatForSwitchesTheTaskTestsRule(t *testing.T) {
+	if PlanFormatFor(PlanSkill_WritingPlans) != PlanFormat || PlanFormatFor("") != PlanFormat {
+		t.Fatal("writing-plans and a run from before the setting keep PlanFormat")
 	}
-	if p.EffortOID != "<oid>" || !reflect.DeepEqual(p.Tasks[0].Chunks, []string{"<exact chunk label>"}) {
-		t.Fatalf("the example shows an Effort line and a Chunk line, got %q / %v", p.EffortOID, p.Tasks[0].Chunks)
+	wp, plan := PlanFormatFor(PlanSkill_WritingPlans), PlanFormatFor(PlanSkill_Plan)
+	if !strings.Contains(wp, planFocusedTestsRule) || !strings.Contains(wp, planTaskBodyWritingPlans) {
+		t.Fatalf("the writing-plans format lists each task's focused tests:\n%s", wp)
+	}
+	if strings.Contains(plan, planFocusedTestsRule) || strings.Contains(plan, planTaskBodyWritingPlans) || !strings.Contains(plan, planTaskBodyPlan) {
+		t.Fatalf("the arc:plan format lists no tests and shows a task as what to build plus its acceptance criteria:\n%s", plan)
 	}
 }
 

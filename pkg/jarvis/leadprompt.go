@@ -69,16 +69,35 @@ const AutonomousOffWake = "wake: approvals for this run are back to Ask me: from
 // caller or test it breaks was on no task's Files line, so Check failed (runs 9eb0edaa, cad1a593, 5638249e and more).
 const planCallersStep = "Before you submit, for every symbol whose signature, type shape or name a task changes, grep its references across the repo, tests and `scripts/` included, and put each file that must change on that task's Files line. "
 
-// writePlan is the plan step every planning lead takes; only the submit command after it varies.
-const writePlan = "write the plan with superpowers:writing-plans in the plan format below, except its complete-code rule: a task carries the design decisions it makes, the files it owns, any interface or signature another task relies on, and its acceptance criteria with the focused tests that prove them, but not the implementation, which its worker writes. Break it up by what can proceed independently: the engine runs those tasks at the same time, and a plan that is one serial chain gets none of that. " + planCallersStep + "Don't commit the spec or plan yourself (the engine commits the spec and plan to the run's branch at submit, and they land with the run) and don't execute the plan: "
+// planWidthStep and planNoCommitStep close the plan step under either plan skill.
+const (
+	planWidthStep    = "Break it up by what can proceed independently: the engine runs those tasks at the same time, and a plan that is one serial chain gets none of that. "
+	planNoCommitStep = "Don't commit the spec or plan yourself (the engine commits the spec and plan to the run's branch at submit, and they land with the run) and don't execute the plan: "
+)
+
+// writePlanWritingPlans overrides writing-plans' complete-code rule: leads spent minutes pasting each task's code.
+const writePlanWritingPlans = "write the plan with arc:writing-plans in the plan format below, except its complete-code rule: a task carries the design decisions it makes, the files it owns, any interface or signature another task relies on, and its acceptance criteria with the focused tests that prove them, but not the implementation, which its worker writes. "
+
+// writePlanPlan lists no tests: under arc:plan the worker picks them at the seam the acceptance criteria imply.
+const writePlanPlan = "write the plan with arc:plan in the plan format below: each task is a vertical slice that carries what to build, what blocks it, its acceptance criteria, the files it owns, any interface or signature another task relies on, and, for a UI it changes, the scenario step that shows it; no step lists and no listed tests, since its worker writes the implementation and picks the tests that prove the criteria. "
+
+// writePlan is the plan step every planning lead takes, by the run's plan skill; only the submit command after it
+// varies.
+func writePlan(planSkill string) string {
+	step := writePlanWritingPlans
+	if EffectivePlanSkill(planSkill) == PlanSkill_Plan {
+		step = writePlanPlan
+	}
+	return step + planWidthStep + planCallersStep + planNoCommitStep
+}
 
 // writePlanAndSubmit is the plan step and its submit. spec is the `--spec` argument, a placeholder or the run's
 // path; empty submits without one.
-func writePlanAndSubmit(spec string) string {
+func writePlanAndSubmit(spec, planSkill string) string {
 	if spec == "" {
-		return writePlan + "run `wsh jarvis dag submit --plan <plan path>` with an absolute path and stop."
+		return writePlan(planSkill) + "run `wsh jarvis dag submit --plan <plan path>` with an absolute path and stop."
 	}
-	return writePlan + "run `wsh jarvis dag submit --plan <plan path> --spec " + spec + "` with absolute paths and stop."
+	return writePlan(planSkill) + "run `wsh jarvis dag submit --plan <plan path> --spec " + spec + "` with absolute paths and stop."
 }
 
 const specPlaceholder = "<spec path>"
@@ -86,38 +105,38 @@ const specPlaceholder = "<spec path>"
 // writeLaunchPrompt is an engine lead's prompt for a goal run with no design (spec §2). The lead picks the path;
 // an architectural goal is handed to a design session or planned from the goal, and reaches the engine as a plan
 // file the engine parses. An autonomous lead classifies and decides alone.
-func writeLaunchPrompt(b *strings.Builder, goal, runtime string, autonomous bool) {
+func writeLaunchPrompt(b *strings.Builder, goal, runtime string, autonomous bool, planSkill string) {
 	fmt.Fprintf(b, "Goal: %s\n", goal)
 	if autonomous {
-		writeAutonomousPaths(b)
+		writeAutonomousPaths(b, planSkill)
 	} else {
-		writeAskingPaths(b, runtime)
+		writeAskingPaths(b, runtime, planSkill)
 	}
 	// the bounded path commits here, before any dag exists to hand it OrchestrationRules
 	b.WriteString(CommitRule + "\n\n")
-	b.WriteString(PlanFormat)
+	b.WriteString(PlanFormatFor(planSkill))
 }
 
 // the report goes in with complete: the seal runs then, and with none it takes the last line written before it
 const spikePath = "- spike: write the answer as your final report with your file-writing tool to a file in the system temp directory, not in the repository, then `wsh jarvis complete --report <that file>`.\n"
 
-func writeAutonomousPaths(b *strings.Builder) {
+func writeAutonomousPaths(b *strings.Builder, planSkill string) {
 	b.WriteString("Work this goal on your own: nobody is at this terminal. Ask no questions and wait for no yes; make each call the human would otherwise make as you would recommend it.\n")
 	b.WriteString("Classify the path yourself (spike, bounded or architectural), state it, and proceed.\n")
 	b.WriteString(spikePath)
 	b.WriteString("- bounded: implement it here, get the tests passing, commit, write your final report (what you did, the calls you made and why, and what you could not verify and why) to a temp file the same way, then `wsh jarvis complete --commit $(git rev-parse HEAD) --report <that file>`.\n")
-	b.WriteString("- architectural: make the design decisions yourself and write the design straight into a spec file in your working directory, never in the project's main checkout, with each decision and why. When the goal names a mockup or design canvas that settles the design, write no spec file: write the decisions you make beyond it, with why, into the plan's header, put its absolute path on the plan's `**Prototype:**` line, and submit without `--spec`. Then " + writePlanAndSubmit(specPlaceholder) + " The engine reviews the plan after `dag submit`, and wakes you when something needs judgment.\n")
+	b.WriteString("- architectural: make the design decisions yourself and write the design straight into a spec file in your working directory, never in the project's main checkout, with each decision and why. When the goal names a mockup or design canvas that settles the design, write no spec file: write the decisions you make beyond it, with why, into the plan's header, put its absolute path on the plan's `**Prototype:**` line, and submit without `--spec`. Then " + writePlanAndSubmit(specPlaceholder, planSkill) + " The engine reviews the plan after `dag submit`, and wakes you when something needs judgment.\n")
 	b.WriteString(AutonomousRules + "\n")
 }
 
-func writeAskingPaths(b *strings.Builder, runtime string) {
+func writeAskingPaths(b *strings.Builder, runtime, planSkill string) {
 	fmt.Fprintf(b, "Work this goal; the human is at this terminal. Put every question and every approval through %s, never plain text, which does not reach the cockpit.\n", AskTool(runtime))
 	b.WriteString("State the path you take (spike, bounded or architectural) and proceed; ask about the path only when it is genuinely unclear. Any approval of something longer than its question carries the file's absolute path on its first line.\n")
 	b.WriteString(spikePath)
 	b.WriteString("- bounded: after the human's yes, implement it here, get the tests passing, commit, write your final report (what you did, and what you could not verify and why) to a temp file the same way, then `wsh jarvis complete --commit $(git rev-parse HEAD) --report <that file>`.\n")
 	// the design conversation happens in a linked session, not here: this lead only routes to it or plans
 	fmt.Fprintf(b, "- architectural: ask once with %s, header `Needs a design`: the question says what the goal leaves open, and the options are `Brainstorm it`, `Mock it up` and `Plan from the goal`. ", AskTool(runtime))
-	b.WriteString("On `Brainstorm it` run `wsh jarvis design --kind brainstorm`, on `Mock it up` run `wsh jarvis design --kind canvas`, and stop: the command starts a design session with the human, sets the run to wait on it and closes this tab. On `Plan from the goal`, make the design calls yourself, record each with why in the plan's header, then " + writePlanAndSubmit("") + " After `dag submit`, don't ask the human to review the plan or pick an execution mode: the engine reviews the plan, and wakes you when something needs judgment.\n")
+	b.WriteString("On `Brainstorm it` run `wsh jarvis design --kind brainstorm`, on `Mock it up` run `wsh jarvis design --kind canvas`, and stop: the command starts a design session with the human, sets the run to wait on it and closes this tab. On `Plan from the goal`, make the design calls yourself, record each with why in the plan's header, then " + writePlanAndSubmit("", planSkill) + " After `dag submit`, don't ask the human to review the plan or pick an execution mode: the engine reviews the plan, and wakes you when something needs judgment.\n")
 }
 
 // writeDesignPrompt is the lead's prompt for a run that carries an approved design (spec decision 2): the design
@@ -143,13 +162,13 @@ func writeDesignPrompt(b *strings.Builder, run *waveobj.Run) {
 		}
 		b.WriteString(".")
 	}
-	b.WriteString(" Then " + writePlanAndSubmit(run.Spec) + " The engine reviews the plan after `dag submit`, and wakes you when something needs judgment.\n")
+	b.WriteString(" Then " + writePlanAndSubmit(run.Spec, run.PlanSkill) + " The engine reviews the plan after `dag submit`, and wakes you when something needs judgment.\n")
 	if run.Autonomous {
 		b.WriteString(AutonomousRules + "\n")
 	} else {
 		fmt.Fprintf(b, "Put any question for the human through %s, never plain text, which does not reach the cockpit.\n", AskTool(run.Runtime))
 	}
-	b.WriteString("\n" + PlanFormat)
+	b.WriteString("\n" + PlanFormatFor(run.PlanSkill))
 }
 
 // OrchestrationRules is what a lead holding a dag works by (spec §2). A compaction drops the launch
