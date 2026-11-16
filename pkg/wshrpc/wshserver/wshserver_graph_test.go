@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/wavetermdev/waveterm/pkg/jarvisattrib"
+	"github.com/wavetermdev/waveterm/pkg/notestore"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wavevault"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -191,7 +192,25 @@ func TestReadVaultNoteReturnsTitleAndBody(t *testing.T) {
 
 func TestReadVaultNoteErrorsOnUnknownId(t *testing.T) {
 	v := seedGraphVault(t)
+	defer notestore.UseRootForTest(v.Root)()
 	if got, err := readVaultNote(v, "no-such-note"); err == nil {
 		t.Fatalf("readVaultNote(no-such-note) = %+v, want an error", got)
+	}
+}
+
+// a transcript's note-add card opens the note `wsh note add` wrote, which the vault's retriever does not index
+func TestReadVaultNoteFallsBackToUserNotes(t *testing.T) {
+	v := seedGraphVault(t)
+	defer notestore.UseRootForTest(v.Root)()
+	note, err := notestore.Add("Close to done", "- the flake watch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := readVaultNote(v, note.ID)
+	if err != nil {
+		t.Fatalf("readVaultNote(%s): %v", note.ID, err)
+	}
+	if got.Id != note.ID || got.Title != "Close to done" || got.Body != "- the flake watch" || got.Project != "" || got.Updated == 0 {
+		t.Fatalf("user note = %+v, want its title and body, no project, the day it was added", got)
 	}
 }

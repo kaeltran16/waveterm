@@ -8,6 +8,7 @@
 
 import { COCKPIT_ROUTE_ID } from "@/app/cockpit/uiapi";
 import { ModalShell } from "@/app/modals/modalshell";
+import { globalStore } from "@/app/store/jotaiStore";
 import { modalsModel } from "@/app/store/modalmodel";
 import { DefaultRouter } from "@/app/store/wshrpcutil-base";
 import type { AgentsViewModel } from "./agents";
@@ -17,11 +18,13 @@ import type { NowLine } from "./nowline";
 import { WorkingLine } from "./nowlineview";
 import type { TimelineMark } from "./permissionmodel";
 import { seedRunEvents } from "./runeventstore";
-import type { TranscriptContext } from "./transcriptcontext";
+import { transcriptContextFor, type TranscriptContext } from "./transcriptcontext";
 import { seedWshData } from "./wshdata";
 
 export interface NarrationFeedFixtureOpts {
     ctx?: Omit<TranscriptContext, "model">;
+    // a live session's tab id: the ctx a real host builds for it (transcriptContextFor), under ctx's own fields
+    liveAgent?: string;
     compact?: boolean;
     active?: boolean;
     // permission marks, drawn as the rendered view draws its answered requests
@@ -76,17 +79,29 @@ function cockpitModel(): AgentsViewModel | undefined {
     return (DefaultRouter?.routeMap.get(COCKPIT_ROUTE_ID) as { model?: AgentsViewModel } | undefined)?.model;
 }
 
+// the agent surface lists terminals beside agents, so a host's session is either
+function liveContext(model: AgentsViewModel | undefined, agentId: string): TranscriptContext {
+    const roster = model ? [...globalStore.get(model.agentsAtom), ...globalStore.get(model.terminalsAtom)] : [];
+    const agent = roster.find((a) => a.id === agentId);
+    if (agent == null) {
+        throw new Error(`no live session ${agentId} in the cockpit's roster`);
+    }
+    return transcriptContextFor({ model, agent });
+}
+
 if (import.meta.env.DEV && typeof window !== "undefined") {
     window.__narrationFeedFixture = {
         show: (entries, width, opts = {}) => {
-            const { seed, runEvents, ctx, ...rest } = opts;
+            const { seed, runEvents, ctx, liveAgent, ...rest } = opts;
+            const model = cockpitModel();
+            const live = liveAgent ? liveContext(model, liveAgent) : {};
             if (seed) seedWshData(seed);
             for (const [runId, events] of Object.entries(runEvents ?? {})) seedRunEvents(runId, events);
             modalsModel.pushModal("NarrationFeedFixtureModal", {
                 entries,
                 width,
                 ...rest,
-                ctx: { ...ctx, model: cockpitModel() },
+                ctx: { ...live, ...ctx, model },
             });
         },
         clear: () => {
