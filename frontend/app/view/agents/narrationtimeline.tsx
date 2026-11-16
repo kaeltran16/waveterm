@@ -5,7 +5,7 @@ import { ContextMenuModel } from "@/app/store/contextmenu";
 import { modalsModel } from "@/app/store/modalmodel";
 import { MONO_FAINT } from "@/app/view/jarvis/briefstyle";
 import { cn } from "@/util/util";
-import { ArrowUpRight, Ban, Check, ChevronDown, ChevronRight, ChevronUp, Copy, Ellipsis, LoaderCircle, X } from "lucide-react";
+import { ArrowUpRight, Ban, Check, ChevronDown, ChevronRight, ChevronUp, Copy, Ellipsis, GitBranch, LoaderCircle, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { MOTION, composerReveal, shouldFadeEntry } from "@/app/element/motiontokens";
 import useResizeObserver from "@react-hook/resize-observer";
@@ -17,6 +17,7 @@ import {
     type ActionDetail,
     type AgentActionEntry,
     type AgentEntry,
+    type DiffLine,
 } from "./agentsviewmodel";
 import { ArcMessageRow } from "./arcmessagerow";
 import { MarkdownMessage } from "./markdownmessage";
@@ -49,7 +50,7 @@ function ExitChip({ exit }: { exit: number }) {
     return (
         <span
             className={cn(
-                "rounded-[4px] px-[7px] py-px font-mono text-[10.5px] font-semibold uppercase tracking-[0.06em]",
+                "rounded-[4px] px-1.5 py-px font-mono text-[11px]",
                 exit ? "bg-error/15 text-error" : "bg-success/15 text-success"
             )}
         >
@@ -95,7 +96,6 @@ function Affordance({ toModal, open }: { toModal: boolean; open: boolean }) {
     );
 }
 
-const TOOL_ROW = "flex items-center gap-2 rounded-[6px] px-1.5 py-[3px]";
 export const VERB = "min-w-[50px] shrink-0 font-mono text-[10.5px] font-semibold uppercase tracking-[0.06em] text-muted";
 
 // One option of an asked question. The check and the weight mark a picked one, so colour is not the only signal.
@@ -133,17 +133,55 @@ function AskOptionLine({
     );
 }
 
+function HighlightedCode({ text }: { text: string }) {
+    return (
+        <>
+            {highlightLine(text).map((tk, k) => (
+                <span key={k} className={tk.cls}>
+                    {tk.t}
+                </span>
+            ))}
+        </>
+    );
+}
+
+// one diff line: a 3px edge and a tint mark the side, the gutter holds the line's number (the new side's, a removed
+// line's old one), or its sign when the diff carries no numbers
+function DiffRow({ line, numbered, wrap }: { line: DiffLine; numbered: boolean; wrap: string }) {
+    const tint =
+        line.sign === "+"
+            ? "border-l-diff-added bg-diff-added/10"
+            : line.sign === "-"
+              ? "border-l-diff-removed bg-diff-removed/10"
+              : "border-l-transparent";
+    const gutter = numbered ? (line.sign === "-" ? line.oldNo : (line.newNo ?? line.oldNo)) : line.sign;
+    return (
+        <div data-diff-line={line.sign} className={cn("flex border-l-[3px] font-mono text-[12px] leading-[1.6]", tint)}>
+            <span
+                data-diff-no
+                className={cn("shrink-0 select-none text-right text-ink-faint", numbered ? "w-[42px] pr-3.5" : "w-[22px] pr-2")}
+            >
+                {gutter}
+            </span>
+            {/* the gutter stays put, so a wrapped line hangs under its own text */}
+            <span className={cn("min-w-0 pr-3.5", wrap)}>
+                <HighlightedCode text={line.text} />
+            </span>
+        </div>
+    );
+}
+
 // Shared per-kind detail renderer. Used inline (capped by max-height) and by the modal (uncapped).
-// Tokens only — no raw hex. See Wave-transcript-feed.dc.html.
+// Tokens only — no raw hex. See StepsOpen.dc.html and Main.dc.html.
 export function ToolDetailBody({ detail, variant }: { detail: ActionDetail; variant: "inline" | "modal" }) {
     const modal = variant === "modal";
-    const pad = modal ? "px-4 py-3" : "px-[11px] py-[9px]";
+    const pad = modal ? "px-4 py-3" : "px-3 py-2";
     const wrap = lineWrap(variant);
     if (detail.kind === "grep") {
         return (
             <div className={pad}>
                 {detail.matches.map((g, i) => (
-                    <div key={i} className="flex gap-2.5 whitespace-pre font-mono text-[11.5px] leading-[1.65]">
+                    <div key={i} className="flex gap-3 whitespace-pre font-mono text-[11.5px] leading-[1.7]">
                         <span className="shrink-0 text-muted">{g.loc}</span>
                         <span className="min-w-0 flex-1 truncate text-secondary">{g.code}</span>
                     </div>
@@ -160,11 +198,7 @@ export function ToolDetailBody({ detail, variant }: { detail: ActionDetail; vari
                 <div className={cn("font-mono text-[11.5px] leading-[1.7]", modal && "min-w-min")}>
                     {detail.snippet.split("\n").map((ln, i) => (
                         <div key={i} className={wrap}>
-                            {highlightLine(ln).map((tk, k) => (
-                                <span key={k} className={tk.cls}>
-                                    {tk.t}
-                                </span>
-                            ))}
+                            <HighlightedCode text={ln} />
                         </div>
                     ))}
                 </div>
@@ -172,15 +206,11 @@ export function ToolDetailBody({ detail, variant }: { detail: ActionDetail; vari
         );
     }
     if (detail.kind === "bash") {
+        // "$ cmd" and its output read as one terminal block
         return (
-            <div>
+            <div className={pad}>
                 {detail.command ? (
-                    <div
-                        className={cn(
-                            "flex gap-2 whitespace-pre-wrap font-mono text-[11.5px] leading-[1.6] text-secondary [overflow-wrap:anywhere]",
-                            pad
-                        )}
-                    >
+                    <div className="flex gap-2 whitespace-pre-wrap font-mono text-[11.5px] leading-[1.7] text-foreground [overflow-wrap:anywhere]">
                         <span className="shrink-0 select-none text-accent">$</span>
                         <span>{detail.command}</span>
                     </div>
@@ -191,17 +221,15 @@ export function ToolDetailBody({ detail, variant }: { detail: ActionDetail; vari
                             "m-0 font-mono text-[11.5px] leading-[1.7]",
                             wrap,
                             modal && "overflow-x-auto",
-                            detail.command && "border-t border-edge-faint",
-                            pad,
                             detail.exit ? "text-error" : "text-ink-mid"
                         )}
                     >
                         {detail.output}
                     </pre>
                 ) : null}
-                {/* inline, the exit chip sits in the panel footer (ToolLine) so it never scrolls away */}
+                {/* inline, the exit chip sits in the panel footer (StepBody) so it never scrolls away */}
                 {modal ? (
-                    <div className="flex items-center gap-2 px-[13px] pb-[9px]">
+                    <div className="mt-2 flex items-center gap-2">
                         <ExitChip exit={detail.exit} />
                     </div>
                 ) : null}
@@ -244,88 +272,43 @@ export function ToolDetailBody({ detail, variant }: { detail: ActionDetail; vari
             </div>
         );
     }
-    // edit
+    // edit: per file, a header (path, "new" for an added file, +a −d) over its lines
     return (
         <div className="flex flex-col">
-            {detail.files.map((f, i) => (
-                <div key={i} className="border-b border-lane last:border-b-0">
-                    <div className="flex items-center gap-2.5 bg-surface px-[11px] py-[7px]">
-                        <span
-                            className={cn(
-                                "flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] font-mono text-[10.5px] font-bold",
-                                f.badge === "A" ? "bg-success/15 text-success" : "bg-warning/15 text-warning"
-                            )}
-                        >
-                            {f.badge}
-                        </span>
-                        <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-ink-hi">{f.path}</span>
-                        <span className={cn("font-mono text-[10.5px]", f.adds > 0 ? "font-bold text-diff-added" : "text-muted")}>
-                            +{f.adds}
-                        </span>
-                        <span className={cn("font-mono text-[10.5px]", f.dels > 0 ? "font-bold text-diff-removed" : "text-muted")}>
-                            −{f.dels}
-                        </span>
-                    </div>
-                    <div className={cn("bg-surface-code py-1", modal && "overflow-x-auto")}>
-                        <div className={modal ? "min-w-min" : undefined}>
-                            {f.lines.map((l, k) =>
-                                l.hunk ? (
-                                    <div
-                                        key={k}
-                                        data-diff-hunk
-                                        className={cn(
-                                            "bg-accent/[0.06] pl-[13px] pr-3.5 font-mono text-[11.5px] leading-[1.7] text-muted",
-                                            wrap,
-                                            k > 0 && "mt-1"
-                                        )}
-                                    >
-                                        {l.text}
-                                    </div>
-                                ) : (
-                                <div
-                                    key={k}
-                                    className={cn(
-                                        "flex font-mono text-[11.5px] leading-[1.7]",
-                                        wrap,
-                                        l.sign === "+"
-                                            ? "bg-diff-added/[0.09]"
-                                            : l.sign === "-"
-                                              ? "bg-diff-removed/[0.09]"
-                                              : ""
-                                    )}
-                                >
-                                    {/* the sign column stays put, so a wrapped line hangs under its own text */}
-                                    <span
-                                        className={cn(
-                                            "w-[13px] shrink-0 text-center",
-                                            l.sign === "+"
-                                                ? "text-diff-added"
-                                                : l.sign === "-"
-                                                  ? "text-diff-removed"
-                                                  : "text-ink-faint"
-                                        )}
-                                    >
-                                        {l.sign}
-                                    </span>
-                                    <span
-                                        className={cn(
-                                            "min-w-0 pr-3.5",
-                                            l.sign === "+"
-                                                ? "text-diff-added"
-                                                : l.sign === "-"
-                                                  ? "text-diff-removed"
-                                                  : "text-secondary"
-                                        )}
-                                    >
-                                        {l.text}
-                                    </span>
-                                </div>
-                                )
-                            )}
+            {detail.files.map((f, i) => {
+                const numbered = f.lines.some((l) => l.oldNo != null || l.newNo != null);
+                return (
+                    <div key={i} data-diff-file className="border-b border-edge-faint last:border-b-0">
+                        <div className="flex items-center gap-2 border-b border-edge-faint px-3 py-1.5 font-mono text-[11.5px]">
+                            <span className="min-w-0 flex-1 truncate text-ink-mid">{f.path}</span>
+                            {f.badge === "A" ? <span className="shrink-0 text-success">new</span> : null}
+                            <span className={cn("shrink-0", f.adds > 0 ? "text-diff-added" : "text-muted")}>+{f.adds}</span>
+                            <span className={cn("shrink-0", f.dels > 0 ? "text-diff-removed" : "text-muted")}>−{f.dels}</span>
+                        </div>
+                        <div className={cn("py-2", modal && "overflow-x-auto")}>
+                            <div className={modal ? "min-w-min" : undefined}>
+                                {f.lines.map((l, k) =>
+                                    l.hunk ? (
+                                        <div
+                                            key={k}
+                                            data-diff-hunk
+                                            className={cn(
+                                                "bg-accent/[0.06] pl-[13px] pr-3.5 font-mono text-[11.5px] leading-[1.7] text-muted",
+                                                wrap,
+                                                k > 0 && "mt-1"
+                                            )}
+                                        >
+                                            {l.text}
+                                        </div>
+                                    ) : (
+                                        <DiffRow key={k} line={l} numbered={numbered} wrap={wrap} />
+                                    )
+                                )}
+                            </div>
                         </div>
                     </div>
-                </div>
-            ))}
+                );
+            })}
         </div>
     );
 }
@@ -428,20 +411,52 @@ function StepFacts({ step, compact }: { step: Step; compact: boolean }) {
     );
 }
 
-// a step's opened body: a wsh read call's structured view, else the tool detail as today
-function StepBody({ step, View, ctx, compact }: { step: Step; View?: ComponentType<WshRendererProps>; ctx: TranscriptContext; compact: boolean }) {
+// a Bash step whose output parses as a test run or a git diff opens to that card rather than its raw output
+function hasBodyCard(action: AgentActionEntry): boolean {
+    const key = toolRendererKey(action);
+    return key === "test" || key === "git-diff";
+}
+
+function outputLines(action: AgentActionEntry): number {
+    return action.detail?.kind === "bash" ? action.detail.output.replace(/\n+$/, "").split("\n").length : 0;
+}
+
+// a step's opened body: a wsh read call's structured view, a test or diff card, else the tool detail
+function StepBody({
+    step,
+    View,
+    ctx,
+    compact,
+}: {
+    step: Step;
+    View?: ComponentType<WshRendererProps>;
+    ctx: TranscriptContext;
+    compact: boolean;
+}) {
     const { action } = step;
     const openFull = (
         <button
             type="button"
             aria-label="Open full view"
             onClick={() => modalsModel.pushModal("AgentToolDetailModal", { action })}
-            className="inline-flex cursor-pointer items-center gap-1.5 rounded-[5px] px-1.5 py-[3px] font-mono text-[10.5px] text-ink-mid hover:bg-lane hover:text-primary"
+            className="inline-flex cursor-pointer items-center gap-1.5 rounded-[5px] px-1.5 py-[3px] font-sans text-[12px] text-ink-mid hover:bg-lane hover:text-primary"
         >
             <ArrowUpRight size={12} strokeWidth={2.2} aria-hidden />
             Open full view
         </button>
     );
+    if (hasBodyCard(action)) {
+        return (
+            <div data-step-card className="mt-2.5">
+                <ToolOutputRenderer action={action} />
+                <div className="mt-2 flex items-center gap-2.5">
+                    <span className="text-[12px] text-muted">Raw output, {outputLines(action)} lines</span>
+                    <div className="flex-1" />
+                    {openFull}
+                </div>
+            </div>
+        );
+    }
     if (View && step.wsh) {
         return (
             <div data-wsh-view={step.wsh.key} className="mt-2.5">
@@ -460,7 +475,7 @@ function StepBody({ step, View, ctx, compact }: { step: Step; View?: ComponentTy
             <div className="max-h-[200px] overflow-auto">
                 <ToolDetailBody detail={detail} variant="inline" />
             </div>
-            <div className="flex items-center gap-2 border-t border-edge-faint px-1.5 py-[3px]">
+            <div className="flex items-center gap-2 border-t border-edge-faint px-2 py-1">
                 {detail.kind === "bash" ? <ExitChip exit={detail.exit} /> : null}
                 <div className="flex-1" />
                 {openFull}
@@ -482,11 +497,13 @@ function StepRow({
     ctx: TranscriptContext;
     compact: boolean;
 }) {
-    const [open, setOpen] = useState(false);
     const { action, status, wsh } = step;
+    const bodyCard = hasBodyCard(action);
+    // the rendered view shows a test or diff card without a click, as it always has
+    const [open, setOpen] = useState(!!renderers && bodyCard);
     const View = wsh && !isCardKey(wsh.key) ? wshRendererFor(wsh.key) : undefined;
     const detail = action.detail;
-    const toModal = !View && detail != null && detailExceedsInline(detail);
+    const toModal = !View && !bodyCard && detail != null && detailExceedsInline(detail);
     const clickable = View != null || detail != null;
     const onClick = () => {
         if (toModal) {
@@ -518,7 +535,8 @@ function StepRow({
             {clickable && !compact ? <Affordance toModal={toModal} open={open} /> : null}
         </>
     );
-    const rendererKey = renderers ? toolRendererKey(action) : null;
+    // an image card has no row body to live in, so the rendered view draws it under the row
+    const imageCard = !!renderers && toolRendererKey(action) === "image";
     return (
         <div
             data-step
@@ -539,7 +557,7 @@ function StepRow({
                     </motion.div>
                 ) : null}
             </AnimatePresence>
-            {rendererKey ? (
+            {imageCard ? (
                 <div className="mt-2">
                     <ToolOutputRenderer action={action} />
                 </div>
@@ -639,70 +657,73 @@ function WshCardItem({ step, ctx, compact }: { step: Step; ctx: TranscriptContex
     );
 }
 
-function CommandChip({ name, args, isSkill }: { name: string; args?: string; isSkill?: boolean }) {
+// a typed slash command, or a skill (✦), as a right-aligned chip
+function CommandChip({ name, args, isSkill, compact }: { name: string; args?: string; isSkill?: boolean; compact: boolean }) {
     return (
-        <div className="mt-2 flex justify-end">
+        <div data-command-chip={isSkill ? "skill" : "command"} className="my-2.5 flex justify-end">
             <span
                 className={cn(
-                    "inline-flex max-w-[88%] flex-wrap items-baseline rounded-lg border px-[11px] py-[5px] font-mono",
-                    isSkill ? "border-skill/35 bg-skill/[0.08]" : "border-accent/35 bg-accent/[0.07]"
+                    "inline-flex max-w-[88%] flex-wrap items-baseline gap-x-2 rounded-[12px] bg-surface-hover px-3 py-1.5 font-mono",
+                    compact ? "text-[12px]" : "text-[12.5px]"
                 )}
             >
-                {isSkill ? <span className="mr-[7px] self-center text-[11px] text-skill">✦</span> : null}
-                <span className={cn("text-[12px] font-semibold", isSkill ? "text-skill-soft" : "text-accent-soft")}>{name}</span>
-                {args ? (
-                    <span className={cn("ml-2 border-l pl-2 text-[11.5px] text-feed-summary", isSkill ? "border-skill/25" : "border-accent/25")}>
-                        {args}
-                    </span>
-                ) : null}
+                {isSkill ? <span className="text-[11.5px] text-skill">✦</span> : null}
+                <span className={cn("font-semibold", isSkill ? "text-skill-soft" : "text-accent-soft")}>{name}</span>
+                {args ? <span className="min-w-0 text-ink-mid [overflow-wrap:anywhere]">{args}</span> : null}
             </span>
         </div>
     );
 }
+
+// a centred event on a rule: compaction, an interrupt
+const EVENT_RULE = "h-px flex-1 bg-edge-mid";
 
 function CompactionDivider({
     trigger,
     preTokens,
     postTokens,
     summary,
+    compact,
 }: {
     trigger?: string;
     preTokens?: number;
     postTokens?: number;
     summary?: string;
+    compact: boolean;
 }) {
     const [open, setOpen] = useState(false);
     const stat = preTokens != null && postTokens != null ? `${formatTokens(preTokens)} → ${formatTokens(postTokens)} tokens` : null;
     const canExpand = !!summary;
     return (
-        <div className="mt-3.5">
-            <button type="button" disabled={!canExpand} onClick={() => setOpen((v) => !v)} className={cn("flex w-full items-center gap-2.5", canExpand ? "cursor-pointer" : "cursor-default")}>
-                <span className="h-px flex-1 bg-edge-mid" />
-                <span className="inline-flex items-center gap-2 whitespace-nowrap rounded-full border border-accent/30 bg-accent/[0.07] px-2.5 py-0.5 font-mono text-[10.5px] leading-[1.6]">
-                    <span className="font-semibold uppercase tracking-[0.1em] text-accent-soft">Compacted</span>
-                    {stat ? (
-                        <>
-                            <span className="text-ink-faint">·</span>
-                            <span className="text-ink-mid">{stat}</span>
-                        </>
-                    ) : null}
-                    {trigger ? (
-                        <>
-                            <span className="text-ink-faint">·</span>
-                            <span className="text-muted">{trigger}</span>
-                        </>
-                    ) : null}
+        <div data-compaction className={compact ? "my-4" : "my-6"}>
+            <button
+                type="button"
+                disabled={!canExpand}
+                aria-expanded={canExpand ? open : undefined}
+                onClick={() => setOpen((v) => !v)}
+                className={cn("flex w-full items-center gap-3", canExpand ? "cursor-pointer" : "cursor-default")}
+            >
+                <span className={EVENT_RULE} />
+                <span
+                    className={cn(
+                        "inline-flex min-w-0 items-center gap-[7px] text-muted",
+                        compact ? "text-[12px]" : "text-[12.5px]"
+                    )}
+                >
+                    <span className="shrink-0 text-secondary">Context compacted</span>
+                    {stat ? <span className="truncate">· {stat}</span> : null}
+                    {trigger ? <span className="shrink-0">· {trigger}</span> : null}
                     {canExpand ? (
-                        <span className="flex text-muted">
+                        <span className="flex shrink-0">
                             {open ? (
-                                <ChevronUp size={10} strokeWidth={2.4} aria-hidden />
+                                <ChevronUp size={12} strokeWidth={2.2} aria-hidden />
                             ) : (
-                                <ChevronDown size={10} strokeWidth={2.4} aria-hidden />
+                                <ChevronDown size={12} strokeWidth={2.2} aria-hidden />
                             )}
                         </span>
                     ) : null}
                 </span>
-                <span className="h-px flex-1 bg-edge-mid" />
+                <span className={EVENT_RULE} />
             </button>
             <AnimatePresence initial={false}>
                 {open && summary ? (
@@ -714,9 +735,7 @@ function CompactionDivider({
                         exit="exit"
                         className="my-2 overflow-hidden rounded-[8px] border border-edge-mid bg-surface-code px-3.5 py-3"
                     >
-                        <div className="mb-1.5 font-mono text-[10.5px] font-semibold uppercase tracking-[0.1em] text-muted">
-                            Summary — kept context
-                        </div>
+                        <div className="mb-1.5 text-[12px] text-muted">Summary, kept context</div>
                         <MarkdownMessage text={summary} />
                     </motion.div>
                 ) : null}
@@ -724,85 +743,79 @@ function CompactionDivider({
         </div>
     );
 }
-// The human interrupted the agent mid-turn. A thin centered marker, not a You bubble.
-function InterruptedDivider() {
+// The human interrupted the agent mid-turn: a divider, not a bubble.
+function InterruptedDivider({ compact }: { compact: boolean }) {
     return (
-        <div className="mt-3 flex items-center gap-2.5">
-            <span className="h-px flex-1 bg-edge-mid" />
-            <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-edge-strong bg-surface px-2.5 py-0.5 font-mono text-[10.5px] font-semibold uppercase leading-[1.6] tracking-[0.1em] text-ink-mid">
-                <Ban size={10} strokeWidth={2.4} aria-hidden />
-                Interrupted
+        <div data-interrupted className={cn("flex items-center gap-3", compact ? "my-3.5" : "my-5")}>
+            <span className={EVENT_RULE} />
+            <span className={cn("inline-flex items-center gap-1.5 whitespace-nowrap text-ink-mid", compact ? "text-[12px]" : "text-[12.5px]")}>
+                <Ban size={12} strokeWidth={2.2} aria-hidden />
+                You interrupted
             </span>
-            <span className="h-px flex-1 bg-edge-mid" />
+            <span className={EVENT_RULE} />
         </div>
     );
 }
 
-// A finished background Task/subagent (<task-notification>). Collapsed: a "Task" chip + summary +
-// status pill; expands to the child's full result via MarkdownMessage (result can be large).
-function TaskNotificationRow({ summary, status, result }: { summary: string; status?: string; result?: string }) {
+// A finished background Task/subagent (<task-notification>): "Subagent finished · summary · status", opening to the
+// child's full result (which can be large) through MarkdownMessage.
+function TaskNotificationRow({
+    summary,
+    status,
+    result,
+    compact,
+}: {
+    summary: string;
+    status?: string;
+    result?: string;
+    compact: boolean;
+}) {
     const [open, setOpen] = useState(false);
     const canExpand = !!result;
     const ok = status == null || status === "completed";
+    const tone = ok ? "text-success" : "text-warning";
     return (
-        <div className="mt-2 flex gap-2.5">
-            <span
+        <div data-subagent-finished className={compact ? "my-3" : "my-5"}>
+            <button
+                type="button"
+                disabled={!canExpand}
+                aria-expanded={canExpand ? open : undefined}
+                onClick={() => setOpen((v) => !v)}
                 className={cn(
-                    "mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-[6px] border font-mono text-[12px]",
-                    ok ? "border-success/30 bg-success/[0.12] text-success" : "border-warning/30 bg-warning/[0.12] text-warning"
+                    "flex w-full items-center border border-edge-mid text-left text-ink-mid",
+                    compact ? "gap-2 rounded-[8px] px-2.5 py-[7px] text-[12.5px]" : "gap-2.5 rounded-[10px] px-3.5 py-2.5 text-[13.5px]",
+                    canExpand ? "cursor-pointer hover:border-edge-strong" : "cursor-default"
                 )}
             >
-                ⑃
-            </span>
-            <div className="min-w-0 flex-1">
-                <button
-                    type="button"
-                    disabled={!canExpand}
-                    onClick={() => setOpen((v) => !v)}
-                    className={cn(
-                        "flex w-full items-center gap-2 rounded-[8px] border border-edge-mid bg-surface px-2.5 py-1.5 text-left",
-                        canExpand ? "cursor-pointer hover:border-edge-strong" : "cursor-default"
-                    )}
-                >
-                    <span className="shrink-0 font-mono text-[10.5px] font-semibold uppercase tracking-[0.1em] text-ink-mid">
-                        Task
+                <GitBranch size={14} strokeWidth={2.2} className={cn("shrink-0", tone)} aria-hidden />
+                <span className="shrink-0 text-secondary">Subagent finished</span>
+                {summary ? <span className="min-w-0 truncate">{summary}</span> : null}
+                <span className="min-w-[6px] flex-1" />
+                {status ? <span className={cn("shrink-0 text-[12px]", tone)}>{status}</span> : null}
+                {canExpand ? (
+                    <span className="flex shrink-0 text-muted">
+                        {open ? (
+                            <ChevronDown size={13} strokeWidth={2} aria-hidden />
+                        ) : (
+                            <ChevronRight size={13} strokeWidth={2} aria-hidden />
+                        )}
                     </span>
-                    <span className="min-w-0 flex-1 truncate text-[12.5px] text-secondary">{summary || "Subagent finished"}</span>
-                    {status ? (
-                        <span
-                            className={cn(
-                                "shrink-0 rounded-[4px] px-1.5 py-px font-mono text-[10.5px] font-semibold uppercase tracking-[0.06em]",
-                                ok ? "bg-success/15 text-success" : "bg-warning/15 text-warning"
-                            )}
-                        >
-                            {status}
-                        </span>
-                    ) : null}
-                    {canExpand ? (
-                        <span className="flex shrink-0 text-muted">
-                            {open ? (
-                                <ChevronDown size={12} strokeWidth={2.2} aria-hidden />
-                            ) : (
-                                <ChevronRight size={12} strokeWidth={2.2} aria-hidden />
-                            )}
-                        </span>
-                    ) : null}
-                </button>
-                <AnimatePresence initial={false}>
-                    {open && result ? (
-                        <motion.div
-                            key="res"
-                            variants={composerReveal}
-                            initial="initial"
-                            animate="animate"
-                            exit="exit"
-                            className="mt-1.5 overflow-hidden rounded-[8px] border border-edge-mid bg-surface-code px-3.5 py-3"
-                        >
-                            <MarkdownMessage text={result} />
-                        </motion.div>
-                    ) : null}
-                </AnimatePresence>
-            </div>
+                ) : null}
+            </button>
+            <AnimatePresence initial={false}>
+                {open && result ? (
+                    <motion.div
+                        key="res"
+                        variants={composerReveal}
+                        initial="initial"
+                        animate="animate"
+                        exit="exit"
+                        className="mt-1.5 overflow-hidden rounded-[8px] border border-edge-mid bg-surface-code px-3.5 py-3"
+                    >
+                        <MarkdownMessage text={result} />
+                    </motion.div>
+                ) : null}
+            </AnimatePresence>
         </div>
     );
 }
@@ -810,7 +823,7 @@ function TaskNotificationRow({ summary, status, result }: { summary: string; sta
 // A You bubble keeps the prompt's line breaks; a long one (a run's goal, a pasted spec) is clamped behind Show more.
 // The clamp is measured, not estimated, so the toggle only shows when text is really hidden. A find over the
 // transcript passes clamp=false, since a match must never sit in hidden text.
-function UserBubbleText({ text, clamp }: { text: string; clamp: boolean }) {
+function UserBubbleText({ text, clamp, compact }: { text: string; clamp: boolean; compact: boolean }) {
     const ref = useRef<HTMLParagraphElement>(null);
     const [open, setOpen] = useState(false);
     const [overflows, setOverflows] = useState(false);
@@ -829,7 +842,8 @@ function UserBubbleText({ text, clamp }: { text: string; clamp: boolean }) {
                 ref={ref}
                 data-find-turn
                 className={cn(
-                    "whitespace-pre-wrap text-[13px] leading-[1.5] text-primary [overflow-wrap:anywhere]",
+                    "whitespace-pre-wrap text-foreground [overflow-wrap:anywhere]",
+                    compact ? "text-[13px] leading-[1.5]" : "text-[14px] leading-[1.55]",
                     clamped && "line-clamp-[8]"
                 )}
             >
@@ -841,7 +855,7 @@ function UserBubbleText({ text, clamp }: { text: string; clamp: boolean }) {
                     data-bubble-more
                     aria-expanded={open}
                     onClick={() => setOpen((v) => !v)}
-                    className="mt-1 cursor-pointer font-mono text-[10.5px] text-accent-soft hover:text-primary"
+                    className="mt-1 cursor-pointer text-[12px] text-accent-soft hover:text-primary"
                 >
                     {open ? "Show less" : "Show more"}
                 </button>
@@ -850,11 +864,27 @@ function UserBubbleText({ text, clamp }: { text: string; clamp: boolean }) {
     );
 }
 
-function PermissionMarkRow({ text }: { text: string }) {
+// A mark's text is "<choice>: <subject>" (permissionLogText). A yes reads "You allowed <subject>"; any other answer
+// reads "You answered <choice>", so a refusal never claims an allow. The whole text stays in the row.
+const MARK_SEP = ": ";
+
+function PermissionMarkRow({ text, compact }: { text: string; compact: boolean }) {
+    const at = text.indexOf(MARK_SEP);
+    const choice = at < 0 ? text : text.slice(0, at);
+    const subject = at < 0 ? "" : text.slice(at + MARK_SEP.length);
+    const allowed = /^yes\b/i.test(choice);
     return (
-        <div data-permission-mark className={cn(TOOL_ROW, MONO_FAINT)}>
-            <StatusSquare ok />
-            <span className="min-w-0 truncate">{text}</span>
+        <div
+            data-permission-mark
+            className={cn("flex min-w-0 items-center gap-2 text-muted", compact ? "my-3 text-[12.5px]" : "my-[18px] text-[13.5px]")}
+        >
+            <Check size={13} strokeWidth={2.6} className="shrink-0 text-ink-mid" aria-hidden />
+            <span className="shrink-0">{allowed ? "You allowed" : `You answered ${choice}`}</span>
+            {subject ? (
+                <span className={cn("min-w-0 truncate font-mono text-ink-mid", compact ? "text-[11.5px]" : "text-[12px]")}>{subject}</span>
+            ) : null}
+            {/* a bare "Yes" adds nothing to "You allowed"; a scoped one ("…this session") does */}
+            {allowed && choice.toLowerCase() !== "yes" ? <span className="min-w-0 truncate">· {choice}</span> : null}
         </div>
     );
 }
@@ -910,7 +940,7 @@ export const NarrationTimeline = memo(function NarrationTimeline({
 
     const placed = placeMarks(visibleItems, marks ?? []);
     const markRows = (list: TimelineMark[] | undefined) =>
-        (list ?? []).map((m, k) => <PermissionMarkRow key={`pm${m.afterEntry}-${k}`} text={m.text} />);
+        (list ?? []).map((m, k) => <PermissionMarkRow key={`pm${m.afterEntry}-${k}`} text={m.text} compact={isCompact} />);
     const withMarks = (rows: React.ReactNode[]) => [
         ...markRows(placed.lead),
         ...rows.flatMap((row, idx) => [row, ...markRows(placed.after.get(idx))]),
@@ -924,24 +954,18 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                     return (
                         <motion.div
                             key={item.index}
-                            className="mt-2 flex gap-2.5"
+                            data-find-turn
+                            className={cn(
+                                "min-w-0",
+                                isCompact ? "my-3 text-[13px] leading-[1.55]" : "my-[18px] text-[14px] leading-[1.6]",
+                                accentLatest && item.latest ? "text-foreground" : "text-secondary"
+                            )}
                             onContextMenu={copyMenu(item.text)}
                             initial={shouldFadeEntry("message") ? { opacity: 0 } : false}
                             animate={{ opacity: 1 }}
                             transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
                         >
-                            <span className="mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-sm border border-accent/30 bg-accent/[0.13]">
-                                <span className="h-[7px] w-[7px] rounded-full bg-accent-soft" />
-                            </span>
-                            <div
-                                data-find-turn
-                                className={cn(
-                                    "min-w-0 flex-1 text-[13px] leading-[1.55]",
-                                    accentLatest && item.latest ? "text-primary" : "text-secondary"
-                                )}
-                            >
-                                <MarkdownMessage text={item.text} />
-                            </div>
+                            <MarkdownMessage text={item.text} />
                         </motion.div>
                     );
                 }
@@ -950,17 +974,19 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                         <motion.div
                             key={item.index}
                             data-user-bubble
-                            className="mt-2 flex justify-end pl-[30px]"
+                            className={cn("flex justify-end", isCompact ? "my-3.5 ml-7" : "my-6")}
                             onContextMenu={copyMenu(item.text)}
                             initial={shouldFadeEntry("user") ? { opacity: 0 } : false}
                             animate={{ opacity: 1 }}
                             transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
                         >
-                            <div className="max-w-[90%] rounded-[11px_11px_4px_11px] border border-accent/25 bg-accent/10 px-2.5 py-1.5">
-                                <div className="mb-0.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.1em] text-accent-soft">
-                                    You
-                                </div>
-                                <UserBubbleText text={item.text} clamp={!renderAll} />
+                            <div
+                                className={cn(
+                                    "max-w-[82%] bg-surface-hover",
+                                    isCompact ? "rounded-[10px] px-[11px] py-2" : "rounded-[12px] px-[15px] py-[11px]"
+                                )}
+                            >
+                                <UserBubbleText text={item.text} clamp={!renderAll} compact={isCompact} />
                             </div>
                         </motion.div>
                     );
@@ -973,7 +999,7 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                             animate={{ opacity: 1 }}
                             transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
                         >
-                            <CommandChip name={item.name} args={item.args} isSkill={item.isSkill} />
+                            <CommandChip name={item.name} args={item.args} isSkill={item.isSkill} compact={isCompact} />
                         </motion.div>
                     );
                 }
@@ -985,7 +1011,7 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                             animate={{ opacity: 1 }}
                             transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
                         >
-                            <CompactionDivider trigger={item.trigger} preTokens={item.preTokens} postTokens={item.postTokens} summary={item.summary} />
+                            <CompactionDivider trigger={item.trigger} preTokens={item.preTokens} postTokens={item.postTokens} summary={item.summary} compact={isCompact} />
                         </motion.div>
                     );
                 }
@@ -997,7 +1023,7 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                             animate={{ opacity: 1 }}
                             transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
                         >
-                            <TaskNotificationRow summary={item.summary} status={item.status} result={item.result} />
+                            <TaskNotificationRow summary={item.summary} status={item.status} result={item.result} compact={isCompact} />
                         </motion.div>
                     );
                 }
@@ -1009,7 +1035,7 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                             animate={{ opacity: 1 }}
                             transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
                         >
-                            <InterruptedDivider />
+                            <InterruptedDivider compact={isCompact} />
                         </motion.div>
                     );
                 }

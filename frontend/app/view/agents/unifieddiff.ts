@@ -9,7 +9,7 @@ import type { DiffLine, EditFile } from "./agentsviewmodel";
 import { stripAnsi } from "./testoutput";
 
 const FILE_HEADER = /^diff --git a\/(.*?) b\/(.*)$/;
-const HUNK_HEADER = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/;
+const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
 
 function hunkCount(s: string | undefined): number {
     return s == null ? 1 : Number(s);
@@ -22,6 +22,9 @@ export function parseUnifiedDiff(output: string): EditFile[] | null {
     // lines still owed by the open hunk, old side and new side
     let oldLeft = 0;
     let newLeft = 0;
+    // the next line number on each side, from the open hunk's header
+    let oldNo = 0;
+    let newNo = 0;
     for (const raw of lines) {
         if (oldLeft > 0 || newLeft > 0) {
             const sign = raw[0];
@@ -32,16 +35,16 @@ export function parseUnifiedDiff(output: string): EditFile[] | null {
             if (sign === "+") {
                 newLeft--;
                 file.adds++;
-                line = { sign: "+", text: raw.slice(1) };
+                line = { sign: "+", text: raw.slice(1), newNo: newNo++ };
             } else if (sign === "-") {
                 oldLeft--;
                 file.dels++;
-                line = { sign: "-", text: raw.slice(1) };
+                line = { sign: "-", text: raw.slice(1), oldNo: oldNo++ };
             } else {
                 // a context line, or an empty one whose leading space was trimmed
                 oldLeft--;
                 newLeft--;
-                line = { sign: "", text: raw.slice(1) };
+                line = { sign: "", text: raw.slice(1), oldNo: oldNo++, newNo: newNo++ };
             }
             file.lines.push(line);
             continue;
@@ -65,8 +68,10 @@ export function parseUnifiedDiff(output: string): EditFile[] | null {
         }
         const hunk = HUNK_HEADER.exec(raw);
         if (hunk) {
-            oldLeft = hunkCount(hunk[1]);
-            newLeft = hunkCount(hunk[2]);
+            oldNo = Number(hunk[1]);
+            oldLeft = hunkCount(hunk[2]);
+            newNo = Number(hunk[3]);
+            newLeft = hunkCount(hunk[4]);
             file.lines.push({ sign: "", text: raw, hunk: true });
         }
     }

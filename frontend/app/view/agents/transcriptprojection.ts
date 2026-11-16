@@ -9,6 +9,7 @@ import {
     answerAsk,
     askQuestions,
     buildEditDiff,
+    editFromPatch,
     parseGrep,
     sliceRead,
     toolResultImages,
@@ -289,6 +290,12 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
                         output: body,
                         exit: block.is_error === true ? 1 : 0,
                     };
+                } else if (action.detail?.kind === "edit") {
+                    // the file's own hunks, numbered; the tool_use's old/new strings stay when the result has none
+                    const numbered = editFromPatch(action.detail.files[0].path, rec.toolUseResult?.structuredPatch);
+                    if (numbered != null) {
+                        action.detail = { kind: "edit", files: [numbered] };
+                    }
                 } else if (action.detail?.kind === "ask" && typeof rec.toolUseResult?.answers === "object") {
                     // the answers ride on the record, keyed by question text; a rejected call carries a string there
                     action.summary = answerAsk(action.detail.questions, rec.toolUseResult.answers ?? {});

@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Pure detail extractors for the transcript projection. No React, no Wave runtime imports.
-// Deterministic; no LLM. v1 diffs are pragmatic: removed block then added block, no line gutters.
+// Deterministic; no LLM. An edit's diff is its removed block then its added block, unnumbered, until its result's
+// structuredPatch replaces it with the file's own numbered hunks.
 
-import type { AskQuestionDetail, EditFile, GrepMatch, ToolImage } from "./agentsviewmodel";
+import type { AskQuestionDetail, DiffLine, EditFile, GrepMatch, ToolImage } from "./agentsviewmodel";
 
 // A Claude tool_result `content` is either a string or an array of { type:"text", text }.
 export function toolResultText(content: unknown): string {
@@ -62,6 +63,49 @@ export function buildEditDiff(path: string, oldStr: string, newStr: string): Edi
         dels: a.length - head - tail,
         lines,
     };
+}
+
+type PatchHunk = { oldStart: number; oldLines: number; newStart: number; newLines: number; lines: string[] };
+
+function isPatchHunk(h: any): h is PatchHunk {
+    return (
+        typeof h?.oldStart === "number" &&
+        typeof h.newStart === "number" &&
+        Array.isArray(h.lines) &&
+        h.lines.every((l: unknown) => typeof l === "string")
+    );
+}
+
+// An Edit/Write result's toolUseResult.structuredPatch as a numbered diff: each hunk's lines counted from its
+// oldStart/newStart, a later hunk opened by its @@ header. Null when the patch is missing, empty or malformed (a
+// failed call carries an error string; a Write that created the file carries []).
+export function editFromPatch(path: string, patch: unknown): EditFile | null {
+    if (!Array.isArray(patch) || patch.length === 0 || !patch.every(isPatchHunk)) {
+        return null;
+    }
+    const lines: DiffLine[] = [];
+    let adds = 0;
+    let dels = 0;
+    patch.forEach((h, i) => {
+        if (i > 0) {
+            lines.push({ sign: "", text: `@@ -${h.oldStart},${h.oldLines} +${h.newStart},${h.newLines} @@`, hunk: true });
+        }
+        let oldNo = h.oldStart;
+        let newNo = h.newStart;
+        for (const raw of h.lines) {
+            const sign = raw[0];
+            if (sign === "+") {
+                adds++;
+                lines.push({ sign: "+", text: raw.slice(1), newNo: newNo++ });
+            } else if (sign === "-") {
+                dels++;
+                lines.push({ sign: "-", text: raw.slice(1), oldNo: oldNo++ });
+            } else if (sign !== "\\") {
+                lines.push({ sign: "", text: raw.slice(1), oldNo: oldNo++, newNo: newNo++ });
+            }
+        }
+    });
+    return { path, badge: patch.every((h) => h.oldLines === 0) ? "A" : "M", adds, dels, lines };
 }
 
 const GREP_PREFIX = /^(.*?:\d+):?(.*)$/;

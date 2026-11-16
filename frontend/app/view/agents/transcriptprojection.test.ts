@@ -531,6 +531,38 @@ describe("projectTranscript detail", () => {
         });
     });
 
+    it("numbers an edit's diff from its result's structuredPatch, and leaves it unnumbered without one", () => {
+        const use = (id: string) =>
+            L({
+                type: "assistant",
+                message: {
+                    content: [
+                        { type: "tool_use", id, name: "Edit", input: { file_path: "/p/a.ts", old_string: "a", new_string: "b" } },
+                    ],
+                },
+            });
+        const patch = [{ oldStart: 7, oldLines: 2, newStart: 7, newLines: 2, lines: [" ctx", "-a", "+b"] }];
+        const out = projectTranscript([
+            use("e1"),
+            L({
+                type: "user",
+                message: { content: [{ type: "tool_result", tool_use_id: "e1", is_error: false }] },
+                toolUseResult: { filePath: "/p/a.ts", structuredPatch: patch },
+            }),
+            use("e2"),
+            L({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "e2", is_error: false }] } }),
+        ]);
+        const numbered = (out[0] as any).detail.files[0];
+        expect(numbered.lines.map((l: any) => [l.sign, l.oldNo, l.newNo])).toEqual([
+            ["", 7, 7],
+            ["-", 8, undefined],
+            ["+", undefined, 8],
+        ]);
+        expect(numbered).toMatchObject({ path: "/p/a.ts", adds: 1, dels: 1 });
+        const bare = (out[1] as any).detail.files[0].lines;
+        expect(bare.every((l: any) => l.oldNo == null && l.newNo == null)).toBe(true);
+    });
+
     it("attaches the raw command (not the description) plus output + exit to a bash detail", () => {
         const out = projectTranscript([
             L({

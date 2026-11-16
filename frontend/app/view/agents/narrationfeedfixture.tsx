@@ -15,6 +15,7 @@ import type { AgentEntry } from "./agentsviewmodel";
 import { NarrationTimeline } from "./narrationtimeline";
 import type { NowLine } from "./nowline";
 import { WorkingLine } from "./nowlineview";
+import type { TimelineMark } from "./permissionmodel";
 import { seedRunEvents } from "./runeventstore";
 import type { TranscriptContext } from "./transcriptcontext";
 import { seedWshData } from "./wshdata";
@@ -23,6 +24,8 @@ export interface NarrationFeedFixtureOpts {
     ctx?: Omit<TranscriptContext, "model">;
     compact?: boolean;
     active?: boolean;
+    // permission marks, drawn as the rendered view draws its answered requests
+    marks?: TimelineMark[];
     renderers?: boolean;
     seed?: Record<string, unknown>;
     runEvents?: Record<string, RunEvent[]>;
@@ -34,13 +37,14 @@ interface ModalProps {
     entries: AgentEntry[];
     width: number;
     ctx?: TranscriptContext;
+    marks?: TimelineMark[];
     compact?: boolean;
     active?: boolean;
     renderers?: boolean;
     nowLine?: NowLine;
 }
 
-export function NarrationFeedFixtureModal({ entries, width, ctx, compact, active, renderers, nowLine }: ModalProps) {
+export function NarrationFeedFixtureModal({ entries, width, ctx, compact, active, renderers, marks, nowLine }: ModalProps) {
     return (
         <ModalShell open onClose={() => modalsModel.popModal()}>
             <div data-narration-fixture style={{ width }} className="max-h-[80vh] overflow-y-auto bg-surface px-3 py-2">
@@ -48,6 +52,7 @@ export function NarrationFeedFixtureModal({ entries, width, ctx, compact, active
                     entries={entries}
                     active={!!active}
                     renderers={renderers}
+                    marks={marks}
                     ctx={ctx}
                     compact={compact}
                     tail={nowLine ? <WorkingLine line={nowLine} compact={compact} /> : undefined}

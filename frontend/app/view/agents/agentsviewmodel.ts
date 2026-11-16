@@ -20,6 +20,9 @@ export interface DiffLine {
     text: string;
     // a git diff's @@ line, drawn as a separator rather than code
     hunk?: true;
+    // the line's number on each side, known from a structuredPatch or an @@ header; absent, the diff has no gutter
+    oldNo?: number;
+    newNo?: number;
 }
 export interface EditFile {
     path: string;

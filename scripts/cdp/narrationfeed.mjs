@@ -7,7 +7,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // one unbroken token, long enough to overflow a 360px panel if the line did not wrap
 const LONG = "C:/Users/dev/waveterm/pkg/retry/testdata/" + "segment/".repeat(12) + "retry_loop_output.log";
-const BASH_TARGET = "go test ./pkg/retry/ -run TestBackoff";
+// not a test command: a test run opens to its test card (transcript-base checks that), this one to the raw panel
+const BASH_TARGET = "go run ./cmd/retrycheck -case TestBackoff";
 const BASH_OUT = `--- FAIL: TestBackoff (0.21s)\n    retry_test.go:42: want 3 attempts, got 4 at ${LONG}\nFAIL`;
 
 const edit = (path, badge, text) => ({
@@ -122,7 +123,7 @@ const PANEL_PROBE = `(() => [...${ROOT}.querySelectorAll('[data-tool-panel]')].m
     const footer = btn ? btn.parentElement : null;
     const body = p.firstElementChild;
     return {
-        text: (p.textContent || '').slice(0, 40),
+        text: (p.textContent || '').slice(0, 200),
         btnText: btn ? btn.textContent.trim() : null,
         btnTitle: btn ? btn.getAttribute('title') : null,
         footer: footer ? footer.textContent : null,
