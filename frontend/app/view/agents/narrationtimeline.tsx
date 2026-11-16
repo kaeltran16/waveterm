@@ -5,7 +5,19 @@ import { ContextMenuModel } from "@/app/store/contextmenu";
 import { modalsModel } from "@/app/store/modalmodel";
 import { MONO_FAINT } from "@/app/view/jarvis/briefstyle";
 import { cn } from "@/util/util";
-import { ArrowUpRight, Ban, Check, ChevronDown, ChevronRight, Copy, Ellipsis, GitBranch, LoaderCircle, X } from "lucide-react";
+import {
+    ArrowUpRight,
+    Ban,
+    Check,
+    ChevronDown,
+    ChevronRight,
+    Copy,
+    Ellipsis,
+    GitBranch,
+    Info,
+    LoaderCircle,
+    X,
+} from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import {
     MOTION,
@@ -683,21 +695,29 @@ function ImageReadsRow({
     );
 }
 
-// what the agent thought between steps (a thinking-only message): muted prose, never a step
-function ThoughtText({ text, compact }: { text: string; compact: boolean }) {
-    return <MarkdownMessage text={text} className={cn("text-muted", compact ? "text-[12.5px]" : "text-[13px] leading-[1.55]")} />;
+// what the agent thought between steps (a thinking-only message, consecutive ones merged): muted prose clamped to a few
+// lines, never a step
+function ThoughtText({ text, clamp, compact }: { text: string; clamp: boolean; compact: boolean }) {
+    return (
+        <ClampedText lines="thought" clamp={clamp}>
+            <MarkdownMessage text={text} className={cn("text-muted", compact ? "text-[12.5px]" : "text-[13px] leading-[1.55]")} />
+        </ClampedText>
+    );
 }
 
 function StepBox({
     steps,
     thoughts,
     renderers,
+    clamp,
     ctx,
     compact,
 }: {
     steps: Step[];
     thoughts?: Thought[];
     renderers?: boolean;
+    // clamps a long thought behind Show more
+    clamp: boolean;
     ctx: TranscriptContext;
     compact: boolean;
 }) {
@@ -722,7 +742,7 @@ function StepBox({
                     >
                         {row.kind === "thought" ? (
                             <div data-thought className={compact ? "px-2.5 py-[7px]" : "px-3.5 py-2.5"}>
-                                <ThoughtText text={row.text} compact={compact} />
+                                <ThoughtText text={row.text} clamp={clamp} compact={compact} />
                             </div>
                         ) : row.kind === "images" ? (
                             <ImageReadsRow steps={row.steps} renderers={renderers} ctx={ctx} compact={compact} />
@@ -954,11 +974,25 @@ function TaskNotificationRow({
     );
 }
 
-// A You bubble keeps the prompt's line breaks; a long one (a run's goal, a pasted spec) is clamped behind Show more.
-// The clamp is measured, not estimated, so the toggle only shows when text is really hidden. A find over the
-// transcript passes clamp=false, since a match must never sit in hidden text.
-function UserBubbleText({ text, clamp, compact }: { text: string; clamp: boolean; compact: boolean }) {
-    const ref = useRef<HTMLParagraphElement>(null);
+// the line clamp per kind of clamped text, spelled out so tailwind sees each class
+const CLAMP_LINES = { bubble: "line-clamp-[8]", thought: "line-clamp-3" } as const;
+
+// Long text clamped behind Show more. The clamp is measured, not estimated, so the toggle only shows when text is
+// really hidden. A find over the transcript passes clamp=false, since a match must never sit in hidden text.
+function ClampedText({
+    lines,
+    clamp,
+    findTurn,
+    className,
+    children,
+}: {
+    lines: keyof typeof CLAMP_LINES;
+    clamp: boolean;
+    findTurn?: boolean;
+    className?: string;
+    children: React.ReactNode;
+}) {
+    const ref = useRef<HTMLDivElement>(null);
     const [open, setOpen] = useState(false);
     const [overflows, setOverflows] = useState(false);
     const clamped = clamp && !open;
@@ -968,25 +1002,17 @@ function UserBubbleText({ text, clamp, compact }: { text: string; clamp: boolean
             setOverflows(el.scrollHeight > el.clientHeight + 1);
         }
     };
-    useLayoutEffect(measure, [text, clamped]);
+    useLayoutEffect(measure, [children, clamped]);
     useResizeObserver(ref, measure);
     return (
         <>
-            <p
-                ref={ref}
-                data-find-turn
-                className={cn(
-                    "whitespace-pre-wrap text-foreground [overflow-wrap:anywhere]",
-                    compact ? "text-[13px] leading-[1.5]" : "text-[14px] leading-[1.55]",
-                    clamped && "line-clamp-[8]"
-                )}
-            >
-                {text.trim()}
-            </p>
+            <div ref={ref} data-find-turn={findTurn || undefined} className={cn(className, clamped && CLAMP_LINES[lines])}>
+                {children}
+            </div>
             {clamp && (overflows || open) ? (
                 <button
                     type="button"
-                    data-bubble-more
+                    data-clamp-more
                     aria-expanded={open}
                     onClick={() => setOpen((v) => !v)}
                     className="mt-1 cursor-pointer text-[12px] text-accent-soft hover:text-primary"
@@ -995,6 +1021,72 @@ function UserBubbleText({ text, clamp, compact }: { text: string; clamp: boolean
                 </button>
             ) : null}
         </>
+    );
+}
+
+// A background-task notice (a shell finished, a hook skipped): one muted line, not the subagent box. A structured one
+// (with a status) reads "Background task", a free-text one "Notice"; it opens to the whole text when the line hides some.
+function NoticeRow({
+    summary,
+    status,
+    result,
+    compact,
+}: {
+    summary: string;
+    status?: string;
+    result?: string;
+    compact: boolean;
+}) {
+    const [open, setOpen] = useState(false);
+    const canExpand = summary.includes("\n") || !!result;
+    const size = compact ? "text-[12.5px]" : "text-[13.5px]";
+    return (
+        <div data-notice className={compact ? "my-2" : "my-3"}>
+            <button
+                type="button"
+                disabled={!canExpand}
+                aria-expanded={canExpand ? open : undefined}
+                onClick={() => setOpen((v) => !v)}
+                className={cn(
+                    "flex w-full min-w-0 items-center gap-2 text-left text-muted",
+                    size,
+                    canExpand ? "cursor-pointer hover:text-ink-mid" : "cursor-default"
+                )}
+            >
+                <Info size={13} strokeWidth={2.2} className="shrink-0" aria-hidden />
+                <span className="shrink-0 text-ink-mid">{status ? "Background task" : "Notice"}</span>
+                <span className="min-w-0 truncate">{summary.split("\n")[0]}</span>
+                {status ? <span className="shrink-0">· {status}</span> : null}
+                {canExpand ? (
+                    <span className="flex shrink-0">
+                        <TurnChevron open={open} size={12} strokeWidth={2.2} />
+                    </span>
+                ) : null}
+            </button>
+            <PaneReveal open={open && canExpand}>
+                <div data-notice-body className={cn("mt-1 ml-[21px] text-muted", size)}>
+                    <div className="whitespace-pre-wrap [overflow-wrap:anywhere]">{summary}</div>
+                    {result ? <MarkdownMessage text={result} className="mt-1.5" /> : null}
+                </div>
+            </PaneReveal>
+        </div>
+    );
+}
+
+// A You bubble keeps the prompt's line breaks; a long one (a run's goal, a pasted spec) is clamped behind Show more.
+function UserBubbleText({ text, clamp, compact }: { text: string; clamp: boolean; compact: boolean }) {
+    return (
+        <ClampedText
+            lines="bubble"
+            clamp={clamp}
+            findTurn
+            className={cn(
+                "whitespace-pre-wrap text-foreground [overflow-wrap:anywhere]",
+                compact ? "text-[13px] leading-[1.5]" : "text-[14px] leading-[1.55]"
+            )}
+        >
+            {text.trim()}
+        </ClampedText>
     );
 }
 
@@ -1141,7 +1233,7 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                     initial={shouldFadeEntry("thought") ? "initial" : false}
                     animate="animate"
                 >
-                    <ThoughtText text={item.text} compact={isCompact} />
+                    <ThoughtText text={item.text} clamp={!renderAll} compact={isCompact} />
                 </motion.div>
             );
         }
@@ -1199,7 +1291,11 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                     initial="initial"
                     animate="animate"
                 >
-                    <TaskNotificationRow summary={item.summary} status={item.status} result={item.result} compact={isCompact} />
+                    {item.notice ? (
+                        <NoticeRow summary={item.summary} status={item.status} result={item.result} compact={isCompact} />
+                    ) : (
+                        <TaskNotificationRow summary={item.summary} status={item.status} result={item.result} compact={isCompact} />
+                    )}
                 </motion.div>
             );
         }
@@ -1218,7 +1314,14 @@ export const NarrationTimeline = memo(function NarrationTimeline({
         if (item.kind === "arc") {
             return (
                 <motion.div key={"a" + item.index} variants={cardVariants} initial="initial" animate="animate">
-                    <ArcMessageRow message={item.message} ts={item.ts} idleMs={item.idleMs} ctx={cardCtx} compact={isCompact} />
+                    <ArcMessageRow
+                        message={item.message}
+                        ts={item.ts}
+                        idleMs={item.idleMs}
+                        latest={item.latest}
+                        ctx={cardCtx}
+                        compact={isCompact}
+                    />
                 </motion.div>
             );
         }
@@ -1238,7 +1341,14 @@ export const NarrationTimeline = memo(function NarrationTimeline({
         // a new stretch arrives as one box, so its fade is one entrance, never a burst of tool lines
         return (
             <motion.div key={"s" + item.startIndex} variants={viewFade} initial="initial" animate="animate">
-                <StepBox steps={item.steps} thoughts={item.thoughts} renderers={renderers} ctx={cardCtx} compact={isCompact} />
+                <StepBox
+                    steps={item.steps}
+                    thoughts={item.thoughts}
+                    renderers={renderers}
+                    clamp={!renderAll}
+                    ctx={cardCtx}
+                    compact={isCompact}
+                />
             </motion.div>
         );
     };

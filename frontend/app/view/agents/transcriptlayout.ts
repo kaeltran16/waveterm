@@ -4,11 +4,12 @@
 // Pure: how a transcript lays out. Tool actions become steps; a maximal run of steps is a stretch, broken by prose,
 // user entries, events and change cards; a wsh change call that succeeded leaves the stretch as a standalone card; Arc's
 // own messages become arc items. A thought (a thinking-only message), when the host draws them, sits inside the stretch
-// around it, or alone where no step is beside it. A finished turn's work, everything between its prompt and its final
+// around it, or alone where no step is beside it; thoughts with nothing between them merge into one. A finished turn's work, everything between its prompt and its final
 // reply, folds into one "Worked for N" turn item; a human-originated row or a turn-boundary event splits it. No React.
 
 import type { AgentActionEntry, AgentEntry } from "./agentsviewmodel";
 import { arcMessageOf, type ArcMessage } from "./arcmessage";
+import { commandTitle } from "./commandtitle";
 import { placeMarks, type TimelineMark } from "./permissionmodel";
 import { toolRendererKey } from "./renderregistry";
 import type { TranscriptContext } from "./transcriptcontext";
@@ -41,9 +42,10 @@ export type LayoutItem =
     | { kind: "user"; text: string; index: number }
     | { kind: "command"; name: string; args?: string; isSkill?: boolean; index: number }
     | { kind: "compaction"; trigger?: string; preTokens?: number; postTokens?: number; summary?: string; index: number }
-    | { kind: "notification"; summary: string; status?: string; result?: string; index: number }
+    | { kind: "notification"; summary: string; status?: string; result?: string; notice?: true; index: number }
     | { kind: "interrupted"; index: number }
-    | { kind: "arc"; index: number; message: ArcMessage; ts?: number; idleMs?: number }
+    // latest: the feed's last wake, the only one that draws its sections open
+    | { kind: "arc"; index: number; message: ArcMessage; ts?: number; idleMs?: number; latest: boolean }
     // thoughts: the stretch's own, set only when it has some
     | { kind: "steps"; startIndex: number; steps: Step[]; thoughts?: Thought[] }
     | { kind: "card"; index: number; step: Step }
@@ -325,7 +327,14 @@ function layoutItems(entries: AgentEntry[], opts: LayoutOpts): LayoutItem[] {
     let prevTime: number | undefined;
     entries.forEach((e, i) => {
         if (e.kind === "thought") {
-            if (opts.thoughts) {
+            if (!opts.thoughts) {
+                return;
+            }
+            // every pending thought came after the last step with nothing else between, so this one joins the last
+            const prev = thoughts[thoughts.length - 1];
+            if (prev) {
+                prev.text = `${prev.text}\n\n${e.text}`;
+            } else {
                 thoughts.push({ index: i, text: e.text });
             }
             return;
@@ -355,7 +364,7 @@ function layoutItems(entries: AgentEntry[], opts: LayoutOpts): LayoutItem[] {
                 const message = arcMessageOf(e, i === firstUser, opts.ctx);
                 if (message) {
                     const idleMs = e.ts != null && before != null ? e.ts - before : undefined;
-                    items.push({ kind: "arc", index: i, message, ts: e.ts, idleMs });
+                    items.push({ kind: "arc", index: i, message, ts: e.ts, idleMs, latest: false });
                 } else {
                     items.push({ kind: "user", text: e.text, index: i });
                 }
@@ -375,7 +384,14 @@ function layoutItems(entries: AgentEntry[], opts: LayoutOpts): LayoutItem[] {
                 });
                 return;
             case "notification":
-                items.push({ kind: "notification", summary: e.summary, status: e.status, result: e.result, index: i });
+                items.push({
+                    kind: "notification",
+                    summary: e.summary,
+                    status: e.status,
+                    result: e.result,
+                    notice: e.notice,
+                    index: i,
+                });
                 return;
             case "interrupted":
                 items.push({ kind: "interrupted", index: i });
@@ -383,6 +399,10 @@ function layoutItems(entries: AgentEntry[], opts: LayoutOpts): LayoutItem[] {
         }
     });
     flush();
+    const lastWake = items[lastIndexOf(items, (it) => it.kind === "arc" && it.message.kind === "wake")];
+    if (lastWake?.kind === "arc") {
+        lastWake.latest = true;
+    }
     return items;
 }
 
@@ -441,7 +461,9 @@ export function stepTitle(action: AgentActionEntry): { title: string; mono?: str
                 break;
             }
             // the projection puts the description in target when there is one, else the command
-            return target && target !== command ? { title: target, mono: command } : { title: "", mono: command };
+            return target && target !== command
+                ? { title: target, mono: command }
+                : { title: commandTitle(command) ?? "", mono: command };
         }
         case "read":
         case "edited":

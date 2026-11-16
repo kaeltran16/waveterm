@@ -1,7 +1,8 @@
 // Scenario `transcript-base`: the transcript's anatomy over plain entries (transcriptlayout.ts): each finished turn's
 // work folded into one "Worked for N" line that opens to its step boxes and cards, a running step's live elapsed, a
-// wsh change call as a standalone row inside its turn's fold while a failed one stays a step, and a queued message
-// splitting a turn's fold in two. Each check runs at the Rendered column's width and at a card's (compact).
+// wsh change call as a standalone row inside its turn's fold while a failed one stays a step, a queued message
+// splitting a turn's fold in two, consecutive thoughts merged into one clamped thought, a heredoc step's derived title,
+// and a background notice's muted row. The fold checks run at the Rendered column's width and at a card's (compact).
 
 import { bash, clearTranscript, prose, ROOT, showTranscript, tool, user, waitSeam } from "./transcript-fixture.mjs";
 
@@ -529,6 +530,139 @@ async function queuedStep(h) {
     };
 }
 
+// two thoughts with nothing between them, long enough together to pass the thought's three-line clamp
+const THOUGHT_A =
+    "The retry helper multiplies the delay by the attempt index, and the index starts at zero, so the first retry " +
+    "fires immediately. That matches the 121 ms the test reported, which is one attempt's work and no wait at all.";
+const THOUGHT_B =
+    "Shifting the index by one keeps every later delay where it was and only fixes the first. The queue caller passes " +
+    "its own delay, so it inherits the fix without a change of its own; I will check it anyway before I reply.";
+const THOUGHTS = [
+    user("Why does the first retry not wait?", T0),
+    { kind: "thought", text: THOUGHT_A, ts: T0 + S },
+    { kind: "thought", text: THOUGHT_B, ts: T0 + 2 * S },
+    prose("Because the delay is multiplied by an index that starts at zero.", T0 + 3 * S),
+];
+
+const THOUGHT_STATE = probe(`
+    const thoughts = [...root.querySelectorAll('[data-thought]')];
+    const t = thoughts[0];
+    const more = t?.querySelector('[data-clamp-more]') ?? null;
+    const text = t?.firstElementChild;
+    return {
+        count: thoughts.length,
+        text: t?.textContent ?? null,
+        more: more?.textContent ?? null,
+        height: text ? text.clientHeight : 0,
+        hidden: text ? text.scrollHeight > text.clientHeight + 1 : null,
+    };
+`);
+
+async function thoughtStep(h) {
+    await showTranscript(h, { entries: THOUGHTS, width: 736, thoughts: true });
+    const closed = await h.ev(THOUGHT_STATE);
+    await h.ev(`${R}.querySelector('[data-thought] [data-clamp-more]')?.click()`);
+    await sleep(MOTION_MS);
+    const opened = await h.ev(THOUGHT_STATE);
+    await h.shot("cdp-shots/transcript-base-thought.png");
+    return {
+        step: "Thoughts: two consecutive thoughts draw as one clamped thought whose Show more opens it whole",
+        ok:
+            closed != null &&
+            closed.count === 1 &&
+            closed.text.includes("fires immediately") &&
+            closed.text.includes("inherits the fix") &&
+            closed.more === "Show more" &&
+            closed.hidden === true &&
+            opened?.more === "Show less" &&
+            opened.hidden === false &&
+            opened.height > closed.height,
+        detail: JSON.stringify({ closed, opened }),
+    };
+}
+
+// a Bash call with no description whose command is a heredoc script: titled, its command beside the title in mono
+const HEREDOC = "python - <<'EOF'\nimport json\nprint(json.dumps({\"ok\": True}))\nEOF";
+const HEREDOC_TURN = [
+    user("Check the JSON output.", T0),
+    bash({ command: HEREDOC, output: '{"ok": true}', ts: T0 + S, durationMs: 300 }),
+    prose("It prints ok.", T0 + 2 * S),
+];
+
+const HEREDOC_STATE = probe(`
+    const step = [...root.querySelectorAll('[data-step]')].find((s) => s.textContent.includes('python -'));
+    const mono = step?.querySelector('.font-mono');
+    return {
+        text: step?.textContent ?? null,
+        mono: mono?.textContent ?? null,
+        monoFont: mono ? getComputedStyle(mono).fontFamily : null,
+        title: step?.querySelector('button span')?.textContent ?? null,
+    };
+`);
+
+async function heredocStep(h) {
+    await showTranscript(h, { entries: HEREDOC_TURN, width: 736 });
+    await h.ev(openFold);
+    await sleep(MOTION_MS);
+    const s = await h.ev(HEREDOC_STATE);
+    await h.shot("cdp-shots/transcript-base-heredoc.png");
+    return {
+        step: 'Command title: a heredoc step with no description reads "Ran a Python script", its command in mono',
+        ok:
+            s != null &&
+            s.title === "Ran a Python script" &&
+            (s.mono ?? "").startsWith("python -") &&
+            /mono/i.test(s.monoFont ?? ""),
+        detail: JSON.stringify(s),
+    };
+}
+
+// a free-text background-task notice of two lines: one muted row that opens to the whole text
+const NOTICE_TEXT = "arc-skim: its prompt.compose hook was skipped\nthe hook timed out after 5 s; the prompt went out without it";
+const NOTICE_TURN = [
+    user("Summarise the run.", T0),
+    { kind: "notification", summary: NOTICE_TEXT, notice: true },
+    prose("The run landed.", T0 + 2 * S),
+];
+
+const NOTICE_STATE = probe(`
+    const row = root.querySelector('[data-notice]');
+    const btn = row?.querySelector('button');
+    return {
+        head: btn?.textContent ?? null,
+        expanded: btn?.getAttribute('aria-expanded') ?? null,
+        body: row?.querySelector('[data-notice-body]')?.textContent ?? null,
+        subagent: root.querySelectorAll('[data-subagent-finished]').length,
+        bordered: btn ? getComputedStyle(btn).borderTopWidth : null,
+    };
+`);
+
+async function noticeStep(h) {
+    await showTranscript(h, { entries: NOTICE_TURN, width: 736 });
+    const closed = await h.ev(NOTICE_STATE);
+    await h.ev(`${R}.querySelector('[data-notice] button')?.click()`);
+    await sleep(MOTION_MS);
+    const opened = await h.ev(NOTICE_STATE);
+    await h.shot("cdp-shots/transcript-base-notice.png");
+    const [first, second] = NOTICE_TEXT.split("\n");
+    return {
+        step: "Notice: a multi-line background notice is one muted row, not the Subagent finished box, and a click opens its full text",
+        ok:
+            closed != null &&
+            closed.subagent === 0 &&
+            (closed.head ?? "").startsWith("Notice") &&
+            (closed.head ?? "").includes(first) &&
+            !(closed.head ?? "").includes(second) &&
+            closed.bordered === "0px" &&
+            closed.expanded === "false" &&
+            closed.body === null &&
+            opened?.expanded === "true" &&
+            (opened.body ?? "").includes(first) &&
+            (opened.body ?? "").includes(second),
+        detail: JSON.stringify({ closed, opened }),
+    };
+}
+
 export const transcriptBase = {
     name: "transcript-base",
     surface: "cockpit",
@@ -553,6 +687,9 @@ export const transcriptBase = {
         steps.push(await eventsStep(h));
         steps.push(await compactStep(h));
         steps.push(await queuedStep(h));
+        steps.push(await thoughtStep(h));
+        steps.push(await heredocStep(h));
+        steps.push(await noticeStep(h));
         return steps;
     },
     async teardown(h) {

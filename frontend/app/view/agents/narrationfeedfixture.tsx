@@ -30,6 +30,8 @@ export interface NarrationFeedFixtureOpts {
     // permission marks, drawn as the rendered view draws its answered requests
     marks?: TimelineMark[];
     renderers?: boolean;
+    // draws thoughts, as the rendered view does
+    thoughts?: boolean;
     seed?: Record<string, unknown>;
     runEvents?: Record<string, RunEvent[]>;
     // drawn as the timeline's tail, as a working host draws it
@@ -44,6 +46,7 @@ interface ModalProps {
     compact?: boolean;
     active?: boolean;
     renderers?: boolean;
+    thoughts?: boolean;
     nowLine?: NowLine;
 }
 
@@ -54,6 +57,7 @@ export function NarrationFeedFixtureModal({
     compact,
     active,
     renderers,
+    thoughts,
     marks,
     nowLine,
 }: ModalProps) {
@@ -64,6 +68,7 @@ export function NarrationFeedFixtureModal({
                     entries={entries}
                     active={!!active}
                     renderers={renderers}
+                    thoughts={thoughts}
                     marks={marks}
                     ctx={ctx}
                     compact={compact}

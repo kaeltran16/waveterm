@@ -123,6 +123,13 @@ describe("shell variable ids", () => {
         expect(firstWshCall("E=ok && wsh effort show $E")?.key).toBe("effort-show");
     });
 
+    it("a commit substitution leaves jarvis complete resolved: the sha is shown, never fetched", () => {
+        expect(firstWshCall("wsh jarvis complete --commit $(git rev-parse HEAD) --report C:/tmp/r.md")?.key).toBe(
+            "jarvis-complete"
+        );
+        expect(firstWshCall("wsh jarvis complete --commit $SHA --report C:/tmp/r.md")?.key).toBe("jarvis-complete");
+    });
+
     it("an unresolved flag value is unresolved too", () => {
         expect(firstWshCall("wsh effort chunk note e1 3 --note $N")?.key).toBe("other-change");
     });

@@ -355,6 +355,38 @@ describe("layoutTranscript statuses and Arc messages", () => {
         expect(items[5]).toEqual({ kind: "interrupted", index: 5 });
     });
 
+    it("flags only the last wake as latest", () => {
+        const entries = [
+            user("wake: task t-1 landed", T0),
+            prose("ok", T0 + S),
+            user("wake: task t-2 landed", T0 + 2 * S),
+            prose("ok", T0 + 3 * S),
+        ];
+        const arcs = layoutTranscript(entries, { active: false }).filter(
+            (i): i is Extract<LayoutItem, { kind: "arc" }> => i.kind === "arc"
+        );
+        expect(arcs.map((a) => a.latest)).toEqual([false, true]);
+    });
+
+    it("never flags a brief as the latest wake", () => {
+        const items = layoutTranscript([user("Build task 2"), prose("ok")], {
+            active: false,
+            ctx: { role: { kind: "worker" } as any },
+        });
+        expect(items[0]).toMatchObject({ kind: "arc", latest: false });
+    });
+
+    it("carries a notice flag and draws a queued message as a user item", () => {
+        const entries: AgentEntry[] = [
+            user("go"),
+            { kind: "notification", summary: "shell finished", notice: true },
+            { kind: "user", text: "also check b", queued: true },
+        ];
+        const items = layoutTranscript(entries, { active: true });
+        expect(items[1]).toMatchObject({ kind: "notification", notice: true });
+        expect(items[2]).toMatchObject({ kind: "user", text: "also check b" });
+    });
+
     it("flags only the last reply as latest", () => {
         const items = layoutTranscript([prose("a"), user("b"), prose("c")], { active: false });
         expect(items.filter((i) => i.kind === "message").map((i) => (i as any).latest)).toEqual([false, true]);
@@ -406,6 +438,33 @@ describe("layoutTranscript thoughts", () => {
         const items = layoutTranscript([user("go"), thought("marking it"), card], { active: true, thoughts: true });
         expect(kinds(items)).toEqual(["user", "thought", "card"]);
     });
+
+    it("merges consecutive standalone thoughts into one holding both texts", () => {
+        const items = layoutTranscript([user("hi"), thought("first"), thought("second"), prose("hello")], {
+            active: false,
+            thoughts: true,
+        });
+        expect(kinds(items)).toEqual(["user", "thought", "message"]);
+        expect(items[1]).toEqual({ kind: "thought", text: "first\n\nsecond", index: 1 });
+    });
+
+    it("merges consecutive thoughts inside a step box, and keeps two with a step between them", () => {
+        const entries = [
+            user("go"),
+            read("a.ts"),
+            thought("one"),
+            thought("two"),
+            read("b.ts"),
+            thought("three"),
+            read("c.ts"),
+            prose("done"),
+        ];
+        const [stretch] = stepsItems(layoutTranscript(entries, { active: false, thoughts: true }));
+        expect(stretch.thoughts).toEqual([
+            { index: 2, text: "one\n\ntwo" },
+            { index: 5, text: "three" },
+        ]);
+    });
 });
 
 describe("stepTitle", () => {
@@ -419,6 +478,12 @@ describe("stepTitle", () => {
     it("shows the command alone when there is no description", () => {
         expect(stepTitle(bash("node test.js"))).toMatchObject({ mono: "node test.js" });
         expect(stepTitle(bash("node test.js")).title).not.toContain("node test.js");
+    });
+
+    it("titles a hard-to-read command with no description, the command still in mono", () => {
+        const script = "python - <<'EOF'\nprint(1)\nEOF";
+        expect(stepTitle(bash(script))).toMatchObject({ title: "Ran a Python script", mono: script });
+        expect(stepTitle(bash("ls -la"))).toMatchObject({ title: "", mono: "ls -la" });
     });
 
     it("keeps the verb and target for a call with no command", () => {
