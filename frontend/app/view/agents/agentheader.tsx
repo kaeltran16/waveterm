@@ -320,14 +320,15 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                             ) : null}
                         </>
                     )}
-                    {renderable ? (
+                    {/* Rendered draws the model, mode and context in its message box */}
+                    {rendered ? null : renderable ? (
                         <HeaderControls key={agent.id} agent={agent} />
                     ) : agent.model ? (
                         <span className="shrink-0 whitespace-nowrap rounded-[5px] border border-edge-mid px-[7px] py-[1px] font-mono text-[10.5px] font-medium text-muted @max-[480px]:hidden">
                             {agent.model}
                         </span>
                     ) : null}
-                    {agent.usage?.contextpct != null ? (
+                    {!rendered && agent.usage?.contextpct != null ? (
                         <span
                             title={`context: ${Math.round(agent.usage.contextpct)}% of the window`}
                             className={cn(

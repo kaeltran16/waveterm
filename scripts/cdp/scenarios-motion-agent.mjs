@@ -512,13 +512,21 @@ const toolLine = (i) =>
         type: "assistant",
         message: { content: [{ type: "tool_use", id: `tu-${i}`, name: "Bash", input: { description: `step ${i}` } }] },
     });
+const resultLine = (i) =>
+    JSON.stringify({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: `tu-${i}`, content: "ok" }] } });
 const SHORT_LINES = [userLine("motion prompt"), replyLine("motion reply")];
-// longer than the tail, so the reread comes back full and the transcript may hold earlier turns
-const LONG_LINES = [
-    userLine("motion prompt"),
-    ...Array.from({ length: TAIL_LINES + 200 }, (_, i) => toolLine(i)),
-    replyLine("motion reply"),
-];
+// A long session as one is written: turns of a prompt, calls each with its result, and a reply, longer than the tail
+// so the reread comes back full and the transcript may hold earlier turns. A call left without a result is a running
+// step with its own spinner, and one turn of thousands of them (spinning, never folded) starved the frames the find
+// bar's growth is sampled in.
+const TURN_CALLS = 50;
+const TURN_LINES = 2 * TURN_CALLS + 2;
+const TURNS = Math.ceil((TAIL_LINES + 200) / TURN_LINES);
+const LONG_LINES = Array.from({ length: TURNS }, (_, t) => [
+    userLine(t === 0 ? "motion prompt" : `prompt ${t}`),
+    ...Array.from({ length: TURN_CALLS }, (_, c) => [toolLine(t * TURN_CALLS + c), resultLine(t * TURN_CALLS + c)]).flat(),
+    replyLine(t === TURNS - 1 ? "motion reply" : `reply ${t}`),
+]).flat();
 
 // the session's transcript read serves window.__motionAgentTranscript (swapped by the step), tailed to maxlines
 const stubTranscriptRpc = (h) =>

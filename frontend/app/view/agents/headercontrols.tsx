@@ -1,8 +1,9 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The header's native model and permission-mode controls for a live claude session. The model rides /model through
-// the same path as the composer; the permission mode has no command, so it types Shift+Tab into the terminal.
+// The native model and permission-mode controls for a live claude session, drawn in the header or in the Rendered
+// message box. The model rides /model through the same path as the composer; the permission mode has no command, so
+// it types Shift+Tab into the terminal.
 
 import { ContextMenuModel } from "@/app/store/contextmenu";
 import { globalStore } from "@/app/store/jotaiStore";
@@ -10,7 +11,7 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { stringToBase64 } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { useRef } from "react";
 import { sendAgentText, toastSendFailure } from "./agentsend";
 import type { AgentVM } from "./agentsviewmodel";
@@ -50,7 +51,8 @@ async function typeKeys(blockId: string, keys: string[]): Promise<void> {
     }
 }
 
-export function HeaderControls({ agent }: { agent: AgentVM }) {
+// the model and permission-mode controls' labels and menus, shared by the header and the Rendered message box
+function useAgentControls(agent: AgentVM) {
     const blockId = agent.blockId!;
     const oref = `block:${blockId}`;
     const status = useAtomValue(getAgentStatusAtom(oref));
@@ -61,7 +63,7 @@ export function HeaderControls({ agent }: { agent: AgentVM }) {
     const cycle = permissionCycle(useAtomValue(getSeenPermissionModesAtom(oref)), useAtomValue(autoPermissionSeenAtom));
     const busy = useRef(false);
     const mode = shownPermissionMode(optimistic, lastHook?.ts, reportedMode);
-    const modelLabel = (status?.model ? prettyModel(status.model) : (agent.model ?? "")).toLowerCase();
+    const model = status?.model ? prettyModel(status.model) : (agent.model ?? "");
 
     const openModelMenu = (e: React.MouseEvent) => {
         const items: ContextMenuItem[] = MODEL_ALIASES.map((alias) => ({
@@ -103,7 +105,12 @@ export function HeaderControls({ agent }: { agent: AgentVM }) {
     // bypassPermissions or an unknown mode has no way to step around the cycle, so a chip would only be noise
     const changeable = mode != null && cycle.includes(mode);
     const modeLabel = changeable ? permissionModeLabel(mode) : "";
+    return { model, modeLabel, openModelMenu, openModeMenu };
+}
 
+export function HeaderControls({ agent }: { agent: AgentVM }) {
+    const { model, modeLabel, openModelMenu, openModeMenu } = useAgentControls(agent);
+    const modelLabel = model.toLowerCase();
     return (
         <>
             {modelLabel ? (
@@ -128,6 +135,41 @@ export function HeaderControls({ agent }: { agent: AgentVM }) {
                 >
                     {modeLabel}
                     <ChevronDown size={10} aria-hidden />
+                </button>
+            ) : null}
+        </>
+    );
+}
+
+const sentenceCase = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+// the same two controls drawn in the Rendered message box: the model as a pill (its menu opens upward), the mode plain
+export function BoxControls({ agent }: { agent: AgentVM }) {
+    const { model, modeLabel, openModelMenu, openModeMenu } = useAgentControls(agent);
+    return (
+        <>
+            {model ? (
+                <button
+                    type="button"
+                    data-composer-model
+                    aria-label={`Model: ${model}, change`}
+                    onClick={openModelMenu}
+                    className="inline-flex h-7 shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-full border border-edge-strong px-[11px] text-[12.5px] text-secondary hover:bg-surface-hover"
+                >
+                    {model}
+                    <ChevronUp size={11} strokeWidth={2.4} aria-hidden className="text-muted" />
+                </button>
+            ) : null}
+            {modeLabel ? (
+                <button
+                    type="button"
+                    data-composer-permission-mode
+                    aria-label={`Permission mode: ${modeLabel}, change`}
+                    onClick={openModeMenu}
+                    className="inline-flex h-7 shrink-0 cursor-pointer items-center gap-[5px] whitespace-nowrap rounded-[7px] px-2 text-[12.5px] text-ink-mid hover:bg-surface-hover hover:text-secondary"
+                >
+                    {sentenceCase(modeLabel)}
+                    <ChevronDown size={11} strokeWidth={2.4} aria-hidden className="text-muted" />
                 </button>
             ) : null}
         </>

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // The Agent surface center's Rendered mode: the focused claude agent's live transcript as a readable timeline,
-// with a composer that drives the same pty the terminal shows. The terminal block stays mounted beside it.
+// with a message box that drives the same pty the terminal shows. The terminal block stays mounted beside it.
 // The working line is the timeline's tail; once your last prompt has scrolled out of view, a bar pinned at the top
 // holds it.
 
@@ -50,15 +50,24 @@ export function useUnflipOnPrompt(agent: AgentVM | undefined) {
     }, [agent?.id, flipTs, last]);
 }
 
-function AskDock({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
+// the agent's question, after the last item in the column: the Needs your input label, then the ask card
+function AskCard({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
     const selections = useAtomValue(model.answerSelAtom)[agent.id] ?? {};
     const texts = useAtomValue(model.answerTextAtom)[agent.id] ?? {};
     const activeQuestion = useAtomValue(model.answerTabAtom)[agent.id] ?? 0;
     const sent = useAtomValue(model.sentIdsAtom).has(askSentKey(agent) ?? "");
     return (
-        <div data-rendered-ask className="border-t border-edge-mid px-[14px] py-2">
+        <div data-rendered-ask className="mt-1 flex flex-col pb-2">
+            <div className="mb-3 inline-flex items-center gap-[7px] self-start rounded-full bg-warning/12 py-[3px] pl-1.5 pr-2.5 text-[12.5px] font-semibold text-warning">
+                <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden>
+                    <circle cx="7" cy="7" r="5.5" fill="none" strokeWidth="1.5" className="stroke-warning" />
+                    <circle cx="7" cy="7" r="2.6" className="fill-warning" />
+                </svg>
+                Needs your input
+            </div>
             <AnswerBar
                 agent={agent}
+                variant="card"
                 selections={selections}
                 texts={texts}
                 sent={sent}
@@ -189,26 +198,29 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
                                 No transcript for this session yet.
                             </div>
                         )}
+                        {/* after the timeline, whose working line hides while the agent asks */}
+                        {askShown ? <AskCard model={model} agent={agent} /> : null}
                     </div>
                 </div>
                 <PinnedPromptBar prompt={pin.prompt} onJump={pin.jump} />
                 <JumpToLatestPill show={!atBottom} onClick={jumpToBottom} />
             </div>
-            {askShown ? <AskDock model={model} agent={agent} /> : null}
             <PermissionBand
                 agentId={agent.id}
                 blockId={agent.blockId}
                 askShown={askShown}
                 onLastChoice={() => composerRef.current?.focus()}
             />
-            <div data-rendered-composer className="shrink-0 px-[22px] pb-4">
-                <RenderedComposer
-                    ref={composerRef}
-                    blockId={agent.blockId}
-                    working={agent.state === "working"}
-                    onInterrupt={() => interruptAgent(agent.blockId)}
-                    onSubmitText={onSubmitText}
-                />
+            <div data-rendered-composer className="shrink-0 px-6 pb-4 pt-3">
+                <div className={COLUMN}>
+                    <RenderedComposer
+                        ref={composerRef}
+                        agent={agent}
+                        hasTranscript={entries.length > 0}
+                        onInterrupt={() => interruptAgent(agent.blockId)}
+                        onSubmitText={onSubmitText}
+                    />
+                </div>
             </div>
         </div>
     );

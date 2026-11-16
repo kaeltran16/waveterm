@@ -7,6 +7,7 @@
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { atom, type PrimitiveAtom } from "jotai";
+import { contextTokens } from "./agentrailmodel";
 import { hasAnswerableAsk, type AgentVM } from "./agentsviewmodel";
 
 export type ViewMode = "terminal" | "rendered";
@@ -37,9 +38,54 @@ export function effectiveViewMode(mode: ViewMode, flipTs: number | null): ViewMo
     return flipTs != null ? "terminal" : mode;
 }
 
-// the rendered view docks an asking agent's choices above its composer, so the question is answered there
+// the rendered view shows an asking agent's choices as a card in its column, so the question is answered there
 export function askDocked(agent: AgentVM): boolean {
     return agent.state === "asking" && hasAnswerableAsk(agent);
+}
+
+export type ComposerBox = {
+    kind: "new" | "idle" | "working";
+    placeholder: string;
+    // typing into the pty while Claude's question picker is open would land in the picker, so Send waits on the answer
+    askBlocks: boolean;
+    // a turn is in progress (working, or held on a question), so an empty box offers Stop
+    live: boolean;
+};
+
+// the message box's state from the agent's: which placeholder, whether Send is held, whether a turn can be stopped
+export function composerBox(agent: AgentVM, hasTranscript: boolean): ComposerBox {
+    const askBlocks = askDocked(agent);
+    const working = agent.state === "working";
+    const kind = working ? "working" : hasTranscript ? "idle" : "new";
+    const placeholder =
+        kind === "working"
+            ? "Steer the agent; it reads this before its next step"
+            : kind === "idle"
+              ? `Reply to ${agent.name}, @ to mention, / for commands`
+              : `Message ${agent.name}, @ to mention, / for commands`;
+    return { kind, placeholder, askBlocks, live: working || askBlocks };
+}
+
+// the round button: Stop while a turn is live and the box is empty, else Send (a steer while working)
+export function boxButton(box: ComposerBox, filled: boolean): "send" | "stop" {
+    return box.live && !filled ? "stop" : "send";
+}
+
+const RING_FULL = 1;
+
+// the box's context ring: the reported percent, the arc it fills (0-1), and a title in tokens when the window is known
+export function contextRing(usage: AgentUsage | undefined): { pct: number; arc: number; title: string } | null {
+    const pct = usage?.contextpct;
+    if (pct == null) {
+        return null;
+    }
+    const shown = Math.round(pct);
+    const tokens = contextTokens(pct, usage.contextmax);
+    const title =
+        tokens != null
+            ? `${tokens} of ${contextTokens(100, usage.contextmax)} tokens in context`
+            : `context: ${shown}% of the window`;
+    return { pct: shown, arc: Math.min(RING_FULL, Math.max(0, pct / 100)), title };
 }
 
 // only a live claude session has the control paths the rendered view drives
