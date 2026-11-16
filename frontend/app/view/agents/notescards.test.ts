@@ -9,6 +9,7 @@ import {
     JIRA_DESCRIPTION_CLAMP,
     NOTE_BULLET_MAX,
     findNote,
+    jiraAttachmentsStepSummary,
     jiraDateOf,
     jiraKeyOf,
     jiraShowOf,
@@ -211,6 +212,45 @@ describe("ticket card", () => {
         expect(jiraShowOf(action("wsh jira show SIEM-1748", json))).toBeNull();
         expect(jiraShowOf(action("wsh jira show SIEM-1748 --json", json, 1))).toBeNull();
         expect(jiraShowOf(action("wsh jira show SIEM-1748 --json"))).toBeNull();
+    });
+});
+
+describe("jira attachments step summary", () => {
+    const plain = callOf("wsh jira attachments SIEM-1748");
+    const json = callOf("wsh jira attachments SIEM-1748 --json");
+    const none = "SIEM-1748 has no attachments\n";
+    const saved = (n: number) =>
+        JSON.stringify(
+            Array.from({ length: n }, (_, i) => ({ id: String(i), filename: `${i}.png`, path: `/tmp/${i}.png` }))
+        );
+
+    it("counts the saved paths, Windows and POSIX", () => {
+        const out = [
+            "C:\\Users\\k\\AppData\\Local\\Temp\\arc-jira-SIEM-1748-1\\image-1.png",
+            "C:/Users/k/AppData/Local/Temp/arc-jira-SIEM-1748-1/image-2.png",
+            "/tmp/arc-jira-SIEM-1748-1/image-3.png",
+        ].join("\n");
+        expect(jiraAttachmentsStepSummary(plain, out + "\n")).toBe("3 saved");
+    });
+
+    it("counts the --json array", () => {
+        expect(jiraAttachmentsStepSummary(json, saved(3))).toBe("3 saved");
+    });
+
+    it("says no attachments for a ticket with none, never 0 or 1 saved", () => {
+        expect(jiraAttachmentsStepSummary(plain, none)).toBe("no attachments");
+        expect(jiraAttachmentsStepSummary(json, "[]\n")).toBe("no attachments");
+        expect(jiraAttachmentsStepSummary(json, none + "[]\n")).toBe("no attachments");
+    });
+
+    it("gives nothing for empty or unparseable output", () => {
+        expect(jiraAttachmentsStepSummary(plain, undefined)).toBeUndefined();
+        expect(jiraAttachmentsStepSummary(plain, "")).toBeUndefined();
+        expect(jiraAttachmentsStepSummary(plain, "saved them all")).toBeUndefined();
+        expect(jiraAttachmentsStepSummary(plain, "/tmp/a.png\nsomething else")).toBeUndefined();
+        expect(jiraAttachmentsStepSummary(json, "{}")).toBeUndefined();
+        expect(jiraAttachmentsStepSummary(json, "not json")).toBeUndefined();
+        expect(jiraAttachmentsStepSummary(json, "")).toBeUndefined();
     });
 });
 

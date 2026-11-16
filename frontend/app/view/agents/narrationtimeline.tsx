@@ -32,7 +32,7 @@ import { layoutTranscript, stepTitle, type FoldSummary, type Step } from "./tran
 import { ToolOutputRenderer } from "./toolrenderers";
 import { isCardKey } from "./wshcall";
 import { WshChangeRow } from "./wshchangerow";
-import { WSH_STEP_SUMMARIES, wshRendererFor, type WshRendererProps } from "./wshrenderers";
+import { WSH_STEP_SUMMARIES, wshRendererFor, type WshRendererProps, type WshStepSummary } from "./wshrenderers";
 
 // The transcript feed. layoutTranscript (transcriptlayout.ts) decides the items: prose, user bubbles, events, Arc's own
 // messages, wsh change cards, and stretches of tool steps, a finished turn's long stretch folded into "Worked for N".
@@ -417,13 +417,15 @@ function hasBodyCard(action: AgentActionEntry): boolean {
     return key === "test" || key === "git-diff";
 }
 
-// a wsh read call's collapsed-row summary, from its own output when it exited 0
-function stepSummary(step: Step): string | undefined {
+// a wsh read call's collapsed-row summary and its tone, from its own output when it exited 0
+function stepSummary(step: Step): { text: string; tone: WshStepSummary["tone"] } | undefined {
     const { wsh, action, status } = step;
     if (!wsh || isCardKey(wsh.key) || status !== "ok" || action.detail?.kind !== "bash" || action.detail.exit !== 0) {
         return undefined;
     }
-    return WSH_STEP_SUMMARIES[wsh.key]?.(wsh.call, action.detail.output);
+    const entry = WSH_STEP_SUMMARIES[wsh.key];
+    const text = entry?.summary(wsh.call, action.detail.output);
+    return text ? { text, tone: entry.tone } : undefined;
 }
 
 function outputLines(action: AgentActionEntry): number {
@@ -544,9 +546,13 @@ function StepRow({
             {summary ? (
                 <span
                     data-step-summary
-                    className={cn("shrink-0 text-muted", compact ? "text-[11.5px]" : "text-[12.5px]")}
+                    className={cn(
+                        "shrink-0",
+                        summary.tone === "secondary" ? "text-secondary" : "text-muted",
+                        compact ? "text-[11.5px]" : "text-[12.5px]"
+                    )}
                 >
-                    {summary}
+                    {summary.text}
                 </span>
             ) : null}
             <StepFacts step={step} compact={compact} />

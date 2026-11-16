@@ -124,6 +124,34 @@ export function jiraKeyOf(call: WshCall): string {
     return (JIRA_KEY.exec(call.args[0] ?? "")?.[0] ?? call.args[0] ?? "").toUpperCase();
 }
 
+const NO_ATTACHMENTS = "no attachments";
+// the stderr line wsh jira attachments prints for a ticket with none
+const NO_ATTACHMENTS_LINE = new RegExp(`^${JIRA_KEY.source} has no attachments$`);
+const ABSOLUTE_PATH = /^(?:[A-Za-z]:[\\/]|\\\\|\/)/;
+
+// the collapsed step row's summary of `wsh jira attachments`, from its own output only: the saved paths it printed
+// (plain) or the array it printed (--json); a ticket with none reads as such, never as a count
+export function jiraAttachmentsStepSummary(call: WshCall, output: string | undefined): string | undefined {
+    const lines = (output ?? "")
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter((l) => l !== "");
+    const json = call.flags["json"];
+    if (json === true || json === "true") {
+        const rest = lines.filter((l) => !NO_ATTACHMENTS_LINE.test(l)).join("\n");
+        try {
+            const v = JSON.parse(rest);
+            return !Array.isArray(v) ? undefined : v.length === 0 ? NO_ATTACHMENTS : `${v.length} saved`;
+        } catch {
+            return undefined;
+        }
+    }
+    if (lines.length === 1 && NO_ATTACHMENTS_LINE.test(lines[0])) {
+        return NO_ATTACHMENTS;
+    }
+    return lines.length > 0 && lines.every((l) => ABSOLUTE_PATH.test(l)) ? `${lines.length} saved` : undefined;
+}
+
 // the ticket as `wsh jira show --json` prints it, or as JiraShowCommand returns it
 export function jiraShowOf(action: AgentActionEntry): CommandJiraShowRtnData | null {
     const { output, exit } = bashOf(action);

@@ -513,5 +513,5 @@ export const RUNS_RENDERERS: WshRenderers = {
 };
 
 export const RUNS_STEP_SUMMARIES: WshStepSummaries = {
-    "runs-attention": attentionStepSummary,
+    "runs-attention": { summary: attentionStepSummary, tone: "secondary" },
 };

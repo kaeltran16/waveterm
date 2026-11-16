@@ -24,6 +24,13 @@ const MOTION_MS = 700;
 // the time between two sources' entries when a board does not say otherwise
 const GAP_MS = 5 * S;
 const SHOT_DIR = "cdp-shots";
+// a step summary's computed colour: the text-muted and text-secondary @theme tokens
+const MUTED_RGB = "rgb(127, 133, 139)";
+const SECONDARY_RGB = "rgb(207, 213, 219)";
+// the images the Jira board's attachments call saved, as wsh prints each saved path
+const JIRA_IMAGES = ["image-20261109-030246.png", "image-20261109-030558.png", "image-20261109-030615.png"];
+const JIRA_DIR = "C:\\Users\\kael\\AppData\\Local\\Temp\\arc-jira-SIEM-1748-2318840571\\";
+const JIRA_SAVED = JIRA_IMAGES.map((n) => `${JIRA_DIR}${n}\n`).join("");
 
 const LEAD = dag.planSubmitted.ctx;
 const RUN = LEAD.role.runId;
@@ -276,7 +283,7 @@ const boardBrainstorm = () => {
 const boardJira = () =>
     chain([
         take(source(notes.jiraShow), (e) => e.kind !== "message"),
-        take(own([wsh("wsh jira attachments SIEM-1748", 1, { description: "Save the screenshots", output: "3 saved", durationMs: 1500 }), ...reads("image-20261109-030246.png", "image-20261109-030558.png", "image-20261109-030615.png").map((e, i) => ({ ...e, ts: T0 + (i + 2) * S })), prose("The screenshots show the chatbot restating the search results. The ticket asks for analysis on top of them, but nobody has said yet what a good answer looks like.", T0 + 6 * S)])),
+        take(own([wsh("wsh jira attachments SIEM-1748", 1, { description: "Save the screenshots", output: JIRA_SAVED, durationMs: 1500 }), ...reads(...JIRA_IMAGES).map((e, i) => ({ ...e, ts: T0 + (i + 2) * S })), prose("The screenshots show the chatbot restating the search results. The ticket asks for analysis on top of them, but nobody has said yet what a good answer looks like.", T0 + 6 * S)])),
         take(source(initiative.created), calls(/effort create/)),
         take(own([wsh('wsh effort chunk note siem1748 1 --note "Made from SIEM-1748: chunks from the description; its comments ask for an example"', 1, { description: "Note chunk 1" })])),
         take(source(initiative["chunk-blocked"]), (e) => e.kind !== "user"),
@@ -322,7 +329,7 @@ const boardCompactInitiative = () =>
     );
 
 // expect.cards: wsh card keys and how many; expect.views: [step command text, view key] each opened and read;
-// expect.summaries: [step command text, summary] read on the row while collapsed;
+// expect.summaries: [step command text, summary, its computed colour] read on the row while collapsed;
 // expect.arc: [message kind, count]; expect.folds: at least this many Worked-for folds
 const BOARDS = [
     {
@@ -377,7 +384,7 @@ const BOARDS = [
                 ["wsh runs show", "runs-show"],
                 ["wsh runs attention", "runs-attention"],
             ],
-            summaries: [["wsh runs attention", "nothing waiting"]],
+            summaries: [["wsh runs attention", "nothing waiting", SECONDARY_RGB]],
             cards: { "runs-answer": 1 },
         },
     },
@@ -413,6 +420,7 @@ const BOARDS = [
         expect: {
             folds: 1,
             views: [["wsh jira show", "jira-show"]],
+            summaries: [["wsh jira attachments", "3 saved", MUTED_RGB]],
             cards: { "effort-create": 1, "chunk-note": 1, "chunk-status": 1 },
         },
     },
@@ -461,14 +469,20 @@ const openView = (text, key) =>
     return { inBox: !!row.closest('[data-steps]') };
 `);
 
-// the summary on the step row holding `text`, and whether the row is still collapsed
+// the summary on the step row holding `text`, its colour, and whether the row is still collapsed; opens the folds
+// first when the row is not mounted
 const rowSummary = (text) =>
     probe(`
     const row = [...root.querySelectorAll('[data-step]')].find((s) => s.textContent.includes(${JSON.stringify(text)}));
-    if (!row) return null;
+    if (!row) {
+        root.querySelectorAll('[data-fold][aria-expanded="false"]').forEach((b) => b.click());
+        return 'folded';
+    }
+    const summary = row.querySelector('[data-step-summary]');
     return {
         collapsed: row.querySelector('button[aria-expanded]')?.getAttribute('aria-expanded') === 'false',
-        summary: row.querySelector('[data-step-summary]')?.textContent ?? null,
+        summary: summary?.textContent ?? null,
+        color: summary ? getComputedStyle(summary).color : null,
     };
 `);
 
@@ -510,8 +524,13 @@ async function readBoard(h, board) {
     await showFixture(h, fixture, fixture.width);
     const { expect } = board;
     const summaries = [];
-    for (const [text, want] of expect.summaries ?? []) {
-        summaries.push({ text, want, row: await h.ev(rowSummary(text)) });
+    for (const [text, want, color] of expect.summaries ?? []) {
+        let row = await h.ev(rowSummary(text));
+        if (row === "folded") {
+            await sleep(MOTION_MS);
+            row = await h.ev(rowSummary(text));
+        }
+        summaries.push({ text, want, color, row });
     }
     const opened = [];
     for (const [text, key] of expect.views ?? []) {
@@ -541,7 +560,9 @@ function judgeBoard(board, { snap, opened, summaries, width }) {
         if (!o.mounted) faults.push(`${o.key} did not open to its view`);
     }
     for (const s of summaries) {
-        if (!s.row?.collapsed || s.row.summary !== s.want) faults.push(`${s.text} row summary: ${JSON.stringify(s.row)}`);
+        if (!s.row?.collapsed || s.row.summary !== s.want || s.row.color !== s.color) {
+            faults.push(`${s.text} row summary: ${JSON.stringify(s.row)}, want ${s.want} in ${s.color}`);
+        }
     }
     for (const [kind, n] of Object.entries(expect.arc ?? {})) {
         if ((snap.arc[kind] ?? 0) < n) faults.push(`arc ${kind}: ${snap.arc[kind] ?? 0} of ${n}`);

@@ -19,6 +19,8 @@ const ANSWER_RUN = "7c03196e";
 const START_RUN = "b4e17c02";
 const EFFORT_ID = "e-fixture-parity";
 const GONE_RUN = "ffffffff";
+// the text-secondary @theme token, computed: the colour the Runs board draws "nothing waiting" in
+const SECONDARY_RGB = "rgb(207, 213, 219)";
 
 const run = (over = {}) => ({
     otype: "run",
@@ -195,7 +197,8 @@ const SHOW_STATE = probe(`
     };
 `);
 
-// the step row holding `text` before it is opened: whether it is collapsed, its summary and what follows it (the time)
+// the step row holding `text` before it is opened: whether it is collapsed, its summary, its colour and what follows it
+// (the time)
 const ROW_SUMMARY = (text) =>
     probe(`
     const row = [...root.querySelectorAll('[data-step]')].find((s) => s.textContent.includes(${JSON.stringify(text)}));
@@ -204,6 +207,7 @@ const ROW_SUMMARY = (text) =>
     return {
         expanded: row.querySelector('button[aria-expanded]')?.getAttribute('aria-expanded') ?? null,
         summary: summary ? summary.textContent : null,
+        color: summary ? getComputedStyle(summary).color : null,
         next: summary?.nextElementSibling?.textContent ?? null,
     };
 `);
@@ -258,8 +262,13 @@ async function showSteps(h) {
 
     const row = await h.ev(ROW_SUMMARY("Check what's waiting"));
     steps.push({
-        step: "runs attention's collapsed row says nothing waiting before its time",
-        ok: row != null && row.expanded === "false" && row.summary === "nothing waiting" && !!row.next,
+        step: "runs attention's collapsed row says nothing waiting before its time, in secondary",
+        ok:
+            row != null &&
+            row.expanded === "false" &&
+            row.summary === "nothing waiting" &&
+            row.color === SECONDARY_RGB &&
+            !!row.next,
         detail: JSON.stringify(row),
     });
 

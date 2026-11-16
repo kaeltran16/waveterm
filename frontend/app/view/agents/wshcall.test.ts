@@ -39,6 +39,7 @@ describe("wshKey", () => {
         ["wsh agents read tab", "agents-read"],
         ["wsh note add text", "note-add"],
         ["wsh jira show ABC-1", "jira-show"],
+        ["wsh jira attachments SIEM-1748", "jira-attachments"],
         ["wsh brainstorm judge", "brainstorm-judge"],
         ["wsh ui reveal x", "ui-reveal"],
     ];
@@ -78,6 +79,7 @@ describe("wshKey", () => {
     it("separates views from cards", () => {
         expect(isCardKey("effort-show")).toBe(false);
         expect(isCardKey("dag-status")).toBe(false);
+        expect(isCardKey("jira-attachments")).toBe(false);
         expect(isCardKey("chunk-status")).toBe(true);
         expect(isCardKey("other-change")).toBe(true);
     });
