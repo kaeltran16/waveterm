@@ -88,8 +88,19 @@ function makeFeedGen() {
 }
 const settle = () => new Promise((r) => setTimeout(r, 0));
 
+// every GetAgentTranscriptCommand request, each answered when the test resolves its promise
+const fullReads: {
+    data: { path: string; maxlines: number };
+    resolve: (lines: string[]) => void;
+    reject: (e: Error) => void;
+}[] = [];
+
 vi.mock("@/app/store/wshclientapi", () => ({
     RpcApi: {
+        GetAgentTranscriptCommand: vi.fn(
+            (_client: any, data: any) =>
+                new Promise((res, rej) => fullReads.push({ data, resolve: (lines) => res({ lines }), reject: rej }))
+        ),
         StreamAgentTranscriptCommand: vi.fn((_client: any, data: any, opts: any) => {
             streamCalls.push(data);
             streamOpts.push(opts);
@@ -129,6 +140,7 @@ afterEach(() => {
     projectorOverride = null;
     streamOpts.length = 0;
     streamCalls.length = 0;
+    fullReads.length = 0;
     reconnectHandlers.length = 0;
     vi.clearAllMocks();
 });
@@ -353,5 +365,148 @@ describe("stream chunks", () => {
         expect(openCount).toBe(2);
         await new Promise((r) => setTimeout(r, 10));
         stopTranscriptStream("chunk-end");
+    });
+});
+
+const uuidLine = (i: number) => JSON.stringify({ uuid: `u${i}` });
+const uuidLines = (from: number, to: number) => Array.from({ length: to - from }, (_, k) => uuidLine(from + k));
+const uuidsOf = (records: unknown[]) => records.map((r: any) => r?.uuid);
+
+describe("mergeFullRead", () => {
+    it("keeps the full read in file order and adds only the streamed records it does not hold", async () => {
+        const { mergeFullRead } = await import("./livetranscript");
+        const full = [{ uuid: "a" }, { uuid: "b" }, { uuid: "c" }];
+        const during = [{ uuid: "c" }, { uuid: "d" }, { uuid: "e" }];
+        expect(uuidsOf(mergeFullRead(full, during))).toEqual(["a", "b", "c", "d", "e"]);
+    });
+
+    it("returns the full read alone when nothing streamed during it", async () => {
+        const { mergeFullRead } = await import("./livetranscript");
+        expect(uuidsOf(mergeFullRead([{ uuid: "a" }], []))).toEqual(["a"]);
+    });
+});
+
+describe("earlier turns", () => {
+    const earlier = async () => {
+        const store = (await import("@/app/store/jotaiStore")) as unknown as { __store: Map<any, any> };
+        const atoms = await import("./livetranscriptatoms");
+        return store.__store.get(atoms.earlierByIdAtom) ?? {};
+    };
+
+    it("marks a non-pi agent whose first chunk is a full tail", async () => {
+        const feed = makeFeedGen();
+        genFactory = () => feed.gen;
+        const { startTranscriptStream, stopTranscriptStream } = await import("./livetranscript");
+        startTranscriptStream("early-full", "/p/early-full.jsonl", "claude");
+        feed.push(uuidLines(0, 300));
+        await settle();
+        expect((await earlier())["early-full"]).toBe("hidden");
+        stopTranscriptStream("early-full");
+    });
+
+    it("does not mark a short first chunk, even when a later chunk is long", async () => {
+        const feed = makeFeedGen();
+        genFactory = () => feed.gen;
+        const { startTranscriptStream, stopTranscriptStream } = await import("./livetranscript");
+        startTranscriptStream("early-short", "/p/early-short.jsonl", "claude");
+        feed.push(uuidLines(0, 299));
+        await settle();
+        feed.push(uuidLines(299, 700));
+        await settle();
+        expect("early-short" in (await earlier())).toBe(false);
+        stopTranscriptStream("early-short");
+    });
+
+    it("does not mark a pi session, which reads the whole file", async () => {
+        const feed = makeFeedGen();
+        genFactory = () => feed.gen;
+        const { startTranscriptStream, stopTranscriptStream } = await import("./livetranscript");
+        startTranscriptStream("early-pi", "/home/u/.pi/agent/sessions/early.jsonl", "pi");
+        feed.push(uuidLines(0, 300));
+        await settle();
+        expect("early-pi" in (await earlier())).toBe(false);
+        stopTranscriptStream("early-pi");
+    });
+});
+
+describe("showEarlierTranscript", () => {
+    const setup = async (id: string) => {
+        const feed = makeFeedGen();
+        genFactory = () => feed.gen;
+        let projected: unknown[] = [];
+        projectorOverride = {
+            projectRecords: (r: unknown[]) => ((projected = [...r]), []),
+            extractTasks: () => undefined,
+        };
+        const live = await import("./livetranscript");
+        const store = (await import("@/app/store/jotaiStore")) as unknown as { __store: Map<any, any> };
+        const atoms = await import("./livetranscriptatoms");
+        live.startTranscriptStream(id, `/p/${id}.jsonl`, "claude");
+        feed.push(uuidLines(100, 400));
+        await settle();
+        return {
+            feed,
+            live,
+            projected: () => projected,
+            earlier: () => (store.__store.get(atoms.earlierByIdAtom) ?? {})[id],
+        };
+    };
+
+    it("reads the whole file once and merges it with the records streamed during the read", async () => {
+        const t = await setup("earlier-merge");
+        void t.live.showEarlierTranscript("earlier-merge");
+        void t.live.showEarlierTranscript("earlier-merge");
+        expect(fullReads.map((r) => r.data)).toEqual([{ path: "/p/earlier-merge.jsonl", maxlines: -1 }]);
+        expect(t.earlier()).toBe("loading");
+        // u400 was written before the read reached the end of the file, u401 after
+        t.feed.push([uuidLine(400), uuidLine(401)]);
+        await settle();
+        fullReads[0].resolve(uuidLines(0, 401));
+        await settle();
+        expect(uuidsOf(t.projected())).toEqual(uuidsOf(uuidLines(0, 402).map((l) => JSON.parse(l))));
+        expect(t.earlier()).toBe("shown");
+        t.feed.push([uuidLine(402)]);
+        await settle();
+        expect(uuidsOf(t.projected()).slice(-3)).toEqual(["u400", "u401", "u402"]);
+        t.live.stopTranscriptStream("earlier-merge");
+    });
+
+    it("stops capping retention once the whole file is read", async () => {
+        const t = await setup("earlier-uncapped");
+        void t.live.showEarlierTranscript("earlier-uncapped");
+        fullReads[0].resolve(uuidLines(0, 4500));
+        await settle();
+        t.feed.push([uuidLine(4500)]);
+        await settle();
+        expect(t.projected()).toHaveLength(4501);
+        expect((t.projected()[0] as any).uuid).toBe("u0");
+        t.live.stopTranscriptStream("earlier-uncapped");
+    });
+
+    it("keeps the tail and offers the control again when the read fails", async () => {
+        const t = await setup("earlier-fail");
+        const err = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+            void t.live.showEarlierTranscript("earlier-fail");
+            fullReads[0].reject(new Error("boom"));
+            await settle();
+            expect(t.earlier()).toBe("hidden");
+            expect(t.projected()).toHaveLength(300);
+            void t.live.showEarlierTranscript("earlier-fail");
+            expect(fullReads).toHaveLength(2);
+        } finally {
+            err.mockRestore();
+            t.live.stopTranscriptStream("earlier-fail");
+        }
+    });
+
+    it("drops a read that lands after its stream stopped", async () => {
+        const t = await setup("earlier-stopped");
+        void t.live.showEarlierTranscript("earlier-stopped");
+        t.live.stopTranscriptStream("earlier-stopped");
+        fullReads[0].resolve(uuidLines(0, 400));
+        await settle();
+        expect(t.projected()).toHaveLength(300);
+        expect(t.earlier()).toBeUndefined();
     });
 });

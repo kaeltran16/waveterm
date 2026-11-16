@@ -11,7 +11,14 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { addWSReconnectHandler, removeWSReconnectHandler } from "@/app/store/ws";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { dropLiveId, lastActivityByIdAtom, liveEntriesByIdAtom, tasksByIdAtom } from "./livetranscriptatoms";
+import {
+    dropLiveId,
+    earlierByIdAtom,
+    lastActivityByIdAtom,
+    liveEntriesByIdAtom,
+    tasksByIdAtom,
+    type EarlierTurns,
+} from "./livetranscriptatoms";
 import { parseTranscriptLines, type TranscriptRecord } from "./transcriptrecords";
 import { projectorFor } from "./transcriptregistry";
 
@@ -39,8 +46,39 @@ interface StreamHandle {
     stop: () => void;
     path: string;
     agent?: string;
+    // each line is parsed once, on arrival: projecting from lines re-parsed the whole retained window twice per chunk
+    // on the UI thread
+    records: TranscriptRecord[];
+    // the records hold the file from its first line, so retention is not capped
+    whole: boolean;
+    // records streamed while a whole-file read is in flight; null when none is
+    during: TranscriptRecord[] | null;
+    publish: () => void;
 }
 const streams = new Map<string, StreamHandle>();
+
+const uuidOf = (r: TranscriptRecord): unknown => (r as { uuid?: unknown } | null)?.uuid;
+
+// A whole-file read followed by the records streamed while it ran: those the read already holds (by uuid) are not
+// added twice. A record with no uuid cannot be matched, so it is kept.
+export function mergeFullRead(full: TranscriptRecord[], during: TranscriptRecord[]): TranscriptRecord[] {
+    const seen = new Set(full.map(uuidOf).filter((u) => u != null));
+    return [...full, ...during.filter((r) => uuidOf(r) == null || !seen.has(uuidOf(r)))];
+}
+
+function setEarlier(id: string, value: EarlierTurns | null): void {
+    const cur = globalStore.get(earlierByIdAtom);
+    if ((cur[id] ?? null) === value) {
+        return;
+    }
+    const next = { ...cur };
+    if (value == null) {
+        delete next[id];
+    } else {
+        next[id] = value;
+    }
+    globalStore.set(earlierByIdAtom, next);
+}
 
 export function startTranscriptStream(id: string, path: string, agent?: string): void {
     if (!path || streams.has(id)) {
@@ -65,29 +103,43 @@ export function startTranscriptStream(id: string, path: string, agent?: string):
             cancelled = true;
             void gen.return?.(undefined);
         },
+        records: [],
+        whole: isPi,
+        during: null,
+        publish: () => {
+            const records = handle.records;
+            const entries = projector.projectRecords(records);
+            globalStore.set(liveEntriesByIdAtom, { ...globalStore.get(liveEntriesByIdAtom), [id]: entries });
+            globalStore.set(lastActivityByIdAtom, { ...globalStore.get(lastActivityByIdAtom), [id]: Date.now() });
+            const tasks = projector.extractTasks?.(records);
+            if (tasks != null) {
+                globalStore.set(tasksByIdAtom, { ...globalStore.get(tasksByIdAtom), [id]: tasks });
+            }
+        },
     };
     streams.set(id, handle);
-    // each line is parsed once, on arrival: projecting from lines re-parsed the whole retained window twice per chunk
-    // on the UI thread
-    let records: TranscriptRecord[] = [];
     void (async () => {
+        let first = true;
         try {
             for await (const chunk of gen) {
                 if (cancelled) {
                     break;
                 }
+                if (first) {
+                    // a tail that came back full may have cut the file's start off
+                    first = false;
+                    setEarlier(id, !handle.whole && (chunk?.lines?.length ?? 0) >= STREAM_TAIL_LINES ? "hidden" : null);
+                }
                 if (!chunk?.lines?.length) {
                     continue;
                 }
-                records.push(...parseTranscriptLines(chunk.lines));
-                records = isPi ? records : capLines(records, MAX_RETAINED_LINES);
-                const entries = projector.projectRecords(records);
-                globalStore.set(liveEntriesByIdAtom, { ...globalStore.get(liveEntriesByIdAtom), [id]: entries });
-                globalStore.set(lastActivityByIdAtom, { ...globalStore.get(lastActivityByIdAtom), [id]: Date.now() });
-                const tasks = projector.extractTasks?.(records);
-                if (tasks != null) {
-                    globalStore.set(tasksByIdAtom, { ...globalStore.get(tasksByIdAtom), [id]: tasks });
+                const added = parseTranscriptLines(chunk.lines);
+                handle.records.push(...added);
+                handle.during?.push(...added);
+                if (!handle.whole) {
+                    handle.records = capLines(handle.records, MAX_RETAINED_LINES);
                 }
+                handle.publish();
             }
         } catch (err) {
             // keep the last entries and do not restart: the errors left (permissions, a path with no existing
@@ -117,6 +169,35 @@ function stopStreamOnly(id: string): void {
 export function stopTranscriptStream(id: string): void {
     stopStreamOnly(id);
     dropLiveId(id);
+}
+
+// Reads the stream's whole file once and puts it in place of the retained tail; chunks keep appending after it, with
+// retention uncapped from then on.
+export async function showEarlierTranscript(id: string): Promise<void> {
+    const handle = streams.get(id);
+    if (handle == null || handle.whole || handle.during != null) {
+        return;
+    }
+    handle.during = [];
+    setEarlier(id, "loading");
+    try {
+        const rtn = await RpcApi.GetAgentTranscriptCommand(TabRpcClient, { path: handle.path, maxlines: -1 });
+        if (streams.get(id) !== handle) {
+            return;
+        }
+        handle.records = mergeFullRead(parseTranscriptLines(rtn?.lines ?? []), handle.during);
+        handle.whole = true;
+        // one batch with the entries, so the view remounts its feed on the render that brings the earlier rows
+        handle.publish();
+        setEarlier(id, "shown");
+    } catch (err) {
+        console.error("transcript whole-file read failed", id, handle.path, err);
+        if (streams.get(id) === handle) {
+            setEarlier(id, "hidden");
+        }
+    } finally {
+        handle.during = null;
+    }
 }
 
 // On a websocket reconnect the old generators are hung (a socket drop never errored/returned them),
