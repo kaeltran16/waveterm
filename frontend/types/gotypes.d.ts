@@ -3761,6 +3761,8 @@ declare global {
         planreview?: PlanReviewStage;
         final?: FinalStage;
         pastfinals?: FinalStage[];
+        maxfinalrounds?: number;
+        maxreviewrounds?: number;
     };
 
     // waveobj.TaskNode

@@ -28,11 +28,11 @@ import { fmtDuration } from "./runcompletion";
 import { TIMELINE_RENDER_CAP } from "./sessionstranscript";
 import { formatDuration } from "./tooldetail";
 import type { TranscriptContext } from "./transcriptcontext";
-import { layoutTranscript, stepTitle, type FoldSummary, type Step } from "./transcriptlayout";
+import { layoutTranscript, stepRows, stepTitle, type FoldSummary, type Step } from "./transcriptlayout";
 import { ToolOutputRenderer } from "./toolrenderers";
 import { isCardKey } from "./wshcall";
 import { WshChangeRow } from "./wshchangerow";
-import { WSH_STEP_SUMMARIES, wshRendererFor, type WshRendererProps } from "./wshrenderers";
+import { WSH_STEP_SUMMARIES, wshRendererFor, type WshRendererProps, type WshStepSummary } from "./wshrenderers";
 
 // The transcript feed. layoutTranscript (transcriptlayout.ts) decides the items: prose, user bubbles, events, Arc's own
 // messages, wsh change cards, and stretches of tool steps, a finished turn's long stretch folded into "Worked for N".
@@ -417,13 +417,15 @@ function hasBodyCard(action: AgentActionEntry): boolean {
     return key === "test" || key === "git-diff";
 }
 
-// a wsh read call's collapsed-row summary, from its own output when it exited 0
-function stepSummary(step: Step): string | undefined {
+// a wsh read call's collapsed-row summary and its tone, from its own output when it exited 0
+function stepSummary(step: Step): { text: string; tone: WshStepSummary["tone"] } | undefined {
     const { wsh, action, status } = step;
     if (!wsh || isCardKey(wsh.key) || status !== "ok" || action.detail?.kind !== "bash" || action.detail.exit !== 0) {
         return undefined;
     }
-    return WSH_STEP_SUMMARIES[wsh.key]?.(wsh.call, action.detail.output);
+    const entry = WSH_STEP_SUMMARIES[wsh.key];
+    const text = entry?.summary(wsh.call, action.detail.output);
+    return text ? { text, tone: entry.tone } : undefined;
 }
 
 function outputLines(action: AgentActionEntry): number {
@@ -544,9 +546,13 @@ function StepRow({
             {summary ? (
                 <span
                     data-step-summary
-                    className={cn("shrink-0 text-muted", compact ? "text-[11.5px]" : "text-[12.5px]")}
+                    className={cn(
+                        "shrink-0",
+                        summary.tone === "secondary" ? "text-secondary" : "text-muted",
+                        compact ? "text-[11.5px]" : "text-[12.5px]"
+                    )}
                 >
-                    {summary}
+                    {summary.text}
                 </span>
             ) : null}
             <StepFacts step={step} compact={compact} />
@@ -584,12 +590,59 @@ function StepRow({
     );
 }
 
+// consecutive image reads as one closed "Read N images" row that opens to their own step rows
+function ImageReadsRow({
+    steps,
+    renderers,
+    ctx,
+    compact,
+}: {
+    steps: Step[];
+    renderers?: boolean;
+    ctx: TranscriptContext;
+    compact: boolean;
+}) {
+    const [open, setOpen] = useState(false);
+    return (
+        <div data-step data-step-group="images" data-step-status="ok" className="border-t border-edge-faint first:border-t-0">
+            <button
+                type="button"
+                aria-expanded={open}
+                onClick={() => setOpen((v) => !v)}
+                className={cn(
+                    "flex w-full cursor-pointer items-center text-left font-sans text-ink-mid",
+                    compact ? "gap-2 px-2.5 py-[7px] text-[12.5px]" : "gap-2.5 px-3.5 py-2.5 text-[13.5px]"
+                )}
+            >
+                <span className="min-w-0 truncate">Read {steps.length} images</span>
+                <span className="min-w-[6px] flex-1" />
+                {compact ? null : <Affordance toModal={false} open={open} />}
+            </button>
+            <AnimatePresence initial={false}>
+                {open ? (
+                    <motion.div key="members" variants={composerReveal} initial="initial" animate="animate" exit="exit" className="overflow-hidden">
+                        <div className={cn("border-t border-edge-faint", compact ? "pl-2.5" : "pl-3.5")}>
+                            {steps.map((step) => (
+                                <StepRow key={step.index} step={step} renderers={renderers} ctx={ctx} compact={compact} />
+                            ))}
+                        </div>
+                    </motion.div>
+                ) : null}
+            </AnimatePresence>
+        </div>
+    );
+}
+
 function StepBox({ steps, renderers, ctx, compact }: { steps: Step[]; renderers?: boolean; ctx: TranscriptContext; compact: boolean }) {
     return (
         <div data-steps className={cn("overflow-hidden border border-edge-mid", compact ? "my-2 rounded-[8px]" : "my-2.5 rounded-[10px]")}>
-            {steps.map((step) => (
-                <StepRow key={step.index} step={step} renderers={renderers} ctx={ctx} compact={compact} />
-            ))}
+            {stepRows(steps).map((row) =>
+                row.kind === "images" ? (
+                    <ImageReadsRow key={row.steps[0].index} steps={row.steps} renderers={renderers} ctx={ctx} compact={compact} />
+                ) : (
+                    <StepRow key={row.step.index} step={row.step} renderers={renderers} ctx={ctx} compact={compact} />
+                )
+            )}
         </div>
     );
 }

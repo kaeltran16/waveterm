@@ -68,6 +68,8 @@ function issueJson(issue) {
             updated: issue.updated,
             description: issue.description,
             [AC_FIELD]: issue.criteria,
+            // Jira's own shape; a scenario sets it on state.issues[key] when it needs a ticket with attachments
+            ...(issue.attachments ? { attachment: issue.attachments } : {}),
         },
     };
 }

@@ -187,7 +187,7 @@ func forwardChildAsk(ctx context.Context, blockOref, askId string, questions []b
 	if !ok {
 		return
 	}
-	orchestrate.RaiseChildAsk(ctx, g, target, blockOref, questions[0].Question)
+	orchestrate.RaiseChildAsk(ctx, g, target, blockOref, questions[0])
 }
 
 // askTargetForBlock resolves the dag task behind a block's ask, so the raise, answer and clear paths

@@ -14,8 +14,6 @@ import { detailOf } from "./runtimeline";
 export const WAIT_FOLD_MIN_MS = 60_000;
 // pkg/orchestrate LeadAskDeadline: how long the lead has to answer a worker's question before it goes to the human
 export const LEAD_ASK_DEADLINE_MS = 10 * 60_000;
-// pkg/orchestrate MaxFinalRounds: the rounds the final stage gets before the call is the human's
-export const MAX_FINAL_ROUNDS = 3;
 
 const WAKE_HEAD = "wake:";
 const BRAINSTORM_HEAD = "brainstorm:";
@@ -61,7 +59,10 @@ export interface WakePart {
     text: string;
     taskId?: string;
     round?: number;
+    // the rounds the stage gets, as the wake names them
+    of?: number;
     last?: boolean;
+    sha?: string;
     count?: number;
     minutes?: number;
     failKind?: string;
@@ -156,8 +157,9 @@ const MATCHERS: Matcher[] = [
     },
     {
         kind: "final-failed",
-        re: /^the final stage failed on the merged result in round (\d+)(, the last)?\./,
-        read: (m) => ({ round: num(m[1]), last: m[2] != null }),
+        // older wakes name neither the commit nor the total
+        re: /^the final stage failed on the merged result(?: ([0-9a-f]{7,40}))? in round (\d+)(?: of (\d+))?(, the last)?\./,
+        read: (m) => ({ sha: m[1], round: num(m[2]), of: num(m[3]), last: m[4] != null }),
     },
     {
         kind: "final-killed",
@@ -240,11 +242,11 @@ export function wakeParts(text: string): WakePart[] {
     return parts;
 }
 
-// "round 1 of 3": a round marked the last is the last one; otherwise the engine's limit, or the round itself when a
-// granted round went past it
-export function finalRoundOf(part: WakePart): { round: number; of: number } | null {
+// "round 1 of 3": the wake's own total, else a round marked the last is the last one; an older wake names no total
+export function finalRoundOf(part: WakePart): { round: number; of?: number } | null {
     if (part.round == null) return null;
-    return { round: part.round, of: part.last ? part.round : Math.max(MAX_FINAL_ROUNDS, part.round) };
+    const of = part.of ?? (part.last ? part.round : undefined);
+    return of != null ? { round: part.round, of } : { round: part.round };
 }
 
 // what the run's events say about a wake, within the gap before it: the question a worker raised, the Final verdict a

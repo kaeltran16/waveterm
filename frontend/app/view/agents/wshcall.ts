@@ -37,7 +37,8 @@ export type WshViewKey =
     | "runs-show"
     | "runs-attention"
     | "agents-list"
-    | "jira-show";
+    | "jira-show"
+    | "jira-attachments";
 
 export type WshCardKey =
     | "effort-create"
@@ -78,6 +79,7 @@ const VIEW_KEYS: ReadonlySet<WshKey> = new Set<WshViewKey>([
     "runs-attention",
     "agents-list",
     "jira-show",
+    "jira-attachments",
 ]);
 
 const DAG_CARD_VERBS = [
@@ -128,6 +130,7 @@ const KEYS: Record<string, WshKey> = {
     "note add": "note-add",
     "note delete": OTHER,
     "jira show": "jira-show",
+    "jira attachments": "jira-attachments",
     "brainstorm judge": "brainstorm-judge",
     "brainstorm check": OTHER,
     "ui reveal": "ui-reveal",

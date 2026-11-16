@@ -132,16 +132,31 @@ const fixEveryFailure = "Fix every failing step, one already on the base or outs
 // whether one more round would fix what is left.
 const grantedRoundOption = "Offer `One more round` too: on that answer, write a fix plan and run `wsh jarvis dag submit --round --granted \"<the human's words>\" --plan <fix plan>`"
 
-func finalFailedWake(round int, runID, detail string, last, autonomous bool) string {
+func finalFailedWake(round, of int, sha, runID, detail string, last, autonomous bool) string {
+	head := finalFailedWakeHead(round, of, sha, last)
 	switch {
 	case last && autonomous:
-		return fmt.Sprintf("wake: the final stage failed on the merged result in round %d, the last. The run is autonomous and nobody is at the cockpit, so the call is yours: complete with the plain `wsh jarvis complete --report <file>`, never `--force-land`. A failed final stage holds the land, so the branch stays unmerged until `wsh runs land %s --force`, the human's call once the run is done; say in your report that the land is held and why:\n%s", round, runID, detail)
+		return fmt.Sprintf("%s The run is autonomous and nobody is at the cockpit, so the call is yours: complete with the plain `wsh jarvis complete --report <file>`, never `--force-land`. A failed final stage holds the land, so the branch stays unmerged until `wsh runs land %s --force`, the human's call once the run is done; say in your report that the land is held and why:\n%s", head, runID, detail)
 	case autonomous:
-		return fmt.Sprintf("wake: the final stage failed on the merged result in round %d. Write a fix plan and run `wsh jarvis dag submit --round --plan <fix plan>`. %s If the fix is a product call, make the call you would recommend and record it and why in your report:\n%s", round, fixEveryFailure, detail)
+		return fmt.Sprintf("%s Write a fix plan and run `wsh jarvis dag submit --round --plan <fix plan>`. %s If the fix is a product call, make the call you would recommend and record it and why in your report:\n%s", head, fixEveryFailure, detail)
 	case last:
-		return fmt.Sprintf("wake: the final stage failed on the merged result in round %d, the last. Put it to the human, and say that completing will not merge the branch: a failed final stage holds the land, and only `wsh runs land %s --force`, the human's call once the run is done, lands it. %s %s:\n%s", round, runID, finalRerunOffer(runID), grantedRoundOption, detail)
+		return fmt.Sprintf("%s Put it to the human, and say that completing will not merge the branch: a failed final stage holds the land, and only `wsh runs land %s --force`, the human's call once the run is done, lands it. %s %s:\n%s", head, runID, finalRerunOffer(runID), grantedRoundOption, detail)
 	}
-	return fmt.Sprintf("wake: the final stage failed on the merged result in round %d. Write a fix plan and run `wsh jarvis dag submit --round --plan <fix plan>`. %s %s Put it to the human if the fix is a product call:\n%s", round, fixEveryFailure, finalRerunOffer(runID), detail)
+	return fmt.Sprintf("%s Write a fix plan and run `wsh jarvis dag submit --round --plan <fix plan>`. %s %s Put it to the human if the fix is a product call:\n%s", head, fixEveryFailure, finalRerunOffer(runID), detail)
+}
+
+// finalFailedWakeHead is the wake's first sentence, which arcmessagemodel.ts parses for the Final-failed card:
+// the short commit when the stage has one, the round and its total.
+func finalFailedWakeHead(round, of int, sha string, last bool) string {
+	on := "the merged result"
+	if sha != "" {
+		on += " " + shortSha(sha)
+	}
+	head := fmt.Sprintf("wake: the final stage failed on %s in round %d of %d", on, round, of)
+	if last {
+		head += ", the last"
+	}
+	return head + "."
 }
 
 // finalKilledWake hands the lead a final stage whose step something outside killed: it judged nothing, so a fix plan
@@ -337,9 +352,9 @@ func noCommitLine(taskID string, run *waveobj.Run, forLead bool) string {
 	return line
 }
 
-// RaiseChildAsk puts a dag child's question in its lead's queue and wakes the lead. question is the
-// first question's text, for the child-ask row.
-func RaiseChildAsk(ctx context.Context, g *waveobj.TaskGroup, target AskTarget, blockOref, question string) {
+// RaiseChildAsk puts a dag child's question in its lead's queue and wakes the lead. q is the first
+// question, for the child-ask row; the row's task label comes from g.
+func RaiseChildAsk(ctx context.Context, g *waveobj.TaskGroup, target AskTarget, blockOref string, q baseds.AgentAskQuestion) {
 	var raised agentask.PendingAsk
 	ok := agentask.GlobalRegistry.Update(blockOref, target.AskId, func(p *agentask.PendingAsk) {
 		p.Owner = agentask.AskOwner_Lead
@@ -351,7 +366,11 @@ func RaiseChildAsk(ctx context.Context, g *waveobj.TaskGroup, target AskTarget, 
 		return
 	}
 	publishChildAsk(raised)
-	RecordAskLifecycle(ctx, target, waveobj.RunEventKindChildAsk, question)
+	var label string
+	if t := taskByID(g, target.TaskId); t != nil {
+		label = t.Label
+	}
+	recordChildAsk(ctx, target, label, q)
 	PokeWake(ctx, g.ChannelId, g.RunID)
 }
 

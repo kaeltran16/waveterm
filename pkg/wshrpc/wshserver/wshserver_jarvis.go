@@ -18,6 +18,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/jarvisattrib"
 	"github.com/wavetermdev/waveterm/pkg/jarvisdossier"
 	"github.com/wavetermdev/waveterm/pkg/jarvisstate"
+	"github.com/wavetermdev/waveterm/pkg/notestore"
 	"github.com/wavetermdev/waveterm/pkg/panichandler"
 	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/storagereport"
@@ -609,11 +610,24 @@ func (ws *WshServer) ReadVaultNoteCommand(ctx context.Context, data wshrpc.Comma
 	return readVaultNote(v, data.Id)
 }
 
-// readVaultNote is the vault-backed core (testable with an explicit vault).
+// readVaultNote is the vault-backed core (testable with an explicit vault). An id the retriever does not index may
+// be a user note (`wsh note add`, notes/<id>.md), which a transcript's note card opens through the same peek.
 func readVaultNote(v *wavevault.Vault, id string) (*wshrpc.CommandReadVaultNoteRtnData, error) {
-	nb, err := v.Retriever(wavevault.AllScope()).Read(id)
+	r := v.Retriever(wavevault.AllScope())
+	nb, err := r.Read(id)
 	if err != nil {
-		return nil, fmt.Errorf("reading note %q: %w", id, err)
+		// Read has no not-found sentinel: a Graph that loads proves the vault read, so the id is just not in it
+		if _, loadErr := r.Graph(); loadErr != nil {
+			return nil, fmt.Errorf("reading note %q: %w", id, err)
+		}
+		note, listErr := findUserNote(id)
+		if listErr != nil {
+			return nil, fmt.Errorf("reading note %q: %w (and listing user notes: %v)", id, err, listErr)
+		}
+		if note == nil {
+			return nil, fmt.Errorf("reading note %q: %w", id, err)
+		}
+		return note, nil
 	}
 	n := nb.Node
 	title := n.ID
@@ -625,6 +639,26 @@ func readVaultNote(v *wavevault.Vault, id string) (*wshrpc.CommandReadVaultNoteR
 		out.Project = n.Scope
 	}
 	return out, nil
+}
+
+// findUserNote is the user note with this id, or nil. Its updated time is the day it was added, the only date
+// notestore keeps.
+func findUserNote(id string) (*wshrpc.CommandReadVaultNoteRtnData, error) {
+	notes, err := notestore.List()
+	if err != nil {
+		return nil, err
+	}
+	for _, n := range notes {
+		if n.ID != id {
+			continue
+		}
+		out := &wshrpc.CommandReadVaultNoteRtnData{Id: n.ID, Title: n.Title, Body: n.Body}
+		if day, err := time.ParseInLocation(time.DateOnly, n.Day, time.Local); err == nil {
+			out.Updated = day.UnixMilli()
+		}
+		return out, nil
+	}
+	return nil, nil
 }
 
 func nodeKind(collection string) string {

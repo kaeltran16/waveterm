@@ -277,11 +277,17 @@ function partWords(p: WakePart, ev: WakeEvents, run: BriefRun | undefined): Part
             return { tone: "warn", headline: `${t}'s worker exited`, meta: "without reporting complete" };
         case "final-failed": {
             const r = finalRoundOf(p);
-            const rounds = r ? `round ${r.round} of ${r.of}${p.last ? ", the last" : ""}` : undefined;
+            const rounds = r
+                ? `round ${r.round}${r.of != null ? ` of ${r.of}` : ""}${p.last ? ", the last" : ""}`
+                : undefined;
             return {
                 tone: "fail",
                 headline: "Final failed",
-                meta: join(rounds, "on the merged result", plural(p.items?.length ?? 0, "defect")),
+                meta: join(
+                    rounds,
+                    p.sha ? `on the merged result ${p.sha}` : "on the merged result",
+                    plural(p.items?.length ?? 0, "defect")
+                ),
                 body: "items",
             };
         }

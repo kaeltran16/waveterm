@@ -15,6 +15,7 @@ import { transcriptAgents } from "./scenarios-transcript-agents.mjs";
 import { transcriptNotes } from "./scenarios-transcript-notes.mjs";
 import { transcriptArc } from "./scenarios-transcript-arc.mjs";
 import { transcriptBoards } from "./scenarios-transcript-boards.mjs";
+import { transcriptLive } from "./scenarios-transcript-live.mjs";
 import { renderedShell } from "./scenarios-rendered-shell.mjs";
 import { codeImageZoom } from "./scenarios-code-imagezoom.mjs";
 import { codePeek } from "./scenarios-codepeek.mjs";
@@ -338,6 +339,7 @@ export const SCENARIOS = [
     transcriptNotes,
     transcriptArc,
     transcriptBoards,
+    transcriptLive,
     renderedShell,
     notesWsh,
     agentTreeRail,

@@ -45,6 +45,8 @@ const ASK_QUESTION = "When truncate shortens a string, should the result end wit
 const DEFECT_1 = "boards-draw · step 4: the arrow stays at the x/y it was drawn at when its box glides";
 const DEFECT_2 = "boards-surface · step 2: at 1280 px the empty-state text runs under the toolbar";
 const DEFECT_LAST = "boards-draw · step 4: the arrow follows the box, but its label stays behind";
+const FINAL_SHA = "3a7f1c2";
+const FINAL_SHA_LAST = "59c03d0";
 const CONFLICT_FILE = "frontend/app/view/boards/boards.tsx";
 const FAIL_LINE = "FAIL frontend/app/view/boards/boardsdraw.test.ts";
 const UNKNOWN_WAKE = "wake: the human reran the final stage of round 1; its failure was outside the code. Drop any fix plan for it.";
@@ -159,6 +161,30 @@ export const fixtures = {
             prose("Both are real. A fix round with one task per defect.", T0 + 30 * S),
             user(
                 `wake: the final stage failed on the merged result in round 2, the last. Put it to the human, and say that completing will not merge the branch:\n${DEFECT_LAST}`,
+                T0 + 30 * S + 38 * M
+            ),
+            prose("No round is left. Completing the run; the branch stays unmerged until you decide.", T0 + 31 * S + 38 * M),
+        ],
+    },
+    // the wakes the engine writes now, naming the commit and the total; finalFail above keeps the older form (no sha,
+    // no total) as an old transcript does, and transcript-boards composes it
+    finalFailEngine: {
+        ctx: LEAD,
+        runEvents: {
+            [RUN]: [
+                runEvent("task-merged", T0 + 20 * M, { taskid: "t-14" }),
+                runEvent("task-merged", T0 + 25 * M, { taskid: "t-15" }),
+                runEvent("final-ended", T0 + 37 * M, { round: 3, outcome: "failed" }),
+            ],
+        },
+        entries: [
+            user(
+                `wake: the final stage failed on the merged result ${FINAL_SHA} in round 1 of 3. Write a fix plan and run \`wsh jarvis dag submit --round --plan <fix plan>\`. Put it to the human if the fix is a product call:\n${DEFECT_1}\n${DEFECT_2}`,
+                T0
+            ),
+            prose("Both are real. A fix round with one task per defect.", T0 + 30 * S),
+            user(
+                `wake: the final stage failed on the merged result ${FINAL_SHA_LAST} in round 3 of 3, the last. Put it to the human, and say that completing will not merge the branch:\n${DEFECT_LAST}`,
                 T0 + 30 * S + 38 * M
             ),
             prose("No round is left. Completing the run; the branch stays unmerged until you decide.", T0 + 31 * S + 38 * M),
@@ -340,15 +366,28 @@ export const transcriptArc = {
             detail: JSON.stringify(recovery),
         });
 
-        const finals = await show(h, "finalFail");
+        const olds = await show(h, "finalFail");
+        await h.shot("cdp-shots/transcript-arc-final-failed-old.png");
+        steps.push({
+            step: "an old Final-failed wake (no commit, no total): Final failed with its round and defects, never a guessed total",
+            ok:
+                olds.length === 2 &&
+                hasAll(olds[0].text, ["Final failed", "round 1", "on the merged result", "2 defects", "boards-surface · step 2"]) &&
+                !olds[0].text.includes("round 1 of") &&
+                olds[0].defects === 2 &&
+                hasAll(olds[1].text, ["Final failed", "round 2 of 2, the last", "1 defect"]),
+            detail: JSON.stringify(olds),
+        });
+
+        const finals = await show(h, "finalFailEngine");
         await h.shot("cdp-shots/transcript-arc-final-failed.png");
         steps.push({
-            step: "Final failed round 1 and the last round: each with its round, its defects opened, and Shots",
+            step: "Final failed round 1 and the last round: each with the engine's total and commit, its defects opened, and Shots",
             ok:
                 finals.length === 2 &&
-                hasAll(finals[0].text, ["Final failed", "round 1 of", "2 defects", "boards-surface · step 2", "Shots"]) &&
+                hasAll(finals[0].text, ["Final failed", "round 1 of 3", `on the merged result ${FINAL_SHA}`, "2 defects", DEFECT_1, "boards-surface · step 2", "Shots"]) &&
                 finals[0].defects === 2 &&
-                hasAll(finals[1].text, ["Final failed", "round 2 of 2, the last", "1 defect"]) &&
+                hasAll(finals[1].text, ["Final failed", "round 3 of 3, the last", `on the merged result ${FINAL_SHA_LAST}`, "1 defect"]) &&
                 finals[1].defects === 1,
             detail: JSON.stringify(finals),
         });

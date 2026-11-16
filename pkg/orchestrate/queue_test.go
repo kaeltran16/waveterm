@@ -33,7 +33,7 @@ func raiseOn(t *testing.T, oref, askId string) {
 	})
 	g := &waveobj.TaskGroup{OID: "dag-1", ChannelId: wakeChannel, RunID: wakeRun}
 	target := AskTarget{ChannelId: wakeChannel, RunID: wakeRun, TaskId: "t-2", AskId: askId}
-	RaiseChildAsk(context.Background(), g, target, oref, "which way?")
+	RaiseChildAsk(context.Background(), g, target, oref, baseds.AgentAskQuestion{Question: "which way?"})
 }
 
 // stubExpiredClears hands the sweep answers that never landed, putting them back in the registry the
@@ -352,7 +352,7 @@ func TestSweepAsksKeepsAnExpiredQuestionWithTheLeadWhenAutonomous(t *testing.T) 
 		AskId: "a1", BlockId: "child", Questions: []baseds.AgentAskQuestion{{Question: "which way?"}},
 	})
 	g := &waveobj.TaskGroup{OID: dag.OID, ChannelId: wakeChannel, RunID: wakeRun}
-	RaiseChildAsk(ctx, g, AskTarget{ChannelId: wakeChannel, RunID: wakeRun, TaskId: "t-0", AskId: "a1"}, "block:child-1", "which way?")
+	RaiseChildAsk(ctx, g, AskTarget{ChannelId: wakeChannel, RunID: wakeRun, TaskId: "t-0", AskId: "a1"}, "block:child-1", baseds.AgentAskQuestion{Question: "which way?"})
 	if len(f.sends) != 1 {
 		t.Fatalf("setup: the raise wakes the lead, got %q", f.sends)
 	}

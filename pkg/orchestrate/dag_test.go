@@ -41,6 +41,13 @@ func TestNewTaskGroupSetsIdentity(t *testing.T) {
 	}
 }
 
+func TestNewTaskGroupStampsRoundLimits(t *testing.T) {
+	g := mustGroup(t, mkTasks())
+	if g.MaxFinalRounds != MaxFinalRounds || g.MaxReviewRounds != MaxReviewRounds {
+		t.Fatalf("round limits = %d/%d, want %d/%d", g.MaxFinalRounds, g.MaxReviewRounds, MaxFinalRounds, MaxReviewRounds)
+	}
+}
+
 func TestNewTaskGroupRejectsInvalidAuthoringAndEngineState(t *testing.T) {
 	cases := []struct {
 		name        string

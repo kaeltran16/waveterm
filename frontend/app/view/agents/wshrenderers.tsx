@@ -7,6 +7,7 @@
 
 import type { ComponentType } from "react";
 import type { AgentActionEntry } from "./agentsviewmodel";
+import { jiraAttachmentsStepSummary } from "./notescards";
 import type { TranscriptContext } from "./transcriptcontext";
 import type { WshCall, WshKey, WshViewKey } from "./wshcall";
 import { AGENTS_RENDERERS } from "./wshcards-agents";
@@ -39,12 +40,17 @@ export function wshRendererFor(key: WshKey): ComponentType<WshRendererProps> | u
     return WSH_RENDERERS[key];
 }
 
-// a short word for a read call's collapsed step row, from the call and its own output only: a row never fetches
-export type WshStepSummary = (call: WshCall, output: string | undefined) => string | undefined;
+// a short word for a read call's collapsed step row, from the call and its own output only: a row never fetches. Its
+// tone is the colour the call's own board draws that word in
+export type WshStepSummary = {
+    summary: (call: WshCall, output: string | undefined) => string | undefined;
+    tone: "muted" | "secondary";
+};
 export type WshStepSummaries = Partial<Record<WshViewKey, WshStepSummary>>;
 
 export const WSH_STEP_SUMMARIES: WshStepSummaries = {
     ...RUNS_STEP_SUMMARIES,
+    "jira-attachments": { summary: jiraAttachmentsStepSummary, tone: "muted" },
 };
 
 // marks a view whose data came from Arc's RPCs: current state, not the state when the call ran

@@ -225,6 +225,36 @@ export function layoutTranscript(
     return items;
 }
 
+// a stretch's rows: two or more consecutive finished image reads draw as one "Read N images" row
+export type StepRowItem = { kind: "step"; step: Step } | { kind: "images"; steps: Step[] };
+
+function isImageRead(s: Step): boolean {
+    return s.action.verb === "read" && s.status === "ok" && (s.action.images?.length ?? 0) > 0;
+}
+
+export function stepRows(steps: Step[]): StepRowItem[] {
+    const rows: StepRowItem[] = [];
+    let group: Step[] = [];
+    const flush = () => {
+        if (group.length >= 2) {
+            rows.push({ kind: "images", steps: group });
+        } else {
+            rows.push(...group.map((step) => ({ kind: "step" as const, step })));
+        }
+        group = [];
+    };
+    for (const step of steps) {
+        if (isImageRead(step)) {
+            group.push(step);
+            continue;
+        }
+        flush();
+        rows.push({ kind: "step", step });
+    }
+    flush();
+    return rows;
+}
+
 function capitalize(s: string): string {
     return s.charAt(0).toUpperCase() + s.slice(1);
 }

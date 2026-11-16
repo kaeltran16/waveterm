@@ -505,14 +505,14 @@ func TestAFinishedRunWithNoLeadLaunchesNoneUnlessTheFinalStageFailed(t *testing.
 		t.Fatalf("a passed or unverified finish launches no lead, got %q", *launched)
 	}
 
-	PostWake(ctx, wakeChannel, wakeRun, finalFailedWake(1, wakeRun, "Check failed", false, false))
+	PostWake(ctx, wakeChannel, wakeRun, finalFailedWake(1, MaxFinalRounds, "", wakeRun, "Check failed", false, false))
 	if len(*launched) != 1 || !strings.Contains((*launched)[0], "the final stage failed") {
 		t.Fatalf("a failed final stage launches the lead, got %q", *launched)
 	}
 }
 
 func TestFinalFailedWakeAfterTheLastRoundGoesToTheHuman(t *testing.T) {
-	w := finalFailedWake(MaxFinalRounds, "run-1", "Final failed (exit 1):\nFAIL board", true, false)
+	w := finalFailedWake(MaxFinalRounds, MaxFinalRounds, "", "run-1", "Final failed (exit 1):\nFAIL board", true, false)
 	if strings.Contains(w, "submit --round --plan") {
 		t.Fatalf("after the last round the lead forwards, got %q", w)
 	}
@@ -529,7 +529,7 @@ func TestFinalFailedWakeAfterTheLastRoundGoesToTheHuman(t *testing.T) {
 
 func TestFinalFailedWakeEarlierRound(t *testing.T) {
 	const detail = "Final failed (exit 1):\nFAIL board"
-	w := finalFailedWake(1, "run-1", detail, false, false)
+	w := finalFailedWake(1, MaxFinalRounds, "", "run-1", detail, false, false)
 	for _, want := range []string{"round 1", "wsh jarvis dag submit --round --plan <fix plan>", fixEveryFailure, finalRerunOffer("run-1")} {
 		if !strings.Contains(w, want) {
 			t.Fatalf("an earlier round's wake is missing %q, got %q", want, w)
@@ -542,11 +542,11 @@ func TestFinalFailedWakeEarlierRound(t *testing.T) {
 
 func TestFinalFailedWakeAutonomous(t *testing.T) {
 	const detail = "Final failed (exit 1):\nFAIL board"
-	last := finalFailedWake(MaxFinalRounds, "run-1", detail, true, true)
+	last := finalFailedWake(MaxFinalRounds, MaxFinalRounds, "", "run-1", detail, true, true)
 	if !strings.Contains(last, "`wsh jarvis complete --report <file>`") || !strings.HasSuffix(last, detail) {
 		t.Fatalf("an autonomous last round completes and carries the detail whole, got %q", last)
 	}
-	earlier := finalFailedWake(1, "run-1", detail, false, true)
+	earlier := finalFailedWake(1, MaxFinalRounds, "", "run-1", detail, false, true)
 	if !strings.Contains(earlier, "wsh jarvis dag submit --round --plan <fix plan>") || !strings.Contains(earlier, fixEveryFailure) || !strings.HasSuffix(earlier, detail) {
 		t.Fatalf("an autonomous earlier round writes a fix plan for every failure, got %q", earlier)
 	}
@@ -788,5 +788,45 @@ func TestEndFinalStageRecordsFinalEnded(t *testing.T) {
 	}
 	if want := []string{"1 unverified"}; !slices.Equal(got, want) {
 		t.Fatalf("a human's end records the stage's outcome: want %v, got %v", want, got)
+	}
+}
+
+// arcmessagemodel.ts parses this first sentence for the Final-failed card's round, total and commit
+func TestFinalFailedWakeNamesTotalAndCommit(t *testing.T) {
+	const detail = "Final failed (exit 1):\nFAIL board"
+	cases := []struct {
+		name      string
+		round, of int
+		sha       string
+		last      bool
+		want      string
+	}{
+		{"an earlier round", 1, MaxFinalRounds, "3a7f1c2", false, fmt.Sprintf("wake: the final stage failed on the merged result 3a7f1c2 in round 1 of %d.", MaxFinalRounds)},
+		{"the last round", MaxFinalRounds, MaxFinalRounds, "3a7f1c2", true, fmt.Sprintf("wake: the final stage failed on the merged result 3a7f1c2 in round %d of %d, the last.", MaxFinalRounds, MaxFinalRounds)},
+		{"no commit", 1, MaxFinalRounds, "", false, fmt.Sprintf("wake: the final stage failed on the merged result in round 1 of %d.", MaxFinalRounds)},
+		{"a granted round", MaxFinalRounds + 1, MaxFinalRounds + 1, "3a7f1c2", true, fmt.Sprintf("wake: the final stage failed on the merged result 3a7f1c2 in round %d of %d, the last.", MaxFinalRounds+1, MaxFinalRounds+1)},
+	}
+	for _, c := range cases {
+		for _, autonomous := range []bool{false, true} {
+			w := finalFailedWake(c.round, c.of, c.sha, "run-1", detail, c.last, autonomous)
+			if !strings.HasPrefix(w, c.want) {
+				t.Errorf("%s (autonomous %v): want the wake to start %q, got %q", c.name, autonomous, c.want, w)
+			}
+		}
+	}
+
+	f := newFakeLead(t)
+	g := mustGroup(t, []waveobj.TaskNode{{ID: "t-0", Label: "a"}})
+	g.ChannelId, g.RunID, g.Verify = wakeChannel, wakeRun, verifyCmd
+	const commit = "3a7f1c2d9e8b7a6f5e4d3c2b1a0f9e8d7c6b5a49"
+	g.Final = &waveobj.FinalStage{State: FinalState_Verifying, Round: 1, Commit: commit, Detail: "Check failed"}
+	var afterCommit []func()
+	finishFinal(context.Background(), g, true, &afterCommit)
+	for _, fn := range afterCommit {
+		fn()
+	}
+	want := fmt.Sprintf("wake: the final stage failed on the merged result %s in round 1 of %d.", shortSha(commit), MaxFinalRounds)
+	if len(f.sends) == 0 || !strings.HasPrefix(f.sends[len(f.sends)-1], want) {
+		t.Fatalf("the wake names the stage's own commit shortened, want a start of %q, got %q", want, f.sends)
 	}
 }
