@@ -14,6 +14,7 @@ import { canSendComposer, useAgentComposer, useComposerHandle, type AgentCompose
 import type { AgentVM } from "./agentsviewmodel";
 import { AttachButton, AttachmentTray } from "./attachmenttray";
 import { appendAttachments, pickFilePaths, useComposerAttachments } from "./composerattachments";
+import { MIRRORED_TEXTAREA, useAgentCwd, useFileMention } from "./filemention";
 import { BoxControls } from "./headercontrols";
 import { boxButton, composerBox, contextRing } from "./renderedmode";
 
@@ -70,6 +71,8 @@ export const RenderedComposer = forwardRef<
         attachments,
     });
     useComposerHandle(ref, setText, taRef);
+    const cwd = useAgentCwd(agent.transcriptPath, blockId);
+    const mention = useFileMention({ text, setText, taRef, cwd });
     const canSend = !box.askBlocks && canSendComposer(text, blockId, attachments);
     const pickFiles = () =>
         fireAndForget(async () => {
@@ -83,6 +86,10 @@ export const RenderedComposer = forwardRef<
             }
         });
     const keyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+        // the panel's keys first: its Esc closes it and must not reach onKeyDown's interrupt
+        if (mention.onKeyDown(e)) {
+            return;
+        }
         if (box.askBlocks && e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
             return;
@@ -95,10 +102,11 @@ export const RenderedComposer = forwardRef<
         <div
             data-composer-box
             className={cn(
-                "rounded-[14px] border border-edge-strong bg-surface-raised pb-2.5 pl-3.5 pr-3 pt-3 focus-within:border-accent/60",
+                "relative rounded-[14px] border border-edge-strong bg-surface-raised pb-2.5 pl-3.5 pr-3 pt-3 focus-within:border-accent/60",
                 filled && "border-accent/60"
             )}
         >
+            {mention.panel}
             {box.askBlocks ? (
                 <div data-composer-notice className="flex items-center gap-[7px] pb-2 text-[12px] text-muted">
                     <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-warning" />
@@ -110,16 +118,24 @@ export const RenderedComposer = forwardRef<
                     <AttachmentTray items={attachments} onRemove={remove} onRetry={retry} />
                 </div>
             ) : null}
-            <textarea
-                ref={taRef}
-                rows={1}
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                onKeyDown={keyDown}
-                onPaste={onPaste}
-                placeholder={box.placeholder}
-                className="block w-full resize-none overflow-y-auto bg-transparent pb-3.5 text-[14px] leading-[1.55] text-foreground outline-none placeholder:text-muted"
-            />
+            {/* the textarea inherits this face, so the pill mirror behind it wraps the text the same way */}
+            <div className="relative text-[14px] leading-[1.55] text-foreground">
+                {mention.backdrop}
+                <textarea
+                    ref={taRef}
+                    rows={1}
+                    value={text}
+                    onChange={(e) => setText(e.target.value)}
+                    onKeyDown={keyDown}
+                    onSelect={mention.onCaret}
+                    onPaste={onPaste}
+                    placeholder={box.placeholder}
+                    className={cn(
+                        "relative block w-full resize-none overflow-y-auto bg-transparent pb-3.5 outline-none placeholder:text-muted",
+                        mention.backdrop != null && MIRRORED_TEXTAREA
+                    )}
+                />
+            </div>
             <div className="flex items-center gap-2">
                 <AttachButton onClick={pickFiles} />
                 {blockId != null ? <BoxControls agent={agent} /> : null}

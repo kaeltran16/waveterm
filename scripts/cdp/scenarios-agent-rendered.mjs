@@ -96,6 +96,10 @@ const SHELL_DONE = "git status --short";
 const SHELL_STDOUT = "M pkg/a.go";
 const SHELL_STDERR = "warning: CRLF will be replaced";
 const SHELL_RUNNING = "sleep 30";
+// the folder the @ mention step points P's cwd at, under the temp dir, and the files in it
+const MENTION_DIR = "mention";
+const MENTION_FILES = ["src/widget-alpha.ts", "README.md", "notes.txt"];
+const MENTION_PICK = "src/widget-alpha.ts";
 
 const J = (o) => JSON.stringify(o);
 const GO_JSON = [
@@ -1655,6 +1659,85 @@ export default function (_kit) {
                         !seen.runningOutput &&
                         !seen.rawBubble;
                     return [ok, { landed, ...seen }];
+                });
+
+                await step("rendered: @ mention — in P's box @ and part of a name lists the file, Enter writes @<path> and a pill draws over it, Backspace removes it whole; Esc closes the panel without typing ESC, it stays closed in that word, and a new @ opens it again", async () => {
+                    const PANEL = `${RV}?.querySelector("[data-rendered-composer] [data-mention-panel]")`;
+                    const TA = `${RV}?.querySelector("[data-rendered-composer] textarea")`;
+                    const press = (key) =>
+                        h.ev(`(() => {
+                            const ta = ${TA};
+                            if (!ta) return false;
+                            ta.focus();
+                            ta.dispatchEvent(new KeyboardEvent("keydown", { key: ${JSON.stringify(key)}, code: ${JSON.stringify(key)}, bubbles: true, cancelable: true }));
+                            return true;
+                        })()`);
+                    const value = () => h.ev(`${TA}?.value ?? null`);
+                    const dir = join(ctx.dir, MENTION_DIR);
+                    for (const f of MENTION_FILES) {
+                        mkdirSync(dirname(join(dir, f)), { recursive: true });
+                        writeFileSync(join(dir, f), "fixture\n");
+                    }
+                    // P's process keeps its own cwd: a meta change restarts nothing, and the picker reads the meta
+                    await h.rpc("setmeta", { oref: `block:${ctx.pBlock}`, meta: { "cmd:cwd": dir } });
+                    try {
+                        await agentPage(h, `await WOS.reloadWaveObject(WOS.makeORef("block", ${JSON.stringify(ctx.pBlock)})); return true;`);
+                        await focus(ctx.pId);
+                        const ready = await ensureRendered();
+
+                        await typeComposer(h, "@widg");
+                        const listed = await wait(`[...(${PANEL}?.querySelectorAll("[data-suggest-item]") ?? [])].some((r) => (r.textContent ?? "").includes("widget-alpha.ts"))`);
+                        await h.shot(SHOT(29, "mention-panel"));
+                        await press("Enter");
+                        const picked = await wait(`${TA}?.value === ${JSON.stringify(`@${MENTION_PICK} `)} && ${RV}?.querySelector("[data-rendered-composer] [data-mention-pill]") != null`);
+                        const pill = await h.ev(`(() => {
+                            const ta = ${TA};
+                            const p = ${RV}?.querySelector("[data-rendered-composer] [data-mention-pill]");
+                            if (!ta || !p) return null;
+                            const a = p.getBoundingClientRect();
+                            const b = ta.getBoundingClientRect();
+                            return {
+                                text: p.textContent,
+                                over: a.left >= b.left - 1 && a.top >= b.top - 1 && a.bottom <= b.bottom + 1,
+                                textHidden: getComputedStyle(ta).color === "rgba(0, 0, 0, 0)",
+                            };
+                        })()`);
+                        await h.shot(SHOT(29, "mention-pill"));
+                        await press("Backspace");
+                        const removed = await wait(`${TA}?.value === "" && ${RV}?.querySelector("[data-rendered-composer] [data-mention-pill]") == null`);
+                        const afterBackspace = await value();
+
+                        await typeComposer(h, "@w");
+                        const reopened = await wait(`${PANEL} != null`);
+                        const from = probeLines(ctx).length;
+                        await press("Escape");
+                        const closed = await wait(`${PANEL} == null`);
+                        await sleep(HOLD_MS);
+                        const escTyped = probeLines(ctx).slice(from).includes(ESC);
+                        await typeComposer(h, "@wi");
+                        await sleep(HOLD_MS);
+                        const stayedClosed = await h.ev(`${PANEL} == null`);
+                        await typeComposer(h, "@wi @");
+                        const openedAgain = await wait(`${PANEL} != null`);
+                        await h.shot(SHOT(29, "mention-reopen"));
+                        await typeComposer(h, "");
+                        const ok =
+                            ready &&
+                            listed &&
+                            picked &&
+                            pill?.text === `@${MENTION_PICK}` &&
+                            pill.over &&
+                            pill.textHidden &&
+                            removed &&
+                            reopened &&
+                            closed &&
+                            !escTyped &&
+                            stayedClosed &&
+                            openedAgain;
+                        return [ok, { ready, listed, picked, pill, removed, afterBackspace, reopened, closed, escTyped, stayedClosed, openedAgain }];
+                    } finally {
+                        await h.rpc("setmeta", { oref: `block:${ctx.pBlock}`, meta: { "cmd:cwd": "~" } });
+                    }
                 });
                 return steps;
             },
