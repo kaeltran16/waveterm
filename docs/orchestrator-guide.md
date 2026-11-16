@@ -155,9 +155,9 @@ review's second pass and its round-2 follow-up ([The plan review](#the-plan-revi
 `sonnet` on every runtime. You set it in the launcher, the profile or the run sheet; `wsh runs start` has no flag
 for it.
 
-A pi lead needs the `@juicesharp/rpiv-ask-user-question` package (so its questions reach the cockpit) and the
-superpowers package installed into pi itself (the lead plans with `writing-plans`; a design session runs on the
-lead's route and uses `brainstorming` or `arc:design`).
+A pi lead needs the `@juicesharp/rpiv-ask-user-question` package, so its questions reach the cockpit. The skills
+it uses are Arc's own, seeded into pi: the lead plans with the run's plan skill ([The plan
+skill](#the-plan-skill)), and a design session runs on the lead's route and uses `arc:brainstorm` or `arc:design`.
 
 ---
 
@@ -231,7 +231,7 @@ A goal that needs a design settles it before the lead starts. On the Goal start,
 **Off** (the default), **Brainstorm** or **Mock up**. Picking one makes **Start run** create the run and start a
 design session in the project instead of a lead:
 
-- **Brainstorm** starts the session with `superpowers:brainstorming` and the brainstorm pane.
+- **Brainstorm** starts the session with `arc:brainstorm` and the brainstorm pane.
 - **Mock up** starts it with `arc:design`, for a canvas.
 
 It needs a human, so it is blocked on an autonomous run (`Design first needs Ask me approvals`). The server
@@ -307,8 +307,8 @@ The lead's path is chosen in code, by what the run carries.
 **A run with an approved design** (an Approved design start, `wsh runs start --spec` / `--prototype`, or a design
 attached to a designing run) gets the plan-from-design prompt. The design is approved, so the lead does no
 brainstorming, no classification and no Spec review. It reads the design and the code it touches, writes the
-decisions it makes beyond the design, each with why, into the plan's header, then writes the plan with
-`superpowers:writing-plans` and submits it: `wsh jarvis dag submit --plan <plan> --spec <spec>` when the run has a
+decisions it makes beyond the design, each with why, into the plan's header, then writes the plan with the run's
+plan skill ([The plan skill](#the-plan-skill)) and submits it: `wsh jarvis dag submit --plan <plan> --spec <spec>` when the run has a
 spec, and without `--spec` when it has only a prototype (the plan names the prototype on its `**Prototype:**` line,
 and the plan reviewer reads the canvas as the spec). At submit the run's spec and prototype win over the lead's
 `--spec` and the plan's line. After `dag submit` it does not ask you to review the plan or pick an execution
@@ -339,15 +339,15 @@ The `Needs a design` options:
   When you approve the design, a new lead plans from it. Refused on an autonomous run, on a run that has a dag and
   on a Quick run.
 - **Plan from the goal**: the lead makes the design calls itself, records each with why in the plan's header,
-  writes the plan with `superpowers:writing-plans`, and runs `wsh jarvis dag submit --plan <plan>`, with no
+  writes the plan with the run's plan skill, and runs `wsh jarvis dag submit --plan <plan>`, with no
   `--spec`, and stops.
 
 An autonomous run never asks: with nobody to design with, the lead's design work is reading the code, which
 supervision needs anyway ([Autonomous runs](#autonomous-runs)).
 
-A plan's tasks carry the design decisions, the files each owns, the interfaces other tasks rely on, and acceptance
-criteria with their tests, but not the implementation: the prompt overrides `writing-plans`' complete-code rule,
-since pasted code made the lead's plan-writing the longest phase of a small run (7 to 14 min for 17 to 88 KB plans).
+A plan's tasks carry the design decisions, the files each owns and the interfaces other tasks rely on, but not the
+implementation: pasted code made the lead's plan-writing the longest phase of a small run (7 to 14 min for 17 to
+88 KB plans), so the prompt overrides `arc:writing-plans`' complete-code rule and `arc:plan` has no such rule.
 
 Once the plan review passes, or you accept a plan it failed, the engine waits for the lead to go idle and types a
 `/compact` for a lead that planned. It keeps the interfaces and files each task relies on, why the plan is split as
@@ -363,6 +363,25 @@ land with the run. A resubmit with revised docs amends that commit while no lane
 failed plan review), and commits anew once one has (a fix round's plan); identical content commits nothing.
 
 A lead that exits before submitting fails the run with a **Lead exited** row.
+
+### The plan skill
+
+Two skills write the plan, and a setting picks between them. The setting is `run:planskill` (Settings > Run
+defaults, beside the run route): **arc:plan** (the default) or **arc:writing-plans**. An empty or unknown value
+resolves to `arc:plan`; an unknown one is logged. A new orchestrator run reads it once, and the run keeps that skill
+for its whole life, so changing the setting never changes a run already started. A run or plan stored before the
+setting existed reads as `arc:writing-plans`, the contract its plan was written for.
+
+| | `arc:writing-plans` | `arc:plan` (default) |
+|---|---|---|
+| The plan's tasks | acceptance criteria with the focused tests that prove them, no implementation code | vertical slices: what to build, what blocks it, acceptance criteria, files, the interfaces others rely on and the scenario step for UI. No step lists, no listed tests |
+| The worker | runs the tests its task names, and watches a test fail first when the task says so | picks its own test cases red-green at the public seam the criteria imply; asks the lead only when the seam is unclear; runs its tests plus Check |
+| The task review | as before | also judges the worker's tests against the criteria and that seam; a criterion no test checks fails |
+| The plan review | each task names the tests that prove its criteria | each task has acceptance criteria a test can check |
+
+Both skills are Arc's: `arc:writing-plans` is a copy of the superpowers skill adapted to the engine's plan format.
+The plan format below is the same under both, except that `arc:plan` drops the sentence on a step naming only focused
+tests.
 
 ### Writing the goal
 
@@ -433,7 +452,7 @@ that every task must edit is what sets a plan's width, so keep that edit out of 
   the result should match (a path, not in backticks). All three are optional; see
   [The final stage](#the-final-stage).
 - **Spec** names the spec the plan implements: a repo-relative or absolute path in backticks, prose allowed after
-  it (`superpowers:writing-plans` writes this line in every plan header). A submit without `--spec`, which is
+  it (the plan skills write this line in every plan header). A submit without `--spec`, which is
   every **A plan file** start and `wsh runs start --plan`, takes it from here: the engine commits it with the
   plan and points the plan reviewer, task reviewers and final verifier at it. A Spec line naming no file is
   left as prose and the plan runs without a spec. The line also reaches every worker as header text.

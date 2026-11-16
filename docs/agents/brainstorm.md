@@ -1,14 +1,15 @@
 # Brainstorm mode: an agent's brainstorm beside its terminal
 
-When an agent inside Arc runs `superpowers:brainstorming`, Arc draws the brainstorm on the Agent
+When an agent inside Arc runs `arc:brainstorm`, Arc draws the brainstorm on the Agent
 surface in place of the terminal: the question it is waiting on, with an answer box, the design's
 parts as they form, mockups beside their parts, and at the end a builder check and the start of an
 orchestrator run. `b` (or the header's **Terminal | Brainstorm** switch) flips between the two; the
 terminal stays mounted underneath.
 
 The design and the reasons behind it are in `docs/superpowers/specs/2026-10-18-brainstorm-mode-design.md`.
-The agent's half of the protocol is `skills/brainstorm/SKILL.md` (`arc:brainstorm` in Claude Code).
-This page is how the pieces fit, what each action sends, and how to test it.
+The agent's half of the protocol is `skills/brainstorm/SKILL.md` (`arc:brainstorm` in Claude Code). The skill
+stands alone: it carries the flow from the first message to an approved spec and does not rely on another skill
+being loaded. This page is how the pieces fit, what each action sends, and how to test it.
 
 ![Mid-conversation: question 4 on the left, the design forming on the right](../images/brainstorm/01-talking.png)
 
@@ -23,9 +24,12 @@ the agent exiting.
 
 ## How a brainstorm attaches
 
-1. The agent invokes the `Skill` tool for `superpowers:brainstorming`. A synchronous PostToolUse hook
-   (matcher `Skill`, `wsh agent-hook --skill-context`, registered by `install-agent-hooks`) adds
-   context telling it to also follow `arc:brainstorm`. The agent then loads that skill itself.
+1. The agent invokes the `Skill` tool for `arc:brainstorm`; the skill is the instructions, so the hook adds
+   nothing for it. While superpowers is still enabled, an agent may invoke the upstream
+   `superpowers:brainstorming` (or `brainstorming`) instead: a synchronous PostToolUse hook (matcher `Skill`,
+   `wsh agent-hook --skill-context`, registered by `install-agent-hooks`) adds context redirecting it to
+   `arc:brainstorm`, which the agent then loads itself. The redirect goes when superpowers is turned off
+   (`docs/open-issues.md`, "Turn superpowers off").
 2. The agent creates `brainstorm.json` with its file-writing tool. The async PostToolUse hook
    (`brainstormRevealFor` in `cmd/wsh/cmd/wshcmd-agenthook.go`) sees the path and sends
    `wsh ui reveal brainstorm:<topic>` for it: the switch appears, the tree line reads

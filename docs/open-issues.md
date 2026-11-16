@@ -46,6 +46,16 @@ Status legend:
   now finish on their own context, so nothing is lost, but they still wait. Evidence: `dag 45b2e6ea... lock:` lines
   in the packaged app's `waveapp.log` (`dev.arc.app`), 11:22-12:10. Measure where the tick spends the time before moving git out of the lock.
 
+- **Turn superpowers off** (2026-11-16). The slim-superpowers run
+  (`docs/superpowers/specs/2026-11-16-slim-superpowers-design.md`) made every skill Arc's runs and design
+  sessions use Arc's own (`arc:plan`, `arc:writing-plans`, `arc:brainstorm`, `arc:design`) and stopped short of
+  the flip. The flip is the user's: disable `superpowers@claude-plugins-official` in `~/.claude/settings.json`
+  and remove the superpowers package from pi. The same change deletes what only exists to keep superpowers out
+  of engine sessions: `jarvis.RunWorkerOptions.NoSuperpowers` with its call sites (workers, task reviewers,
+  `LaunchJudgingSession`) and tests, and the brainstorm skill-context hook's redirect for the upstream names
+  (`cmd/wsh/cmd/wshcmd-agenthook.go`). Deleting either before the flip puts superpowers back into every engine
+  session.
+
 Tracked in their own initiatives, not here:
 
 - **Orchestrator wall-clock** — effort `b1fe5d7e`: live-verify the unit-tested fixes, the Timing section live check.
@@ -100,6 +110,8 @@ Cockpit and surfaces:
 
 Orchestrator:
 
+- **Plan-skill bench** (2026-11-16) — held until 2026-11-30: the real-run comparison of `arc:plan` against
+  `arc:writing-plans` and the replay bench (spec Decisions 8 and 9 of the slim-superpowers design), its own plan.
 - **DAG liveness batching (M1)** — 42.7 ms per running task per 30 s tick on 191 session files; build
   the per-schedule snapshot only when the corpus nears ~3,000 files.
 - **Automated board rendering** for the final verifier — revive when a verdict misses a layout defect a
