@@ -510,3 +510,87 @@ describe("showEarlierTranscript", () => {
         expect(t.earlier()).toBeUndefined();
     });
 });
+
+describe("restartActiveStreams and earlier turns", () => {
+    // restart re-opens every stream still in the module's map, so each open gets its own feed, found by its path
+    const setup = async (id: string) => {
+        const feeds: ReturnType<typeof makeFeedGen>[] = [];
+        genFactory = () => {
+            const f = makeFeedGen();
+            feeds.push(f);
+            return f.gen;
+        };
+        let projected: unknown[] = [];
+        projectorOverride = {
+            projectRecords: (r: unknown[]) => ((projected = [...r]), []),
+            extractTasks: () => undefined,
+        };
+        const live = await import("./livetranscript");
+        const store = (await import("@/app/store/jotaiStore")) as unknown as { __store: Map<any, any> };
+        const atoms = await import("./livetranscriptatoms");
+        const path = `/p/${id}.jsonl`;
+        const opens = () => streamCalls.map((c, i) => ({ ...c, feed: feeds[i] })).filter((c) => c.path === path);
+        live.startTranscriptStream(id, path, "claude");
+        opens()[0].feed.push(uuidLines(100, 400));
+        await settle();
+        return {
+            live,
+            opens,
+            latest: () => opens()[opens().length - 1],
+            projected: () => projected,
+            earlier: () => (store.__store.get(atoms.earlierByIdAtom) ?? {})[id],
+        };
+    };
+
+    it("keeps a stream that read the whole file whole: full re-read, still shown, retention uncapped", async () => {
+        const t = await setup("restart-whole");
+        void t.live.showEarlierTranscript("restart-whole");
+        fullReads[0].resolve(uuidLines(0, 400));
+        await settle();
+        expect(t.earlier()).toBe("shown");
+        t.live.restartActiveStreams();
+        expect(t.opens()).toHaveLength(2);
+        expect(t.latest().taillines).toBe(-1);
+        t.latest().feed.push(uuidLines(0, 4500));
+        await settle();
+        expect(t.earlier()).toBe("shown");
+        t.latest().feed.push([uuidLine(4500)]);
+        await settle();
+        expect(t.projected()).toHaveLength(4501);
+        expect((t.projected()[0] as any).uuid).toBe("u0");
+        t.live.stopTranscriptStream("restart-whole");
+    });
+
+    it("restarts a tail stream that is not whole as a tail, marked hidden by a full first chunk", async () => {
+        const t = await setup("restart-tail");
+        expect(t.earlier()).toBe("hidden");
+        t.live.restartActiveStreams();
+        expect(t.latest().taillines).toBe(300);
+        t.latest().feed.push(uuidLines(100, 400));
+        await settle();
+        expect(t.earlier()).toBe("hidden");
+        t.latest().feed.push(uuidLines(400, 4500));
+        await settle();
+        expect(t.projected()).toHaveLength(4000);
+        t.live.stopTranscriptStream("restart-tail");
+    });
+
+    it("lets the restarted stream's first chunk settle a read that was in flight", async () => {
+        const t = await setup("restart-inflight");
+        void t.live.showEarlierTranscript("restart-inflight");
+        expect(t.earlier()).toBe("loading");
+        t.live.restartActiveStreams();
+        expect(t.latest().taillines).toBe(300);
+        // the read lands after its stream was replaced and is dropped
+        fullReads[0].resolve(uuidLines(0, 400));
+        await settle();
+        t.latest().feed.push(uuidLines(100, 400));
+        await settle();
+        expect(t.earlier()).toBe("hidden");
+        expect(t.projected()).toHaveLength(300);
+        // the control works again on the new stream
+        void t.live.showEarlierTranscript("restart-inflight");
+        expect(fullReads).toHaveLength(2);
+        t.live.stopTranscriptStream("restart-inflight");
+    });
+});

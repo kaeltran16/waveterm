@@ -80,7 +80,8 @@ function setEarlier(id: string, value: EarlierTurns | null): void {
     globalStore.set(earlierByIdAtom, next);
 }
 
-export function startTranscriptStream(id: string, path: string, agent?: string): void {
+// readWhole reopens a stream that already held the whole file (restartActiveStreams), so it stays whole
+export function startTranscriptStream(id: string, path: string, agent?: string, readWhole = false): void {
     if (!path || streams.has(id)) {
         return;
     }
@@ -89,7 +90,8 @@ export function startTranscriptStream(id: string, path: string, agent?: string):
     // only runtime that requests the complete file (taillines -1) and keeps every streamed line
     // while the session is open. Every other runtime tails STREAM_TAIL_LINES and caps retention.
     const isPi = agent?.toLowerCase() === "pi" || path.replace(/\\/g, "/").includes("/.pi/agent/sessions/");
-    const tailLines = isPi ? -1 : STREAM_TAIL_LINES;
+    const whole = isPi || readWhole;
+    const tailLines = whole ? -1 : STREAM_TAIL_LINES;
     const gen = RpcApi.StreamAgentTranscriptCommand(
         TabRpcClient,
         { path, taillines: tailLines },
@@ -104,7 +106,7 @@ export function startTranscriptStream(id: string, path: string, agent?: string):
             void gen.return?.(undefined);
         },
         records: [],
-        whole: isPi,
+        whole,
         during: null,
         publish: () => {
             const records = handle.records;
@@ -128,7 +130,9 @@ export function startTranscriptStream(id: string, path: string, agent?: string):
                 if (first) {
                     // a tail that came back full may have cut the file's start off
                     first = false;
-                    setEarlier(id, !handle.whole && (chunk?.lines?.length ?? 0) >= STREAM_TAIL_LINES ? "hidden" : null);
+                    const full = (chunk?.lines?.length ?? 0) >= STREAM_TAIL_LINES;
+                    // a non-pi stream is only whole once Show earlier read the file
+                    setEarlier(id, whole ? (isPi ? null : "shown") : full ? "hidden" : null);
                 }
                 if (!chunk?.lines?.length) {
                     continue;
@@ -202,16 +206,17 @@ export async function showEarlierTranscript(id: string): Promise<void> {
 
 // On a websocket reconnect the old generators are hung (a socket drop never errored/returned them),
 // and useCardStreams won't re-drive start (its wanted-set is unchanged). Stop every active stream and
-// re-open it; the fresh startTranscriptStream re-tails STREAM_TAIL_LINES (a small, acceptable catch-up).
+// re-open it; the fresh startTranscriptStream re-tails STREAM_TAIL_LINES (a small, acceptable catch-up), or re-reads
+// the whole file when Show earlier had already read it, so the earlier rows do not vanish.
 // Uses stopStreamOnly (not stopTranscriptStream) so the last-known entries stay visible instead of
 // vanishing and reappearing once the re-tail lands.
 export function restartActiveStreams(): void {
-    const active = [...streams.entries()].map(([id, h]) => ({ id, path: h.path, agent: h.agent }));
+    const active = [...streams.entries()].map(([id, h]) => ({ id, path: h.path, agent: h.agent, whole: h.whole }));
     for (const { id } of active) {
         stopStreamOnly(id);
     }
-    for (const { id, path, agent } of active) {
-        startTranscriptStream(id, path, agent);
+    for (const { id, path, agent, whole } of active) {
+        startTranscriptStream(id, path, agent, whole);
     }
 }
 
