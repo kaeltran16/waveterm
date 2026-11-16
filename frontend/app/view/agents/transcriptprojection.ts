@@ -140,6 +140,18 @@ function applyBashRecord(entries: AgentEntry[], content: string, rec: any): bool
     return true;
 }
 
+// A background-task notice delivered mid-turn. A structured prompt reads like a finished subagent's notification; a
+// free-text one is just the text inside the tag.
+function parseNotice(prompt: string): Extract<AgentEntry, { kind: "notification" }> | null {
+    const structured = prompt.includes("<summary>") ? parseTaskNotification(prompt) : null;
+    if (structured != null) {
+        return { ...structured, notice: true };
+    }
+    const m = /<task-notification>([^]*?)<\/task-notification>/.exec(prompt);
+    const summary = (m ? m[1] : prompt).trim();
+    return summary !== "" ? { kind: "notification", summary, notice: true } : null;
+}
+
 // the tag claude code wraps a long typed or pasted message in; pastedContentRe in pkg/agentsessions/humanprompts.go
 const PASTED_CONTENT_RE = /<pasted_content id="[^"]+">\n?([^]*?)\n?<\/pasted_content id="[^"]+">/g;
 
@@ -151,6 +163,20 @@ function unwrapPasted(text: string): string {
 function recTs(rec: any): { ts?: number } {
     const ts = typeof rec.timestamp === "string" ? Date.parse(rec.timestamp) : NaN;
     return Number.isFinite(ts) ? { ts } : {};
+}
+
+// An attachment record of a message typed while the agent worked. claude code writes no user record for it, so this is
+// its only trace. The attachment's own timestamp wins over the record's.
+function queuedEntry(rec: any): AgentEntry | null {
+    const att = rec.attachment;
+    const prompt = typeof att.prompt === "string" ? att.prompt : "";
+    if (att.commandMode === "task-notification") {
+        return parseNotice(prompt);
+    }
+    if (att.commandMode !== "prompt" || prompt.trim() === "") {
+        return null;
+    }
+    return { kind: "user", text: unwrapPasted(prompt), queued: true, ...recTs({ timestamp: att.timestamp ?? rec.timestamp }) };
 }
 
 function mergeCompaction(entries: AgentEntry[], patch: Partial<Extract<AgentEntry, { kind: "compaction" }>>): void {
@@ -322,6 +348,7 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
             if (!Array.isArray(content)) {
                 continue;
             }
+            const firstEntry = entries.length;
             for (const block of content) {
                 if (block?.type === "text" && typeof block.text === "string" && block.text.trim() !== "") {
                     entries.push(
@@ -383,6 +410,23 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
                 } else if (action.verb === "ran") {
                     action.outcome = "ok";
                 }
+            }
+            // pasted images ride on the record's user entry; a record of images alone gets an empty-text one
+            const images = toolResultImages(content);
+            if (images.length > 0) {
+                const own = entries.slice(firstEntry).find((e) => e.kind === "user");
+                if (own != null && own.kind === "user") {
+                    own.images = images;
+                } else {
+                    entries.push({ kind: "user", text: "", images, ...recTs(rec) });
+                }
+            }
+            continue;
+        }
+        if (rec.type === "attachment" && rec.attachment?.type === "queued_command") {
+            const entry = queuedEntry(rec);
+            if (entry != null) {
+                entries.push(entry);
             }
             continue;
         }

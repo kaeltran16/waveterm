@@ -22,8 +22,8 @@ const edit = (path, badge, text) => ({
     },
 });
 
-// every entry kind; in a finished turn a stretch of 3+ steps folds into "Worked" (no times here) and a shorter one is a
-// step box (transcriptlayout.ts), so the pairs and the separating messages are deliberate
+// every entry kind in one finished turn: its work folds into "Worked" (no times here) on each side of the compaction,
+// which stays outside, and opens to its step boxes, one per stretch between the messages (transcriptlayout.ts)
 const ENTRIES = [
     { kind: "user", text: "tighten the retry loop and prove it with a test" },
     {
@@ -90,7 +90,8 @@ const GONE_GLYPHS = "✓✗▶▼▲▸↗⊘★";
 
 const ROOT = `document.querySelector('[data-narration-fixture]')`;
 
-// the feed's static checks: no text under 10.5px, nothing dimmed, no replaced glyph, the folds, the boxes and the callout
+// the feed's static checks: no text under 10.5px, nothing dimmed, no replaced glyph, the folds and the boxes, read
+// with the folds as they mount, closed
 const STATIC_PROBE = `(() => {
     const root = ${ROOT};
     if (!root) return null;
@@ -103,9 +104,7 @@ const STATIC_PROBE = `(() => {
     const glyphs = [...${JSON.stringify(GONE_GLYPHS)}].filter((g) => root.innerText.includes(g));
     const folds = [...root.querySelectorAll('[data-fold]')].map((b) => b.textContent);
     const boxes = [...root.querySelectorAll('[data-steps]')].map((b) => b.querySelectorAll('[data-step]').length);
-    const ins = root.querySelector('[data-insight]');
-    const is = ins && getComputedStyle(ins);
-    return { small, dim, glyphs, folds, boxes, insight: is ? [is.borderTopWidth, is.borderRightWidth, is.borderBottomWidth, is.borderLeftWidth] : null };
+    return { small, dim, glyphs, folds, boxes };
 })()`;
 
 // click the row whose target span reads `text` (React delegates, so a bubbling click reaches the handler)
@@ -135,6 +134,16 @@ const PANEL_PROBE = `(() => [...${ROOT}.querySelectorAll('[data-tool-panel]')].m
 
 const allEqual1px = (widths) => Array.isArray(widths) && widths.every((w) => w === "1px");
 
+// opens every closed fold, so the turn's step rows mount
+const OPEN_FOLDS = `${ROOT}.querySelectorAll('[data-fold][aria-expanded="false"]').forEach((b) => b.click())`;
+const BOXES = `[...${ROOT}.querySelectorAll('[data-steps]')].map((b) => b.querySelectorAll('[data-step]').length)`;
+// the insight callout's borders; it is in the turn's interim prose, so read with the folds open
+const INSIGHT = `(() => {
+    const ins = ${ROOT}.querySelector('[data-insight]');
+    const is = ins && getComputedStyle(ins);
+    return is ? [is.borderTopWidth, is.borderRightWidth, is.borderBottomWidth, is.borderLeftWidth] : null;
+})()`;
+
 async function show(h, width) {
     await h.ev(`window.__narrationFeedFixture.clear()`);
     // the modal's key is stable, so a show during the exit motion revives the old feed with its panels still open
@@ -146,25 +155,33 @@ async function show(h, width) {
 async function staticSteps(h, label) {
     const s = await h.ev(STATIC_PROBE);
     if (!s) return [{ step: `[${label}] feed rendered`, ok: false, detail: "no [data-narration-fixture]" }];
+    await h.ev(OPEN_FOLDS);
+    await sleep(600);
+    const boxes = await h.ev(BOXES);
+    const insight = await h.ev(INSIGHT);
     return [
         { step: `[${label}] no text below 10.5px`, ok: s.small.length === 0, detail: s.small.slice(0, 5).join(" | ") || "none" },
         { step: `[${label}] nothing dimmed`, ok: s.dim.length === 0, detail: s.dim.slice(0, 5).join(" | ") || "none" },
         { step: `[${label}] no replaced text glyphs`, ok: s.glyphs.length === 0, detail: s.glyphs.join(" ") || "none" },
         {
-            step: `[${label}] three folded stretches read "Worked · <phrase>", one "1 failed", the edits "+3 −3"`,
+            step: `[${label}] the turn folds on each side of the compaction: two "Worked · <phrase>" lines, the first with "2 failed" and the edits "+3 −3", no box drawn while closed`,
             ok:
-                s.folds.length === 3 &&
+                s.folds.length === 2 &&
                 s.folds.every((t) => t.startsWith("Worked")) &&
-                s.folds.filter((t) => t.includes("1 failed")).length === 1 &&
-                s.folds.some((t) => t.includes("edited 3 files") && t.includes("+3") && t.includes("−3")),
+                s.folds[0].includes("2 failed") &&
+                s.folds[0].includes("edited 3 files") &&
+                s.folds[0].includes("+3") &&
+                s.folds[0].includes("−3") &&
+                !s.folds[1].includes("failed") &&
+                s.boxes.length === 0,
             detail: JSON.stringify(s.folds),
         },
         {
-            step: `[${label}] the two-step stretches draw as step boxes`,
-            ok: s.boxes.length === 2 && s.boxes.every((n) => n === 2),
-            detail: JSON.stringify(s.boxes),
+            step: `[${label}] the opened folds draw each stretch as a step box`,
+            ok: JSON.stringify(boxes) === JSON.stringify([2, 4, 3, 3, 2]),
+            detail: JSON.stringify(boxes),
         },
-        { step: `[${label}] insight callout: 1px border all round`, ok: allEqual1px(s.insight), detail: JSON.stringify(s.insight) },
+        { step: `[${label}] insight callout: 1px border all round`, ok: allEqual1px(insight), detail: JSON.stringify(insight) },
     ];
 }
 
@@ -236,9 +253,6 @@ export const narrationFeed = {
         await show(h, 360);
         steps.push(...(await staticSteps(h, "360")));
         const openedBash = await h.ev(clickRow(BASH_TARGET));
-        // the edits are folded: open their fold, then the first edit's step
-        await h.ev(`[...${ROOT}.querySelectorAll('[data-fold]')].find((b) => (b.textContent || '').includes('edited'))?.click()`);
-        await sleep(600);
         const openedEdit = await h.ev(clickRow("Edited pkg/retry/retry.go"));
         await sleep(600);
         const narrow = await h.ev(PANEL_PROBE);
@@ -255,25 +269,25 @@ export const narrationFeed = {
         });
         await h.shot("cdp-shots/narration-feed-narrow.png");
 
-        // an expanded fold keeps its summary row as a header, so a second click folds it again
-        const FOLD = `[...${ROOT}.querySelectorAll('[data-fold]')].find((b) => /read 2 files, searched/.test(b.textContent || '') && !/failed/.test(b.textContent || ''))`;
+        // an expanded fold keeps its summary row as a header, so a click folds it and a second opens it again
+        const FOLD = `[...${ROOT}.querySelectorAll('[data-fold]')].find((b) => (b.textContent || '').includes('CHANGELOG.md'))`;
         const foldState = `(() => ({ expanded: ${FOLD}?.getAttribute('aria-expanded') ?? null, folds: ${ROOT}.querySelectorAll('[data-fold]').length }))()`;
-        const closed = await h.ev(foldState);
-        await h.ev(`${FOLD}?.click()`);
-        await sleep(600);
         const expanded = await h.ev(foldState);
         await h.shot("cdp-shots/narration-feed-fold-open.png");
         await h.ev(`${FOLD}?.click()`);
         await sleep(600);
-        const refolded = await h.ev(foldState);
+        const closed = await h.ev(foldState);
+        await h.ev(`${FOLD}?.click()`);
+        await sleep(600);
+        const reopened = await h.ev(foldState);
         steps.push({
-            step: "[360] a fold opens on a click and keeps its header; a second click folds it again",
+            step: "[360] an open fold keeps its header: a click folds it, a second click opens it again",
             ok:
-                closed.expanded === "false" &&
                 expanded.expanded === "true" &&
-                expanded.folds === closed.folds &&
-                refolded.expanded === "false",
-            detail: JSON.stringify({ closed, expanded, refolded }),
+                closed.expanded === "false" &&
+                closed.folds === expanded.folds &&
+                reopened.expanded === "true",
+            detail: JSON.stringify({ expanded, closed, reopened }),
         });
         return steps;
     },

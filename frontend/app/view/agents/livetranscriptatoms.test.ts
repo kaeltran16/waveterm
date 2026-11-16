@@ -4,7 +4,7 @@
 import { createStore } from "jotai";
 import { describe, expect, it } from "vitest";
 import { lastActivityByIdAtom, liveEntriesByIdAtom, tasksByIdAtom } from "./livetranscript";
-import { dropLiveId, entriesAtomFor } from "./livetranscriptatoms";
+import { dropLiveId, earlierAtomFor, earlierByIdAtom, entriesAtomFor } from "./livetranscriptatoms";
 
 describe("per-id atom slices", () => {
     it("reads the id's slice and is referentially stable when an unrelated id changes", () => {
@@ -26,11 +26,14 @@ describe("per-id atom slices", () => {
         store.set(liveEntriesByIdAtom, { a: [], b: [] });
         store.set(lastActivityByIdAtom, { a: 1, b: 2 });
         store.set(tasksByIdAtom, { a: [], b: [] });
+        store.set(earlierByIdAtom, { a: "shown", b: "hidden" });
         const before = entriesAtomFor("a");
         dropLiveId("a", store);
         expect("a" in store.get(liveEntriesByIdAtom)).toBe(false);
         expect("a" in store.get(lastActivityByIdAtom)).toBe(false);
         expect("a" in store.get(tasksByIdAtom)).toBe(false);
+        expect(store.get(earlierAtomFor("a"))).toBeUndefined();
+        expect(store.get(earlierAtomFor("b"))).toBe("hidden");
         expect("b" in store.get(liveEntriesByIdAtom)).toBe(true);
         expect("b" in store.get(lastActivityByIdAtom)).toBe(true);
         expect("b" in store.get(tasksByIdAtom)).toBe(true);

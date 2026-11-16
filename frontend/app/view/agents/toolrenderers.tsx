@@ -7,6 +7,7 @@ import { cn } from "@/util/util";
 import { AnimatePresence, motion } from "motion/react";
 import { useState, type ReactNode } from "react";
 import type { AgentActionEntry, EditFile, ToolImage } from "./agentsviewmodel";
+import { ImageThumbs } from "./imagethumbs";
 import { ToolDetailBody } from "./narrationtimeline";
 import { bashCard, toolRendererKey } from "./renderregistry";
 import { failureLabel, stripAnsi, type TestSummary } from "./testoutput";
@@ -192,14 +193,12 @@ function DiffCard({ files, output }: { files: EditFile[]; output: string }) {
 function ImageCard({ images }: { images: ToolImage[] }) {
     return (
         <div data-tool-card="image" className={cn(CARD, "flex flex-col gap-2 p-2")}>
-            {images.map((img, i) => (
-                <img
-                    key={i}
-                    src={`data:${img.mediaType};base64,${img.data}`}
-                    alt={`image output ${i + 1}`}
-                    className="max-h-[360px] max-w-full self-start object-contain"
-                />
-            ))}
+            <ImageThumbs
+                images={images.map((img, i) => ({
+                    src: `data:${img.mediaType};base64,${img.data}`,
+                    alt: `image output ${i + 1}`,
+                }))}
+            />
         </div>
     );
 }

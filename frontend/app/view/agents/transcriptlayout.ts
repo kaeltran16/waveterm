@@ -2,12 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Pure: how a transcript lays out. Tool actions become steps; a maximal run of steps is a stretch, broken by prose,
-// user entries, events and change cards; a finished turn's long stretch folds into "Worked for N"; a wsh change call
-// that succeeded leaves the stretch as a standalone card; Arc's own messages become arc items. A thought (a thinking-only
-// message), when the host draws them, sits inside the stretch around it, or alone where no step is beside it. No React.
+// user entries, events and change cards; a wsh change call that succeeded leaves the stretch as a standalone card; Arc's
+// own messages become arc items. A thought (a thinking-only message), when the host draws them, sits inside the stretch
+// around it, or alone where no step is beside it; thoughts with nothing between them merge into one. A finished turn's work, everything between its prompt and its final
+// reply, folds into one "Worked for N" turn item; a human-originated row or a turn-boundary event splits it. No React.
 
-import { CollapseRunThreshold, type AgentActionEntry, type AgentEntry } from "./agentsviewmodel";
+import type { AgentActionEntry, AgentEntry, ToolImage } from "./agentsviewmodel";
 import { arcMessageOf, type ArcMessage } from "./arcmessage";
+import { commandTitle } from "./commandtitle";
+import { classifyKind, splitAttachments } from "./composerattachments";
+import { placeMarks, type TimelineMark } from "./permissionmodel";
+import { toolRendererKey } from "./renderregistry";
 import type { TranscriptContext } from "./transcriptcontext";
 import { firstWshCall, isCardKey, type WshCall, type WshKey } from "./wshcall";
 
@@ -35,16 +40,20 @@ export interface Thought {
 export type LayoutItem =
     | { kind: "message"; text: string; index: number; latest: boolean }
     | { kind: "thought"; text: string; index: number }
-    | { kind: "user"; text: string; index: number }
+    // images: pasted; imagePaths/filePaths: the trailing attachments block's paths, split by kind
+    | { kind: "user"; text: string; index: number; images?: ToolImage[]; imagePaths?: string[]; filePaths?: string[] }
     | { kind: "command"; name: string; args?: string; isSkill?: boolean; index: number }
     | { kind: "compaction"; trigger?: string; preTokens?: number; postTokens?: number; summary?: string; index: number }
-    | { kind: "notification"; summary: string; status?: string; result?: string; index: number }
+    | { kind: "notification"; summary: string; status?: string; result?: string; notice?: true; index: number }
     | { kind: "interrupted"; index: number }
     | { kind: "shell"; command: string; stdout?: string; stderr?: string; ts?: number; index: number }
-    | { kind: "arc"; index: number; message: ArcMessage; ts?: number; idleMs?: number }
+    // latest: the feed's last wake, the only one that draws its sections open
+    | { kind: "arc"; index: number; message: ArcMessage; ts?: number; idleMs?: number; latest: boolean }
     // thoughts: the stretch's own, set only when it has some
-    | { kind: "steps"; startIndex: number; steps: Step[]; thoughts?: Thought[]; fold: FoldSummary | null }
-    | { kind: "card"; index: number; step: Step };
+    | { kind: "steps"; startIndex: number; steps: Step[]; thoughts?: Thought[] }
+    | { kind: "card"; index: number; step: Step }
+    // a finished turn's work, folded: its items in order. open: it starts open (a tool output card in the rendered view)
+    | { kind: "turn"; startIndex: number; items: LayoutItem[]; fold: FoldSummary; open: boolean };
 
 // the entry's own time: a record's ts, or an action's tool_use time
 function entryTime(e: AgentEntry | undefined): number | undefined {
@@ -75,17 +84,14 @@ function stepStatus(a: AgentActionEntry, interruptedLater: boolean): Step["statu
     return "ok";
 }
 
-// a typed prompt, an Arc message or a typed slash command starts a turn; a model's own Skill call is an action
-function startsTurn(e: AgentEntry): boolean {
-    return e.kind === "user" || e.kind === "command";
-}
-
-const COUNTED: Record<string, { one: string; many: string; verb: string }> = {
+// article: one reads "a <one>" rather than "1 <one>"
+const COUNTED: Record<string, { one: string; many: string; verb: string; article?: boolean }> = {
     ran: { verb: "ran", one: "command", many: "commands" },
     grep: { verb: "searched", one: "pattern", many: "patterns" },
     glob: { verb: "searched", one: "pattern", many: "patterns" },
     spawned: { verb: "spawned", one: "agent", many: "agents" },
     asked: { verb: "asked", one: "question", many: "questions" },
+    skill: { verb: "used", one: "skill", many: "skills", article: true },
 };
 // the verbs whose phrase names the one file they touched
 const FILE_VERBS = new Set(["read", "edited", "wrote"]);
@@ -116,7 +122,9 @@ function foldPhrase(steps: Step[]): string {
             }
             const counted = Object.values(COUNTED).find((c) => c.verb === kind);
             if (counted) {
-                return `${kind} ${plural(n, counted.one, counted.many)}`;
+                return n === 1 && counted.article
+                    ? `${kind} a ${counted.one}`
+                    : `${kind} ${plural(n, counted.one, counted.many)}`;
             }
             return `used ${plural(n, "other tool", "other tools")}`;
         })
@@ -131,18 +139,18 @@ function edgeEntry(entries: AgentEntry[], i: number, dir: 1 | -1): AgentEntry | 
     return entries[i];
 }
 
-// N runs from the entry before the stretch to the entry after it, else to the last step's end
-function foldDuration(entries: AgentEntry[], steps: Step[]): number | undefined {
-    const first = steps[0];
-    const last = steps[steps.length - 1];
-    const start = entryTime(edgeEntry(entries, first.index - 1, -1)) ?? entryTime(first.action);
-    const lastTs = entryTime(last.action);
-    const lastEnd = lastTs != null ? lastTs + (last.action.durationMs ?? 0) : undefined;
-    const end = entryTime(edgeEntry(entries, last.index + 1, 1)) ?? lastEnd;
+// N runs from the entry before the fold (its prompt) to the entry after it (its final reply), else to the last step's
+// end. first and last: the fold's entry range
+function foldDuration(entries: AgentEntry[], steps: Step[], first: number, last: number): number | undefined {
+    const lastStep = steps[steps.length - 1];
+    const start = entryTime(edgeEntry(entries, first - 1, -1)) ?? entryTime(steps[0].action);
+    const lastTs = entryTime(lastStep.action);
+    const lastEnd = lastTs != null ? lastTs + (lastStep.action.durationMs ?? 0) : undefined;
+    const end = entryTime(edgeEntry(entries, last + 1, 1)) ?? lastEnd;
     return start != null && end != null && end >= start ? end - start : undefined;
 }
 
-export function foldSummary(entries: AgentEntry[], steps: Step[]): FoldSummary {
+export function foldSummary(entries: AgentEntry[], steps: Step[], first: number, last: number): FoldSummary {
     let adds = 0;
     let dels = 0;
     for (const { action } of steps) {
@@ -154,7 +162,7 @@ export function foldSummary(entries: AgentEntry[], steps: Step[]): FoldSummary {
         }
     }
     return {
-        durationMs: foldDuration(entries, steps),
+        durationMs: foldDuration(entries, steps, first, last),
         phrase: foldPhrase(steps),
         adds,
         dels,
@@ -162,18 +170,157 @@ export function foldSummary(entries: AgentEntry[], steps: Step[]): FoldSummary {
     };
 }
 
-// thoughts: draw thought entries (the rendered view); without it they are skipped and break nothing
-export function layoutTranscript(
+export interface LayoutOpts {
+    // the agent is working, so its last turn is live and lays out unfolded
+    active: boolean;
+    ctx?: TranscriptContext;
+    // draw thought entries (the rendered view); without it they are skipped and break nothing
+    thoughts?: boolean;
+    // the rendered view: a turn holding a tool output card starts open
+    renderers?: boolean;
+    // the permission marks the host draws: each splits the finished turn it falls in
+    marks?: TimelineMark[];
+}
+
+export function layoutTranscript(entries: AgentEntry[], opts: LayoutOpts): LayoutItem[] {
+    return foldTurns(entries, layoutItems(entries, opts), opts);
+}
+
+// the items of a turn's work; every other kind is a prompt or a turn-boundary event, which stays outside and splits it
+const FOLDED_KINDS = new Set<LayoutItem["kind"]>(["message", "thought", "steps", "card", "notification"]);
+
+function isWork(item: LayoutItem): boolean {
+    return item.kind === "steps" || item.kind === "card";
+}
+
+// a typed prompt, an Arc message or a typed slash command starts a turn, unless it was queued while the agent worked; a
+// model's own Skill call is an action
+function startsTurn(entries: AgentEntry[], item: LayoutItem): boolean {
+    if (item.kind === "command") {
+        return true;
+    }
+    const e = item.kind === "user" || item.kind === "arc" ? entries[item.index] : undefined;
+    return e?.kind === "user" && !e.queued;
+}
+
+function itemStart(item: LayoutItem): number {
+    return "index" in item ? item.index : item.startIndex;
+}
+
+function itemEnd(item: LayoutItem): number {
+    if (item.kind === "steps") {
+        const lastThought = item.thoughts?.[item.thoughts.length - 1]?.index ?? -1;
+        return Math.max(item.steps[item.steps.length - 1].index, lastThought);
+    }
+    return itemStart(item);
+}
+
+function lastIndexOf(items: LayoutItem[], pred: (item: LayoutItem) => boolean): number {
+    for (let i = items.length - 1; i >= 0; i--) {
+        if (pred(items[i])) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+function turnItem(entries: AgentEntry[], items: LayoutItem[], opts: LayoutOpts): LayoutItem {
+    const steps = items.flatMap((i) => (i.kind === "steps" ? i.steps : i.kind === "card" ? [i.step] : []));
+    const first = itemStart(items[0]);
+    const toolCard = items.some((i) => i.kind === "steps" && i.steps.some((s) => toolRendererKey(s.action) != null));
+    return {
+        kind: "turn",
+        startIndex: first,
+        items,
+        fold: foldSummary(entries, steps, first, itemEnd(items[items.length - 1])),
+        open: !!opts.renderers && toolCard,
+    };
+}
+
+// a finished turn's items flat[from, to): its final reply, the last message with no step or card after it, stays out
+// with whatever follows it; the work before it folds, one fold per side of each row that stays outside
+function foldTurn(
     entries: AgentEntry[],
-    opts: { active: boolean; ctx?: TranscriptContext; threshold?: number; thoughts?: boolean }
+    flat: LayoutItem[],
+    from: number,
+    to: number,
+    splitAfter: Set<number>,
+    opts: LayoutOpts
 ): LayoutItem[] {
-    const threshold = opts.threshold ?? CollapseRunThreshold;
-    let turnStart = -1;
+    const range = flat.slice(from, to);
+    const lastWork = lastIndexOf(range, isWork);
+    const reply = lastIndexOf(range, (i) => i.kind === "message");
+    const stop = from + (reply > lastWork ? reply : range.length);
+    const out: LayoutItem[] = [];
+    let part: LayoutItem[] = [];
+    const close = () => {
+        // a part of prose and thoughts only draws as it is
+        if (part.some(isWork)) {
+            out.push(turnItem(entries, part, opts));
+        } else {
+            out.push(...part);
+        }
+        part = [];
+    };
+    for (let p = from; p < stop; p++) {
+        if (!FOLDED_KINDS.has(flat[p].kind)) {
+            close();
+            out.push(flat[p]);
+            continue;
+        }
+        part.push(flat[p]);
+        if (splitAfter.has(p)) {
+            close();
+        }
+    }
+    close();
+    out.push(...flat.slice(stop, to));
+    return out;
+}
+
+// folds every finished turn; while active, the last turn is live and stays as it is
+function foldTurns(entries: AgentEntry[], flat: LayoutItem[], opts: LayoutOpts): LayoutItem[] {
+    const starts = flat.flatMap((item, p) => (startsTurn(entries, item) ? [p] : []));
+    const liveFrom = opts.active ? (starts[starts.length - 1] ?? 0) : flat.length;
+    // a mark draws after the item holding the entry before it, so the turn splits there
+    const splitAfter = new Set(placeMarks(flat, opts.marks ?? []).after.keys());
+    const out: LayoutItem[] = [];
+    for (let from = 0; from < liveFrom; ) {
+        let to = from + 1;
+        while (to < liveFrom && !startsTurn(entries, flat[to])) {
+            to++;
+        }
+        out.push(...foldTurn(entries, flat, from, to, splitAfter, opts));
+        from = to;
+    }
+    out.push(...flat.slice(liveFrom));
+    return out;
+}
+
+// claude's stand-in for a pasted image in the prompt text; the thumbnail replaces it when the image came along. A
+// placeholder alone on its line takes the line with it
+const IMAGE_PLACEHOLDER = /^[ \t]*\[Image #\d+\][ \t]*(?:\r?\n|$)|[ \t]*\[Image #\d+\]/gm;
+
+// a prompt as drawn: pasted images under the text, and Arc's attachments block as thumbnails and file chips
+function userItem(e: Extract<AgentEntry, { kind: "user" }>, index: number): Extract<LayoutItem, { kind: "user" }> {
+    const hasImages = (e.images?.length ?? 0) > 0;
+    const { text, paths } = splitAttachments(hasImages ? e.text.replace(IMAGE_PLACEHOLDER, "") : e.text);
+    const item: Extract<LayoutItem, { kind: "user" }> = { kind: "user", text: text.trim(), index };
+    if (hasImages) item.images = e.images;
+    if (paths.length > 0) {
+        const isImage = (p: string) => classifyKind({ name: p, type: "" }) === "image";
+        item.imagePaths = paths.filter(isImage);
+        item.filePaths = paths.filter((p) => !isImage(p));
+    }
+    return item;
+}
+
+// the items as they come, unfolded
+function layoutItems(entries: AgentEntry[], opts: LayoutOpts): LayoutItem[] {
     let lastMessage = -1;
     let lastInterrupted = -1;
     let firstUser = -1;
     entries.forEach((e, i) => {
-        if (startsTurn(e)) turnStart = i;
         if (e.kind === "message") lastMessage = i;
         if (e.kind === "interrupted") lastInterrupted = i;
         if (e.kind === "user" && firstUser < 0) firstUser = i;
@@ -191,10 +338,8 @@ export function layoutTranscript(
             return;
         }
         const own = [...runThoughts, ...thoughts];
-        const live = opts.active && run[0].index > turnStart;
-        const fold = !live && run.length >= threshold ? foldSummary(entries, run) : null;
         const startIndex = Math.min(run[0].index, own[0]?.index ?? Infinity);
-        items.push({ kind: "steps", startIndex, steps: run, ...(own.length > 0 ? { thoughts: own } : {}), fold });
+        items.push({ kind: "steps", startIndex, steps: run, ...(own.length > 0 ? { thoughts: own } : {}) });
         run = [];
         thoughts = [];
         runThoughts = [];
@@ -203,7 +348,14 @@ export function layoutTranscript(
     let prevTime: number | undefined;
     entries.forEach((e, i) => {
         if (e.kind === "thought") {
-            if (opts.thoughts) {
+            if (!opts.thoughts) {
+                return;
+            }
+            // every pending thought came after the last step with nothing else between, so this one joins the last
+            const prev = thoughts[thoughts.length - 1];
+            if (prev) {
+                prev.text = `${prev.text}\n\n${e.text}`;
+            } else {
                 thoughts.push({ index: i, text: e.text });
             }
             return;
@@ -233,9 +385,9 @@ export function layoutTranscript(
                 const message = arcMessageOf(e, i === firstUser, opts.ctx);
                 if (message) {
                     const idleMs = e.ts != null && before != null ? e.ts - before : undefined;
-                    items.push({ kind: "arc", index: i, message, ts: e.ts, idleMs });
+                    items.push({ kind: "arc", index: i, message, ts: e.ts, idleMs, latest: false });
                 } else {
-                    items.push({ kind: "user", text: e.text, index: i });
+                    items.push(userItem(e, i));
                 }
                 return;
             }
@@ -253,7 +405,14 @@ export function layoutTranscript(
                 });
                 return;
             case "notification":
-                items.push({ kind: "notification", summary: e.summary, status: e.status, result: e.result, index: i });
+                items.push({
+                    kind: "notification",
+                    summary: e.summary,
+                    status: e.status,
+                    result: e.result,
+                    notice: e.notice,
+                    index: i,
+                });
                 return;
             case "interrupted":
                 items.push({ kind: "interrupted", index: i });
@@ -264,6 +423,10 @@ export function layoutTranscript(
         }
     });
     flush();
+    const lastWake = items[lastIndexOf(items, (it) => it.kind === "arc" && it.message.kind === "wake")];
+    if (lastWake?.kind === "arc") {
+        lastWake.latest = true;
+    }
     return items;
 }
 
@@ -322,7 +485,9 @@ export function stepTitle(action: AgentActionEntry): { title: string; mono?: str
                 break;
             }
             // the projection puts the description in target when there is one, else the command
-            return target && target !== command ? { title: target, mono: command } : { title: "", mono: command };
+            return target && target !== command
+                ? { title: target, mono: command }
+                : { title: commandTitle(command) ?? "", mono: command };
         }
         case "read":
         case "edited":

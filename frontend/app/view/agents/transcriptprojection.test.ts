@@ -1496,3 +1496,102 @@ describe("projectTranscript tool result images", () => {
         expect(out[0]).not.toHaveProperty("images");
     });
 });
+
+describe("projectTranscript pasted images", () => {
+    const L = (o: unknown) => JSON.stringify(o);
+    const img = (media_type = "image/png") => ({ type: "image", source: { type: "base64", media_type, data: "iVBOR" } });
+    const user = (content: unknown) => L({ type: "user", message: { content } });
+
+    it("attaches an image block to the user entry of its record", () => {
+        const out = projectTranscript([user([{ type: "text", text: "look [Image #1]" }, img()])]);
+        expect(out).toStrictEqual([
+            { kind: "user", text: "look [Image #1]", images: [{ mediaType: "image/png", data: "iVBOR" }] },
+        ]);
+    });
+
+    it("projects a record of an image alone as a user entry with empty text", () => {
+        const out = projectTranscript([user([img()])]);
+        expect(out).toStrictEqual([{ kind: "user", text: "", images: [{ mediaType: "image/png", data: "iVBOR" }] }]);
+    });
+
+    it("drops an image whose media type is not image/*", () => {
+        expect(projectTranscript([user([img("application/pdf")])])).toStrictEqual([]);
+        const out = projectTranscript([user([{ type: "text", text: "see" }, img("application/pdf")])]);
+        expect(out).toStrictEqual([{ kind: "user", text: "see" }]);
+    });
+
+    it("leaves images off a user entry with none", () => {
+        const out = projectTranscript([user([{ type: "text", text: "hi" }])]);
+        expect(out[0]).not.toHaveProperty("images");
+    });
+});
+
+describe("projectTranscript queued attachments", () => {
+    const L = (o: unknown) => JSON.stringify(o);
+    const queued = (attachment: object, timestamp = "2026-05-01T10:00:00.000Z") =>
+        L({ type: "attachment", timestamp, attachment: { type: "queued_command", ...attachment } });
+
+    it("projects a queued prompt as a queued user entry at its place", () => {
+        const out = projectTranscript([
+            L({ type: "assistant", message: { content: [{ type: "text", text: "working" }] } }),
+            queued({ commandMode: "prompt", prompt: "land them" }),
+            L({ type: "assistant", message: { content: [{ type: "text", text: "landed" }] } }),
+        ]);
+        expect(out.map((e) => e.kind)).toEqual(["message", "user", "message"]);
+        expect(out[1]).toStrictEqual({
+            kind: "user",
+            text: "land them",
+            queued: true,
+            ts: Date.parse("2026-05-01T10:00:00.000Z"),
+        });
+    });
+
+    it("takes ts from the attachment's timestamp over the record's", () => {
+        const attachmentTs = "2026-05-01T11:30:00.000Z";
+        const out = projectTranscript([
+            queued({ commandMode: "prompt", prompt: "go", timestamp: attachmentTs }, "2026-05-01T10:00:00.000Z"),
+        ]);
+        expect(out[0]).toMatchObject({ kind: "user", ts: Date.parse(attachmentTs) });
+    });
+
+    it("falls back to the record's timestamp when the attachment has none", () => {
+        const recordTs = "2026-05-01T10:00:00.000Z";
+        const out = projectTranscript([queued({ commandMode: "prompt", prompt: "go" }, recordTs)]);
+        expect(out[0]).toMatchObject({ kind: "user", ts: Date.parse(recordTs) });
+    });
+
+    it("unwraps pasted content in a queued prompt", () => {
+        const wrapped = '<pasted_content id="p1">\nfix it\n</pasted_content id="p1">';
+        const out = projectTranscript([queued({ commandMode: "prompt", prompt: wrapped })]);
+        expect(out[0]).toMatchObject({ kind: "user", text: "fix it", queued: true });
+    });
+
+    it("projects a structured task-notification as a notice", () => {
+        const prompt =
+            "<task-notification><task-id>b1</task-id><summary>Background command finished</summary><status>completed</status></task-notification>";
+        const out = projectTranscript([queued({ commandMode: "task-notification", prompt })]);
+        expect(out).toStrictEqual([
+            { kind: "notification", summary: "Background command finished", status: "completed", notice: true },
+        ]);
+    });
+
+    it("takes the text inside the tag of a free-text task-notification as the summary", () => {
+        const prompt = "<task-notification>arc-skim: its prompt.compose hook was skipped</task-notification>";
+        const out = projectTranscript([queued({ commandMode: "task-notification", prompt })]);
+        expect(out).toStrictEqual([
+            { kind: "notification", summary: "arc-skim: its prompt.compose hook was skipped", notice: true },
+        ]);
+    });
+
+    it("projects nothing for any other command mode or a non-queued attachment", () => {
+        expect(projectTranscript([queued({ commandMode: "bash", prompt: "ls" })])).toStrictEqual([]);
+        expect(
+            projectTranscript([L({ type: "attachment", attachment: { type: "hook_success", prompt: "x" } })])
+        ).toStrictEqual([]);
+    });
+
+    it("projects nothing for a queued prompt with no text", () => {
+        expect(projectTranscript([queued({ commandMode: "prompt", prompt: "  " })])).toStrictEqual([]);
+        expect(projectTranscript([queued({ commandMode: "prompt" })])).toStrictEqual([]);
+    });
+});

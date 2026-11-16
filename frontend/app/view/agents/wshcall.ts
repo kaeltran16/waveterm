@@ -149,16 +149,39 @@ const GROUPS: ReadonlySet<string> = new Set(
     })
 );
 
+// a word that still holds a variable or a command substitution after expansion: the call's real id is unknown
+const UNRESOLVED = /[$`]/;
+// flags whose value a card shows but never fetches by (jarvis complete's sha), so a substitution there is harmless
+const SHOWN_FLAGS: ReadonlySet<string> = new Set(["commit"]);
+
+function isUnresolved(call: WshCall): boolean {
+    return (
+        call.args.some((a) => UNRESOLVED.test(a)) ||
+        Object.entries(call.flags).some(
+            ([name, v]) => !SHOWN_FLAGS.has(name) && typeof v === "string" && UNRESOLVED.test(v)
+        )
+    );
+}
+
+// an unresolved card call is the generic change row (argv, timing, output; no fetch); an unresolved view call has no key
 export function wshKey(call: WshCall): WshKey | null {
     const chain = call.path.join(" ");
-    return Object.prototype.hasOwnProperty.call(KEYS, chain) ? KEYS[chain] : null;
+    if (!Object.prototype.hasOwnProperty.call(KEYS, chain)) {
+        return null;
+    }
+    const key = KEYS[chain];
+    if (!isUnresolved(call)) {
+        return key;
+    }
+    return isCardKey(key) ? OTHER : null;
 }
 
 export function isCardKey(key: WshKey): key is WshCardKey {
     return !VIEW_KEYS.has(key);
 }
 
-type Token = { kind: "word"; text: string } | { kind: "sep" };
+// redir: a redirection's operator and its target word; a heredoc's target is its delimiter
+export type Token = { kind: "word"; text: string } | { kind: "sep" } | { kind: "redir"; op: string; target: string };
 
 const SEP_CHARS = new Set([";", "&", "|", "\n", "(", ")"]);
 const SPACE = /[ \t\r]/;
@@ -178,8 +201,8 @@ const COMMAND_PREFIXES: ReadonlySet<string> = new Set([
 ]);
 const FD_PREFIX = /^\d+$/;
 
-// shell words and command separators; a redirection and its target are dropped, a heredoc body is skipped
-function tokenize(src: string): Token[] {
+// shell words, command separators and redirections; a heredoc body is skipped
+export function tokenize(src: string): Token[] {
     const out: Token[] = [];
     const heredocs: { delim: string; strip: boolean }[] = [];
     let word = "";
@@ -262,7 +285,9 @@ function tokenize(src: string): Token[] {
             i += 2;
             const strip = src[i] === "-";
             if (strip) i++;
-            heredocs.push({ delim: readWord(), strip });
+            const delim = readWord();
+            heredocs.push({ delim, strip });
+            out.push({ kind: "redir", op: strip ? "<<-" : "<<", target: delim });
         } else if (c === "<" || c === ">" || (c === "&" && src[i + 1] === ">")) {
             // a bare fd number before the operator (2>&1) belongs to the redirection
             if (inWord && FD_PREFIX.test(word)) {
@@ -270,8 +295,10 @@ function tokenize(src: string): Token[] {
                 inWord = false;
             }
             flush();
+            const opStart = i;
             while (i < src.length && "<>&|".includes(src[i])) i++;
-            readWord();
+            const op = src.slice(opStart, i);
+            out.push({ kind: "redir", op, target: readWord() });
         } else if (SEP_CHARS.has(c)) {
             flush();
             if (out.at(-1)?.kind !== "sep") out.push({ kind: "sep" });
@@ -333,8 +360,16 @@ function parseArgv(words: string[]): WshCall {
     return { path, args, flags };
 }
 
+const VAR_REF = /\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))/g;
+
+// $NAME and ${NAME} for every assigned NAME, in one pass so a value is never expanded again
+function expandVars(word: string, vars: ReadonlyMap<string, string>): string {
+    return word.replace(VAR_REF, (ref, braced, bare) => vars.get(braced ?? bare) ?? ref);
+}
+
 export function parseWshCalls(command: string): WshCall[] {
     const calls: WshCall[] = [];
+    const vars = new Map<string, string>();
     let commandWords: string[] | null = null; // the current simple command's words once its command word is wsh
     let atCommand = true;
     const end = () => {
@@ -345,10 +380,17 @@ export function parseWshCalls(command: string): WshCall[] {
     for (const t of tokenize(command)) {
         if (t.kind === "sep") {
             end();
+        } else if (t.kind === "redir") {
+            continue;
         } else if (commandWords) {
-            commandWords.push(t.text);
+            commandWords.push(expandVars(t.text, vars));
         } else if (atCommand) {
-            if (ASSIGNMENT.test(t.text) || COMMAND_PREFIXES.has(t.text)) {
+            if (ASSIGNMENT.test(t.text)) {
+                const eq = t.text.indexOf("=");
+                vars.set(t.text.slice(0, eq), expandVars(t.text.slice(eq + 1), vars));
+                continue;
+            }
+            if (COMMAND_PREFIXES.has(t.text) || t.text === "export") {
                 continue;
             }
             atCommand = false;

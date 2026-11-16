@@ -30,10 +30,15 @@ export interface NarrationFeedFixtureOpts {
     // permission marks, drawn as the rendered view draws its answered requests
     marks?: TimelineMark[];
     renderers?: boolean;
+    // draws thoughts, as the rendered view does
+    thoughts?: boolean;
     seed?: Record<string, unknown>;
     runEvents?: Record<string, RunEvent[]>;
     // drawn as the timeline's tail, as a working host draws it
     nowLine?: NowLine;
+    // as Sessions detail draws a whole session, and a find over it
+    renderAll?: boolean;
+    unfold?: boolean;
 }
 
 interface ModalProps {
@@ -44,7 +49,10 @@ interface ModalProps {
     compact?: boolean;
     active?: boolean;
     renderers?: boolean;
+    thoughts?: boolean;
     nowLine?: NowLine;
+    renderAll?: boolean;
+    unfold?: boolean;
 }
 
 export function NarrationFeedFixtureModal({
@@ -54,8 +62,11 @@ export function NarrationFeedFixtureModal({
     compact,
     active,
     renderers,
+    thoughts,
     marks,
     nowLine,
+    renderAll,
+    unfold,
 }: ModalProps) {
     return (
         <ModalShell open onClose={() => modalsModel.popModal()}>
@@ -64,9 +75,12 @@ export function NarrationFeedFixtureModal({
                     entries={entries}
                     active={!!active}
                     renderers={renderers}
+                    thoughts={thoughts}
                     marks={marks}
                     ctx={ctx}
                     compact={compact}
+                    renderAll={renderAll}
+                    unfold={unfold}
                     tail={nowLine ? <WorkingLine line={nowLine} compact={compact} /> : undefined}
                 />
             </div>

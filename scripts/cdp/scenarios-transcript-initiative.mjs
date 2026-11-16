@@ -1,8 +1,9 @@
 // Scenario `transcript-initiative`: wsh effort cards and views in a transcript (wshcards-initiative.tsx). The effort
-// show and list calls open to a structured view; chunk and initiative changes draw as cards outside the fold. The
+// show and list calls open to a structured view; chunk and initiative changes draw as cards inside their turn's fold,
+// never inside a step box. The
 // effort data is seeded into the wshdata cache, so no initiative is created or changed in the live app.
 
-import { bash, clearTranscript, prose, ROOT, showTranscript, tool, user, waitSeam } from "./transcript-fixture.mjs";
+import { bash, clearTranscript, openFolds, prose, ROOT, showTranscript, tool, user, waitSeam } from "./transcript-fixture.mjs";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -191,6 +192,33 @@ export const fixtures = {
         ],
         seed: { "effort:siem1748": SIEM },
     },
+    "var-resolved": {
+        entries: [
+            user("tick chunk 1 through a variable", T0),
+            bash({
+                description: "Tick chunk 1",
+                command: `E=${EID} && ${cmd('chunk status $E 1 done --note "id came from a variable"')}`,
+                output: "ok",
+                ts: T0 + 2 * S,
+                durationMs: 250,
+            }),
+            prose("Chunk 1 is done.", T0 + 4 * S),
+        ],
+        seed: { [`effort:${EID}`]: renderParity() },
+    },
+    "var-unresolved": {
+        entries: [
+            user("tick chunk 1, the id is set elsewhere", T0),
+            bash({
+                description: "Tick chunk 1",
+                command: cmd('chunk status $E 1 done --note "id came from a variable"'),
+                output: "ok",
+                ts: T0 + 2 * S,
+                durationMs: 250,
+            }),
+            prose("Chunk 1 is done.", T0 + 4 * S),
+        ],
+    },
     "unknown-effort": {
         entries: [
             user("tick chunk 3 on the old initiative", T0),
@@ -218,7 +246,8 @@ const CARD = (key) =>
     const cards = [...root.querySelectorAll('[data-wsh-card="${key}"]')];
     return cards.map((c) => ({
         text: c.textContent,
-        inFold: !!c.closest('[data-steps]'),
+        inBox: !!c.closest('[data-steps]'),
+        inFold: !!c.closest('[data-turn-fold]'),
         showCommand: !!c.querySelector('button[aria-label="Show the command"]'),
         open: [...c.querySelectorAll('button')].some((b) => b.textContent.trim() === 'Open'),
         overflow: c.scrollWidth > c.clientWidth + 1,
@@ -230,8 +259,10 @@ async function openStep(h) {
     await sleep(MOTION_MS);
 }
 
+// every fixture is a finished turn, so its steps and cards sit behind the turn's fold
 async function show(h, name, width, extra = {}) {
     await showTranscript(h, { width, ...fixtures[name], ...extra });
+    await openFolds(h);
 }
 
 async function steps736(h) {
@@ -283,12 +314,13 @@ async function steps736(h) {
     const done = await h.ev(CARD("chunk-status"));
     await h.shot("cdp-shots/transcript-initiative-chunk-done.png");
     out.push({
-        step: "Chunk done card outside the fold with progress, the note, its duration and the command one click away",
+        step: "Chunk done card inside its turn's fold, outside any step box, with progress, the note, its duration and the command one click away",
         ok:
             folded != null &&
             folded.startsWith("Worked") &&
             done?.length === 1 &&
-            done[0].inFold === false &&
+            done[0].inFold === true &&
+            done[0].inBox === false &&
             done[0].text.includes("Chunk done") &&
             done[0].text.includes(`1. ${LABELS[0]}`) &&
             done[0].text.includes("A docked ask no longer draws a permission band too.") &&
@@ -456,6 +488,36 @@ async function stepUnknown(h) {
     ];
 }
 
+async function stepShellVariable(h) {
+    await show(h, "var-resolved", 736);
+    const resolved = await h.ev(CARD("chunk-status"));
+    await h.shot("cdp-shots/transcript-initiative-var-resolved.png");
+    await show(h, "var-unresolved", 736);
+    // an unresolved id never fetches; a wrongly keyed card would already be in the DOM
+    await sleep(MOTION_MS);
+    const card = await h.ev(CARD("chunk-status"));
+    const generic = await h.ev(probe(`
+        const rows = [...root.querySelectorAll('[data-wsh-change="effort chunk status"]')];
+        return { rows: rows.length, text: rows.map((r) => r.textContent), rootText: root.textContent };
+    `));
+    await h.shot("cdp-shots/transcript-initiative-var-unresolved.png");
+    return [
+        {
+            step: "a resolved $E call draws the initiative card for that id; an unresolved one draws the generic change row with no load error",
+            ok:
+                resolved?.length === 1 &&
+                resolved[0].text.includes("Chunk done") &&
+                resolved[0].text.includes(`1. ${LABELS[0]}`) &&
+                !resolved[0].text.includes("Couldn't load") &&
+                card?.length === 0 &&
+                generic?.rows === 1 &&
+                generic.text[0].includes("wsh effort chunk status") &&
+                !generic.rootText.includes("Couldn't load"),
+            detail: JSON.stringify({ resolved, card, generic: generic && { rows: generic.rows, text: generic.text } }),
+        },
+    ];
+}
+
 export const transcriptInitiative = {
     name: "transcript-initiative",
     surface: "cockpit",
@@ -471,6 +533,7 @@ export const transcriptInitiative = {
         steps.push(...(await stepShowJson(h)));
         steps.push(...(await stepShowCommand(h)));
         steps.push(...(await stepUnknown(h)));
+        steps.push(...(await stepShellVariable(h)));
         return steps;
     },
     async teardown(h) {

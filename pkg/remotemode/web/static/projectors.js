@@ -546,6 +546,15 @@ function applyBashRecord(entries, content, rec) {
   }
   return true;
 }
+function parseNotice(prompt) {
+  const structured = prompt.includes("<summary>") ? parseTaskNotification(prompt) : null;
+  if (structured != null) {
+    return { ...structured, notice: true };
+  }
+  const m = /<task-notification>([^]*?)<\/task-notification>/.exec(prompt);
+  const summary = (m ? m[1] : prompt).trim();
+  return summary !== "" ? { kind: "notification", summary, notice: true } : null;
+}
 var PASTED_CONTENT_RE = /<pasted_content id="[^"]+">\n?([^]*?)\n?<\/pasted_content id="[^"]+">/g;
 function unwrapPasted(text) {
   return text.replace(PASTED_CONTENT_RE, "$1");
@@ -553,6 +562,17 @@ function unwrapPasted(text) {
 function recTs(rec) {
   const ts = typeof rec.timestamp === "string" ? Date.parse(rec.timestamp) : NaN;
   return Number.isFinite(ts) ? { ts } : {};
+}
+function queuedEntry(rec) {
+  const att = rec.attachment;
+  const prompt = typeof att.prompt === "string" ? att.prompt : "";
+  if (att.commandMode === "task-notification") {
+    return parseNotice(prompt);
+  }
+  if (att.commandMode !== "prompt" || prompt.trim() === "") {
+    return null;
+  }
+  return { kind: "user", text: unwrapPasted(prompt), queued: true, ...recTs({ timestamp: att.timestamp ?? rec.timestamp }) };
 }
 function mergeCompaction(entries, patch) {
   const last = entries[entries.length - 1];
@@ -692,6 +712,7 @@ function projectTranscriptRecords(records) {
       if (!Array.isArray(content)) {
         continue;
       }
+      const firstEntry = entries.length;
       for (const block of content) {
         if (block?.type === "text" && typeof block.text === "string" && block.text.trim() !== "") {
           entries.push(
@@ -708,9 +729,9 @@ function projectTranscriptRecords(records) {
         }
         action._done = true;
         const body = toolResultText(block.content);
-        const images = toolResultImages(block.content);
-        if (images.length > 0) {
-          action.images = images;
+        const images2 = toolResultImages(block.content);
+        if (images2.length > 0) {
+          action.images = images2;
         }
         const tool = action._tool;
         const blocked = tool === "Bash" && block.is_error === true && bashNeverRan(body);
@@ -749,6 +770,22 @@ function projectTranscriptRecords(records) {
         } else if (action.verb === "ran") {
           action.outcome = "ok";
         }
+      }
+      const images = toolResultImages(content);
+      if (images.length > 0) {
+        const own = entries.slice(firstEntry).find((e) => e.kind === "user");
+        if (own != null && own.kind === "user") {
+          own.images = images;
+        } else {
+          entries.push({ kind: "user", text: "", images, ...recTs(rec) });
+        }
+      }
+      continue;
+    }
+    if (rec.type === "attachment" && rec.attachment?.type === "queued_command") {
+      const entry = queuedEntry(rec);
+      if (entry != null) {
+        entries.push(entry);
       }
       continue;
     }

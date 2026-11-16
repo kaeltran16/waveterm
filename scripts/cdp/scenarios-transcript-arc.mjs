@@ -1,6 +1,6 @@
 // Scenario `transcript-arc`: Arc's own messages in a transcript (arcmessagerow.tsx): the run and task briefs, the
 // lead's wakes (plan review, a worker's question, recovery, Final failed, run finished, an unknown one), the Waited
-// fold before a wake, the brainstorm judge's result, pane actions and the builder check, a pane pick left as the
+// fold before a wake, an earlier wake's sections closed under the latest one's open, the brainstorm judge's result, pane actions and the builder check, a pane pick left as the
 // human's bubble, and compact wakes at 380 px.
 
 import { clearTranscript, prose, ROOT, showTranscript, user, waitSeam } from "./transcript-fixture.mjs";
@@ -286,6 +286,18 @@ async function show(h, name) {
     return (await h.ev(MESSAGES)) ?? [];
 }
 
+// only the latest wake starts open; opens every earlier one's sections, for a step that reads their bodies
+const OPEN_WAKES = probe(
+    `const heads = [...root.querySelectorAll('[data-wake-part] button[aria-expanded="false"]')]; heads.forEach((b) => b.click()); return heads.length;`
+);
+
+async function showOpen(h, name) {
+    await show(h, name);
+    await h.ev(OPEN_WAKES);
+    await sleep(CLICK_SETTLE_MS);
+    return (await h.ev(MESSAGES)) ?? [];
+}
+
 const hasAll = (text, parts) => parts.every((p) => text.includes(p));
 
 export const transcriptArc = {
@@ -328,7 +340,7 @@ export const transcriptArc = {
             detail: JSON.stringify(task),
         });
 
-        const plan = await show(h, "planReview");
+        const plan = await showOpen(h, "planReview");
         await h.shot("cdp-shots/transcript-arc-plan-review.png");
         const [failed, next] = plan;
         steps.push({
@@ -352,7 +364,7 @@ export const transcriptArc = {
             detail: JSON.stringify(ask),
         });
 
-        const recovery = await show(h, "recovery");
+        const recovery = await showOpen(h, "recovery");
         await h.shot("cdp-shots/transcript-arc-recovery.png");
         const kinds = recovery.map((m) => m.parts[0]);
         steps.push({
@@ -366,7 +378,7 @@ export const transcriptArc = {
             detail: JSON.stringify(recovery),
         });
 
-        const olds = await show(h, "finalFail");
+        const olds = await showOpen(h, "finalFail");
         await h.shot("cdp-shots/transcript-arc-final-failed-old.png");
         steps.push({
             step: "an old Final-failed wake (no commit, no total): Final failed with its round and defects, never a guessed total",
@@ -379,7 +391,24 @@ export const transcriptArc = {
             detail: JSON.stringify(olds),
         });
 
-        const finals = await show(h, "finalFailEngine");
+        const past = await show(h, "finalFailEngine");
+        await h.shot("cdp-shots/transcript-arc-past-wake.png");
+        steps.push({
+            step: "two wakes: the earlier one's head shows with its sections closed, the latest one's sections open",
+            ok:
+                past.length === 2 &&
+                hasAll(past[0].text, ["Final failed", "round 1 of 3", `on the merged result ${FINAL_SHA}`]) &&
+                past[0].expanded.includes("false") &&
+                !past[0].expanded.includes("true") &&
+                past[0].defects === 0 &&
+                !past[0].text.includes(DEFECT_1) &&
+                past[1].expanded.includes("true") &&
+                past[1].defects === 1 &&
+                past[1].text.includes(DEFECT_LAST),
+            detail: JSON.stringify(past),
+        });
+
+        const finals = await showOpen(h, "finalFailEngine");
         await h.shot("cdp-shots/transcript-arc-final-failed.png");
         steps.push({
             step: "Final failed round 1 and the last round: each with the engine's total and commit, its defects opened, and Shots",
@@ -466,7 +495,7 @@ export const transcriptArc = {
             detail: JSON.stringify(unknown),
         });
 
-        const compact = await show(h, "compactWakes");
+        const compact = await showOpen(h, "compactWakes");
         await h.shot("cdp-shots/transcript-arc-compact.png");
         steps.push({
             step: "compact wakes at 380 px: the first finding and how many more, a composed wake one row per line, nothing overflows",

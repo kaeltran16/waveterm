@@ -3,7 +3,7 @@
 // card (and one that did not load), the judge weighing and done, and the note as a row at 380 px.
 
 import { APP_MOD } from "./scenarios-shared.mjs";
-import { bash, clearTranscript, prose, ROOT, showTranscript, user, waitSeam } from "./transcript-fixture.mjs";
+import { bash, clearTranscript, openFolds, prose, ROOT, showTranscript, user, waitSeam } from "./transcript-fixture.mjs";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const T0 = Date.UTC(2026, 10, 16, 9, 0, 0);
@@ -182,6 +182,8 @@ export async function showFixture(h, nameOrFixture, width = WIDE) {
     const at = Date.now() - JUDGE_AGE_MS;
     const stamped = entries.map((e) => (e.ts === JUDGE_TS ? { ...e, ts: at } : e));
     await showTranscript(h, { ...fixture, entries: stamped, width: own ?? width, active: false, renderers: true });
+    // every fixture is a finished turn, so its steps and cards sit behind the turn's fold
+    await openFolds(h);
 }
 
 const probe = (body) => `(() => { const root = document.querySelector(${JSON.stringify(ROOT)}); if (!root) return null; ${body} })()`;
@@ -192,7 +194,8 @@ const NOTE_CARDS = probe(`
     ${textOf}
     return [...root.querySelectorAll('[data-note-card]')].map((el) => ({
         text: textOf(el),
-        inFold: !!el.closest('[data-steps]'),
+        inBox: !!el.closest('[data-steps]'),
+        inFold: !!el.closest('[data-turn-fold]'),
         facts: !!el.querySelector('button[aria-label="Show the command"]'),
         duration: !!el.querySelector('.font-mono.text-ink-faint'),
         link: !!el.querySelector('button[aria-label="Open note"]'),
@@ -227,7 +230,8 @@ const JUDGE_CARD = probe(`
     return {
         state: el.getAttribute('data-judge-card'),
         text: textOf(el),
-        inFold: !!el.closest('[data-steps]'),
+        inBox: !!el.closest('[data-steps]'),
+        inFold: !!el.closest('[data-turn-fold]'),
         facts: !!el.querySelector('button[aria-label="Show the command"]'),
         spinner: !!el.querySelector('[role="img"][aria-label="Weighing"]'),
         elapsed: el.querySelector('[data-judge-elapsed]')?.textContent ?? null,
@@ -263,7 +267,7 @@ export const transcriptNotes = {
         await h.shot("cdp-shots/transcript-notes-saved-note.png");
         const saved = ((await h.ev(NOTE_CARDS)) ?? [])[0];
         steps.push({
-            step: "Saved a note with its bullets: the title, the first bullets from the note's record with their lead-in bright, Open note and the call's facts, outside the fold",
+            step: "Saved a note with its bullets: the title, the first bullets from the note's record with their lead-in bright, Open note and the call's facts, inside the turn's fold but no step box",
             ok:
                 saved != null &&
                 hasAll(saved.text, ["Saved a note", NOTE_TITLE, "Open note"]) &&
@@ -273,7 +277,8 @@ export const transcriptNotes = {
                 saved.link === true &&
                 saved.facts === true &&
                 saved.duration === true &&
-                saved.inFold === false &&
+                saved.inFold === true &&
+                saved.inBox === false &&
                 saved.overflows === false,
             detail: JSON.stringify(saved),
         });
@@ -352,14 +357,15 @@ export const transcriptNotes = {
         await h.shot("cdp-shots/transcript-notes-judge-weighing.png");
         const weighing = await h.ev(JUDGE_CARD);
         steps.push({
-            step: "Judge started, weighing: question 3, five approaches, the spinner with the elapsed since the call, the question as body, outside the fold",
+            step: "Judge started, weighing: question 3, five approaches, the spinner with the elapsed since the call, the question as body, inside the turn's fold but no step box",
             ok:
                 weighing?.state === "weighing" &&
                 hasAll(weighing.text, ["Judge started", "question 3", "5 approaches", "weighing", QUESTION_TEXT]) &&
                 weighing.spinner === true &&
                 /^ \u00b7 1m \d{2}s$/.test(weighing.elapsed ?? "") &&
                 weighing.facts === true &&
-                weighing.inFold === false,
+                weighing.inFold === true &&
+                weighing.inBox === false,
             detail: JSON.stringify(weighing),
         });
 
