@@ -1832,6 +1832,102 @@ export default function (_kit) {
                         await h.rpc("setclaudelivecommands", { blockid: ctx.pBlock, commands: [] });
                     }
                 });
+
+                await step("rendered: bash mode — ! in P's empty box turns on the ! Bash cue (mono, accent border, no attach button) with an empty box and the tray kept; echo hi + Enter types !, the bracketed paste and \\r into the pty with no attachment path, then empties the box and leaves the mode; ! then Backspace leaves it; Esc leaves it and types no ESC", async () => {
+                    const BOX = `${RV}?.querySelector("[data-rendered-composer] [data-composer-box]")`;
+                    const TA = `${BOX}?.querySelector("textarea")`;
+                    const BASH_ON = `${BOX}?.hasAttribute("data-bash-mode") === true`;
+                    const press = (key) =>
+                        h.ev(`(() => {
+                            const ta = ${TA};
+                            if (!ta) return false;
+                            ta.focus();
+                            ta.dispatchEvent(new KeyboardEvent("keydown", { key: ${JSON.stringify(key)}, code: ${JSON.stringify(key)}, bubbles: true, cancelable: true }));
+                            return true;
+                        })()`);
+                    await focus(ctx.pId);
+                    const ready = await ensureRendered();
+                    // a ready attachment in the tray must stay there and stay out of the command
+                    const taken = await h.ev(pasteOnComposer("rendered-bash.png"));
+                    const uploaded = await wait(`${COMPOSER_CHIPS}.some((c) => c.getAttribute("data-attachment-chip") === "ready")`);
+                    const path = await h.ev(`${COMPOSER_CHIPS}[0]?.getAttribute("data-attachment-path") ?? null`);
+                    if (path) ctx.tempFiles.push(path);
+                    try {
+                        await typeComposer(h, "!");
+                        const on = await wait(`${BASH_ON} && ${TA}?.value === ""`);
+                        const cue = await h.ev(`(() => {
+                            const box = ${BOX};
+                            const ta = ${TA};
+                            if (!box || !ta) return null;
+                            // the accent as the theme resolves it, read off a throwaway element
+                            const probe = document.createElement("div");
+                            probe.className = "border border-accent";
+                            box.appendChild(probe);
+                            const accent = getComputedStyle(probe).borderTopColor;
+                            probe.remove();
+                            return {
+                                label: box.querySelector("[data-bash-label]")?.textContent ?? null,
+                                mono: /mono/i.test(getComputedStyle(ta).fontFamily),
+                                border: getComputedStyle(box).borderTopColor === accent,
+                                attach: box.querySelector("[data-attach-files]") != null,
+                                placeholder: ta.placeholder,
+                                panels: box.querySelector("[data-slash-panel], [data-mention-panel]") != null,
+                            };
+                        })()`);
+                        await h.shot(SHOT(31, "bash-mode"));
+
+                        await typeComposer(h, "echo hi");
+                        const from = probeLines(ctx).length;
+                        await press("Enter");
+                        const paste = "\x1b[200~echo hi\x1b[201~";
+                        const decoded = await waitDecoded(ctx, from, ["!", paste, "\r"]);
+                        const bang = decoded.text.indexOf("!");
+                        const at = decoded.text.indexOf(paste, bang);
+                        const ordered = bang >= 0 && at > bang && decoded.text.indexOf("\r", at) > at;
+                        const sent = await wait(`${TA}?.value === "" && !(${BASH_ON})`);
+                        const kept = await h.ev(`${COMPOSER_CHIPS}.some((c) => c.getAttribute("data-attachment-chip") === "ready")`);
+                        await h.shot(SHOT(31, "bash-sent"));
+
+                        await typeComposer(h, "!");
+                        const onAgain = await wait(BASH_ON);
+                        await press("Backspace");
+                        const backspaced = await wait(`!(${BASH_ON}) && ${TA}?.value === ""`);
+
+                        await typeComposer(h, "!");
+                        const onThird = await wait(BASH_ON);
+                        const escFrom = probeLines(ctx).length;
+                        await press("Escape");
+                        const escaped = await wait(`!(${BASH_ON})`);
+                        await sleep(HOLD_MS);
+                        const escTyped = probeLines(ctx).slice(escFrom).includes(ESC);
+                        const ok =
+                            ready &&
+                            taken === true &&
+                            uploaded &&
+                            path != null &&
+                            on &&
+                            cue?.label === "! Bash" &&
+                            cue.mono &&
+                            cue.border &&
+                            !cue.attach &&
+                            !cue.panels &&
+                            ordered &&
+                            !decoded.text.includes(path) &&
+                            sent &&
+                            kept &&
+                            onAgain &&
+                            backspaced &&
+                            onThird &&
+                            escaped &&
+                            !escTyped;
+                        return [ok, { ready, taken, uploaded, path, on, cue, input: JSON.stringify(decoded.text.slice(-200)), ordered, sent, kept, onAgain, backspaced, onThird, escaped, escTyped }];
+                    } finally {
+                        await h.ev(`${COMPOSER_CHIPS}.forEach((c) => c.querySelector('button[title="Remove"]')?.click())`);
+                        await typeComposer(h, "");
+                        // a failed check can leave the mode on; Backspace on the empty box turns it off
+                        if (await h.ev(BASH_ON)) await press("Backspace");
+                    }
+                });
                 return steps;
             },
             // best-effort, so one failed step does not strand the rest

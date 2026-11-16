@@ -52,17 +52,21 @@ export type ComposerBox = {
     live: boolean;
 };
 
-// the message box's state from the agent's: which placeholder, whether Send is held, whether a turn can be stopped
-export function composerBox(agent: AgentVM, hasTranscript: boolean): ComposerBox {
+export const BASH_PLACEHOLDER = "Run a shell command; its output joins the transcript";
+
+// the message box's state from the agent's: which placeholder, whether Send is held, whether a turn can be stopped.
+// bash: the box is in ! bash mode, which changes only the placeholder
+export function composerBox(agent: AgentVM, hasTranscript: boolean, bash = false): ComposerBox {
     const askBlocks = askDocked(agent);
     const working = agent.state === "working";
     const kind = working ? "working" : hasTranscript ? "idle" : "new";
-    const placeholder =
-        kind === "working"
-            ? "Steer the agent; it reads this before its next step"
-            : kind === "idle"
-              ? `Reply to ${agent.name}, @ to mention, / for commands`
-              : `Message ${agent.name}, @ to mention, / for commands`;
+    const placeholder = bash
+        ? BASH_PLACEHOLDER
+        : kind === "working"
+          ? "Steer the agent; it reads this before its next step"
+          : kind === "idle"
+            ? `Reply to ${agent.name}, @ to mention, / for commands`
+            : `Message ${agent.name}, @ to mention, / for commands`;
     return { kind, placeholder, askBlocks, live: working || askBlocks };
 }
 

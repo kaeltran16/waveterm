@@ -66,6 +66,8 @@ export interface UseAgentComposerOpts {
     compose?: (text: string) => string;
     onSent?: () => void;
     attachments?: Attachment[];
+    // how the text goes out (bash mode runs it in the shell); default sendAgentText
+    send?: (blockId: string, text: string) => Promise<void>;
 }
 
 export interface UseAgentComposer {
@@ -86,6 +88,7 @@ export function useAgentComposer({
     compose,
     onSent,
     attachments,
+    send: deliver = sendAgentText,
 }: UseAgentComposerOpts): UseAgentComposer {
     const [text, setText] = useState("");
     const taRef = useRef<HTMLTextAreaElement>(null);
@@ -116,7 +119,7 @@ export function useAgentComposer({
                     setText((cur) => (cur === typed ? "" : cur));
                     onSent?.();
                 },
-                sendAgentText,
+                deliver,
                 onSubmitText
             ).finally(() => {
                 sendingRef.current = false;

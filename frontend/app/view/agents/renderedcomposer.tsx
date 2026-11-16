@@ -4,15 +4,18 @@
 // Rendered mode's message box (the boards' pill): the text, then attach, the model and permission-mode chips, the
 // context ring and one round button, Send or (while a turn is live and the box is empty) Stop. Attachments sit above
 // the text and reach the agent as paths appended to the prompt. While Claude's question is shown Send is held, since
-// typing into the pty would land in its picker.
+// typing into the pty would land in its picker. In ! bash mode the text runs in the agent's shell instead, and the
+// tray's attachments wait for the next message.
 
 import { pushToast } from "@/app/cockpit/notificationstore";
 import { cn, fireAndForget } from "@/util/util";
 import { ArrowUp } from "lucide-react";
-import { forwardRef, type KeyboardEvent } from "react";
+import { forwardRef, useState, type KeyboardEvent } from "react";
 import { canSendComposer, useAgentComposer, useComposerHandle, type AgentComposerHandle } from "./agentcomposer";
+import { sendAgentBash } from "./agentsend";
 import type { AgentVM } from "./agentsviewmodel";
 import { AttachButton, AttachmentTray } from "./attachmenttray";
+import { bashOffKey, bashOnInput } from "./bashmodemodel";
 import { appendAttachments, pickFilePaths, useComposerAttachments } from "./composerattachments";
 import { MIRRORED_TEXTAREA, useAgentCwd, useFileMention } from "./filemention";
 import { BoxControls } from "./headercontrols";
@@ -59,24 +62,32 @@ export const RenderedComposer = forwardRef<
     { agent: AgentVM; hasTranscript: boolean; onInterrupt: () => void; onSubmitText?: (text: string) => void }
 >(function RenderedComposer({ agent, hasTranscript, onInterrupt, onSubmitText }, ref) {
     const blockId = agent.blockId;
-    const box = composerBox(agent, hasTranscript);
+    const [bash, setBash] = useState(false);
+    const box = composerBox(agent, hasTranscript, bash);
     const { attachments, addPaths, remove, retry, onPaste, clear } = useComposerAttachments();
+    // bash mode sends the bare command (no attachment paths, no picker flip) and keeps the tray for the next message
     const { text, setText, taRef, send, onKeyDown } = useAgentComposer({
         blockId,
         minH: BoxMinH,
         maxH: Math.round(window.innerHeight * BoxMaxShare),
         onEscape: onInterrupt,
-        onSubmitText,
-        compose: (t) => appendAttachments(t, attachments),
-        onSent: clear,
-        attachments,
+        ...(bash
+            ? { send: sendAgentBash, onSent: () => setBash(false) }
+            : { onSubmitText, compose: (t: string) => appendAttachments(t, attachments), onSent: clear, attachments }),
     });
     useComposerHandle(ref, setText, taRef);
     // before the mention hook: its pick moves the caret in a layout effect the mention hook then reads
-    const slash = useSlashPanel({ text, setText, taRef, blockId });
+    const slash = useSlashPanel({ text, setText, taRef, blockId, off: bash });
     const cwd = useAgentCwd(agent.transcriptPath, blockId);
-    const mention = useFileMention({ text, setText, taRef, cwd });
-    const canSend = !box.askBlocks && canSendComposer(text, blockId, attachments);
+    const mention = useFileMention({ text, setText, taRef, cwd, off: bash });
+    const canSend = !box.askBlocks && canSendComposer(text, blockId, bash ? [] : attachments);
+    const onChange = (next: string) => {
+        const on = bash ? null : bashOnInput(text, next);
+        if (on != null) {
+            setBash(true);
+        }
+        setText(on?.text ?? next);
+    };
     const pickFiles = () =>
         fireAndForget(async () => {
             try {
@@ -93,20 +104,28 @@ export const RenderedComposer = forwardRef<
         if (slash.onKeyDown(e) || mention.onKeyDown(e)) {
             return;
         }
+        // in bash mode Esc leaves the mode instead of interrupting; the Stop button still interrupts
+        if (bash && bashOffKey(e.key, text, slash.open || mention.open)) {
+            e.preventDefault();
+            setBash(false);
+            return;
+        }
         if (box.askBlocks && e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
             return;
         }
         onKeyDown(e);
     };
-    const filled = text !== "" || attachments.length > 0;
+    const filled = text !== "" || (!bash && attachments.length > 0);
     const button = boxButton(box, filled);
     return (
         <div
             data-composer-box
+            data-bash-mode={bash ? "" : undefined}
             className={cn(
                 "relative rounded-[14px] border border-edge-strong bg-surface-raised pb-2.5 pl-3.5 pr-3 pt-3 focus-within:border-accent/60",
-                filled && "border-accent/60"
+                filled && "border-accent/60",
+                bash && "border-accent focus-within:border-accent"
             )}
         >
             {slash.panel}
@@ -123,28 +142,33 @@ export const RenderedComposer = forwardRef<
                 </div>
             ) : null}
             {/* the textarea inherits this face, so the pill mirror behind it wraps the text the same way */}
-            <div className="relative text-[14px] leading-[1.55] text-foreground">
+            <div className={cn("relative text-[14px] leading-[1.55] text-foreground", bash && "flex gap-2 font-mono")}>
+                {bash ? (
+                    <span data-bash-label className="shrink-0 text-accent">
+                        ! Bash
+                    </span>
+                ) : null}
                 {mention.backdrop}
                 <textarea
                     ref={taRef}
                     rows={1}
                     value={text}
-                    onChange={(e) => setText(e.target.value)}
+                    onChange={(e) => onChange(e.target.value)}
                     onKeyDown={keyDown}
                     onSelect={() => {
                         slash.onCaret();
                         mention.onCaret();
                     }}
-                    onPaste={onPaste}
+                    onPaste={bash ? undefined : onPaste}
                     placeholder={box.placeholder}
                     className={cn(
-                        "relative block w-full resize-none overflow-y-auto bg-transparent pb-3.5 outline-none placeholder:text-muted",
+                        "relative block w-full min-w-0 resize-none overflow-y-auto bg-transparent pb-3.5 outline-none placeholder:text-muted",
                         mention.backdrop != null && MIRRORED_TEXTAREA
                     )}
                 />
             </div>
             <div className="flex items-center gap-2">
-                <AttachButton onClick={pickFiles} />
+                {bash ? null : <AttachButton onClick={pickFiles} />}
                 {blockId != null ? <BoxControls agent={agent} /> : null}
                 <span className="flex-1" />
                 <ContextRing agent={agent} />
