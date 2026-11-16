@@ -99,6 +99,10 @@ func TestViewModFixtures(t *testing.T) {
 
 	worker := &waveobj.Run{EndCommit: "def5678", Evidence: &waveobj.RunEvidence{Summary: "## Done\nthe bank store"}}
 	checkViewModFixture(t, "reviewer", reviewPrompt(g, &g.Tasks[0], worker, nil, nil))
+	planGroup := fixtureGroup()
+	planGroup.PlanSkill = jarvis.PlanSkill_Plan
+	checkViewModFixture(t, "worker-plan", taskPrompt(planGroup, &planGroup.Tasks[0], owner, "claude", "", "", nil))
+	checkViewModFixture(t, "reviewer-plan", reviewPrompt(planGroup, &planGroup.Tasks[0], worker, nil, nil))
 
 	checkViewModFixture(t, "plan-reviewer", planReviewPrompt(g, ""))
 	checkViewModFixture(t, "plan-reviewer-second", planSecondPassPrompt(g, ""))

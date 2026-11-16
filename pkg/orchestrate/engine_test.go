@@ -228,6 +228,35 @@ func TestWorkerContractHasTheWorkerRunItsOwnFinalScenario(t *testing.T) {
 	}
 }
 
+// an arc:plan task states acceptance criteria and lists no tests, so its worker picks them; a writing-plans or
+// pre-setting group keeps the brief its plan was written for
+func TestWorkerContractByPlanSkill(t *testing.T) {
+	task := &waveobj.TaskNode{ID: "t-3"}
+	group := func(skill string) *waveobj.TaskGroup {
+		return &waveobj.TaskGroup{PlanPath: "C:/p/plan.md", Check: "go vet ./...", Verify: "go test ./...", PlanSkill: skill}
+	}
+	legacy := workerContract(group(""), task, "claude", "")
+	if got := workerContract(group(jarvis.PlanSkill_WritingPlans), task, "claude", ""); got != legacy {
+		t.Fatalf("writing-plans and a group from before the setting get the same brief:\n%s\n---\n%s", got, legacy)
+	}
+	for _, want := range []string{workerTestsNamed + ", and `go vet ./...`,", workerFailFirst, workerVerifyNamed} {
+		if !strings.Contains(legacy, want) {
+			t.Fatalf("the writing-plans brief must carry %q:\n%s", want, legacy)
+		}
+	}
+	plan := workerContract(group(jarvis.PlanSkill_Plan), task, "pi", "")
+	for _, want := range []string{workerTestsWritten + ", and `go vet ./...`,", workerSeamRule, fmt.Sprintf(workerAskWhenSeamUnclear, jarvis.AskTool("pi")), workerVerifyWritten} {
+		if !strings.Contains(plan, want) {
+			t.Fatalf("the arc:plan brief must carry %q:\n%s", want, plan)
+		}
+	}
+	for _, gone := range []string{workerTestsNamed, workerFailFirst, workerVerifyNamed} {
+		if strings.Contains(plan, gone) {
+			t.Fatalf("the arc:plan brief names no tests the task lists, found %q:\n%s", gone, plan)
+		}
+	}
+}
+
 func TestWorkerContractWithCheckButNoVerify(t *testing.T) {
 	g := &waveobj.TaskGroup{Check: "go vet ./..."}
 	c := workerContract(g, &waveobj.TaskNode{ID: "t-3"}, "claude", "")

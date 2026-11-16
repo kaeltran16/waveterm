@@ -592,9 +592,13 @@ func downstreamTargets(g *waveobj.TaskGroup, reviewed string, names []string) ([
 	return out, nil
 }
 
+// reviewTestsAgainstCriteria is the arc:plan reviewer's extra check: the plan listed no tests, so nothing but the
+// reviewer judges whether the worker's own tests prove the task's criteria.
+const reviewTestsAgainstCriteria = "The task states acceptance criteria and the worker chose its own tests: judge those tests against the criteria and the public seam they imply (behaviour through the public interface, mocks only at system boundaries, no expected value computed by the code under test). A criterion no test checks is a fail.\n"
+
 // reviewPrompt is a reviewer's whole brief: what the task asked for, where the spec and plan are, what the
-// worker said it did, and the one diff to judge. It checks intent, not tests: Verify runs those at the merge.
-// The reviewer works in the worker's tree, so that is where it reads the docs.
+// worker said it did, and the one diff to judge. It checks intent, not test results: Verify runs those at the
+// merge. The reviewer works in the worker's tree, so that is where it reads the docs.
 func reviewPrompt(g *waveobj.TaskGroup, task *waveobj.TaskNode, worker *waveobj.Run, told []string, findings []wshrpc.GoalpostFinding) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "You are the reviewer for task %s", task.ID)
@@ -607,6 +611,9 @@ func reviewPrompt(g *waveobj.TaskGroup, task *waveobj.TaskNode, worker *waveobj.
 	b.WriteString(". A worker finished it; judge its change against what the task asked for before it lands.\n")
 	fmt.Fprintf(&b, "The change: `git diff %s..%s` in this directory.\n", task.ReviewBase, worker.EndCommit)
 	b.WriteString("Check it against the task below and the spec: every requirement met, nothing that contradicts the spec, no corners cut (stubs, skipped cases, weakened or deleted tests, TODOs), nothing outside the task's scope. The plan's Verify runs the tests after the merge, so don't run the full suite; run a focused test only to settle a doubt.\n")
+	if jarvis.EffectivePlanSkill(g.PlanSkill) == jarvis.PlanSkill_Plan {
+		b.WriteString(reviewTestsAgainstCriteria)
+	}
 	b.WriteString("A requirement the worker's report itself says is unmet (a known blocker, a gap left for later) is a fail, not a pass with a note. A cosmetic point the task does not require (comment wording, blank lines, punctuation) is not a fail: name it in the pass note.\n")
 	done, differs := sectionHeading(jarvis.ReportKeyDone), sectionHeading(jarvis.ReportKeyDiffers)
 	notVerified, forLater := sectionHeading(jarvis.ReportKeyNotVerified), sectionHeading(jarvis.ReportKeyForLater)

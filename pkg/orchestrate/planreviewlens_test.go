@@ -169,6 +169,26 @@ func TestPlanReviewSecondPassPromptHasTheWholeChecklist(t *testing.T) {
 	}
 }
 
+// an arc:plan task lists no tests, so the reviewer asks for criteria a test can check rather than named tests
+func TestPlanReviewChecklistByPlanSkill(t *testing.T) {
+	for _, tc := range []struct {
+		skill      string
+		want, gone string
+	}{
+		{jarvis.PlanSkill_Plan, planReviewCriteriaPlan, planReviewCriteriaWritingPlans},
+		{jarvis.PlanSkill_WritingPlans, planReviewCriteriaWritingPlans, planReviewCriteriaPlan},
+		{"", planReviewCriteriaWritingPlans, planReviewCriteriaPlan},
+	} {
+		g := &waveobj.TaskGroup{RunID: "run-1", SpecPath: "s.md", PlanPath: "p.md", PlanSkill: tc.skill}
+		for name, prompt := range map[string]string{"full": planReviewPrompt(g, "tree"), "second": planSecondPassPrompt(g, "tree")} {
+			checks := checklistOf(t, prompt)
+			if !strings.Contains(checks, "- "+tc.want+"\n") || strings.Contains(checks, tc.gone) {
+				t.Fatalf("the %s brief of a %q group must list %q and not %q:\n%s", name, tc.skill, tc.want, tc.gone, checks)
+			}
+		}
+	}
+}
+
 func TestPlanReviewSecondPassRunsOnTheLightReviewersRoute(t *testing.T) {
 	g := &waveobj.TaskGroup{RunID: "run-1", PlanPath: "p.md", LightReviewerRoute: &waveobj.RoutePin{Runtime: "claude", Model: "haiku"}}
 	s, err := planReviewSession(context.Background(), g, "tree", PlanReviewLens_Second)

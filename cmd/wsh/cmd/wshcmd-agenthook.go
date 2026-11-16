@@ -37,7 +37,7 @@ var canvasBoardPathRe = regexp.MustCompile(`(?i)^(.+?)[\\/]\.superpowers[\\/]des
 // parseBrainstormPath in frontend/app/view/agents/brainstormmodel.ts.
 var brainstormFilePathRe = regexp.MustCompile(`(?i)^(.+?)[\\/]\.superpowers[\\/]brainstorm[\\/]([^\\/]+)[\\/]brainstorm\.json$`)
 
-const brainstormContextText = "You are inside Arc. Also follow the arc:brainstorm skill for this brainstorm: keep its state in .superpowers/brainstorm/<topic>/brainstorm.json, where Arc shows it, instead of long playbacks in the terminal; use arc:design boards instead of the visual companion's server."
+const brainstormContextText = "You are inside Arc, which has its own brainstorm skill. Stop following the upstream brainstorming skill and invoke arc:brainstorm instead; follow only that one for this brainstorm."
 
 // sessionContextText is what an Arc agent knows of wsh in every project, memory or not: the skill descriptions
 // alone left it unused. capabilities, not rules: a nudge to coordinate or check first only costs turns.
@@ -204,7 +204,8 @@ func brainstormRevealFor(ev ccHookEvent) (address string, cwd string, ok bool) {
 }
 
 // brainstormContextFor reports whether the event is the superpowers brainstorming skill starting, the
-// moment the arc:brainstorm skill's instructions are injected beside it.
+// moment the session is redirected to arc:brainstorm. The arc skill itself adds no context: it is the
+// instructions. Goes with the superpowers override when superpowers is turned off.
 func brainstormContextFor(ev ccHookEvent) bool {
 	if ev.HookEventName != "PostToolUse" || ev.ToolName != "Skill" {
 		return false

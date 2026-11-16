@@ -94,6 +94,13 @@ const planReviewDependsReasonItem = "each reason a Depends line gives in parenth
 // planReviewSpecGap closes the checklist as a sentence of its own, not a bullet.
 const planReviewSpecGap = "Also report gaps in the spec, and places where the spec and the plan contradict each other."
 
+// The criteria item follows the group's plan skill: a writing-plans task names the tests that prove it, while an
+// arc:plan task lists none, since its worker picks them, so naming tests would fail every arc:plan plan.
+const (
+	planReviewCriteriaWritingPlans = "each task states its acceptance criteria and names the tests that prove them;"
+	planReviewCriteriaPlan         = "each task states acceptance criteria a test can check at the public seam the task implies: behaviour a caller or user can observe, not a step of the implementation;"
+)
+
 // planReviewChecklist is the one source of the checklist every plan reviewer's brief lists, in this order.
 var planReviewChecklist = []string{
 	"every requirement in the spec has a task;",
@@ -104,7 +111,7 @@ var planReviewChecklist = []string{
 	"each claim the plan makes about existing code (what a function calls, who calls it, what a test asserts) holds in the tree: grep the callers of what a task changes or removes; a claim that does not hold is a finding;",
 	"no task waits for another's long implementation when it needs only that task's interface (a type, a wire field, a table, a function's signature): the interface can land first as its own small task, so the implementation and the tasks that use it run beside each other;",
 	planReviewDependsReasonItem,
-	"each task states its acceptance criteria and names the tests that prove them;",
+	planReviewCriteriaWritingPlans,
 	"the commands the plan names (its Verify, Setup, Check and Final lines, and those in its tasks) exist;",
 	// run 2678342f's check command vetted ./pkg/brainstormcheck/..., which its Task 3 created: 7 of 10 workers hit it on the base
 	"no Setup, Check or Verify command, and no task step, names a path a task of this plan creates (a package pattern, a test file) unless that task is among the step's Depends: a task's tree holds only what its Depends landed, so the command fails there and every worker works around it. Final runs on the merged result, so it may name them;",
@@ -129,6 +136,8 @@ func writeChecklist(b *strings.Builder, g *waveobj.TaskGroup, tree string) {
 			if g.Setup == "" {
 				b.WriteString("- " + it + "\n")
 			}
+		case it == planReviewCriteriaWritingPlans && jarvis.EffectivePlanSkill(g.PlanSkill) == jarvis.PlanSkill_Plan:
+			b.WriteString("- " + planReviewCriteriaPlan + "\n")
 		default:
 			b.WriteString("- " + it + "\n")
 		}

@@ -1083,3 +1083,21 @@ func TestUnlistedSection(t *testing.T) {
 		t.Fatalf("section must cut at %d paths and count the rest:\n%s", maxUnlistedShown, got)
 	}
 }
+
+// an arc:plan worker chose its own tests, so the reviewer judges them against the task's criteria; a writing-plans
+// task named its tests and Verify runs them
+func TestReviewPromptJudgesTestsByPlanSkill(t *testing.T) {
+	worker := &waveobj.Run{EndCommit: "tip"}
+	brief := func(skill string) string {
+		g := &waveobj.TaskGroup{PlanSkill: skill, Tasks: []waveobj.TaskNode{{ID: "t-1", Label: "add sums", ReviewBase: "base"}}}
+		return reviewPrompt(g, &g.Tasks[0], worker, nil, nil)
+	}
+	if !strings.Contains(brief(jarvis.PlanSkill_Plan), reviewTestsAgainstCriteria) {
+		t.Fatalf("an arc:plan reviewer judges the worker's tests against the criteria:\n%s", brief(jarvis.PlanSkill_Plan))
+	}
+	for _, skill := range []string{jarvis.PlanSkill_WritingPlans, ""} {
+		if strings.Contains(brief(skill), reviewTestsAgainstCriteria) {
+			t.Fatalf("a %q reviewer's brief is today's:\n%s", skill, brief(skill))
+		}
+	}
+}

@@ -89,7 +89,7 @@ const e2e = `(async () => {
   const args0 = meta0 && meta0["cmd:args"];
   const prompt0 = Array.isArray(args0) ? String(args0[0] || "") : String(args0 || "");
   const step1ok = prompt0.startsWith("Work by these principles:") &&
-    prompt0.includes("superpowers:brainstorming") && prompt0.includes("add a coupon field to checkout");
+    prompt0.includes("arc:brainstorm") && prompt0.includes("add a coupon field to checkout");
   results.push({ step: "1. principles + skill + goal in phase-0 worker prompt", ok: step1ok,
     detail: { runPrinciples: (run.principles || "").slice(0, 80), workeroref: w0, promptHead: prompt0.slice(0, 260) } });
 
