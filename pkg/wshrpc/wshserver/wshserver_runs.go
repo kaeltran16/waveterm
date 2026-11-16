@@ -23,6 +23,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/runroute"
 	"github.com/wavetermdev/waveterm/pkg/util/keyedmutex"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/wconfig"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
 	"github.com/wavetermdev/waveterm/pkg/wps"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -52,6 +53,9 @@ var stopStageSession = func(run waveobj.Run) { go stopRunWorkers(context.Backgro
 
 // landRun is the land a completed run gets. A var so a test can read what it was asked for.
 var landRun = orchestrate.LandRun
+
+// runPlanSkillSetting is the run:planskill setting as the user has it. A var so a test can set it.
+var runPlanSkillSetting = func() string { return wconfig.GetWatcher().GetFullConfig().Settings.RunPlanSkill }
 
 // publishRunUpdate broadcasts a mutated run to the frontend on BOTH orefs: run:<id> (the focused-run view
 // subscribes to the per-run WOS object — channel-scaling Phase 2) and channel:<id> (the run-list read
@@ -488,6 +492,10 @@ func (ws *WshServer) createRun(ctx context.Context, data wshrpc.CommandCreateRun
 	run.LightReviewerRoute = data.LightReviewerRoute
 	run.Autonomous = data.Autonomous != nil && *data.Autonomous
 	run.Orchestration = orchestration // prompt-shaping only; DagSubmit stays open to either choice
+	if engineLaunch {
+		// recorded so a later change of the setting never moves a run whose plan is already written
+		run.PlanSkill = jarvis.NewRunPlanSkill(runPlanSkillSetting())
+	}
 	// out-of-band widths are rejected rather than clamped: a caller asking for 40 workers has a wrong
 	// model of the engine, and silently running 8 would hide that.
 	if err := validateParallelism(data.Parallelism, true); err != nil {

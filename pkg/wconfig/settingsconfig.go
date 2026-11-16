@@ -89,6 +89,9 @@ type SettingsType struct {
 	HarnessPreferredRuntime string `json:"harness:preferredruntime,omitempty"`
 	HarnessPreferredModel   string `json:"harness:preferredmodel,omitempty"`
 
+	// the skill a new orchestrator run's plan is written by: plan or writing-plans
+	RunPlanSkill string `json:"run:planskill,omitempty" jsonschema:"enum=plan,enum=writing-plans"`
+
 	// the api token is the JIRA_API_TOKEN secret, never a settings key
 	JiraSite  string `json:"jira:site,omitempty"`
 	JiraEmail string `json:"jira:email,omitempty"`
