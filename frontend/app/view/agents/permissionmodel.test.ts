@@ -200,4 +200,28 @@ describe("anchorMarks", () => {
         expect(anchorMarks([user("fresh", 3000), ran], [mark])).toEqual([]);
         expect(anchorMarks([ran], [mark])).toEqual([]);
     });
+
+    const prose = (text: string, ts: number): AgentEntry => ({ kind: "message", text, ts });
+    const done = (target: string, ts: number): AgentEntry => ({
+        kind: "action",
+        verb: "ran",
+        target,
+        outcome: "ok",
+        ts,
+    });
+
+    it("goes right after the finished call it follows, not at the next prose", () => {
+        const entries = [user("go", 1000), done("npm test", 1100), done("npm run lint", 1600), prose("ok", 2000)];
+        expect(anchorMarks(entries, [mark])).toEqual([{ afterEntry: 2, text: "Yes: npm test" }]);
+    });
+
+    it("times a pending call by its start", () => {
+        const pending: AgentEntry = { kind: "action", verb: "ran", target: "npm test", startedTs: 1600 };
+        const entries = [user("go", 1000), done("ls", 1100), pending, prose("ok", 2000)];
+        expect(anchorMarks(entries, [mark])).toEqual([{ afterEntry: 2, text: "Yes: npm test" }]);
+    });
+
+    it("is dropped when older than every stamped call", () => {
+        expect(anchorMarks([done("npm test", 2000), prose("ok", 3000)], [mark])).toEqual([]);
+    });
 });

@@ -132,7 +132,7 @@ export type TimelineMark = { afterEntry: number; text: string };
 export type PermissionMark = { ts: number; text: string };
 
 function entryTime(e: AgentEntry): number | undefined {
-    return e.kind === "action" ? e.startedTs : "ts" in e ? e.ts : undefined;
+    return e.kind === "action" ? (e.ts ?? e.startedTs) : "ts" in e ? e.ts : undefined;
 }
 
 // a mark goes before the first entry stamped after it. One older than every stamped entry belongs to entries this
