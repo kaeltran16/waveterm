@@ -13,6 +13,8 @@ import { DefaultRouter } from "@/app/store/wshrpcutil-base";
 import type { AgentsViewModel } from "./agents";
 import type { AgentEntry } from "./agentsviewmodel";
 import { NarrationTimeline } from "./narrationtimeline";
+import type { NowLine } from "./nowline";
+import { WorkingLine } from "./nowlineview";
 import { seedRunEvents } from "./runeventstore";
 import type { TranscriptContext } from "./transcriptcontext";
 import { seedWshData } from "./wshdata";
@@ -24,6 +26,8 @@ export interface NarrationFeedFixtureOpts {
     renderers?: boolean;
     seed?: Record<string, unknown>;
     runEvents?: Record<string, RunEvent[]>;
+    // drawn as the timeline's tail, as a working host draws it
+    nowLine?: NowLine;
 }
 
 interface ModalProps {
@@ -33,9 +37,10 @@ interface ModalProps {
     compact?: boolean;
     active?: boolean;
     renderers?: boolean;
+    nowLine?: NowLine;
 }
 
-export function NarrationFeedFixtureModal({ entries, width, ctx, compact, active, renderers }: ModalProps) {
+export function NarrationFeedFixtureModal({ entries, width, ctx, compact, active, renderers, nowLine }: ModalProps) {
     return (
         <ModalShell open onClose={() => modalsModel.popModal()}>
             <div data-narration-fixture style={{ width }} className="max-h-[80vh] overflow-y-auto bg-surface px-3 py-2">
@@ -45,6 +50,7 @@ export function NarrationFeedFixtureModal({ entries, width, ctx, compact, active
                     renderers={renderers}
                     ctx={ctx}
                     compact={compact}
+                    tail={nowLine ? <WorkingLine line={nowLine} compact={compact} /> : undefined}
                 />
             </div>
         </ModalShell>

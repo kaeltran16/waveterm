@@ -1,9 +1,10 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The Rendered view's now line: what the agent is doing now and what this turn has done, derived from the
-// transcript entries, the agent's state, the block's last hook and the parsed spinner row. Pure, unit-tested in
-// nowline.test.ts; nowlineview.tsx renders it.
+// The working line drawn under a working agent's last transcript item: the spinner's verb, the turn's elapsed time,
+// its output tokens and tool count. Derived from the transcript entries, the agent's state, the block's last hook and
+// the parsed spinner row. Pure, unit-tested in nowline.test.ts; nowlineview.tsx renders it. A finished turn's time
+// and count are the fold line's, and the running call's verb and target its step row's.
 
 import type { AgentEntry, AgentState } from "./agentsviewmodel";
 import { fmtDuration } from "./runcompletion";
@@ -16,9 +17,7 @@ const SEP = " · ";
 
 export interface TurnSummary {
     startTs?: number;
-    endTs?: number;
     tools: number;
-    running?: { verb: string; target: string; startedTs?: number };
 }
 
 export type NowLine =
@@ -27,10 +26,10 @@ export type NowLine =
           kind: "working";
           spinner: SpinnerRead | null;
           elapsedMs?: number;
+          // output tokens as the spinner shows them ("1.8k")
+          tokens?: string;
           tools: number;
-          call?: { verb: string; target: string; elapsedMs?: number };
-      }
-    | { kind: "done"; durationMs?: number; tools: number };
+      };
 
 /** The turn that starts at the last user entry or user-typed command; null when there is none. */
 export function summarizeTurn(entries: AgentEntry[]): TurnSummary | null {
@@ -50,18 +49,8 @@ export function summarizeTurn(entries: AgentEntry[]): TurnSummary | null {
         summary.startTs = first.ts;
     }
     for (const e of entries.slice(start + 1)) {
-        if (e.kind === "message" && e.ts != null) {
-            summary.endTs = e.ts;
-        } else if (e.kind === "command" && e.byModel) {
+        if (e.kind === "action" || (e.kind === "command" && e.byModel)) {
             summary.tools++;
-        } else if (e.kind === "action") {
-            summary.tools++;
-            if (e.pending) {
-                summary.running = { verb: e.verb, target: e.target };
-                if (e.startedTs != null) {
-                    summary.running.startedTs = e.startedTs;
-                }
-            }
         }
     }
     return summary;
@@ -80,20 +69,10 @@ export function nowLineState(input: {
     now: number;
 }): NowLine {
     const { state, docked, spinner, lastHook, now } = input;
-    if (docked || state === "asking") {
+    if (docked || state !== "working") {
         return { kind: "hidden" };
     }
     let turn = summarizeTurn(input.entries);
-    if (state === "idle") {
-        if (turn == null) {
-            return { kind: "hidden" };
-        }
-        const done: NowLine = { kind: "done", tools: turn.tools };
-        if (turn.startTs != null && turn.endTs != null) {
-            done.durationMs = turn.endTs - turn.startTs;
-        }
-        return done;
-    }
     // between Send and Claude writing the user line, the previous turn's time and count must not read as this one's
     const submitted = lastHook?.hook === SUBMIT_HOOK;
     if (submitted && (turn == null || (turn.startTs != null && lastHook.ts - turn.startTs > TURN_SKEW_MS))) {
@@ -103,12 +82,8 @@ export function nowLineState(input: {
     if (turn?.startTs != null) {
         line.elapsedMs = now - turn.startTs;
     }
-    if (turn?.running != null) {
-        const { verb, target, startedTs } = turn.running;
-        line.call = { verb, target };
-        if (startedTs != null) {
-            line.call.elapsedMs = now - startedTs;
-        }
+    if (spinner?.tokens != null) {
+        line.tokens = spinner.tokens;
     }
     return line;
 }
@@ -117,27 +92,18 @@ function toolCount(n: number): string {
     return n === 1 ? "1 tool" : `${n} tools`;
 }
 
-function joinParts(parts: (string | undefined)[]): string {
-    return parts.filter((p) => p != null && p !== "").join(SEP);
-}
-
-/** The line's copy. A running call's verb and target are drawn by the view, so they can truncate first. */
-export function nowLineText(line: NowLine): { left: string; right: string } {
+/** The line's copy: the spinner's glyph and verb (null with no spinner on screen) and the facts after it. A compact
+ *  host drops the tool count. */
+export function nowLineText(line: NowLine, compact = false): { lead: string | null; rest: string } {
     if (line.kind === "hidden") {
-        return { left: "", right: "" };
+        return { lead: null, rest: "" };
     }
-    const tools = line.tools > 0 ? toolCount(line.tools) : undefined;
-    if (line.kind === "done") {
-        const duration = line.durationMs == null ? undefined : fmtDuration(line.durationMs);
-        return { left: joinParts(["done", duration, tools]), right: "" };
-    }
-    let left: string;
-    if (line.spinner != null) {
-        const { glyph, verb, detail } = line.spinner;
-        left = detail == null ? `${glyph} ${verb}` : `${glyph} ${verb} (${detail})`;
-    } else {
-        left = joinParts(["working", line.elapsedMs == null ? undefined : fmtDuration(line.elapsedMs)]);
-    }
-    const callTime = line.call?.elapsedMs == null ? undefined : fmtDuration(line.call.elapsedMs);
-    return { left, right: joinParts([callTime, tools]) };
+    const parts = [
+        line.spinner == null ? "Working" : undefined,
+        line.elapsedMs == null ? undefined : fmtDuration(line.elapsedMs),
+        line.tokens == null ? undefined : `↓ ${line.tokens} tokens`,
+        compact || line.tools === 0 ? undefined : toolCount(line.tools),
+    ];
+    const rest = parts.filter((p) => p != null).join(SEP);
+    return { lead: line.spinner == null ? null : `${line.spinner.glyph} ${line.spinner.verb}`, rest };
 }

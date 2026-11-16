@@ -39,6 +39,7 @@ import {
     tasksLabel,
     type AgentRowMenuItem,
 } from "./agentrowmodel";
+import type { AgentsViewModel } from "./agents";
 import {
     agentRunDone,
     displayAgeMs,
@@ -59,6 +60,7 @@ import { CommitTick, useCommitDone } from "./committick";
 import { parseDocReview } from "./docreview";
 import { entriesAtomFor, tasksAtomFor } from "./livetranscriptatoms";
 import { NarrationTimeline } from "./narrationtimeline";
+import { useWorkingTail } from "./nowlineview";
 import { SubLabel } from "./sectionlabel";
 import type { SubagentState, SubagentVM } from "./session-models/sessionviewmodel";
 import { isStandingBy, shellTasksLabel, type ShellTask } from "./shelltasks";
@@ -66,6 +68,7 @@ import { shellReadAtByIdAtom, shellReadPending, shellTasksByIdAtom } from "./she
 import { ActivityLine, StatusLine, WIDE_ONLY } from "./statusline";
 import { JumpToLatestPill, useStickToBottom } from "./sticktobottom";
 import { subagentsByIdAtom } from "./subagentsstore";
+import { useTranscriptContext } from "./transcriptcontext";
 
 // uniform 25x23 control box (handoff header buttons)
 const CTL_BOX =
@@ -275,6 +278,7 @@ function ShellTasksBadge({ tasks }: { tasks: ShellTask[] }) {
 // orchestrator overview (statusline.tsx); AgentRow composes them with its own controls.
 
 export const AgentRow = memo(function AgentRow({
+    model,
     agent,
     nowAtom,
     isCursor,
@@ -298,6 +302,7 @@ export const AgentRow = memo(function AgentRow({
     pulse,
     share,
 }: {
+    model: AgentsViewModel;
     agent: AgentVM;
     nowAtom: Atom<number>;
     isCursor: boolean;
@@ -328,6 +333,8 @@ export const AgentRow = memo(function AgentRow({
     const liveEntries = useAtomValue(entriesAtomFor(agent.id));
     const entries = entriesToShow(liveEntries, agent.previousInfo);
     const { scrollRef, onScroll, atBottom, jumpToBottom } = useStickToBottom(entries);
+    const ctx = useTranscriptContext(model, agent);
+    const tail = useWorkingTail(nowAtom, agent, entries, true);
     // the composer ends the scroll region, so opening it re-sticks a card scrolled up into its history
     useEffect(() => {
         if (composerOpen) {
@@ -696,7 +703,14 @@ export const AgentRow = memo(function AgentRow({
                                 />
                             ) : null}
                             {entries.length > 0 ? (
-                                <NarrationTimeline entries={entries} accentLatest active={!idle} />
+                                <NarrationTimeline
+                                    entries={entries}
+                                    accentLatest
+                                    active={!idle}
+                                    ctx={ctx}
+                                    compact
+                                    tail={tail}
+                                />
                             ) : null}
                         </div>
                     )}

@@ -64,6 +64,7 @@ import {
 import { leadPaneShown } from "./leadpane";
 import { entriesAtomFor } from "./livetranscriptatoms";
 import { NarrationTimeline } from "./narrationtimeline";
+import { useWorkingTail } from "./nowlineview";
 import { clampParallelism } from "./runconfig";
 import { leadDisplayName, type RunInfo } from "./runlineage";
 import { openRunDag } from "./runrailsections";
@@ -71,6 +72,7 @@ import { FINAL_FILL, SEG_FILL, type TaskStrip } from "./runstrip";
 import { SubLabel } from "./sectionlabel";
 import { StatusLine, WIDE_ONLY } from "./statusline";
 import { JumpToLatestPill, useStickToBottom } from "./sticktobottom";
+import { useTranscriptContext } from "./transcriptcontext";
 
 const CTL_BOX =
     "flex h-[23px] w-[25px] shrink-0 cursor-pointer items-center justify-center rounded-sm border border-edge-mid text-secondary hover:border-edge-strong hover:bg-surface-hover";
@@ -458,6 +460,7 @@ export function LeadCard(p: LeadCardProps) {
                 </div>
                 {lead ? (
                     <LeadPane
+                        model={model}
                         lead={lead}
                         hasAsk={hasAsk}
                         open={hasAsk ? paneUserOpened : paneOpen}
@@ -863,12 +866,14 @@ function RunMeta({ run, vm, nowAtom }: { run: RunInfo; vm: LeadCardVM; nowAtom: 
 
 // The lead's own transcript under the tasks. Hidden, it stays as one line holding its newest message.
 function LeadPane({
+    model,
     lead,
     hasAsk,
     open,
     onToggle,
     nowAtom,
 }: {
+    model: AgentsViewModel;
     lead: AgentVM;
     hasAsk: boolean;
     // whether you have the pane open: during an ask, only if you opened it during that ask
@@ -888,7 +893,7 @@ function LeadPane({
         return null;
     }
     if (shown === "full" && open) {
-        return <LeadTranscript lead={lead} entries={entries} onHide={toggle} />;
+        return <LeadTranscript model={model} lead={lead} entries={entries} onHide={toggle} />;
     }
     // an idle lead's newest message is from when it went idle; a busy lead's has no time of its own
     const age = lead.state === "idle" && lead.idleSince != null ? formatAgeShort(now - lead.idleSince) : "";
@@ -913,15 +918,19 @@ function LeadPane({
 
 // its own component so the scroll region pins to the newest entry each time the pane opens
 function LeadTranscript({
+    model,
     lead,
     entries,
     onHide,
 }: {
+    model: AgentsViewModel;
     lead: AgentVM;
     entries: AgentEntry[];
     onHide: (e: MouseEvent) => void;
 }) {
     const { scrollRef, onScroll, atBottom, jumpToBottom } = useStickToBottom(entries);
+    const ctx = useTranscriptContext(model, lead);
+    const tail = useWorkingTail(model.nowAtom, lead, entries, true);
     // as tall as its entries, up to a cap: a fixed half left a short transcript's space empty while the tasks scrolled
     return (
         <div
@@ -946,7 +955,14 @@ function LeadTranscript({
                     onScroll={onScroll}
                     className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-5 pb-3.5"
                 >
-                    <NarrationTimeline entries={entries} accentLatest active={lead.state !== "idle"} />
+                    <NarrationTimeline
+                        entries={entries}
+                        accentLatest
+                        active={lead.state !== "idle"}
+                        ctx={ctx}
+                        compact
+                        tail={tail}
+                    />
                 </div>
                 <JumpToLatestPill show={!atBottom} onClick={jumpToBottom} />
             </div>

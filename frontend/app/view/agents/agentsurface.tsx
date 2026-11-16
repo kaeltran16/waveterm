@@ -268,7 +268,7 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
                             <RenderedView key={agent.id} model={model} agent={agent} />
                         ) : null}
                     </div>
-                    {showSub ? <SubagentInterior sub={focusSub!} parentName={agent.name} /> : null}
+                    {showSub ? <SubagentInterior model={model} sub={focusSub!} parentName={agent.name} /> : null}
                 </div>
                 {!fullscreen && !paneMode && agent.kind !== "terminal" ? (
                     <AgentDetailsRail model={model} agent={agent} askInView={showRendered && askDocked(agent)} />

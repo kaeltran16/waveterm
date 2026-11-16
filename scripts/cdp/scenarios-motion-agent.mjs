@@ -11,7 +11,6 @@
 import { lookEval, OBS_WIDE, releaseRpc } from "./scenarios-shared.mjs";
 
 const NAME = "motion-agent";
-const REDUCE = { features: [{ name: "prefers-reduced-motion", value: "reduce" }] };
 const NO_MEDIA = { features: [] };
 // a fade or reveal mounts at (near) 0 and settles at 1; read this long after the change, past durMacro
 const SETTLE_MS = 700;
@@ -144,76 +143,64 @@ async function answerBarSteps(h, rec) {
     await h.shot(`cdp-shots/${NAME}-answerbar.png`);
 }
 
-// the now line on entries the step rewrites: a running call, another call, then the reply and idle
-const NOW_LIB = `
+// the working line: a pure WorkingLine whose line each step rewrites, then the live one a host draws as its tail
+const WORKING_LIB = `
     const t0 = Date.now();
-    const user = { kind: "user", text: "go", ts: t0 - 60000 };
-    const call = (target) => ({ kind: "action", verb: "Bash", target, pending: true, startedTs: t0 - 5000 });
-    const done = (target) => ({ kind: "action", verb: "Bash", target });
-    const agent = (state) => ({ id: "motion-agent-now", blockId: "motion-agent-now-block", name: "motion", task: "", state });
-    const nowProps = (state, entries) => ({ model, agent: agent(state), entries });
-    const path = () => host.querySelector("[data-now-line] svg path");
-    const dash = () => {
-        const p = path();
-        return p ? (p.getAttribute("stroke-dasharray") ?? "") + "|" + (p.getAttribute("stroke-dashoffset") ?? "") : null;
-    };
+    const spin = (verb) => ({ glyph: "✻", verb, detail: "24s · ↓ 1.8k tokens", tokens: "1.8k" });
+    const working = (verb) => ({ kind: "working", spinner: spin(verb), elapsedMs: 24000, tokens: "1.8k", tools: 4 });
+    const verbOf = () => flat(host.querySelector("[data-working-verb]"));
+    const live = (state) => ({
+        nowAtom: model.nowAtom,
+        blockId: "motion-agent-working-block",
+        state,
+        entries: [{ kind: "user", text: "go", ts: t0 - 24000 }, { kind: "action", verb: "Bash", target: "go test", pending: true, startedTs: t0 - 2000 }],
+    });
 `;
 
-async function nowLineSteps(h, rec) {
+async function workingLineSteps(h, rec) {
     const r = await motionEval(h, `
         unmountAll();
         const model = await cockpitModel();
         let host = null;
-        ${NOW_LIB}
-        host = await mount("app/view/agents/nowlineview.tsx", "NowLine", nowProps("working", [user, call("go test ./pkg/a")]), { style: ${JSON.stringify(MOUNT_STYLE)} });
-        await until(() => flat(host.querySelector("[data-now-target]")) === "go test ./pkg/a", 3000);
-        const cw = watchAdded((n) => (host.contains(n) && n.matches("[data-crossfade]") && n.textContent.includes("go vet") ? n : null));
-        host.render(nowProps("working", [user, done("go test ./pkg/a"), call("go vet ./pkg/a")]));
+        ${WORKING_LIB}
+        host = await mount("app/view/agents/nowlineview.tsx", "WorkingLine", { line: { kind: "hidden" } }, { style: ${JSON.stringify(MOUNT_STYLE)} });
+        const wl = watchAdded((n) => (host.contains(n) && n.matches("[data-working-line]") ? n : null));
+        host.render({ line: working("Cogitating…") });
+        await nap(${SETTLE_MS});
+        wl.stop();
+        const enter = { first: wl.seen[0] ?? null, settled: await settle(() => host.querySelector("[data-working-line]")) };
+
+        const cw = watchAdded((n) => (host.contains(n) && n.matches("[data-crossfade]") && n.textContent.includes("Pondering") ? n : null));
+        host.render({ line: working("Pondering…") });
         await nap(${SETTLE_MS});
         cw.stop();
-        const swapped = host.querySelector("[data-now-target]")?.closest("[data-crossfade]");
-        const callSwap = { first: cw.seen[0] ?? null, settled: await settle(() => swapped), target: flat(host.querySelector("[data-now-target]")) };
+        const swapped = host.querySelector("[data-working-verb]")?.closest("[data-crossfade]");
+        const verbSwap = { first: cw.seen[0] ?? null, settled: await settle(() => swapped), verb: verbOf() };
 
-        const onWorking = path() != null;
-        const draw = sampleFrames(dash);
-        host.render(nowProps("idle", [user, done("go test ./pkg/a"), done("go vet ./pkg/a"), { kind: "message", text: "ok", ts: t0 }]));
-        await nap(${SETTLE_MS});
-        draw.stop();
-        const kind = host.querySelector("[data-now-line]")?.getAttribute("data-now-kind");
-        return { callSwap, check: { onWorking, kind, draws: draw.values } };
-    `);
-    rec(
-        "5. now line: the running call changing cross-fades the new verb and target in",
-        crossFaded(r?.callSwap) && r.callSwap.target === "go vet ./pkg/a",
-        JSON.stringify(r?.callSwap ?? r)
-    );
-    rec(
-        "6. now line: the turn finishing while on screen draws the done check on (no check while working)",
-        r?.check != null && !r.check.onWorking && r.check.kind === "done" && r.check.draws.length >= 3,
-        JSON.stringify(r?.check ?? r)
-    );
-    await h.shot(`cdp-shots/${NAME}-nowline.png`);
-
-    await h.cdp("Emulation.setEmulatedMedia", REDUCE);
-    const reduced = await motionEval(h, `
         unmountAll();
-        const model = await cockpitModel();
-        let host = null;
-        ${NOW_LIB}
-        await nap(300);
-        host = await mount("app/view/agents/nowlineview.tsx", "NowLine", nowProps("working", [user, call("go test ./pkg/a")]), { style: ${JSON.stringify(MOUNT_STYLE)} });
-        const draw = sampleFrames(dash);
-        host.render(nowProps("idle", [user, done("go test ./pkg/a"), { kind: "message", text: "ok", ts: t0 }]));
+        host = await mount("app/view/agents/nowlineview.tsx", "LiveWorkingLine", live("working"), { style: ${JSON.stringify(MOUNT_STYLE)} });
+        await until(() => host.querySelector("[data-working-line]") != null, 3000);
+        const whileWorking = flat(host.querySelector("[data-working-line]"));
+        host.render(live("idle"));
         await nap(${SETTLE_MS});
-        draw.stop();
-        return { kind: host.querySelector("[data-now-line]")?.getAttribute("data-now-kind"), draws: draw.values, shown: path() != null };
+        return { enter, verbSwap, idle: { whileWorking, gone: host.querySelector("[data-working-line]") == null } };
     `);
-    await h.cdp("Emulation.setEmulatedMedia", NO_MEDIA);
     rec(
-        "7. now line under reduced motion: the done check lands drawn, with no intermediate frame",
-        reduced != null && reduced.kind === "done" && reduced.shown && reduced.draws.length === 1,
-        JSON.stringify(reduced)
+        "5. working line: the line appearing when the agent starts working fades in",
+        revealed(r?.enter),
+        JSON.stringify(r?.enter ?? r)
     );
+    rec(
+        "6. working line: the spinner's verb changing cross-fades the new verb in",
+        crossFaded(r?.verbSwap) && r.verbSwap.verb === "✻ Pondering…",
+        JSON.stringify(r?.verbSwap ?? r)
+    );
+    rec(
+        "7. working line: the live line reads Working and the turn's time with no spinner on screen, and leaves once the agent is idle",
+        r?.idle != null && /^Working · \d+s · 1 tool$/.test(r.idle.whileWorking) && r.idle.gone,
+        JSON.stringify(r?.idle ?? r)
+    );
+    await h.shot(`cdp-shots/${NAME}-workingline.png`);
 }
 
 const DIFF = [
@@ -684,7 +671,7 @@ export const motionAgent = {
             }
         };
         await phase("the answer bar's moments", () => answerBarSteps(h, rec));
-        await phase("the now line's moments", () => nowLineSteps(h, rec));
+        await phase("the working line's moments", () => workingLineSteps(h, rec));
         await phase("the tool card's moments", () => toolCardSteps(h, rec));
         await phase("the shell peek's moments", () => shellPeekSteps(h, rec));
         await phase("the run detail's moments", () => runDetailSteps(h, rec));

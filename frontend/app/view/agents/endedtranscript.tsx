@@ -18,6 +18,7 @@ import { leadAgentOf } from "./runlineage";
 import { loadRunTranscriptPath, runTranscriptPathsAtom } from "./runlineagestore";
 import { endedLine } from "./runrail";
 import { JumpToLatestPill, useStickToBottom } from "./sticktobottom";
+import { useTranscriptContext } from "./transcriptcontext";
 import { TranscriptSkeleton } from "./transcriptskeleton";
 
 export function EndedTranscript({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
@@ -26,6 +27,7 @@ export function EndedTranscript({ model, agent }: { model: AgentsViewModel; agen
     const paths = useAtomValue(runTranscriptPathsAtom);
     const entries = useAtomValue(entriesAtomFor(agent.id));
     const { scrollRef, onScroll, atBottom, jumpToBottom } = useStickToBottom(entries);
+    const ctx = useTranscriptContext(model, agent);
     const role = lineage.roles[agent.id];
     // a done task's worker, or a plan reviewer the engine stopped after its verdict
     const leadRunId = role?.kind === "worker" || role?.kind === "stage" ? role.leadRunId : undefined;
@@ -78,7 +80,7 @@ export function EndedTranscript({ model, agent }: { model: AgentsViewModel; agen
             <div className="relative min-h-0 flex-1">
                 <div ref={scrollRef} onScroll={onScroll} className="h-full overflow-y-auto px-[22px] py-[12px]">
                     {entries.length > 0 ? (
-                        <NarrationTimeline entries={entries} active={false} />
+                        <NarrationTimeline entries={entries} active={false} ctx={ctx} />
                     ) : missing ? (
                         <div className="flex h-full items-center justify-center text-[12px] text-muted">
                             No transcript found for this session.

@@ -85,17 +85,18 @@ export function useStickToBottom(entries: unknown[]) {
 // a clickable card). Render it unconditionally and pass `show`, so it can leave as it came.
 export function JumpToLatestPill({ show, onClick }: { show: boolean; onClick: () => void }) {
     return (
-        <PopoverReveal open={show} origin="bottom" className="absolute bottom-3 left-1/2 z-20 -translate-x-1/2">
+        <PopoverReveal open={show} origin="bottom" className="absolute bottom-3.5 left-1/2 z-20 -translate-x-1/2">
             <button
                 type="button"
+                data-latest-pill
                 onClick={(e) => {
                     e.stopPropagation();
                     onClick();
                 }}
                 title="Jump to latest"
-                className="flex items-center gap-1 rounded-full border border-edge-strong bg-surface-raised px-2.5 py-1 text-[11px] font-medium text-secondary shadow-popover-sm hover:border-accent hover:text-primary"
+                className="flex cursor-pointer items-center gap-1.5 rounded-full border border-edge-strong bg-surface-raised px-3 py-1.5 text-[12px] text-secondary shadow-popover-sm hover:border-accent hover:text-primary"
             >
-                <span className="text-[12px] leading-none">↓</span> Latest
+                <span aria-hidden="true">↓</span>Latest
             </button>
         </PopoverReveal>
     );

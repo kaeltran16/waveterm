@@ -1,23 +1,25 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// Placeholder for a narration timeline that has not arrived yet: ragged message rows, the shape the
-// timeline will take, instead of a "Loading transcript…" line.
+// Placeholder for a narration timeline that has not arrived yet, in the shape the timeline will take: a prompt
+// bubble, a line of prose, a step box, then a reply (the Loading board).
 
-import { SkeletonLine, SkeletonRows } from "@/app/element/skeleton";
 import { cn } from "@/util/util";
 
-const ROW_WIDTHS = ["w-[72%]", "w-[48%]", "w-[86%]", "w-[60%]", "w-[40%]"];
+const BLOCK = "animate-pulse bg-surface-raised motion-reduce:animate-none";
+const REPLY_WIDTHS = ["w-[92%]", "w-[84%]", "w-[61%]"];
 
 export function TranscriptSkeleton({ className }: { className?: string }) {
     return (
-        <SkeletonRows className={cn("h-full space-y-4", className)}>
-            {(i) => (
-                <div key={i} className="flex flex-col gap-1.5">
-                    <SkeletonLine className="h-[9px] w-[64px]" />
-                    <SkeletonLine className={cn("h-[11px]", ROW_WIDTHS[i % ROW_WIDTHS.length])} />
-                </div>
-            )}
-        </SkeletonRows>
+        <div role="status" aria-label="Loading the transcript" className={cn("h-full overflow-hidden", className)}>
+            <div aria-hidden="true" className="mx-auto flex max-w-[736px] flex-col gap-2.5">
+                <div className={cn(BLOCK, "mb-3.5 h-[62px] w-[58%] self-end rounded-[12px]")} />
+                <div className={cn(BLOCK, "h-3.5 w-[46%] rounded-[4px]")} />
+                <div className="mb-2 h-[124px] animate-pulse rounded-[10px] border border-edge-faint motion-reduce:animate-none" />
+                {REPLY_WIDTHS.map((w) => (
+                    <div key={w} className={cn(BLOCK, "h-3 rounded-[4px]", w)} />
+                ))}
+            </div>
+        </div>
     );
 }
