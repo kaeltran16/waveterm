@@ -1498,7 +1498,8 @@ export default function (_kit) {
                         const rv = ${RV};
                         const thought = [...(rv?.querySelectorAll("[data-thought]") ?? [])].find((t) => flat(t) === ${JSON.stringify(THOUGHT)});
                         if (!thought) return { thought: false };
-                        const next = thought.nextElementSibling;
+                        // each row of a step box sits in its own reveal wrapper
+                        const next = thought.parentElement.nextElementSibling?.firstElementChild;
                         const md = thought.querySelector(".agent-md");
                         const reply = [...rv.querySelectorAll("[data-find-turn]")].pop();
                         return {

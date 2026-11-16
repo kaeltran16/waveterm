@@ -202,7 +202,7 @@ export const fixtures = {
 
 const probe = (body) => `(() => { const root = document.querySelector(${JSON.stringify(ROOT)}); if (!root) return null; ${body} })()`;
 
-const clickFirstStep = `document.querySelector(${JSON.stringify(ROOT)}).querySelector('[data-step] > button')?.click()`;
+const clickFirstStep = `document.querySelector(${JSON.stringify(ROOT)}).querySelector('[data-step] button')?.click()`;
 
 const VIEW = (key) =>
     probe(`

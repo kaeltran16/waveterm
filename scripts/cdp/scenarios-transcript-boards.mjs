@@ -502,11 +502,12 @@ const openImageGroup = () =>
         return 'folded';
     }
     const group = groups[0];
+    // each row of a step box sits in its own reveal wrapper, so the row before is the wrapper's sibling
     const btn = group.querySelector(':scope > button[aria-expanded]');
     const closed = btn?.getAttribute('aria-expanded') === 'false';
     const title = (btn?.innerText ?? '').replace(/\\s+/g, ' ').trim();
     if (closed) btn.click();
-    return { groups: groups.length, closed, title, before: group.previousElementSibling?.textContent ?? null };
+    return { groups: groups.length, closed, title, before: group.parentElement.previousElementSibling?.textContent ?? null };
 `);
 
 // the opened group's member rows and the image card each draws

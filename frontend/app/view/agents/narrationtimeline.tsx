@@ -5,9 +5,20 @@ import { ContextMenuModel } from "@/app/store/contextmenu";
 import { modalsModel } from "@/app/store/modalmodel";
 import { MONO_FAINT } from "@/app/view/jarvis/briefstyle";
 import { cn } from "@/util/util";
-import { ArrowUpRight, Ban, Check, ChevronDown, ChevronRight, ChevronUp, Copy, Ellipsis, GitBranch, LoaderCircle, X } from "lucide-react";
+import { ArrowUpRight, Ban, Check, ChevronDown, ChevronRight, Copy, Ellipsis, GitBranch, LoaderCircle, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { MOTION, composerReveal, shouldFadeEntry } from "@/app/element/motiontokens";
+import {
+    MOTION,
+    cardVariants,
+    composerReveal,
+    microFade,
+    shouldFadeEntry,
+    turnTransition,
+    viewFade,
+} from "@/app/element/motiontokens";
+import { PaneReveal } from "@/app/element/panereveal";
+import { atoms } from "@/app/store/global";
+import { useAtomValue } from "jotai";
 import useResizeObserver from "@react-hook/resize-observer";
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import {
@@ -93,11 +104,24 @@ export function StatusSquare({ ok, blocked, pending }: { ok: boolean; blocked?: 
     );
 }
 
+// a disclosure chevron that turns as its pane opens: right to down, or with `flip` down to up
+function TurnChevron({ open, size, strokeWidth, flip }: { open: boolean; size: number; strokeWidth: number; flip?: boolean }) {
+    const Icon = flip ? ChevronDown : ChevronRight;
+    return (
+        <Icon
+            size={size}
+            strokeWidth={strokeWidth}
+            aria-hidden
+            style={turnTransition}
+            className={cn("transition-transform motion-reduce:transition-none", open && (flip ? "rotate-180" : "rotate-90"))}
+        />
+    );
+}
+
 function Affordance({ open }: { open: boolean }) {
-    const Icon = open ? ChevronDown : ChevronRight;
     return (
         <span className="flex shrink-0 text-muted">
-            <Icon size={12} strokeWidth={2.2} aria-hidden />
+            <TurnChevron open={open} size={12} strokeWidth={2.2} />
         </span>
     );
 }
@@ -502,6 +526,9 @@ function StepBody({
     );
 }
 
+// a step row's gap-2 / gap-2.5, in px, for the spinner's collapse to take back
+const HEAD_GAP_PX = { compact: 8, full: 10 };
+
 // One step: its title, command in mono, exit chip, time and chevron. Opens to its body inline, however long (the
 // panel scrolls, and "Open full view" holds the modal); a step with neither a body nor a wsh view is a plain row.
 function StepRow({
@@ -516,43 +543,51 @@ function StepRow({
     compact: boolean;
 }) {
     const { action, status, wsh } = step;
+    const reduceMotion = useAtomValue(atoms.prefersReducedMotionAtom);
     const bodyCard = hasBodyCard(action);
     // the rendered view shows a test or diff card without a click, as it always has
     const [open, setOpen] = useState(!!renderers && bodyCard);
     const View = wsh && !isCardKey(wsh.key) ? wshRendererFor(wsh.key) : undefined;
     const summary = stepSummary(step);
     const clickable = View != null || action.detail != null;
+    const align = askAnswer(action) != null ? "items-start" : "items-center";
+    const gap = compact ? "gap-2" : "gap-2.5";
     const head = cn(
-        "flex w-full items-center text-left font-sans",
-        compact ? "gap-2 text-[12.5px]" : "gap-2.5 text-[13.5px]",
-        status === "running" ? "text-secondary" : "text-ink-mid",
-        askAnswer(action) != null && "items-start"
+        "flex min-w-0 flex-1 text-left font-sans",
+        align,
+        gap,
+        compact ? "text-[12.5px]" : "text-[13.5px]",
+        status === "running" ? "text-secondary" : "text-ink-mid"
     );
+    // a finished step's spinner collapses, its trailing gap with it, so the title glides left rather than jumping
+    const spinnerExit = {
+        opacity: 0,
+        width: 0,
+        marginRight: -(compact ? HEAD_GAP_PX.compact : HEAD_GAP_PX.full),
+        transition: reduceMotion ? { duration: 0 } : { duration: MOTION.durExit, ease: MOTION.easeFluid },
+    };
     const content = (
         <>
-            {status === "running" ? (
-                <LoaderCircle
-                    size={compact ? 13 : 14}
-                    strokeWidth={2.2}
-                    role="img"
-                    aria-label="Running"
-                    className="shrink-0 animate-spin text-ink-mid"
-                />
-            ) : null}
             <StepTitle step={step} compact={compact} />
             <span className="min-w-[6px] flex-1" />
-            {summary ? (
-                <span
-                    data-step-summary
-                    className={cn(
-                        "shrink-0",
-                        summary.tone === "secondary" ? "text-secondary" : "text-muted",
-                        compact ? "text-[11.5px]" : "text-[12.5px]"
-                    )}
-                >
-                    {summary.text}
-                </span>
-            ) : null}
+            <AnimatePresence initial={false}>
+                {summary ? (
+                    <motion.span
+                        key="summary"
+                        data-step-summary
+                        variants={microFade}
+                        initial="initial"
+                        animate="animate"
+                        className={cn(
+                            "shrink-0",
+                            summary.tone === "secondary" ? "text-secondary" : "text-muted",
+                            compact ? "text-[11.5px]" : "text-[12.5px]"
+                        )}
+                    >
+                        {summary.text}
+                    </motion.span>
+                ) : null}
+            </AnimatePresence>
             <StepFacts step={step} compact={compact} />
             {clickable && !compact ? <Affordance open={open} /> : null}
         </>
@@ -565,20 +600,33 @@ function StepRow({
             data-step-status={status}
             className={cn("border-t border-edge-faint first:border-t-0", compact ? "px-2.5 py-[7px]" : "px-3.5 py-2.5")}
         >
-            {clickable ? (
-                <button type="button" aria-expanded={open} onClick={() => setOpen((v) => !v)} className={cn(head, "cursor-pointer")}>
-                    {content}
-                </button>
-            ) : (
-                <div className={head}>{content}</div>
-            )}
-            <AnimatePresence initial={false}>
-                {open ? (
-                    <motion.div key="body" variants={composerReveal} initial="initial" animate="animate" exit="exit" className="overflow-hidden">
-                        <StepBody step={step} View={View} ctx={ctx} compact={compact} />
-                    </motion.div>
-                ) : null}
-            </AnimatePresence>
+            {/* the spinner sits outside the head, which turns from div to button when the result lands: inside, the
+                remount would drop it before its exit could play */}
+            <div className={cn("flex", align, gap)}>
+                <AnimatePresence initial={false}>
+                    {status === "running" ? (
+                        <motion.span key="spin" exit={spinnerExit} className="flex shrink-0 overflow-hidden">
+                            <LoaderCircle
+                                size={compact ? 13 : 14}
+                                strokeWidth={2.2}
+                                role="img"
+                                aria-label="Running"
+                                className="shrink-0 animate-spin text-ink-mid"
+                            />
+                        </motion.span>
+                    ) : null}
+                </AnimatePresence>
+                {clickable ? (
+                    <button type="button" aria-expanded={open} onClick={() => setOpen((v) => !v)} className={cn(head, "cursor-pointer")}>
+                        {content}
+                    </button>
+                ) : (
+                    <div className={head}>{content}</div>
+                )}
+            </div>
+            <PaneReveal open={open}>
+                <StepBody step={step} View={View} ctx={ctx} compact={compact} />
+            </PaneReveal>
             {imageCard ? (
                 <div className="mt-2">
                     <ToolOutputRenderer action={action} />
@@ -602,7 +650,7 @@ function ImageReadsRow({
 }) {
     const [open, setOpen] = useState(false);
     return (
-        <div data-step data-step-group="images" data-step-status="ok" className="border-t border-edge-faint first:border-t-0">
+        <div data-step data-step-group="images" data-step-status="ok">
             <button
                 type="button"
                 aria-expanded={open}
@@ -616,17 +664,13 @@ function ImageReadsRow({
                 <span className="min-w-[6px] flex-1" />
                 {compact ? null : <Affordance open={open} />}
             </button>
-            <AnimatePresence initial={false}>
-                {open ? (
-                    <motion.div key="members" variants={composerReveal} initial="initial" animate="animate" exit="exit" className="overflow-hidden">
-                        <div className={cn("border-t border-edge-faint", compact ? "pl-2.5" : "pl-3.5")}>
-                            {steps.map((step) => (
-                                <StepRow key={step.index} step={step} renderers={renderers} ctx={ctx} compact={compact} />
-                            ))}
-                        </div>
-                    </motion.div>
-                ) : null}
-            </AnimatePresence>
+            <PaneReveal open={open}>
+                <div className={cn("border-t border-edge-faint", compact ? "pl-2.5" : "pl-3.5")}>
+                    {steps.map((step) => (
+                        <StepRow key={step.index} step={step} renderers={renderers} ctx={ctx} compact={compact} />
+                    ))}
+                </div>
+            </PaneReveal>
         </div>
     );
 }
@@ -650,32 +694,49 @@ function StepBox({
     compact: boolean;
 }) {
     return (
-        <div data-steps className={cn("overflow-hidden border border-edge-mid", compact ? "my-2 rounded-[8px]" : "my-2.5 rounded-[10px]")}>
-            {stepRows(steps, thoughts).map((row) =>
-                row.kind === "thought" ? (
-                    <div
-                        key={"t" + row.index}
-                        data-thought
-                        className={cn("border-t border-edge-faint first:border-t-0", compact ? "px-2.5 py-[7px]" : "px-3.5 py-2.5")}
-                    >
-                        <ThoughtText text={row.text} compact={compact} />
-                    </div>
-                ) : row.kind === "images" ? (
-                    <ImageReadsRow key={row.steps[0].index} steps={row.steps} renderers={renderers} ctx={ctx} compact={compact} />
-                ) : (
-                    <StepRow key={row.step.index} step={row.step} renderers={renderers} ctx={ctx} compact={compact} />
-                )
+        // a row arriving in the live box grows in as a strip, so the box gains it rather than jumping; the rows it
+        // mounts with stay put. The wrapper carries the rule between rows, since each row is now its wrapper's first.
+        <div
+            data-steps
+            className={cn(
+                "divide-y divide-edge-faint overflow-hidden border border-edge-mid",
+                compact ? "my-2 rounded-[8px]" : "my-2.5 rounded-[10px]"
             )}
+        >
+            <AnimatePresence initial={false}>
+                {stepRows(steps, thoughts).map((row) => (
+                    <motion.div
+                        key={row.kind === "thought" ? "t" + row.index : row.kind === "images" ? row.steps[0].index : row.step.index}
+                        variants={composerReveal}
+                        initial="initial"
+                        animate="animate"
+                        className="overflow-hidden"
+                    >
+                        {row.kind === "thought" ? (
+                            <div data-thought className={compact ? "px-2.5 py-[7px]" : "px-3.5 py-2.5"}>
+                                <ThoughtText text={row.text} compact={compact} />
+                            </div>
+                        ) : row.kind === "images" ? (
+                            <ImageReadsRow steps={row.steps} renderers={renderers} ctx={ctx} compact={compact} />
+                        ) : (
+                            <StepRow step={row.step} renderers={renderers} ctx={ctx} compact={compact} />
+                        )}
+                    </motion.div>
+                ))}
+            </AnimatePresence>
         </div>
     );
 }
 
-// "Worked for N · phrase +a −d ✗ k failed": a finished turn's folded stretch
+// "Worked for N · phrase +a −d ✗ k failed": a finished turn's folded stretch. Fades in when a turn folds after mount.
 function FoldLine({ fold, open, onClick, compact }: { fold: FoldSummary; open: boolean; onClick: () => void; compact: boolean }) {
     return (
-        <button
+        <motion.button
             type="button"
             data-fold
+            variants={viewFade}
+            initial="initial"
+            animate="animate"
             aria-expanded={open}
             onClick={onClick}
             className={cn(
@@ -696,9 +757,9 @@ function FoldLine({ fold, open, onClick, compact }: { fold: FoldSummary; open: b
                 </span>
             ) : null}
             <span className="flex shrink-0">
-                {open ? <ChevronDown size={14} strokeWidth={2} aria-hidden /> : <ChevronRight size={14} strokeWidth={2} aria-hidden />}
+                <TurnChevron open={open} size={14} strokeWidth={2} />
             </span>
-        </button>
+        </motion.button>
     );
 }
 
@@ -720,21 +781,19 @@ function StepsBlock({
     compact: boolean;
 }) {
     const [toggled, setToggled] = useState(false);
-    if (fold == null) {
-        return <StepBox steps={steps} thoughts={thoughts} renderers={renderers} ctx={ctx} compact={compact} />;
-    }
     const hasCard = !!renderers && steps.some((s) => toolRendererKey(s.action) != null);
-    const open = hasCard ? !toggled : toggled;
+    // one tree whether folded or not, so a turn that finishes folds its open box away under the new Worked line
+    const open = fold == null || (hasCard ? !toggled : toggled);
     return (
         <div>
-            <FoldLine fold={fold} open={open} onClick={() => setToggled((v) => !v)} compact={compact} />
             <AnimatePresence initial={false}>
-                {open ? (
-                    <motion.div key="box" variants={composerReveal} initial="initial" animate="animate" exit="exit" className="overflow-hidden">
-                        <StepBox steps={steps} thoughts={thoughts} renderers={renderers} ctx={ctx} compact={compact} />
-                    </motion.div>
+                {fold != null ? (
+                    <FoldLine key="fold" fold={fold} open={open} onClick={() => setToggled((v) => !v)} compact={compact} />
                 ) : null}
             </AnimatePresence>
+            <PaneReveal open={open}>
+                <StepBox steps={steps} thoughts={thoughts} renderers={renderers} ctx={ctx} compact={compact} />
+            </PaneReveal>
         </div>
     );
 }
@@ -811,31 +870,18 @@ function CompactionDivider({
                     {trigger ? <span className="shrink-0">· {trigger}</span> : null}
                     {canExpand ? (
                         <span className="flex shrink-0">
-                            {open ? (
-                                <ChevronUp size={12} strokeWidth={2.2} aria-hidden />
-                            ) : (
-                                <ChevronDown size={12} strokeWidth={2.2} aria-hidden />
-                            )}
+                            <TurnChevron open={open} size={12} strokeWidth={2.2} flip />
                         </span>
                     ) : null}
                 </span>
                 <span className={EVENT_RULE} />
             </button>
-            <AnimatePresence initial={false}>
-                {open && summary ? (
-                    <motion.div
-                        key="sum"
-                        variants={composerReveal}
-                        initial="initial"
-                        animate="animate"
-                        exit="exit"
-                        className="my-2 overflow-hidden rounded-[8px] border border-edge-mid bg-surface-code px-3.5 py-3"
-                    >
-                        <div className="mb-1.5 text-[12px] text-muted">Summary, kept context</div>
-                        <MarkdownMessage text={summary} />
-                    </motion.div>
-                ) : null}
-            </AnimatePresence>
+            <PaneReveal open={open && !!summary}>
+                <div className="my-2 rounded-[8px] border border-edge-mid bg-surface-code px-3.5 py-3">
+                    <div className="mb-1.5 text-[12px] text-muted">Summary, kept context</div>
+                    <MarkdownMessage text={summary ?? ""} />
+                </div>
+            </PaneReveal>
         </div>
     );
 }
@@ -890,28 +936,15 @@ function TaskNotificationRow({
                 {status ? <span className={cn("shrink-0 text-[12px]", tone)}>{status}</span> : null}
                 {canExpand ? (
                     <span className="flex shrink-0 text-muted">
-                        {open ? (
-                            <ChevronDown size={13} strokeWidth={2} aria-hidden />
-                        ) : (
-                            <ChevronRight size={13} strokeWidth={2} aria-hidden />
-                        )}
+                        <TurnChevron open={open} size={13} strokeWidth={2} />
                     </span>
                 ) : null}
             </button>
-            <AnimatePresence initial={false}>
-                {open && result ? (
-                    <motion.div
-                        key="res"
-                        variants={composerReveal}
-                        initial="initial"
-                        animate="animate"
-                        exit="exit"
-                        className="mt-1.5 overflow-hidden rounded-[8px] border border-edge-mid bg-surface-code px-3.5 py-3"
-                    >
-                        <MarkdownMessage text={result} />
-                    </motion.div>
-                ) : null}
-            </AnimatePresence>
+            <PaneReveal open={open && !!result}>
+                <div className="mt-1.5 rounded-[8px] border border-edge-mid bg-surface-code px-3.5 py-3">
+                    <MarkdownMessage text={result ?? ""} />
+                </div>
+            </PaneReveal>
         </div>
     );
 }
@@ -1063,9 +1096,9 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                                 accentLatest && item.latest ? "text-foreground" : "text-secondary"
                             )}
                             onContextMenu={copyMenu(item.text)}
-                            initial={shouldFadeEntry("message") ? { opacity: 0 } : false}
-                            animate={{ opacity: 1 }}
-                            transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
+                            variants={viewFade}
+                            initial={shouldFadeEntry("message") ? "initial" : false}
+                            animate="animate"
                         >
                             <MarkdownMessage text={item.text} />
                         </motion.div>
@@ -1077,9 +1110,9 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                             key={"t" + item.index}
                             data-thought
                             className={cn("min-w-0", isCompact ? "my-2" : "my-2.5")}
-                            initial={shouldFadeEntry("thought") ? { opacity: 0 } : false}
-                            animate={{ opacity: 1 }}
-                            transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
+                            variants={viewFade}
+                            initial={shouldFadeEntry("thought") ? "initial" : false}
+                            animate="animate"
                         >
                             <ThoughtText text={item.text} compact={isCompact} />
                         </motion.div>
@@ -1092,9 +1125,9 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                             data-user-bubble
                             className={cn("flex justify-end", isCompact ? "my-3.5 ml-7" : "my-6")}
                             onContextMenu={copyMenu(item.text)}
-                            initial={shouldFadeEntry("user") ? { opacity: 0 } : false}
-                            animate={{ opacity: 1 }}
-                            transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
+                            variants={viewFade}
+                            initial={shouldFadeEntry("user") ? "initial" : false}
+                            animate="animate"
                         >
                             <div
                                 className={cn(
@@ -1111,9 +1144,9 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                     return (
                         <motion.div
                             key={item.index}
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
+                            variants={viewFade}
+                            initial="initial"
+                            animate="animate"
                         >
                             <CommandChip name={item.name} args={item.args} isSkill={item.isSkill} compact={isCompact} />
                         </motion.div>
@@ -1123,9 +1156,9 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                     return (
                         <motion.div
                             key={item.index}
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
+                            variants={viewFade}
+                            initial="initial"
+                            animate="animate"
                         >
                             <CompactionDivider trigger={item.trigger} preTokens={item.preTokens} postTokens={item.postTokens} summary={item.summary} compact={isCompact} />
                         </motion.div>
@@ -1135,9 +1168,9 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                     return (
                         <motion.div
                             key={item.index}
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
+                            variants={viewFade}
+                            initial="initial"
+                            animate="animate"
                         >
                             <TaskNotificationRow summary={item.summary} status={item.status} result={item.result} compact={isCompact} />
                         </motion.div>
@@ -1147,9 +1180,9 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                     return (
                         <motion.div
                             key={item.index}
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            transition={{ duration: MOTION.durMicro, ease: MOTION.easeFluid }}
+                            variants={viewFade}
+                            initial="initial"
+                            animate="animate"
                         >
                             <InterruptedDivider compact={isCompact} />
                         </motion.div>
@@ -1157,28 +1190,36 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                 }
                 if (item.kind === "arc") {
                     return (
-                        <div key={"a" + item.index}>
+                        <motion.div key={"a" + item.index} variants={cardVariants} initial="initial" animate="animate">
                             <ArcMessageRow message={item.message} ts={item.ts} idleMs={item.idleMs} ctx={cardCtx} compact={isCompact} />
-                        </div>
+                        </motion.div>
                     );
                 }
                 if (item.kind === "card") {
                     return (
-                        <div key={"c" + item.index} className={isCompact ? "my-2" : "my-2.5"}>
+                        <motion.div
+                            key={"c" + item.index}
+                            className={isCompact ? "my-2" : "my-2.5"}
+                            variants={cardVariants}
+                            initial="initial"
+                            animate="animate"
+                        >
                             <WshCardItem step={item.step} ctx={cardCtx} compact={isCompact} />
-                        </div>
+                        </motion.div>
                     );
                 }
+                // a new stretch arrives as one box, so its fade is one entrance, never a burst of tool lines
                 return (
-                    <StepsBlock
-                        key={"s" + item.startIndex}
-                        steps={item.steps}
-                        thoughts={item.thoughts}
-                        fold={item.fold}
-                        renderers={renderers}
-                        ctx={cardCtx}
-                        compact={isCompact}
-                    />
+                    <motion.div key={"s" + item.startIndex} variants={viewFade} initial="initial" animate="animate">
+                        <StepsBlock
+                            steps={item.steps}
+                            thoughts={item.thoughts}
+                            fold={item.fold}
+                            renderers={renderers}
+                            ctx={cardCtx}
+                            compact={isCompact}
+                        />
+                    </motion.div>
                 );
             }))}
             </AnimatePresence>
