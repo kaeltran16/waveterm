@@ -96,6 +96,10 @@ const SHELL_DONE = "git status --short";
 const SHELL_STDOUT = "M pkg/a.go";
 const SHELL_STDERR = "warning: CRLF will be replaced";
 const SHELL_RUNNING = "sleep 30";
+// a third run, appended after those, whose output passes the card's 8-line clamp
+const SHELL_LONG = "seq 12";
+const SHELL_LONG_OUT = Array.from({ length: 12 }, (_, i) => String(i + 1));
+const SHELL_CLAMP = 8;
 // the folder the @ mention step points P's cwd at, under the temp dir, and the files in it
 const MENTION_DIR = "mention";
 const MENTION_FILES = ["src/widget-alpha.ts", "README.md", "notes.txt"];
@@ -1692,7 +1696,7 @@ export default function (_kit) {
                     return [ok, { clicked, opened, drawn, lines, card, again, closed }];
                 });
 
-                await step("rendered: bash card — A's two ! runs draw as cards: the finished one shows its command, stdout, and stderr in the error colour; the unfinished one reads running; no user bubble holds <bash-", async () => {
+                await step("rendered: bash card — A's two ! runs draw as cards: the finished one shows its command, stdout, and stderr in the error colour; the unfinished one reads running; no user bubble holds <bash-; a third run of 12 lines shows 8 and Show all, whose click shows every line", async () => {
                     // the input keeps a leading space, as real transcripts can
                     appendA([bashInput(` ${SHELL_DONE}`), bashOutput(SHELL_STDOUT, SHELL_STDERR), bashInput(SHELL_RUNNING)]);
                     const landed = await wait(`(${RV}?.querySelectorAll("[data-shell-run]").length ?? 0) >= 2`);
@@ -1726,7 +1730,34 @@ export default function (_kit) {
                     })()`);
                     await agentPage(h, `[...(${RV}?.querySelectorAll("[data-shell-run]") ?? [])].pop()?.scrollIntoView({ block: "center" }); await nap(200); return true;`);
                     await h.shot(SHOT(28, "bash-card"));
+
+                    appendA([bashInput(SHELL_LONG), bashOutput(SHELL_LONG_OUT.join("\n") + "\n", "")]);
+                    const LONG = `[...(${RV}?.querySelectorAll("[data-shell-run]") ?? [])].find((c) => (c.querySelector("[data-shell-command]")?.textContent ?? "").trim() === ${JSON.stringify(SHELL_LONG)})`;
+                    const readLong = `(() => {
+                        ${flatJs}
+                        const c = ${LONG};
+                        if (!c) return null;
+                        const out = c.querySelector("[data-shell-stdout]")?.textContent ?? "";
+                        return { lines: out === "" ? 0 : out.split("\\n").length, more: flat(c.querySelector("[data-shell-more]")) };
+                    })()`;
+                    const longLanded = await wait(`(${LONG})?.querySelector("[data-shell-stdout]") != null`);
+                    await agentPage(h, `(${LONG})?.scrollIntoView({ block: "center" }); await nap(200); return true;`);
+                    const clamped = await h.ev(readLong);
+                    await h.shot(SHOT(28, "bash-card-clamped"));
+                    const clicked = await h.ev(`(() => { const b = (${LONG})?.querySelector("[data-shell-more]"); b?.click(); return b != null; })()`);
+                    const opened = await wait(`(${LONG})?.querySelector("[data-shell-stdout]")?.textContent?.split("\\n").length === ${SHELL_LONG_OUT.length}`);
+                    const all = await h.ev(readLong);
+                    await agentPage(h, `(${LONG})?.scrollIntoView({ block: "center" }); await nap(200); return true;`);
+                    await h.shot(SHOT(28, "bash-card-opened"));
+                    const longOk =
+                        longLanded &&
+                        clamped?.lines === SHELL_CLAMP &&
+                        clamped.more === `Show all ${SHELL_LONG_OUT.length} lines` &&
+                        clicked &&
+                        opened &&
+                        all?.lines === SHELL_LONG_OUT.length;
                     const ok =
+                        longOk &&
                         landed &&
                         seen.done &&
                         seen.stdout === SHELL_STDOUT &&
@@ -1737,7 +1768,7 @@ export default function (_kit) {
                         seen.running &&
                         !seen.runningOutput &&
                         !seen.rawBubble;
-                    return [ok, { landed, ...seen }];
+                    return [ok, { landed, ...seen, longLanded, clamped, clicked, opened, all }];
                 });
 
                 await step("rendered: @ mention — in P's box @ and part of a name lists the file, Enter writes @<path> and a pill draws over it, Backspace removes it whole; Esc closes the panel without typing ESC, it stays closed in that word, and a new @ opens it again", async () => {
@@ -1899,7 +1930,7 @@ export default function (_kit) {
                     }
                 });
 
-                await step("rendered: bash mode — ! in P's empty box turns on the ! Bash cue (mono, accent border, no attach button) with an empty box and the tray kept; echo hi + Enter types !, the bracketed paste and \\r into the pty with no attachment path, then empties the box and leaves the mode; ! then Backspace leaves it; Esc leaves it and types no ESC", async () => {
+                await step("rendered: bash mode — ! in P's empty box turns on the ! Bash cue (mono, accent border, no attach button) with an empty box and the tray kept; with echo hi typed Send reads Run; Enter types !, the bracketed paste and \\r into the pty with no attachment path, then empties the box and leaves the mode; ! then Backspace leaves it; Esc leaves it and types no ESC", async () => {
                     const BOX = `${RV}?.querySelector("[data-rendered-composer] [data-composer-box]")`;
                     const TA = `${BOX}?.querySelector("textarea")`;
                     const BASH_ON = `${BOX}?.hasAttribute("data-bash-mode") === true`;
@@ -1943,6 +1974,10 @@ export default function (_kit) {
                         await h.shot(SHOT(31, "bash-mode"));
 
                         await typeComposer(h, "echo hi");
+                        const sendLabel = await h.ev(`(() => {
+                            const b = ${BOX}?.querySelector("[data-composer-send]");
+                            return b ? { aria: b.getAttribute("aria-label"), title: b.getAttribute("title") } : null;
+                        })()`);
                         const from = probeLines(ctx).length;
                         await press("Enter");
                         const paste = "\x1b[200~echo hi\x1b[201~";
@@ -1977,6 +2012,8 @@ export default function (_kit) {
                             cue.border &&
                             !cue.attach &&
                             !cue.panels &&
+                            sendLabel?.aria === "Run" &&
+                            sendLabel.title === "Run" &&
                             ordered &&
                             !decoded.text.includes(path) &&
                             sent &&
@@ -1986,7 +2023,7 @@ export default function (_kit) {
                             onThird &&
                             escaped &&
                             !escTyped;
-                        return [ok, { ready, taken, uploaded, path, on, cue, input: JSON.stringify(decoded.text.slice(-200)), ordered, sent, kept, onAgain, backspaced, onThird, escaped, escTyped }];
+                        return [ok, { ready, taken, uploaded, path, on, cue, sendLabel, input: JSON.stringify(decoded.text.slice(-200)), ordered, sent, kept, onAgain, backspaced, onThird, escaped, escTyped }];
                     } finally {
                         await h.ev(`${COMPOSER_CHIPS}.forEach((c) => c.querySelector('button[title="Remove"]')?.click())`);
                         await typeComposer(h, "");

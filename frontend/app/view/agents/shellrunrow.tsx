@@ -4,19 +4,12 @@
 import { cn } from "@/util/util";
 import { LoaderCircle } from "lucide-react";
 import { useState } from "react";
+import { shellRunLines } from "./shellrunmodel";
 
 // A `!` command the human ran in Claude Code's bash mode: the command over its output, styled as the Bash step's
 // opened panel (ToolDetailBody's bash body), with stderr in the error colour.
 
-// lines shown, stdout first, before "Show all" opens the rest
-const SHELL_LINES_SHOWN = 8;
-
 const OUTPUT = "m-0 whitespace-pre-wrap font-mono text-[11.5px] leading-[1.7] [overflow-wrap:anywhere]";
-
-function lines(text: string | undefined): string[] {
-    const t = (text ?? "").replace(/\n+$/, "");
-    return t === "" ? [] : t.split("\n");
-}
 
 export function ShellRunRow({
     command,
@@ -31,12 +24,7 @@ export function ShellRunRow({
 }) {
     const [open, setOpen] = useState(false);
     const running = stdout === undefined && stderr === undefined;
-    const out = lines(stdout);
-    const err = lines(stderr);
-    const total = out.length + err.length;
-    const clamped = !open && total > SHELL_LINES_SHOWN;
-    const outShown = clamped ? out.slice(0, SHELL_LINES_SHOWN) : out;
-    const errShown = clamped ? err.slice(0, SHELL_LINES_SHOWN - outShown.length) : err;
+    const shown = shellRunLines(stdout, stderr, open);
     const pad = compact ? "px-2.5 py-1.5" : "px-3 py-2";
     return (
         <div
@@ -66,22 +54,22 @@ export function ShellRunRow({
             </div>
             {running ? null : (
                 <div className={cn("border-t border-edge-faint", pad)}>
-                    {total === 0 ? (
+                    {shown.total === 0 ? (
                         <div data-shell-status="empty" className="text-[12px] text-muted">
                             no output
                         </div>
                     ) : null}
-                    {outShown.length > 0 ? (
+                    {shown.stdout.length > 0 ? (
                         <pre data-shell-stdout className={cn(OUTPUT, "text-ink-mid")}>
-                            {outShown.join("\n")}
+                            {shown.stdout.join("\n")}
                         </pre>
                     ) : null}
-                    {errShown.length > 0 ? (
+                    {shown.stderr.length > 0 ? (
                         <pre data-shell-stderr className={cn(OUTPUT, "text-error")}>
-                            {errShown.join("\n")}
+                            {shown.stderr.join("\n")}
                         </pre>
                     ) : null}
-                    {total > SHELL_LINES_SHOWN ? (
+                    {shown.showAll || shown.showLess ? (
                         <button
                             type="button"
                             data-shell-more
@@ -89,7 +77,7 @@ export function ShellRunRow({
                             onClick={() => setOpen((v) => !v)}
                             className="mt-1 cursor-pointer text-[12px] text-accent-soft hover:text-primary"
                         >
-                            {open ? "Show less" : `Show all ${total} lines`}
+                            {shown.showLess ? "Show less" : `Show all ${shown.total} lines`}
                         </button>
                     ) : null}
                 </div>

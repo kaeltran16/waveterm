@@ -131,11 +131,20 @@ describe("composerBox", () => {
         for (const [over, hasTranscript] of cases) {
             const prompt = composerBox(agent(over), hasTranscript);
             const bash = composerBox(agent(over), hasTranscript, true);
-            expect(bash).toEqual({ ...prompt, placeholder: BASH_PLACEHOLDER });
+            expect(bash).toEqual({ ...prompt, placeholder: BASH_PLACEHOLDER, sendLabel: "Run" });
         }
     });
     it("without bash mode, the placeholder is unchanged", () => {
         expect(composerBox(agent(), true, false)).toEqual(composerBox(agent(), true));
+    });
+    it("labels Send Run in bash mode, idle or working", () => {
+        expect(composerBox(agent(), true, true).sendLabel).toBe("Run");
+        expect(composerBox(agent({ state: "working" }), true, true).sendLabel).toBe("Run");
+    });
+    it("labels Send Steer while working and Send otherwise outside bash mode", () => {
+        expect(composerBox(agent({ state: "working" }), true).sendLabel).toBe("Steer");
+        expect(composerBox(agent(), true).sendLabel).toBe("Send");
+        expect(composerBox(agent(), false).sendLabel).toBe("Send");
     });
 });
 

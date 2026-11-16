@@ -195,8 +195,8 @@ export const RenderedComposer = forwardRef<
                     <button
                         type="button"
                         data-composer-send
-                        aria-label={box.kind === "working" ? "Steer" : "Send"}
-                        title={box.kind === "working" ? "Steer" : "Send"}
+                        aria-label={box.sendLabel}
+                        title={box.sendLabel}
                         onClick={send}
                         disabled={!canSend}
                         className="inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full bg-accent text-background hover:bg-accenthover disabled:cursor-default disabled:opacity-40 disabled:hover:bg-accent"
