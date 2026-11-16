@@ -171,7 +171,15 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
                         });
                         continue;
                     }
-                    const action: ActionEntry = { kind: "action", verb: verbFor(block.name), target: targetFor(block.input) };
+                    const action: ActionEntry = {
+                        kind: "action",
+                        verb: verbFor(block.name),
+                        target: targetFor(block.input),
+                        ...recTs(rec),
+                    };
+                    if (block.name === "Bash" && typeof block.input?.command === "string") {
+                        action.command = block.input.command;
+                    }
                     if (block.name === "Edit" && block.input && typeof block.input.old_string === "string") {
                         action.detail = {
                             kind: "edit",
@@ -189,12 +197,9 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
                         action.detail = { kind: "ask", questions: askQuestions(block.input.questions) };
                     }
                     // scratch fields (stripped before return): tool_use timestamp for duration, tool name for result
-                    // routing, and the raw Bash command (the target line shows the human description instead).
+                    // routing
                     (action as any)._useTs = typeof rec.timestamp === "string" ? Date.parse(rec.timestamp) : NaN;
                     (action as any)._tool = block.name;
-                    if (block.name === "Bash" && typeof block.input?.command === "string") {
-                        (action as any)._command = block.input.command;
-                    }
                     entries.push(action);
                     if (typeof block.id === "string") {
                         // same object lives in entries and the map; a later tool_result mutates
@@ -280,7 +285,7 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
                 } else if (tool === "Bash" && body) {
                     action.detail = {
                         kind: "bash",
-                        command: (action as any)._command,
+                        command: action.command,
                         output: body,
                         exit: block.is_error === true ? 1 : 0,
                     };
@@ -330,7 +335,6 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
             delete (e as any)._done;
             delete (e as any)._useTs;
             delete (e as any)._tool;
-            delete (e as any)._command;
         }
     }
     return entries;

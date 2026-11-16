@@ -537,7 +537,15 @@ function projectTranscriptRecords(records) {
             });
             continue;
           }
-          const action = { kind: "action", verb: verbFor2(block.name), target: targetFor2(block.input) };
+          const action = {
+            kind: "action",
+            verb: verbFor2(block.name),
+            target: targetFor2(block.input),
+            ...recTs(rec)
+          };
+          if (block.name === "Bash" && typeof block.input?.command === "string") {
+            action.command = block.input.command;
+          }
           if (block.name === "Edit" && block.input && typeof block.input.old_string === "string") {
             action.detail = {
               kind: "edit",
@@ -556,9 +564,6 @@ function projectTranscriptRecords(records) {
           }
           action._useTs = typeof rec.timestamp === "string" ? Date.parse(rec.timestamp) : NaN;
           action._tool = block.name;
-          if (block.name === "Bash" && typeof block.input?.command === "string") {
-            action._command = block.input.command;
-          }
           entries.push(action);
           if (typeof block.id === "string") {
             actionById.set(block.id, action);
@@ -630,7 +635,7 @@ function projectTranscriptRecords(records) {
         } else if (tool === "Bash" && body) {
           action.detail = {
             kind: "bash",
-            command: action._command,
+            command: action.command,
             output: body,
             exit: block.is_error === true ? 1 : 0
           };
@@ -678,7 +683,6 @@ function projectTranscriptRecords(records) {
       delete e._done;
       delete e._useTs;
       delete e._tool;
-      delete e._command;
     }
   }
   return entries;

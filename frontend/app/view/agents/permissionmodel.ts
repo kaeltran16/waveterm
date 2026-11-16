@@ -4,8 +4,9 @@
 // What the permission band shows for a pending request: its title, a preview of what the tool would do, and the text
 // of the "allowed" timeline row once answered. Pure; the choice labels come from the server (agentask.PermissionChoices).
 
-import type { AgentEntry, EditFile, TimelineItem } from "./agentsviewmodel";
+import type { AgentEntry, EditFile } from "./agentsviewmodel";
 import { buildEditDiff } from "./tooldetail";
+import type { LayoutItem } from "./transcriptlayout";
 
 export type PermissionPreview =
     | { kind: "diff"; files: EditFile[] }
@@ -153,7 +154,7 @@ export function anchorMarks(entries: AgentEntry[], marks: PermissionMark[]): Tim
 // an item covers the entries from its own start up to the next item's, so a mark goes after the last item starting at
 // or before afterEntry - 1 (keyed by the item's position in `items`); a mark before every item leads them
 export function placeMarks(
-    items: TimelineItem[],
+    items: LayoutItem[],
     marks: TimelineMark[]
 ): { lead: TimelineMark[]; after: Map<number, TimelineMark[]> } {
     const lead: TimelineMark[] = [];
