@@ -5,10 +5,14 @@ package orchestrate
 
 import (
 	"context"
+	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/wavetermdev/waveterm/pkg/agentask"
+	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
@@ -82,7 +86,7 @@ func TestRecordAskLifecycleTruncatesQuestion(t *testing.T) {
 	g, owner, _ := askTargetFixture(t)
 	ctx := context.Background()
 	long := strings.Repeat("q", MaxAskSummaryLen+50)
-	RecordAskLifecycle(ctx, AskTarget{ChannelId: g.ChannelId, RunID: owner.ID, TaskId: "t-0", AskId: "ask-1"}, waveobj.RunEventKindChildAsk, long)
+	recordChildAsk(ctx, AskTarget{ChannelId: g.ChannelId, RunID: owner.ID, TaskId: "t-0", AskId: "ask-1"}, "a", baseds.AgentAskQuestion{Question: long})
 	detail := eventDetail(t, lifecycleEvents(t, g.ChannelId, owner.ID), waveobj.RunEventKindChildAsk)
 	if detail == nil {
 		t.Fatal("child-ask not appended")
@@ -100,7 +104,7 @@ func TestRecordAskLifecyclePreservesAskId(t *testing.T) {
 	g, owner, _ := askTargetFixture(t)
 	ctx := context.Background()
 	target := AskTarget{ChannelId: g.ChannelId, RunID: owner.ID, TaskId: "t-0", AskId: "ask-42"}
-	RecordAskLifecycle(ctx, target, waveobj.RunEventKindChildAsk, "pick one")
+	recordChildAsk(ctx, target, "a", baseds.AgentAskQuestion{Question: "pick one"})
 	RecordAskLifecycle(ctx, target, waveobj.RunEventKindChildAnswered, "")
 	detail := eventDetail(t, lifecycleEvents(t, g.ChannelId, owner.ID), waveobj.RunEventKindChildAnswered)
 	if detail == nil {
@@ -129,5 +133,65 @@ func TestRecordAskLifecycleSkipsIncompleteTarget(t *testing.T) {
 	RecordAskLifecycle(context.Background(), AskTarget{ChannelId: g.ChannelId, RunID: owner.ID}, waveobj.RunEventKindChildAnswered, "")
 	if detail := eventDetail(t, lifecycleEvents(t, g.ChannelId, owner.ID), waveobj.RunEventKindChildAnswered); detail != nil {
 		t.Fatalf("a target with no task must append nothing, got %+v", detail)
+	}
+}
+
+func TestChildAskRecordsHeaderOptionsAndLabel(t *testing.T) {
+	f := newFakeLead(t)
+	g := &waveobj.TaskGroup{OID: "dag-1", ChannelId: wakeChannel, RunID: wakeRun, Tasks: []waveobj.TaskNode{{ID: "t-0", Label: "truncate"}}}
+	first := baseds.AgentAskQuestion{
+		Question: "which suffix?",
+		Header:   "Suffix",
+		Options: []baseds.AgentAskOption{
+			{Label: "ellipsis", Description: "one character", Preview: "x"},
+			{Label: "dots", Description: "ascii"},
+		},
+	}
+	second := baseds.AgentAskQuestion{Question: "and the width?", Header: "Width", Options: []baseds.AgentAskOption{{Label: "80"}}}
+	raise := func(askId string, q baseds.AgentAskQuestion) map[string]any {
+		t.Helper()
+		agentask.GlobalRegistry.Set("block:child-"+askId, agentask.PendingAsk{AskId: askId, BlockId: "child", Questions: []baseds.AgentAskQuestion{q, second}})
+		before := len(f.rows)
+		RaiseChildAsk(context.Background(), g, AskTarget{ChannelId: wakeChannel, RunID: wakeRun, TaskId: "t-0", AskId: askId}, "block:child-"+askId, q)
+		var row map[string]any
+		for _, r := range f.rows[before:] {
+			if r["eventkind"] == waveobj.RunEventKindChildAsk {
+				row = r
+			}
+		}
+		if row == nil {
+			t.Fatalf("the raise records a child-ask row, got %+v", f.rows[before:])
+		}
+		delete(row, "eventkind")
+		b, err := json.Marshal(row)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out map[string]any
+		if err := json.Unmarshal(b, &out); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+
+	got := raise("ask-1", first)
+	want := map[string]any{
+		"taskid": "t-0", "askid": "ask-1", "question": "which suffix?", "label": "truncate", "header": "Suffix",
+		"options": []any{
+			map[string]any{"label": "ellipsis", "description": "one character"},
+			map[string]any{"label": "dots", "description": "ascii"},
+		},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("child-ask detail:\n got %+v\nwant %+v", got, want)
+	}
+
+	long := strings.Repeat("h", MaxAskSummaryLen+50)
+	got = raise("ask-2", baseds.AgentAskQuestion{Question: "q", Header: long, Options: []baseds.AgentAskOption{{Label: long, Description: long}}})
+	opt := got["options"].([]any)[0].(map[string]any)
+	for name, v := range map[string]any{"header": got["header"], "option label": opt["label"], "option description": opt["description"]} {
+		if s, _ := v.(string); len(s) != MaxAskSummaryLen {
+			t.Errorf("%s len = %d, want the cap %d", name, len(s), MaxAskSummaryLen)
+		}
 	}
 }

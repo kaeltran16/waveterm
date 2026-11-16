@@ -287,7 +287,7 @@ func TestARerunWakeLaunchesNoLead(t *testing.T) {
 	if !nothingToLaunchFor([]string{finalRerunWake(1)}) {
 		t.Fatal("the rerun wake alone must not launch a lead")
 	}
-	if nothingToLaunchFor([]string{finalRerunWake(1), finalFailedWake(1, "r", "Check failed", false, false)}) {
+	if nothingToLaunchFor([]string{finalRerunWake(1), finalFailedWake(1, MaxFinalRounds, "", "r", "Check failed", false, false)}) {
 		t.Fatal("a failed stage beside it still launches one")
 	}
 }

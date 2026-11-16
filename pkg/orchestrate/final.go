@@ -683,7 +683,12 @@ func finishFinal(ctx context.Context, g *waveobj.TaskGroup, judged bool, afterCo
 	}
 	round, detail, last, autonomous := f.Round, f.Detail, f.Round >= MaxFinalRounds, g.Autonomous
 	channelID, runID := g.ChannelId, g.RunID
-	wake := finalFailedWake(round, runID, detail, last, autonomous)
+	of := MaxFinalRounds
+	if last {
+		// a round the human granted past the limit is the last of its own count
+		of = round
+	}
+	wake := finalFailedWake(round, of, f.Commit, runID, detail, last, autonomous)
 	if f.Killed {
 		wake = finalKilledWake(round, runID, detail, autonomous)
 	}
