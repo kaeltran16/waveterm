@@ -17,6 +17,7 @@ import { appendAttachments, pickFilePaths, useComposerAttachments } from "./comp
 import { MIRRORED_TEXTAREA, useAgentCwd, useFileMention } from "./filemention";
 import { BoxControls } from "./headercontrols";
 import { boxButton, composerBox, contextRing } from "./renderedmode";
+import { useSlashPanel } from "./slashpanel";
 
 const BoxMinH = 22; // one line of 14px text
 const BoxMaxShare = 0.4; // of the window: grows to here, then the textarea scrolls
@@ -71,6 +72,8 @@ export const RenderedComposer = forwardRef<
         attachments,
     });
     useComposerHandle(ref, setText, taRef);
+    // before the mention hook: its pick moves the caret in a layout effect the mention hook then reads
+    const slash = useSlashPanel({ text, setText, taRef, blockId });
     const cwd = useAgentCwd(agent.transcriptPath, blockId);
     const mention = useFileMention({ text, setText, taRef, cwd });
     const canSend = !box.askBlocks && canSendComposer(text, blockId, attachments);
@@ -86,8 +89,8 @@ export const RenderedComposer = forwardRef<
             }
         });
     const keyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-        // the panel's keys first: its Esc closes it and must not reach onKeyDown's interrupt
-        if (mention.onKeyDown(e)) {
+        // the panels' keys first: their Esc closes them and must not reach onKeyDown's interrupt
+        if (slash.onKeyDown(e) || mention.onKeyDown(e)) {
             return;
         }
         if (box.askBlocks && e.key === "Enter" && !e.shiftKey) {
@@ -106,6 +109,7 @@ export const RenderedComposer = forwardRef<
                 filled && "border-accent/60"
             )}
         >
+            {slash.panel}
             {mention.panel}
             {box.askBlocks ? (
                 <div data-composer-notice className="flex items-center gap-[7px] pb-2 text-[12px] text-muted">
@@ -127,7 +131,10 @@ export const RenderedComposer = forwardRef<
                     value={text}
                     onChange={(e) => setText(e.target.value)}
                     onKeyDown={keyDown}
-                    onSelect={mention.onCaret}
+                    onSelect={() => {
+                        slash.onCaret();
+                        mention.onCaret();
+                    }}
                     onPaste={onPaste}
                     placeholder={box.placeholder}
                     className={cn(

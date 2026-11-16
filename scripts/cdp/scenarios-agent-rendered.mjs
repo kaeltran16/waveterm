@@ -100,6 +100,19 @@ const SHELL_RUNNING = "sleep 30";
 const MENTION_DIR = "mention";
 const MENTION_FILES = ["src/widget-alpha.ts", "README.md", "notes.txt"];
 const MENTION_PICK = "src/widget-alpha.ts";
+// the live command list the slash step publishes for P's block, as the arc mod would: one per group, and the names
+// `/co` matches (prefix: compact, config, context; inside: recompile, superpowers:code-review)
+const SLASH_LIVE = [
+    { name: "clear", description: "Start a new session", source: "builtin" },
+    { name: "compact", description: "Free up context by summarizing the conversation so far", source: "builtin" },
+    { name: "config", description: "Open settings", source: "builtin" },
+    { name: "context", description: "Show current context usage", source: "builtin" },
+    { name: "recompile", description: "Rebuild the generated bindings", source: "user" },
+    { name: "superpowers:code-review", description: "Review the branch", source: "plugin", plugin: "superpowers" },
+    { name: "mcp__docs__search", description: "Search the docs", source: "mcp" },
+];
+const SLASH_GROUPS = ["Built-in", "Skills", "Plugins", "MCP"];
+const SLASH_CO = ["compact", "config", "context", "recompile", "superpowers:code-review"];
 
 const J = (o) => JSON.stringify(o);
 const GO_JSON = [
@@ -1737,6 +1750,86 @@ export default function (_kit) {
                         return [ok, { ready, listed, picked, pill, removed, afterBackspace, reopened, closed, escTyped, stayedClosed, openedAgain }];
                     } finally {
                         await h.rpc("setmeta", { oref: `block:${ctx.pBlock}`, meta: { "cmd:cwd": "~" } });
+                    }
+                });
+
+                await step("rendered: slash panel — with a live list published for P's block, / lists it in its groups with the key line; /co filters to /compact and /config first, /config alone opens in Terminal; ArrowDown moves, Tab writes /config; Esc closes without typing ESC, it stays closed in that word, and a fresh / opens it again", async () => {
+                    const PANEL = `${RV}?.querySelector("[data-rendered-composer] [data-slash-panel]")`;
+                    const TA = `${RV}?.querySelector("[data-rendered-composer] textarea")`;
+                    const press = (key) =>
+                        h.ev(`(() => {
+                            const ta = ${TA};
+                            if (!ta) return false;
+                            ta.focus();
+                            ta.dispatchEvent(new KeyboardEvent("keydown", { key: ${JSON.stringify(key)}, code: ${JSON.stringify(key)}, bubbles: true, cancelable: true }));
+                            return true;
+                        })()`);
+                    const rows = () =>
+                        h.ev(`[...(${PANEL}?.querySelectorAll("[data-suggest-item]") ?? [])].map((r) => ({
+                            name: r.querySelector("[data-slash-name]")?.textContent ?? "",
+                            active: r.hasAttribute("data-active"),
+                            terminal: r.querySelector("[data-opens-terminal]") != null,
+                        }))`);
+                    const panelText = () => h.ev(`${PANEL}?.textContent ?? ""`);
+                    await h.rpc("setclaudelivecommands", { blockid: ctx.pBlock, commands: SLASH_LIVE });
+                    try {
+                        await focus(ctx.pId);
+                        const ready = await ensureRendered();
+
+                        await typeComposer(h, "/");
+                        const live = `${SLASH_LIVE.length} commands in this session`;
+                        const grouped = await wait(
+                            `(() => { const t = ${PANEL}?.textContent ?? ""; return ${JSON.stringify([...SLASH_GROUPS, live, "Esc close"])}.every((w) => t.includes(w)); })()`
+                        );
+                        const opened = await panelText();
+                        await h.shot(SHOT(30, "slash-panel"));
+
+                        await typeComposer(h, "/co");
+                        const filtered = await wait(
+                            `[...(${PANEL}?.querySelectorAll("[data-slash-name]") ?? [])].map((n) => n.textContent).join(" ") === ${JSON.stringify(SLASH_CO.map((n) => `/${n}`).join(" "))}`
+                        );
+                        const co = await rows();
+                        const config = co.find((r) => r.name === "/config");
+                        const compact = co.find((r) => r.name === "/compact");
+                        await h.shot(SHOT(30, "slash-filtered"));
+                        await press("ArrowDown");
+                        const moved = await wait(`${PANEL}?.querySelector("[data-active] [data-slash-name]")?.textContent === "/config"`);
+                        await press("Tab");
+                        const completed = await wait(`${TA}?.value === "/config " && ${PANEL} == null`);
+
+                        await typeComposer(h, "/co");
+                        const reopened = await wait(`${PANEL} != null`);
+                        const from = probeLines(ctx).length;
+                        await press("Escape");
+                        const closed = await wait(`${PANEL} == null`);
+                        await sleep(HOLD_MS);
+                        const escTyped = probeLines(ctx).slice(from).includes(ESC);
+                        await typeComposer(h, "/com");
+                        await sleep(HOLD_MS);
+                        const stayedClosed = await h.ev(`${PANEL} == null`);
+                        await typeComposer(h, "");
+                        await wait(`${TA}?.value === ""`);
+                        await typeComposer(h, "/");
+                        const openedAgain = await wait(`${PANEL} != null`);
+                        await typeComposer(h, "");
+                        const ok =
+                            ready &&
+                            grouped &&
+                            filtered &&
+                            co[0]?.name === "/compact" &&
+                            co[1]?.name === "/config" &&
+                            config?.terminal === true &&
+                            compact?.terminal === false &&
+                            moved &&
+                            completed &&
+                            reopened &&
+                            closed &&
+                            !escTyped &&
+                            stayedClosed &&
+                            openedAgain;
+                        return [ok, { ready, grouped, opened, filtered, co, moved, completed, reopened, closed, escTyped, stayedClosed, openedAgain }];
+                    } finally {
+                        await h.rpc("setclaudelivecommands", { blockid: ctx.pBlock, commands: [] });
                     }
                 });
                 return steps;
