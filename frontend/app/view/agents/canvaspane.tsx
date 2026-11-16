@@ -150,12 +150,10 @@ export function CanvasPane({
         }
     }, [selected]);
     // the tabs scroll sideways once a brainstorm has more boards than the toolbar fits; keep the picked one in view
-    const tabsRef = useRef<HTMLDivElement>(null);
+    const tabsFade = useEdgeFade();
     useEffect(() => {
-        tabsRef.current
-            ?.querySelector('[aria-selected="true"]')
-            ?.scrollIntoView({ block: "nearest", inline: "nearest" });
-    }, [tab]);
+        tabsFade.el?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }, [tab, tabsFade.el]);
     if (s == null) {
         return null;
     }
@@ -180,7 +178,15 @@ export function CanvasPane({
                     {s.topic}
                 </span>
                 {s.boards.length > 0 ? (
-                    <div ref={tabsRef} className="flex min-w-0 overflow-x-auto">
+                    <div
+                        ref={tabsFade.ref}
+                        onScroll={tabsFade.update}
+                        onWheel={(e) => {
+                            e.currentTarget.scrollLeft += e.deltaY;
+                        }}
+                        className="flex min-w-0 overflow-x-auto [scrollbar-width:none]"
+                        style={tabsFade.style}
+                    >
                         <Segmented
                             role="tablist"
                             ariaLabel="Boards"
@@ -309,6 +315,40 @@ function useStepDir(tab: string, order: string[]): number {
         setStep({ tab, dir: order.indexOf(tab) < order.indexOf(step.tab) ? -1 : 1 });
     }
     return step.dir;
+}
+
+const EDGE_FADE_PX = 28;
+
+// a scroller with its scrollbar hidden fades the edge that has more past it, so a cut tab reads as "more", not crooked
+function useEdgeFade() {
+    const [el, setEl] = useState<HTMLDivElement | null>(null);
+    const [edges, setEdges] = useState({ left: false, right: false });
+    const update = () => {
+        if (el == null) {
+            return;
+        }
+        const left = el.scrollLeft > 1;
+        const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
+        setEdges((prev) => (prev.left === left && prev.right === right ? prev : { left, right }));
+    };
+    useEffect(() => {
+        if (el == null) {
+            return;
+        }
+        update();
+        const ro = new ResizeObserver(update);
+        ro.observe(el);
+        if (el.firstElementChild != null) {
+            ro.observe(el.firstElementChild);
+        }
+        return () => ro.disconnect();
+    }, [el]);
+    let style: CSSProperties = {};
+    if (edges.left || edges.right) {
+        const mask = `linear-gradient(to right, ${edges.left ? "transparent" : "black"}, black ${EDGE_FADE_PX}px, black calc(100% - ${EDGE_FADE_PX}px), ${edges.right ? "transparent" : "black"})`;
+        style = { maskImage: mask, WebkitMaskImage: mask };
+    }
+    return { ref: setEl, el, style, update };
 }
 
 // a fresh iframe paints only once its page loads, long after a view fade ends: fading on load is what shows
