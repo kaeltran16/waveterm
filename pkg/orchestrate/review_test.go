@@ -195,7 +195,7 @@ func TestReviewerRunsOnTheLeadsRouteInTheLaneTree(t *testing.T) {
 		t.Fatalf("reviewer must run on the lead's route in the lane tree, got model %q cwd %q opts %+v", c.cap.Model, c.cwd, c.opts)
 	}
 	// a reviewer only reads and gives its verdict: no MCP server, no skills listing, only the judge tools
-	if !c.opts.StrictMCP || !c.opts.NoSlashCommands || c.opts.Tools != judgeTools {
+	if !c.opts.StrictMCP || !c.opts.NoSlashCommands || !c.opts.NoSuperpowers || c.opts.Tools != judgeTools {
 		t.Fatalf("reviewer launches with its startup context untrimmed: %+v", c.opts)
 	}
 }

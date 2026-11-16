@@ -62,6 +62,9 @@ func RunWorkerSpecFor(cap runroute.Capability, opts RunWorkerOptions, prompt str
 		if opts.NoSlashCommands {
 			args = append(args, "--disable-slash-commands")
 		}
+		if opts.NoSuperpowers {
+			args = append(args, "--settings", superpowersOffSettings)
+		}
 	case "pi":
 		args = nil
 	default:
@@ -170,7 +173,15 @@ type RunWorkerOptions struct {
 	// definitions are ~19k of a session's ~40k startup tokens (measured 2026-11-13): for a judge or a worker,
 	// never a lead (it invokes skills).
 	Tools string
+	// NoSuperpowers launches a claude session with the superpowers plugin disabled for it alone (--settings with
+	// an inline enabledPlugins override), so its skills and session-start hook stay out of the context. Set on
+	// workers, task reviewers and judging sessions, never on a lead, a design session or pi. Deleted when
+	// superpowers is turned off for good (docs/superpowers/specs/2026-11-16-slim-superpowers-design.md).
+	NoSuperpowers bool
 }
+
+// superpowersOffSettings is the inline --settings JSON that disables the superpowers plugin for one launch.
+const superpowersOffSettings = `{"enabledPlugins":{"superpowers@claude-plugins-official":false}}`
 
 // createWorkerTab is the tab-creation seam, so tests make a tab without a layout or a live workspace.
 var createWorkerTab = wcore.CreateTab

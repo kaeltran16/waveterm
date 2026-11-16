@@ -425,8 +425,8 @@ func TestScheduleOnceLabelsAWorkerWithItsTask(t *testing.T) {
 	}
 	// a worker needs no MCP server and no skill listing, but keeps edit and wait tools a judge lacks
 	for id, opts := range launch {
-		if !opts.StrictMCP || opts.NoSlashCommands || opts.Tools != workerTools {
-			t.Fatalf("worker %s: StrictMCP=%v NoSlashCommands=%v Tools=%q, want true false %q", id, opts.StrictMCP, opts.NoSlashCommands, opts.Tools, workerTools)
+		if !opts.StrictMCP || opts.NoSlashCommands || !opts.NoSuperpowers || opts.Tools != workerTools {
+			t.Fatalf("worker %s: StrictMCP=%v NoSlashCommands=%v NoSuperpowers=%v Tools=%q, want true false true %q", id, opts.StrictMCP, opts.NoSlashCommands, opts.NoSuperpowers, opts.Tools, workerTools)
 		}
 	}
 }
