@@ -398,6 +398,21 @@ runtime logos stay image assets.
   on feed/result regions; `focus-visible` treatment on every interactive
   control.
 
+## Transcript
+
+The Rendered view, agent rows, lead cards, subagent interiors, the Sessions detail and ended transcripts share one
+look (`NarrationTimeline`); the direction was decided in the transcript-style run (initiative chunk 6) and uses only
+the tokens above.
+
+- **Anatomy** — the user's message is a plain right-aligned bubble; the agent's prose has no avatar. Tool calls are
+  step rows (title, command in mono, exit chip, time, chevron) that open to a structured body. A finished stretch of
+  three or more steps folds into one "Worked for N" line. Arc's own messages (wakes, briefs, brainstorm lines) are
+  centred events, never user bubbles. The message box is a pill with the model and permission chips inside it.
+- **wsh calls** — a call that changes something is a standalone card outside the fold, so a change is never hidden
+  in a stretch; a read-only call is a step row that opens to a structured view of what it read. A change that
+  failed or is still running stays a step, and a card says only what happened.
+- **Compact** — hosts at card width draw the same anatomy with the 380 px variants.
+
 ## Do's and Don'ts
 
 - Do use `@theme` token utilities (`bg-surface-raised`, `text-accent`,

@@ -165,8 +165,9 @@ const brainstormExpr = (file) => `(async () => {
 })()`;
 
 // the named fixture on screen: its page-side state first, then the transcript
-export async function showFixture(h, name, width = WIDE) {
-    const { width: own, brainstorm, rpcFails, entries, ...fixture } = fixtures[name];
+export async function showFixture(h, nameOrFixture, width = WIDE) {
+    const source = typeof nameOrFixture === "string" ? fixtures[nameOrFixture] : nameOrFixture;
+    const { width: own, brainstorm, rpcFails, entries, ...fixture } = source;
     await h.ev(rpcFailsExpr(rpcFails ?? []));
     await h.ev(brainstormExpr(brainstorm ?? null));
     const at = Date.now() - JUDGE_AGE_MS;
