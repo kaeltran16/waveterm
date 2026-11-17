@@ -1,0 +1,26 @@
+[
+    {
+        "id": "resource",
+        "originalRun": "f72341e4",
+        "base": "d8266279142f6758902a117eedd2a42c8f21477a",
+        "specCommit": "9598fd5c5ba9045f5b2b9312427c5e8c637d2945",
+        "specPath": "docs/superpowers/specs/2026-11-12-arc-resource-management-design.md",
+        "prototype": null
+    },
+    {
+        "id": "pwa",
+        "originalRun": "2ce13736",
+        "base": "d71af8f766a5bd7e49553ff285350aeb3c93deff",
+        "specCommit": "717959cbdd5f5da84442efec100bbb6311cc207e",
+        "specPath": "docs/superpowers/specs/2026-11-03-arc-pwa-more-design.md",
+        "prototype": ".superpowers/design/arc-pwa-rc/project/Cockpit.dc.html"
+    },
+    {
+        "id": "rendered",
+        "originalRun": "4842b792",
+        "base": "23f9fc2e238c5f4f03fd47024b7007b6496159de",
+        "specCommit": "23f9fc2e238c5f4f03fd47024b7007b6496159de",
+        "specPath": "docs/superpowers/specs/2026-11-10-rendered-view-better-design.md",
+        "prototype": ".superpowers/design/rendered-view-better/project/NowLine.dc.html"
+    }
+]
