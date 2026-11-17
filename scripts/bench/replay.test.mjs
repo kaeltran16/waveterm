@@ -32,6 +32,14 @@ describe("withPlanSkill", () => {
         expect(KEY in readJson(settings)).toBe(false);
     });
 
+    it("leaves the user's file byte-identical when the key was absent", () => {
+        const settings = join(root, "settings.json");
+        const text = JSON.stringify({ "memory:vaultpath": "C:\\vault" }, null, 2) + "\n";
+        writeFileSync(settings, text);
+        withPlanSkill(settings, "plan", () => {});
+        expect(readFileSync(settings, "utf8")).toBe(text);
+    });
+
     it("restores a prior value, even when fn throws", () => {
         const settings = join(root, "settings.json");
         writeFileSync(settings, JSON.stringify({ [KEY]: "writing-plans", other: true }));

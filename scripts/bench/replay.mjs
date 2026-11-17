@@ -37,7 +37,7 @@ function readSettings(path) {
     }
 }
 
-const writeSettings = (path, obj) => writeFileSync(path, JSON.stringify(obj, null, 2));
+const writeSettings = (path, obj) => writeFileSync(path, JSON.stringify(obj, null, 2) + "\n");
 
 // sets run:planskill to arm while fn runs, then puts the key back as it was (absent stays absent); the file is
 // re-read at restore so a key the app wrote meanwhile survives
