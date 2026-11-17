@@ -65,6 +65,7 @@ import { pickPart, sendBrainstorm } from "./brainstormsend";
 import {
     brainstormAtom,
     brainstormSeenAtom,
+    clearPartTarget,
     dismissBrainstorm,
     markBrainstormSeen,
     openBrainstormBoard,
@@ -274,6 +275,13 @@ function Design({
             setTarget(null);
         }
     }, [view, target]);
+    // a part opened from outside the pane (the transcript's Edit) opens as a link here does, once
+    useEffect(() => {
+        if (s.partTarget != null) {
+            openParts([s.partTarget]);
+            clearPartTarget(agent.id);
+        }
+    }, [s.partTarget]);
 
     return (
         <>

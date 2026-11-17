@@ -9,6 +9,7 @@ vi.mock("@/app/store/wshclientapi", () => ({ RpcApi: rpc }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 
 import { globalStore } from "@/app/store/jotaiStore";
+import type { BrainstormFile } from "./brainstormmodel";
 import {
     attachBrainstorm,
     brainstormAtom,
@@ -18,12 +19,14 @@ import {
     dismissBrainstorm,
     getBrainstorm,
     moveReviewCursor,
+    openBrainstormAt,
     openBrainstormBoard,
     setBrainstormMode,
     setReviewCursor,
     toggleReviewRow,
     updateBrainstorm,
 } from "./brainstormstore";
+import { detachCanvas, getCanvas } from "./canvasstore";
 
 const IDS = ["a1", "a2"];
 const LAG = { topic: "lag", cwd: "/p" };
@@ -183,6 +186,91 @@ describe("review cursor", () => {
         toggleReviewRow("a1", "y");
         toggleReviewRow("a1", "x");
         expect(getBrainstorm("a1")?.review.open).toEqual({ x: false, y: true });
+    });
+});
+
+describe("openBrainstormAt", () => {
+    const TALK: BrainstormFile = {
+        v: 1,
+        title: "Consumer lag alerts",
+        spec: "docs/specs/lag.md",
+        canvas: "lag-canvas",
+        question: { n: 4, text: "When should on-call get paged?", part: "thresholds" },
+        working: null,
+        parts: [
+            { id: "intent", title: "Intent", state: "yours", body: "b" },
+            { id: "thresholds", title: "When it pages", state: "asked", body: "" },
+        ],
+        history: [],
+        done: false,
+        check: null,
+        run: null,
+    };
+    const CHECKING: BrainstormFile = {
+        ...TALK,
+        question: null,
+        done: true,
+        check: { yours: [], calls: [], answered: [] },
+    };
+    const arrange = (f: BrainstormFile) => {
+        attachBrainstorm("a1", LAG, 100);
+        updateBrainstorm("a1", (s) => ({ ...s, file: f }));
+    };
+    afterEach(() => IDS.forEach(detachCanvas));
+
+    it("with a part, shows the Brainstorm pane with the design open and the part to open", () => {
+        arrange(TALK);
+        openBrainstormBoard("a1", "Main.dc.html");
+        openBrainstormAt("a1", { part: "intent" });
+        expect(getBrainstorm("a1")).toMatchObject({
+            mode: "brainstorm",
+            designOpen: true,
+            board: null,
+            partTarget: "intent",
+        });
+    });
+
+    it("with a part in the check phase, puts the review cursor on it", () => {
+        arrange(CHECKING);
+        openBrainstormAt("a1", { part: "thresholds" });
+        expect(getBrainstorm("a1")).toMatchObject({
+            mode: "brainstorm",
+            designOpen: true,
+            partTarget: "thresholds",
+            review: { cursor: "thresholds" },
+        });
+    });
+
+    it("with a board, shows the pane's board view on that board of the brainstorm's canvas", () => {
+        arrange(TALK);
+        openBrainstormAt("a1", { board: "States.dc.html" });
+        expect(getBrainstorm("a1")).toMatchObject({ mode: "brainstorm", board: "States.dc.html" });
+        expect(getCanvas("a1")).toMatchObject({ topic: "lag-canvas", board: "States.dc.html", marking: false });
+    });
+
+    it("with a board and mark, turns marking on", () => {
+        arrange(TALK);
+        openBrainstormAt("a1", { board: "States.dc.html", mark: true });
+        expect(getCanvas("a1")).toMatchObject({ board: "States.dc.html", marking: true });
+    });
+
+    it("with neither, shows the pane as it was", () => {
+        arrange(TALK);
+        openBrainstormBoard("a1", "Main.dc.html");
+        openBrainstormAt("a1", {});
+        expect(getBrainstorm("a1")).toMatchObject({ mode: "brainstorm", board: "Main.dc.html", designOpen: false });
+        expect(getBrainstorm("a1")?.partTarget ?? null).toBeNull();
+    });
+
+    it("records when the pane was shown, as the header's switch does", () => {
+        arrange(TALK);
+        openBrainstormAt("a1", {}, 900);
+        expect(getBrainstorm("a1")?.lastViewedMs).toBe(900);
+    });
+
+    it("does nothing for an agent with no brainstorm", () => {
+        openBrainstormAt("a2", { part: "intent" });
+        expect(getBrainstorm("a2")).toBeNull();
     });
 });
 

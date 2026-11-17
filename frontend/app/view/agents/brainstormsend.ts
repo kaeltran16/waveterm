@@ -12,6 +12,7 @@ import type { AgentsViewModel } from "./agents";
 import { projectOf, type AgentVM } from "./agentsviewmodel";
 import {
     allPicked,
+    brainstormLine,
     carriedPicks,
     runPrefill,
     sendBlocker,
@@ -20,10 +21,19 @@ import {
     stopsJudge,
     togglePick,
     type BrainstormAction,
+    type BrainstormFile,
     type PartPick,
     type SentLine,
 } from "./brainstormmodel";
-import { getBrainstorm, shownBrainstormFile, updateBrainstorm, type BrainstormState } from "./brainstormstore";
+import {
+    getBrainstorm,
+    recordAnswer,
+    shownBrainstormFile,
+    updateBrainstorm,
+    type AnswerOrigin,
+    type AnswerRecord,
+    type BrainstormState,
+} from "./brainstormstore";
 import { routeDesign, tauriDesignAttach, type DesignAttach } from "./designroute";
 
 type PromptIO = {
@@ -42,11 +52,32 @@ const tauriPromptIO: PromptIO = {
     },
 };
 
+// the answer a line gives the question open as Arc shows it, or null for a line that answers none (pushback, a guess)
+function answerOf(
+    action: BrainstormAction,
+    shown: BrainstormFile | null,
+    line: string,
+    origin: AnswerOrigin,
+    now: number
+): AnswerRecord | null {
+    if (shown == null || (action.kind !== "answer" && action.kind !== "builder-answer")) {
+        return null;
+    }
+    const answer = brainstormLine({ kind: "answer", text: action.text }) ?? "";
+    if (action.kind === "answer") {
+        const q = shown.question;
+        return q == null ? null : { line, question: q.n, builder: null, answer, origin, at: now };
+    }
+    const open = shown.check?.yours.find((y) => y.a == null);
+    return open == null ? null : { line, question: null, builder: open.q, answer, origin, at: now };
+}
+
 export async function sendBrainstorm(
     agent: AgentVM,
     action: BrainstormAction,
     io: PromptIO = tauriPromptIO,
-    now: number = Date.now()
+    now: number = Date.now(),
+    origin: AnswerOrigin = "pane"
 ): Promise<void> {
     const state = getBrainstorm(agent.id);
     const file = state?.file ?? null;
@@ -58,10 +89,12 @@ export async function sendBrainstorm(
     if (!agent.blockId) {
         throw new Error("This agent has no terminal to send to");
     }
-    const blocked = sendBlocker(action, shownBrainstormFile(state));
+    const shown = shownBrainstormFile(state);
+    const blocked = sendBlocker(action, shown);
     if (blocked != null) {
         throw new Error(blocked);
     }
+    const answered = answerOf(action, shown, line, origin, now);
     // a judge left running would hold the next approach question's judge, and its result would land for a question
     // already answered
     if (stopsJudge(action, state?.file ?? null, state?.sent != null)) {
@@ -84,6 +117,9 @@ export async function sendBrainstorm(
         sent.picks = carried;
     }
     updateBrainstorm(agent.id, (s) => ({ ...s, sent, picks: {} }));
+    if (answered != null && state != null) {
+        recordAnswer(state.path, answered);
+    }
 }
 
 // a pick stays in the pane; the one that leaves nothing to settle sends them all

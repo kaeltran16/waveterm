@@ -9,7 +9,7 @@ import { PaneReveal } from "@/app/element/panereveal";
 import { TickNumber } from "@/app/element/ticknumber";
 import { ViewSwap } from "@/app/element/viewswap";
 import { cn } from "@/util/util";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { AgentsViewModel } from "./agents";
 import { projectOf, type AgentVM } from "./agentsviewmodel";
 import {
@@ -29,7 +29,7 @@ import {
 } from "./brainstormmodel";
 import { AnsweredRail, CheckReview, ReviewHints } from "./brainstormreview";
 import { approveAndOpenRun, openRunLauncher, sendBrainstorm } from "./brainstormsend";
-import { openBrainstormDesign, setReviewCursor, type BrainstormState } from "./brainstormstore";
+import { clearPartTarget, openBrainstormDesign, setReviewCursor, type BrainstormState } from "./brainstormstore";
 import {
     AnswerBox,
     BS_RAIL,
@@ -90,12 +90,26 @@ export function Check({
         setReviewCursor(agent.id, id);
         openDesign();
     };
+    const mainRef = useRef<HTMLDivElement>(null);
+    // a part opened from outside the pane (the transcript's Edit): the cursor on its row, which is brought into view
+    // even when the cursor was there already, once
+    useEffect(() => {
+        const id = s.partTarget;
+        if (id == null) {
+            return;
+        }
+        goTo(id);
+        clearPartTarget(agent.id);
+        mainRef.current
+            ?.querySelector(`[data-brainstorm-review-row="${CSS.escape(id)}"]`)
+            ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }, [s.partTarget]);
     return (
         <>
             <Toolbar topic={s.topic} f={f} progress={false} />
             <StaleBanner s={s} />
             <div className="flex min-h-0 flex-1">
-                <div className="flex min-w-0 flex-1 flex-col bg-background">
+                <div ref={mainRef} className="flex min-w-0 flex-1 flex-col bg-background">
                     {under !== "review" ? (
                         <div className="flex flex-none items-center border-b border-border px-[22px] py-[8px]">
                             <button
