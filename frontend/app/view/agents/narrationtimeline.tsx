@@ -1,6 +1,8 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { pushToast } from "@/app/cockpit/notificationstore";
+import { writeClipboard } from "@/app/element/copyfeedback";
 import { ContextMenuModel } from "@/app/store/contextmenu";
 import { modalsModel } from "@/app/store/modalmodel";
 import { MONO_FAINT } from "@/app/view/jarvis/briefstyle";
@@ -1269,6 +1271,33 @@ function PermissionMarkRow({ text, compact }: { text: string; compact: boolean }
 
 // memo: every agent:status rebuilds each AgentVM and re-renders every card, while a card's entries change only on its
 // own transcript chunk, so an unchanged timeline (up to TIMELINE_RENDER_CAP items) skips the re-render
+// copy on select, as in the claude code TUI. the mouseup listener is on window so a drag released outside the
+// transcript still copies; the flag keeps a nested timeline (a subagent's) and its host from copying twice.
+let selectionCopyArmed = false;
+function armSelectionCopy(e: React.MouseEvent<HTMLElement>) {
+    if (e.button !== 0 || selectionCopyArmed) return;
+    selectionCopyArmed = true;
+    const root = e.currentTarget;
+    window.addEventListener(
+        "mouseup",
+        () => {
+            selectionCopyArmed = false;
+            const sel = window.getSelection();
+            if (sel == null || sel.isCollapsed || !root.contains(sel.anchorNode)) return;
+            const text = sel.toString();
+            if (text.trim() === "") return;
+            void writeClipboard(text).then((state) =>
+                pushToast(
+                    state === "copied"
+                        ? { title: `Copied ${text.length} chars to clipboard`, message: "", level: "info" }
+                        : { title: "Copy to clipboard failed", message: "", level: "error" }
+                )
+            );
+        },
+        { once: true }
+    );
+}
+
 export const NarrationTimeline = memo(function NarrationTimeline({
     entries,
     accentLatest,
@@ -1530,7 +1559,7 @@ export const NarrationTimeline = memo(function NarrationTimeline({
     };
 
     return (
-        <div className={cn("leading-relaxed", className)}>
+        <div className={cn("leading-relaxed", className)} onMouseDown={armSelectionCopy}>
             <AnimatePresence initial={false}>{withMarks(visibleItems.map(renderItem))}</AnimatePresence>
             {tail}
         </div>

@@ -12,14 +12,11 @@ const queueSize = 16
 
 // Msg is one thing for a session to do: run Text as a prompt, or compact with Compact as the instructions,
 // which wins when both are set. MidTurn asks for Text to join the turn the session is running, as typed
-// text would, instead of waiting for it to end. Queue marks Text as the person's own message, which the
-// mod reports as held. TakeBack, set alone, asks the mod to hand back what it holds, naming the request.
+// text would, instead of waiting for it to end.
 type Msg struct {
-	Text     string
-	Compact  string
-	MidTurn  bool
-	Queue    bool
-	TakeBack string
+	Text    string
+	Compact string
+	MidTurn bool
 }
 
 var (
@@ -28,8 +25,7 @@ var (
 )
 
 // Register opens blockId's stream and returns it with its close. A second stream for the block replaces
-// the first: a mod reload starts its new stream while the old process is still going away. Closing the
-// block's current stream loses what its mod held; closing a replaced one leaves that to the newer mod's report.
+// the first: a mod reload starts its new stream while the old process is still going away.
 func Register(blockId string) (<-chan Msg, func()) {
 	ch := make(chan Msg, queueSize)
 	lock.Lock()
@@ -40,8 +36,6 @@ func Register(blockId string) (<-chan Msg, func()) {
 		defer lock.Unlock()
 		if streams[blockId] == ch {
 			delete(streams, blockId)
-			// under lock, so a stream registering now cannot have its first report lost with the old list
-			endQueue(blockId)
 		}
 	}
 }
